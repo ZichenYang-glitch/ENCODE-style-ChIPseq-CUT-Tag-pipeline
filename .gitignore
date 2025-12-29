@@ -1,0 +1,6 @@
+test/
+reference/
+miniconda3/
+*.sh
+*.gz
+*.bam
