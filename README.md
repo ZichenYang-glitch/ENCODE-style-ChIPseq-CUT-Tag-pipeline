@@ -39,12 +39,12 @@ chmod +x $CONDA_PREFIX/bin/chipseq
 For CUT&Tag, the script automatically applies high-resolution centering (--nomodel --shift -100 --extsize 200).
 
 ```bash
-chipseq -s MySample -x /path/to/bt2_index -g mm --pe -r1 R1.fq.gz -r2 R2.fq.gz --tech cuttag
+chipseq.sh -s MySample -x /path/to/bt2_index -g mm --pe -r1 R1.fq.gz -r2 R2.fq.gz --tech cuttag
 ```
 #### Single-End (SE) - Standard ChIP-seq
 
 ```bash
-chipseq -s MySample -x /path/to/bt2_index -g hg --se -r1 sample.fq.gz --tech chip
+chipseq.sh -s MySample -x /path/to/bt2_index -g hg --se -r1 sample.fq.gz --tech chip
 ```
 
 <br>
