@@ -282,14 +282,32 @@ command -v bamCoverage >/dev/null 2>&1 || die "bamCoverage (deepTools) not found
 log "Generating bigWig (CPM-normalized) ..."
 BW="${BWDIR}/${SAMPLE}.CPM.bw"
 
+# Try to extract fragment size from MACS3 log if SE mode and standard ChIP
+MACS_FRAGSIZE=""
+if [[ "$SE_MODE" == "yes" && "$TECH" == "chip" && -f "${LOGDIR}/${SAMPLE}.macs3.log" ]]; then
+    # MACS3 log usually contains: "# predicted fragment length is 123 bps"
+    MACS_FRAGSIZE=$(grep "predicted fragment length is" "${LOGDIR}/${SAMPLE}.macs3.log" | tail -n 1 | sed -E 's/.*predicted fragment length is ([0-9]+) bps.*/\1/')
+    if [[ -n "$MACS_FRAGSIZE" ]]; then
+        log "Extracted fragment size from MACS3: $MACS_FRAGSIZE"
+    fi
+fi
+
 # extendReads:
 # - For PE BAM, deepTools can infer fragment length; for SE, extendReads is usually helpful.
 EXT_ARG=()
 if [[ "$EXTEND_READS" == "auto" ]]; then
   if [[ "$SE_MODE" == "yes" ]]; then EXTEND_READS="yes"; else EXTEND_READS="no"; fi
 fi
+
 if [[ "$EXTEND_READS" == "yes" ]]; then
-  EXT_ARG=(--extendReads)
+  if [[ -n "$MACS_FRAGSIZE" ]]; then
+      EXT_ARG=(--extendReads "$MACS_FRAGSIZE")
+  else
+      EXT_ARG=(--extendReads)
+  fi
+elif [[ "$EXTEND_READS" != "no" ]]; then
+  # Assume user provided a specific integer length
+  EXT_ARG=(--extendReads "$EXTEND_READS")
 fi
 
 bamCoverage \
