@@ -44,22 +44,22 @@ chipseq.sh -s MySample -x /path/to/bt2_index -g mm --pe -r1 R1.fq.gz -r2 R2.fq.g
 #### Single-End (SE) - Standard ChIP-seq
 
 ```bash
-chipseq.sh -s MySample -x /path/to/bt2_index -g hg --se -r1 sample.fq.gz --tech chip
+chipseq.sh -s MySample -x /path/to/bt2_index -g hs --se -r1 sample.fq.gz --tech chip
 ```
 
 <br>
 
 ## 🛠 Script Parameters
-| Option | Description | Default |
-| :--- | :--- | :--- |
-| `-s \| --sample` | Sample ID (used for naming outputs) | **Required** |
-| `-x \| --index` | Path to Bowtie2 index prefix | **Required** |
-| `-g \| --genome` | Genome build (e.g., `mm`, `hg`) | `mm` |
-| `--pe / --se` | Paired-end or Single-end mode | **Required** |
-| `--tech` | Protocol type: `chip` or `cuttag` | `chip` |
-| `--peakMode` | Peak type: `narrow` or `broad` | `narrow` |
-| `-p \| --threads` | Number of CPU threads | `8` |
-| `-o \| --outdir` | Output directory | `./chip_out` |
+| Option            | Description                         | Default      |
+| :---------------- | :---------------------------------- | :----------- |
+| `-s \| --sample`  | Sample ID (used for naming outputs) | **Required** |
+| `-x \| --index`   | Path to Bowtie2 index prefix        | **Required** |
+| `-g \| --genome`  | Genome build (e.g., `mm`, `hs`)     | `mm`         |
+| `--pe / --se`     | Paired-end or Single-end mode       | **Required** |
+| `--tech`          | Protocol type: `chip` or `cuttag`   | `chip`       |
+| `--peakMode`      | Peak type: `narrow` or `broad`      | `narrow`     |
+| `-p \| --threads` | Number of CPU threads               | `8`          |
+| `-o \| --outdir`  | Output directory                    | `./chip_out` |
 
 <br>
 
