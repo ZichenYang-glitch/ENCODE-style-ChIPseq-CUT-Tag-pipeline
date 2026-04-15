@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+echo ">>> Running chipseq.sh (Patched Version: 2026-02-10 Fix) <<<"
 set -euo pipefail
 
 ############################################
@@ -282,32 +283,81 @@ command -v bamCoverage >/dev/null 2>&1 || die "bamCoverage (deepTools) not found
 log "Generating bigWig (CPM-normalized) ..."
 BW="${BWDIR}/${SAMPLE}.CPM.bw"
 
-# Try to extract fragment size from MACS3 log if SE mode and standard ChIP
+# Try to extract fragment size from MACS3 log if SE mode
 MACS_FRAGSIZE=""
-if [[ "$SE_MODE" == "yes" && "$TECH" == "chip" && -f "${LOGDIR}/${SAMPLE}.macs3.log" ]]; then
-    # MACS3 log usually contains: "# predicted fragment length is 123 bps"
-    MACS_FRAGSIZE=$(grep "predicted fragment length is" "${LOGDIR}/${SAMPLE}.macs3.log" | tail -n 1 | sed -E 's/.*predicted fragment length is ([0-9]+) bps.*/\1/')
-    if [[ -n "$MACS_FRAGSIZE" ]]; then
-        log "Extracted fragment size from MACS3: $MACS_FRAGSIZE"
+if [[ "$SE_MODE" == "yes" && "$TECH" == "chip" ]]; then
+    # Wait a moment to ensure log file is fully flushed and available on disk
+    # This is useful in network filesystems (NFS) or high-load environments
+    sleep 1
+    if [[ -s "${LOGDIR}/${SAMPLE}.macs3.log" ]]; then
+        # MACS3 log usually contains: "# predicted fragment length is 123 bps"
+        # Using sed to specifically extract the integer following "is" to avoid picking the peak count.
+        MACS_FRAGSIZE=$(grep "predicted fragment length is" "${LOGDIR}/${SAMPLE}.macs3.log" | tail -n 1 | sed -n 's/.*predicted fragment length is \([0-9]\+\) bps.*/\1/p')
+        
+        if [[ -n "$MACS_FRAGSIZE" && "$MACS_FRAGSIZE" =~ ^[0-9]+$ ]]; then
+            # Sanity check: fragment size should be reasonably larger than read length.
+            # Usually ChIP-seq fragments are > 100bp. If MACS3 predicts < 60bp, it's likely noise.
+            if [[ "$MACS_FRAGSIZE" -lt 60 ]]; then
+                log "Warning: MACS3 predicted an unrealistic fragment size ($MACS_FRAGSIZE bp). This is likely noise. Discarding prediction."
+                MACS_FRAGSIZE="" 
+            else
+                log "Extracted fragment size from MACS3: $MACS_FRAGSIZE"
+            fi
+        else
+            log "Warning: MACS3 log exists but prediction string not found. Possibly model failed."
+        fi
+    else
+        log "Warning: MACS3 log file not found or empty after waiting. Skipping extraction."
     fi
 fi
 
-# extendReads:
-# - For PE BAM, deepTools can infer fragment length; for SE, extendReads is usually helpful.
+# extendReads logic (deepTools bamCoverage) - Refactored for robustness
 EXT_ARG=()
+DO_EXTEND="no"
+
+# 1. Decide intent: Should we extend?
 if [[ "$EXTEND_READS" == "auto" ]]; then
-  if [[ "$SE_MODE" == "yes" ]]; then EXTEND_READS="yes"; else EXTEND_READS="no"; fi
+    if [[ "$SE_MODE" == "yes" ]]; then DO_EXTEND="yes"; else DO_EXTEND="no"; fi
+elif [[ "$EXTEND_READS" == "yes" ]]; then
+    DO_EXTEND="yes"
+elif [[ "$EXTEND_READS" =~ ^[0-9]+$ ]]; then
+    DO_EXTEND="yes"
 fi
 
-if [[ "$EXTEND_READS" == "yes" ]]; then
-  if [[ -n "$MACS_FRAGSIZE" ]]; then
-      EXT_ARG=(--extendReads "$MACS_FRAGSIZE")
-  else
-      EXT_ARG=(--extendReads)
-  fi
-elif [[ "$EXTEND_READS" != "no" ]]; then
-  # Assume user provided a specific integer length
-  EXT_ARG=(--extendReads "$EXTEND_READS")
+# 2. Determine extension length if extending
+if [[ "$DO_EXTEND" == "yes" ]]; then
+    LEN=""
+    
+    # Priority 1: User specifically provided a number (e.g. --extendReads 150)
+    if [[ "$EXTEND_READS" =~ ^[0-9]+$ ]]; then
+        LEN="$EXTEND_READS"
+    
+    # Priority 2: MACS3 predicted fragment size (only valid if numeric)
+    elif [[ -n "$MACS_FRAGSIZE" && "$MACS_FRAGSIZE" =~ ^[0-9]+$ ]]; then
+        LEN="$MACS_FRAGSIZE"
+        
+    # Priority 3: Fallback default for Single-End
+    elif [[ "$SE_MODE" == "yes" ]]; then
+        LEN="200"
+    fi
+    
+    # 3. Construct the argument
+    if [[ -n "$LEN" ]]; then
+        EXT_ARG=(--extendReads "$LEN")
+        log "DEBUG: bamCoverage extension = $LEN bp"
+    else
+        # Case: Paired-End mode (LEN is empty), deepTools infers from BAM
+        EXT_ARG=(--extendReads)
+        log "DEBUG: bamCoverage extension = auto (PE inference)"
+        
+        # Safety check: If we are here but SE_MODE is yes, something is wrong.
+        if [[ "$SE_MODE" == "yes" ]]; then
+             log "WARNING: Logic error detected. SE mode but no extension length found. Forcing 200."
+             EXT_ARG=(--extendReads 200)
+        fi
+    fi
+else
+    log "DEBUG: bamCoverage extension = disabled"
 fi
 
 bamCoverage \
