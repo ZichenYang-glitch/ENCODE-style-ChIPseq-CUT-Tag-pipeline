@@ -1,0 +1,37 @@
+# ChIP-seq / CUT&Tag Snakemake Pipeline Configuration
+# ======================================================
+# This pipeline defaults to no-input / no-control mode.
+# Set use_control: true to optionally pass control_bam from the sample sheet.
+
+# Path to sample sheet (TSV format)
+samples: "config/samples.tsv"
+
+# Output directory
+outdir: "results"
+
+# CPU threads per sample
+threads: 8
+
+# Mapping quality filter threshold
+mapq: 30
+
+# BigWig bin size (bp)
+binsize: 10
+
+# Duplicate removal policy: auto | yes | no
+# auto → yes for narrow peaks, no for broad peaks
+remove_dup: "auto"
+
+# Adapter/quality trimming: true | false
+trim: true
+
+# Read extension for BigWig: auto | yes | no | <integer>
+# auto → extend SE reads; PE reads inferred from pairs
+extend_reads: "auto"
+
+# Enable optional control/input BAM support
+# When false, control_bam in the sample sheet is ignored
+use_control: false
+
+# Run MultiQC aggregation after all samples complete
+multiqc: true
