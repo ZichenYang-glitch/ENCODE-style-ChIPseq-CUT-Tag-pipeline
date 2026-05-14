@@ -92,9 +92,9 @@ rule trim_galore:
             rm -rf "$TMPD"
         else
             # No trimming: symlink raw FASTQs to expected trimmed paths
-            ln -sf $(readlink -f "$1") {output.r1:q}
+            ln -sf "$(readlink -f "$1")" {output.r1:q}
             if [[ "{params.layout}" == "PE" ]]; then
-                ln -sf $(readlink -f "$2") {output.r2:q}
+                ln -sf "$(readlink -f "$2")" {output.r2:q}
             else
                 touch {output.r2:q}
             fi
@@ -217,9 +217,10 @@ rule duplicate_handling:
                     REMOVE_DUPLICATES=true
             else
                 # samtools markdup fallback
-                TMP_NAME="$(dirname {output.bam})/{wildcards.sample}.name.bam"
-                TMP_FIX="$(dirname {output.bam})/{wildcards.sample}.fixmate.bam"
-                TMP_POS="$(dirname {output.bam})/{wildcards.sample}.pos.bam"
+                OUT_BAM_DIR=$(dirname {output.bam:q})
+                TMP_NAME="$OUT_BAM_DIR/{wildcards.sample}.name.bam"
+                TMP_FIX="$OUT_BAM_DIR/{wildcards.sample}.fixmate.bam"
+                TMP_POS="$OUT_BAM_DIR/{wildcards.sample}.pos.bam"
                 samtools sort -n -@ {threads} -o "$TMP_NAME" {input.bam:q}
                 samtools fixmate -m -@ {threads} "$TMP_NAME" "$TMP_FIX"
                 samtools sort -@ {threads} -o "$TMP_POS" "$TMP_FIX"

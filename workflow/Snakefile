@@ -26,7 +26,6 @@ MAPQ        = config.get("mapq", 30)
 MAPQ_TAG    = f"mapq{MAPQ}"
 BINSIZE     = config.get("binsize", 10)
 TRIM        = str(config.get("trim", True)).lower()
-EXTEND_READS = str(config.get("extend_reads", "auto"))
 _use_raw = config.get("use_control", False)
 if isinstance(_use_raw, bool):
     USE_CONTROL = _use_raw
