@@ -1,5 +1,9 @@
 # ENCODE-style ChIP-seq and CUT&Tag Pipeline
 
+[![Snakemake](https://img.shields.io/badge/Snakemake-%3E%3D8.0-brightgreen.svg?style=flat-square)](https://snakemake.github.io)
+[![Conda](https://img.shields.io/badge/conda-supported-blue.svg?style=flat-square)](https://docs.conda.io/en/latest/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+
 This repository contains a Snakemake-based pipeline suite for ChIP-seq and
 CUT&Tag data analysis. The batch workflow is the primary entry point and is
 implemented as modular rules under `workflow/rules/`.
@@ -8,7 +12,16 @@ Default mode is no-input / no-control. Optional controls can be enabled with
 `use_control: true` and supplied either as an external control BAM or as a
 FASTQ-based control sample row.
 
-This pipeline does not include ATAC-seq analysis.
+Dependencies are managed with Conda. This pipeline does not include ATAC-seq
+analysis.
+
+## Key Features
+
+- ChIP-seq and CUT&Tag assay policies with shared preprocessing rules.
+- Snakemake-native DAG tracking, resume support, and per-step reruns.
+- Optional control handling through external BAMs or FASTQ-based control rows.
+- Conda-managed workflow environment.
+- Legacy single-sample shell script retained for compatibility.
 
 ## Repository Structure
 
@@ -36,7 +49,7 @@ conda env create -f workflow/envs/chipseq.yml
 conda activate chipseq
 ```
 
-### 2. Configure samples
+### 2. Configure Samples
 
 Edit `config/samples.tsv`:
 
@@ -46,6 +59,9 @@ H3K27AC	/data/ac_R1.fq.gz	/data/ac_R2.fq.gz	PE	chipseq	H3K27ac	narrow	mm	/path/t
 CTCF_rep1	/data/ctcf_R1.fq.gz		SE	chipseq	CTCF	narrow	hs	/path/to/bt2/hg38
 CUTTAG_H3K4me3	/data/ct_R1.fq.gz	/data/ct_R2.fq.gz	PE	cuttag	H3K4me3	narrow	mm	/path/to/bt2/mm10
 ```
+
+Unused optional fields can be left blank. For example, the `control_bam`
+column is empty above because `use_control` is normally `false`.
 
 Required columns:
 
@@ -69,7 +85,7 @@ Optional columns for FASTQ-based controls:
 | `role` | `treatment` | `treatment` or `control`. Peak calling runs only for treatment rows. |
 | `control_sample` | empty | Sample ID of a control row to use as MACS3 input control. Used only when `use_control: true`. |
 
-### 3. Configure workflow options
+### 3. Configure Workflow Options
 
 Edit `config/config.yaml`:
 
@@ -101,8 +117,8 @@ snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use
 
 ## Control/Input Handling
 
-Controls are disabled by default. With `use_control: false`, both `control_bam`
-and `control_sample` are ignored.
+Controls are disabled by default. With `use_control: false`, both
+`control_bam` and `control_sample` are ignored.
 
 To use a precomputed control BAM:
 
@@ -128,39 +144,6 @@ Control rows are processed through the shared preprocessing rules and produce
 `final.bam`. MACS3 peak calling is scheduled only for treatment rows. Do not
 set both `control_bam` and `control_sample` on the same treatment row.
 
-## Output Structure
-
-```text
-results/
-├── <sample>/
-│   ├── 00_raw/
-│   │   ├── <sample>_R1_val_1.fq.gz
-│   │   └── <sample>_R2_val_2.fq.gz
-│   ├── 01_qc/
-│   │   ├── trim_galore/
-│   │   ├── <sample>.flagstat.txt
-│   │   ├── <sample>.final.flagstat.txt
-│   │   ├── <sample>.idxstats.txt
-│   │   └── <sample>.dup_metrics.txt
-│   ├── 02_align/
-│   │   ├── <sample>.sorted.bam
-│   │   ├── <sample>.mapq30.bam
-│   │   └── <sample>.final.bam
-│   ├── 03_bigwig/
-│   │   └── <sample>.CPM.bw
-│   ├── 04_peaks/
-│   │   └── <sample>/
-│   └── logs/
-│       ├── <sample>.fastqc.done
-│       ├── <sample>.trim.done
-│       └── <sample>.pipeline.done
-└── multiqc/
-    └── multiqc_report.html
-```
-
-`final.bam` is the stable downstream BAM contract. It points to either the
-duplicate-handled BAM or the filtered BAM, depending on `remove_dup`.
-
 ## Workflow Steps
 
 1. FastQC on raw FASTQs.
@@ -179,6 +162,42 @@ duplicate-handled BAM or the filtered BAM, depending on `remove_dup`.
 - CUT&Tag narrow mode adds Tn5-aware MACS3 parameters: `--nomodel --shift -100 --extsize 200`.
 - CUT&Tag broad mode follows the broad MACS3 policy.
 - Stage 1 keeps duplicate removal and read extension behavior aligned with the legacy script.
+
+## Output Structure
+
+The workflow writes per-sample results under `outdir`:
+
+```text
+results/
+├── <sample>/
+│   ├── 00_raw/
+│   │   ├── <sample>_R1_val_1.fq.gz
+│   │   └── <sample>_R2_val_2.fq.gz
+│   ├── 01_qc/
+│   │   ├── trim_galore/
+│   │   ├── <sample>.flagstat.txt
+│   │   ├── <sample>.final.flagstat.txt
+│   │   ├── <sample>.idxstats.txt
+│   │   └── <sample>.dup_metrics.txt
+│   ├── 02_align/
+│   │   ├── <sample>.sorted.bam
+│   │   ├── <sample>.mapq30.bam
+│   │   ├── <sample>.final.bam
+│   │   └── <sample>.final.bam.bai
+│   ├── 03_bigwig/
+│   │   └── <sample>.CPM.bw
+│   ├── 04_peaks/
+│   │   └── <sample>/
+│   └── logs/
+│       ├── <sample>.fastqc.done
+│       ├── <sample>.trim.done
+│       └── <sample>.pipeline.done
+└── multiqc/
+    └── multiqc_report.html
+```
+
+`final.bam` is the stable downstream BAM contract. It points to either the
+duplicate-handled BAM or the filtered BAM, depending on `remove_dup`.
 
 ## Legacy Single-Sample Script
 
@@ -205,4 +224,4 @@ plotFingerprint migration, environment cleanup, and legacy script hardening.
 
 ## License
 
-This project is open-source under the MIT License.
+This project is open-source under the [MIT License](LICENSE).
