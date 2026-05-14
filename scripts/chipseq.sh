@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-echo ">>> Running chipseq.sh (Patched Version: 2026-02-10 Fix) <<<"
+# chipseq.sh — ENCODE-style ChIP-seq / CUT&Tag single-sample pipeline
 set -euo pipefail
 
 ############################################
@@ -61,7 +61,8 @@ while [[ $# -gt 0 ]]; do
     -o|--outdir) OUTDIR="$2"; shift 2;;
     --binSize) BINSIZE="$2"; shift 2;;
     --trim) TRIM="yes"; shift 1;;
-    --tech) TECH="$2"; shift 2;; # Added: chip or cuttag
+    --no-trim) TRIM="no"; shift 1;;
+    --tech) TECH="$2"; shift 2;;
 
     --se) SE_MODE="yes"; PE_MODE="no"; shift 1;;
     --pe) PE_MODE="yes"; SE_MODE="no"; shift 1;;
@@ -92,6 +93,12 @@ if [[ "$PE_MODE" == "yes" ]]; then
   [[ -n "$R2" ]] || die "Paired-end needs -r2 FASTQ"
 fi
 [[ "$PEAK_MODE" == "narrow" || "$PEAK_MODE" == "broad" ]] || die "--peakMode must be narrow or broad"
+[[ "$TECH" == "chip" || "$TECH" == "cuttag" ]] || die "--tech must be chip or cuttag"
+[[ "$REMOVE_DUP" == "auto" || "$REMOVE_DUP" == "yes" || "$REMOVE_DUP" == "no" ]] || die "--removeDup must be auto, yes, or no"
+[[ "$TRIM" == "yes" || "$TRIM" == "no" ]] || die "--trim / --no-trim invalid state"
+if [[ ! "$EXTEND_READS" =~ ^(auto|yes|no|[0-9]+)$ ]]; then
+    die "--extendReads must be auto, yes, no, or a positive integer"
+fi
 
 # ---------- Genome size for MACS2 ----------
 # MACS3 -g: Accepts shortcuts like 'mm' or 'hs', or a specific number (e.g., 1.87e9).
@@ -274,7 +281,7 @@ if [[ -f "$PEAK_FILE" ]]; then
     COUNT=$(wc -l < "$PEAK_FILE")
     log "Success: Found $COUNT peaks."
 else
-    log "ERROR: Peak file not found. Check ${LOGDIR}/${SAMPLE}.macs3.log"
+    die "Peak file not found: $PEAK_FILE. Check ${LOGDIR}/${SAMPLE}.macs3.log"
 fi
 
 # ---------- Step 7: bigWig (deepTools bamCoverage) ----------

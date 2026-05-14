@@ -1,0 +1,339 @@
+# ChIP-seq / CUT&Tag Snakemake Pipeline
+# ======================================
+# Entry point for the modular Snakemake pipeline suite.
+# Sample sheet parsing, config loading, and assay dispatch happen here.
+# Executable rules live in workflow/rules/*.smk.
+# Policy functions live in workflow/rules/chipseq.smk and cuttag.smk.
+
+import csv
+import os
+import sys
+import re
+
+# Sample ID pattern: path-safe and shell-safe characters only
+_SAMPLE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+# ---------------------------------------------------------------------------
+# 1. Load configuration
+# ---------------------------------------------------------------------------
+
+configfile: "config/config.yaml"
+
+OUTDIR      = config.get("outdir", "results")
+THREADS     = config.get("threads", 8)
+MAPQ        = config.get("mapq", 30)
+MAPQ_TAG    = f"mapq{MAPQ}"
+BINSIZE     = config.get("binsize", 10)
+TRIM        = str(config.get("trim", True)).lower()
+EXTEND_READS = str(config.get("extend_reads", "auto"))
+_use_raw = config.get("use_control", False)
+if isinstance(_use_raw, bool):
+    USE_CONTROL = _use_raw
+else:
+    _use = str(_use_raw).lower()
+    if _use in ("true", "yes", "1"):
+        USE_CONTROL = True
+    elif _use in ("false", "no", "0"):
+        USE_CONTROL = False
+    else:
+        sys.exit(
+            f"ERROR: config use_control must be true or false, "
+            f"got {_use_raw!r}"
+        )
+MULTIQC     = config.get("multiqc", True)
+
+# Validate remove_dup config early — invalid values are a hard error
+_remove_dup_raw = str(config.get("remove_dup", "auto"))
+if _remove_dup_raw not in ("auto", "yes", "no"):
+    sys.exit(
+        f"ERROR: config remove_dup must be auto, yes, or no, "
+        f"got {_remove_dup_raw!r}"
+    )
+
+# Validate trim config — accept boolean true/false or string equivalents
+_trim_raw = config.get("trim", True)
+if isinstance(_trim_raw, bool):
+    pass  # native boolean, already OK
+elif str(_trim_raw).lower() in ("true", "false"):
+    pass  # string "true"/"false", OK
+else:
+    sys.exit(
+        f"ERROR: config trim must be true or false, got {_trim_raw!r}"
+    )
+
+# Validate extend_reads config — auto, yes, no, or digits-only positive integer
+_ext_raw = str(config.get("extend_reads", "auto"))
+if _ext_raw not in ("auto", "yes", "no") and not (
+    _ext_raw.isdigit() and int(_ext_raw) > 0
+):
+    sys.exit(
+        f"ERROR: config extend_reads must be auto, yes, no, or a "
+        f"positive integer, got {_ext_raw!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 2. Helper functions
+# ---------------------------------------------------------------------------
+
+def _normalize_genome(genome):
+    """Map genome builds to MACS3 -g shortcuts.
+
+    mm10 / mm39  → mm
+    hg19 / hg38  → hs
+    Other values passed through unchanged.
+    """
+    if genome in ("mm10", "mm39"):
+        return "mm"
+    if genome in ("hg19", "hg38"):
+        return "hs"
+    return genome
+
+
+# ---------------------------------------------------------------------------
+# 3. Sample sheet parsing (two-pass validation)
+# ---------------------------------------------------------------------------
+
+SAMPLE_TSV = config.get("samples")
+if not SAMPLE_TSV:
+    sys.exit("ERROR: config.yaml must set 'samples' to the TSV path.")
+if not os.path.isfile(SAMPLE_TSV):
+    sys.exit(f"ERROR: sample sheet not found: {SAMPLE_TSV}")
+
+SAMPLES: list[dict] = []
+SEEN_IDS: set[str] = set()
+
+with open(SAMPLE_TSV) as fh:
+    reader = csv.DictReader(fh, delimiter="\t")
+    fieldnames = reader.fieldnames or []
+
+    # Required columns (original set, backward compatible)
+    required = [
+        "sample", "fastq_1", "layout", "assay",
+        "target", "peak_mode", "genome", "bowtie2_index",
+    ]
+    for col in required:
+        if col not in fieldnames:
+            sys.exit(f"ERROR: sample sheet missing required column: {col!r}")
+
+    for i, row in enumerate(reader, start=2):
+        sid   = (row.get("sample") or "").strip()
+        fq1   = (row.get("fastq_1") or "").strip()
+        fq2   = (row.get("fastq_2") or "").strip()
+        lo    = (row.get("layout") or "").strip().upper()
+        assay = (row.get("assay") or "").strip().lower()
+        tgt   = (row.get("target") or "").strip()
+        pmode = (row.get("peak_mode") or "").strip().lower()
+        gnm   = (row.get("genome") or "").strip()
+        bt2   = (row.get("bowtie2_index") or "").strip()
+
+        # Optional columns with defaults
+        ctrl_bam = (row.get("control_bam") or "").strip()
+        role = (row.get("role") or "treatment").strip().lower()
+        ctrl_sample = (row.get("control_sample") or "").strip()
+
+        # --- Pass 1: per-row validation ---
+        if not sid:
+            sys.exit(f"ERROR: row {i} in sample sheet has empty 'sample'")
+        if not _SAMPLE_ID_RE.match(sid):
+            sys.exit(
+                f"ERROR: row {i}: sample ID {sid!r} contains invalid "
+                f"characters. Allowed: A-Z, a-z, 0-9, underscore, "
+                f"period, hyphen."
+            )
+        if sid in SEEN_IDS:
+            sys.exit(f"ERROR: duplicate sample ID in sample sheet: {sid!r}")
+        SEEN_IDS.add(sid)
+
+        if not fq1:
+            sys.exit(f"ERROR: sample {sid!r} has empty 'fastq_1'")
+        if lo not in ("PE", "SE"):
+            sys.exit(f"ERROR: sample {sid!r}: layout must be PE or SE, got {lo!r}")
+        if lo == "PE" and not fq2:
+            sys.exit(f"ERROR: sample {sid!r}: PE layout requires 'fastq_2'")
+        if assay not in ("chipseq", "cuttag"):
+            sys.exit(
+                f"ERROR: sample {sid!r}: assay must be chipseq or cuttag, "
+                f"got {assay!r}"
+            )
+        if pmode not in ("narrow", "broad"):
+            sys.exit(
+                f"ERROR: sample {sid!r}: peak_mode must be narrow or broad, "
+                f"got {pmode!r}"
+            )
+        if not bt2:
+            sys.exit(f"ERROR: sample {sid!r} has empty 'bowtie2_index'")
+        if role not in ("treatment", "control"):
+            sys.exit(
+                f"ERROR: sample {sid!r}: role must be treatment or control, "
+                f"got {role!r}"
+            )
+        if ctrl_sample == sid:
+            sys.exit(
+                f"ERROR: sample {sid!r}: control_sample cannot reference itself"
+            )
+        if ctrl_sample and ctrl_bam:
+            sys.exit(
+                f"ERROR: sample {sid!r}: cannot set both control_sample "
+                f"and control_bam"
+            )
+        if USE_CONTROL and ctrl_sample and not ctrl_bam:
+            pass  # validated in pass 2
+        if USE_CONTROL and ctrl_bam and not os.path.isfile(ctrl_bam):
+            sys.exit(
+                f"ERROR: sample {sid!r}: control_bam file not found: "
+                f"{ctrl_bam}"
+            )
+
+        SAMPLES.append({
+            "id":              sid,
+            "fq1":             fq1,
+            "fq2":             fq2,
+            "layout":          lo,
+            "assay":           assay,
+            "target":          tgt,
+            "peak_mode":       pmode,
+            "genome":          gnm,
+            "bt2_idx":         bt2,
+            "control_bam":     ctrl_bam,
+            "role":            role,
+            "control_sample":  ctrl_sample,
+        })
+
+# --- Pass 2: cross-reference validation (only when controls enabled) ---
+ALL_IDS = {s["id"] for s in SAMPLES}
+for s in SAMPLES:
+    cs = s.get("control_sample", "")
+    if cs and cs not in ALL_IDS:
+        sys.exit(
+            f"ERROR: sample {s['id']!r}: control_sample {cs!r} "
+            f"not found in sample sheet"
+        )
+    if cs:
+        cs_row = next(r for r in SAMPLES if r["id"] == cs)
+        if USE_CONTROL and cs_row["role"] != "control":
+            sys.exit(
+                f"ERROR: sample {s['id']!r}: control_sample {cs!r} "
+                f"has role={cs_row['role']!r}, expected role=control"
+            )
+
+# --- Derived ID lists ---
+SAMPLE_MAP           = {s["id"]: s for s in SAMPLES}
+ALL_SAMPLE_IDS       = [s["id"] for s in SAMPLES]
+TREATMENT_SAMPLE_IDS = [
+    s["id"] for s in SAMPLES if s["role"] == "treatment"
+]
+# use_control gates both FASTQ-based control_sample and external control_bam.
+# When false, control rows are not required as rule-all targets and
+# control_sample / control_bam are silently ignored.
+ACTIVE_SAMPLE_IDS = (
+    ALL_SAMPLE_IDS if USE_CONTROL else TREATMENT_SAMPLE_IDS
+)
+CONTROL_SAMPLE_IDS   = [
+    s["id"] for s in SAMPLES if s["role"] == "control"
+]
+
+
+# ---------------------------------------------------------------------------
+# 4. Assay policy functions (no rules — define-only files)
+# ---------------------------------------------------------------------------
+
+include: "rules/chipseq.smk"
+include: "rules/cuttag.smk"
+
+
+# ---------------------------------------------------------------------------
+# 5. Dispatch wrappers — wire assay-specific policy to generic names
+# ---------------------------------------------------------------------------
+
+def get_remove_dup(wildcards):
+    """Return "yes" or "no" for duplicate removal, dispatched by assay."""
+    s = SAMPLE_MAP[wildcards.sample]
+    if s["assay"] == "chipseq":
+        return get_remove_dup_chipseq(wildcards)
+    else:
+        return get_remove_dup_cuttag(wildcards)
+
+
+def get_macs3_args(wildcards):
+    """Return MACS3 arguments string, dispatched by assay."""
+    s = SAMPLE_MAP[wildcards.sample]
+    if s["assay"] == "chipseq":
+        return get_macs3_args_chipseq(wildcards)
+    else:
+        return get_macs3_args_cuttag(wildcards)
+
+
+def get_extend_reads(wildcards):
+    """Return bamCoverage extension arguments, dispatched by assay."""
+    s = SAMPLE_MAP[wildcards.sample]
+    if s["assay"] == "chipseq":
+        return get_extend_reads_chipseq(wildcards)
+    else:
+        return get_extend_reads_cuttag(wildcards)
+
+
+# ---------------------------------------------------------------------------
+# 6. MACS3 input resolution — tracks control dependencies
+# ---------------------------------------------------------------------------
+
+def _macs3_inputs(wildcards):
+    """Return input list for macs3_callpeak.
+
+    Elements: [treatment_final.bam, treatment_final.bam.bai, ...optional_control]
+    - treatment final.bam + final.bam.bai are always included.
+    - use_control gates both FASTQ-based control_sample and external control_bam.
+      When false, control_sample and control_bam are silently ignored.
+    """
+    s = SAMPLE_MAP[wildcards.sample]
+    sid = wildcards.sample
+    inputs = [
+        f"{OUTDIR}/{sid}/02_align/{sid}.final.bam",
+        f"{OUTDIR}/{sid}/02_align/{sid}.final.bam.bai",
+    ]
+    if USE_CONTROL:
+        if s.get("control_sample"):
+            cs = s["control_sample"]
+            inputs.append(
+                f"{OUTDIR}/{cs}/02_align/{cs}.final.bam"
+            )
+        elif s.get("control_bam"):
+            inputs.append(s["control_bam"])
+    return inputs
+
+
+# ---------------------------------------------------------------------------
+# 7. Default target — rule all
+#    Defined BEFORE executable rule includes to remain the default target.
+# ---------------------------------------------------------------------------
+
+rule all:
+    input:
+        done    = expand(
+            "{outdir}/{sample}/logs/{sample}.pipeline.done",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        ),
+        bigwig  = expand(
+            "{outdir}/{sample}/03_bigwig/{sample}.CPM.bw",
+            outdir=OUTDIR,
+            sample=ACTIVE_SAMPLE_IDS,
+        ),
+        peaks   = expand(
+            "{outdir}/{sample}/04_peaks/{sample}",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        ),
+        multiqc = (
+            [f"{OUTDIR}/multiqc/multiqc_report.html"] if MULTIQC else []
+        ),
+
+
+# ---------------------------------------------------------------------------
+# 8. Executable rule files
+# ---------------------------------------------------------------------------
+
+include: "rules/common.smk"
+include: "rules/peaks.smk"
+include: "rules/report.smk"

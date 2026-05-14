@@ -1,6 +1,8 @@
 test/
 reference/
 miniconda3/
+.snakemake/
+results/
 *.sh
 *.gz
 *.bam
