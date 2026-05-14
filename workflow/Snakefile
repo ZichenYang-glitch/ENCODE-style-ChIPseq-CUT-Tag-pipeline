@@ -1,29 +1,100 @@
-# ChIP-seq / CUT&Tag Snakemake Pipeline (no-input by default)
-# =================================================================
+# ChIP-seq / CUT&Tag Snakemake Pipeline
+# ======================================
+# Entry point for the modular Snakemake pipeline suite.
+# Sample sheet parsing, config loading, and assay dispatch happen here.
+# Executable rules live in workflow/rules/*.smk.
+# Policy functions live in workflow/rules/chipseq.smk and cuttag.smk.
 
 import csv
 import os
 import sys
+import re
+
+# Sample ID pattern: path-safe and shell-safe characters only
+_SAMPLE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
 
 # ---------------------------------------------------------------------------
 # 1. Load configuration
 # ---------------------------------------------------------------------------
+
 configfile: "config/config.yaml"
 
-OUTDIR = config.get("outdir", "results")
-THREADS = config.get("threads", 8)
-MAPQ = config.get("mapq", 30)
-BINSIZE = config.get("binsize", 10)
-REMOVE_DUP = config.get("remove_dup", "auto")
-TRIM = str(config.get("trim", True)).lower()
+OUTDIR      = config.get("outdir", "results")
+THREADS     = config.get("threads", 8)
+MAPQ        = config.get("mapq", 30)
+MAPQ_TAG    = f"mapq{MAPQ}"
+BINSIZE     = config.get("binsize", 10)
+TRIM        = str(config.get("trim", True)).lower()
 EXTEND_READS = str(config.get("extend_reads", "auto"))
-USE_CONTROL = config.get("use_control", False)
-MULTIQC = config.get("multiqc", True)
-SCRIPT = os.path.abspath("scripts/chipseq.sh")
+_use_raw = config.get("use_control", False)
+if isinstance(_use_raw, bool):
+    USE_CONTROL = _use_raw
+else:
+    _use = str(_use_raw).lower()
+    if _use in ("true", "yes", "1"):
+        USE_CONTROL = True
+    elif _use in ("false", "no", "0"):
+        USE_CONTROL = False
+    else:
+        sys.exit(
+            f"ERROR: config use_control must be true or false, "
+            f"got {_use_raw!r}"
+        )
+MULTIQC     = config.get("multiqc", True)
+
+# Validate remove_dup config early — invalid values are a hard error
+_remove_dup_raw = str(config.get("remove_dup", "auto"))
+if _remove_dup_raw not in ("auto", "yes", "no"):
+    sys.exit(
+        f"ERROR: config remove_dup must be auto, yes, or no, "
+        f"got {_remove_dup_raw!r}"
+    )
+
+# Validate trim config — accept boolean true/false or string equivalents
+_trim_raw = config.get("trim", True)
+if isinstance(_trim_raw, bool):
+    pass  # native boolean, already OK
+elif str(_trim_raw).lower() in ("true", "false"):
+    pass  # string "true"/"false", OK
+else:
+    sys.exit(
+        f"ERROR: config trim must be true or false, got {_trim_raw!r}"
+    )
+
+# Validate extend_reads config — auto, yes, no, or digits-only positive integer
+_ext_raw = str(config.get("extend_reads", "auto"))
+if _ext_raw not in ("auto", "yes", "no") and not (
+    _ext_raw.isdigit() and int(_ext_raw) > 0
+):
+    sys.exit(
+        f"ERROR: config extend_reads must be auto, yes, no, or a "
+        f"positive integer, got {_ext_raw!r}"
+    )
+
 
 # ---------------------------------------------------------------------------
-# 2. Load and validate sample sheet
+# 2. Helper functions
 # ---------------------------------------------------------------------------
+
+def _normalize_genome(genome):
+    """Map genome builds to MACS3 -g shortcuts.
+
+    mm10 / mm39  → mm
+    hg19 / hg38  → hs
+    Other values passed through unchanged.
+    """
+    if genome in ("mm10", "mm39"):
+        return "mm"
+    if genome in ("hg19", "hg38"):
+        return "hs"
+    return genome
+
+
+# ---------------------------------------------------------------------------
+# 3. Sample sheet parsing (two-pass validation)
+# ---------------------------------------------------------------------------
+
 SAMPLE_TSV = config.get("samples")
 if not SAMPLE_TSV:
     sys.exit("ERROR: config.yaml must set 'samples' to the TSV path.")
@@ -37,6 +108,7 @@ with open(SAMPLE_TSV) as fh:
     reader = csv.DictReader(fh, delimiter="\t")
     fieldnames = reader.fieldnames or []
 
+    # Required columns (original set, backward compatible)
     required = [
         "sample", "fastq_1", "layout", "assay",
         "target", "peak_mode", "genome", "bowtie2_index",
@@ -46,7 +118,6 @@ with open(SAMPLE_TSV) as fh:
             sys.exit(f"ERROR: sample sheet missing required column: {col!r}")
 
     for i, row in enumerate(reader, start=2):
-        # csv.DictReader returns None for empty cells — coerce to ""
         sid   = (row.get("sample") or "").strip()
         fq1   = (row.get("fastq_1") or "").strip()
         fq2   = (row.get("fastq_2") or "").strip()
@@ -56,13 +127,23 @@ with open(SAMPLE_TSV) as fh:
         pmode = (row.get("peak_mode") or "").strip().lower()
         gnm   = (row.get("genome") or "").strip()
         bt2   = (row.get("bowtie2_index") or "").strip()
-        ctrl  = (row.get("control_bam") or "").strip()
 
-        # --- validation ---
+        # Optional columns with defaults
+        ctrl_bam = (row.get("control_bam") or "").strip()
+        role = (row.get("role") or "treatment").strip().lower()
+        ctrl_sample = (row.get("control_sample") or "").strip()
+
+        # --- Pass 1: per-row validation ---
         if not sid:
             sys.exit(f"ERROR: row {i} in sample sheet has empty 'sample'")
+        if not _SAMPLE_ID_RE.match(sid):
+            sys.exit(
+                f"ERROR: row {i}: sample ID {sid!r} contains invalid "
+                f"characters. Allowed: A-Z, a-z, 0-9, underscore, "
+                f"period, hyphen."
+            )
         if sid in SEEN_IDS:
-            sys.exit(f"ERROR: duplicate sample ID: {sid!r}")
+            sys.exit(f"ERROR: duplicate sample ID in sample sheet: {sid!r}")
         SEEN_IDS.add(sid)
 
         if not fq1:
@@ -72,198 +153,187 @@ with open(SAMPLE_TSV) as fh:
         if lo == "PE" and not fq2:
             sys.exit(f"ERROR: sample {sid!r}: PE layout requires 'fastq_2'")
         if assay not in ("chipseq", "cuttag"):
-            sys.exit(f"ERROR: sample {sid!r}: assay must be chipseq or cuttag, got {assay!r}")
+            sys.exit(
+                f"ERROR: sample {sid!r}: assay must be chipseq or cuttag, "
+                f"got {assay!r}"
+            )
         if pmode not in ("narrow", "broad"):
-            sys.exit(f"ERROR: sample {sid!r}: peak_mode must be narrow or broad, got {pmode!r}")
+            sys.exit(
+                f"ERROR: sample {sid!r}: peak_mode must be narrow or broad, "
+                f"got {pmode!r}"
+            )
         if not bt2:
             sys.exit(f"ERROR: sample {sid!r} has empty 'bowtie2_index'")
-
-        # control is only active when use_control is true
-        control = ""
-        if USE_CONTROL and ctrl:
-            control = ctrl
+        if role not in ("treatment", "control"):
+            sys.exit(
+                f"ERROR: sample {sid!r}: role must be treatment or control, "
+                f"got {role!r}"
+            )
+        if ctrl_sample == sid:
+            sys.exit(
+                f"ERROR: sample {sid!r}: control_sample cannot reference itself"
+            )
+        if ctrl_sample and ctrl_bam:
+            sys.exit(
+                f"ERROR: sample {sid!r}: cannot set both control_sample "
+                f"and control_bam"
+            )
+        if USE_CONTROL and ctrl_sample and not ctrl_bam:
+            pass  # validated in pass 2
+        if USE_CONTROL and ctrl_bam and not os.path.isfile(ctrl_bam):
+            sys.exit(
+                f"ERROR: sample {sid!r}: control_bam file not found: "
+                f"{ctrl_bam}"
+            )
 
         SAMPLES.append({
-            "id":       sid,
-            "fq1":      fq1,
-            "fq2":      fq2,
-            "layout":   lo,
-            "assay":    assay,
-            "target":   tgt,
-            "peak_mode": pmode,
-            "genome":   gnm,
-            "bt2_idx":  bt2,
-            "control":  control,
-            "outdir":   os.path.join(OUTDIR, sid),
+            "id":              sid,
+            "fq1":             fq1,
+            "fq2":             fq2,
+            "layout":          lo,
+            "assay":           assay,
+            "target":          tgt,
+            "peak_mode":       pmode,
+            "genome":          gnm,
+            "bt2_idx":         bt2,
+            "control_bam":     ctrl_bam,
+            "role":            role,
+            "control_sample":  ctrl_sample,
         })
 
-SAMPLE_IDS  = [s["id"] for s in SAMPLES]
-SAMPLE_MAP  = {s["id"]: s for s in SAMPLES}
+# --- Pass 2: cross-reference validation (only when controls enabled) ---
+ALL_IDS = {s["id"] for s in SAMPLES}
+for s in SAMPLES:
+    cs = s.get("control_sample", "")
+    if cs and cs not in ALL_IDS:
+        sys.exit(
+            f"ERROR: sample {s['id']!r}: control_sample {cs!r} "
+            f"not found in sample sheet"
+        )
+    if cs:
+        cs_row = next(r for r in SAMPLES if r["id"] == cs)
+        if USE_CONTROL and cs_row["role"] != "control":
+            sys.exit(
+                f"ERROR: sample {s['id']!r}: control_sample {cs!r} "
+                f"has role={cs_row['role']!r}, expected role=control"
+            )
 
-# peak extension: narrowPeak or broadPeak
-PEAK_EXT = {"narrow": "narrowPeak", "broad": "broadPeak"}
-
-# map sample sheet "assay" column to chipseq.sh --tech value
-ASSAY_TO_TECH = {"chipseq": "chip", "cuttag": "cuttag"}
+# --- Derived ID lists ---
+SAMPLE_MAP           = {s["id"]: s for s in SAMPLES}
+ALL_SAMPLE_IDS       = [s["id"] for s in SAMPLES]
+TREATMENT_SAMPLE_IDS = [
+    s["id"] for s in SAMPLES if s["role"] == "treatment"
+]
+# use_control gates both FASTQ-based control_sample and external control_bam.
+# When false, control rows are not required as rule-all targets and
+# control_sample / control_bam are silently ignored.
+ACTIVE_SAMPLE_IDS = (
+    ALL_SAMPLE_IDS if USE_CONTROL else TREATMENT_SAMPLE_IDS
+)
+CONTROL_SAMPLE_IDS   = [
+    s["id"] for s in SAMPLES if s["role"] == "control"
+]
 
 
 # ---------------------------------------------------------------------------
-# 3. Helpers
+# 4. Assay policy functions (no rules — define-only files)
 # ---------------------------------------------------------------------------
-def _sample_inputs(wildcards):
+
+include: "rules/chipseq.smk"
+include: "rules/cuttag.smk"
+
+
+# ---------------------------------------------------------------------------
+# 5. Dispatch wrappers — wire assay-specific policy to generic names
+# ---------------------------------------------------------------------------
+
+def get_remove_dup(wildcards):
+    """Return "yes" or "no" for duplicate removal, dispatched by assay."""
     s = SAMPLE_MAP[wildcards.sample]
-    files = [s["fq1"]]
-    if s["layout"] == "PE" and s["fq2"]:
-        files.append(s["fq2"])
-    if s["control"]:
-        files.append(s["control"])
-    return files
+    if s["assay"] == "chipseq":
+        return get_remove_dup_chipseq(wildcards)
+    else:
+        return get_remove_dup_cuttag(wildcards)
 
+
+def get_macs3_args(wildcards):
+    """Return MACS3 arguments string, dispatched by assay."""
+    s = SAMPLE_MAP[wildcards.sample]
+    if s["assay"] == "chipseq":
+        return get_macs3_args_chipseq(wildcards)
+    else:
+        return get_macs3_args_cuttag(wildcards)
+
+
+def get_extend_reads(wildcards):
+    """Return bamCoverage extension arguments, dispatched by assay."""
+    s = SAMPLE_MAP[wildcards.sample]
+    if s["assay"] == "chipseq":
+        return get_extend_reads_chipseq(wildcards)
+    else:
+        return get_extend_reads_cuttag(wildcards)
 
 
 # ---------------------------------------------------------------------------
-# 4. Targets
+# 6. MACS3 input resolution — tracks control dependencies
 # ---------------------------------------------------------------------------
+
+def _macs3_inputs(wildcards):
+    """Return input list for macs3_callpeak.
+
+    Elements: [treatment_final.bam, treatment_final.bam.bai, ...optional_control]
+    - treatment final.bam + final.bam.bai are always included.
+    - use_control gates both FASTQ-based control_sample and external control_bam.
+      When false, control_sample and control_bam are silently ignored.
+    """
+    s = SAMPLE_MAP[wildcards.sample]
+    sid = wildcards.sample
+    inputs = [
+        f"{OUTDIR}/{sid}/02_align/{sid}.final.bam",
+        f"{OUTDIR}/{sid}/02_align/{sid}.final.bam.bai",
+    ]
+    if USE_CONTROL:
+        if s.get("control_sample"):
+            cs = s["control_sample"]
+            inputs.append(
+                f"{OUTDIR}/{cs}/02_align/{cs}.final.bam"
+            )
+        elif s.get("control_bam"):
+            inputs.append(s["control_bam"])
+    return inputs
+
+
+# ---------------------------------------------------------------------------
+# 7. Default target — rule all
+#    Defined BEFORE executable rule includes to remain the default target.
+# ---------------------------------------------------------------------------
+
 rule all:
     input:
         done    = expand(
             "{outdir}/{sample}/logs/{sample}.pipeline.done",
             outdir=OUTDIR,
-            sample=SAMPLE_IDS,
+            sample=TREATMENT_SAMPLE_IDS,
         ),
         bigwig  = expand(
             "{outdir}/{sample}/03_bigwig/{sample}.CPM.bw",
             outdir=OUTDIR,
-            sample=SAMPLE_IDS,
+            sample=ACTIVE_SAMPLE_IDS,
         ),
         peaks   = expand(
             "{outdir}/{sample}/04_peaks/{sample}",
             outdir=OUTDIR,
-            sample=SAMPLE_IDS,
+            sample=TREATMENT_SAMPLE_IDS,
         ),
-        multiqc = [f"{OUTDIR}/multiqc/multiqc_report.html"] if MULTIQC else [],
+        multiqc = (
+            [f"{OUTDIR}/multiqc/multiqc_report.html"] if MULTIQC else []
+        ),
 
 
 # ---------------------------------------------------------------------------
-# 5. Run a single sample through chipseq.sh
+# 8. Executable rule files
 # ---------------------------------------------------------------------------
-rule run_sample:
-    output:
-        done   = f"{OUTDIR}/{{sample}}/logs/{{sample}}.pipeline.done",
-        bigwig = f"{OUTDIR}/{{sample}}/03_bigwig/{{sample}}.CPM.bw",
-        peaks  = directory(f"{OUTDIR}/{{sample}}/04_peaks/{{sample}}"),
-    input:
-        _sample_inputs,
-    log:
-        f"{OUTDIR}/{{sample}}/logs/{{sample}}.snakemake.log",
-    threads: THREADS,
-    conda:
-        "envs/chipseq.yml",
-    params:
-        sample     = "{sample}",
-        fq1        = lambda wc: SAMPLE_MAP[wc.sample]["fq1"],
-        fq2        = lambda wc: SAMPLE_MAP[wc.sample]["fq2"],
-        layout     = lambda wc: SAMPLE_MAP[wc.sample]["layout"],
-        tech       = lambda wc: ASSAY_TO_TECH[SAMPLE_MAP[wc.sample]["assay"]],
-        peak_mode  = lambda wc: SAMPLE_MAP[wc.sample]["peak_mode"],
-        genome     = lambda wc: SAMPLE_MAP[wc.sample]["genome"],
-        bt2_idx    = lambda wc: SAMPLE_MAP[wc.sample]["bt2_idx"],
-        control    = lambda wc: SAMPLE_MAP[wc.sample]["control"],
-        mapq       = MAPQ,
-        binsize    = BINSIZE,
-        remove_dup = REMOVE_DUP,
-        ext_len    = EXTEND_READS,
-        trim_flag  = TRIM,
-        script     = SCRIPT,
-        outdir     = lambda wc: f"{OUTDIR}/{wc.sample}",
-    shell:
-        """
-        set -euo pipefail
 
-        mkdir -p $(dirname {log})
-
-        CMD=(
-            bash {params.script}
-            -s {params.sample:q}
-            -x {params.bt2_idx:q}
-            -g {params.genome:q}
-            -o {params.outdir:q}
-            -p {threads}
-            --mapq {params.mapq}
-            --binSize {params.binsize}
-            --removeDup {params.remove_dup:q}
-            --extendReads {params.ext_len:q}
-            --tech {params.tech:q}
-            --peakMode {params.peak_mode:q}
-        )
-
-        if [[ "{params.layout}" == "PE" ]]; then
-            CMD+=(--pe -r1 {params.fq1:q} -r2 {params.fq2:q})
-        else
-            CMD+=(--se -r1 {params.fq1:q})
-        fi
-
-        if [[ "{params.trim_flag}" == "true" ]]; then
-            CMD+=(--trim)
-        else
-            CMD+=(--no-trim)
-        fi
-
-        if [[ -n "{params.control}" ]]; then
-            CMD+=(--control_bam {params.control:q})
-        fi
-
-        echo ">>> [Snakemake] ${{CMD[@]}}"
-        "${{CMD[@]}}" 2>&1 | tee {log}
-        RET=${{PIPESTATUS[0]}}
-
-        if [[ $RET -ne 0 ]]; then
-            echo "ERROR: chipseq.sh exited with code $RET" >&2
-            exit $RET
-        fi
-
-        # Verify all expected outputs exist. BigWig is tracked by Snakemake
-        # (fixed path in output list). Peak is checked here because its
-        # extension varies per sample.
-        PEAK_SUFFIX="narrowPeak"
-        [[ "{params.peak_mode}" == "broad" ]] && PEAK_SUFFIX="broadPeak"
-        EXPECTED_PEAK="{params.outdir}/04_peaks/{params.sample}/{params.sample}_peaks.$PEAK_SUFFIX"
-        if [[ ! -f "$EXPECTED_PEAK" ]]; then
-            echo "ERROR: chipseq.sh completed but expected peak file not found: $EXPECTED_PEAK" >&2
-            exit 1
-        fi
-
-        if [[ ! -s {output.bigwig:q} ]]; then
-            echo "ERROR: expected bigWig not found or empty: {output.bigwig}" >&2
-            exit 1
-        fi
-
-        touch {output.done}
-        """
-
-
-# ---------------------------------------------------------------------------
-# 6. MultiQC aggregation
-# ---------------------------------------------------------------------------
-if MULTIQC:
-
-    rule multiqc:
-        input:
-            [f"{OUTDIR}/{sid}/logs/{sid}.pipeline.done" for sid in SAMPLE_IDS],
-        output:
-            f"{OUTDIR}/multiqc/multiqc_report.html",
-        log:
-            f"{OUTDIR}/logs/multiqc.log",
-        params:
-            outdir = lambda w, output: os.path.dirname(os.path.dirname(output[0])),
-        conda:
-            "envs/chipseq.yml",
-        shell:
-            """
-            command -v multiqc >/dev/null 2>&1 || {{
-                echo "ERROR: multiqc not found. Install it or set multiqc: false in config.yaml." >&2
-                exit 1
-            }}
-            mkdir -p {params.outdir}/logs {params.outdir}/multiqc
-            multiqc {params.outdir} -o {params.outdir}/multiqc 2>&1 | tee {log}
-            """
+include: "rules/common.smk"
+include: "rules/peaks.smk"
+include: "rules/report.smk"
