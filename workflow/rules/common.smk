@@ -72,7 +72,7 @@ rule trim_galore:
         if [[ "{params.do_trim}" == "true" ]]; then
             TMPD=$(mktemp -d)
             trap 'rm -rf "$TMPD"' EXIT
-            mkdir -p {params.trimdir}
+            mkdir -p {params.trimdir:q}
 
             if [[ "{params.layout}" == "PE" ]]; then
                 trim_galore --paired --cores {threads} -o "$TMPD" "$1" "$2"
@@ -86,6 +86,7 @@ rule trim_galore:
 
             # Preserve trimming reports for MultiQC
             mv "$TMPD"/*_trimming_report.txt {params.trimdir:q}/ 2>/dev/null || true
+            mv "$TMPD"/*_trimming_report.json {params.trimdir:q}/ 2>/dev/null || true
 
             trap - EXIT
             rm -rf "$TMPD"
