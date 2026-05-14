@@ -1,177 +1,207 @@
-# ENCODE-style ChIP-seq & CUT&Tag Pipeline
+# ENCODE-style ChIP-seq and CUT&Tag Pipeline
 
-This is an automated, high-performance bioinformatic pipeline designed for both **ChIP-seq** and **CUT&Tag** data analysis. It follows ENCODE best practices and features adaptive logic for different sequencing protocols.
+This repository contains a Snakemake-based pipeline suite for ChIP-seq and
+CUT&Tag data analysis. The batch workflow is the primary entry point and is
+implemented as modular rules under `workflow/rules/`.
 
-**Default mode: no-input / no-control** — the pipeline works without control/input samples. Optional control BAM support can be enabled in the configuration.
+Default mode is no-input / no-control. Optional controls can be enabled with
+`use_control: true` and supplied either as an external control BAM or as a
+FASTQ-based control sample row.
 
-This pipeline does **not** include ATAC-seq analysis.
-
-<br>
+This pipeline does not include ATAC-seq analysis.
 
 ## Repository Structure
 
-- `chipseq.yml`: Conda environment recipe with all required tools.
-- `scripts/chipseq.sh`: Single-sample master script (QC, alignment, peak calling, BigWig).
-- `config/`: Snakemake batch configuration (YAML + sample sheet).
-- `workflow/Snakefile`: Snakemake batch pipeline.
+- `workflow/Snakefile`: Main Snakemake entry point, sample validation, and assay dispatch.
+- `workflow/rules/common.smk`: Shared rules for QC, trimming, alignment, filtering, duplicate handling, QC stats, and BigWig generation.
+- `workflow/rules/chipseq.smk`: ChIP-seq policy functions.
+- `workflow/rules/cuttag.smk`: CUT&Tag policy functions.
+- `workflow/rules/peaks.smk`: MACS3 peak calling rule.
+- `workflow/rules/report.smk`: Completion sentinels and MultiQC aggregation.
 - `workflow/envs/chipseq.yml`: Conda environment for the Snakemake workflow.
-- `.gitignore`: Configured to exclude large genomic files.
+- `config/config.yaml`: Workflow configuration.
+- `config/samples.tsv`: Sample sheet.
+- `scripts/chipseq.sh`: Legacy single-sample script kept for compatibility.
+- `KNOWN_ISSUES.md`: Non-blocking follow-ups and current limitations.
 
-<br>
-
-## Quick Start: Single Sample
+## Quick Start: Snakemake Batch Workflow
 
 ### 1. Installation
 
 ```bash
-git clone https://github.com/YangZiChen-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline.git
+git clone https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline.git
 cd ENCODE-style-ChIPseq-CUT-Tag-pipeline
 
-# Create and activate environment
-conda env create -f chipseq.yml
-conda activate chipseq
-```
-
-### 2. Usage
-
-```bash
-# Paired-end ChIP-seq
-chipseq.sh -s MySample -x /path/to/bt2_index -g mm --pe -r1 R1.fq.gz -r2 R2.fq.gz --tech chip
-
-# Paired-end CUT&Tag
-chipseq.sh -s MySample -x /path/to/bt2_index -g mm --pe -r1 R1.fq.gz -r2 R2.fq.gz --tech cuttag
-
-# Single-end ChIP-seq with no trimming
-chipseq.sh -s MySample -x /path/to/bt2_index -g hs --se -r1 sample.fq.gz --tech chip --no-trim
-
-# With optional control/input BAM
-chipseq.sh -s MySample -x /path/to/bt2_index -g mm --pe -r1 R1.fq.gz -r2 R2.fq.gz --control_bam /path/to/input.bam
-```
-
-<br>
-
-## Script Parameters
-
-| Option | Description | Default |
-| :--- | :--- | :--- |
-| `-s \| --sample` | Sample ID | **Required** |
-| `-x \| --index` | Bowtie2 index prefix | **Required** |
-| `-g \| --genome` | Genome build (mm, hs, etc.) | `mm` |
-| `--pe / --se` | Paired-end or Single-end | **Required** |
-| `--tech` | Protocol: `chip` or `cuttag` | `chip` |
-| `--peakMode` | Peak type: `narrow` or `broad` | `narrow` |
-| `-p \| --threads` | CPU threads | `8` |
-| `-o \| --outdir` | Output directory | `./chip_out` |
-| `--trim / --no-trim` | Enable/disable trimming | trim enabled |
-| `--removeDup` | Dedup: `auto`, `yes`, `no` | `auto` |
-| `--extendReads` | BigWig extension: `auto`, `yes`, `no`, or bp | `auto` |
-| `--control_bam` | Optional input/control BAM | (none) |
-
-<br>
-
-## Batch Run (Snakemake)
-
-### 1. Install the workflow environment
-
-```bash
 conda env create -f workflow/envs/chipseq.yml
 conda activate chipseq
 ```
 
-### 2. Edit the sample sheet
+### 2. Configure samples
 
-Edit `config/samples.tsv` with your samples:
+Edit `config/samples.tsv`:
 
 ```tsv
 sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index	control_bam
-H3K27AC	/data/R1.fq.gz	/data/R2.fq.gz	PE	chipseq	H3K27ac	narrow	mm	/path/to/bt2/mm10
+H3K27AC	/data/ac_R1.fq.gz	/data/ac_R2.fq.gz	PE	chipseq	H3K27ac	narrow	mm	/path/to/bt2/mm10
 CTCF_rep1	/data/ctcf_R1.fq.gz		SE	chipseq	CTCF	narrow	hs	/path/to/bt2/hg38
 CUTTAG_H3K4me3	/data/ct_R1.fq.gz	/data/ct_R2.fq.gz	PE	cuttag	H3K4me3	narrow	mm	/path/to/bt2/mm10
 ```
 
-**Columns:**
+Required columns:
 
-| Column | Description | Required |
+| Column | Description |
+| :--- | :--- |
+| `sample` | Unique sample ID. Allowed characters: letters, numbers, `_`, `.`, `-`. |
+| `fastq_1` | R1 FASTQ path. |
+| `fastq_2` | R2 FASTQ path. Required for `PE`; leave empty for `SE`. |
+| `layout` | `PE` or `SE`. |
+| `assay` | `chipseq` or `cuttag`. |
+| `target` | Antibody or target name. |
+| `peak_mode` | `narrow` or `broad`. |
+| `genome` | Genome shortcut or MACS3 genome size, for example `mm`, `mm10`, `hs`, `hg38`. |
+| `bowtie2_index` | Bowtie2 index prefix. |
+| `control_bam` | Optional external control BAM. Used only when `use_control: true`. |
+
+Optional columns for FASTQ-based controls:
+
+| Column | Default | Description |
 | :--- | :--- | :--- |
-| `sample` | Unique sample ID | Yes |
-| `fastq_1` | R1 FASTQ path | Yes |
-| `fastq_2` | R2 FASTQ path | PE only |
-| `layout` | `PE` or `SE` | Yes |
-| `assay` | `chipseq` or `cuttag` | Yes |
-| `target` | Antibody/target name | Yes |
-| `peak_mode` | `narrow` or `broad` | Yes |
-| `genome` | Genome build (mm, hs, etc.) | Yes |
-| `bowtie2_index` | Bowtie2 index prefix | Yes |
-| `control_bam` | Optional input BAM (ignored when `use_control: false`) | No |
+| `role` | `treatment` | `treatment` or `control`. Peak calling runs only for treatment rows. |
+| `control_sample` | empty | Sample ID of a control row to use as MACS3 input control. Used only when `use_control: true`. |
 
-### 3. Edit configuration
+### 3. Configure workflow options
 
-Edit `config/config.yaml` to set global parameters:
+Edit `config/config.yaml`:
 
 ```yaml
 samples: "config/samples.tsv"
 outdir: "results"
 threads: 8
 mapq: 30
-use_control: false    # default: no-input / no-control
+binsize: 10
+remove_dup: "auto"     # auto, yes, no
+trim: true             # true or false
+extend_reads: "auto"   # auto, yes, no, or a positive integer
+use_control: false     # false means no control_bam and no control_sample
 multiqc: true
 ```
 
 ### 4. Run
 
 ```bash
-# Dry-run (check DAG without executing)
+# Dry-run: build the DAG without executing commands.
 snakemake -s workflow/Snakefile --configfile config/config.yaml -n --use-conda
 
-# Run with 16 cores (--use-conda auto-creates env from workflow/envs/chipseq.yml)
+# Run with 16 cores. --use-conda creates/uses workflow/envs/chipseq.yml.
 snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use-conda
 
-# Resume incomplete run
+# Resume incomplete jobs after an interrupted run.
 snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use-conda --rerun-incomplete
-
-# Alternatively, activate the conda environment first and omit --use-conda:
-conda activate chipseq
-snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16
 ```
 
-### 5. Output structure
+## Control/Input Handling
 
+Controls are disabled by default. With `use_control: false`, both `control_bam`
+and `control_sample` are ignored.
+
+To use a precomputed control BAM:
+
+```yaml
+use_control: true
 ```
+
+```tsv
+sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index	control_bam
+H3K27AC	/data/ac_R1.fq.gz	/data/ac_R2.fq.gz	PE	chipseq	H3K27ac	narrow	mm	/path/to/bt2/mm10	/data/input.final.bam
+```
+
+To process an input/control sample from FASTQ, add `role` and
+`control_sample` columns:
+
+```tsv
+sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index	control_bam	role	control_sample
+H3K27AC	/data/ac_R1.fq.gz	/data/ac_R2.fq.gz	PE	chipseq	H3K27ac	narrow	mm	/path/to/bt2/mm10		treatment	Input_rep1
+Input_rep1	/data/input_R1.fq.gz	/data/input_R2.fq.gz	PE	chipseq	Input	narrow	mm	/path/to/bt2/mm10		control
+```
+
+Control rows are processed through the shared preprocessing rules and produce
+`final.bam`. MACS3 peak calling is scheduled only for treatment rows. Do not
+set both `control_bam` and `control_sample` on the same treatment row.
+
+## Output Structure
+
+```text
 results/
 ├── <sample>/
-│   ├── 00_raw/        # Trimmed FASTQs
-│   ├── 01_qc/         # FastQC, flagstat, dup metrics, fingerprint
-│   ├── 02_align/      # Sorted, filtered, dedup BAMs
-│   ├── 03_bigwig/     # CPM-normalized BigWig
-│   ├── 04_peaks/      # MACS3 peak files (.narrowPeak or .broadPeak)
-│   └── logs/          # Tool logs + pipeline.done sentinel
+│   ├── 00_raw/
+│   │   ├── <sample>_R1_val_1.fq.gz
+│   │   └── <sample>_R2_val_2.fq.gz
+│   ├── 01_qc/
+│   │   ├── trim_galore/
+│   │   ├── <sample>.flagstat.txt
+│   │   ├── <sample>.final.flagstat.txt
+│   │   ├── <sample>.idxstats.txt
+│   │   └── <sample>.dup_metrics.txt
+│   ├── 02_align/
+│   │   ├── <sample>.sorted.bam
+│   │   ├── <sample>.mapq30.bam
+│   │   └── <sample>.final.bam
+│   ├── 03_bigwig/
+│   │   └── <sample>.CPM.bw
+│   ├── 04_peaks/
+│   │   └── <sample>/
+│   └── logs/
+│       ├── <sample>.fastqc.done
+│       ├── <sample>.trim.done
+│       └── <sample>.pipeline.done
 └── multiqc/
     └── multiqc_report.html
 ```
 
-<br>
+`final.bam` is the stable downstream BAM contract. It points to either the
+duplicate-handled BAM or the filtered BAM, depending on `remove_dup`.
 
-## Pipeline Workflow
+## Workflow Steps
 
-1. **Quality Control**: `FastQC` generates raw data metrics.
-2. **Trimming**: `Trim Galore` removes adapters and low-quality bases.
-3. **Alignment**: `Bowtie2` maps reads with Read Group (RG) info.
-4. **Filtering**: `Samtools` filters MAPQ >= 30, removes unmapped/secondary reads.
-5. **Deduplication**: `Picard` or `Samtools` marks/removes PCR duplicates.
-6. **Peak Calling**: `MACS3` with adaptive parameters for ChIP-seq vs CUT&Tag.
-7. **Visualization**: `deepTools` generates CPM-normalized BigWig files.
-8. **Aggregation**: `MultiQC` aggregates QC reports across all samples.
+1. FastQC on raw FASTQs.
+2. Trim Galore, or raw FASTQ symlinks when `trim: false`.
+3. Bowtie2 alignment with read group tags.
+4. Samtools indexing and MAPQ filtering.
+5. Picard duplicate metrics and optional duplicate removal.
+6. Samtools `flagstat` and `idxstats`.
+7. deepTools `bamCoverage` CPM BigWig generation.
+8. MACS3 peak calling for treatment samples.
+9. MultiQC aggregation over the current sample directories.
 
-<br>
+## Assay-Specific Policy
 
-## Key Design Decisions
+- ChIP-seq uses standard MACS3 parameters. Broad mode adds `--broad --broad-cutoff 0.1`.
+- CUT&Tag narrow mode adds Tn5-aware MACS3 parameters: `--nomodel --shift -100 --extsize 200`.
+- CUT&Tag broad mode follows the broad MACS3 policy.
+- Stage 1 keeps duplicate removal and read extension behavior aligned with the legacy script.
 
-- **No-input by default**: The pipeline works without control/input samples. Set `use_control: true` and provide `control_bam` in the sample sheet for optional control support.
-- **No ATAC-seq**: This pipeline is focused on ChIP-seq and CUT&Tag only.
-- **CUT&Tag mode**: Uses `--tech cuttag` which applies high-resolution Tn5 insertion site centering (`--nomodel --shift -100 --extsize 200`).
-- **Breakpoint resume**: Snakemake tracks completion via `.pipeline.done` sentinel files. Use `--rerun-incomplete` to resume failed runs without re-running completed samples.
+## Legacy Single-Sample Script
 
-<br>
+`scripts/chipseq.sh` remains available for compatibility, but the Snakemake
+workflow is the recommended entry point for new analyses.
+
+```bash
+# Paired-end ChIP-seq
+scripts/chipseq.sh -s MySample -x /path/to/bt2_index -g mm --pe -r1 R1.fq.gz -r2 R2.fq.gz --tech chip
+
+# Paired-end CUT&Tag
+scripts/chipseq.sh -s MySample -x /path/to/bt2_index -g mm --pe -r1 R1.fq.gz -r2 R2.fq.gz --tech cuttag
+
+# Single-end ChIP-seq with no trimming
+scripts/chipseq.sh -s MySample -x /path/to/bt2_index -g hs --se -r1 sample.fq.gz --tech chip --no-trim
+```
+
+Known legacy-script hardening tasks are tracked in `KNOWN_ISSUES.md`.
+
+## Known Limitations
+
+See `KNOWN_ISSUES.md` for non-blocking follow-ups, including schema validation,
+plotFingerprint migration, environment cleanup, and legacy script hardening.
 
 ## License
 
