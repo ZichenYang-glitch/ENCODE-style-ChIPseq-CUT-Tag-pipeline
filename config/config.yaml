@@ -35,3 +35,66 @@ use_control: false
 
 # Run MultiQC aggregation after all samples complete
 multiqc: true
+
+# Genome-specific resources for QC and ENCODE-like metrics (Stage 2+).
+# Keys are genome labels used in the sample sheet's "genome" column.
+#
+# IMPORTANT: "hs" and "mm" are MACS3 effective genome size shortcuts,
+# NOT genome assemblies. They correspond to:
+#   hs → hg38 / GRCh38 (2913022398)
+#   mm → mm10 / GRCm38 (2652783500)
+#
+# For mm39 / GRCm39, use the "mm39" entry (explicit numeric size).
+# effective_genome_size: "hs", "mm", or a positive integer.
+# Other fields (chrom_sizes, blacklist, gtf, reference_fasta) are
+# optional paths — leave empty if not needed yet.
+genome_resources:
+  hs:
+    effective_genome_size: "hs"
+    chrom_sizes: ""
+    blacklist: ""
+    gtf: ""
+    reference_fasta: ""
+
+  mm:
+    effective_genome_size: "mm"
+    chrom_sizes: ""
+    blacklist: ""
+    gtf: ""
+    reference_fasta: ""
+
+  hg19:
+    effective_genome_size: 2864785220
+    chrom_sizes: ""
+    blacklist: ""
+    gtf: ""
+    reference_fasta: ""
+
+  hg38:
+    effective_genome_size: 2913022398
+    chrom_sizes: ""
+    blacklist: ""
+    gtf: ""
+    reference_fasta: ""
+
+  mm10:
+    effective_genome_size: 2652783500
+    chrom_sizes: ""
+    blacklist: ""
+    gtf: ""
+    reference_fasta: ""
+
+  mm39:
+    effective_genome_size: 2654621783
+    chrom_sizes: ""
+    blacklist: ""
+    gtf: ""
+    reference_fasta: ""
+
+# Stage 3 QC configuration.
+# Each switch accepts boolean or string boolean (true/false).
+# Missing qc block defaults to all switches enabled.
+qc:
+  blacklist_filter: true
+  frip: true
+  summary: true

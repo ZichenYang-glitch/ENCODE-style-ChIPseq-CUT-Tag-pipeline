@@ -1,0 +1,118 @@
+# samples.schema.yaml — Sample sheet contract
+# =============================================
+# Documents required and optional columns, validation rules, and constraints.
+# This file is a human-readable contract. Runtime validation is performed
+# by scripts/validate_samples.py (stdlib only).
+
+# ---- Required Columns ----
+required:
+  - sample
+  - fastq_1
+  - layout
+  - assay
+  - target
+  - peak_mode
+  - genome
+  - bowtie2_index
+
+# ---- Optional Columns ----
+optional:
+  - fastq_2
+  - control_bam
+  - role
+  - control_sample
+
+# ---- Column Specifications ----
+columns:
+  sample:
+    description: Unique sample ID.
+    constraints:
+      pattern: "^[A-Za-z0-9_.-]+$"
+      message: >
+        Allowed characters: letters (A-Z, a-z), numbers (0-9),
+        underscore (_), period (.), hyphen (-).
+    required: true
+    unique: true
+
+  fastq_1:
+    description: Path to R1 FASTQ file.
+    required: true
+    constraints:
+      non_empty: true
+
+  fastq_2:
+    description: Path to R2 FASTQ file.
+    required: false
+    constraints:
+      required_when: layout == "PE"
+
+  layout:
+    description: Library layout.
+    allowed: ["PE", "SE"]
+    required: true
+
+  assay:
+    description: Experimental assay type.
+    allowed: ["chipseq", "cuttag"]
+    required: true
+
+  target:
+    description: Antibody or target name (e.g. H3K27ac, CTCF).
+    required: true
+
+  peak_mode:
+    description: Peak calling mode.
+    allowed: ["narrow", "broad"]
+    required: true
+
+  genome:
+    description: >
+      Genome label. Used to look up genome_resources in config.
+      Common values: hs, mm, hg19, hg38, mm10, mm39.
+    required: true
+
+  bowtie2_index:
+    description: Bowtie2 index prefix path.
+    required: true
+    constraints:
+      non_empty: true
+
+  role:
+    description: Sample role in the experiment.
+    allowed: ["treatment", "control"]
+    default: "treatment"
+    required: false
+
+  control_bam:
+    description: >
+      Path to an external control BAM file.
+      Used only when use_control is true in config.
+    required: false
+    constraints:
+      mutually_exclusive_with: control_sample
+
+  control_sample:
+    description: >
+      Sample ID of a control row to use as MACS3 input.
+      The referenced row must exist and have role=control.
+      Used only when use_control is true in config.
+    required: false
+    constraints:
+      mutually_exclusive_with: control_bam
+      cannot_reference_self: true
+      referenced_role: control
+
+# ---- Cross-Row Validation (when use_control: true) ----
+cross_validation:
+  - condition: "use_control is true"
+    checks:
+      - "control_sample references must exist in the sample sheet"
+      - "referenced control_sample rows must have role=control"
+      - "control_bam paths must exist on disk"
+      - "control_sample and control_bam are mutually exclusive per row"
+
+# ---- Backward Compatibility ----
+compatibility:
+  - "When use_control is false, control_bam and control_sample are silently ignored."
+  - "The minimal sample sheet (required columns only) is valid."
+  - "Empty optional fields are allowed."

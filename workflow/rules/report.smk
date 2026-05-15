@@ -18,6 +18,10 @@ rule pipeline_done:
         final_fs = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.final.flagstat.txt",
         idxstats = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.idxstats.txt",
         dup_met  = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
+        qc_summ  = (
+            f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.qc_summary.tsv"
+            if QC_CONFIG.get("summary", True) else []
+        ),
     shell:
         "touch {output.done}"
 

@@ -1,0 +1,154 @@
+# config.schema.yaml — Workflow configuration contract
+# ======================================================
+# Documents every config key, its type, allowed values, and defaults.
+# This file is a human-readable contract. Runtime validation is performed
+# by scripts/validate_samples.py (stdlib only, no YAML-schema dependency).
+
+# ---- Required ----
+samples:
+  type: string
+  description: Path to sample sheet (TSV format).
+  required: true
+
+# ---- Output & Resources ----
+outdir:
+  type: string
+  default: "results"
+  description: Output directory for all pipeline results.
+
+threads:
+  type: integer
+  default: 8
+  constraints: ">= 1"
+  description: CPU threads per job.
+
+mapq:
+  type: integer
+  default: 30
+  constraints: ">= 0"
+  description: MAPQ filter threshold for samtools view -q.
+
+binsize:
+  type: integer
+  default: 10
+  constraints: ">= 1"
+  description: BigWig bin size in bp.
+
+# ---- Processing Policies ----
+remove_dup:
+  type: string
+  default: "auto"
+  allowed: ["auto", "yes", "no"]
+  description:
+    Duplicate removal policy.
+    auto → yes for narrow peaks, no for broad peaks.
+
+trim:
+  type: boolean | string
+  default: true
+  allowed: [true, false, "true", "false"]
+  description: Enable adapter/quality trimming with Trim Galore.
+
+extend_reads:
+  type: string
+  default: "auto"
+  allowed: ["auto", "yes", "no", "<positive integer>"]
+  description:
+    Read extension policy for bamCoverage.
+    auto → extend SE reads; PE reads inferred from pairs.
+    yes  → extend SE reads; PE reads from pair inference.
+    no   → no extension.
+    <N>  → extend reads to N bp.
+
+use_control:
+  type: boolean | string
+  default: false
+  allowed: [true, false, "true", "false"]
+  description:
+    Enable optional control/input support.
+    When false, control_bam and control_sample are silently ignored.
+
+multiqc:
+  type: boolean | string
+  default: true
+  allowed: [true, false, "true", "false"]
+  description: Run MultiQC aggregation after all samples complete.
+
+# ---- Genome Resources (Stage 2) ----
+genome_resources:
+  type: mapping
+  required: false
+  description: >
+    Genome-specific resource paths and effective genome sizes.
+    Keys are genome labels (e.g. hs, mm, hg19, hg38, mm10, mm39).
+    "hs" and "mm" are MACS3 effective genome size shortcuts —
+    they are not genome assemblies.
+
+    hs   → effective_genome_size: "hs" (MACS3 shortcut, 2913022398 for GRCh38/hg38)
+    mm   → effective_genome_size: "mm" (MACS3 shortcut, 2652783500 for GRCm38/mm10)
+    hg19 → effective_genome_size: 2864785220
+    hg38 → effective_genome_size: 2913022398
+    mm10 → effective_genome_size: 2652783500
+    mm39 → effective_genome_size: 2654621783
+
+    chrom_sizes, blacklist, gtf, and reference_fasta are optional paths.
+    If non-empty, they must exist on disk.
+  schema:
+    "<genome>":
+      type: mapping
+      required: [effective_genome_size]
+      optional: [chrom_sizes, blacklist, gtf, reference_fasta]
+      properties:
+        effective_genome_size:
+          type: string | integer
+          allowed: ["hs", "mm", "<positive integer>"]
+          description: MACS3 -g value or explicit effective genome size.
+        chrom_sizes:
+          type: string
+          default: ""
+          description: Path to chromosome sizes file (e.g. hg38.chrom.sizes).
+        blacklist:
+          type: string
+          default: ""
+          description: Path to ENCODE blacklist BED file.
+        gtf:
+          type: string
+          default: ""
+          description: Path to reference GTF annotation.
+        reference_fasta:
+          type: string
+          default: ""
+          description: Path to reference FASTA file.
+
+# ---- Stage 3 QC (optional) ----
+qc:
+  type: mapping
+  required: false
+  default:
+    blacklist_filter: true
+    frip: true
+    summary: true
+  description: >
+    Stage 3 single-sample QC switches. Missing qc block defaults to all
+    switches enabled. Each switch accepts boolean or string boolean.
+  schema:
+    blacklist_filter:
+      type: boolean
+      default: true
+      description: >
+        Enable blacklist filtering for BAM and peak files. When true,
+        blacklist-filtered outputs are only scheduled for genomes that
+        have a non-empty blacklist path in genome_resources.
+    frip:
+      type: boolean
+      default: true
+      description: >
+        Enable FRiP (Fraction of Reads in Peaks) calculation.
+        Stage 3a is read-record based, not fragment-based.
+    summary:
+      type: boolean
+      default: true
+      description: >
+        Enable per-sample QC summary TSV and project-level summary.
+        Enables peak count reporting. When summary is true, frip and
+        peak_counts are also enabled regardless of their switches.

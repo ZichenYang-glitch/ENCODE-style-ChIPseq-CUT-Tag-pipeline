@@ -16,6 +16,17 @@ Stage 1 Snakemake rule modularization and Stage 1.5 validation closeout.
   data should be treated as human data.
 - Trim Galore 2.2 text and JSON reports are both preserved; MultiQC 1.35
   recognizes Trim Galore v2+ reports through the JSON files.
+- **Stage 2 foundation is in place:**
+  - `workflow/schemas/config.schema.yaml` and `workflow/schemas/samples.schema.yaml`
+    document the config and sample sheet contracts.
+  - `scripts/validate_samples.py` provides reusable config/sample validation
+    (importable by the Snakefile, runnable as standalone CLI).
+  - `workflow/Snakefile` delegates validation to `validate_samples.py` instead of
+    keeping it inline.
+  - `config/config.yaml` includes a `genome_resources` block with explicit
+    entries for hs, mm, hg19, hg38, mm10, and mm39.
+  - `_normalize_genome()` prefers configured effective genome sizes over legacy
+    mappings; mm39 resolves to 2654621783 when configured.
 
 ## Scope Gap
 
@@ -39,41 +50,47 @@ Major ENCODE-aligned features still missing include:
 
 ## Roadmap
 
-### Stage 2: Schema and Genome Resources Foundation
+### Stage 2: Schema and Genome Resources Foundation ✅
+
+**Completed 2026-05-15.**
 
 Goal: make incorrect configs fail early and give later ENCODE-like QC rules the
 genome resources they need.
 
-Estimated effort: 0.5-1 day.
-
-- Add `workflow/schemas/config.schema.yaml`.
-- Add `workflow/schemas/samples.schema.yaml`.
-- Add or formalize `scripts/validate_samples.py`.
-- Validate required sample sheet columns and optional columns.
-- Validate `layout`, `assay`, `peak_mode`, `role`, `trim`, `remove_dup`,
+- ✅ Add `workflow/schemas/config.schema.yaml`.
+- ✅ Add `workflow/schemas/samples.schema.yaml`.
+- ✅ Add or formalize `scripts/validate_samples.py`.
+- ✅ Validate required sample sheet columns and optional columns.
+- ✅ Validate `layout`, `assay`, `peak_mode`, `role`, `trim`, `remove_dup`,
   `extend_reads`, and `use_control`.
-- Validate `control_sample` references and `control_bam` paths when
+- ✅ Validate `control_sample` references and `control_bam` paths when
   `use_control: true`.
-- Keep backward compatibility with the current minimal sample sheet.
-- Add genome resource config keys such as `chrom_sizes`, `blacklist`,
+- ✅ Keep backward compatibility with the current minimal sample sheet.
+- ✅ Add genome resource config keys such as `chrom_sizes`, `blacklist`,
   `effective_genome_size`, and optional `gtf` / `reference_fasta`.
-- Validate genome resource paths when downstream rules require them.
+- ✅ Validate genome resource paths when downstream rules require them.
+- ✅ Update `_normalize_genome()` to prefer configured effective genome sizes;
+  mm39 resolves to explicit numeric value when configured.
 
 ### Stage 3: ENCODE-like Single-Sample QC
 
 Goal: add the most valuable ENCODE-like QC metrics without changing the sample
 model yet.
 
-Estimated effort: 1-2 days.
+**Stage 3a completed 2026-05-15** — blacklist filtering, FRiP, peak counts,
+and QC summary foundation.
 
-- Add blacklist filtering for BAMs and/or peak files.
-- Add FRiP calculation.
-- Add library complexity metrics.
-- Add cross-correlation metrics such as NSC/RSC.
-- Add fold-enrichment and p-value signal tracks where appropriate.
-- Add sample-level summary TSV for alignment rate, duplicate rate, peak count,
-  FRiP, library complexity, cross-correlation, and control usage.
-- Add a MultiQC custom config if needed to improve naming and report layout.
+Estimated effort: 1-2 days (Stage 3a: ~0.5 day).
+
+- ✅ Add blacklist filtering for BAMs and/or peak files. (Stage 3a)
+- ✅ Add FRiP calculation. (Stage 3a, read-record based)
+- ✅ Add sample-level summary TSV for alignment rate, duplicate rate, peak count,
+  FRiP, library complexity, cross-correlation, and control usage. (Stage 3a foundation)
+- ⬜ Add library complexity metrics. (Stage 3b)
+- ⬜ Add cross-correlation metrics such as NSC/RSC. (Stage 3b)
+- ⬜ Add fold-enrichment and p-value signal tracks where appropriate. (Stage 3b)
+- ⬜ Add a MultiQC custom config if needed to improve naming and report layout.
+  (Stage 3b)
 
 ### Stage 4: Replicate-Aware Sample Model
 
@@ -144,14 +161,14 @@ Estimated effort: 1-2 days.
 
 ## High Priority
 
-1. Add schema/sample validation and genome resources.
-   - Add schemas for `config/config.yaml` and `config/samples.tsv`.
-   - Validate optional columns: `role`, `control_sample`, and `control_bam`.
-   - Add and validate genome resources needed by blacklist, FRiP, and signal
+1. ✅ Add schema/sample validation and genome resources. (Stage 2, completed 2026-05-15)
+   - ✅ Add schemas for `config/config.yaml` and `config/samples.tsv`.
+   - ✅ Validate optional columns: `role`, `control_sample`, and `control_bam`.
+   - ✅ Add and validate genome resources needed by blacklist, FRiP, and signal
      track rules.
-   - Keep backward compatibility with the current sample sheet.
+   - ✅ Keep backward compatibility with the current sample sheet.
 
-2. Add ENCODE-like single-sample QC metrics.
+2. Add ENCODE-like single-sample QC metrics. (Stage 3)
    - Add blacklist filtering.
    - Add FRiP, library complexity, and cross-correlation metrics.
    - Add a cross-sample summary TSV.

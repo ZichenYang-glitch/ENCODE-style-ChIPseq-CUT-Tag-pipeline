@@ -31,9 +31,12 @@ analysis.
 - `workflow/rules/cuttag.smk`: CUT&Tag policy functions.
 - `workflow/rules/peaks.smk`: MACS3 peak calling rule.
 - `workflow/rules/report.smk`: Completion sentinels and MultiQC aggregation.
+- `workflow/schemas/config.schema.yaml`: Config schema contract (human-readable).
+- `workflow/schemas/samples.schema.yaml`: Sample sheet schema contract (human-readable).
 - `workflow/envs/chipseq.yml`: Conda environment for the Snakemake workflow.
 - `config/config.yaml`: Workflow configuration.
 - `config/samples.tsv`: Sample sheet.
+- `scripts/validate_samples.py`: Config and sample sheet validator (importable + CLI).
 - `scripts/chipseq.sh`: Legacy single-sample script kept for compatibility.
 - `KNOWN_ISSUES.md`: Non-blocking follow-ups and current limitations.
 
@@ -102,7 +105,24 @@ use_control: false     # false means no control_bam and no control_sample
 multiqc: true
 ```
 
-### 4. Run
+### 4. Validate Config and Samples
+
+Validate configuration and sample sheet before running the workflow:
+
+```bash
+# Run the standalone validator.
+python3 scripts/validate_samples.py --config config/config.yaml
+
+# Or let the Snakefile validate at parse time — invalid configs will exit
+# with a clear error before the DAG is built.
+snakemake -s workflow/Snakefile --configfile config/config.yaml -n
+```
+
+The validator is also importable by the Snakefile, so validation runs
+automatically at parse time. Schema contracts in `workflow/schemas/`
+document the expected config and sample sheet format.
+
+### 5. Run
 
 ```bash
 # Dry-run: build the DAG without executing commands.
@@ -144,6 +164,57 @@ Control rows are processed through the shared preprocessing rules and produce
 `final.bam`. MACS3 peak calling is scheduled only for treatment rows. Do not
 set both `control_bam` and `control_sample` on the same treatment row.
 
+## Genome Resources (Stage 2+)
+
+The `genome_resources` config block maps genome labels to effective genome
+sizes and optional resource paths. This foundation will be used by later
+ENCODE-like QC stages (blacklist filtering, FRiP, library complexity, etc.).
+
+**Important distinction:** `hs` and `mm` are **MACS3 effective genome size
+shortcuts**, not genome assemblies. They map to:
+
+| Shortcut | MACS3 -g value | Corresponding assembly | Numeric size |
+| :--- | :--- | :--- | :--- |
+| `hs` | `hs` | GRCh38 / hg38 | 2,913,022,398 |
+| `mm` | `mm` | GRCm38 / mm10 | 2,652,783,500 |
+
+**Explicit numeric entries** are also provided:
+
+| Label | Numeric effective genome size |
+| :--- | :--- |
+| `hg19` | 2,864,785,220 |
+| `hg38` | 2,913,022,398 |
+| `mm10` | 2,652,783,500 |
+| `mm39` | 2,654,621,783 |
+
+For **mm39 / GRCm39**, use the explicit `mm39` entry (or set a numeric
+`effective_genome_size`). Do not pass `mm` for mm39 — `mm` maps to the
+mm10 size.
+
+When `genome_resources` is configured, `_normalize_genome()` in the
+Snakefile prefers the configured `effective_genome_size` over legacy
+mappings. The old fallback (`mm39` → `mm`, `hg38` → `hs`, etc.) only
+applies when no genome resource entry exists for the sample's genome.
+
+Example configuration (see `config/config.yaml` for defaults):
+
+```yaml
+genome_resources:
+  hs:
+    effective_genome_size: "hs"
+    chrom_sizes: ""
+    blacklist: ""
+    gtf: ""
+    reference_fasta: ""
+
+  hg38:
+    effective_genome_size: 2913022398
+    chrom_sizes: "/data/genomes/hg38/hg38.chrom.sizes"
+    blacklist: "/data/genomes/hg38/hg38.blacklist.bed"
+    gtf: ""
+    reference_fasta: ""
+```
+
 ## Workflow Steps
 
 1. FastQC on raw FASTQs.
@@ -162,6 +233,92 @@ set both `control_bam` and `control_sample` on the same treatment row.
 - CUT&Tag narrow mode adds Tn5-aware MACS3 parameters: `--nomodel --shift -100 --extsize 200`.
 - CUT&Tag broad mode follows the broad MACS3 policy.
 - Stage 1 keeps duplicate removal and read extension behavior aligned with the legacy script.
+
+## Stage 3 QC: Single-Sample Quality Metrics
+
+Stage 3a adds ENCODE-like single-sample QC metrics. All features are
+resource-gated — blacklist operations only run when a blacklist BED is
+configured for the sample's genome in `genome_resources`.
+
+### Configuration
+
+QC is controlled by an optional `qc` block in `config/config.yaml`:
+
+```yaml
+qc:
+  blacklist_filter: true   # bedtools intersect -v filtering for BAM + peaks
+  frip: true               # Fraction of Reads in Peaks
+  summary: true            # Per-sample QC summary TSV + project-level aggregate
+```
+
+Missing `qc` block defaults to all switches enabled. Each switch accepts
+boolean or string boolean (`true`/`false`).
+
+### QC Metrics
+
+#### Blacklist Filtering
+
+- BAM: `bedtools intersect -v -abam final.bam -b blacklist.bed`
+- Peaks: `bedtools intersect -v -a peaks_file -b blacklist.bed`
+- Only scheduled when the sample's genome has a non-empty `blacklist` path
+  in `genome_resources`. Samples without a configured blacklist skip
+  blacklist-specific outputs.
+- `final.bam` is **not** replaced — blacklist-filtered BAM is an additional
+  output (`{sample}.blacklist_filtered.bam`).
+
+#### FRiP (Fraction of Reads in Peaks)
+
+Stage 3a FRiP is **read-record based** (not fragment-based):
+```
+FRiP = reads_in_peaks / total_reads
+```
+- `total_reads`: `samtools view -c` on BAM
+- `reads_in_peaks`: `bedtools intersect -u -abam BAM -b peaks | samtools view -c`
+- Uses blacklist-filtered BAM and peaks when **both** are available for
+  a sample; otherwise falls back to unfiltered files.
+- Output: `{sample}.frip.tsv`
+
+#### Peak Counts
+
+- Counts lines in the MACS3 peak file (narrowPeak or broadPeak).
+- If blacklist-filtered peaks exist, reports both raw and filtered counts.
+- Output: `{sample}.peak_counts.tsv`
+
+#### QC Summary
+
+Per-sample TSV (`{sample}.qc_summary.tsv`) with columns:
+`sample`, `assay`, `target`, `genome`, `layout`, `peak_mode`,
+`use_control`, `control_type`, `final_bam`, `peaks`, `blacklist`,
+`blacklist_filtered_bam`, `blacklist_filtered_peaks`, `total_reads`,
+`reads_in_peaks`, `frip`, `peak_count`, `blacklist_filtered_peak_count`
+
+Unavailable metrics are filled with `NA` (not empty string).
+
+A project-level summary aggregates all per-sample TSVs at
+`multiqc/stage3_qc_summary.tsv`.
+
+### QC Output Structure
+
+```text
+results/<sample>/01_qc/
+├── <sample>.peak_counts.tsv
+├── <sample>.frip.tsv
+├── <sample>.qc_summary.tsv
+└── ... (existing QC files)
+
+results/<sample>/02_align/
+├── <sample>.blacklist_filtered.bam        # only with blacklist
+└── <sample>.blacklist_filtered.bam.bai    # only with blacklist
+
+results/<sample>/04_peaks/<sample>/
+└── <sample>_peaks.narrowPeak
+
+results/<sample>/04_peaks/<sample>_blacklist_filtered/
+└── <sample>_peaks.blacklist_filtered.narrowPeak  # only with blacklist
+
+results/multiqc/
+└── stage3_qc_summary.tsv                  # project-level aggregate
+```
 
 ## Output Structure
 
