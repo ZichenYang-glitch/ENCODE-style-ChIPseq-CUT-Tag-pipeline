@@ -1,6 +1,7 @@
-# qc.smk — Stage 3a Single-Sample QC rules
-# ==========================================
-# Blacklist filtering (BAM + peaks), peak counts, FRiP, and QC summary.
+# qc.smk — Stage 3 Single-Sample QC rules
+# ========================================
+# Blacklist filtering (BAM + peaks), peak counts, FRiP, library complexity,
+# MACS3 signal tracks, and QC summary.
 # All QC features are resource-gated — blacklist operations only run when
 # a blacklist BED is configured for the sample's genome in genome_resources.
 #
@@ -9,6 +10,9 @@
 #   blacklist_filter_peaks  → bedtools intersect -v on peak file
 #   peak_counts             → count lines in peak files
 #   frip                    → calc_frip.py (read-record based)
+#   library_complexity      → parse Picard MarkDuplicates metrics
+#   signal_track_fe         → MACS3 bdgcmp FE bedGraph
+#   signal_track_ppois      → MACS3 bdgcmp ppois bedGraph
 #   qc_summary              → per-sample TSV assembly
 #   stage3_qc_summary       → project-level aggregated summary
 
@@ -46,6 +50,11 @@ def _blacklist_peak_file(sample_id):
 def _blacklist_bam_file(sample_id):
     """Return the blacklist-filtered BAM file path for a sample."""
     return f"{OUTDIR}/{sample_id}/02_align/{sample_id}.blacklist_filtered.bam"
+
+
+def _signal_track_file(sample_id, signal):
+    """Return a MACS3-derived signal bedGraph path for a sample."""
+    return f"{OUTDIR}/{sample_id}/03_signal/{sample_id}.{signal}.bdg"
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +173,7 @@ rule frip:
         "../envs/chipseq.yml",
     shell:
         """
+        set -e -o pipefail
         set -- {input:q}
         BAM="$1"
         SUFFIX="narrowPeak"
@@ -202,16 +212,135 @@ def _frip_inputs(wildcards):
 
 
 # ---------------------------------------------------------------------------
-# 5. Per-sample QC summary
+# 5. Library complexity (Stage 3b-1)
+# ---------------------------------------------------------------------------
+
+rule library_complexity:
+    output:
+        f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.library_complexity.tsv",
+    input:
+        f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.library_complexity.log",
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        python3 scripts/parse_dup_metrics.py \
+            --sample {wildcards.sample:q} \
+            --metrics {input:q} \
+            --output {output:q} \
+            2>&1 | tee {log:q}
+        """
+
+
+# ---------------------------------------------------------------------------
+# 5a. NRF/PBC library complexity (Stage 3c-1)
+# ---------------------------------------------------------------------------
+
+rule nrf_pbc:
+    output:
+        f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.nrf_pbc.tsv",
+    input:
+        f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.nrf_pbc.log",
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        python3 scripts/calc_nrf_pbc.py \
+            --sample {wildcards.sample:q} \
+            --bam {input:q} \
+            --output {output:q} \
+            2>&1 | tee {log:q}
+        """
+
+
+# ---------------------------------------------------------------------------
+# 6. MACS3 signal tracks (Stage 3b-2)
+# ---------------------------------------------------------------------------
+
+rule signal_track_fe:
+    output:
+        f"{OUTDIR}/{{sample}}/03_signal/{{sample}}.FE.bdg",
+    input:
+        peaks_dir = f"{OUTDIR}/{{sample}}/04_peaks/{{sample}}",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.bdgcmp.FE.log",
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        TREAT={input.peaks_dir:q}/{wildcards.sample}_treat_pileup.bdg
+        LAMBDA={input.peaks_dir:q}/{wildcards.sample}_control_lambda.bdg
+        if [[ ! -s "$TREAT" || ! -s "$LAMBDA" ]]; then
+            echo "ERROR: MACS3 bedGraph inputs missing for FE signal track." >&2
+            echo "Expected: $TREAT" >&2
+            echo "Expected: $LAMBDA" >&2
+            echo "Ensure qc.signal_tracks is true so macs3 callpeak runs with -B." >&2
+            exit 1
+        fi
+
+        mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
+        macs3 bdgcmp \
+            -t "$TREAT" \
+            -c "$LAMBDA" \
+            -m FE \
+            -p 1 \
+            -o {output:q} \
+            2>&1 | tee {log:q}
+        """
+
+
+rule signal_track_ppois:
+    output:
+        f"{OUTDIR}/{{sample}}/03_signal/{{sample}}.ppois.bdg",
+    input:
+        peaks_dir = f"{OUTDIR}/{{sample}}/04_peaks/{{sample}}",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.bdgcmp.ppois.log",
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        TREAT={input.peaks_dir:q}/{wildcards.sample}_treat_pileup.bdg
+        LAMBDA={input.peaks_dir:q}/{wildcards.sample}_control_lambda.bdg
+        if [[ ! -s "$TREAT" || ! -s "$LAMBDA" ]]; then
+            echo "ERROR: MACS3 bedGraph inputs missing for ppois signal track." >&2
+            echo "Expected: $TREAT" >&2
+            echo "Expected: $LAMBDA" >&2
+            echo "Ensure qc.signal_tracks is true so macs3 callpeak runs with -B." >&2
+            exit 1
+        fi
+
+        mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
+        macs3 bdgcmp \
+            -t "$TREAT" \
+            -c "$LAMBDA" \
+            -m ppois \
+            -o {output:q} \
+            2>&1 | tee {log:q}
+        """
+
+
+# ---------------------------------------------------------------------------
+# 7. Per-sample QC summary
 # ---------------------------------------------------------------------------
 
 rule qc_summary:
     output:
         f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.qc_summary.tsv",
     input:
-        peak_counts = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.peak_counts.tsv",
-        frip        = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.frip.tsv",
-        final_bam   = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        peak_counts         = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.peak_counts.tsv",
+        frip                = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.frip.tsv",
+        library_complexity  = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.library_complexity.tsv",
+        nrf_pbc             = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.nrf_pbc.tsv",
+        final_bam           = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
     params:
         sample     = "{sample}",
         assay      = lambda wc: SAMPLE_MAP[wc.sample]["assay"],
@@ -250,12 +379,38 @@ rule qc_summary:
         READS_IN_PEAKS=$(tail -n +2 {input.frip:q} | cut -f3)
         FRIP=$(tail -n +2 {input.frip:q} | cut -f4)
 
+        # Read library complexity values (skip header and sample column)
+        LC_DATA=$(tail -n +2 {input.library_complexity:q})
+        METRICS_SOURCE=$(echo "$LC_DATA" | cut -f2)
+        LC_UP_EXAM=$(echo "$LC_DATA" | cut -f3)
+        LC_RP_EXAM=$(echo "$LC_DATA" | cut -f4)
+        LC_SEC_SUP=$(echo "$LC_DATA" | cut -f5)
+        LC_UNMAPPED=$(echo "$LC_DATA" | cut -f6)
+        LC_UP_DUP=$(echo "$LC_DATA" | cut -f7)
+        LC_RP_DUP=$(echo "$LC_DATA" | cut -f8)
+        LC_RP_OPT=$(echo "$LC_DATA" | cut -f9)
+        LC_PCT_DUP=$(echo "$LC_DATA" | cut -f10)
+        LC_EST_SIZE=$(echo "$LC_DATA" | cut -f11)
+        LC_TOT_EXAM=$(echo "$LC_DATA" | cut -f12)
+        LC_EST_DUP=$(echo "$LC_DATA" | cut -f13)
+
+        # Read NRF/PBC values (skip header)
+        NRF_PBC_DATA=$(tail -n +2 {input.nrf_pbc:q})
+        NRF_TOTAL=$(echo "$NRF_PBC_DATA" | cut -f2)
+        NRF_DISTINCT=$(echo "$NRF_PBC_DATA" | cut -f3)
+        NRF_ONE=$(echo "$NRF_PBC_DATA" | cut -f4)
+        NRF_TWO=$(echo "$NRF_PBC_DATA" | cut -f5)
+        NRF_NRF=$(echo "$NRF_PBC_DATA" | cut -f6)
+        NRF_PBC1=$(echo "$NRF_PBC_DATA" | cut -f7)
+        NRF_PBC2=$(echo "$NRF_PBC_DATA" | cut -f8)
+
         if [[ "{params.has_blacklist}" == "no" ]]; then
             if [[ "$BL_PEAK_COUNT" != "NA" ]]; then
                 BL_PEAK_COUNT="NA"
             fi
         fi
 
+        # Header
         printf "sample\\tassay\\ttarget\\tgenome\\tlayout\\tpeak_mode\\t" \
             > {output:q}
         printf "use_control\\tcontrol_type\\tfinal_bam\\tpeaks\\t" \
@@ -266,9 +421,34 @@ rule qc_summary:
             >> {output:q}
         printf "reads_in_peaks\\tfrip\\tpeak_count\\t" \
             >> {output:q}
-        printf "blacklist_filtered_peak_count\\n" \
+        printf "blacklist_filtered_peak_count\\t" \
+            >> {output:q}
+        printf "metrics_source\\tunpaired_reads_examined\\t" \
+            >> {output:q}
+        printf "read_pairs_examined\\t" \
+            >> {output:q}
+        printf "secondary_or_supplementary_reads\\t" \
+            >> {output:q}
+        printf "unmapped_reads\\tunpaired_read_duplicates\\t" \
+            >> {output:q}
+        printf "read_pair_duplicates\\t" \
+            >> {output:q}
+        printf "read_pair_optical_duplicates\\t" \
+            >> {output:q}
+        printf "percent_duplication\\testimated_library_size\\t" \
+            >> {output:q}
+        printf "total_reads_examined\\t" \
+            >> {output:q}
+        printf "duplicate_reads_estimate\\t" \
+            >> {output:q}
+        printf "total_fragments\\tdistinct_fragments\\t" \
+            >> {output:q}
+        printf "one_read_fragments\\ttwo_read_fragments\\t" \
+            >> {output:q}
+        printf "nrf\\tpbc1\\tpbc2\\n" \
             >> {output:q}
 
+        # Data
         printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t" \
             {params.sample:q} \
             {params.assay:q} \
@@ -283,7 +463,7 @@ rule qc_summary:
             {input.final_bam:q} \
             {params.peaks_file:q} \
             >> {output:q}
-        printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" \
+        printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t" \
             {params.blacklist:q} \
             {params.bl_bam:q} \
             {params.bl_peaks:q} \
@@ -292,6 +472,29 @@ rule qc_summary:
             "$FRIP" \
             "$PEAK_COUNT" \
             "$BL_PEAK_COUNT" \
+            >> {output:q}
+        printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t" \
+            "$METRICS_SOURCE" \
+            "$LC_UP_EXAM" \
+            "$LC_RP_EXAM" \
+            "$LC_SEC_SUP" \
+            "$LC_UNMAPPED" \
+            "$LC_UP_DUP" \
+            "$LC_RP_DUP" \
+            "$LC_RP_OPT" \
+            "$LC_PCT_DUP" \
+            "$LC_EST_SIZE" \
+            "$LC_TOT_EXAM" \
+            "$LC_EST_DUP" \
+            >> {output:q}
+        printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" \
+            "$NRF_TOTAL" \
+            "$NRF_DISTINCT" \
+            "$NRF_ONE" \
+            "$NRF_TWO" \
+            "$NRF_NRF" \
+            "$NRF_PBC1" \
+            "$NRF_PBC2" \
             >> {output:q}
         """
 
@@ -309,7 +512,7 @@ def _control_type(sample_id):
 
 
 # ---------------------------------------------------------------------------
-# 6. Project-level QC summary
+# 8. Project-level QC summary
 # ---------------------------------------------------------------------------
 
 rule stage3_qc_summary:
@@ -334,7 +537,31 @@ rule stage3_qc_summary:
                 >> {output:q}
             printf "reads_in_peaks\\tfrip\\tpeak_count\\t" \
                 >> {output:q}
-            printf "blacklist_filtered_peak_count\\n" \
+            printf "blacklist_filtered_peak_count\\t" \
+                >> {output:q}
+            printf "metrics_source\\tunpaired_reads_examined\\t" \
+                >> {output:q}
+            printf "read_pairs_examined\\t" \
+                >> {output:q}
+            printf "secondary_or_supplementary_reads\\t" \
+                >> {output:q}
+            printf "unmapped_reads\\tunpaired_read_duplicates\\t" \
+                >> {output:q}
+            printf "read_pair_duplicates\\t" \
+                >> {output:q}
+            printf "read_pair_optical_duplicates\\t" \
+                >> {output:q}
+            printf "percent_duplication\\testimated_library_size\\t" \
+                >> {output:q}
+            printf "total_reads_examined\\t" \
+                >> {output:q}
+            printf "duplicate_reads_estimate\\t" \
+                >> {output:q}
+            printf "total_fragments\\tdistinct_fragments\\t" \
+                >> {output:q}
+            printf "one_read_fragments\\ttwo_read_fragments\\t" \
+                >> {output:q}
+            printf "nrf\\tpbc1\\tpbc2\\n" \
                 >> {output:q}
             exit 0
         fi

@@ -18,6 +18,24 @@ rule pipeline_done:
         final_fs = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.final.flagstat.txt",
         idxstats = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.idxstats.txt",
         dup_met  = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
+        lib_cmplx  = (
+            f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.library_complexity.tsv"
+            if (QC_CONFIG.get("library_complexity", True)
+                or QC_CONFIG.get("summary", True)) else []
+        ),
+        nrf_pbc_out  = (
+            f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.nrf_pbc.tsv"
+            if (QC_CONFIG.get("nrf_pbc", True)
+                or QC_CONFIG.get("summary", True)) else []
+        ),
+        signal_fe  = (
+            f"{OUTDIR}/{{sample}}/03_signal/{{sample}}.FE.bdg"
+            if QC_CONFIG.get("signal_tracks", True) else []
+        ),
+        signal_ppois  = (
+            f"{OUTDIR}/{{sample}}/03_signal/{{sample}}.ppois.bdg"
+            if QC_CONFIG.get("signal_tracks", True) else []
+        ),
         qc_summ  = (
             f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.qc_summary.tsv"
             if QC_CONFIG.get("summary", True) else []
@@ -67,6 +85,7 @@ if MULTIQC:
             "../envs/chipseq.yml",
         shell:
             """
+            set -e -o pipefail
             command -v multiqc >/dev/null 2>&1 || {{
                 echo "ERROR: multiqc not found. Install it or set multiqc: false in config.yaml." >&2
                 exit 1

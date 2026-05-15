@@ -96,6 +96,9 @@ CONTROL_SAMPLE_IDS   = [
 QC_CONFIG = VALIDATED_CONFIG.get("qc", {
     "blacklist_filter": True,
     "frip": True,
+    "library_complexity": True,
+    "nrf_pbc": True,
+    "signal_tracks": True,
     "summary": True,
 })
 
@@ -219,6 +222,28 @@ rule all:
             )
             if QC_CONFIG.get("summary", True) else []
         ),
+        # Stage 3 QC: library complexity (enabled when library_complexity or summary is true)
+        lib_complexity = (
+            expand(
+                "{outdir}/{sample}/01_qc/{sample}.library_complexity.tsv",
+                outdir=OUTDIR,
+                sample=TREATMENT_SAMPLE_IDS,
+            )
+            if (QC_CONFIG.get("library_complexity", True)
+                or QC_CONFIG.get("summary", True))
+            else []
+        ),
+        # Stage 3 QC: NRF/PBC (enabled when nrf_pbc or summary is true)
+        nrf_pbc = (
+            expand(
+                "{outdir}/{sample}/01_qc/{sample}.nrf_pbc.tsv",
+                outdir=OUTDIR,
+                sample=TREATMENT_SAMPLE_IDS,
+            )
+            if (QC_CONFIG.get("nrf_pbc", True)
+                or QC_CONFIG.get("summary", True))
+            else []
+        ),
         # Stage 3 QC: FRiP (enabled when frip or summary is true)
         frip = (
             expand(
@@ -237,6 +262,23 @@ rule all:
                 sample=TREATMENT_SAMPLE_IDS,
             )
             if QC_CONFIG.get("summary", True) else []
+        ),
+        # Stage 3 QC: MACS3 FE/ppois bedGraph signal tracks
+        signal_fe = (
+            expand(
+                "{outdir}/{sample}/03_signal/{sample}.FE.bdg",
+                outdir=OUTDIR,
+                sample=TREATMENT_SAMPLE_IDS,
+            )
+            if QC_CONFIG.get("signal_tracks", True) else []
+        ),
+        signal_ppois = (
+            expand(
+                "{outdir}/{sample}/03_signal/{sample}.ppois.bdg",
+                outdir=OUTDIR,
+                sample=TREATMENT_SAMPLE_IDS,
+            )
+            if QC_CONFIG.get("signal_tracks", True) else []
         ),
         # Stage 3 QC: blacklist-filtered BAM (only for samples with a blacklist)
         bl_bam = (

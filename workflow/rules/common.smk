@@ -338,6 +338,7 @@ rule bamcoverage:
         "../envs/chipseq.yml",
     shell:
         """
+        set -e -o pipefail
         set -- {input:q}
         BAM="$1"
         bamCoverage \

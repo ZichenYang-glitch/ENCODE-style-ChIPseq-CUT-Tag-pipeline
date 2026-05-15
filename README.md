@@ -20,6 +20,8 @@ analysis.
 - ChIP-seq and CUT&Tag assay policies with shared preprocessing rules.
 - Snakemake-native DAG tracking, resume support, and per-step reruns.
 - Optional control handling through external BAMs or FASTQ-based control rows.
+- Resource-gated single-sample QC: blacklist filtering, FRiP, peak counts,
+  library complexity, NRF/PBC, and MACS3 FE/ppois signal tracks.
 - Conda-managed workflow environment.
 - Legacy single-sample shell script retained for compatibility.
 
@@ -30,6 +32,7 @@ analysis.
 - `workflow/rules/chipseq.smk`: ChIP-seq policy functions.
 - `workflow/rules/cuttag.smk`: CUT&Tag policy functions.
 - `workflow/rules/peaks.smk`: MACS3 peak calling rule.
+- `workflow/rules/qc.smk`: Stage 3 single-sample QC rules.
 - `workflow/rules/report.smk`: Completion sentinels and MultiQC aggregation.
 - `workflow/schemas/config.schema.yaml`: Config schema contract (human-readable).
 - `workflow/schemas/samples.schema.yaml`: Sample sheet schema contract (human-readable).
@@ -37,6 +40,9 @@ analysis.
 - `config/config.yaml`: Workflow configuration.
 - `config/samples.tsv`: Sample sheet.
 - `scripts/validate_samples.py`: Config and sample sheet validator (importable + CLI).
+- `scripts/calc_frip.py`: FRiP metric helper.
+- `scripts/parse_dup_metrics.py`: Picard MarkDuplicates metrics parser.
+- `scripts/calc_nrf_pbc.py`: BAM-derived NRF/PBC metric helper.
 - `scripts/chipseq.sh`: Legacy single-sample script kept for compatibility.
 - `KNOWN_ISSUES.md`: Non-blocking follow-ups and current limitations.
 
@@ -167,8 +173,9 @@ set both `control_bam` and `control_sample` on the same treatment row.
 ## Genome Resources (Stage 2+)
 
 The `genome_resources` config block maps genome labels to effective genome
-sizes and optional resource paths. This foundation will be used by later
-ENCODE-like QC stages (blacklist filtering, FRiP, library complexity, etc.).
+sizes and optional resource paths. The workflow uses it for MACS3 effective
+genome size resolution, blacklist-aware QC, and future resource-backed
+annotations.
 
 **Important distinction:** `hs` and `mm` are **MACS3 effective genome size
 shortcuts**, not genome assemblies. They map to:
@@ -225,7 +232,9 @@ genome_resources:
 6. Samtools `flagstat` and `idxstats`.
 7. deepTools `bamCoverage` CPM BigWig generation.
 8. MACS3 peak calling for treatment samples.
-9. MultiQC aggregation over the current sample directories.
+9. Stage 3 single-sample QC metrics and summaries.
+10. Optional MACS3 FE/ppois bedGraph signal tracks.
+11. MultiQC aggregation over the current sample directories.
 
 ## Assay-Specific Policy
 
@@ -234,11 +243,14 @@ genome_resources:
 - CUT&Tag broad mode follows the broad MACS3 policy.
 - Stage 1 keeps duplicate removal and read extension behavior aligned with the legacy script.
 
-## Stage 3 QC: Single-Sample Quality Metrics
+## Stage 3: Single-Sample Quality Metrics (3a + 3b + 3c-1)
 
-Stage 3a adds ENCODE-like single-sample QC metrics. All features are
-resource-gated — blacklist operations only run when a blacklist BED is
-configured for the sample's genome in `genome_resources`.
+Stage 3a adds ENCODE-like single-sample QC metrics. Stage 3b-1 extends it
+with duplication-derived library complexity. Stage 3b-2 adds MACS3
+fold-enrichment and p-value bedGraph signal tracks. Stage 3c-1 adds
+BAM-derived NRF/PBC library complexity. Blacklist-dependent operations are
+resource-gated: they only run when a blacklist BED is configured for the
+sample's genome in `genome_resources`.
 
 ### Configuration
 
@@ -246,9 +258,12 @@ QC is controlled by an optional `qc` block in `config/config.yaml`:
 
 ```yaml
 qc:
-  blacklist_filter: true   # bedtools intersect -v filtering for BAM + peaks
-  frip: true               # Fraction of Reads in Peaks
-  summary: true            # Per-sample QC summary TSV + project-level aggregate
+  blacklist_filter: true      # bedtools intersect -v filtering for BAM + peaks
+  frip: true                  # Fraction of Reads in Peaks
+  library_complexity: true    # Picard duplication-derived metrics
+  nrf_pbc: true               # BAM-derived NRF/PBC library complexity
+  signal_tracks: true         # MACS3 FE + ppois bedGraph tracks
+  summary: true               # Per-sample QC summary TSV + project-level aggregate
 ```
 
 Missing `qc` block defaults to all switches enabled. Each switch accepts
@@ -278,6 +293,49 @@ FRiP = reads_in_peaks / total_reads
   a sample; otherwise falls back to unfiltered files.
 - Output: `{sample}.frip.tsv`
 
+#### Library Complexity (Stage 3b-1)
+
+Stage 3b-1 adds duplication-derived library complexity metrics from Picard
+MarkDuplicates. This is **not** preseq-based; cross-correlation and
+preseq-style complexity remain follow-ups.
+
+- Parses Picard MarkDuplicates metrics from `{sample}.dup_metrics.txt`
+  (already produced by the `duplicate_handling` rule).
+- If Picard is unavailable (samtools markdup fallback), all fields are `NA`.
+- `total_reads_examined = unpaired_reads_examined + 2 * read_pairs_examined`
+- `duplicate_reads_estimate = unpaired_read_duplicates + 2 * read_pair_duplicates`
+- Output: `{sample}.library_complexity.tsv`
+
+#### NRF/PBC Complexity (Stage 3c-1)
+
+Stage 3c-1 adds BAM-derived NRF/PBC library complexity metrics. This is
+**not** preseq-based and **not** cross-correlation — those remain Stage 3c-2.
+
+- Computes NRF (Non-Redundant Fraction) and PBC (PCR Bottleneck Coefficients)
+  from `final.bam` using fragment-level deduplication.
+- PE: fragment key = `(chrom, start, end)` from properly paired R1 records.
+  Falls back to `(chrom, pos, strand)` when TLEN is unavailable.
+- SE: fragment key = `(chrom, pos, strand)` from primary alignments.
+- `NRF = distinct_fragments / total_fragments`
+- `PBC1 = one_read_fragments / distinct_fragments`
+- `PBC2 = one_read_fragments / two_read_fragments`
+- Zero denominators produce `NA`.
+- Output: `{sample}.nrf_pbc.tsv`
+
+#### MACS3 Signal Tracks (Stage 3b-2)
+
+When `qc.signal_tracks: true`, `macs3 callpeak` runs with `-B` so MACS3
+emits `{sample}_treat_pileup.bdg` and `{sample}_control_lambda.bdg` in
+the peak directory. Stage 3b-2 then runs:
+
+- `macs3 bdgcmp -m FE -p 1` to produce `{sample}.FE.bdg`
+- `macs3 bdgcmp -m ppois` to produce `{sample}.ppois.bdg`
+
+The `ppois` track is MACS3's p-value signal (`-log10(pvalue)`). This
+slice intentionally stops at bedGraph output; browser-ready bigWig
+conversion can be added later when `chrom_sizes` and a bedGraph-to-bigWig
+tool are configured.
+
 #### Peak Counts
 
 - Counts lines in the MACS3 peak file (narrowPeak or broadPeak).
@@ -290,7 +348,15 @@ Per-sample TSV (`{sample}.qc_summary.tsv`) with columns:
 `sample`, `assay`, `target`, `genome`, `layout`, `peak_mode`,
 `use_control`, `control_type`, `final_bam`, `peaks`, `blacklist`,
 `blacklist_filtered_bam`, `blacklist_filtered_peaks`, `total_reads`,
-`reads_in_peaks`, `frip`, `peak_count`, `blacklist_filtered_peak_count`
+`reads_in_peaks`, `frip`, `peak_count`, `blacklist_filtered_peak_count`,
+`metrics_source`, `unpaired_reads_examined`, `read_pairs_examined`,
+`secondary_or_supplementary_reads`, `unmapped_reads`,
+`unpaired_read_duplicates`, `read_pair_duplicates`,
+`read_pair_optical_duplicates`, `percent_duplication`,
+`estimated_library_size`, `total_reads_examined`,
+`duplicate_reads_estimate`,
+`total_fragments`, `distinct_fragments`, `one_read_fragments`,
+`two_read_fragments`, `nrf`, `pbc1`, `pbc2`
 
 Unavailable metrics are filled with `NA` (not empty string).
 
@@ -303,6 +369,8 @@ A project-level summary aggregates all per-sample TSVs at
 results/<sample>/01_qc/
 ├── <sample>.peak_counts.tsv
 ├── <sample>.frip.tsv
+├── <sample>.library_complexity.tsv
+├── <sample>.nrf_pbc.tsv
 ├── <sample>.qc_summary.tsv
 └── ... (existing QC files)
 
@@ -310,8 +378,12 @@ results/<sample>/02_align/
 ├── <sample>.blacklist_filtered.bam        # only with blacklist
 └── <sample>.blacklist_filtered.bam.bai    # only with blacklist
 
+results/<sample>/03_signal/
+├── <sample>.FE.bdg                        # when qc.signal_tracks is true
+└── <sample>.ppois.bdg                     # when qc.signal_tracks is true
+
 results/<sample>/04_peaks/<sample>/
-└── <sample>_peaks.narrowPeak
+└── <sample>_peaks.narrowPeak              # or broadPeak
 
 results/<sample>/04_peaks/<sample>_blacklist_filtered/
 └── <sample>_peaks.blacklist_filtered.narrowPeak  # only with blacklist
@@ -335,7 +407,11 @@ results/
 │   │   ├── <sample>.flagstat.txt
 │   │   ├── <sample>.final.flagstat.txt
 │   │   ├── <sample>.idxstats.txt
-│   │   └── <sample>.dup_metrics.txt
+│   │   ├── <sample>.dup_metrics.txt
+│   │   ├── <sample>.frip.tsv
+│   │   ├── <sample>.library_complexity.tsv
+│   │   ├── <sample>.nrf_pbc.tsv
+│   │   └── <sample>.qc_summary.tsv
 │   ├── 02_align/
 │   │   ├── <sample>.sorted.bam
 │   │   ├── <sample>.mapq30.bam
@@ -343,6 +419,9 @@ results/
 │   │   └── <sample>.final.bam.bai
 │   ├── 03_bigwig/
 │   │   └── <sample>.CPM.bw
+│   ├── 03_signal/
+│   │   ├── <sample>.FE.bdg
+│   │   └── <sample>.ppois.bdg
 │   ├── 04_peaks/
 │   │   └── <sample>/
 │   └── logs/
@@ -376,8 +455,9 @@ Known legacy-script hardening tasks are tracked in `KNOWN_ISSUES.md`.
 
 ## Known Limitations
 
-See `KNOWN_ISSUES.md` for non-blocking follow-ups, including schema validation,
-plotFingerprint migration, environment cleanup, and legacy script hardening.
+See `KNOWN_ISSUES.md` for non-blocking follow-ups, including replicate-aware
+modeling, cross-correlation metrics, plotFingerprint migration, environment
+cleanup, and legacy script hardening.
 
 ## License
 

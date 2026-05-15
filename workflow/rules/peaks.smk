@@ -11,6 +11,7 @@ rule macs3_callpeak:
         lambda wc: _macs3_inputs(wc),
     params:
         macs3_args = lambda wc: get_macs3_args(wc),
+        bdg_args   = lambda wc: "-B" if QC_CONFIG.get("signal_tracks", True) else "",
         sample     = "{sample}",
         peak_mode  = lambda wc: SAMPLE_MAP[wc.sample]["peak_mode"],
     log:
@@ -20,6 +21,7 @@ rule macs3_callpeak:
         "../envs/chipseq.yml",
     shell:
         """
+        set -e -o pipefail
         mkdir -p {output.peaks:q}
 
         set -- {input:q}
@@ -32,6 +34,7 @@ rule macs3_callpeak:
                 -n {params.sample:q} \
                 --outdir {output.peaks:q} \
                 {params.macs3_args} \
+                {params.bdg_args} \
                 2>&1 | tee {log:q}
         else
             macs3 callpeak \
@@ -39,6 +42,7 @@ rule macs3_callpeak:
                 -n {params.sample:q} \
                 --outdir {output.peaks:q} \
                 {params.macs3_args} \
+                {params.bdg_args} \
                 2>&1 | tee {log:q}
         fi
 

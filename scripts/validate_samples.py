@@ -214,6 +214,9 @@ def _validate_qc_config(qc: dict) -> dict:
     return {
         "blacklist_filter": _normalize_bool("blacklist_filter"),
         "frip": _normalize_bool("frip"),
+        "library_complexity": _normalize_bool("library_complexity"),
+        "nrf_pbc": _normalize_bool("nrf_pbc"),
+        "signal_tracks": _normalize_bool("signal_tracks"),
         "summary": _normalize_bool("summary"),
     }
 

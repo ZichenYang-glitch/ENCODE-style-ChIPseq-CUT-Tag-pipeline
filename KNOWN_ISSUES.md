@@ -32,20 +32,19 @@ Stage 1 Snakemake rule modularization and Stage 1.5 validation closeout.
 
 The current workflow is ENCODE-inspired, not a full ENCODE-compliant ChIP-seq
 pipeline. It currently provides single-sample preprocessing, MACS3 peak calling,
-CPM-normalized BigWig generation, and MultiQC aggregation.
+CPM-normalized BigWig generation, resource-gated single-sample QC, MACS3
+FE/ppois bedGraph signal tracks, and MultiQC aggregation.
 
 Major ENCODE-aligned features still missing include:
 
 - Replicate-aware experiment modeling.
 - IDR and pseudoreplicate analysis for TF ChIP-seq.
 - Pooled replicate peak sets.
-- Blacklist filtering.
-- FRiP calculation.
-- Library complexity metrics.
 - Cross-correlation metrics such as NSC/RSC.
-- Fold-enrichment and p-value signal tracks.
+- Full NRF/PBC metrics beyond duplication-derived library complexity.
+- Browser-ready bigWig conversion for FE/ppois signal tracks.
 - Reproducibility reports.
-- Genome-specific resource management, including chromosome sizes, blacklist
+- More complete genome-specific resource management, including chromosome sizes,
   BED files, effective genome sizes, and optional reference annotations.
 
 ## Roadmap
@@ -79,18 +78,29 @@ model yet.
 
 **Stage 3a completed 2026-05-15** — blacklist filtering, FRiP, peak counts,
 and QC summary foundation.
+**Stage 3b-1 completed 2026-05-15** — library complexity from Picard
+MarkDuplicates metrics.
+**Stage 3b-2 completed 2026-05-15** — MACS3 fold-enrichment and p-value
+bedGraph signal tracks.
+**Stage 3c-1 completed 2026-05-15** — BAM-derived NRF/PBC library complexity.
 
-Estimated effort: 1-2 days (Stage 3a: ~0.5 day).
+Estimated effort: 1-2 days (Stage 3a + 3b + 3c-1: ~1.25 days).
 
 - ✅ Add blacklist filtering for BAMs and/or peak files. (Stage 3a)
 - ✅ Add FRiP calculation. (Stage 3a, read-record based)
 - ✅ Add sample-level summary TSV for alignment rate, duplicate rate, peak count,
   FRiP, library complexity, cross-correlation, and control usage. (Stage 3a foundation)
-- ⬜ Add library complexity metrics. (Stage 3b)
-- ⬜ Add cross-correlation metrics such as NSC/RSC. (Stage 3b)
-- ⬜ Add fold-enrichment and p-value signal tracks where appropriate. (Stage 3b)
+- ✅ Add library complexity metrics. (Stage 3b-1, duplication-derived from Picard)
+- ✅ Add fold-enrichment and p-value signal tracks where appropriate. (Stage 3b-2,
+  bedGraph output)
+- ✅ Add NRF/PBC library complexity metrics. (Stage 3c-1, BAM-derived)
+- ⬜ Add cross-correlation metrics such as NSC/RSC. (Stage 3c-2)
+- ⬜ Add full NRF/PBC metrics and/or preseq-style complexity where appropriate.
+  (Stage 3c-2)
+- ⬜ Add bigWig conversion for FE/ppois signal tracks when chrom sizes and
+  conversion tooling are configured. (Stage 3c-2)
 - ⬜ Add a MultiQC custom config if needed to improve naming and report layout.
-  (Stage 3b)
+  (Stage 3c-2)
 
 ### Stage 4: Replicate-Aware Sample Model
 
@@ -169,9 +179,11 @@ Estimated effort: 1-2 days.
    - ✅ Keep backward compatibility with the current sample sheet.
 
 2. Add ENCODE-like single-sample QC metrics. (Stage 3)
-   - Add blacklist filtering.
-   - Add FRiP, library complexity, and cross-correlation metrics.
-   - Add a cross-sample summary TSV.
+   - ✅ Add blacklist filtering.
+   - ✅ Add FRiP and duplication-derived library complexity metrics.
+   - ✅ Add a cross-sample summary TSV.
+   - ✅ Add MACS3 FE/ppois bedGraph signal tracks.
+   - Add cross-correlation and full NRF/PBC metrics.
 
 3. Add small, reproducible smoke-test data.
    - The current bundled FASTQs are useful but large.

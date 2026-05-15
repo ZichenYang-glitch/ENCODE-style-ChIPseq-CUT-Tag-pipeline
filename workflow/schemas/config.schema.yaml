@@ -127,6 +127,9 @@ qc:
   default:
     blacklist_filter: true
     frip: true
+    library_complexity: true
+    nrf_pbc: true
+    signal_tracks: true
     summary: true
   description: >
     Stage 3 single-sample QC switches. Missing qc block defaults to all
@@ -145,6 +148,29 @@ qc:
       description: >
         Enable FRiP (Fraction of Reads in Peaks) calculation.
         Stage 3a is read-record based, not fragment-based.
+    library_complexity:
+      type: boolean
+      default: true
+      description: >
+        Enable library complexity metrics from Picard MarkDuplicates.
+        Stage 3b-1 is duplication-derived (not preseq-based).
+        If Picard is unavailable, NA values are emitted.
+    nrf_pbc:
+      type: boolean
+      default: true
+      description: >
+        Enable NRF/PBC library complexity metrics from BAM.
+        Stage 3c-1 is BAM-derived (not preseq-based, not cross-correlation).
+        NRF = distinct_fragments / total_fragments.
+        PBC1 = one_read_fragments / distinct_fragments.
+        PBC2 = one_read_fragments / two_read_fragments.
+    signal_tracks:
+      type: boolean
+      default: true
+      description: >
+        Enable MACS3 fold-enrichment and p-value bedGraph signal tracks.
+        Produces FE and ppois bedGraph files from MACS3 treat_pileup
+        and control_lambda outputs.
     summary:
       type: boolean
       default: true

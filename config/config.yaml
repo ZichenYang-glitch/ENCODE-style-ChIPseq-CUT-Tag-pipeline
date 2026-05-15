@@ -97,4 +97,7 @@ genome_resources:
 qc:
   blacklist_filter: true
   frip: true
+  library_complexity: true
+  nrf_pbc: true
+  signal_tracks: true
   summary: true
