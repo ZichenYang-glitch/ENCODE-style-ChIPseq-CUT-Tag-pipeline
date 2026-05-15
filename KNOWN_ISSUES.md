@@ -107,14 +107,20 @@ Estimated effort: 1-2 days (Stage 3a + 3b + 3c-1: ~1.25 days).
 Goal: represent biological replicates, pooled samples, and treatment-control
 relationships explicitly in the DAG.
 
-Estimated effort: 1-2 days.
+**Stage 4a completed 2026-05-15** — sample sheet metadata foundation with
+`experiment`, `condition`, `replicate`, `biological_replicate`, and
+`technical_replicate` columns. Derived metadata structures
+(`EXPERIMENT_IDS`, `SAMPLES_BY_EXPERIMENT`, etc.) are available in the
+Snakefile for future stages.
 
-- Extend the sample sheet with replicate/group concepts such as `replicate`,
-  `condition`, or `experiment`.
-- Keep backward compatibility for single-sample runs.
-- Define grouped outputs for replicate sets.
-- Define pooled replicate BAMs and pooled peak targets.
-- Decide how technical replicates should be represented or merged.
+Estimated effort: 1-2 days (Stage 4a: ~0.25 day).
+
+- ✅ Extend the sample sheet with replicate/group concepts such as `replicate`,
+  `condition`, or `experiment`. (Stage 4a, metadata-only)
+- ✅ Keep backward compatibility for single-sample runs. (Stage 4a)
+- ⬜ Define grouped outputs for replicate sets. (Stage 4b)
+- ⬜ Define pooled replicate BAMs and pooled peak targets. (Stage 4b)
+- ⬜ Decide how technical replicates should be represented or merged. (Stage 4b)
 
 ### Stage 5: TF ChIP-seq IDR and Reproducibility
 

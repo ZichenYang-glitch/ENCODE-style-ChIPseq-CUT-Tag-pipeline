@@ -13,6 +13,7 @@ import re
 import sys
 
 _SAMPLE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_SANITIZE_RE = re.compile(r"[^A-Za-z0-9_.-]")
 
 
 class ValidationError(Exception):
@@ -261,6 +262,40 @@ def _validate_genome_resources(resources: dict) -> dict:
     return resources
 
 
+def _sanitize_identifier(value: str) -> str:
+    """Replace any character not in the safe identifier set with ``_``.
+
+    This lets ``target`` values like ``Pol II`` or ``p300/CBP`` survive
+    the default-for-``condition`` path without needing an explicit safe
+    ``condition`` column.
+    """
+    return _SANITIZE_RE.sub("_", value)
+
+
+def _parse_positive_int(value, *, default, name, sample, row):
+    """Parse an optional positive integer with a default.
+
+    Blanks and missing values use *default*.  Strictly rejects
+    zero, negative, and non-integer values.
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return default
+    try:
+        parsed = int(raw)
+    except (ValueError, TypeError):
+        raise ValidationError(
+            f"Row {row}: sample {sample!r}: {name} must be a positive "
+            f"integer, got {raw!r}"
+        )
+    if parsed <= 0:
+        raise ValidationError(
+            f"Row {row}: sample {sample!r}: {name} must be a positive "
+            f"integer, got {parsed}"
+        )
+    return parsed
+
+
 # ---------------------------------------------------------------------------
 # Sample sheet validation
 # ---------------------------------------------------------------------------
@@ -276,7 +311,9 @@ def load_and_validate_samples(
 
     Sample dict keys:
         id, fq1, fq2, layout, assay, target, peak_mode, genome,
-        bt2_idx, control_bam, role, control_sample
+        bt2_idx, control_bam, role, control_sample,
+        experiment, condition, replicate,
+        biological_replicate, technical_replicate
     """
     if not os.path.isfile(sample_tsv):
         raise ValidationError(
@@ -316,6 +353,26 @@ def load_and_validate_samples(
             ctrl_bam = (row.get("control_bam") or "").strip()
             role = (row.get("role") or "treatment").strip().lower()
             ctrl_sample = (row.get("control_sample") or "").strip()
+
+            # Stage 4a optional columns with defaults
+            experiment = _sanitize_identifier(
+                (row.get("experiment") or "").strip() or sid
+            )
+            condition  = _sanitize_identifier(
+                (row.get("condition") or "").strip() or tgt
+            )
+            replicate = _parse_positive_int(
+                row.get("replicate"), default=1, name="replicate",
+                sample=sid, row=i,
+            )
+            bio_rep = _parse_positive_int(
+                row.get("biological_replicate"), default=replicate,
+                name="biological_replicate", sample=sid, row=i,
+            )
+            tech_rep = _parse_positive_int(
+                row.get("technical_replicate"), default=1,
+                name="technical_replicate", sample=sid, row=i,
+            )
 
             # --- Pass 1: per-row validation ---
             if not sid:
@@ -369,6 +426,26 @@ def load_and_validate_samples(
                 raise ValidationError(
                     f"Sample {sid!r} has empty 'bowtie2_index'"
                 )
+            if not _SAMPLE_ID_RE.match(experiment):
+                raise ValidationError(
+                    f"Row {i}: sample {sid!r}: experiment {experiment!r} "
+                    f"contains invalid characters. "
+                    f"Allowed: A-Z, a-z, 0-9, underscore, period, hyphen."
+                )
+            if not _SAMPLE_ID_RE.match(condition):
+                raise ValidationError(
+                    f"Row {i}: sample {sid!r}: condition {condition!r} "
+                    f"contains invalid characters. "
+                    f"Allowed: A-Z, a-z, 0-9, underscore, period, hyphen."
+                )
+            if not experiment:
+                raise ValidationError(
+                    f"Sample {sid!r} has empty 'experiment' after defaulting"
+                )
+            if not condition:
+                raise ValidationError(
+                    f"Sample {sid!r} has empty 'condition' after defaulting"
+                )
             if role not in ("treatment", "control"):
                 raise ValidationError(
                     f"Sample {sid!r}: role must be treatment or control, "
@@ -404,6 +481,11 @@ def load_and_validate_samples(
                 "control_bam": ctrl_bam,
                 "role": role,
                 "control_sample": ctrl_sample,
+                "experiment": experiment,
+                "condition": condition,
+                "replicate": replicate,
+                "biological_replicate": bio_rep,
+                "technical_replicate": tech_rep,
             })
 
     # --- Pass 2: cross-reference validation ---

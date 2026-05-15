@@ -243,6 +243,40 @@ genome_resources:
 - CUT&Tag broad mode follows the broad MACS3 policy.
 - Stage 1 keeps duplicate removal and read extension behavior aligned with the legacy script.
 
+## Stage 4a: Replicate-Aware Metadata Foundation
+
+Stage 4a extends the sample sheet with optional replicate-aware metadata
+columns. This is a **metadata-only** foundation — it does NOT change rule
+scheduling or produce pooled BAMs, pooled peaks, pseudoreplicates, or IDR.
+Those features are planned for later Stage 4 slices.
+
+### Optional Sample Sheet Columns
+
+| Column | Default | Description |
+| :--- | :--- | :--- |
+| `experiment` | `<sample>` | Experiment group. Samples sharing the same experiment are replicates of the same condition. |
+| `condition` | `<target>` | Condition label (e.g. treatment, genotype). |
+| `replicate` | `1` | Replicate number within an experiment/condition group. |
+| `biological_replicate` | `<replicate>` | Biological replicate number. Defaults to the `replicate` value. |
+| `technical_replicate` | `1` | Technical replicate number within a biological replicate. |
+
+- `experiment` and `condition` are normalized to safe identifiers after
+  defaulting: characters outside `[A-Za-z0-9_.-]` become `_`
+  (for example, `Pol II` becomes `Pol_II`).
+- `replicate`, `biological_replicate`, and `technical_replicate` must be
+  positive integers.
+- All columns are optional. Missing or blank values use the defaults above.
+
+Example with explicit replicate metadata:
+
+```tsv
+sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index	experiment	condition	replicate
+H3K27AC_rep1	/data/ac1_R1.fq.gz	/data/ac1_R2.fq.gz	PE	chipseq	H3K27ac	narrow	hs	/path/to/bt2/GRCh38	H3K27AC	H3K27ac	1
+H3K27AC_rep2	/data/ac2_R1.fq.gz	/data/ac2_R2.fq.gz	PE	chipseq	H3K27ac	narrow	hs	/path/to/bt2/GRCh38	H3K27AC	H3K27ac	2
+```
+
+The minimal sample sheet (required columns only) remains fully compatible.
+
 ## Stage 3: Single-Sample Quality Metrics (3a + 3b + 3c-1)
 
 Stage 3a adds ENCODE-like single-sample QC metrics. Stage 3b-1 extends it

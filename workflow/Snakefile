@@ -90,7 +90,30 @@ CONTROL_SAMPLE_IDS   = [
 
 
 # ---------------------------------------------------------------------------
-# 3a. Stage 3 QC configuration and genome resource helpers
+# 3a. Stage 4a replicate-aware metadata (derived structures, no scheduling changes)
+# ---------------------------------------------------------------------------
+
+EXPERIMENT_IDS = sorted(
+    {s["experiment"] for s in SAMPLES}
+)
+
+SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {exp: [] for exp in EXPERIMENT_IDS}
+for s in SAMPLES:
+    SAMPLES_BY_EXPERIMENT[s["experiment"]].append(s["id"])
+
+TREATMENT_SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {
+    exp: [sid for sid in sids if SAMPLE_MAP[sid]["role"] == "treatment"]
+    for exp, sids in SAMPLES_BY_EXPERIMENT.items()
+}
+
+CONTROL_SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {
+    exp: [sid for sid in sids if SAMPLE_MAP[sid]["role"] == "control"]
+    for exp, sids in SAMPLES_BY_EXPERIMENT.items()
+}
+
+
+# ---------------------------------------------------------------------------
+# 3b. Stage 3 QC configuration and genome resource helpers
 # ---------------------------------------------------------------------------
 
 QC_CONFIG = VALIDATED_CONFIG.get("qc", {

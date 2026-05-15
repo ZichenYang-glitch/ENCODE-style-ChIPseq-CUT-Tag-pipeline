@@ -21,6 +21,11 @@ optional:
   - control_bam
   - role
   - control_sample
+  - experiment
+  - condition
+  - replicate
+  - biological_replicate
+  - technical_replicate
 
 # ---- Column Specifications ----
 columns:
@@ -102,6 +107,58 @@ columns:
       cannot_reference_self: true
       referenced_role: control
 
+  # ---- Stage 4a: Replicate-Aware Metadata (optional) ----
+  experiment:
+    description: >
+      Experiment group identifier. Samples sharing the same experiment
+      are biological or technical replicates of the same condition.
+      Unsafe characters are normalized to underscores after defaulting.
+    default: "<sample>"
+    required: false
+    constraints:
+      pattern: "^[A-Za-z0-9_.-]+$"
+      unsafe_characters_normalized_to: "_"
+      non_empty_after_default: true
+
+  condition:
+    description: >
+      Condition label (e.g. treatment, genotype, timepoint).
+      Defaults to the target column value. Unsafe characters are
+      normalized to underscores after defaulting.
+    default: "<target>"
+    required: false
+    constraints:
+      pattern: "^[A-Za-z0-9_.-]+$"
+      unsafe_characters_normalized_to: "_"
+      non_empty_after_default: true
+
+  replicate:
+    description: >
+      Replicate number within an experiment/condition group.
+      Defaults to 1 when omitted or blank.
+    default: 1
+    required: false
+    constraints:
+      positive_integer: true
+
+  biological_replicate:
+    description: >
+      Biological replicate number. Defaults to replicate when omitted
+      or blank.
+    default: "<replicate>"
+    required: false
+    constraints:
+      positive_integer: true
+
+  technical_replicate:
+    description: >
+      Technical replicate number within a biological replicate.
+      Defaults to 1 when omitted or blank.
+    default: 1
+    required: false
+    constraints:
+      positive_integer: true
+
 # ---- Cross-Row Validation (when use_control: true) ----
 cross_validation:
   - condition: "use_control is true"
@@ -111,8 +168,18 @@ cross_validation:
       - "control_bam paths must exist on disk"
       - "control_sample and control_bam are mutually exclusive per row"
 
+# ---- Stage 4a Note ----
+stage4a:
+  note: >
+    Stage 4a is metadata-only. The new optional columns establish a
+    replicate-aware sample model but do NOT change rule scheduling,
+    produce pooled BAMs or peaks, generate pseudoreplicates, or run IDR.
+    Those features are planned for later Stage 4 slices.
+
 # ---- Backward Compatibility ----
 compatibility:
   - "When use_control is false, control_bam and control_sample are silently ignored."
   - "The minimal sample sheet (required columns only) is valid."
   - "Empty optional fields are allowed."
+  - "Missing Stage 4a columns produce no errors; defaults are applied automatically."
+  - "Stage 4a metadata does not change any output paths or DAG scheduling."
