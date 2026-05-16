@@ -14,6 +14,7 @@ rule macs3_callpeak:
         bdg_args   = lambda wc: "-B" if QC_CONFIG.get("signal_tracks", True) else "",
         sample     = "{sample}",
         peak_mode  = lambda wc: SAMPLE_MAP[wc.sample]["peak_mode"],
+        extra      = _tool_param("macs3", "extra_args", ""),
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.macs3.log",
     threads: THREADS,
@@ -35,6 +36,7 @@ rule macs3_callpeak:
                 --outdir {output.peaks:q} \
                 {params.macs3_args} \
                 {params.bdg_args} \
+                {params.extra} \
                 2>&1 | tee {log:q}
         else
             macs3 callpeak \
@@ -43,6 +45,7 @@ rule macs3_callpeak:
                 --outdir {output.peaks:q} \
                 {params.macs3_args} \
                 {params.bdg_args} \
+                {params.extra} \
                 2>&1 | tee {log:q}
         fi
 
@@ -115,6 +118,7 @@ rule macs3_pooled_peaks:
         peak_mode  = lambda wc: SAMPLE_MAP[
             TREATMENT_SAMPLES_BY_EXPERIMENT[wc.experiment][0]
         ]["peak_mode"],
+        extra      = _tool_param("macs3", "extra_args", ""),
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.macs3.log",
     threads: THREADS,
@@ -135,6 +139,7 @@ rule macs3_pooled_peaks:
                 -n {params.sample:q}_pooled \
                 --outdir {output.peaks:q} \
                 {params.macs3_args} \
+                {params.extra} \
                 2>&1 | tee {log:q}
         else
             macs3 callpeak \
@@ -142,6 +147,7 @@ rule macs3_pooled_peaks:
                 -n {params.sample:q}_pooled \
                 --outdir {output.peaks:q} \
                 {params.macs3_args} \
+                {params.extra} \
                 2>&1 | tee {log:q}
         fi
 

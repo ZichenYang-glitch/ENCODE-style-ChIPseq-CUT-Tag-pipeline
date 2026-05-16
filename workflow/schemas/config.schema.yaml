@@ -194,3 +194,147 @@ stage4b:
     - Single-sample workflows produce zero Stage 4b outputs.
     Set to false to disable all Stage 4b outputs and revert to
     the Stage 4a metadata-only behavior.
+
+# ---- Stage 4c: Tool Parameterization (optional) ----
+tool_parameters:
+  type: mapping
+  required: false
+  default: {}
+  description: >
+    Optional structured config blocks for major workflow tools.
+    Missing tool_parameters or missing tool blocks use current
+    defaults silently. Each tool block supports typed keys for
+    common stable parameters plus an extra_args string for advanced
+    users. extra_args is verbatim and must not override
+    workflow-managed inputs, outputs, threads, or output directories.
+    Prefer structured config keys for supported options.
+  schema:
+    fastqc:
+      type: mapping
+      required: false
+      properties:
+        extra_args:
+          type: string
+          default: ""
+          description: Additional fastqc CLI flags (verbatim).
+    trim_galore:
+      type: mapping
+      required: false
+      properties:
+        quality:
+          type: integer
+          default: ""
+          description: --quality Phred score cutoff (only emitted when set).
+        length:
+          type: integer
+          default: ""
+          description: --length minimum read length (only emitted when set).
+        stringency:
+          type: integer
+          default: ""
+          description: --stringency overlap stringency (only emitted when set).
+        extra_args:
+          type: string
+          default: ""
+          description: Additional trim_galore CLI flags (verbatim).
+    bowtie2:
+      type: mapping
+      required: false
+      properties:
+        mode:
+          type: string
+          default: ""
+          allowed: ["", "very-fast", "fast", "sensitive", "very-sensitive"]
+          description: Alignment preset (only emitted when set).
+        dovetail:
+          type: boolean
+          default: false
+          description: --dovetail flag (emitted when true).
+        no_mixed:
+          type: boolean
+          default: false
+          description: --no-mixed flag (emitted when true).
+        no_discordant:
+          type: boolean
+          default: false
+          description: --no-discordant flag (emitted when true).
+        extra_args:
+          type: string
+          default: ""
+          description: Additional bowtie2 CLI flags (verbatim).
+    samtools_filter:
+      type: mapping
+      required: false
+      properties:
+        filter_flags:
+          type: integer | string
+          default: "0x904"
+          description: >
+            -F filter flags. Accepts int, decimal string, or hex
+            string like "0x904". Always emitted.
+        extra_args:
+          type: string
+          default: ""
+          description: Additional samtools view CLI flags (verbatim).
+    picard_markduplicates:
+      type: mapping
+      required: false
+      properties:
+        optical_duplicate_pixel_distance:
+          type: integer
+          default: ""
+          description: >
+            OPTICAL_DUPLICATE_PIXEL_DISTANCE (only emitted when set).
+        extra_args:
+          type: string
+          default: ""
+          description: Additional picard MarkDuplicates options (verbatim).
+    bamcoverage:
+      type: mapping
+      required: false
+      properties:
+        normalize_using:
+          type: string
+          default: "CPM"
+          allowed: ["CPM", "RPKM", "BPM", "None"]
+          description: >
+            --normalizeUsing method. RPGC is not supported in this slice.
+            Always emitted.
+        smooth_length:
+          type: integer
+          default: ""
+          description: --smoothLength (only emitted when set).
+        extra_args:
+          type: string
+          default: ""
+          description: Additional bamCoverage CLI flags (verbatim).
+    macs3:
+      type: mapping
+      required: false
+      properties:
+        qvalue:
+          type: float
+          default: 0.01
+          description: -q q-value (FDR) cutoff. Must be >0. Always emitted.
+        broad_cutoff:
+          type: float
+          default: 0.1
+          description: --broad-cutoff (broad peaks only). Must be >0.
+        extra_args:
+          type: string
+          default: ""
+          description: >
+            Additional MACS3 callpeak flags (verbatim, appended after
+            policy args).
+    multiqc:
+      type: mapping
+      required: false
+      properties:
+        title:
+          type: string
+          default: ""
+          description: --title report title (only emitted when set, safe-quoted).
+        extra_args:
+          type: string
+          default: ""
+          description: Additional multiqc CLI flags (verbatim).

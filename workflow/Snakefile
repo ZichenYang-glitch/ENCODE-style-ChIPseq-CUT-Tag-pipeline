@@ -217,6 +217,37 @@ QC_CONFIG = VALIDATED_CONFIG.get("qc", {
     "summary": True,
 })
 
+# Stage 4c: structured tool parameters (absent → empty dict, defaults silently)
+TOOL_PARAMS = VALIDATED_CONFIG.get("tool_parameters", {})
+
+
+def _tool_param(tool, key, default):
+    """Return a single tool parameter value, or default if not configured."""
+    block = TOOL_PARAMS.get(tool, {})
+    return block.get(key, default)
+
+
+def _filter_flags_arg():
+    """Build the -F argument for samtools_filter. Preserves hex for default."""
+    block = TOOL_PARAMS.get("samtools_filter", {})
+    raw = block.get("filter_flags", "")
+    if raw == "" or raw is None:
+        return "-F 0x904"
+    if isinstance(raw, int):
+        # Check if the original config had hex representation
+        raw_config = (
+            VALIDATED_CONFIG.get("tool_parameters", {})
+            .get("samtools_filter", {})
+            .get("filter_flags", "")
+        )
+        if isinstance(raw_config, str) and (
+            raw_config.strip().startswith("0x")
+            or raw_config.strip().startswith("0X")
+        ):
+            return f"-F {raw_config.strip()}"
+        return f"-F {raw}"
+    return f"-F {raw}"
+
 # Samples with a configured blacklist path (resource-gated blacklist filtering)
 BLACKLIST_SAMPLES = [
     s for s in TREATMENT_SAMPLE_IDS

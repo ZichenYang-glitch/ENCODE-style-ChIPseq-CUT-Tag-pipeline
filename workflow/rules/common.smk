@@ -26,6 +26,7 @@ rule fastqc:
         lambda wc: _fastqc_inputs(wc),
     params:
         qcdir = lambda wc: f"{OUTDIR}/{wc.sample}/01_qc",
+        extra = _tool_param("fastqc", "extra_args", ""),
     threads: THREADS,
     conda:
         "../envs/chipseq.yml",
@@ -33,7 +34,7 @@ rule fastqc:
         """
         mkdir -p {params.qcdir}
         set -- {input:q}
-        fastqc -t {threads} -o {params.qcdir:q} "$@"
+        fastqc -t {threads} -o {params.qcdir:q} {params.extra} "$@"
         touch {output.done}
         """
 
@@ -58,9 +59,13 @@ rule trim_galore:
     input:
         lambda wc: _trim_galore_inputs(wc),
     params:
-        layout  = lambda wc: SAMPLE_MAP[wc.sample]["layout"],
-        do_trim = TRIM,
-        trimdir = lambda wc: f"{OUTDIR}/{wc.sample}/01_qc/trim_galore",
+        layout     = lambda wc: SAMPLE_MAP[wc.sample]["layout"],
+        do_trim    = TRIM,
+        trimdir    = lambda wc: f"{OUTDIR}/{wc.sample}/01_qc/trim_galore",
+        quality    = f"--quality {v}" if (v := _tool_param("trim_galore", "quality", "")) != "" else "",
+        length     = f"--length {v}" if (v := _tool_param("trim_galore", "length", "")) != "" else "",
+        stringency = f"--stringency {v}" if (v := _tool_param("trim_galore", "stringency", "")) != "" else "",
+        extra      = _tool_param("trim_galore", "extra_args", ""),
     threads: THREADS,
     conda:
         "../envs/chipseq.yml",
@@ -75,11 +80,15 @@ rule trim_galore:
             mkdir -p {params.trimdir:q}
 
             if [[ "{params.layout}" == "PE" ]]; then
-                trim_galore --paired --cores {threads} -o "$TMPD" "$1" "$2"
+                trim_galore --paired --cores {threads} -o "$TMPD" \
+                    {params.quality} {params.length} {params.stringency} \
+                    {params.extra} "$1" "$2"
                 mv "$TMPD"/*_val_1.fq.gz {output.r1:q}
                 mv "$TMPD"/*_val_2.fq.gz {output.r2:q}
             else
-                trim_galore --cores {threads} -o "$TMPD" "$1"
+                trim_galore --cores {threads} -o "$TMPD" \
+                    {params.quality} {params.length} {params.stringency} \
+                    {params.extra} "$1"
                 mv "$TMPD"/*_trimmed.fq.gz {output.r1:q}
                 touch {output.r2:q}
             fi
@@ -115,9 +124,14 @@ rule bowtie2_align:
         r1 = f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R1_val_1.fq.gz",
         r2 = f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R2_val_2.fq.gz",
     params:
-        layout  = lambda wc: SAMPLE_MAP[wc.sample]["layout"],
-        bt2_idx = lambda wc: SAMPLE_MAP[wc.sample]["bt2_idx"],
-        sample  = "{sample}",
+        layout       = lambda wc: SAMPLE_MAP[wc.sample]["layout"],
+        bt2_idx      = lambda wc: SAMPLE_MAP[wc.sample]["bt2_idx"],
+        sample       = "{sample}",
+        mode         = f"--{v}" if (v := _tool_param("bowtie2", "mode", "")) else "",
+        dovetail     = "--dovetail" if _tool_param("bowtie2", "dovetail", False) else "",
+        no_mixed     = "--no-mixed" if _tool_param("bowtie2", "no_mixed", False) else "",
+        no_discordant = "--no-discordant" if _tool_param("bowtie2", "no_discordant", False) else "",
+        extra        = _tool_param("bowtie2", "extra_args", ""),
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.bowtie2.log",
     threads: THREADS,
@@ -129,9 +143,13 @@ rule bowtie2_align:
 
         if [[ "{params.layout}" == "PE" ]]; then
             bowtie2 $RG -x {params.bt2_idx:q} -1 {input.r1:q} -2 {input.r2:q} -p {threads} \
+                {params.mode} {params.dovetail} {params.no_mixed} {params.no_discordant} \
+                {params.extra} \
                 2> {log:q} | samtools view -b | samtools sort -@ {threads} -o {output.bam:q}
         else
             bowtie2 $RG -x {params.bt2_idx:q} -U {input.r1:q} -p {threads} \
+                {params.mode} {params.dovetail} {params.no_mixed} {params.no_discordant} \
+                {params.extra} \
                 2> {log:q} | samtools view -b | samtools sort -@ {threads} -o {output.bam:q}
         fi
         """
@@ -163,13 +181,15 @@ rule samtools_filter:
     input:
         bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
     params:
-        mapq = MAPQ,
+        mapq         = MAPQ,
+        filter_flags = _filter_flags_arg(),
+        extra        = _tool_param("samtools_filter", "extra_args", ""),
     threads: THREADS,
     conda:
         "../envs/chipseq.yml",
     shell:
         """
-        samtools view -@ {threads} -b -q {params.mapq} -F 0x904 {input.bam:q} > {output.bam:q}
+        samtools view -@ {threads} -b -q {params.mapq} {params.filter_flags} {params.extra} {input.bam:q} > {output.bam:q}
         """
 
 
@@ -203,6 +223,8 @@ rule duplicate_handling:
         bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam.bai",
     params:
         remove_dup = lambda wc: get_remove_dup(wc),
+        picard_od  = f"OPTICAL_DUPLICATE_PIXEL_DISTANCE={v}" if (v := _tool_param("picard_markduplicates", "optical_duplicate_pixel_distance", "")) != "" else "",
+        picard_extra = _tool_param("picard_markduplicates", "extra_args", ""),
     threads: THREADS,
     conda:
         "../envs/chipseq.yml",
@@ -214,7 +236,8 @@ rule duplicate_handling:
                     I={input.bam:q} \
                     O={output.bam:q} \
                     M={output.metrics:q} \
-                    REMOVE_DUPLICATES=true
+                    REMOVE_DUPLICATES=true \
+                    {params.picard_od} {params.picard_extra}
             else
                 # samtools markdup fallback
                 OUT_BAM_DIR=$(dirname {output.bam:q})
@@ -236,6 +259,7 @@ rule duplicate_handling:
                     O=/dev/null \
                     M={output.metrics:q} \
                     REMOVE_DUPLICATES=false \
+                    {params.picard_od} {params.picard_extra} \
                     >/dev/null 2>&1 || true
             else
                 echo "picard not found; duplicate metrics unavailable." > {output.metrics}
@@ -329,8 +353,11 @@ rule bamcoverage:
     input:
         lambda wc: _bamcoverage_inputs(wc),
     params:
-        ext_args = lambda wc: get_extend_reads(wc),
-        binsize  = BINSIZE,
+        ext_args        = lambda wc: get_extend_reads(wc),
+        binsize         = BINSIZE,
+        normalize_using = f"--normalizeUsing {v}" if (v := _tool_param("bamcoverage", "normalize_using", "CPM")) != "" else "--normalizeUsing CPM",
+        smooth_length   = f"--smoothLength {v}" if (v := _tool_param("bamcoverage", "smooth_length", "")) != "" else "",
+        extra           = _tool_param("bamcoverage", "extra_args", ""),
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.bamCoverage.log",
     threads: THREADS,
@@ -344,9 +371,11 @@ rule bamcoverage:
         bamCoverage \
             -b "$BAM" \
             -o {output.bw:q} \
-            --normalizeUsing CPM \
+            {params.normalize_using} \
             --binSize {params.binsize} \
             {params.ext_args} \
+            {params.smooth_length} \
             --numberOfProcessors {threads} \
+            {params.extra} \
             2>&1 | tee {log:q}
         """

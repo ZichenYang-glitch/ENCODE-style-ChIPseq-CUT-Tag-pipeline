@@ -17,10 +17,12 @@ def get_macs3_args_chipseq(wildcards):
     s = SAMPLE_MAP[wildcards.sample]
     fmt = "BAMPE" if s["layout"] == "PE" else "BAM"
     genome = _normalize_genome(s["genome"])
+    qvalue = _tool_param("macs3", "qvalue", 0.01)
     if s["peak_mode"] == "broad":
-        return f"-f {fmt} -g {genome} -q 0.01 --broad --broad-cutoff 0.1"
+        broad_cutoff = _tool_param("macs3", "broad_cutoff", 0.1)
+        return f"-f {fmt} -g {genome} -q {qvalue} --broad --broad-cutoff {broad_cutoff}"
     else:
-        return f"-f {fmt} -g {genome} -q 0.01"
+        return f"-f {fmt} -g {genome} -q {qvalue}"
 
 
 def get_remove_dup_chipseq(wildcards):

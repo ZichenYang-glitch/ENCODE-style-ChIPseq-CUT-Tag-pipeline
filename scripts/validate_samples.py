@@ -198,6 +198,11 @@ def validate_config(config: dict) -> dict:
             f"config stage4b must be true or false, got {stage4b_raw!r}"
         )
 
+    # tool_parameters — optional Stage 4c structured tool config, default empty
+    validated["tool_parameters"] = _validate_tool_params(
+        config.get("tool_parameters", {})
+    )
+
     return validated
 
 
@@ -271,6 +276,312 @@ def _validate_genome_resources(resources: dict) -> dict:
                 )
 
     return resources
+
+
+def _validate_tool_params(tool_params) -> dict:
+    """Validate and normalize the Stage 4c tool_parameters config block.
+
+    Returns a normalized dict keyed by tool name.
+    Raises ValidationError on unknown tools, unknown keys, or invalid types.
+    Missing tool_parameters or empty blocks are valid and return an empty dict.
+    """
+    if tool_params is None:
+        return {}
+
+    if isinstance(tool_params, bool):
+        raise ValidationError(
+            "tool_parameters must be a mapping, got boolean"
+        )
+
+    if not isinstance(tool_params, dict):
+        raise ValidationError(
+            f"tool_parameters must be a mapping, "
+            f"got {type(tool_params).__name__}"
+        )
+
+    KNOWN_TOOLS = {
+        "fastqc", "trim_galore", "bowtie2", "samtools_filter",
+        "picard_markduplicates", "bamcoverage", "macs3", "multiqc",
+    }
+
+    # Known keys per tool
+    KNOWN_KEYS = {
+        "fastqc": {"extra_args"},
+        "trim_galore": {"quality", "length", "stringency", "extra_args"},
+        "bowtie2": {"mode", "dovetail", "no_mixed", "no_discordant", "extra_args"},
+        "samtools_filter": {"filter_flags", "extra_args"},
+        "picard_markduplicates": {"optical_duplicate_pixel_distance", "extra_args"},
+        "bamcoverage": {"normalize_using", "smooth_length", "extra_args"},
+        "macs3": {"qvalue", "broad_cutoff", "extra_args"},
+        "multiqc": {"title", "extra_args"},
+    }
+
+    def _normalize_bool(key, raw):
+        if isinstance(raw, bool):
+            return raw
+        val = str(raw).lower()
+        if val in ("true", "false"):
+            return val == "true"
+        raise ValidationError(
+            f"tool_parameters.{tool}.{key} must be true or false, "
+            f"got {raw!r}"
+        )
+
+    def _normalize_int(key, raw, minimum=0):
+        if isinstance(raw, bool):
+            raise ValidationError(
+                f"tool_parameters.{tool}.{key} must be an integer, "
+                f"got {raw!r}"
+            )
+        if isinstance(raw, int):
+            parsed = raw
+        elif isinstance(raw, str):
+            if raw.strip() == "":
+                return ""  # empty string means "not set" for optional keys
+            if not raw.strip().isdigit():
+                raise ValidationError(
+                    f"tool_parameters.{tool}.{key} must be an integer, "
+                    f"got {raw!r}"
+                )
+            parsed = int(raw.strip())
+        else:
+            raise ValidationError(
+                f"tool_parameters.{tool}.{key} must be an integer, "
+                f"got {raw!r}"
+            )
+        if parsed < minimum:
+            raise ValidationError(
+                f"tool_parameters.{tool}.{key} must be non-negative, "
+                f"got {parsed}"
+            )
+        return parsed
+
+    def _normalize_positive_float(key, raw):
+        if isinstance(raw, bool):
+            raise ValidationError(
+                f"tool_parameters.{tool}.{key} must be a number > 0, "
+                f"got {raw!r}"
+            )
+        if isinstance(raw, (int, float)):
+            val = float(raw)
+        elif isinstance(raw, str):
+            try:
+                val = float(raw.strip())
+            except (ValueError, TypeError):
+                raise ValidationError(
+                    f"tool_parameters.{tool}.{key} must be a number > 0, "
+                    f"got {raw!r}"
+                )
+        else:
+            raise ValidationError(
+                f"tool_parameters.{tool}.{key} must be a number > 0, "
+                f"got {raw!r}"
+            )
+        if val <= 0:
+            raise ValidationError(
+                f"tool_parameters.{tool}.{key} must be positive, "
+                f"got {val}"
+            )
+        return val
+
+    def _normalize_filter_flags(key, raw):
+        # Empty/None means "use default" — keep as "" for _filter_flags_arg()
+        if raw is None or raw == "":
+            return ""
+        if isinstance(raw, bool):
+            raise ValidationError(
+                f"tool_parameters.samtools_filter.{key} must be "
+                f"a positive integer or hex string like 0x904, "
+                f"got {raw!r}"
+            )
+        if isinstance(raw, int):
+            if raw <= 0:
+                raise ValidationError(
+                    f"tool_parameters.samtools_filter.{key} must be "
+                    f"positive, got {raw}"
+                )
+            return raw
+        if isinstance(raw, str):
+            text = raw.strip()
+            if text.startswith("0x") or text.startswith("0X"):
+                try:
+                    parsed = int(text, 16)
+                except ValueError:
+                    raise ValidationError(
+                        f"tool_parameters.samtools_filter.{key}: "
+                        f"invalid hex value {raw!r}"
+                    )
+                if parsed <= 0:
+                    raise ValidationError(
+                        f"tool_parameters.samtools_filter.{key} must be "
+                        f"positive, got {parsed} (from {raw!r})"
+                    )
+                return parsed
+            if text.isdigit():
+                parsed = int(text)
+                if parsed <= 0:
+                    raise ValidationError(
+                        f"tool_parameters.samtools_filter.{key} must be "
+                        f"positive, got {parsed}"
+                    )
+                return parsed
+            raise ValidationError(
+                f"tool_parameters.samtools_filter.{key} must be "
+                f"a positive integer or hex string like 0x904, "
+                f"got {raw!r}"
+            )
+        raise ValidationError(
+            f"tool_parameters.samtools_filter.{key} must be "
+            f"a positive integer or hex string like 0x904, "
+            f"got {raw!r}"
+        )
+
+    # --- Pass 1: reject unknown tool blocks ---
+    for tool in tool_params:
+        if tool not in KNOWN_TOOLS:
+            raise ValidationError(
+                f"tool_parameters: unknown tool block {tool!r}. "
+                f"Known: {sorted(KNOWN_TOOLS)}"
+            )
+
+    normalized = {}
+
+    # --- Pass 2: per-tool validation ---
+    for tool in KNOWN_TOOLS:
+        block = tool_params.get(tool, {})
+        if not isinstance(block, dict):
+            raise ValidationError(
+                f"tool_parameters.{tool} must be a mapping, "
+                f"got {type(block).__name__}"
+            )
+
+        # Reject unknown keys
+        for key in block:
+            if key not in KNOWN_KEYS[tool]:
+                raise ValidationError(
+                    f"tool_parameters.{tool}: unknown key {key!r}. "
+                    f"Known: {sorted(KNOWN_KEYS[tool])}"
+                )
+
+        norm: dict = {}
+
+        if tool == "fastqc":
+            extra = block.get("extra_args", "")
+            if not isinstance(extra, str):
+                raise ValidationError(
+                    f"tool_parameters.fastqc.extra_args must be a string"
+                )
+            norm["extra_args"] = extra
+
+        elif tool == "trim_galore":
+            norm["quality"] = _normalize_int("quality", block.get("quality", ""))
+            norm["length"] = _normalize_int("length", block.get("length", ""))
+            norm["stringency"] = _normalize_int("stringency", block.get("stringency", ""))
+            extra = block.get("extra_args", "")
+            if not isinstance(extra, str):
+                raise ValidationError(
+                    f"tool_parameters.trim_galore.extra_args must be a string"
+                )
+            norm["extra_args"] = extra
+
+        elif tool == "bowtie2":
+            mode = block.get("mode", "")
+            if mode != "" and not isinstance(mode, str):
+                raise ValidationError(
+                    f"tool_parameters.bowtie2.mode must be a string"
+                )
+            if mode not in ("", "very-fast", "fast", "sensitive", "very-sensitive"):
+                raise ValidationError(
+                    f"tool_parameters.bowtie2.mode must be one of: "
+                    f"very-fast, fast, sensitive, very-sensitive, "
+                    f"or empty. Got {mode!r}"
+                )
+            norm["mode"] = mode
+            norm["dovetail"] = _normalize_bool("dovetail", block.get("dovetail", False))
+            norm["no_mixed"] = _normalize_bool("no_mixed", block.get("no_mixed", False))
+            norm["no_discordant"] = _normalize_bool("no_discordant", block.get("no_discordant", False))
+            extra = block.get("extra_args", "")
+            if not isinstance(extra, str):
+                raise ValidationError(
+                    f"tool_parameters.bowtie2.extra_args must be a string"
+                )
+            norm["extra_args"] = extra
+
+        elif tool == "samtools_filter":
+            norm["filter_flags"] = _normalize_filter_flags(
+                "filter_flags", block.get("filter_flags", "")
+            )
+            extra = block.get("extra_args", "")
+            if not isinstance(extra, str):
+                raise ValidationError(
+                    f"tool_parameters.samtools_filter.extra_args must be a string"
+                )
+            norm["extra_args"] = extra
+
+        elif tool == "picard_markduplicates":
+            norm["optical_duplicate_pixel_distance"] = _normalize_int(
+                "optical_duplicate_pixel_distance",
+                block.get("optical_duplicate_pixel_distance", ""),
+            )
+            extra = block.get("extra_args", "")
+            if not isinstance(extra, str):
+                raise ValidationError(
+                    f"tool_parameters.picard_markduplicates.extra_args must be a string"
+                )
+            norm["extra_args"] = extra
+
+        elif tool == "bamcoverage":
+            norm_using = block.get("normalize_using", "CPM")
+            if not isinstance(norm_using, str):
+                raise ValidationError(
+                    f"tool_parameters.bamcoverage.normalize_using must be a string"
+                )
+            ALLOWED_NORM = {"CPM", "RPKM", "BPM", "None"}
+            if norm_using not in ALLOWED_NORM:
+                raise ValidationError(
+                    f"tool_parameters.bamcoverage.normalize_using must be "
+                    f"one of: {sorted(ALLOWED_NORM)}. "
+                    f"RPGC is not supported in this slice. Got {norm_using!r}"
+                )
+            norm["normalize_using"] = norm_using
+            sl = _normalize_int(
+                "smooth_length", block.get("smooth_length", ""), minimum=1
+            )
+            norm["smooth_length"] = sl
+            extra = block.get("extra_args", "")
+            if not isinstance(extra, str):
+                raise ValidationError(
+                    f"tool_parameters.bamcoverage.extra_args must be a string"
+                )
+            norm["extra_args"] = extra
+
+        elif tool == "macs3":
+            norm["qvalue"] = _normalize_positive_float("qvalue", block.get("qvalue", 0.01))
+            norm["broad_cutoff"] = _normalize_positive_float("broad_cutoff", block.get("broad_cutoff", 0.1))
+            extra = block.get("extra_args", "")
+            if not isinstance(extra, str):
+                raise ValidationError(
+                    f"tool_parameters.macs3.extra_args must be a string"
+                )
+            norm["extra_args"] = extra
+
+        elif tool == "multiqc":
+            title = block.get("title", "")
+            if not isinstance(title, str):
+                raise ValidationError(
+                    f"tool_parameters.multiqc.title must be a string"
+                )
+            norm["title"] = title
+            extra = block.get("extra_args", "")
+            if not isinstance(extra, str):
+                raise ValidationError(
+                    f"tool_parameters.multiqc.extra_args must be a string"
+                )
+            norm["extra_args"] = extra
+
+        normalized[tool] = norm
+
+    return normalized
 
 
 def _sanitize_identifier(value: str) -> str:
@@ -638,9 +949,12 @@ def _parse_config_minimal(path: str) -> dict:
     config: dict = {}
     genome_resources: dict = {}
     qc: dict = {}
+    tool_parameters: dict = {}
     section: str | None = None
     current_genome: str | None = None
     current_entry: dict | None = None
+    current_tool: str | None = None
+    current_tool_entry: dict | None = None
 
     def parse_scalar(value: str):
         value = value.strip().strip('"').strip("'")
@@ -659,6 +973,13 @@ def _parse_config_minimal(path: str) -> dict:
         current_genome = None
         current_entry = None
 
+    def save_current_tool() -> None:
+        nonlocal current_tool, current_tool_entry
+        if current_tool is not None and current_tool_entry is not None:
+            tool_parameters[current_tool] = current_tool_entry
+        current_tool = None
+        current_tool_entry = None
+
     with open(path) as fh:
         for line in fh:
             stripped = line.rstrip()
@@ -672,12 +993,16 @@ def _parse_config_minimal(path: str) -> dict:
             # Top-level keys start or end nested blocks.
             if indent == 0:
                 save_current_genome()
+                save_current_tool()
 
                 if stripped.startswith("genome_resources:"):
                     section = "genome_resources"
                     continue
                 if stripped.startswith("qc:"):
                     section = "qc"
+                    continue
+                if stripped.startswith("tool_parameters:"):
+                    section = "tool_parameters"
                     continue
 
                 section = None
@@ -710,13 +1035,33 @@ def _parse_config_minimal(path: str) -> dict:
                     qc[k.strip()] = parse_scalar(v)
                 continue
 
+            if section == "tool_parameters" and indent == 2:
+                # Tool block key: "  fastqc:", "  trim_galore:", etc.
+                key = stripped.strip().rstrip(":")
+                if key and not key.startswith("#"):
+                    save_current_tool()
+                    current_tool = key
+                    current_tool_entry = {}
+                continue
+
+            if section == "tool_parameters" and indent == 4:
+                # Field within a tool block
+                field = stripped.strip()
+                if ":" in field and current_tool is not None and current_tool_entry is not None:
+                    k, v = field.split(":", 1)
+                    current_tool_entry[k.strip()] = parse_scalar(v)
+                continue
+
     # Save last genome entry
     save_current_genome()
+    save_current_tool()
 
     if genome_resources:
         config["genome_resources"] = genome_resources
     if qc:
         config["qc"] = qc
+    if tool_parameters:
+        config["tool_parameters"] = tool_parameters
 
     return config
 

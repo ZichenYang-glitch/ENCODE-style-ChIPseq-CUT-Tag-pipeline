@@ -1,5 +1,6 @@
 # report.smk — Final aggregation and sentinel rules
 # ==================================================
+import shlex
 
 # ---------------------------------------------------------------------------
 # Pipeline done sentinel — treatment samples only
@@ -81,6 +82,8 @@ if MULTIQC:
             logdir      = f"{OUTDIR}/logs",
             multiqc_dir = f"{OUTDIR}/multiqc",
             sample_dirs = [f"{OUTDIR}/{sid}" for sid in ACTIVE_SAMPLE_IDS],
+            title       = f"--title {shlex.quote(v)}" if (v := _tool_param("multiqc", "title", "")) else "",
+            extra       = _tool_param("multiqc", "extra_args", ""),
         conda:
             "../envs/chipseq.yml",
         shell:
@@ -91,5 +94,5 @@ if MULTIQC:
                 exit 1
             }}
             mkdir -p {params.logdir:q} {params.multiqc_dir:q}
-            multiqc {params.sample_dirs:q} -o {params.multiqc_dir:q} 2>&1 | tee {log:q}
+            multiqc {params.sample_dirs:q} -o {params.multiqc_dir:q} {params.title} {params.extra} 2>&1 | tee {log:q}
             """

@@ -351,6 +351,57 @@ results/experiments/<experiment>/
 - Cross-replicate QC (reproducibility metrics) is deferred to Stage 5.
 - See `KNOWN_ISSUES.md` for the full roadmap.
 
+## Stage 4c: Parameterization Foundation
+
+Stage 4c adds structured, validated config blocks for major workflow tools so
+common parameters can be tuned without editing rule files.
+
+### Configuration
+
+Tool parameters live under an optional `tool_parameters` block in `config/config.yaml`:
+
+```yaml
+tool_parameters:
+  fastqc:
+    extra_args: ""
+  trim_galore:
+    quality: 20
+  bowtie2:
+    mode: "very-sensitive"
+  macs3:
+    qvalue: 0.05
+```
+
+Missing `tool_parameters` or missing tool blocks use current defaults silently.
+Each tool block supports typed keys for common stable parameters, plus an
+`extra_args` string for advanced use.
+
+### Supported Tools
+
+| Block | Configurable keys | Notes |
+| :--- | :--- | :--- |
+| `fastqc` | `extra_args` | |
+| `trim_galore` | `quality`, `length`, `stringency`, `extra_args` | Quality/length/stringency only emitted when explicitly set |
+| `bowtie2` | `mode`, `dovetail`, `no_mixed`, `no_discordant`, `extra_args` | Mode/bools only emitted when set/true |
+| `samtools_filter` | `filter_flags`, `extra_args` | filter_flags always emitted; accepts int, `"0x904"`, `"2308"` |
+| `picard_markduplicates` | `optical_duplicate_pixel_distance`, `extra_args` | Only emitted when set |
+| `bamcoverage` | `normalize_using`, `smooth_length`, `extra_args` | normalize_using always emitted; RPGC not yet supported |
+| `macs3` | `qvalue`, `broad_cutoff`, `extra_args` | qvalue/broad_cutoff always emitted; extra_args appended after policy args |
+| `multiqc` | `title`, `extra_args` | Title safe-quoted; only emitted when set |
+
+### `extra_args` Warnings
+
+`extra_args` is an advanced verbatim string appended to the tool command. It
+must not override workflow-managed inputs, outputs, threads, or output
+directories. Prefer structured config keys for supported options. Misuse can
+produce broken commands or corrupt outputs.
+
+### Scope
+
+This foundation covers the primary tools first. Remaining auxiliary/QC tools
+(bedtools, MACS3 bdgcmp, calc_frip.py, etc.) can be parameterized in follow-up
+slices.
+
 ## Stage 3: Single-Sample Quality Metrics (3a + 3b + 3c-1)
 
 Stage 3a adds ENCODE-like single-sample QC metrics. Stage 3b-1 extends it

@@ -36,6 +36,47 @@ use_control: false
 # Run MultiQC aggregation after all samples complete
 multiqc: true
 
+# ---------------------------------------------------------------------------
+# Stage 4c: Tool parameterization (optional)
+# ---------------------------------------------------------------------------
+# Each block below exposes common stable parameters for a workflow tool.
+# Missing tool_parameters or missing keys use current defaults silently.
+# extra_args is an advanced verbatim string appended to the command.
+# It must NOT override workflow-managed inputs, outputs, threads, or
+# output directories. Prefer structured config keys for supported options.
+#
+# tool_parameters:
+#   fastqc:
+#     # extra_args: ""
+#   trim_galore:
+#     # quality: 20           # optional → --quality N
+#     # length: 20            # optional → --length N
+#     # stringency: 3         # optional → --stringency N
+#     # extra_args: ""
+#   bowtie2:
+#     # mode: "sensitive"     # "very-fast"|"fast"|"sensitive"|"very-sensitive", optional
+#     # dovetail: false       # boolean → --dovetail when true
+#     # no_mixed: false       # boolean → --no-mixed when true
+#     # no_discordant: false  # boolean → --no-discordant when true
+#     # extra_args: ""
+#   samtools_filter:
+#     # filter_flags: 0x904   # always emitted; accepts "0x904", "2308", 2308
+#     # extra_args: ""
+#   picard_markduplicates:
+#     # optical_duplicate_pixel_distance: 100  # optional → OPTICAL_DUPLICATE_PIXEL_DISTANCE=N
+#     # extra_args: ""
+#   bamcoverage:
+#     # normalize_using: "CPM"  # CPM|RPKM|BPM|None — always emitted
+#     # smooth_length: ""      # optional positive int → --smoothLength N
+#     # extra_args: ""
+#   macs3:
+#     # qvalue: 0.01            # float >0 — always emitted as -q N
+#     # broad_cutoff: 0.1       # float >0 — always emitted (broad mode)
+#     # extra_args: ""          # appended after policy args, unquoted
+#   multiqc:
+#     # title: ""               # optional string → --title "quoted value"
+#     # extra_args: ""
+
 # Genome-specific resources for QC and ENCODE-like metrics (Stage 2+).
 # Keys are genome labels used in the sample sheet's "genome" column.
 #
