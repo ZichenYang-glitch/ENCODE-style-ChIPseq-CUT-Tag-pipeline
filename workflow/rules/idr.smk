@@ -1,12 +1,17 @@
-# idr.smk — Stage 5a TF ChIP-seq True Replicate IDR
-# ===================================================
-# Produces IDR-ready MACS3 peak calls per biological replicate and
-# runs true-replicate IDR between them. Pseudoreplicates, self-IDR,
-# pooled-IDR, and conservative/optimal peak sets are deferred to Stage 5b.
+# idr.smk — Stage 5a + 5b TF ChIP-seq IDR
+# =========================================
+# Stage 5a: IDR-ready MACS3 per biorep, true-replicate IDR.
+# Stage 5b: pseudorep BAM splitting, pseudorep MACS3, self-IDR,
+# pooled-IDR, reproducibility summary.
 #
 # Rules:
-#   macs3_idr_biorep    — IDR-ready MACS3 call on a single biorep BAM
-#   idr_true_replicates — IDR between the two biorep IDR peak sets
+#   macs3_idr_biorep     — IDR-ready MACS3 call on a single biorep BAM (5a)
+#   idr_true_replicates  — IDR between the two biorep IDR peak sets (5a)
+#   split_pseudoreps     — deterministic BAM pseudorep split (5b)
+#   macs3_idr_pseudorep  — IDR-ready MACS3 on pseudorep BAM (5b)
+#   idr_self_pseudoreps  — self-IDR per biorep (5b)
+#   idr_pooled_pseudoreps— pooled pseudorep IDR (5b)
+#   stage5b_summary      — reproducibility QC + final peaks (5b)
 
 
 # ---------------------------------------------------------------------------
@@ -179,4 +184,299 @@ rule idr_true_replicates:
             --idr-threshold {params.threshold} \
             --output-file {output.thr_out:q} \
             --log-output-file {params.thr_log_file:q}
+        """
+
+
+# ============================================================================
+# Stage 5b rules
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# Helper: input BAM for pseudorep splitting
+# ---------------------------------------------------------------------------
+
+def _split_input(wildcards):
+    """Return the input BAM path for a pseudorep split.
+
+    source == "pooled" -> pooled treatment BAM
+    source starts with "biorep" -> parse bio_rep label, return that biorep BAM
+    """
+    exp = wildcards.experiment
+    src = wildcards.source
+    if src == "pooled":
+        return f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.final.bam"
+    # source format: "biorep<label>"
+    br_label = src[len("biorep"):]
+    return (
+        f"{OUTDIR}/experiments/{exp}/02_align/biorep{br_label}.final.bam"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Helper: inputs for pseudorep MACS3 peak call
+# ---------------------------------------------------------------------------
+
+def _idr_pseudorep_inputs(wildcards):
+    """Return inputs for MACS3 IDR peak call on a pseudorep BAM.
+
+    Input order: [pseudorep_bam, pseudorep_bam.bai, ...optional_pooled_control]
+    """
+    exp = wildcards.experiment
+    src = wildcards.source
+    pr = wildcards.pr
+    inputs = [
+        f"{OUTDIR}/experiments/{exp}/05_pseudorep/{exp}_{src}.pr{pr}.bam",
+        f"{OUTDIR}/experiments/{exp}/05_pseudorep/{exp}_{src}.pr{pr}.bam.bai",
+    ]
+    if exp in POOLED_CONTROL_EXPERIMENTS:
+        inputs.append(
+            f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.control.final.bam"
+        )
+    return inputs
+
+
+# ---------------------------------------------------------------------------
+# Helper: self-IDR thresholded path for a bio_rep index
+# ---------------------------------------------------------------------------
+
+def _self_thresh_path(experiment, index):
+    """Return the thresholded self-IDR narrowPeak for a bio_rep at index."""
+    bioreps = _bioreps_for(experiment, "treatment")
+    br = bioreps[index]
+    return (
+        f"{OUTDIR}/experiments/{experiment}/06_idr/"
+        f"self_pseudoreplicates/biorep{br}.idr.thresholded.narrowPeak"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 3. Pseudoreplicate BAM splitting — deterministic hash-based
+# ---------------------------------------------------------------------------
+
+rule split_pseudoreps:
+    output:
+        pr1 = f"{OUTDIR}/experiments/{{experiment}}/05_pseudorep/{{experiment}}_{{source}}.pr1.bam",
+        p1i = f"{OUTDIR}/experiments/{{experiment}}/05_pseudorep/{{experiment}}_{{source}}.pr1.bam.bai",
+        pr2 = f"{OUTDIR}/experiments/{{experiment}}/05_pseudorep/{{experiment}}_{{source}}.pr2.bam",
+        p2i = f"{OUTDIR}/experiments/{{experiment}}/05_pseudorep/{{experiment}}_{{source}}.pr2.bam.bai",
+    input:
+        lambda wc: _split_input(wc),
+    params:
+        seed = IDR_SEED,
+    wildcard_constraints:
+        source = r"pooled|biorep\d+",
+    log:
+        f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}_{{source}}.split.log",
+    threads: THREADS,
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output.pr1})" "$(dirname {log})"
+        python3 scripts/split_pseudoreps.py \
+            --input {input:q} \
+            --out1 {output.pr1:q} \
+            --out2 {output.pr2:q} \
+            --seed {params.seed} \
+            --threads {threads} \
+            2>&1 | tee {log:q}
+        """
+
+
+# ---------------------------------------------------------------------------
+# 4. IDR-ready MACS3 on pseudorep BAM
+# ---------------------------------------------------------------------------
+
+rule macs3_idr_pseudorep:
+    output:
+        f"{OUTDIR}/experiments/{{experiment}}/04_peaks/idr/{{experiment}}_{{source}}_pr{{pr}}_idr_peaks.narrowPeak",
+    input:
+        lambda wc: _idr_pseudorep_inputs(wc),
+    params:
+        macs3_args = lambda wc: _idr_macs3_args(wc),
+        sample     = lambda wc: f"{wc.experiment}_{wc.source}_pr{wc.pr}_idr",
+    wildcard_constraints:
+        source = r"pooled|biorep\d+",
+        pr     = r"[12]",
+    log:
+        f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}_{{source}}_pr{{pr}}.idr.macs3.log",
+    threads: THREADS,
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output})" "$(dirname {log})"
+
+        set -- {input:q}
+        TREATMENT="$1"
+        if [[ $# -ge 3 ]]; then
+            macs3 callpeak -t "$TREATMENT" -c "$3" \
+                -n {params.sample:q} \
+                --outdir "$(dirname {output:q})" \
+                {params.macs3_args} 2>&1 | tee {log:q}
+        else
+            macs3 callpeak -t "$TREATMENT" \
+                -n {params.sample:q} \
+                --outdir "$(dirname {output:q})" \
+                {params.macs3_args} 2>&1 | tee {log:q}
+        fi
+
+        [[ -f "{output}" ]] || {{ echo "ERROR: Expected {output}" >&2; exit 1; }}
+        """
+
+
+# ---------------------------------------------------------------------------
+# 5. Self-pseudoreplicate IDR (per biological replicate)
+# ---------------------------------------------------------------------------
+
+rule idr_self_pseudoreps:
+    output:
+        idr_out = f"{OUTDIR}/experiments/{{experiment}}/06_idr/self_pseudoreplicates/biorep{{bio_rep}}.idr.txt",
+        thr_out = f"{OUTDIR}/experiments/{{experiment}}/06_idr/self_pseudoreplicates/biorep{{bio_rep}}.idr.thresholded.narrowPeak",
+    input:
+        peaks1 = lambda wc: (
+            f"{OUTDIR}/experiments/{wc.experiment}/04_peaks/idr/"
+            f"{wc.experiment}_biorep{wc.bio_rep}_pr1_idr_peaks.narrowPeak"
+        ),
+        peaks2 = lambda wc: (
+            f"{OUTDIR}/experiments/{wc.experiment}/04_peaks/idr/"
+            f"{wc.experiment}_biorep{wc.bio_rep}_pr2_idr_peaks.narrowPeak"
+        ),
+    params:
+        threshold    = IDR_THRESHOLD,
+        rank         = IDR_RANK,
+        raw_log_file = lambda wc: (
+            f"{OUTDIR}/experiments/{wc.experiment}/logs/"
+            f"{wc.experiment}.idr.self.biorep{wc.bio_rep}.raw.log"
+        ),
+        thr_log_file = lambda wc: (
+            f"{OUTDIR}/experiments/{wc.experiment}/logs/"
+            f"{wc.experiment}.idr.self.biorep{wc.bio_rep}.thr.log"
+        ),
+    wildcard_constraints:
+        bio_rep = r"\d+",
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        command -v idr >/dev/null 2>&1 || {{
+            echo "ERROR: idr is required for Stage 5 IDR analysis but was not found in PATH." >&2
+            exit 1
+        }}
+
+        mkdir -p "$(dirname {output.idr_out})" \
+                 "$(dirname {params.raw_log_file})" \
+                 "$(dirname {params.thr_log_file})"
+
+        # Run 1: raw IDR output
+        idr --samples {input.peaks1:q} {input.peaks2:q} \
+            --input-file-type narrowPeak \
+            --rank {params.rank} \
+            --output-file {output.idr_out:q} \
+            --log-output-file {params.raw_log_file:q}
+
+        # Run 2: thresholded narrowPeak output
+        idr --samples {input.peaks1:q} {input.peaks2:q} \
+            --input-file-type narrowPeak \
+            --rank {params.rank} \
+            --idr-threshold {params.threshold} \
+            --output-file {output.thr_out:q} \
+            --log-output-file {params.thr_log_file:q}
+        """
+
+
+# ---------------------------------------------------------------------------
+# 6. Pooled-pseudoreplicate IDR
+# ---------------------------------------------------------------------------
+
+rule idr_pooled_pseudoreps:
+    output:
+        idr_out = f"{OUTDIR}/experiments/{{experiment}}/06_idr/pooled_pseudoreplicates/idr.txt",
+        thr_out = f"{OUTDIR}/experiments/{{experiment}}/06_idr/pooled_pseudoreplicates/idr.thresholded.narrowPeak",
+    input:
+        peaks1 = f"{OUTDIR}/experiments/{{experiment}}/04_peaks/idr/{{experiment}}_pooled_pr1_idr_peaks.narrowPeak",
+        peaks2 = f"{OUTDIR}/experiments/{{experiment}}/04_peaks/idr/{{experiment}}_pooled_pr2_idr_peaks.narrowPeak",
+    params:
+        threshold    = IDR_THRESHOLD,
+        rank         = IDR_RANK,
+        raw_log_file = lambda wc: (
+            f"{OUTDIR}/experiments/{wc.experiment}/logs/"
+            f"{wc.experiment}.idr.pooled.raw.log"
+        ),
+        thr_log_file = lambda wc: (
+            f"{OUTDIR}/experiments/{wc.experiment}/logs/"
+            f"{wc.experiment}.idr.pooled.thr.log"
+        ),
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        command -v idr >/dev/null 2>&1 || {{
+            echo "ERROR: idr is required for Stage 5 IDR analysis but was not found in PATH." >&2
+            exit 1
+        }}
+
+        mkdir -p "$(dirname {output.idr_out})" \
+                 "$(dirname {params.raw_log_file})" \
+                 "$(dirname {params.thr_log_file})"
+
+        # Run 1: raw IDR output
+        idr --samples {input.peaks1:q} {input.peaks2:q} \
+            --input-file-type narrowPeak \
+            --rank {params.rank} \
+            --output-file {output.idr_out:q} \
+            --log-output-file {params.raw_log_file:q}
+
+        # Run 2: thresholded narrowPeak output
+        idr --samples {input.peaks1:q} {input.peaks2:q} \
+            --input-file-type narrowPeak \
+            --rank {params.rank} \
+            --idr-threshold {params.threshold} \
+            --output-file {output.thr_out:q} \
+            --log-output-file {params.thr_log_file:q}
+        """
+
+
+# ---------------------------------------------------------------------------
+# 7. Reproducibility QC summary and final peak sets
+# ---------------------------------------------------------------------------
+
+rule stage5b_summary:
+    output:
+        summary      = f"{OUTDIR}/experiments/{{experiment}}/06_idr/final/reproducibility_summary.tsv",
+        conservative = f"{OUTDIR}/experiments/{{experiment}}/06_idr/final/conservative.narrowPeak",
+        optimal      = f"{OUTDIR}/experiments/{{experiment}}/06_idr/final/optimal.narrowPeak",
+    input:
+        true_thresh  = f"{OUTDIR}/experiments/{{experiment}}/06_idr/true_replicates/idr.thresholded.narrowPeak",
+        pool_thresh  = f"{OUTDIR}/experiments/{{experiment}}/06_idr/pooled_pseudoreplicates/idr.thresholded.narrowPeak",
+        self1_thresh = lambda wc: _self_thresh_path(wc.experiment, 0),
+        self2_thresh = lambda wc: _self_thresh_path(wc.experiment, 1),
+    params:
+        experiment = lambda wc: wc.experiment,
+        bio_rep_a  = lambda wc: str(sorted(_bioreps_for(wc.experiment, "treatment"))[0]),
+        bio_rep_b  = lambda wc: str(sorted(_bioreps_for(wc.experiment, "treatment"))[1]),
+    log:
+        f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.stage5b.summary.log",
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output.summary})" "$(dirname {log})"
+        python3 scripts/stage5b_summary.py \
+            --true-peaks {input.true_thresh:q} \
+            --pooled-peaks {input.pool_thresh:q} \
+            --self1-peaks {input.self1_thresh:q} \
+            --self2-peaks {input.self2_thresh:q} \
+            --experiment {params.experiment:q} \
+            --bio-rep-a {params.bio_rep_a} \
+            --bio-rep-b {params.bio_rep_b} \
+            --output-tsv {output.summary:q} \
+            --output-cons {output.conservative:q} \
+            --output-opt {output.optimal:q} \
+            2>&1 | tee {log:q}
         """

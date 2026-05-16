@@ -651,7 +651,37 @@ def _validate_idr_settings(idr):
             f"idr.rank must be 'p.value' or 'signal.value', got {rank!r}"
         )
 
-    return {"threshold": threshold, "rank": rank}
+    seed = idr.get("seed", 42)
+    if isinstance(seed, bool):
+        raise ValidationError(
+            f"idr.seed must be a positive integer, got {seed!r}"
+        )
+    if isinstance(seed, int):
+        if seed <= 0:
+            raise ValidationError(
+                f"idr.seed must be positive, got {seed}"
+            )
+    elif isinstance(seed, str):
+        text = seed.strip()
+        if not text.isdigit() or int(text) <= 0:
+            raise ValidationError(
+                f"idr.seed must be a positive integer, got {seed!r}"
+            )
+        seed = int(text)
+    else:
+        raise ValidationError(
+            f"idr.seed must be a positive integer, got {seed!r}"
+        )
+
+    # Reject unknown keys
+    known = {"seed", "threshold", "rank"}
+    for key in idr:
+        if key not in known:
+            raise ValidationError(
+                f"idr: unknown key {key!r}. Known: {sorted(known)}"
+            )
+
+    return {"threshold": threshold, "rank": rank, "seed": seed}
 
 
 def _sanitize_identifier(value: str) -> str:

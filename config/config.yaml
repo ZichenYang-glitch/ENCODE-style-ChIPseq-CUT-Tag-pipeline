@@ -143,6 +143,7 @@ stage5: false
 
 # Stage 5 IDR analysis settings
 # idr:
+#   seed: 42
 #   threshold: 0.05
 #   rank: "p.value"
 

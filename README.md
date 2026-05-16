@@ -395,8 +395,49 @@ results/experiments/<experiment>/
 ### Limitations
 
 - IDR plots deferred to a later reporting slice
-- No pseudoreplicate analysis (Stage 5b)
-- No conservative/optimal peak assembly (Stage 5b)
+- No MultiQC integration
+
+## Stage 5b: Pseudoreplicate IDR and Final Reproducibility
+
+Stage 5b adds pseudoreplicate-based IDR on top of Stage 5a.
+
+### New in Stage 5b
+
+- **Pseudoreplicate BAM splitting** — `scripts/split_pseudoreps.py` deterministically
+  splits each biorep BAM and the pooled BAM into two complementary pseudoreplicates
+  using hashlib.sha256(read_name + seed).
+- **Self-pseudoreplicate IDR** — IDR between pr1/pr2 peaks per biological replicate,
+  measuring internal consistency.
+- **Pooled-pseudoreplicate IDR** — IDR between pooled pr1/pr2, providing an
+  upper-bound reproducibility estimate.
+- **Final peak sets** — conservative (`true_replicates/thresholded`) and
+  optimal (`pooled_pseudoreps/thresholded`).
+- **Reproducibility summary** — `rescue_ratio`, `self_consistency_ratio`,
+  pass/fail status in `reproducibility_summary.tsv`.
+
+### Outputs
+
+```
+results/experiments/<exp>/
+├── 05_pseudorep/
+│   ├── <exp>_biorep<bio_rep>.pr1.bam (and .bai for each)
+│   ├── <exp>_pooled.pr1.bam
+│   └── ...
+├── 04_peaks/idr/
+│   ├── <exp>_biorep<bio_rep>_pr1_idr_peaks.narrowPeak
+│   └── ...
+├── 06_idr/
+│   ├── self_pseudoreplicates/
+│   ├── pooled_pseudoreplicates/
+│   └── final/
+│       ├── conservative.narrowPeak
+│       ├── optimal.narrowPeak
+│       └── reproducibility_summary.tsv
+```
+
+### Limitations
+
+- No histone/CUT&Tag/3+ biorep support
 - No MultiQC integration
 
 ## Stage 4c: Parameterization Foundation
