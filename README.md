@@ -340,15 +340,17 @@ results/experiments/<experiment>/
 ├── 04_peaks/
 │   └── pooled/
 │       └── <experiment>_pooled_peaks.narrowPeak   # or .broadPeak
+├── 03_signal/
+│   ├── <experiment>.pooled.FE.bdg                 # when qc.signal_tracks=true
+│   └── <experiment>.pooled.ppois.bdg
 └── logs/
     └── <experiment>.pooled.macs3.log
 ```
 
 ### Limitations (Stage 4b)
 
-- IDR and pseudoreplicates are not implemented yet (planned for Stage 5).
-- Pooled MACS3 peaks do not yet produce signal tracks (FE/ppois bedGraph).
-- Cross-replicate QC (reproducibility metrics) is deferred to Stage 5.
+- IDR and pseudoreplicates are implemented in Stage 5.
+- Pooled MACS3 FE/ppois signal tracks are implemented in Stage 6a.
 - See `KNOWN_ISSUES.md` for the full roadmap.
 
 ## Stage 5a: TF ChIP-seq True Replicate IDR
@@ -439,6 +441,31 @@ results/experiments/<exp>/
 
 - No histone/CUT&Tag/3+ biorep support
 - No MultiQC integration
+
+## Stage 6a: Pooled Experiment Signal Tracks
+
+Stage 6a adds pooled-experiment MACS3 signal tracks for multi-biorep
+experiments. When `qc.signal_tracks: true`, pooled MACS3 peak calling runs with
+`-B`, and the workflow derives FE and ppois bedGraph tracks from the pooled
+MACS3 pileup and lambda bedGraphs.
+
+### Outputs
+
+```text
+results/experiments/<experiment>/
+└── 03_signal/
+    ├── <experiment>.pooled.FE.bdg
+    └── <experiment>.pooled.ppois.bdg
+```
+
+The pooled signal tracks are scheduled for any Stage 4b multi-biorep
+experiment. They apply to both narrow and broad pooled MACS3 peak calls and can
+be disabled with:
+
+```yaml
+qc:
+  signal_tracks: false
+```
 
 ## Stage 4c: Parameterization Foundation
 

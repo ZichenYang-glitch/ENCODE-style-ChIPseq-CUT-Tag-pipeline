@@ -114,6 +114,7 @@ rule macs3_pooled_peaks:
         lambda wc: _pooled_peaks_inputs(wc),
     params:
         macs3_args = lambda wc: _pooled_macs3_args(wc.experiment),
+        bdg_args   = lambda wc: "-B" if QC_CONFIG.get("signal_tracks", True) else "",
         sample     = "{experiment}",
         peak_mode  = lambda wc: SAMPLE_MAP[
             TREATMENT_SAMPLES_BY_EXPERIMENT[wc.experiment][0]
@@ -139,6 +140,7 @@ rule macs3_pooled_peaks:
                 -n {params.sample:q}_pooled \
                 --outdir {output.peaks:q} \
                 {params.macs3_args} \
+                {params.bdg_args} \
                 {params.extra} \
                 2>&1 | tee {log:q}
         else
@@ -147,6 +149,7 @@ rule macs3_pooled_peaks:
                 -n {params.sample:q}_pooled \
                 --outdir {output.peaks:q} \
                 {params.macs3_args} \
+                {params.bdg_args} \
                 {params.extra} \
                 2>&1 | tee {log:q}
         fi

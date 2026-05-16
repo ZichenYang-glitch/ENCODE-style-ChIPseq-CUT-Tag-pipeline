@@ -57,6 +57,14 @@ def _signal_track_file(sample_id, signal):
     return f"{OUTDIR}/{sample_id}/03_signal/{sample_id}.{signal}.bdg"
 
 
+def _pooled_signal_track_file(experiment, signal):
+    """Return a pooled experiment MACS3-derived signal bedGraph path."""
+    return (
+        f"{OUTDIR}/experiments/{experiment}/03_signal/"
+        f"{experiment}.pooled.{signal}.bdg"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 1. Blacklist filter — BAM
 # ---------------------------------------------------------------------------
@@ -315,6 +323,75 @@ rule signal_track_ppois:
             echo "Expected: $TREAT" >&2
             echo "Expected: $LAMBDA" >&2
             echo "Ensure qc.signal_tracks is true so macs3 callpeak runs with -B." >&2
+            exit 1
+        fi
+
+        mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
+        macs3 bdgcmp \
+            -t "$TREAT" \
+            -c "$LAMBDA" \
+            -m ppois \
+            -o {output:q} \
+            2>&1 | tee {log:q}
+        """
+
+
+# ---------------------------------------------------------------------------
+# 6a. Pooled MACS3 signal tracks (Stage 6a)
+# ---------------------------------------------------------------------------
+
+rule pooled_signal_track_fe:
+    output:
+        f"{OUTDIR}/experiments/{{experiment}}/03_signal/{{experiment}}.pooled.FE.bdg",
+    input:
+        peaks_dir = f"{OUTDIR}/experiments/{{experiment}}/04_peaks/pooled/{{experiment}}_pooled_peaks",
+    log:
+        f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.bdgcmp.FE.log",
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        TREAT={input.peaks_dir:q}/{wildcards.experiment}_pooled_treat_pileup.bdg
+        LAMBDA={input.peaks_dir:q}/{wildcards.experiment}_pooled_control_lambda.bdg
+        if [[ ! -s "$TREAT" || ! -s "$LAMBDA" ]]; then
+            echo "ERROR: pooled MACS3 bedGraph inputs missing for FE signal track." >&2
+            echo "Expected: $TREAT" >&2
+            echo "Expected: $LAMBDA" >&2
+            echo "Ensure qc.signal_tracks is true so pooled MACS3 runs with -B." >&2
+            exit 1
+        fi
+
+        mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
+        macs3 bdgcmp \
+            -t "$TREAT" \
+            -c "$LAMBDA" \
+            -m FE \
+            -p 1 \
+            -o {output:q} \
+            2>&1 | tee {log:q}
+        """
+
+
+rule pooled_signal_track_ppois:
+    output:
+        f"{OUTDIR}/experiments/{{experiment}}/03_signal/{{experiment}}.pooled.ppois.bdg",
+    input:
+        peaks_dir = f"{OUTDIR}/experiments/{{experiment}}/04_peaks/pooled/{{experiment}}_pooled_peaks",
+    log:
+        f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.bdgcmp.ppois.log",
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        TREAT={input.peaks_dir:q}/{wildcards.experiment}_pooled_treat_pileup.bdg
+        LAMBDA={input.peaks_dir:q}/{wildcards.experiment}_pooled_control_lambda.bdg
+        if [[ ! -s "$TREAT" || ! -s "$LAMBDA" ]]; then
+            echo "ERROR: pooled MACS3 bedGraph inputs missing for ppois signal track." >&2
+            echo "Expected: $TREAT" >&2
+            echo "Expected: $LAMBDA" >&2
+            echo "Ensure qc.signal_tracks is true so pooled MACS3 runs with -B." >&2
             exit 1
         fi
 
