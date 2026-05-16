@@ -212,6 +212,10 @@ idr:
   description: >
     Stage 5 IDR analysis settings. Only validated when stage5 is true.
   schema:
+    seed:
+      type: integer
+      default: 42
+      description: Deterministic pseudoreplicate split seed (positive integer).
     threshold:
       type: float
       default: 0.05

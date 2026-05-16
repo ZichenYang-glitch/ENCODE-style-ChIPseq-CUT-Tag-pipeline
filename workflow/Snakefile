@@ -41,6 +41,7 @@ STAGE5      = VALIDATED_CONFIG.get("stage5", False)
 IDR_SETTINGS = VALIDATED_CONFIG.get("idr", {})
 IDR_THRESHOLD = float(IDR_SETTINGS.get("threshold", 0.05))
 IDR_RANK = str(IDR_SETTINGS.get("rank", "p.value"))
+IDR_SEED = int(IDR_SETTINGS.get("seed", 42))
 GENOME_RESOURCES = VALIDATED_CONFIG.get("genome_resources", {})
 
 
@@ -231,6 +232,47 @@ else:
     IDR_EXPERIMENTS = []
     IDR_BIOREP_EXP_LIST = []
     IDR_BIOREP_LIST = []
+
+# Stage 5b precomputed expansion lists (gated on STAGE5 and IDR_EXPERIMENTS)
+if STAGE5 and IDR_EXPERIMENTS:
+    IDR_SPLIT_SOURCE_EXP = []
+    IDR_SPLIT_SOURCE_NAME = []
+    IDR_PR_PEAK_EXP = []
+    IDR_PR_PEAK_SRC = []
+    IDR_PR_PEAK_PR = []
+    IDR_SELF_EXP = []
+    IDR_SELF_BR = []
+
+    for exp in IDR_EXPERIMENTS:
+        bioreps = sorted(_bioreps_for(exp, "treatment"))
+        br_a = bioreps[0]
+        br_b = bioreps[1]
+
+        for br in (br_a, br_b):
+            src = f"biorep{br}"
+            IDR_SPLIT_SOURCE_EXP.append(exp)
+            IDR_SPLIT_SOURCE_NAME.append(src)
+            for pr in ("1", "2"):
+                IDR_PR_PEAK_EXP.append(exp)
+                IDR_PR_PEAK_SRC.append(src)
+                IDR_PR_PEAK_PR.append(pr)
+            IDR_SELF_EXP.append(exp)
+            IDR_SELF_BR.append(br)
+
+        IDR_SPLIT_SOURCE_EXP.append(exp)
+        IDR_SPLIT_SOURCE_NAME.append("pooled")
+        for pr in ("1", "2"):
+            IDR_PR_PEAK_EXP.append(exp)
+            IDR_PR_PEAK_SRC.append("pooled")
+            IDR_PR_PEAK_PR.append(pr)
+else:
+    IDR_SPLIT_SOURCE_EXP = []
+    IDR_SPLIT_SOURCE_NAME = []
+    IDR_PR_PEAK_EXP = []
+    IDR_PR_PEAK_SRC = []
+    IDR_PR_PEAK_PR = []
+    IDR_SELF_EXP = []
+    IDR_SELF_BR = []
 
 
 # ---------------------------------------------------------------------------
@@ -587,6 +629,77 @@ rule all:
         true_idr_thresh = (
             expand(
                 "{outdir}/experiments/{experiment}/06_idr/true_replicates/idr.thresholded.narrowPeak",
+                outdir=OUTDIR,
+                experiment=IDR_EXPERIMENTS,
+            )
+            if STAGE5 and IDR_EXPERIMENTS else []
+        ),
+        # Stage 5b: pseudorep MACS3 peaks
+        stage5b_pr_peaks = (
+            expand(
+                "{outdir}/experiments/{experiment}/04_peaks/idr/{experiment}_{source}_pr{pr}_idr_peaks.narrowPeak",
+                zip,
+                outdir=OUTDIR,
+                experiment=IDR_PR_PEAK_EXP, source=IDR_PR_PEAK_SRC, pr=IDR_PR_PEAK_PR,
+            )
+            if STAGE5 and IDR_EXPERIMENTS else []
+        ),
+        # Stage 5b: self-IDR targets
+        stage5b_self_idr = (
+            expand(
+                "{outdir}/experiments/{experiment}/06_idr/self_pseudoreplicates/biorep{bio_rep}.idr.txt",
+                zip,
+                outdir=OUTDIR,
+                experiment=IDR_SELF_EXP, bio_rep=IDR_SELF_BR,
+            )
+            if STAGE5 and IDR_EXPERIMENTS else []
+        ),
+        stage5b_self_idr_thresh = (
+            expand(
+                "{outdir}/experiments/{experiment}/06_idr/self_pseudoreplicates/biorep{bio_rep}.idr.thresholded.narrowPeak",
+                zip,
+                outdir=OUTDIR,
+                experiment=IDR_SELF_EXP, bio_rep=IDR_SELF_BR,
+            )
+            if STAGE5 and IDR_EXPERIMENTS else []
+        ),
+        # Stage 5b: pooled-IDR targets
+        stage5b_pooled_idr = (
+            expand(
+                "{outdir}/experiments/{experiment}/06_idr/pooled_pseudoreplicates/idr.txt",
+                outdir=OUTDIR,
+                experiment=IDR_EXPERIMENTS,
+            )
+            if STAGE5 and IDR_EXPERIMENTS else []
+        ),
+        stage5b_pooled_idr_thresh = (
+            expand(
+                "{outdir}/experiments/{experiment}/06_idr/pooled_pseudoreplicates/idr.thresholded.narrowPeak",
+                outdir=OUTDIR,
+                experiment=IDR_EXPERIMENTS,
+            )
+            if STAGE5 and IDR_EXPERIMENTS else []
+        ),
+        # Stage 5b: final summary
+        stage5b_summary_tsv = (
+            expand(
+                "{outdir}/experiments/{experiment}/06_idr/final/reproducibility_summary.tsv",
+                outdir=OUTDIR,
+                experiment=IDR_EXPERIMENTS,
+            )
+            if STAGE5 and IDR_EXPERIMENTS else []
+        ),
+        stage5b_cons = (
+            expand(
+                "{outdir}/experiments/{experiment}/06_idr/final/conservative.narrowPeak",
+                outdir=OUTDIR,
+                experiment=IDR_EXPERIMENTS,
+            )
+            if STAGE5 and IDR_EXPERIMENTS else []
+        ),
+        stage5b_opt = (
+            expand(
+                "{outdir}/experiments/{experiment}/06_idr/final/optimal.narrowPeak",
                 outdir=OUTDIR,
                 experiment=IDR_EXPERIMENTS,
             )
