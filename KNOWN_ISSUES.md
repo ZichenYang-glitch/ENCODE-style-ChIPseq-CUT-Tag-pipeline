@@ -142,14 +142,21 @@ The following are intentionally deferred to Stage 5:
 
 Goal: implement the core ENCODE-style TF ChIP-seq reproducibility layer.
 
-Estimated effort: 2-4 days.
+**Stage 5a completed 2026-05-17** — true-replicate IDR foundation with
+config, validation, IDR-ready MACS3 calls, and raw/thresholded IDR output.
 
-- Add individual replicate peak calling targets.
-- Add pooled replicate peak calling targets.
-- Add self-pseudoreplicate and pooled-pseudoreplicate generation.
-- Add IDR rules.
-- Emit conservative and optimal peak sets.
-- Add reproducibility summary outputs.
+- ✅ Add individual replicate peak calling targets. (Stage 5a: IDR-ready MACS3 per biorep)
+- ✅ Add IDR rules. (Stage 5a: true-replicate IDR, raw + thresholded)
+- ⬜ Add self-pseudoreplicate and pooled-pseudoreplicate generation. (Stage 5b)
+- ⬜ Emit conservative and optimal peak sets. (Stage 5b)
+- ⬜ Add reproducibility summary outputs. (Stage 5b)
+
+**Stage 5b deferred items:**
+- Pseudoreplicate BAM generation (deterministic hash split script)
+- Self-pseudoreplicate IDR (per biorep)
+- Pooled-pseudoreplicate IDR
+- Final conservative/optimal peak set assembly
+- Reproducibility summary TSV
 
 ### Stage 6: Histone ChIP-seq Branch
 

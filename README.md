@@ -351,6 +351,54 @@ results/experiments/<experiment>/
 - Cross-replicate QC (reproducibility metrics) is deferred to Stage 5.
 - See `KNOWN_ISSUES.md` for the full roadmap.
 
+## Stage 5a: TF ChIP-seq True Replicate IDR
+
+Stage 5a adds true-replicate IDR analysis for TF ChIP-seq experiments with
+exactly 2 biological replicates and narrowPeak mode. Pseudoreplicates,
+self-IDR, pooled-IDR, and conservative/optimal peak sets are deferred to
+Stage 5b.
+
+### Configuration
+
+```yaml
+stage5: false          # default off; requires stage4b: true
+
+idr:
+  threshold: 0.05      # IDR threshold for thresholded peaks
+  rank: "p.value"      # p.value or signal.value
+
+tool_parameters:
+  idr_macs3:
+    pvalue: 0.1        # relaxed -p for IDR-ready MACS3 calls
+    extra_args: ""
+```
+
+### Requirements
+
+- `stage5: true` requires `stage4b: true`
+- ChIP-seq assay only (CUT&Tag deferred to Stage 7)
+- narrowPeak only (broad peaks deferred to Stage 6)
+- Exactly 2 treatment biological replicates per experiment
+
+### Outputs
+
+```
+results/experiments/<experiment>/
+├── 04_peaks/idr/
+│   ├── <exp>_biorep<bio_rep1>_idr_peaks.narrowPeak
+│   └── <exp>_biorep<bio_rep2>_idr_peaks.narrowPeak
+└── 06_idr/true_replicates/
+    ├── idr.txt                          # raw IDR output
+    └── idr.thresholded.narrowPeak       # thresholded peaks
+```
+
+### Limitations
+
+- IDR plots deferred to a later reporting slice
+- No pseudoreplicate analysis (Stage 5b)
+- No conservative/optimal peak assembly (Stage 5b)
+- No MultiQC integration
+
 ## Stage 4c: Parameterization Foundation
 
 Stage 4c adds structured, validated config blocks for major workflow tools so

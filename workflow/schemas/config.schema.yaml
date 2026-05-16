@@ -195,6 +195,33 @@ stage4b:
     Set to false to disable all Stage 4b outputs and revert to
     the Stage 4a metadata-only behavior.
 
+# ---- Stage 5: TF ChIP-seq IDR (optional) ----
+stage5:
+  type: boolean | string
+  default: false
+  allowed: [true, false, "true", "false"]
+  description: >
+    Enable Stage 5 TF ChIP-seq true-replicate IDR. When true, requires
+    stage4b: true. Supports chipseq + narrow + exactly 2 biological
+    replicates only. Produces IDR-ready MACS3 peak calls and true
+    replicate IDR output. Set to false to disable all Stage 5 outputs.
+
+idr:
+  type: mapping
+  required: false
+  description: >
+    Stage 5 IDR analysis settings. Only validated when stage5 is true.
+  schema:
+    threshold:
+      type: float
+      default: 0.05
+      description: IDR threshold for thresholded narrowPeak output (float in (0, 1)).
+    rank:
+      type: string
+      default: "p.value"
+      allowed: ["p.value", "signal.value"]
+      description: Column to rank by in IDR.
+
 # ---- Stage 4c: Tool Parameterization (optional) ----
 tool_parameters:
   type: mapping

@@ -203,6 +203,30 @@ def validate_config(config: dict) -> dict:
         config.get("tool_parameters", {})
     )
 
+    # stage5 — optional Stage 5 IDR, default false
+    stage5_raw = config.get("stage5", False)
+    if isinstance(stage5_raw, bool):
+        validated["stage5"] = stage5_raw
+    elif str(stage5_raw).lower() in ("true", "false"):
+        validated["stage5"] = str(stage5_raw).lower() == "true"
+    else:
+        raise ValidationError(
+            f"config stage5 must be true or false, got {stage5_raw!r}"
+        )
+
+    # stage5 requires stage4b
+    if validated["stage5"] and not validated.get("stage4b", True):
+        raise ValidationError(
+            "config: stage5=true requires stage4b=true. "
+            "Stage 5a depends on Stage 4b biorep BAMs and pooled control BAMs."
+        )
+
+    # idr settings (only validated when stage5 is true)
+    if validated["stage5"]:
+        validated["idr"] = _validate_idr_settings(config.get("idr", {}))
+    else:
+        validated["idr"] = {"threshold": 0.05, "rank": "p.value"}
+
     return validated
 
 
@@ -302,6 +326,7 @@ def _validate_tool_params(tool_params) -> dict:
     KNOWN_TOOLS = {
         "fastqc", "trim_galore", "bowtie2", "samtools_filter",
         "picard_markduplicates", "bamcoverage", "macs3", "multiqc",
+        "idr_macs3",
     }
 
     # Known keys per tool
@@ -314,6 +339,7 @@ def _validate_tool_params(tool_params) -> dict:
         "bamcoverage": {"normalize_using", "smooth_length", "extra_args"},
         "macs3": {"qvalue", "broad_cutoff", "extra_args"},
         "multiqc": {"title", "extra_args"},
+        "idr_macs3": {"pvalue", "extra_args"},
     }
 
     def _normalize_bool(key, raw):
@@ -579,9 +605,53 @@ def _validate_tool_params(tool_params) -> dict:
                 )
             norm["extra_args"] = extra
 
+        elif tool == "idr_macs3":
+            norm["pvalue"] = _normalize_positive_float("pvalue", block.get("pvalue", 0.1))
+            extra = block.get("extra_args", "")
+            if not isinstance(extra, str):
+                raise ValidationError(
+                    f"tool_parameters.idr_macs3.extra_args must be a string"
+                )
+            norm["extra_args"] = extra
+
         normalized[tool] = norm
 
     return normalized
+
+
+def _validate_idr_settings(idr):
+    """Validate the idr config block. Returns normalized dict.
+
+    Only called when stage5 is true.
+    """
+    if not isinstance(idr, dict):
+        raise ValidationError(
+            f"idr must be a mapping, got {type(idr).__name__}"
+        )
+
+    threshold = idr.get("threshold", 0.05)
+    if isinstance(threshold, bool):
+        raise ValidationError(
+            f"idr.threshold must be a float in (0, 1), got {threshold!r}"
+        )
+    try:
+        threshold = float(threshold)
+    except (ValueError, TypeError):
+        raise ValidationError(
+            f"idr.threshold must be a float in (0, 1), got {threshold!r}"
+        )
+    if not (0 < threshold < 1):
+        raise ValidationError(
+            f"idr.threshold must be in (0, 1), got {threshold}"
+        )
+
+    rank = str(idr.get("rank", "p.value"))
+    if rank not in ("p.value", "signal.value"):
+        raise ValidationError(
+            f"idr.rank must be 'p.value' or 'signal.value', got {rank!r}"
+        )
+
+    return {"threshold": threshold, "rank": rank}
 
 
 def _sanitize_identifier(value: str) -> str:
@@ -626,6 +696,7 @@ def load_and_validate_samples(
     sample_tsv: str,
     *,
     use_control: bool = False,
+    stage5_enabled: bool = False,
 ) -> list[dict]:
     """Load and validate a sample sheet TSV.
 
@@ -830,12 +901,12 @@ def load_and_validate_samples(
                     )
 
     # --- Pass 3: replicate group validation (Stage 4b) ---
-    validate_replicate_groups(samples, use_control)
+    validate_replicate_groups(samples, use_control, stage5_enabled)
 
     return samples
 
 
-def validate_replicate_groups(samples, use_control):
+def validate_replicate_groups(samples, use_control, stage5_enabled=False):
     """Pass 3: cross-replicate validation for Stage 4b replicate-aware outputs.
 
     Raises ValidationError on:
@@ -918,6 +989,33 @@ def validate_replicate_groups(samples, use_control):
                         f"control_sample {cs!r} which belongs to experiment "
                         f"{cs_row['experiment']!r}, not {exp!r}"
                     )
+
+    # --- Stage 5 IDR eligibility (only when stage5_enabled) ---
+    if stage5_enabled:
+        for exp, rows in exp_treatments.items():
+            if len(rows) == 0:
+                continue
+            first = rows[0]
+
+            if first["assay"] != "chipseq":
+                raise ValidationError(
+                    f"Stage 5 IDR: experiment {exp!r} has assay "
+                    f"{first['assay']!r}. Stage 5 supports chipseq only."
+                )
+
+            if first["peak_mode"] != "narrow":
+                raise ValidationError(
+                    f"Stage 5 IDR: experiment {exp!r} has peak_mode "
+                    f"{first['peak_mode']!r}. Stage 5 supports narrowPeak only."
+                )
+
+            bio_reps = sorted({r["biological_replicate"] for r in rows})
+            if len(bio_reps) != 2:
+                raise ValidationError(
+                    f"Stage 5 IDR: experiment {exp!r} has "
+                    f"{len(bio_reps)} biological replicate(s) ({bio_reps}). "
+                    f"Stage 5 requires exactly 2."
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -1092,6 +1190,7 @@ def main():
         samples = load_and_validate_samples(
             validated["samples"],
             use_control=validated["use_control"],
+            stage5_enabled=validated.get("stage5", False),
         )
     except ValidationError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
