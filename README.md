@@ -32,6 +32,7 @@ analysis.
 - `workflow/rules/chipseq.smk`: ChIP-seq policy functions.
 - `workflow/rules/cuttag.smk`: CUT&Tag policy functions.
 - `workflow/rules/peaks.smk`: MACS3 peak calling rule.
+- `workflow/rules/replicates.smk`: Stage 4b replicate-aware grouped outputs (biorep BAMs, pooled BAMs).
 - `workflow/rules/qc.smk`: Stage 3 single-sample QC rules.
 - `workflow/rules/report.smk`: Completion sentinels and MultiQC aggregation.
 - `workflow/schemas/config.schema.yaml`: Config schema contract (human-readable).
@@ -276,6 +277,79 @@ H3K27AC_rep2	/data/ac2_R1.fq.gz	/data/ac2_R2.fq.gz	PE	chipseq	H3K27ac	narrow	hs	
 ```
 
 The minimal sample sheet (required columns only) remains fully compatible.
+
+## Stage 4b: Replicate-Aware Grouped Outputs
+
+Stage 4b builds on the Stage 4a metadata foundation to produce biological-replicate
+BAMs, pooled BAMs, and pooled MACS3 peaks for multi-replicate experiments.
+
+### What Stage 4b Produces
+
+- **Biological-replicate BAMs** — merge technical replicates within a biological
+  replicate (single tech-rep → symlink; multiple → samtools merge)
+- **Pooled treatment BAMs** — merge all treatment biorep BAMs for an experiment
+  with >=2 biological replicates
+- **Pooled control BAMs** — merge/symlink control BAM(s) for multi-biorep
+  treatment experiments that have controls
+- **Pooled MACS3 peaks** — peak calling on the pooled treatment BAM (with pooled
+  control if available)
+
+### Gating
+
+Stage 4b is enabled by default (`stage4b: true` in `config/config.yaml`).
+Stage 4b outputs are gated behind `stage4b: true`:
+- **Biorep BAMs** are produced when a treatment biological replicate has
+  multiple technical replicates (needs merging), or when an experiment has
+  >=2 biological replicates (needs biorep intermediates for pooling).
+  An experiment with 1 bio-rep and 1 tech-rep produces no biorep BAM.
+- **Pooled treatment BAMs and pooled MACS3 peaks** are only scheduled for
+  treatment experiments with >=2 biological replicates.
+- **Single-sample workflows** (no replicate columns, or one sample per
+  experiment) produce zero Stage 4b outputs and run the same DAG as before.
+
+### Technical Replicate Policy
+
+- Technical replicates within the same biological replicate are merged into a
+  `biorep<N>.final.bam`.
+- A biological replicate with a single technical replicate symlinks to the
+  existing per-sample `final.bam` (no unnecessary recomputation).
+- Biological-replicate BAMs are the units used for pooling.
+
+### Control Handling
+
+- Pooled control BAMs are produced whenever a multi-biorep treatment experiment
+  has controls (1 unique control → symlink, >1 → merge).
+- Mixed control types (`control_bam` and `control_sample`) within the same
+  experiment are rejected at validation time.
+- Partial controls (some treatment rows with controls, others without) are
+  rejected.
+- All `control_sample` references must belong to the same experiment as the
+  treatment rows that reference them.
+
+### Experiment Output Structure
+
+```text
+results/experiments/<experiment>/
+├── 02_align/
+│   ├── biorep<bio_rep>.final.bam               # per biological replicate
+│   ├── biorep<bio_rep>.final.bam.bai
+│   ├── <experiment>.pooled.final.bam           # pooled treatment (>=2 bio-reps)
+│   ├── <experiment>.pooled.final.bam.bai
+│   ├── <experiment>.pooled.control.final.bam   # pooled control (when available)
+│   └── <experiment>.pooled.control.final.bam.bai
+├── 04_peaks/
+│   └── pooled/
+│       └── <experiment>_pooled_peaks.narrowPeak   # or .broadPeak
+└── logs/
+    └── <experiment>.pooled.macs3.log
+```
+
+### Limitations (Stage 4b)
+
+- IDR and pseudoreplicates are not implemented yet (planned for Stage 5).
+- Pooled MACS3 peaks do not yet produce signal tracks (FE/ppois bedGraph).
+- Cross-replicate QC (reproducibility metrics) is deferred to Stage 5.
+- See `KNOWN_ISSUES.md` for the full roadmap.
 
 ## Stage 3: Single-Sample Quality Metrics (3a + 3b + 3c-1)
 

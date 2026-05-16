@@ -178,3 +178,19 @@ qc:
         Enable per-sample QC summary TSV and project-level summary.
         Enables peak count reporting. When summary is true, frip and
         peak_counts are also enabled regardless of their switches.
+
+# ---- Stage 4b Replicate-Aware Outputs (optional) ----
+stage4b:
+  type: boolean | string
+  default: true
+  allowed: [true, false, "true", "false"]
+  description: >
+    Enable Stage 4b replicate-aware grouped outputs.
+    When true:
+    - Biorep BAMs are produced for technical-replicate merging or
+      as intermediates for pooled outputs.
+    - Pooled treatment/control BAMs and pooled MACS3 peaks are only
+      scheduled for experiments with >=2 treatment biological replicates.
+    - Single-sample workflows produce zero Stage 4b outputs.
+    Set to false to disable all Stage 4b outputs and revert to
+    the Stage 4a metadata-only behavior.

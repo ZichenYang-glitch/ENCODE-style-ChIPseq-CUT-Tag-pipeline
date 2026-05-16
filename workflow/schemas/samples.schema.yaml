@@ -168,13 +168,19 @@ cross_validation:
       - "control_bam paths must exist on disk"
       - "control_sample and control_bam are mutually exclusive per row"
 
-# ---- Stage 4a Note ----
-stage4a:
+# ---- Stage 4a/4b Notes ----
+stage4:
   note: >
-    Stage 4a is metadata-only. The new optional columns establish a
-    replicate-aware sample model but do NOT change rule scheduling,
-    produce pooled BAMs or peaks, generate pseudoreplicates, or run IDR.
-    Those features are planned for later Stage 4 slices.
+    Stage 4a (metadata foundation) introduced optional replicate-aware
+    columns (experiment, condition, replicate, biological_replicate,
+    technical_replicate). Stage 4b builds on this to produce:
+    - Biological-replicate BAMs (merge technical replicates, or symlink
+      when a biological replicate has a single technical replicate)
+    - Pooled treatment BAMs for experiments with >=2 biological replicates
+    - Pooled control BAMs for multi-biorep treatment experiments that have
+      controls (1 unique → symlink, >1 → merge)
+    - Pooled MACS3 peak calling on pooled BAMs
+    IDR and pseudoreplicates are deferred to Stage 5.
 
 # ---- Backward Compatibility ----
 compatibility:

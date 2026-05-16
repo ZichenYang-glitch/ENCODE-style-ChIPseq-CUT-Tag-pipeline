@@ -36,6 +36,7 @@ BINSIZE     = VALIDATED_CONFIG["binsize"]
 TRIM        = VALIDATED_CONFIG["trim"]
 USE_CONTROL = VALIDATED_CONFIG["use_control"]
 MULTIQC     = VALIDATED_CONFIG["multiqc"]
+STAGE4B     = VALIDATED_CONFIG.get("stage4b", True)
 GENOME_RESOURCES = VALIDATED_CONFIG.get("genome_resources", {})
 
 
@@ -110,6 +111,97 @@ CONTROL_SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {
     exp: [sid for sid in sids if SAMPLE_MAP[sid]["role"] == "control"]
     for exp, sids in SAMPLES_BY_EXPERIMENT.items()
 }
+
+
+# ---------------------------------------------------------------------------
+# 3a2. Stage 4b replicate-aware grouped outputs
+# ---------------------------------------------------------------------------
+
+if STAGE4B:
+
+    # Biological replicate groups: keyed by (experiment, role, bio_rep)
+    # Role separation ensures treatment and control BAMs are never merged together.
+    BIO_REP_GROUPS: dict[tuple[str, str, int], list[str]] = {}
+    for s in SAMPLES:
+        key = (s["experiment"], s["role"], s["biological_replicate"])
+        BIO_REP_GROUPS.setdefault(key, []).append(s["id"])
+
+    # Biological replicates for a specific experiment + role
+    def _bioreps_for(experiment, role):
+        return sorted(
+            bio_rep for (exp, r, bio_rep) in BIO_REP_GROUPS
+            if exp == experiment and r == role
+        )
+
+    # Pre-computed (experiment, bio_rep) pairs for treatment expand() calls.
+    # Only includes bio-reps that need merging (multiple tech-reps) or are
+    # part of a multi-biorep experiment (needed for pooling).
+    def _biorep_expand_pairs():
+        """Return (experiment_list, bio_rep_list) for expand(zip, ...).
+
+        Gating:
+        - bio-reps in multi-biorep experiments: always included (pooling needs them)
+        - bio-reps in single-biorep experiments: only included if they have
+          multiple tech-reps (need tech-rep merging)
+        - single-sample bio-reps with 1 tech-rep: excluded (no-op, no DAG change)
+        """
+        exp_list = []
+        br_list = []
+        for exp in EXPERIMENT_IDS:
+            for br in _bioreps_for(exp, "treatment"):
+                key = (exp, "treatment", br)
+                n_techreps = len(BIO_REP_GROUPS.get(key, []))
+                n_bioreps = len(_bioreps_for(exp, "treatment"))
+                if n_bioreps >= 2 or n_techreps >= 2:
+                    exp_list.append(exp)
+                    br_list.append(br)
+        return exp_list, br_list
+
+    _EXP_LIST, _BR_LIST = _biorep_expand_pairs()
+
+    # Experiments with >=2 treatment biological replicates → pooled BAMs + peaks
+    MULTI_BIOREP_EXPERIMENTS = sorted(
+        exp for exp in EXPERIMENT_IDS
+        if len(_bioreps_for(exp, "treatment")) >= 2
+    )
+
+    # Control BAM resolution for a given experiment.
+    # Returns list of (source_type, path) tuples where source_type is
+    # "control_sample" or "control_bam".
+    def _resolve_experiment_controls(experiment):
+        """Return unique non-empty control paths for an experiment's treatment rows."""
+        treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
+        if not treatment_ids:
+            return []
+        ctrl_samples = set()
+        ctrl_bams = set()
+        for sid in treatment_ids:
+            s = SAMPLE_MAP[sid]
+            cs = s.get("control_sample", "")
+            cb = s.get("control_bam", "")
+            if cs:
+                ctrl_samples.add(cs)
+            elif cb:
+                ctrl_bams.add(cb)
+        result = []
+        for cs in sorted(ctrl_samples):
+            result.append(("control_sample", f"{OUTDIR}/{cs}/02_align/{cs}.final.bam"))
+        for cb in sorted(ctrl_bams):
+            result.append(("control_bam", cb))
+        return result
+
+    # Experiments that have controls (for pooled control BAM/BAI)
+    # Pooled controls are produced whenever a multi-biorep treatment
+    # experiment has controls actually referenced by its treatment rows
+    # (1 unique → symlink, >1 → merge).
+    POOLED_CONTROL_EXPERIMENTS = sorted(
+        exp for exp in MULTI_BIOREP_EXPERIMENTS
+        if USE_CONTROL and _resolve_experiment_controls(exp)
+    )
+
+else:
+    MULTI_BIOREP_EXPERIMENTS = []
+    POOLED_CONTROL_EXPERIMENTS = []
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +442,69 @@ rule all:
             [f"{OUTDIR}/multiqc/stage3_qc_summary.tsv"]
             if QC_CONFIG.get("summary", True) and TREATMENT_SAMPLE_IDS else []
         ),
+        # Stage 4b: pooled treatment BAMs for multi-biorep experiments
+        pooled_bam = (
+            expand(
+                "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.final.bam",
+                outdir=OUTDIR,
+                experiment=MULTI_BIOREP_EXPERIMENTS,
+            )
+            if STAGE4B and MULTI_BIOREP_EXPERIMENTS else []
+        ),
+        pooled_bai = (
+            expand(
+                "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.final.bam.bai",
+                outdir=OUTDIR,
+                experiment=MULTI_BIOREP_EXPERIMENTS,
+            )
+            if STAGE4B and MULTI_BIOREP_EXPERIMENTS else []
+        ),
+        # Stage 4b: biorep BAMs for all treatment bio-reps across all experiments
+        # (scheduled when STAGE4B is true; symlinks for single-tech-rep bio-reps)
+        biorep_bam = (
+            expand(
+                "{outdir}/experiments/{experiment}/02_align/biorep{bio_rep}.final.bam",
+                zip,
+                outdir=OUTDIR,
+                experiment=_EXP_LIST, bio_rep=_BR_LIST,
+            )
+            if STAGE4B and _EXP_LIST else []
+        ),
+        biorep_bai = (
+            expand(
+                "{outdir}/experiments/{experiment}/02_align/biorep{bio_rep}.final.bam.bai",
+                zip,
+                outdir=OUTDIR,
+                experiment=_EXP_LIST, bio_rep=_BR_LIST,
+            )
+            if STAGE4B and _EXP_LIST else []
+        ),
+        # Stage 4b: pooled control BAMs
+        pooled_ctrl_bam = (
+            expand(
+                "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.control.final.bam",
+                outdir=OUTDIR,
+                experiment=POOLED_CONTROL_EXPERIMENTS,
+            )
+            if STAGE4B and POOLED_CONTROL_EXPERIMENTS else []
+        ),
+        pooled_ctrl_bai = (
+            expand(
+                "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.control.final.bam.bai",
+                outdir=OUTDIR,
+                experiment=POOLED_CONTROL_EXPERIMENTS,
+            )
+            if STAGE4B and POOLED_CONTROL_EXPERIMENTS else []
+        ),
+        # Stage 4b: pooled MACS3 peaks
+        pooled_peaks = (
+            expand(
+                "{outdir}/experiments/{experiment}/04_peaks/pooled/{experiment}_pooled_peaks",
+                outdir=OUTDIR,
+                experiment=MULTI_BIOREP_EXPERIMENTS,
+            )
+            if STAGE4B and MULTI_BIOREP_EXPERIMENTS else []
+        ),
 
 
 # ---------------------------------------------------------------------------
@@ -358,5 +513,6 @@ rule all:
 
 include: "rules/common.smk"
 include: "rules/peaks.smk"
+include: "rules/replicates.smk"
 include: "rules/qc.smk"
 include: "rules/report.smk"

@@ -187,6 +187,17 @@ def validate_config(config: dict) -> dict:
     # qc — optional Stage3 QC switches, default all true
     validated["qc"] = _validate_qc_config(config.get("qc", {}))
 
+    # stage4b — optional Stage 4b replicate-aware outputs, default true
+    stage4b_raw = config.get("stage4b", True)
+    if isinstance(stage4b_raw, bool):
+        validated["stage4b"] = stage4b_raw
+    elif str(stage4b_raw).lower() in ("true", "false"):
+        validated["stage4b"] = str(stage4b_raw).lower() == "true"
+    else:
+        raise ValidationError(
+            f"config stage4b must be true or false, got {stage4b_raw!r}"
+        )
+
     return validated
 
 
@@ -507,7 +518,95 @@ def load_and_validate_samples(
                         f"has role={cs_row['role']!r}, expected role=control"
                     )
 
+    # --- Pass 3: replicate group validation (Stage 4b) ---
+    validate_replicate_groups(samples, use_control)
+
     return samples
+
+
+def validate_replicate_groups(samples, use_control):
+    """Pass 3: cross-replicate validation for Stage 4b replicate-aware outputs.
+
+    Raises ValidationError on:
+    - Inconsistent assay/target/genome/peak_mode/layout within an experiment
+      (treatment samples only)
+    - Duplicate (biological_replicate, technical_replicate) combos within
+      an experiment
+    - Mixed control types (control_bam vs control_sample) within an experiment
+    - Partial controls: some treatment rows have controls and others do not
+    """
+    # Group treatment samples by experiment
+    exp_treatments: dict[str, list[dict]] = {}
+    exp_controls: dict[str, list[dict]] = {}
+    for s in samples:
+        if s["role"] == "treatment":
+            exp_treatments.setdefault(s["experiment"], []).append(s)
+        else:
+            exp_controls.setdefault(s["experiment"], []).append(s)
+
+    for exp, rows in exp_treatments.items():
+        # --- Consistency checks ---
+        if len(rows) < 2:
+            continue
+
+        first = rows[0]
+        for field in ("assay", "target", "condition", "genome", "peak_mode", "layout"):
+            values = {r[field] for r in rows}
+            if len(values) > 1:
+                raise ValidationError(
+                    f"Experiment {exp!r}: treatment samples disagree on "
+                    f"{field}: {sorted(values)}"
+                )
+
+        # Duplicate (biological_replicate, technical_replicate) combos
+        seen_bt: set[tuple[int, int]] = set()
+        for r in rows:
+            bt = (r["biological_replicate"], r["technical_replicate"])
+            if bt in seen_bt:
+                raise ValidationError(
+                    f"Experiment {exp!r}: duplicate "
+                    f"(biological_replicate={bt[0]}, "
+                    f"technical_replicate={bt[1]}) combination"
+                )
+            seen_bt.add(bt)
+
+        # --- Control consistency (only when use_control is true) ---
+        if not use_control:
+            continue
+
+        has_bam = [r for r in rows if r.get("control_bam")]
+        has_sample = [r for r in rows if r.get("control_sample")]
+
+        # Partial controls: not all have controls and not all lack them
+        n_with_ctrl = len(has_bam) + len(has_sample)
+        if n_with_ctrl not in (0, len(rows)):
+            raise ValidationError(
+                f"Experiment {exp!r}: partial controls detected — "
+                f"{n_with_ctrl} of {len(rows)} treatment rows have "
+                f"controls. All treatment rows in an experiment must "
+                f"either all have controls or all lack controls."
+            )
+
+        # Mixed control types
+        if has_bam and has_sample:
+            raise ValidationError(
+                f"Experiment {exp!r}: mixed control types — some rows "
+                f"use control_bam and others use control_sample. "
+                f"All treatment rows in an experiment must use the "
+                f"same control type."
+            )
+
+        # Control sample references must belong to the same experiment
+        if has_sample:
+            for r in has_sample:
+                cs = r["control_sample"]
+                cs_row = next(s for s in samples if s["id"] == cs)
+                if cs_row["experiment"] != exp:
+                    raise ValidationError(
+                        f"Experiment {exp!r}: sample {r['id']!r} references "
+                        f"control_sample {cs!r} which belongs to experiment "
+                        f"{cs_row['experiment']!r}, not {exp!r}"
+                    )
 
 
 # ---------------------------------------------------------------------------

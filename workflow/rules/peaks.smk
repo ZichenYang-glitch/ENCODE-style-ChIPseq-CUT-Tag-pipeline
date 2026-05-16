@@ -57,3 +57,102 @@ rule macs3_callpeak:
             exit 1
         fi
         """
+
+
+# ---------------------------------------------------------------------------
+# Pooled MACS3 peak calling (Stage 4b)
+# ---------------------------------------------------------------------------
+
+def _pooled_macs3_args(experiment):
+    """Return MACS3 args string for a pooled experiment.
+
+    Delegates to get_macs3_args() so pooled peak calling uses the exact
+    same ChIP-seq / CUT&Tag MACS3 policy as per-sample peak calling.
+    """
+    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
+    if not treatment_ids:
+        return ""
+    class _Wildcards:
+        sample = treatment_ids[0]
+    return get_macs3_args(_Wildcards)
+
+
+def _pooled_peak_suffix(experiment):
+    """Return 'narrowPeak' or 'broadPeak' for the experiment."""
+    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
+    if not treatment_ids:
+        return "narrowPeak"
+    return "broadPeak" if SAMPLE_MAP[treatment_ids[0]]["peak_mode"] == "broad" else "narrowPeak"
+
+
+def _pooled_peaks_inputs(wildcards):
+    """Return inputs for macs3_pooled_peaks.
+
+    Elements: [pooled.bam, pooled.bam.bai, ...optional_pooled_control]
+    """
+    exp = wildcards.experiment
+    inputs = [
+        f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.final.bam",
+        f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.final.bam.bai",
+    ]
+    if exp in POOLED_CONTROL_EXPERIMENTS:
+        inputs.append(
+            f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.control.final.bam"
+        )
+    return inputs
+
+
+rule macs3_pooled_peaks:
+    output:
+        peaks = directory(
+            f"{OUTDIR}/experiments/{{experiment}}/04_peaks/pooled/{{experiment}}_pooled_peaks"
+        ),
+    input:
+        lambda wc: _pooled_peaks_inputs(wc),
+    params:
+        macs3_args = lambda wc: _pooled_macs3_args(wc.experiment),
+        sample     = "{experiment}",
+        peak_mode  = lambda wc: SAMPLE_MAP[
+            TREATMENT_SAMPLES_BY_EXPERIMENT[wc.experiment][0]
+        ]["peak_mode"],
+    log:
+        f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.macs3.log",
+    threads: THREADS,
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p {output.peaks:q}
+
+        set -- {input:q}
+        TREATMENT="$1"
+        # Input order: pooled.bam ($1), pooled.bam.bai ($2)[, pooled.control.bam ($3)]
+        if [[ $# -ge 3 ]]; then
+            macs3 callpeak \
+                -t "$TREATMENT" \
+                -c "$3" \
+                -n {params.sample:q}_pooled \
+                --outdir {output.peaks:q} \
+                {params.macs3_args} \
+                2>&1 | tee {log:q}
+        else
+            macs3 callpeak \
+                -t "$TREATMENT" \
+                -n {params.sample:q}_pooled \
+                --outdir {output.peaks:q} \
+                {params.macs3_args} \
+                2>&1 | tee {log:q}
+        fi
+
+        # Verify expected peak file exists
+        SUFFIX="narrowPeak"
+        if [[ "{params.peak_mode}" == "broad" ]]; then
+            SUFFIX="broadPeak"
+        fi
+        EXPECTED="{output.peaks}/{params.sample}_pooled_peaks.$SUFFIX"
+        if [[ ! -f "$EXPECTED" ]]; then
+            echo "ERROR: Expected peak file not found: $EXPECTED" >&2
+            exit 1
+        fi
+        """

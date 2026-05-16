@@ -91,6 +91,12 @@ genome_resources:
     gtf: ""
     reference_fasta: ""
 
+# Stage 4b replicate-aware grouped outputs (Stage 4b).
+# When true, biological-replicate BAMs, pooled BAMs, and pooled peaks
+# are scheduled for experiments with >=2 biological replicates.
+# Set to false to disable all Stage 4b outputs.
+stage4b: true
+
 # Stage 3 QC configuration.
 # Each switch accepts boolean or string boolean (true/false).
 # Missing qc block defaults to all switches enabled.

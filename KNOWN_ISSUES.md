@@ -118,9 +118,25 @@ Estimated effort: 1-2 days (Stage 4a: ~0.25 day).
 - ✅ Extend the sample sheet with replicate/group concepts such as `replicate`,
   `condition`, or `experiment`. (Stage 4a, metadata-only)
 - ✅ Keep backward compatibility for single-sample runs. (Stage 4a)
-- ⬜ Define grouped outputs for replicate sets. (Stage 4b)
-- ⬜ Define pooled replicate BAMs and pooled peak targets. (Stage 4b)
-- ⬜ Decide how technical replicates should be represented or merged. (Stage 4b)
+- ✅ Define grouped outputs for replicate sets. (Stage 4b, completed 2026-05-16)
+- ✅ Define pooled replicate BAMs and pooled peak targets. (Stage 4b, completed 2026-05-16)
+- ✅ Decide how technical replicates should be represented or merged. (Stage 4b, completed 2026-05-16)
+  Technical replicates merged into biological-replicate BAMs; single tech-rep uses symlink.
+
+### Stage 4b Limitations
+
+The following are intentionally deferred to Stage 5:
+
+- **No IDR or pseudoreplicates.** Pooled peak calling runs on the merged BAM.
+  Self-pseudoreplicates, pooled pseudoreplicates, and IDR-based conservative/
+  optimal peak sets are Stage 5.
+- **No cross-replicate QC.** Per-biorep peak calling, reproducibility metrics,
+  and replicate-level signal track comparison are not implemented.
+- **No pooled signal tracks.** MACS3 FE/ppois bedGraph generation is only
+  available for single-sample peaks (Stage 3b-2), not for pooled peaks.
+- **Pooled control BAM merging is separate from treatment.** Pooled control
+  BAMs are produced as independent targets. If both pooled treatment and
+  pooled control are needed, Snakemake schedules both.
 
 ### Stage 5: TF ChIP-seq IDR and Reproducibility
 
