@@ -94,6 +94,7 @@ Estimated effort: 1-2 days (Stage 3a + 3b + 3c-1: ~1.25 days).
 - ✅ Add fold-enrichment and p-value signal tracks where appropriate. (Stage 3b-2,
   bedGraph output)
 - ✅ Add NRF/PBC library complexity metrics. (Stage 3c-1, BAM-derived)
+- ✅ Add pooled experiment FE/ppois signal tracks. (Stage 6a, completed 2026-05-17)
 - ⬜ Add cross-correlation metrics such as NSC/RSC. (Stage 3c-2)
 - ⬜ Add full NRF/PBC metrics and/or preseq-style complexity where appropriate.
   (Stage 3c-2)
@@ -132,8 +133,8 @@ The following are intentionally deferred to Stage 5:
   optimal peak sets are Stage 5.
 - **No cross-replicate QC.** Per-biorep peak calling, reproducibility metrics,
   and replicate-level signal track comparison are not implemented.
-- **No pooled signal tracks.** MACS3 FE/ppois bedGraph generation is only
-  available for single-sample peaks (Stage 3b-2), not for pooled peaks.
+- **Pooled signal tracks are Stage 6a.** MACS3 FE/ppois bedGraph generation
+  is available for pooled experiment peaks when `qc.signal_tracks: true`.
 - **Pooled control BAM merging is separate from treatment.** Pooled control
   BAMs are produced as independent targets. If both pooled treatment and
   pooled control are needed, Snakemake schedules both.
@@ -163,11 +164,14 @@ config, validation, IDR-ready MACS3 calls, and raw/thresholded IDR output.
 Goal: support histone ChIP-seq expectations without forcing all histone assays
 through TF-style IDR.
 
+**Stage 6a completed 2026-05-17** — pooled experiment FE/ppois bedGraph
+signal tracks for multi-biorep experiments.
+
 Estimated effort: 1-2 days.
 
 - Clarify narrow vs broad histone behavior.
 - Add pooled replicate handling for histone marks.
-- Add fold-enrichment and p-value signal tracks.
+- ✅ Add fold-enrichment and p-value signal tracks for pooled experiments.
 - Add histone-appropriate reproducibility and QC summaries.
 
 ### Stage 7: CUT&Tag-Specific Branch

@@ -607,6 +607,29 @@ rule all:
             )
             if STAGE4B and MULTI_BIOREP_EXPERIMENTS else []
         ),
+        # Stage 6a: pooled experiment MACS3 signal tracks
+        pooled_signal_fe = (
+            expand(
+                "{outdir}/experiments/{experiment}/03_signal/{experiment}.pooled.FE.bdg",
+                outdir=OUTDIR,
+                experiment=MULTI_BIOREP_EXPERIMENTS,
+            )
+            if (
+                STAGE4B and MULTI_BIOREP_EXPERIMENTS
+                and QC_CONFIG.get("signal_tracks", True)
+            ) else []
+        ),
+        pooled_signal_ppois = (
+            expand(
+                "{outdir}/experiments/{experiment}/03_signal/{experiment}.pooled.ppois.bdg",
+                outdir=OUTDIR,
+                experiment=MULTI_BIOREP_EXPERIMENTS,
+            )
+            if (
+                STAGE4B and MULTI_BIOREP_EXPERIMENTS
+                and QC_CONFIG.get("signal_tracks", True)
+            ) else []
+        ),
         # Stage 5a: IDR-ready per-biorep peaks
         idr_biorep_peaks = (
             expand(
