@@ -37,6 +37,10 @@ TRIM        = VALIDATED_CONFIG["trim"]
 USE_CONTROL = VALIDATED_CONFIG["use_control"]
 MULTIQC     = VALIDATED_CONFIG["multiqc"]
 STAGE4B     = VALIDATED_CONFIG.get("stage4b", True)
+STAGE5      = VALIDATED_CONFIG.get("stage5", False)
+IDR_SETTINGS = VALIDATED_CONFIG.get("idr", {})
+IDR_THRESHOLD = float(IDR_SETTINGS.get("threshold", 0.05))
+IDR_RANK = str(IDR_SETTINGS.get("rank", "p.value"))
 GENOME_RESOURCES = VALIDATED_CONFIG.get("genome_resources", {})
 
 
@@ -71,6 +75,7 @@ def _normalize_genome(genome):
 SAMPLES = load_and_validate_samples(
     VALIDATED_CONFIG["samples"],
     use_control=USE_CONTROL,
+    stage5_enabled=STAGE5,
 )
 
 # --- Derived ID lists ---
@@ -202,6 +207,30 @@ if STAGE4B:
 else:
     MULTI_BIOREP_EXPERIMENTS = []
     POOLED_CONTROL_EXPERIMENTS = []
+
+
+# ---------------------------------------------------------------------------
+# 3a3. Stage 5a IDR derived structures
+# ---------------------------------------------------------------------------
+
+if STAGE5:
+    IDR_EXPERIMENTS = []
+    IDR_BIOREP_EXP_LIST = []
+    IDR_BIOREP_LIST = []
+
+    for exp in MULTI_BIOREP_EXPERIMENTS:
+        bioreps = _bioreps_for(exp, "treatment")
+        if len(bioreps) == 2:
+            first = SAMPLE_MAP[TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0]]
+            if first["assay"] == "chipseq" and first["peak_mode"] == "narrow":
+                IDR_EXPERIMENTS.append(exp)
+                for br in sorted(bioreps):
+                    IDR_BIOREP_EXP_LIST.append(exp)
+                    IDR_BIOREP_LIST.append(br)
+else:
+    IDR_EXPERIMENTS = []
+    IDR_BIOREP_EXP_LIST = []
+    IDR_BIOREP_LIST = []
 
 
 # ---------------------------------------------------------------------------
@@ -536,6 +565,33 @@ rule all:
             )
             if STAGE4B and MULTI_BIOREP_EXPERIMENTS else []
         ),
+        # Stage 5a: IDR-ready per-biorep peaks
+        idr_biorep_peaks = (
+            expand(
+                "{outdir}/experiments/{experiment}/04_peaks/idr/{experiment}_biorep{bio_rep}_idr_peaks.narrowPeak",
+                zip,
+                outdir=OUTDIR,
+                experiment=IDR_BIOREP_EXP_LIST, bio_rep=IDR_BIOREP_LIST,
+            )
+            if STAGE5 and IDR_EXPERIMENTS else []
+        ),
+        # Stage 5a: true replicate IDR (raw + thresholded)
+        true_idr_raw = (
+            expand(
+                "{outdir}/experiments/{experiment}/06_idr/true_replicates/idr.txt",
+                outdir=OUTDIR,
+                experiment=IDR_EXPERIMENTS,
+            )
+            if STAGE5 and IDR_EXPERIMENTS else []
+        ),
+        true_idr_thresh = (
+            expand(
+                "{outdir}/experiments/{experiment}/06_idr/true_replicates/idr.thresholded.narrowPeak",
+                outdir=OUTDIR,
+                experiment=IDR_EXPERIMENTS,
+            )
+            if STAGE5 and IDR_EXPERIMENTS else []
+        ),
 
 
 # ---------------------------------------------------------------------------
@@ -545,5 +601,6 @@ rule all:
 include: "rules/common.smk"
 include: "rules/peaks.smk"
 include: "rules/replicates.smk"
+include: "rules/idr.smk"
 include: "rules/qc.smk"
 include: "rules/report.smk"

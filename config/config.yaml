@@ -138,6 +138,14 @@ genome_resources:
 # Set to false to disable all Stage 4b outputs.
 stage4b: true
 
+# Stage 5: TF ChIP-seq IDR and reproducibility (default off)
+stage5: false
+
+# Stage 5 IDR analysis settings
+# idr:
+#   threshold: 0.05
+#   rank: "p.value"
+
 # Stage 3 QC configuration.
 # Each switch accepts boolean or string boolean (true/false).
 # Missing qc block defaults to all switches enabled.

@@ -16,3 +16,5 @@ dependencies:
   # --- workflow orchestration ---
   - snakemake >=8.0
   - multiqc
+  # --- Stage 5 IDR ---
+  - idr
