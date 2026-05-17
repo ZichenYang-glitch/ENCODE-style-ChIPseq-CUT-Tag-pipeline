@@ -406,6 +406,88 @@ rule pooled_signal_track_ppois:
 
 
 # ---------------------------------------------------------------------------
+# 6b. Pooled experiment QC summary (Stage 6b)
+# ---------------------------------------------------------------------------
+
+def _classify(experiment):
+    """Return histone classification dict for an experiment's first treatment."""
+    sid = TREATMENT_SAMPLES_BY_EXPERIMENT[experiment][0]
+    s = SAMPLE_MAP[sid]
+    return classify_histone_target(s["target"], s["peak_mode"])
+
+
+rule pooled_experiment_qc_summary:
+    output:
+        f"{OUTDIR}/experiments/{{experiment}}/01_qc/{{experiment}}.pooled_qc_summary.tsv",
+    input:
+        pooled_bam   = f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam",
+        pooled_peaks = f"{OUTDIR}/experiments/{{experiment}}/04_peaks/pooled/{{experiment}}_pooled_peaks",
+        pooled_fe    = (
+            f"{OUTDIR}/experiments/{{experiment}}/03_signal/{{experiment}}.pooled.FE.bdg"
+            if QC_CONFIG.get("signal_tracks", True) else []
+        ),
+        pooled_ppois = (
+            f"{OUTDIR}/experiments/{{experiment}}/03_signal/{{experiment}}.pooled.ppois.bdg"
+            if QC_CONFIG.get("signal_tracks", True) else []
+        ),
+    params:
+        experiment             = "{experiment}",
+        target                 = lambda wc: SAMPLE_MAP[
+                                  TREATMENT_SAMPLES_BY_EXPERIMENT[wc.experiment][0]]["target"],
+        assay                  = lambda wc: SAMPLE_MAP[
+                                  TREATMENT_SAMPLES_BY_EXPERIMENT[wc.experiment][0]]["assay"],
+        peak_mode              = lambda wc: SAMPLE_MAP[
+                                  TREATMENT_SAMPLES_BY_EXPERIMENT[wc.experiment][0]]["peak_mode"],
+        n_bioreps              = lambda wc: len(
+                                    _bioreps_for(wc.experiment, "treatment")),
+        bio_rep_labels         = lambda wc: ",".join(
+            str(b) for b in sorted(
+                _bioreps_for(wc.experiment, "treatment"))),
+        inferred_histone_class = lambda wc: _classify(wc.experiment)["inferred_histone_class"],
+        expected_peak_mode     = lambda wc: _classify(wc.experiment)["expected_peak_mode"],
+        peak_mode_status       = lambda wc: _classify(wc.experiment)["peak_mode_status"],
+        pooled_fe_path         = (
+            f"{OUTDIR}/experiments/{{experiment}}/03_signal/{{experiment}}.pooled.FE.bdg"
+            if QC_CONFIG.get("signal_tracks", True) else "NA"),
+        pooled_ppois_path      = (
+            f"{OUTDIR}/experiments/{{experiment}}/03_signal/{{experiment}}.pooled.ppois.bdg"
+            if QC_CONFIG.get("signal_tracks", True) else "NA"),
+        signal_enabled         = QC_CONFIG.get("signal_tracks", True),
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        if [[ "{params.signal_enabled}" == "True" ]]; then
+            if [[ -f "{input.pooled_fe}" && -f "{input.pooled_ppois}" ]]; then
+                SIG_STATUS="enabled_present"
+            else
+                SIG_STATUS="enabled_missing"
+            fi
+        else
+            SIG_STATUS="disabled"
+        fi
+
+        mkdir -p "$(dirname {output:q})"
+        python3 scripts/pooled_qc_summary.py \
+            --experiment {params.experiment:q} \
+            --assay {params.assay:q} \
+            --target {params.target:q} \
+            --peak-mode {params.peak_mode:q} \
+            --inferred-histone-class {params.inferred_histone_class:q} \
+            --expected-peak-mode {params.expected_peak_mode:q} \
+            --peak-mode-status {params.peak_mode_status:q} \
+            --n-bioreps {params.n_bioreps} \
+            --bio-rep-labels {params.bio_rep_labels:q} \
+            --pooled-bam {input.pooled_bam:q} \
+            --pooled-peaks-dir {input.pooled_peaks:q} \
+            --pooled-fe-bdg {params.pooled_fe_path:q} \
+            --pooled-ppois-bdg {params.pooled_ppois_path:q} \
+            --signal-tracks-status "$SIG_STATUS" \
+            --output {output:q}
+        """
+
+
+# ---------------------------------------------------------------------------
 # 7. Per-sample QC summary
 # ---------------------------------------------------------------------------
 

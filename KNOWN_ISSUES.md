@@ -172,7 +172,7 @@ Estimated effort: 1-2 days.
 - Clarify narrow vs broad histone behavior.
 - Add pooled replicate handling for histone marks.
 - ✅ Add fold-enrichment and p-value signal tracks for pooled experiments.
-- Add histone-appropriate reproducibility and QC summaries.
+- ✅ Add histone-appropriate reproducibility and QC summaries. (Stage 6b, completed 2026-05-17)
 
 ### Stage 7: CUT&Tag-Specific Branch
 
