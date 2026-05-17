@@ -4,100 +4,56 @@
 [![Conda](https://img.shields.io/badge/conda-supported-blue.svg?style=flat-square)](https://docs.conda.io/en/latest/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 
-This repository contains a Snakemake-based pipeline suite for ChIP-seq and
-CUT&Tag data analysis. The batch workflow is the primary entry point and is
-implemented as modular rules under `workflow/rules/`.
+## Overview
+
+A Snakemake-based pipeline suite for ChIP-seq and CUT&Tag data analysis. It
+handles single-sample preprocessing as well as multi-replicate experiments with
+pooled outputs, single-sample QC, and TF ChIP-seq IDR reproducibility analysis.
 
 Default mode is no-input / no-control. Optional controls can be enabled with
-`use_control: true` and supplied either as an external control BAM or as a
-FASTQ-based control sample row.
-
-Dependencies are managed with Conda. This pipeline does not include ATAC-seq
-analysis.
+`use_control: true` and supplied as an external control BAM or a FASTQ-based
+control sample row. Dependencies are managed with Conda.
 
 ## Key Features
 
-- ChIP-seq and CUT&Tag assay policies with shared preprocessing rules.
-- Snakemake-native DAG tracking, resume support, and per-step reruns.
-- Optional control handling through external BAMs or FASTQ-based control rows.
-- Resource-gated single-sample QC: blacklist filtering, FRiP, peak counts,
-  library complexity, NRF/PBC, and MACS3 FE/ppois signal tracks.
-- Conda-managed workflow environment.
-- Legacy single-sample shell script retained for compatibility.
+- **Shared preprocessing:** FastQC, Trim Galore, Bowtie2 alignment, MAPQ
+  filtering, Picard duplicate handling, flagstat, idxstats, BigWig generation
+- **ChIP-seq / CUT&Tag assay policies:** assay-aware MACS3 parameters, duplicate
+  removal, and read extension
+- **Optional controls:** external control BAM or FASTQ-based control rows;
+  control samples processed through the same pipeline
+- **Single-sample QC:** FRiP, peak counts, library complexity, NRF/PBC, MACS3
+  FE/ppois signal tracks, per-sample QC summaries, and project-level aggregation
+- **Replicate-aware outputs:** technical replicate merging into biological-replicate
+  BAMs, pooled treatment/control BAMs, pooled MACS3 peak calls, and pooled signal
+  tracks for multi-replicate experiments
+- **TF ChIP-seq IDR:** true-replicate IDR, pseudoreplicate-based self-IDR and
+  pooled-IDR, reproducibility metrics, and final conservative/optimal peak sets
+  (narrowPeak, exactly 2 biological replicates)
+- **Histone-aware QC:** experiment-level pooled QC summaries with target
+  classification and peak-mode compatibility status
+- **Configurable tool parameters:** optional `tool_parameters` blocks for common
+  knobs (MACS3 q-value, bamCoverage normalization, etc.) with `extra_args`
+  escape hatches
 
-## Repository Structure
+## Quick Start
 
-- `workflow/Snakefile`: Main Snakemake entry point, sample validation, and assay dispatch.
-- `workflow/rules/common.smk`: Shared rules for QC, trimming, alignment, filtering, duplicate handling, QC stats, and BigWig generation.
-- `workflow/rules/chipseq.smk`: ChIP-seq policy functions.
-- `workflow/rules/cuttag.smk`: CUT&Tag policy functions.
-- `workflow/rules/peaks.smk`: MACS3 peak calling rule.
-- `workflow/rules/replicates.smk`: Stage 4b replicate-aware grouped outputs (biorep BAMs, pooled BAMs).
-- `workflow/rules/qc.smk`: Stage 3 single-sample QC rules.
-- `workflow/rules/report.smk`: Completion sentinels and MultiQC aggregation.
-- `workflow/schemas/config.schema.yaml`: Config schema contract (human-readable).
-- `workflow/schemas/samples.schema.yaml`: Sample sheet schema contract (human-readable).
-- `workflow/envs/chipseq.yml`: Conda environment for the Snakemake workflow.
-- `config/config.yaml`: Workflow configuration.
-- `config/samples.tsv`: Sample sheet.
-- `scripts/validate_samples.py`: Config and sample sheet validator (importable + CLI).
-- `scripts/calc_frip.py`: FRiP metric helper.
-- `scripts/parse_dup_metrics.py`: Picard MarkDuplicates metrics parser.
-- `scripts/calc_nrf_pbc.py`: BAM-derived NRF/PBC metric helper.
-- `scripts/chipseq.sh`: Legacy single-sample script kept for compatibility.
-- `KNOWN_ISSUES.md`: Non-blocking follow-ups and current limitations.
-
-## Quick Start: Snakemake Batch Workflow
-
-### 1. Installation
+### 1. Install
 
 ```bash
 git clone https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline.git
 cd ENCODE-style-ChIPseq-CUT-Tag-pipeline
-
 conda env create -f workflow/envs/chipseq.yml
 conda activate chipseq
 ```
 
-### 2. Configure Samples
+### 2. Configure samples
 
-Edit `config/samples.tsv`:
+Edit `config/samples.tsv` (see [Sample Sheet](#sample-sheet) below).
 
-```tsv
-sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index	control_bam
-H3K27AC	/data/ac_R1.fq.gz	/data/ac_R2.fq.gz	PE	chipseq	H3K27ac	narrow	mm	/path/to/bt2/mm10
-CTCF_rep1	/data/ctcf_R1.fq.gz		SE	chipseq	CTCF	narrow	hs	/path/to/bt2/hg38
-CUTTAG_H3K4me3	/data/ct_R1.fq.gz	/data/ct_R2.fq.gz	PE	cuttag	H3K4me3	narrow	mm	/path/to/bt2/mm10
-```
+### 3. Adjust workflow options
 
-Unused optional fields can be left blank. For example, the `control_bam`
-column is empty above because `use_control` is normally `false`.
-
-Required columns:
-
-| Column | Description |
-| :--- | :--- |
-| `sample` | Unique sample ID. Allowed characters: letters, numbers, `_`, `.`, `-`. |
-| `fastq_1` | R1 FASTQ path. |
-| `fastq_2` | R2 FASTQ path. Required for `PE`; leave empty for `SE`. |
-| `layout` | `PE` or `SE`. |
-| `assay` | `chipseq` or `cuttag`. |
-| `target` | Antibody or target name. |
-| `peak_mode` | `narrow` or `broad`. |
-| `genome` | Genome shortcut or MACS3 genome size, for example `mm`, `mm10`, `hs`, `hg38`. |
-| `bowtie2_index` | Bowtie2 index prefix. |
-| `control_bam` | Optional external control BAM. Used only when `use_control: true`. |
-
-Optional columns for FASTQ-based controls:
-
-| Column | Default | Description |
-| :--- | :--- | :--- |
-| `role` | `treatment` | `treatment` or `control`. Peak calling runs only for treatment rows. |
-| `control_sample` | empty | Sample ID of a control row to use as MACS3 input control. Used only when `use_control: true`. |
-
-### 3. Configure Workflow Options
-
-Edit `config/config.yaml`:
+Edit `config/config.yaml`. Defaults are reasonable for most ChIP-seq runs:
 
 ```yaml
 samples: "config/samples.tsv"
@@ -105,634 +61,317 @@ outdir: "results"
 threads: 8
 mapq: 30
 binsize: 10
-remove_dup: "auto"     # auto, yes, no
-trim: true             # true or false
-extend_reads: "auto"   # auto, yes, no, or a positive integer
-use_control: false     # false means no control_bam and no control_sample
+remove_dup: "auto"
+trim: true
+extend_reads: "auto"
+use_control: false
 multiqc: true
 ```
 
-### 4. Validate Config and Samples
-
-Validate configuration and sample sheet before running the workflow:
+### 4. Validate
 
 ```bash
-# Run the standalone validator.
 python3 scripts/validate_samples.py --config config/config.yaml
-
-# Or let the Snakefile validate at parse time — invalid configs will exit
-# with a clear error before the DAG is built.
 snakemake -s workflow/Snakefile --configfile config/config.yaml -n
 ```
-
-The validator is also importable by the Snakefile, so validation runs
-automatically at parse time. Schema contracts in `workflow/schemas/`
-document the expected config and sample sheet format.
 
 ### 5. Run
 
 ```bash
-# Dry-run: build the DAG without executing commands.
+# Dry-run
 snakemake -s workflow/Snakefile --configfile config/config.yaml -n --use-conda
 
-# Run with 16 cores. --use-conda creates/uses workflow/envs/chipseq.yml.
+# Run with 16 cores
 snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use-conda
 
-# Resume incomplete jobs after an interrupted run.
+# Resume after interruption
 snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use-conda --rerun-incomplete
 ```
 
-## Control/Input Handling
+## Sample Sheet
 
-Controls are disabled by default. With `use_control: false`, both
-`control_bam` and `control_sample` are ignored.
+### Required columns
 
-To use a precomputed control BAM:
-
-```yaml
-use_control: true
-```
-
-```tsv
-sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index	control_bam
-H3K27AC	/data/ac_R1.fq.gz	/data/ac_R2.fq.gz	PE	chipseq	H3K27ac	narrow	mm	/path/to/bt2/mm10	/data/input.final.bam
-```
-
-To process an input/control sample from FASTQ, add `role` and
-`control_sample` columns:
-
-```tsv
-sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index	control_bam	role	control_sample
-H3K27AC	/data/ac_R1.fq.gz	/data/ac_R2.fq.gz	PE	chipseq	H3K27ac	narrow	mm	/path/to/bt2/mm10		treatment	Input_rep1
-Input_rep1	/data/input_R1.fq.gz	/data/input_R2.fq.gz	PE	chipseq	Input	narrow	mm	/path/to/bt2/mm10		control
-```
-
-Control rows are processed through the shared preprocessing rules and produce
-`final.bam`. MACS3 peak calling is scheduled only for treatment rows. Do not
-set both `control_bam` and `control_sample` on the same treatment row.
-
-## Genome Resources (Stage 2+)
-
-The `genome_resources` config block maps genome labels to effective genome
-sizes and optional resource paths. The workflow uses it for MACS3 effective
-genome size resolution, blacklist-aware QC, and future resource-backed
-annotations.
-
-**Important distinction:** `hs` and `mm` are **MACS3 effective genome size
-shortcuts**, not genome assemblies. They map to:
-
-| Shortcut | MACS3 -g value | Corresponding assembly | Numeric size |
-| :--- | :--- | :--- | :--- |
-| `hs` | `hs` | GRCh38 / hg38 | 2,913,022,398 |
-| `mm` | `mm` | GRCm38 / mm10 | 2,652,783,500 |
-
-**Explicit numeric entries** are also provided:
-
-| Label | Numeric effective genome size |
+| Column | Description |
 | :--- | :--- |
-| `hg19` | 2,864,785,220 |
-| `hg38` | 2,913,022,398 |
-| `mm10` | 2,652,783,500 |
-| `mm39` | 2,654,621,783 |
+| `sample` | Unique sample ID. Allowed: `A-Z a-z 0-9 _ . -`. |
+| `fastq_1` | R1 FASTQ path. |
+| `fastq_2` | R2 FASTQ path. Required for PE; leave empty for SE. |
+| `layout` | `PE` or `SE`. |
+| `assay` | `chipseq` or `cuttag`. |
+| `target` | Antibody or target name (e.g. `H3K27ac`, `CTCF`). |
+| `peak_mode` | `narrow` or `broad`. |
+| `genome` | Genome label used to look up `genome_resources` (e.g. `hs`, `mm`, `hg38`). |
+| `bowtie2_index` | Bowtie2 index prefix path. |
 
-For **mm39 / GRCm39**, use the explicit `mm39` entry (or set a numeric
-`effective_genome_size`). Do not pass `mm` for mm39 — `mm` maps to the
-mm10 size.
+### Optional columns
 
-When `genome_resources` is configured, `_normalize_genome()` in the
-Snakefile prefers the configured `effective_genome_size` over legacy
-mappings. The old fallback (`mm39` → `mm`, `hg38` → `hs`, etc.) only
-applies when no genome resource entry exists for the sample's genome.
-
-Example configuration (see `config/config.yaml` for defaults):
-
-```yaml
-genome_resources:
-  hs:
-    effective_genome_size: "hs"
-    chrom_sizes: ""
-    blacklist: ""
-    gtf: ""
-    reference_fasta: ""
-
-  hg38:
-    effective_genome_size: 2913022398
-    chrom_sizes: "/data/genomes/hg38/hg38.chrom.sizes"
-    blacklist: "/data/genomes/hg38/hg38.blacklist.bed"
-    gtf: ""
-    reference_fasta: ""
-```
-
-## Workflow Steps
-
-1. FastQC on raw FASTQs.
-2. Trim Galore, or raw FASTQ symlinks when `trim: false`.
-3. Bowtie2 alignment with read group tags.
-4. Samtools indexing and MAPQ filtering.
-5. Picard duplicate metrics and optional duplicate removal.
-6. Samtools `flagstat` and `idxstats`.
-7. deepTools `bamCoverage` CPM BigWig generation.
-8. MACS3 peak calling for treatment samples.
-9. Stage 3 single-sample QC metrics and summaries.
-10. Optional MACS3 FE/ppois bedGraph signal tracks.
-11. MultiQC aggregation over the current sample directories.
-
-## Assay-Specific Policy
-
-- ChIP-seq uses standard MACS3 parameters. Broad mode adds `--broad --broad-cutoff 0.1`.
-- CUT&Tag narrow mode adds Tn5-aware MACS3 parameters: `--nomodel --shift -100 --extsize 200`.
-- CUT&Tag broad mode follows the broad MACS3 policy.
-- Stage 1 keeps duplicate removal and read extension behavior aligned with the legacy script.
-
-## Stage 4a: Replicate-Aware Metadata Foundation
-
-Stage 4a extends the sample sheet with optional replicate-aware metadata
-columns. This is a **metadata-only** foundation — it does NOT change rule
-scheduling or produce pooled BAMs, pooled peaks, pseudoreplicates, or IDR.
-Those features are planned for later Stage 4 slices.
-
-### Optional Sample Sheet Columns
+**Replicate metadata:**
 
 | Column | Default | Description |
 | :--- | :--- | :--- |
-| `experiment` | `<sample>` | Experiment group. Samples sharing the same experiment are replicates of the same condition. |
-| `condition` | `<target>` | Condition label (e.g. treatment, genotype). |
-| `replicate` | `1` | Replicate number within an experiment/condition group. |
-| `biological_replicate` | `<replicate>` | Biological replicate number. Defaults to the `replicate` value. |
+| `experiment` | `<sample>` | Experiment group identifier. |
+| `condition` | `<target>` | Condition label (treatment, genotype, timepoint). |
+| `replicate` | `1` | Replicate number within an experiment. |
+| `biological_replicate` | `<replicate>` | Biological replicate number. |
 | `technical_replicate` | `1` | Technical replicate number within a biological replicate. |
 
-- `experiment` and `condition` are normalized to safe identifiers after
-  defaulting: characters outside `[A-Za-z0-9_.-]` become `_`
-  (for example, `Pol II` becomes `Pol_II`).
-- `replicate`, `biological_replicate`, and `technical_replicate` must be
-  positive integers.
-- All columns are optional. Missing or blank values use the defaults above.
+**Controls:**
 
-Example with explicit replicate metadata:
+| Column | Description |
+| :--- | :--- |
+| `role` | `treatment` (default) or `control`. Peak calling runs only for treatment. |
+| `control_sample` | Sample ID of a control row to use as MACS3 input. |
+| `control_bam` | Path to an external control BAM. |
+
+Technical replicates within a biological replicate are merged into a
+`biorep<N>.final.bam`. Experiments with >=2 biological replicates produce
+pooled BAMs and pooled peaks.
+
+A minimal sample sheet with only the required columns is fully supported
+(single-sample, no controls, no replicates).
+
+### Example
 
 ```tsv
-sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index	experiment	condition	replicate
-H3K27AC_rep1	/data/ac1_R1.fq.gz	/data/ac1_R2.fq.gz	PE	chipseq	H3K27ac	narrow	hs	/path/to/bt2/GRCh38	H3K27AC	H3K27ac	1
-H3K27AC_rep2	/data/ac2_R1.fq.gz	/data/ac2_R2.fq.gz	PE	chipseq	H3K27ac	narrow	hs	/path/to/bt2/GRCh38	H3K27AC	H3K27ac	2
+sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index	experiment	biological_replicate
+H3K27AC_rep1	/data/ac1_R1.fq.gz	/data/ac1_R2.fq.gz	PE	chipseq	H3K27ac	narrow	hs	/path/to/bt2/GRCh38	H3K27AC	1
+H3K27AC_rep2	/data/ac2_R1.fq.gz	/data/ac2_R2.fq.gz	PE	chipseq	H3K27ac	narrow	hs	/path/to/bt2/GRCh38	H3K27AC	2
 ```
 
-The minimal sample sheet (required columns only) remains fully compatible.
+## Configuration
 
-## Stage 4b: Replicate-Aware Grouped Outputs
+Core config keys with their defaults are listed in [Quick Start](#quick-start)
+above. Additional feature-specific blocks are described here.
 
-Stage 4b builds on the Stage 4a metadata foundation to produce biological-replicate
-BAMs, pooled BAMs, and pooled MACS3 peaks for multi-replicate experiments.
-
-### What Stage 4b Produces
-
-- **Biological-replicate BAMs** — merge technical replicates within a biological
-  replicate (single tech-rep → symlink; multiple → samtools merge)
-- **Pooled treatment BAMs** — merge all treatment biorep BAMs for an experiment
-  with >=2 biological replicates
-- **Pooled control BAMs** — merge/symlink control BAM(s) for multi-biorep
-  treatment experiments that have controls
-- **Pooled MACS3 peaks** — peak calling on the pooled treatment BAM (with pooled
-  control if available)
-
-### Gating
-
-Stage 4b is enabled by default (`stage4b: true` in `config/config.yaml`).
-Stage 4b outputs are gated behind `stage4b: true`:
-- **Biorep BAMs** are produced when a treatment biological replicate has
-  multiple technical replicates (needs merging), or when an experiment has
-  >=2 biological replicates (needs biorep intermediates for pooling).
-  An experiment with 1 bio-rep and 1 tech-rep produces no biorep BAM.
-- **Pooled treatment BAMs and pooled MACS3 peaks** are only scheduled for
-  treatment experiments with >=2 biological replicates.
-- **Single-sample workflows** (no replicate columns, or one sample per
-  experiment) produce zero Stage 4b outputs and run the same DAG as before.
-
-### Technical Replicate Policy
-
-- Technical replicates within the same biological replicate are merged into a
-  `biorep<N>.final.bam`.
-- A biological replicate with a single technical replicate symlinks to the
-  existing per-sample `final.bam` (no unnecessary recomputation).
-- Biological-replicate BAMs are the units used for pooling.
-
-### Control Handling
-
-- Pooled control BAMs are produced whenever a multi-biorep treatment experiment
-  has controls (1 unique control → symlink, >1 → merge).
-- Mixed control types (`control_bam` and `control_sample`) within the same
-  experiment are rejected at validation time.
-- Partial controls (some treatment rows with controls, others without) are
-  rejected.
-- All `control_sample` references must belong to the same experiment as the
-  treatment rows that reference them.
-
-### Experiment Output Structure
-
-```text
-results/experiments/<experiment>/
-├── 02_align/
-│   ├── biorep<bio_rep>.final.bam               # per biological replicate
-│   ├── biorep<bio_rep>.final.bam.bai
-│   ├── <experiment>.pooled.final.bam           # pooled treatment (>=2 bio-reps)
-│   ├── <experiment>.pooled.final.bam.bai
-│   ├── <experiment>.pooled.control.final.bam   # pooled control (when available)
-│   └── <experiment>.pooled.control.final.bam.bai
-├── 04_peaks/
-│   └── pooled/
-│       └── <experiment>_pooled_peaks.narrowPeak   # or .broadPeak
-├── 03_signal/
-│   ├── <experiment>.pooled.FE.bdg                 # when qc.signal_tracks=true
-│   └── <experiment>.pooled.ppois.bdg
-└── logs/
-    └── <experiment>.pooled.macs3.log
-```
-
-### Limitations (Stage 4b)
-
-- IDR and pseudoreplicates are implemented in Stage 5.
-- Pooled MACS3 FE/ppois signal tracks are implemented in Stage 6a.
-- See `KNOWN_ISSUES.md` for the full roadmap.
-
-## Stage 5a: TF ChIP-seq True Replicate IDR
-
-Stage 5a adds true-replicate IDR analysis for TF ChIP-seq experiments with
-exactly 2 biological replicates and narrowPeak mode. Pseudoreplicates,
-self-IDR, pooled-IDR, and conservative/optimal peak sets are deferred to
-Stage 5b.
-
-### Configuration
+### Genome resources
 
 ```yaml
-stage5: false          # default off; requires stage4b: true
+genome_resources:
+  hg38:
+    effective_genome_size: 2913022398
+    chrom_sizes: "/data/genomes/hg38/hg38.chrom.sizes"  # optional
+    blacklist: "/data/genomes/hg38/hg38.blacklist.bed"    # optional
+    gtf: ""   # optional
+    reference_fasta: ""  # optional
+```
+
+`effective_genome_size`: MACS3 shortcut (`hs`, `mm`) or positive integer.
+Other fields are optional paths. If non-empty they must exist on disk.
+
+### QC switches
+
+```yaml
+qc:
+  blacklist_filter: true
+  frip: true
+  library_complexity: true
+  nrf_pbc: true
+  signal_tracks: true    # MACS3 FE/ppois bedGraph tracks (per-sample + pooled)
+  summary: true          # per-sample QC summary + project-level aggregate
+```
+
+### Replicate and IDR features
+
+```yaml
+stage4b: true            # replicate-aware pooled BAMs and pooled peaks (default on)
+stage5: false            # TF ChIP-seq IDR (default off; requires stage4b: true)
 
 idr:
-  threshold: 0.05      # IDR threshold for thresholded peaks
-  rank: "p.value"      # p.value or signal.value
-
-tool_parameters:
-  idr_macs3:
-    pvalue: 0.1        # relaxed -p for IDR-ready MACS3 calls
-    extra_args: ""
+  seed: 42
+  threshold: 0.05        # IDR threshold for thresholded peak set
+  rank: "p.value"        # ranking measure: p.value or signal.value
 ```
 
-### Requirements
+### Tool parameters
 
-- `stage5: true` requires `stage4b: true`
-- ChIP-seq assay only (CUT&Tag deferred to Stage 7)
-- narrowPeak only (broad peaks deferred to Stage 6)
-- Exactly 2 treatment biological replicates per experiment
-
-### Outputs
-
-```
-results/experiments/<experiment>/
-├── 04_peaks/idr/
-│   ├── <exp>_biorep<bio_rep1>_idr_peaks.narrowPeak
-│   └── <exp>_biorep<bio_rep2>_idr_peaks.narrowPeak
-└── 06_idr/true_replicates/
-    ├── idr.txt                          # raw IDR output
-    └── idr.thresholded.narrowPeak       # thresholded peaks
-```
-
-### Limitations
-
-- IDR plots deferred to a later reporting slice
-- No MultiQC integration
-
-## Stage 5b: Pseudoreplicate IDR and Final Reproducibility
-
-Stage 5b adds pseudoreplicate-based IDR on top of Stage 5a.
-
-### New in Stage 5b
-
-- **Pseudoreplicate BAM splitting** — `scripts/split_pseudoreps.py` deterministically
-  splits each biorep BAM and the pooled BAM into two complementary pseudoreplicates
-  using hashlib.sha256(read_name + seed).
-- **Self-pseudoreplicate IDR** — IDR between pr1/pr2 peaks per biological replicate,
-  measuring internal consistency.
-- **Pooled-pseudoreplicate IDR** — IDR between pooled pr1/pr2, providing an
-  upper-bound reproducibility estimate.
-- **Final peak sets** — conservative (`true_replicates/thresholded`) and
-  optimal (`pooled_pseudoreps/thresholded`).
-- **Reproducibility summary** — `rescue_ratio`, `self_consistency_ratio`,
-  pass/fail status in `reproducibility_summary.tsv`.
-
-### Outputs
-
-```
-results/experiments/<exp>/
-├── 05_pseudorep/
-│   ├── <exp>_biorep<bio_rep>.pr1.bam (and .bai for each)
-│   ├── <exp>_pooled.pr1.bam
-│   └── ...
-├── 04_peaks/idr/
-│   ├── <exp>_biorep<bio_rep>_pr1_idr_peaks.narrowPeak
-│   └── ...
-├── 06_idr/
-│   ├── self_pseudoreplicates/
-│   ├── pooled_pseudoreplicates/
-│   └── final/
-│       ├── conservative.narrowPeak
-│       ├── optimal.narrowPeak
-│       └── reproducibility_summary.tsv
-```
-
-### Limitations
-
-- No histone/CUT&Tag/3+ biorep support
-- No MultiQC integration
-
-## Stage 6a: Pooled Experiment Signal Tracks
-
-Stage 6a adds pooled-experiment MACS3 signal tracks for multi-biorep
-experiments. When `qc.signal_tracks: true`, pooled MACS3 peak calling runs with
-`-B`, and the workflow derives FE and ppois bedGraph tracks from the pooled
-MACS3 pileup and lambda bedGraphs.
-
-### Outputs
-
-```text
-results/experiments/<experiment>/
-└── 03_signal/
-    ├── <experiment>.pooled.FE.bdg
-    └── <experiment>.pooled.ppois.bdg
-```
-
-The pooled signal tracks are scheduled for any Stage 4b multi-biorep
-experiment. They apply to both narrow and broad pooled MACS3 peak calls and can
-be disabled with:
-
-```yaml
-qc:
-  signal_tracks: false
-```
-
-## Stage 4c: Parameterization Foundation
-
-Stage 4c adds structured, validated config blocks for major workflow tools so
-common parameters can be tuned without editing rule files.
-
-### Configuration
-
-Tool parameters live under an optional `tool_parameters` block in `config/config.yaml`:
+Optional `tool_parameters` blocks let you tune individual tools without editing
+rule files. Absent keys use the built-in defaults. Example:
 
 ```yaml
 tool_parameters:
-  fastqc:
-    extra_args: ""
-  trim_galore:
-    quality: 20
-  bowtie2:
-    mode: "very-sensitive"
   macs3:
-    qvalue: 0.05
+    qvalue: 0.01
+  idr_macs3:
+    pvalue: 0.1          # relaxed p-value for IDR-ready peak calls
+  bamcoverage:
+    normalize_using: "CPM"
 ```
 
-Missing `tool_parameters` or missing tool blocks use current defaults silently.
-Each tool block supports typed keys for common stable parameters, plus an
-`extra_args` string for advanced use.
+See `workflow/schemas/config.schema.yaml` for the full set of configurable keys
+and their accepted types.
 
-### Supported Tools
+## Workflow Capabilities
 
-| Block | Configurable keys | Notes |
-| :--- | :--- | :--- |
-| `fastqc` | `extra_args` | |
-| `trim_galore` | `quality`, `length`, `stringency`, `extra_args` | Quality/length/stringency only emitted when explicitly set |
-| `bowtie2` | `mode`, `dovetail`, `no_mixed`, `no_discordant`, `extra_args` | Mode/bools only emitted when set/true |
-| `samtools_filter` | `filter_flags`, `extra_args` | filter_flags always emitted; accepts int, `"0x904"`, `"2308"` |
-| `picard_markduplicates` | `optical_duplicate_pixel_distance`, `extra_args` | Only emitted when set |
-| `bamcoverage` | `normalize_using`, `smooth_length`, `extra_args` | normalize_using always emitted; RPGC not yet supported |
-| `macs3` | `qvalue`, `broad_cutoff`, `extra_args` | qvalue/broad_cutoff always emitted; extra_args appended after policy args |
-| `multiqc` | `title`, `extra_args` | Title safe-quoted; only emitted when set |
+### Preprocessing and peak calling
 
-### `extra_args` Warnings
+Every sample (treatment or control) flows through: FastQC → Trim Galore
+(or symlink when `trim: false`) → Bowtie2 alignment → samtools sort/index →
+MAPQ filter → duplicate handling (Picard or samtools fallback) → `final.bam`.
+BigWig tracks are generated with deepTools `bamCoverage` (CPM-normalized by
+default). MACS3 peak calling runs on treatment samples, with assay-specific
+parameters (TF ChIP-seq model-based, CUT&Tag Tn5-aware `--shift -100`).
 
-`extra_args` is an advanced verbatim string appended to the tool command. It
-must not override workflow-managed inputs, outputs, threads, or output
-directories. Prefer structured config keys for supported options. Misuse can
-produce broken commands or corrupt outputs.
+### Controls
 
-### Scope
+Controls are disabled by default (`use_control: false`). When enabled,
+each treatment row may reference a `control_sample` (another sample row with
+`role=control`) or an external `control_bam` path. Control rows are processed
+through the full preprocessing pipeline and their `final.bam` is passed as
+MACS3 `-c`.
 
-This foundation covers the primary tools first. Remaining auxiliary/QC tools
-(bedtools, MACS3 bdgcmp, calc_frip.py, etc.) can be parameterized in follow-up
-slices.
+### Single-sample QC
 
-## Stage 3: Single-Sample Quality Metrics (3a + 3b + 3c-1)
+When the `qc` block is enabled, each treatment sample receives:
+- **Blacklist filtering** (BAM + peaks) when a blacklist BED is configured
+- **FRiP** (Fraction of Reads in Peaks)
+- **Library complexity** (Picard duplication-derived metrics)
+- **NRF/PBC** (BAM-derived library complexity)
+- **MACS3 signal tracks**: fold-enrichment (`FE.bdg`) and p-value
+  (`ppois.bdg`) bedGraph from `macs3 bdgcmp`
+- Per-sample QC summary TSV and a project-level aggregate at
+  `results/multiqc/stage3_qc_summary.tsv`
 
-Stage 3a adds ENCODE-like single-sample QC metrics. Stage 3b-1 extends it
-with duplication-derived library complexity. Stage 3b-2 adds MACS3
-fold-enrichment and p-value bedGraph signal tracks. Stage 3c-1 adds
-BAM-derived NRF/PBC library complexity. Blacklist-dependent operations are
-resource-gated: they only run when a blacklist BED is configured for the
-sample's genome in `genome_resources`.
+### Replicates and pooled outputs
 
-### Configuration
+When `stage4b: true` and the sample sheet defines experiments with >=2
+biological replicates:
 
-QC is controlled by an optional `qc` block in `config/config.yaml`:
+- Technical replicates are merged into `biorep<N>.final.bam` files (symlink
+  when there is only one technical replicate)
+- Pooled treatment BAMs are produced by merging all treatment biorep BAMs
+- Pooled control BAMs are produced when controls are referenced (symlink for
+  1 control, merge for >1)
+- Pooled MACS3 peak calling runs on the pooled treatment BAM
+- Pooled MACS3 FE/ppois signal tracks are produced when
+  `qc.signal_tracks: true`
 
-```yaml
-qc:
-  blacklist_filter: true      # bedtools intersect -v filtering for BAM + peaks
-  frip: true                  # Fraction of Reads in Peaks
-  library_complexity: true    # Picard duplication-derived metrics
-  nrf_pbc: true               # BAM-derived NRF/PBC library complexity
-  signal_tracks: true         # MACS3 FE + ppois bedGraph tracks
-  summary: true               # Per-sample QC summary TSV + project-level aggregate
-```
+Outputs land under `results/experiments/<experiment>/`.
 
-Missing `qc` block defaults to all switches enabled. Each switch accepts
-boolean or string boolean (`true`/`false`).
+### TF ChIP-seq IDR
 
-### QC Metrics
+Enable with `stage5: true` (requires `stage4b: true`). Supported:
+chipseq + narrowPeak + exactly 2 treatment biological replicates.
 
-#### Blacklist Filtering
+- **True-replicate IDR:** per-biorep IDR-ready MACS3 calls with relaxed `-p`
+  threshold (`tool_parameters.idr_macs3`), then `idr --samples` between the
+  two biorep peak sets. Produces raw `idr.txt` and
+  `idr.thresholded.narrowPeak`.
+- **Pseudoreplicate IDR:** deterministic pseudoreplicate BAM splitting,
+  self-IDR per biorep, pooled-IDR, and final `conservative.narrowPeak` /
+  `optimal.narrowPeak` peak sets with a `reproducibility_summary.tsv`.
 
-- BAM: `bedtools intersect -v -abam final.bam -b blacklist.bed`
-- Peaks: `bedtools intersect -v -a peaks_file -b blacklist.bed`
-- Only scheduled when the sample's genome has a non-empty `blacklist` path
-  in `genome_resources`. Samples without a configured blacklist skip
-  blacklist-specific outputs.
-- `final.bam` is **not** replaced — blacklist-filtered BAM is an additional
-  output (`{sample}.blacklist_filtered.bam`).
+IDR output paths are under `results/experiments/<exp>/06_idr/`.
 
-#### FRiP (Fraction of Reads in Peaks)
+### Histone pooled QC
 
-Stage 3a FRiP is **read-record based** (not fragment-based):
-```
-FRiP = reads_in_peaks / total_reads
-```
-- `total_reads`: `samtools view -c` on BAM
-- `reads_in_peaks`: `bedtools intersect -u -abam BAM -b peaks | samtools view -c`
-- Uses blacklist-filtered BAM and peaks when **both** are available for
-  a sample; otherwise falls back to unfiltered files.
-- Output: `{sample}.frip.tsv`
+For any multi-biorep experiment (independent of IDR), the pipeline produces a
+pooled experiment QC summary at
+`results/experiments/<exp>/01_qc/<exp>.pooled_qc_summary.tsv`. The summary
+classifies the target into broad-like, narrow-like, context-dependent, or
+unknown, and reports peak-mode compatibility status (`ok` / `mismatch` /
+`unknown`). No hard-fail validation on mismatches.
 
-#### Library Complexity (Stage 3b-1)
+Context-dependent marks (H3K27ac, H3K4me1, H3K4me2) accept both broad and
+narrow peak_mode without warning.
 
-Stage 3b-1 adds duplication-derived library complexity metrics from Picard
-MarkDuplicates. This is **not** preseq-based; cross-correlation and
-preseq-style complexity remain follow-ups.
+### Reports and MultiQC
 
-- Parses Picard MarkDuplicates metrics from `{sample}.dup_metrics.txt`
-  (already produced by the `duplicate_handling` rule).
-- If Picard is unavailable (samtools markdup fallback), all fields are `NA`.
-- `total_reads_examined = unpaired_reads_examined + 2 * read_pairs_examined`
-- `duplicate_reads_estimate = unpaired_read_duplicates + 2 * read_pair_duplicates`
-- Output: `{sample}.library_complexity.tsv`
-
-#### NRF/PBC Complexity (Stage 3c-1)
-
-Stage 3c-1 adds BAM-derived NRF/PBC library complexity metrics. This is
-**not** preseq-based and **not** cross-correlation — those remain Stage 3c-2.
-
-- Computes NRF (Non-Redundant Fraction) and PBC (PCR Bottleneck Coefficients)
-  from `final.bam` using fragment-level deduplication.
-- PE: fragment key = `(chrom, start, end)` from properly paired R1 records.
-  Falls back to `(chrom, pos, strand)` when TLEN is unavailable.
-- SE: fragment key = `(chrom, pos, strand)` from primary alignments.
-- `NRF = distinct_fragments / total_fragments`
-- `PBC1 = one_read_fragments / distinct_fragments`
-- `PBC2 = one_read_fragments / two_read_fragments`
-- Zero denominators produce `NA`.
-- Output: `{sample}.nrf_pbc.tsv`
-
-#### MACS3 Signal Tracks (Stage 3b-2)
-
-When `qc.signal_tracks: true`, `macs3 callpeak` runs with `-B` so MACS3
-emits `{sample}_treat_pileup.bdg` and `{sample}_control_lambda.bdg` in
-the peak directory. Stage 3b-2 then runs:
-
-- `macs3 bdgcmp -m FE -p 1` to produce `{sample}.FE.bdg`
-- `macs3 bdgcmp -m ppois` to produce `{sample}.ppois.bdg`
-
-The `ppois` track is MACS3's p-value signal (`-log10(pvalue)`). This
-slice intentionally stops at bedGraph output; browser-ready bigWig
-conversion can be added later when `chrom_sizes` and a bedGraph-to-bigWig
-tool are configured.
-
-#### Peak Counts
-
-- Counts lines in the MACS3 peak file (narrowPeak or broadPeak).
-- If blacklist-filtered peaks exist, reports both raw and filtered counts.
-- Output: `{sample}.peak_counts.tsv`
-
-#### QC Summary
-
-Per-sample TSV (`{sample}.qc_summary.tsv`) with columns:
-`sample`, `assay`, `target`, `genome`, `layout`, `peak_mode`,
-`use_control`, `control_type`, `final_bam`, `peaks`, `blacklist`,
-`blacklist_filtered_bam`, `blacklist_filtered_peaks`, `total_reads`,
-`reads_in_peaks`, `frip`, `peak_count`, `blacklist_filtered_peak_count`,
-`metrics_source`, `unpaired_reads_examined`, `read_pairs_examined`,
-`secondary_or_supplementary_reads`, `unmapped_reads`,
-`unpaired_read_duplicates`, `read_pair_duplicates`,
-`read_pair_optical_duplicates`, `percent_duplication`,
-`estimated_library_size`, `total_reads_examined`,
-`duplicate_reads_estimate`,
-`total_fragments`, `distinct_fragments`, `one_read_fragments`,
-`two_read_fragments`, `nrf`, `pbc1`, `pbc2`
-
-Unavailable metrics are filled with `NA` (not empty string).
-
-A project-level summary aggregates all per-sample TSVs at
-`multiqc/stage3_qc_summary.tsv`.
-
-### QC Output Structure
-
-```text
-results/<sample>/01_qc/
-├── <sample>.peak_counts.tsv
-├── <sample>.frip.tsv
-├── <sample>.library_complexity.tsv
-├── <sample>.nrf_pbc.tsv
-├── <sample>.qc_summary.tsv
-└── ... (existing QC files)
-
-results/<sample>/02_align/
-├── <sample>.blacklist_filtered.bam        # only with blacklist
-└── <sample>.blacklist_filtered.bam.bai    # only with blacklist
-
-results/<sample>/03_signal/
-├── <sample>.FE.bdg                        # when qc.signal_tracks is true
-└── <sample>.ppois.bdg                     # when qc.signal_tracks is true
-
-results/<sample>/04_peaks/<sample>/
-└── <sample>_peaks.narrowPeak              # or broadPeak
-
-results/<sample>/04_peaks/<sample>_blacklist_filtered/
-└── <sample>_peaks.blacklist_filtered.narrowPeak  # only with blacklist
-
-results/multiqc/
-└── stage3_qc_summary.tsv                  # project-level aggregate
-```
+When `multiqc: true`, MultiQC aggregates QC artifacts from all active samples
+into `results/multiqc/multiqc_report.html`.
 
 ## Output Structure
-
-The workflow writes per-sample results under `outdir`:
 
 ```text
 results/
 ├── <sample>/
-│   ├── 00_raw/
-│   │   ├── <sample>_R1_val_1.fq.gz
-│   │   └── <sample>_R2_val_2.fq.gz
-│   ├── 01_qc/
-│   │   ├── trim_galore/
-│   │   ├── <sample>.flagstat.txt
-│   │   ├── <sample>.final.flagstat.txt
-│   │   ├── <sample>.idxstats.txt
-│   │   ├── <sample>.dup_metrics.txt
-│   │   ├── <sample>.frip.tsv
-│   │   ├── <sample>.library_complexity.tsv
-│   │   ├── <sample>.nrf_pbc.tsv
+│   ├── 00_raw/                          # trimmed (or symlinked) FASTQs
+│   ├── 01_qc/                           # QC metrics and summaries
 │   │   └── <sample>.qc_summary.tsv
 │   ├── 02_align/
-│   │   ├── <sample>.sorted.bam
-│   │   ├── <sample>.mapq30.bam
-│   │   ├── <sample>.final.bam
-│   │   └── <sample>.final.bam.bai
-│   ├── 03_bigwig/
-│   │   └── <sample>.CPM.bw
-│   ├── 03_signal/
-│   │   ├── <sample>.FE.bdg
-│   │   └── <sample>.ppois.bdg
-│   ├── 04_peaks/
-│   │   └── <sample>/
+│   │   ├── <sample>.sorted.bam(.bai)
+│   │   ├── <sample>.final.bam(.bai)     # stable downstream BAM contract
+│   │   └── <sample>.blacklist_filtered.bam(.bai)  # when blacklist configured
+│   ├── 03_bigwig/<sample>.CPM.bw
+│   ├── 03_signal/<sample>.FE.bdg        # when qc.signal_tracks: true
+│   ├── 04_peaks/<sample>/               # MACS3 peak directory
 │   └── logs/
-│       ├── <sample>.fastqc.done
-│       ├── <sample>.trim.done
-│       └── <sample>.pipeline.done
+│
+├── experiments/<experiment>/
+│   ├── 01_qc/
+│   │   └── <experiment>.pooled_qc_summary.tsv
+│   ├── 02_align/
+│   │   ├── biorep<N>.final.bam(.bai)
+│   │   ├── <experiment>.pooled.final.bam(.bai)
+│   │   └── <experiment>.pooled.control.final.bam(.bai)
+│   ├── 03_signal/
+│   │   ├── <experiment>.pooled.FE.bdg
+│   │   └── <experiment>.pooled.ppois.bdg
+│   ├── 04_peaks/
+│   │   ├── pooled/<experiment>_pooled_peaks/
+│   │   └── idr/
+│   │       ├── <experiment>_biorep<N>_idr_peaks.narrowPeak
+│   │       ├── <experiment>_biorep<N>_pr1_idr_peaks.narrowPeak
+│   │       └── ...
+│   ├── 05_pseudorep/
+│   │   └── <experiment>_biorep<N>.pr1.bam(.bai)
+│   ├── 06_idr/
+│   │   ├── true_replicates/
+│   │   ├── self_pseudoreplicates/
+│   │   ├── pooled_pseudoreplicates/
+│   │   └── final/
+│   │       ├── conservative.narrowPeak
+│   │       ├── optimal.narrowPeak
+│   │       └── reproducibility_summary.tsv
+│   └── logs/
+│
 └── multiqc/
-    └── multiqc_report.html
+    ├── multiqc_report.html
+    └── stage3_qc_summary.tsv
 ```
 
-`final.bam` is the stable downstream BAM contract. It points to either the
-duplicate-handled BAM or the filtered BAM, depending on `remove_dup`.
+## Limitations
 
-## Legacy Single-Sample Script
+- **TF ChIP-seq IDR** (`stage5: true`) requires `chipseq` assay, `narrowPeak`
+  mode, and exactly 2 biological replicates. CUT&Tag IDR and 3+ biorep IDR
+  are not yet supported.
+- **ATAC-seq analysis is not included.** This pipeline covers ChIP-seq and
+  CUT&Tag only.
+- **Histone broad-peak IDR** is deferred to a future release.
+- **MultiQC integration** for experiment-level IDR and pooled QC summaries is
+  not yet complete.
+- **`bamCoverage` RPGC normalization** requires `--effectiveGenomeSize` and is
+  not yet wired up in `tool_parameters`.
+- `final.bam` is symlinked to the filtered BAM when `remove_dup` is `no` or
+  `auto+broad` — this is correct behavior but worth noting for downstream
+  consumers that expect a deduplicated BAM.
 
-`scripts/chipseq.sh` remains available for compatibility, but the Snakemake
-workflow is the recommended entry point for new analyses.
+See [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) for the full roadmap and planned
+follow-ups.
 
-```bash
-# Paired-end ChIP-seq
-scripts/chipseq.sh -s MySample -x /path/to/bt2_index -g mm --pe -r1 R1.fq.gz -r2 R2.fq.gz --tech chip
+## Developer Notes
 
-# Paired-end CUT&Tag
-scripts/chipseq.sh -s MySample -x /path/to/bt2_index -g mm --pe -r1 R1.fq.gz -r2 R2.fq.gz --tech cuttag
+### Specs and schemas
 
-# Single-end ChIP-seq with no trimming
-scripts/chipseq.sh -s MySample -x /path/to/bt2_index -g hs --se -r1 sample.fq.gz --tech chip --no-trim
-```
+Detailed design specs for each major feature live under
+[`docs/superpowers/specs/`](docs/superpowers/specs/). Config and sample sheet
+contracts are in [`workflow/schemas/`](workflow/schemas/).
 
-Known legacy-script hardening tasks are tracked in `KNOWN_ISSUES.md`.
+### Legacy single-sample script
 
-## Known Limitations
+`scripts/chipseq.sh` is retained for compatibility. It supports single-sample
+PE/SE ChIP-seq and CUT&Tag with command-line flags. For new analyses, the
+Snakemake batch workflow (`workflow/Snakefile`) is the recommended entry point.
 
-See `KNOWN_ISSUES.md` for non-blocking follow-ups, including replicate-aware
-modeling, cross-correlation metrics, plotFingerprint migration, environment
-cleanup, and legacy script hardening.
+### Repository layout
+
+- `workflow/Snakefile` — entry point, validation, assay dispatch
+- `workflow/rules/` — Snakemake rule files (common, peaks, replicates, IDR, QC, report)
+- `workflow/envs/chipseq.yml` — Conda environment
+- `workflow/schemas/` — human-readable config and sample sheet contracts
+- `config/` — default config and sample sheet
+- `scripts/` — validation, QC helpers, and analysis scripts
+- `test/` — stress tests for validation, DAG, and helper scripts
 
 ## License
 

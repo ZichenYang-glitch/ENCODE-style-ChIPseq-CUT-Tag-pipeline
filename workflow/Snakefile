@@ -18,6 +18,7 @@ from validate_samples import (
     validate_config,
     load_and_validate_samples,
 )
+from histone_utils import classify_histone_target
 
 
 # ---------------------------------------------------------------------------
@@ -629,6 +630,15 @@ rule all:
                 STAGE4B and MULTI_BIOREP_EXPERIMENTS
                 and QC_CONFIG.get("signal_tracks", True)
             ) else []
+        ),
+        # Stage 6b: pooled experiment QC summary
+        pooled_qc_summary = (
+            expand(
+                "{outdir}/experiments/{experiment}/01_qc/{experiment}.pooled_qc_summary.tsv",
+                outdir=OUTDIR,
+                experiment=MULTI_BIOREP_EXPERIMENTS,
+            )
+            if STAGE4B and MULTI_BIOREP_EXPERIMENTS else []
         ),
         # Stage 5a: IDR-ready per-biorep peaks
         idr_biorep_peaks = (
