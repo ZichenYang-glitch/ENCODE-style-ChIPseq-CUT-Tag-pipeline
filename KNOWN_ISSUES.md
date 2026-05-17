@@ -181,7 +181,8 @@ Goal: keep CUT&Tag useful while avoiding false equivalence with ENCODE ChIP-seq.
 Estimated effort: 1-3 days.
 
 - ✅ Add CUT&Tag fragment-size QC. (Stage 7a, completed 2026-05-18)
-- Add CUT&Tag-specific peak callers such as SEACR or GoPeaks. (Stage 7b)
+- ✅ Add optional SEACR sidecar peak calling. (Stage 7b, completed 2026-05-18)
+- Add GoPeaks support as an alternative peak caller. (Stage 7c+)
 - Add Tn5 insertion-aware metrics.
 - Design optional spike-in normalization without breaking the current sample
   model.

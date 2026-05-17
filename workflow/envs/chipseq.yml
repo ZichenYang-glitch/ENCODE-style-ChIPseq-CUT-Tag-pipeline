@@ -18,3 +18,5 @@ dependencies:
   - multiqc
   # --- Stage 5 IDR ---
   - idr
+  # --- Stage 7 CUT&Tag ---
+  - seacr

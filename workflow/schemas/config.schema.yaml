@@ -231,6 +231,43 @@ idr:
       allowed: ["p.value", "signal.value"]
       description: Column to rank by in IDR.
 
+# ---- Stage 7b: CUT&Tag Peak Caller (optional) ----
+cuttag:
+  type: mapping
+  required: false
+  description: >
+    CUT&Tag-specific configuration. When absent, MACS3 is used as the
+    canonical peak caller with no sidecar outputs.
+  schema:
+    peak_caller:
+      type: string
+      default: "macs3"
+      allowed: ["macs3"]
+      description: Canonical peak caller (future: seacr, gopeaks).
+    seacr:
+      type: mapping
+      required: false
+      description: Optional SEACR sidecar peak calling.
+      schema:
+        enabled:
+          type: boolean
+          default: false
+          description: Enable SEACR sidecar outputs for CUT&Tag PE samples.
+        mode:
+          type: string
+          default: "stringent"
+          allowed: ["stringent", "relaxed"]
+          description: SEACR threshold mode.
+        normalization:
+          type: string
+          default: "non"
+          allowed: ["non"]
+          description: SEACR normalization (non only in Stage 7b).
+        threshold:
+          type: float
+          default: 0.01
+          description: Numeric FDR threshold for treatment-only mode (float in (0, 1)).
+
 # ---- Stage 4c: Tool Parameterization (optional) ----
 tool_parameters:
   type: mapping
