@@ -95,6 +95,10 @@ ACTIVE_SAMPLE_IDS = (
 CONTROL_SAMPLE_IDS   = [
     s["id"] for s in SAMPLES if s["role"] == "control"
 ]
+CUTTAG_ACTIVE_SAMPLE_IDS = [
+    sid for sid in ACTIVE_SAMPLE_IDS
+    if SAMPLE_MAP[sid]["assay"] == "cuttag"
+]
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +291,7 @@ QC_CONFIG = VALIDATED_CONFIG.get("qc", {
     "nrf_pbc": True,
     "signal_tracks": True,
     "summary": True,
+    "cuttag_fragment_size": True,
 })
 
 # Stage 4c: structured tool parameters (absent → empty dict, defaults silently)
@@ -544,6 +549,17 @@ rule all:
         stage3_summary = (
             [f"{OUTDIR}/multiqc/stage3_qc_summary.tsv"]
             if QC_CONFIG.get("summary", True) and TREATMENT_SAMPLE_IDS else []
+        ),
+        # Stage 7a: CUT&Tag fragment-size QC
+        cuttag_frag_size = (
+            expand(
+                "{outdir}/{sample}/01_qc/{sample}.cuttag_fragment_size.tsv",
+                outdir=OUTDIR,
+                sample=CUTTAG_ACTIVE_SAMPLE_IDS,
+            )
+            if QC_CONFIG.get("cuttag_fragment_size", True)
+            and CUTTAG_ACTIVE_SAMPLE_IDS
+            else []
         ),
         # Stage 4b: pooled treatment BAMs for multi-biorep experiments
         pooled_bam = (

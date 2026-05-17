@@ -23,7 +23,8 @@ control sample row. Dependencies are managed with Conda.
 - **Optional controls:** external control BAM or FASTQ-based control rows;
   control samples processed through the same pipeline
 - **Single-sample QC:** FRiP, peak counts, library complexity, NRF/PBC, MACS3
-  FE/ppois signal tracks, per-sample QC summaries, and project-level aggregation
+  FE/ppois signal tracks, CUT&Tag fragment-size QC, per-sample QC summaries,
+  and project-level aggregation
 - **Replicate-aware outputs:** technical replicate merging into biological-replicate
   BAMs, pooled treatment/control BAMs, pooled MACS3 peak calls, and pooled signal
   tracks for multi-replicate experiments

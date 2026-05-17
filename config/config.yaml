@@ -157,3 +157,4 @@ qc:
   nrf_pbc: true
   signal_tracks: true
   summary: true
+  cuttag_fragment_size: true

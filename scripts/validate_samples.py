@@ -259,6 +259,7 @@ def _validate_qc_config(qc: dict) -> dict:
         "nrf_pbc": _normalize_bool("nrf_pbc"),
         "signal_tracks": _normalize_bool("signal_tracks"),
         "summary": _normalize_bool("summary"),
+        "cuttag_fragment_size": _normalize_bool("cuttag_fragment_size"),
     }
 
 
