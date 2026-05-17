@@ -45,6 +45,16 @@ IDR_RANK = str(IDR_SETTINGS.get("rank", "p.value"))
 IDR_SEED = int(IDR_SETTINGS.get("seed", 42))
 GENOME_RESOURCES = VALIDATED_CONFIG.get("genome_resources", {})
 
+# Stage 7b: CUT&Tag peak caller config
+CUTTAG_CONFIG = VALIDATED_CONFIG.get("cuttag", {})
+SEACR_CFG = CUTTAG_CONFIG.get("seacr", {})
+SEACR_ENABLED = (
+    SEACR_CFG.get("enabled", False)
+    if isinstance(SEACR_CFG, dict) else False
+)
+SEACR_MODE = str(SEACR_CFG.get("mode", "stringent"))
+SEACR_NORMALIZATION = str(SEACR_CFG.get("normalization", "non"))
+SEACR_THRESHOLD = float(SEACR_CFG.get("threshold", 0.01))
 
 # ---------------------------------------------------------------------------
 # 2. Helper functions
@@ -99,6 +109,16 @@ CUTTAG_ACTIVE_SAMPLE_IDS = [
     sid for sid in ACTIVE_SAMPLE_IDS
     if SAMPLE_MAP[sid]["assay"] == "cuttag"
 ]
+
+# Stage 7b: SEACR sidecar sample list (CUT&Tag PE treatment only)
+if SEACR_ENABLED:
+    SEACR_SAMPLE_IDS = [
+        sid for sid in TREATMENT_SAMPLE_IDS
+        if SAMPLE_MAP[sid]["assay"] == "cuttag"
+        and SAMPLE_MAP[sid]["layout"] == "PE"
+    ]
+else:
+    SEACR_SAMPLE_IDS = []
 
 
 # ---------------------------------------------------------------------------
@@ -549,6 +569,24 @@ rule all:
         stage3_summary = (
             [f"{OUTDIR}/multiqc/stage3_qc_summary.tsv"]
             if QC_CONFIG.get("summary", True) and TREATMENT_SAMPLE_IDS else []
+        ),
+        # Stage 7b: SEACR sidecar outputs
+        seacr_bg = (
+            expand(
+                "{outdir}/{sample}/04_peaks_seacr/{sample}.bedgraph",
+                outdir=OUTDIR,
+                sample=SEACR_SAMPLE_IDS,
+            )
+            if SEACR_ENABLED and SEACR_SAMPLE_IDS else []
+        ),
+        seacr_peaks = (
+            expand(
+                "{outdir}/{sample}/04_peaks_seacr/{sample}/{sample}.seacr.{mode}.bed",
+                outdir=OUTDIR,
+                sample=SEACR_SAMPLE_IDS,
+                mode=[SEACR_MODE],
+            )
+            if SEACR_ENABLED and SEACR_SAMPLE_IDS else []
         ),
         # Stage 7a: CUT&Tag fragment-size QC
         cuttag_frag_size = (

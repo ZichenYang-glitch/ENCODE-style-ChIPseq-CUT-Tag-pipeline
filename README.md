@@ -19,7 +19,8 @@ control sample row. Dependencies are managed with Conda.
 - **Shared preprocessing:** FastQC, Trim Galore, Bowtie2 alignment, MAPQ
   filtering, Picard duplicate handling, flagstat, idxstats, BigWig generation
 - **ChIP-seq / CUT&Tag assay policies:** assay-aware MACS3 parameters, duplicate
-  removal, and read extension
+  removal, and read extension; optional CUT&Tag SEACR sidecar peak calls
+  (`cuttag.seacr.enabled`, output under `results/<sample>/04_peaks_seacr/`)
 - **Optional controls:** external control BAM or FASTQ-based control rows;
   control samples processed through the same pipeline
 - **Single-sample QC:** FRiP, peak counts, library complexity, NRF/PBC, MACS3

@@ -248,6 +248,47 @@ rule library_complexity:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
+# 5c. SEACR sidecar peak calling (Stage 7b)
+# ---------------------------------------------------------------------------
+
+rule seacr_bedgraph:
+    output:
+        f"{OUTDIR}/{{sample}}/04_peaks_seacr/{{sample}}.bedgraph",
+    input:
+        f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output:q})"
+        bedtools genomecov -ibam {input:q} -bg -pc > {output:q}
+        """
+
+
+rule seacr_call:
+    output:
+        f"{OUTDIR}/{{sample}}/04_peaks_seacr/{{sample}}/{{sample}}.seacr.{{mode}}.bed",
+    input:
+        f"{OUTDIR}/{{sample}}/04_peaks_seacr/{{sample}}.bedgraph",
+    params:
+        mode      = lambda wc: wc.mode,
+        threshold = SEACR_THRESHOLD,
+        norm      = SEACR_NORMALIZATION,
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        SEACR_SCRIPT=$(command -v SEACR_1.3.sh) || {{ \\
+            echo "ERROR: SEACR_1.3.sh not found in PATH" >&2; exit 1; }}
+        mkdir -p "$(dirname {output:q})"
+        bash "$SEACR_SCRIPT" {input:q} {params.threshold} \\
+            {params.norm:q} {params.mode:q} \\
+            "$(dirname {output:q})/{wildcards.sample}.seacr"
+        """
+
+
 # 5b. CUT&Tag fragment-size QC (Stage 7a)
 # ---------------------------------------------------------------------------
 

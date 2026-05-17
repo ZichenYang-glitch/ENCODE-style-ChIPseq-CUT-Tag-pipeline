@@ -158,3 +158,12 @@ qc:
   signal_tracks: true
   summary: true
   cuttag_fragment_size: true
+
+# CUT&Tag-specific configuration (Stage 7b)
+# cuttag:
+#   peak_caller: "macs3"
+#   seacr:
+#     enabled: false
+#     mode: "stringent"
+#     normalization: "non"
+#     threshold: 0.01

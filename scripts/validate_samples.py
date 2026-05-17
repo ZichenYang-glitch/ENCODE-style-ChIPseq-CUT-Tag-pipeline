@@ -227,7 +227,108 @@ def validate_config(config: dict) -> dict:
     else:
         validated["idr"] = {"threshold": 0.05, "rank": "p.value"}
 
+    # cuttag — optional CUT&Tag-specific config (Stage 7b)
+    validated["cuttag"] = _validate_cuttag_config(config.get("cuttag", {}))
+
     return validated
+
+
+def _validate_cuttag_config(cuttag: dict) -> dict:
+    """Validate the cuttag config block. Returns normalized dict.
+
+    Absent block → all defaults. Only validates keys for Stage 7b.
+    """
+    if not isinstance(cuttag, dict):
+        raise ValidationError(
+            f"cuttag must be a mapping, got {type(cuttag).__name__}"
+        )
+
+    known = {"peak_caller", "seacr"}
+    for key in cuttag:
+        if key not in known:
+            raise ValidationError(
+                f"cuttag: unknown key {key!r}. Known: {sorted(known)}"
+            )
+
+    peak_caller = str(cuttag.get("peak_caller", "macs3"))
+    if peak_caller != "macs3":
+        raise ValidationError(
+            f"cuttag.peak_caller must be 'macs3' in Stage 7b, "
+            f"got {peak_caller!r}"
+        )
+
+    seacr_raw = cuttag.get("seacr", {})
+    if isinstance(seacr_raw, bool):
+        raise ValidationError(
+            "cuttag.seacr must be a mapping, got boolean"
+        )
+    if not isinstance(seacr_raw, dict):
+        raise ValidationError(
+            f"cuttag.seacr must be a mapping, "
+            f"got {type(seacr_raw).__name__}"
+        )
+
+    seacr_known = {"enabled", "mode", "normalization", "threshold"}
+    for key in seacr_raw:
+        if key not in seacr_known:
+            raise ValidationError(
+                f"cuttag.seacr: unknown key {key!r}. "
+                f"Known: {sorted(seacr_known)}"
+            )
+
+    enabled_raw = seacr_raw.get("enabled", False)
+    if isinstance(enabled_raw, bool):
+        seacr_enabled = enabled_raw
+    elif str(enabled_raw).lower() in ("true", "false"):
+        seacr_enabled = str(enabled_raw).lower() == "true"
+    else:
+        raise ValidationError(
+            f"cuttag.seacr.enabled must be true or false, "
+            f"got {enabled_raw!r}"
+        )
+
+    mode = str(seacr_raw.get("mode", "stringent"))
+    if mode not in ("stringent", "relaxed"):
+        raise ValidationError(
+            f"cuttag.seacr.mode must be 'stringent' or 'relaxed', "
+            f"got {mode!r}"
+        )
+
+    normalization = str(seacr_raw.get("normalization", "non"))
+    if normalization != "non":
+        raise ValidationError(
+            f"cuttag.seacr.normalization must be 'non' in Stage 7b, "
+            f"got {normalization!r}"
+        )
+
+    threshold_raw = seacr_raw.get("threshold", 0.01)
+    if isinstance(threshold_raw, bool):
+        raise ValidationError(
+            f"cuttag.seacr.threshold must be a float in (0, 1), "
+            f"got {threshold_raw!r}"
+        )
+    try:
+        threshold = float(threshold_raw)
+    except (ValueError, TypeError):
+        raise ValidationError(
+            f"cuttag.seacr.threshold must be a float in (0, 1), "
+            f"got {threshold_raw!r}"
+        )
+    if not (0 < threshold < 1):
+        raise ValidationError(
+            f"cuttag.seacr.threshold must be in (0, 1), "
+            f"got {threshold}"
+        )
+
+    return {
+        "peak_caller": peak_caller,
+        "seacr": {
+            "enabled": seacr_enabled,
+            "mode": mode,
+            "normalization": normalization,
+            "threshold": threshold,
+        },
+    }
 
 
 def _validate_qc_config(qc: dict) -> dict:
@@ -1079,6 +1180,8 @@ def _parse_config_minimal(path: str) -> dict:
     genome_resources: dict = {}
     qc: dict = {}
     tool_parameters: dict = {}
+    cuttag: dict = {}
+    seacr_sub: dict = {}
     section: str | None = None
     current_genome: str | None = None
     current_entry: dict | None = None
@@ -1133,6 +1236,9 @@ def _parse_config_minimal(path: str) -> dict:
                 if stripped.startswith("tool_parameters:"):
                     section = "tool_parameters"
                     continue
+                if stripped.startswith("cuttag:"):
+                    section = "cuttag"
+                    continue
 
                 section = None
                 if ":" in stripped:
@@ -1164,6 +1270,22 @@ def _parse_config_minimal(path: str) -> dict:
                     qc[k.strip()] = parse_scalar(v)
                 continue
 
+            if section == "cuttag" and indent == 2:
+                key = stripped.strip().rstrip(":")
+                if key == "seacr":
+                    seacr_sub = {}
+                elif ":" in stripped:
+                    k, v = stripped.split(":", 1)
+                    cuttag[k.strip()] = parse_scalar(v)
+                continue
+
+            if section == "cuttag" and indent == 4:
+                field = stripped.strip()
+                if ":" in field:
+                    k, v = field.split(":", 1)
+                    seacr_sub[k.strip()] = parse_scalar(v)
+                continue
+
             if section == "tool_parameters" and indent == 2:
                 # Tool block key: "  fastqc:", "  trim_galore:", etc.
                 key = stripped.strip().rstrip(":")
@@ -1191,6 +1313,10 @@ def _parse_config_minimal(path: str) -> dict:
         config["qc"] = qc
     if tool_parameters:
         config["tool_parameters"] = tool_parameters
+    if seacr_sub:
+        cuttag["seacr"] = seacr_sub
+    if cuttag:
+        config["cuttag"] = cuttag
 
     return config
 
