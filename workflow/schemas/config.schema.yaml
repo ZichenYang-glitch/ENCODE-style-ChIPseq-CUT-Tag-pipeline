@@ -178,6 +178,11 @@ qc:
         Enable per-sample QC summary TSV and project-level summary.
         Enables peak count reporting. When summary is true, frip and
         peak_counts are also enabled regardless of their switches.
+    cuttag_fragment_size:
+      type: boolean
+      default: true
+      description: >
+        Enable CUT&Tag fragment-size QC for active samples with assay=cuttag.
 
 # ---- Stage 4b Replicate-Aware Outputs (optional) ----
 stage4b:

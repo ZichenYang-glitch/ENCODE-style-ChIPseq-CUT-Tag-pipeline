@@ -247,6 +247,34 @@ rule library_complexity:
 # 5a. NRF/PBC library complexity (Stage 3c-1)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# 5b. CUT&Tag fragment-size QC (Stage 7a)
+# ---------------------------------------------------------------------------
+
+rule cuttag_fragment_size:
+    output:
+        f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.cuttag_fragment_size.tsv",
+    input:
+        f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+    params:
+        layout = lambda wc: SAMPLE_MAP[wc.sample]["layout"],
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.cuttag_fragment_size.log",
+    conda:
+        "../envs/chipseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
+        python3 scripts/calc_cuttag_fragment_size.py \
+            --sample {wildcards.sample:q} \
+            --bam {input:q} \
+            --layout {params.layout:q} \
+            --output {output:q} \
+            2>&1 | tee {log:q}
+        """
+
+
 rule nrf_pbc:
     output:
         f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.nrf_pbc.tsv",
