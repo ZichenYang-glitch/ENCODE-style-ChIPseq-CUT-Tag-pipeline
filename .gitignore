@@ -1,8 +1,21 @@
-test/
+# --- Test data files (generated at runtime, never committed) ---
+test/**/*.fq
+test/**/*.fastq
+test/**/*.fastq.gz
+test/**/*.fq.gz
+test/**/*.bam
+test/**/*.bai
+test/**/results/
+test/**/.snakemake/
+test/**/__pycache__/
+test/**/.pytest_cache/
+
+# --- Repo-level generated directories ---
 reference/
 miniconda3/
 .snakemake/
 results/
+
+# --- Legacy ignores ---
 *.sh
 *.gz
-*.bam

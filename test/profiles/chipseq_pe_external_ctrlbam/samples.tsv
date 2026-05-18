@@ -1,0 +1,2 @@
+sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index	experiment	condition	replicate	biological_replicate	technical_replicate	role	control_sample	control_bam
+T1	R1.fq	R2.fq	PE	chipseq	H3K27ac	narrow	hs	bt2_idx	exp1	H3K27ac	1	1	1	treatment		ctrl.bam

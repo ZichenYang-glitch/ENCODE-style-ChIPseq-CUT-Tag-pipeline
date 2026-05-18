@@ -1,0 +1,33 @@
+samples: "samples.tsv"
+outdir: "results"
+threads: 1
+mapq: 30
+binsize: 10
+remove_dup: "auto"
+trim: true
+extend_reads: "auto"
+use_control: false
+multiqc: false
+stage4b: true
+stage5: false
+genome_resources:
+  hs:
+    effective_genome_size: "hs"
+    chrom_sizes: ""
+    blacklist: ""
+    gtf: ""
+    reference_fasta: ""
+qc:
+  blacklist_filter: false
+  frip: false
+  library_complexity: false
+  nrf_pbc: false
+  signal_tracks: false
+  summary: false
+  cuttag_fragment_size: true
+cuttag:
+  seacr:
+    enabled: true
+    mode: stringent
+    normalization: non
+    threshold: 0.01
