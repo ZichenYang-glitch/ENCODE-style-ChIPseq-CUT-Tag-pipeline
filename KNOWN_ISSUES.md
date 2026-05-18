@@ -211,10 +211,20 @@ Estimated effort: 1-2 days.
 - ✅ GitHub Actions CI workflow (`.github/workflows/ci.yml`) with fast
   validation + dry-run checks on PR/push and manual real-execution via
   workflow_dispatch. (Stage 8c)
-- ⬜ Remove local `prefix` metadata from exported Conda environment files. (Stage 8d)
-- ⬜ Decide whether to split `workflow/envs/chipseq.yml` into smaller
-  responsibility-specific environments. (Stage 8d)
-- ⬜ Document recommended execution on workstation/server environments. (Stage 8d)
+**Stage 8d completed 2026-05-19** — environment cleanup and execution
+documentation.
+
+- ✅ Remove local `prefix` metadata from exported Conda environment files.
+  (Already absent from chipseq.yml and ci-fast.yml; confirmed.)
+- ✅ Remove `defaults` channel from `workflow/envs/chipseq.yml`.
+  Channels are now `conda-forge` + `bioconda` only.
+- ✅ Decide whether to split environments further: no further split in
+  Stage 8d. `chipseq.yml` remains the full runtime environment;
+  `ci-fast.yml` remains the lightweight CI environment. Further
+  task-specific envs can be revisited later only if solve/runtime
+  pain persists.
+- ✅ Document local execution, validation, smoke tests, and full
+  workflow run in `README.md`.
 
 ## High Priority
 
@@ -247,9 +257,10 @@ Estimated effort: 1-2 days.
    - The legacy `scripts/chipseq.sh` runs `plotFingerprint` when available.
    - The modular Snakemake workflow does not yet expose this as a rule.
 
-6. Clean exported Conda environment metadata.
-   - `chipseq.yml` may contain a machine-specific `prefix`.
-   - Remove local prefixes before sharing or publishing the environment file.
+6. ✅ Clean exported Conda environment metadata.
+   - Completed in Stage 8d: `workflow/envs/chipseq.yml` and
+     `workflow/envs/ci-fast.yml` contain no machine-specific `prefix`.
+   - `workflow/envs/chipseq.yml` now uses only `conda-forge` + `bioconda`.
 
 7. Harden the legacy single-sample script.
    - `scripts/chipseq.sh` still uses input-derived Trim Galore output discovery

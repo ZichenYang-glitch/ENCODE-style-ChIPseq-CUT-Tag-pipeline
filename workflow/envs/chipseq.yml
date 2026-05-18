@@ -2,7 +2,6 @@ name: chipseq
 channels:
   - conda-forge
   - bioconda
-  - defaults
 dependencies:
   # --- core pipeline tools (from original chipseq.yml) ---
   - fastqc
