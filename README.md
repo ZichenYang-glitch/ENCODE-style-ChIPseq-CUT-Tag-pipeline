@@ -404,6 +404,59 @@ MACS3 is intentionally skipped (Stage 8a dry-run covers the DAG).
 See `docs/superpowers/specs/2026-05-18-stage8b-tiny-real-execution-design.md`
 for the full design.
 
+### CI
+
+A GitHub Actions workflow runs on every PR and push to `main` / `stage*`.
+PR/push CI uses a lightweight `ci-fast` environment (python + pyyaml +
+snakemake only) for validation and dry-run checks:
+
+- Validate default config + sample sheet
+- Run validation stress tests
+- Run Stage 8a dry-run smoke profiles (7 profiles)
+
+A manual `workflow_dispatch` job runs the tiny real-execution harness
+using the full `chipseq` environment.  See `.github/workflows/ci.yml`
+and the `workflow/envs/ci-fast.yml` minimal environment.
+Design: `docs/superpowers/specs/2026-05-18-stage8c-github-actions-ci-design.md`
+
+### Local execution
+
+**Prerequisites:**
+
+```bash
+# Create environment (the env file already names it "chipseq")
+micromamba create -f workflow/envs/chipseq.yml
+micromamba activate chipseq
+```
+
+**Validation and dry-run (fast, no data needed):**
+
+```bash
+python3 scripts/validate_samples.py --config config/config.yaml
+python3 test/test_validation_stress.py
+python3 test/test_stage8_smoke_profiles.py
+```
+
+**Tiny real execution (requires full chipseq env):**
+
+```bash
+python3 test/test_stage8b_tiny_execution.py
+```
+
+**Full workflow run:**
+
+```bash
+# 1. Edit config/config.yaml and config/samples.tsv for your data.
+# 2. Dry-run:
+snakemake -s workflow/Snakefile --configfile config/config.yaml -n
+
+# 3. Execute (replace N with core count):
+snakemake -s workflow/Snakefile --configfile config/config.yaml --cores N
+```
+
+On a workstation, use as many cores as available.  On a shared server,
+limit cores and consider `--latency-wait` for NFS filesystems.
+
 ## License
 
 This project is open-source under the [MIT License](LICENSE).

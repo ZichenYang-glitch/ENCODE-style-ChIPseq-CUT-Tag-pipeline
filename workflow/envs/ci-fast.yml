@@ -1,0 +1,8 @@
+name: ci-fast
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python
+  - pyyaml
+  - snakemake >=8.0
