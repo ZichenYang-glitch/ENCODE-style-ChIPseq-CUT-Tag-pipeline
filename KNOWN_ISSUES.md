@@ -206,7 +206,11 @@ Estimated effort: 1-2 days.
   under `/tmp` (no committed binary fixtures). (Stage 8b)
 - ✅ Add real end-to-end execution with tiny synthetic data (1 ChIP-seq PE
   no-control run, preprocessing + signal path only). (Stage 8b)
-- ⬜ GitHub Actions / CI wiring. (Stage 8c)
+**Stage 8c completed 2026-05-18** — GitHub Actions CI wiring.
+
+- ✅ GitHub Actions CI workflow (`.github/workflows/ci.yml`) with fast
+  validation + dry-run checks on PR/push and manual real-execution via
+  workflow_dispatch. (Stage 8c)
 - ⬜ Remove local `prefix` metadata from exported Conda environment files. (Stage 8d)
 - ⬜ Decide whether to split `workflow/envs/chipseq.yml` into smaller
   responsibility-specific environments. (Stage 8d)

@@ -3,6 +3,7 @@
 [![Snakemake](https://img.shields.io/badge/Snakemake-%3E%3D8.0-brightgreen.svg?style=flat-square)](https://snakemake.github.io)
 [![Conda](https://img.shields.io/badge/conda-supported-blue.svg?style=flat-square)](https://docs.conda.io/en/latest/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/workflows/ci.yml)
 
 ## Overview
 
@@ -402,6 +403,19 @@ SNAKEMAKE=/path/to/snakemake python3 test/test_stage8b_tiny_execution.py
 All outputs land under `/tmp`. Exit code 0 = PASS, 1 = FAIL, 2 = SKIP.
 MACS3 is intentionally skipped (Stage 8a dry-run covers the DAG).
 See `docs/superpowers/specs/2026-05-18-stage8b-tiny-real-execution-design.md`
+for the full design.
+
+### CI
+
+A GitHub Actions workflow runs on every PR and push to `main` / `stage*`:
+
+- Validate default config + sample sheet
+- Run validation stress tests
+- Run Stage 8a dry-run smoke profiles (7 profiles)
+
+A manual `workflow_dispatch` job runs the tiny real-execution harness.
+See `.github/workflows/ci.yml`.  See
+`docs/superpowers/specs/2026-05-18-stage8c-github-actions-ci-design.md`
 for the full design.
 
 ## License
