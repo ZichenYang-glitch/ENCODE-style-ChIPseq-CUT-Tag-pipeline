@@ -375,6 +375,20 @@ Snakemake batch workflow (`workflow/Snakefile`) is the recommended entry point.
 - `scripts/` — validation, QC helpers, and analysis scripts
 - `test/` — stress tests for validation, DAG, and helper scripts
 
+### Smoke-test profiles
+
+A suite of 7 test profiles under `test/profiles/` covers the major
+ChIP-seq and CUT&Tag dispatch paths (SE / PE / control_sample /
+control_bam / SEACR / Stage 5 IDR) via dry-run only.  Run with:
+
+```bash
+SNAKEMAKE=/path/to/snakemake python3 test/test_stage8_smoke_profiles.py
+```
+
+All temporary files stay under `/tmp` — nothing is written into the
+repository.  See `docs/superpowers/specs/2026-05-18-stage8a-test-profiles-smoke-design.md`
+for the full design.
+
 ## License
 
 This project is open-source under the [MIT License](LICENSE).

@@ -193,15 +193,21 @@ Goal: make the workflow easier to test, move, and run on different machines.
 
 Estimated effort: 1-2 days.
 
-- Add small test profiles for PE, SE, no-control, `control_bam`, and
-  `control_sample`.
-- Add or document tiny FASTQ subsets and a tiny Bowtie2 index suitable for CI.
-- Add a reproducible smoke-test command that runs quickly on a laptop.
-- Include both `chipseq` and `cuttag` dispatch coverage.
-- Remove local `prefix` metadata from exported Conda environment files.
-- Decide whether to split `workflow/envs/chipseq.yml` into smaller
-  responsibility-specific environments.
-- Document recommended execution on workstation/server environments.
+**Stage 8a completed 2026-05-18** — test profiles and smoke harness.
+
+- ✅ Add small test profiles for PE, SE, no-control, `control_bam`, and
+  `control_sample`. (7 profiles under `test/profiles/`)
+- ✅ Add a reproducible smoke-test command that runs quickly on a laptop.
+  (`python3 test/test_stage8_smoke_profiles.py`, all dry-run)
+- ✅ Include both `chipseq` and `cuttag` dispatch coverage.
+- ✅ Refine `.gitignore` so test profile files track normally.
+- ⬜ Add or document tiny FASTQ subsets and a tiny Bowtie2 index suitable for CI. (Stage 8b)
+- ⬜ Add real end-to-end execution with tiny data. (Stage 8b)
+- ⬜ GitHub Actions / CI wiring. (Stage 8c)
+- ⬜ Remove local `prefix` metadata from exported Conda environment files. (Stage 8d)
+- ⬜ Decide whether to split `workflow/envs/chipseq.yml` into smaller
+  responsibility-specific environments. (Stage 8d)
+- ⬜ Document recommended execution on workstation/server environments. (Stage 8d)
 
 ## High Priority
 
