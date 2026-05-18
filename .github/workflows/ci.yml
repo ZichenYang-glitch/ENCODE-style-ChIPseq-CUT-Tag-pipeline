@@ -22,10 +22,10 @@ jobs:
       - name: Setup micromamba
         uses: mamba-org/setup-micromamba@v3
         with:
-          environment-file: workflow/envs/chipseq.yml
-          environment-name: chipseq
+          environment-file: workflow/envs/ci-fast.yml
+          environment-name: ci-fast
           cache-environment: true
-          cache-environment-key: chipseq-${{ runner.os }}-${{ hashFiles('workflow/envs/chipseq.yml') }}
+          cache-environment-key: ci-fast-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.yml') }}
 
       - name: Validate default config
         shell: micromamba-shell {0}

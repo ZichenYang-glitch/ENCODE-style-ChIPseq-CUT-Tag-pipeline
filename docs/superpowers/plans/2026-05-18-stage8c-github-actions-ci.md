@@ -4,7 +4,7 @@
 
 **Goal:** Add a GitHub Actions CI workflow with fast validation/dry-run checks on PRs and push, plus a manual real-execution job via workflow_dispatch.
 
-**Architecture:** One workflow file (`.github/workflows/ci.yml`) with two jobs. `fast-checks` runs on pull_request, push to main/stage*, and workflow_dispatch — validating config, stress tests, and Stage 8a dry-run smoke via micromamba. `real-execution` is gated behind workflow_dispatch only — runs Stage 8b tiny real execution. Both share the same micromamba cache key.
+**Architecture:** One workflow file (`.github/workflows/ci.yml`) with two jobs. `fast-checks` runs on pull_request, push to main/stage*, and workflow_dispatch — validating config, stress tests, and Stage 8a dry-run smoke via micromamba with a lightweight `ci-fast` environment. `real-execution` is gated behind workflow_dispatch only — runs Stage 8b tiny real execution using the full `chipseq` environment. The two jobs use separate cache keys (`ci-fast-` and `chipseq-`).
 
 **Tech Stack:** GitHub Actions, mamba-org/setup-micromamba@v3, Python 3, Snakemake
 
@@ -48,10 +48,10 @@ jobs:
       - name: Setup micromamba
         uses: mamba-org/setup-micromamba@v3
         with:
-          environment-file: workflow/envs/chipseq.yml
-          environment-name: chipseq
+          environment-file: workflow/envs/ci-fast.yml
+          environment-name: ci-fast
           cache-environment: true
-          cache-environment-key: chipseq-${{ runner.os }}-${{ hashFiles('workflow/envs/chipseq.yml') }}
+          cache-environment-key: ci-fast-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.yml') }}
 
       - name: Validate default config
         shell: micromamba-shell {0}
@@ -83,6 +83,10 @@ jobs:
         shell: micromamba-shell {0}
         run: python3 test/test_stage8b_tiny_execution.py
 ```
+
+The two jobs use **separate** caches:
+- `ci-fast-` key prefix for fast-checks (lightweight env)
+- `chipseq-` key prefix for real-execution (full bioinformatics env)
 
 - [ ] **Step 3: Verify YAML syntax**
 
@@ -179,23 +183,9 @@ A manual `workflow_dispatch` job runs the tiny real-execution harness.
 See `.github/workflows/ci.yml`.
 ```
 
-The CI badge can be added after the first successful run:
+**Note:** The CI badge in README.md is intentionally deferred until CI has passed on `main`.
 
-```markdown
-[![CI](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/workflows/ci.yml)
-```
-
-(Add the badge below the existing badges at the top of README.md.)
-
-- [ ] **Step 2: Add CI badge to README.md header**
-
-At the top of README.md, after the existing badges line:
-
-```markdown
-[![CI](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/workflows/ci.yml)
-```
-
-- [ ] **Step 3: Verify**
+- [ ] **Step 2: Verify**
 
 ```bash
 python3 -c "
