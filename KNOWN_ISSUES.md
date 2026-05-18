@@ -194,15 +194,18 @@ Goal: make the workflow easier to test, move, and run on different machines.
 Estimated effort: 1-2 days.
 
 **Stage 8a completed 2026-05-18** — test profiles and smoke harness.
+**Stage 8b completed 2026-05-18** — tiny real execution smoke test.
 
 - ✅ Add small test profiles for PE, SE, no-control, `control_bam`, and
-  `control_sample`. (7 profiles under `test/profiles/`)
+  `control_sample`. (7 profiles under `test/profiles/`) (Stage 8a)
 - ✅ Add a reproducible smoke-test command that runs quickly on a laptop.
-  (`python3 test/test_stage8_smoke_profiles.py`, all dry-run)
-- ✅ Include both `chipseq` and `cuttag` dispatch coverage.
-- ✅ Refine `.gitignore` so test profile files track normally.
-- ⬜ Add or document tiny FASTQ subsets and a tiny Bowtie2 index suitable for CI. (Stage 8b)
-- ⬜ Add real end-to-end execution with tiny data. (Stage 8b)
+  (`python3 test/test_stage8_smoke_profiles.py`, all dry-run) (Stage 8a)
+- ✅ Include both `chipseq` and `cuttag` dispatch coverage. (Stage 8a)
+- ✅ Refine `.gitignore` so test profile files track normally. (Stage 8a)
+- ✅ Add tiny FASTQ subsets and a tiny Bowtie2 index generated at runtime
+  under `/tmp` (no committed binary fixtures). (Stage 8b)
+- ✅ Add real end-to-end execution with tiny synthetic data (1 ChIP-seq PE
+  no-control run, preprocessing + signal path only). (Stage 8b)
 - ⬜ GitHub Actions / CI wiring. (Stage 8c)
 - ⬜ Remove local `prefix` metadata from exported Conda environment files. (Stage 8d)
 - ⬜ Decide whether to split `workflow/envs/chipseq.yml` into smaller

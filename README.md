@@ -389,6 +389,21 @@ All temporary files stay under `/tmp` — nothing is written into the
 repository.  See `docs/superpowers/specs/2026-05-18-stage8a-test-profiles-smoke-design.md`
 for the full design.
 
+### Tiny real execution
+
+One real end-to-end run through preprocessing + signal on synthetic
+fixtures (20 kb pseudo-random reference, 1 000 PE reads, Bowtie2 index
+built at runtime — zero binary files committed):
+
+```bash
+SNAKEMAKE=/path/to/snakemake python3 test/test_stage8b_tiny_execution.py
+```
+
+All outputs land under `/tmp`. Exit code 0 = PASS, 1 = FAIL, 2 = SKIP.
+MACS3 is intentionally skipped (Stage 8a dry-run covers the DAG).
+See `docs/superpowers/specs/2026-05-18-stage8b-tiny-real-execution-design.md`
+for the full design.
+
 ## License
 
 This project is open-source under the [MIT License](LICENSE).
