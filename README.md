@@ -141,6 +141,12 @@ H3K27AC_rep1	/data/ac1_R1.fq.gz	/data/ac1_R2.fq.gz	PE	chipseq	H3K27ac	narrow	hs	
 H3K27AC_rep2	/data/ac2_R1.fq.gz	/data/ac2_R2.fq.gz	PE	chipseq	H3K27ac	narrow	hs	/path/to/bt2/GRCh38	H3K27AC	2
 ```
 
+This is a compact replicate example. Optional replicate/control columns
+(`experiment`, `condition`, `replicate`, `biological_replicate`,
+`technical_replicate`, `role`, `control_sample`, `control_bam`)
+are documented in `workflow/schemas/samples.schema.yaml`. Minimal
+single-sample sheets may omit optional replicate and control columns.
+
 ## Configuration
 
 Core config keys with their defaults are listed in [Quick Start](#quick-start)
@@ -334,19 +340,40 @@ results/
 
 ## Limitations
 
-- **TF ChIP-seq IDR** (`stage5: true`) requires `chipseq` assay, `narrowPeak`
-  mode, and exactly 2 biological replicates. CUT&Tag IDR and 3+ biorep IDR
-  are not yet supported.
-- **ATAC-seq analysis is not included.** This pipeline covers ChIP-seq and
-  CUT&Tag only.
-- **Histone broad-peak IDR** is deferred to a future release.
-- **MultiQC integration** for experiment-level IDR and pooled QC summaries is
-  not yet complete.
-- **`bamCoverage` RPGC normalization** requires `--effectiveGenomeSize` and is
-  not yet wired up in `tool_parameters`.
-- `final.bam` is symlinked to the filtered BAM when `remove_dup` is `no` or
-  `auto+broad` — this is correct behavior but worth noting for downstream
-  consumers that expect a deduplicated BAM.
+### Assay support
+
+- **ChIP-seq** and **CUT&Tag** are supported. ATAC-seq is not included.
+
+### TF ChIP-seq IDR
+
+- Requires `chipseq` assay, `narrowPeak` mode, and **exactly 2 treatment
+  biological replicates** per experiment.
+- 3+ replicate IDR is not yet supported (automatic pairwise selection
+  among 3+ replicates is not implemented).
+- CUT&Tag IDR is not yet supported.
+
+### Histone broad marks
+
+- Broad-peak IDR is not yet supported. Histone experiments benefit from
+  pooled QC summaries (Stage 6b) but do not produce IDR peak sets.
+
+### QC gaps
+
+- Cross-correlation metrics (NSC/RSC) are not yet implemented.
+- FE/ppois bedGraph tracks are produced; BigWig conversion for those
+  tracks is not yet implemented.
+- `bamCoverage` RPGC normalization requires `--effectiveGenomeSize` and
+  is not yet wired up in `tool_parameters`.
+- MultiQC integration for experiment-level IDR and pooled QC summaries
+  is not yet complete.
+
+### Data and reproducibility
+
+- No real public dataset is bundled with the pipeline.
+- When duplicate removal is disabled (`remove_dup: "no"` or
+  `auto` + `broad` peak mode), `final.bam` is the workflow's final
+  post-filter BAM and may be a symlink to the filtered BAM. It should
+  not be assumed to be duplicate-removed in all modes.
 
 See [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) for the full roadmap and planned
 follow-ups.
@@ -456,6 +483,32 @@ snakemake -s workflow/Snakefile --configfile config/config.yaml --cores N
 
 On a workstation, use as many cores as available.  On a shared server,
 limit cores and consider `--latency-wait` for NFS filesystems.
+
+### Release checklist
+
+Before tagging a release, run these checks locally:
+
+```bash
+# 1. Validation
+python3 scripts/validate_samples.py --config config/config.yaml
+python3 test/test_validation_stress.py
+
+# 2. Default DAG check
+snakemake -s workflow/Snakefile --configfile config/config.yaml -n --quiet
+
+# 3. Dry-run smoke profiles (7 profiles, <30 s)
+python3 test/test_stage8_smoke_profiles.py
+
+# 4. Tiny real execution (preprocessing + signal, <60 s)
+python3 test/test_stage8b_tiny_execution.py
+
+# 5. Repo hygiene
+git status --short --untracked-files=all
+# Expect: no results/, .snakemake/, *.fq, *.fq.gz, *.bam, *.bai, *.bw
+
+# 6. CI status
+# Check GitHub Actions for green on main / current branch.
+```
 
 ## License
 

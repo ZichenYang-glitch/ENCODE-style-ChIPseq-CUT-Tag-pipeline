@@ -5,47 +5,35 @@ Stage 1 Snakemake rule modularization and Stage 1.5 validation closeout.
 
 ## Current Status
 
-- The modular Snakemake DAG is in place under `workflow/rules/`.
-- `workflow/Snakefile` is now the orchestration entry point.
-- ChIP-seq and CUT&Tag policy functions are separated in assay-specific rule files.
-- Control samples can be modeled as first-class sample rows through `role` and
-  `control_sample`.
-- Dry-run and rule-list validation pass for the current test configuration.
-- Real end-to-end validation has been run on bundled test FASTQs.
-- The bundled test FASTQs align much better to GRCh38 than GRCm39, so the test
-  data should be treated as human data.
-- Trim Galore 2.2 text and JSON reports are both preserved; MultiQC 1.35
-  recognizes Trim Galore v2+ reports through the JSON files.
-- **Stage 2 foundation is in place:**
-  - `workflow/schemas/config.schema.yaml` and `workflow/schemas/samples.schema.yaml`
-    document the config and sample sheet contracts.
-  - `scripts/validate_samples.py` provides reusable config/sample validation
-    (importable by the Snakefile, runnable as standalone CLI).
-  - `workflow/Snakefile` delegates validation to `validate_samples.py` instead of
-    keeping it inline.
-  - `config/config.yaml` includes a `genome_resources` block with explicit
-    entries for hs, mm, hg19, hg38, mm10, and mm39.
-  - `_normalize_genome()` prefers configured effective genome sizes over legacy
-    mappings; mm39 resolves to 2654621783 when configured.
+- Core workflow, validation, replicate model, TF ChIP-seq IDR,
+  histone/CUT&Tag support, smoke tests, and CI are implemented
+  (Stages 2-8 complete).
+- Remaining roadmap: NSC/RSC cross-correlation, FE/ppois BigWig
+  conversion, optional public real-data validation, MultiQC tuning,
+  GoPeaks support, advanced IDR strategies.
 
 ## Scope Gap
 
-The current workflow is ENCODE-inspired, not a full ENCODE-compliant ChIP-seq
-pipeline. It currently provides single-sample preprocessing, MACS3 peak calling,
-CPM-normalized BigWig generation, resource-gated single-sample QC, MACS3
-FE/ppois bedGraph signal tracks, and MultiQC aggregation.
+The current workflow is ENCODE-inspired, not a full ENCODE-compliant
+ChIP-seq pipeline. It now provides:
 
-Major ENCODE-aligned features still missing include:
+- Single-sample preprocessing, MACS3 peak calling, CPM BigWig generation
+- Single-sample QC: FRiP, library complexity (Picard + NRF/PBC),
+  MACS3 FE/ppois bedGraph signal tracks
+- Replicate-aware experiment model (Stage 4)
+- TF ChIP-seq IDR for narrowPeak experiments with exactly 2 treatment
+  biological replicates (Stage 5)
+- Histone pooled QC summaries (Stage 6)
+- CUT&Tag fragment-size QC and optional SEACR sidecar peaks (Stage 7)
+- Test profiles, CI, and execution documentation (Stage 8)
 
-- Replicate-aware experiment modeling.
-- IDR and pseudoreplicate analysis for TF ChIP-seq.
-- Pooled replicate peak sets.
-- Cross-correlation metrics such as NSC/RSC.
-- Full NRF/PBC metrics beyond duplication-derived library complexity.
-- Browser-ready bigWig conversion for FE/ppois signal tracks.
-- Reproducibility reports.
-- More complete genome-specific resource management, including chromosome sizes,
-  BED files, effective genome sizes, and optional reference annotations.
+Still missing:
+
+- Cross-correlation metrics (NSC/RSC)
+- BigWig conversion for FE/ppois bedGraph signal tracks
+- MultiQC custom config for improved report layout
+- Full preseq-style library complexity
+- Browser-ready genome resource management
 
 ## Roadmap
 
@@ -242,10 +230,11 @@ documentation.
    - ✅ Add MACS3 FE/ppois bedGraph signal tracks.
    - Add cross-correlation and full NRF/PBC metrics.
 
-3. Add small, reproducible smoke-test data.
-   - The current bundled FASTQs are useful but large.
-   - Add tiny FASTQ subsets and a small index for quick validation.
-   - Include at least one treatment/control sample pair.
+3. ✅ Add synthetic tiny FASTQ/index smoke execution (one ChIP-seq PE
+   no-control real execution). (Stage 8b)
+   - Stage 8a covers control paths by dry-run.
+   - Pending: optional small public real-data treatment/control
+     validation set.
 
 4. Keep user-facing examples synchronized.
    - `README.md`, `config/config.yaml`, and `config/samples.tsv` should agree.
