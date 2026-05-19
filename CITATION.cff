@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+title: "ENCODE-style ChIP-seq and CUT&Tag Pipeline"
+message: "If you use this software in your research, please cite it as below."
+type: software
+authors:
+  - given-names: Zichen
+    family-names: Yang
+repository-code: "https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline"
+abstract: >
+  A Snakemake-based pipeline suite for ChIP-seq and CUT&Tag data analysis,
+  supporting single-sample preprocessing, multi-replicate experiments with
+  pooled outputs, single-sample QC, TF ChIP-seq IDR reproducibility analysis,
+  histone pooled QC, and CUT&Tag-specific fragment-size QC with optional
+  SEACR peak calling.
+keywords:
+  - ChIP-seq
+  - CUT&Tag
+  - Snakemake
+  - peak-calling
+  - IDR
+  - bioinformatics
+license: MIT
+version: 0.1.0-beta

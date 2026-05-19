@@ -14,6 +14,10 @@ Default mode is no-input / no-control. Optional controls can be enabled with
 `use_control: true` and supplied as an external control BAM or a FASTQ-based
 control sample row. Dependencies are managed with Conda.
 
+This is a **v0.1.0-beta research workflow release**: functional and tested
+with smoke and tiny-execution profiles, but not a fully ENCODE-compliant
+production pipeline. See [Limitations](#limitations) for known gaps.
+
 ## Key Features
 
 - **Shared preprocessing:** FastQC, Trim Galore, Bowtie2 alignment, MAPQ
