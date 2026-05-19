@@ -94,6 +94,9 @@ snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use
 snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use-conda --rerun-incomplete
 ```
 
+> For troubleshooting, smoke-test instructions, and detailed run guidance, see
+> [docs/quickstart.md](docs/quickstart.md).
+
 ## Sample Sheet
 
 ### Required columns
@@ -110,33 +113,6 @@ snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use
 | `genome` | Genome label used to look up `genome_resources` (e.g. `hs`, `mm`, `hg38`). |
 | `bowtie2_index` | Bowtie2 index prefix path. |
 
-### Optional columns
-
-**Replicate metadata:**
-
-| Column | Default | Description |
-| :--- | :--- | :--- |
-| `experiment` | `<sample>` | Experiment group identifier. |
-| `condition` | `<target>` | Condition label (treatment, genotype, timepoint). |
-| `replicate` | `1` | Replicate number within an experiment. |
-| `biological_replicate` | `<replicate>` | Biological replicate number. |
-| `technical_replicate` | `1` | Technical replicate number within a biological replicate. |
-
-**Controls:**
-
-| Column | Description |
-| :--- | :--- |
-| `role` | `treatment` (default) or `control`. Peak calling runs only for treatment. |
-| `control_sample` | Sample ID of a control row to use as MACS3 input. |
-| `control_bam` | Path to an external control BAM. |
-
-Technical replicates within a biological replicate are merged into a
-`biorep<N>.final.bam`. Experiments with >=2 biological replicates produce
-pooled BAMs and pooled peaks.
-
-A minimal sample sheet with only the required columns is fully supported
-(single-sample, no controls, no replicates).
-
 ### Example
 
 ```tsv
@@ -145,11 +121,13 @@ H3K27AC_rep1	/data/ac1_R1.fq.gz	/data/ac1_R2.fq.gz	PE	chipseq	H3K27ac	narrow	hs	
 H3K27AC_rep2	/data/ac2_R1.fq.gz	/data/ac2_R2.fq.gz	PE	chipseq	H3K27ac	narrow	hs	/path/to/bt2/GRCh38	H3K27AC	2
 ```
 
-This is a compact replicate example. Optional replicate/control columns
-(`experiment`, `condition`, `replicate`, `biological_replicate`,
-`technical_replicate`, `role`, `control_sample`, `control_bam`)
-are documented in `workflow/schemas/samples.schema.yaml`. Minimal
-single-sample sheets may omit optional replicate and control columns.
+Optional replicate and control columns (`experiment`, `condition`, `replicate`,
+`biological_replicate`, `technical_replicate`, `role`, `control_sample`,
+`control_bam`) are documented in `workflow/schemas/samples.schema.yaml`.
+
+> Full column reference, role/control semantics, additional examples
+> (treatment+control, biological replicates), and common pitfalls:
+> [docs/sample-sheet.md](docs/sample-sheet.md)
 
 ## Configuration
 
@@ -171,47 +149,10 @@ genome_resources:
 `effective_genome_size`: MACS3 shortcut (`hs`, `mm`) or positive integer.
 Other fields are optional paths. If non-empty they must exist on disk.
 
-### QC switches
-
-```yaml
-qc:
-  blacklist_filter: true
-  frip: true
-  library_complexity: true
-  nrf_pbc: true
-  signal_tracks: true    # MACS3 FE/ppois bedGraph tracks (per-sample + pooled)
-  summary: true          # per-sample QC summary + project-level aggregate
-```
-
-### Replicate and IDR features
-
-```yaml
-stage4b: true            # replicate-aware pooled BAMs and pooled peaks (default on)
-stage5: false            # TF ChIP-seq IDR (default off; requires stage4b: true)
-
-idr:
-  seed: 42
-  threshold: 0.05        # IDR threshold for thresholded peak set
-  rank: "p.value"        # ranking measure: p.value or signal.value
-```
-
-### Tool parameters
-
-Optional `tool_parameters` blocks let you tune individual tools without editing
-rule files. Absent keys use the built-in defaults. Example:
-
-```yaml
-tool_parameters:
-  macs3:
-    qvalue: 0.01
-  idr_macs3:
-    pvalue: 0.1          # relaxed p-value for IDR-ready peak calls
-  bamcoverage:
-    normalize_using: "CPM"
-```
-
-See `workflow/schemas/config.schema.yaml` for the full set of configurable keys
-and their accepted types.
+> Full configuration reference covering core keys, genome resources, QC
+> switches, replicates/IDR, CUT&Tag SEACR, tool parameters, `use_control`,
+> `multiqc`, and key dependencies:
+> [docs/configuration.md](docs/configuration.md)
 
 ## Workflow Capabilities
 
@@ -230,7 +171,8 @@ Controls are disabled by default (`use_control: false`). When enabled,
 each treatment row may reference a `control_sample` (another sample row with
 `role=control`) or an external `control_bam` path. Control rows are processed
 through the full preprocessing pipeline and their `final.bam` is passed as
-MACS3 `-c`.
+MACS3 `-c`. See [docs/sample-sheet.md](docs/sample-sheet.md) for role and
+control semantics.
 
 ### Single-sample QC
 
@@ -259,6 +201,8 @@ biological replicates:
   `qc.signal_tracks: true`
 
 Outputs land under `results/experiments/<experiment>/`.
+See [docs/configuration.md](docs/configuration.md) for `stage4b` and `stage5`
+gating.
 
 ### TF ChIP-seq IDR
 
@@ -418,7 +362,8 @@ SNAKEMAKE=/path/to/snakemake python3 test/test_stage8_smoke_profiles.py
 
 All temporary files stay under `/tmp` — nothing is written into the
 repository.  See `docs/superpowers/specs/2026-05-18-stage8a-test-profiles-smoke-design.md`
-for the full design.
+for the full design. For troubleshooting and test execution details, see
+[docs/quickstart.md](docs/quickstart.md).
 
 ### Tiny real execution
 
