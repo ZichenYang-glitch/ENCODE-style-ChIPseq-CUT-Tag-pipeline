@@ -2,20 +2,21 @@ name: chipseq
 channels:
   - conda-forge
   - bioconda
+  - nodefaults
 dependencies:
-  # --- core pipeline tools (from original chipseq.yml) ---
+  # --- core runtime ---
+  - python >=3.10,<3.13
+  - openjdk >=17,<18
+
+  # --- core pipeline tools ---
   - fastqc
   - trim-galore
+  - cutadapt
   - bowtie2
   - samtools
-  - picard
   - macs3
   - deeptools
   - bedtools
+
   # --- workflow orchestration ---
-  - snakemake >=8.0
-  - multiqc
-  # --- Stage 5 IDR ---
-  - idr
-  # --- Stage 7 CUT&Tag ---
-  - seacr
+  - snakemake >=8.0,<9

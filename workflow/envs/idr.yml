@@ -1,0 +1,10 @@
+name: chipseq-idr
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  # Bioconda idr currently requires python <3.10, so keep it isolated
+  # from the modern Snakemake/deepTools/MACS3 runtime.
+  - python <3.10
+  - idr

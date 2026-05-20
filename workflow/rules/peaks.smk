@@ -19,7 +19,7 @@ rule macs3_callpeak:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.macs3.log",
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/macs3.yml",
     shell:
         """
         set -e -o pipefail
@@ -124,7 +124,7 @@ rule macs3_pooled_peaks:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.macs3.log",
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/macs3.yml",
     shell:
         """
         set -e -o pipefail

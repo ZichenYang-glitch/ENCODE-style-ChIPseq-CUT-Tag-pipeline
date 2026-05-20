@@ -1,0 +1,8 @@
+name: chipseq-fastqc
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - openjdk >=17,<18
+  - fastqc

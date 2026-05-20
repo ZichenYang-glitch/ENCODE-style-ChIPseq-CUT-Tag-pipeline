@@ -9,11 +9,13 @@ running your first analysis. For a compact overview, see the
 ```bash
 git clone https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline.git
 cd ENCODE-style-ChIPseq-CUT-Tag-pipeline
-conda env create -f workflow/envs/chipseq.yml
-conda activate chipseq
+micromamba create -f workflow/envs/runner.yml
+micromamba activate chipseq-runner
 ```
 
-If you use micromamba, replace `conda` with `micromamba` in the commands above.
+The `chipseq-runner` environment is intentionally small: Python, PyYAML, and
+Snakemake. The bioinformatics tools live in rule-specific environments and are
+created automatically when you run Snakemake with `--use-conda`.
 
 ## 2. Configure samples
 
@@ -60,7 +62,7 @@ before proceeding.
 Then check the DAG with a dry-run:
 
 ```bash
-snakemake -s workflow/Snakefile --configfile config/config.yaml -n
+snakemake -s workflow/Snakefile --configfile config/config.yaml -n --use-conda
 ```
 
 ## 5. Dry-run
@@ -68,21 +70,21 @@ snakemake -s workflow/Snakefile --configfile config/config.yaml -n
 The dry-run resolves the full DAG and reports which rules would run:
 
 ```bash
-snakemake -s workflow/Snakefile --configfile config/config.yaml -n
+snakemake -s workflow/Snakefile --configfile config/config.yaml -n --use-conda
 ```
 
 This checks rule connectivity, file path resolution, and sample sheet
-parsing without executing any tool. Add `--use-conda` if you want Snakemake
-to manage per-rule Conda environments.
+parsing without executing any tool. `--use-conda` tells Snakemake to use the
+rule-specific tool environments declared under `workflow/envs/`.
 
 ## 6. Run the workflow
 
 ```bash
 # Execute with 16 cores
-snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16
+snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use-conda
 
 # Resume after interruption
-snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --rerun-incomplete
+snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use-conda --rerun-incomplete
 ```
 
 - **`--cores N`:** use N local CPU cores. Replace `N` with your available core count.
@@ -105,7 +107,7 @@ python3 test/test_validation_stress.py
 python3 test/test_stage8_smoke_profiles.py
 
 # Tiny real execution — preprocessing + signal on synthetic 1k reads, <60 seconds
-# Requires the full chipseq Conda environment.
+# Requires the core chipseq Conda environment.
 python3 test/test_stage8b_tiny_execution.py
 ```
 
@@ -121,22 +123,26 @@ profiles cover the peak-calling DAG).
 
 ### Slow conda/micromamba solve
 
-If `conda env create` hangs on "Solving environment," try:
+Prefer micromamba for environment creation. If plain `conda env create` hangs
+on "Solving environment," try:
 
 ```bash
 # Use the libmamba solver (faster)
 conda install -n base conda-libmamba-solver
-conda env create -f workflow/envs/chipseq.yml --experimental-solver=libmamba
+conda env create -f workflow/envs/runner.yml --experimental-solver=libmamba
 ```
 
-Or switch to micromamba, which uses libmamba natively.
+The environment files use `nodefaults` so local `defaults` channels are not
+silently mixed into solves. Heavy or optional tools are isolated in separate
+rule environments so the first install stays small.
 
 ### `snakemake: command not found`
 
-- Make sure you activated the environment: `conda activate chipseq`
+- Make sure you activated the runner environment: `micromamba activate chipseq-runner`
 - Verify snakemake is installed: `which snakemake`
-- If the environment was created but snakemake is missing, re-create it:
-  `conda env create -f workflow/envs/chipseq.yml --force`
+- If the environment was created but snakemake is missing, remove and recreate
+  it with `micromamba env remove -n chipseq-runner` followed by
+  `micromamba create -f workflow/envs/runner.yml`.
 
 ### FASTQ path not found
 
@@ -167,5 +173,5 @@ The tiny execution test (`test_stage8b_tiny_execution.py`) requires:
 - `samtools` on PATH
 - `deepTools` (`bamCoverage`) on PATH
 
-These are all included in the `chipseq` Conda environment. Activate it first:
-`conda activate chipseq`.
+These are all included in the core `chipseq` Conda environment. Activate it first:
+`micromamba activate chipseq` or `conda activate chipseq`.

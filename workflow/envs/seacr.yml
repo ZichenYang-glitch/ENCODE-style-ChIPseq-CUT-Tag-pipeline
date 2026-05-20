@@ -1,0 +1,10 @@
+name: chipseq-seacr
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  # SEACR brings an R runtime; keep it out of the core environment because
+  # SEACR sidecar peaks are optional and disabled by default.
+  - seacr
+  - bedtools

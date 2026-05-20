@@ -1,4 +1,4 @@
-name: ci-fast
+name: chipseq-runner
 channels:
   - conda-forge
   - bioconda

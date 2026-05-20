@@ -24,7 +24,7 @@ feature gating. For the minimal config needed to start, see the
 | Value | Behavior |
 | :--- | :--- |
 | `"auto"` | Remove duplicates for `chipseq` narrow-peak; skip for `broad` peak mode and all `cuttag`. |
-| `"yes"` | Always remove duplicates (Picard MarkDuplicates). |
+| `"yes"` | Always remove duplicates. The bundled core env uses `samtools markdup`; Picard is used only if available in a custom runtime environment. |
 | `"no"` | Never remove duplicates. `final.bam` may be a symlink to the filtered BAM. |
 
 ## Genome resources
@@ -69,6 +69,9 @@ When `true`, treatment rows may reference a control via `control_sample`
 When `true`, MultiQC aggregates QC artifacts from all active samples into
 `results/multiqc/multiqc_report.html`.
 
+MultiQC runs in `workflow/envs/multiqc.yml` when Snakemake is invoked with
+`--use-conda`, keeping reporting dependencies out of the core runtime.
+
 ## QC block
 
 ```yaml
@@ -85,7 +88,7 @@ qc:
 | :--- | :--- | :--- |
 | `blacklist_filter` | `true` | Filter BAMs and peaks against the blacklist BED in genome resources. Requires a blacklist path in `genome_resources`. |
 | `frip` | `true` | Compute FRiP (Fraction of Reads in Peaks) per sample. |
-| `library_complexity` | `true` | Compute library complexity from Picard MarkDuplicates metrics (NRD, PCT_PCR_DUPLICATES). |
+| `library_complexity` | `true` | Parse duplicate metrics. Picard fields are reported when Picard is available; otherwise fallback fields are emitted as `NA`. |
 | `nrf_pbc` | `true` | Compute NRF and PBC1/PBC2 from the BAM file (library complexity from read counts). |
 | `signal_tracks` | `true` | Produce MACS3 FE (fold-enrichment) and ppois (Poisson p-value) bedGraph tracks per treatment sample and for pooled experiments. BigWig conversion is not yet implemented. |
 | `summary` | `true` | Emit per-sample QC summary TSV and a project-level aggregate at `results/multiqc/stage3_qc_summary.tsv`. |
@@ -115,6 +118,9 @@ idr:
 - **`idr.*`**: The idr block is only read when `stage5: true`. `threshold` is
   the IDR threshold (0.05 = IDR -log10(0.05) ≈ 1.3). `rank` chooses between
   p-value and signal-value ranking for IDR input.
+- IDR rules use `workflow/envs/idr.yml` when Snakemake is run with
+  `--use-conda`, keeping IDR's older Python dependency constraints out of the
+  core environment.
 
 ### IDR gating summary
 
@@ -140,6 +146,8 @@ cuttag:
   `results/<sample>/04_peaks_seacr/`.
 - Only affects samples with `assay: cuttag`. ChIP-seq samples ignore this
   setting.
+- SEACR rules use `workflow/envs/seacr.yml` when Snakemake is run with
+  `--use-conda`, keeping SEACR's R runtime out of the core environment.
 
 ## Tool parameters
 

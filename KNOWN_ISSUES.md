@@ -205,14 +205,23 @@ documentation.
 - ✅ Remove local `prefix` metadata from exported Conda environment files.
   (Already absent from chipseq.yml and ci-fast.yml; confirmed.)
 - ✅ Remove `defaults` channel from `workflow/envs/chipseq.yml`.
-  Channels are now `conda-forge` + `bioconda` only.
-- ✅ Decide whether to split environments further: no further split in
-  Stage 8d. `chipseq.yml` remains the full runtime environment;
-  `ci-fast.yml` remains the lightweight CI environment. Further
-  task-specific envs can be revisited later only if solve/runtime
-  pain persists.
+  Environment files use `conda-forge` + `bioconda` with `nodefaults`.
+- ✅ Decide whether to split environments further: deferred in Stage 8d,
+  then implemented in Stage 10e after solve/runtime pain persisted.
+  The workflow now uses a lightweight runner plus rule-specific tool
+  environments.
 - ✅ Document local execution, validation, smoke tests, and full
   workflow run in `README.md`.
+
+**Stage 10e completed 2026-05-19** — environment reliability fix.
+
+- ✅ Replace the single-install path with `workflow/envs/runner.yml`
+  (`snakemake-minimal`, Python, PyYAML) plus rule-specific tool envs.
+- ✅ Isolate IDR in `workflow/envs/idr.yml` to contain its Bioconda
+  `python <3.10` constraint.
+- ✅ Isolate SEACR and MultiQC in their own envs so R/reporting stacks are
+  not part of the first install.
+- ✅ Rewire Snakemake `conda:` directives to the smallest appropriate env.
 
 ## High Priority
 
@@ -249,7 +258,7 @@ documentation.
 6. ✅ Clean exported Conda environment metadata.
    - Completed in Stage 8d: `workflow/envs/chipseq.yml` and
      `workflow/envs/ci-fast.yml` contain no machine-specific `prefix`.
-   - `workflow/envs/chipseq.yml` now uses only `conda-forge` + `bioconda`.
+   - Environment files now use `conda-forge` + `bioconda` with `nodefaults`.
 
 7. Harden the legacy single-sample script.
    - `scripts/chipseq.sh` still uses input-derived Trim Galore output discovery
@@ -265,10 +274,11 @@ documentation.
 
 ## Low Priority
 
-9. Split environments by responsibility.
-   - Stage 1 keeps using `workflow/envs/chipseq.yml`.
-   - Future stages can split this into core, ChIP-seq, CUT&Tag, and reporting
-     environments if dependency resolution becomes slow or fragile.
+9. ✅ Split environments by responsibility.
+   - Completed in Stage 10e: `workflow/envs/runner.yml` is the first-install
+     environment, while rule-specific envs cover FastQC, trimming, alignment,
+     samtools/bedtools, MACS3, deepTools, MultiQC, IDR, SEACR, and Python
+     helper rules.
 
 10. Decide how much control output to publish.
     - Stage 1 produces control bigWigs because they are useful for QC.

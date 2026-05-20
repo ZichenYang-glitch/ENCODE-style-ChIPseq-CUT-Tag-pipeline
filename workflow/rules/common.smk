@@ -29,7 +29,7 @@ rule fastqc:
         extra = _tool_param("fastqc", "extra_args", ""),
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/fastqc.yml",
     shell:
         """
         mkdir -p {params.qcdir}
@@ -68,7 +68,7 @@ rule trim_galore:
         extra      = _tool_param("trim_galore", "extra_args", ""),
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/trim.yml",
     shell:
         """
         set -- {input:q}
@@ -136,7 +136,7 @@ rule bowtie2_align:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.bowtie2.log",
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/align.yml",
     shell:
         """
         RG="--rg-id {params.sample} --rg SM:{params.sample} --rg LB:{params.sample} --rg PL:ILLUMINA"
@@ -166,7 +166,7 @@ rule samtools_index_sorted:
         bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         "samtools index -@ {threads} {input.bam:q}"
 
@@ -186,7 +186,7 @@ rule samtools_filter:
         extra        = _tool_param("samtools_filter", "extra_args", ""),
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         """
         samtools view -@ {threads} -b -q {params.mapq} {params.filter_flags} {params.extra} {input.bam:q} > {output.bam:q}
@@ -204,7 +204,7 @@ rule samtools_index_filt:
         bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         "samtools index -@ {threads} {input.bam:q}"
 
@@ -227,7 +227,7 @@ rule duplicate_handling:
         picard_extra = _tool_param("picard_markduplicates", "extra_args", ""),
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         """
         if [[ "{params.remove_dup}" == "yes" ]]; then
@@ -281,7 +281,7 @@ rule samtools_flagstat:
         bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         "samtools flagstat -@ {threads} {input.bam:q} > {output.flagstat:q}"
 
@@ -297,7 +297,7 @@ rule samtools_flagstat_final:
         bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         "samtools flagstat -@ {threads} {input.bam:q} > {output.flagstat:q}"
 
@@ -314,7 +314,7 @@ rule samtools_idxstats:
         bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam.bai",
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         "samtools idxstats {input.bam:q} > {output.idxstats:q}"
 
@@ -362,7 +362,7 @@ rule bamcoverage:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.bamCoverage.log",
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/deeptools.yml",
     shell:
         """
         set -e -o pipefail

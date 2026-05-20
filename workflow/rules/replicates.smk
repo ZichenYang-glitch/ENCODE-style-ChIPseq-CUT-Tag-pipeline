@@ -39,7 +39,7 @@ rule merge_biorep_bam:
         bio_rep = r"\d+",
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         """
         set -e -o pipefail
@@ -82,7 +82,7 @@ rule pool_treatment_bam:
         lambda wc: _treatment_biorep_bams(wc.experiment),
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         """
         set -e -o pipefail
@@ -116,7 +116,7 @@ rule pool_control_bam:
         lambda wc: _pooled_control_inputs(wc.experiment),
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         """
         set -e -o pipefail

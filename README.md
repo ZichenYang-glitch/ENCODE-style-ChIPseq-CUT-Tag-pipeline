@@ -21,7 +21,7 @@ production pipeline. See [Limitations](#limitations) for known gaps.
 ## Key Features
 
 - **Shared preprocessing:** FastQC, Trim Galore, Bowtie2 alignment, MAPQ
-  filtering, Picard duplicate handling, flagstat, idxstats, BigWig generation
+  filtering, samtools duplicate handling, flagstat, idxstats, BigWig generation
 - **ChIP-seq / CUT&Tag assay policies:** assay-aware MACS3 parameters, duplicate
   removal, and read extension; optional CUT&Tag SEACR sidecar peak calls
   (`cuttag.seacr.enabled`, output under `results/<sample>/04_peaks_seacr/`)
@@ -49,9 +49,13 @@ production pipeline. See [Limitations](#limitations) for known gaps.
 ```bash
 git clone https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline.git
 cd ENCODE-style-ChIPseq-CUT-Tag-pipeline
-conda env create -f workflow/envs/chipseq.yml
-conda activate chipseq
+micromamba create -f workflow/envs/runner.yml
+micromamba activate chipseq-runner
 ```
+
+The `chipseq-runner` environment is intentionally small: it contains Python,
+PyYAML, and Snakemake. Bioinformatics tools are installed as rule-specific
+Conda environments when you run with `--use-conda`.
 
 ### 2. Configure samples
 
@@ -160,7 +164,8 @@ Other fields are optional paths. If non-empty they must exist on disk.
 
 Every sample (treatment or control) flows through: FastQC → Trim Galore
 (or symlink when `trim: false`) → Bowtie2 alignment → samtools sort/index →
-MAPQ filter → duplicate handling (Picard or samtools fallback) → `final.bam`.
+MAPQ filter → duplicate handling (samtools by default; Picard if available in
+a custom runtime environment) → `final.bam`.
 BigWig tracks are generated with deepTools `bamCoverage` (CPM-normalized by
 default). MACS3 peak calling runs on treatment samples, with assay-specific
 parameters (TF ChIP-seq model-based, CUT&Tag Tn5-aware `--shift -100`).
@@ -179,7 +184,8 @@ control semantics.
 When the `qc` block is enabled, each treatment sample receives:
 - **Blacklist filtering** (BAM + peaks) when a blacklist BED is configured
 - **FRiP** (Fraction of Reads in Peaks)
-- **Library complexity** (Picard duplication-derived metrics)
+- **Library complexity** (Picard-derived metrics when available; fallback
+  status otherwise)
 - **NRF/PBC** (BAM-derived library complexity)
 - **MACS3 signal tracks**: fold-enrichment (`FE.bdg`) and p-value
   (`ppois.bdg`) bedGraph from `macs3 bdgcmp`
@@ -344,7 +350,7 @@ Snakemake batch workflow (`workflow/Snakefile`) is the recommended entry point.
 
 - `workflow/Snakefile` — entry point, validation, assay dispatch
 - `workflow/rules/` — Snakemake rule files (common, peaks, replicates, IDR, QC, report)
-- `workflow/envs/chipseq.yml` — Conda environment
+- `workflow/envs/` — Conda environments (lightweight runner plus rule-specific tool envs)
 - `workflow/schemas/` — human-readable config and sample sheet contracts
 - `config/` — default config and sample sheet
 - `scripts/` — validation, QC helpers, and analysis scripts
@@ -391,7 +397,7 @@ snakemake only) for validation and dry-run checks:
 - Run Stage 8a dry-run smoke profiles (7 profiles)
 
 A manual `workflow_dispatch` job runs the tiny real-execution harness
-using the full `chipseq` environment.  See `.github/workflows/ci.yml`
+using the core `chipseq` environment.  See `.github/workflows/ci.yml`
 and the `workflow/envs/ci-fast.yml` minimal environment.
 Design: `docs/superpowers/specs/2026-05-18-stage8c-github-actions-ci-design.md`
 
@@ -400,9 +406,9 @@ Design: `docs/superpowers/specs/2026-05-18-stage8c-github-actions-ci-design.md`
 **Prerequisites:**
 
 ```bash
-# Create environment (the env file already names it "chipseq")
-micromamba create -f workflow/envs/chipseq.yml
-micromamba activate chipseq
+# Create the lightweight runner environment
+micromamba create -f workflow/envs/runner.yml
+micromamba activate chipseq-runner
 ```
 
 **Validation and dry-run (fast, no data needed):**
@@ -413,9 +419,11 @@ python3 test/test_validation_stress.py
 python3 test/test_stage8_smoke_profiles.py
 ```
 
-**Tiny real execution (requires full chipseq env):**
+**Tiny real execution (requires the core chipseq env):**
 
 ```bash
+micromamba create -f workflow/envs/chipseq.yml
+micromamba activate chipseq
 python3 test/test_stage8b_tiny_execution.py
 ```
 
@@ -424,10 +432,10 @@ python3 test/test_stage8b_tiny_execution.py
 ```bash
 # 1. Edit config/config.yaml and config/samples.tsv for your data.
 # 2. Dry-run:
-snakemake -s workflow/Snakefile --configfile config/config.yaml -n
+snakemake -s workflow/Snakefile --configfile config/config.yaml -n --use-conda
 
 # 3. Execute (replace N with core count):
-snakemake -s workflow/Snakefile --configfile config/config.yaml --cores N
+snakemake -s workflow/Snakefile --configfile config/config.yaml --cores N --use-conda
 ```
 
 On a workstation, use as many cores as available.  On a shared server,

@@ -10,7 +10,7 @@
 #   blacklist_filter_peaks  → bedtools intersect -v on peak file
 #   peak_counts             → count lines in peak files
 #   frip                    → calc_frip.py (read-record based)
-#   library_complexity      → parse Picard MarkDuplicates metrics
+#   library_complexity      → parse duplicate metrics when available
 #   signal_track_fe         → MACS3 bdgcmp FE bedGraph
 #   signal_track_ppois      → MACS3 bdgcmp ppois bedGraph
 #   qc_summary              → per-sample TSV assembly
@@ -80,7 +80,7 @@ rule blacklist_filter_bam:
         blacklist = lambda wc: get_genome_resource(wc.sample, "blacklist"),
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         """
         bedtools intersect -v -abam {input.bam:q} -b {params.blacklist:q} \
@@ -102,7 +102,7 @@ rule blacklist_filter_peaks:
     params:
         blacklist = lambda wc: get_genome_resource(wc.sample, "blacklist"),
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         """
         PEAKS_FILE="{input.peaks_dir:q}/{wildcards.sample}_peaks.{wildcards.suffix}"
@@ -129,7 +129,7 @@ rule peak_counts:
             if _has_blacklist_qc(wc.sample) else ""
         ),
     conda:
-        "../envs/chipseq.yml",
+        "../envs/python.yml",
     shell:
         """
         PEAKS_DIR="{input[0]:q}"
@@ -178,7 +178,7 @@ rule frip:
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.frip.log",
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         """
         set -e -o pipefail
@@ -231,7 +231,7 @@ rule library_complexity:
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.library_complexity.log",
     conda:
-        "../envs/chipseq.yml",
+        "../envs/python.yml",
     shell:
         """
         set -e -o pipefail
@@ -257,7 +257,7 @@ rule seacr_bedgraph:
     input:
         f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
     conda:
-        "../envs/chipseq.yml",
+        "../envs/seacr.yml",
     shell:
         """
         set -e -o pipefail
@@ -276,7 +276,7 @@ rule seacr_call:
         threshold = SEACR_THRESHOLD,
         norm      = SEACR_NORMALIZATION,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/seacr.yml",
     shell:
         """
         set -e -o pipefail
@@ -302,7 +302,7 @@ rule cuttag_fragment_size:
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.cuttag_fragment_size.log",
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         """
         set -e -o pipefail
@@ -324,7 +324,7 @@ rule nrf_pbc:
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.nrf_pbc.log",
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         """
         set -e -o pipefail
@@ -348,7 +348,7 @@ rule signal_track_fe:
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.bdgcmp.FE.log",
     conda:
-        "../envs/chipseq.yml",
+        "../envs/macs3.yml",
     shell:
         """
         set -e -o pipefail
@@ -381,7 +381,7 @@ rule signal_track_ppois:
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.bdgcmp.ppois.log",
     conda:
-        "../envs/chipseq.yml",
+        "../envs/macs3.yml",
     shell:
         """
         set -e -o pipefail
@@ -417,7 +417,7 @@ rule pooled_signal_track_fe:
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.bdgcmp.FE.log",
     conda:
-        "../envs/chipseq.yml",
+        "../envs/macs3.yml",
     shell:
         """
         set -e -o pipefail
@@ -450,7 +450,7 @@ rule pooled_signal_track_ppois:
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.bdgcmp.ppois.log",
     conda:
-        "../envs/chipseq.yml",
+        "../envs/macs3.yml",
     shell:
         """
         set -e -o pipefail
@@ -523,7 +523,7 @@ rule pooled_experiment_qc_summary:
             if QC_CONFIG.get("signal_tracks", True) else "NA"),
         signal_enabled         = QC_CONFIG.get("signal_tracks", True),
     conda:
-        "../envs/chipseq.yml",
+        "../envs/python.yml",
     shell:
         """
         if [[ "{params.signal_enabled}" == "True" ]]; then
@@ -595,7 +595,7 @@ rule qc_summary:
         ),
         ctrl_type = lambda wc: _control_type(wc.sample),
     conda:
-        "../envs/chipseq.yml",
+        "../envs/python.yml",
     shell:
         """
         # Read peak counts (skip header)
@@ -750,7 +750,7 @@ rule stage3_qc_summary:
         [f"{OUTDIR}/{sid}/01_qc/{sid}.qc_summary.tsv"
          for sid in TREATMENT_SAMPLE_IDS],
     conda:
-        "../envs/chipseq.yml",
+        "../envs/python.yml",
     shell:
         """
         set -- {input:q}

@@ -85,7 +85,7 @@ if MULTIQC:
             title       = f"--title {shlex.quote(v)}" if (v := _tool_param("multiqc", "title", "")) else "",
             extra       = _tool_param("multiqc", "extra_args", ""),
         conda:
-            "../envs/chipseq.yml",
+            "../envs/multiqc.yml",
         shell:
             """
             set -e -o pipefail

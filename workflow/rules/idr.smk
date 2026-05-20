@@ -79,7 +79,7 @@ rule macs3_idr_biorep:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}_biorep{{bio_rep}}.idr.macs3.log",
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/macs3.yml",
     shell:
         """
         set -e -o pipefail
@@ -155,7 +155,7 @@ rule idr_true_replicates:
             f"{OUTDIR}/experiments/{wc.experiment}/logs/{wc.experiment}.idr.thresholded.log"
         ),
     conda:
-        "../envs/chipseq.yml",
+        "../envs/idr.yml",
     shell:
         """
         set -e -o pipefail
@@ -269,7 +269,7 @@ rule split_pseudoreps:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}_{{source}}.split.log",
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/samtools.yml",
     shell:
         """
         set -e -o pipefail
@@ -303,7 +303,7 @@ rule macs3_idr_pseudorep:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}_{{source}}_pr{{pr}}.idr.macs3.log",
     threads: THREADS,
     conda:
-        "../envs/chipseq.yml",
+        "../envs/macs3.yml",
     shell:
         """
         set -e -o pipefail
@@ -358,7 +358,7 @@ rule idr_self_pseudoreps:
     wildcard_constraints:
         bio_rep = r"\d+",
     conda:
-        "../envs/chipseq.yml",
+        "../envs/idr.yml",
     shell:
         """
         set -e -o pipefail
@@ -411,7 +411,7 @@ rule idr_pooled_pseudoreps:
             f"{wc.experiment}.idr.pooled.thr.log"
         ),
     conda:
-        "../envs/chipseq.yml",
+        "../envs/idr.yml",
     shell:
         """
         set -e -o pipefail
@@ -462,7 +462,7 @@ rule stage5b_summary:
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.stage5b.summary.log",
     conda:
-        "../envs/chipseq.yml",
+        "../envs/python.yml",
     shell:
         """
         set -e -o pipefail

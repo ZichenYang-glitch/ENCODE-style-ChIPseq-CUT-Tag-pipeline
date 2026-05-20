@@ -1,9 +1,9 @@
-name: ci-fast
+name: chipseq-samtools
 channels:
   - conda-forge
   - bioconda
   - nodefaults
 dependencies:
   - python >=3.10,<3.13
-  - pyyaml
-  - snakemake-minimal >=8.0,<9
+  - samtools
+  - bedtools
