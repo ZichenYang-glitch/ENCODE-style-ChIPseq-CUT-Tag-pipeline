@@ -16,6 +16,8 @@ micromamba activate chipseq-runner
 The `chipseq-runner` environment is intentionally small: Python, PyYAML, and
 Snakemake. The bioinformatics tools live in rule-specific environments and are
 created automatically when you run Snakemake with `--use-conda`.
+For details about every environment file and cache cleanup, see
+[docs/environments.md](environments.md).
 
 ## 2. Configure samples
 

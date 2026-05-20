@@ -56,6 +56,8 @@ micromamba activate chipseq-runner
 The `chipseq-runner` environment is intentionally small: it contains Python,
 PyYAML, and Snakemake. Bioinformatics tools are installed as rule-specific
 Conda environments when you run with `--use-conda`.
+See [docs/environments.md](docs/environments.md) for the full environment
+layout, cache behavior, and cleanup commands.
 
 ### 2. Configure samples
 
@@ -350,7 +352,7 @@ Snakemake batch workflow (`workflow/Snakefile`) is the recommended entry point.
 
 - `workflow/Snakefile` — entry point, validation, assay dispatch
 - `workflow/rules/` — Snakemake rule files (common, peaks, replicates, IDR, QC, report)
-- `workflow/envs/` — Conda environments (lightweight runner plus rule-specific tool envs)
+- `workflow/envs/` — Conda environments (lightweight runner plus rule-specific tool envs; see [docs/environments.md](docs/environments.md))
 - `workflow/schemas/` — human-readable config and sample sheet contracts
 - `config/` — default config and sample sheet
 - `scripts/` — validation, QC helpers, and analysis scripts
@@ -400,6 +402,9 @@ A manual `workflow_dispatch` job runs the tiny real-execution harness
 using the core `chipseq` environment.  See `.github/workflows/ci.yml`
 and the `workflow/envs/ci-fast.yml` minimal environment.
 Design: `docs/superpowers/specs/2026-05-18-stage8c-github-actions-ci-design.md`
+
+For local environment layout, first-run behavior, and cleanup commands, see
+[docs/environments.md](docs/environments.md).
 
 ### Local execution
 

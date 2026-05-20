@@ -223,6 +223,14 @@ documentation.
   not part of the first install.
 - ✅ Rewire Snakemake `conda:` directives to the smallest appropriate env.
 
+**Stage 10f completed 2026-05-20** — environment user documentation.
+
+- ✅ Add `docs/environments.md` explaining runner, core, CI, and
+  rule-specific environments.
+- ✅ Document first-run `--use-conda` behavior, Snakemake env caching,
+  cleanup commands, and troubleshooting.
+- ✅ Link README and quickstart docs to the environment guide.
+
 ## High Priority
 
 1. ✅ Add schema/sample validation and genome resources. (Stage 2, completed 2026-05-15)
