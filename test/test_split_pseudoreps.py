@@ -8,10 +8,10 @@ import os
 import subprocess
 import sys
 import tempfile
+from _tool_resolver import resolve_tool
 
 SPLIT_SCRIPT = "scripts/split_pseudoreps.py"
-SMT = os.environ.get("SAMTOOLS",
-                      "/home/irenadler/miniconda3/envs/chipseq/bin/samtools")
+SMT = resolve_tool("samtools", "SAMTOOLS")
 
 
 def _run(cmd):

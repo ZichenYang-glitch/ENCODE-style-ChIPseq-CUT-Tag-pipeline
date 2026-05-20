@@ -22,6 +22,7 @@ import os
 import sys
 import random
 import gzip
+from _tool_resolver import resolve_tool
 
 
 # ---------------------------------------------------------------------------
@@ -69,15 +70,7 @@ FULL_TSV_HEADER = (
 
 def resolve_snakemake():
     """Return (snakemake_path, bin_dir | None)."""
-    env_val = os.environ.get("SNAKEMAKE", "")
-    if env_val:
-        path = env_val
-    else:
-        conda_path = "/home/irenadler/miniconda3/envs/chipseq/bin/snakemake"
-        if os.path.isfile(conda_path) and os.access(conda_path, os.X_OK):
-            path = conda_path
-        else:
-            path = "snakemake"
+    path = resolve_tool("snakemake", "SNAKEMAKE")
     bin_dir = (
         os.path.dirname(os.path.abspath(path))
         if os.path.isabs(path) else None

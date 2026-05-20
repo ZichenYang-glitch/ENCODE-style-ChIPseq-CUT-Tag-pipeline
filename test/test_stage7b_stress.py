@@ -4,12 +4,10 @@ import os
 import shutil
 import subprocess
 import sys
+from _tool_resolver import resolve_tool
 
 SNAKEFILE = "workflow/Snakefile"
-SNAKEMAKE = os.environ.get(
-    "SNAKEMAKE",
-    "/home/irenadler/miniconda3/envs/chipseq/bin/snakemake",
-)
+SNAKEMAKE = resolve_tool("snakemake", "SNAKEMAKE")
 
 BASE_CONFIG = """\
 samples: "test_stage7b_samples.tsv"

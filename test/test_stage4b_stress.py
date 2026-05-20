@@ -8,13 +8,11 @@ import subprocess
 import os
 import sys
 import tempfile
+from _tool_resolver import resolve_tool
 
 VALIDATOR = "scripts/validate_samples.py"
 SNAKEFILE = "workflow/Snakefile"
-SNAKEMAKE = os.environ.get(
-    "SNAKEMAKE",
-    "/home/irenadler/miniconda3/envs/chipseq/bin/snakemake",
-)
+SNAKEMAKE = resolve_tool("snakemake", "SNAKEMAKE")
 
 # Base config snippet (no controls, no genome_resources)
 BASE_CONFIG = """\

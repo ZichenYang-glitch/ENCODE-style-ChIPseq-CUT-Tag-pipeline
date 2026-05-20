@@ -8,13 +8,11 @@ import subprocess
 import os
 import sys
 import shutil
+from _tool_resolver import resolve_tool
 
 VALIDATOR = "scripts/validate_samples.py"
 SNAKEFILE = "workflow/Snakefile"
-SNAKEMAKE = os.environ.get(
-    "SNAKEMAKE",
-    "/home/irenadler/miniconda3/envs/chipseq/bin/snakemake",
-)
+SNAKEMAKE = resolve_tool("snakemake", "SNAKEMAKE")
 
 BASE_CONFIG = """\
 samples: "test_stage5b_samples.tsv"

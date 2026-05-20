@@ -341,6 +341,8 @@ follow-ups.
 Detailed design specs for each major feature live under
 [`docs/superpowers/specs/`](docs/superpowers/specs/). Config and sample sheet
 contracts are in [`workflow/schemas/`](workflow/schemas/).
+Path handling rules are documented in
+[`docs/developer/no-hardcoding.md`](docs/developer/no-hardcoding.md).
 
 ### Legacy single-sample script
 

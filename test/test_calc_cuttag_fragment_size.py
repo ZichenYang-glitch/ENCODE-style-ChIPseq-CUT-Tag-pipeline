@@ -4,9 +4,9 @@ import os
 import subprocess
 import sys
 import tempfile
+from _tool_resolver import resolve_tool
 
-SMT = os.environ.get("SAMTOOLS",
-                      "/home/irenadler/miniconda3/envs/chipseq/bin/samtools")
+SMT = resolve_tool("samtools", "SAMTOOLS")
 SCRIPT = "scripts/calc_cuttag_fragment_size.py"
 
 

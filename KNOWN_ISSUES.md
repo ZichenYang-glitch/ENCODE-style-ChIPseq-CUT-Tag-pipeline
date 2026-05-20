@@ -231,6 +231,13 @@ documentation.
   cleanup commands, and troubleshooting.
 - ✅ Link README and quickstart docs to the environment guide.
 
+**Engineering hardening completed 2026-05-20** — no-hardcoding guard.
+
+- ✅ Remove author-local Snakemake/samtools fallback paths from test harnesses.
+- ✅ Add `test/test_no_hardcoded_paths.py` to prevent workstation-specific
+  runtime paths and stale rule-env references.
+- ✅ Add `docs/developer/no-hardcoding.md` as the path-handling policy.
+
 ## High Priority
 
 1. ✅ Add schema/sample validation and genome resources. (Stage 2, completed 2026-05-15)

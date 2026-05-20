@@ -16,6 +16,7 @@ import os
 import sys
 import csv
 import re
+from _tool_resolver import resolve_tool
 
 
 # ---------------------------------------------------------------------------
@@ -27,15 +28,7 @@ SNAKEFILE = os.path.join(REPO_ROOT, "workflow", "Snakefile")
 VALIDATOR = os.path.join(REPO_ROOT, "scripts", "validate_samples.py")
 PROFILES_DIR = os.path.join(REPO_ROOT, "test", "profiles")
 
-# SNAKEMAKE resolution: env var > known Conda path > bare "snakemake"
-_SNAKEMAKE_ENV = os.environ.get("SNAKEMAKE", "")
-_SNAKEMAKE_CONDA = "/home/irenadler/miniconda3/envs/chipseq/bin/snakemake"
-if _SNAKEMAKE_ENV:
-    SNAKEMAKE = _SNAKEMAKE_ENV
-elif os.path.isfile(_SNAKEMAKE_CONDA):
-    SNAKEMAKE = _SNAKEMAKE_CONDA
-else:
-    SNAKEMAKE = "snakemake"
+SNAKEMAKE = resolve_tool("snakemake", "SNAKEMAKE")
 
 # All seven profiles run by default.
 PROFILES = [
