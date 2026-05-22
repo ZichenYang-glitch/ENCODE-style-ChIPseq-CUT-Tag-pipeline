@@ -828,6 +828,7 @@ rule picard_collect_multiple_metrics:
             PROGRAM=CollectAlignmentSummaryMetrics \
             PROGRAM=CollectInsertSizeMetrics \
             PROGRAM=QualityScoreDistribution \
+            VALIDATION_STRINGENCY=LENIENT \
             2>&1 | tee {log:q}
         """
 

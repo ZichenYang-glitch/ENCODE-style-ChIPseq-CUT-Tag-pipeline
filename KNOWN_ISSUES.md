@@ -252,7 +252,7 @@ documentation.
    - ✅ Add FRiP and duplication-derived library complexity metrics.
    - ✅ Add a cross-sample summary TSV.
    - ✅ Add MACS3 FE/ppois bedGraph signal tracks.
-   - Add cross-correlation and full NRF/PBC metrics.
+   - ✅ Add cross-correlation, NRF/PBC, and preseq-style complexity metrics.
 
 3. ✅ Add synthetic tiny FASTQ/index smoke execution (one ChIP-seq PE
    no-control real execution). (Stage 8b)
@@ -298,6 +298,43 @@ documentation.
 10. Decide how much control output to publish.
     - Stage 1 produces control bigWigs because they are useful for QC.
     - Future config may make control bigWig/report publication optional.
+
+## Stage 13 Real-Data Validation (2026-05-22)
+
+Status: **PASS with follow-ups**
+
+- **CUT&Tag PE 2-replicate real run:** PASS. mm39/GRCm39, SMARCA5, no control,
+  SEACR enabled. All outputs generated (final.bam, CPM BigWig, MACS3 narrowPeak,
+  FE/ppois bedGraph, SEACR stringent BED, FRiP, NRF/PBC, library_complexity,
+  qc_summary, fragment size QC, cross_correlation, preseq, Picard metrics,
+  pooled outputs, MultiQC report).
+- **ChIP-seq PE 2-replicate real run:** PASS. mm39/GRCm39, H3K27ac, no control.
+  All outputs generated (same categories as CUT&Tag, minus SEACR).
+- **Stage 12 QC outputs** generated on both assays. MultiQC captured Picard and
+  preseq outputs.
+- **Picard metric fixes applied** (see below).
+
+### Issues found and fixed
+
+1. **Missing `.dict` for Picard reference.** Picard CollectMultipleMetrics
+   requires `reference_fasta` plus matching `.fai` and `.dict`. The initial
+   run failed when `.dict` was absent.
+2. **Picard STRICT validation failed on `INVALID_FLAG_MATE_UNMAPPED`.** Real PE
+   BAMs after MAPQ/flag filtering can contain mate-field validation warnings.
+   Fixed by adding `VALIDATION_STRINGENCY=LENIENT` to the
+   `picard_collect_multiple_metrics` rule.
+
+### Follow-ups
+
+- **MultiQC visibility for phantompeakqualtools `cc.qc`:** cross-correlation
+  `.cc.qc` files were generated but MultiQC visibility was not clearly
+  confirmed. Verify or add parser support in a future stage.
+- **PE mate-field cleanup:** evaluate `samtools fixmate` after MAPQ filtering
+  if mate-field warnings become problematic for downstream tools beyond Picard.
+- **No real data bundled in repo:** real FASTQ/BAM/BAI/BW/BDG/HTML/MultiQC
+  outputs remain external and are not committed.
+
+See `docs/release-checks/stage13-real-data-validation.md` for the full record.
 
 ## Notes
 

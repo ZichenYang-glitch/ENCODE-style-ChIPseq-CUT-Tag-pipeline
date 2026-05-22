@@ -197,7 +197,8 @@ When the `qc` block is enabled, each treatment sample receives:
   curve (`qc.preseq_complexity: true`)
 - **Picard CollectMultipleMetrics** (opt-in): alignment summary, insert size,
   and quality distribution (`qc.picard_metrics: true`; requires
-  `reference_fasta`)
+  `reference_fasta` with matching `.fai` and `.dict`; uses
+  `VALIDATION_STRINGENCY=LENIENT` for QC-only metrics on filtered PE BAMs)
 - Per-sample QC summary TSV and a project-level aggregate at
   `results/multiqc/stage3_qc_summary.tsv`
 
