@@ -1,4 +1,4 @@
-# common.smk — Shared workflow mechanics for ChIP-seq and CUT&Tag
+# common.smk — Shared workflow mechanics for ChIP-seq, CUT&Tag, and ATAC-seq
 # ================================================================
 # These rules run for ALL samples (treatment + control).
 # Assay-specific policy is dispatched through params functions

@@ -1,4 +1,4 @@
-# ENCODE-style ChIP-seq and CUT&Tag Pipeline
+# ENCODE-style ChIP-seq, CUT&Tag, and ATAC-seq Pipeline
 
 [![Snakemake](https://img.shields.io/badge/Snakemake-%3E%3D8.0-brightgreen.svg?style=flat-square)](https://snakemake.github.io)
 [![Conda](https://img.shields.io/badge/conda-supported-blue.svg?style=flat-square)](https://docs.conda.io/en/latest/)
@@ -6,9 +6,10 @@
 
 ## Overview
 
-A Snakemake-based pipeline suite for ChIP-seq and CUT&Tag data analysis. It
-handles single-sample preprocessing as well as multi-replicate experiments with
-pooled outputs, single-sample QC, and TF ChIP-seq IDR reproducibility analysis.
+A Snakemake-based pipeline suite for ChIP-seq, CUT&Tag, and baseline ATAC-seq
+data analysis. It handles single-sample preprocessing as well as
+multi-replicate experiments with pooled outputs, single-sample QC, and TF
+ChIP-seq IDR reproducibility analysis.
 
 Default mode is no-input / no-control. Optional controls can be enabled with
 `use_control: true` and supplied as an external control BAM or a FASTQ-based
@@ -22,8 +23,9 @@ production pipeline. See [Limitations](#limitations) for known gaps.
 
 - **Shared preprocessing:** FastQC, Trim Galore, Bowtie2 alignment, MAPQ
   filtering, samtools duplicate handling, flagstat, idxstats, BigWig generation
-- **ChIP-seq / CUT&Tag assay policies:** assay-aware MACS3 parameters, duplicate
-  removal, and read extension; optional CUT&Tag SEACR sidecar peak calls
+- **ChIP-seq / CUT&Tag / ATAC-seq assay policies:** assay-aware MACS3
+  parameters, duplicate removal, and read extension; optional CUT&Tag SEACR
+  sidecar peak calls
   (`cuttag.seacr.enabled`, output under `results/<sample>/04_peaks_seacr/`)
 - **Optional controls:** external control BAM or FASTQ-based control rows;
   control samples processed through the same pipeline
@@ -113,9 +115,9 @@ snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use
 | `fastq_1` | R1 FASTQ path. |
 | `fastq_2` | R2 FASTQ path. Required for PE; leave empty for SE. |
 | `layout` | `PE` or `SE`. |
-| `assay` | `chipseq` or `cuttag`. |
+| `assay` | `chipseq`, `cuttag`, or `atac`. |
 | `target` | Antibody or target name (e.g. `H3K27ac`, `CTCF`). |
-| `peak_mode` | `narrow` or `broad`. |
+| `peak_mode` | `narrow` or `broad`; ATAC currently supports `narrow` only. |
 | `genome` | Genome label used to look up `genome_resources` (e.g. `hs`, `mm`, `hg38`). |
 | `bowtie2_index` | Bowtie2 index prefix path. |
 
@@ -153,7 +155,9 @@ genome_resources:
 ```
 
 `effective_genome_size`: MACS3 shortcut (`hs`, `mm`) or positive integer.
-Other fields are optional paths. If non-empty they must exist on disk.
+Other fields are optional paths unless the feature that uses them is enabled
+(`gtf` for TSS profiles, `reference_fasta` for Picard metrics). If non-empty
+they must exist on disk.
 See [docs/reference-resources.md](docs/reference-resources.md) for preparing
 Bowtie2 indexes, FASTA `.fai`/`.dict`, chrom sizes, blacklists, and annotations.
 
@@ -202,6 +206,9 @@ When the `qc` block is enabled, each treatment sample receives:
   and quality distribution (`qc.picard_metrics: true`; requires
   `reference_fasta` with matching `.fai` and `.dict`; uses
   `VALIDATION_STRINGENCY=LENIENT` for QC-only metrics on filtered PE BAMs)
+- **TSS enrichment-style profiles** (opt-in): deepTools matrix/profile around
+  transcript TSSs (`qc.tss_enrichment: true`; requires
+  `genome_resources.<genome>.gtf`)
 - Per-sample QC summary TSV and a project-level aggregate at
   `results/multiqc/stage3_qc_summary.tsv`
 
@@ -270,6 +277,8 @@ results/
 │   ├── 03_bigwig/<sample>.CPM.bw
 │   ├── 03_signal/<sample>.FE.bdg        # when qc.signal_tracks: true
 │   ├── 04_peaks/<sample>/               # MACS3 peak directory
+│   ├── 05_qc/                           # opt-in cross-correlation, preseq,
+│   │                                    # Picard metrics, and TSS profiles
 │   └── logs/
 │
 ├── experiments/<experiment>/
@@ -309,7 +318,10 @@ results/
 
 ### Assay support
 
-- **ChIP-seq** and **CUT&Tag** are supported. ATAC-seq is not included.
+- **ChIP-seq**, **CUT&Tag**, and baseline **ATAC-seq** are supported.
+- ATAC-seq currently supports `peak_mode: narrow` only. ATAC-specific
+  insert-size/TSS interpretation is available as QC output, but no
+  ATAC-specific footprinting or nucleosome-positioning module is included.
 
 ### TF ChIP-seq IDR
 
@@ -317,7 +329,7 @@ results/
   biological replicates** per experiment.
 - 3+ replicate IDR is not yet supported (automatic pairwise selection
   among 3+ replicates is not implemented).
-- CUT&Tag IDR is not yet supported.
+- CUT&Tag and ATAC-seq IDR are not yet supported.
 
 ### Histone broad marks
 
@@ -358,15 +370,17 @@ Path handling rules are documented in
 ### Legacy single-sample script
 
 `scripts/chipseq.sh` is retained for compatibility. It supports single-sample
-PE/SE ChIP-seq and CUT&Tag with command-line flags. For new analyses, the
-Snakemake batch workflow (`workflow/Snakefile`) is the recommended entry point.
+PE/SE ChIP-seq and CUT&Tag with command-line flags. For ATAC-seq and new
+analyses, the Snakemake batch workflow (`workflow/Snakefile`) is the
+recommended entry point.
 
 ### QC and MultiQC
 
 See [docs/qc-interpretation.md](docs/qc-interpretation.md) for a
 comprehensive guide to interpreting every QC metric the pipeline produces
 (FastQC, alignment, library complexity, peak quality, cross-correlation,
-Picard metrics, CUT&Tag-specific QC, and replicate-level outputs).
+Picard metrics, TSS profiles, CUT&Tag-specific QC, ATAC-seq QC, and
+replicate-level outputs).
 
 ### Repository layout
 
@@ -380,9 +394,10 @@ Picard metrics, CUT&Tag-specific QC, and replicate-level outputs).
 
 ### Smoke-test profiles
 
-A suite of 7 test profiles under `test/profiles/` covers the major
-ChIP-seq and CUT&Tag dispatch paths (SE / PE / control_sample /
-control_bam / SEACR / Stage 5 IDR) via dry-run only.  Run with:
+A suite of test profiles under `test/profiles/` covers the major ChIP-seq and
+CUT&Tag dispatch paths (SE / PE / control_sample / control_bam / SEACR /
+Stage 5 IDR) via dry-run only. Stage-specific stress tests cover ATAC and TSS
+dispatch. Run with:
 
 ```bash
 SNAKEMAKE=/path/to/snakemake python3 test/test_stage8_smoke_profiles.py

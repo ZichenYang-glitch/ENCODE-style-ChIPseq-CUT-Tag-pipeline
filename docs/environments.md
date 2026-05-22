@@ -33,7 +33,7 @@ on later runs.
 | `workflow/envs/align.yml` | Bowtie2 alignment and samtools conversion |
 | `workflow/envs/samtools.yml` | samtools and bedtools operations |
 | `workflow/envs/macs3.yml` | MACS3 peak calling and bedGraph signal rules |
-| `workflow/envs/deeptools.yml` | deepTools `bamCoverage` |
+| `workflow/envs/deeptools.yml` | deepTools `bamCoverage`, `computeMatrix`, and `plotProfile` |
 | `workflow/envs/multiqc.yml` | MultiQC report aggregation |
 | `workflow/envs/idr.yml` | IDR, isolated because Bioconda IDR currently requires `python <3.10` |
 | `workflow/envs/seacr.yml` | SEACR, isolated because it brings an R runtime |

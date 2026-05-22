@@ -54,6 +54,10 @@ rule pipeline_done:
             f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.alignment_summary_metrics"
             if QC_CONFIG.get("picard_metrics", False) else []
         ),
+        tss_profile = (
+            f"{OUTDIR}/{{sample}}/05_qc/tss/{{sample}}.tss_profile.tsv"
+            if QC_CONFIG.get("tss_enrichment", False) else []
+        ),
     shell:
         "touch {output.done}"
 

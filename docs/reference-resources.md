@@ -18,7 +18,7 @@ For the config keys that point to these files, see
 | Sequence dictionary | `<reference_fasta basename>.dict` | Required with Picard metrics | Picard / htsjdk sequence metadata |
 | Chrom sizes | `genome_resources.<genome>.chrom_sizes` | Optional now | Future bedGraph-to-BigWig and genome-window operations |
 | Blacklist BED | `genome_resources.<genome>.blacklist` | Required when blacklist filtering is enabled for that genome | BAM and peak blacklist filtering |
-| GTF / annotation | `genome_resources.<genome>.gtf` | Optional now | Future TSS enrichment / gene annotation modules |
+| GTF / annotation | `genome_resources.<genome>.gtf` | Required when `qc.tss_enrichment: true` | TSS profile QC |
 
 ## Path Rules
 
@@ -138,7 +138,7 @@ genome_resources:
 ```
 
 The workflow does not currently require `chrom_sizes` for default outputs, but
-future bedGraph-to-BigWig and TSS enrichment features will use it.
+future bedGraph-to-BigWig and genome-window features will use it.
 
 ## Blacklist BED
 
@@ -160,8 +160,9 @@ or mm10 blacklists for mm39, unless the file has been lifted over and checked.
 
 ## GTF / Annotation
 
-`gtf` is optional in the current workflow. It is reserved for annotation-driven
-QC such as TSS enrichment and gene-centric summaries.
+`gtf` is required when `qc.tss_enrichment: true`. The workflow derives a
+BED6 transcription-start-site file at `results/reference/<genome>.tss.bed`,
+then uses it for deepTools `computeMatrix` / `plotProfile` QC.
 
 Configure when available:
 
@@ -192,12 +193,13 @@ sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index
 sample1	/data/sample1_R1.fq.gz	/data/sample1_R2.fq.gz	PE	chipseq	H3K27ac	narrow	mm39	/refs/mm39/bowtie2/GRCm39
 ```
 
-Before running with Picard metrics:
+Before running with Picard metrics and TSS enrichment:
 
 ```bash
 test -f /refs/mm39/GRCm39.fa
 test -f /refs/mm39/GRCm39.fa.fai
 test -f /refs/mm39/GRCm39.dict
+test -f /refs/mm39/gencode.annotation.gtf
 test -f /refs/mm39/GRCm39.fa.sizes
 ls /refs/mm39/bowtie2/GRCm39*.bt2
 ```

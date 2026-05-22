@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sample sheet and config validation for the ChIP-seq/CUT&Tag Snakemake pipeline.
+"""Sample sheet and config validation for the ChIP-seq/CUT&Tag/ATAC-seq pipeline.
 
 Importable by workflow/Snakefile and runnable as a standalone CLI.
 
@@ -184,7 +184,7 @@ def validate_config(config: dict) -> dict:
         config.get("genome_resources", {})
     )
 
-    # qc — optional Stage3 QC switches, default all true
+    # qc — optional QC switches (legacy Stage 3 defaults true; heavier modules false)
     validated["qc"] = _validate_qc_config(config.get("qc", {}))
 
     # stage4b — optional Stage 4b replicate-aware outputs, default true
@@ -364,6 +364,7 @@ def _validate_qc_config(qc: dict) -> dict:
         "cross_correlation": _normalize_bool("cross_correlation", False),
         "preseq_complexity": _normalize_bool("preseq_complexity", False),
         "picard_metrics": _normalize_bool("picard_metrics", False),
+        "tss_enrichment": _normalize_bool("tss_enrichment", False),
     }
 
 
@@ -395,6 +396,35 @@ def validate_picard_reference_resources(
             f"for genome(s): {', '.join(missing)}. "
             f"Set genome_resources[{missing[0]}].reference_fasta "
             f"or set qc.picard_metrics: false."
+        )
+
+
+def validate_tss_annotation_resources(validated_config: dict, samples: list[dict]):
+    """Validate GTF annotation when qc.tss_enrichment is enabled.
+
+    Scans treatment sample genomes and checks that each has a non-empty gtf in
+    genome_resources. Raises ValidationError if qc.tss_enrichment is true and
+    any treatment genome is missing a GTF annotation. Does nothing when
+    qc.tss_enrichment is false.
+    """
+    qc = validated_config.get("qc", {})
+    if not qc.get("tss_enrichment", False):
+        return
+    genome_resources = validated_config.get("genome_resources", {})
+    treatment_genomes = {
+        s["genome"] for s in samples if s["role"] == "treatment"
+    }
+    missing = []
+    for genome in sorted(treatment_genomes):
+        gtf = genome_resources.get(genome, {}).get("gtf", "")
+        if not gtf:
+            missing.append(genome)
+    if missing:
+        raise ValidationError(
+            f"qc.tss_enrichment is true but gtf is missing "
+            f"for genome(s): {', '.join(missing)}. "
+            f"Set genome_resources[{missing[0]}].gtf "
+            f"or set qc.tss_enrichment: false."
         )
 
 
@@ -963,10 +993,10 @@ def load_and_validate_samples(
                 raise ValidationError(
                     f"Sample {sid!r}: PE layout requires 'fastq_2'"
                 )
-            if assay not in ("chipseq", "cuttag"):
+            if assay not in ("chipseq", "cuttag", "atac"):
                 raise ValidationError(
-                    f"Sample {sid!r}: assay must be chipseq or cuttag, "
-                    f"got {assay!r}"
+                    f"Sample {sid!r}: assay must be chipseq, cuttag, "
+                    f"or atac, got {assay!r}"
                 )
             if not tgt:
                 raise ValidationError(
@@ -976,6 +1006,11 @@ def load_and_validate_samples(
                 raise ValidationError(
                     f"Sample {sid!r}: peak_mode must be narrow or broad, "
                     f"got {pmode!r}"
+                )
+            if assay == "atac" and pmode != "narrow":
+                raise ValidationError(
+                    f"Sample {sid!r}: assay=atac currently supports "
+                    f"peak_mode=narrow only, got {pmode!r}"
                 )
             if not gnm:
                 raise ValidationError(
@@ -1359,7 +1394,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Validate ChIP-seq/CUT&Tag pipeline config and "
+        description="Validate ChIP-seq/CUT&Tag/ATAC-seq pipeline config and "
                     "sample sheet."
     )
     parser.add_argument(
@@ -1384,6 +1419,7 @@ def main():
             stage5_enabled=validated.get("stage5", False),
         )
         validate_picard_reference_resources(validated, samples)
+        validate_tss_annotation_resources(validated, samples)
     except ValidationError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)

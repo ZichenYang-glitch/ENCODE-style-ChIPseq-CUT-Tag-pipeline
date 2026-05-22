@@ -58,7 +58,7 @@ columns:
 
   assay:
     description: Experimental assay type.
-    allowed: ["chipseq", "cuttag"]
+    allowed: ["chipseq", "cuttag", "atac"]
     required: true
 
   target:
@@ -69,6 +69,8 @@ columns:
     description: Peak calling mode.
     allowed: ["narrow", "broad"]
     required: true
+    constraints:
+      assay_atac: "narrow only"
 
   genome:
     description: >

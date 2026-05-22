@@ -6,11 +6,11 @@ Stage 1 Snakemake rule modularization and Stage 1.5 validation closeout.
 ## Current Status
 
 - Core workflow, validation, replicate model, TF ChIP-seq IDR,
-  histone/CUT&Tag support, smoke tests, and CI are implemented
-  (Stages 2-8 complete).
-- Remaining roadmap: NSC/RSC cross-correlation, FE/ppois BigWig
-  conversion, optional public real-data validation, MultiQC tuning,
-  GoPeaks support, advanced IDR strategies.
+  histone/CUT&Tag support, baseline ATAC-seq support, smoke tests, and CI are
+  implemented.
+- Remaining roadmap: FE/ppois BigWig conversion, optional public real-data
+  validation, GoPeaks support, advanced IDR strategies, and richer
+  assay-specific QC.
 
 ## Scope Gap
 
@@ -25,12 +25,13 @@ ChIP-seq pipeline. It now provides:
   biological replicates (Stage 5)
 - Histone pooled QC summaries (Stage 6)
 - CUT&Tag fragment-size QC and optional SEACR sidecar peaks (Stage 7)
+- Optional TSS enrichment-style profiles from GTF annotations (Stage 18)
+- Baseline ATAC-seq dispatch for narrowPeak MACS3 runs (Stage 19)
 - Test profiles, CI, and execution documentation (Stage 8)
 
 Still missing:
 
 - BigWig conversion for FE/ppois bedGraph signal tracks
-- MultiQC custom config for improved report layout
 - GC bias metrics (Picard CollectGcBiasMetrics)
 - Browser-ready genome resource management
 
@@ -86,10 +87,12 @@ Estimated effort: 1-2 days (Stage 3a + 3b + 3c-1: ~1.25 days).
 - ✅ Add preseq-style library complexity extrapolation. (Stage 12 / 3c-2, completed 2026-05-21)
 - ✅ Add Picard CollectMultipleMetrics (alignment summary, insert size, quality
   distribution). (Stage 12 / 3c-2, completed 2026-05-21)
+- ✅ Add TSS enrichment-style profiles from GTF annotations. (Stage 18,
+  completed 2026-05-22)
 - ⬜ Add bigWig conversion for FE/ppois signal tracks when chrom sizes and
   conversion tooling are configured. (Stage 3c-2)
-- ⬜ Add a MultiQC custom config if needed to improve naming and report layout.
-  (Stage 3c-2)
+- ✅ Add a MultiQC custom config for cross-correlation summary visibility.
+  (Stages 15-16)
 
 ### Stage 4: Replicate-Aware Sample Model
 
@@ -188,7 +191,8 @@ Estimated effort: 1-2 days.
   `control_sample`. (7 profiles under `test/profiles/`) (Stage 8a)
 - ✅ Add a reproducible smoke-test command that runs quickly on a laptop.
   (`python3 test/test_stage8_smoke_profiles.py`, all dry-run) (Stage 8a)
-- ✅ Include both `chipseq` and `cuttag` dispatch coverage. (Stage 8a)
+- ✅ Include `chipseq` and `cuttag` dispatch coverage. (Stage 8a)
+- ✅ Include baseline `atac` dispatch coverage. (Stage 19)
 - ✅ Refine `.gitignore` so test profile files track normally. (Stage 8a)
 - ✅ Add tiny FASTQ subsets and a tiny Bowtie2 index generated at runtime
   under `/tmp` (no committed binary fixtures). (Stage 8b)
@@ -347,6 +351,20 @@ Status: **PASS with follow-ups**
 See `docs/release-checks/stage13-real-data-validation.md` for the full record.
 See `docs/release-checks/stage16-real-run-report-audit.md` for the Stage 15
 MultiQC custom-section audit on external CUT&Tag real-run outputs.
+
+## Stage 18-19 TSS and ATAC Baseline (2026-05-22)
+
+Status: **Implemented; dry-run validated**
+
+- **TSS enrichment-style QC:** opt-in via `qc.tss_enrichment: true`. Requires
+  `genome_resources.<genome>.gtf`, derives `results/reference/<genome>.tss.bed`,
+  and produces per-sample deepTools matrix/profile outputs under
+  `results/<sample>/05_qc/tss/`.
+- **ATAC-seq baseline:** `assay: atac` is accepted for `peak_mode: narrow`.
+  ATAC uses Tn5-aware MACS3 parameters, duplicate removal when
+  `remove_dup: auto`, and the shared preprocessing/QC/report chain.
+- **Scope boundary:** ATAC broad peaks, footprinting, nucleosome positioning,
+  and ATAC-specific IDR are not implemented yet.
 
 ## Notes
 

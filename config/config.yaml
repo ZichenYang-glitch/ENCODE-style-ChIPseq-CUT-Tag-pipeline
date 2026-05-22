@@ -1,5 +1,5 @@
-# ChIP-seq / CUT&Tag Snakemake Pipeline Configuration
-# ======================================================
+# ChIP-seq / CUT&Tag / ATAC-seq Snakemake Pipeline Configuration
+# ==============================================================
 # This pipeline defaults to no-input / no-control mode.
 # Set use_control: true to optionally pass control_bam from the sample sheet.
 
@@ -89,7 +89,8 @@ multiqc: true
 # effective_genome_size: "hs", "mm", or a positive integer.
 # Other fields (chrom_sizes, blacklist, gtf, reference_fasta) are optional
 # paths. reference_fasta is required when qc.picard_metrics is true and must
-# have matching .fai and .dict files. See docs/reference-resources.md.
+# have matching .fai and .dict files. gtf is required when
+# qc.tss_enrichment is true. See docs/reference-resources.md.
 genome_resources:
   hs:
     effective_genome_size: "hs"
@@ -162,6 +163,7 @@ qc:
   cross_correlation: false
   preseq_complexity: false
   picard_metrics: false
+  tss_enrichment: false
 
 # CUT&Tag-specific configuration (Stage 7b)
 # cuttag:

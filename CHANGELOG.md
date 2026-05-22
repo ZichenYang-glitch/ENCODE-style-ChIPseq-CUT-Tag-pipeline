@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Opt-in TSS enrichment-style QC profiles from configured GTF annotations.
+- Baseline ATAC-seq assay support for narrowPeak MACS3 runs.
+
 ## [v0.1.0-beta] - 2026-05-19
 
 ### Added

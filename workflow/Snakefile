@@ -1,9 +1,9 @@
-# ChIP-seq / CUT&Tag Snakemake Pipeline
-# ======================================
+# ChIP-seq / CUT&Tag / ATAC-seq Snakemake Pipeline
+# =================================================
 # Entry point for the modular Snakemake pipeline suite.
 # Sample sheet parsing, config loading, and assay dispatch happen here.
 # Executable rules live in workflow/rules/*.smk.
-# Policy functions live in workflow/rules/chipseq.smk and cuttag.smk.
+# Policy functions live in workflow/rules/chipseq.smk, cuttag.smk, and atac.smk.
 
 import os
 import sys
@@ -18,6 +18,7 @@ from validate_samples import (
     validate_config,
     load_and_validate_samples,
     validate_picard_reference_resources,
+    validate_tss_annotation_resources,
 )
 from histone_utils import classify_histone_target
 
@@ -93,6 +94,8 @@ SAMPLES = load_and_validate_samples(
 
 # Stage 12: reference_fasta gating for Picard metrics
 validate_picard_reference_resources(VALIDATED_CONFIG, SAMPLES)
+# Stage 18: GTF annotation gating for TSS enrichment profiles
+validate_tss_annotation_resources(VALIDATED_CONFIG, SAMPLES)
 
 # --- Derived ID lists ---
 SAMPLE_MAP           = {s["id"]: s for s in SAMPLES}
@@ -319,6 +322,7 @@ QC_CONFIG = VALIDATED_CONFIG.get("qc", {
     "cross_correlation": False,
     "preseq_complexity": False,
     "picard_metrics": False,
+    "tss_enrichment": False,
 })
 
 # Stage 4c: structured tool parameters (absent → empty dict, defaults silently)
@@ -370,12 +374,21 @@ def has_genome_resource(sample, key):
     return bool(get_genome_resource(sample, key, ""))
 
 
+TSS_SAMPLE_IDS = [
+    sid for sid in TREATMENT_SAMPLE_IDS
+    if QC_CONFIG.get("tss_enrichment", False)
+    and has_genome_resource(sid, "gtf")
+]
+TSS_GENOMES = sorted({SAMPLE_MAP[sid]["genome"] for sid in TSS_SAMPLE_IDS})
+
+
 # ---------------------------------------------------------------------------
 # 4. Assay policy functions (no rules — define-only files)
 # ---------------------------------------------------------------------------
 
 include: "rules/chipseq.smk"
 include: "rules/cuttag.smk"
+include: "rules/atac.smk"
 
 
 # ---------------------------------------------------------------------------
@@ -387,8 +400,11 @@ def get_remove_dup(wildcards):
     s = SAMPLE_MAP[wildcards.sample]
     if s["assay"] == "chipseq":
         return get_remove_dup_chipseq(wildcards)
-    else:
+    if s["assay"] == "cuttag":
         return get_remove_dup_cuttag(wildcards)
+    if s["assay"] == "atac":
+        return get_remove_dup_atac(wildcards)
+    raise ValueError(f"Unsupported assay for duplicate policy: {s['assay']}")
 
 
 def get_macs3_args(wildcards):
@@ -396,8 +412,11 @@ def get_macs3_args(wildcards):
     s = SAMPLE_MAP[wildcards.sample]
     if s["assay"] == "chipseq":
         return get_macs3_args_chipseq(wildcards)
-    else:
+    if s["assay"] == "cuttag":
         return get_macs3_args_cuttag(wildcards)
+    if s["assay"] == "atac":
+        return get_macs3_args_atac(wildcards)
+    raise ValueError(f"Unsupported assay for MACS3 policy: {s['assay']}")
 
 
 def get_extend_reads(wildcards):
@@ -405,8 +424,11 @@ def get_extend_reads(wildcards):
     s = SAMPLE_MAP[wildcards.sample]
     if s["assay"] == "chipseq":
         return get_extend_reads_chipseq(wildcards)
-    else:
+    if s["assay"] == "cuttag":
         return get_extend_reads_cuttag(wildcards)
+    if s["assay"] == "atac":
+        return get_extend_reads_atac(wildcards)
+    raise ValueError(f"Unsupported assay for bamCoverage policy: {s['assay']}")
 
 
 # ---------------------------------------------------------------------------
@@ -684,6 +706,47 @@ rule all:
             )
             if QC_CONFIG.get("picard_metrics", False)
             and TREATMENT_SAMPLE_IDS
+            else []
+        ),
+        # Stage 18: TSS enrichment profiles (requires genome_resources.<genome>.gtf)
+        tss_bed = (
+            expand(
+                "{outdir}/reference/{genome}.tss.bed",
+                outdir=OUTDIR,
+                genome=TSS_GENOMES,
+            )
+            if QC_CONFIG.get("tss_enrichment", False)
+            and TSS_GENOMES
+            else []
+        ),
+        tss_matrix = (
+            expand(
+                "{outdir}/{sample}/05_qc/tss/{sample}.tss_matrix.gz",
+                outdir=OUTDIR,
+                sample=TSS_SAMPLE_IDS,
+            )
+            if QC_CONFIG.get("tss_enrichment", False)
+            and TSS_SAMPLE_IDS
+            else []
+        ),
+        tss_profile_tsv = (
+            expand(
+                "{outdir}/{sample}/05_qc/tss/{sample}.tss_profile.tsv",
+                outdir=OUTDIR,
+                sample=TSS_SAMPLE_IDS,
+            )
+            if QC_CONFIG.get("tss_enrichment", False)
+            and TSS_SAMPLE_IDS
+            else []
+        ),
+        tss_profile_pdf = (
+            expand(
+                "{outdir}/{sample}/05_qc/tss/{sample}.tss_profile.pdf",
+                outdir=OUTDIR,
+                sample=TSS_SAMPLE_IDS,
+            )
+            if QC_CONFIG.get("tss_enrichment", False)
+            and TSS_SAMPLE_IDS
             else []
         ),
         # Stage 4b: pooled treatment BAMs for multi-biorep experiments

@@ -197,6 +197,24 @@ contain mate-field validation warnings.
 - **Quality distribution:** per-base quality score profile by cycle. Useful
   for identifying systematic quality degradation.
 
+## TSS Enrichment-Style Profile
+
+**Outputs:** `*.tss_matrix.gz`, `*.tss_profile.tsv`, `*.tss_profile.pdf`,
+and `results/reference/<genome>.tss.bed`
+
+When `qc.tss_enrichment: true`, the workflow derives transcription start sites
+from `genome_resources.<genome>.gtf`, computes a deepTools matrix over
+`-3000/+3000 bp` around each TSS using the CPM BigWig, and writes a profile
+plot and tabular profile.
+
+**Interpretation:**
+- A clear signal peak around TSSs is expected for open-chromatin assays
+  (ATAC-seq) and some promoter-associated histone marks.
+- TF and broad histone ChIP-seq targets may not show a strong aggregate TSS
+  enrichment profile; absence of a TSS peak is not automatically a QC failure.
+- The GTF, FASTA, and Bowtie2 index must be from the same assembly. Annotation
+  mismatch can flatten or shift the profile.
+
 ## CUT&Tag-Specific QC
 
 ### Fragment-Size Distribution
@@ -285,6 +303,16 @@ self-consistency ratio for each IDR stage.
    duplicates should be minimal.
 7. **NRF/PBC** still informative but thresholds are less strict than ChIP-seq.
 8. **MultiQC** shows expected per-base quality and adapter content.
+
+### ATAC-seq QC Checklist
+
+1. **Alignment rate** high and chromosome distribution expected.
+2. **Insert size** shows nucleosome-free and nucleosomal periodicity when PE
+   data are available.
+3. **TSS profile** has a clear enrichment peak when `qc.tss_enrichment: true`.
+4. **FRiP** and peak counts are consistent across biological replicates.
+5. **Preseq/NRF/PBC** suggest the library is not exhausted.
+6. **Peak mode** is `narrow`; broad ATAC peak calling is not supported.
 
 ## Known Caveats
 

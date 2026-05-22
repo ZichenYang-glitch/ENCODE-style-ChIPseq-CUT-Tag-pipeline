@@ -23,7 +23,7 @@ feature gating. For the minimal config needed to start, see the
 
 | Value | Behavior |
 | :--- | :--- |
-| `"auto"` | Remove duplicates for `chipseq` narrow-peak; skip for `broad` peak mode and all `cuttag`. |
+| `"auto"` | Remove duplicates for narrow-peak samples; skip for `broad` peak mode. |
 | `"yes"` | Always remove duplicates. The bundled core env uses `samtools markdup`; Picard is used only if available in a custom runtime environment. |
 | `"no"` | Never remove duplicates. `final.bam` may be a symlink to the filtered BAM. |
 
@@ -35,18 +35,19 @@ genome_resources:
     effective_genome_size: 2913022398
     chrom_sizes: "/data/genomes/hg38/hg38.chrom.sizes"    # optional
     blacklist: "/data/genomes/hg38/hg38.blacklist.bed"    # optional
-    gtf: ""        # optional
+    gtf: ""        # required when qc.tss_enrichment: true
     reference_fasta: ""   # optional
 ```
 
-- **`effective_genome_size`**: Either a MACS3 shortcut (`hs` = 2.7e9, `mm` = 1.87e9)
+- **`effective_genome_size`**: Either a MACS3 shortcut (`hs` = 2913022398,
+  `mm` = 2652783500)
   or a positive integer. Used for MACS3 peak calling and bamCoverage normalization.
 - **`chrom_sizes`**: Two-column file (chr, size). Reserved for future
   bedGraph-to-BigWig and genome-window features.
 - **`blacklist`**: BED file of problematic regions. Used when
   `qc.blacklist_filter: true`.
-- **`gtf`**: Annotation file reserved for future TSS enrichment and
-  annotation-driven QC.
+- **`gtf`**: Annotation file required when `qc.tss_enrichment: true`; used to
+  derive transcription start sites for deepTools TSS profile QC.
 - **`reference_fasta`**: Required when `qc.picard_metrics: true`; must have a
   matching `.fai` and `.dict`.
 
@@ -91,6 +92,7 @@ qc:
   cross_correlation: false       # Stage 12 — opt-in
   preseq_complexity: false       # Stage 12 — opt-in
   picard_metrics: false          # Stage 12 — opt-in
+  tss_enrichment: false          # Stage 18 — opt-in; requires GTF
 ```
 
 | Switch | Default | Effect |
@@ -105,10 +107,12 @@ qc:
 | `cross_correlation` | `false` | Run phantompeakqualtools cross-correlation QC per treatment sample. Produces NSC/RSC metrics (`.cc.qc`) and a cross-correlation plot (`.cc.plot.pdf`). When enabled, also generates a project-level summary at `results/multiqc/cross_correlation_summary.tsv` and exposes it as a MultiQC custom section. See [docs/qc-interpretation.md](qc-interpretation.md) for interpretation guidance. |
 | `preseq_complexity` | `false` | Run preseq library complexity extrapolation (`lc_extrap -B`) per treatment sample. Produces `.preseq.txt`. Complements existing NRF/PBC metrics. |
 | `picard_metrics` | `false` | Run Picard CollectMultipleMetrics per treatment sample. Produces alignment summary, insert size, and quality distribution metrics. Requires `genome_resources.<genome>.reference_fasta` with a matching samtools FASTA index (`.fai`) and Picard sequence dictionary (`.dict`) next to the FASTA (e.g. `GRCm39.dict` for `GRCm39.fa`). Uses `VALIDATION_STRINGENCY=LENIENT` because real PE BAMs after MAPQ/flag filtering can trigger mate-field validation warnings (e.g. `INVALID_FLAG_MATE_UNMAPPED`) that would fail the default STRICT mode.
+| `tss_enrichment` | `false` | Run deepTools TSS profile QC per treatment sample. Requires `genome_resources.<genome>.gtf`. Produces `results/reference/<genome>.tss.bed`, `<sample>.tss_matrix.gz`, `<sample>.tss_profile.tsv`, and `<sample>.tss_profile.pdf`. |
 
-The original Stage 3 QC switches default to `true`. Stage 12+ heavyweight
-optional modules (`cross_correlation`, `preseq_complexity`, `picard_metrics`)
-default to `false`. Set individual switches explicitly for production runs.
+The original Stage 3 QC switches default to `true`. Heavier optional modules
+(`cross_correlation`, `preseq_complexity`, `picard_metrics`,
+`tss_enrichment`) default to `false`. Set individual switches explicitly for
+production runs.
 
 ## Replicate and IDR features
 
@@ -158,8 +162,8 @@ cuttag:
 - **`cuttag.seacr.enabled`** (default `false`): When `true`, runs SEACR peak
   calling as a sidecar alongside MACS3 for CUT&Tag samples. Outputs land under
   `results/<sample>/04_peaks_seacr/`.
-- Only affects samples with `assay: cuttag`. ChIP-seq samples ignore this
-  setting.
+- Only affects samples with `assay: cuttag`. ChIP-seq and ATAC-seq samples
+  ignore this setting.
 - SEACR rules use `workflow/envs/seacr.yml` when Snakemake is run with
   `--use-conda`, keeping SEACR's R runtime out of the core environment.
 
@@ -191,9 +195,10 @@ tool_parameters:
 | :--- | :--- | :--- |
 | `use_control` | `false` | Always; enables control resolution when `true` |
 | `multiqc` | `true` | Always; enables MultiQC aggregation when `true` |
-| `qc.*` | all `true` | Always; individual switches gate each metric |
+| `qc.*` | legacy QC `true`; heavier optional QC `false` | Always; individual switches gate each metric |
 | `stage4b` | `true` | Always; enables pooled outputs for multi-biorep experiments |
 | `stage5` | `false` | `stage4b: true` + chipseq + narrow + exactly 2 bioreps |
 | `idr.*` | listed above | Only when `stage5: true` |
 | `cuttag.seacr.enabled` | `false` | Always; affects CUT&Tag samples only |
+| `qc.tss_enrichment` | `false` | Requires `genome_resources.<genome>.gtf` |
 | `tool_parameters.*` | tool defaults | Always; absent keys use built-in tool defaults |

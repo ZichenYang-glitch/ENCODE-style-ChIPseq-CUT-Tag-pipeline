@@ -14,9 +14,9 @@ For the minimum required columns and a compact example, see the
 | `fastq_1` | path | R1 FASTQ file. |
 | `fastq_2` | path | R2 FASTQ file. Required for PE; leave empty for SE. |
 | `layout` | string | `PE` or `SE`. |
-| `assay` | string | `chipseq` or `cuttag`. |
+| `assay` | string | `chipseq`, `cuttag`, or `atac`. |
 | `target` | string | Antibody or target name (e.g. `H3K27ac`, `CTCF`). |
-| `peak_mode` | string | `narrow` or `broad`. |
+| `peak_mode` | string | `narrow` or `broad`; ATAC currently supports `narrow` only. |
 | `genome` | string | Genome label matching a key in `genome_resources` (e.g. `hs`, `mm`, `hg38`). |
 | `bowtie2_index` | path | Bowtie2 index prefix (not a directory). |
 
@@ -106,6 +106,20 @@ With `stage4b: true` (default), the pipeline produces pooled BAMs and pooled
 peaks for the `H3K27AC` experiment. With `stage5: true`, TF ChIP-seq IDR runs
 on the two biorep peak sets.
 
+### Baseline ATAC-seq
+
+A paired-end ATAC-seq sample uses the same sample-sheet contract with
+`assay: atac` and `peak_mode: narrow`:
+
+```tsv
+sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index
+ATAC_rep1	/data/atac_R1.fq.gz	/data/atac_R2.fq.gz	PE	atac	ATAC	narrow	hg38	/data/genomes/hg38/GRCh38
+```
+
+ATAC currently uses MACS3 narrow-peak calling with a Tn5-aware shift/extension
+policy. ATAC-specific footprinting and nucleosome-positioning modules are not
+included.
+
 ## Common pitfalls
 
 - **PE sample missing `fastq_2`**: The pipeline expects `fastq_2` to be non-empty
@@ -123,3 +137,6 @@ on the two biorep peak sets.
 - **`genome` key not in `genome_resources`**: The `genome` column value must
   match a key in `config/config.yaml` under `genome_resources`. A mismatch
   causes MACS3 effective genome size lookup to fail.
+- **ATAC configured with `peak_mode: broad`**: ATAC support is intentionally
+  narrow-peak only in this release; broad ATAC rows are rejected during
+  validation.

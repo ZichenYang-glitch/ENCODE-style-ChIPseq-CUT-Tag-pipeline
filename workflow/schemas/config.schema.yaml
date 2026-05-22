@@ -41,7 +41,7 @@ remove_dup:
   allowed: ["auto", "yes", "no"]
   description:
     Duplicate removal policy.
-    auto → yes for narrow peaks, no for broad peaks.
+    auto → yes for narrow-peak samples, no for broad peaks.
 
 trim:
   type: boolean | string
@@ -114,7 +114,9 @@ genome_resources:
         gtf:
           type: string
           default: ""
-          description: Path to reference GTF annotation.
+          description: >
+            Path to reference GTF annotation. Required when
+            qc.tss_enrichment is true.
         reference_fasta:
           type: string
           default: ""
@@ -135,9 +137,11 @@ qc:
     cross_correlation: false
     preseq_complexity: false
     picard_metrics: false
+    tss_enrichment: false
   description: >
-    Stage 3 single-sample QC switches. Missing qc block defaults to all
-    switches enabled. Each switch accepts boolean or string boolean.
+    Single-sample QC switches. Missing qc block defaults legacy Stage 3
+    switches to true and heavier optional modules to false. Each switch
+    accepts boolean or string boolean.
   schema:
     blacklist_filter:
       type: boolean
@@ -205,6 +209,13 @@ qc:
       description: >
         Enable Picard CollectMultipleMetrics (alignment summary, insert size,
         quality distribution). Requires genome_resources.reference_fasta.
+    tss_enrichment:
+      type: boolean
+      default: false
+      description: >
+        Enable deepTools TSS enrichment-style profiles around transcription
+        start sites. Requires genome_resources.gtf for every treatment sample
+        genome. Produces a TSS BED, computeMatrix output, profile TSV, and PDF.
 
 # ---- Stage 4b Replicate-Aware Outputs (optional) ----
 stage4b:

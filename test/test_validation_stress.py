@@ -89,7 +89,7 @@ def main():
 
     bad_samples_assay = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n" \
                         "S1\tR1\t\tSE\trnaseq\tT\tnarrow\ths\tidx\n"
-    t("Sample: invalid assay", valid_config, bad_samples_assay, err="assay must be chipseq or cuttag")
+    t("Sample: invalid assay", valid_config, bad_samples_assay, err="assay must be chipseq, cuttag, or atac")
 
     # --- 6. Control Logic Validation ---
     cfg_ctrl = "samples: 'test_samples.tsv'\nuse_control: true\n"
