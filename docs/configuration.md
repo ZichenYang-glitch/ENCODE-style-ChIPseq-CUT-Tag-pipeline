@@ -41,14 +41,19 @@ genome_resources:
 
 - **`effective_genome_size`**: Either a MACS3 shortcut (`hs` = 2.7e9, `mm` = 1.87e9)
   or a positive integer. Used for MACS3 peak calling and bamCoverage normalization.
-- **`chrom_sizes`**: Two-column file (chr, size). Used for bedGraph-to-BigWig
-  conversion (not yet implemented).
+- **`chrom_sizes`**: Two-column file (chr, size). Reserved for future
+  bedGraph-to-BigWig and genome-window features.
 - **`blacklist`**: BED file of problematic regions. Used when
   `qc.blacklist_filter: true`.
-- **`gtf`, `reference_fasta`**: Reserved for future QC modules. Optional.
+- **`gtf`**: Annotation file reserved for future TSS enrichment and
+  annotation-driven QC.
+- **`reference_fasta`**: Required when `qc.picard_metrics: true`; must have a
+  matching `.fai` and `.dict`.
 
 All optional paths, if non-empty, must exist on disk. The `genome` column in
 `config/samples.tsv` must match a key in this block.
+For preparation commands and mm39/GRCm39 examples, see
+[docs/reference-resources.md](reference-resources.md).
 
 ## `use_control`
 
@@ -101,8 +106,9 @@ qc:
 | `preseq_complexity` | `false` | Run preseq library complexity extrapolation (`lc_extrap -B`) per treatment sample. Produces `.preseq.txt`. Complements existing NRF/PBC metrics. |
 | `picard_metrics` | `false` | Run Picard CollectMultipleMetrics per treatment sample. Produces alignment summary, insert size, and quality distribution metrics. Requires `genome_resources.<genome>.reference_fasta` with a matching samtools FASTA index (`.fai`) and Picard sequence dictionary (`.dict`) next to the FASTA (e.g. `GRCm39.dict` for `GRCm39.fa`). Uses `VALIDATION_STRINGENCY=LENIENT` because real PE BAMs after MAPQ/flag filtering can trigger mate-field validation warnings (e.g. `INVALID_FLAG_MATE_UNMAPPED`) that would fail the default STRICT mode.
 
-All QC switches default to `true`. Set individual switches to `false` to skip
-specific metrics.
+The original Stage 3 QC switches default to `true`. Stage 12+ heavyweight
+optional modules (`cross_correlation`, `preseq_complexity`, `picard_metrics`)
+default to `false`. Set individual switches explicitly for production runs.
 
 ## Replicate and IDR features
 

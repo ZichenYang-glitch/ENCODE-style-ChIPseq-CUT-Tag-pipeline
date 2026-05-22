@@ -49,6 +49,8 @@ multiqc: true
 See [docs/configuration.md](configuration.md) for the full configuration
 reference covering genome resources, QC switches, replicate/IDR features,
 CUT&Tag SEACR, tool parameters, and key dependencies.
+See [docs/reference-resources.md](reference-resources.md) for preparing
+Bowtie2 indexes, FASTA `.fai`/`.dict`, chrom sizes, blacklists, and annotations.
 
 ## 4. Validate
 
@@ -161,6 +163,8 @@ rule environments so the first install stays small.
 - Verify the index files exist: `ls /data/genomes/hg38/GRCh38*.bt2`
 - If only a FASTA is available, build the index first:
   `bowtie2-build /data/genomes/hg38.fa /data/genomes/hg38/GRCh38`
+- For a complete reference resource checklist, see
+  [docs/reference-resources.md](reference-resources.md).
 
 ### Control path not found
 

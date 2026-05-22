@@ -206,7 +206,7 @@ def main():
         flag = _quality_flag(parsed["nsc"], parsed["rsc"])
         rows.append({
             "sample": sample,
-            "cc_qc_file": filepath,
+            "cc_qc_file": os.path.basename(filepath),
             "estimated_fragment_length": _fmt(parsed["estimated_fragment_length"]),
             "phantom_peak": _fmt(parsed["phantom_peak"]),
             "nsc": _fmt(parsed["nsc"]),

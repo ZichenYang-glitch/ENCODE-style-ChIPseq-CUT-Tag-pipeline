@@ -154,6 +154,8 @@ genome_resources:
 
 `effective_genome_size`: MACS3 shortcut (`hs`, `mm`) or positive integer.
 Other fields are optional paths. If non-empty they must exist on disk.
+See [docs/reference-resources.md](docs/reference-resources.md) for preparing
+Bowtie2 indexes, FASTA `.fai`/`.dict`, chrom sizes, blacklists, and annotations.
 
 > Full configuration reference covering core keys, genome resources, QC
 > switches, replicates/IDR, CUT&Tag SEACR, tool parameters, `use_control`,

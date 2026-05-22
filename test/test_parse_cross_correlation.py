@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import shutil
+import subprocess
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_REPO, "scripts"))
@@ -242,6 +243,39 @@ def test_quality_flag_integration():
         shutil.rmtree(td, ignore_errors=True)
 
 
+def test_cli_writes_basename_for_cc_qc_file():
+    """CLI summary writes basename, not machine-specific absolute paths."""
+    td = tempfile.mkdtemp(prefix="cc_parse_")
+    try:
+        nested = os.path.join(td, "sample_dir")
+        os.makedirs(nested)
+        fp = os.path.join(nested, "s1.cc.qc")
+        out = os.path.join(td, "summary.tsv")
+        _write_file(fp, [
+            "s1.tagAlign\t10000000\t175\t0.85\t225\t0.60\t7\t0.55\t1.12\t1.45\t-1",
+        ])
+
+        script = os.path.join(_REPO, "scripts", "parse_cross_correlation.py")
+        result = subprocess.run(
+            [sys.executable, script, "--input", fp, "--output", out],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+
+        with open(out) as fh:
+            rows = [line.rstrip("\n").split("\t") for line in fh]
+
+        header = rows[0]
+        data = rows[1]
+        cc_idx = header.index("cc_qc_file")
+        assert data[cc_idx] == "s1.cc.qc"
+        assert td not in data[cc_idx]
+        assert not os.path.isabs(data[cc_idx])
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
+
 # --- Runner ---------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -272,6 +306,7 @@ if __name__ == "__main__":
         ("parse_header_with_columns_only", test_parse_header_with_columns_only),
         ("parse_partial_data", test_parse_partial_data),
         ("quality_flag_integration", test_quality_flag_integration),
+        ("cli_writes_basename_for_cc_qc_file", test_cli_writes_basename_for_cc_qc_file),
     ]
 
     passed = 0

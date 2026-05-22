@@ -87,8 +87,9 @@ multiqc: true
 #
 # For mm39 / GRCm39, use the "mm39" entry (explicit numeric size).
 # effective_genome_size: "hs", "mm", or a positive integer.
-# Other fields (chrom_sizes, blacklist, gtf, reference_fasta) are
-# optional paths — leave empty if not needed yet.
+# Other fields (chrom_sizes, blacklist, gtf, reference_fasta) are optional
+# paths. reference_fasta is required when qc.picard_metrics is true and must
+# have matching .fai and .dict files. See docs/reference-resources.md.
 genome_resources:
   hs:
     effective_genome_size: "hs"

@@ -268,6 +268,9 @@ documentation.
 4. Keep user-facing examples synchronized.
    - `README.md`, `config/config.yaml`, and `config/samples.tsv` should agree.
    - Avoid committing machine-specific absolute paths in shared examples.
+   - ✅ Stage 17 added `docs/reference-resources.md` with Bowtie2 index,
+     FASTA `.fai`/`.dict`, chrom sizes, blacklist, GTF, and mm39/GRCm39
+     preparation guidance.
 
 ## Medium Priority
 
@@ -342,6 +345,8 @@ Status: **PASS with follow-ups**
   outputs remain external and are not committed.
 
 See `docs/release-checks/stage13-real-data-validation.md` for the full record.
+See `docs/release-checks/stage16-real-run-report-audit.md` for the Stage 15
+MultiQC custom-section audit on external CUT&Tag real-run outputs.
 
 ## Notes
 
