@@ -41,6 +41,18 @@ rule pipeline_done:
             f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.qc_summary.tsv"
             if QC_CONFIG.get("summary", True) else []
         ),
+        cross_corr = (
+            f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cc.qc"
+            if QC_CONFIG.get("cross_correlation", False) else []
+        ),
+        preseq = (
+            f"{OUTDIR}/{{sample}}/05_qc/preseq/{{sample}}.preseq.txt"
+            if QC_CONFIG.get("preseq_complexity", False) else []
+        ),
+        picard_alignment = (
+            f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.alignment_summary_metrics"
+            if QC_CONFIG.get("picard_metrics", False) else []
+        ),
     shell:
         "touch {output.done}"
 

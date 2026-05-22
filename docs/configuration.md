@@ -82,6 +82,10 @@ qc:
   nrf_pbc: true
   signal_tracks: true
   summary: true
+  cuttag_fragment_size: true
+  cross_correlation: false       # Stage 12 — opt-in
+  preseq_complexity: false       # Stage 12 — opt-in
+  picard_metrics: false          # Stage 12 — opt-in
 ```
 
 | Switch | Default | Effect |
@@ -92,6 +96,10 @@ qc:
 | `nrf_pbc` | `true` | Compute NRF and PBC1/PBC2 from the BAM file (library complexity from read counts). |
 | `signal_tracks` | `true` | Produce MACS3 FE (fold-enrichment) and ppois (Poisson p-value) bedGraph tracks per treatment sample and for pooled experiments. BigWig conversion is not yet implemented. |
 | `summary` | `true` | Emit per-sample QC summary TSV and a project-level aggregate at `results/multiqc/stage3_qc_summary.tsv`. |
+| `cuttag_fragment_size` | `true` | Compute CUT&Tag fragment-size statistics for active samples with assay=cuttag. |
+| `cross_correlation` | `false` | Run phantompeakqualtools cross-correlation QC per treatment sample. Produces NSC/RSC metrics (`.cc.qc`) and a cross-correlation plot (`.cc.plot.pdf`). |
+| `preseq_complexity` | `false` | Run preseq library complexity extrapolation (`lc_extrap -B`) per treatment sample. Produces `.preseq.txt`. Complements existing NRF/PBC metrics. |
+| `picard_metrics` | `false` | Run Picard CollectMultipleMetrics per treatment sample. Produces alignment summary, insert size, and quality distribution metrics. Requires `genome_resources.<genome>.reference_fasta`.
 
 All QC switches default to `true`. Set individual switches to `false` to skip
 specific metrics.

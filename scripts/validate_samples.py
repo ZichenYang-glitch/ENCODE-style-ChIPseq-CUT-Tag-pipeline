@@ -342,8 +342,8 @@ def _validate_qc_config(qc: dict) -> dict:
             f"qc must be a mapping, got {type(qc).__name__}"
         )
 
-    def _normalize_bool(key: str) -> bool:
-        raw = qc.get(key, True)
+    def _normalize_bool(key: str, default: bool = True) -> bool:
+        raw = qc.get(key, default)
         if isinstance(raw, bool):
             return raw
         val = str(raw).lower()
@@ -361,7 +361,41 @@ def _validate_qc_config(qc: dict) -> dict:
         "signal_tracks": _normalize_bool("signal_tracks"),
         "summary": _normalize_bool("summary"),
         "cuttag_fragment_size": _normalize_bool("cuttag_fragment_size"),
+        "cross_correlation": _normalize_bool("cross_correlation", False),
+        "preseq_complexity": _normalize_bool("preseq_complexity", False),
+        "picard_metrics": _normalize_bool("picard_metrics", False),
     }
+
+
+def validate_picard_reference_resources(
+    validated_config: dict, samples: list[dict]
+):
+    """Validate reference_fasta when qc.picard_metrics is enabled.
+
+    Scans treatment sample genomes and checks that each has a non-empty
+    reference_fasta in genome_resources. Raises ValidationError if
+    qc.picard_metrics is true and any treatment genome is missing
+    reference_fasta. Does nothing when qc.picard_metrics is false.
+    """
+    qc = validated_config.get("qc", {})
+    if not qc.get("picard_metrics", False):
+        return
+    genome_resources = validated_config.get("genome_resources", {})
+    treatment_genomes = {
+        s["genome"] for s in samples if s["role"] == "treatment"
+    }
+    missing = []
+    for genome in sorted(treatment_genomes):
+        ref = genome_resources.get(genome, {}).get("reference_fasta", "")
+        if not ref:
+            missing.append(genome)
+    if missing:
+        raise ValidationError(
+            f"qc.picard_metrics is true but reference_fasta is missing "
+            f"for genome(s): {', '.join(missing)}. "
+            f"Set genome_resources[{missing[0]}].reference_fasta "
+            f"or set qc.picard_metrics: false."
+        )
 
 
 def _validate_genome_resources(resources: dict) -> dict:
@@ -1349,6 +1383,7 @@ def main():
             use_control=validated["use_control"],
             stage5_enabled=validated.get("stage5", False),
         )
+        validate_picard_reference_resources(validated, samples)
     except ValidationError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)

@@ -740,6 +740,99 @@ def _control_type(sample_id):
 
 
 # ---------------------------------------------------------------------------
+# 9. Stage 12: phantompeakqualtools cross-correlation
+# ---------------------------------------------------------------------------
+
+rule cross_correlation:
+    output:
+        qc  = f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cc.qc",
+        pdf = f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cc.plot.pdf",
+    input:
+        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.cross_correlation.log",
+    threads: THREADS,
+    conda:
+        "../envs/phantompeakqualtools.yml",
+    shell:
+        """
+        set -e -o pipefail
+        command -v run_spp.R >/dev/null 2>&1 || {{
+            echo "ERROR: run_spp.R not found. Install phantompeakqualtools conda env." >&2
+            exit 1
+        }}
+        mkdir -p "$(dirname {output.qc:q})" "$(dirname {log:q})"
+        run_spp.R -c={input.bam:q} -savp={output.pdf:q} -out={output.qc:q} \
+            -x=-500:15 -rf -speak=0 -p={threads} \
+            2>&1 | tee {log:q}
+        """
+
+
+# ---------------------------------------------------------------------------
+# 10. Stage 12: preseq library complexity
+# ---------------------------------------------------------------------------
+
+rule preseq_complexity:
+    output:
+        f"{OUTDIR}/{{sample}}/05_qc/preseq/{{sample}}.preseq.txt",
+    input:
+        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.preseq.log",
+    conda:
+        "../envs/preseq.yml",
+    shell:
+        """
+        set -e -o pipefail
+        command -v preseq >/dev/null 2>&1 || {{
+            echo "ERROR: preseq not found. Install preseq conda env." >&2
+            exit 1
+        }}
+        mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
+        preseq lc_extrap -B -o {output:q} {input.bam:q} \
+            2>&1 | tee {log:q}
+        """
+
+
+# ---------------------------------------------------------------------------
+# 11. Stage 12: Picard CollectMultipleMetrics
+# ---------------------------------------------------------------------------
+
+rule picard_collect_multiple_metrics:
+    output:
+        alignment   = f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.alignment_summary_metrics",
+        insert_size = f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.insert_size_metrics",
+        quality     = f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.quality_distribution_metrics",
+        ins_hist    = f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.insert_size_histogram.pdf",
+    input:
+        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+    params:
+        ref = lambda wc: get_genome_resource(wc.sample, "reference_fasta"),
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.picard_metrics.log",
+    conda:
+        "../envs/picard.yml",
+    shell:
+        """
+        set -e -o pipefail
+        command -v picard >/dev/null 2>&1 || {{
+            echo "ERROR: picard not found. Install picard conda env." >&2
+            exit 1
+        }}
+        mkdir -p "$(dirname {output.alignment:q})" "$(dirname {log:q})"
+        picard CollectMultipleMetrics \
+            I={input.bam:q} \
+            R={params.ref:q} \
+            O={OUTDIR:q}/{wildcards.sample}/05_qc/picard/{wildcards.sample} \
+            PROGRAM=CollectAlignmentSummaryMetrics \
+            PROGRAM=CollectInsertSizeMetrics \
+            PROGRAM=QualityScoreDistribution \
+            2>&1 | tee {log:q}
+        """
+
+
+# ---------------------------------------------------------------------------
 # 8. Project-level QC summary
 # ---------------------------------------------------------------------------
 

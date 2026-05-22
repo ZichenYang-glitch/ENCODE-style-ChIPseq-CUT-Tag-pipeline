@@ -1,0 +1,7 @@
+name: chipseq-preseq
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - preseq

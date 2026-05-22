@@ -131,6 +131,10 @@ qc:
     nrf_pbc: true
     signal_tracks: true
     summary: true
+    cuttag_fragment_size: true
+    cross_correlation: false
+    preseq_complexity: false
+    picard_metrics: false
   description: >
     Stage 3 single-sample QC switches. Missing qc block defaults to all
     switches enabled. Each switch accepts boolean or string boolean.
@@ -183,6 +187,24 @@ qc:
       default: true
       description: >
         Enable CUT&Tag fragment-size QC for active samples with assay=cuttag.
+    cross_correlation:
+      type: boolean
+      default: false
+      description: >
+        Enable phantompeakqualtools cross-correlation QC (NSC/RSC/fragment length).
+        Produces .cc.qc and .cc.plot.pdf per sample.
+    preseq_complexity:
+      type: boolean
+      default: false
+      description: >
+        Enable preseq library complexity extrapolation.
+        Produces .preseq.txt per sample. Complements existing NRF/PBC metrics.
+    picard_metrics:
+      type: boolean
+      default: false
+      description: >
+        Enable Picard CollectMultipleMetrics (alignment summary, insert size,
+        quality distribution). Requires genome_resources.reference_fasta.
 
 # ---- Stage 4b Replicate-Aware Outputs (optional) ----
 stage4b:

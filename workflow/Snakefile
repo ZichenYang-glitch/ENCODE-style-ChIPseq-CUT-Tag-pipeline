@@ -17,6 +17,7 @@ sys.path.insert(
 from validate_samples import (
     validate_config,
     load_and_validate_samples,
+    validate_picard_reference_resources,
 )
 from histone_utils import classify_histone_target
 
@@ -89,6 +90,9 @@ SAMPLES = load_and_validate_samples(
     use_control=USE_CONTROL,
     stage5_enabled=STAGE5,
 )
+
+# Stage 12: reference_fasta gating for Picard metrics
+validate_picard_reference_resources(VALIDATED_CONFIG, SAMPLES)
 
 # --- Derived ID lists ---
 SAMPLE_MAP           = {s["id"]: s for s in SAMPLES}
@@ -312,6 +316,9 @@ QC_CONFIG = VALIDATED_CONFIG.get("qc", {
     "signal_tracks": True,
     "summary": True,
     "cuttag_fragment_size": True,
+    "cross_correlation": False,
+    "preseq_complexity": False,
+    "picard_metrics": False,
 })
 
 # Stage 4c: structured tool parameters (absent → empty dict, defaults silently)
@@ -597,6 +604,79 @@ rule all:
             )
             if QC_CONFIG.get("cuttag_fragment_size", True)
             and CUTTAG_ACTIVE_SAMPLE_IDS
+            else []
+        ),
+        # Stage 12: cross-correlation QC (phantompeakqualtools)
+        cross_corr_qc = (
+            expand(
+                "{outdir}/{sample}/05_qc/cross_correlation/{sample}.cc.qc",
+                outdir=OUTDIR,
+                sample=TREATMENT_SAMPLE_IDS,
+            )
+            if QC_CONFIG.get("cross_correlation", False)
+            and TREATMENT_SAMPLE_IDS
+            else []
+        ),
+        cross_corr_pdf = (
+            expand(
+                "{outdir}/{sample}/05_qc/cross_correlation/{sample}.cc.plot.pdf",
+                outdir=OUTDIR,
+                sample=TREATMENT_SAMPLE_IDS,
+            )
+            if QC_CONFIG.get("cross_correlation", False)
+            and TREATMENT_SAMPLE_IDS
+            else []
+        ),
+        # Stage 12: preseq library complexity
+        preseq_out = (
+            expand(
+                "{outdir}/{sample}/05_qc/preseq/{sample}.preseq.txt",
+                outdir=OUTDIR,
+                sample=TREATMENT_SAMPLE_IDS,
+            )
+            if QC_CONFIG.get("preseq_complexity", False)
+            and TREATMENT_SAMPLE_IDS
+            else []
+        ),
+        # Stage 12: Picard CollectMultipleMetrics
+        picard_align = (
+            expand(
+                "{outdir}/{sample}/05_qc/picard/{sample}.alignment_summary_metrics",
+                outdir=OUTDIR,
+                sample=TREATMENT_SAMPLE_IDS,
+            )
+            if QC_CONFIG.get("picard_metrics", False)
+            and TREATMENT_SAMPLE_IDS
+            else []
+        ),
+        picard_insert = (
+            expand(
+                "{outdir}/{sample}/05_qc/picard/{sample}.insert_size_metrics",
+                outdir=OUTDIR,
+                sample=TREATMENT_SAMPLE_IDS,
+            )
+            if QC_CONFIG.get("picard_metrics", False)
+            and TREATMENT_SAMPLE_IDS
+            else []
+        ),
+        picard_qual = (
+            expand(
+                "{outdir}/{sample}/05_qc/picard/{sample}.quality_distribution_metrics",
+                outdir=OUTDIR,
+                sample=TREATMENT_SAMPLE_IDS,
+            )
+            if QC_CONFIG.get("picard_metrics", False)
+            and TREATMENT_SAMPLE_IDS
+            else []
+        ),
+        picard_ins_hist = (
+            expand(
+                "{outdir}/{sample}/05_qc/picard/{sample}.insert_size_histogram.pdf",
+                outdir=OUTDIR,
+                sample=TREATMENT_SAMPLE_IDS,
+            )
+            if QC_CONFIG.get("picard_metrics", False)
+            and TREATMENT_SAMPLE_IDS
             else []
         ),
         # Stage 4b: pooled treatment BAMs for multi-biorep experiments

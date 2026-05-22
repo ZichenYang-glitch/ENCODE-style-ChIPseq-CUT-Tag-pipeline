@@ -29,10 +29,9 @@ ChIP-seq pipeline. It now provides:
 
 Still missing:
 
-- Cross-correlation metrics (NSC/RSC)
 - BigWig conversion for FE/ppois bedGraph signal tracks
 - MultiQC custom config for improved report layout
-- Full preseq-style library complexity
+- GC bias metrics (Picard CollectGcBiasMetrics)
 - Browser-ready genome resource management
 
 ## Roadmap
@@ -83,9 +82,10 @@ Estimated effort: 1-2 days (Stage 3a + 3b + 3c-1: ~1.25 days).
   bedGraph output)
 - ✅ Add NRF/PBC library complexity metrics. (Stage 3c-1, BAM-derived)
 - ✅ Add pooled experiment FE/ppois signal tracks. (Stage 6a, completed 2026-05-17)
-- ⬜ Add cross-correlation metrics such as NSC/RSC. (Stage 3c-2)
-- ⬜ Add full NRF/PBC metrics and/or preseq-style complexity where appropriate.
-  (Stage 3c-2)
+- ✅ Add cross-correlation metrics such as NSC/RSC. (Stage 12 / 3c-2, completed 2026-05-21)
+- ✅ Add preseq-style library complexity extrapolation. (Stage 12 / 3c-2, completed 2026-05-21)
+- ✅ Add Picard CollectMultipleMetrics (alignment summary, insert size, quality
+  distribution). (Stage 12 / 3c-2, completed 2026-05-21)
 - ⬜ Add bigWig conversion for FE/ppois signal tracks when chrom sizes and
   conversion tooling are configured. (Stage 3c-2)
 - ⬜ Add a MultiQC custom config if needed to improve naming and report layout.

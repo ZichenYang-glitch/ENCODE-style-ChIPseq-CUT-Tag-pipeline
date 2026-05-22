@@ -191,6 +191,13 @@ When the `qc` block is enabled, each treatment sample receives:
 - **NRF/PBC** (BAM-derived library complexity)
 - **MACS3 signal tracks**: fold-enrichment (`FE.bdg`) and p-value
   (`ppois.bdg`) bedGraph from `macs3 bdgcmp`
+- **Cross-correlation** (opt-in): phantompeakqualtools NSC/RSC and fragment
+  length (`qc.cross_correlation: true`)
+- **Preseq library complexity** (opt-in): `preseq lc_extrap` extrapolation
+  curve (`qc.preseq_complexity: true`)
+- **Picard CollectMultipleMetrics** (opt-in): alignment summary, insert size,
+  and quality distribution (`qc.picard_metrics: true`; requires
+  `reference_fasta`)
 - Per-sample QC summary TSV and a project-level aggregate at
   `results/multiqc/stage3_qc_summary.tsv`
 
@@ -315,7 +322,7 @@ results/
 
 ### QC gaps
 
-- Cross-correlation metrics (NSC/RSC) are not yet implemented.
+- GC bias metrics (Picard CollectGcBiasMetrics) are not yet implemented.
 - FE/ppois bedGraph tracks are produced; BigWig conversion for those
   tracks is not yet implemented.
 - `bamCoverage` RPGC normalization requires `--effectiveGenomeSize` and

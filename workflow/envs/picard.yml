@@ -1,0 +1,8 @@
+name: chipseq-picard
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - picard
+  - openjdk >=17

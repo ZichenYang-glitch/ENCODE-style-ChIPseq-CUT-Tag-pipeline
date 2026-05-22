@@ -158,6 +158,9 @@ qc:
   signal_tracks: true
   summary: true
   cuttag_fragment_size: true
+  cross_correlation: false
+  preseq_complexity: false
+  picard_metrics: false
 
 # CUT&Tag-specific configuration (Stage 7b)
 # cuttag:
