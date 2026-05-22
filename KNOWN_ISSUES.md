@@ -253,6 +253,11 @@ documentation.
    - ✅ Add a cross-sample summary TSV.
    - ✅ Add MACS3 FE/ppois bedGraph signal tracks.
    - ✅ Add cross-correlation, NRF/PBC, and preseq-style complexity metrics.
+   - ✅ Add Picard CollectMultipleMetrics (alignment summary, insert size,
+     quality distribution).
+   - ✅ Stage 14: project-level cross-correlation summary
+     (`results/multiqc/cross_correlation_summary.tsv`) and QC interpretation
+     guide (`docs/qc-interpretation.md`).
 
 3. ✅ Add synthetic tiny FASTQ/index smoke execution (one ChIP-seq PE
    no-control real execution). (Stage 8b)
@@ -326,9 +331,10 @@ Status: **PASS with follow-ups**
 
 ### Follow-ups
 
-- **MultiQC visibility for phantompeakqualtools `cc.qc`:** cross-correlation
-  `.cc.qc` files were generated but MultiQC visibility was not clearly
-  confirmed. Verify or add parser support in a future stage.
+- **MultiQC visibility for phantompeakqualtools `cc.qc`:** project-level
+  cross-correlation summary (`cross_correlation_summary.tsv`) added in
+  Stage 14 and linked to MultiQC dependency chain. Full native MultiQC
+  module for cross-correlation remains optional future polish.
 - **PE mate-field cleanup:** evaluate `samtools fixmate` after MAPQ filtering
   if mate-field warnings become problematic for downstream tools beyond Picard.
 - **No real data bundled in repo:** real FASTQ/BAM/BAI/BW/BDG/HTML/MultiQC

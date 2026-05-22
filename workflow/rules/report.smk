@@ -61,6 +61,32 @@ rule pipeline_done:
 # MultiQC aggregation
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Stage 14: project-level cross-correlation summary
+# ---------------------------------------------------------------------------
+
+CROSS_CORR_ENABLED = QC_CONFIG.get("cross_correlation", False)
+
+rule cross_correlation_summary:
+    output:
+        f"{OUTDIR}/multiqc/cross_correlation_summary.tsv",
+    input:
+        lambda wc: [
+            f"{OUTDIR}/{sid}/05_qc/cross_correlation/{sid}.cc.qc"
+            for sid in TREATMENT_SAMPLE_IDS
+        ],
+    conda:
+        "../envs/python.yml",
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output:q})"
+        python3 scripts/parse_cross_correlation.py \
+            --input {input:q} \
+            --output {output:q}
+        """
+
+
 if MULTIQC:
 
     rule multiqc:
@@ -86,6 +112,9 @@ if MULTIQC:
              for sid in CONTROL_SAMPLE_IDS] if USE_CONTROL else [],
             [f"{OUTDIR}/{sid}/logs/{sid}.trim.done"
              for sid in CONTROL_SAMPLE_IDS] if USE_CONTROL else [],
+            # Stage 14: cross-correlation summary (project-level)
+            [f"{OUTDIR}/multiqc/cross_correlation_summary.tsv"]
+            if CROSS_CORR_ENABLED and TREATMENT_SAMPLE_IDS else [],
         output:
             f"{OUTDIR}/multiqc/multiqc_report.html",
         log:

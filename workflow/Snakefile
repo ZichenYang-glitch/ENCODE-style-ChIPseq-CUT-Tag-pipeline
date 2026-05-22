@@ -627,6 +627,13 @@ rule all:
             and TREATMENT_SAMPLE_IDS
             else []
         ),
+        # Stage 14: project-level cross-correlation summary
+        cross_corr_summary = (
+            [f"{OUTDIR}/multiqc/cross_correlation_summary.tsv"]
+            if QC_CONFIG.get("cross_correlation", False)
+            and TREATMENT_SAMPLE_IDS
+            else []
+        ),
         # Stage 12: preseq library complexity
         preseq_out = (
             expand(

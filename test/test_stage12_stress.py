@@ -520,6 +520,86 @@ def test_explicit_cross_correlation_target_resolves():
         shutil.rmtree(td, ignore_errors=True)
 
 
+# --- Stage 14: cross_correlation_summary DAG tests -----------------------
+
+def test_cross_corr_summary_in_dag():
+    """cross_correlation: true → cross_correlation_summary.tsv in DAG."""
+    td = _create_dryrun_env()
+    try:
+        samples_tsv = os.path.join(td, "samples.tsv")
+        config_yml = os.path.join(td, "config.yaml")
+        qc = dict(_DISABLED_QC)
+        qc["cross_correlation"] = "true"
+        config = _make_config(qc_block=qc)
+        config["samples"] = samples_tsv
+        config["outdir"] = os.path.join(td, "results")
+        _write_yaml(config_yml, config)
+
+        rc, stdout, stderr = _run_snakemake_dryrun(
+            config_yml, samples_tsv, quiet=False,
+        )
+        assert rc == 0, f"Dry-run failed: rc={rc}\nstderr: {stderr}"
+
+        output = stdout + stderr
+        assert "cross_correlation_summary" in output, (
+            "Expected cross_correlation_summary rule in DAG when enabled"
+        )
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
+
+def test_cross_corr_summary_not_in_dag_when_disabled():
+    """cross_correlation: false → cross_correlation_summary NOT in DAG."""
+    td = _create_dryrun_env()
+    try:
+        samples_tsv = os.path.join(td, "samples.tsv")
+        config_yml = os.path.join(td, "config.yaml")
+        qc = dict(_DISABLED_QC)
+        qc["cross_correlation"] = "false"
+        config = _make_config(qc_block=qc)
+        config["samples"] = samples_tsv
+        config["outdir"] = os.path.join(td, "results")
+        _write_yaml(config_yml, config)
+
+        rc, stdout, stderr = _run_snakemake_dryrun(
+            config_yml, samples_tsv, quiet=False,
+        )
+        assert rc == 0, f"Dry-run failed: rc={rc}\nstderr: {stderr}"
+
+        output = stdout + stderr
+        assert "cross_correlation_summary" not in output, (
+            "Should not see cross_correlation_summary in DAG when disabled"
+        )
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
+
+def test_cross_corr_summary_explicit_target():
+    """Explicit target cross_correlation_summary.tsv resolves."""
+    td = _create_dryrun_env()
+    try:
+        samples_tsv = os.path.join(td, "samples.tsv")
+        config_yml = os.path.join(td, "config.yaml")
+        qc = dict(_DISABLED_QC)
+        qc["cross_correlation"] = "true"
+        config = _make_config(qc_block=qc)
+        config["outdir"] = os.path.join(td, "results")
+        config["samples"] = samples_tsv
+        _write_yaml(config_yml, config)
+
+        target = os.path.join(td, "results", "multiqc",
+                              "cross_correlation_summary.tsv")
+        rc, stdout, stderr = _run_snakemake_dryrun(
+            config_yml, samples_tsv,
+            extra_args=[target],
+        )
+        assert rc == 0, (
+            f"Explicit target failed: rc={rc}\nstderr: {stderr}"
+        )
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
+
 # --- Runner ---------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -540,6 +620,10 @@ if __name__ == "__main__":
         ("all_three_in_dag", test_all_three_enabled_all_in_dag),
         ("all_disabled_no_dag", test_all_disabled_dag_unchanged),
         ("explicit_target_resolves", test_explicit_cross_correlation_target_resolves),
+        # Stage 14: cross_correlation_summary DAG tests
+        ("cross_corr_summary_in_dag", test_cross_corr_summary_in_dag),
+        ("cross_corr_summary_disabled_not_in_dag", test_cross_corr_summary_not_in_dag_when_disabled),
+        ("cross_corr_summary_explicit_target", test_cross_corr_summary_explicit_target),
     ]
 
     passed = 0

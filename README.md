@@ -192,7 +192,8 @@ When the `qc` block is enabled, each treatment sample receives:
 - **MACS3 signal tracks**: fold-enrichment (`FE.bdg`) and p-value
   (`ppois.bdg`) bedGraph from `macs3 bdgcmp`
 - **Cross-correlation** (opt-in): phantompeakqualtools NSC/RSC and fragment
-  length (`qc.cross_correlation: true`)
+  length (`qc.cross_correlation: true`); project-level summary at
+  `results/multiqc/cross_correlation_summary.tsv`
 - **Preseq library complexity** (opt-in): `preseq lc_extrap` extrapolation
   curve (`qc.preseq_complexity: true`)
 - **Picard CollectMultipleMetrics** (opt-in): alignment summary, insert size,
@@ -357,6 +358,13 @@ Path handling rules are documented in
 `scripts/chipseq.sh` is retained for compatibility. It supports single-sample
 PE/SE ChIP-seq and CUT&Tag with command-line flags. For new analyses, the
 Snakemake batch workflow (`workflow/Snakefile`) is the recommended entry point.
+
+### QC and MultiQC
+
+See [docs/qc-interpretation.md](docs/qc-interpretation.md) for a
+comprehensive guide to interpreting every QC metric the pipeline produces
+(FastQC, alignment, library complexity, peak quality, cross-correlation,
+Picard metrics, CUT&Tag-specific QC, and replicate-level outputs).
 
 ### Repository layout
 
