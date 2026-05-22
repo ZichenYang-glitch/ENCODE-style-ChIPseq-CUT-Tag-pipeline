@@ -174,7 +174,9 @@ positive- and negative-strand reads at varying shift distances.
   use it as a prioritization signal, not a rejection criterion.
 
 The project-level summary at `results/multiqc/cross_correlation_summary.tsv`
-aggregates all samples for easy comparison.
+aggregates all samples for easy comparison. When MultiQC is enabled, the same
+summary is included in `multiqc_report.html` as a custom
+**Cross-correlation QC** section.
 
 ## Picard CollectMultipleMetrics
 

@@ -333,8 +333,9 @@ Status: **PASS with follow-ups**
 
 - **MultiQC visibility for phantompeakqualtools `cc.qc`:** project-level
   cross-correlation summary (`cross_correlation_summary.tsv`) added in
-  Stage 14 and linked to MultiQC dependency chain. Full native MultiQC
-  module for cross-correlation remains optional future polish.
+  Stage 14 and exposed through a MultiQC custom section in Stage 15. A native
+  MultiQC plugin is not planned unless the project needs package-level report
+  extensions.
 - **PE mate-field cleanup:** evaluate `samtools fixmate` after MAPQ filtering
   if mate-field warnings become problematic for downstream tools beyond Picard.
 - **No real data bundled in repo:** real FASTQ/BAM/BAI/BW/BDG/HTML/MultiQC

@@ -193,7 +193,7 @@ When the `qc` block is enabled, each treatment sample receives:
   (`ppois.bdg`) bedGraph from `macs3 bdgcmp`
 - **Cross-correlation** (opt-in): phantompeakqualtools NSC/RSC and fragment
   length (`qc.cross_correlation: true`); project-level summary at
-  `results/multiqc/cross_correlation_summary.tsv`
+  `results/multiqc/cross_correlation_summary.tsv` and a MultiQC custom section
 - **Preseq library complexity** (opt-in): `preseq lc_extrap` extrapolation
   curve (`qc.preseq_complexity: true`)
 - **Picard CollectMultipleMetrics** (opt-in): alignment summary, insert size,

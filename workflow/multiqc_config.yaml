@@ -1,0 +1,33 @@
+custom_data:
+  cross_correlation_qc:
+    section_name: "Cross-correlation QC"
+    description: "Project-level phantompeakqualtools summary with ENCODE-style NSC/RSC quality flags."
+    plot_type: "table"
+    pconfig:
+      id: "cross_correlation_qc"
+      title: "Cross-correlation QC"
+      col1_header: "Sample"
+    headers:
+      cc_qc_file:
+        title: "Source .cc.qc"
+        description: "Original phantompeakqualtools output parsed into the summary."
+        hidden: true
+      estimated_fragment_length:
+        title: "Estimated fragment length"
+        description: "Fragment-length estimate from the cross-correlation peak."
+      phantom_peak:
+        title: "Phantom peak"
+        description: "Read-length artifact peak estimated by phantompeakqualtools."
+      nsc:
+        title: "NSC"
+        description: "Normalized Strand Coefficient. ENCODE-style acceptable threshold is >= 1.05."
+      rsc:
+        title: "RSC"
+        description: "Relative Strand Correlation. ENCODE-style acceptable threshold is >= 0.8."
+      quality_flag:
+        title: "Quality flag"
+        description: "Project-assigned flag from NSC/RSC thresholds."
+
+sp:
+  cross_correlation_qc:
+    fn: "cross_correlation_summary.tsv"

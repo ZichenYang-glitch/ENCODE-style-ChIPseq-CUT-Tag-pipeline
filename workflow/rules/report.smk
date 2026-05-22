@@ -1,5 +1,6 @@
 # report.smk — Final aggregation and sentinel rules
 # ==================================================
+import os
 import shlex
 
 # ---------------------------------------------------------------------------
@@ -122,7 +123,14 @@ if MULTIQC:
         params:
             logdir      = f"{OUTDIR}/logs",
             multiqc_dir = f"{OUTDIR}/multiqc",
-            sample_dirs = [f"{OUTDIR}/{sid}" for sid in ACTIVE_SAMPLE_IDS],
+            search_paths = (
+                [f"{OUTDIR}/{sid}" for sid in ACTIVE_SAMPLE_IDS]
+                + (
+                    [f"{OUTDIR}/multiqc/cross_correlation_summary.tsv"]
+                    if CROSS_CORR_ENABLED and TREATMENT_SAMPLE_IDS else []
+                )
+            ),
+            multiqc_config = os.path.join(workflow.basedir, "multiqc_config.yaml"),
             title       = f"--title {shlex.quote(v)}" if (v := _tool_param("multiqc", "title", "")) else "",
             extra       = _tool_param("multiqc", "extra_args", ""),
         conda:
@@ -135,5 +143,8 @@ if MULTIQC:
                 exit 1
             }}
             mkdir -p {params.logdir:q} {params.multiqc_dir:q}
-            multiqc {params.sample_dirs:q} -o {params.multiqc_dir:q} {params.title} {params.extra} 2>&1 | tee {log:q}
+            multiqc {params.search_paths:q} \
+                --config {params.multiqc_config:q} \
+                -o {params.multiqc_dir:q} \
+                {params.title} {params.extra} 2>&1 | tee {log:q}
             """
