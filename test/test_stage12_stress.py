@@ -622,6 +622,7 @@ def test_multiqc_rule_uses_custom_config_and_summary_search_path():
 
     assert "multiqc_config.yaml" in text
     assert "--config {params.multiqc_config:q}" in text
+    assert "--force" in text
     assert "params.search_paths:q" in text
     assert "cross_correlation_summary.tsv" in text
 
