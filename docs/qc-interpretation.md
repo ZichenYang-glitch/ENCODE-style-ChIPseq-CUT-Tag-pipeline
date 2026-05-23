@@ -125,7 +125,8 @@ Ratio of reads falling within called peaks to total mapped reads.
 
 ### MACS3 Signal Tracks
 
-**Outputs:** `*.FE.bdg` (fold-enrichment), `*.ppois.bdg` (Poisson p-value)
+**Outputs:** `*.FE.bdg` (fold-enrichment), `*.ppois.bdg` (Poisson p-value);
+`*.FE.bw`, `*.ppois.bw` when `genome_resources.<genome>.chrom_sizes` is configured
 
 FE tracks show enrichment over local background. Ppois tracks show the
 statistical significance of enrichment. Both are bedGraph format (BigWig
@@ -328,8 +329,9 @@ self-consistency ratio for each IDR stage.
   classifies targets to flag potential mismatches.
 - **No hard-fail thresholds.** The pipeline does not abort on low QC metrics.
   Review the QC summary tables and MultiQC report to make informed judgments.
-- **FE/ppois bedGraph tracks** are generated but BigWig conversion is not yet
-  implemented. Visualize bedGraph files directly in IGV or convert with
-  UCSC `bedGraphToBigWig`.
+- **FE/ppois bedGraph and BigWig tracks** are generated. BigWig conversion
+  requires configuring `genome_resources.<genome>.chrom_sizes`. When
+  `chrom_sizes` is empty, only bedGraph files are produced. Visualize
+  bedGraph files directly in IGV or convert with UCSC `bedGraphToBigWig`.
 - **Reference genome** must match the alignment index. Mismatched genomes
   produce systematically low alignment and meaningless QC values.

@@ -39,6 +39,34 @@ jobs:
         shell: micromamba-shell {0}
         run: python3 test/test_stage8_smoke_profiles.py
 
+      - name: No-hardcoded-paths guard
+        shell: micromamba-shell {0}
+        run: python3 test/test_no_hardcoded_paths.py
+
+      - name: Stage 22 BigWig stress tests
+        shell: micromamba-shell {0}
+        run: python3 test/test_stage22_bigwig_stress.py
+
+      - name: Stage 24 QC summary unit tests
+        shell: micromamba-shell {0}
+        run: python3 test/test_stage24_qc_summary_unit.py
+
+      - name: Stage 25 manifest stress tests
+        shell: micromamba-shell {0}
+        run: python3 test/test_stage25_manifest_stress.py
+
+      - name: Stage 27a public validation plan tests
+        shell: micromamba-shell {0}
+        run: python3 test/test_stage27_public_validation_plan.py
+
+      - name: Stage 27b metadata CI plan tests
+        shell: micromamba-shell {0}
+        run: python3 test/test_stage27b_metadata_ci_plan.py
+
+      - name: Stage 27c CI workflow tests
+        shell: micromamba-shell {0}
+        run: python3 test/test_stage27c_ci_workflow.py
+
   real-execution:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'

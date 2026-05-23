@@ -16,6 +16,9 @@ miniconda3/
 .snakemake/
 results/
 
+# --- Local planning / research notes ---
+deep-research-report.md
+
 # --- Legacy ignores ---
 *.sh
 *.gz

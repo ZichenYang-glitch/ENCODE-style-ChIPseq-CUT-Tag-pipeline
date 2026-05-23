@@ -406,6 +406,54 @@ rule signal_track_ppois:
 
 
 # ---------------------------------------------------------------------------
+# 6b. Single-sample FE/ppois BigWig conversion (Stage 22)
+# ---------------------------------------------------------------------------
+
+rule signal_track_fe_bw:
+    output:
+        f"{OUTDIR}/{{sample}}/03_signal/{{sample}}.FE.bw"
+    input:
+        f"{OUTDIR}/{{sample}}/03_signal/{{sample}}.FE.bdg"
+    params:
+        chrom_sizes = lambda wc: get_genome_resource(wc.sample, "chrom_sizes")
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.bdg_to_bw.FE.log"
+    conda:
+        "../envs/ucsc.yml"
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
+        SORTED="$(dirname {output:q})/.tmp_{wildcards.sample}.FE.sorted.bdg"
+        trap 'rm -f "$SORTED"' EXIT
+        LC_ALL=C sort -k1,1 -k2,2n {input:q} > "$SORTED"
+        bedGraphToBigWig "$SORTED" {params.chrom_sizes:q} {output:q} 2>&1 | tee {log:q}
+        """
+
+
+rule signal_track_ppois_bw:
+    output:
+        f"{OUTDIR}/{{sample}}/03_signal/{{sample}}.ppois.bw"
+    input:
+        f"{OUTDIR}/{{sample}}/03_signal/{{sample}}.ppois.bdg"
+    params:
+        chrom_sizes = lambda wc: get_genome_resource(wc.sample, "chrom_sizes")
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.bdg_to_bw.ppois.log"
+    conda:
+        "../envs/ucsc.yml"
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
+        SORTED="$(dirname {output:q})/.tmp_{wildcards.sample}.ppois.sorted.bdg"
+        trap 'rm -f "$SORTED"' EXIT
+        LC_ALL=C sort -k1,1 -k2,2n {input:q} > "$SORTED"
+        bedGraphToBigWig "$SORTED" {params.chrom_sizes:q} {output:q} 2>&1 | tee {log:q}
+        """
+
+
+# ---------------------------------------------------------------------------
 # 6a. Pooled MACS3 signal tracks (Stage 6a)
 # ---------------------------------------------------------------------------
 
@@ -471,6 +519,54 @@ rule pooled_signal_track_ppois:
             -m ppois \
             -o {output:q} \
             2>&1 | tee {log:q}
+        """
+
+
+# ---------------------------------------------------------------------------
+# 6c. Pooled FE/ppois BigWig conversion (Stage 22)
+# ---------------------------------------------------------------------------
+
+rule pooled_signal_track_fe_bw:
+    output:
+        f"{OUTDIR}/experiments/{{experiment}}/03_signal/{{experiment}}.pooled.FE.bw"
+    input:
+        f"{OUTDIR}/experiments/{{experiment}}/03_signal/{{experiment}}.pooled.FE.bdg"
+    params:
+        chrom_sizes = lambda wc: _pooled_chrom_sizes(wc.experiment)
+    log:
+        f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.bdg_to_bw.FE.log"
+    conda:
+        "../envs/ucsc.yml"
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
+        SORTED="$(dirname {output:q})/.tmp_{wildcards.experiment}.pooled.FE.sorted.bdg"
+        trap 'rm -f "$SORTED"' EXIT
+        LC_ALL=C sort -k1,1 -k2,2n {input:q} > "$SORTED"
+        bedGraphToBigWig "$SORTED" {params.chrom_sizes:q} {output:q} 2>&1 | tee {log:q}
+        """
+
+
+rule pooled_signal_track_ppois_bw:
+    output:
+        f"{OUTDIR}/experiments/{{experiment}}/03_signal/{{experiment}}.pooled.ppois.bw"
+    input:
+        f"{OUTDIR}/experiments/{{experiment}}/03_signal/{{experiment}}.pooled.ppois.bdg"
+    params:
+        chrom_sizes = lambda wc: _pooled_chrom_sizes(wc.experiment)
+    log:
+        f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.bdg_to_bw.ppois.log"
+    conda:
+        "../envs/ucsc.yml"
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
+        SORTED="$(dirname {output:q})/.tmp_{wildcards.experiment}.pooled.ppois.sorted.bdg"
+        trap 'rm -f "$SORTED"' EXIT
+        LC_ALL=C sort -k1,1 -k2,2n {input:q} > "$SORTED"
+        bedGraphToBigWig "$SORTED" {params.chrom_sizes:q} {output:q} 2>&1 | tee {log:q}
         """
 
 
@@ -598,132 +694,27 @@ rule qc_summary:
         "../envs/python.yml",
     shell:
         """
-        # Read peak counts (skip header)
-        PEAK_COUNT=$(tail -n +2 {input.peak_counts:q} | cut -f3)
-        BL_PEAK_COUNT=$(tail -n +2 {input.peak_counts:q} | cut -f4)
-
-        # Read FRiP values (skip header)
-        TOTAL_READS=$(tail -n +2 {input.frip:q} | cut -f2)
-        READS_IN_PEAKS=$(tail -n +2 {input.frip:q} | cut -f3)
-        FRIP=$(tail -n +2 {input.frip:q} | cut -f4)
-
-        # Read library complexity values (skip header and sample column)
-        LC_DATA=$(tail -n +2 {input.library_complexity:q})
-        METRICS_SOURCE=$(echo "$LC_DATA" | cut -f2)
-        LC_UP_EXAM=$(echo "$LC_DATA" | cut -f3)
-        LC_RP_EXAM=$(echo "$LC_DATA" | cut -f4)
-        LC_SEC_SUP=$(echo "$LC_DATA" | cut -f5)
-        LC_UNMAPPED=$(echo "$LC_DATA" | cut -f6)
-        LC_UP_DUP=$(echo "$LC_DATA" | cut -f7)
-        LC_RP_DUP=$(echo "$LC_DATA" | cut -f8)
-        LC_RP_OPT=$(echo "$LC_DATA" | cut -f9)
-        LC_PCT_DUP=$(echo "$LC_DATA" | cut -f10)
-        LC_EST_SIZE=$(echo "$LC_DATA" | cut -f11)
-        LC_TOT_EXAM=$(echo "$LC_DATA" | cut -f12)
-        LC_EST_DUP=$(echo "$LC_DATA" | cut -f13)
-
-        # Read NRF/PBC values (skip header)
-        NRF_PBC_DATA=$(tail -n +2 {input.nrf_pbc:q})
-        NRF_TOTAL=$(echo "$NRF_PBC_DATA" | cut -f2)
-        NRF_DISTINCT=$(echo "$NRF_PBC_DATA" | cut -f3)
-        NRF_ONE=$(echo "$NRF_PBC_DATA" | cut -f4)
-        NRF_TWO=$(echo "$NRF_PBC_DATA" | cut -f5)
-        NRF_NRF=$(echo "$NRF_PBC_DATA" | cut -f6)
-        NRF_PBC1=$(echo "$NRF_PBC_DATA" | cut -f7)
-        NRF_PBC2=$(echo "$NRF_PBC_DATA" | cut -f8)
-
-        if [[ "{params.has_blacklist}" == "no" ]]; then
-            if [[ "$BL_PEAK_COUNT" != "NA" ]]; then
-                BL_PEAK_COUNT="NA"
-            fi
-        fi
-
-        # Header
-        printf "sample\\tassay\\ttarget\\tgenome\\tlayout\\tpeak_mode\\t" \
-            > {output:q}
-        printf "use_control\\tcontrol_type\\tfinal_bam\\tpeaks\\t" \
-            >> {output:q}
-        printf "blacklist\\tblacklist_filtered_bam\\t" \
-            >> {output:q}
-        printf "blacklist_filtered_peaks\\ttotal_reads\\t" \
-            >> {output:q}
-        printf "reads_in_peaks\\tfrip\\tpeak_count\\t" \
-            >> {output:q}
-        printf "blacklist_filtered_peak_count\\t" \
-            >> {output:q}
-        printf "metrics_source\\tunpaired_reads_examined\\t" \
-            >> {output:q}
-        printf "read_pairs_examined\\t" \
-            >> {output:q}
-        printf "secondary_or_supplementary_reads\\t" \
-            >> {output:q}
-        printf "unmapped_reads\\tunpaired_read_duplicates\\t" \
-            >> {output:q}
-        printf "read_pair_duplicates\\t" \
-            >> {output:q}
-        printf "read_pair_optical_duplicates\\t" \
-            >> {output:q}
-        printf "percent_duplication\\testimated_library_size\\t" \
-            >> {output:q}
-        printf "total_reads_examined\\t" \
-            >> {output:q}
-        printf "duplicate_reads_estimate\\t" \
-            >> {output:q}
-        printf "total_fragments\\tdistinct_fragments\\t" \
-            >> {output:q}
-        printf "one_read_fragments\\ttwo_read_fragments\\t" \
-            >> {output:q}
-        printf "nrf\\tpbc1\\tpbc2\\n" \
-            >> {output:q}
-
-        # Data
-        printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t" \
-            {params.sample:q} \
-            {params.assay:q} \
-            {params.target:q} \
-            {params.genome:q} \
-            {params.layout:q} \
-            {params.peak_mode:q} \
-            >> {output:q}
-        printf "%s\\t%s\\t%s\\t%s\\t" \
-            "{USE_CONTROL}" \
-            {params.ctrl_type:q} \
-            {input.final_bam:q} \
-            {params.peaks_file:q} \
-            >> {output:q}
-        printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t" \
-            {params.blacklist:q} \
-            {params.bl_bam:q} \
-            {params.bl_peaks:q} \
-            "$TOTAL_READS" \
-            "$READS_IN_PEAKS" \
-            "$FRIP" \
-            "$PEAK_COUNT" \
-            "$BL_PEAK_COUNT" \
-            >> {output:q}
-        printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t" \
-            "$METRICS_SOURCE" \
-            "$LC_UP_EXAM" \
-            "$LC_RP_EXAM" \
-            "$LC_SEC_SUP" \
-            "$LC_UNMAPPED" \
-            "$LC_UP_DUP" \
-            "$LC_RP_DUP" \
-            "$LC_RP_OPT" \
-            "$LC_PCT_DUP" \
-            "$LC_EST_SIZE" \
-            "$LC_TOT_EXAM" \
-            "$LC_EST_DUP" \
-            >> {output:q}
-        printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" \
-            "$NRF_TOTAL" \
-            "$NRF_DISTINCT" \
-            "$NRF_ONE" \
-            "$NRF_TWO" \
-            "$NRF_NRF" \
-            "$NRF_PBC1" \
-            "$NRF_PBC2" \
-            >> {output:q}
+        mkdir -p "$(dirname {output:q})"
+        python3 scripts/assemble_qc_summary.py \\
+            --sample {params.sample:q} \\
+            --assay {params.assay:q} \\
+            --target {params.target:q} \\
+            --genome {params.genome:q} \\
+            --layout {params.layout:q} \\
+            --peak-mode {params.peak_mode:q} \\
+            --use-control "{USE_CONTROL}" \\
+            --control-type {params.ctrl_type:q} \\
+            --final-bam {input.final_bam:q} \\
+            --peaks-file {params.peaks_file:q} \\
+            --has-blacklist {params.has_blacklist:q} \\
+            --blacklist {params.blacklist:q} \\
+            --bl-bam {params.bl_bam:q} \\
+            --bl-peaks {params.bl_peaks:q} \\
+            --peak-counts {input.peak_counts:q} \\
+            --frip {input.frip:q} \\
+            --library-complexity {input.library_complexity:q} \\
+            --nrf-pbc {input.nrf_pbc:q} \\
+            --output {output:q}
         """
 
 
@@ -911,50 +902,8 @@ rule stage3_qc_summary:
         "../envs/python.yml",
     shell:
         """
-        set -- {input:q}
-        if [[ "$#" -eq 0 ]]; then
-            printf "sample\\tassay\\ttarget\\tgenome\\tlayout\\tpeak_mode\\t" \
-                > {output:q}
-            printf "use_control\\tcontrol_type\\tfinal_bam\\tpeaks\\t" \
-                >> {output:q}
-            printf "blacklist\\tblacklist_filtered_bam\\t" \
-                >> {output:q}
-            printf "blacklist_filtered_peaks\\ttotal_reads\\t" \
-                >> {output:q}
-            printf "reads_in_peaks\\tfrip\\tpeak_count\\t" \
-                >> {output:q}
-            printf "blacklist_filtered_peak_count\\t" \
-                >> {output:q}
-            printf "metrics_source\\tunpaired_reads_examined\\t" \
-                >> {output:q}
-            printf "read_pairs_examined\\t" \
-                >> {output:q}
-            printf "secondary_or_supplementary_reads\\t" \
-                >> {output:q}
-            printf "unmapped_reads\\tunpaired_read_duplicates\\t" \
-                >> {output:q}
-            printf "read_pair_duplicates\\t" \
-                >> {output:q}
-            printf "read_pair_optical_duplicates\\t" \
-                >> {output:q}
-            printf "percent_duplication\\testimated_library_size\\t" \
-                >> {output:q}
-            printf "total_reads_examined\\t" \
-                >> {output:q}
-            printf "duplicate_reads_estimate\\t" \
-                >> {output:q}
-            printf "total_fragments\\tdistinct_fragments\\t" \
-                >> {output:q}
-            printf "one_read_fragments\\ttwo_read_fragments\\t" \
-                >> {output:q}
-            printf "nrf\\tpbc1\\tpbc2\\n" \
-                >> {output:q}
-            exit 0
-        fi
-
-        # Emit header from first file, then concatenate data rows
-        head -n 1 "$1" > {output:q}
-        for f in "$@"; do
-            tail -n +2 "$f" >> {output:q}
-        done
+        mkdir -p "$(dirname {output:q})"
+        python3 scripts/aggregate_qc_summary.py \\
+            --output {output:q} \\
+            {input:q}
         """

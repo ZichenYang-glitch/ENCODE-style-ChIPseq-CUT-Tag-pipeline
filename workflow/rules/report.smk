@@ -153,3 +153,25 @@ if MULTIQC:
                 --force \
                 {params.title} {params.extra} 2>&1 | tee {log:q}
             """
+
+
+# ---------------------------------------------------------------------------
+# Stage 25: Result manifest
+# ---------------------------------------------------------------------------
+
+rule result_manifest:
+    output:
+        f"{OUTDIR}/multiqc/result_manifest.tsv"
+    input:
+        _manifest_dependency_targets()
+    params:
+        config_json = _MANIFEST_CONFIG_JSON
+    conda:
+        "../envs/python.yml"
+    shell:
+        """
+        mkdir -p "$(dirname {output:q})"
+        python3 scripts/make_manifest.py \\
+            --config-json {params.config_json:q} \\
+            --output {output:q}
+        """

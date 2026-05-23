@@ -382,6 +382,41 @@ TSS_SAMPLE_IDS = [
 TSS_GENOMES = sorted({SAMPLE_MAP[sid]["genome"] for sid in TSS_SAMPLE_IDS})
 
 
+# Stage 22: FE/ppois BigWig gating — requires signal_tracks + chrom_sizes
+# has_genome_resource() checks non-empty genome_resources.<genome>.chrom_sizes.
+# Path existence for non-empty chrom_sizes is already enforced by validate_samples.py.
+SIGNAL_BW_SAMPLE_IDS = [
+    sid for sid in TREATMENT_SAMPLE_IDS
+    if QC_CONFIG.get("signal_tracks", True)
+    and has_genome_resource(sid, "chrom_sizes")
+]
+
+if STAGE4B:
+    SIGNAL_BW_EXPERIMENTS = [
+        exp for exp in MULTI_BIOREP_EXPERIMENTS
+        if QC_CONFIG.get("signal_tracks", True)
+        and SIGNAL_BW_SAMPLE_IDS
+        and has_genome_resource(
+            TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0], "chrom_sizes"
+        )
+    ]
+else:
+    SIGNAL_BW_EXPERIMENTS = []
+
+
+def _pooled_chrom_sizes(experiment):
+    """Return chrom_sizes path for experiment's first treatment sample genome.
+
+    Assumption: all treatment samples in a pooled experiment share the same
+    genome. Mixed-genome pooled experiments are not validated against in
+    this slice.
+    """
+    tids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
+    if not tids:
+        return ""
+    return get_genome_resource(tids[0], "chrom_sizes")
+
+
 # ---------------------------------------------------------------------------
 # 4. Assay policy functions (no rules — define-only files)
 # ---------------------------------------------------------------------------
@@ -461,491 +496,417 @@ def _macs3_inputs(wildcards):
 
 
 # ---------------------------------------------------------------------------
-# 7. Default target — rule all
+# 7. Target builder helpers — return flat lists for rule all input
+# ---------------------------------------------------------------------------
+
+
+def _base_targets():
+    """Core pipeline outputs: done markers, CPM BigWig, peaks, MultiQC."""
+    targets = []
+    targets += expand(
+        "{outdir}/{sample}/logs/{sample}.pipeline.done",
+        outdir=OUTDIR,
+        sample=TREATMENT_SAMPLE_IDS,
+    )
+    targets += expand(
+        "{outdir}/{sample}/03_bigwig/{sample}.CPM.bw",
+        outdir=OUTDIR,
+        sample=ACTIVE_SAMPLE_IDS,
+    )
+    targets += expand(
+        "{outdir}/{sample}/04_peaks/{sample}",
+        outdir=OUTDIR,
+        sample=TREATMENT_SAMPLE_IDS,
+    )
+    if MULTIQC:
+        targets += [f"{OUTDIR}/multiqc/multiqc_report.html"]
+    return targets
+
+
+def _manifest_dependency_targets():
+    """Return all targets the manifest must wait for (all rule-all minus manifest)."""
+    targets = []
+    targets += _base_targets()
+    targets += _blacklist_targets()
+    targets += _single_sample_qc_targets()
+    targets += _signal_targets()
+    targets += _cuttag_targets()
+    targets += _advanced_qc_targets()
+    targets += _tss_targets()
+    targets += _replicate_targets()
+    targets += _idr_targets()
+    # Remove the manifest itself (circular dependency)
+    manifest_path = f"{OUTDIR}/multiqc/result_manifest.tsv"
+    targets = [t for t in targets if t != manifest_path]
+    return targets
+
+
+import json as _json
+_MANIFEST_CONFIG_JSON = _json.dumps(VALIDATED_CONFIG)
+
+
+def _blacklist_targets():
+    """Blacklist-filtered BAM + peaks (resource-gated per genome)."""
+    targets = []
+    if QC_CONFIG.get("blacklist_filter", True) and BLACKLIST_SAMPLES:
+        targets += expand(
+            "{outdir}/{sample}/02_align/{sample}.blacklist_filtered.bam",
+            outdir=OUTDIR,
+            sample=BLACKLIST_SAMPLES,
+        )
+        targets += expand(
+            "{outdir}/{sample}/02_align/{sample}.blacklist_filtered.bam.bai",
+            outdir=OUTDIR,
+            sample=BLACKLIST_SAMPLES,
+        )
+        narrow_bl = [s for s in BLACKLIST_SAMPLES if SAMPLE_MAP[s]["peak_mode"] == "narrow"]
+        broad_bl = [s for s in BLACKLIST_SAMPLES if SAMPLE_MAP[s]["peak_mode"] == "broad"]
+        if narrow_bl:
+            targets += expand(
+                "{outdir}/{sample}/04_peaks/{sample}_blacklist_filtered/{sample}_peaks.blacklist_filtered.narrowPeak",
+                outdir=OUTDIR,
+                sample=narrow_bl,
+            )
+        if broad_bl:
+            targets += expand(
+                "{outdir}/{sample}/04_peaks/{sample}_blacklist_filtered/{sample}_peaks.blacklist_filtered.broadPeak",
+                outdir=OUTDIR,
+                sample=broad_bl,
+            )
+    return targets
+
+
+def _single_sample_qc_targets():
+    """Per-sample QC: peak counts, library complexity, NRF/PBC, FRiP, summaries."""
+    targets = []
+    if QC_CONFIG.get("summary", True):
+        targets += expand(
+            "{outdir}/{sample}/01_qc/{sample}.peak_counts.tsv",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+    if QC_CONFIG.get("library_complexity", True) or QC_CONFIG.get("summary", True):
+        targets += expand(
+            "{outdir}/{sample}/01_qc/{sample}.library_complexity.tsv",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+    if QC_CONFIG.get("nrf_pbc", True) or QC_CONFIG.get("summary", True):
+        targets += expand(
+            "{outdir}/{sample}/01_qc/{sample}.nrf_pbc.tsv",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+    if QC_CONFIG.get("frip", True) or QC_CONFIG.get("summary", True):
+        targets += expand(
+            "{outdir}/{sample}/01_qc/{sample}.frip.tsv",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+    if QC_CONFIG.get("summary", True):
+        targets += expand(
+            "{outdir}/{sample}/01_qc/{sample}.qc_summary.tsv",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+    if QC_CONFIG.get("summary", True) and TREATMENT_SAMPLE_IDS:
+        targets += [f"{OUTDIR}/multiqc/stage3_qc_summary.tsv"]
+    return targets
+
+
+def _signal_targets():
+    """MACS3 FE/ppois bedGraph + BigWig for single-sample and pooled experiments."""
+    targets = []
+    if QC_CONFIG.get("signal_tracks", True):
+        # Single-sample bedGraph
+        targets += expand(
+            "{outdir}/{sample}/03_signal/{sample}.FE.bdg",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/03_signal/{sample}.ppois.bdg",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+    # Stage 22: single-sample BigWig (gated on signal_tracks + chrom_sizes)
+    if SIGNAL_BW_SAMPLE_IDS:
+        targets += expand(
+            "{outdir}/{sample}/03_signal/{sample}.FE.bw",
+            outdir=OUTDIR,
+            sample=SIGNAL_BW_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/03_signal/{sample}.ppois.bw",
+            outdir=OUTDIR,
+            sample=SIGNAL_BW_SAMPLE_IDS,
+        )
+    # Stage 6a: pooled bedGraph
+    if STAGE4B and MULTI_BIOREP_EXPERIMENTS and QC_CONFIG.get("signal_tracks", True):
+        targets += expand(
+            "{outdir}/experiments/{experiment}/03_signal/{experiment}.pooled.FE.bdg",
+            outdir=OUTDIR,
+            experiment=MULTI_BIOREP_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/03_signal/{experiment}.pooled.ppois.bdg",
+            outdir=OUTDIR,
+            experiment=MULTI_BIOREP_EXPERIMENTS,
+        )
+    # Stage 22: pooled BigWig (gated on signal_tracks + chrom_sizes)
+    if STAGE4B and SIGNAL_BW_EXPERIMENTS:
+        targets += expand(
+            "{outdir}/experiments/{experiment}/03_signal/{experiment}.pooled.FE.bw",
+            outdir=OUTDIR,
+            experiment=SIGNAL_BW_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/03_signal/{experiment}.pooled.ppois.bw",
+            outdir=OUTDIR,
+            experiment=SIGNAL_BW_EXPERIMENTS,
+        )
+    return targets
+
+
+def _cuttag_targets():
+    """SEACR sidecar + CUT&Tag fragment-size QC."""
+    targets = []
+    if SEACR_ENABLED and SEACR_SAMPLE_IDS:
+        targets += expand(
+            "{outdir}/{sample}/04_peaks_seacr/{sample}.bedgraph",
+            outdir=OUTDIR,
+            sample=SEACR_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/04_peaks_seacr/{sample}/{sample}.seacr.{mode}.bed",
+            outdir=OUTDIR,
+            sample=SEACR_SAMPLE_IDS,
+            mode=[SEACR_MODE],
+        )
+    if QC_CONFIG.get("cuttag_fragment_size", True) and CUTTAG_ACTIVE_SAMPLE_IDS:
+        targets += expand(
+            "{outdir}/{sample}/01_qc/{sample}.cuttag_fragment_size.tsv",
+            outdir=OUTDIR,
+            sample=CUTTAG_ACTIVE_SAMPLE_IDS,
+        )
+    return targets
+
+
+def _advanced_qc_targets():
+    """Opt-in QC: cross-correlation, preseq, Picard metrics."""
+    targets = []
+    if QC_CONFIG.get("cross_correlation", False) and TREATMENT_SAMPLE_IDS:
+        targets += expand(
+            "{outdir}/{sample}/05_qc/cross_correlation/{sample}.cc.qc",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/05_qc/cross_correlation/{sample}.cc.plot.pdf",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+        targets += [f"{OUTDIR}/multiqc/cross_correlation_summary.tsv"]
+    if QC_CONFIG.get("preseq_complexity", False) and TREATMENT_SAMPLE_IDS:
+        targets += expand(
+            "{outdir}/{sample}/05_qc/preseq/{sample}.preseq.txt",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+    if QC_CONFIG.get("picard_metrics", False) and TREATMENT_SAMPLE_IDS:
+        targets += expand(
+            "{outdir}/{sample}/05_qc/picard/{sample}.alignment_summary_metrics",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/05_qc/picard/{sample}.insert_size_metrics",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/05_qc/picard/{sample}.quality_distribution_metrics",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/05_qc/picard/{sample}.insert_size_histogram.pdf",
+            outdir=OUTDIR,
+            sample=TREATMENT_SAMPLE_IDS,
+        )
+    return targets
+
+
+def _tss_targets():
+    """TSS enrichment profiles (requires genome_resources.<genome>.gtf)."""
+    targets = []
+    if QC_CONFIG.get("tss_enrichment", False) and TSS_GENOMES:
+        targets += expand(
+            "{outdir}/reference/{genome}.tss.bed",
+            outdir=OUTDIR,
+            genome=TSS_GENOMES,
+        )
+    if QC_CONFIG.get("tss_enrichment", False) and TSS_SAMPLE_IDS:
+        targets += expand(
+            "{outdir}/{sample}/05_qc/tss/{sample}.tss_matrix.gz",
+            outdir=OUTDIR,
+            sample=TSS_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/05_qc/tss/{sample}.tss_profile.tsv",
+            outdir=OUTDIR,
+            sample=TSS_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/05_qc/tss/{sample}.tss_profile.pdf",
+            outdir=OUTDIR,
+            sample=TSS_SAMPLE_IDS,
+        )
+    return targets
+
+
+def _replicate_targets():
+    """Stage 4b/6b: pooled BAMs, biorep BAMs, pooled peaks, pooled QC summary."""
+    targets = []
+    if STAGE4B and MULTI_BIOREP_EXPERIMENTS:
+        targets += expand(
+            "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.final.bam",
+            outdir=OUTDIR,
+            experiment=MULTI_BIOREP_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.final.bam.bai",
+            outdir=OUTDIR,
+            experiment=MULTI_BIOREP_EXPERIMENTS,
+        )
+    if STAGE4B and _EXP_LIST:
+        targets += expand(
+            "{outdir}/experiments/{experiment}/02_align/biorep{bio_rep}.final.bam",
+            zip,
+            outdir=OUTDIR,
+            experiment=_EXP_LIST, bio_rep=_BR_LIST,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/02_align/biorep{bio_rep}.final.bam.bai",
+            zip,
+            outdir=OUTDIR,
+            experiment=_EXP_LIST, bio_rep=_BR_LIST,
+        )
+    if STAGE4B and POOLED_CONTROL_EXPERIMENTS:
+        targets += expand(
+            "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.control.final.bam",
+            outdir=OUTDIR,
+            experiment=POOLED_CONTROL_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.control.final.bam.bai",
+            outdir=OUTDIR,
+            experiment=POOLED_CONTROL_EXPERIMENTS,
+        )
+    if STAGE4B and MULTI_BIOREP_EXPERIMENTS:
+        targets += expand(
+            "{outdir}/experiments/{experiment}/04_peaks/pooled/{experiment}_pooled_peaks",
+            outdir=OUTDIR,
+            experiment=MULTI_BIOREP_EXPERIMENTS,
+        )
+    if STAGE4B and MULTI_BIOREP_EXPERIMENTS:
+        targets += expand(
+            "{outdir}/experiments/{experiment}/01_qc/{experiment}.pooled_qc_summary.tsv",
+            outdir=OUTDIR,
+            experiment=MULTI_BIOREP_EXPERIMENTS,
+        )
+    return targets
+
+
+def _idr_targets():
+    """Stage 5a/5b: IDR-ready peaks, true-replicate IDR, pseudoreplicate IDR, final outputs."""
+    targets = []
+    if STAGE5 and IDR_EXPERIMENTS:
+        targets += expand(
+            "{outdir}/experiments/{experiment}/04_peaks/idr/{experiment}_biorep{bio_rep}_idr_peaks.narrowPeak",
+            zip,
+            outdir=OUTDIR,
+            experiment=IDR_BIOREP_EXP_LIST, bio_rep=IDR_BIOREP_LIST,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_idr/true_replicates/idr.txt",
+            outdir=OUTDIR,
+            experiment=IDR_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_idr/true_replicates/idr.thresholded.narrowPeak",
+            outdir=OUTDIR,
+            experiment=IDR_EXPERIMENTS,
+        )
+    if STAGE5 and IDR_EXPERIMENTS:
+        targets += expand(
+            "{outdir}/experiments/{experiment}/04_peaks/idr/{experiment}_{source}_pr{pr}_idr_peaks.narrowPeak",
+            zip,
+            outdir=OUTDIR,
+            experiment=IDR_PR_PEAK_EXP, source=IDR_PR_PEAK_SRC, pr=IDR_PR_PEAK_PR,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_idr/self_pseudoreplicates/biorep{bio_rep}.idr.txt",
+            zip,
+            outdir=OUTDIR,
+            experiment=IDR_SELF_EXP, bio_rep=IDR_SELF_BR,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_idr/self_pseudoreplicates/biorep{bio_rep}.idr.thresholded.narrowPeak",
+            zip,
+            outdir=OUTDIR,
+            experiment=IDR_SELF_EXP, bio_rep=IDR_SELF_BR,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_idr/pooled_pseudoreplicates/idr.txt",
+            outdir=OUTDIR,
+            experiment=IDR_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_idr/pooled_pseudoreplicates/idr.thresholded.narrowPeak",
+            outdir=OUTDIR,
+            experiment=IDR_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_idr/final/reproducibility_summary.tsv",
+            outdir=OUTDIR,
+            experiment=IDR_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_idr/final/conservative.narrowPeak",
+            outdir=OUTDIR,
+            experiment=IDR_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_idr/final/optimal.narrowPeak",
+            outdir=OUTDIR,
+            experiment=IDR_EXPERIMENTS,
+        )
+    return targets
+
+
+# ---------------------------------------------------------------------------
+# 8. Default target — rule all
 #    Defined BEFORE executable rule includes to remain the default target.
 # ---------------------------------------------------------------------------
 
 rule all:
     input:
-        done    = expand(
-            "{outdir}/{sample}/logs/{sample}.pipeline.done",
-            outdir=OUTDIR,
-            sample=TREATMENT_SAMPLE_IDS,
-        ),
-        bigwig  = expand(
-            "{outdir}/{sample}/03_bigwig/{sample}.CPM.bw",
-            outdir=OUTDIR,
-            sample=ACTIVE_SAMPLE_IDS,
-        ),
-        peaks   = expand(
-            "{outdir}/{sample}/04_peaks/{sample}",
-            outdir=OUTDIR,
-            sample=TREATMENT_SAMPLE_IDS,
-        ),
-        multiqc = (
-            [f"{OUTDIR}/multiqc/multiqc_report.html"] if MULTIQC else []
-        ),
-        # Stage 3 QC: peak counts (enabled when summary is true)
-        peak_counts = (
-            expand(
-                "{outdir}/{sample}/01_qc/{sample}.peak_counts.tsv",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("summary", True) else []
-        ),
-        # Stage 3 QC: library complexity (enabled when library_complexity or summary is true)
-        lib_complexity = (
-            expand(
-                "{outdir}/{sample}/01_qc/{sample}.library_complexity.tsv",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if (QC_CONFIG.get("library_complexity", True)
-                or QC_CONFIG.get("summary", True))
-            else []
-        ),
-        # Stage 3 QC: NRF/PBC (enabled when nrf_pbc or summary is true)
-        nrf_pbc = (
-            expand(
-                "{outdir}/{sample}/01_qc/{sample}.nrf_pbc.tsv",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if (QC_CONFIG.get("nrf_pbc", True)
-                or QC_CONFIG.get("summary", True))
-            else []
-        ),
-        # Stage 3 QC: FRiP (enabled when frip or summary is true)
-        frip = (
-            expand(
-                "{outdir}/{sample}/01_qc/{sample}.frip.tsv",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if (QC_CONFIG.get("frip", True) or QC_CONFIG.get("summary", True))
-            else []
-        ),
-        # Stage 3 QC: per-sample summary (enabled when summary is true)
-        qc_summary = (
-            expand(
-                "{outdir}/{sample}/01_qc/{sample}.qc_summary.tsv",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("summary", True) else []
-        ),
-        # Stage 3 QC: MACS3 FE/ppois bedGraph signal tracks
-        signal_fe = (
-            expand(
-                "{outdir}/{sample}/03_signal/{sample}.FE.bdg",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("signal_tracks", True) else []
-        ),
-        signal_ppois = (
-            expand(
-                "{outdir}/{sample}/03_signal/{sample}.ppois.bdg",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("signal_tracks", True) else []
-        ),
-        # Stage 3 QC: blacklist-filtered BAM (only for samples with a blacklist)
-        bl_bam = (
-            expand(
-                "{outdir}/{sample}/02_align/{sample}.blacklist_filtered.bam",
-                outdir=OUTDIR,
-                sample=BLACKLIST_SAMPLES,
-            )
-            if QC_CONFIG.get("blacklist_filter", True) and BLACKLIST_SAMPLES
-            else []
-        ),
-        bl_bai = (
-            expand(
-                "{outdir}/{sample}/02_align/{sample}.blacklist_filtered.bam.bai",
-                outdir=OUTDIR,
-                sample=BLACKLIST_SAMPLES,
-            )
-            if QC_CONFIG.get("blacklist_filter", True) and BLACKLIST_SAMPLES
-            else []
-        ),
-        # Stage 3 QC: blacklist-filtered peaks (per peak_mode for samples with a blacklist)
-        bl_peaks_narrow = (
-            expand(
-                "{outdir}/{sample}/04_peaks/{sample}_blacklist_filtered/{sample}_peaks.blacklist_filtered.narrowPeak",
-                outdir=OUTDIR,
-                sample=[s for s in BLACKLIST_SAMPLES if SAMPLE_MAP[s]["peak_mode"] == "narrow"],
-            )
-            if QC_CONFIG.get("blacklist_filter", True) and [
-                s for s in BLACKLIST_SAMPLES if SAMPLE_MAP[s]["peak_mode"] == "narrow"
-            ]
-            else []
-        ),
-        bl_peaks_broad = (
-            expand(
-                "{outdir}/{sample}/04_peaks/{sample}_blacklist_filtered/{sample}_peaks.blacklist_filtered.broadPeak",
-                outdir=OUTDIR,
-                sample=[s for s in BLACKLIST_SAMPLES if SAMPLE_MAP[s]["peak_mode"] == "broad"],
-            )
-            if QC_CONFIG.get("blacklist_filter", True) and [
-                s for s in BLACKLIST_SAMPLES if SAMPLE_MAP[s]["peak_mode"] == "broad"
-            ]
-            else []
-        ),
-        # Stage 3 QC: project-level aggregated summary
-        stage3_summary = (
-            [f"{OUTDIR}/multiqc/stage3_qc_summary.tsv"]
-            if QC_CONFIG.get("summary", True) and TREATMENT_SAMPLE_IDS else []
-        ),
-        # Stage 7b: SEACR sidecar outputs
-        seacr_bg = (
-            expand(
-                "{outdir}/{sample}/04_peaks_seacr/{sample}.bedgraph",
-                outdir=OUTDIR,
-                sample=SEACR_SAMPLE_IDS,
-            )
-            if SEACR_ENABLED and SEACR_SAMPLE_IDS else []
-        ),
-        seacr_peaks = (
-            expand(
-                "{outdir}/{sample}/04_peaks_seacr/{sample}/{sample}.seacr.{mode}.bed",
-                outdir=OUTDIR,
-                sample=SEACR_SAMPLE_IDS,
-                mode=[SEACR_MODE],
-            )
-            if SEACR_ENABLED and SEACR_SAMPLE_IDS else []
-        ),
-        # Stage 7a: CUT&Tag fragment-size QC
-        cuttag_frag_size = (
-            expand(
-                "{outdir}/{sample}/01_qc/{sample}.cuttag_fragment_size.tsv",
-                outdir=OUTDIR,
-                sample=CUTTAG_ACTIVE_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("cuttag_fragment_size", True)
-            and CUTTAG_ACTIVE_SAMPLE_IDS
-            else []
-        ),
-        # Stage 12: cross-correlation QC (phantompeakqualtools)
-        cross_corr_qc = (
-            expand(
-                "{outdir}/{sample}/05_qc/cross_correlation/{sample}.cc.qc",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("cross_correlation", False)
-            and TREATMENT_SAMPLE_IDS
-            else []
-        ),
-        cross_corr_pdf = (
-            expand(
-                "{outdir}/{sample}/05_qc/cross_correlation/{sample}.cc.plot.pdf",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("cross_correlation", False)
-            and TREATMENT_SAMPLE_IDS
-            else []
-        ),
-        # Stage 14: project-level cross-correlation summary
-        cross_corr_summary = (
-            [f"{OUTDIR}/multiqc/cross_correlation_summary.tsv"]
-            if QC_CONFIG.get("cross_correlation", False)
-            and TREATMENT_SAMPLE_IDS
-            else []
-        ),
-        # Stage 12: preseq library complexity
-        preseq_out = (
-            expand(
-                "{outdir}/{sample}/05_qc/preseq/{sample}.preseq.txt",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("preseq_complexity", False)
-            and TREATMENT_SAMPLE_IDS
-            else []
-        ),
-        # Stage 12: Picard CollectMultipleMetrics
-        picard_align = (
-            expand(
-                "{outdir}/{sample}/05_qc/picard/{sample}.alignment_summary_metrics",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("picard_metrics", False)
-            and TREATMENT_SAMPLE_IDS
-            else []
-        ),
-        picard_insert = (
-            expand(
-                "{outdir}/{sample}/05_qc/picard/{sample}.insert_size_metrics",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("picard_metrics", False)
-            and TREATMENT_SAMPLE_IDS
-            else []
-        ),
-        picard_qual = (
-            expand(
-                "{outdir}/{sample}/05_qc/picard/{sample}.quality_distribution_metrics",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("picard_metrics", False)
-            and TREATMENT_SAMPLE_IDS
-            else []
-        ),
-        picard_ins_hist = (
-            expand(
-                "{outdir}/{sample}/05_qc/picard/{sample}.insert_size_histogram.pdf",
-                outdir=OUTDIR,
-                sample=TREATMENT_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("picard_metrics", False)
-            and TREATMENT_SAMPLE_IDS
-            else []
-        ),
-        # Stage 18: TSS enrichment profiles (requires genome_resources.<genome>.gtf)
-        tss_bed = (
-            expand(
-                "{outdir}/reference/{genome}.tss.bed",
-                outdir=OUTDIR,
-                genome=TSS_GENOMES,
-            )
-            if QC_CONFIG.get("tss_enrichment", False)
-            and TSS_GENOMES
-            else []
-        ),
-        tss_matrix = (
-            expand(
-                "{outdir}/{sample}/05_qc/tss/{sample}.tss_matrix.gz",
-                outdir=OUTDIR,
-                sample=TSS_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("tss_enrichment", False)
-            and TSS_SAMPLE_IDS
-            else []
-        ),
-        tss_profile_tsv = (
-            expand(
-                "{outdir}/{sample}/05_qc/tss/{sample}.tss_profile.tsv",
-                outdir=OUTDIR,
-                sample=TSS_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("tss_enrichment", False)
-            and TSS_SAMPLE_IDS
-            else []
-        ),
-        tss_profile_pdf = (
-            expand(
-                "{outdir}/{sample}/05_qc/tss/{sample}.tss_profile.pdf",
-                outdir=OUTDIR,
-                sample=TSS_SAMPLE_IDS,
-            )
-            if QC_CONFIG.get("tss_enrichment", False)
-            and TSS_SAMPLE_IDS
-            else []
-        ),
-        # Stage 4b: pooled treatment BAMs for multi-biorep experiments
-        pooled_bam = (
-            expand(
-                "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.final.bam",
-                outdir=OUTDIR,
-                experiment=MULTI_BIOREP_EXPERIMENTS,
-            )
-            if STAGE4B and MULTI_BIOREP_EXPERIMENTS else []
-        ),
-        pooled_bai = (
-            expand(
-                "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.final.bam.bai",
-                outdir=OUTDIR,
-                experiment=MULTI_BIOREP_EXPERIMENTS,
-            )
-            if STAGE4B and MULTI_BIOREP_EXPERIMENTS else []
-        ),
-        # Stage 4b: biorep BAMs for all treatment bio-reps across all experiments
-        # (scheduled when STAGE4B is true; symlinks for single-tech-rep bio-reps)
-        biorep_bam = (
-            expand(
-                "{outdir}/experiments/{experiment}/02_align/biorep{bio_rep}.final.bam",
-                zip,
-                outdir=OUTDIR,
-                experiment=_EXP_LIST, bio_rep=_BR_LIST,
-            )
-            if STAGE4B and _EXP_LIST else []
-        ),
-        biorep_bai = (
-            expand(
-                "{outdir}/experiments/{experiment}/02_align/biorep{bio_rep}.final.bam.bai",
-                zip,
-                outdir=OUTDIR,
-                experiment=_EXP_LIST, bio_rep=_BR_LIST,
-            )
-            if STAGE4B and _EXP_LIST else []
-        ),
-        # Stage 4b: pooled control BAMs
-        pooled_ctrl_bam = (
-            expand(
-                "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.control.final.bam",
-                outdir=OUTDIR,
-                experiment=POOLED_CONTROL_EXPERIMENTS,
-            )
-            if STAGE4B and POOLED_CONTROL_EXPERIMENTS else []
-        ),
-        pooled_ctrl_bai = (
-            expand(
-                "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.control.final.bam.bai",
-                outdir=OUTDIR,
-                experiment=POOLED_CONTROL_EXPERIMENTS,
-            )
-            if STAGE4B and POOLED_CONTROL_EXPERIMENTS else []
-        ),
-        # Stage 4b: pooled MACS3 peaks
-        pooled_peaks = (
-            expand(
-                "{outdir}/experiments/{experiment}/04_peaks/pooled/{experiment}_pooled_peaks",
-                outdir=OUTDIR,
-                experiment=MULTI_BIOREP_EXPERIMENTS,
-            )
-            if STAGE4B and MULTI_BIOREP_EXPERIMENTS else []
-        ),
-        # Stage 6a: pooled experiment MACS3 signal tracks
-        pooled_signal_fe = (
-            expand(
-                "{outdir}/experiments/{experiment}/03_signal/{experiment}.pooled.FE.bdg",
-                outdir=OUTDIR,
-                experiment=MULTI_BIOREP_EXPERIMENTS,
-            )
-            if (
-                STAGE4B and MULTI_BIOREP_EXPERIMENTS
-                and QC_CONFIG.get("signal_tracks", True)
-            ) else []
-        ),
-        pooled_signal_ppois = (
-            expand(
-                "{outdir}/experiments/{experiment}/03_signal/{experiment}.pooled.ppois.bdg",
-                outdir=OUTDIR,
-                experiment=MULTI_BIOREP_EXPERIMENTS,
-            )
-            if (
-                STAGE4B and MULTI_BIOREP_EXPERIMENTS
-                and QC_CONFIG.get("signal_tracks", True)
-            ) else []
-        ),
-        # Stage 6b: pooled experiment QC summary
-        pooled_qc_summary = (
-            expand(
-                "{outdir}/experiments/{experiment}/01_qc/{experiment}.pooled_qc_summary.tsv",
-                outdir=OUTDIR,
-                experiment=MULTI_BIOREP_EXPERIMENTS,
-            )
-            if STAGE4B and MULTI_BIOREP_EXPERIMENTS else []
-        ),
-        # Stage 5a: IDR-ready per-biorep peaks
-        idr_biorep_peaks = (
-            expand(
-                "{outdir}/experiments/{experiment}/04_peaks/idr/{experiment}_biorep{bio_rep}_idr_peaks.narrowPeak",
-                zip,
-                outdir=OUTDIR,
-                experiment=IDR_BIOREP_EXP_LIST, bio_rep=IDR_BIOREP_LIST,
-            )
-            if STAGE5 and IDR_EXPERIMENTS else []
-        ),
-        # Stage 5a: true replicate IDR (raw + thresholded)
-        true_idr_raw = (
-            expand(
-                "{outdir}/experiments/{experiment}/06_idr/true_replicates/idr.txt",
-                outdir=OUTDIR,
-                experiment=IDR_EXPERIMENTS,
-            )
-            if STAGE5 and IDR_EXPERIMENTS else []
-        ),
-        true_idr_thresh = (
-            expand(
-                "{outdir}/experiments/{experiment}/06_idr/true_replicates/idr.thresholded.narrowPeak",
-                outdir=OUTDIR,
-                experiment=IDR_EXPERIMENTS,
-            )
-            if STAGE5 and IDR_EXPERIMENTS else []
-        ),
-        # Stage 5b: pseudorep MACS3 peaks
-        stage5b_pr_peaks = (
-            expand(
-                "{outdir}/experiments/{experiment}/04_peaks/idr/{experiment}_{source}_pr{pr}_idr_peaks.narrowPeak",
-                zip,
-                outdir=OUTDIR,
-                experiment=IDR_PR_PEAK_EXP, source=IDR_PR_PEAK_SRC, pr=IDR_PR_PEAK_PR,
-            )
-            if STAGE5 and IDR_EXPERIMENTS else []
-        ),
-        # Stage 5b: self-IDR targets
-        stage5b_self_idr = (
-            expand(
-                "{outdir}/experiments/{experiment}/06_idr/self_pseudoreplicates/biorep{bio_rep}.idr.txt",
-                zip,
-                outdir=OUTDIR,
-                experiment=IDR_SELF_EXP, bio_rep=IDR_SELF_BR,
-            )
-            if STAGE5 and IDR_EXPERIMENTS else []
-        ),
-        stage5b_self_idr_thresh = (
-            expand(
-                "{outdir}/experiments/{experiment}/06_idr/self_pseudoreplicates/biorep{bio_rep}.idr.thresholded.narrowPeak",
-                zip,
-                outdir=OUTDIR,
-                experiment=IDR_SELF_EXP, bio_rep=IDR_SELF_BR,
-            )
-            if STAGE5 and IDR_EXPERIMENTS else []
-        ),
-        # Stage 5b: pooled-IDR targets
-        stage5b_pooled_idr = (
-            expand(
-                "{outdir}/experiments/{experiment}/06_idr/pooled_pseudoreplicates/idr.txt",
-                outdir=OUTDIR,
-                experiment=IDR_EXPERIMENTS,
-            )
-            if STAGE5 and IDR_EXPERIMENTS else []
-        ),
-        stage5b_pooled_idr_thresh = (
-            expand(
-                "{outdir}/experiments/{experiment}/06_idr/pooled_pseudoreplicates/idr.thresholded.narrowPeak",
-                outdir=OUTDIR,
-                experiment=IDR_EXPERIMENTS,
-            )
-            if STAGE5 and IDR_EXPERIMENTS else []
-        ),
-        # Stage 5b: final summary
-        stage5b_summary_tsv = (
-            expand(
-                "{outdir}/experiments/{experiment}/06_idr/final/reproducibility_summary.tsv",
-                outdir=OUTDIR,
-                experiment=IDR_EXPERIMENTS,
-            )
-            if STAGE5 and IDR_EXPERIMENTS else []
-        ),
-        stage5b_cons = (
-            expand(
-                "{outdir}/experiments/{experiment}/06_idr/final/conservative.narrowPeak",
-                outdir=OUTDIR,
-                experiment=IDR_EXPERIMENTS,
-            )
-            if STAGE5 and IDR_EXPERIMENTS else []
-        ),
-        stage5b_opt = (
-            expand(
-                "{outdir}/experiments/{experiment}/06_idr/final/optimal.narrowPeak",
-                outdir=OUTDIR,
-                experiment=IDR_EXPERIMENTS,
-            )
-            if STAGE5 and IDR_EXPERIMENTS else []
-        ),
+        _base_targets()
+        + _blacklist_targets()
+        + _single_sample_qc_targets()
+        + _signal_targets()
+        + _cuttag_targets()
+        + _advanced_qc_targets()
+        + _tss_targets()
+        + _replicate_targets()
+        + _idr_targets()
+        # Stage 25: result manifest (runs after all other outputs are complete)
+        + ([f"{OUTDIR}/multiqc/result_manifest.tsv"] if QC_CONFIG.get("summary", True) and TREATMENT_SAMPLE_IDS else [])
 
 
 # ---------------------------------------------------------------------------
-# 8. Executable rule files
+# 9. Executable rule files
 # ---------------------------------------------------------------------------
 
 include: "rules/common.smk"

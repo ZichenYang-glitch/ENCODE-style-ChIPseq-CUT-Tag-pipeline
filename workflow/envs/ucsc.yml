@@ -1,0 +1,7 @@
+name: chipseq-ucsc
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - ucsc-bedgraphtobigwig

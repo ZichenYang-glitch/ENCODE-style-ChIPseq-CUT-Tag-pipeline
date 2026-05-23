@@ -15,9 +15,9 @@ Default mode is no-input / no-control. Optional controls can be enabled with
 `use_control: true` and supplied as an external control BAM or a FASTQ-based
 control sample row. Dependencies are managed with Conda.
 
-This is a **v0.1.0-beta research workflow release**: functional and tested
-with smoke and tiny-execution profiles, but not a fully ENCODE-compliant
-production pipeline. See [Limitations](#limitations) for known gaps.
+This is a **v0.2.0-rc1 research workflow release candidate**: feature-complete
+with 12 implementation stages, smoke and stress test suites, CI/CD, and
+documented assay/IDR contracts. See [Limitations](#limitations) for known gaps.
 
 ## Key Features
 
@@ -53,6 +53,13 @@ git clone https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipe
 cd ENCODE-style-ChIPseq-CUT-Tag-pipeline
 micromamba create -f workflow/envs/runner.yml
 micromamba activate chipseq-runner
+```
+
+Or with conda:
+
+```bash
+conda env create --file workflow/envs/runner.yml
+conda activate chipseq-runner
 ```
 
 The `chipseq-runner` environment is intentionally small: it contains Python,
@@ -340,7 +347,7 @@ results/
 
 - GC bias metrics (Picard CollectGcBiasMetrics) are not yet implemented.
 - FE/ppois bedGraph tracks are produced; BigWig conversion for those
-  tracks is not yet implemented.
+  tracks is available when `genome_resources.<genome>.chrom_sizes` is configured.
 - `bamCoverage` RPGC normalization requires `--effectiveGenomeSize` and
   is not yet wired up in `tool_parameters`.
 - MultiQC integration for experiment-level IDR and pooled QC summaries
@@ -358,6 +365,17 @@ See [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) for the full roadmap and planned
 follow-ups.
 
 ## Developer Notes
+
+### Roadmap and contract docs
+
+The v0.2 roadmap is in [`ROADMAP_v0.2.md`](ROADMAP_v0.2.md).
+The release checklist is in [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md).
+The output contract and manifest schema are in [`docs/output-contract.md`](docs/output-contract.md).
+Assay-specific behavioral contracts are in [`docs/assay-policy.md`](docs/assay-policy.md).
+The IDR reproducibility contract is in [`docs/idr-contract.md`](docs/idr-contract.md).
+Public data validation plans are under [`docs/release-checks/`](docs/release-checks/):
+[`stage27-public-data-validation-plan.md`](docs/release-checks/stage27-public-data-validation-plan.md),
+[`stage27b-metadata-ci-plan.md`](docs/release-checks/stage27b-metadata-ci-plan.md).
 
 ### Specs and schemas
 
@@ -427,11 +445,18 @@ for the full design.
 
 A GitHub Actions workflow runs on every PR and push to `main` / `stage*`.
 PR/push CI uses a lightweight `ci-fast` environment (python + pyyaml +
-snakemake only) for validation and dry-run checks:
+snakemake only) and runs validation plus 9 Python test suites:
 
 - Validate default config + sample sheet
 - Run validation stress tests
 - Run Stage 8a dry-run smoke profiles (7 profiles)
+- No-hardcoded-paths guard
+- Stage 22 BigWig stress tests
+- Stage 24 QC summary unit tests
+- Stage 25 manifest stress tests
+- Stage 27a public validation plan tests
+- Stage 27b metadata/CI plan tests
+- Stage 27c CI workflow tests
 
 A manual `workflow_dispatch` job runs the tiny real-execution harness
 using the core `chipseq` environment.  See `.github/workflows/ci.yml`

@@ -6,9 +6,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+(No changes yet — v0.2.0-rc1 is the current release candidate.)
+
+## [v0.2.0-rc1] - 2026-05-24
+
 ### Added
-- Opt-in TSS enrichment-style QC profiles from configured GTF annotations.
-- Baseline ATAC-seq assay support for narrowPeak MACS3 runs.
+- FE/ppois bedGraph-to-BigWig conversion for single-sample and pooled experiment
+  signal tracks (gated on `genome_resources.<genome>.chrom_sizes`)
+- Minimal project-level result manifest (`scripts/make_manifest.py`) recording core
+  output existence with 10-column TSV. Uses `validate_samples` for DAG-consistent
+  sample normalization and replicate/IDR eligibility gating
+- QC summary assembly migrated from shell printf+tail/cut to Python scripts
+  (`scripts/assemble_qc_summary.py`, `scripts/aggregate_qc_summary.py`), using
+  header-based `csv.DictReader` parsing while preserving the 37-column output contract
+- `scripts/prepare_public_validation_inputs.py` — stdlib-only dataset inventory helper
+  with `--check-metadata`, `--json`, `--dry-run` modes (no downloads)
+- v0.2 roadmap (`ROADMAP_v0.2.md`) and release checklist (`RELEASE_CHECKLIST.md`)
+- Output contract document (`docs/output-contract.md`) with implemented manifest schema
+- Conda install alternative in README
+
+### Changed
+- `rule all` target builder refactored into 9 helper functions (Stage 23) — zero DAG change
+- Updated `docs/configuration.md` to document `chrom_sizes` role in BigWig gating
+- Updated `docs/qc-interpretation.md` to reflect FE/ppois BigWig availability
+- Updated `KNOWN_ISSUES.md` and README Limitations to reflect completed stages
+
+### Documentation
+- Assay policy contract (`docs/assay-policy.md`) documenting ChIP-seq, CUT&Tag, and
+  ATAC-seq behavioral contracts from actual code
+- IDR contract (`docs/idr-contract.md`) documenting Stage 5 eligibility, outputs, and
+  scope boundaries
+- Public data validation plan (`docs/release-checks/stage27-public-data-validation-plan.md`)
+  with candidate datasets, expected outputs, and execution tiers
+- Public metadata verification checklist and CI/CD expansion plan
+  (`docs/release-checks/stage27b-metadata-ci-plan.md`) with acceptance criteria,
+  artifact policy, and 3-tier CI/CD design
+
+### Tests
+- Stage 22 BigWig DAG gating stress tests (6 cases)
+- Stage 24 QC summary unit tests (9 cases)
+- Stage 25 manifest stress tests (14 cases) including replicate/IDR eligibility
+- Stage 27a public validation plan tests (7 cases)
+- Stage 27b metadata/CI plan tests (7 cases)
+- Stage 27c CI workflow tests (7 cases)
+- Stage 28 release readiness tests (11 cases)
+- No-hardcoded-paths guard for all runtime and documentation files
+
+### CI
+- Fast PR checks expanded from 3 to 10 steps: validation plus 9 Python test suites
+  covering all completed stages
+- Manual `workflow_dispatch` tiny real execution retained
+- Public data execution remains manual/external (not in CI)
 
 ## [v0.1.0-beta] - 2026-05-19
 

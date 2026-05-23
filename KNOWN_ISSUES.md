@@ -8,9 +8,13 @@ Stage 1 Snakemake rule modularization and Stage 1.5 validation closeout.
 - Core workflow, validation, replicate model, TF ChIP-seq IDR,
   histone/CUT&Tag support, baseline ATAC-seq support, smoke tests, and CI are
   implemented.
-- Remaining roadmap: FE/ppois BigWig conversion, optional public real-data
-  validation, GoPeaks support, advanced IDR strategies, and richer
-  assay-specific QC.
+- FE/ppois BigWig conversion, QC summary Python refactor, target builder
+  cleanup, minimal result manifest, and assay/IDR contract audit are
+  complete (Stages 20-26).
+- Remaining roadmap: optional release polish.
+- ✅ Public data validation plan (Stage 27a — planned; no data downloaded).
+- ✅ Metadata verification and CI/CD plan (Stage 27b — designed; CI Tier 1 wired in Stage 27c).
+- ✅ CI/CD wiring (Stage 27c — fast-checks expanded to validation plus 9 Python test suites).
 
 ## Scope Gap
 
@@ -29,9 +33,13 @@ ChIP-seq pipeline. It now provides:
 - Baseline ATAC-seq dispatch for narrowPeak MACS3 runs (Stage 19)
 - Test profiles, CI, and execution documentation (Stage 8)
 
-Still missing:
+Still missing / deferred beyond v0.2:
 
-- BigWig conversion for FE/ppois bedGraph signal tracks
+- ✅ BigWig conversion for FE/ppois signal tracks. (Stage 22 — completed)
+- ✅ QC summary Python refactor (Stage 24 — completed)
+- ✅ Target builder cleanup (Stage 23 — completed)
+- ✅ Minimal result manifest (Stage 25 — completed)
+- ✅ Assay policy and IDR contract documentation (Stage 26 — completed)
 - GC bias metrics (Picard CollectGcBiasMetrics)
 - Browser-ready genome resource management
 
@@ -89,8 +97,11 @@ Estimated effort: 1-2 days (Stage 3a + 3b + 3c-1: ~1.25 days).
   distribution). (Stage 12 / 3c-2, completed 2026-05-21)
 - ✅ Add TSS enrichment-style profiles from GTF annotations. (Stage 18,
   completed 2026-05-22)
-- ⬜ Add bigWig conversion for FE/ppois signal tracks when chrom sizes and
-  conversion tooling are configured. (Stage 3c-2)
+- ✅ Add bigWig conversion for FE/ppois signal tracks when chrom sizes and
+  conversion tooling are configured. (Stage 22 — completed)
+- ✅ Add project-level result manifest (`results/multiqc/result_manifest.tsv`) covering
+  core per-sample, experiment-level, IDR, and project outputs with existence
+  status. (Stage 25 — completed)
 - ✅ Add a MultiQC custom config for cross-correlation summary visibility.
   (Stages 15-16)
 

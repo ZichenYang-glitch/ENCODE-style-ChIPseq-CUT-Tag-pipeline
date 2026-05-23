@@ -42,8 +42,10 @@ genome_resources:
 - **`effective_genome_size`**: Either a MACS3 shortcut (`hs` = 2913022398,
   `mm` = 2652783500)
   or a positive integer. Used for MACS3 peak calling and bamCoverage normalization.
-- **`chrom_sizes`**: Two-column file (chr, size). Reserved for future
-  bedGraph-to-BigWig and genome-window features.
+- **`chrom_sizes`**: Two-column file (chr, size). Required for FE/ppois
+  BigWig conversion. When non-empty and `qc.signal_tracks: true`, FE/ppois
+  bedGraph tracks are also converted to BigWig format. When empty, only
+  bedGraph signal tracks are produced. See the BigWig section below.
 - **`blacklist`**: BED file of problematic regions. Used when
   `qc.blacklist_filter: true`.
 - **`gtf`**: Annotation file required when `qc.tss_enrichment: true`; used to
@@ -101,7 +103,7 @@ qc:
 | `frip` | `true` | Compute FRiP (Fraction of Reads in Peaks) per sample. |
 | `library_complexity` | `true` | Parse duplicate metrics. Picard fields are reported when Picard is available; otherwise fallback fields are emitted as `NA`. |
 | `nrf_pbc` | `true` | Compute NRF and PBC1/PBC2 from the BAM file (library complexity from read counts). |
-| `signal_tracks` | `true` | Produce MACS3 FE (fold-enrichment) and ppois (Poisson p-value) bedGraph tracks per treatment sample and for pooled experiments. BigWig conversion is not yet implemented. |
+| `signal_tracks` | `true` | Produce MACS3 FE (fold-enrichment) and ppois (Poisson p-value) bedGraph tracks per treatment sample and for pooled experiments. FE/ppois BigWig conversion is available when `genome_resources.<genome>.chrom_sizes` is also configured. |
 | `summary` | `true` | Emit per-sample QC summary TSV and a project-level aggregate at `results/multiqc/stage3_qc_summary.tsv`. |
 | `cuttag_fragment_size` | `true` | Compute CUT&Tag fragment-size statistics for active samples with assay=cuttag. |
 | `cross_correlation` | `false` | Run phantompeakqualtools cross-correlation QC per treatment sample. Produces NSC/RSC metrics (`.cc.qc`) and a cross-correlation plot (`.cc.plot.pdf`). When enabled, also generates a project-level summary at `results/multiqc/cross_correlation_summary.tsv` and exposes it as a MultiQC custom section. See [docs/qc-interpretation.md](qc-interpretation.md) for interpretation guidance. |
