@@ -191,6 +191,27 @@ tool_parameters:
 | `bamcoverage` | `normalize_using` | `"CPM"` | deepTools bamCoverage normalization method. |
 | any block | `extra_args` | `""` | Additional CLI arguments passed through to the tool. Use sparingly. |
 
+## Strict input validation
+
+`scripts/validate_samples.py --strict-inputs` enables optional file-existence
+checks for FASTQ paths and Bowtie2 index prefixes. This is off by default so
+placeholder-path dry-run profiles continue to work.
+
+| Mode | FASTQ | Bowtie2 index | Use case |
+| :--- | :--- | :--- | :--- |
+| Default (non-strict) | Not checked | Not checked | Dry-runs, smoke profiles, placeholder paths |
+| `--strict-inputs` | Must exist | Complete `.bt2` or `.bt2l` set must exist | Pre-run validation, release checks |
+
+When `--strict-inputs` is active:
+- `fastq_1` must exist as a regular file.
+- PE `fastq_2` must exist as a regular file.
+- The full Bowtie2 index set (6 files) must exist at the configured prefix,
+  in either standard `.bt2` or large-index `.bt2l` format.
+- A clear error message lists the first missing file.
+
+This flag does NOT re-validate `genome_resources` paths or `control_bam` —
+those are already checked regardless of strict mode.
+
 ## Defaults and key dependencies
 
 | Key / block | Default | Takes effect when |

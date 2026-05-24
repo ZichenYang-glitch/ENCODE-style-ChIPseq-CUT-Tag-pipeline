@@ -64,7 +64,15 @@ def get_extend_reads_chipseq(wildcards):
         # SE mode: try MACS3 predicted fragment size, fallback 200
         if ext in ("auto", "yes"):
             frag = _extract_macs3_fragment_size(wildcards)
-            return f"--extendReads {frag if frag else '200'}"
+            if not frag:
+                import sys
+                print(
+                    f"Warning: MACS3 fragment size unavailable for "
+                    f"{wildcards.sample}, using --extendReads 200 (fallback).",
+                    file=sys.stderr,
+                )
+                frag = "200"
+            return f"--extendReads {frag}"
         return ""
 
 
@@ -87,4 +95,6 @@ def _extract_macs3_fragment_size(wildcards):
                         return str(size)
     except Exception:
         pass
+    # Fragment size unavailable — caller will fall back to 200bp default.
+    # The warning is emitted in get_extend_reads_chipseq.
     return None

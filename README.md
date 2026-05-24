@@ -93,6 +93,7 @@ multiqc: true
 
 ```bash
 python3 scripts/validate_samples.py --config config/config.yaml
+python3 scripts/validate_samples.py --config config/config.yaml --strict-inputs  # optional: validate file existence
 snakemake -s workflow/Snakefile --configfile config/config.yaml -n
 ```
 

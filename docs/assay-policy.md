@@ -32,7 +32,7 @@ It describes actual implemented behavior — no aspirational features.
 
 | `extend_reads` | PE | SE |
 | :--- | :--- | :--- |
-| `auto` | No extension (fragments from pairs) | MACS3 predicted fragment size, fallback 200 bp |
+| `auto` | No extension (fragments from pairs) | MACS3 predicted fragment size, fallback 200 bp (warning emitted to stderr when fallback used) |
 | `yes` | `--extendReads` (pair inference) | Same as `auto` |
 | `no` | No extension | No extension |
 | `<int>` | `--extendReads <int>` | `--extendReads <int>` |
