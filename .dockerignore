@@ -1,0 +1,35 @@
+# --- Version control ---
+.git/
+
+# --- Snakemake runtime ---
+.snakemake/
+results/
+reference/
+
+# --- Data files (never in image) ---
+*.fq
+*.fq.gz
+*.fastq
+*.fastq.gz
+*.bam
+*.bai
+*.bw
+*.bigWig
+*.bdg
+*.bedGraph
+*.html
+
+# --- Container artifacts ---
+*.sif
+*.sqsh
+*.img
+*.oci
+*.tar
+*.tar.gz
+*.tar.zst
+*.docker.tar
+
+# --- Python cache ---
+__pycache__/
+*.pyc
+*.pyo

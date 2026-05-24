@@ -143,7 +143,22 @@ For each validation queue, after a successful run, verify that the following out
   - Sample config/sample-sheet templates (with placeholder paths, not real data).
   - QC summary audits (small TSV files recording metrics, not raw data).
   - Release check reports.
+  - Queue-specific report stubs for manual execution tracking.
 - Use [`scripts/prepare_public_validation_inputs.py`](../../scripts/prepare_public_validation_inputs.py) to print the planned dataset inventory (no download).
+- Use `scripts/prepare_public_validation_inputs.py --report-stubs` to list queue names and expected report paths.
+
+## Report Scaffolding
+
+A reusable execution report template and per-queue stubs are available:
+
+- [Public data execution report template](public-data-execution-report-template.md)
+- [TF ChIP CEBPB](public-data-runs/tf_chip_cebpb.md) — ENCSR000DYI
+- [Broad Histone H3K27me3](public-data-runs/broad_histone_h3k27me3.md) — ENCSR000AKB
+- [ATAC Keratinocyte](public-data-runs/atac_keratinocyte.md) — ENCSR254KDA
+- [CUT&Tag H3K27me3](public-data-runs/cuttag_h3k27me3.md) — GSE145187
+
+Each stub links to the template, states "not executed yet", and includes a fill-in
+checklist. No FASTQ/BAM/BW/HTML data is committed.
 
 ## Execution Tiers
 

@@ -19,6 +19,16 @@ results/
 # --- Local planning / research notes ---
 deep-research-report.md
 
+# --- Container / image artifacts (Stage 33) ---
+*.sif
+*.sqsh
+*.img
+*.oci
+*.tar
+*.tar.gz
+*.tar.zst
+*.docker.tar
+
 # --- Legacy ignores ---
 *.sh
 *.gz

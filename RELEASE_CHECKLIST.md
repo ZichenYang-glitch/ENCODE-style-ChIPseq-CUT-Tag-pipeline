@@ -65,7 +65,7 @@ bioinformatics environment. It is retained as a `workflow_dispatch` CI check and
 - [ ] `config/config.yaml` and `config/samples.tsv` agree on column names and genome labels.
 - [ ] `ROADMAP_v0.2.md` scope table matches current implementation status.
 - [ ] `KNOWN_ISSUES.md` status markers are up to date.
-- [ ] `[v0.2.0-rc1]` section in `CHANGELOG.md` reflects all rc1 changes; `[Unreleased]` is present and empty.
+- [ ] `[v0.2.0-rc1]` section in `CHANGELOG.md` reflects rc1 changes; `[Unreleased]` is present (may contain post-rc1 entries during active development).
 - [ ] Design specs and implementation plans under `docs/superpowers/` are committed.
 - [ ] All cross-links in `README.md` and `docs/*.md` resolve correctly.
 

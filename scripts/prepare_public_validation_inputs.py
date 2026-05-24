@@ -112,6 +112,19 @@ _METADATA_CHECK_FIELDS = [
 ]
 
 
+def _print_report_stubs(datasets):
+    """Print queue name, accession, and expected report stub path."""
+    print("=== Public Data Execution Report Stubs ===\n")
+    for ds in datasets:
+        stub_path = (
+            f"docs/release-checks/public-data-runs/{ds['queue']}.md"
+        )
+        print(f"{ds['queue']:30s} {ds['accession']:15s}  {stub_path}")
+    print()
+    print("Template: docs/release-checks/public-data-execution-report-template.md")
+    print("No downloads performed.")
+
+
 def _print_metadata_checklist(datasets):
     """Print metadata fields to verify for each dataset (no network)."""
     print("=== Public Validation Dataset Metadata Checklist ===\n")
@@ -163,7 +176,15 @@ def main():
         "--check-metadata", action="store_true", default=False,
         help="Print metadata fields to verify for each dataset (no network)",
     )
+    parser.add_argument(
+        "--report-stubs", action="store_true", default=False,
+        help="Print queue names and expected report stub paths (no download)",
+    )
     args = parser.parse_args()
+
+    if args.report_stubs:
+        _print_report_stubs(_VALIDATION_DATASETS)
+        return
 
     if args.check_metadata:
         _print_metadata_checklist(_VALIDATION_DATASETS)

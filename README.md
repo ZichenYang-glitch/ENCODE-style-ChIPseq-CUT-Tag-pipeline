@@ -15,9 +15,10 @@ Default mode is no-input / no-control. Optional controls can be enabled with
 `use_control: true` and supplied as an external control BAM or a FASTQ-based
 control sample row. Dependencies are managed with Conda.
 
-This is a **v0.2.0-rc1 research workflow release candidate**: feature-complete
-with 12 implementation stages, smoke and stress test suites, CI/CD, and
-documented assay/IDR contracts. See [Limitations](#limitations) for known gaps.
+The latest published pre-release is **v0.2.0-rc1**: feature-complete with
+12 implementation stages, smoke and stress test suites, CI/CD, and documented
+assay/IDR contracts. The `main` branch may include post-rc1 changes.
+See [Limitations](#limitations) for known gaps.
 
 ## Key Features
 

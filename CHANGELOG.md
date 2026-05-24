@@ -6,7 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(No changes yet — v0.2.0-rc1 is the current release candidate.)
+### Added
+- Optional `--strict-inputs` validation mode for FASTQ and Bowtie2 index
+  file existence (Stage 30). Default is non-strict for dry-run compatibility;
+  use `--strict-inputs` for pre-run or release validation.
+
+### Changed
+- SE ChIP-seq MACS3 fragment-size fallback now emits a clear warning to stderr
+  when using the 200 bp default, rather than failing silently.
+
+### Documentation
+- Documented strict input validation in README, configuration docs, release
+  checklist, and assay policy.
+- Public data execution report template and four per-queue stubs (Stage 32).
+  All stubs state "not executed yet" — no data committed.
+- `scripts/prepare_public_validation_inputs.py --report-stubs` prints
+  queue names and expected report paths (stdlib-only, no downloads).
+- Containerization planning (Stage 33): Apptainer/Docker strategy for v0.3-dev.
+  Runner-only image first; full bioinformatics image deferred. Conda env files
+  remain source of truth. No images built or committed.
 
 ## [v0.2.0-rc1] - 2026-05-24
 
