@@ -20,6 +20,77 @@ class ValidationError(Exception):
     """Raised when config or sample sheet validation fails."""
 
 
+# ---------------------------------------------------------------------------
+# Stage 30: strict input validation helpers
+# ---------------------------------------------------------------------------
+
+_BT2_STANDARD = [
+    "{prefix}.1.bt2", "{prefix}.2.bt2", "{prefix}.3.bt2", "{prefix}.4.bt2",
+    "{prefix}.rev.1.bt2", "{prefix}.rev.2.bt2",
+]
+_BT2_LARGE = [f.replace(".bt2", ".bt2l") for f in _BT2_STANDARD]
+
+
+def _check_fastq_exists(path: str, sample_id: str, label: str) -> None:
+    """Raise ValidationError if *path* does not exist as a regular file."""
+    if not os.path.isfile(path):
+        raise ValidationError(
+            f"Sample {sample_id!r}: {label} file not found: {path}"
+        )
+
+
+def _check_bowtie2_index(prefix: str, sample_id: str) -> None:
+    """Raise ValidationError if neither the complete .bt2 nor .bt2l index set exists."""
+    standard_set = [f.format(prefix=prefix) for f in _BT2_STANDARD]
+    large_set = [f.format(prefix=prefix) for f in _BT2_LARGE]
+
+    standard_ok = all(os.path.isfile(f) for f in standard_set)
+    large_ok = all(os.path.isfile(f) for f in large_set)
+
+    if standard_ok or large_ok:
+        return
+
+    missing = [f for f in standard_set if not os.path.isfile(f)]
+    raise ValidationError(
+        f"Sample {sample_id!r}: Bowtie2 index not found at {prefix!r}. "
+        f"Missing {len(missing)} of {len(standard_set)} expected .bt2 files. "
+        f"Neither complete .bt2 nor .bt2l set exists. "
+        f"First missing: {missing[0] if missing else 'n/a'}"
+    )
+
+
+def _validate_strict_inputs(samples: list, strict_inputs: bool) -> None:
+    """If strict_inputs, validate FASTQ and Bowtie2 index file existence."""
+    if not strict_inputs:
+        return
+    for s in samples:
+        sid = s.get("id", s.get("sample", "?"))
+        fq1 = s.get("fq1", "")
+        fq2 = s.get("fq2", "")
+        bt2 = s.get("bt2_idx", "")
+        layout = s.get("layout", "SE")
+
+        if fq1:
+            _check_fastq_exists(fq1, sid, "fastq_1")
+        else:
+            raise ValidationError(
+                f"Sample {sid!r}: fastq_1 is empty"
+            )
+        if layout == "PE":
+            if fq2:
+                _check_fastq_exists(fq2, sid, "fastq_2")
+            else:
+                raise ValidationError(
+                    f"Sample {sid!r}: PE layout requires fastq_2"
+                )
+        if bt2:
+            _check_bowtie2_index(bt2, sid)
+        else:
+            raise ValidationError(
+                f"Sample {sid!r}: bowtie2_index is empty"
+            )
+
+
 def _coerce_int(value, *, name: str, minimum: int) -> int:
     """Return a strictly parsed integer, rejecting bools and floats."""
     if isinstance(value, bool):
@@ -893,6 +964,7 @@ def load_and_validate_samples(
     *,
     use_control: bool = False,
     stage5_enabled: bool = False,
+    strict_inputs: bool = False,
 ) -> list[dict]:
     """Load and validate a sample sheet TSV.
 
@@ -1103,6 +1175,9 @@ def load_and_validate_samples(
 
     # --- Pass 3: replicate group validation (Stage 4b) ---
     validate_replicate_groups(samples, use_control, stage5_enabled)
+
+    # --- Pass 4: strict input validation (Stage 30, optional) ---
+    _validate_strict_inputs(samples, strict_inputs)
 
     return samples
 
@@ -1401,6 +1476,10 @@ def main():
         "--config", required=True,
         help="Path to config YAML (e.g. config/config.yaml)"
     )
+    parser.add_argument(
+        "--strict-inputs", action="store_true", default=False,
+        help="Validate FASTQ and Bowtie2 index file existence"
+    )
     args = parser.parse_args()
 
     config_path = args.config
@@ -1417,6 +1496,7 @@ def main():
             validated["samples"],
             use_control=validated["use_control"],
             stage5_enabled=validated.get("stage5", False),
+            strict_inputs=args.strict_inputs,
         )
         validate_picard_reference_resources(validated, samples)
         validate_tss_annotation_resources(validated, samples)

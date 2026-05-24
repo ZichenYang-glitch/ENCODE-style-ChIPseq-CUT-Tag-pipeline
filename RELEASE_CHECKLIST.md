@@ -46,6 +46,13 @@ git status --short --untracked-files=all
 # Check GitHub Actions for green on main / current branch.
 ```
 
+Optional: Run with `--strict-inputs` to validate FASTQ and Bowtie2 index file existence
+before a real-data run:
+
+```bash
+python3 scripts/validate_samples.py --config config/config.yaml --strict-inputs
+```
+
 Note: Default-config dry-run (`snakemake -s workflow/Snakefile --configfile config/config.yaml -n --quiet`) is expected to fail when default FASTQs don't exist. This is documented expected behavior and is not a release-blocking check.
 
 Tiny real execution (`test_stage8b_tiny_execution.py`) requires the full `chipseq`
