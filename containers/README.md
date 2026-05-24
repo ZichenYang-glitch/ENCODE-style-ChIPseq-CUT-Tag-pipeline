@@ -83,6 +83,13 @@ apptainer exec \
 - Docker users should always include `-u $(id -u):$(id -g)` to match file
   ownership of bind-mounted directories.
 
+## Full User Guide
+
+See [`docs/container-usage.md`](../docs/container-usage.md) for the full
+container usage guide covering Docker and Apptainer/SingularityCE build,
+run, bind mounts, HPC guidance, troubleshooting, and image publishing
+status.
+
 ## Build Instructions
 
 Docker build and smoke verification completed in Stage 35. See

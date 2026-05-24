@@ -387,6 +387,12 @@ contracts are in [`workflow/schemas/`](workflow/schemas/).
 Path handling rules are documented in
 [`docs/developer/no-hardcoding.md`](docs/developer/no-hardcoding.md).
 
+### Container usage
+
+Docker and Apptainer/SingularityCE container images are available for the
+runner environment. See [`docs/container-usage.md`](docs/container-usage.md)
+for build, run, bind-mount, and troubleshooting instructions.
+
 ### Legacy single-sample script
 
 `scripts/chipseq.sh` is retained for compatibility. It supports single-sample

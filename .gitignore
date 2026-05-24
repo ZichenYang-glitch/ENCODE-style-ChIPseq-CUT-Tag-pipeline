@@ -32,3 +32,6 @@ deep-research-report.md
 # --- Legacy ignores ---
 *.sh
 *.gz
+
+# --- Stage 37: smoke script must not be ignored ---
+!scripts/smoke_container_runner.sh

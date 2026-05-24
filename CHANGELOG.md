@@ -43,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   3 marks x 2 biological replicates completed externally with sample-level and
   pooled outputs, MultiQC, result manifest, signal tracks, QC summaries, and
   documented follow-ups for bedGraph disk pressure and MultiQC naming.
+- Container user experience polish (Stage 37): `docs/container-usage.md` full
+  user guide with Docker/SingularityCE/Apptainer build, run, bind mount, HPC,
+  and troubleshooting sections. `scripts/smoke_container_runner.sh` for
+  automated container smoke tests (docker and singularity modes). Image
+  publishing deferred.
 
 ## [v0.2.0-rc1] - 2026-05-24
 
