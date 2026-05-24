@@ -48,10 +48,12 @@ docker run \
 ## Apptainer / Singularity Usage
 
 ```bash
-apptainer run \
+apptainer exec \
     --pwd /workspace \
     --bind "$PWD":/workspace,/data:/data,/reference:/reference,/data/conda_cache:/conda_cache \
+    --env XDG_CACHE_HOME=/conda_cache/xdg-cache \
     chipseq-runner.sif \
+    snakemake \
     -s workflow/Snakefile \
     --configfile config/config.yaml \
     --cores 16 \
@@ -74,6 +76,10 @@ apptainer run \
   - `-e HOME=/conda_cache/home`
   - `-e XDG_CACHE_HOME=/conda_cache/xdg-cache`
 - Apptainer runs as the invoking user by default; no `--user` flag needed.
+- SingularityCE does not allow overriding `HOME` with `--env HOME=...`.
+  Use `--env XDG_CACHE_HOME=/conda_cache/xdg-cache` and a writable
+  `--conda-prefix`. If a custom home directory is required, use the runtime's
+  `--home` option instead of `--env HOME=...`.
 - Docker users should always include `-u $(id -u):$(id -g)` to match file
   ownership of bind-mounted directories.
 
@@ -83,7 +89,9 @@ Docker build and smoke verification completed in Stage 35. See
 [`docs/release-checks/stage35-docker-runner-smoke.md`](../docs/release-checks/stage35-docker-runner-smoke.md)
 for the full report.
 
-**Apptainer build is not executed yet** — manual only.
+SingularityCE build and smoke verification completed in Stage 36. See
+[`docs/release-checks/stage36-singularity-runner-smoke.md`](../docs/release-checks/stage36-singularity-runner-smoke.md)
+for the full report.
 
 Build commands (for reference):
 
@@ -93,6 +101,9 @@ docker build -f containers/Dockerfile.runner -t chipseq-runner .
 
 # Apptainer
 apptainer build chipseq-runner.sif containers/Apptainer.runner.def
+
+# SingularityCE
+singularity build chipseq-runner.sif containers/Apptainer.runner.def
 ```
 
 ## Verification

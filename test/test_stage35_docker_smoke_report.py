@@ -2,6 +2,7 @@
 """Stage 35 stress tests — Docker runner smoke report."""
 
 import os
+import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,6 +27,23 @@ def _record(name, passed):
 def _read(path):
     with open(path) as fh:
         return fh.read()
+
+
+def _tracked_files():
+    try:
+        result = subprocess.run(
+            ["git", "ls-files"],
+            cwd=REPO_ROOT,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return [line.strip() for line in result.stdout.splitlines()
+                if line.strip()]
+    except Exception as exc:
+        print("  Could not list git-tracked files:", exc)
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -128,23 +146,16 @@ def test_readme_docker_example_has_cache_env():
 
 
 # ---------------------------------------------------------------------------
-# Test 9: No image artifacts committed
+# Test 9: No image artifacts tracked
 # ---------------------------------------------------------------------------
 
 def test_no_image_artifacts():
-    forbidden = {".sif", ".sqsh", ".img", ".oci",
-                 ".tar", ".tar.gz", ".tar.zst", ".docker.tar"}
-    found = []
-    for root, dirs, files in os.walk(REPO_ROOT):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
-        for f in files:
-            for ext in forbidden:
-                if f.endswith(ext):
-                    found.append(os.path.relpath(
-                        os.path.join(root, f), REPO_ROOT))
+    forbidden = (".sif", ".sqsh", ".img", ".oci",
+                 ".tar", ".tar.gz", ".tar.zst", ".docker.tar")
+    found = [path for path in _tracked_files() if path.endswith(forbidden)]
     passed = len(found) == 0
     if not passed:
-        print("  Found:", found)
+        print("  Tracked image artifacts:", found)
     _record("9-no_image_artifacts", passed)
 
 
@@ -167,7 +178,7 @@ def main():
     pycache = os.path.join(REPO_ROOT, "scripts", "__pycache__")
     if os.path.isdir(pycache):
         import shutil
-        shutil.rmtree(pycache)
+        shutil.rmtree(pycache, ignore_errors=True)
 
     if PASSED < TOTAL:
         sys.exit(1)

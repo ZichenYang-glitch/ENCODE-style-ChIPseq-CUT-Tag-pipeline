@@ -33,7 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   verification documented. `/.cache` PermissionError root cause and
   HOME/XDG_CACHE_HOME fix documented in `containers/README.md`.
   `chipseq-runner:stage35-smoke` local image verified — no image artifacts
-  committed. Apptainer build not executed yet.
+  committed.
+- Singularity runner build smoke report (Stage 36): `singularity-container`
+  installed as `singularity-ce version 4.1.1`; `containers/Apptainer.runner.def`
+  built to a local `.sif`; Snakemake 8.30.0, PyYAML import, and bind-mounted
+  14-job dry-run verified. Singularity HOME override warning documented; no
+  image artifacts committed.
 
 ## [v0.2.0-rc1] - 2026-05-24
 

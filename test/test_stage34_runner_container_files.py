@@ -274,7 +274,7 @@ def main():
     pycache = os.path.join(REPO_ROOT, "scripts", "__pycache__")
     if os.path.isdir(pycache):
         import shutil
-        shutil.rmtree(pycache)
+        shutil.rmtree(pycache, ignore_errors=True)
 
     if PASSED < TOTAL:
         sys.exit(1)
