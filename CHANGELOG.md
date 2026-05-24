@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `containers/Apptainer.runner.def`, `containers/README.md` with Docker and
   Apptainer usage examples. Static files only — build/smoke deferred to Stage 35.
   18 static-file contract tests. No images built.
+- Docker runner build smoke report (Stage 35): build, pull, and dry-run
+  verification documented. `/.cache` PermissionError root cause and
+  HOME/XDG_CACHE_HOME fix documented in `containers/README.md`.
+  `chipseq-runner:stage35-smoke` local image verified — no image artifacts
+  committed. Apptainer build not executed yet.
 
 ## [v0.2.0-rc1] - 2026-05-24
 

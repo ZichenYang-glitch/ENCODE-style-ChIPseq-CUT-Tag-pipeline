@@ -34,6 +34,8 @@ docker run \
     -v /data:/data \
     -v /reference:/reference \
     -v /data/conda_cache:/conda_cache \
+    -e HOME=/conda_cache/home \
+    -e XDG_CACHE_HOME=/conda_cache/xdg-cache \
     -u $(id -u):$(id -g) \
     chipseq-runner \
     -s workflow/Snakefile \
@@ -61,18 +63,29 @@ apptainer run \
 
 - Set `--conda-prefix` to a scratch, project, or data directory — not your home
   directory, which is often too small for Conda environments.
-- Create the cache directory before running: `mkdir -p /data/conda_cache`.
+- Create the cache directories before running:
+  ```bash
+  mkdir -p /data/conda_cache/{snakemake,home,xdg-cache}
+  ```
+- When using `-u` (Docker user mapping), the container has no home directory for
+  the mapped UID. Snakemake/Python may try to write to `/.cache` or `~/.cache`,
+  causing a `PermissionError`. Provide writable HOME and XDG_CACHE_HOME via
+  environment variables:
+  - `-e HOME=/conda_cache/home`
+  - `-e XDG_CACHE_HOME=/conda_cache/xdg-cache`
 - Apptainer runs as the invoking user by default; no `--user` flag needed.
 - Docker users should always include `-u $(id -u):$(id -g)` to match file
   ownership of bind-mounted directories.
 
 ## Build Instructions
 
-Building and testing the image is deferred to Stage 35. The Dockerfile and
-Apptainer recipe in this directory are static files that can be reviewed and
-built manually.
+Docker build and smoke verification completed in Stage 35. See
+[`docs/release-checks/stage35-docker-runner-smoke.md`](../docs/release-checks/stage35-docker-runner-smoke.md)
+for the full report.
 
-Expected build commands (Stage 35+):
+**Apptainer build is not executed yet** — manual only.
+
+Build commands (for reference):
 
 ```bash
 # Docker
