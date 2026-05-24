@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Containerization planning (Stage 33): Apptainer/Docker strategy for v0.3-dev.
   Runner-only image first; full bioinformatics image deferred. Conda env files
   remain source of truth. No images built or committed.
+- Runner container definition files (Stage 34): `containers/Dockerfile.runner`,
+  `containers/Apptainer.runner.def`, `containers/README.md` with Docker and
+  Apptainer usage examples. Static files only — build/smoke deferred to Stage 35.
+  18 static-file contract tests. No images built.
 
 ## [v0.2.0-rc1] - 2026-05-24
 

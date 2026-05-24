@@ -1,0 +1,12 @@
+FROM condaforge/miniforge3:24.11.3-0
+
+COPY workflow/envs/runner.yml /opt/pipeline/workflow/envs/runner.yml
+
+RUN conda env create -f /opt/pipeline/workflow/envs/runner.yml -y && \
+    conda clean -afy
+
+ENV PATH=/opt/conda/envs/chipseq-runner/bin:$PATH
+
+WORKDIR /workspace
+
+ENTRYPOINT ["snakemake"]
