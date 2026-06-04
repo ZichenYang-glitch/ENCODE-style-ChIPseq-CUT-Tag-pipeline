@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built to a local `.sif`; Snakemake 8.30.0, PyYAML import, and bind-mounted
   14-job dry-run verified. Singularity HOME override warning documented; no
   image artifacts committed.
+- Full 30-sample histone ChIP-seq real-run report (Stage 37): 5 conditions x
+  3 marks x 2 biological replicates completed externally with sample-level and
+  pooled outputs, MultiQC, result manifest, signal tracks, QC summaries, and
+  documented follow-ups for bedGraph disk pressure and MultiQC naming.
 
 ## [v0.2.0-rc1] - 2026-05-24
 
