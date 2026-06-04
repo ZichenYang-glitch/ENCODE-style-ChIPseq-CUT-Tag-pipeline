@@ -572,6 +572,156 @@ def test_manifest_dep_targets_includes_downstream():
 
 
 # ---------------------------------------------------------------------------
+# Test 15: MNase sample manifest rows include MNase-specific outputs
+# ---------------------------------------------------------------------------
+
+def test_mnase_sample_rows():
+    workdir = tempfile.mkdtemp(prefix="s25_t15_", dir="/tmp")
+    try:
+        config_path, _ = _write_files(
+            workdir,
+            sample_rows=[["sample", "fastq_1", "fastq_2", "layout", "assay",
+                          "target", "peak_mode", "genome", "bowtie2_index"],
+                         ["M1", "R1.fq", "R2.fq", "PE", "mnase", "H3",
+                          "nucleosome", "hs", "/opt/idx/ref"]])
+        rc, out, rows, stderr = _run_manifest(workdir, config_path)
+
+        if rc != 0:
+            print("  stderr:", stderr.strip()[-200:])
+            _record("15-mnase_sample_rows", False)
+            return
+
+        types = {r["output_type"] for r in rows}
+        # MNase-specific outputs must be present
+        expected = {"mnase_mono_bam", "mnase_mono_bai",
+                    "mnase_dyad_bigwig", "mnase_mono_bigwig"}
+        passed = expected.issubset(types)
+        if not passed:
+            print("  Missing MNase types:", expected - types)
+            print("  output_types:", sorted(types))
+        _record("15-mnase_sample_rows", passed)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Test 16: MNase sample manifest rows exclude peak-centric outputs
+# ---------------------------------------------------------------------------
+
+def test_mnase_excludes_peak_outputs():
+    workdir = tempfile.mkdtemp(prefix="s25_t16_", dir="/tmp")
+    try:
+        config_path, _ = _write_files(
+            workdir,
+            sample_rows=[["sample", "fastq_1", "fastq_2", "layout", "assay",
+                          "target", "peak_mode", "genome", "bowtie2_index"],
+                         ["M1", "R1.fq", "R2.fq", "PE", "mnase", "H3",
+                          "nucleosome", "hs", "/opt/idx/ref"]])
+        rc, out, rows, stderr = _run_manifest(workdir, config_path)
+
+        if rc != 0:
+            print("  stderr:", stderr.strip()[-200:])
+            _record("16-mnase_excludes_peak_outputs", False)
+            return
+
+        types = {r["output_type"] for r in rows}
+        # Peak-centric outputs must be not_applicable for MNase
+        peak_only = {"macs3_peak", "qc_summary", "macs3_fe_bdg",
+                     "macs3_ppois_bdg", "macs3_fe_bw", "macs3_ppois_bw"}
+        passed = True
+        for pt in peak_only:
+            matching = [r for r in rows if r["output_type"] == pt]
+            if not matching:
+                continue
+            if matching[0]["status"] != "not_applicable":
+                print("  %s status=%s, expected not_applicable" %
+                      (pt, matching[0]["status"]))
+                passed = False
+        _record("16-mnase_excludes_peak_outputs", passed)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Test 17: MNase pooled manifest rows include pooled MNase outputs
+# ---------------------------------------------------------------------------
+
+def test_mnase_pooled_rows():
+    workdir = tempfile.mkdtemp(prefix="s25_t17_", dir="/tmp")
+    try:
+        config_path, _ = _write_files(
+            workdir,
+            sample_rows=[["sample", "fastq_1", "fastq_2", "layout", "assay",
+                          "target", "peak_mode", "genome", "bowtie2_index",
+                          "experiment", "biological_replicate"],
+                         ["M1", "R1.fq", "R2.fq", "PE", "mnase", "H3",
+                          "nucleosome", "hs", "/opt/idx/ref", "EXP1", "1"],
+                         ["M2", "R1b.fq", "R2b.fq", "PE", "mnase", "H3",
+                          "nucleosome", "hs", "/opt/idx/ref", "EXP1", "2"]])
+        rc, out, rows, stderr = _run_manifest(workdir, config_path)
+
+        if rc != 0:
+            print("  stderr:", stderr.strip()[-200:])
+            _record("17-mnase_pooled_rows", False)
+            return
+
+        types = {r["output_type"] for r in rows}
+        # Pooled MNase outputs must be present
+        expected = {"pooled_mnase_mono_bam", "pooled_mnase_mono_bai",
+                    "pooled_mnase_dyad_bigwig", "pooled_mnase_mono_bigwig"}
+        # Pooled peak outputs must be not_applicable
+        excluded = {"pooled_macs3_peak", "pooled_qc_summary",
+                    "pooled_fe_bdg", "pooled_ppois_bdg",
+                    "pooled_fe_bw", "pooled_ppois_bw"}
+
+        passed = expected.issubset(types)
+        if not passed:
+            print("  Missing pooled MNase types:", expected - types)
+            print("  output_types:", sorted(types))
+
+        for pt in excluded:
+            matching = [r for r in rows if r["output_type"] == pt]
+            if matching and matching[0]["status"] != "not_applicable":
+                print("  %s status=%s, expected not_applicable" %
+                      (pt, matching[0]["status"]))
+                passed = False
+
+        _record("17-mnase_pooled_rows", passed)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Test 18: Pure-MNase config → stage3_qc_summary is not_applicable
+# ---------------------------------------------------------------------------
+
+def test_mnase_pure_no_stage3_qc_summary():
+    workdir = tempfile.mkdtemp(prefix="s25_t18_", dir="/tmp")
+    try:
+        config_path, _ = _write_files(
+            workdir,
+            sample_rows=[["sample", "fastq_1", "fastq_2", "layout", "assay",
+                          "target", "peak_mode", "genome", "bowtie2_index"],
+                         ["M1", "R1.fq", "R2.fq", "PE", "mnase", "H3",
+                          "nucleosome", "hs", "/opt/idx/ref"]])
+        rc, out, rows, stderr = _run_manifest(workdir, config_path)
+
+        if rc != 0:
+            print("  stderr:", stderr.strip()[-200:])
+            _record("18-mnase_pure_no_stage3_qc_summary", False)
+            return
+
+        matching = [r for r in rows if r["output_type"] == "stage3_qc_summary"]
+        passed = (len(matching) == 1
+                  and matching[0]["status"] == "not_applicable")
+        if not passed and matching:
+            print("  stage3_qc_summary status=%s" % matching[0]["status"])
+        _record("18-mnase_pure_no_stage3_qc_summary", passed)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 def main():
     print("Starting Stage 25 Manifest Stress Tests\n")
 
@@ -589,6 +739,10 @@ def main():
     test_techrep_biorep_gating()
     test_idr_with_tech_reps()
     test_manifest_dep_targets_includes_downstream()
+    test_mnase_sample_rows()
+    test_mnase_excludes_peak_outputs()
+    test_mnase_pooled_rows()
+    test_mnase_pure_no_stage3_qc_summary()
 
     print("\nSummary: %d/%d tests passed." % (PASSED, TOTAL))
 

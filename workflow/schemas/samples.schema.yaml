@@ -58,7 +58,7 @@ columns:
 
   assay:
     description: Experimental assay type.
-    allowed: ["chipseq", "cuttag", "atac"]
+    allowed: ["chipseq", "cuttag", "atac", "mnase"]
     required: true
 
   target:
@@ -66,11 +66,13 @@ columns:
     required: true
 
   peak_mode:
-    description: Peak calling mode.
-    allowed: ["narrow", "broad"]
+    description: Peak calling mode or nucleosome calling mode.
+    allowed: ["narrow", "broad", "nucleosome"]
     required: true
     constraints:
       assay_atac: "narrow only"
+      assay_mnase: "nucleosome only"
+      non_mnase_nucleosome: "nucleosome is MNase-only"
 
   genome:
     description: >

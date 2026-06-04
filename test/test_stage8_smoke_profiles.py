@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage 8a smoke-test harness for ChIP-seq/CUT&Tag Snakemake profiles.
+"""Stage 8a smoke-test harness for ChIP-seq/CUT&Tag/ATAC/MNase Snakemake profiles.
 
 Run all committed test profiles through validate_samples.py and a
 Snakemake dry-run.  Every temporary file is created under /tmp and
@@ -30,7 +30,7 @@ PROFILES_DIR = os.path.join(REPO_ROOT, "test", "profiles")
 
 SNAKEMAKE = resolve_tool("snakemake", "SNAKEMAKE")
 
-# All seven profiles run by default.
+# All eight profiles run by default.
 PROFILES = [
     "chipseq_se_noctrl",
     "chipseq_pe_noctrl",
@@ -39,6 +39,7 @@ PROFILES = [
     "cuttag_pe_seacr",
     "chipseq_idr_dryrun",
     "chipseq_pe_external_ctrlbam",
+    "mnase_pe_noctrl",
 ]
 
 # Profiles that get an additional non-quiet dry-run to verify specific

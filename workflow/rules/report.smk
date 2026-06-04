@@ -7,12 +7,25 @@ import shlex
 # Pipeline done sentinel — treatment samples only
 # ---------------------------------------------------------------------------
 
+def _is_not_mnase(wildcards):
+    """Return True when the sample does NOT use assay=mnase."""
+    return SAMPLE_MAP[wildcards.sample]["assay"] != "mnase"
+
+
+def _is_mnase(wildcards):
+    """Return True when the sample uses assay=mnase."""
+    return SAMPLE_MAP[wildcards.sample]["assay"] == "mnase"
+
+
 rule pipeline_done:
     output:
         done = f"{OUTDIR}/{{sample}}/logs/{{sample}}.pipeline.done",
     input:
         bw       = f"{OUTDIR}/{{sample}}/03_bigwig/{{sample}}.CPM.bw",
-        peaks    = f"{OUTDIR}/{{sample}}/04_peaks/{{sample}}",
+        peaks    = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/04_peaks/{wc.sample}"
+            if _is_not_mnase(wc) else []
+        ),
         fastqc   = f"{OUTDIR}/{{sample}}/logs/{{sample}}.fastqc.done",
         trim     = f"{OUTDIR}/{{sample}}/logs/{{sample}}.trim.done",
         bai      = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam.bai",
@@ -30,17 +43,36 @@ rule pipeline_done:
             if (QC_CONFIG.get("nrf_pbc", True)
                 or QC_CONFIG.get("summary", True)) else []
         ),
-        signal_fe  = (
-            f"{OUTDIR}/{{sample}}/03_signal/{{sample}}.FE.bdg"
-            if QC_CONFIG.get("signal_tracks", True) else []
+        signal_fe  = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/03_signal/{wc.sample}.FE.bdg"
+            if QC_CONFIG.get("signal_tracks", True) and _is_not_mnase(wc)
+            else []
         ),
-        signal_ppois  = (
-            f"{OUTDIR}/{{sample}}/03_signal/{{sample}}.ppois.bdg"
-            if QC_CONFIG.get("signal_tracks", True) else []
+        signal_ppois  = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/03_signal/{wc.sample}.ppois.bdg"
+            if QC_CONFIG.get("signal_tracks", True) and _is_not_mnase(wc)
+            else []
         ),
-        qc_summ  = (
-            f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.qc_summary.tsv"
-            if QC_CONFIG.get("summary", True) else []
+        qc_summ  = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/01_qc/{wc.sample}.qc_summary.tsv"
+            if QC_CONFIG.get("summary", True) and _is_not_mnase(wc)
+            else []
+        ),
+        mnase_mono_bam = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/03_fragments/{wc.sample}.mono.bam"
+            if _is_mnase(wc) else []
+        ),
+        mnase_mono_bai = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/03_fragments/{wc.sample}.mono.bam.bai"
+            if _is_mnase(wc) else []
+        ),
+        mnase_dyad_bw = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/04_signal/{wc.sample}.dyad.CPM.bw"
+            if _is_mnase(wc) else []
+        ),
+        mnase_mono_bw = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/04_signal/{wc.sample}.mono.CPM.bw"
+            if _is_mnase(wc) else []
         ),
         cross_corr = (
             f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cc.qc"
@@ -54,9 +86,10 @@ rule pipeline_done:
             f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.alignment_summary_metrics"
             if QC_CONFIG.get("picard_metrics", False) else []
         ),
-        tss_profile = (
-            f"{OUTDIR}/{{sample}}/05_qc/tss/{{sample}}.tss_profile.tsv"
-            if QC_CONFIG.get("tss_enrichment", False) else []
+        tss_profile = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/05_qc/tss/{wc.sample}.tss_profile.tsv"
+            if QC_CONFIG.get("tss_enrichment", False) and _is_not_mnase(wc)
+            else []
         ),
     shell:
         "touch {output.done}"

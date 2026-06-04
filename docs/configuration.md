@@ -116,6 +116,17 @@ The original Stage 3 QC switches default to `true`. Heavier optional modules
 `tss_enrichment`) default to `false`. Set individual switches explicitly for
 production runs.
 
+## MNase-seq fragment ranges
+
+```yaml
+mnase:
+  mono_range: [140, 200]   # alignmentSieve min/max fragment length for mono-nucleosome BAM
+```
+
+The `mnase` block is optional. If absent, `mono_range` defaults to `[140, 200]`.
+Only relevant for samples with `assay: mnase`. The dyad BigWig uses `bamCoverage
+--MNase` which applies its own default fragment range (130–200 bp).
+
 ## Replicate and IDR features
 
 ```yaml

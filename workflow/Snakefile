@@ -127,6 +127,18 @@ if SEACR_ENABLED:
 else:
     SEACR_SAMPLE_IDS = []
 
+# Stage 39: MNase-centric derived lists
+MNASE_SAMPLE_IDS = [
+    s["id"] for s in SAMPLES
+    if s["role"] == "treatment" and s["assay"] == "mnase"
+]
+
+# Peak-centric treatment samples (all treatment samples that are NOT MNase)
+PEAK_SAMPLE_IDS = [
+    s["id"] for s in SAMPLES
+    if s["role"] == "treatment" and s["assay"] != "mnase"
+]
+
 
 # ---------------------------------------------------------------------------
 # 3a. Stage 4a replicate-aware metadata (derived structures, no scheduling changes)
@@ -240,6 +252,18 @@ if STAGE4B:
 else:
     MULTI_BIOREP_EXPERIMENTS = []
     POOLED_CONTROL_EXPERIMENTS = []
+
+# Stage 39: MNase and peak-centric experiment subsets (subset of MULTI_BIOREP_EXPERIMENTS)
+# Used for assay-specific pooled target expansions (peaks vs nucleosome outputs).
+PEAK_MULTI_BIOREP_EXPERIMENTS = [
+    exp for exp in MULTI_BIOREP_EXPERIMENTS
+    if SAMPLE_MAP[TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0]]["assay"] != "mnase"
+]
+
+MNASE_MULTI_BIOREP_EXPERIMENTS = [
+    exp for exp in MULTI_BIOREP_EXPERIMENTS
+    if SAMPLE_MAP[TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0]]["assay"] == "mnase"
+]
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +399,7 @@ def has_genome_resource(sample, key):
 
 
 TSS_SAMPLE_IDS = [
-    sid for sid in TREATMENT_SAMPLE_IDS
+    sid for sid in PEAK_SAMPLE_IDS
     if QC_CONFIG.get("tss_enrichment", False)
     and has_genome_resource(sid, "gtf")
 ]
@@ -386,14 +410,14 @@ TSS_GENOMES = sorted({SAMPLE_MAP[sid]["genome"] for sid in TSS_SAMPLE_IDS})
 # has_genome_resource() checks non-empty genome_resources.<genome>.chrom_sizes.
 # Path existence for non-empty chrom_sizes is already enforced by validate_samples.py.
 SIGNAL_BW_SAMPLE_IDS = [
-    sid for sid in TREATMENT_SAMPLE_IDS
+    sid for sid in PEAK_SAMPLE_IDS
     if QC_CONFIG.get("signal_tracks", True)
     and has_genome_resource(sid, "chrom_sizes")
 ]
 
 if STAGE4B:
     SIGNAL_BW_EXPERIMENTS = [
-        exp for exp in MULTI_BIOREP_EXPERIMENTS
+        exp for exp in PEAK_MULTI_BIOREP_EXPERIMENTS
         if QC_CONFIG.get("signal_tracks", True)
         and SIGNAL_BW_SAMPLE_IDS
         and has_genome_resource(
@@ -439,6 +463,8 @@ def get_remove_dup(wildcards):
         return get_remove_dup_cuttag(wildcards)
     if s["assay"] == "atac":
         return get_remove_dup_atac(wildcards)
+    if s["assay"] == "mnase":
+        return get_remove_dup_mnase(wildcards)
     raise ValueError(f"Unsupported assay for duplicate policy: {s['assay']}")
 
 
@@ -451,6 +477,8 @@ def get_macs3_args(wildcards):
         return get_macs3_args_cuttag(wildcards)
     if s["assay"] == "atac":
         return get_macs3_args_atac(wildcards)
+    if s["assay"] == "mnase":
+        return get_macs3_args_mnase(wildcards)
     raise ValueError(f"Unsupported assay for MACS3 policy: {s['assay']}")
 
 
@@ -463,6 +491,8 @@ def get_extend_reads(wildcards):
         return get_extend_reads_cuttag(wildcards)
     if s["assay"] == "atac":
         return get_extend_reads_atac(wildcards)
+    if s["assay"] == "mnase":
+        return get_extend_reads_mnase(wildcards)
     raise ValueError(f"Unsupported assay for bamCoverage policy: {s['assay']}")
 
 
@@ -516,7 +546,7 @@ def _base_targets():
     targets += expand(
         "{outdir}/{sample}/04_peaks/{sample}",
         outdir=OUTDIR,
-        sample=TREATMENT_SAMPLE_IDS,
+        sample=PEAK_SAMPLE_IDS,
     )
     if MULTIQC:
         targets += [f"{OUTDIR}/multiqc/multiqc_report.html"]
@@ -531,6 +561,7 @@ def _manifest_dependency_targets():
     targets += _single_sample_qc_targets()
     targets += _signal_targets()
     targets += _cuttag_targets()
+    targets += _mnase_targets()
     targets += _advanced_qc_targets()
     targets += _tss_targets()
     targets += _replicate_targets()
@@ -577,13 +608,18 @@ def _blacklist_targets():
 
 
 def _single_sample_qc_targets():
-    """Per-sample QC: peak counts, library complexity, NRF/PBC, FRiP, summaries."""
+    """Per-sample QC: peak counts, library complexity, NRF/PBC, FRiP, summaries.
+
+    Peak-dependent QC (peak_counts, frip, qc_summary) is gated on
+    PEAK_SAMPLE_IDS to exclude MNase samples. Library complexity and
+    NRF/PBC are BAM-derived and apply to all treatment samples.
+    """
     targets = []
     if QC_CONFIG.get("summary", True):
         targets += expand(
             "{outdir}/{sample}/01_qc/{sample}.peak_counts.tsv",
             outdir=OUTDIR,
-            sample=TREATMENT_SAMPLE_IDS,
+            sample=PEAK_SAMPLE_IDS,
         )
     if QC_CONFIG.get("library_complexity", True) or QC_CONFIG.get("summary", True):
         targets += expand(
@@ -601,33 +637,36 @@ def _single_sample_qc_targets():
         targets += expand(
             "{outdir}/{sample}/01_qc/{sample}.frip.tsv",
             outdir=OUTDIR,
-            sample=TREATMENT_SAMPLE_IDS,
+            sample=PEAK_SAMPLE_IDS,
         )
     if QC_CONFIG.get("summary", True):
         targets += expand(
             "{outdir}/{sample}/01_qc/{sample}.qc_summary.tsv",
             outdir=OUTDIR,
-            sample=TREATMENT_SAMPLE_IDS,
+            sample=PEAK_SAMPLE_IDS,
         )
-    if QC_CONFIG.get("summary", True) and TREATMENT_SAMPLE_IDS:
+    if QC_CONFIG.get("summary", True) and PEAK_SAMPLE_IDS:
         targets += [f"{OUTDIR}/multiqc/stage3_qc_summary.tsv"]
     return targets
 
 
 def _signal_targets():
-    """MACS3 FE/ppois bedGraph + BigWig for single-sample and pooled experiments."""
+    """MACS3 FE/ppois bedGraph + BigWig for single-sample and pooled experiments.
+
+    Gated on PEAK_SAMPLE_IDS / PEAK_MULTI_BIOREP_EXPERIMENTS to exclude MNase.
+    """
     targets = []
     if QC_CONFIG.get("signal_tracks", True):
         # Single-sample bedGraph
         targets += expand(
             "{outdir}/{sample}/03_signal/{sample}.FE.bdg",
             outdir=OUTDIR,
-            sample=TREATMENT_SAMPLE_IDS,
+            sample=PEAK_SAMPLE_IDS,
         )
         targets += expand(
             "{outdir}/{sample}/03_signal/{sample}.ppois.bdg",
             outdir=OUTDIR,
-            sample=TREATMENT_SAMPLE_IDS,
+            sample=PEAK_SAMPLE_IDS,
         )
     # Stage 22: single-sample BigWig (gated on signal_tracks + chrom_sizes)
     if SIGNAL_BW_SAMPLE_IDS:
@@ -642,16 +681,16 @@ def _signal_targets():
             sample=SIGNAL_BW_SAMPLE_IDS,
         )
     # Stage 6a: pooled bedGraph
-    if STAGE4B and MULTI_BIOREP_EXPERIMENTS and QC_CONFIG.get("signal_tracks", True):
+    if STAGE4B and PEAK_MULTI_BIOREP_EXPERIMENTS and QC_CONFIG.get("signal_tracks", True):
         targets += expand(
             "{outdir}/experiments/{experiment}/03_signal/{experiment}.pooled.FE.bdg",
             outdir=OUTDIR,
-            experiment=MULTI_BIOREP_EXPERIMENTS,
+            experiment=PEAK_MULTI_BIOREP_EXPERIMENTS,
         )
         targets += expand(
             "{outdir}/experiments/{experiment}/03_signal/{experiment}.pooled.ppois.bdg",
             outdir=OUTDIR,
-            experiment=MULTI_BIOREP_EXPERIMENTS,
+            experiment=PEAK_MULTI_BIOREP_EXPERIMENTS,
         )
     # Stage 22: pooled BigWig (gated on signal_tracks + chrom_sizes)
     if STAGE4B and SIGNAL_BW_EXPERIMENTS:
@@ -803,17 +842,67 @@ def _replicate_targets():
             outdir=OUTDIR,
             experiment=POOLED_CONTROL_EXPERIMENTS,
         )
-    if STAGE4B and MULTI_BIOREP_EXPERIMENTS:
+    if STAGE4B and PEAK_MULTI_BIOREP_EXPERIMENTS:
         targets += expand(
             "{outdir}/experiments/{experiment}/04_peaks/pooled/{experiment}_pooled_peaks",
             outdir=OUTDIR,
-            experiment=MULTI_BIOREP_EXPERIMENTS,
+            experiment=PEAK_MULTI_BIOREP_EXPERIMENTS,
         )
-    if STAGE4B and MULTI_BIOREP_EXPERIMENTS:
+    if STAGE4B and PEAK_MULTI_BIOREP_EXPERIMENTS:
         targets += expand(
             "{outdir}/experiments/{experiment}/01_qc/{experiment}.pooled_qc_summary.tsv",
             outdir=OUTDIR,
-            experiment=MULTI_BIOREP_EXPERIMENTS,
+            experiment=PEAK_MULTI_BIOREP_EXPERIMENTS,
+        )
+    return targets
+
+
+def _mnase_targets():
+    """Stage 39: MNase nucleosome-centric outputs (sample and pooled)."""
+    targets = []
+    # Sample-level MNase outputs
+    if MNASE_SAMPLE_IDS:
+        targets += expand(
+            "{outdir}/{sample}/03_fragments/{sample}.mono.bam",
+            outdir=OUTDIR,
+            sample=MNASE_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/03_fragments/{sample}.mono.bam.bai",
+            outdir=OUTDIR,
+            sample=MNASE_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/04_signal/{sample}.dyad.CPM.bw",
+            outdir=OUTDIR,
+            sample=MNASE_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/04_signal/{sample}.mono.CPM.bw",
+            outdir=OUTDIR,
+            sample=MNASE_SAMPLE_IDS,
+        )
+    # Pooled MNase outputs (>=2 biorep MNase experiments)
+    if STAGE4B and MNASE_MULTI_BIOREP_EXPERIMENTS:
+        targets += expand(
+            "{outdir}/experiments/{experiment}/03_fragments/{experiment}.pooled.mono.bam",
+            outdir=OUTDIR,
+            experiment=MNASE_MULTI_BIOREP_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/03_fragments/{experiment}.pooled.mono.bam.bai",
+            outdir=OUTDIR,
+            experiment=MNASE_MULTI_BIOREP_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/04_signal/{experiment}.pooled.dyad.CPM.bw",
+            outdir=OUTDIR,
+            experiment=MNASE_MULTI_BIOREP_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/04_signal/{experiment}.pooled.mono.CPM.bw",
+            outdir=OUTDIR,
+            experiment=MNASE_MULTI_BIOREP_EXPERIMENTS,
         )
     return targets
 
@@ -897,6 +986,7 @@ rule all:
         + _single_sample_qc_targets()
         + _signal_targets()
         + _cuttag_targets()
+        + _mnase_targets()
         + _advanced_qc_targets()
         + _tss_targets()
         + _replicate_targets()
@@ -911,6 +1001,7 @@ rule all:
 
 include: "rules/common.smk"
 include: "rules/peaks.smk"
+include: "rules/mnase.smk"
 include: "rules/replicates.smk"
 include: "rules/idr.smk"
 include: "rules/qc.smk"

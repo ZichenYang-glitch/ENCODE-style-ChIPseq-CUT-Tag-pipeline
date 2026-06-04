@@ -11,7 +11,7 @@ The `chipseq` (full bioinformatics) env is required only for tiny real execution
 python3 scripts/validate_samples.py --config config/config.yaml
 python3 test/test_validation_stress.py
 
-# 2. Dry-run smoke profiles (7 profiles, <30 s)
+# 2. Dry-run smoke profiles (8 profiles, <30 s)
 python3 test/test_stage8_smoke_profiles.py
 
 # 3. Hardcoded-paths guard

@@ -14,9 +14,9 @@ For the minimum required columns and a compact example, see the
 | `fastq_1` | path | R1 FASTQ file. |
 | `fastq_2` | path | R2 FASTQ file. Required for PE; leave empty for SE. |
 | `layout` | string | `PE` or `SE`. |
-| `assay` | string | `chipseq`, `cuttag`, or `atac`. |
+| `assay` | string | `chipseq`, `cuttag`, `atac`, or `mnase`. |
 | `target` | string | Antibody or target name (e.g. `H3K27ac`, `CTCF`). |
-| `peak_mode` | string | `narrow` or `broad`; ATAC currently supports `narrow` only. |
+| `peak_mode` | string | `narrow`, `broad`, or `nucleosome`. `nucleosome` is MNase-only; other assays reject it. |
 | `genome` | string | Genome label matching a key in `genome_resources` (e.g. `hs`, `mm`, `hg38`). |
 | `bowtie2_index` | path | Bowtie2 index prefix (not a directory). |
 
@@ -119,6 +119,20 @@ ATAC_rep1	/data/atac_R1.fq.gz	/data/atac_R2.fq.gz	PE	atac	ATAC	narrow	hg38	/data
 ATAC currently uses MACS3 narrow-peak calling with a Tn5-aware shift/extension
 policy. ATAC-specific footprinting and nucleosome-positioning modules are not
 included.
+
+### MNase-seq
+
+A paired-end MNase-seq sample for nucleosome positioning analysis:
+
+```tsv
+sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index
+MNase_WT	/data/mnase_R1.fq.gz	/data/mnase_R2.fq.gz	PE	mnase	H3	nucleosome	hs	/path/to/bt2/GRCh38
+```
+
+MNase-seq is **PE-only** — SE samples are rejected during validation. MNase
+requires `peak_mode: nucleosome`. MNase samples skip MACS3 peak calling and
+instead produce mono-nucleosome BAM, dyad BigWig, and mono occupancy BigWig
+outputs. Nucleosome calling (DANPOS3/iNPS) is deferred to v0.3.
 
 ## Common pitfalls
 

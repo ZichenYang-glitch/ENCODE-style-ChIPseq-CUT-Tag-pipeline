@@ -89,7 +89,7 @@ def main():
 
     bad_samples_assay = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n" \
                         "S1\tR1\t\tSE\trnaseq\tT\tnarrow\ths\tidx\n"
-    t("Sample: invalid assay", valid_config, bad_samples_assay, err="assay must be chipseq, cuttag, or atac")
+    t("Sample: invalid assay", valid_config, bad_samples_assay, err="assay must be chipseq, cuttag, atac, or mnase")
 
     # --- 6. Control Logic Validation ---
     cfg_ctrl = "samples: 'test_samples.tsv'\nuse_control: true\n"
@@ -115,6 +115,39 @@ def main():
     smps_bad_bam = "sample\tfastq_1\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\trole\tcontrol_bam\n" \
                    "S1\tR1\tSE\tchipseq\tT\tnarrow\ths\tidx\ttreatment\t/does/not/exist.bam\n"
     t("Control: missing control_bam file", cfg_ctrl, smps_bad_bam, err="control_bam file not found")
+
+    # --- 7. MNase Validation (Stage 39) ---
+    # MNase valid
+    mnase_valid = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n" \
+                  "M1\tR1.fq\tR2.fq\tPE\tmnase\tH3\tnucleosome\ths\tidx\n"
+    t("MNase: valid PE nucleosome", valid_config, mnase_valid, expect_fail=False)
+
+    # MNase SE rejected
+    mnase_se = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n" \
+               "M1\tR1.fq\t\tSE\tmnase\tH3\tnucleosome\ths\tidx\n"
+    t("MNase: SE rejected", valid_config, mnase_se, err="requires paired-end layout")
+
+    # MNase with peak_mode=narrow rejected
+    mnase_narrow = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n" \
+                   "M1\tR1.fq\tR2.fq\tPE\tmnase\tH3\tnarrow\ths\tidx\n"
+    t("MNase: narrow peak_mode rejected", valid_config, mnase_narrow, err="requires peak_mode=nucleosome")
+
+    # Non-MNase with peak_mode=nucleosome rejected
+    chip_nucl = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n" \
+                "S1\tR1.fq\tR2.fq\tPE\tchipseq\tT\tnucleosome\ths\tidx\n"
+    t("MNase: chipseq+nucleosome rejected", valid_config, chip_nucl, err="peak_mode=nucleosome is only allowed for assay=mnase")
+
+    # MNase mono_range valid
+    mnase_cfg_valid = valid_config + "mnase:\n  mono_range: [100, 180]\n"
+    t("MNase: mono_range config valid", mnase_cfg_valid, mnase_valid, expect_fail=False)
+
+    # MNase mono_range invalid (min > max)
+    mnase_cfg_bad_range = valid_config + "mnase:\n  mono_range: [200, 100]\n"
+    t("MNase: mono_range min >= max", mnase_cfg_bad_range, mnase_valid, err="min must be < max")
+
+    # MNase mono_range invalid (single element)
+    mnase_cfg_short = valid_config + "mnase:\n  mono_range: [140]\n"
+    t("MNase: mono_range single element", mnase_cfg_short, mnase_valid, err="exactly 2 elements")
 
     print(f"\nSummary: {passed}/{tests} tests passed.")
     

@@ -71,6 +71,11 @@ def _add_row(rows, sample_id, experiment_id, assay, target, genome,
     })
 
 
+def _is_mnase(sample_dict):
+    """Return True if the sample has assay=mnase."""
+    return sample_dict.get("assay", "") == "mnase"
+
+
 def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
     """Per-sample rows using validated sample dicts (key='id')."""
     rows = []
@@ -79,6 +84,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
         assay = s.get("assay", "")
         target = s.get("target", "")
         genome = s.get("genome", "")
+        is_mn = _is_mnase(s)
 
         # Always
         _add_row(rows, sid, "", assay, target, genome,
@@ -90,15 +96,25 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
         _add_row(rows, sid, "", assay, target, genome,
                  "cpm_bigwig", "bamCoverage",
                  _resolve_path(outdir, sid, "03_bigwig", f"{sid}.CPM.bw"))
-        _add_row(rows, sid, "", assay, target, genome,
-                 "macs3_peak", "macs3_callpeak",
-                 _resolve_path(outdir, sid, "04_peaks", sid))
-        _add_row(rows, sid, "", assay, target, genome,
-                 "qc_summary", "assemble_qc_summary",
-                 _resolve_path(outdir, sid, "01_qc", f"{sid}.qc_summary.tsv"))
 
-        # Gated: signal_tracks
-        if signal_tracks:
+        # Peak-centric outputs — gated on non-MNase
+        if not is_mn:
+            _add_row(rows, sid, "", assay, target, genome,
+                     "macs3_peak", "macs3_callpeak",
+                     _resolve_path(outdir, sid, "04_peaks", sid))
+            _add_row(rows, sid, "", assay, target, genome,
+                     "qc_summary", "assemble_qc_summary",
+                     _resolve_path(outdir, sid, "01_qc", f"{sid}.qc_summary.tsv"))
+        else:
+            _add_row(rows, sid, "", assay, target, genome,
+                     "macs3_peak", "macs3_callpeak",
+                     "", check_exists=False)
+            _add_row(rows, sid, "", assay, target, genome,
+                     "qc_summary", "assemble_qc_summary",
+                     "", check_exists=False)
+
+        # Gated: signal_tracks (peak-centric only)
+        if signal_tracks and not is_mn:
             _add_row(rows, sid, "", assay, target, genome,
                      "macs3_fe_bdg", "macs3_bdgcmp",
                      _resolve_path(outdir, sid, "03_signal", f"{sid}.FE.bdg"))
@@ -111,8 +127,8 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
             _add_row(rows, sid, "", assay, target, genome,
                      "macs3_ppois_bdg", "macs3_bdgcmp", "", check_exists=False)
 
-        # Gated: chrom_sizes + signal_tracks
-        if signal_tracks and _has_chrom_sizes(genome, genomic_resources):
+        # Gated: chrom_sizes + signal_tracks (peak-centric only)
+        if signal_tracks and not is_mn and _has_chrom_sizes(genome, genomic_resources):
             _add_row(rows, sid, "", assay, target, genome,
                      "macs3_fe_bw", "macs3_bdgcmp+bedGraphToBigWig",
                      _resolve_path(outdir, sid, "03_signal", f"{sid}.FE.bw"))
@@ -126,6 +142,21 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
             _add_row(rows, sid, "", assay, target, genome,
                      "macs3_ppois_bw", "macs3_bdgcmp+bedGraphToBigWig",
                      "", check_exists=False)
+
+        # MNase-specific outputs (Stage 39)
+        if is_mn:
+            _add_row(rows, sid, "", assay, target, genome,
+                     "mnase_mono_bam", "alignmentSieve",
+                     _resolve_path(outdir, sid, "03_fragments", f"{sid}.mono.bam"))
+            _add_row(rows, sid, "", assay, target, genome,
+                     "mnase_mono_bai", "samtools index",
+                     _resolve_path(outdir, sid, "03_fragments", f"{sid}.mono.bam.bai"))
+            _add_row(rows, sid, "", assay, target, genome,
+                     "mnase_dyad_bigwig", "bamCoverage --MNase",
+                     _resolve_path(outdir, sid, "04_signal", f"{sid}.dyad.CPM.bw"))
+            _add_row(rows, sid, "", assay, target, genome,
+                     "mnase_mono_bigwig", "bamCoverage",
+                     _resolve_path(outdir, sid, "04_signal", f"{sid}.mono.CPM.bw"))
 
     return rows
 
@@ -162,6 +193,7 @@ def _build_experiment_rows(samples, outdir, signal_tracks, genomic_resources,
         assay = first.get("assay", "")
         target = first.get("target", "")
         genome = first.get("genome", "")
+        is_mn = _is_mnase(first)
 
         # Pooled outputs only for multi-biorep experiments
         if is_multi:
@@ -173,14 +205,43 @@ def _build_experiment_rows(samples, outdir, signal_tracks, genomic_resources,
                      "pooled_final_bai", "samtools index",
                      _resolve_path(outdir, "experiments", exp, "02_align",
                                    f"{exp}.pooled.final.bam.bai"))
-            _add_row(rows, "", exp, assay, target, genome,
-                     "pooled_macs3_peak", "macs3_callpeak",
-                     _resolve_path(outdir, "experiments", exp, "04_peaks",
-                                   "pooled", f"{exp}_pooled_peaks"))
-            _add_row(rows, "", exp, assay, target, genome,
-                     "pooled_qc_summary", "pooled_qc_summary",
-                     _resolve_path(outdir, "experiments", exp, "01_qc",
-                                   f"{exp}.pooled_qc_summary.tsv"))
+
+            # Peak-centric pooled outputs — gated on non-MNase
+            if not is_mn:
+                _add_row(rows, "", exp, assay, target, genome,
+                         "pooled_macs3_peak", "macs3_callpeak",
+                         _resolve_path(outdir, "experiments", exp, "04_peaks",
+                                       "pooled", f"{exp}_pooled_peaks"))
+                _add_row(rows, "", exp, assay, target, genome,
+                         "pooled_qc_summary", "pooled_qc_summary",
+                         _resolve_path(outdir, "experiments", exp, "01_qc",
+                                       f"{exp}.pooled_qc_summary.tsv"))
+            else:
+                _add_row(rows, "", exp, assay, target, genome,
+                         "pooled_macs3_peak", "macs3_callpeak",
+                         "", check_exists=False)
+                _add_row(rows, "", exp, assay, target, genome,
+                         "pooled_qc_summary", "pooled_qc_summary",
+                         "", check_exists=False)
+
+            # MNase-specific pooled outputs (Stage 39)
+            if is_mn:
+                _add_row(rows, "", exp, assay, target, genome,
+                         "pooled_mnase_mono_bam", "alignmentSieve",
+                         _resolve_path(outdir, "experiments", exp,
+                                       "03_fragments", f"{exp}.pooled.mono.bam"))
+                _add_row(rows, "", exp, assay, target, genome,
+                         "pooled_mnase_mono_bai", "samtools index",
+                         _resolve_path(outdir, "experiments", exp,
+                                       "03_fragments", f"{exp}.pooled.mono.bam.bai"))
+                _add_row(rows, "", exp, assay, target, genome,
+                         "pooled_mnase_dyad_bigwig", "bamCoverage --MNase",
+                         _resolve_path(outdir, "experiments", exp,
+                                       "04_signal", f"{exp}.pooled.dyad.CPM.bw"))
+                _add_row(rows, "", exp, assay, target, genome,
+                         "pooled_mnase_mono_bigwig", "bamCoverage",
+                         _resolve_path(outdir, "experiments", exp,
+                                       "04_signal", f"{exp}.pooled.mono.CPM.bw"))
 
         # Biorep rows: match _biorep_expand_pairs()
         # - multi-biorep: all bioreps always included
@@ -198,9 +259,9 @@ def _build_experiment_rows(samples, outdir, signal_tracks, genomic_resources,
                          _resolve_path(outdir, "experiments", exp, "02_align",
                                        f"biorep{br}.final.bam.bai"))
 
-        # Gated signal tracks for pooled (multi-biorep only)
+        # Gated signal tracks for pooled (multi-biorep only, peak-centric only)
         if is_multi:
-            if signal_tracks:
+            if signal_tracks and not is_mn:
                 _add_row(rows, "", exp, assay, target, genome,
                          "pooled_fe_bdg", "macs3_bdgcmp",
                          _resolve_path(outdir, "experiments", exp, "03_signal",
@@ -215,7 +276,7 @@ def _build_experiment_rows(samples, outdir, signal_tracks, genomic_resources,
                 _add_row(rows, "", exp, assay, target, genome,
                          "pooled_ppois_bdg", "macs3_bdgcmp", "", check_exists=False)
 
-            if signal_tracks and _has_chrom_sizes(genome, genomic_resources):
+            if signal_tracks and not is_mn and _has_chrom_sizes(genome, genomic_resources):
                 _add_row(rows, "", exp, assay, target, genome,
                          "pooled_fe_bw", "macs3_bdgcmp+bedGraphToBigWig",
                          _resolve_path(outdir, "experiments", exp, "03_signal",
@@ -283,11 +344,16 @@ def _build_idr_rows(samples, outdir, stage5):
     return rows
 
 
-def _build_project_rows(outdir, multiqc_enabled):
+def _build_project_rows(outdir, multiqc_enabled, has_peak_samples):
     rows = []
-    _add_row(rows, "", "", "", "", "",
-             "stage3_qc_summary", "aggregate_qc_summary",
-             _resolve_path(outdir, "multiqc", "stage3_qc_summary.tsv"))
+    if has_peak_samples:
+        _add_row(rows, "", "", "", "", "",
+                 "stage3_qc_summary", "aggregate_qc_summary",
+                 _resolve_path(outdir, "multiqc", "stage3_qc_summary.tsv"))
+    else:
+        _add_row(rows, "", "", "", "", "",
+                 "stage3_qc_summary", "aggregate_qc_summary",
+                 "", check_exists=False)
     if multiqc_enabled:
         _add_row(rows, "", "", "", "", "",
                  "multiqc_report", "multiqc",
@@ -341,13 +407,18 @@ def main():
     # Filter to treatment only (manifest only records treatment outputs)
     treatment_samples = [s for s in samples if s.get("role") == "treatment"]
 
+    # Determine if there are any peak-centric treatment samples
+    has_peak_samples = any(
+        _is_mnase(s) is False for s in treatment_samples
+    )
+
     all_rows = []
     all_rows.extend(_build_sample_rows(
         treatment_samples, outdir, signal_tracks, genomic_resources))
     all_rows.extend(_build_experiment_rows(
         treatment_samples, outdir, signal_tracks, genomic_resources, stage4b))
     all_rows.extend(_build_idr_rows(treatment_samples, outdir, stage5))
-    all_rows.extend(_build_project_rows(outdir, multiqc_enabled))
+    all_rows.extend(_build_project_rows(outdir, multiqc_enabled, has_peak_samples))
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     with open(args.output, "w", newline="") as fh:

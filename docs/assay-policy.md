@@ -149,3 +149,81 @@ ATAC-seq always removes duplicates in `auto` mode (no broad-peak exception).
 - Per-sample `qc_summary.tsv` (37 columns) is assembled by `scripts/assemble_qc_summary.py`.
 - Project-level `stage3_qc_summary.tsv` is aggregated by `scripts/aggregate_qc_summary.py`.
 - `result_manifest.tsv` records core output existence with 10-column TSV, using `validate_samples` for DAG-consistent gating.
+- MNase samples do not produce `qc_summary.tsv` (no peaks); MNase QC summary is deferred to Stage 40.
+
+---
+
+## MNase-seq
+
+**Allowed peak modes:** `nucleosome` only
+
+### PE-only
+
+MNase-seq requires paired-end layout. SE MNase samples raise a validation error.
+
+### No MACS3 peak calling
+
+MNase samples skip the MACS3 peak calling path entirely. No `04_peaks/`,
+MACS3 FE/ppois bedGraph, or MACS3 FE/ppois BigWig outputs are produced.
+MNase does produce dyad (`bamCoverage --MNase`) and mono occupancy BigWigs
+under `04_signal/`.
+
+### Duplicate policy
+
+| `remove_dup` config | Behavior |
+| :--- | :--- |
+| `auto` | `yes` |
+| `yes` | Always remove duplicates |
+| `no` | Never remove duplicates |
+
+MNase is PE-only and always removes duplicates in `auto` mode (no broad-peak exception).
+
+### Read extension (bamCoverage)
+
+PE mode: no read extension. Fragment pairs are the biological unit for MNase-seq.
+
+### Nucleosome-centric outputs
+
+| Output | Rule | Tool | Input |
+| :--- | :--- | :--- | :--- |
+| `03_fragments/<s>.mono.bam` | `mnase_split_mono` | `alignmentSieve` | `final.bam` |
+| `04_signal/<s>.dyad.CPM.bw` | `mnase_dyad_bigwig` | `bamCoverage --MNase --binSize 1` | `final.bam` |
+| `04_signal/<s>.mono.CPM.bw` | `mnase_mono_bigwig` | `bamCoverage` | `mono.bam` |
+
+Mono-nucleosome fragment range defaults to [140, 200] and is configurable via
+`mnase.mono_range` in `config/config.yaml`.
+
+### Pooled outputs
+
+For MNase experiments with >=2 biological replicates, pooled outputs are produced:
+`<e>.pooled.mono.bam`, `<e>.pooled.dyad.CPM.bw`, `<e>.pooled.mono.CPM.bw`.
+
+Pooled BAMs reuse the existing Stage 4b replicate merge logic (assay-agnostic).
+
+### Controls
+
+Supported for preprocessing (control samples produce `final.bam` and CPM BigWig).
+MNase downstream rules do not use controls for differential analysis in v0.2.
+
+### IDR
+
+Not supported in v0.2.
+
+### Config
+
+```yaml
+mnase:
+  mono_range: [140, 200]   # alignmentSieve min/max fragment length for mono-nucleosome BAM
+```
+
+The `mnase` block is optional. If absent, `mono_range` defaults to `[140, 200]`.
+
+### Not implemented in v0.2 (deferred to Stage 40 / v0.3)
+
+- Sub-nucleosome and di-nucleosome fragment classes
+- DANPOS3 nucleosome calling
+- iNPS high-resolution nucleosome detection
+- Rotational periodicity QC
+- NFR/TSS MNase-specific QC profiles
+- MNase MultiQC custom content
+- MNase per-sample QC summary

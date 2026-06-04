@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sample sheet and config validation for the ChIP-seq/CUT&Tag/ATAC-seq pipeline.
+"""Sample sheet and config validation for the ChIP-seq / CUT&Tag / ATAC-seq / MNase-seq pipeline.
 
 Importable by workflow/Snakefile and runnable as a standalone CLI.
 
@@ -301,6 +301,9 @@ def validate_config(config: dict) -> dict:
     # cuttag — optional CUT&Tag-specific config (Stage 7b)
     validated["cuttag"] = _validate_cuttag_config(config.get("cuttag", {}))
 
+    # mnase — optional MNase-seq config (Stage 39)
+    validated["mnase"] = _validate_mnase_config(config.get("mnase", {}))
+
     return validated
 
 
@@ -400,6 +403,56 @@ def _validate_cuttag_config(cuttag: dict) -> dict:
             "threshold": threshold,
         },
     }
+
+
+def _validate_mnase_config(mnase: dict) -> dict:
+    """Validate the mnase config block. Returns normalized dict.
+
+    Absent block -> all defaults. Only validates keys for Stage 39.
+    """
+    if not isinstance(mnase, dict):
+        raise ValidationError(
+            f"mnase must be a mapping, got {type(mnase).__name__}"
+        )
+
+    known = {"mono_range"}
+    for key in mnase:
+        if key not in known:
+            raise ValidationError(
+                f"mnase: unknown key {key!r}. Known: {sorted(known)}"
+            )
+
+    mono_range = mnase.get("mono_range", [140, 200])
+
+    if not isinstance(mono_range, (list, tuple)):
+        raise ValidationError(
+            f"mnase.mono_range must be a list of 2 positive ints "
+            f"(min < max), got {type(mono_range).__name__}"
+        )
+    if len(mono_range) != 2:
+        raise ValidationError(
+            f"mnase.mono_range must have exactly 2 elements "
+            f"(min, max), got {len(mono_range)}"
+        )
+    try:
+        lo, hi = int(mono_range[0]), int(mono_range[1])
+    except (ValueError, TypeError):
+        raise ValidationError(
+            f"mnase.mono_range elements must be integers, "
+            f"got {mono_range!r}"
+        )
+    if lo <= 0 or hi <= 0:
+        raise ValidationError(
+            f"mnase.mono_range values must be positive, "
+            f"got [{lo}, {hi}]"
+        )
+    if lo >= hi:
+        raise ValidationError(
+            f"mnase.mono_range: min must be < max, "
+            f"got [{lo}, {hi}]"
+        )
+
+    return {"mono_range": [lo, hi]}
 
 
 def _validate_qc_config(qc: dict) -> dict:
@@ -1065,24 +1118,39 @@ def load_and_validate_samples(
                 raise ValidationError(
                     f"Sample {sid!r}: PE layout requires 'fastq_2'"
                 )
-            if assay not in ("chipseq", "cuttag", "atac"):
+            if assay == "mnase" and lo != "PE":
+                raise ValidationError(
+                    f"Sample {sid!r}: assay=mnase requires paired-end "
+                    f"layout (PE), got {lo!r}"
+                )
+            if assay not in ("chipseq", "cuttag", "atac", "mnase"):
                 raise ValidationError(
                     f"Sample {sid!r}: assay must be chipseq, cuttag, "
-                    f"or atac, got {assay!r}"
+                    f"atac, or mnase, got {assay!r}"
                 )
             if not tgt:
                 raise ValidationError(
                     f"Sample {sid!r} has empty 'target'"
                 )
-            if pmode not in ("narrow", "broad"):
+            if pmode not in ("narrow", "broad", "nucleosome"):
                 raise ValidationError(
-                    f"Sample {sid!r}: peak_mode must be narrow or broad, "
-                    f"got {pmode!r}"
+                    f"Sample {sid!r}: peak_mode must be narrow, broad, "
+                    f"or nucleosome, got {pmode!r}"
                 )
             if assay == "atac" and pmode != "narrow":
                 raise ValidationError(
                     f"Sample {sid!r}: assay=atac currently supports "
                     f"peak_mode=narrow only, got {pmode!r}"
+                )
+            if assay == "mnase" and pmode != "nucleosome":
+                raise ValidationError(
+                    f"Sample {sid!r}: assay=mnase requires "
+                    f"peak_mode=nucleosome, got {pmode!r}"
+                )
+            if assay != "mnase" and pmode == "nucleosome":
+                raise ValidationError(
+                    f"Sample {sid!r}: peak_mode=nucleosome is only "
+                    f"allowed for assay=mnase, got assay={assay!r}"
                 )
             if not gnm:
                 raise ValidationError(

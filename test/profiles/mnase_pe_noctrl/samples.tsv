@@ -1,0 +1,3 @@
+sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index	experiment	condition	replicate	biological_replicate	technical_replicate	role	control_sample	control_bam
+M1	R1.fq	R2.fq	PE	mnase	H3	nucleosome	hs	bt2_idx	exp1	H3	1	1	1	treatment
+M2	R1.fq	R2.fq	PE	mnase	H3	nucleosome	hs	bt2_idx	exp1	H3	2	2	1	treatment

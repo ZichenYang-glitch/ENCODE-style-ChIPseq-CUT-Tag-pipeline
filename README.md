@@ -1,4 +1,4 @@
-# ENCODE-style ChIP-seq, CUT&Tag, and ATAC-seq Pipeline
+# ENCODE-style ChIP-seq, CUT&Tag, ATAC-seq, and MNase-seq Pipeline
 
 [![Snakemake](https://img.shields.io/badge/Snakemake-%3E%3D8.0-brightgreen.svg?style=flat-square)](https://snakemake.github.io)
 [![Conda](https://img.shields.io/badge/conda-supported-blue.svg?style=flat-square)](https://docs.conda.io/en/latest/)
@@ -6,7 +6,7 @@
 
 ## Overview
 
-A Snakemake-based pipeline suite for ChIP-seq, CUT&Tag, and baseline ATAC-seq
+A Snakemake-based pipeline suite for ChIP-seq, CUT&Tag, ATAC-seq, and MNase-seq
 data analysis. It handles single-sample preprocessing as well as
 multi-replicate experiments with pooled outputs, single-sample QC, and TF
 ChIP-seq IDR reproducibility analysis.
@@ -28,6 +28,10 @@ See [Limitations](#limitations) for known gaps.
   parameters, duplicate removal, and read extension; optional CUT&Tag SEACR
   sidecar peak calls
   (`cuttag.seacr.enabled`, output under `results/<sample>/04_peaks_seacr/`)
+- **MNase-seq nucleosome positioning:** PE-only MNase-seq support with
+  mono-nucleosome BAM, dyad BigWig (`bamCoverage --MNase`), mono occupancy
+  BigWig, and pooled outputs for multi-replicate experiments.
+  Nucleosome calling (DANPOS3/iNPS) deferred to v0.3.
 - **Optional controls:** external control BAM or FASTQ-based control rows;
   control samples processed through the same pipeline
 - **Single-sample QC:** FRiP, peak counts, library complexity, NRF/PBC, MACS3
@@ -124,9 +128,9 @@ snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use
 | `fastq_1` | R1 FASTQ path. |
 | `fastq_2` | R2 FASTQ path. Required for PE; leave empty for SE. |
 | `layout` | `PE` or `SE`. |
-| `assay` | `chipseq`, `cuttag`, or `atac`. |
+| `assay` | `chipseq`, `cuttag`, `atac`, or `mnase`. |
 | `target` | Antibody or target name (e.g. `H3K27ac`, `CTCF`). |
-| `peak_mode` | `narrow` or `broad`; ATAC currently supports `narrow` only. |
+| `peak_mode` | `narrow`, `broad`, or `nucleosome` (`nucleosome` is MNase-only). |
 | `genome` | Genome label used to look up `genome_resources` (e.g. `hs`, `mm`, `hg38`). |
 | `bowtie2_index` | Bowtie2 index prefix path. |
 
@@ -184,8 +188,11 @@ Every sample (treatment or control) flows through: FastQC → Trim Galore
 MAPQ filter → duplicate handling (samtools by default; Picard if available in
 a custom runtime environment) → `final.bam`.
 BigWig tracks are generated with deepTools `bamCoverage` (CPM-normalized by
-default). MACS3 peak calling runs on treatment samples, with assay-specific
-parameters (TF ChIP-seq model-based, CUT&Tag Tn5-aware `--shift -100`).
+default). MACS3 peak calling runs on peak-centric treatment samples (ChIP-seq,
+CUT&Tag, ATAC-seq), with assay-specific parameters (TF ChIP-seq model-based,
+CUT&Tag Tn5-aware `--shift -100`). MNase-seq samples skip MACS3 and instead
+produce nucleosome-centric outputs (mono-nucleosome BAM, dyad BigWig, mono
+occupancy BigWig).
 
 ### Controls
 
@@ -327,10 +334,14 @@ results/
 
 ### Assay support
 
-- **ChIP-seq**, **CUT&Tag**, and baseline **ATAC-seq** are supported.
+- **ChIP-seq**, **CUT&Tag**, baseline **ATAC-seq**, and **PE MNase-seq** are supported.
 - ATAC-seq currently supports `peak_mode: narrow` only. ATAC-specific
   insert-size/TSS interpretation is available as QC output, but no
   ATAC-specific footprinting or nucleosome-positioning module is included.
+- MNase-seq is PE-only and supports nucleosome positioning basics
+  (mono-nucleosome BAM, dyad BigWig, mono occupancy BigWig, pooled outputs).
+  Nucleosome calling (DANPOS3/iNPS), sub/di-nucleosome analysis, and
+  MNase-specific QC are deferred to v0.3.
 
 ### TF ChIP-seq IDR
 
@@ -457,7 +468,7 @@ snakemake only) and runs validation plus 9 Python test suites:
 
 - Validate default config + sample sheet
 - Run validation stress tests
-- Run Stage 8a dry-run smoke profiles (7 profiles)
+- Run Stage 8a dry-run smoke profiles (8 profiles)
 - No-hardcoded-paths guard
 - Stage 22 BigWig stress tests
 - Stage 24 QC summary unit tests
@@ -526,7 +537,7 @@ python3 test/test_validation_stress.py
 # 2. Default DAG check
 snakemake -s workflow/Snakefile --configfile config/config.yaml -n --quiet
 
-# 3. Dry-run smoke profiles (7 profiles, <30 s)
+# 3. Dry-run smoke profiles (8 profiles, <30 s)
 python3 test/test_stage8_smoke_profiles.py
 
 # 4. Tiny real execution (preprocessing + signal, <60 s)

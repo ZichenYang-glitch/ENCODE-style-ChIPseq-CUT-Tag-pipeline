@@ -301,6 +301,24 @@ cuttag:
           default: 0.01
           description: Numeric FDR threshold for treatment-only mode (float in (0, 1)).
 
+# ---- MNase-seq Nucleosome-Centric Configuration (optional, Stage 39) ----
+mnase:
+  type: mapping
+  required: false
+  default:
+    mono_range: [140, 200]
+  description: >
+    MNase-seq nucleosome-centric pipeline configuration. When absent,
+    defaults are used. Only relevant for samples with assay=mnase.
+  schema:
+    mono_range:
+      type: list
+      default: [140, 200]
+      description: >
+        Fragment length range for mono-nucleosome BAM generation
+        via alignmentSieve. Must be a list of exactly two positive
+        integers with min < max.
+
 # ---- Stage 4c: Tool Parameterization (optional) ----
 tool_parameters:
   type: mapping
