@@ -6,6 +6,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- MNase-seq fragment stratification and QC summary (Stage 40): sub-nucleosome
+  and di-nucleosome BAMs alongside existing mono BAM; sample-level MNase QC
+  summary (`scripts/mnase_qc_summary.py`, stdlib-only) with fragment read counts
+  and config metadata. Configurable via `mnase.fragments` (defaults: sub
+  [1,139], mono [140,200], di [300,400]).
+- Explicit `mnase.dyad_range` config key (default [130, 200]) wired into
+  sample-level and pooled dyad BigWig rules via `--minFragmentLength` /
+  `--maxFragmentLength`. Allowed to differ from `fragments.mono`.
+- `mnase.callers` config surface (danpos3, inps, sem) reserved; setting any
+  caller to `true` raises a validation error ("execution deferred").
+- MNase QC custom content section in MultiQC report (`mnase_qc` table).
+- Manifest rows for `mnase_sub_bam`, `mnase_sub_bai`, `mnase_di_bam`,
+  `mnase_di_bai`, and `mnase_qc_summary`.
+- MNase-seq nucleosome positioning support (Stage 39): `assay: mnase` for PE
+  MNase-seq. Produces mono-nucleosome BAM (alignmentSieve), dyad BigWig
+  (bamCoverage --MNase), and mono occupancy BigWig at both sample and pooled
+  experiment levels. Reuses existing preprocessing (FastQC, Trim Galore,
+  Bowtie2, MAPQ filter, duplicate handling, final.bam).
+- New `peak_mode: nucleosome` — required for MNase, rejected for non-MNase
+  assays. PE-only constraint enforced in sample validation.
+- Optional `mnase.mono_range` config key (default [140, 200]) for
+  mono-nucleosome fragment length.
+- MNase test profile (8th smoke profile), validation stress tests (7 new
+  cases), and Stage 39 stress tests (28 cases).
+- Manifest support for MNase outputs: mono BAM, dyad/mono BigWigs at sample
+  and pooled level. Peak-centric outputs marked not_applicable for MNase rows.
+- Optional `--strict-inputs` validation mode for FASTQ and Bowtie2 index
+  file existence (Stage 30). Default is non-strict for dry-run compatibility;
+  use `--strict-inputs` for pre-run or release validation.
+
+### Changed
+- `mnase.mono_range` is deprecated in favor of `mnase.fragments.mono`.
+  `fragments.mono` takes precedence when both are set.
+- `get_mono_range()` now checks `fragments.mono` first, then `mono_range`,
+  then hard default `[140, 200]`.
+- `pipeline_done` and `_mnase_targets()` now include all Stage 40 MNase outputs.
+- `pipeline_done` rule in report.smk now conditionally gates peak-centric
+  inputs on non-MNase samples.
+- Target builder split into `PEAK_SAMPLE_IDS` (non-MNase treatment) and
+  `MNASE_SAMPLE_IDS` (MNase treatment) with corresponding experiment-level
+  subsets for pooled output gating.
+- SE ChIP-seq MACS3 fragment-size fallback now emits a clear warning to stderr
+  when using the 200 bp default, rather than failing silently.
+
 ### Fixed
 - MultiQC rule now passes `--filename multiqc_report.html` explicitly, so the
   output filename is stable regardless of the configured `--title` value.
@@ -27,35 +72,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `KNOWN_ISSUES.md` now tracks Stage 37 real-run follow-ups with status
   and mitigation guidance (MultiQC sample-name consistency, bedGraph
   disk pressure).
-
-### Added
-- MNase-seq nucleosome positioning support (Stage 39): `assay: mnase` for PE
-  MNase-seq. Produces mono-nucleosome BAM (alignmentSieve), dyad BigWig
-  (bamCoverage --MNase), and mono occupancy BigWig at both sample and pooled
-  experiment levels. Reuses existing preprocessing (FastQC, Trim Galore,
-  Bowtie2, MAPQ filter, duplicate handling, final.bam).
-- New `peak_mode: nucleosome` — required for MNase, rejected for non-MNase
-  assays. PE-only constraint enforced in sample validation.
-- Optional `mnase.mono_range` config key (default [140, 200]) for
-  mono-nucleosome fragment length.
-- MNase test profile (8th smoke profile), validation stress tests (7 new
-  cases), and Stage 39 stress tests (28 cases).
-- Manifest support for MNase outputs: mono BAM, dyad/mono BigWigs at sample
-  and pooled level. Peak-centric outputs marked not_applicable for MNase rows.
-- Optional `--strict-inputs` validation mode for FASTQ and Bowtie2 index
-  file existence (Stage 30). Default is non-strict for dry-run compatibility;
-  use `--strict-inputs` for pre-run or release validation.
-
-### Changed
-- `pipeline_done` rule in report.smk now conditionally gates peak-centric
-  inputs on non-MNase samples.
-- Target builder split into `PEAK_SAMPLE_IDS` (non-MNase treatment) and
-  `MNASE_SAMPLE_IDS` (MNase treatment) with corresponding experiment-level
-  subsets for pooled output gating.
-- SE ChIP-seq MACS3 fragment-size fallback now emits a clear warning to stderr
-  when using the 200 bp default, rather than failing silently.
-
-### Documentation
 - Documented strict input validation in README, configuration docs, release
   checklist, and assay policy.
 - Public data execution report template and four per-queue stubs (Stage 32).

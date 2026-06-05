@@ -594,7 +594,10 @@ def test_mnase_sample_rows():
         types = {r["output_type"] for r in rows}
         # MNase-specific outputs must be present
         expected = {"mnase_mono_bam", "mnase_mono_bai",
-                    "mnase_dyad_bigwig", "mnase_mono_bigwig"}
+                    "mnase_dyad_bigwig", "mnase_mono_bigwig",
+                    "mnase_sub_bam", "mnase_sub_bai",
+                    "mnase_di_bam", "mnase_di_bai",
+                    "mnase_qc_summary"}
         passed = expected.issubset(types)
         if not passed:
             print("  Missing MNase types:", expected - types)

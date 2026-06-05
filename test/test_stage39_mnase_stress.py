@@ -114,7 +114,9 @@ def main():
 
     try:
         # --- MNase rules scheduled ---
-        for rule in ["mnase_split_mono", "mnase_dyad_bigwig", "mnase_mono_bigwig"]:
+        for rule in ["mnase_split_mono", "mnase_split_sub", "mnase_split_di",
+                      "mnase_dyad_bigwig", "mnase_mono_bigwig",
+                      "mnase_qc_summary"]:
             check(
                 "MNase rule %s scheduled" % rule,
                 rule in output,
@@ -180,7 +182,9 @@ def main():
             direct.returncode == 0,
             direct_output.strip()[-300:],
         )
-        for rule in ["mnase_split_mono", "mnase_dyad_bigwig", "mnase_mono_bigwig"]:
+        for rule in ["mnase_split_mono", "mnase_split_sub", "mnase_split_di",
+                      "mnase_dyad_bigwig", "mnase_mono_bigwig",
+                      "mnase_qc_summary"]:
             check(
                 "Direct pipeline.done schedules %s" % rule,
                 rule in direct_output,

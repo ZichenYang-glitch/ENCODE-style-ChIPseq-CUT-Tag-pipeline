@@ -43,14 +43,19 @@ The earlier `project_id` field from the draft schema was removed before implemen
 | `blacklist_filtered_bam` | bedtools intersect | blacklist_filter_bam | `results/<sample>/02_align/<sample>.blacklist_filtered.bam` | stable |
 | `pipeline_done` | touch | (common.smk) | `results/<sample>/logs/<sample>.pipeline.done` | stable |
 
-### MNase-seq single-sample outputs (Stage 39)
+### MNase-seq single-sample outputs (Stage 39-40)
 
 | output_type | method | rule | path | status |
 | :--- | :--- | :--- | :--- | :--- |
+| `mnase_sub_bam` | alignmentSieve | mnase_split_sub | `results/<sample>/03_fragments/<sample>.sub.bam` | stable (Stage 40) |
+| `mnase_sub_bai` | samtools index | mnase_split_sub | `results/<sample>/03_fragments/<sample>.sub.bam.bai` | stable (Stage 40) |
 | `mnase_mono_bam` | alignmentSieve | mnase_split_mono | `results/<sample>/03_fragments/<sample>.mono.bam` | stable |
 | `mnase_mono_bai` | samtools index | mnase_split_mono | `results/<sample>/03_fragments/<sample>.mono.bam.bai` | stable |
+| `mnase_di_bam` | alignmentSieve | mnase_split_di | `results/<sample>/03_fragments/<sample>.di.bam` | stable (Stage 40) |
+| `mnase_di_bai` | samtools index | mnase_split_di | `results/<sample>/03_fragments/<sample>.di.bam.bai` | stable (Stage 40) |
 | `mnase_dyad_bigwig` | bamCoverage --MNase --binSize 1 | mnase_dyad_bigwig | `results/<sample>/04_signal/<sample>.dyad.CPM.bw` | stable |
 | `mnase_mono_bigwig` | bamCoverage | mnase_mono_bigwig | `results/<sample>/04_signal/<sample>.mono.CPM.bw` | stable |
+| `mnase_qc_summary` | mnase_qc_summary.py | mnase_qc_summary | `results/<sample>/01_qc/<sample>.mnase_qc_summary.tsv` | stable (Stage 40) |
 
 ### MNase-seq experiment-level (pooled) outputs (Stage 39)
 
