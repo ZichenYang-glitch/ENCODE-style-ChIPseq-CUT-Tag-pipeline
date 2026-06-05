@@ -67,8 +67,9 @@ def get_dyad_range():
 def _caller_enabled(name):
     """Return True if caller *name* is enabled in mnase.callers.
 
-    Validation guarantees all values are boolean false in Stage 40,
-    but this helper reads config defensively.
+    Validation requires YAML boolean values (true/false), so only
+    isinstance(val, bool) is checked here. String values are rejected
+    by validate_samples.py; this helper is defense-in-depth.
     """
     mnase_cfg = config.get("mnase", {})
     if isinstance(mnase_cfg, dict):
@@ -77,8 +78,6 @@ def _caller_enabled(name):
             val = callers.get(name, False)
             if isinstance(val, bool):
                 return val
-            if isinstance(val, str):
-                return val.lower() == "true"
     return False
 
 
