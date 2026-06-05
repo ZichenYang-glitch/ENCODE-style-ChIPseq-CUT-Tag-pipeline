@@ -95,7 +95,35 @@ navigate the single-file architecture.
 
 ---
 
-### Stage 43: Introduce paths.smk (Limited Pilot)
+### Stage 43: Artifact Inventory
+
+**Goal:** Produce a single machine-readable inventory of every output type
+the pipeline can produce, including assay eligibility, gating conditions,
+file path template, and generating rule.
+
+**Scope:** A YAML file under `docs/` that lists all output types with their
+metadata. No code changes — the inventory is hand-maintained documentation
+in machine-readable format.
+
+**Non-goals:** Code generation from the inventory, runtime artifact resolution,
+DAG behavior changes.
+
+**Why inventory before paths.smk:** You can't centralize what you haven't
+catalogued. `paths.smk` needs to know all path patterns before it can
+centralize them. Without an inventory, `paths.smk` would grow organically
+as new outputs are added — path centralization without path design. The
+inventory provides the reference vocabulary, identifies which paths benefit
+most from centralization (e.g., MNase fragment BAMs sharing a
+`03_fragments/<sample>.<class>.bam` pattern), and is zero-risk (a docs
+file can be wrong without breaking the DAG). `paths.smk` is then scoped
+by the inventory rather than grown ad-hoc.
+
+**Trigger:** When the output-contract.md table becomes too large to maintain
+by hand, or when a manifest / output-contract inconsistency is found.
+
+---
+
+### Stage 44: Introduce paths.smk (Limited Pilot)
 
 **Goal:** Create a single source of truth for output path templates, starting
 with ONE assay or output category as a pilot. Not a global all-at-once path
@@ -123,23 +151,6 @@ artifact kind enums, or `artifact_path()` semantics.
 
 ---
 
-### Stage 44: Artifact Inventory
-
-**Goal:** Produce a single machine-readable inventory of every output type
-the pipeline can produce, including assay eligibility, gating conditions,
-file path template, and generating rule.
-
-**Scope:** A YAML or JSON file under `docs/` or `workflow/` that lists all
-output types with their metadata. No code changes — the inventory is
-hand-maintained.
-
-**Non-goals:** Code generation from the inventory, runtime artifact resolution.
-
-**Trigger:** When the output-contract.md table becomes too large to maintain
-by hand, or when a manifest / output-contract inconsistency is found.
-
----
-
 ### Stage 45: Artifact Dataclass Spike
 
 **Goal:** Introduce a `workflow/lib/artifact.py` with a frozen `Artifact`
@@ -154,9 +165,9 @@ DAG and rules are NOT changed.
 **Non-goals:** Snakemake rule `input:` / `output:` using artifacts,
 target-helper replacement, rule-all changes, path consolidation.
 
-**Trigger:** When the artifact inventory (Stage 44) is stable and manually
+**Trigger:** When the artifact inventory (Stage 43) is stable and manually
 maintaining manifest + docs + inventory in sync becomes a measurable burden,
-AND Stages 42-43 (Snakefile extraction + path pilot) have proven the
+AND Stages 42-44 (Snakefile extraction + inventory + path pilot) have proven the
 extraction architecture works.
 
 ---
@@ -201,8 +212,9 @@ These approaches are tempting but WRONG for the current project state:
 1. **Full artifact-centric rewrite now.** The pipeline has 4 assays working
    correctly. A rewrite would touch every rule, every test, and every doc
    simultaneously — high regression risk with zero user-visible benefit.
-   The right path is incremental extraction (Stages 42-43) followed by
-   targeted abstraction (Stages 44-46+), each stage independently verifiable.
+   The right path is incremental extraction, inventory, and path piloting
+   (Stages 42-44) followed by targeted abstraction (Stages 45-46+), each
+   stage independently verifiable.
 
 2. **Global target resolver before extraction.** A `build_run_targets()`
    function that replaces all ten target helpers at once is a single massive
