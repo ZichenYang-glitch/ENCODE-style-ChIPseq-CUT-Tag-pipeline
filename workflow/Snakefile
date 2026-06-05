@@ -1,9 +1,10 @@
 # ChIP-seq / CUT&Tag / ATAC-seq Snakemake Pipeline
 # =================================================
 # Entry point for the modular Snakemake pipeline suite.
-# Sample sheet parsing, config loading, and assay dispatch happen here.
+# Sample sheet parsing and config loading happen here.
+# Derived metadata, dispatch wrappers, and target builders live in
+# workflow/rules/metadata.smk and workflow/rules/targets.smk.
 # Executable rules live in workflow/rules/*.smk.
-# Policy functions live in workflow/rules/chipseq.smk, cuttag.smk, and atac.smk.
 
 import os
 import sys
@@ -159,7 +160,7 @@ include: "rules/targets.smk"
 
 
 # ---------------------------------------------------------------------------
-# 8. Default target — rule all
+# 7. Default target — rule all
 #    Defined BEFORE executable rule includes to remain the default target.
 # ---------------------------------------------------------------------------
 
@@ -180,7 +181,7 @@ rule all:
 
 
 # ---------------------------------------------------------------------------
-# 9. Executable rule files
+# 8. Executable rule files
 # ---------------------------------------------------------------------------
 
 include: "rules/common.smk"
