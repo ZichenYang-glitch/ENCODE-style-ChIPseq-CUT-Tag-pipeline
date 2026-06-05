@@ -377,6 +377,52 @@ Status: **Implemented; dry-run validated**
 - **Scope boundary:** ATAC broad peaks, footprinting, nucleosome positioning,
   and ATAC-specific IDR are not implemented yet.
 
+## Stage 37 Release Hardening Follow-ups (Stage A, 2026-06-05)
+
+Status: **In progress**
+
+The 30-sample real ChIP-seq run (`docs/release-checks/stage37-full-chipseq-real-run.md`)
+surfaced three ergonomic issues:
+
+### 1. MultiQC filename drift when title is set
+
+**Fix applied:** The `multiqc` rule now passes `--filename multiqc_report.html`
+explicitly, so the output filename is stable regardless of the `--title` value.
+
+### 2. MultiQC sample-name inconsistency
+
+**Partial fix:** `workflow/multiqc_config.yaml` now declares `extra_fn_clean_exts`
+for `.final`, `.sorted`, and `.blacklist_filtered` so that pipeline-generated
+BAM suffixes do not cause the same sample to be listed under multiple names in
+the MultiQC report.
+
+**Remaining:** FASTQ-derived sample names from different sources (SRA
+accessions, core-facility naming conventions) still vary across tools. MultiQC
+`--replace-names` with a per-project mapping TSV is the recommended workaround.
+Users can inject it via `tool_parameters.multiqc.extra_args`.
+
+### 3. bedGraph-to-BigWig disk pressure
+
+**Partial fix:** The four `signal_track_*_bw` and `pooled_signal_track_*_bw`
+rules now pass `--temporary-directory /tmp` to `sort`, making the scratch
+directory explicit. They also declare `resources: bigwig_convert=1`, so users
+can cap concurrent BigWig conversions with Snakemake's `--resources` flag.
+The sorted bedGraph intermediates are still cleaned up via
+`trap 'rm -f "$SORTED"' EXIT`.
+
+**Remaining:** Large FE/ppois bedGraphs (MACS3 outputs) accumulate in the output
+directory until the full DAG completes. The recommended mitigation is to use
+Snakemake's `--resources` flag to limit BigWig conversion concurrency, e.g.
+`--resources bigwig_convert=2`. A future release may introduce optional
+bedGraph cleanup (`temp()` marking) or a pipeline-level scratch config key.
+
+### 4. Output contract docs sync
+
+`docs/output-contract.md` now lists all Stage 39 MNase MVP outputs (8 rows:
+sample-level mono BAM/BAI + dyad BW + mono occupancy BW, and 4 pooled
+counterparts). The manifest and QC gating tables are unchanged — MNase
+samples already produce correct manifest rows (stage 39).
+
 ## Notes
 
 - `control_bam` is checked only when `use_control: true`; when `use_control: false`,

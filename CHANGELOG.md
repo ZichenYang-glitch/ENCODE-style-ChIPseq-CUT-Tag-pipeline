@@ -6,6 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- MultiQC rule now passes `--filename multiqc_report.html` explicitly, so the
+  output filename is stable regardless of the configured `--title` value.
+  (Stage A release hardening; see Stage 37 real-run report.)
+- bedGraph-to-BigWig sort commands now use `--temporary-directory /tmp`
+  explicitly so that sort scratch files are routed to a known location
+  rather than relying on the system default. The conversion rules also
+  declare `resources: bigwig_convert=1`, allowing users to cap concurrent
+  conversions with `--resources bigwig_convert=<N>`. (Stage A; does not add
+  new config keys.)
+- MultiQC config now declares `extra_fn_clean_exts` for `.final`, `.sorted`,
+  and `.blacklist_filtered` to reduce sample-name fragmentation across tools
+  in the MultiQC report. (Stage A.)
+
+### Documentation
+- `docs/output-contract.md` now includes the 8 Stage 39 MNase MVP output
+  types (sample-level mono BAM/BAI, dyad BW, mono occupancy BW; pooled
+  counterparts).
+- `KNOWN_ISSUES.md` now tracks Stage 37 real-run follow-ups with status
+  and mitigation guidance (MultiQC sample-name consistency, bedGraph
+  disk pressure).
+
 ### Added
 - MNase-seq nucleosome positioning support (Stage 39): `assay: mnase` for PE
   MNase-seq. Produces mono-nucleosome BAM (alignmentSieve), dyad BigWig

@@ -183,6 +183,7 @@ if MULTIQC:
             multiqc {params.search_paths:q} \
                 --config {params.multiqc_config:q} \
                 -o {params.multiqc_dir:q} \
+                --filename multiqc_report.html \
                 --force \
                 {params.title} {params.extra} 2>&1 | tee {log:q}
             """

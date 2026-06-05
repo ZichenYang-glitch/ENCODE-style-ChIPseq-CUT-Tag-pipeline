@@ -43,6 +43,24 @@ The earlier `project_id` field from the draft schema was removed before implemen
 | `blacklist_filtered_bam` | bedtools intersect | blacklist_filter_bam | `results/<sample>/02_align/<sample>.blacklist_filtered.bam` | stable |
 | `pipeline_done` | touch | (common.smk) | `results/<sample>/logs/<sample>.pipeline.done` | stable |
 
+### MNase-seq single-sample outputs (Stage 39)
+
+| output_type | method | rule | path | status |
+| :--- | :--- | :--- | :--- | :--- |
+| `mnase_mono_bam` | alignmentSieve | mnase_split_mono | `results/<sample>/03_fragments/<sample>.mono.bam` | stable |
+| `mnase_mono_bai` | samtools index | mnase_split_mono | `results/<sample>/03_fragments/<sample>.mono.bam.bai` | stable |
+| `mnase_dyad_bigwig` | bamCoverage --MNase --binSize 1 | mnase_dyad_bigwig | `results/<sample>/04_signal/<sample>.dyad.CPM.bw` | stable |
+| `mnase_mono_bigwig` | bamCoverage | mnase_mono_bigwig | `results/<sample>/04_signal/<sample>.mono.CPM.bw` | stable |
+
+### MNase-seq experiment-level (pooled) outputs (Stage 39)
+
+| output_type | method | rule | path | status |
+| :--- | :--- | :--- | :--- | :--- |
+| `pooled_mnase_mono_bam` | alignmentSieve | mnase_pooled_mono | `results/experiments/<exp>/03_fragments/<exp>.pooled.mono.bam` | stable |
+| `pooled_mnase_mono_bai` | samtools index | mnase_pooled_mono | `results/experiments/<exp>/03_fragments/<exp>.pooled.mono.bam.bai` | stable |
+| `pooled_mnase_dyad_bigwig` | bamCoverage --MNase --binSize 1 | mnase_pooled_dyad_bigwig | `results/experiments/<exp>/04_signal/<exp>.pooled.dyad.CPM.bw` | stable |
+| `pooled_mnase_mono_bigwig` | bamCoverage | mnase_pooled_mono_bigwig | `results/experiments/<exp>/04_signal/<exp>.pooled.mono.CPM.bw` | stable |
+
 ### Experiment-level (pooled) outputs
 
 | output_type | method | rule | path | status |
@@ -90,7 +108,7 @@ sample_id	experiment_id	assay	target	genome	output_type	method	path	status	qc_fl
 | :--- | :--- | :--- |
 | `sample_id` | string | Sample identifier (empty for per-experiment and project-level rows) |
 | `experiment_id` | string | Experiment grouping key (empty for per-sample and project-level rows) |
-| `assay` | string | `chipseq`, `cuttag`, or `atac` |
+| `assay` | string | `chipseq`, `cuttag`, `atac`, or `mnase` |
 | `target` | string | Antibody or target name from sample sheet |
 | `genome` | string | Genome assembly label from sample sheet |
 | `output_type` | string | Controlled vocabulary (see table above) |

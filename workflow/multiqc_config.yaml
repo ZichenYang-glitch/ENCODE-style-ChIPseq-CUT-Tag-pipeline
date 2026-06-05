@@ -1,3 +1,13 @@
+# Normalize sample names across tools (e.g. sample.final.bam → sample).
+# MultiQC already strips common extensions (.bam, .fastq.gz, .txt).
+# These extra extensions remove pipeline-specific suffixes so that
+# per-sample BAM, flagstat, FastQC, and BigWig artifacts are grouped
+# under the same sample label in the report.
+extra_fn_clean_exts:
+  - ".final"
+  - ".sorted"
+  - ".blacklist_filtered"
+
 custom_data:
   cross_correlation_qc:
     section_name: "Cross-correlation QC"

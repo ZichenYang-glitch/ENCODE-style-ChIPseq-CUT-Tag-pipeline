@@ -415,9 +415,12 @@ rule signal_track_fe_bw:
     input:
         f"{OUTDIR}/{{sample}}/03_signal/{{sample}}.FE.bdg"
     params:
-        chrom_sizes = lambda wc: get_genome_resource(wc.sample, "chrom_sizes")
+        chrom_sizes = lambda wc: get_genome_resource(wc.sample, "chrom_sizes"),
+        sort_tmpdir = "/tmp",
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.bdg_to_bw.FE.log"
+    resources:
+        bigwig_convert = 1
     conda:
         "../envs/ucsc.yml"
     shell:
@@ -426,7 +429,7 @@ rule signal_track_fe_bw:
         mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
         SORTED="$(dirname {output:q})/.tmp_{wildcards.sample}.FE.sorted.bdg"
         trap 'rm -f "$SORTED"' EXIT
-        LC_ALL=C sort -k1,1 -k2,2n {input:q} > "$SORTED"
+        LC_ALL=C sort --temporary-directory={params.sort_tmpdir:q} -k1,1 -k2,2n {input:q} > "$SORTED"
         bedGraphToBigWig "$SORTED" {params.chrom_sizes:q} {output:q} 2>&1 | tee {log:q}
         """
 
@@ -437,9 +440,12 @@ rule signal_track_ppois_bw:
     input:
         f"{OUTDIR}/{{sample}}/03_signal/{{sample}}.ppois.bdg"
     params:
-        chrom_sizes = lambda wc: get_genome_resource(wc.sample, "chrom_sizes")
+        chrom_sizes = lambda wc: get_genome_resource(wc.sample, "chrom_sizes"),
+        sort_tmpdir = "/tmp",
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.bdg_to_bw.ppois.log"
+    resources:
+        bigwig_convert = 1
     conda:
         "../envs/ucsc.yml"
     shell:
@@ -448,7 +454,7 @@ rule signal_track_ppois_bw:
         mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
         SORTED="$(dirname {output:q})/.tmp_{wildcards.sample}.ppois.sorted.bdg"
         trap 'rm -f "$SORTED"' EXIT
-        LC_ALL=C sort -k1,1 -k2,2n {input:q} > "$SORTED"
+        LC_ALL=C sort --temporary-directory={params.sort_tmpdir:q} -k1,1 -k2,2n {input:q} > "$SORTED"
         bedGraphToBigWig "$SORTED" {params.chrom_sizes:q} {output:q} 2>&1 | tee {log:q}
         """
 
@@ -532,9 +538,12 @@ rule pooled_signal_track_fe_bw:
     input:
         f"{OUTDIR}/experiments/{{experiment}}/03_signal/{{experiment}}.pooled.FE.bdg"
     params:
-        chrom_sizes = lambda wc: _pooled_chrom_sizes(wc.experiment)
+        chrom_sizes = lambda wc: _pooled_chrom_sizes(wc.experiment),
+        sort_tmpdir = "/tmp",
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.bdg_to_bw.FE.log"
+    resources:
+        bigwig_convert = 1
     conda:
         "../envs/ucsc.yml"
     shell:
@@ -543,7 +552,7 @@ rule pooled_signal_track_fe_bw:
         mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
         SORTED="$(dirname {output:q})/.tmp_{wildcards.experiment}.pooled.FE.sorted.bdg"
         trap 'rm -f "$SORTED"' EXIT
-        LC_ALL=C sort -k1,1 -k2,2n {input:q} > "$SORTED"
+        LC_ALL=C sort --temporary-directory={params.sort_tmpdir:q} -k1,1 -k2,2n {input:q} > "$SORTED"
         bedGraphToBigWig "$SORTED" {params.chrom_sizes:q} {output:q} 2>&1 | tee {log:q}
         """
 
@@ -554,9 +563,12 @@ rule pooled_signal_track_ppois_bw:
     input:
         f"{OUTDIR}/experiments/{{experiment}}/03_signal/{{experiment}}.pooled.ppois.bdg"
     params:
-        chrom_sizes = lambda wc: _pooled_chrom_sizes(wc.experiment)
+        chrom_sizes = lambda wc: _pooled_chrom_sizes(wc.experiment),
+        sort_tmpdir = "/tmp",
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.bdg_to_bw.ppois.log"
+    resources:
+        bigwig_convert = 1
     conda:
         "../envs/ucsc.yml"
     shell:
@@ -565,7 +577,7 @@ rule pooled_signal_track_ppois_bw:
         mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
         SORTED="$(dirname {output:q})/.tmp_{wildcards.experiment}.pooled.ppois.sorted.bdg"
         trap 'rm -f "$SORTED"' EXIT
-        LC_ALL=C sort -k1,1 -k2,2n {input:q} > "$SORTED"
+        LC_ALL=C sort --temporary-directory={params.sort_tmpdir:q} -k1,1 -k2,2n {input:q} > "$SORTED"
         bedGraphToBigWig "$SORTED" {params.chrom_sizes:q} {output:q} 2>&1 | tee {log:q}
         """
 
