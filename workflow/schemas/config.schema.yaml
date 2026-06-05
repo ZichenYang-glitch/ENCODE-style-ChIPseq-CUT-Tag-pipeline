@@ -301,12 +301,21 @@ cuttag:
           default: 0.01
           description: Numeric FDR threshold for treatment-only mode (float in (0, 1)).
 
-# ---- MNase-seq Nucleosome-Centric Configuration (optional, Stage 39) ----
+# ---- MNase-seq Nucleosome-Centric Configuration (optional, Stage 39-40) ----
 mnase:
   type: mapping
   required: false
   default:
     mono_range: [140, 200]
+    fragments:
+      sub: [1, 139]
+      mono: [140, 200]
+      di: [300, 400]
+    dyad_range: [130, 200]
+    callers:
+      danpos3: false
+      inps: false
+      sem: false
   description: >
     MNase-seq nucleosome-centric pipeline configuration. When absent,
     defaults are used. Only relevant for samples with assay=mnase.
@@ -315,9 +324,61 @@ mnase:
       type: list
       default: [140, 200]
       description: >
-        Fragment length range for mono-nucleosome BAM generation
-        via alignmentSieve. Must be a list of exactly two positive
-        integers with min < max.
+        (Deprecated, prefer fragments.mono.) Fragment length range for
+        mono-nucleosome BAM generation via alignmentSieve. Must be a list
+        of exactly two positive integers with min < max.
+    fragments:
+      type: mapping
+      required: false
+      description: >
+        Fragment length ranges for sub-nucleosome, mono-nucleosome, and
+        di-nucleosome BAM stratification. Each value must be a list of
+        exactly two positive integers with min < max. When fragments.mono
+        is present, it takes precedence over mono_range. When absent, all
+        classes use their defaults.
+      schema:
+        sub:
+          type: list
+          default: [1, 139]
+          description: Sub-nucleosome fragment range (min, max).
+        mono:
+          type: list
+          default: [140, 200]
+          description: >
+            Mono-nucleosome fragment range. Takes precedence over the
+            top-level mono_range key.
+        di:
+          type: list
+          default: [300, 400]
+          description: Di-nucleosome fragment range (min, max).
+    dyad_range:
+      type: list
+      default: [130, 200]
+      description: >
+        Fragment length range for dyad BigWig generation via
+        bamCoverage --MNase. Must be a list of exactly two positive
+        integers with min < max. Allowed to differ from fragments.mono
+        (e.g. dyad signal may use a wider window than mono occupancy).
+    callers:
+      type: mapping
+      required: false
+      description: >
+        Nucleosome caller configuration surface. All callers default to
+        false. Execution is deferred to a future release; setting any
+        caller to true raises a validation error.
+      schema:
+        danpos3:
+          type: boolean
+          default: false
+          description: DANPOS3 nucleosome calling (execution deferred).
+        inps:
+          type: boolean
+          default: false
+          description: iNPS nucleosome detection (execution deferred).
+        sem:
+          type: boolean
+          default: false
+          description: SEM nucleosome subtype analysis (execution deferred).
 
 # ---- Stage 4c: Tool Parameterization (optional) ----
 tool_parameters:

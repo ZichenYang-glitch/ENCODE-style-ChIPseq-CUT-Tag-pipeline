@@ -143,8 +143,9 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                      "macs3_ppois_bw", "macs3_bdgcmp+bedGraphToBigWig",
                      "", check_exists=False)
 
-        # MNase-specific outputs (Stage 39)
+        # MNase-specific outputs (Stage 39-40)
         if is_mn:
+            # Stage 39: mono BAM, dyad BW, mono occupancy BW
             _add_row(rows, sid, "", assay, target, genome,
                      "mnase_mono_bam", "alignmentSieve",
                      _resolve_path(outdir, sid, "03_fragments", f"{sid}.mono.bam"))
@@ -157,6 +158,22 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
             _add_row(rows, sid, "", assay, target, genome,
                      "mnase_mono_bigwig", "bamCoverage",
                      _resolve_path(outdir, sid, "04_signal", f"{sid}.mono.CPM.bw"))
+            # Stage 40: sub-nucleosome BAM, di-nucleosome BAM, QC summary
+            _add_row(rows, sid, "", assay, target, genome,
+                     "mnase_sub_bam", "alignmentSieve",
+                     _resolve_path(outdir, sid, "03_fragments", f"{sid}.sub.bam"))
+            _add_row(rows, sid, "", assay, target, genome,
+                     "mnase_sub_bai", "samtools index",
+                     _resolve_path(outdir, sid, "03_fragments", f"{sid}.sub.bam.bai"))
+            _add_row(rows, sid, "", assay, target, genome,
+                     "mnase_di_bam", "alignmentSieve",
+                     _resolve_path(outdir, sid, "03_fragments", f"{sid}.di.bam"))
+            _add_row(rows, sid, "", assay, target, genome,
+                     "mnase_di_bai", "samtools index",
+                     _resolve_path(outdir, sid, "03_fragments", f"{sid}.di.bam.bai"))
+            _add_row(rows, sid, "", assay, target, genome,
+                     "mnase_qc_summary", "mnase_qc_summary.py",
+                     _resolve_path(outdir, sid, "01_qc", f"{sid}.mnase_qc_summary.tsv"))
 
     return rows
 

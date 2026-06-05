@@ -610,6 +610,8 @@ def test_multiqc_config_declares_cross_corr_custom_content():
 
     assert "custom_data:" in text
     assert "cross_correlation_qc:" in text
+    assert "mnase_qc:" in text
+    assert "*mnase_qc_summary.tsv" in text
     assert "plot_type: \"table\"" in text
     assert "cross_correlation_summary.tsv" in text
 

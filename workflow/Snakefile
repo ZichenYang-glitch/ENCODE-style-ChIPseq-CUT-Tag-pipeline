@@ -858,10 +858,11 @@ def _replicate_targets():
 
 
 def _mnase_targets():
-    """Stage 39: MNase nucleosome-centric outputs (sample and pooled)."""
+    """Stage 39-40: MNase nucleosome-centric outputs (sample and pooled)."""
     targets = []
     # Sample-level MNase outputs
     if MNASE_SAMPLE_IDS:
+        # Stage 39: mono BAM, dyad BW, mono occupancy BW
         targets += expand(
             "{outdir}/{sample}/03_fragments/{sample}.mono.bam",
             outdir=OUTDIR,
@@ -869,6 +870,33 @@ def _mnase_targets():
         )
         targets += expand(
             "{outdir}/{sample}/03_fragments/{sample}.mono.bam.bai",
+            outdir=OUTDIR,
+            sample=MNASE_SAMPLE_IDS,
+        )
+        # Stage 40: sub-nucleosome and di-nucleosome BAMs
+        targets += expand(
+            "{outdir}/{sample}/03_fragments/{sample}.sub.bam",
+            outdir=OUTDIR,
+            sample=MNASE_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/03_fragments/{sample}.sub.bam.bai",
+            outdir=OUTDIR,
+            sample=MNASE_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/03_fragments/{sample}.di.bam",
+            outdir=OUTDIR,
+            sample=MNASE_SAMPLE_IDS,
+        )
+        targets += expand(
+            "{outdir}/{sample}/03_fragments/{sample}.di.bam.bai",
+            outdir=OUTDIR,
+            sample=MNASE_SAMPLE_IDS,
+        )
+        # Stage 40: MNase QC summary
+        targets += expand(
+            "{outdir}/{sample}/01_qc/{sample}.mnase_qc_summary.tsv",
             outdir=OUTDIR,
             sample=MNASE_SAMPLE_IDS,
         )

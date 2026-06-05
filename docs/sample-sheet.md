@@ -131,8 +131,9 @@ MNase_WT	/data/mnase_R1.fq.gz	/data/mnase_R2.fq.gz	PE	mnase	H3	nucleosome	hs	/pa
 
 MNase-seq is **PE-only** — SE samples are rejected during validation. MNase
 requires `peak_mode: nucleosome`. MNase samples skip MACS3 peak calling and
-instead produce mono-nucleosome BAM, dyad BigWig, and mono occupancy BigWig
-outputs. Nucleosome calling (DANPOS3/iNPS) is deferred to v0.3.
+instead produce sub/mono/di-nucleosome BAMs, dyad BigWig, mono occupancy
+BigWig, and per-sample MNase QC summary outputs. Nucleosome calling
+(DANPOS3/iNPS/SEM) is deferred to v0.3.
 
 ## Common pitfalls
 

@@ -149,6 +149,103 @@ def main():
     mnase_cfg_short = valid_config + "mnase:\n  mono_range: [140]\n"
     t("MNase: mono_range single element", mnase_cfg_short, mnase_valid, err="exactly 2 elements")
 
+    # --- 7b. MNase Stage 40 validation ---
+
+    # fragments block valid
+    mnase_cfg_frag = valid_config + (
+        "mnase:\n"
+        "  fragments:\n"
+        "    sub: [1, 139]\n"
+        "    mono: [140, 200]\n"
+        "    di: [300, 400]\n"
+    )
+    t("MNase Stage 40: fragments valid", mnase_cfg_frag, mnase_valid, expect_fail=False)
+
+    # fragments.mono takes precedence over mono_range
+    mnase_cfg_both = valid_config + (
+        "mnase:\n"
+        "  mono_range: [100, 180]\n"
+        "  fragments:\n"
+        "    mono: [140, 200]\n"
+    )
+    t("MNase Stage 40: fragments.mono overrides mono_range",
+      mnase_cfg_both, mnase_valid, expect_fail=False)
+
+    # fragments.sub invalid range
+    t("MNase Stage 40: fragments.sub min >= max", valid_config + (
+        "mnase:\n  fragments:\n    sub: [200, 100]\n"
+    ), mnase_valid, err="min must be < max")
+
+    # fragments.mono zero (not positive)
+    t("MNase Stage 40: fragments.mono not positive", valid_config + (
+        "mnase:\n  fragments:\n    mono: [0, 200]\n"
+    ), mnase_valid, err="values must be positive")
+
+    # dyad_range valid
+    mnase_cfg_dyad = valid_config + "mnase:\n  dyad_range: [140, 200]\n"
+    t("MNase Stage 40: dyad_range valid", mnase_cfg_dyad, mnase_valid, expect_fail=False)
+
+    # dyad_range missing defaults [130,200]
+    t("MNase Stage 40: dyad_range missing defaults OK", valid_config + "mnase:\n  mono_range: [140, 200]\n",
+      mnase_valid, expect_fail=False)
+
+    # dyad_range invalid length
+    t("MNase Stage 40: dyad_range single element", valid_config + (
+        "mnase:\n  dyad_range: [100]\n"
+    ), mnase_valid, err="exactly 2 elements")
+
+    # dyad_range non-int
+    t("MNase Stage 40: dyad_range non-integer", valid_config + (
+        "mnase:\n  dyad_range: [\"a\", 200]\n"
+    ), mnase_valid, err="must be integers")
+
+    # range bool should not be accepted as an int
+    t("MNase Stage 40: fragments.sub bool rejected", valid_config + (
+        "mnase:\n  fragments:\n    sub: [true, 139]\n"
+    ), mnase_valid, err="must be integers")
+
+    # range float should not be silently truncated
+    t("MNase Stage 40: dyad_range float rejected", valid_config + (
+        "mnase:\n  dyad_range: [130.5, 200]\n"
+    ), mnase_valid, err="must be integers")
+
+    # callers valid (all false)
+    mnase_cfg_callers = valid_config + (
+        "mnase:\n"
+        "  callers:\n"
+        "    danpos3: false\n"
+        "    inps: false\n"
+        "    sem: false\n"
+    )
+    t("MNase Stage 40: callers all false valid", mnase_cfg_callers, mnase_valid, expect_fail=False)
+
+    # caller true rejected
+    t("MNase Stage 40: danpos3 true rejected", valid_config + (
+        "mnase:\n  callers:\n    danpos3: true\n"
+    ), mnase_valid, err="not implemented")
+
+    t("MNase Stage 40: inps true rejected", valid_config + (
+        "mnase:\n  callers:\n    inps: true\n"
+    ), mnase_valid, err="not implemented")
+
+    t("MNase Stage 40: sem true rejected", valid_config + (
+        "mnase:\n  callers:\n    sem: true\n"
+    ), mnase_valid, err="not implemented")
+
+    t("MNase Stage 40: caller string false rejected", valid_config + (
+        "mnase:\n  callers:\n    danpos3: \"false\"\n"
+    ), mnase_valid, err="must be boolean")
+
+    # unknown caller key
+    t("MNase Stage 40: unknown caller key", valid_config + (
+        "mnase:\n  callers:\n    unknown: false\n"
+    ), mnase_valid, err="unknown key")
+
+    # Existing MNase constraints still hold
+    t("MNase Stage 40: SE still rejected", valid_config, mnase_se, err="requires paired-end layout")
+    t("MNase Stage 40: narrow peak_mode still rejected", valid_config, mnase_narrow,
+      err="requires peak_mode=nucleosome")
+
     print(f"\nSummary: {passed}/{tests} tests passed.")
     
     # Cleanup temp files

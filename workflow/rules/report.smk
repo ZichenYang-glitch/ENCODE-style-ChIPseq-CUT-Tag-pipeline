@@ -74,6 +74,26 @@ rule pipeline_done:
             f"{OUTDIR}/{wc.sample}/04_signal/{wc.sample}.mono.CPM.bw"
             if _is_mnase(wc) else []
         ),
+        mnase_sub_bam = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/03_fragments/{wc.sample}.sub.bam"
+            if _is_mnase(wc) else []
+        ),
+        mnase_sub_bai = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/03_fragments/{wc.sample}.sub.bam.bai"
+            if _is_mnase(wc) else []
+        ),
+        mnase_di_bam = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/03_fragments/{wc.sample}.di.bam"
+            if _is_mnase(wc) else []
+        ),
+        mnase_di_bai = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/03_fragments/{wc.sample}.di.bam.bai"
+            if _is_mnase(wc) else []
+        ),
+        mnase_qc_summ = lambda wc: (
+            f"{OUTDIR}/{wc.sample}/01_qc/{wc.sample}.mnase_qc_summary.tsv"
+            if _is_mnase(wc) else []
+        ),
         cross_corr = (
             f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cc.qc"
             if QC_CONFIG.get("cross_correlation", False) else []

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Stage 39 MNase-seq stress tests: derived lists, target builder, DAG.
+"""Stage 39/40 MNase-seq stress tests: derived lists, target builder, DAG.
 
 Validates:
 - MNASE_SAMPLE_IDS / PEAK_SAMPLE_IDS derivation
-- MNase targets scheduled in dry-run
+- MNase Stage 39/40 targets scheduled in dry-run (sub/mono/di BAMs,
+  dyad BigWig, mono occupancy BigWig, QC summary)
 - Peak-centric targets NOT scheduled for MNase samples
 - Pooled MNase outputs for multi-biorep experiments
 - No IDR for MNase experiments
@@ -104,7 +105,7 @@ def check(name, condition, detail=""):
 
 def main():
     global _PASS, _FAIL
-    print("Starting Stage 39 MNase Stress Tests\n")
+    print("Starting Stage 39/40 MNase Stress Tests\n")
 
     output, workdir, err = _dry_run_mnase()
     if err:
@@ -114,7 +115,9 @@ def main():
 
     try:
         # --- MNase rules scheduled ---
-        for rule in ["mnase_split_mono", "mnase_dyad_bigwig", "mnase_mono_bigwig"]:
+        for rule in ["mnase_split_mono", "mnase_split_sub", "mnase_split_di",
+                      "mnase_dyad_bigwig", "mnase_mono_bigwig",
+                      "mnase_qc_summary"]:
             check(
                 "MNase rule %s scheduled" % rule,
                 rule in output,
@@ -180,7 +183,9 @@ def main():
             direct.returncode == 0,
             direct_output.strip()[-300:],
         )
-        for rule in ["mnase_split_mono", "mnase_dyad_bigwig", "mnase_mono_bigwig"]:
+        for rule in ["mnase_split_mono", "mnase_split_sub", "mnase_split_di",
+                      "mnase_dyad_bigwig", "mnase_mono_bigwig",
+                      "mnase_qc_summary"]:
             check(
                 "Direct pipeline.done schedules %s" % rule,
                 rule in direct_output,

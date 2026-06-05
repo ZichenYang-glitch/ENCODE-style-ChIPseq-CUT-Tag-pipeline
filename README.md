@@ -29,9 +29,11 @@ See [Limitations](#limitations) for known gaps.
   sidecar peak calls
   (`cuttag.seacr.enabled`, output under `results/<sample>/04_peaks_seacr/`)
 - **MNase-seq nucleosome positioning:** PE-only MNase-seq support with
-  mono-nucleosome BAM, dyad BigWig (`bamCoverage --MNase`), mono occupancy
-  BigWig, and pooled outputs for multi-replicate experiments.
-  Nucleosome calling (DANPOS3/iNPS) deferred to v0.3.
+  sub/mono/di-nucleosome fragment BAMs, dyad BigWig (`bamCoverage --MNase`),
+  mono occupancy BigWig, per-sample MNase QC summary, and pooled outputs for
+  multi-replicate experiments. Fragment ranges and dyad window are configurable
+  via `mnase.fragments` and `mnase.dyad_range`. Caller config surface reserved;
+  nucleosome calling (DANPOS3/iNPS/SEM) deferred to v0.3.
 - **Optional controls:** external control BAM or FASTQ-based control rows;
   control samples processed through the same pipeline
 - **Single-sample QC:** FRiP, peak counts, library complexity, NRF/PBC, MACS3
@@ -338,10 +340,10 @@ results/
 - ATAC-seq currently supports `peak_mode: narrow` only. ATAC-specific
   insert-size/TSS interpretation is available as QC output, but no
   ATAC-specific footprinting or nucleosome-positioning module is included.
-- MNase-seq is PE-only and supports nucleosome positioning basics
-  (mono-nucleosome BAM, dyad BigWig, mono occupancy BigWig, pooled outputs).
-  Nucleosome calling (DANPOS3/iNPS), sub/di-nucleosome analysis, and
-  MNase-specific QC are deferred to v0.3.
+- MNase-seq is PE-only and supports sub/mono/di-nucleosome fragment BAMs,
+  dyad BigWig, mono occupancy BigWig, per-sample QC summary, and pooled outputs.
+  Nucleosome calling (DANPOS3/iNPS/SEM) and pooled sub/di fragment outputs are
+  deferred to v0.3.
 
 ### TF ChIP-seq IDR
 

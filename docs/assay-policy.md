@@ -186,12 +186,26 @@ PE mode: no read extension. Fragment pairs are the biological unit for MNase-seq
 
 | Output | Rule | Tool | Input |
 | :--- | :--- | :--- | :--- |
+| `03_fragments/<s>.sub.bam` | `mnase_split_sub` | `alignmentSieve` | `final.bam` |
 | `03_fragments/<s>.mono.bam` | `mnase_split_mono` | `alignmentSieve` | `final.bam` |
+| `03_fragments/<s>.di.bam` | `mnase_split_di` | `alignmentSieve` | `final.bam` |
 | `04_signal/<s>.dyad.CPM.bw` | `mnase_dyad_bigwig` | `bamCoverage --MNase --binSize 1` | `final.bam` |
 | `04_signal/<s>.mono.CPM.bw` | `mnase_mono_bigwig` | `bamCoverage` | `mono.bam` |
 
-Mono-nucleosome fragment range defaults to [140, 200] and is configurable via
-`mnase.mono_range` in `config/config.yaml`.
+Fragment ranges default to sub [1,139], mono [140,200], di [300,400].
+Configurable via `mnase.fragments` in `config/config.yaml`. The legacy
+`mnase.mono_range` key is still accepted but `fragments.mono` takes precedence.
+
+Explicit dyad range for `bamCoverage --MNase` is controlled by
+`mnase.dyad_range` (default [130, 200]). This may differ from
+`fragments.mono` — e.g. a wider dyad capture window is common.
+
+`tool_parameters.bamcoverage.extra_args` must NOT set `--MNase`,
+`--minFragmentLength`, or `--maxFragmentLength` when running MNase dyad
+BigWig rules; these flags are workflow-managed.
+
+Per-sample QC summary (`01_qc/<s>.mnase_qc_summary.tsv`) records fragment
+stratification metadata, read counts, and caller configuration status.
 
 ### Pooled outputs
 
@@ -213,17 +227,28 @@ Not supported in v0.2.
 
 ```yaml
 mnase:
-  mono_range: [140, 200]   # alignmentSieve min/max fragment length for mono-nucleosome BAM
+  fragments:
+    sub: [1, 139]
+    mono: [140, 200]
+    di: [300, 400]
+  dyad_range: [130, 200]
+  callers:
+    danpos3: false
+    inps: false
+    sem: false
 ```
 
-The `mnase` block is optional. If absent, `mono_range` defaults to `[140, 200]`.
+The `mnase` block is optional. If absent, all defaults apply.
+`fragments.mono` takes precedence over top-level `mono_range`.
+`dyad_range` defaults to `[130, 200]` (deepTools `--MNase` default).
+`callers` surface is reserved; setting any caller to `true` raises a
+validation error (execution deferred to a future release).
 
-### Not implemented in v0.2 (deferred to Stage 40 / v0.3)
+### Not implemented in v0.2 (deferred beyond Stage 40)
 
-- Sub-nucleosome and di-nucleosome fragment classes
 - DANPOS3 nucleosome calling
 - iNPS high-resolution nucleosome detection
+- SEM nucleosome subtype analysis
 - Rotational periodicity QC
 - NFR/TSS MNase-specific QC profiles
-- MNase MultiQC custom content
-- MNase per-sample QC summary
+- Pooled sub-nucleosome and di-nucleosome BAM outputs

@@ -38,6 +38,48 @@ custom_data:
         title: "Quality flag"
         description: "Project-assigned flag from NSC/RSC thresholds."
 
+  mnase_qc:
+    section_name: "MNase-seq QC"
+    description: "Per-sample MNase-seq fragment stratification and QC summary (Stage 40)."
+    plot_type: "table"
+    pconfig:
+      id: "mnase_qc"
+      title: "MNase-seq QC Summary"
+      col1_header: "Sample"
+    headers:
+      sub_reads:
+        title: "Sub reads"
+        description: "Read count in sub-nucleosome BAM (< mono range)."
+      mono_reads:
+        title: "Mono reads"
+        description: "Read count in mono-nucleosome BAM."
+      di_reads:
+        title: "Di reads"
+        description: "Read count in di-nucleosome BAM (> mono range)."
+      mono_min:
+        title: "Mono min (bp)"
+        hidden: true
+      mono_max:
+        title: "Mono max (bp)"
+        hidden: true
+      dyad_min:
+        title: "Dyad min (bp)"
+        hidden: true
+      dyad_max:
+        title: "Dyad max (bp)"
+        hidden: true
+      caller_danpos3_enabled:
+        title: "DANPOS3"
+        description: "DANPOS3 caller enabled (execution deferred)."
+      caller_inps_enabled:
+        title: "iNPS"
+        description: "iNPS caller enabled (execution deferred)."
+      caller_sem_enabled:
+        title: "SEM"
+        description: "SEM caller enabled (execution deferred)."
+
 sp:
   cross_correlation_qc:
     fn: "cross_correlation_summary.tsv"
+  mnase_qc:
+    fn: "*mnase_qc_summary.tsv"
