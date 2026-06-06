@@ -127,8 +127,8 @@ def get_macs3_args_mnase(wildcards):
 
 rule mnase_split_mono:
     output:
-        bam = f"{OUTDIR}/{{sample}}/03_fragments/{{sample}}.mono.bam",
-        bai = f"{OUTDIR}/{{sample}}/03_fragments/{{sample}}.mono.bam.bai",
+        bam = mnase_fragment_bam("{sample}", "mono"),
+        bai = mnase_fragment_bai("{sample}", "mono"),
     input:
         bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
         bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
@@ -160,8 +160,8 @@ rule mnase_split_mono:
 
 rule mnase_split_sub:
     output:
-        bam = f"{OUTDIR}/{{sample}}/03_fragments/{{sample}}.sub.bam",
-        bai = f"{OUTDIR}/{{sample}}/03_fragments/{{sample}}.sub.bam.bai",
+        bam = mnase_fragment_bam("{sample}", "sub"),
+        bai = mnase_fragment_bai("{sample}", "sub"),
     input:
         bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
         bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
@@ -193,8 +193,8 @@ rule mnase_split_sub:
 
 rule mnase_split_di:
     output:
-        bam = f"{OUTDIR}/{{sample}}/03_fragments/{{sample}}.di.bam",
-        bai = f"{OUTDIR}/{{sample}}/03_fragments/{{sample}}.di.bam.bai",
+        bam = mnase_fragment_bam("{sample}", "di"),
+        bai = mnase_fragment_bai("{sample}", "di"),
     input:
         bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
         bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
@@ -226,7 +226,7 @@ rule mnase_split_di:
 
 rule mnase_dyad_bigwig:
     output:
-        bw = f"{OUTDIR}/{{sample}}/04_signal/{{sample}}.dyad.CPM.bw",
+        bw = mnase_signal_bw("{sample}", "dyad"),
     input:
         bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
         bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
@@ -269,10 +269,10 @@ rule mnase_dyad_bigwig:
 
 rule mnase_mono_bigwig:
     output:
-        bw = f"{OUTDIR}/{{sample}}/04_signal/{{sample}}.mono.CPM.bw",
+        bw = mnase_signal_bw("{sample}", "mono"),
     input:
-        bam = f"{OUTDIR}/{{sample}}/03_fragments/{{sample}}.mono.bam",
-        bai = f"{OUTDIR}/{{sample}}/03_fragments/{{sample}}.mono.bam.bai",
+        bam = mnase_fragment_bam("{sample}", "mono"),
+        bai = mnase_fragment_bai("{sample}", "mono"),
     params:
         binsize = BINSIZE,
         normalize_using = f"--normalizeUsing {v}" if (v := _tool_param("bamcoverage", "normalize_using", "CPM")) != "" else "--normalizeUsing CPM",
@@ -306,8 +306,8 @@ rule mnase_mono_bigwig:
 
 rule mnase_pooled_mono:
     output:
-        bam = f"{OUTDIR}/experiments/{{experiment}}/03_fragments/{{experiment}}.pooled.mono.bam",
-        bai = f"{OUTDIR}/experiments/{{experiment}}/03_fragments/{{experiment}}.pooled.mono.bam.bai",
+        bam = mnase_pooled_fragment_bam("{experiment}", "mono"),
+        bai = mnase_pooled_fragment_bai("{experiment}", "mono"),
     input:
         bam = f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam",
         bai = f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam.bai",
@@ -339,7 +339,7 @@ rule mnase_pooled_mono:
 
 rule mnase_pooled_dyad_bigwig:
     output:
-        bw = f"{OUTDIR}/experiments/{{experiment}}/04_signal/{{experiment}}.pooled.dyad.CPM.bw",
+        bw = mnase_pooled_signal_bw("{experiment}", "dyad"),
     input:
         bam = f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam",
         bai = f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam.bai",
@@ -382,10 +382,10 @@ rule mnase_pooled_dyad_bigwig:
 
 rule mnase_pooled_mono_bigwig:
     output:
-        bw = f"{OUTDIR}/experiments/{{experiment}}/04_signal/{{experiment}}.pooled.mono.CPM.bw",
+        bw = mnase_pooled_signal_bw("{experiment}", "mono"),
     input:
-        bam = f"{OUTDIR}/experiments/{{experiment}}/03_fragments/{{experiment}}.pooled.mono.bam",
-        bai = f"{OUTDIR}/experiments/{{experiment}}/03_fragments/{{experiment}}.pooled.mono.bam.bai",
+        bam = mnase_pooled_fragment_bam("{experiment}", "mono"),
+        bai = mnase_pooled_fragment_bai("{experiment}", "mono"),
     params:
         binsize = BINSIZE,
         normalize_using = f"--normalizeUsing {v}" if (v := _tool_param("bamcoverage", "normalize_using", "CPM")) != "" else "--normalizeUsing CPM",
@@ -419,13 +419,13 @@ rule mnase_pooled_mono_bigwig:
 
 rule mnase_qc_summary:
     output:
-        f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.mnase_qc_summary.tsv",
+        mnase_qc_summary_tsv("{sample}"),
     input:
-        sub_bam  = f"{OUTDIR}/{{sample}}/03_fragments/{{sample}}.sub.bam",
-        mono_bam = f"{OUTDIR}/{{sample}}/03_fragments/{{sample}}.mono.bam",
-        di_bam   = f"{OUTDIR}/{{sample}}/03_fragments/{{sample}}.di.bam",
-        dyad_bw  = f"{OUTDIR}/{{sample}}/04_signal/{{sample}}.dyad.CPM.bw",
-        mono_bw  = f"{OUTDIR}/{{sample}}/04_signal/{{sample}}.mono.CPM.bw",
+        sub_bam  = mnase_fragment_bam("{sample}", "sub"),
+        mono_bam = mnase_fragment_bam("{sample}", "mono"),
+        di_bam   = mnase_fragment_bam("{sample}", "di"),
+        dyad_bw  = mnase_signal_bw("{sample}", "dyad"),
+        mono_bw  = mnase_signal_bw("{sample}", "mono"),
     params:
         sample  = "{sample}",
         assay   = lambda wc: SAMPLE_MAP[wc.sample]["assay"],
