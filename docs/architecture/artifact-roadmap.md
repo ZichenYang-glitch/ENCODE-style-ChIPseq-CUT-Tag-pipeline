@@ -205,7 +205,15 @@ with 7 query-helper checks (22→29). No DAG/runtime changes.
 
 ---
 
-### Stage 49+: Artifact-Assisted Target Helpers (only if earlier stages prove stable)
+### Stage 49: Manifest Artifact Contract Tests (implemented 2026-06-07)
+
+Test adoption: `test/test_stage49_manifest_artifact_contract.py` verifies
+manifest output_type vocabulary matches the artifact inventory via
+`artifacts_by_manifest_output_type()`. 8 checks. No DAG/runtime changes.
+
+---
+
+### Stage 50+: Artifact-Assisted Target Helpers (only if earlier stages prove stable)
 
 **Goal:** Target-helper functions use artifact definitions to expand targets,
 reducing per-output boilerplate.
