@@ -222,7 +222,16 @@ artifact inventory, including path_template matching with `<exp>` →
 
 ---
 
-### Stage 51+: Artifact-Assisted Target Helpers (only if earlier stages prove stable)
+### Stage 51: Artifact Adoption Decision Record (implemented 2026-06-07)
+
+Decision record: `docs/architecture/artifact-adoption-decision.md`.
+**Pause runtime artifact adoption.** Contract test infrastructure (Stages 41-50)
+is complete and self-sustaining. Return to release hardening and scientific
+features. Target-helper adoption remains gated on demonstrated maintenance pain.
+
+---
+
+### Stage 52+: Artifact-Assisted Target Helpers (gated — only if maintenance pain emerges)
 
 **Goal:** Target-helper functions use artifact definitions to expand targets,
 reducing per-output boilerplate.
