@@ -151,7 +151,11 @@ artifact kind enums, or `artifact_path()` semantics.
 
 ---
 
-### Stage 45: Artifact Dataclass Spike
+### Stage 45: Artifact Dataclass Spike (implemented 2026-06-06)
+
+**Status:** Implemented as `workflow/lib/artifact.py` (frozen dataclass,
+loader, validation helpers) with `test/test_stage45_artifact_model.py`
+(22 checks). The Snakemake DAG and rules are NOT changed.
 
 **Goal:** Introduce a `workflow/lib/artifact.py` with a frozen `Artifact`
 dataclass used ONLY by tests, docs, and the manifest generator. The Snakemake
