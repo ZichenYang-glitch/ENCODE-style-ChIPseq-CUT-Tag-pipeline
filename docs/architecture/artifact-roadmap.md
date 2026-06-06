@@ -213,7 +213,16 @@ manifest output_type vocabulary matches the artifact inventory via
 
 ---
 
-### Stage 50+: Artifact-Assisted Target Helpers (only if earlier stages prove stable)
+### Stage 50: Output Contract Generation Dry-Run (implemented 2026-06-07)
+
+Dry-run verification: `test/test_stage50_output_contract_dry_run.py`
+proves bidirectional equivalence between `docs/output-contract.md` and
+artifact inventory, including path_template matching with `<exp>` →
+`<experiment>` normalization. No docs generation adoption yet.
+
+---
+
+### Stage 51+: Artifact-Assisted Target Helpers (only if earlier stages prove stable)
 
 **Goal:** Target-helper functions use artifact definitions to expand targets,
 reducing per-output boilerplate.
