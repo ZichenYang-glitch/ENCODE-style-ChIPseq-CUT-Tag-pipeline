@@ -11,7 +11,7 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "workflow"))
 
-from lib.artifact import load_artifacts
+from lib.artifact import load_artifacts, filter_artifacts, artifacts_by_id
 
 _PASS = 0
 _FAIL = 0
@@ -78,7 +78,7 @@ def main():
     _check("1-load_artifacts_succeeds", True)
 
     # 2. Filter MNase entries
-    mnase_arts = [a for a in artifacts if a.assay_gate == "mnase"]
+    mnase_arts = filter_artifacts(artifacts, assay_gate="mnase")
     _check("2-mnase_entries_13", len(mnase_arts) == 13,
            f"expected 13, got {len(mnase_arts)}")
 
@@ -111,7 +111,7 @@ def main():
            f"missing: {missing_helpers}, not callable: {not_callable}")
 
     # 5-17. Contract check per MNase entry
-    inv_by_id = {a.id: a for a in mnase_arts}
+    inv_by_id = artifacts_by_id(mnase_arts)
     for inv_id in sorted(MNASE_CONTRACT):
         helper_name, args = MNASE_CONTRACT[inv_id]
         artifact = inv_by_id.get(inv_id)

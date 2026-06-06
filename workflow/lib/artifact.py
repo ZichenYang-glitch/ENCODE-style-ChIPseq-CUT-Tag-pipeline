@@ -137,6 +137,79 @@ def validate_artifact(entry: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Query helpers
+# ---------------------------------------------------------------------------
+
+def artifacts_by_id(artifacts):
+    """Index artifacts by id. Raises ValueError on duplicate id.
+
+    Args:
+        artifacts: iterable of Artifact objects.
+
+    Returns:
+        dict[str, Artifact]: artifact id -> Artifact mapping.
+    """
+    result = {}
+    for a in artifacts:
+        if a.id in result:
+            raise ValueError(f"duplicate artifact id: {a.id}")
+        result[a.id] = a
+    return result
+
+
+def artifacts_by_manifest_output_type(artifacts):
+    """Index artifacts by manifest_output_type (non-null only).
+
+    Args:
+        artifacts: iterable of Artifact objects.
+
+    Returns:
+        dict[str, Artifact]: manifest_output_type -> Artifact mapping.
+        Entries with manifest_output_type=None are excluded.
+
+    Raises ValueError on duplicate manifest_output_type.
+    """
+    result = {}
+    for a in artifacts:
+        mt = a.manifest_output_type
+        if mt is None:
+            continue
+        if mt in result:
+            raise ValueError(f"duplicate manifest_output_type: {mt}")
+        result[mt] = a
+    return result
+
+
+def filter_artifacts(artifacts, *, assay_gate=None, scope=None,
+                     level=None, pipeline_done=None, rule_all=None):
+    """Filter artifacts by field values. None means no filter.
+
+    Args:
+        artifacts: iterable of Artifact objects.
+        assay_gate: filter by assay_gate value.
+        scope: filter by scope value.
+        level: filter by level value.
+        pipeline_done: filter by pipeline_done bool.
+        rule_all: filter by rule_all bool.
+
+    Returns:
+        list[Artifact]: filtered artifacts.
+    """
+    results = list(artifacts)
+    if assay_gate is not None:
+        results = [a for a in results if a.assay_gate == assay_gate]
+    if scope is not None:
+        results = [a for a in results if a.scope == scope]
+    if level is not None:
+        results = [a for a in results if a.level == level]
+    if pipeline_done is not None:
+        results = [a for a in results if a.pipeline_done == pipeline_done]
+    if rule_all is not None:
+        results = [a for a in results if a.rule_all == rule_all]
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------
 
