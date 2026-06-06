@@ -158,13 +158,15 @@ loader, validation helpers) with `test/test_stage45_artifact_model.py`
 (22 checks). The Snakemake DAG and rules are NOT changed.
 
 **Goal:** Introduce a `workflow/lib/artifact.py` with a frozen `Artifact`
-dataclass used ONLY by tests, docs, and the manifest generator. The Snakemake
-DAG and rules are NOT changed.
+dataclass used ONLY by docs/tests validation. The Snakemake DAG, rules,
+`make_manifest.py`, and manifest generation are NOT changed.
 
 **Scope:**
-- `Artifact(assay, kind, level, path_template)` dataclass.
-- Test helpers that validate manifest rows against the artifact inventory.
-- Optional: manifest generator reads from the inventory.
+- Frozen 13-field `Artifact` dataclass matching `artifact-inventory.yaml`.
+- `validate_artifact()` for raw dict validation, including malformed-input hardening.
+- `load_artifacts()` loader for docs/tests validation.
+- `test/test_stage45_artifact_model.py` with 22 checks.
+- Does NOT change `make_manifest.py` or manifest generation.
 
 **Non-goals:** Snakemake rule `input:` / `output:` using artifacts,
 target-helper replacement, rule-all changes, path consolidation.
@@ -176,7 +178,17 @@ extraction architecture works.
 
 ---
 
-### Stage 46+: Artifact-Assisted Target Helpers (only if earlier stages prove stable)
+### Stage 46: Artifact-Backed Inventory Tests (implemented 2026-06-07)
+
+Test-layer adoption: `test_stage43_artifact_inventory.py` now uses
+`load_artifacts()` and `Artifact` from `workflow/lib/artifact.py`
+as its canonical inventory read path. Schema completeness is derived
+from `dataclasses.fields(Artifact)` — no duplicate `REQUIRED_FIELDS`.
+No DAG/runtime changes.
+
+---
+
+### Stage 47+: Artifact-Assisted Target Helpers (only if earlier stages prove stable)
 
 **Goal:** Target-helper functions use artifact definitions to expand targets,
 reducing per-output boilerplate.
@@ -240,8 +252,8 @@ These must NOT be introduced before their trigger condition is met:
 
 | Item | Earliest Stage | Trigger |
 |:---|:---|:---|
-| Artifact dataclass | 44 | Stable inventory + doc drift burden |
-| AssayPolicy YAML | 46+ | Fifth assay or dispatch fragility |
-| `artifact_path()` | 44 (tests/docs only) | — |
+| Artifact dataclass | 45 | Implemented |
+| AssayPolicy YAML | 47+ | Fifth assay or dispatch fragility |
+| `artifact_path()` | 47+ | Not implemented; only after artifact-backed tests/model prove useful |
 | Global target resolver | 48/50+ | Explicit team decision |
 | `rule all` rewrite | 48/50+ | Resolver proven in tests |
