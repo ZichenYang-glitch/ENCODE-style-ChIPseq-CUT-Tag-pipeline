@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 """Stage 43 artifact inventory consistency tests.
 
+Uses Stage 45's Artifact model (load_artifacts, Artifact) as the
+canonical inventory read path.
+
 Checks:
-  1. YAML parses successfully (fails if PyYAML unavailable)
+  1. load_artifacts succeeds and returns entries
   2. All artifact ids are unique
   3. No path_template contains absolute workstation paths
   4. No entry mentions future-feature keywords as implemented
   5. Every manifest output_type from make_manifest.py has a matching
      inventory entry (using ast to inspect _add_row calls)
+  6. No extra manifest types in inventory not emitted by manifest
+  7. Output-contract types match inventory ids (both directions)
+  8. Schema completeness owned by Artifact dataclass
 """
 
 import ast
@@ -16,6 +22,10 @@ import re
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(REPO_ROOT, "workflow"))
+
+from dataclasses import fields
+from lib.artifact import Artifact, load_artifacts
 
 _PASS = 0
 _FAIL = 0
@@ -90,20 +100,19 @@ def _extract_manifest_output_types(manifest_path):
 def main():
     global _PASS, _FAIL
 
-    # 1. Load YAML (fail if unavailable)
+    # 1. Load via Stage 45 Artifact model
     inv_path = os.path.join(REPO_ROOT, "docs", "architecture",
                             "artifact-inventory.yaml")
-    import yaml
 
-    with open(inv_path) as fh:
-        data = yaml.safe_load(fh)
-
-    _check("1-yaml_parses", data is not None and "artifacts" in data)
-    if data is None or "artifacts" not in data:
+    try:
+        artifacts = load_artifacts(inv_path)
+    except Exception as e:
+        _check("1-load_artifacts_succeeds", False,
+               f"load_artifacts raised {type(e).__name__}: {e}")
         print(f"\n{_PASS} passed, {_FAIL} failed, {_PASS + _FAIL} total")
-        sys.exit(1 if _FAIL else 0)
+        sys.exit(1)
 
-    artifacts = data["artifacts"]
+    _check("1-load_artifacts_succeeds", True)
     _check("1b-has_entries", len(artifacts) >= 50,
            f"expected >=50, got {len(artifacts)}")
 
@@ -111,10 +120,9 @@ def main():
     seen = set()
     dupes = []
     for a in artifacts:
-        aid = a["id"]
-        if aid in seen:
-            dupes.append(aid)
-        seen.add(aid)
+        if a.id in seen:
+            dupes.append(a.id)
+        seen.add(a.id)
     _check("2-unique_ids", len(dupes) == 0,
            f"duplicates: {dupes}")
 
@@ -122,9 +130,8 @@ def main():
     BAD_PREFIXES = ("/home/", "/data/", "/mnt/")
     bad_paths = []
     for a in artifacts:
-        pt = a.get("path_template", "")
-        if any(pt.startswith(p) for p in BAD_PREFIXES):
-            bad_paths.append(f"{a['id']}: {pt}")
+        if any(a.path_template.startswith(p) for p in BAD_PREFIXES):
+            bad_paths.append(f"{a.id}: {a.path_template}")
     _check("3-no_workstation_paths", len(bad_paths) == 0,
            f"bad paths: {bad_paths}")
 
@@ -134,10 +141,9 @@ def main():
                     "global target resolver")
     bad_notes = []
     for a in artifacts:
-        notes = a.get("notes", "") or ""
         for kw in BAD_KEYWORDS:
-            if kw.lower() in notes.lower():
-                bad_notes.append(f"{a['id']}: mentions '{kw}'")
+            if kw.lower() in a.notes.lower():
+                bad_notes.append(f"{a.id}: mentions '{kw}'")
     _check("4-no_future_keywords_in_notes", len(bad_notes) == 0,
            f"entries: {bad_notes}")
 
@@ -145,22 +151,16 @@ def main():
     manifest_path = os.path.join(REPO_ROOT, "scripts", "make_manifest.py")
     manifest_types = _extract_manifest_output_types(manifest_path)
 
-    # Also add known dynamic f-string types that AST correctly normalizes
-    # to <N> placeholders.  The AST visitor already does this.
-
-    inventory_manifest_types = set()
-    for a in artifacts:
-        mt = a.get("manifest_output_type")
-        if mt is not None:
-            inventory_manifest_types.add(mt)
+    inventory_manifest_types = {a.manifest_output_type for a in artifacts
+                                if a.manifest_output_type is not None}
 
     missing = manifest_types - inventory_manifest_types
     _check("5-manifest_coverage", len(missing) == 0,
            f"manifest types not in inventory: {sorted(missing)}")
 
     # 6. Every non-null inventory manifest_output_type is emitted by manifest
-    non_null_mt = {a["manifest_output_type"] for a in artifacts
-                   if a.get("manifest_output_type") is not None}
+    non_null_mt = {a.manifest_output_type for a in artifacts
+                   if a.manifest_output_type is not None}
     extra_mt = non_null_mt - manifest_types
     _check("6-no_extra_manifest_types", len(extra_mt) == 0,
            f"inventory types not in manifest: {sorted(extra_mt)}")
@@ -178,7 +178,7 @@ def main():
     else:
         section = oc_text[start:end]
         oc_types = set(re.findall(r'^\| `([^`]+)` \|', section, re.MULTILINE))
-    inventory_ids_all = {a["id"] for a in artifacts}
+    inventory_ids_all = {a.id for a in artifacts}
     oc_missing = oc_types - inventory_ids_all
     _check("7-oc_types_in_inventory", len(oc_missing) == 0,
            f"OC types not in inventory: {sorted(oc_missing)}")
@@ -186,30 +186,23 @@ def main():
     _check("8-inventory_ids_in_oc", len(inv_extra) == 0,
            f"inventory ids not in OC: {sorted(inv_extra)}")
 
-    # 9. Schema completeness — every entry has exactly the 13 required fields,
-    #    and pipeline_done / rule_all are booleans.
-    REQUIRED_FIELDS = {
-        "id", "description", "scope", "level", "assay_gate",
-        "path_template", "producing_rule", "tool", "manifest_output_type",
-        "pipeline_done", "rule_all", "config_gate", "notes",
-    }
+    # 9. Schema completeness — owned by Artifact dataclass
+    artifact_field_names = {f.name for f in fields(Artifact)}
     schema_errors = []
     for a in artifacts:
-        keys = set(a.keys())
-        missing_fields = REQUIRED_FIELDS - keys
-        extra_fields = keys - REQUIRED_FIELDS
-        if missing_fields:
-            schema_errors.append(f"{a['id']}: missing {sorted(missing_fields)}")
-        if extra_fields:
-            schema_errors.append(f"{a['id']}: extra {sorted(extra_fields)}")
-        if not isinstance(a.get("pipeline_done"), bool):
-            schema_errors.append(
-                f"{a['id']}: pipeline_done not bool ({type(a.get('pipeline_done')).__name__})")
-        if not isinstance(a.get("rule_all"), bool):
-            schema_errors.append(
-                f"{a['id']}: rule_all not bool ({type(a.get('rule_all')).__name__})")
-    _check("9-schema_completeness", len(schema_errors) == 0,
-           f"schema errors: {schema_errors[:5]}{'...' if len(schema_errors) > 5 else ''}")
+        if not isinstance(a, Artifact):
+            schema_errors.append(f"not an Artifact: {type(a).__name__}")
+            continue
+        actual_fields = set(vars(a).keys())
+        missing = artifact_field_names - actual_fields
+        extra = actual_fields - artifact_field_names
+        if missing:
+            schema_errors.append(f"{a.id}: missing fields {sorted(missing)}")
+        if extra:
+            schema_errors.append(f"{a.id}: extra fields {sorted(extra)}")
+    _check("9-schema_completeness",
+           len(artifact_field_names) == 13 and len(schema_errors) == 0,
+           f"field count={len(artifact_field_names)}; errors: {schema_errors[:5]}{'...' if len(schema_errors) > 5 else ''}")
 
     total = _PASS + _FAIL
     print(f"\n{_PASS} passed, {_FAIL} failed, {total} total")
