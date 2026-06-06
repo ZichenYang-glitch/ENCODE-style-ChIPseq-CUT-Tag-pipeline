@@ -196,7 +196,16 @@ the artifact inventory. No DAG/runtime changes.
 
 ---
 
-### Stage 48+: Artifact-Assisted Target Helpers (only if earlier stages prove stable)
+### Stage 48: Artifact Query Helpers (implemented 2026-06-07)
+
+Added `artifacts_by_id()`, `artifacts_by_manifest_output_type()`, and
+`filter_artifacts()` to `workflow/lib/artifact.py`. Refactored Stage 43
+and Stage 47 contract tests to use them. Stage 45 model test extended
+with 7 query-helper checks (22→29). No DAG/runtime changes.
+
+---
+
+### Stage 49+: Artifact-Assisted Target Helpers (only if earlier stages prove stable)
 
 **Goal:** Target-helper functions use artifact definitions to expand targets,
 reducing per-output boilerplate.

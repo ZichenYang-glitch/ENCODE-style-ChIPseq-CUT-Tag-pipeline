@@ -25,7 +25,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "workflow"))
 
 from dataclasses import fields
-from lib.artifact import Artifact, load_artifacts
+from lib.artifact import Artifact, load_artifacts, artifacts_by_manifest_output_type
 
 _PASS = 0
 _FAIL = 0
@@ -159,8 +159,8 @@ def main():
            f"manifest types not in inventory: {sorted(missing)}")
 
     # 6. Every non-null inventory manifest_output_type is emitted by manifest
-    non_null_mt = {a.manifest_output_type for a in artifacts
-                   if a.manifest_output_type is not None}
+    by_mot = artifacts_by_manifest_output_type(artifacts)
+    non_null_mt = set(by_mot.keys())
     extra_mt = non_null_mt - manifest_types
     _check("6-no_extra_manifest_types", len(extra_mt) == 0,
            f"inventory types not in manifest: {sorted(extra_mt)}")

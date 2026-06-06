@@ -17,6 +17,9 @@ from lib.artifact import (
     VALID_SCOPES,
     VALID_LEVELS,
     VALID_ASSAY_GATES,
+    artifacts_by_id,
+    artifacts_by_manifest_output_type,
+    filter_artifacts,
 )
 
 _PASS = 0
@@ -205,6 +208,69 @@ def main():
     errors = validate_artifact(bad_tool)
     _check("22-non_string_tool_rejected", len(errors) > 0,
            f"expected errors, got {errors}")
+
+    # 23. artifacts_by_id returns 62 entries
+    by_id = artifacts_by_id(artifacts)
+    _check("23-artifacts_by_id_62", len(by_id) == 62,
+           f"expected 62, got {len(by_id)}")
+
+    # 24. duplicate id raises ValueError
+    dup_test = [Artifact(**d), Artifact(**d)]
+    try:
+        artifacts_by_id(dup_test)
+        _check("24-by_id_duplicate_raises", False,
+               "expected ValueError but no exception raised")
+    except ValueError as e:
+        _check("24-by_id_duplicate_raises",
+               "duplicate" in str(e).lower(),
+               f"got ValueError: {e}")
+
+    # 25-26. artifacts_by_manifest_output_type — keys + values match
+    by_mot = artifacts_by_manifest_output_type(artifacts)
+    non_null_mot = {a.manifest_output_type for a in artifacts
+                    if a.manifest_output_type is not None}
+    _check("25-by_mot_keys_match", set(by_mot.keys()) == non_null_mot,
+           f"key mismatch")
+    _check("26-by_mot_values_match",
+           all(v.manifest_output_type == k for k, v in by_mot.items()),
+           "value.manifest_output_type != key")
+
+    # 27. duplicate manifest_output_type raises ValueError
+    dup_mot_arts = [
+        Artifact(id="a", description="", scope="sample", level="per_sample",
+                 assay_gate="all", path_template="results/a.bam",
+                 producing_rule="r", tool="t",
+                 manifest_output_type="final_bam",
+                 pipeline_done=False, rule_all=True, config_gate=None, notes=""),
+        Artifact(id="b", description="", scope="sample", level="per_sample",
+                 assay_gate="all", path_template="results/b.bam",
+                 producing_rule="r", tool="t",
+                 manifest_output_type="final_bam",
+                 pipeline_done=False, rule_all=True, config_gate=None, notes=""),
+    ]
+    try:
+        artifacts_by_manifest_output_type(dup_mot_arts)
+        _check("27-by_mot_duplicate_raises", False,
+               "expected ValueError but no exception raised")
+    except ValueError as e:
+        _check("27-by_mot_duplicate_raises",
+               "duplicate" in str(e).lower(),
+               f"got ValueError: {e}")
+
+    # 28. filter_artifacts(assay_gate="mnase") returns 13 entries
+    mnase_filtered = filter_artifacts(artifacts, assay_gate="mnase")
+    _check("28-filter_mnase_13", len(mnase_filtered) == 13
+           and all(a.assay_gate == "mnase" for a in mnase_filtered),
+           f"expected 13 mnase, got {len(mnase_filtered)}")
+
+    # 29. filter_artifacts(scope="sample", pipeline_done=True)
+    sample_pd = filter_artifacts(artifacts, scope="sample",
+                                 pipeline_done=True)
+    _check("29-filter_sample_pipeline_done",
+           len(sample_pd) > 0
+           and all(a.scope == "sample" for a in sample_pd)
+           and all(a.pipeline_done is True for a in sample_pd),
+           f"got {len(sample_pd)} entries, invariant violated")
 
     total = _PASS + _FAIL
     print(f"\n{_PASS} passed, {_FAIL} failed, {total} total")
