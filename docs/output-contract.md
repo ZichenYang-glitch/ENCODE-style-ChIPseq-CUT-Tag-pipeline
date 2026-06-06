@@ -71,7 +71,9 @@ The earlier `project_id` field from the draft schema was removed before implemen
 | output_type | method | rule | path | status |
 | :--- | :--- | :--- | :--- | :--- |
 | `pooled_final_bam` | samtools merge | (replicates.smk) | `results/experiments/<exp>/02_align/<exp>.pooled.final.bam` | stable |
+| `pooled_final_bai` | samtools index | (replicates.smk) | `results/experiments/<exp>/02_align/<exp>.pooled.final.bam.bai` | stable |
 | `biorep_final_bam` | samtools merge / symlink | (replicates.smk) | `results/experiments/<exp>/02_align/biorep<N>.final.bam` | stable |
+| `biorep_final_bai` | samtools index | (replicates.smk) | `results/experiments/<exp>/02_align/biorep<N>.final.bam.bai` | stable |
 | `pooled_macs3_peak` | macs3 callpeak | (replicates.smk) | `results/experiments/<exp>/04_peaks/pooled/<exp>_pooled_peaks/` | stable |
 | `pooled_fe_bdg` | macs3 bdgcmp FE | pooled_signal_track_fe | `results/experiments/<exp>/03_signal/<exp>.pooled.FE.bdg` | stable |
 | `pooled_ppois_bdg` | macs3 bdgcmp ppois | pooled_signal_track_ppois | `results/experiments/<exp>/03_signal/<exp>.pooled.ppois.bdg` | stable |
