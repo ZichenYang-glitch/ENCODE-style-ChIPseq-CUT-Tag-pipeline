@@ -188,7 +188,15 @@ No DAG/runtime changes.
 
 ---
 
-### Stage 47+: Artifact-Assisted Target Helpers (only if earlier stages prove stable)
+### Stage 47: MNase Path-Helper Inventory Contract Tests (implemented 2026-06-07)
+
+Test adoption: `test/test_stage47_mnase_path_contract.py` verifies all 7
+`paths.smk` helpers produce path strings matching all 13 MNase entries in
+the artifact inventory. No DAG/runtime changes.
+
+---
+
+### Stage 48+: Artifact-Assisted Target Helpers (only if earlier stages prove stable)
 
 **Goal:** Target-helper functions use artifact definitions to expand targets,
 reducing per-output boilerplate.
