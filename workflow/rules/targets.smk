@@ -338,72 +338,59 @@ def _mnase_targets():
     if MNASE_SAMPLE_IDS:
         # Stage 39: mono BAM, dyad BW, mono occupancy BW
         targets += expand(
-            "{outdir}/{sample}/03_fragments/{sample}.mono.bam",
-            outdir=OUTDIR,
+            mnase_fragment_bam("{sample}", "mono"),
             sample=MNASE_SAMPLE_IDS,
         )
         targets += expand(
-            "{outdir}/{sample}/03_fragments/{sample}.mono.bam.bai",
-            outdir=OUTDIR,
+            mnase_fragment_bai("{sample}", "mono"),
             sample=MNASE_SAMPLE_IDS,
         )
         # Stage 40: sub-nucleosome and di-nucleosome BAMs
         targets += expand(
-            "{outdir}/{sample}/03_fragments/{sample}.sub.bam",
-            outdir=OUTDIR,
+            mnase_fragment_bam("{sample}", "sub"),
             sample=MNASE_SAMPLE_IDS,
         )
         targets += expand(
-            "{outdir}/{sample}/03_fragments/{sample}.sub.bam.bai",
-            outdir=OUTDIR,
+            mnase_fragment_bai("{sample}", "sub"),
             sample=MNASE_SAMPLE_IDS,
         )
         targets += expand(
-            "{outdir}/{sample}/03_fragments/{sample}.di.bam",
-            outdir=OUTDIR,
+            mnase_fragment_bam("{sample}", "di"),
             sample=MNASE_SAMPLE_IDS,
         )
         targets += expand(
-            "{outdir}/{sample}/03_fragments/{sample}.di.bam.bai",
-            outdir=OUTDIR,
+            mnase_fragment_bai("{sample}", "di"),
             sample=MNASE_SAMPLE_IDS,
         )
         # Stage 40: MNase QC summary
         targets += expand(
-            "{outdir}/{sample}/01_qc/{sample}.mnase_qc_summary.tsv",
-            outdir=OUTDIR,
+            mnase_qc_summary_tsv("{sample}"),
             sample=MNASE_SAMPLE_IDS,
         )
         targets += expand(
-            "{outdir}/{sample}/04_signal/{sample}.dyad.CPM.bw",
-            outdir=OUTDIR,
+            mnase_signal_bw("{sample}", "dyad"),
             sample=MNASE_SAMPLE_IDS,
         )
         targets += expand(
-            "{outdir}/{sample}/04_signal/{sample}.mono.CPM.bw",
-            outdir=OUTDIR,
+            mnase_signal_bw("{sample}", "mono"),
             sample=MNASE_SAMPLE_IDS,
         )
     # Pooled MNase outputs (>=2 biorep MNase experiments)
     if STAGE4B and MNASE_MULTI_BIOREP_EXPERIMENTS:
         targets += expand(
-            "{outdir}/experiments/{experiment}/03_fragments/{experiment}.pooled.mono.bam",
-            outdir=OUTDIR,
+            mnase_pooled_fragment_bam("{experiment}", "mono"),
             experiment=MNASE_MULTI_BIOREP_EXPERIMENTS,
         )
         targets += expand(
-            "{outdir}/experiments/{experiment}/03_fragments/{experiment}.pooled.mono.bam.bai",
-            outdir=OUTDIR,
+            mnase_pooled_fragment_bai("{experiment}", "mono"),
             experiment=MNASE_MULTI_BIOREP_EXPERIMENTS,
         )
         targets += expand(
-            "{outdir}/experiments/{experiment}/04_signal/{experiment}.pooled.dyad.CPM.bw",
-            outdir=OUTDIR,
+            mnase_pooled_signal_bw("{experiment}", "dyad"),
             experiment=MNASE_MULTI_BIOREP_EXPERIMENTS,
         )
         targets += expand(
-            "{outdir}/experiments/{experiment}/04_signal/{experiment}.pooled.mono.CPM.bw",
-            outdir=OUTDIR,
+            mnase_pooled_signal_bw("{experiment}", "mono"),
             experiment=MNASE_MULTI_BIOREP_EXPERIMENTS,
         )
     return targets

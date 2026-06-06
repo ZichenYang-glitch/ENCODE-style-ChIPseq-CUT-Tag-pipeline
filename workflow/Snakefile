@@ -149,6 +149,11 @@ include: "rules/cuttag.smk"
 include: "rules/atac.smk"
 
 # ---------------------------------------------------------------------------
+# 4b. MNase path helpers (no rules — define-only file)
+# ---------------------------------------------------------------------------
+include: "rules/paths.smk"
+
+# ---------------------------------------------------------------------------
 # 5. Derived metadata, QC gating, dispatch wrappers
 # ---------------------------------------------------------------------------
 include: "rules/metadata.smk"
