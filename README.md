@@ -15,9 +15,10 @@ Default mode is no-input / no-control. Optional controls can be enabled with
 `use_control: true` and supplied as an external control BAM or a FASTQ-based
 control sample row. Dependencies are managed with Conda.
 
-The latest published pre-release is **v0.2.0-rc1**: feature-complete with
-12 implementation stages, smoke and stress test suites, CI/CD, and documented
-assay/IDR contracts. The `main` branch may include post-rc1 changes.
+The latest published pre-release is **v0.2.0-rc1**. The `main` branch includes
+substantial post-rc1 changes, including MNase nucleosome positioning,
+artifact inventory and contract test infrastructure, Snakefile extraction,
+paths.smk MNase path helpers, and an artifact adoption decision record.
 See [Limitations](#limitations) for known gaps.
 
 ## Key Features
@@ -424,7 +425,8 @@ replicate-level outputs).
 ### Repository layout
 
 - `workflow/Snakefile` — entry point, validation, assay dispatch
-- `workflow/rules/` — Snakemake rule files (common, peaks, replicates, IDR, QC, report)
+- `workflow/rules/` — Snakemake rule files (common, metadata, peaks, replicates, IDR, QC, report, targets, paths, and per-assay files)
+- `workflow/lib/` — shared Python libraries (artifact dataclass, loader, query helpers)
 - `workflow/envs/` — Conda environments (lightweight runner plus rule-specific tool envs; see [docs/environments.md](docs/environments.md))
 - `workflow/schemas/` — human-readable config and sample sheet contracts
 - `config/` — default config and sample sheet
@@ -433,10 +435,11 @@ replicate-level outputs).
 
 ### Smoke-test profiles
 
-A suite of test profiles under `test/profiles/` covers the major ChIP-seq and
+A suite of test profiles under `test/profiles/` covers major ChIP-seq and
 CUT&Tag dispatch paths (SE / PE / control_sample / control_bam / SEACR /
-Stage 5 IDR) via dry-run only. Stage-specific stress tests cover ATAC and TSS
-dispatch. Run with:
+Stage 5 IDR) via dry-run only. Stage-specific stress tests cover ATAC, TSS,
+MNase, artifact inventory, artifact model, MNase path contract, manifest
+artifact contract, and output contract dry-run stages. Run with:
 
 ```bash
 SNAKEMAKE=/path/to/snakemake python3 test/test_stage8_smoke_profiles.py

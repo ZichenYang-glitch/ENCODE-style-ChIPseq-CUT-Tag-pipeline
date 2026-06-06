@@ -6,15 +6,20 @@ Stage 1 Snakemake rule modularization and Stage 1.5 validation closeout.
 ## Current Status
 
 - Core workflow, validation, replicate model, TF ChIP-seq IDR,
-  histone/CUT&Tag support, baseline ATAC-seq support, smoke tests, and CI are
-  implemented.
-- FE/ppois BigWig conversion, QC summary Python refactor, target builder
-  cleanup, minimal result manifest, and assay/IDR contract audit are
-  complete (Stages 20-26).
-- Remaining roadmap: optional release polish.
-- ✅ Public data validation plan (Stage 27a — planned; no data downloaded).
-- ✅ Metadata verification and CI/CD plan (Stage 27b — designed; CI Tier 1 wired in Stage 27c).
-- ✅ CI/CD wiring (Stage 27c — fast-checks expanded to validation plus 9 Python test suites).
+  histone/CUT&Tag support, baseline ATAC-seq support, smoke tests, and CI
+  fast checks are implemented (Stages 1-27).
+- Public data validation planning is documented; no public data has been
+  downloaded as part of the repository.
+- MNase-seq MVP with nucleosome positioning and fragment stratification/QC
+  (Stages 39-40) is complete: sub/mono/di-nucleosome BAMs, dyad/occupancy
+  BigWigs, per-sample QC summary, pooled outputs.
+- Artifact contract infrastructure (Stages 41-51) is complete: artifact
+  inventory (62 output types), dataclass/loader, query helpers, path
+  helpers, and bidirectional contract tests (inventory ↔ manifest ↔
+  output-contract). Runtime artifact adoption is paused per Stage 51
+  decision record.
+- Next priorities: release hardening and scientific features (MNase
+  caller evaluation, CUT&Tag spike-in, histone IDR policy).
 
 ## Scope Gap
 
@@ -379,7 +384,7 @@ Status: **Implemented; dry-run validated**
 
 ## Stage 37 Release Hardening Follow-ups (Stage A, 2026-06-05)
 
-Status: **In progress**
+Status: **Completed; follow-ups documented**
 
 The 30-sample real ChIP-seq run (`docs/release-checks/stage37-full-chipseq-real-run.md`)
 surfaced three ergonomic issues:
