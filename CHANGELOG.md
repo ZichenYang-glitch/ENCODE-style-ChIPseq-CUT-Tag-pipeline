@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Artifact readiness roadmap documenting staged path from target-helper
+  architecture to artifact-oriented design (Stage 41).
+- Machine-readable artifact inventory (`docs/architecture/artifact-inventory.yaml`)
+  cataloguing 62 output types with 13 fields each (Stage 43).
+- MNase path helpers pilot (`workflow/rules/paths.smk`) with 7 thin
+  path-producing functions (Stage 44).
+- Artifact dataclass and loader (`workflow/lib/artifact.py`): frozen 13-field
+  `Artifact` dataclass, `validate_artifact()`, `load_artifacts()` (Stage 45).
+- Artifact query helpers: `artifacts_by_id()`, `artifacts_by_manifest_output_type()`,
+  `filter_artifacts()` (Stage 48).
+- Artifact adoption decision record: pause runtime artifact adoption, return to
+  release hardening and scientific features (Stage 51).
+- Documentation and release-readiness sweep (Stage 52): updated README,
+  CHANGELOG, KNOWN_ISSUES, configuration.md, assay-policy.md, output-contract.md,
+  and artifact-roadmap.md for post-Stage-51 consistency.
+- Test suites: artifact inventory (Stage 43), artifact model (Stage 45), MNase
+  path contract (Stage 47), manifest artifact contract (Stage 49), output contract
+  dry-run (Stage 50).
 - MNase-seq fragment stratification and QC summary (Stage 40): sub-nucleosome
   and di-nucleosome BAMs alongside existing mono BAM; sample-level MNase QC
   summary (`scripts/mnase_qc_summary.py`, stdlib-only) with fragment read counts

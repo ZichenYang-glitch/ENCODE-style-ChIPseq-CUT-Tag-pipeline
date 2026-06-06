@@ -139,6 +139,7 @@ sample_id	experiment_id	assay	target	genome	output_type	method	path	status	qc_fl
 | `tss_*` | `qc.tss_enrichment: true` + `genome_resources.<genome>.gtf` |
 | `cuttag_fragment_size` | `qc.cuttag_fragment_size: true` + `assay: cuttag` |
 | `seacr_*` | `cuttag.seacr.enabled: true` + `assay: cuttag` + `layout: PE` |
+| `pooled_mnase_*` | `stage4b: true` + `>=2 MNase treatment bioreps` |
 | `idr_*` | `stage5: true` + `chipseq` + `narrow` + exactly 2 treatment bioreps |
 | `multiqc_report` | `multiqc: true` |
 

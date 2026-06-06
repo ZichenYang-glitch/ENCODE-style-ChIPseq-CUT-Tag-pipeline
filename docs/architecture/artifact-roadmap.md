@@ -8,14 +8,17 @@ premature abstraction.
 
 ---
 
-## Current Baseline (v0.2 / Stage 40)
+## Current Baseline (post-Stage 52 / pre-v0.2.0)
 
-**Architecture:** Snakemake `workflow/Snakefile` with ten target-helper
-functions (`_base_targets()`, `_blacklist_targets()`, `_single_sample_qc_targets()`,
-`_signal_targets()`, `_cuttag_targets()`, `_mnase_targets()`, `_advanced_qc_targets()`,
-`_tss_targets()`, `_replicate_targets()`, `_idr_targets()`), four assay-specific
-policy files (`chipseq.smk`, `cuttag.smk`, `atac.smk`, `mnase.smk`), and
-three dispatch functions (`get_remove_dup`, `get_macs3_args`, `get_extend_reads`).
+**Architecture:** `workflow/Snakefile` is the entry point: config loading,
+sample sheet parsing, `include:` directives, and `rule all`. Derived metadata,
+QC gating, genome resource helpers, and dispatch wrappers live in
+`workflow/rules/metadata.smk` (Stage 42). Target-helper functions used by
+`rule all` live in `workflow/rules/targets.smk` (Stage 42). MNase path helpers
+live in `workflow/rules/paths.smk` (Stage 44). The `workflow/lib/artifact.py`
+module owns the docs/tests-only `Artifact` dataclass, loader, and query helpers
+(Stage 45/48). Executable rules live in `workflow/rules/common.smk`,
+`peaks.smk`, `mnase.smk`, `replicates.smk`, `idr.smk`, `qc.smk`, `report.smk`.
 
 **What works well:**
 - Each target helper is short, independently readable, and gates on derived
@@ -25,37 +28,31 @@ three dispatch functions (`get_remove_dup`, `get_macs3_args`, `get_extend_reads`
 - Four assays are supported (ChIP-seq, CUT&Tag, ATAC-seq, MNase-seq) with
   clear non-peak-centric separation for MNase.
 - Per-rule Conda environments provide reliable tool isolation.
+- Artifact contract test infrastructure (Stages 43-50) validates bidirectional
+  equivalence of inventory ↔ manifest ↔ output-contract without DAG changes.
 
 **What shows strain:**
 
-1. **`workflow/Snakefile` has too many responsibilities.** It hosts config
-   loading, sample sheet parsing, derived list computation, ten target-helper
-   functions, three dispatch functions, QC config gating, and `rule all`
-   definition — ~1,000 lines that mix orchestration, metadata, and business
-   logic.
+1. **Output path strings are still duplicated for non-MNase assays.** MNase paths
+   are centralized in `paths.smk`, but ChIP-seq, CUT&Tag, and ATAC paths
+   remain duplicated across target helpers, rule outputs, manifest, and docs.
 
-2. **Output path strings are duplicated across four subsystems.** The same path
-   template (e.g., `results/<sample>/03_fragments/<sample>.mono.bam`) appears
-   in the target helper (`_mnase_targets()`), the rule `output:` block
-   (`mnase_split_mono`), the manifest generator (`make_manifest.py`), and the
-   documentation (`output-contract.md`). A path change requires touching all
-   four, and there is no single source of truth.
+2. **Artifact contract tests are mature, but runtime artifact adoption is paused**
+   because no maintenance pain justifies DAG-risky changes (Stage 51 decision
+   record). The contract tests catch drift without touching the DAG.
 
 **These problems are not automatically solved by a full artifact-centric
 rewrite.** An Artifact dataclass with `artifact_path()` would consolidate
-paths in code, but would not reduce Snakefile responsibility overload — it
-would add a new abstraction layer on top of an already complex file. The
-right sequence is: extract responsibilities first, consolidate paths second,
-introduce artifact abstractions third (and only if the earlier stages prove
-stable).
-
-**Artifact-oriented design is a long-term direction, not the next step.**
+paths in code, but the blast radius (target helpers, `rule all`, manifest
+generator) is high and no test would validate it better than the existing
+stress tests already do. The contract test infrastructure proves equivalence
+without adopting runtime artifactization.
 
 ---
 
 ## Staged Path
 
-### Stage 41: Artifact Readiness / Release Stabilization (current)
+### Stage 41: Artifact Readiness / Release Stabilization (implemented 2026-06-06)
 
 **Goal:** Documentation-only — archive old report, create this roadmap, add
 developer checklist, output-contract consistency pass.
@@ -231,7 +228,16 @@ features. Target-helper adoption remains gated on demonstrated maintenance pain.
 
 ---
 
-### Stage 52+: Artifact-Assisted Target Helpers (gated — only if maintenance pain emerges)
+### Stage 52: Release Readiness Sweep (implemented 2026-06-07)
+
+Documentation/test-readiness sweep after Stages 40-51. Updated README
+(pre-release description, repo layout, test list), CHANGELOG (Stage 41-51
+entries), KNOWN_ISSUES (Current Status), configuration.md (MNase config
+expansion), assay-policy.md, and output-contract.md (pooled MNase gating).
+
+---
+
+### Stage 53+: Artifact-Assisted Target Helpers (gated — only if maintenance pain emerges)
 
 **Goal:** Target-helper functions use artifact definitions to expand targets,
 reducing per-output boilerplate.
@@ -248,7 +254,7 @@ the extraction architecture has been stable for multiple releases.
 
 ---
 
-### Stage 48/50+: Global Target Resolver (only if explicitly justified)
+### Stage 53+: Global Target Resolver (only if explicitly justified)
 
 **Goal:** A single `build_run_targets()` function replaces the target-helper
 functions. `rule all: input:` calls it via a lambda.
@@ -298,5 +304,5 @@ These must NOT be introduced before their trigger condition is met:
 | Artifact dataclass | 45 | Implemented |
 | AssayPolicy YAML | 47+ | Fifth assay or dispatch fragility |
 | `artifact_path()` | 47+ | Not implemented; only after artifact-backed tests/model prove useful |
-| Global target resolver | 48/50+ | Explicit team decision |
-| `rule all` rewrite | 48/50+ | Resolver proven in tests |
+| Global target resolver | 53+ | Explicit team decision |
+| `rule all` rewrite | 53+ | Resolver proven in tests |

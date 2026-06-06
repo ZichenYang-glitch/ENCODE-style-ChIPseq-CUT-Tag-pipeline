@@ -149,7 +149,7 @@ ATAC-seq always removes duplicates in `auto` mode (no broad-peak exception).
 - Per-sample `qc_summary.tsv` (37 columns) is assembled by `scripts/assemble_qc_summary.py`.
 - Project-level `stage3_qc_summary.tsv` is aggregated by `scripts/aggregate_qc_summary.py`.
 - `result_manifest.tsv` records core output existence with 10-column TSV, using `validate_samples` for DAG-consistent gating.
-- MNase samples do not produce `qc_summary.tsv` (no peaks); MNase QC summary is deferred to Stage 40.
+- MNase samples do not produce `qc_summary.tsv` (no peaks); instead they produce `mnase_qc_summary.tsv` (Stage 40).
 
 ---
 
