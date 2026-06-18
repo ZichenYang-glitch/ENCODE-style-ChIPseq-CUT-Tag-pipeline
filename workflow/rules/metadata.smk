@@ -191,6 +191,71 @@ else:
 
 
 # ---------------------------------------------------------------------------
+# 3a4. Stage 55 ATAC narrow IDR derived structures
+# ---------------------------------------------------------------------------
+
+if ATAC_IDR_ENABLED:
+    ATAC_IDR_EXPERIMENTS = []
+    ATAC_IDR_BIOREP_EXP_LIST = []
+    ATAC_IDR_BIOREP_LIST = []
+
+    for exp in MULTI_BIOREP_EXPERIMENTS:
+        bioreps = _bioreps_for(exp, "treatment")
+        if len(bioreps) == 2:
+            first = SAMPLE_MAP[TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0]]
+            if first["assay"] == "atac" and first["peak_mode"] == "narrow":
+                ATAC_IDR_EXPERIMENTS.append(exp)
+                for br in sorted(bioreps):
+                    ATAC_IDR_BIOREP_EXP_LIST.append(exp)
+                    ATAC_IDR_BIOREP_LIST.append(br)
+else:
+    ATAC_IDR_EXPERIMENTS = []
+    ATAC_IDR_BIOREP_EXP_LIST = []
+    ATAC_IDR_BIOREP_LIST = []
+
+# Stage 55 pseudorep expansion lists
+if ATAC_IDR_ENABLED and ATAC_IDR_EXPERIMENTS:
+    ATAC_IDR_SPLIT_SOURCE_EXP = []
+    ATAC_IDR_SPLIT_SOURCE_NAME = []
+    ATAC_IDR_PR_PEAK_EXP = []
+    ATAC_IDR_PR_PEAK_SRC = []
+    ATAC_IDR_PR_PEAK_PR = []
+    ATAC_IDR_SELF_EXP = []
+    ATAC_IDR_SELF_BR = []
+
+    for exp in ATAC_IDR_EXPERIMENTS:
+        bioreps = sorted(_bioreps_for(exp, "treatment"))
+        br_a = bioreps[0]
+        br_b = bioreps[1]
+
+        for br in (br_a, br_b):
+            src = f"biorep{br}"
+            ATAC_IDR_SPLIT_SOURCE_EXP.append(exp)
+            ATAC_IDR_SPLIT_SOURCE_NAME.append(src)
+            for pr in ("1", "2"):
+                ATAC_IDR_PR_PEAK_EXP.append(exp)
+                ATAC_IDR_PR_PEAK_SRC.append(src)
+                ATAC_IDR_PR_PEAK_PR.append(pr)
+            ATAC_IDR_SELF_EXP.append(exp)
+            ATAC_IDR_SELF_BR.append(br)
+
+        ATAC_IDR_SPLIT_SOURCE_EXP.append(exp)
+        ATAC_IDR_SPLIT_SOURCE_NAME.append("pooled")
+        for pr in ("1", "2"):
+            ATAC_IDR_PR_PEAK_EXP.append(exp)
+            ATAC_IDR_PR_PEAK_SRC.append("pooled")
+            ATAC_IDR_PR_PEAK_PR.append(pr)
+else:
+    ATAC_IDR_SPLIT_SOURCE_EXP = []
+    ATAC_IDR_SPLIT_SOURCE_NAME = []
+    ATAC_IDR_PR_PEAK_EXP = []
+    ATAC_IDR_PR_PEAK_SRC = []
+    ATAC_IDR_PR_PEAK_PR = []
+    ATAC_IDR_SELF_EXP = []
+    ATAC_IDR_SELF_BR = []
+
+
+# ---------------------------------------------------------------------------
 # 3b. Stage 3 QC configuration and genome resource helpers
 # ---------------------------------------------------------------------------
 

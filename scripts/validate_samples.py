@@ -292,16 +292,30 @@ def validate_config(config: dict) -> dict:
             "Stage 5a depends on Stage 4b biorep BAMs and pooled control BAMs."
         )
 
-    # idr settings (only validated when stage5 is true)
-    if validated["stage5"]:
-        validated["idr"] = _validate_idr_settings(config.get("idr", {}))
-    else:
-        validated["idr"] = {"threshold": 0.05, "rank": "p.value"}
-
     # reproducibility — Stage 53+ replicate-validated peak outputs
     validated["reproducibility"] = _validate_reproducibility(
         config.get("reproducibility", {}), validated
     )
+
+    # Stage 55: determine whether ATAC IDR is enabled from validated reproducibility
+    repro = validated["reproducibility"]
+    atac_idr_enabled = (
+        repro.get("enabled", False)
+        and repro.get("idr", {}).get("atac_narrow", False)
+    )
+
+    # ATAC IDR requires stage4b (Stage 55)
+    if atac_idr_enabled and not validated.get("stage4b", True):
+        raise ValidationError(
+            "config: reproducibility.idr.atac_narrow=true requires "
+            "stage4b=true."
+        )
+
+    # idr settings validated when stage5 or ATAC IDR is enabled
+    if validated["stage5"] or atac_idr_enabled:
+        validated["idr"] = _validate_idr_settings(config.get("idr", {}))
+    else:
+        validated["idr"] = {"threshold": 0.05, "rank": "p.value", "seed": 42}
 
     # cuttag — optional CUT&Tag-specific config (Stage 7b)
     validated["cuttag"] = _validate_cuttag_config(config.get("cuttag", {}))
@@ -1298,6 +1312,7 @@ def load_and_validate_samples(
     use_control: bool = False,
     stage5_enabled: bool = False,
     strict_inputs: bool = False,
+    reproducibility_idr_atac_narrow: bool = False,
 ) -> list[dict]:
     """Load and validate a sample sheet TSV.
 
@@ -1522,7 +1537,10 @@ def load_and_validate_samples(
                     )
 
     # --- Pass 3: replicate group validation (Stage 4b) ---
-    validate_replicate_groups(samples, use_control, stage5_enabled)
+    validate_replicate_groups(
+        samples, use_control, stage5_enabled,
+        reproducibility_idr_atac_narrow=reproducibility_idr_atac_narrow,
+    )
 
     # --- Pass 4: strict input validation (Stage 30, optional) ---
     _validate_strict_inputs(samples, strict_inputs)
@@ -1530,7 +1548,8 @@ def load_and_validate_samples(
     return samples
 
 
-def validate_replicate_groups(samples, use_control, stage5_enabled=False):
+def validate_replicate_groups(samples, use_control, stage5_enabled=False,
+                              reproducibility_idr_atac_narrow=False):
     """Pass 3: cross-replicate validation for Stage 4b replicate-aware outputs.
 
     Raises ValidationError on:
@@ -1640,6 +1659,33 @@ def validate_replicate_groups(samples, use_control, stage5_enabled=False):
                     f"{len(bio_reps)} biological replicate(s) ({bio_reps}). "
                     f"Stage 5 requires exactly 2."
                 )
+
+    # --- reproducibility.idr.atac_narrow eligibility (Stage 55) ---
+    if reproducibility_idr_atac_narrow:
+        atac_narrow_exps = []
+        for exp, rows in exp_treatments.items():
+            if len(rows) == 0:
+                continue
+            first = rows[0]
+            if first["assay"] != "atac":
+                continue       # skip non-ATAC silently
+            if first["peak_mode"] != "narrow":
+                continue       # ATAC broad — no IDR
+            bio_reps = sorted({r["biological_replicate"] for r in rows})
+            if len(bio_reps) != 2:
+                raise ValidationError(
+                    f"reproducibility.idr.atac_narrow: ATAC narrow "
+                    f"experiment {exp!r} has {len(bio_reps)} biological "
+                    f"replicate(s). IDR requires exactly 2."
+                )
+            atac_narrow_exps.append(exp)
+
+        if not atac_narrow_exps:
+            raise ValidationError(
+                "reproducibility.idr.atac_narrow is true but no eligible "
+                "ATAC narrow experiments with exactly 2 biological "
+                "replicates were found."
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1840,11 +1886,17 @@ def main():
 
     try:
         validated = validate_config(config)
+        repro = validated.get("reproducibility", {})
+        atac_idr_enabled = (
+            repro.get("enabled", False)
+            and repro.get("idr", {}).get("atac_narrow", False)
+        )
         samples = load_and_validate_samples(
             validated["samples"],
             use_control=validated["use_control"],
             stage5_enabled=validated.get("stage5", False),
             strict_inputs=args.strict_inputs,
+            reproducibility_idr_atac_narrow=atac_idr_enabled,
         )
         validate_picard_reference_resources(validated, samples)
         validate_tss_annotation_resources(validated, samples)

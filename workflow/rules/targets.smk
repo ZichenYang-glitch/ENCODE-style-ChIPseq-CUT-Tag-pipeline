@@ -40,6 +40,7 @@ def _manifest_dependency_targets():
     targets += _tss_targets()
     targets += _replicate_targets()
     targets += _idr_targets()
+    targets += _atac_idr_targets()
     # Remove the manifest itself (circular dependency)
     manifest_path = f"{OUTDIR}/multiqc/result_manifest.tsv"
     targets = [t for t in targets if t != manifest_path]
@@ -459,5 +460,84 @@ def _idr_targets():
             "{outdir}/experiments/{experiment}/06_idr/final/optimal.narrowPeak",
             outdir=OUTDIR,
             experiment=IDR_EXPERIMENTS,
+        )
+    return targets
+
+
+def _atac_idr_targets():
+    """Stage 55: ATAC narrow IDR — biorep peaks, true-rep IDR, pseudorep IDR, final outputs."""
+    targets = []
+    if ATAC_IDR_ENABLED and ATAC_IDR_EXPERIMENTS:
+        # IDR-ready per-biorep MACS3 peaks
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+            "idr_peaks/{experiment}_atac_biorep{bio_rep}_idr.narrowPeak",
+            zip,
+            outdir=OUTDIR,
+            experiment=ATAC_IDR_BIOREP_EXP_LIST, bio_rep=ATAC_IDR_BIOREP_LIST,
+        )
+        # True-replicate IDR
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+            "true_replicates/{experiment}_atac_idr.txt",
+            outdir=OUTDIR,
+            experiment=ATAC_IDR_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+            "true_replicates/{experiment}_atac_idr.thresholded.narrowPeak",
+            outdir=OUTDIR,
+            experiment=ATAC_IDR_EXPERIMENTS,
+        )
+    if ATAC_IDR_ENABLED and ATAC_IDR_EXPERIMENTS:
+        # IDR-ready pseudorep MACS3 peaks
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+            "idr_peaks/{experiment}_atac_{source}_pr{pr}_idr.narrowPeak",
+            zip,
+            outdir=OUTDIR,
+            experiment=ATAC_IDR_PR_PEAK_EXP,
+            source=ATAC_IDR_PR_PEAK_SRC, pr=ATAC_IDR_PR_PEAK_PR,
+        )
+        # Self-pseudorep IDR
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+            "self_pseudoreplicates/{experiment}_atac_biorep{bio_rep}_idr.txt",
+            zip,
+            outdir=OUTDIR,
+            experiment=ATAC_IDR_SELF_EXP, bio_rep=ATAC_IDR_SELF_BR,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+            "self_pseudoreplicates/{experiment}_atac_biorep{bio_rep}_idr.thresholded.narrowPeak",
+            zip,
+            outdir=OUTDIR,
+            experiment=ATAC_IDR_SELF_EXP, bio_rep=ATAC_IDR_SELF_BR,
+        )
+        # Pooled-pseudorep IDR
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+            "pooled_pseudoreplicates/{experiment}_atac_idr.txt",
+            outdir=OUTDIR,
+            experiment=ATAC_IDR_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+            "pooled_pseudoreplicates/{experiment}_atac_idr.thresholded.narrowPeak",
+            outdir=OUTDIR,
+            experiment=ATAC_IDR_EXPERIMENTS,
+        )
+        # Final outputs under 06_reproducibility/final/
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/final/"
+            "{experiment}.atac.macs3.narrow.replicate_validated.idr.narrowPeak",
+            outdir=OUTDIR,
+            experiment=ATAC_IDR_EXPERIMENTS,
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/final/"
+            "reproducibility_summary.tsv",
+            outdir=OUTDIR,
+            experiment=ATAC_IDR_EXPERIMENTS,
         )
     return targets
