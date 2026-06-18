@@ -149,6 +149,21 @@ stage5: false
 #   threshold: 0.05
 #   rank: "p.value"
 
+# Stage 53+: Reproducibility policy for replicate-validated peak outputs.
+# Added in Stage 53 — does not affect existing stage5 ChIP-seq narrow IDR.
+# reproducibility:
+#   enabled: false
+#   consensus:
+#     enabled: true
+#     min_replicates: 2
+#     reciprocal_overlap: 0.5
+#   idr:
+#     chipseq_narrow: null
+#     atac_narrow: false
+#     cuttag_narrow: false
+#     chipseq_broad_experimental: false
+#     cuttag_broad_experimental: false
+
 # Stage 3 QC configuration.
 # Each switch accepts boolean or string boolean (true/false).
 # Missing qc block defaults to all switches enabled.
