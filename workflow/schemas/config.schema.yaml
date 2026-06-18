@@ -264,6 +264,78 @@ idr:
       allowed: ["p.value", "signal.value"]
       description: Column to rank by in IDR.
 
+# ---- Stage 53+: Reproducibility Policy (optional) ----
+reproducibility:
+  type: mapping
+  required: false
+  default:
+    enabled: false
+  description: >
+    Stage 53+ reproducibility policy for replicate-validated peak outputs.
+    When enabled is false, no new reproducibility outputs are generated.
+    Does not affect existing stage5 ChIP-seq narrow IDR.
+  schema:
+    enabled:
+      type: boolean | string
+      default: false
+      allowed: [true, false, "true", "false"]
+      description: >
+        Master switch for new reproducibility outputs. When false,
+        all sub-keys are ignored for DAG purposes. Orthogonal to stage5.
+    consensus:
+      type: mapping
+      required: false
+      description: Consensus peak strategy (N-of-M replicate support).
+      schema:
+        enabled:
+          type: boolean | string
+          default: true
+          description: Enable consensus peak generation.
+        min_replicates:
+          type: integer
+          default: 2
+          constraints: ">= 2"
+          description: Minimum supporting biological replicates to retain a peak.
+        reciprocal_overlap:
+          type: float
+          default: 0.5
+          constraints: "> 0, <= 1"
+          description: Reciprocal overlap threshold for pairwise peak overlap.
+    idr:
+      type: mapping
+      required: false
+      description: >
+        IDR configuration for non-legacy modes. Does not affect stage5.
+        No seacr_experimental key — SEACR IDR is not planned.
+      schema:
+        chipseq_narrow:
+          type: boolean | null
+          default: null
+          description: >
+            null/omitted → inferred from stage5. When explicitly false and
+            stage5 is true, a config contradiction warning is emitted but
+            legacy Stage 5 still runs.
+        atac_narrow:
+          type: boolean
+          default: false
+          description: ATAC-seq narrow-peak IDR (uses same narrowPeak machinery as ChIP-seq).
+        cuttag_narrow:
+          type: boolean
+          default: false
+          description: CUT&Tag narrow-peak IDR (opt-in, experimental).
+        chipseq_broad_experimental:
+          type: boolean
+          default: false
+          description: >
+            Experimental ChIP-seq broad-peak IDR. Consensus remains primary
+            final. When true, an informational warning is emitted.
+        cuttag_broad_experimental:
+          type: boolean
+          default: false
+          description: >
+            Experimental CUT&Tag broad-peak IDR. Consensus remains primary
+            final. When true, an informational warning is emitted.
+
 # ---- Stage 7b: CUT&Tag Peak Caller (optional) ----
 cuttag:
   type: mapping

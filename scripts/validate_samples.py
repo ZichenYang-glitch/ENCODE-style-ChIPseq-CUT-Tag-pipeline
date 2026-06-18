@@ -298,6 +298,11 @@ def validate_config(config: dict) -> dict:
     else:
         validated["idr"] = {"threshold": 0.05, "rank": "p.value"}
 
+    # reproducibility — Stage 53+ replicate-validated peak outputs
+    validated["reproducibility"] = _validate_reproducibility(
+        config.get("reproducibility", {}), validated
+    )
+
     # cuttag — optional CUT&Tag-specific config (Stage 7b)
     validated["cuttag"] = _validate_cuttag_config(config.get("cuttag", {}))
 
@@ -1078,6 +1083,175 @@ def _validate_idr_settings(idr):
             )
 
     return {"threshold": threshold, "rank": rank, "seed": seed}
+
+
+def _validate_reproducibility(raw, validated_config):
+    """Validate the reproducibility config block (Stage 53+).
+
+    Returns a dict with validated reproducibility settings.
+    When enabled is false/absent, returns {'enabled': False} without
+    validating sub-keys.
+    """
+    import warnings
+
+    if not isinstance(raw, dict):
+        raise ValidationError(
+            f"reproducibility must be a mapping, got {type(raw).__name__}"
+        )
+
+    enabled_raw = raw.get("enabled", False)
+    enabled = _coerce_bool(enabled_raw, "reproducibility.enabled")
+    if not enabled:
+        return {"enabled": False}
+
+    result = {"enabled": True}
+
+    # --- consensus ---
+    consensus_raw = raw.get("consensus", {})
+    if not isinstance(consensus_raw, dict):
+        raise ValidationError(
+            f"reproducibility.consensus must be a mapping, "
+            f"got {type(consensus_raw).__name__}"
+        )
+    consensus = {}
+    consensus["enabled"] = _coerce_bool(
+        consensus_raw.get("enabled", True), "reproducibility.consensus.enabled"
+    )
+
+    min_reps = consensus_raw.get("min_replicates", 2)
+    if isinstance(min_reps, bool):
+        raise ValidationError(
+            f"reproducibility.consensus.min_replicates must be an integer "
+            f">= 2, got {min_reps!r}"
+        )
+    try:
+        min_reps = int(min_reps)
+    except (ValueError, TypeError):
+        raise ValidationError(
+            f"reproducibility.consensus.min_replicates must be an integer "
+            f">= 2, got {min_reps!r}"
+        )
+    if min_reps < 2:
+        raise ValidationError(
+            f"reproducibility.consensus.min_replicates must be >= 2, "
+            f"got {min_reps}"
+        )
+    consensus["min_replicates"] = min_reps
+
+    overlap = consensus_raw.get("reciprocal_overlap", 0.5)
+    if isinstance(overlap, bool):
+        raise ValidationError(
+            f"reproducibility.consensus.reciprocal_overlap must be a float "
+            f"in (0, 1], got {overlap!r}"
+        )
+    try:
+        overlap = float(overlap)
+    except (ValueError, TypeError):
+        raise ValidationError(
+            f"reproducibility.consensus.reciprocal_overlap must be a float "
+            f"in (0, 1], got {overlap!r}"
+        )
+    if not (0 < overlap <= 1):
+        raise ValidationError(
+            f"reproducibility.consensus.reciprocal_overlap must be in (0, 1], "
+            f"got {overlap}"
+        )
+    consensus["reciprocal_overlap"] = overlap
+
+    # Reject unknown consensus keys
+    known_consensus = {"enabled", "min_replicates", "reciprocal_overlap"}
+    for key in consensus_raw:
+        if key not in known_consensus:
+            raise ValidationError(
+                f"reproducibility.consensus: unknown key {key!r}. "
+                f"Known: {sorted(known_consensus)}"
+            )
+    result["consensus"] = consensus
+
+    # --- idr ---
+    idr_raw = raw.get("idr", {})
+    if not isinstance(idr_raw, dict):
+        raise ValidationError(
+            f"reproducibility.idr must be a mapping, "
+            f"got {type(idr_raw).__name__}"
+        )
+    idr_result = {}
+
+    # chipseq_narrow: true / false / null
+    csn = idr_raw.get("chipseq_narrow", None)
+    if csn is None:
+        idr_result["chipseq_narrow"] = None
+    else:
+        idr_result["chipseq_narrow"] = _coerce_bool(
+            csn, "reproducibility.idr.chipseq_narrow"
+        )
+        # Contradiction warning: explicit false but stage5 is true
+        if not idr_result["chipseq_narrow"] and validated_config.get("stage5", False):
+            warnings.warn(
+                "Config contradiction: reproducibility.idr.chipseq_narrow is "
+                "explicitly false but stage5 is true. Legacy Stage 5 IDR will "
+                "still run. Set reproducibility.idr.chipseq_narrow to null "
+                "(omitted) to infer from stage5, or set stage5 to false to "
+                "disable legacy IDR."
+            )
+
+    # atac_narrow, cuttag_narrow: bool only, default false
+    for flag in ("atac_narrow", "cuttag_narrow"):
+        idr_result[flag] = _coerce_bool(
+            idr_raw.get(flag, False), f"reproducibility.idr.{flag}"
+        )
+
+    # Experimental broad IDR flags: bool only, default false
+    for flag in ("chipseq_broad_experimental", "cuttag_broad_experimental"):
+        val = _coerce_bool(
+            idr_raw.get(flag, False),
+            f"reproducibility.idr.{flag}",
+        )
+        if val:
+            warnings.warn(
+                f"Experimental IDR flag enabled: reproducibility.idr.{flag}=true. "
+                f"Consensus remains the primary final reproducibility method for "
+                f"broad-peak modes. Experimental IDR outputs appear under idr/ only "
+                f"and do not replace consensus in final/."
+            )
+        idr_result[flag] = val
+
+    # Reject unknown idr keys (no seacr_experimental)
+    known_idr = {
+        "chipseq_narrow", "atac_narrow", "cuttag_narrow",
+        "chipseq_broad_experimental", "cuttag_broad_experimental",
+    }
+    for key in idr_raw:
+        if key not in known_idr:
+            raise ValidationError(
+                f"reproducibility.idr: unknown key {key!r}. "
+                f"Known: {sorted(known_idr)}"
+            )
+    result["idr"] = idr_result
+
+    # Reject unknown top-level reproducibility keys
+    known_top = {"enabled", "consensus", "idr"}
+    for key in raw:
+        if key not in known_top:
+            raise ValidationError(
+                f"reproducibility: unknown key {key!r}. "
+                f"Known: {sorted(known_top)}"
+            )
+
+    return result
+
+
+def _coerce_bool(value, name):
+    """Coerce a value to bool. Accepts bool or string bool.
+    Raises ValidationError for anything else.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.lower() in ("true", "false"):
+        return value.lower() == "true"
+    raise ValidationError(
+        f"{name} must be true or false, got {value!r}"
+    )
 
 
 def _sanitize_identifier(value: str) -> str:
