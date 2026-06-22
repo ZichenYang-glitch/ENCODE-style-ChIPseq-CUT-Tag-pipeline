@@ -407,12 +407,17 @@ Docker and Apptainer/SingularityCE container images are available for the
 runner environment. See [`docs/container-usage.md`](docs/container-usage.md)
 for build, run, bind-mount, and troubleshooting instructions.
 
-### Legacy single-sample script
+### Legacy single-sample script (deprecated)
 
-`scripts/chipseq.sh` is retained for compatibility. It supports single-sample
-PE/SE ChIP-seq and CUT&Tag with command-line flags. For ATAC-seq and new
-analyses, the Snakemake batch workflow (`workflow/Snakefile`) is the
-recommended entry point.
+`scripts/chipseq.sh` is deprecated. It now prints an error message directing
+users to the Snakemake workflow. The historical full script is archived at
+`docs/archive/scripts/chipseq-legacy.sh` for reference.
+
+The canonical entry point is:
+
+```
+snakemake -s workflow/Snakefile --configfile config/config.yaml
+```
 
 ### QC and MultiQC
 
