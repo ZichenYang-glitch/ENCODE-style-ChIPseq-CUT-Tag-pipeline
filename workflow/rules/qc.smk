@@ -83,6 +83,7 @@ rule blacklist_filter_bam:
         "../envs/samtools.yml",
     shell:
         """
+        set -e -o pipefail
         bedtools intersect -v -abam {input.bam:q} -b {params.blacklist:q} \
             > {output.bam:q}
         samtools index -@ {threads} {output.bam:q}
@@ -105,6 +106,7 @@ rule blacklist_filter_peaks:
         "../envs/samtools.yml",
     shell:
         """
+        set -e -o pipefail
         PEAKS_FILE="{input.peaks_dir:q}/{wildcards.sample}_peaks.{wildcards.suffix}"
         mkdir -p $(dirname {output:q})
         bedtools intersect -v -a "$PEAKS_FILE" -b {params.blacklist:q} \
@@ -132,6 +134,7 @@ rule peak_counts:
         "../envs/python.yml",
     shell:
         """
+        set -e -o pipefail
         PEAKS_DIR="{input[0]:q}"
         SUFFIX="{params.peak_mode}"
         [[ "$SUFFIX" == "broad" ]] && SUFFIX="broadPeak" || SUFFIX="narrowPeak"
@@ -634,6 +637,7 @@ rule pooled_experiment_qc_summary:
         "../envs/python.yml",
     shell:
         """
+        set -e -o pipefail
         if [[ "{params.signal_enabled}" == "True" ]]; then
             if [[ -f "{input.pooled_fe}" && -f "{input.pooled_ppois}" ]]; then
                 SIG_STATUS="enabled_present"
@@ -706,6 +710,7 @@ rule qc_summary:
         "../envs/python.yml",
     shell:
         """
+        set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
         python3 scripts/assemble_qc_summary.py \\
             --sample {params.sample:q} \\
@@ -914,6 +919,7 @@ rule stage3_qc_summary:
         "../envs/python.yml",
     shell:
         """
+        set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
         python3 scripts/aggregate_qc_summary.py \\
             --output {output:q} \\

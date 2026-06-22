@@ -103,7 +103,7 @@ rule pipeline_done:
             else []
         ),
     shell:
-        "touch {output.done}"
+        "set -e -o pipefail; touch {output.done}"
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +215,7 @@ rule result_manifest:
         "../envs/python.yml"
     shell:
         """
+        set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
         python3 scripts/make_manifest.py \\
             --config-json {params.config_json:q} \\
