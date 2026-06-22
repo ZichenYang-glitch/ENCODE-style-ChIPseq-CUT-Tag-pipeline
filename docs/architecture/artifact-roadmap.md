@@ -6,6 +6,15 @@ scope, non-goals, and trigger condition. The trigger condition is the signal
 that says "this stage is now the highest-value next step" — it prevents
 premature abstraction.
 
+**Boundary (Stage 56 ADR):** Artifact is a result semantics / manifest /
+frontend-backend schema layer. Snakemake is the workflow execution engine.
+Artifact describes outputs; Snakemake produces them. A thin backend target
+resolver (Level 2.5: `artifact_id` + sample/experiment → concrete path) is
+allowed for future FastAPI consumption outside Snakemake. No `artifact_path()`
+in `.smk` runtime, no `rule all` rewrite, no rule body generation, no
+dependency graph ownership. See:
+`docs/superpowers/specs/2026-06-19-artifact-runtime-boundary-adr.md`.
+
 ---
 
 ## Current Baseline (post-Stage 52 / pre-v0.2.0)
