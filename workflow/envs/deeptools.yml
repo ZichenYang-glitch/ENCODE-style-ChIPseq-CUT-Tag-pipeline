@@ -5,5 +5,5 @@ channels:
   - nodefaults
 dependencies:
   - python >=3.10,<3.13
-  - deeptools
-  - samtools
+  - deeptools >=3.5,<4
+  - samtools >=1.16,<2

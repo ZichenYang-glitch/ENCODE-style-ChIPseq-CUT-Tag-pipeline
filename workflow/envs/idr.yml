@@ -7,4 +7,4 @@ dependencies:
   # Bioconda idr currently requires python <3.10, so keep it isolated
   # from the modern Snakemake/deepTools/MACS3 runtime.
   - python <3.10
-  - idr
+  - idr >=2.0,<3

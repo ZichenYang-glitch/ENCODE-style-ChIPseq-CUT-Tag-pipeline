@@ -5,5 +5,5 @@ channels:
   - nodefaults
 dependencies:
   - python >=3.10,<3.13
-  - samtools
-  - bedtools
+  - samtools >=1.16,<2
+  - bedtools >=2.31,<3

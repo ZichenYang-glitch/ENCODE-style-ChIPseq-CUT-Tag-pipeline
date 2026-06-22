@@ -4,5 +4,5 @@ channels:
   - bioconda
   - nodefaults
 dependencies:
-  - phantompeakqualtools
-  - samtools
+  - phantompeakqualtools >=1.2,<2
+  - samtools >=1.16,<2

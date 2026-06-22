@@ -5,4 +5,4 @@ channels:
   - nodefaults
 dependencies:
   - openjdk >=17,<18
-  - fastqc
+  - fastqc >=0.12,<1
