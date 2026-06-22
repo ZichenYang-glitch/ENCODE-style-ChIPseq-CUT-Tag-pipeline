@@ -32,6 +32,7 @@ rule fastqc:
         "../envs/fastqc.yml",
     shell:
         """
+        set -e -o pipefail
         mkdir -p {params.qcdir}
         set -- {input:q}
         fastqc -t {threads} -o {params.qcdir:q} {params.extra} "$@"
@@ -71,6 +72,7 @@ rule trim_galore:
         "../envs/trim.yml",
     shell:
         """
+        set -e -o pipefail
         set -- {input:q}
         # $1 = R1, $2 = R2 (PE only)
 
@@ -139,6 +141,7 @@ rule bowtie2_align:
         "../envs/align.yml",
     shell:
         """
+        set -e -o pipefail
         RG="--rg-id {params.sample} --rg SM:{params.sample} --rg LB:{params.sample} --rg PL:ILLUMINA"
 
         if [[ "{params.layout}" == "PE" ]]; then
@@ -168,7 +171,7 @@ rule samtools_index_sorted:
     conda:
         "../envs/samtools.yml",
     shell:
-        "samtools index -@ {threads} {input.bam:q}"
+        "set -e -o pipefail; samtools index -@ {threads} {input.bam:q}"
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +192,7 @@ rule samtools_filter:
         "../envs/samtools.yml",
     shell:
         """
+        set -e -o pipefail
         samtools view -@ {threads} -b -q {params.mapq} {params.filter_flags} {params.extra} {input.bam:q} > {output.bam:q}
         """
 
@@ -206,7 +210,7 @@ rule samtools_index_filt:
     conda:
         "../envs/samtools.yml",
     shell:
-        "samtools index -@ {threads} {input.bam:q}"
+        "set -e -o pipefail; samtools index -@ {threads} {input.bam:q}"
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +234,7 @@ rule duplicate_handling:
         "../envs/samtools.yml",
     shell:
         """
+        set -e -o pipefail
         if [[ "{params.remove_dup}" == "yes" ]]; then
             if command -v picard >/dev/null 2>&1; then
                 picard MarkDuplicates \
@@ -283,7 +288,7 @@ rule samtools_flagstat:
     conda:
         "../envs/samtools.yml",
     shell:
-        "samtools flagstat -@ {threads} {input.bam:q} > {output.flagstat:q}"
+        "set -e -o pipefail; samtools flagstat -@ {threads} {input.bam:q} > {output.flagstat:q}"
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +304,7 @@ rule samtools_flagstat_final:
     conda:
         "../envs/samtools.yml",
     shell:
-        "samtools flagstat -@ {threads} {input.bam:q} > {output.flagstat:q}"
+        "set -e -o pipefail; samtools flagstat -@ {threads} {input.bam:q} > {output.flagstat:q}"
 
 
 # ---------------------------------------------------------------------------
@@ -316,7 +321,7 @@ rule samtools_idxstats:
     conda:
         "../envs/samtools.yml",
     shell:
-        "samtools idxstats {input.bam:q} > {output.idxstats:q}"
+        "set -e -o pipefail; samtools idxstats {input.bam:q} > {output.idxstats:q}"
 
 
 # ---------------------------------------------------------------------------
