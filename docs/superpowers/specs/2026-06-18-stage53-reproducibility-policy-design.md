@@ -66,12 +66,12 @@ contract.
 
 | # | Assay | Peak mode | Caller | Suffix | Primary reproducibility | Secondary / report | Notes |
 |---|-------|-----------|--------|--------|------------------------|-------------------|-------|
-| 1 | chipseq | narrow | MACS3 | `.narrowPeak` | IDR (legacy `stage5`) | Consensus | Legacy Stage 5 IDR unchanged |
+| 1 | chipseq | narrow | MACS3 | `.narrowPeak` | IDR (legacy `stage5`) | Consensus | Production-supported IDR; legacy Stage 5 unchanged |
 | 2 | chipseq | broad | MACS3 | `.broadPeak` | Consensus | IDR experimental (opt-in) | Experimental IDR must not silently replace consensus |
-| 3 | cuttag | narrow | MACS3 | `.narrowPeak` | Consensus | IDR opt-in (experimental) | CUT&Tag fragment length / SNR differs from ChIP-seq |
+| 3 | cuttag | narrow | MACS3 | `.narrowPeak` | Consensus | IDR opt-in (supported) | IDR final when explicitly enabled |
 | 4 | cuttag | broad | MACS3 | `.broadPeak` | Consensus | IDR experimental (opt-in) | Experimental only |
-| 5 | cuttag | — | SEACR | `.bed` | Consensus | No IDR planned | SEACR IDR is out of scope unless a future stage defines a justified rank scheme |
-| 6 | atac | narrow | MACS3 | `.narrowPeak` | IDR (when `reproducibility.idr.atac_narrow: true`) | Consensus | ATAC narrow IDR uses the same narrowPeak IDR machinery |
+| 5 | cuttag | — | SEACR | `.bed` | Consensus | No IDR planned | SEACR IDR out of scope; MNase IDR out of scope |
+| 6 | atac | narrow | MACS3 | `.narrowPeak` | IDR (when `reproducibility.idr.atac_narrow: true`) | Consensus | Production-supported IDR; uses same narrowPeak machinery as ChIP-seq |
 
 ### 2.3 Consensus Strategy Details
 
@@ -215,7 +215,8 @@ results/experiments/<exp>/06_idr/
 |------|---------------|-------------|
 | chipseq narrow | IDR (legacy `stage5`) | Use legacy `06_idr/final/conservative.narrowPeak` |
 | chipseq broad | Consensus | `<exp>.chipseq.macs3.broad.replicate_validated.consensus.broadPeak` |
-| cuttag narrow | Consensus | `<exp>.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak` |
+| cuttag narrow | IDR (when `reproducibility.idr.cuttag_narrow: true`) | `<exp>.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak` |
+| cuttag narrow | Consensus (when CUT&Tag IDR not enabled) | `<exp>.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak` |
 | cuttag broad | Consensus | `<exp>.cuttag.macs3.broad.replicate_validated.consensus.broadPeak` |
 | cuttag SEACR | Consensus | `<exp>.cuttag.seacr.<seacr_mode>.replicate_validated.consensus.bed` |
 | atac narrow | IDR (when `reproducibility.idr.atac_narrow: true`) | `<exp>.atac.macs3.narrow.replicate_validated.idr.narrowPeak` |
