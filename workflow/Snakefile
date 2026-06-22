@@ -48,6 +48,14 @@ IDR_RANK = str(IDR_SETTINGS.get("rank", "p.value"))
 IDR_SEED = int(IDR_SETTINGS.get("seed", 42))
 GENOME_RESOURCES = VALIDATED_CONFIG.get("genome_resources", {})
 
+# Stage 55: reproducibility-driven IDR
+REPRODUCIBILITY_CONFIG = VALIDATED_CONFIG.get("reproducibility", {})
+REPRO_ENABLED = REPRODUCIBILITY_CONFIG.get("enabled", False)
+ATAC_IDR_ENABLED = (
+    REPRO_ENABLED
+    and REPRODUCIBILITY_CONFIG.get("idr", {}).get("atac_narrow", False)
+)
+
 # Stage 7b: CUT&Tag peak caller config
 CUTTAG_CONFIG = VALIDATED_CONFIG.get("cuttag", {})
 SEACR_CFG = CUTTAG_CONFIG.get("seacr", {})
@@ -91,6 +99,7 @@ SAMPLES = load_and_validate_samples(
     VALIDATED_CONFIG["samples"],
     use_control=USE_CONTROL,
     stage5_enabled=STAGE5,
+    reproducibility_idr_atac_narrow=ATAC_IDR_ENABLED,
 )
 
 # Stage 12: reference_fasta gating for Picard metrics
@@ -181,6 +190,7 @@ rule all:
         + _tss_targets()
         + _replicate_targets()
         + _idr_targets()
+        + _atac_idr_targets()
         # Stage 25: result manifest (runs after all other outputs are complete)
         + ([f"{OUTDIR}/multiqc/result_manifest.tsv"] if QC_CONFIG.get("summary", True) and TREATMENT_SAMPLE_IDS else [])
 
@@ -194,5 +204,6 @@ include: "rules/peaks.smk"
 include: "rules/mnase.smk"
 include: "rules/replicates.smk"
 include: "rules/idr.smk"
+include: "rules/idr_atac.smk"
 include: "rules/qc.smk"
 include: "rules/report.smk"
