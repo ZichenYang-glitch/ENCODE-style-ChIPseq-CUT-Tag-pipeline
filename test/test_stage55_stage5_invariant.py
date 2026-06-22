@@ -2,7 +2,8 @@
 
 Verifies that legacy Stage 5 ChIP-seq narrow IDR is unchanged by Stage 55:
 - stage5=true still works with ChIP-seq narrow
-- stage5=true rejects ATAC experiments (proving legacy validation unchanged)
+- stage5=true with only ATAC experiments still fails because there is no
+  eligible ChIP-seq narrow experiment
 - ATAC IDR targets are under 06_reproducibility/, never 06_idr/
 - ChIP-seq narrow with stage5=false + ATAC IDR enabled does not get
   06_reproducibility/idr targets
@@ -99,11 +100,11 @@ def main():
     check("I1: stage5=true + ChIP-seq narrow → passes", lambda: run_validator(
         "I1", cfg_i1, CHIPSEQ_2BIOREP))
 
-    # I2: stage5=true + ATAC experiment present → fails
+    # I2: stage5=true + only ATAC experiments → fails (no eligible ChIP-seq narrow)
     cfg_i2 = BASE_CFG + "stage5: true\n"
-    check("I2: stage5=true + ATAC experiment fails", lambda: run_validator(
+    check("I2: stage5=true + ATAC-only has no eligible ChIP-seq narrow", lambda: run_validator(
           "I2", cfg_i2, ATAC_2BIOREP, expect_fail=True,
-          expected_error="chipseq"))
+          expected_error="no eligible"))
 
     # I3: stage5=false + atac_narrow + mixed → ATAC IDR targets only
     cfg_i3 = BASE_CFG + "stage5: false\n"

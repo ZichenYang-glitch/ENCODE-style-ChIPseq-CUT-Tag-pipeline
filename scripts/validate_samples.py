@@ -1635,22 +1635,17 @@ def validate_replicate_groups(samples, use_control, stage5_enabled=False,
 
     # --- Stage 5 IDR eligibility (only when stage5_enabled) ---
     if stage5_enabled:
+        chipseq_narrow_exps = []
         for exp, rows in exp_treatments.items():
             if len(rows) == 0:
                 continue
             first = rows[0]
 
             if first["assay"] != "chipseq":
-                raise ValidationError(
-                    f"Stage 5 IDR: experiment {exp!r} has assay "
-                    f"{first['assay']!r}. Stage 5 supports chipseq only."
-                )
+                continue       # skip non-chipseq silently
 
             if first["peak_mode"] != "narrow":
-                raise ValidationError(
-                    f"Stage 5 IDR: experiment {exp!r} has peak_mode "
-                    f"{first['peak_mode']!r}. Stage 5 supports narrowPeak only."
-                )
+                continue       # skip chipseq broad
 
             bio_reps = sorted({r["biological_replicate"] for r in rows})
             if len(bio_reps) != 2:
@@ -1659,6 +1654,13 @@ def validate_replicate_groups(samples, use_control, stage5_enabled=False,
                     f"{len(bio_reps)} biological replicate(s) ({bio_reps}). "
                     f"Stage 5 requires exactly 2."
                 )
+            chipseq_narrow_exps.append(exp)
+
+        if not chipseq_narrow_exps:
+            raise ValidationError(
+                "stage5=true but no eligible ChIP-seq narrow experiments "
+                "were found."
+            )
 
     # --- reproducibility.idr.atac_narrow eligibility (Stage 55) ---
     if reproducibility_idr_atac_narrow:
