@@ -295,7 +295,9 @@ documentation.
 ## Medium Priority
 
 5. Restore optional `plotFingerprint` QC.
-   - The legacy `scripts/chipseq.sh` runs `plotFingerprint` when available.
+   - The legacy `scripts/chipseq.sh` (now deprecated) ran `plotFingerprint`
+     when available. The historical script is archived at
+     `docs/archive/scripts/chipseq-legacy.sh`.
    - The modular Snakemake workflow does not yet expose this as a rule.
 
 6. ✅ Clean exported Conda environment metadata.
@@ -303,12 +305,13 @@ documentation.
      `workflow/envs/ci-fast.yml` contain no machine-specific `prefix`.
    - Environment files now use `conda-forge` + `bioconda` with `nodefaults`.
 
-7. Harden the legacy single-sample script.
-   - `scripts/chipseq.sh` still uses input-derived Trim Galore output discovery
-     with `ls ... | tail -n 1`.
-   - This can select stale files if an output directory is reused.
-   - The Snakemake path normalization avoids this issue, but the legacy script
-     remains available for compatibility.
+7. ~~Harden the legacy single-sample script.~~ (Resolved by Stage 60)
+   - `scripts/chipseq.sh` is now a deprecated shim. The historical full
+     script is archived at `docs/archive/scripts/chipseq-legacy.sh`.
+   - This issue is closed — the legacy script is no longer an active
+     entrypoint.
+   - The Snakemake path normalization avoids this issue. The historical script
+     is archived for reference only and is no longer a supported entrypoint.
 
 8. Reduce silent error handling.
    - Some optional QC steps intentionally continue on failure.
