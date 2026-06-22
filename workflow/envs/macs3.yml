@@ -5,4 +5,4 @@ channels:
   - nodefaults
 dependencies:
   - python >=3.10,<3.13
-  - macs3
+  - macs3 >=3.0,<4

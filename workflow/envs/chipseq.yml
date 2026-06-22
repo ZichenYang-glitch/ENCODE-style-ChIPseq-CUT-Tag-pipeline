@@ -9,14 +9,14 @@ dependencies:
   - openjdk >=17,<18
 
   # --- core pipeline tools ---
-  - fastqc
-  - trim-galore
-  - cutadapt
-  - bowtie2
-  - samtools
-  - macs3
-  - deeptools
-  - bedtools
+  - fastqc >=0.12,<1
+  - trim-galore >=0.6,<1
+  - cutadapt >=4.0,<5
+  - bowtie2 >=2.5,<3
+  - samtools >=1.16,<2
+  - macs3 >=3.0,<4
+  - deeptools >=3.5,<4
+  - bedtools >=2.31,<3
 
   # --- workflow orchestration ---
   - snakemake >=8.0,<9

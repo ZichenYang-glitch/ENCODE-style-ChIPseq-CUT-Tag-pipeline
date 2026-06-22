@@ -4,5 +4,5 @@ channels:
   - bioconda
   - nodefaults
 dependencies:
-  - picard
-  - openjdk >=17
+  - picard >=3.0,<4
+  - openjdk >=17,<18
