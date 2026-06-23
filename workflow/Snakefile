@@ -219,6 +219,11 @@ include: "rules/paths.smk"
 include: "rules/metadata.smk"
 
 # ---------------------------------------------------------------------------
+# 5b. IDR path helpers — must be included before IDR rule files
+# ---------------------------------------------------------------------------
+include: "rules/idr_paths.smk"
+
+# ---------------------------------------------------------------------------
 # 6. Target builder helpers — return flat lists for rule all input
 # ---------------------------------------------------------------------------
 include: "rules/targets.smk"
