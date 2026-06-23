@@ -256,6 +256,42 @@ else:
 
 
 # ---------------------------------------------------------------------------
+# 3a5. Stage 62 consensus experiment lists
+# ---------------------------------------------------------------------------
+
+# Consensus modes: (assay, peak_mode) pairs with >=2 biological replicates
+CONSENSUS_MODES = [
+    ("chipseq", "narrow"),
+    ("chipseq", "broad"),
+    ("cuttag", "narrow"),
+    ("cuttag", "broad"),
+    ("atac", "narrow"),
+]
+
+if CONSENSUS_ENABLED and STAGE4B:
+    CONSENSUS_EXPERIMENTS = {}  # (assay, peak_mode) -> [experiment_ids]
+    CONSENSUS_BIOREP_EXP_LIST = []  # for expand(zip, ...)
+    CONSENSUS_BIOREP_LIST = []
+
+    for assay, peak_mode in CONSENSUS_MODES:
+        exps = []
+        for exp in MULTI_BIOREP_EXPERIMENTS:
+            bioreps = _bioreps_for(exp, "treatment")
+            if len(bioreps) >= 2:
+                first = SAMPLE_MAP[TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0]]
+                if first["assay"] == assay and first["peak_mode"] == peak_mode:
+                    exps.append(exp)
+                    for br in sorted(bioreps):
+                        CONSENSUS_BIOREP_EXP_LIST.append(exp)
+                        CONSENSUS_BIOREP_LIST.append(br)
+        CONSENSUS_EXPERIMENTS[(assay, peak_mode)] = sorted(exps)
+else:
+    CONSENSUS_EXPERIMENTS = {}
+    CONSENSUS_BIOREP_EXP_LIST = []
+    CONSENSUS_BIOREP_LIST = []
+
+
+# ---------------------------------------------------------------------------
 # 3b. Stage 3 QC configuration and genome resource helpers
 # ---------------------------------------------------------------------------
 

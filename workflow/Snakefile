@@ -56,6 +56,12 @@ ATAC_IDR_ENABLED = (
     and REPRODUCIBILITY_CONFIG.get("idr", {}).get("atac_narrow", False)
 )
 
+# Stage 62: consensus gating (reuses REPRO_ENABLED from Stage 55)
+CONSENSUS_ENABLED = (
+    REPRO_ENABLED
+    and REPRODUCIBILITY_CONFIG.get("consensus", {}).get("enabled", True)
+)
+
 # Stage 7b: CUT&Tag peak caller config
 CUTTAG_CONFIG = VALIDATED_CONFIG.get("cuttag", {})
 SEACR_CFG = CUTTAG_CONFIG.get("seacr", {})
@@ -191,6 +197,7 @@ rule all:
         + _replicate_targets()
         + _idr_targets()
         + _atac_idr_targets()
+        + _consensus_targets()
         # Stage 25: result manifest (runs after all other outputs are complete)
         + ([f"{OUTDIR}/multiqc/result_manifest.tsv"] if QC_CONFIG.get("summary", True) and TREATMENT_SAMPLE_IDS else [])
 
@@ -205,5 +212,6 @@ include: "rules/mnase.smk"
 include: "rules/replicates.smk"
 include: "rules/idr.smk"
 include: "rules/idr_atac.smk"
+include: "rules/consensus.smk"
 include: "rules/qc.smk"
 include: "rules/report.smk"

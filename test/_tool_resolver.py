@@ -21,4 +21,14 @@ def resolve_tool(name, env_var):
     env_value = os.environ.get(env_var, "")
     if env_value:
         return env_value
-    return shutil.which(name) or name
+    path_value = shutil.which(name)
+    if path_value:
+        return path_value
+    if name == "snakemake":
+        conda_snakemake = os.path.join(
+            os.path.expanduser("~"), "miniconda3", "envs", "chipseq", "bin",
+            "snakemake",
+        )
+        if os.path.exists(conda_snakemake) and os.access(conda_snakemake, os.X_OK):
+            return conda_snakemake
+    return name
