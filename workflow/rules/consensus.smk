@@ -9,7 +9,7 @@
 #   cuttag MACS3 narrow, cuttag MACS3 broad,
 #   atac MACS3 narrow
 #
-# SEACR consensus is deferred to Stage 63.
+# Stage 63 adds SEACR consensus for CUT&Tag PE experiments.
 #
 # Rules:
 #   consensus_macs3_biorep_peaks  — standard MACS3 on biorep BAM
@@ -372,3 +372,217 @@ def _consensus_final_method(experiment, assay, peak_mode):
         return "none"
     # chipseq broad, cuttag narrow/broad → consensus is final
     return "consensus"
+
+
+# ============================================================================
+# Stage 63: SEACR consensus
+# ============================================================================
+# SEACR consensus is enabled only when ALL of:
+#   - REPRO_ENABLED and CONSENSUS_ENABLED
+#   - SEACR_ENABLED (cuttag.seacr.enabled: true)
+#   - STAGE4B
+#   - assay == cuttag, layout == PE, >= 2 biological replicates
+#
+# Helpers use _consensus_seacr_ prefix.
+
+
+# ---------------------------------------------------------------------------
+# Helper: SEACR consensus validation
+# ---------------------------------------------------------------------------
+
+def _consensus_seacr_validate(wildcards):
+    """Validate SEACR consensus wildcards against config and metadata."""
+    if wildcards.experiment not in SEACR_CONSENSUS_EXPERIMENTS:
+        raise ValueError(
+            f"Experiment {wildcards.experiment} is not eligible for SEACR consensus"
+        )
+    if hasattr(wildcards, "mode") and wildcards.mode != SEACR_MODE:
+        raise ValueError(
+            f"SEACR consensus mode mismatch for {wildcards.experiment}: "
+            f"target has {wildcards.mode}, config has {SEACR_MODE}"
+        )
+
+
+def _consensus_seacr_bedgraph_input(wildcards):
+    """Return per-biorep BAM input for SEACR consensus bedGraph."""
+    _consensus_seacr_validate(wildcards)
+    return (
+        f"{OUTDIR}/experiments/{wildcards.experiment}/02_align/"
+        f"biorep{wildcards.bio_rep}.final.bam"
+    )
+
+
+def _consensus_seacr_peak_inputs(wildcards):
+    """Return sorted per-biorep SEACR BED inputs for compute_consensus.py."""
+    _consensus_seacr_validate(wildcards)
+    return [
+        f"{OUTDIR}/experiments/{wildcards.experiment}/06_reproducibility/"
+        f"consensus/biorep_peaks/{wildcards.experiment}.biorep{br}."
+        f"cuttag.seacr.{wildcards.mode}.bed"
+        for br in sorted(_bioreps_for(wildcards.experiment, "treatment"))
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Helper: SEACR consensus final output path
+# ---------------------------------------------------------------------------
+
+def _consensus_seacr_final_output(experiment):
+    """Return the SEACR consensus final BED path."""
+    return (
+        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/final/"
+        f"{experiment}.cuttag.seacr.{SEACR_MODE}."
+        f"replicate_validated.consensus.bed"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5. Per-biorep SEACR bedGraph
+# ---------------------------------------------------------------------------
+
+rule consensus_seacr_bedgraph:
+    output:
+        f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/consensus/"
+        f"biorep_peaks/{{experiment}}.biorep{{bio_rep}}.cuttag.seacr.bedgraph",
+    input:
+        lambda wc: _consensus_seacr_bedgraph_input(wc),
+    wildcard_constraints:
+        bio_rep = r"\d+",
+    conda:
+        "../envs/seacr.yml",
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output:q})"
+        bedtools genomecov -ibam {input:q} -bg -pc > {output:q}
+        """
+
+
+# ---------------------------------------------------------------------------
+# 6. Per-biorep SEACR peak call
+# ---------------------------------------------------------------------------
+
+rule consensus_seacr_biorep_peaks:
+    output:
+        f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/consensus/"
+        f"biorep_peaks/{{experiment}}.biorep{{bio_rep}}."
+        f"cuttag.seacr.{{mode}}.bed",
+    input:
+        f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/consensus/"
+        f"biorep_peaks/{{experiment}}.biorep{{bio_rep}}.cuttag.seacr.bedgraph",
+    params:
+        threshold = SEACR_THRESHOLD,
+        norm      = SEACR_NORMALIZATION,
+    wildcard_constraints:
+        bio_rep = r"\d+",
+        mode    = r"stringent|relaxed",
+    conda:
+        "../envs/seacr.yml",
+    shell:
+        """
+        set -e -o pipefail
+        SEACR_SCRIPT=$(command -v SEACR_1.3.sh) || {{
+            echo "ERROR: SEACR_1.3.sh not found in PATH" >&2; exit 1; }}
+        mkdir -p "$(dirname {output:q})"
+
+        # SEACR writes prefix.mode.bed.
+        TMP_OUTDIR="$(dirname {output:q})"
+        TMP_PREFIX="$TMP_OUTDIR/{wildcards.experiment}.biorep{wildcards.bio_rep}.cuttag.seacr"
+
+        bash "$SEACR_SCRIPT" {input:q} {params.threshold} \
+            {params.norm:q} {wildcards.mode:q} "$TMP_PREFIX"
+
+        # SEACR_1.3.sh writes prefix.mode.bed, which is also the canonical path.
+        SEACR_BED="$TMP_PREFIX.{wildcards.mode}.bed"
+        if [[ -f {output:q} ]]; then
+            :
+        elif [[ -f "$SEACR_BED" ]]; then
+            mv "$SEACR_BED" {output:q}
+        else
+            # Fallback: SEACR may append .bed to the prefix (resulting in .bed.bed)
+            ALT_BED="$TMP_PREFIX.bed"
+            if [[ -f "$ALT_BED" ]]; then
+                mv "$ALT_BED" {output:q}
+            else
+                echo "ERROR: SEACR output not found: $SEACR_BED or $ALT_BED" >&2
+                exit 1
+            fi
+        fi
+        """
+
+
+# ---------------------------------------------------------------------------
+# 7. SEACR consensus computation
+# ---------------------------------------------------------------------------
+
+rule consensus_compute_seacr:
+    output:
+        peak    = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
+                  f"consensus/{{experiment}}.cuttag.seacr.{{mode}}."
+                  f"consensus.bed",
+        summary = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
+                  f"consensus/{{experiment}}.cuttag.seacr.{{mode}}."
+                  f"consensus.summary.tsv",
+    input:
+        lambda wc: _consensus_seacr_peak_inputs(wc),
+    params:
+        min_replicates     = lambda wc: REPRODUCIBILITY_CONFIG.get(
+            "consensus", {}).get("min_replicates", 2),
+        reciprocal_overlap = lambda wc: REPRODUCIBILITY_CONFIG.get(
+            "consensus", {}).get("reciprocal_overlap", 0.5),
+        bioreps_args       = lambda wc: " ".join(
+            str(br) for br in sorted(_bioreps_for(wc.experiment, "treatment"))
+        ),
+        final_output       = lambda wc: _consensus_seacr_final_output(
+            wc.experiment),
+    wildcard_constraints:
+        mode = r"stringent|relaxed",
+    log:
+        f"{OUTDIR}/experiments/{{experiment}}/logs/"
+        f"{{experiment}}.cuttag.seacr.{{mode}}."
+        f"consensus.log",
+    conda:
+        "../envs/python.yml",
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output.peak:q})" "$(dirname {log:q})"
+
+        python3 scripts/compute_consensus.py \
+            --peaks {input:q} \
+            --bioreps {params.bioreps_args} \
+            --format bed \
+            --min-replicates {params.min_replicates} \
+            --reciprocal-overlap {params.reciprocal_overlap} \
+            --output {output.peak:q} \
+            --summary {output.summary:q} \
+            --experiment {wildcards.experiment:q} \
+            --assay cuttag \
+            --caller seacr \
+            --peak-mode {wildcards.mode:q} \
+            --final-method consensus \
+            --final-output {params.final_output:q} \
+            2>&1 | tee {log:q}
+        """
+
+
+# ---------------------------------------------------------------------------
+# 8. SEACR consensus final promotion
+# ---------------------------------------------------------------------------
+
+rule consensus_final_seacr:
+    output:
+        f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/final/"
+        f"{{experiment}}.cuttag.seacr.{{mode}}."
+        f"replicate_validated.consensus.bed",
+    input:
+        f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/consensus/"
+        f"{{experiment}}.cuttag.seacr.{{mode}}.consensus.bed",
+    wildcard_constraints:
+        mode = r"stringent|relaxed",
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output:q})"
+        cp {input:q} {output:q}
+        """
