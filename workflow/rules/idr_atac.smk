@@ -31,25 +31,8 @@ def _atac_idr_biorep_peaks_inputs(wildcards):
 # ---------------------------------------------------------------------------
 
 def _atac_idr_macs3_args(wildcards):
-    """Return MACS3 args for IDR-ready ATAC peak calls.
-
-    Uses layout/genome from the first ATAC treatment sample and applies the
-    same Tn5-aware shift/extsize policy as baseline ATAC MACS3 calls. Replaces
-    -q with -p (p-value from idr_macs3 config).
-    """
-    experiment = wildcards.experiment
-    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
-    if not treatment_ids:
-        return ""
-    s = SAMPLE_MAP[treatment_ids[0]]
-    fmt = "BAMPE" if s["layout"] == "PE" else "BAM"
-    genome = _normalize_genome(s["genome"])
-    pvalue = _tool_param("idr_macs3", "pvalue", 0.1)
-    extra = _tool_param("idr_macs3", "extra_args", "")
-    return (
-        f"-f {fmt} -g {genome} -p {pvalue} "
-        f"--nomodel --shift -100 --extsize 200 {extra}"
-    ).strip()
+    """Return MACS3 args for IDR-ready ATAC narrow peak calls."""
+    return idr_macs3_args(wildcards.experiment, "atac", "narrow")
 
 
 # ---------------------------------------------------------------------------

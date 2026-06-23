@@ -18,27 +18,8 @@
 # ---------------------------------------------------------------------------
 
 def _cuttag_idr_macs3_args(wildcards):
-    """Return MACS3 args for CUT&Tag narrow IDR biorep peak call.
-
-    Uses layout-aware format, Tn5 narrow shift, and RELAXED p-value (-p),
-    not standard q-value (-q). Never emits both -p and -q.
-    """
-    experiment = wildcards.experiment
-    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
-    if not treatment_ids:
-        return ""
-    first = SAMPLE_MAP[treatment_ids[0]]
-    layout = first.get("layout", "PE")
-    fmt = "BAMPE" if layout == "PE" else "BAM"
-    genome = _normalize_genome(first["genome"])
-    pvalue = _tool_param("idr_macs3", "pvalue", 0.1)
-    extra = _tool_param("idr_macs3", "extra_args", "")
-    return (
-        f"-f {fmt} -g {genome} "
-        f"-p {pvalue} "
-        f"--nomodel --shift -100 --extsize 200 "
-        f"{extra}"
-    ).strip()
+    """Return MACS3 args for CUT&Tag narrow IDR peak calls."""
+    return idr_macs3_args(wildcards.experiment, "cuttag", "narrow")
 
 
 # ---------------------------------------------------------------------------

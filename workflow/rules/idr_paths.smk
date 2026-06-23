@@ -76,3 +76,32 @@ def idr_pseudorep_peaks_inputs(experiment, source, pr, source_prefix=""):
     if experiment in POOLED_CONTROL_EXPERIMENTS:
         inputs.append(idr_pooled_control_bam(experiment))
     return inputs
+
+
+def idr_macs3_args(experiment, assay, peak_mode):
+    """MACS3 command-line arguments for IDR-ready peak calls.
+
+    Dispatch policy (mirrors the four legacy assay-specific helpers):
+      - chipseq narrow: no assay-specific extras
+      - atac/cuttag narrow: --nomodel --shift -100 --extsize 200
+      - broad (chipseq or cuttag): --broad --broad-cutoff N
+    Uses -p (p-value) instead of -q for relaxed IDR-ready calls.
+    """
+    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
+    if not treatment_ids:
+        return ""
+    s = SAMPLE_MAP[treatment_ids[0]]
+    fmt = "BAMPE" if s["layout"] == "PE" else "BAM"
+    genome = _normalize_genome(s["genome"])
+    pvalue = _tool_param("idr_macs3", "pvalue", 0.1)
+    extra = _tool_param("idr_macs3", "extra_args", "")
+
+    parts = [f"-f {fmt}", f"-g {genome}", f"-p {pvalue}"]
+    if peak_mode == "broad":
+        broad_cutoff = _tool_param("macs3", "broad_cutoff", 0.1)
+        parts.append(f"--broad --broad-cutoff {broad_cutoff}")
+    elif assay in ("atac", "cuttag"):
+        parts.append("--nomodel --shift -100 --extsize 200")
+    if extra:
+        parts.append(extra)
+    return " ".join(parts)

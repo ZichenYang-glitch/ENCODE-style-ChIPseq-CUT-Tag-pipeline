@@ -22,31 +22,8 @@
 # ---------------------------------------------------------------------------
 
 def _broad_idr_macs3_args(wildcards):
-    """Return MACS3 args for broad-peak IDR biorep peak call.
-
-    Uses assay-specific broad MACS3 args via get_macs3_args().
-    Both chipseq broad and cuttag broad use --broad --broad-cutoff.
-    CUT&Tag broad does NOT apply Tn5 shift (per existing get_macs3_args_cuttag).
-    Uses relaxed -p, never -q.
-    """
-    experiment = wildcards.experiment
-    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
-    if not treatment_ids:
-        return ""
-    # Use the standard assay-specific args, then replace -q with relaxed -p
-    first = SAMPLE_MAP[treatment_ids[0]]
-    layout = first.get("layout", "PE")
-    fmt = "BAMPE" if layout == "PE" else "BAM"
-    genome = _normalize_genome(first["genome"])
-    pvalue = _tool_param("idr_macs3", "pvalue", 0.1)
-    broad_cutoff = _tool_param("macs3", "broad_cutoff", 0.1)
-    extra = _tool_param("idr_macs3", "extra_args", "")
-    return (
-        f"-f {fmt} -g {genome} "
-        f"-p {pvalue} "
-        f"--broad --broad-cutoff {broad_cutoff} "
-        f"{extra}"
-    ).strip()
+    """Return MACS3 args for broad-peak IDR calls."""
+    return idr_macs3_args(wildcards.experiment, wildcards.assay, "broad")
 
 
 # ---------------------------------------------------------------------------

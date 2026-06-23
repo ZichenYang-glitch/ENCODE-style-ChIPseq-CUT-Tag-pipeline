@@ -30,22 +30,8 @@ def _idr_biorep_peaks_inputs(wildcards):
 # ---------------------------------------------------------------------------
 
 def _idr_macs3_args(wildcards):
-    """Return MACS3 args for IDR-ready peak calls on a biorep BAM.
-
-    Uses the same layout/genome as per-sample MACS3, but replaces
-    -q (q-value) with -p (p-value from idr_macs3 config).
-    Never emits both -q and -p.
-    """
-    experiment = wildcards.experiment
-    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
-    if not treatment_ids:
-        return ""
-    s = SAMPLE_MAP[treatment_ids[0]]
-    fmt = "BAMPE" if s["layout"] == "PE" else "BAM"
-    genome = _normalize_genome(s["genome"])
-    pvalue = _tool_param("idr_macs3", "pvalue", 0.1)
-    extra = _tool_param("idr_macs3", "extra_args", "")
-    return f"-f {fmt} -g {genome} -p {pvalue} {extra}".strip()
+    """Return MACS3 args for IDR-ready ChIP-seq narrow peak calls."""
+    return idr_macs3_args(wildcards.experiment, "chipseq", "narrow")
 
 
 # ---------------------------------------------------------------------------
