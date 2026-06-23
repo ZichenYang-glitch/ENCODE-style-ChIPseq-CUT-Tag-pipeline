@@ -256,6 +256,79 @@ else:
 
 
 # ---------------------------------------------------------------------------
+# 3a4b. Stage 64 CUT&Tag narrow IDR experiment lists
+# ---------------------------------------------------------------------------
+
+if CUTTAG_IDR_ENABLED:
+    CUTTAG_IDR_EXPERIMENTS = []
+    CUTTAG_IDR_BIOREP_EXP_LIST = []
+    CUTTAG_IDR_BIOREP_LIST = []
+    for exp in MULTI_BIOREP_EXPERIMENTS:
+        treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(exp, [])
+        if not treatment_ids:
+            continue
+        first = SAMPLE_MAP[treatment_ids[0]]
+        if first["assay"] != "cuttag":
+            continue
+        if first["peak_mode"] != "narrow":
+            continue
+        bioreps = sorted(_bioreps_for(exp, "treatment"))
+        if len(bioreps) != 2:
+            continue
+        CUTTAG_IDR_EXPERIMENTS.append(exp)
+        for br in bioreps:
+            CUTTAG_IDR_BIOREP_EXP_LIST.append(exp)
+            CUTTAG_IDR_BIOREP_LIST.append(br)
+    CUTTAG_IDR_EXPERIMENTS = sorted(CUTTAG_IDR_EXPERIMENTS)
+
+    if CUTTAG_IDR_EXPERIMENTS:
+        CUTTAG_IDR_SPLIT_SOURCE_EXP = []
+        CUTTAG_IDR_SPLIT_SOURCE_NAME = []
+        CUTTAG_IDR_PR_PEAK_EXP = []
+        CUTTAG_IDR_PR_PEAK_SRC = []
+        CUTTAG_IDR_PR_PEAK_PR = []
+        CUTTAG_IDR_SELF_EXP = []
+        CUTTAG_IDR_SELF_BR = []
+        for exp in CUTTAG_IDR_EXPERIMENTS:
+            bioreps = sorted(_bioreps_for(exp, "treatment"))
+            br_a, br_b = bioreps[0], bioreps[1]
+            for br in (br_a, br_b):
+                CUTTAG_IDR_SPLIT_SOURCE_EXP.append(exp)
+                CUTTAG_IDR_SPLIT_SOURCE_NAME.append(f"biorep{br}")
+                for pr in ("1", "2"):
+                    CUTTAG_IDR_PR_PEAK_EXP.append(exp)
+                    CUTTAG_IDR_PR_PEAK_SRC.append(f"biorep{br}")
+                    CUTTAG_IDR_PR_PEAK_PR.append(pr)
+                CUTTAG_IDR_SELF_EXP.append(exp)
+                CUTTAG_IDR_SELF_BR.append(br)
+            CUTTAG_IDR_SPLIT_SOURCE_EXP.append(exp)
+            CUTTAG_IDR_SPLIT_SOURCE_NAME.append("pooled")
+            for pr in ("1", "2"):
+                CUTTAG_IDR_PR_PEAK_EXP.append(exp)
+                CUTTAG_IDR_PR_PEAK_SRC.append("pooled")
+                CUTTAG_IDR_PR_PEAK_PR.append(pr)
+    else:
+        CUTTAG_IDR_SPLIT_SOURCE_EXP = []
+        CUTTAG_IDR_SPLIT_SOURCE_NAME = []
+        CUTTAG_IDR_PR_PEAK_EXP = []
+        CUTTAG_IDR_PR_PEAK_SRC = []
+        CUTTAG_IDR_PR_PEAK_PR = []
+        CUTTAG_IDR_SELF_EXP = []
+        CUTTAG_IDR_SELF_BR = []
+else:
+    CUTTAG_IDR_EXPERIMENTS = []
+    CUTTAG_IDR_BIOREP_EXP_LIST = []
+    CUTTAG_IDR_BIOREP_LIST = []
+    CUTTAG_IDR_SPLIT_SOURCE_EXP = []
+    CUTTAG_IDR_SPLIT_SOURCE_NAME = []
+    CUTTAG_IDR_PR_PEAK_EXP = []
+    CUTTAG_IDR_PR_PEAK_SRC = []
+    CUTTAG_IDR_PR_PEAK_PR = []
+    CUTTAG_IDR_SELF_EXP = []
+    CUTTAG_IDR_SELF_BR = []
+
+
+# ---------------------------------------------------------------------------
 # 3a5. Stage 62 consensus experiment lists
 # ---------------------------------------------------------------------------
 

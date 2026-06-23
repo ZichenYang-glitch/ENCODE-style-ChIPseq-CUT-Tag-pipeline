@@ -543,6 +543,94 @@ def _atac_idr_targets():
     return targets
 
 
+def _cuttag_idr_targets():
+    """Stage 64: CUT&Tag narrow IDR targets."""
+    targets = []
+    if not (CUTTAG_IDR_ENABLED and CUTTAG_IDR_EXPERIMENTS):
+        return targets
+
+    # Per-biorep IDR-ready peaks
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "idr_peaks/{experiment}_cuttag_biorep{bio_rep}_idr.narrowPeak",
+        zip,
+        outdir=OUTDIR,
+        experiment=CUTTAG_IDR_BIOREP_EXP_LIST,
+        bio_rep=CUTTAG_IDR_BIOREP_LIST,
+    )
+
+    # True-replicate IDR
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "true_replicates/{experiment}_cuttag_idr.txt",
+        outdir=OUTDIR, experiment=CUTTAG_IDR_EXPERIMENTS,
+    )
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "true_replicates/{experiment}_cuttag_idr.thresholded.narrowPeak",
+        outdir=OUTDIR, experiment=CUTTAG_IDR_EXPERIMENTS,
+    )
+
+    # Pseudorep IDR-ready peaks
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "idr_peaks/{experiment}_cuttag_{source}_pr{pr}_idr.narrowPeak",
+        zip,
+        outdir=OUTDIR,
+        experiment=CUTTAG_IDR_PR_PEAK_EXP,
+        source=CUTTAG_IDR_PR_PEAK_SRC,
+        pr=CUTTAG_IDR_PR_PEAK_PR,
+    )
+
+    # Self-pseudorep IDR
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "self_pseudoreplicates/"
+        "{experiment}_cuttag_biorep{bio_rep}_idr.txt",
+        zip,
+        outdir=OUTDIR,
+        experiment=CUTTAG_IDR_SELF_EXP,
+        bio_rep=CUTTAG_IDR_SELF_BR,
+    )
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "self_pseudoreplicates/"
+        "{experiment}_cuttag_biorep{bio_rep}_idr.thresholded.narrowPeak",
+        zip,
+        outdir=OUTDIR,
+        experiment=CUTTAG_IDR_SELF_EXP,
+        bio_rep=CUTTAG_IDR_SELF_BR,
+    )
+
+    # Pooled-pseudorep IDR
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "pooled_pseudoreplicates/{experiment}_cuttag_idr.txt",
+        outdir=OUTDIR, experiment=CUTTAG_IDR_EXPERIMENTS,
+    )
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "pooled_pseudoreplicates/"
+        "{experiment}_cuttag_idr.thresholded.narrowPeak",
+        outdir=OUTDIR, experiment=CUTTAG_IDR_EXPERIMENTS,
+    )
+
+    # Final outputs
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/final/"
+        "{experiment}.cuttag.macs3.narrow."
+        "replicate_validated.idr.narrowPeak",
+        outdir=OUTDIR, experiment=CUTTAG_IDR_EXPERIMENTS,
+    )
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/final/"
+        "reproducibility_summary.tsv",
+        outdir=OUTDIR, experiment=CUTTAG_IDR_EXPERIMENTS,
+    )
+
+    return targets
+
+
 def _consensus_targets():
     """Stage 62: Consensus peak targets for all MACS3 modes."""
     targets = []
@@ -569,9 +657,18 @@ def _consensus_targets():
         )
 
         # Final consensus for modes where consensus is primary
-        if (assay == "chipseq" and peak_mode == "broad") or \
-           (assay == "cuttag" and peak_mode == "narrow") or \
-           (assay == "cuttag" and peak_mode == "broad"):
+        final_exps = list(exps)
+        if (assay == "cuttag" and peak_mode == "narrow"
+            and CUTTAG_IDR_ENABLED):
+            idr_set = set(CUTTAG_IDR_EXPERIMENTS)
+            final_exps = [e for e in exps if e not in idr_set]
+        elif (assay == "chipseq" and peak_mode == "broad") or \
+             (assay == "cuttag" and peak_mode == "narrow") or \
+             (assay == "cuttag" and peak_mode == "broad"):
+            pass
+        else:
+            final_exps = []
+        if final_exps:
             targets += expand(
                 "{outdir}/experiments/{experiment}/06_reproducibility/final/"
                 "{experiment}.{assay}.macs3.{peak_mode}."

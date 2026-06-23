@@ -124,9 +124,18 @@ def _consensus_biorep_peaks(experiment, assay, peak_mode):
 def _consensus_final_output(experiment, assay, peak_mode):
     """Return the final consensus output path, or empty string if not primary."""
     # Modes where consensus is primary final:
-    #   chipseq broad, cuttag narrow, cuttag broad
+    #   chipseq broad, cuttag narrow (when IDR not enabled), cuttag broad
     # Modes where consensus is NOT primary final:
-    #   chipseq narrow (legacy stage5 IDR), atac narrow (policy: wait for IDR)
+    #   chipseq narrow (legacy stage5 IDR), atac narrow (policy: wait for IDR),
+    #   cuttag narrow (when IDR enabled)
+    if (assay == "cuttag" and peak_mode == "narrow"
+        and CUTTAG_IDR_ENABLED
+        and experiment in CUTTAG_IDR_EXPERIMENTS):
+        return (
+            f"{OUTDIR}/experiments/{experiment}/06_reproducibility/final/"
+            f"{experiment}.cuttag.macs3.narrow."
+            f"replicate_validated.idr.narrowPeak"
+        )
     if (assay == "chipseq" and peak_mode == "broad") or \
        (assay == "cuttag" and peak_mode == "narrow") or \
        (assay == "cuttag" and peak_mode == "broad"):
@@ -366,11 +375,15 @@ def _consensus_final_method(experiment, assay, peak_mode):
         if STAGE5 and experiment in IDR_EXPERIMENTS:
             return "idr"
         return "none"
+    if assay == "cuttag" and peak_mode == "narrow":
+        if CUTTAG_IDR_ENABLED and experiment in CUTTAG_IDR_EXPERIMENTS:
+            return "idr"
+        return "consensus"
     if assay == "atac" and peak_mode == "narrow":
         if ATAC_IDR_ENABLED and experiment in ATAC_IDR_EXPERIMENTS:
             return "idr"
         return "none"
-    # chipseq broad, cuttag narrow/broad → consensus is final
+    # chipseq broad, cuttag broad → consensus is final
     return "consensus"
 
 

@@ -472,6 +472,8 @@ rule atac_idr_summary:
             f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/final/"
             f"{wc.experiment}.atac.macs3.narrow.replicate_validated.idr.narrowPeak"
         ),
+    wildcard_constraints:
+        experiment = wildcard_choices(ATAC_IDR_EXPERIMENTS),
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/"
         f"{{experiment}}.atac_idr.summary.log",
