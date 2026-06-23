@@ -580,4 +580,26 @@ def _consensus_targets():
                 assay=[assay], peak_mode=[peak_mode], suffix=[suffix],
             )
 
+    # Stage 63: SEACR consensus targets
+    if SEACR_CONSENSUS_EXPERIMENTS:
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/consensus/"
+            "{experiment}.cuttag.seacr.{mode}.consensus.bed",
+            outdir=OUTDIR, experiment=SEACR_CONSENSUS_EXPERIMENTS,
+            mode=[SEACR_MODE],
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/consensus/"
+            "{experiment}.cuttag.seacr.{mode}.consensus.summary.tsv",
+            outdir=OUTDIR, experiment=SEACR_CONSENSUS_EXPERIMENTS,
+            mode=[SEACR_MODE],
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/final/"
+            "{experiment}.cuttag.seacr.{mode}."
+            "replicate_validated.consensus.bed",
+            outdir=OUTDIR, experiment=SEACR_CONSENSUS_EXPERIMENTS,
+            mode=[SEACR_MODE],
+        )
+
     return targets

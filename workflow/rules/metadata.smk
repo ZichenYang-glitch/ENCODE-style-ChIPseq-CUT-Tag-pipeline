@@ -292,6 +292,30 @@ else:
 
 
 # ---------------------------------------------------------------------------
+# 3a6. Stage 63 SEACR consensus experiment list
+# ---------------------------------------------------------------------------
+
+if CONSENSUS_ENABLED and STAGE4B and SEACR_ENABLED:
+    SEACR_CONSENSUS_EXPERIMENTS = []
+    for exp in MULTI_BIOREP_EXPERIMENTS:
+        treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(exp, [])
+        if not treatment_ids:
+            continue
+        bioreps = _bioreps_for(exp, "treatment")
+        if len(bioreps) < 2:
+            continue
+        if all(
+            SAMPLE_MAP[sid]["assay"] == "cuttag"
+            and SAMPLE_MAP[sid]["layout"] == "PE"
+            for sid in treatment_ids
+        ):
+            SEACR_CONSENSUS_EXPERIMENTS.append(exp)
+    SEACR_CONSENSUS_EXPERIMENTS = sorted(SEACR_CONSENSUS_EXPERIMENTS)
+else:
+    SEACR_CONSENSUS_EXPERIMENTS = []
+
+
+# ---------------------------------------------------------------------------
 # 3b. Stage 3 QC configuration and genome resource helpers
 # ---------------------------------------------------------------------------
 
