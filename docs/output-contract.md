@@ -93,6 +93,52 @@ The earlier `project_id` field from the draft schema was removed before implemen
 | `idr_optimal` | idr filter | stage5b_summary | `results/experiments/<exp>/06_idr/final/optimal.narrowPeak` | stable |
 | `idr_reproducibility_summary` | (script) | stage5b_summary | `results/experiments/<exp>/06_idr/final/reproducibility_summary.tsv` | stable |
 
+### Reproducibility outputs (Stage 53-65, per-experiment)
+
+#### Consensus outputs (catalog/report)
+
+| output_type | method | rule | path | status |
+| :--- | :--- | :--- | :--- | :--- |
+| `chipseq_macs3_narrow_consensus_peak` | compute_consensus.py | consensus_compute_narrow | `results/experiments/<exp>/06_reproducibility/consensus/<exp>.chipseq.macs3.narrow.consensus.narrowPeak` | implemented |
+| `chipseq_macs3_narrow_consensus_summary` | compute_consensus.py | consensus_compute_narrow | `results/experiments/<exp>/06_reproducibility/consensus/<exp>.chipseq.macs3.narrow.consensus.summary.tsv` | implemented |
+| `chipseq_macs3_broad_consensus_peak` | compute_consensus.py | consensus_compute_broad | `results/experiments/<exp>/06_reproducibility/consensus/<exp>.chipseq.macs3.broad.consensus.broadPeak` | implemented |
+| `chipseq_macs3_broad_consensus_summary` | compute_consensus.py | consensus_compute_broad | `results/experiments/<exp>/06_reproducibility/consensus/<exp>.chipseq.macs3.broad.consensus.summary.tsv` | implemented |
+| `cuttag_macs3_narrow_consensus_peak` | compute_consensus.py | consensus_compute_narrow | `results/experiments/<exp>/06_reproducibility/consensus/<exp>.cuttag.macs3.narrow.consensus.narrowPeak` | implemented |
+| `cuttag_macs3_narrow_consensus_summary` | compute_consensus.py | consensus_compute_narrow | `results/experiments/<exp>/06_reproducibility/consensus/<exp>.cuttag.macs3.narrow.consensus.summary.tsv` | implemented |
+| `cuttag_macs3_broad_consensus_peak` | compute_consensus.py | consensus_compute_broad | `results/experiments/<exp>/06_reproducibility/consensus/<exp>.cuttag.macs3.broad.consensus.broadPeak` | implemented |
+| `cuttag_macs3_broad_consensus_summary` | compute_consensus.py | consensus_compute_broad | `results/experiments/<exp>/06_reproducibility/consensus/<exp>.cuttag.macs3.broad.consensus.summary.tsv` | implemented |
+| `atac_macs3_narrow_consensus_peak` | compute_consensus.py | consensus_compute_narrow | `results/experiments/<exp>/06_reproducibility/consensus/<exp>.atac.macs3.narrow.consensus.narrowPeak` | implemented |
+| `atac_macs3_narrow_consensus_summary` | compute_consensus.py | consensus_compute_narrow | `results/experiments/<exp>/06_reproducibility/consensus/<exp>.atac.macs3.narrow.consensus.summary.tsv` | implemented |
+| `cuttag_seacr_consensus_peak` | compute_consensus.py | consensus_compute_seacr | `results/experiments/<exp>/06_reproducibility/consensus/<exp>.cuttag.seacr.<mode>.consensus.bed` | implemented |
+| `cuttag_seacr_consensus_summary` | compute_consensus.py | consensus_compute_seacr | `results/experiments/<exp>/06_reproducibility/consensus/<exp>.cuttag.seacr.<mode>.consensus.summary.tsv` | implemented |
+
+#### IDR final outputs (primary replicate-validated)
+
+| output_type | method | rule | path | status |
+| :--- | :--- | :--- | :--- | :--- |
+| `cuttag_macs3_narrow_idr_final_peak` | cuttag_idr_summary.py | cuttag_idr_summary | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak` | implemented |
+| `atac_macs3_narrow_idr_final_peak` | atac_idr_summary.py | atac_idr_summary | `results/experiments/<exp>/06_reproducibility/final/<exp>.atac.macs3.narrow.replicate_validated.idr.narrowPeak` | implemented |
+| `chipseq_macs3_broad_idr_final_peak` | broad_idr_summary.py | broad_idr_chipseq_summary | `results/experiments/<exp>/06_reproducibility/final/<exp>.chipseq.macs3.broad.replicate_validated.idr.broadPeak` | implemented |
+| `cuttag_macs3_broad_idr_final_peak` | broad_idr_summary.py | broad_idr_cuttag_summary | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.broad.replicate_validated.idr.broadPeak` | implemented |
+
+#### Consensus final outputs (primary when no IDR)
+
+| output_type | method | rule | path | status |
+| :--- | :--- | :--- | :--- | :--- |
+| `chipseq_macs3_broad_consensus_final_peak` | cp | consensus_final | `results/experiments/<exp>/06_reproducibility/final/<exp>.chipseq.macs3.broad.replicate_validated.consensus.broadPeak` | implemented |
+| `cuttag_macs3_narrow_consensus_final_peak` | cp | consensus_final | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak` | implemented |
+| `cuttag_macs3_broad_consensus_final_peak` | cp | consensus_final | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.broad.replicate_validated.consensus.broadPeak` | implemented |
+| `cuttag_seacr_consensus_final_peak` | cp | consensus_final_seacr | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.seacr.<mode>.replicate_validated.consensus.bed` | implemented |
+
+#### IDR QC summaries
+
+| output_type | method | rule | path | status |
+| :--- | :--- | :--- | :--- | :--- |
+| `atac_macs3_narrow_idr_summary` | atac_idr_summary.py | atac_idr_summary | `results/experiments/<exp>/06_reproducibility/final/reproducibility_summary.tsv` | implemented |
+| `cuttag_macs3_narrow_idr_summary` | cuttag_idr_summary.py | cuttag_idr_summary | `results/experiments/<exp>/06_reproducibility/final/reproducibility_summary.tsv` | implemented |
+| `chipseq_macs3_broad_idr_summary` | broad_idr_summary.py | broad_idr_chipseq_summary | `results/experiments/<exp>/06_reproducibility/final/reproducibility_summary.tsv` | implemented |
+| `cuttag_macs3_broad_idr_summary` | broad_idr_summary.py | broad_idr_cuttag_summary | `results/experiments/<exp>/06_reproducibility/final/reproducibility_summary.tsv` | implemented |
+
 ### Project-level outputs
 
 | output_type | method | rule | path | status |
@@ -141,6 +187,9 @@ sample_id	experiment_id	assay	target	genome	output_type	method	path	status	qc_fl
 | `seacr_*` | `cuttag.seacr.enabled: true` + `assay: cuttag` + `layout: PE` |
 | `pooled_mnase_*` | `stage4b: true` + `>=2 MNase treatment bioreps` |
 | `idr_*` | `stage5: true` + `chipseq` + `narrow` + exactly 2 treatment bioreps |
+| `*_consensus_peak`, `*_consensus_summary` | `reproducibility.enabled: true` + `reproducibility.consensus.enabled: true` + `stage4b: true` + ≥2 treatment bioreps + assay/peak_mode match |
+| `*_idr_final_peak`, `*_idr_summary` | `reproducibility.enabled: true` + `stage4b: true` + respective IDR config flag + assay/peak_mode match + exactly 2 treatment bioreps |
+| `*_consensus_final_peak` | `reproducibility.enabled: true` + `reproducibility.consensus.enabled: true` + `stage4b: true` + respective IDR NOT enabled for that mode + ≥2 treatment bioreps |
 | `multiqc_report` | `multiqc: true` |
 
 ## Known Assumptions
