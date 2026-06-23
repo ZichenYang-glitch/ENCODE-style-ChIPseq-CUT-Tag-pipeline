@@ -1,7 +1,7 @@
 # Reproducibility Policy: Replicate-Validated Peak Outputs
 
-**Version:** Stage 53 (2026-06-18)
-**Status:** Policy document — implementation deferred to Stage 54+
+**Version:** Stage 65 (2026-06-23)
+**Status:** Policy document — implemented through Stage 65
 
 ## 1. Purpose
 
@@ -58,8 +58,9 @@ irreproducible discovery rate.
   Not default. IDR becomes final when explicitly enabled.
 - **Experimental opt-in IDR:** ChIP-seq broad, CUT&Tag broad
   (`reproducibility.idr.chipseq_broad_experimental`,
-  `cuttag_broad_experimental`). Consensus remains final unless a future
-  stage designs explicit experimental-to-final promotion.
+  `cuttag_broad_experimental`). Not default. IDR becomes final when explicitly
+  enabled and eligible; consensus remains available as fallback/report.
+  Broad experimental IDR becomes final when explicitly enabled and eligible.
 - **Not planned for IDR:** SEACR (BED format score scheme not directly
   compatible with IDR rank assumptions) and MNase.
 
@@ -79,9 +80,9 @@ future expanded IDR modes.
 | # | Assay | Peak mode | Caller | Primary reproducibility | Secondary / report | Notes |
 |---|-------|-----------|--------|------------------------|-------------------|-------|
 | 1 | chipseq | narrow | MACS3 | IDR (legacy `stage5`) | Consensus | Legacy Stage 5 IDR unchanged |
-| 2 | chipseq | broad | MACS3 | Consensus | IDR experimental (opt-in) | Experimental IDR must not silently replace consensus |
+| 2 | chipseq | broad | MACS3 | IDR when experimental flag enabled; consensus otherwise | Consensus fallback/report | Experimental opt-in only |
 | 3 | cuttag | narrow | MACS3 | Consensus | IDR opt-in (supported) | IDR final when explicitly enabled; consensus otherwise |
-| 4 | cuttag | broad | MACS3 | Consensus | IDR experimental (opt-in) | Experimental only |
+| 4 | cuttag | broad | MACS3 | IDR when experimental flag enabled; consensus otherwise | Consensus fallback/report | Experimental opt-in only |
 | 5 | cuttag | — | SEACR | Consensus | No IDR planned | SEACR IDR out of scope unless future stage defines justified rank scheme |
 | 6 | atac | narrow | MACS3 | IDR (when enabled) | Consensus | ATAC narrow IDR uses same narrowPeak IDR machinery |
 
@@ -138,10 +139,12 @@ results/experiments/<exp>/06_idr/
 | Assay | Caller | Peak mode | Primary method | Final output |
 |-------|--------|-----------|---------------|-------------|
 | chipseq | macs3 | narrow | IDR (legacy) | Use `06_idr/final/conservative.narrowPeak` |
-| chipseq | macs3 | broad | Consensus | `<exp>.chipseq.macs3.broad.replicate_validated.consensus.broadPeak` |
+| chipseq | macs3 | broad | IDR (when `reproducibility.idr.chipseq_broad_experimental: true`) | `<exp>.chipseq.macs3.broad.replicate_validated.idr.broadPeak` |
+| chipseq | macs3 | broad | Consensus (when broad IDR not enabled) | `<exp>.chipseq.macs3.broad.replicate_validated.consensus.broadPeak` |
 | cuttag | macs3 | narrow | IDR (when `reproducibility.idr.cuttag_narrow: true`) | `<exp>.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak` |
 | cuttag | macs3 | narrow | Consensus (when CUT&Tag IDR not enabled) | `<exp>.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak` |
-| cuttag | macs3 | broad | Consensus | `<exp>.cuttag.macs3.broad.replicate_validated.consensus.broadPeak` |
+| cuttag | macs3 | broad | IDR (when `reproducibility.idr.cuttag_broad_experimental: true`) | `<exp>.cuttag.macs3.broad.replicate_validated.idr.broadPeak` |
+| cuttag | macs3 | broad | Consensus (when broad IDR not enabled) | `<exp>.cuttag.macs3.broad.replicate_validated.consensus.broadPeak` |
 | cuttag | seacr | `<mode>` | Consensus | `<exp>.cuttag.seacr.<mode>.replicate_validated.consensus.bed` |
 | atac | macs3 | narrow | IDR (when `reproducibility.idr.atac_narrow: true`) | `<exp>.atac.macs3.narrow.replicate_validated.idr.narrowPeak` |
 | atac | macs3 | narrow | Consensus (when ATAC IDR not enabled) | Consensus under `consensus/`; no `final/` output until IDR enabled |
@@ -267,5 +270,5 @@ When `reproducibility.enabled: true`:
 | 54 | Consensus engine | `scripts/compute_consensus.py`; summary writer; unit tests; NO DAG integration |
 | 55 | ATAC narrow IDR | Generalize IDR rules for ATAC; DAG integration for enabled modes |
 | 56 | CUT&Tag narrow IDR (opt-in) | Policy layer on ATAC IDR path; experimental warnings |
-| 57 | Broad experimental IDR policy | Validation warnings; consensus remains primary; SEACR consensus-only |
+| 65 | Broad experimental IDR runtime | Experimental opt-in broad IDR; IDR final only when explicit and eligible; consensus fallback/report; SEACR consensus-only |
 | 58 | Manifest / contract / report integration | Manifest entries; output contract updates; MultiQC; regression sweep |

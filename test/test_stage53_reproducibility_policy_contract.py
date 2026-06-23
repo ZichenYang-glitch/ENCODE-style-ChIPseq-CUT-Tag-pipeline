@@ -168,7 +168,7 @@ def main():
         return ok
     check("CUT&Tag narrow: supported opt-in IDR", t8)
 
-    # 9. Broad IDR is experimental and must not silently replace consensus final
+    # 9. Broad IDR is experimental opt-in and becomes final only when explicit.
     def t9():
         has_experimental = (
             "experimental opt-in idr" in content_lower
@@ -176,17 +176,17 @@ def main():
             and "cut&tag broad" in content_lower
         )
         has_final_guard = (
-            "consensus remains final" in content_lower
-            or "must not silently replace consensus" in content_lower
+            "idr becomes final when explicitly enabled and eligible" in content_lower
+            and "consensus remains available as fallback/report" in content_lower
         )
         ok = has_experimental and has_final_guard
         if not ok:
             if not has_experimental:
                 print("   Broad experimental IDR policy missing")
             if not has_final_guard:
-                print("   Broad IDR final-output guard missing")
+                print("   Broad IDR explicit-final/fallback policy missing")
         return ok
-    check("broad modes: experimental IDR does not replace consensus", t9)
+    check("broad modes: experimental explicit-final IDR", t9)
 
     # 10. SEACR IDR is excluded and no seacr_experimental config key exists
     def t10():

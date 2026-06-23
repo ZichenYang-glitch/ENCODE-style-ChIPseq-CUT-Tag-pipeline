@@ -329,6 +329,108 @@ else:
 
 
 # ---------------------------------------------------------------------------
+# 3a4c. Stage 65 broad-peak IDR experiment lists (experimental opt-in)
+# ---------------------------------------------------------------------------
+
+BROAD_CHIPSEQ_IDR_EXPERIMENTS = []
+BROAD_CUTTAG_IDR_EXPERIMENTS = []
+BROAD_IDR_EXPERIMENTS = []
+BROAD_IDR_EXPERIMENT_ASSAY = []
+
+BROAD_CHIPSEQ_IDR_BIOREP_EXP_LIST = []
+BROAD_CHIPSEQ_IDR_BIOREP_LIST = []
+BROAD_CUTTAG_IDR_BIOREP_EXP_LIST = []
+BROAD_CUTTAG_IDR_BIOREP_LIST = []
+
+BROAD_IDR_SPLIT_SOURCE_EXP = []
+BROAD_IDR_SPLIT_SOURCE_NAME = []
+BROAD_IDR_SPLIT_SOURCE_ASSAY = []
+BROAD_IDR_PR_PEAK_EXP = []
+BROAD_IDR_PR_PEAK_SRC = []
+BROAD_IDR_PR_PEAK_ASSAY = []
+BROAD_IDR_PR_PEAK_PR = []
+BROAD_IDR_SELF_EXP = []
+BROAD_IDR_SELF_BR = []
+BROAD_IDR_SELF_ASSAY = []
+
+BROAD_IDR_BIOREP_EXP_LIST = []
+BROAD_IDR_BIOREP_LIST = []
+BROAD_IDR_BIOREP_ASSAY = []
+
+if BROAD_IDR_ENABLED and STAGE4B:
+    for flag, assay, exp_list, br_exp_list, br_list, br_assay_list in [
+        (BROAD_CHIPSEQ_IDR_ENABLED, "chipseq",
+         BROAD_CHIPSEQ_IDR_EXPERIMENTS,
+         BROAD_CHIPSEQ_IDR_BIOREP_EXP_LIST,
+         BROAD_CHIPSEQ_IDR_BIOREP_LIST,
+         []),
+        (BROAD_CUTTAG_IDR_ENABLED, "cuttag",
+         BROAD_CUTTAG_IDR_EXPERIMENTS,
+         BROAD_CUTTAG_IDR_BIOREP_EXP_LIST,
+         BROAD_CUTTAG_IDR_BIOREP_LIST,
+         []),
+    ]:
+        if not flag:
+            continue
+        for exp in MULTI_BIOREP_EXPERIMENTS:
+            treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(exp, [])
+            if not treatment_ids:
+                continue
+            first = SAMPLE_MAP[treatment_ids[0]]
+            if first["assay"] != assay:
+                continue
+            if first["peak_mode"] != "broad":
+                continue
+            bioreps = sorted(_bioreps_for(exp, "treatment"))
+            if len(bioreps) != 2:
+                continue
+            exp_list.append(exp)
+            for br in bioreps:
+                br_exp_list.append(exp)
+                br_list.append(br)
+        exp_list[:] = sorted(exp_list)
+
+    for exp, assay in sorted(
+        [(e, "chipseq") for e in BROAD_CHIPSEQ_IDR_EXPERIMENTS]
+        + [(e, "cuttag") for e in BROAD_CUTTAG_IDR_EXPERIMENTS]
+    ):
+        BROAD_IDR_EXPERIMENTS.append(exp)
+        BROAD_IDR_EXPERIMENT_ASSAY.append(assay)
+
+    if BROAD_IDR_EXPERIMENTS:
+        for exp_list, assay in [
+            (BROAD_CHIPSEQ_IDR_EXPERIMENTS, "chipseq"),
+            (BROAD_CUTTAG_IDR_EXPERIMENTS, "cuttag"),
+        ]:
+            for exp in exp_list:
+                bioreps = sorted(_bioreps_for(exp, "treatment"))
+                br_a, br_b = bioreps[0], bioreps[1]
+                for br in (br_a, br_b):
+                    BROAD_IDR_SPLIT_SOURCE_EXP.append(exp)
+                    BROAD_IDR_SPLIT_SOURCE_NAME.append(f"biorep{br}")
+                    BROAD_IDR_SPLIT_SOURCE_ASSAY.append(assay)
+                    for pr in ("1", "2"):
+                        BROAD_IDR_PR_PEAK_EXP.append(exp)
+                        BROAD_IDR_PR_PEAK_SRC.append(f"biorep{br}")
+                        BROAD_IDR_PR_PEAK_ASSAY.append(assay)
+                        BROAD_IDR_PR_PEAK_PR.append(pr)
+                    BROAD_IDR_SELF_EXP.append(exp)
+                    BROAD_IDR_SELF_BR.append(br)
+                    BROAD_IDR_SELF_ASSAY.append(assay)
+                    BROAD_IDR_BIOREP_EXP_LIST.append(exp)
+                    BROAD_IDR_BIOREP_LIST.append(br)
+                    BROAD_IDR_BIOREP_ASSAY.append(assay)
+                BROAD_IDR_SPLIT_SOURCE_EXP.append(exp)
+                BROAD_IDR_SPLIT_SOURCE_NAME.append("pooled")
+                BROAD_IDR_SPLIT_SOURCE_ASSAY.append(assay)
+                for pr in ("1", "2"):
+                    BROAD_IDR_PR_PEAK_EXP.append(exp)
+                    BROAD_IDR_PR_PEAK_SRC.append("pooled")
+                    BROAD_IDR_PR_PEAK_ASSAY.append(assay)
+                    BROAD_IDR_PR_PEAK_PR.append(pr)
+
+
+# ---------------------------------------------------------------------------
 # 3a5. Stage 62 consensus experiment lists
 # ---------------------------------------------------------------------------
 

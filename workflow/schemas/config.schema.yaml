@@ -329,14 +329,16 @@ reproducibility:
           type: boolean
           default: false
           description: >
-            Experimental ChIP-seq broad-peak IDR. Consensus remains primary
-            final. When true, an informational warning is emitted.
+            Experimental ChIP-seq broad-peak IDR. When true and eligible,
+            IDR becomes final; consensus remains available as fallback/report.
+            An informational warning is emitted.
         cuttag_broad_experimental:
           type: boolean
           default: false
           description: >
-            Experimental CUT&Tag broad-peak IDR. Consensus remains primary
-            final. When true, an informational warning is emitted.
+            Experimental CUT&Tag broad-peak IDR. When true and eligible,
+            IDR becomes final; consensus remains available as fallback/report.
+            An informational warning is emitted.
 
 # ---- Stage 7b: CUT&Tag Peak Caller (optional) ----
 cuttag:

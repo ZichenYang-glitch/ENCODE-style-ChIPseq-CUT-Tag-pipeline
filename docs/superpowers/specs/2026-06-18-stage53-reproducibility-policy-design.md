@@ -67,9 +67,9 @@ contract.
 | # | Assay | Peak mode | Caller | Suffix | Primary reproducibility | Secondary / report | Notes |
 |---|-------|-----------|--------|--------|------------------------|-------------------|-------|
 | 1 | chipseq | narrow | MACS3 | `.narrowPeak` | IDR (legacy `stage5`) | Consensus | Production-supported IDR; legacy Stage 5 unchanged |
-| 2 | chipseq | broad | MACS3 | `.broadPeak` | Consensus | IDR experimental (opt-in) | Experimental IDR must not silently replace consensus |
+| 2 | chipseq | broad | MACS3 | `.broadPeak` | IDR when experimental flag enabled; consensus otherwise | Consensus fallback/report | Experimental opt-in only |
 | 3 | cuttag | narrow | MACS3 | `.narrowPeak` | Consensus | IDR opt-in (supported) | IDR final when explicitly enabled |
-| 4 | cuttag | broad | MACS3 | `.broadPeak` | Consensus | IDR experimental (opt-in) | Experimental only |
+| 4 | cuttag | broad | MACS3 | `.broadPeak` | IDR when experimental flag enabled; consensus otherwise | Consensus fallback/report | Experimental opt-in only |
 | 5 | cuttag | — | SEACR | `.bed` | Consensus | No IDR planned | SEACR IDR out of scope; MNase IDR out of scope |
 | 6 | atac | narrow | MACS3 | `.narrowPeak` | IDR (when `reproducibility.idr.atac_narrow: true`) | Consensus | Production-supported IDR; uses same narrowPeak machinery as ChIP-seq |
 
@@ -96,8 +96,9 @@ contract.
   caution.
 - **Broad:** Experimental only. Requires explicit
   `reproducibility.idr.chipseq_broad_experimental: true` or
-  `reproducibility.idr.cuttag_broad_experimental: true`. Consensus remains
-  primary. Experimental IDR must never silently replace consensus.
+  `reproducibility.idr.cuttag_broad_experimental: true`. IDR becomes final
+  when explicitly enabled and eligible; consensus remains available as
+  fallback/report.
 - **SEACR IDR:** Not planned. BED output format and score scheme are not
   directly compatible with IDR's rank assumptions.
 
@@ -133,7 +134,7 @@ reproducibility:
     cuttag_narrow: false
 
     # Experimental IDR — must be explicitly opted in.
-    # Consensus remains primary even when these are true.
+    # IDR becomes final only when explicitly enabled and eligible.
     chipseq_broad_experimental: false
     cuttag_broad_experimental: false
 ```
@@ -287,7 +288,7 @@ For narrowPeak/broadPeak consensus outputs:
 | **54** | Consensus engine | `scripts/compute_consensus.py`; summary writer; unit tests across all 6 modes; NO DAG integration |
 | **55** | ATAC narrow IDR | Generalize `idr.smk` factories for ATAC; same narrowPeak pipeline with ATAC gating; DAG integration only for enabled modes |
 | **56** | CUT&Tag narrow IDR (opt-in) | Policy layer on top of ATAC IDR path; experimental warnings; off by default |
-| **57** | Broad experimental IDR policy | Validation warnings for `chipseq_broad_experimental` and `cuttag_broad_experimental`; consensus remains primary; experimental IDR never silently replaces consensus; SEACR remains consensus-only |
+| **57** | Broad experimental IDR policy | Validation warnings for `chipseq_broad_experimental` and `cuttag_broad_experimental`; IDR becomes final only when explicitly enabled and eligible; consensus remains fallback/report; SEACR remains consensus-only |
 | **58** | Manifest / contract / report integration + release hardening | Manifest awareness for new outputs; output contract updates; MultiQC integration if meaningful; regression tests since Stage 53 |
 
 ### Stage 53 Deliverables
@@ -311,13 +312,14 @@ For narrowPeak/broadPeak consensus outputs:
    threshold, not a hard-coded majority rule. This matches the config intent
    and extends naturally from 2 replicates to N replicates.
 
-2. **Consensus always, IDR where established.** Consensus is generated for
-   every mode with ≥2 biological replicates. IDR is the primary final method
-   only where domain-validated (ChIP-seq narrow, ATAC narrow).
+2. **Consensus always, IDR where enabled.** Consensus is generated for every
+   mode with ≥2 biological replicates. IDR is the primary final method where
+   domain-validated (ChIP-seq narrow, ATAC narrow), supported opt-in
+   (CUT&Tag narrow), or explicitly enabled as experimental broad IDR.
 
-3. **Experimental IDR never silently replaces consensus.** For broad/CUT&Tag
-   modes, even when experimental IDR flags are true, consensus remains primary
-   in `final/`. Experimental IDR outputs appear in `idr/` only.
+3. **Experimental IDR requires explicit opt-in.** For broad modes, IDR becomes
+   final only when the corresponding experimental flag is true and the
+   experiment is eligible. Consensus remains available as fallback/report.
 
 4. **SEACR IDR excluded.** SEACR BED format's score scheme is not directly
    compatible with IDR's rank assumptions. No experimental flag is exposed.

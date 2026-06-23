@@ -631,6 +631,113 @@ def _cuttag_idr_targets():
     return targets
 
 
+def _broad_idr_targets():
+    """Stage 65: Broad-peak IDR targets (experimental opt-in)."""
+    targets = []
+    if not (BROAD_IDR_ENABLED and BROAD_IDR_EXPERIMENTS):
+        return targets
+
+    # Per-biorep IDR-ready peaks
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "idr_peaks/{experiment}_broad_{assay}_biorep{bio_rep}_idr.broadPeak",
+        zip,
+        outdir=OUTDIR,
+        experiment=BROAD_IDR_BIOREP_EXP_LIST,
+        assay=BROAD_IDR_BIOREP_ASSAY,
+        bio_rep=BROAD_IDR_BIOREP_LIST,
+    )
+
+    # True-replicate IDR
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "true_replicates/{experiment}_broad_{assay}_idr.txt",
+        zip,
+        outdir=OUTDIR,
+        experiment=BROAD_IDR_EXPERIMENTS,
+        assay=BROAD_IDR_EXPERIMENT_ASSAY,
+    )
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "true_replicates/{experiment}_broad_{assay}_idr.thresholded.broadPeak",
+        zip,
+        outdir=OUTDIR,
+        experiment=BROAD_IDR_EXPERIMENTS,
+        assay=BROAD_IDR_EXPERIMENT_ASSAY,
+    )
+
+    # Pseudorep IDR-ready peaks
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "idr_peaks/{experiment}_broad_{assay}_{source}_pr{pr}_idr.broadPeak",
+        zip,
+        outdir=OUTDIR,
+        experiment=BROAD_IDR_PR_PEAK_EXP,
+        assay=BROAD_IDR_PR_PEAK_ASSAY,
+        source=BROAD_IDR_PR_PEAK_SRC,
+        pr=BROAD_IDR_PR_PEAK_PR,
+    )
+
+    # Self-pseudorep IDR
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "self_pseudoreplicates/"
+        "{experiment}_broad_{assay}_biorep{bio_rep}_idr.txt",
+        zip,
+        outdir=OUTDIR,
+        experiment=BROAD_IDR_SELF_EXP,
+        assay=BROAD_IDR_SELF_ASSAY,
+        bio_rep=BROAD_IDR_SELF_BR,
+    )
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "self_pseudoreplicates/"
+        "{experiment}_broad_{assay}_biorep{bio_rep}_idr.thresholded.broadPeak",
+        zip,
+        outdir=OUTDIR,
+        experiment=BROAD_IDR_SELF_EXP,
+        assay=BROAD_IDR_SELF_ASSAY,
+        bio_rep=BROAD_IDR_SELF_BR,
+    )
+
+    # Pooled-pseudorep IDR
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "pooled_pseudoreplicates/{experiment}_broad_{assay}_idr.txt",
+        zip,
+        outdir=OUTDIR,
+        experiment=BROAD_IDR_EXPERIMENTS,
+        assay=BROAD_IDR_EXPERIMENT_ASSAY,
+    )
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
+        "pooled_pseudoreplicates/"
+        "{experiment}_broad_{assay}_idr.thresholded.broadPeak",
+        zip,
+        outdir=OUTDIR,
+        experiment=BROAD_IDR_EXPERIMENTS,
+        assay=BROAD_IDR_EXPERIMENT_ASSAY,
+    )
+
+    # Final outputs
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/final/"
+        "{experiment}.{assay}.macs3.broad."
+        "replicate_validated.idr.broadPeak",
+        zip,
+        outdir=OUTDIR,
+        experiment=BROAD_IDR_EXPERIMENTS,
+        assay=BROAD_IDR_EXPERIMENT_ASSAY,
+    )
+    targets += expand(
+        "{outdir}/experiments/{experiment}/06_reproducibility/final/"
+        "reproducibility_summary.tsv",
+        outdir=OUTDIR, experiment=BROAD_IDR_EXPERIMENTS,
+    )
+
+    return targets
+
+
 def _consensus_targets():
     """Stage 62: Consensus peak targets for all MACS3 modes."""
     targets = []
@@ -658,8 +765,16 @@ def _consensus_targets():
 
         # Final consensus for modes where consensus is primary
         final_exps = list(exps)
-        if (assay == "cuttag" and peak_mode == "narrow"
-            and CUTTAG_IDR_ENABLED):
+        if (assay == "chipseq" and peak_mode == "broad"
+            and BROAD_CHIPSEQ_IDR_ENABLED):
+            idr_set = set(BROAD_CHIPSEQ_IDR_EXPERIMENTS)
+            final_exps = [e for e in exps if e not in idr_set]
+        elif (assay == "cuttag" and peak_mode == "broad"
+              and BROAD_CUTTAG_IDR_ENABLED):
+            idr_set = set(BROAD_CUTTAG_IDR_EXPERIMENTS)
+            final_exps = [e for e in exps if e not in idr_set]
+        elif (assay == "cuttag" and peak_mode == "narrow"
+              and CUTTAG_IDR_ENABLED):
             idr_set = set(CUTTAG_IDR_EXPERIMENTS)
             final_exps = [e for e in exps if e not in idr_set]
         elif (assay == "chipseq" and peak_mode == "broad") or \

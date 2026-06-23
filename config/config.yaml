@@ -161,6 +161,8 @@ stage5: false
 #     chipseq_narrow: null
 #     atac_narrow: false
 #     cuttag_narrow: false
+#     # Experimental opt-in broad IDR. When true and eligible, IDR becomes
+#     # final; consensus remains available as fallback/report.
 #     chipseq_broad_experimental: false
 #     cuttag_broad_experimental: false
 

@@ -324,8 +324,27 @@ def validate_config(config: dict) -> dict:
             "stage4b=true."
         )
 
-    # idr settings validated when stage5, ATAC IDR, or CUT&Tag IDR is enabled
-    if validated["stage5"] or atac_idr_enabled or cuttag_idr_enabled:
+    # Stage 65: determine whether broad IDR is enabled
+    broad_chipseq_idr_enabled = (
+        repro.get("enabled", False)
+        and repro.get("idr", {}).get("chipseq_broad_experimental", False)
+    )
+    broad_cuttag_idr_enabled = (
+        repro.get("enabled", False)
+        and repro.get("idr", {}).get("cuttag_broad_experimental", False)
+    )
+
+    # Broad IDR requires stage4b (Stage 65)
+    if (broad_chipseq_idr_enabled or broad_cuttag_idr_enabled) \
+       and not validated.get("stage4b", True):
+        raise ValidationError(
+            "config: reproducibility.idr.chipseq_broad_experimental=true "
+            "or cuttag_broad_experimental=true requires stage4b=true."
+        )
+
+    # idr settings validated when stage5 or any IDR mode is enabled
+    if (validated["stage5"] or atac_idr_enabled or cuttag_idr_enabled
+        or broad_chipseq_idr_enabled or broad_cuttag_idr_enabled):
         validated["idr"] = _validate_idr_settings(config.get("idr", {}))
     else:
         validated["idr"] = {"threshold": 0.05, "rank": "p.value", "seed": 42}
@@ -1236,10 +1255,9 @@ def _validate_reproducibility(raw, validated_config):
         )
         if val:
             warnings.warn(
-                f"Experimental IDR flag enabled: reproducibility.idr.{flag}=true. "
-                f"Consensus remains the primary final reproducibility method for "
-                f"broad-peak modes. Experimental IDR outputs appear under idr/ only "
-                f"and do not replace consensus in final/."
+                f"Experimental broad IDR enabled: reproducibility.idr.{flag}=true. "
+                f"Broad IDR outputs are experimental. Consensus remains available "
+                f"as fallback/report."
             )
         idr_result[flag] = val
 
@@ -1327,6 +1345,8 @@ def load_and_validate_samples(
     strict_inputs: bool = False,
     reproducibility_idr_atac_narrow: bool = False,
     reproducibility_idr_cuttag_narrow: bool = False,
+    reproducibility_idr_chipseq_broad: bool = False,
+    reproducibility_idr_cuttag_broad: bool = False,
 ) -> list[dict]:
     """Load and validate a sample sheet TSV.
 
@@ -1555,6 +1575,8 @@ def load_and_validate_samples(
         samples, use_control, stage5_enabled,
         reproducibility_idr_atac_narrow=reproducibility_idr_atac_narrow,
         reproducibility_idr_cuttag_narrow=reproducibility_idr_cuttag_narrow,
+        reproducibility_idr_chipseq_broad=reproducibility_idr_chipseq_broad,
+        reproducibility_idr_cuttag_broad=reproducibility_idr_cuttag_broad,
     )
 
     # --- Pass 4: strict input validation (Stage 30, optional) ---
@@ -1565,7 +1587,9 @@ def load_and_validate_samples(
 
 def validate_replicate_groups(samples, use_control, stage5_enabled=False,
                               reproducibility_idr_atac_narrow=False,
-                              reproducibility_idr_cuttag_narrow=False):
+                              reproducibility_idr_cuttag_narrow=False,
+                              reproducibility_idr_chipseq_broad=False,
+                              reproducibility_idr_cuttag_broad=False):
     """Pass 3: cross-replicate validation for Stage 4b replicate-aware outputs.
 
     Raises ValidationError on:
@@ -1733,6 +1757,68 @@ def validate_replicate_groups(samples, use_control, stage5_enabled=False,
                 "reproducibility.idr.cuttag_narrow is true but no eligible "
                 "CUT&Tag narrow experiments with exactly 2 biological "
                 "replicates were found."
+            )
+
+    # --- reproducibility.idr.chipseq_broad_experimental eligibility (Stage 65) ---
+    if reproducibility_idr_chipseq_broad:
+        chipseq_broad_exps = []
+        for exp, rows in exp_treatments.items():
+            if len(rows) == 0:
+                continue
+            first = rows[0]
+
+            if first["assay"] != "chipseq":
+                continue       # skip non-chipseq silently
+
+            if first["peak_mode"] != "broad":
+                continue       # skip chipseq narrow
+
+            bio_reps = sorted({r["biological_replicate"] for r in rows})
+            if len(bio_reps) != 2:
+                raise ValidationError(
+                    f"reproducibility.idr.chipseq_broad_experimental: "
+                    f"ChIP-seq broad experiment {exp!r} has "
+                    f"{len(bio_reps)} biological replicate(s). "
+                    f"IDR requires exactly 2."
+                )
+            chipseq_broad_exps.append(exp)
+
+        if not chipseq_broad_exps:
+            raise ValidationError(
+                "reproducibility.idr.chipseq_broad_experimental is true "
+                "but no eligible ChIP-seq broad experiments with exactly "
+                "2 biological replicates were found."
+            )
+
+    # --- reproducibility.idr.cuttag_broad_experimental eligibility (Stage 65) ---
+    if reproducibility_idr_cuttag_broad:
+        cuttag_broad_exps = []
+        for exp, rows in exp_treatments.items():
+            if len(rows) == 0:
+                continue
+            first = rows[0]
+
+            if first["assay"] != "cuttag":
+                continue       # skip non-CUT&Tag silently
+
+            if first["peak_mode"] != "broad":
+                continue       # skip CUT&Tag narrow
+
+            bio_reps = sorted({r["biological_replicate"] for r in rows})
+            if len(bio_reps) != 2:
+                raise ValidationError(
+                    f"reproducibility.idr.cuttag_broad_experimental: "
+                    f"CUT&Tag broad experiment {exp!r} has "
+                    f"{len(bio_reps)} biological replicate(s). "
+                    f"IDR requires exactly 2."
+                )
+            cuttag_broad_exps.append(exp)
+
+        if not cuttag_broad_exps:
+            raise ValidationError(
+                "reproducibility.idr.cuttag_broad_experimental is true "
+                "but no eligible CUT&Tag broad experiments with exactly "
+                "2 biological replicates were found."
             )
 
 
@@ -1943,6 +2029,16 @@ def main():
             repro.get("enabled", False)
             and repro.get("idr", {}).get("cuttag_narrow", False)
         )
+        broad_chipseq_idr_enabled = (
+            repro.get("enabled", False)
+            and repro.get("idr", {}).get(
+                "chipseq_broad_experimental", False)
+        )
+        broad_cuttag_idr_enabled = (
+            repro.get("enabled", False)
+            and repro.get("idr", {}).get(
+                "cuttag_broad_experimental", False)
+        )
         samples = load_and_validate_samples(
             validated["samples"],
             use_control=validated["use_control"],
@@ -1950,6 +2046,8 @@ def main():
             strict_inputs=args.strict_inputs,
             reproducibility_idr_atac_narrow=atac_idr_enabled,
             reproducibility_idr_cuttag_narrow=cuttag_idr_enabled,
+            reproducibility_idr_chipseq_broad=broad_chipseq_idr_enabled,
+            reproducibility_idr_cuttag_broad=broad_cuttag_idr_enabled,
         )
         validate_picard_reference_resources(validated, samples)
         validate_tss_annotation_resources(validated, samples)
