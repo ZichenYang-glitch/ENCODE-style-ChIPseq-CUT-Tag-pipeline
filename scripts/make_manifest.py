@@ -361,6 +361,320 @@ def _build_idr_rows(samples, outdir, stage5):
     return rows
 
 
+def _compute_reproducibility_eligibility(config, treatment_samples):
+    """Recompute reproducibility eligibility from config + sample sheet.
+
+    Must match validate_samples.py and metadata.smk logic. Returns a dict
+    with per-mode experiment lists. Does NOT rely on Snakemake globals.
+    """
+    repro = config.get("reproducibility", {})
+    repro_enabled = repro.get("enabled", False)
+    consensus_cfg = repro.get("consensus", {})
+    consensus_enabled = (
+        repro_enabled and consensus_cfg.get("enabled", True)
+    )
+    idr_cfg = repro.get("idr", {})
+    stage4b = config.get("stage4b", True)
+    cuttag_cfg = config.get("cuttag", {})
+    seacr_cfg = cuttag_cfg.get("seacr", {})
+    seacr_enabled = (
+        seacr_cfg.get("enabled", False)
+        if isinstance(seacr_cfg, dict) else False
+    )
+    seacr_mode = str(seacr_cfg.get("mode", "stringent"))
+
+    atac_narrow_idr = repro_enabled and idr_cfg.get("atac_narrow", False)
+    cuttag_narrow_idr = repro_enabled and idr_cfg.get("cuttag_narrow", False)
+    chipseq_broad_idr = repro_enabled and idr_cfg.get(
+        "chipseq_broad_experimental", False)
+    cuttag_broad_idr = repro_enabled and idr_cfg.get(
+        "cuttag_broad_experimental", False)
+
+    # Group samples by experiment
+    exp_samples = {}
+    for s in treatment_samples:
+        exp = s.get("experiment", "")
+        if exp:
+            exp_samples.setdefault(exp, []).append(s)
+
+    # Discover eligible experiments per mode
+    consensus_exps = {}
+    atac_idr_exps = []
+    cuttag_idr_exps = []
+    chipseq_broad_idr_exps = []
+    cuttag_broad_idr_exps = []
+    seacr_consensus_exps = []
+
+    for exp, rows in exp_samples.items():
+        first = rows[0]
+        assay = first.get("assay", "")
+        peak_mode = first.get("peak_mode", "")
+        layout = first.get("layout", "PE")
+        bioreps = sorted({r.get("biological_replicate", 1) for r in rows})
+
+        if len(bioreps) < 2:
+            continue
+
+        # Consensus eligibility (≥2 bioreps needed, stage4b downstream)
+        if (assay, peak_mode) in [
+            ("chipseq", "narrow"), ("chipseq", "broad"),
+            ("cuttag", "narrow"), ("cuttag", "broad"),
+            ("atac", "narrow"),
+        ]:
+            consensus_exps.setdefault((assay, peak_mode), []).append(exp)
+
+        # SEACR consensus: cuttag + PE + ≥2 bioreps
+        if assay == "cuttag" and layout == "PE":
+            seacr_consensus_exps.append(exp)
+
+        # IDR eligibility (exactly 2 bioreps)
+        if len(bioreps) != 2:
+            continue
+
+        if atac_narrow_idr and assay == "atac" and peak_mode == "narrow":
+            atac_idr_exps.append(exp)
+        if cuttag_narrow_idr and assay == "cuttag" and peak_mode == "narrow":
+            cuttag_idr_exps.append(exp)
+        if chipseq_broad_idr and assay == "chipseq" and peak_mode == "broad":
+            chipseq_broad_idr_exps.append(exp)
+        if cuttag_broad_idr and assay == "cuttag" and peak_mode == "broad":
+            cuttag_broad_idr_exps.append(exp)
+
+    return {
+        "stage4b_enabled": stage4b,
+        "repro_enabled": repro_enabled,
+        "consensus_enabled": consensus_enabled,
+        "atac_narrow_idr": atac_narrow_idr,
+        "cuttag_narrow_idr": cuttag_narrow_idr,
+        "chipseq_broad_idr": chipseq_broad_idr,
+        "cuttag_broad_idr": cuttag_broad_idr,
+        "seacr_enabled": seacr_enabled,
+        "seacr_mode": seacr_mode,
+        "consensus_experiments": consensus_exps,
+        "atac_idr_experiments": atac_idr_exps,
+        "cuttag_idr_experiments": cuttag_idr_exps,
+        "chipseq_broad_idr_experiments": chipseq_broad_idr_exps,
+        "cuttag_broad_idr_experiments": cuttag_broad_idr_exps,
+        "seacr_consensus_experiments": seacr_consensus_exps,
+    }
+
+
+def _build_reproducibility_rows(samples, config, outdir):
+    """Stage 66: Emit mode-specific reproducibility manifest rows.
+
+    Only user-facing catalog outputs (consensus peak, consensus summary,
+    final validated peak, IDR summary). No intermediate per-biorep files.
+    Omitted entirely for disabled modes and when stage4b is false.
+
+    Uses _add_row() with literal output_type strings so Stage 49 AST
+    contract can discover the full vocabulary.
+    """
+    rows = []
+    treatment = [s for s in samples if s.get("role") == "treatment"]
+    e = _compute_reproducibility_eligibility(config, treatment)
+
+    if not e["stage4b_enabled"]:
+        return rows
+
+    def _exp_meta(exp_id):
+        exp_samples = [s for s in treatment
+                       if s.get("experiment") == exp_id]
+        if not exp_samples:
+            return None
+        first = exp_samples[0]
+        return {
+            "assay": first.get("assay", ""),
+            "target": first.get("target", ""),
+            "genome": first.get("genome", ""),
+        }
+
+    # Consensus peak + summary for every eligible mode
+    if e["repro_enabled"] and e["consensus_enabled"]:
+        for (assay, peak_mode), exps in sorted(e["consensus_experiments"].items()):
+            for exp in sorted(exps):
+                meta = _exp_meta(exp)
+                if meta is None:
+                    continue
+                suffix = "narrowPeak" if peak_mode == "narrow" else "broadPeak"
+                stem = f"{outdir}/experiments/{exp}/06_reproducibility/consensus"
+
+                if assay == "chipseq" and peak_mode == "narrow":
+                    _add_row(rows, "", exp, meta["assay"], meta["target"],
+                             meta["genome"], "chipseq_macs3_narrow_consensus_peak",
+                             "compute_consensus.py",
+                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}")
+                    _add_row(rows, "", exp, meta["assay"], meta["target"],
+                             meta["genome"], "chipseq_macs3_narrow_consensus_summary",
+                             "compute_consensus.py",
+                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv")
+                elif assay == "chipseq" and peak_mode == "broad":
+                    _add_row(rows, "", exp, meta["assay"], meta["target"],
+                             meta["genome"], "chipseq_macs3_broad_consensus_peak",
+                             "compute_consensus.py",
+                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}")
+                    _add_row(rows, "", exp, meta["assay"], meta["target"],
+                             meta["genome"], "chipseq_macs3_broad_consensus_summary",
+                             "compute_consensus.py",
+                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv")
+                elif assay == "cuttag" and peak_mode == "narrow":
+                    _add_row(rows, "", exp, meta["assay"], meta["target"],
+                             meta["genome"], "cuttag_macs3_narrow_consensus_peak",
+                             "compute_consensus.py",
+                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}")
+                    _add_row(rows, "", exp, meta["assay"], meta["target"],
+                             meta["genome"], "cuttag_macs3_narrow_consensus_summary",
+                             "compute_consensus.py",
+                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv")
+                elif assay == "cuttag" and peak_mode == "broad":
+                    _add_row(rows, "", exp, meta["assay"], meta["target"],
+                             meta["genome"], "cuttag_macs3_broad_consensus_peak",
+                             "compute_consensus.py",
+                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}")
+                    _add_row(rows, "", exp, meta["assay"], meta["target"],
+                             meta["genome"], "cuttag_macs3_broad_consensus_summary",
+                             "compute_consensus.py",
+                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv")
+                elif assay == "atac" and peak_mode == "narrow":
+                    _add_row(rows, "", exp, meta["assay"], meta["target"],
+                             meta["genome"], "atac_macs3_narrow_consensus_peak",
+                             "compute_consensus.py",
+                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}")
+                    _add_row(rows, "", exp, meta["assay"], meta["target"],
+                             meta["genome"], "atac_macs3_narrow_consensus_summary",
+                             "compute_consensus.py",
+                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv")
+
+        # SEACR consensus
+        if e["seacr_enabled"]:
+            for exp in sorted(e["seacr_consensus_experiments"]):
+                meta = _exp_meta(exp)
+                if meta is None:
+                    continue
+                stem = f"{outdir}/experiments/{exp}/06_reproducibility/consensus"
+                mode = e["seacr_mode"]
+                _add_row(rows, "", exp, meta["assay"], meta["target"],
+                         meta["genome"], "cuttag_seacr_consensus_peak",
+                         "compute_consensus.py",
+                         f"{stem}/{exp}.cuttag.seacr.{mode}.consensus.bed")
+                _add_row(rows, "", exp, meta["assay"], meta["target"],
+                         meta["genome"], "cuttag_seacr_consensus_summary",
+                         "compute_consensus.py",
+                         f"{stem}/{exp}.cuttag.seacr.{mode}.consensus.summary.tsv")
+
+    # IDR final peaks + summaries
+    step = f"{outdir}/experiments"
+
+    if e["atac_narrow_idr"]:
+        for exp in sorted(e["atac_idr_experiments"]):
+            meta = _exp_meta(exp)
+            if meta is None:
+                continue
+            stem = f"{step}/{exp}/06_reproducibility/final"
+            _add_row(rows, "", exp, meta["assay"], meta["target"],
+                     meta["genome"], "atac_macs3_narrow_idr_final_peak", "idr",
+                     f"{stem}/{exp}.atac.macs3.narrow.replicate_validated.idr.narrowPeak")
+            _add_row(rows, "", exp, meta["assay"], meta["target"],
+                     meta["genome"], "atac_macs3_narrow_idr_summary", "idr",
+                     f"{stem}/reproducibility_summary.tsv")
+
+    if e["cuttag_narrow_idr"]:
+        for exp in sorted(e["cuttag_idr_experiments"]):
+            meta = _exp_meta(exp)
+            if meta is None:
+                continue
+            stem = f"{step}/{exp}/06_reproducibility/final"
+            _add_row(rows, "", exp, meta["assay"], meta["target"],
+                     meta["genome"], "cuttag_macs3_narrow_idr_final_peak", "idr",
+                     f"{stem}/{exp}.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak")
+            _add_row(rows, "", exp, meta["assay"], meta["target"],
+                     meta["genome"], "cuttag_macs3_narrow_idr_summary", "idr",
+                     f"{stem}/reproducibility_summary.tsv")
+
+    if e["chipseq_broad_idr"]:
+        for exp in sorted(e["chipseq_broad_idr_experiments"]):
+            meta = _exp_meta(exp)
+            if meta is None:
+                continue
+            stem = f"{step}/{exp}/06_reproducibility/final"
+            _add_row(rows, "", exp, meta["assay"], meta["target"],
+                     meta["genome"], "chipseq_macs3_broad_idr_final_peak", "idr",
+                     f"{stem}/{exp}.chipseq.macs3.broad.replicate_validated.idr.broadPeak")
+            _add_row(rows, "", exp, meta["assay"], meta["target"],
+                     meta["genome"], "chipseq_macs3_broad_idr_summary", "idr",
+                     f"{stem}/reproducibility_summary.tsv")
+
+    if e["cuttag_broad_idr"]:
+        for exp in sorted(e["cuttag_broad_idr_experiments"]):
+            meta = _exp_meta(exp)
+            if meta is None:
+                continue
+            stem = f"{step}/{exp}/06_reproducibility/final"
+            _add_row(rows, "", exp, meta["assay"], meta["target"],
+                     meta["genome"], "cuttag_macs3_broad_idr_final_peak", "idr",
+                     f"{stem}/{exp}.cuttag.macs3.broad.replicate_validated.idr.broadPeak")
+            _add_row(rows, "", exp, meta["assay"], meta["target"],
+                     meta["genome"], "cuttag_macs3_broad_idr_summary", "idr",
+                     f"{stem}/reproducibility_summary.tsv")
+
+    # Consensus final peaks (modes where IDR is NOT enabled)
+    if e["repro_enabled"] and e["consensus_enabled"]:
+        stem = f"{step}"
+
+        # chipseq broad: consensus final when broad IDR not enabled
+        if not e["chipseq_broad_idr"]:
+            for exp in sorted(e["consensus_experiments"].get(
+                    ("chipseq", "broad"), [])):
+                meta = _exp_meta(exp)
+                if meta is None:
+                    continue
+                p = f"{stem}/{exp}/06_reproducibility/final"
+                _add_row(rows, "", exp, meta["assay"], meta["target"],
+                         meta["genome"], "chipseq_macs3_broad_consensus_final_peak",
+                         "cp",
+                         f"{p}/{exp}.chipseq.macs3.broad.replicate_validated.consensus.broadPeak")
+
+        # cuttag narrow: consensus final when cuttag narrow IDR not enabled
+        if not e["cuttag_narrow_idr"]:
+            for exp in sorted(e["consensus_experiments"].get(
+                    ("cuttag", "narrow"), [])):
+                meta = _exp_meta(exp)
+                if meta is None:
+                    continue
+                p = f"{stem}/{exp}/06_reproducibility/final"
+                _add_row(rows, "", exp, meta["assay"], meta["target"],
+                         meta["genome"], "cuttag_macs3_narrow_consensus_final_peak",
+                         "cp",
+                         f"{p}/{exp}.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak")
+
+        # cuttag broad: consensus final when broad IDR not enabled
+        if not e["cuttag_broad_idr"]:
+            for exp in sorted(e["consensus_experiments"].get(
+                    ("cuttag", "broad"), [])):
+                meta = _exp_meta(exp)
+                if meta is None:
+                    continue
+                p = f"{stem}/{exp}/06_reproducibility/final"
+                _add_row(rows, "", exp, meta["assay"], meta["target"],
+                         meta["genome"], "cuttag_macs3_broad_consensus_final_peak",
+                         "cp",
+                         f"{p}/{exp}.cuttag.macs3.broad.replicate_validated.consensus.broadPeak")
+
+        # SEACR consensus final
+        if e["seacr_enabled"]:
+            for exp in sorted(e["seacr_consensus_experiments"]):
+                meta = _exp_meta(exp)
+                if meta is None:
+                    continue
+                mode = e["seacr_mode"]
+                p = f"{stem}/{exp}/06_reproducibility/final"
+                _add_row(rows, "", exp, meta["assay"], meta["target"],
+                         meta["genome"], "cuttag_seacr_consensus_final_peak",
+                         "cp",
+                         f"{p}/{exp}.cuttag.seacr.{mode}.replicate_validated.consensus.bed")
+
+    return rows
+
+
 def _build_project_rows(outdir, multiqc_enabled, has_peak_samples):
     rows = []
     if has_peak_samples:
@@ -435,6 +749,7 @@ def main():
     all_rows.extend(_build_experiment_rows(
         treatment_samples, outdir, signal_tracks, genomic_resources, stage4b))
     all_rows.extend(_build_idr_rows(treatment_samples, outdir, stage5))
+    all_rows.extend(_build_reproducibility_rows(treatment_samples, cfg, outdir))
     all_rows.extend(_build_project_rows(outdir, multiqc_enabled, has_peak_samples))
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)

@@ -740,6 +740,353 @@ artifacts:
   rule_all: true
   config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
   notes: Stage 5b
+
+# ---- Stage 53-65 reproducibility outputs (consensus + IDR final + consensus final) ----
+
+# Consensus outputs (catalog/report)
+
+- id: chipseq_macs3_narrow_consensus_peak
+  description: ChIP-seq narrow consensus peak (catalog/report)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.chipseq.macs3.narrow.consensus.narrowPeak
+  producing_rule: consensus_compute_narrow
+  tool: compute_consensus.py
+  manifest_output_type: chipseq_macs3_narrow_consensus_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output; not primary final (legacy stage5 IDR is final)
+
+- id: chipseq_macs3_narrow_consensus_summary
+  description: ChIP-seq narrow consensus summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.chipseq.macs3.narrow.consensus.summary.tsv
+  producing_rule: consensus_compute_narrow
+  tool: compute_consensus.py
+  manifest_output_type: chipseq_macs3_narrow_consensus_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output
+
+- id: chipseq_macs3_broad_consensus_peak
+  description: ChIP-seq broad consensus peak (catalog/report)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.chipseq.macs3.broad.consensus.broadPeak
+  producing_rule: consensus_compute_broad
+  tool: compute_consensus.py
+  manifest_output_type: chipseq_macs3_broad_consensus_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output; not primary final unless broad IDR is disabled
+
+- id: chipseq_macs3_broad_consensus_summary
+  description: ChIP-seq broad consensus summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.chipseq.macs3.broad.consensus.summary.tsv
+  producing_rule: consensus_compute_broad
+  tool: compute_consensus.py
+  manifest_output_type: chipseq_macs3_broad_consensus_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output
+
+- id: cuttag_macs3_narrow_consensus_peak
+  description: CUT&Tag narrow consensus peak (catalog/report)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.cuttag.macs3.narrow.consensus.narrowPeak
+  producing_rule: consensus_compute_narrow
+  tool: compute_consensus.py
+  manifest_output_type: cuttag_macs3_narrow_consensus_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output
+
+- id: cuttag_macs3_narrow_consensus_summary
+  description: CUT&Tag narrow consensus summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.cuttag.macs3.narrow.consensus.summary.tsv
+  producing_rule: consensus_compute_narrow
+  tool: compute_consensus.py
+  manifest_output_type: cuttag_macs3_narrow_consensus_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output
+
+- id: cuttag_macs3_broad_consensus_peak
+  description: CUT&Tag broad consensus peak (catalog/report)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.cuttag.macs3.broad.consensus.broadPeak
+  producing_rule: consensus_compute_broad
+  tool: compute_consensus.py
+  manifest_output_type: cuttag_macs3_broad_consensus_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output; not primary final unless broad IDR is disabled
+
+- id: cuttag_macs3_broad_consensus_summary
+  description: CUT&Tag broad consensus summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.cuttag.macs3.broad.consensus.summary.tsv
+  producing_rule: consensus_compute_broad
+  tool: compute_consensus.py
+  manifest_output_type: cuttag_macs3_broad_consensus_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output
+
+- id: atac_macs3_narrow_consensus_peak
+  description: ATAC narrow consensus peak (catalog/report)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: atac
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.atac.macs3.narrow.consensus.narrowPeak
+  producing_rule: consensus_compute_narrow
+  tool: compute_consensus.py
+  manifest_output_type: atac_macs3_narrow_consensus_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output; ATAC narrow consensus is secondary when ATAC IDR is enabled
+
+- id: atac_macs3_narrow_consensus_summary
+  description: ATAC narrow consensus summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: atac
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.atac.macs3.narrow.consensus.summary.tsv
+  producing_rule: consensus_compute_narrow
+  tool: compute_consensus.py
+  manifest_output_type: atac_macs3_narrow_consensus_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output
+
+- id: cuttag_seacr_consensus_peak
+  description: CUT&Tag SEACR consensus peak (catalog/report)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.cuttag.seacr.<mode>.consensus.bed
+  producing_rule: consensus_compute_seacr
+  tool: compute_consensus.py
+  manifest_output_type: cuttag_seacr_consensus_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled and cuttag.seacr.enabled
+  notes: SEACR consensus catalog output; primary reproducibility method for CUT&Tag SEACR
+
+- id: cuttag_seacr_consensus_summary
+  description: CUT&Tag SEACR consensus summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.cuttag.seacr.<mode>.consensus.summary.tsv
+  producing_rule: consensus_compute_seacr
+  tool: compute_consensus.py
+  manifest_output_type: cuttag_seacr_consensus_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled and cuttag.seacr.enabled
+  notes: SEACR consensus catalog output
+
+# IDR final outputs (primary replicate-validated)
+
+- id: cuttag_macs3_narrow_idr_final_peak
+  description: CUT&Tag narrow IDR final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak
+  producing_rule: cuttag_idr_summary
+  tool: cuttag_idr_summary.py
+  manifest_output_type: cuttag_macs3_narrow_idr_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.cuttag_narrow
+  notes: Supported opt-in IDR; final when enabled and eligible
+
+- id: atac_macs3_narrow_idr_final_peak
+  description: ATAC narrow IDR final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: atac
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.atac.macs3.narrow.replicate_validated.idr.narrowPeak
+  producing_rule: atac_idr_summary
+  tool: atac_idr_summary.py
+  manifest_output_type: atac_macs3_narrow_idr_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.atac_narrow
+  notes: Production-supported IDR; final when enabled and eligible
+
+- id: chipseq_macs3_broad_idr_final_peak
+  description: ChIP-seq broad IDR final validated peak (experimental)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: chipseq
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.chipseq.macs3.broad.replicate_validated.idr.broadPeak
+  producing_rule: broad_idr_chipseq_summary
+  tool: broad_idr_summary.py
+  manifest_output_type: chipseq_macs3_broad_idr_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.chipseq_broad_experimental
+  notes: Experimental opt-in only; omitted when flag is false
+
+- id: cuttag_macs3_broad_idr_final_peak
+  description: CUT&Tag broad IDR final validated peak (experimental)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.cuttag.macs3.broad.replicate_validated.idr.broadPeak
+  producing_rule: broad_idr_cuttag_summary
+  tool: broad_idr_summary.py
+  manifest_output_type: cuttag_macs3_broad_idr_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.cuttag_broad_experimental
+  notes: Experimental opt-in only; omitted when flag is false
+
+# Consensus final outputs (primary when no IDR)
+
+- id: chipseq_macs3_broad_consensus_final_peak
+  description: ChIP-seq broad consensus final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.chipseq.macs3.broad.replicate_validated.consensus.broadPeak
+  producing_rule: consensus_final
+  tool: cp
+  manifest_output_type: chipseq_macs3_broad_consensus_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled (broad IDR not enabled)
+  notes: Primary final when broad IDR is not enabled
+
+- id: cuttag_macs3_narrow_consensus_final_peak
+  description: CUT&Tag narrow consensus final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak
+  producing_rule: consensus_final
+  tool: cp
+  manifest_output_type: cuttag_macs3_narrow_consensus_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled (CUT&Tag narrow IDR not enabled)
+  notes: Primary final when CUT&Tag narrow IDR is not enabled
+
+- id: cuttag_macs3_broad_consensus_final_peak
+  description: CUT&Tag broad consensus final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.cuttag.macs3.broad.replicate_validated.consensus.broadPeak
+  producing_rule: consensus_final
+  tool: cp
+  manifest_output_type: cuttag_macs3_broad_consensus_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled (broad IDR not enabled)
+  notes: Primary final when broad IDR is not enabled
+
+- id: cuttag_seacr_consensus_final_peak
+  description: CUT&Tag SEACR consensus final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.cuttag.seacr.<mode>.replicate_validated.consensus.bed
+  producing_rule: consensus_final_seacr
+  tool: cp
+  manifest_output_type: cuttag_seacr_consensus_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled and cuttag.seacr.enabled
+  notes: SEACR consensus is primary final for CUT&Tag SEACR
+
+# IDR QC summaries
+
+- id: atac_macs3_narrow_idr_summary
+  description: ATAC narrow IDR reproducibility summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: atac
+  path_template: results/experiments/<experiment>/06_reproducibility/final/reproducibility_summary.tsv
+  producing_rule: atac_idr_summary
+  tool: atac_idr_summary.py
+  manifest_output_type: atac_macs3_narrow_idr_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.atac_narrow
+  notes: IDR QC summary
+
+- id: cuttag_macs3_narrow_idr_summary
+  description: CUT&Tag narrow IDR reproducibility summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/reproducibility_summary.tsv
+  producing_rule: cuttag_idr_summary
+  tool: cuttag_idr_summary.py
+  manifest_output_type: cuttag_macs3_narrow_idr_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.cuttag_narrow
+  notes: IDR QC summary
+
+- id: chipseq_macs3_broad_idr_summary
+  description: ChIP-seq broad IDR reproducibility summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: chipseq
+  path_template: results/experiments/<experiment>/06_reproducibility/final/reproducibility_summary.tsv
+  producing_rule: broad_idr_chipseq_summary
+  tool: broad_idr_summary.py
+  manifest_output_type: chipseq_macs3_broad_idr_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.chipseq_broad_experimental
+  notes: IDR QC summary; experimental opt-in
+
+- id: cuttag_macs3_broad_idr_summary
+  description: CUT&Tag broad IDR reproducibility summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/reproducibility_summary.tsv
+  producing_rule: broad_idr_cuttag_summary
+  tool: broad_idr_summary.py
+  manifest_output_type: cuttag_macs3_broad_idr_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.cuttag_broad_experimental
+  notes: IDR QC summary; experimental opt-in
+
 - id: multiqc_report
   description: MultiQC aggregation report
   scope: project

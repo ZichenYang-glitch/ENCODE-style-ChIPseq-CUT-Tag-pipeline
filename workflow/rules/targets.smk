@@ -41,6 +41,9 @@ def _manifest_dependency_targets():
     targets += _replicate_targets()
     targets += _idr_targets()
     targets += _atac_idr_targets()
+    targets += _cuttag_idr_targets()
+    targets += _broad_idr_targets()
+    targets += _consensus_targets()
     # Remove the manifest itself (circular dependency)
     manifest_path = f"{OUTDIR}/multiqc/result_manifest.tsv"
     targets = [t for t in targets if t != manifest_path]
