@@ -322,7 +322,9 @@ reproducibility:
         cuttag_narrow:
           type: boolean
           default: false
-          description: CUT&Tag narrow-peak IDR (opt-in, experimental).
+          description: >
+            CUT&Tag narrow-peak IDR (opt-in, supported). IDR becomes final
+            when explicitly enabled; consensus otherwise.
         chipseq_broad_experimental:
           type: boolean
           default: false

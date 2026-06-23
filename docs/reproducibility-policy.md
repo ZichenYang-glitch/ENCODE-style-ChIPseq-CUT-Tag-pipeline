@@ -51,11 +51,17 @@ irreproducible discovery rate.
   scope for this policy version.
 - **Rank metric:** Configurable (default `p.value` from MACS3 narrowPeak
   column 8).
-- **Established for:** ChIP-seq TF narrow peaks. ATAC-seq narrow peaks are
-  the next supported mode.
-- **Experimental for:** CUT&Tag narrow, ChIP-seq broad, CUT&Tag broad.
-- **Not planned for:** SEACR (BED format score scheme not directly compatible
-  with IDR rank assumptions).
+- **Production-supported IDR:** ChIP-seq narrow (legacy `stage5`) and
+  ATAC-seq narrow (`reproducibility.idr.atac_narrow`). IDR is final when
+  enabled; consensus is secondary/report.
+- **Supported opt-in IDR:** CUT&Tag narrow (`reproducibility.idr.cuttag_narrow`).
+  Not default. IDR becomes final when explicitly enabled.
+- **Experimental opt-in IDR:** ChIP-seq broad, CUT&Tag broad
+  (`reproducibility.idr.chipseq_broad_experimental`,
+  `cuttag_broad_experimental`). Consensus remains final unless a future
+  stage designs explicit experimental-to-final promotion.
+- **Not planned for IDR:** SEACR (BED format score scheme not directly
+  compatible with IDR rank assumptions) and MNase.
 
 ### 2.4 Legacy Stage 5 IDR
 
@@ -74,7 +80,7 @@ future expanded IDR modes.
 |---|-------|-----------|--------|------------------------|-------------------|-------|
 | 1 | chipseq | narrow | MACS3 | IDR (legacy `stage5`) | Consensus | Legacy Stage 5 IDR unchanged |
 | 2 | chipseq | broad | MACS3 | Consensus | IDR experimental (opt-in) | Experimental IDR must not silently replace consensus |
-| 3 | cuttag | narrow | MACS3 | Consensus | IDR opt-in (experimental) | CUT&Tag fragment length / SNR differs from ChIP-seq |
+| 3 | cuttag | narrow | MACS3 | Consensus | IDR opt-in (supported) | IDR final when explicitly enabled; consensus otherwise |
 | 4 | cuttag | broad | MACS3 | Consensus | IDR experimental (opt-in) | Experimental only |
 | 5 | cuttag | — | SEACR | Consensus | No IDR planned | SEACR IDR out of scope unless future stage defines justified rank scheme |
 | 6 | atac | narrow | MACS3 | IDR (when enabled) | Consensus | ATAC narrow IDR uses same narrowPeak IDR machinery |
@@ -133,7 +139,8 @@ results/experiments/<exp>/06_idr/
 |-------|--------|-----------|---------------|-------------|
 | chipseq | macs3 | narrow | IDR (legacy) | Use `06_idr/final/conservative.narrowPeak` |
 | chipseq | macs3 | broad | Consensus | `<exp>.chipseq.macs3.broad.replicate_validated.consensus.broadPeak` |
-| cuttag | macs3 | narrow | Consensus | `<exp>.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak` |
+| cuttag | macs3 | narrow | IDR (when `reproducibility.idr.cuttag_narrow: true`) | `<exp>.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak` |
+| cuttag | macs3 | narrow | Consensus (when CUT&Tag IDR not enabled) | `<exp>.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak` |
 | cuttag | macs3 | broad | Consensus | `<exp>.cuttag.macs3.broad.replicate_validated.consensus.broadPeak` |
 | cuttag | seacr | `<mode>` | Consensus | `<exp>.cuttag.seacr.<mode>.replicate_validated.consensus.bed` |
 | atac | macs3 | narrow | IDR (when `reproducibility.idr.atac_narrow: true`) | `<exp>.atac.macs3.narrow.replicate_validated.idr.narrowPeak` |
