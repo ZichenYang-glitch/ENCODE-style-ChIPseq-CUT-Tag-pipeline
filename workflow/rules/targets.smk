@@ -541,3 +541,43 @@ def _atac_idr_targets():
             experiment=ATAC_IDR_EXPERIMENTS,
         )
     return targets
+
+
+def _consensus_targets():
+    """Stage 62: Consensus peak targets for all MACS3 modes."""
+    targets = []
+    if not (CONSENSUS_ENABLED and STAGE4B and CONSENSUS_EXPERIMENTS):
+        return targets
+
+    for (assay, peak_mode), exps in CONSENSUS_EXPERIMENTS.items():
+        if not exps:
+            continue
+        suffix = "narrowPeak" if peak_mode == "narrow" else "broadPeak"
+
+        # Consensus peak + summary
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/consensus/"
+            "{experiment}.{assay}.macs3.{peak_mode}.consensus.{suffix}",
+            outdir=OUTDIR, experiment=exps,
+            assay=[assay], peak_mode=[peak_mode], suffix=[suffix],
+        )
+        targets += expand(
+            "{outdir}/experiments/{experiment}/06_reproducibility/consensus/"
+            "{experiment}.{assay}.macs3.{peak_mode}.consensus.summary.tsv",
+            outdir=OUTDIR, experiment=exps,
+            assay=[assay], peak_mode=[peak_mode],
+        )
+
+        # Final consensus for modes where consensus is primary
+        if (assay == "chipseq" and peak_mode == "broad") or \
+           (assay == "cuttag" and peak_mode == "narrow") or \
+           (assay == "cuttag" and peak_mode == "broad"):
+            targets += expand(
+                "{outdir}/experiments/{experiment}/06_reproducibility/final/"
+                "{experiment}.{assay}.macs3.{peak_mode}."
+                "replicate_validated.consensus.{suffix}",
+                outdir=OUTDIR, experiment=exps,
+                assay=[assay], peak_mode=[peak_mode], suffix=[suffix],
+            )
+
+    return targets
