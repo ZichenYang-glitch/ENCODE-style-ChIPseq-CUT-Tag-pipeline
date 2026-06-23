@@ -1,6 +1,10 @@
 """Shared pytest fixtures for the test suite."""
 
+import csv
 import os
+import re
+import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -62,6 +66,69 @@ def smoke_profiles():
 def idr_paths_file(repo_root):
     """Return the path to workflow/rules/idr_paths.smk."""
     return Path(repo_root) / "workflow" / "rules" / "idr_paths.smk"
+
+
+def _discover_placeholders(samples_tsv_path):
+    """Parse samples.tsv and return placeholder file paths needed for dry-run."""
+    paths = set()
+    with open(samples_tsv_path, newline="") as fh:
+        reader = csv.DictReader(fh, delimiter="\t")
+        for row in reader:
+            fq1 = (row.get("fastq_1") or "").strip()
+            fq2 = (row.get("fastq_2") or "").strip()
+            cb = (row.get("control_bam") or "").strip()
+            if fq1:
+                paths.add(fq1)
+            if fq2:
+                paths.add(fq2)
+            if cb:
+                paths.add(cb)
+    return paths
+
+
+def _rewrite_profile_config(profile_config_path, workdir):
+    """Rewrite the samples path in a profile config to point into workdir."""
+    with open(profile_config_path) as fh:
+        content = fh.read()
+    abs_samples = os.path.join(workdir, "samples.tsv")
+    return re.sub(
+        r"^samples:.*$",
+        f'samples: "{abs_samples}"',
+        content,
+        flags=re.MULTILINE,
+    )
+
+
+def prepare_profile_workdir(profile_dir):
+    """Create a temporary workdir with placeholders and rewritten config.
+
+    Returns (workdir, dest_config). Caller is responsible for cleaning up
+    workdir when done.
+    """
+    workdir = tempfile.mkdtemp(prefix="profile_", dir="/tmp")
+    samples_tsv_src = os.path.join(profile_dir, "samples.tsv")
+    config_yaml_src = os.path.join(profile_dir, "config.yaml")
+
+    for rel_path in _discover_placeholders(samples_tsv_src):
+        placeholder_path = os.path.join(workdir, os.path.basename(rel_path))
+        with open(placeholder_path, "w"):
+            pass
+
+    dest_samples = os.path.join(workdir, "samples.tsv")
+    shutil.copy2(samples_tsv_src, dest_samples)
+
+    rewritten_config = _rewrite_profile_config(config_yaml_src, workdir)
+    dest_config = os.path.join(workdir, "config.yaml")
+    with open(dest_config, "w") as fh:
+        fh.write(rewritten_config)
+
+    return workdir, dest_config
+
+
+@pytest.fixture(scope="session")
+def validator_script(repo_root):
+    """Return the path to scripts/validate_samples.py."""
+    return os.path.join(repo_root, "scripts", "validate_samples.py")
 
 
 def _load_idr_paths_namespace(

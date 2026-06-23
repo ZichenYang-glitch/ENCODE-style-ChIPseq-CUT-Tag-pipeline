@@ -16,7 +16,6 @@ The snapshot intentionally excludes:
 - reason lines
 """
 
-import csv
 import os
 import re
 import shutil
@@ -25,7 +24,7 @@ import tempfile
 
 import pytest
 
-from conftest import SMOKE_PROFILES
+from conftest import SMOKE_PROFILES, prepare_profile_workdir
 from _tool_resolver import resolve_tool
 
 
@@ -52,60 +51,6 @@ KEY_MARKERS = {
         "profiles": ["mnase_pe_noctrl"],
     },
 }
-
-
-def _discover_placeholders(samples_tsv_path):
-    """Return placeholder file paths required for a dry-run."""
-    paths = set()
-    with open(samples_tsv_path, newline="") as fh:
-        reader = csv.DictReader(fh, delimiter="\t")
-        for row in reader:
-            fq1 = (row.get("fastq_1") or "").strip()
-            fq2 = (row.get("fastq_2") or "").strip()
-            cb = (row.get("control_bam") or "").strip()
-            if fq1:
-                paths.add(fq1)
-            if fq2:
-                paths.add(fq2)
-            if cb:
-                paths.add(cb)
-    return paths
-
-
-def _rewrite_config(profile_config_path, workdir):
-    """Rewrite samples path in profile config to point into workdir."""
-    with open(profile_config_path) as fh:
-        content = fh.read()
-    abs_samples = os.path.join(workdir, "samples.tsv")
-    content = re.sub(
-        r"^samples:.*$",
-        f'samples: "{abs_samples}"',
-        content,
-        flags=re.MULTILINE,
-    )
-    return content
-
-
-def _prepare_workdir(profile_dir, workdir):
-    """Create placeholder files and rewritten config in workdir."""
-    samples_tsv_src = os.path.join(profile_dir, "samples.tsv")
-    config_yaml_src = os.path.join(profile_dir, "config.yaml")
-
-    placeholders = _discover_placeholders(samples_tsv_src)
-    for rel_path in placeholders:
-        placeholder_path = os.path.join(workdir, os.path.basename(rel_path))
-        with open(placeholder_path, "w"):
-            pass
-
-    dest_samples = os.path.join(workdir, "samples.tsv")
-    shutil.copy2(samples_tsv_src, dest_samples)
-
-    rewritten_config = _rewrite_config(config_yaml_src, workdir)
-    dest_config = os.path.join(workdir, "config.yaml")
-    with open(dest_config, "w") as fh:
-        fh.write(rewritten_config)
-
-    return dest_config
 
 
 def _extract_rule_names(stdout, stderr):
@@ -150,9 +95,8 @@ def _run_dag_dryrun(profile, profile_dir, snakefile):
     Creates a temporary workdir with placeholder FASTQ/control_bam files and a
     rewritten config pointing into that workdir.
     """
-    workdir = tempfile.mkdtemp(prefix=f"dag_{profile}_", dir="/tmp")
+    workdir, dest_config = prepare_profile_workdir(profile_dir)
     try:
-        dest_config = _prepare_workdir(profile_dir, workdir)
         result = subprocess.run(
             [
                 SNAKEMAKE,
