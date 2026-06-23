@@ -53,14 +53,11 @@ def _cuttag_idr_biorep_peaks_inputs(wildcards):
     exp = wildcards.experiment
     br = int(wildcards.bio_rep)
     inputs = [
-        f"{OUTDIR}/experiments/{exp}/02_align/biorep{br}.final.bam",
-        f"{OUTDIR}/experiments/{exp}/02_align/biorep{br}.final.bam.bai",
+        idr_biorep_bam(exp, br),
+        idr_biorep_bai(exp, br),
     ]
     if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(
-            f"{OUTDIR}/experiments/{exp}/02_align/"
-            f"{exp}.pooled.control.final.bam"
-        )
+        inputs.append(idr_pooled_control_bam(exp))
     return inputs
 
 
@@ -247,16 +244,10 @@ def _cuttag_split_input(wildcards):
     exp = wildcards.experiment
     src = wildcards.source
     if src == "pooled":
-        return (
-            f"{OUTDIR}/experiments/{exp}/02_align/"
-            f"{exp}.pooled.final.bam"
-        )
+        return idr_pooled_treatment_bam(exp)
     # src is "biorepN" — extract N and return the biorep BAM
     br = int(src.replace("biorep", ""))
-    return (
-        f"{OUTDIR}/experiments/{exp}/02_align/"
-        f"biorep{br}.final.bam"
-    )
+    return idr_biorep_bam(exp, br)
 
 
 # ============================================================================
@@ -328,16 +319,11 @@ def _cuttag_idr_pseudorep_inputs(wildcards):
     src = wildcards.source
     pr = wildcards.pr
     inputs = [
-        f"{OUTDIR}/experiments/{exp}/05_pseudorep/"
-        f"{exp}_cuttag_{src}.pr{pr}.bam",
-        f"{OUTDIR}/experiments/{exp}/05_pseudorep/"
-        f"{exp}_cuttag_{src}.pr{pr}.bam.bai",
+        idr_pseudorep_bam(exp, f"cuttag_{src}", pr),
+        idr_pseudorep_bai(exp, f"cuttag_{src}", pr),
     ]
     if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(
-            f"{OUTDIR}/experiments/{exp}/02_align/"
-            f"{exp}.pooled.control.final.bam"
-        )
+        inputs.append(idr_pooled_control_bam(exp))
     return inputs
 
 
