@@ -19,21 +19,10 @@
 # ---------------------------------------------------------------------------
 
 def _idr_biorep_peaks_inputs(wildcards):
-    """Return inputs for MACS3 IDR peak call on a single biorep BAM.
-
-    Input order: [biorep_bam, biorep_bam.bai, ...optional_pooled_control_bam]
-    The pooled control BAM is included as an explicit dependency so Snakemake
-    schedules pool_control_bam before this rule.
-    """
-    exp = wildcards.experiment
-    br = int(wildcards.bio_rep)
-    inputs = [
-        idr_biorep_bam(exp, br),
-        idr_biorep_bai(exp, br),
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(idr_pooled_control_bam(exp))
-    return inputs
+    """Return inputs for MACS3 IDR peak call on a single biorep BAM."""
+    return idr_biorep_peaks_inputs(
+        wildcards.experiment, int(wildcards.bio_rep)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -194,18 +183,8 @@ rule idr_true_replicates:
 # ---------------------------------------------------------------------------
 
 def _split_input(wildcards):
-    """Return the input BAM path for a pseudorep split.
-
-    source == "pooled" -> pooled treatment BAM
-    source starts with "biorep" -> parse bio_rep label, return that biorep BAM
-    """
-    exp = wildcards.experiment
-    src = wildcards.source
-    if src == "pooled":
-        return idr_pooled_treatment_bam(exp)
-    # source format: "biorep<label>"
-    br_label = src[len("biorep"):]
-    return idr_biorep_bam(exp, br_label)
+    """Return the input BAM path for a pseudorep split."""
+    return idr_split_input(wildcards.experiment, wildcards.source)
 
 
 # ---------------------------------------------------------------------------
@@ -213,20 +192,10 @@ def _split_input(wildcards):
 # ---------------------------------------------------------------------------
 
 def _idr_pseudorep_inputs(wildcards):
-    """Return inputs for MACS3 IDR peak call on a pseudorep BAM.
-
-    Input order: [pseudorep_bam, pseudorep_bam.bai, ...optional_pooled_control]
-    """
-    exp = wildcards.experiment
-    src = wildcards.source
-    pr = wildcards.pr
-    inputs = [
-        idr_pseudorep_bam(exp, src, pr),
-        idr_pseudorep_bai(exp, src, pr),
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(idr_pooled_control_bam(exp))
-    return inputs
+    """Return inputs for MACS3 IDR peak call on a pseudorep BAM."""
+    return idr_pseudorep_peaks_inputs(
+        wildcards.experiment, wildcards.source, wildcards.pr
+    )
 
 
 # ---------------------------------------------------------------------------

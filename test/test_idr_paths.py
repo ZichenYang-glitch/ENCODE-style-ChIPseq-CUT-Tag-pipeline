@@ -15,10 +15,13 @@ import pytest
 IDR_PATHS = Path(__file__).parent.parent / "workflow" / "rules" / "idr_paths.smk"
 
 
-def _load_idr_paths_module(outdir):
-    """Load idr_paths.smk with OUTDIR set to a test value."""
+def _load_idr_paths_module(outdir, pooled_control_experiments=None):
+    """Load idr_paths.smk with OUTDIR and POOLED_CONTROL_EXPERIMENTS set."""
     code = IDR_PATHS.read_text()
-    namespace = {"OUTDIR": outdir}
+    namespace = {
+        "OUTDIR": outdir,
+        "POOLED_CONTROL_EXPERIMENTS": set(pooled_control_experiments or []),
+    }
     exec(compile(code, str(IDR_PATHS), "exec"), namespace)
     return namespace
 
@@ -149,3 +152,46 @@ def test_idr_inputs_match_legacy_inlined_paths(h):
         h["idr_pseudorep_bam"](exp, "atac_pooled", 2)
         == f"results/experiments/{exp}/05_pseudorep/{exp}_atac_pooled.pr2.bam"
     )
+
+
+def test_idr_biorep_peaks_inputs(h):
+    assert h["idr_biorep_peaks_inputs"]("EXP1", 1) == [
+        "results/experiments/EXP1/02_align/biorep1.final.bam",
+        "results/experiments/EXP1/02_align/biorep1.final.bam.bai",
+    ]
+
+
+def test_idr_biorep_peaks_inputs_with_control():
+    h = _load_idr_paths_module("results", pooled_control_experiments=["EXP1"])
+    assert h["idr_biorep_peaks_inputs"]("EXP1", 2) == [
+        "results/experiments/EXP1/02_align/biorep2.final.bam",
+        "results/experiments/EXP1/02_align/biorep2.final.bam.bai",
+        "results/experiments/EXP1/02_align/EXP1.pooled.control.final.bam",
+    ]
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("pooled", "results/experiments/EXP1/02_align/EXP1.pooled.final.bam"),
+        ("biorep2", "results/experiments/EXP1/02_align/biorep2.final.bam"),
+    ],
+)
+def test_idr_split_input(h, source, expected):
+    assert h["idr_split_input"]("EXP1", source) == expected
+
+
+def test_idr_pseudorep_peaks_inputs(h):
+    assert h["idr_pseudorep_peaks_inputs"]("EXP1", "biorep2", "1") == [
+        "results/experiments/EXP1/05_pseudorep/EXP1_biorep2.pr1.bam",
+        "results/experiments/EXP1/05_pseudorep/EXP1_biorep2.pr1.bam.bai",
+    ]
+
+
+def test_idr_pseudorep_peaks_inputs_with_prefix():
+    h = _load_idr_paths_module("results", pooled_control_experiments=["EXP1"])
+    assert h["idr_pseudorep_peaks_inputs"]("EXP1", "pooled", "2", source_prefix="atac_") == [
+        "results/experiments/EXP1/05_pseudorep/EXP1_atac_pooled.pr2.bam",
+        "results/experiments/EXP1/05_pseudorep/EXP1_atac_pooled.pr2.bam.bai",
+        "results/experiments/EXP1/02_align/EXP1.pooled.control.final.bam",
+    ]

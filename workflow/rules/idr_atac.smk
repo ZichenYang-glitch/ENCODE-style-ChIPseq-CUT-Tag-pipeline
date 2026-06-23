@@ -21,15 +21,9 @@
 
 def _atac_idr_biorep_peaks_inputs(wildcards):
     """Return inputs for MACS3 IDR peak call on a single ATAC biorep BAM."""
-    exp = wildcards.experiment
-    br = int(wildcards.bio_rep)
-    inputs = [
-        idr_biorep_bam(exp, br),
-        idr_biorep_bai(exp, br),
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(idr_pooled_control_bam(exp))
-    return inputs
+    return idr_biorep_peaks_inputs(
+        wildcards.experiment, int(wildcards.bio_rep)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -194,12 +188,7 @@ rule atac_idr_true_replicates:
 
 def _atac_split_input(wildcards):
     """Return the input BAM path for an ATAC pseudorep split."""
-    exp = wildcards.experiment
-    src = wildcards.source
-    if src == "pooled":
-        return idr_pooled_treatment_bam(exp)
-    br_label = src[len("biorep"):]
-    return idr_biorep_bam(exp, br_label)
+    return idr_split_input(wildcards.experiment, wildcards.source)
 
 
 # ---------------------------------------------------------------------------
@@ -208,16 +197,9 @@ def _atac_split_input(wildcards):
 
 def _atac_idr_pseudorep_inputs(wildcards):
     """Return inputs for MACS3 IDR peak call on an ATAC pseudorep BAM."""
-    exp = wildcards.experiment
-    src = wildcards.source
-    pr = wildcards.pr
-    inputs = [
-        idr_pseudorep_bam(exp, f"atac_{src}", pr),
-        idr_pseudorep_bai(exp, f"atac_{src}", pr),
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(idr_pooled_control_bam(exp))
-    return inputs
+    return idr_pseudorep_peaks_inputs(
+        wildcards.experiment, wildcards.source, wildcards.pr, source_prefix="atac_"
+    )
 
 
 # ---------------------------------------------------------------------------

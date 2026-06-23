@@ -46,19 +46,10 @@ def _cuttag_idr_macs3_args(wildcards):
 # ---------------------------------------------------------------------------
 
 def _cuttag_idr_biorep_peaks_inputs(wildcards):
-    """Return inputs for CUT&Tag IDR per-biorep MACS3.
-
-    Same pooled-control policy as ATAC IDR helpers.
-    """
-    exp = wildcards.experiment
-    br = int(wildcards.bio_rep)
-    inputs = [
-        idr_biorep_bam(exp, br),
-        idr_biorep_bai(exp, br),
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(idr_pooled_control_bam(exp))
-    return inputs
+    """Return inputs for CUT&Tag IDR per-biorep MACS3."""
+    return idr_biorep_peaks_inputs(
+        wildcards.experiment, int(wildcards.bio_rep)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -241,13 +232,7 @@ rule cuttag_split_pseudoreps:
 
 def _cuttag_split_input(wildcards):
     """Return the BAM to split for pseudoreps."""
-    exp = wildcards.experiment
-    src = wildcards.source
-    if src == "pooled":
-        return idr_pooled_treatment_bam(exp)
-    # src is "biorepN" — extract N and return the biorep BAM
-    br = int(src.replace("biorep", ""))
-    return idr_biorep_bam(exp, br)
+    return idr_split_input(wildcards.experiment, wildcards.source)
 
 
 # ============================================================================
@@ -315,16 +300,9 @@ rule cuttag_macs3_idr_pseudorep:
 
 def _cuttag_idr_pseudorep_inputs(wildcards):
     """Return inputs for CUT&Tag IDR pseudorep MACS3."""
-    exp = wildcards.experiment
-    src = wildcards.source
-    pr = wildcards.pr
-    inputs = [
-        idr_pseudorep_bam(exp, f"cuttag_{src}", pr),
-        idr_pseudorep_bai(exp, f"cuttag_{src}", pr),
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(idr_pooled_control_bam(exp))
-    return inputs
+    return idr_pseudorep_peaks_inputs(
+        wildcards.experiment, wildcards.source, wildcards.pr, source_prefix="cuttag_"
+    )
 
 
 # ============================================================================
