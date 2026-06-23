@@ -27,9 +27,17 @@ jobs:
           cache-environment: true
           cache-environment-key: ci-fast-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.yml') }}
 
+      - name: Install encode-pipeline package
+        shell: micromamba-shell {0}
+        run: pip install -e .
+
       - name: Validate default config
         shell: micromamba-shell {0}
         run: python3 scripts/validate_samples.py --config config/config.yaml
+
+      - name: Validate default config via package CLI
+        shell: micromamba-shell {0}
+        run: encode-validate --config config/config.yaml
 
       - name: Validation stress tests
         shell: micromamba-shell {0}

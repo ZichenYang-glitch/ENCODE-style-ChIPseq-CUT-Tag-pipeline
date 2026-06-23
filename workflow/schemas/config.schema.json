@@ -1,0 +1,140 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ENCODE-style Pipeline Config",
+  "type": "object",
+  "required": ["samples", "genome_resources"],
+  "properties": {
+    "samples": {
+      "type": "string",
+      "description": "Path to sample sheet (TSV format)."
+    },
+    "outdir": {
+      "type": "string",
+      "default": "results",
+      "description": "Output directory for all pipeline results."
+    },
+    "threads": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 8,
+      "description": "CPU threads per job."
+    },
+    "mapq": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 30,
+      "description": "MAPQ filter threshold for samtools view -q."
+    },
+    "binsize": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 10,
+      "description": "BigWig bin size in bp."
+    },
+    "remove_dup": {
+      "type": "string",
+      "enum": ["auto", "yes", "no"],
+      "default": "auto",
+      "description": "Duplicate removal policy."
+    },
+    "trim": {
+      "type": ["boolean", "string"],
+      "default": true,
+      "description": "Enable adapter/quality trimming with Trim Galore."
+    },
+    "extend_reads": {
+      "type": "string",
+      "default": "auto",
+      "description": "Read extension policy for bamCoverage."
+    },
+    "use_control": {
+      "type": ["boolean", "string"],
+      "default": false,
+      "description": "Enable optional control/input support."
+    },
+    "multiqc": {
+      "type": ["boolean", "string"],
+      "default": true,
+      "description": "Run MultiQC aggregation after all samples complete."
+    },
+    "stage4b": {
+      "type": ["boolean", "string"],
+      "default": true,
+      "description": "Enable replicate-aware grouped outputs."
+    },
+    "stage5": {
+      "type": ["boolean", "string"],
+      "default": false,
+      "description": "Enable Stage 5 TF ChIP-seq IDR."
+    },
+    "idr": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "seed": { "type": "integer" },
+        "threshold": { "type": "number" },
+        "rank": { "type": "string" }
+      }
+    },
+    "reproducibility": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": ["boolean", "string"] },
+        "consensus": { "type": "object", "additionalProperties": true },
+        "idr": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "cuttag": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "mnase": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "tool_parameters": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "qc": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "blacklist_filter": { "type": ["boolean", "string"], "default": true },
+        "frip": { "type": ["boolean", "string"], "default": true },
+        "library_complexity": { "type": ["boolean", "string"], "default": true },
+        "nrf_pbc": { "type": ["boolean", "string"], "default": true },
+        "signal_tracks": { "type": ["boolean", "string"], "default": true },
+        "summary": { "type": ["boolean", "string"], "default": true },
+        "cuttag_fragment_size": { "type": ["boolean", "string"], "default": true },
+        "cross_correlation": { "type": ["boolean", "string"], "default": false },
+        "preseq_complexity": { "type": ["boolean", "string"], "default": false },
+        "picard_metrics": { "type": ["boolean", "string"], "default": false },
+        "tss_enrichment": { "type": ["boolean", "string"], "default": false }
+      }
+    },
+    "genome_resources": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["effective_genome_size"],
+        "properties": {
+          "effective_genome_size": {
+            "oneOf": [
+              { "type": "string", "enum": ["hs", "mm"] },
+              { "type": "integer", "minimum": 1 }
+            ]
+          },
+          "chrom_sizes": { "type": "string" },
+          "blacklist": { "type": "string" },
+          "gtf": { "type": "string" },
+          "reference_fasta": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": true
+}

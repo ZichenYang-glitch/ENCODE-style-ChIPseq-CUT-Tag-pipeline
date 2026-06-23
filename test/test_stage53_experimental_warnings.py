@@ -11,8 +11,7 @@ import sys
 import os
 import warnings
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-from validate_samples import validate_config
+from encode_pipeline.config.validate import validate_config
 
 BASE_CONFIG = {
     "samples": "config/samples.tsv",

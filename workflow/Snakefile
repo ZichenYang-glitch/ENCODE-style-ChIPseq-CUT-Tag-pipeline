@@ -10,18 +10,28 @@ import os
 import sys
 import re
 
-# Make scripts/ importable from the repo root.
-# workflow.basedir is the absolute path to the Snakefile directory.
-sys.path.insert(
-    0, os.path.join(os.path.dirname(workflow.basedir), "scripts")
-)
-from validate_samples import (
-    validate_config,
-    load_and_validate_samples,
-    validate_picard_reference_resources,
-    validate_tss_annotation_resources,
-)
-from histone_utils import classify_histone_target
+# Stable package imports with a local-source fallback for environments where
+# encode-pipeline has not been pip-installed (e.g., fresh clones or HPC runs).
+# The fallback adds the repository src/ directory to sys.path temporarily.
+try:
+    from encode_pipeline.config.validate import (
+        validate_config,
+        validate_picard_reference_resources,
+        validate_tss_annotation_resources,
+    )
+    from encode_pipeline.samples.load import load_and_validate_samples
+    from encode_pipeline.qc.histone import classify_histone_target
+except ImportError:
+    sys.path.insert(
+        0, os.path.join(os.path.dirname(workflow.basedir), "src")
+    )
+    from encode_pipeline.config.validate import (
+        validate_config,
+        validate_picard_reference_resources,
+        validate_tss_annotation_resources,
+    )
+    from encode_pipeline.samples.load import load_and_validate_samples
+    from encode_pipeline.qc.histone import classify_histone_target
 
 
 def wildcard_choices(values):
@@ -35,6 +45,13 @@ def wildcard_choices(values):
 # ---------------------------------------------------------------------------
 
 configfile: "config/config.yaml"
+
+# Phase 0: activate Snakemake-native schema validation. The existing
+# config.schema.yaml is a human-readable contract; the runtime schema is
+# workflow/schemas/config.schema.json (JSON Schema). The runtime schema is
+# intentionally lenient (additionalProperties: true) so that the legacy
+# validator remains the authoritative checker during transition.
+schema: "schemas/config.schema.json"
 
 VALIDATED_CONFIG = validate_config(config)
 

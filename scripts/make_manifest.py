@@ -25,12 +25,17 @@ import json
 import os
 import sys
 
-# Make scripts/ importable when run standalone.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from validate_samples import (
-    validate_config,
-    load_and_validate_samples,
-)
+import yaml
+
+# Make the encode_pipeline package importable when run standalone without
+# pip install.
+try:
+    from encode_pipeline.config.validate import validate_config
+    from encode_pipeline.samples.load import load_and_validate_samples
+except ImportError:
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+    from encode_pipeline.config.validate import validate_config
+    from encode_pipeline.samples.load import load_and_validate_samples
 
 
 _NA = "NA"
@@ -712,10 +717,9 @@ def main():
     if args.config_json:
         cfg = json.loads(args.config_json)
     elif args.config:
-        cfg = validate_config(
-            # Use validate_samples._load_yaml for stdlib-safe YAML loading
-            __import__("validate_samples")._load_yaml(args.config)
-        )
+        with open(args.config) as fh:
+            raw_cfg = yaml.safe_load(fh)
+        cfg = validate_config(raw_cfg)
     else:
         print("ERROR: --config or --config-json is required", file=sys.stderr)
         sys.exit(1)
