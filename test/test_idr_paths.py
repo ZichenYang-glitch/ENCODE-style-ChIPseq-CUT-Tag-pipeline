@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Unit tests for workflow/rules/idr_paths.smk helpers.
 
-These helpers only perform string interpolation against OUTDIR.  We
-monkey-patch OUTDIR here to avoid importing the full Snakefile namespace.
+These helpers perform string interpolation against OUTDIR or dispatch on
+sample metadata. We monkey-patch the required Snakefile globals here to
+avoid importing the full Snakefile namespace.
 """
 
 import sys
@@ -15,12 +16,25 @@ import pytest
 IDR_PATHS = Path(__file__).parent.parent / "workflow" / "rules" / "idr_paths.smk"
 
 
-def _load_idr_paths_module(outdir, pooled_control_experiments=None):
-    """Load idr_paths.smk with OUTDIR and POOLED_CONTROL_EXPERIMENTS set."""
+def _load_idr_paths_module(
+    outdir,
+    pooled_control_experiments=None,
+    sample_map=None,
+    treatment_samples_by_experiment=None,
+):
+    """Load idr_paths.smk with Snakefile globals monkey-patched."""
     code = IDR_PATHS.read_text()
     namespace = {
         "OUTDIR": outdir,
         "POOLED_CONTROL_EXPERIMENTS": set(pooled_control_experiments or []),
+        "SAMPLE_MAP": sample_map or {},
+        "TREATMENT_SAMPLES_BY_EXPERIMENT": treatment_samples_by_experiment or {},
+        "_normalize_genome": lambda genome: {"hg38": "hs", "mm10": "mm"}.get(genome, genome),
+        "_tool_param": lambda tool, key, default: {
+            ("idr_macs3", "pvalue"): 0.1,
+            ("idr_macs3", "extra_args"): "",
+            ("macs3", "broad_cutoff"): 0.1,
+        }.get((tool, key), default),
     }
     exec(compile(code, str(IDR_PATHS), "exec"), namespace)
     return namespace
@@ -195,3 +209,49 @@ def test_idr_pseudorep_peaks_inputs_with_prefix():
         "results/experiments/EXP1/05_pseudorep/EXP1_atac_pooled.pr2.bam.bai",
         "results/experiments/EXP1/02_align/EXP1.pooled.control.final.bam",
     ]
+
+
+@pytest.fixture
+def macs3_h():
+    """Fixture for idr_macs3_args with a single mocked PE treatment sample."""
+    return _load_idr_paths_module(
+        "results",
+        sample_map={
+            "S1": {
+                "layout": "PE",
+                "genome": "hg38",
+            },
+        },
+        treatment_samples_by_experiment={"EXP1": ["S1"]},
+    )
+
+
+@pytest.mark.parametrize(
+    "assay,peak_mode,expected_subset",
+    [
+        ("chipseq", "narrow", ["-f BAMPE", "-g hs", "-p 0.1"]),
+        ("atac", "narrow", ["--nomodel", "--shift -100", "--extsize 200"]),
+        ("cuttag", "narrow", ["--nomodel", "--shift -100", "--extsize 200"]),
+        ("chipseq", "broad", ["--broad", "--broad-cutoff 0.1"]),
+        ("cuttag", "broad", ["--broad", "--broad-cutoff 0.1"]),
+    ],
+)
+def test_idr_macs3_args_dispatch(macs3_h, assay, peak_mode, expected_subset):
+    args = macs3_h["idr_macs3_args"]("EXP1", assay, peak_mode)
+    for fragment in expected_subset:
+        assert fragment in args, f"{fragment!r} not in {args!r}"
+
+
+def test_idr_macs3_args_se_layout():
+    h = _load_idr_paths_module(
+        "results",
+        sample_map={"S1": {"layout": "SE", "genome": "mm10"}},
+        treatment_samples_by_experiment={"EXP2": ["S1"]},
+    )
+    assert "-f BAM" in h["idr_macs3_args"]("EXP2", "chipseq", "narrow")
+    assert "-g mm" in h["idr_macs3_args"]("EXP2", "chipseq", "narrow")
+
+
+def test_idr_macs3_args_empty_experiment():
+    h = _load_idr_paths_module("results")
+    assert h["idr_macs3_args"]("NOEXP", "chipseq", "narrow") == ""
