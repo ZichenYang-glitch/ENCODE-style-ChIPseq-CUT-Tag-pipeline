@@ -88,6 +88,22 @@ def test_idr_pooled_control_bam(h):
             2,
             "results/experiments/EXP1/05_pseudorep/EXP1_pooled.pr2.bam",
         ),
+        # Assay-prefixed sources used by ATAC, CUT&Tag, and broad variants.
+        (
+            "atac_biorep1",
+            1,
+            "results/experiments/EXP1/05_pseudorep/EXP1_atac_biorep1.pr1.bam",
+        ),
+        (
+            "cuttag_pooled",
+            2,
+            "results/experiments/EXP1/05_pseudorep/EXP1_cuttag_pooled.pr2.bam",
+        ),
+        (
+            "broad_chipseq_biorep2",
+            1,
+            "results/experiments/EXP1/05_pseudorep/EXP1_broad_chipseq_biorep2.pr1.bam",
+        ),
     ],
 )
 def test_idr_pseudorep_bam(h, source, pr, expected):
@@ -105,3 +121,31 @@ def test_idr_biorep_bam_old_literal_match():
     """Ensure the helper returns the exact string previously inlined."""
     h = _load_idr_paths_module("results")
     assert h["idr_biorep_bam"]("EXP", 1) == "results/experiments/EXP/02_align/biorep1.final.bam"
+
+
+def test_idr_inputs_match_legacy_inlined_paths(h):
+    """Contract test: helper-built inputs equal the old inlined literals.
+
+    This guards against accidental signature drift in the helpers used by
+    idr.smk, idr_atac.smk, idr_cuttag.smk, and idr_broad.smk.
+    """
+    exp = "EXP"
+    br = 1
+    assert h["idr_biorep_bam"](exp, br) == f"results/experiments/{exp}/02_align/biorep{br}.final.bam"
+    assert h["idr_biorep_bai"](exp, br) == f"results/experiments/{exp}/02_align/biorep{br}.final.bam.bai"
+    assert (
+        h["idr_pooled_treatment_bam"](exp)
+        == f"results/experiments/{exp}/02_align/{exp}.pooled.final.bam"
+    )
+    assert (
+        h["idr_pooled_control_bam"](exp)
+        == f"results/experiments/{exp}/02_align/{exp}.pooled.control.final.bam"
+    )
+    assert (
+        h["idr_pseudorep_bam"](exp, "biorep1", 1)
+        == f"results/experiments/{exp}/05_pseudorep/{exp}_biorep1.pr1.bam"
+    )
+    assert (
+        h["idr_pseudorep_bam"](exp, "atac_pooled", 2)
+        == f"results/experiments/{exp}/05_pseudorep/{exp}_atac_pooled.pr2.bam"
+    )
