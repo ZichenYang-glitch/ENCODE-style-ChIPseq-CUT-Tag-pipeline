@@ -40,19 +40,22 @@ def snapshots_dir(repo_root):
     return os.path.join(repo_root, "test", "fixtures", "dag_snapshots")
 
 
+SMOKE_PROFILES = [
+    "chipseq_se_noctrl",
+    "chipseq_pe_noctrl",
+    "chipseq_pe_ctrlsample",
+    "cuttag_pe_noctrl",
+    "cuttag_pe_seacr",
+    "chipseq_idr_dryrun",
+    "chipseq_pe_external_ctrlbam",
+    "mnase_pe_noctrl",
+]
+
+
 @pytest.fixture(scope="session")
 def smoke_profiles():
     """Return the list of smoke-test profile names."""
-    return [
-        "chipseq_se_noctrl",
-        "chipseq_pe_noctrl",
-        "chipseq_pe_ctrlsample",
-        "cuttag_pe_noctrl",
-        "cuttag_pe_seacr",
-        "chipseq_idr_dryrun",
-        "chipseq_pe_external_ctrlbam",
-        "mnase_pe_noctrl",
-    ]
+    return SMOKE_PROFILES
 
 
 @pytest.fixture(scope="session")

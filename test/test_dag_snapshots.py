@@ -25,21 +25,11 @@ import tempfile
 
 import pytest
 
+from conftest import SMOKE_PROFILES
 from _tool_resolver import resolve_tool
 
 
 SNAKEMAKE = resolve_tool("snakemake", "SNAKEMAKE")
-
-SMOKE_PROFILES = [
-    "chipseq_se_noctrl",
-    "chipseq_pe_noctrl",
-    "chipseq_pe_ctrlsample",
-    "cuttag_pe_noctrl",
-    "cuttag_pe_seacr",
-    "chipseq_idr_dryrun",
-    "chipseq_pe_external_ctrlbam",
-    "mnase_pe_noctrl",
-]
 
 # Marker rules that must remain scheduled for specific assay/profile groups.
 # These are redundant with the full rule-name snapshot but make regressions
@@ -154,13 +144,12 @@ def _write_snapshot(snapshot_path, profile, rules):
             fh.write(f"{rule}\n")
 
 
-@pytest.mark.parametrize("profile", SMOKE_PROFILES)
-def test_dag_snapshot(profile, snakefile, profiles_dir, snapshots_dir, request):
-    """Compare scheduled rule names for a smoke profile to the snapshot."""
-    update = request.config.getoption("--update-snapshots")
-    profile_dir = os.path.join(profiles_dir, profile)
-    snapshot_path = os.path.join(snapshots_dir, f"{profile}.txt")
+def _run_dag_dryrun(profile, profile_dir, snakefile):
+    """Run snakemake -n for a profile and return sorted scheduled rule names.
 
+    Creates a temporary workdir with placeholder FASTQ/control_bam files and a
+    rewritten config pointing into that workdir.
+    """
     workdir = tempfile.mkdtemp(prefix=f"dag_{profile}_", dir="/tmp")
     try:
         dest_config = _prepare_workdir(profile_dir, workdir)
@@ -186,24 +175,34 @@ def test_dag_snapshot(profile, snakefile, profiles_dir, snapshots_dir, request):
 
         rules = _extract_rule_names(result.stdout, result.stderr)
         assert rules, f"No scheduled rules found for {profile}"
-
-        if update:
-            _write_snapshot(snapshot_path, profile, rules)
-            pytest.skip(f"Updated snapshot for {profile}")
-
-        assert os.path.exists(snapshot_path), (
-            f"Snapshot missing for {profile}; run with --update-snapshots"
-        )
-
-        expected = _read_snapshot(snapshot_path)
-        assert rules == expected, (
-            f"DAG snapshot mismatch for {profile}:\n"
-            f"missing in current: {set(expected) - set(rules)}\n"
-            f"extra in current: {set(rules) - set(expected)}"
-        )
-
+        return rules
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+@pytest.mark.parametrize("profile", SMOKE_PROFILES)
+def test_dag_snapshot(profile, snakefile, profiles_dir, snapshots_dir, request):
+    """Compare scheduled rule names for a smoke profile to the snapshot."""
+    update = request.config.getoption("--update-snapshots")
+    profile_dir = os.path.join(profiles_dir, profile)
+    snapshot_path = os.path.join(snapshots_dir, f"{profile}.txt")
+
+    rules = _run_dag_dryrun(profile, profile_dir, snakefile)
+
+    if update:
+        _write_snapshot(snapshot_path, profile, rules)
+        pytest.skip(f"Updated snapshot for {profile}")
+
+    assert os.path.exists(snapshot_path), (
+        f"Snapshot missing for {profile}; run with --update-snapshots"
+    )
+
+    expected = _read_snapshot(snapshot_path)
+    assert rules == expected, (
+        f"DAG snapshot mismatch for {profile}:\n"
+        f"missing in current: {set(expected) - set(rules)}\n"
+        f"extra in current: {set(rules) - set(expected)}"
+    )
 
 
 @pytest.mark.parametrize("profile", SMOKE_PROFILES)
