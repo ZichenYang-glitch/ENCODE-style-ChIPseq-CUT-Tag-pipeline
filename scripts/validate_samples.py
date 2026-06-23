@@ -311,8 +311,21 @@ def validate_config(config: dict) -> dict:
             "stage4b=true."
         )
 
-    # idr settings validated when stage5 or ATAC IDR is enabled
-    if validated["stage5"] or atac_idr_enabled:
+    # Stage 64: determine whether CUT&Tag IDR is enabled
+    cuttag_idr_enabled = (
+        repro.get("enabled", False)
+        and repro.get("idr", {}).get("cuttag_narrow", False)
+    )
+
+    # CUT&Tag IDR requires stage4b (Stage 64)
+    if cuttag_idr_enabled and not validated.get("stage4b", True):
+        raise ValidationError(
+            "config: reproducibility.idr.cuttag_narrow=true requires "
+            "stage4b=true."
+        )
+
+    # idr settings validated when stage5, ATAC IDR, or CUT&Tag IDR is enabled
+    if validated["stage5"] or atac_idr_enabled or cuttag_idr_enabled:
         validated["idr"] = _validate_idr_settings(config.get("idr", {}))
     else:
         validated["idr"] = {"threshold": 0.05, "rank": "p.value", "seed": 42}
@@ -1313,6 +1326,7 @@ def load_and_validate_samples(
     stage5_enabled: bool = False,
     strict_inputs: bool = False,
     reproducibility_idr_atac_narrow: bool = False,
+    reproducibility_idr_cuttag_narrow: bool = False,
 ) -> list[dict]:
     """Load and validate a sample sheet TSV.
 
@@ -1540,6 +1554,7 @@ def load_and_validate_samples(
     validate_replicate_groups(
         samples, use_control, stage5_enabled,
         reproducibility_idr_atac_narrow=reproducibility_idr_atac_narrow,
+        reproducibility_idr_cuttag_narrow=reproducibility_idr_cuttag_narrow,
     )
 
     # --- Pass 4: strict input validation (Stage 30, optional) ---
@@ -1549,7 +1564,8 @@ def load_and_validate_samples(
 
 
 def validate_replicate_groups(samples, use_control, stage5_enabled=False,
-                              reproducibility_idr_atac_narrow=False):
+                              reproducibility_idr_atac_narrow=False,
+                              reproducibility_idr_cuttag_narrow=False):
     """Pass 3: cross-replicate validation for Stage 4b replicate-aware outputs.
 
     Raises ValidationError on:
@@ -1686,6 +1702,36 @@ def validate_replicate_groups(samples, use_control, stage5_enabled=False,
             raise ValidationError(
                 "reproducibility.idr.atac_narrow is true but no eligible "
                 "ATAC narrow experiments with exactly 2 biological "
+                "replicates were found."
+            )
+
+    # --- reproducibility.idr.cuttag_narrow eligibility (Stage 64) ---
+    if reproducibility_idr_cuttag_narrow:
+        cuttag_narrow_exps = []
+        for exp, rows in exp_treatments.items():
+            if len(rows) == 0:
+                continue
+            first = rows[0]
+
+            if first["assay"] != "cuttag":
+                continue       # skip non-CUT&Tag silently
+
+            if first["peak_mode"] != "narrow":
+                continue       # skip CUT&Tag broad
+
+            bio_reps = sorted({r["biological_replicate"] for r in rows})
+            if len(bio_reps) != 2:
+                raise ValidationError(
+                    f"reproducibility.idr.cuttag_narrow: CUT&Tag narrow "
+                    f"experiment {exp!r} has {len(bio_reps)} biological "
+                    f"replicate(s). IDR requires exactly 2."
+                )
+            cuttag_narrow_exps.append(exp)
+
+        if not cuttag_narrow_exps:
+            raise ValidationError(
+                "reproducibility.idr.cuttag_narrow is true but no eligible "
+                "CUT&Tag narrow experiments with exactly 2 biological "
                 "replicates were found."
             )
 
@@ -1893,12 +1939,17 @@ def main():
             repro.get("enabled", False)
             and repro.get("idr", {}).get("atac_narrow", False)
         )
+        cuttag_idr_enabled = (
+            repro.get("enabled", False)
+            and repro.get("idr", {}).get("cuttag_narrow", False)
+        )
         samples = load_and_validate_samples(
             validated["samples"],
             use_control=validated["use_control"],
             stage5_enabled=validated.get("stage5", False),
             strict_inputs=args.strict_inputs,
             reproducibility_idr_atac_narrow=atac_idr_enabled,
+            reproducibility_idr_cuttag_narrow=cuttag_idr_enabled,
         )
         validate_picard_reference_resources(validated, samples)
         validate_tss_annotation_resources(validated, samples)

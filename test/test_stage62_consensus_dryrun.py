@@ -164,7 +164,7 @@ def main():
           lambda: _dry_run("D4", CFG_ON, CS_B2,
                            expect_final_target="replicate_validated.consensus.broadPeak"))
 
-    # D5: consensus enabled + 2 cuttag narrow → final (IDR not yet implemented)
+    # D5: consensus enabled + 2 cuttag narrow → final when IDR is not enabled
     check("D5: cuttag narrow consensus final",
           lambda: _dry_run("D5", CFG_ON, CT_N2,
                            expect_final_target="replicate_validated.consensus.narrowPeak"))
@@ -200,11 +200,12 @@ def main():
           lambda: _dry_run("D11", CFG_ON, CS_N2,
                            expect_no_target="06_idr/"))
 
-    # D12: CUT&Tag narrow + cuttag_narrow true → consensus final still exists
+    # D12: CUT&Tag narrow + cuttag_narrow true → IDR final replaces consensus final
     CFG_CT_N_IDR = CFG_ON + "  idr:\n    cuttag_narrow: true\n"
-    check("D12: cuttag narrow + cuttag_narrow=true → consensus final (IDR not implemented)",
+    check("D12: cuttag narrow + cuttag_narrow=true → IDR final",
           lambda: _dry_run("D12", CFG_CT_N_IDR, CT_N2,
-                           expect_final_target="replicate_validated.consensus.narrowPeak"))
+                           expect_final_target="replicate_validated.idr.narrowPeak",
+                           expect_no_final_target="replicate_validated.consensus.narrowPeak"))
 
     # D13: CUT&Tag narrow + cuttag_narrow false → consensus final
     CFG_CT_N_NOIDR = CFG_ON + "  idr:\n    cuttag_narrow: false\n"
