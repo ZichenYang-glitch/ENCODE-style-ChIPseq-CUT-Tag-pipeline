@@ -400,345 +400,375 @@ def _mnase_targets():
     return targets
 
 
+def _idr_target_list(enabled, experiments, *groups):
+    """Generic IDR target list builder used by the four IDR target builders.
+
+    Each group is a tuple (pattern, use_zip, kwargs) passed to Snakemake's
+    expand.  When use_zip is True the builtin zip is passed positionally so
+    iterables are consumed in lock-step.  Disabled builders return [].
+    """
+    targets = []
+    if not (enabled and experiments):
+        return targets
+    for pattern, use_zip, kwargs in groups:
+        if use_zip:
+            targets += expand(pattern, zip, **kwargs)
+        else:
+            targets += expand(pattern, **kwargs)
+    return targets
+
+
 def _idr_targets():
     """Stage 5a/5b: IDR-ready peaks, true-replicate IDR, pseudoreplicate IDR, final outputs."""
-    targets = []
-    if STAGE5 and IDR_EXPERIMENTS:
-        targets += expand(
-            "{outdir}/experiments/{experiment}/04_peaks/idr/{experiment}_biorep{bio_rep}_idr_peaks.narrowPeak",
-            zip,
-            outdir=OUTDIR,
-            experiment=IDR_BIOREP_EXP_LIST, bio_rep=IDR_BIOREP_LIST,
-        )
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_idr/true_replicates/idr.txt",
-            outdir=OUTDIR,
-            experiment=IDR_EXPERIMENTS,
-        )
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_idr/true_replicates/idr.thresholded.narrowPeak",
-            outdir=OUTDIR,
-            experiment=IDR_EXPERIMENTS,
-        )
-    if STAGE5 and IDR_EXPERIMENTS:
-        targets += expand(
-            "{outdir}/experiments/{experiment}/04_peaks/idr/{experiment}_{source}_pr{pr}_idr_peaks.narrowPeak",
-            zip,
-            outdir=OUTDIR,
-            experiment=IDR_PR_PEAK_EXP, source=IDR_PR_PEAK_SRC, pr=IDR_PR_PEAK_PR,
-        )
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_idr/self_pseudoreplicates/biorep{bio_rep}.idr.txt",
-            zip,
-            outdir=OUTDIR,
-            experiment=IDR_SELF_EXP, bio_rep=IDR_SELF_BR,
-        )
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_idr/self_pseudoreplicates/biorep{bio_rep}.idr.thresholded.narrowPeak",
-            zip,
-            outdir=OUTDIR,
-            experiment=IDR_SELF_EXP, bio_rep=IDR_SELF_BR,
-        )
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_idr/pooled_pseudoreplicates/idr.txt",
-            outdir=OUTDIR,
-            experiment=IDR_EXPERIMENTS,
-        )
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_idr/pooled_pseudoreplicates/idr.thresholded.narrowPeak",
-            outdir=OUTDIR,
-            experiment=IDR_EXPERIMENTS,
-        )
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_idr/final/reproducibility_summary.tsv",
-            outdir=OUTDIR,
-            experiment=IDR_EXPERIMENTS,
-        )
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_idr/final/conservative.narrowPeak",
-            outdir=OUTDIR,
-            experiment=IDR_EXPERIMENTS,
-        )
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_idr/final/optimal.narrowPeak",
-            outdir=OUTDIR,
-            experiment=IDR_EXPERIMENTS,
-        )
-    return targets
+    return _idr_target_list(
+        STAGE5,
+        IDR_EXPERIMENTS,
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/04_peaks/idr/"
+            f"{{experiment}}_biorep{{bio_rep}}_idr_peaks.narrowPeak",
+            True,
+            {"outdir": OUTDIR, "experiment": IDR_BIOREP_EXP_LIST, "bio_rep": IDR_BIOREP_LIST},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_idr/true_replicates/idr.txt",
+            False,
+            {"outdir": OUTDIR, "experiment": IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_idr/true_replicates/"
+            f"idr.thresholded.narrowPeak",
+            False,
+            {"outdir": OUTDIR, "experiment": IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/04_peaks/idr/"
+            f"{{experiment}}_{{source}}_pr{{pr}}_idr_peaks.narrowPeak",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": IDR_PR_PEAK_EXP,
+                "source": IDR_PR_PEAK_SRC,
+                "pr": IDR_PR_PEAK_PR,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_idr/self_pseudoreplicates/"
+            f"biorep{{bio_rep}}.idr.txt",
+            True,
+            {"outdir": OUTDIR, "experiment": IDR_SELF_EXP, "bio_rep": IDR_SELF_BR},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_idr/self_pseudoreplicates/"
+            f"biorep{{bio_rep}}.idr.thresholded.narrowPeak",
+            True,
+            {"outdir": OUTDIR, "experiment": IDR_SELF_EXP, "bio_rep": IDR_SELF_BR},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_idr/pooled_pseudoreplicates/idr.txt",
+            False,
+            {"outdir": OUTDIR, "experiment": IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_idr/pooled_pseudoreplicates/"
+            f"idr.thresholded.narrowPeak",
+            False,
+            {"outdir": OUTDIR, "experiment": IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_idr/final/reproducibility_summary.tsv",
+            False,
+            {"outdir": OUTDIR, "experiment": IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_idr/final/conservative.narrowPeak",
+            False,
+            {"outdir": OUTDIR, "experiment": IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_idr/final/optimal.narrowPeak",
+            False,
+            {"outdir": OUTDIR, "experiment": IDR_EXPERIMENTS},
+        ),
+    )
 
 
 def _atac_idr_targets():
     """Stage 55: ATAC narrow IDR — biorep peaks, true-rep IDR, pseudorep IDR, final outputs."""
-    targets = []
-    if ATAC_IDR_ENABLED and ATAC_IDR_EXPERIMENTS:
-        # IDR-ready per-biorep MACS3 peaks
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-            "idr_peaks/{experiment}_atac_biorep{bio_rep}_idr.narrowPeak",
-            zip,
-            outdir=OUTDIR,
-            experiment=ATAC_IDR_BIOREP_EXP_LIST, bio_rep=ATAC_IDR_BIOREP_LIST,
-        )
-        # True-replicate IDR
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-            "true_replicates/{experiment}_atac_idr.txt",
-            outdir=OUTDIR,
-            experiment=ATAC_IDR_EXPERIMENTS,
-        )
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-            "true_replicates/{experiment}_atac_idr.thresholded.narrowPeak",
-            outdir=OUTDIR,
-            experiment=ATAC_IDR_EXPERIMENTS,
-        )
-    if ATAC_IDR_ENABLED and ATAC_IDR_EXPERIMENTS:
-        # IDR-ready pseudorep MACS3 peaks
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-            "idr_peaks/{experiment}_atac_{source}_pr{pr}_idr.narrowPeak",
-            zip,
-            outdir=OUTDIR,
-            experiment=ATAC_IDR_PR_PEAK_EXP,
-            source=ATAC_IDR_PR_PEAK_SRC, pr=ATAC_IDR_PR_PEAK_PR,
-        )
-        # Self-pseudorep IDR
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-            "self_pseudoreplicates/{experiment}_atac_biorep{bio_rep}_idr.txt",
-            zip,
-            outdir=OUTDIR,
-            experiment=ATAC_IDR_SELF_EXP, bio_rep=ATAC_IDR_SELF_BR,
-        )
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-            "self_pseudoreplicates/{experiment}_atac_biorep{bio_rep}_idr.thresholded.narrowPeak",
-            zip,
-            outdir=OUTDIR,
-            experiment=ATAC_IDR_SELF_EXP, bio_rep=ATAC_IDR_SELF_BR,
-        )
-        # Pooled-pseudorep IDR
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-            "pooled_pseudoreplicates/{experiment}_atac_idr.txt",
-            outdir=OUTDIR,
-            experiment=ATAC_IDR_EXPERIMENTS,
-        )
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-            "pooled_pseudoreplicates/{experiment}_atac_idr.thresholded.narrowPeak",
-            outdir=OUTDIR,
-            experiment=ATAC_IDR_EXPERIMENTS,
-        )
-        # Final outputs under 06_reproducibility/final/
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_reproducibility/final/"
-            "{experiment}.atac.macs3.narrow.replicate_validated.idr.narrowPeak",
-            outdir=OUTDIR,
-            experiment=ATAC_IDR_EXPERIMENTS,
-        )
-        targets += expand(
-            "{outdir}/experiments/{experiment}/06_reproducibility/final/"
-            "reproducibility_summary.tsv",
-            outdir=OUTDIR,
-            experiment=ATAC_IDR_EXPERIMENTS,
-        )
-    return targets
+    return _idr_target_list(
+        ATAC_IDR_ENABLED,
+        ATAC_IDR_EXPERIMENTS,
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"idr_peaks/{{experiment}}_atac_biorep{{bio_rep}}_idr.narrowPeak",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": ATAC_IDR_BIOREP_EXP_LIST,
+                "bio_rep": ATAC_IDR_BIOREP_LIST,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"true_replicates/{{experiment}}_atac_idr.txt",
+            False,
+            {"outdir": OUTDIR, "experiment": ATAC_IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"true_replicates/{{experiment}}_atac_idr.thresholded.narrowPeak",
+            False,
+            {"outdir": OUTDIR, "experiment": ATAC_IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"idr_peaks/{{experiment}}_atac_{{source}}_pr{{pr}}_idr.narrowPeak",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": ATAC_IDR_PR_PEAK_EXP,
+                "source": ATAC_IDR_PR_PEAK_SRC,
+                "pr": ATAC_IDR_PR_PEAK_PR,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"self_pseudoreplicates/{{experiment}}_atac_biorep{{bio_rep}}_idr.txt",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": ATAC_IDR_SELF_EXP,
+                "bio_rep": ATAC_IDR_SELF_BR,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"self_pseudoreplicates/{{experiment}}_atac_biorep{{bio_rep}}_idr.thresholded.narrowPeak",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": ATAC_IDR_SELF_EXP,
+                "bio_rep": ATAC_IDR_SELF_BR,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"pooled_pseudoreplicates/{{experiment}}_atac_idr.txt",
+            False,
+            {"outdir": OUTDIR, "experiment": ATAC_IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"pooled_pseudoreplicates/{{experiment}}_atac_idr.thresholded.narrowPeak",
+            False,
+            {"outdir": OUTDIR, "experiment": ATAC_IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/final/"
+            f"{{experiment}}.atac.macs3.narrow.replicate_validated.idr.narrowPeak",
+            False,
+            {"outdir": OUTDIR, "experiment": ATAC_IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/final/"
+            f"reproducibility_summary.tsv",
+            False,
+            {"outdir": OUTDIR, "experiment": ATAC_IDR_EXPERIMENTS},
+        ),
+    )
 
 
 def _cuttag_idr_targets():
     """Stage 64: CUT&Tag narrow IDR targets."""
-    targets = []
-    if not (CUTTAG_IDR_ENABLED and CUTTAG_IDR_EXPERIMENTS):
-        return targets
-
-    # Per-biorep IDR-ready peaks
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "idr_peaks/{experiment}_cuttag_biorep{bio_rep}_idr.narrowPeak",
-        zip,
-        outdir=OUTDIR,
-        experiment=CUTTAG_IDR_BIOREP_EXP_LIST,
-        bio_rep=CUTTAG_IDR_BIOREP_LIST,
+    return _idr_target_list(
+        CUTTAG_IDR_ENABLED,
+        CUTTAG_IDR_EXPERIMENTS,
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"idr_peaks/{{experiment}}_cuttag_biorep{{bio_rep}}_idr.narrowPeak",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": CUTTAG_IDR_BIOREP_EXP_LIST,
+                "bio_rep": CUTTAG_IDR_BIOREP_LIST,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"true_replicates/{{experiment}}_cuttag_idr.txt",
+            False,
+            {"outdir": OUTDIR, "experiment": CUTTAG_IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"true_replicates/{{experiment}}_cuttag_idr.thresholded.narrowPeak",
+            False,
+            {"outdir": OUTDIR, "experiment": CUTTAG_IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"idr_peaks/{{experiment}}_cuttag_{{source}}_pr{{pr}}_idr.narrowPeak",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": CUTTAG_IDR_PR_PEAK_EXP,
+                "source": CUTTAG_IDR_PR_PEAK_SRC,
+                "pr": CUTTAG_IDR_PR_PEAK_PR,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"self_pseudoreplicates/{{experiment}}_cuttag_biorep{{bio_rep}}_idr.txt",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": CUTTAG_IDR_SELF_EXP,
+                "bio_rep": CUTTAG_IDR_SELF_BR,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"self_pseudoreplicates/{{experiment}}_cuttag_biorep{{bio_rep}}_idr.thresholded.narrowPeak",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": CUTTAG_IDR_SELF_EXP,
+                "bio_rep": CUTTAG_IDR_SELF_BR,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"pooled_pseudoreplicates/{{experiment}}_cuttag_idr.txt",
+            False,
+            {"outdir": OUTDIR, "experiment": CUTTAG_IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"pooled_pseudoreplicates/{{experiment}}_cuttag_idr.thresholded.narrowPeak",
+            False,
+            {"outdir": OUTDIR, "experiment": CUTTAG_IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/final/"
+            f"{{experiment}}.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak",
+            False,
+            {"outdir": OUTDIR, "experiment": CUTTAG_IDR_EXPERIMENTS},
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/final/"
+            f"reproducibility_summary.tsv",
+            False,
+            {"outdir": OUTDIR, "experiment": CUTTAG_IDR_EXPERIMENTS},
+        ),
     )
-
-    # True-replicate IDR
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "true_replicates/{experiment}_cuttag_idr.txt",
-        outdir=OUTDIR, experiment=CUTTAG_IDR_EXPERIMENTS,
-    )
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "true_replicates/{experiment}_cuttag_idr.thresholded.narrowPeak",
-        outdir=OUTDIR, experiment=CUTTAG_IDR_EXPERIMENTS,
-    )
-
-    # Pseudorep IDR-ready peaks
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "idr_peaks/{experiment}_cuttag_{source}_pr{pr}_idr.narrowPeak",
-        zip,
-        outdir=OUTDIR,
-        experiment=CUTTAG_IDR_PR_PEAK_EXP,
-        source=CUTTAG_IDR_PR_PEAK_SRC,
-        pr=CUTTAG_IDR_PR_PEAK_PR,
-    )
-
-    # Self-pseudorep IDR
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "self_pseudoreplicates/"
-        "{experiment}_cuttag_biorep{bio_rep}_idr.txt",
-        zip,
-        outdir=OUTDIR,
-        experiment=CUTTAG_IDR_SELF_EXP,
-        bio_rep=CUTTAG_IDR_SELF_BR,
-    )
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "self_pseudoreplicates/"
-        "{experiment}_cuttag_biorep{bio_rep}_idr.thresholded.narrowPeak",
-        zip,
-        outdir=OUTDIR,
-        experiment=CUTTAG_IDR_SELF_EXP,
-        bio_rep=CUTTAG_IDR_SELF_BR,
-    )
-
-    # Pooled-pseudorep IDR
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "pooled_pseudoreplicates/{experiment}_cuttag_idr.txt",
-        outdir=OUTDIR, experiment=CUTTAG_IDR_EXPERIMENTS,
-    )
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "pooled_pseudoreplicates/"
-        "{experiment}_cuttag_idr.thresholded.narrowPeak",
-        outdir=OUTDIR, experiment=CUTTAG_IDR_EXPERIMENTS,
-    )
-
-    # Final outputs
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/final/"
-        "{experiment}.cuttag.macs3.narrow."
-        "replicate_validated.idr.narrowPeak",
-        outdir=OUTDIR, experiment=CUTTAG_IDR_EXPERIMENTS,
-    )
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/final/"
-        "reproducibility_summary.tsv",
-        outdir=OUTDIR, experiment=CUTTAG_IDR_EXPERIMENTS,
-    )
-
-    return targets
 
 
 def _broad_idr_targets():
     """Stage 65: Broad-peak IDR targets (experimental opt-in)."""
-    targets = []
-    if not (BROAD_IDR_ENABLED and BROAD_IDR_EXPERIMENTS):
-        return targets
-
-    # Per-biorep IDR-ready peaks
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "idr_peaks/{experiment}_broad_{assay}_biorep{bio_rep}_idr.broadPeak",
-        zip,
-        outdir=OUTDIR,
-        experiment=BROAD_IDR_BIOREP_EXP_LIST,
-        assay=BROAD_IDR_BIOREP_ASSAY,
-        bio_rep=BROAD_IDR_BIOREP_LIST,
+    return _idr_target_list(
+        BROAD_IDR_ENABLED,
+        BROAD_IDR_EXPERIMENTS,
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"idr_peaks/{{experiment}}_broad_{{assay}}_biorep{{bio_rep}}_idr.broadPeak",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": BROAD_IDR_BIOREP_EXP_LIST,
+                "assay": BROAD_IDR_BIOREP_ASSAY,
+                "bio_rep": BROAD_IDR_BIOREP_LIST,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"true_replicates/{{experiment}}_broad_{{assay}}_idr.txt",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": BROAD_IDR_EXPERIMENTS,
+                "assay": BROAD_IDR_EXPERIMENT_ASSAY,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"true_replicates/{{experiment}}_broad_{{assay}}_idr.thresholded.broadPeak",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": BROAD_IDR_EXPERIMENTS,
+                "assay": BROAD_IDR_EXPERIMENT_ASSAY,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"idr_peaks/{{experiment}}_broad_{{assay}}_{{source}}_pr{{pr}}_idr.broadPeak",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": BROAD_IDR_PR_PEAK_EXP,
+                "assay": BROAD_IDR_PR_PEAK_ASSAY,
+                "source": BROAD_IDR_PR_PEAK_SRC,
+                "pr": BROAD_IDR_PR_PEAK_PR,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"self_pseudoreplicates/{{experiment}}_broad_{{assay}}_biorep{{bio_rep}}_idr.txt",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": BROAD_IDR_SELF_EXP,
+                "assay": BROAD_IDR_SELF_ASSAY,
+                "bio_rep": BROAD_IDR_SELF_BR,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"self_pseudoreplicates/{{experiment}}_broad_{{assay}}_biorep{{bio_rep}}_idr.thresholded.broadPeak",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": BROAD_IDR_SELF_EXP,
+                "assay": BROAD_IDR_SELF_ASSAY,
+                "bio_rep": BROAD_IDR_SELF_BR,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"pooled_pseudoreplicates/{{experiment}}_broad_{{assay}}_idr.txt",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": BROAD_IDR_EXPERIMENTS,
+                "assay": BROAD_IDR_EXPERIMENT_ASSAY,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
+            f"pooled_pseudoreplicates/{{experiment}}_broad_{{assay}}_idr.thresholded.broadPeak",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": BROAD_IDR_EXPERIMENTS,
+                "assay": BROAD_IDR_EXPERIMENT_ASSAY,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/final/"
+            f"{{experiment}}.{{assay}}.macs3.broad.replicate_validated.idr.broadPeak",
+            True,
+            {
+                "outdir": OUTDIR,
+                "experiment": BROAD_IDR_EXPERIMENTS,
+                "assay": BROAD_IDR_EXPERIMENT_ASSAY,
+            },
+        ),
+        (
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/final/"
+            f"reproducibility_summary.tsv",
+            False,
+            {"outdir": OUTDIR, "experiment": BROAD_IDR_EXPERIMENTS},
+        ),
     )
-
-    # True-replicate IDR
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "true_replicates/{experiment}_broad_{assay}_idr.txt",
-        zip,
-        outdir=OUTDIR,
-        experiment=BROAD_IDR_EXPERIMENTS,
-        assay=BROAD_IDR_EXPERIMENT_ASSAY,
-    )
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "true_replicates/{experiment}_broad_{assay}_idr.thresholded.broadPeak",
-        zip,
-        outdir=OUTDIR,
-        experiment=BROAD_IDR_EXPERIMENTS,
-        assay=BROAD_IDR_EXPERIMENT_ASSAY,
-    )
-
-    # Pseudorep IDR-ready peaks
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "idr_peaks/{experiment}_broad_{assay}_{source}_pr{pr}_idr.broadPeak",
-        zip,
-        outdir=OUTDIR,
-        experiment=BROAD_IDR_PR_PEAK_EXP,
-        assay=BROAD_IDR_PR_PEAK_ASSAY,
-        source=BROAD_IDR_PR_PEAK_SRC,
-        pr=BROAD_IDR_PR_PEAK_PR,
-    )
-
-    # Self-pseudorep IDR
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "self_pseudoreplicates/"
-        "{experiment}_broad_{assay}_biorep{bio_rep}_idr.txt",
-        zip,
-        outdir=OUTDIR,
-        experiment=BROAD_IDR_SELF_EXP,
-        assay=BROAD_IDR_SELF_ASSAY,
-        bio_rep=BROAD_IDR_SELF_BR,
-    )
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "self_pseudoreplicates/"
-        "{experiment}_broad_{assay}_biorep{bio_rep}_idr.thresholded.broadPeak",
-        zip,
-        outdir=OUTDIR,
-        experiment=BROAD_IDR_SELF_EXP,
-        assay=BROAD_IDR_SELF_ASSAY,
-        bio_rep=BROAD_IDR_SELF_BR,
-    )
-
-    # Pooled-pseudorep IDR
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "pooled_pseudoreplicates/{experiment}_broad_{assay}_idr.txt",
-        zip,
-        outdir=OUTDIR,
-        experiment=BROAD_IDR_EXPERIMENTS,
-        assay=BROAD_IDR_EXPERIMENT_ASSAY,
-    )
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/idr/"
-        "pooled_pseudoreplicates/"
-        "{experiment}_broad_{assay}_idr.thresholded.broadPeak",
-        zip,
-        outdir=OUTDIR,
-        experiment=BROAD_IDR_EXPERIMENTS,
-        assay=BROAD_IDR_EXPERIMENT_ASSAY,
-    )
-
-    # Final outputs
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/final/"
-        "{experiment}.{assay}.macs3.broad."
-        "replicate_validated.idr.broadPeak",
-        zip,
-        outdir=OUTDIR,
-        experiment=BROAD_IDR_EXPERIMENTS,
-        assay=BROAD_IDR_EXPERIMENT_ASSAY,
-    )
-    targets += expand(
-        "{outdir}/experiments/{experiment}/06_reproducibility/final/"
-        "reproducibility_summary.tsv",
-        outdir=OUTDIR, experiment=BROAD_IDR_EXPERIMENTS,
-    )
-
-    return targets
 
 
 def _consensus_targets():
