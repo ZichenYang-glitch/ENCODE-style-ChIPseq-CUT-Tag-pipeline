@@ -75,25 +75,25 @@ python3 -m pytest test/test_dag_snapshots.py test/test_idr_paths.py test/test_ta
   - Suffix mapping (`narrowPeak` / `broadPeak`) is hardcoded per rule because the raw `.txt` outputs cannot carry a `{peak_mode}` wildcard.
   - Rule names change (e.g., `atac_macs3_idr_biorep` → `idr_macs3_biorep_narrow`). DAG snapshots are unaffected because the 8 smoke profiles do not enable modern IDR modes.
 - [x] Update `workflow/Snakefile` includes to use `idr_reproducibility.smk`
-- [ ] Commit `refactor: unify ATAC/CUT&Tag/broad IDR rules into idr_reproducibility.smk`
-- [ ] Run focused tests
+- [x] Commit `refactor: unify ATAC/CUT&Tag/broad IDR rules into idr_reproducibility.smk`
+- [x] Run focused tests
 
 ```bash
 python3 -m pytest test/test_dag_snapshots.py test/test_idr_paths.py test/test_targets.py -v
 ```
 
-- [ ] Verify DAG snapshot diff is zero
-- [ ] Remove `workflow/rules/idr_atac.smk`, `idr_cuttag.smk`, `idr_broad.smk`
-- [ ] Commit `refactor: remove deprecated ATAC/CUT&Tag/broad IDR rule files`
-- [ ] Run focused tests again
+- [x] Verify DAG snapshot diff is zero
+- [x] Remove `workflow/rules/idr_atac.smk`, `idr_cuttag.smk`, `idr_broad.smk`
+- [x] Commit `refactor: remove deprecated ATAC/CUT&Tag/broad IDR rule files`
+- [x] Run focused tests again
 
 ### Step C: Unify ATAC/CUT&Tag/broad IDR summary scripts
 
-- [ ] Create `scripts/idr_reproducibility_summary.py` with `--assay`/`--peak-mode` flags
-- [ ] Convert the three modern summary scripts (`atac_idr_summary.py`, `cuttag_idr_summary.py`, `broad_idr_summary.py`) to thin wrappers
-- [ ] Update unified rules to call the unified script directly
-- [ ] Commit `refactor: unify IDR reproducibility summary scripts`
-- [ ] Run focused tests
+- [x] Create `scripts/idr_reproducibility_summary.py` with `--assay`/`--peak-mode` flags
+- [x] Convert the three modern summary scripts (`atac_idr_summary.py`, `cuttag_idr_summary.py`, `broad_idr_summary.py`) to thin wrappers
+- [x] Update unified rules to call the unified script directly
+- [x] Commit `refactor: unify IDR reproducibility summary scripts`
+- [x] Run focused tests
 
 ```bash
 python3 -m pytest test/test_dag_snapshots.py test/test_idr_paths.py test/test_targets.py -v
@@ -101,13 +101,13 @@ python3 -m pytest test/test_dag_snapshots.py test/test_idr_paths.py test/test_ta
 
 ### Final verification
 
-- [ ] Run full test suite
+- [x] Run full test suite
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q
 ```
 
-- [ ] Run whitespace check
+- [x] Run whitespace check
 
 ```bash
 git diff --check
