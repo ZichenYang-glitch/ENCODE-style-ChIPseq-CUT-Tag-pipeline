@@ -37,23 +37,6 @@ def _broad_idr_biorep_inputs(wildcards):
     )
 
 
-# ---------------------------------------------------------------------------
-# Helper: resolve broad IDR per-biorep peak files
-# ---------------------------------------------------------------------------
-
-def _broad_idr_peak_input(experiment, index, assay):
-    """Return the IDR-ready biorep broadPeak file at the given 0-based index."""
-    bioreps = sorted(_bioreps_for(experiment, "treatment"))
-    br = bioreps[index]
-    return (
-        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
-        f"idr_peaks/{experiment}_broad_{assay}_biorep{br}_idr.broadPeak"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Helper: self-IDR thresholded path
-# ---------------------------------------------------------------------------
 
 def _broad_self_thresh_path(experiment, index, assay):
     """Return self-IDR thresholded path for the given 0-based biorep index."""
@@ -153,10 +136,8 @@ rule broad_idr_true_replicates:
                   f"idr/true_replicates/"
                   f"{{experiment}}_broad_{{assay}}_idr.thresholded.broadPeak",
     input:
-        peaks1 = lambda wc: _broad_idr_peak_input(
-            wc.experiment, 0, wc.assay),
-        peaks2 = lambda wc: _broad_idr_peak_input(
-            wc.experiment, 1, wc.assay),
+        peaks1 = lambda wc: idr_repro_peak_input(wc.experiment, 0, wc.assay, "broadPeak"),
+        peaks2 = lambda wc: idr_repro_peak_input(wc.experiment, 1, wc.assay, "broadPeak"),
     params:
         threshold     = IDR_THRESHOLD,
         rank          = IDR_RANK,

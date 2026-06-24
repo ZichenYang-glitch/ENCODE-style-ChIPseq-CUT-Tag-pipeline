@@ -33,23 +33,6 @@ def _cuttag_idr_biorep_peaks_inputs(wildcards):
     )
 
 
-# ---------------------------------------------------------------------------
-# Helper: resolve CUT&Tag IDR per-biorep peak files
-# ---------------------------------------------------------------------------
-
-def _cuttag_idr_peak_input(experiment, index):
-    """Return the IDR-ready biorep peak file at the given 0-based index."""
-    bioreps = sorted(_bioreps_for(experiment, "treatment"))
-    br = bioreps[index]
-    return (
-        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
-        f"idr_peaks/{experiment}_cuttag_biorep{br}_idr.narrowPeak"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Helper: self-IDR thresholded path
-# ---------------------------------------------------------------------------
 
 def _cuttag_self_thresh_path(experiment, index):
     """Return self-IDR thresholded path for the given 0-based biorep index."""
@@ -132,8 +115,8 @@ rule cuttag_idr_true_replicates:
                   f"idr/true_replicates/"
                   f"{{experiment}}_cuttag_idr.thresholded.narrowPeak",
     input:
-        peaks1 = lambda wc: _cuttag_idr_peak_input(wc.experiment, 0),
-        peaks2 = lambda wc: _cuttag_idr_peak_input(wc.experiment, 1),
+        peaks1 = lambda wc: idr_repro_peak_input(wc.experiment, 0, "cuttag", "narrowPeak"),
+        peaks2 = lambda wc: idr_repro_peak_input(wc.experiment, 1, "cuttag", "narrowPeak"),
     params:
         threshold     = IDR_THRESHOLD,
         rank          = IDR_RANK,

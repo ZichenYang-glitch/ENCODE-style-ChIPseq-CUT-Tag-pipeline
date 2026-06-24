@@ -88,23 +88,6 @@ rule atac_macs3_idr_biorep:
         """
 
 
-# ---------------------------------------------------------------------------
-# Helper: resolve ATAC IDR peak input path for a bio_rep index
-# ---------------------------------------------------------------------------
-
-def _atac_idr_peak_input(experiment, index):
-    """Return the ATAC IDR peak file for a bio_rep by 0-based index."""
-    bioreps = _bioreps_for(experiment, "treatment")
-    br = bioreps[index]
-    return (
-        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
-        f"idr_peaks/{experiment}_atac_biorep{br}_idr.narrowPeak"
-    )
-
-
-# ---------------------------------------------------------------------------
-# 2. True-replicate IDR for ATAC
-# ---------------------------------------------------------------------------
 
 rule atac_idr_true_replicates:
     output:
@@ -113,8 +96,8 @@ rule atac_idr_true_replicates:
         thr_out = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
                   f"true_replicates/{{experiment}}_atac_idr.thresholded.narrowPeak",
     input:
-        peaks1 = lambda wc: _atac_idr_peak_input(wc.experiment, 0),
-        peaks2 = lambda wc: _atac_idr_peak_input(wc.experiment, 1),
+        peaks1 = lambda wc: idr_repro_peak_input(wc.experiment, 0, "atac", "narrowPeak"),
+        peaks2 = lambda wc: idr_repro_peak_input(wc.experiment, 1, "atac", "narrowPeak"),
     params:
         threshold     = IDR_THRESHOLD,
         rank          = IDR_RANK,

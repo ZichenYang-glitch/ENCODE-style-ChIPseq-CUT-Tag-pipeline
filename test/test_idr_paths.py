@@ -378,3 +378,85 @@ def test_legacy_idr_biorep_labels_match_inlined(idr_paths_namespace):
     labels = idr_paths_namespace["idr_biorep_labels"](exp)
     assert labels == (expected_a, expected_b)
     assert labels == ("1", "2")
+
+
+@pytest.mark.parametrize(
+    "index,assay,peak_suffix,expected",
+    [
+        (
+            0,
+            "atac",
+            "narrowPeak",
+            "results/experiments/EXP1/06_reproducibility/idr/"
+            "idr_peaks/EXP1_atac_biorep1_idr.narrowPeak",
+        ),
+        (
+            1,
+            "cuttag",
+            "narrowPeak",
+            "results/experiments/EXP1/06_reproducibility/idr/"
+            "idr_peaks/EXP1_cuttag_biorep2_idr.narrowPeak",
+        ),
+        (
+            0,
+            "chipseq",
+            "broadPeak",
+            "results/experiments/EXP1/06_reproducibility/idr/"
+            "idr_peaks/EXP1_broad_chipseq_biorep1_idr.broadPeak",
+        ),
+        (
+            1,
+            "cuttag",
+            "broadPeak",
+            "results/experiments/EXP1/06_reproducibility/idr/"
+            "idr_peaks/EXP1_broad_cuttag_biorep2_idr.broadPeak",
+        ),
+    ],
+)
+def test_idr_repro_peak_input(idr_paths_namespace, index, assay, peak_suffix, expected):
+    assert idr_paths_namespace["idr_repro_peak_input"](
+        "EXP1", index, assay, peak_suffix
+    ) == expected
+
+
+@pytest.mark.parametrize(
+    "assay,peak_suffix",
+    [
+        ("chipseq", "narrowPeak"),
+        ("atac", "broadPeak"),
+        ("unknown", "narrowPeak"),
+        ("atac", "unknown"),
+    ],
+)
+def test_idr_repro_peak_input_invalid_combo(idr_paths_namespace, assay, peak_suffix):
+    with pytest.raises(ValueError):
+        idr_paths_namespace["idr_repro_peak_input"]("EXP1", 0, assay, peak_suffix)
+
+
+def test_legacy_idr_repro_peak_input_match_private_helpers(idr_paths_namespace):
+    """Legacy _atac_idr_peak_input / _cuttag_idr_peak_input / _broad_idr_peak_input."""
+    exp = "EXP1"
+    assert idr_paths_namespace["idr_repro_peak_input"](
+        exp, 0, "atac", "narrowPeak"
+    ) == (
+        f"results/experiments/{exp}/06_reproducibility/idr/"
+        f"idr_peaks/{exp}_atac_biorep1_idr.narrowPeak"
+    )
+    assert idr_paths_namespace["idr_repro_peak_input"](
+        exp, 1, "cuttag", "narrowPeak"
+    ) == (
+        f"results/experiments/{exp}/06_reproducibility/idr/"
+        f"idr_peaks/{exp}_cuttag_biorep2_idr.narrowPeak"
+    )
+    assert idr_paths_namespace["idr_repro_peak_input"](
+        exp, 0, "chipseq", "broadPeak"
+    ) == (
+        f"results/experiments/{exp}/06_reproducibility/idr/"
+        f"idr_peaks/{exp}_broad_chipseq_biorep1_idr.broadPeak"
+    )
+    assert idr_paths_namespace["idr_repro_peak_input"](
+        exp, 1, "cuttag", "broadPeak"
+    ) == (
+        f"results/experiments/{exp}/06_reproducibility/idr/"
+        f"idr_peaks/{exp}_broad_cuttag_biorep2_idr.broadPeak"
+    )
