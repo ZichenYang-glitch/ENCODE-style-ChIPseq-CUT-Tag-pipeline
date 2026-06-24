@@ -21,17 +21,9 @@
 
 def _atac_idr_biorep_peaks_inputs(wildcards):
     """Return inputs for MACS3 IDR peak call on a single ATAC biorep BAM."""
-    exp = wildcards.experiment
-    br = int(wildcards.bio_rep)
-    inputs = [
-        f"{OUTDIR}/experiments/{exp}/02_align/biorep{br}.final.bam",
-        f"{OUTDIR}/experiments/{exp}/02_align/biorep{br}.final.bam.bai",
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(
-            f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.control.final.bam"
-        )
-    return inputs
+    return idr_biorep_peaks_inputs(
+        wildcards.experiment, int(wildcards.bio_rep)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -39,25 +31,8 @@ def _atac_idr_biorep_peaks_inputs(wildcards):
 # ---------------------------------------------------------------------------
 
 def _atac_idr_macs3_args(wildcards):
-    """Return MACS3 args for IDR-ready ATAC peak calls.
-
-    Uses layout/genome from the first ATAC treatment sample and applies the
-    same Tn5-aware shift/extsize policy as baseline ATAC MACS3 calls. Replaces
-    -q with -p (p-value from idr_macs3 config).
-    """
-    experiment = wildcards.experiment
-    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
-    if not treatment_ids:
-        return ""
-    s = SAMPLE_MAP[treatment_ids[0]]
-    fmt = "BAMPE" if s["layout"] == "PE" else "BAM"
-    genome = _normalize_genome(s["genome"])
-    pvalue = _tool_param("idr_macs3", "pvalue", 0.1)
-    extra = _tool_param("idr_macs3", "extra_args", "")
-    return (
-        f"-f {fmt} -g {genome} -p {pvalue} "
-        f"--nomodel --shift -100 --extsize 200 {extra}"
-    ).strip()
+    """Return MACS3 args for IDR-ready ATAC narrow peak calls."""
+    return idr_macs3_args(wildcards.experiment, "atac", "narrow")
 
 
 # ---------------------------------------------------------------------------
@@ -113,23 +88,6 @@ rule atac_macs3_idr_biorep:
         """
 
 
-# ---------------------------------------------------------------------------
-# Helper: resolve ATAC IDR peak input path for a bio_rep index
-# ---------------------------------------------------------------------------
-
-def _atac_idr_peak_input(experiment, index):
-    """Return the ATAC IDR peak file for a bio_rep by 0-based index."""
-    bioreps = _bioreps_for(experiment, "treatment")
-    br = bioreps[index]
-    return (
-        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
-        f"idr_peaks/{experiment}_atac_biorep{br}_idr.narrowPeak"
-    )
-
-
-# ---------------------------------------------------------------------------
-# 2. True-replicate IDR for ATAC
-# ---------------------------------------------------------------------------
 
 rule atac_idr_true_replicates:
     output:
@@ -138,8 +96,8 @@ rule atac_idr_true_replicates:
         thr_out = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
                   f"true_replicates/{{experiment}}_atac_idr.thresholded.narrowPeak",
     input:
-        peaks1 = lambda wc: _atac_idr_peak_input(wc.experiment, 0),
-        peaks2 = lambda wc: _atac_idr_peak_input(wc.experiment, 1),
+        peaks1 = lambda wc: idr_repro_peak_input(wc.experiment, 0, "atac", "narrowPeak"),
+        peaks2 = lambda wc: idr_repro_peak_input(wc.experiment, 1, "atac", "narrowPeak"),
     params:
         threshold     = IDR_THRESHOLD,
         rank          = IDR_RANK,
@@ -196,12 +154,7 @@ rule atac_idr_true_replicates:
 
 def _atac_split_input(wildcards):
     """Return the input BAM path for an ATAC pseudorep split."""
-    exp = wildcards.experiment
-    src = wildcards.source
-    if src == "pooled":
-        return f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.final.bam"
-    br_label = src[len("biorep"):]
-    return f"{OUTDIR}/experiments/{exp}/02_align/biorep{br_label}.final.bam"
+    return idr_split_input(wildcards.experiment, wildcards.source)
 
 
 # ---------------------------------------------------------------------------
@@ -210,37 +163,11 @@ def _atac_split_input(wildcards):
 
 def _atac_idr_pseudorep_inputs(wildcards):
     """Return inputs for MACS3 IDR peak call on an ATAC pseudorep BAM."""
-    exp = wildcards.experiment
-    src = wildcards.source
-    pr = wildcards.pr
-    inputs = [
-        f"{OUTDIR}/experiments/{exp}/05_pseudorep/{exp}_atac_{src}.pr{pr}.bam",
-        f"{OUTDIR}/experiments/{exp}/05_pseudorep/{exp}_atac_{src}.pr{pr}.bam.bai",
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(
-            f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.control.final.bam"
-        )
-    return inputs
-
-
-# ---------------------------------------------------------------------------
-# Helper: self-IDR thresholded path for an ATAC bio_rep index
-# ---------------------------------------------------------------------------
-
-def _atac_self_thresh_path(experiment, index):
-    """Return the thresholded self-IDR narrowPeak for an ATAC bio_rep at index."""
-    bioreps = _bioreps_for(experiment, "treatment")
-    br = bioreps[index]
-    return (
-        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
-        f"self_pseudoreplicates/{experiment}_atac_biorep{br}_idr.thresholded.narrowPeak"
+    return idr_pseudorep_peaks_inputs(
+        wildcards.experiment, wildcards.source, wildcards.pr, source_prefix="atac_"
     )
 
 
-# ---------------------------------------------------------------------------
-# 3. ATAC pseudoreplicate BAM splitting — deterministic hash-based
-# ---------------------------------------------------------------------------
 
 rule atac_split_pseudoreps:
     output:
@@ -395,14 +322,8 @@ rule atac_idr_pooled_pseudoreps:
         thr_out = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
                   f"pooled_pseudoreplicates/{{experiment}}_atac_idr.thresholded.narrowPeak",
     input:
-        peaks1 = (
-            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
-            f"idr_peaks/{{experiment}}_atac_pooled_pr1_idr.narrowPeak"
-        ),
-        peaks2 = (
-            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
-            f"idr_peaks/{{experiment}}_atac_pooled_pr2_idr.narrowPeak"
-        ),
+        peaks1 = lambda wc: idr_pooled_peak_input(wc.experiment, 1, "atac", "narrowPeak"),
+        peaks2 = lambda wc: idr_pooled_peak_input(wc.experiment, 2, "atac", "narrowPeak"),
     params:
         threshold    = IDR_THRESHOLD,
         rank         = IDR_RANK,
@@ -456,17 +377,16 @@ rule atac_idr_summary:
     input:
         true_thresh  = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
                        f"true_replicates/{{experiment}}_atac_idr.thresholded.narrowPeak",
-        pool_thresh  = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
-                       f"pooled_pseudoreplicates/{{experiment}}_atac_idr.thresholded.narrowPeak",
-        self1_thresh = lambda wc: _atac_self_thresh_path(wc.experiment, 0),
-        self2_thresh = lambda wc: _atac_self_thresh_path(wc.experiment, 1),
+        pool_thresh  = lambda wc: idr_pooled_thresh_path(wc.experiment, "atac", "narrowPeak"),
+        self1_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 0, "atac", "narrowPeak"),
+        self2_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 1, "atac", "narrowPeak"),
     params:
         experiment   = lambda wc: wc.experiment,
         assay        = "atac",
         caller       = "macs3",
         peak_mode    = "narrow",
-        bio_rep_a    = lambda wc: str(sorted(_bioreps_for(wc.experiment, "treatment"))[0]),
-        bio_rep_b    = lambda wc: str(sorted(_bioreps_for(wc.experiment, "treatment"))[1]),
+        bio_rep_a    = lambda wc: idr_biorep_labels(wc.experiment)[0],
+        bio_rep_b    = lambda wc: idr_biorep_labels(wc.experiment)[1],
         final_method = "idr",
         final_output = lambda wc: (
             f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/final/"

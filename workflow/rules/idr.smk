@@ -19,23 +19,10 @@
 # ---------------------------------------------------------------------------
 
 def _idr_biorep_peaks_inputs(wildcards):
-    """Return inputs for MACS3 IDR peak call on a single biorep BAM.
-
-    Input order: [biorep_bam, biorep_bam.bai, ...optional_pooled_control_bam]
-    The pooled control BAM is included as an explicit dependency so Snakemake
-    schedules pool_control_bam before this rule.
-    """
-    exp = wildcards.experiment
-    br = int(wildcards.bio_rep)
-    inputs = [
-        f"{OUTDIR}/experiments/{exp}/02_align/biorep{br}.final.bam",
-        f"{OUTDIR}/experiments/{exp}/02_align/biorep{br}.final.bam.bai",
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(
-            f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.control.final.bam"
-        )
-    return inputs
+    """Return inputs for MACS3 IDR peak call on a single biorep BAM."""
+    return idr_biorep_peaks_inputs(
+        wildcards.experiment, int(wildcards.bio_rep)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -43,22 +30,8 @@ def _idr_biorep_peaks_inputs(wildcards):
 # ---------------------------------------------------------------------------
 
 def _idr_macs3_args(wildcards):
-    """Return MACS3 args for IDR-ready peak calls on a biorep BAM.
-
-    Uses the same layout/genome as per-sample MACS3, but replaces
-    -q (q-value) with -p (p-value from idr_macs3 config).
-    Never emits both -q and -p.
-    """
-    experiment = wildcards.experiment
-    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
-    if not treatment_ids:
-        return ""
-    s = SAMPLE_MAP[treatment_ids[0]]
-    fmt = "BAMPE" if s["layout"] == "PE" else "BAM"
-    genome = _normalize_genome(s["genome"])
-    pvalue = _tool_param("idr_macs3", "pvalue", 0.1)
-    extra = _tool_param("idr_macs3", "extra_args", "")
-    return f"-f {fmt} -g {genome} -p {pvalue} {extra}".strip()
+    """Return MACS3 args for IDR-ready ChIP-seq narrow peak calls."""
+    return idr_macs3_args(wildcards.experiment, "chipseq", "narrow")
 
 
 # ---------------------------------------------------------------------------
@@ -196,20 +169,8 @@ rule idr_true_replicates:
 # ---------------------------------------------------------------------------
 
 def _split_input(wildcards):
-    """Return the input BAM path for a pseudorep split.
-
-    source == "pooled" -> pooled treatment BAM
-    source starts with "biorep" -> parse bio_rep label, return that biorep BAM
-    """
-    exp = wildcards.experiment
-    src = wildcards.source
-    if src == "pooled":
-        return f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.final.bam"
-    # source format: "biorep<label>"
-    br_label = src[len("biorep"):]
-    return (
-        f"{OUTDIR}/experiments/{exp}/02_align/biorep{br_label}.final.bam"
-    )
+    """Return the input BAM path for a pseudorep split."""
+    return idr_split_input(wildcards.experiment, wildcards.source)
 
 
 # ---------------------------------------------------------------------------
@@ -217,22 +178,10 @@ def _split_input(wildcards):
 # ---------------------------------------------------------------------------
 
 def _idr_pseudorep_inputs(wildcards):
-    """Return inputs for MACS3 IDR peak call on a pseudorep BAM.
-
-    Input order: [pseudorep_bam, pseudorep_bam.bai, ...optional_pooled_control]
-    """
-    exp = wildcards.experiment
-    src = wildcards.source
-    pr = wildcards.pr
-    inputs = [
-        f"{OUTDIR}/experiments/{exp}/05_pseudorep/{exp}_{src}.pr{pr}.bam",
-        f"{OUTDIR}/experiments/{exp}/05_pseudorep/{exp}_{src}.pr{pr}.bam.bai",
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(
-            f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.control.final.bam"
-        )
-    return inputs
+    """Return inputs for MACS3 IDR peak call on a pseudorep BAM."""
+    return idr_pseudorep_peaks_inputs(
+        wildcards.experiment, wildcards.source, wildcards.pr
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -457,8 +406,8 @@ rule stage5b_summary:
         self2_thresh = lambda wc: _self_thresh_path(wc.experiment, 1),
     params:
         experiment = lambda wc: wc.experiment,
-        bio_rep_a  = lambda wc: str(sorted(_bioreps_for(wc.experiment, "treatment"))[0]),
-        bio_rep_b  = lambda wc: str(sorted(_bioreps_for(wc.experiment, "treatment"))[1]),
+        bio_rep_a  = lambda wc: idr_biorep_labels(wc.experiment)[0],
+        bio_rep_b  = lambda wc: idr_biorep_labels(wc.experiment)[1],
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.stage5b.summary.log",
     conda:

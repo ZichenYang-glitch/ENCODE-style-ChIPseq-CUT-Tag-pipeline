@@ -8,8 +8,7 @@ import sys
 import os
 import warnings
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-from validate_samples import validate_config, ValidationError
+from encode_pipeline.config.validate import validate_config, ValidationError
 
 BASE_CONFIG = {
     "samples": "config/samples.tsv",
@@ -25,7 +24,7 @@ BASE_CONFIG = {
 }
 
 
-def test(name, passed):
+def _report(name, passed):
     if passed:
         print("PASS: %s" % name)
     else:

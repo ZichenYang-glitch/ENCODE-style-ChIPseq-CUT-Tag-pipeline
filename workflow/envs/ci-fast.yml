@@ -6,4 +6,5 @@ channels:
 dependencies:
   - python >=3.10,<3.13
   - pyyaml
+  - pytest
   - snakemake-minimal >=8.0,<9

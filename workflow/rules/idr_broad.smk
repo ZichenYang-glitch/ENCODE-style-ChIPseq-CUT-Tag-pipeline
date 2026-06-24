@@ -22,31 +22,8 @@
 # ---------------------------------------------------------------------------
 
 def _broad_idr_macs3_args(wildcards):
-    """Return MACS3 args for broad-peak IDR biorep peak call.
-
-    Uses assay-specific broad MACS3 args via get_macs3_args().
-    Both chipseq broad and cuttag broad use --broad --broad-cutoff.
-    CUT&Tag broad does NOT apply Tn5 shift (per existing get_macs3_args_cuttag).
-    Uses relaxed -p, never -q.
-    """
-    experiment = wildcards.experiment
-    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
-    if not treatment_ids:
-        return ""
-    # Use the standard assay-specific args, then replace -q with relaxed -p
-    first = SAMPLE_MAP[treatment_ids[0]]
-    layout = first.get("layout", "PE")
-    fmt = "BAMPE" if layout == "PE" else "BAM"
-    genome = _normalize_genome(first["genome"])
-    pvalue = _tool_param("idr_macs3", "pvalue", 0.1)
-    broad_cutoff = _tool_param("macs3", "broad_cutoff", 0.1)
-    extra = _tool_param("idr_macs3", "extra_args", "")
-    return (
-        f"-f {fmt} -g {genome} "
-        f"-p {pvalue} "
-        f"--broad --broad-cutoff {broad_cutoff} "
-        f"{extra}"
-    ).strip()
+    """Return MACS3 args for broad-peak IDR calls."""
+    return idr_macs3_args(wildcards.experiment, wildcards.assay, "broad")
 
 
 # ---------------------------------------------------------------------------
@@ -54,56 +31,11 @@ def _broad_idr_macs3_args(wildcards):
 # ---------------------------------------------------------------------------
 
 def _broad_idr_biorep_inputs(wildcards):
-    """Return inputs for broad IDR per-biorep MACS3.
-
-    Same pooled-control policy as other IDR helpers.
-    """
-    exp = wildcards.experiment
-    br = int(wildcards.bio_rep)
-    inputs = [
-        f"{OUTDIR}/experiments/{exp}/02_align/biorep{br}.final.bam",
-        f"{OUTDIR}/experiments/{exp}/02_align/biorep{br}.final.bam.bai",
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(
-            f"{OUTDIR}/experiments/{exp}/02_align/"
-            f"{exp}.pooled.control.final.bam"
-        )
-    return inputs
-
-
-# ---------------------------------------------------------------------------
-# Helper: resolve broad IDR per-biorep peak files
-# ---------------------------------------------------------------------------
-
-def _broad_idr_peak_input(experiment, index, assay):
-    """Return the IDR-ready biorep broadPeak file at the given 0-based index."""
-    bioreps = sorted(_bioreps_for(experiment, "treatment"))
-    br = bioreps[index]
-    return (
-        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
-        f"idr_peaks/{experiment}_broad_{assay}_biorep{br}_idr.broadPeak"
+    """Return inputs for broad IDR per-biorep MACS3."""
+    return idr_biorep_peaks_inputs(
+        wildcards.experiment, int(wildcards.bio_rep)
     )
 
-
-# ---------------------------------------------------------------------------
-# Helper: self-IDR thresholded path
-# ---------------------------------------------------------------------------
-
-def _broad_self_thresh_path(experiment, index, assay):
-    """Return self-IDR thresholded path for the given 0-based biorep index."""
-    bioreps = sorted(_bioreps_for(experiment, "treatment"))
-    br = bioreps[index]
-    return (
-        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
-        f"self_pseudoreplicates/"
-        f"{experiment}_broad_{assay}_biorep{br}_idr.thresholded.broadPeak"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Helper: which assay does this broad IDR experiment belong to?
-# ---------------------------------------------------------------------------
 
 def _broad_idr_assay(experiment):
     """Return 'chipseq' or 'cuttag' for a broad IDR experiment."""
@@ -188,10 +120,8 @@ rule broad_idr_true_replicates:
                   f"idr/true_replicates/"
                   f"{{experiment}}_broad_{{assay}}_idr.thresholded.broadPeak",
     input:
-        peaks1 = lambda wc: _broad_idr_peak_input(
-            wc.experiment, 0, wc.assay),
-        peaks2 = lambda wc: _broad_idr_peak_input(
-            wc.experiment, 1, wc.assay),
+        peaks1 = lambda wc: idr_repro_peak_input(wc.experiment, 0, wc.assay, "broadPeak"),
+        peaks2 = lambda wc: idr_repro_peak_input(wc.experiment, 1, wc.assay, "broadPeak"),
     params:
         threshold     = IDR_THRESHOLD,
         rank          = IDR_RANK,
@@ -271,18 +201,7 @@ rule broad_idr_split_pseudoreps:
 
 def _broad_split_input(wildcards):
     """Return the BAM to split for broad pseudoreps."""
-    exp = wildcards.experiment
-    src = wildcards.source
-    if src == "pooled":
-        return (
-            f"{OUTDIR}/experiments/{exp}/02_align/"
-            f"{exp}.pooled.final.bam"
-        )
-    br = int(src.replace("biorep", ""))
-    return (
-        f"{OUTDIR}/experiments/{exp}/02_align/"
-        f"biorep{br}.final.bam"
-    )
+    return idr_split_input(wildcards.experiment, wildcards.source)
 
 
 # ============================================================================
@@ -352,21 +271,12 @@ rule broad_idr_macs3_pseudorep:
 
 def _broad_idr_pseudorep_inputs(wildcards):
     """Return inputs for broad IDR pseudorep MACS3."""
-    exp = wildcards.experiment
-    src = wildcards.source
-    pr = wildcards.pr
-    inputs = [
-        f"{OUTDIR}/experiments/{exp}/05_pseudorep/"
-        f"{exp}_broad_{wildcards.assay}_{src}.pr{pr}.bam",
-        f"{OUTDIR}/experiments/{exp}/05_pseudorep/"
-        f"{exp}_broad_{wildcards.assay}_{src}.pr{pr}.bam.bai",
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(
-            f"{OUTDIR}/experiments/{exp}/02_align/"
-            f"{exp}.pooled.control.final.bam"
-        )
-    return inputs
+    return idr_pseudorep_peaks_inputs(
+        wildcards.experiment,
+        wildcards.source,
+        wildcards.pr,
+        source_prefix=f"broad_{wildcards.assay}_",
+    )
 
 
 # ============================================================================
@@ -450,16 +360,8 @@ rule broad_idr_pooled_pseudoreps:
                   f"idr/pooled_pseudoreplicates/"
                   f"{{experiment}}_broad_{{assay}}_idr.thresholded.broadPeak",
     input:
-        peaks1 = lambda wc: (
-            f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/idr/"
-            f"idr_peaks/{wc.experiment}_broad_{wc.assay}_"
-            f"pooled_pr1_idr.broadPeak"
-        ),
-        peaks2 = lambda wc: (
-            f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/idr/"
-            f"idr_peaks/{wc.experiment}_broad_{wc.assay}_"
-            f"pooled_pr2_idr.broadPeak"
-        ),
+        peaks1 = lambda wc: idr_pooled_peak_input(wc.experiment, 1, wc.assay, "broadPeak"),
+        peaks2 = lambda wc: idr_pooled_peak_input(wc.experiment, 2, wc.assay, "broadPeak"),
     params:
         threshold     = IDR_THRESHOLD,
         rank          = IDR_RANK,
@@ -524,20 +426,16 @@ rule broad_idr_chipseq_summary:
         true_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
                       f"idr/true_replicates/"
                       f"{{experiment}}_broad_chipseq_idr.thresholded.broadPeak",
-        pool_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
-                      f"idr/pooled_pseudoreplicates/"
-                      f"{{experiment}}_broad_chipseq_idr.thresholded.broadPeak",
-        self1_thresh = lambda wc: _broad_self_thresh_path(
-            wc.experiment, 0, "chipseq"),
-        self2_thresh = lambda wc: _broad_self_thresh_path(
-            wc.experiment, 1, "chipseq"),
+        pool_thresh = lambda wc: idr_pooled_thresh_path(wc.experiment, "chipseq", "broadPeak"),
+        self1_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 0, "chipseq", "broadPeak"),
+        self2_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 1, "chipseq", "broadPeak"),
     params:
         experiment    = lambda wc: wc.experiment,
         assay         = "chipseq",
         caller        = "macs3",
         peak_mode     = "broad",
-        bio_rep_a     = lambda wc: _broad_idr_biorep_labels(wc.experiment)[0],
-        bio_rep_b     = lambda wc: _broad_idr_biorep_labels(wc.experiment)[1],
+        bio_rep_a     = lambda wc: idr_biorep_labels(wc.experiment)[0],
+        bio_rep_b     = lambda wc: idr_biorep_labels(wc.experiment)[1],
         final_method  = "idr",
         final_output  = lambda wc: (
             f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/final/"
@@ -582,20 +480,16 @@ rule broad_idr_cuttag_summary:
         true_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
                       f"idr/true_replicates/"
                       f"{{experiment}}_broad_cuttag_idr.thresholded.broadPeak",
-        pool_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
-                      f"idr/pooled_pseudoreplicates/"
-                      f"{{experiment}}_broad_cuttag_idr.thresholded.broadPeak",
-        self1_thresh = lambda wc: _broad_self_thresh_path(
-            wc.experiment, 0, "cuttag"),
-        self2_thresh = lambda wc: _broad_self_thresh_path(
-            wc.experiment, 1, "cuttag"),
+        pool_thresh = lambda wc: idr_pooled_thresh_path(wc.experiment, "cuttag", "broadPeak"),
+        self1_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 0, "cuttag", "broadPeak"),
+        self2_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 1, "cuttag", "broadPeak"),
     params:
         experiment    = lambda wc: wc.experiment,
         assay         = "cuttag",
         caller        = "macs3",
         peak_mode     = "broad",
-        bio_rep_a     = lambda wc: _broad_idr_biorep_labels(wc.experiment)[0],
-        bio_rep_b     = lambda wc: _broad_idr_biorep_labels(wc.experiment)[1],
+        bio_rep_a     = lambda wc: idr_biorep_labels(wc.experiment)[0],
+        bio_rep_b     = lambda wc: idr_biorep_labels(wc.experiment)[1],
         final_method  = "idr",
         final_output  = lambda wc: (
             f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/final/"
@@ -627,13 +521,3 @@ rule broad_idr_cuttag_summary:
             --output-tsv {output.summary:q} \
             --output-peak {output.final_peak:q}
         """
-
-
-# ---------------------------------------------------------------------------
-# Helper: resolve biorep labels for broad IDR summary
-# ---------------------------------------------------------------------------
-
-def _broad_idr_biorep_labels(experiment):
-    """Return (br_a, br_b) as strings for the experiment's 2 bioreps."""
-    bioreps = sorted(_bioreps_for(experiment, "treatment"))
-    return str(bioreps[0]), str(bioreps[1])

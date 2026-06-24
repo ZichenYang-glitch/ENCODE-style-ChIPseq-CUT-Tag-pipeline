@@ -18,27 +18,8 @@
 # ---------------------------------------------------------------------------
 
 def _cuttag_idr_macs3_args(wildcards):
-    """Return MACS3 args for CUT&Tag narrow IDR biorep peak call.
-
-    Uses layout-aware format, Tn5 narrow shift, and RELAXED p-value (-p),
-    not standard q-value (-q). Never emits both -p and -q.
-    """
-    experiment = wildcards.experiment
-    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
-    if not treatment_ids:
-        return ""
-    first = SAMPLE_MAP[treatment_ids[0]]
-    layout = first.get("layout", "PE")
-    fmt = "BAMPE" if layout == "PE" else "BAM"
-    genome = _normalize_genome(first["genome"])
-    pvalue = _tool_param("idr_macs3", "pvalue", 0.1)
-    extra = _tool_param("idr_macs3", "extra_args", "")
-    return (
-        f"-f {fmt} -g {genome} "
-        f"-p {pvalue} "
-        f"--nomodel --shift -100 --extsize 200 "
-        f"{extra}"
-    ).strip()
+    """Return MACS3 args for CUT&Tag narrow IDR peak calls."""
+    return idr_macs3_args(wildcards.experiment, "cuttag", "narrow")
 
 
 # ---------------------------------------------------------------------------
@@ -46,56 +27,11 @@ def _cuttag_idr_macs3_args(wildcards):
 # ---------------------------------------------------------------------------
 
 def _cuttag_idr_biorep_peaks_inputs(wildcards):
-    """Return inputs for CUT&Tag IDR per-biorep MACS3.
-
-    Same pooled-control policy as ATAC IDR helpers.
-    """
-    exp = wildcards.experiment
-    br = int(wildcards.bio_rep)
-    inputs = [
-        f"{OUTDIR}/experiments/{exp}/02_align/biorep{br}.final.bam",
-        f"{OUTDIR}/experiments/{exp}/02_align/biorep{br}.final.bam.bai",
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(
-            f"{OUTDIR}/experiments/{exp}/02_align/"
-            f"{exp}.pooled.control.final.bam"
-        )
-    return inputs
-
-
-# ---------------------------------------------------------------------------
-# Helper: resolve CUT&Tag IDR per-biorep peak files
-# ---------------------------------------------------------------------------
-
-def _cuttag_idr_peak_input(experiment, index):
-    """Return the IDR-ready biorep peak file at the given 0-based index."""
-    bioreps = sorted(_bioreps_for(experiment, "treatment"))
-    br = bioreps[index]
-    return (
-        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
-        f"idr_peaks/{experiment}_cuttag_biorep{br}_idr.narrowPeak"
+    """Return inputs for CUT&Tag IDR per-biorep MACS3."""
+    return idr_biorep_peaks_inputs(
+        wildcards.experiment, int(wildcards.bio_rep)
     )
 
-
-# ---------------------------------------------------------------------------
-# Helper: self-IDR thresholded path
-# ---------------------------------------------------------------------------
-
-def _cuttag_self_thresh_path(experiment, index):
-    """Return self-IDR thresholded path for the given 0-based biorep index."""
-    bioreps = sorted(_bioreps_for(experiment, "treatment"))
-    br = bioreps[index]
-    return (
-        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
-        f"self_pseudoreplicates/"
-        f"{experiment}_cuttag_biorep{br}_idr.thresholded.narrowPeak"
-    )
-
-
-# ============================================================================
-# 1. Per-biorep IDR-ready MACS3
-# ============================================================================
 
 rule cuttag_macs3_idr_biorep:
     output:
@@ -163,8 +99,8 @@ rule cuttag_idr_true_replicates:
                   f"idr/true_replicates/"
                   f"{{experiment}}_cuttag_idr.thresholded.narrowPeak",
     input:
-        peaks1 = lambda wc: _cuttag_idr_peak_input(wc.experiment, 0),
-        peaks2 = lambda wc: _cuttag_idr_peak_input(wc.experiment, 1),
+        peaks1 = lambda wc: idr_repro_peak_input(wc.experiment, 0, "cuttag", "narrowPeak"),
+        peaks2 = lambda wc: idr_repro_peak_input(wc.experiment, 1, "cuttag", "narrowPeak"),
     params:
         threshold     = IDR_THRESHOLD,
         rank          = IDR_RANK,
@@ -244,19 +180,7 @@ rule cuttag_split_pseudoreps:
 
 def _cuttag_split_input(wildcards):
     """Return the BAM to split for pseudoreps."""
-    exp = wildcards.experiment
-    src = wildcards.source
-    if src == "pooled":
-        return (
-            f"{OUTDIR}/experiments/{exp}/02_align/"
-            f"{exp}.pooled.final.bam"
-        )
-    # src is "biorepN" — extract N and return the biorep BAM
-    br = int(src.replace("biorep", ""))
-    return (
-        f"{OUTDIR}/experiments/{exp}/02_align/"
-        f"biorep{br}.final.bam"
-    )
+    return idr_split_input(wildcards.experiment, wildcards.source)
 
 
 # ============================================================================
@@ -324,21 +248,9 @@ rule cuttag_macs3_idr_pseudorep:
 
 def _cuttag_idr_pseudorep_inputs(wildcards):
     """Return inputs for CUT&Tag IDR pseudorep MACS3."""
-    exp = wildcards.experiment
-    src = wildcards.source
-    pr = wildcards.pr
-    inputs = [
-        f"{OUTDIR}/experiments/{exp}/05_pseudorep/"
-        f"{exp}_cuttag_{src}.pr{pr}.bam",
-        f"{OUTDIR}/experiments/{exp}/05_pseudorep/"
-        f"{exp}_cuttag_{src}.pr{pr}.bam.bai",
-    ]
-    if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(
-            f"{OUTDIR}/experiments/{exp}/02_align/"
-            f"{exp}.pooled.control.final.bam"
-        )
-    return inputs
+    return idr_pseudorep_peaks_inputs(
+        wildcards.experiment, wildcards.source, wildcards.pr, source_prefix="cuttag_"
+    )
 
 
 # ============================================================================
@@ -415,10 +327,8 @@ rule cuttag_idr_pooled_pseudoreps:
                   f"idr/pooled_pseudoreplicates/"
                   f"{{experiment}}_cuttag_idr.thresholded.narrowPeak",
     input:
-        peaks1 = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
-                 f"idr/idr_peaks/{{experiment}}_cuttag_pooled_pr1_idr.narrowPeak",
-        peaks2 = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
-                 f"idr/idr_peaks/{{experiment}}_cuttag_pooled_pr2_idr.narrowPeak",
+        peaks1 = lambda wc: idr_pooled_peak_input(wc.experiment, 1, "cuttag", "narrowPeak"),
+        peaks2 = lambda wc: idr_pooled_peak_input(wc.experiment, 2, "cuttag", "narrowPeak"),
     params:
         threshold     = IDR_THRESHOLD,
         rank          = IDR_RANK,
@@ -472,18 +382,16 @@ rule cuttag_idr_summary:
         true_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
                       f"idr/true_replicates/"
                       f"{{experiment}}_cuttag_idr.thresholded.narrowPeak",
-        pool_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
-                      f"idr/pooled_pseudoreplicates/"
-                      f"{{experiment}}_cuttag_idr.thresholded.narrowPeak",
-        self1_thresh = lambda wc: _cuttag_self_thresh_path(wc.experiment, 0),
-        self2_thresh = lambda wc: _cuttag_self_thresh_path(wc.experiment, 1),
+        pool_thresh = lambda wc: idr_pooled_thresh_path(wc.experiment, "cuttag", "narrowPeak"),
+        self1_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 0, "cuttag", "narrowPeak"),
+        self2_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 1, "cuttag", "narrowPeak"),
     params:
         experiment    = lambda wc: wc.experiment,
         assay         = "cuttag",
         caller        = "macs3",
         peak_mode     = "narrow",
-        bio_rep_a     = lambda wc: _idr_biorep_labels(wc.experiment)[0],
-        bio_rep_b     = lambda wc: _idr_biorep_labels(wc.experiment)[1],
+        bio_rep_a     = lambda wc: idr_biorep_labels(wc.experiment)[0],
+        bio_rep_b     = lambda wc: idr_biorep_labels(wc.experiment)[1],
         final_method  = "idr",
         final_output  = lambda wc: (
             f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/final/"
@@ -515,13 +423,3 @@ rule cuttag_idr_summary:
             --output-tsv {output.summary:q} \
             --output-peak {output.final_peak:q}
         """
-
-
-# ---------------------------------------------------------------------------
-# Helper: resolve biorep labels for IDR summary
-# ---------------------------------------------------------------------------
-
-def _idr_biorep_labels(experiment):
-    """Return (br_a, br_b) as strings for the experiment's 2 bioreps."""
-    bioreps = sorted(_bioreps_for(experiment, "treatment"))
-    return str(bioreps[0]), str(bioreps[1])

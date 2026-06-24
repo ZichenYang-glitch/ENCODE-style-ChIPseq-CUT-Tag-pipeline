@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "encode-pipeline"
+version = "0.3.0"
+description = "ENCODE-style ChIP-seq / CUT&Tag / ATAC-seq / MNase-seq Snakemake pipeline library"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+]
+
+[project.scripts]
+encode-validate = "encode_pipeline.cli.validate:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+python_files = ["test_*.py"]
+addopts = "--strict-markers -v"
+
+[tool.coverage.run]
+source = ["src/encode_pipeline", "scripts"]
+branch = true

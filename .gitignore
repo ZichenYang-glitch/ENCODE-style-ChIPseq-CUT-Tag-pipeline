@@ -16,8 +16,22 @@ miniconda3/
 .snakemake/
 results/
 
+# --- Python packaging artifacts ---
+*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+
+# --- Windows alternate data streams ---
+*:Zone.Identifier
+
 # --- Local planning / research notes ---
 deep-research-report.md
+
+# --- Claude Code internal state ---
+.claude/
 
 # --- Container / image artifacts (Stage 33) ---
 *.sif
