@@ -19,16 +19,19 @@ import pytest
 _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 _LEGACY_DIR = os.path.join(_TEST_DIR, "legacy")
 collect_ignore = []
-for _f in os.listdir(_TEST_DIR):
-    if _f.startswith("test_stage") and _f.endswith(".py") and _f != "test_stage_shim.py":
-        _path = os.path.join(_TEST_DIR, _f)
-        try:
-            with open(_path, encoding="utf-8") as _fh:
-                _src = _fh.read()
-        except OSError:
-            continue
-        if "def main(" in _src or 'if __name__ == "__main__":' in _src:
-            collect_ignore.append(_f)
+for _search_dir in (_TEST_DIR, _LEGACY_DIR):
+    if not os.path.isdir(_search_dir):
+        continue
+    for _f in os.listdir(_search_dir):
+        if _f.startswith("test_stage") and _f.endswith(".py") and _f != "test_stage_shim.py":
+            _path = os.path.join(_search_dir, _f)
+            try:
+                with open(_path, encoding="utf-8") as _fh:
+                    _src = _fh.read()
+            except OSError:
+                continue
+            if "def main(" in _src or 'if __name__ == "__main__":' in _src:
+                collect_ignore.append(_f)
 
 
 def pytest_addoption(parser):
