@@ -22,9 +22,7 @@ try:
     from encode_pipeline.samples.load import load_and_validate_samples
     from encode_pipeline.qc.histone import classify_histone_target
 except ImportError:
-    sys.path.insert(
-        0, os.path.join(os.path.dirname(workflow.basedir), "src")
-    )
+    sys.path.insert(0, os.path.join(os.path.dirname(workflow.basedir), "src"))
     from encode_pipeline.config.validate import (
         validate_config,
         validate_picard_reference_resources,
@@ -44,7 +42,9 @@ def wildcard_choices(values):
 # 1. Load configuration
 # ---------------------------------------------------------------------------
 
+
 configfile: "config/config.yaml"
+
 
 # Phase 0: activate Snakemake-native schema validation. The existing
 # config.schema.yaml is a human-readable contract; the runtime schema is
@@ -55,16 +55,16 @@ schema: "schemas/config.schema.json"
 
 VALIDATED_CONFIG = validate_config(config)
 
-OUTDIR      = VALIDATED_CONFIG["outdir"]
-THREADS     = VALIDATED_CONFIG["threads"]
-MAPQ        = VALIDATED_CONFIG["mapq"]
-MAPQ_TAG    = f"mapq{MAPQ}"
-BINSIZE     = VALIDATED_CONFIG["binsize"]
-TRIM        = VALIDATED_CONFIG["trim"]
+OUTDIR = VALIDATED_CONFIG["outdir"]
+THREADS = VALIDATED_CONFIG["threads"]
+MAPQ = VALIDATED_CONFIG["mapq"]
+MAPQ_TAG = f"mapq{MAPQ}"
+BINSIZE = VALIDATED_CONFIG["binsize"]
+TRIM = VALIDATED_CONFIG["trim"]
 USE_CONTROL = VALIDATED_CONFIG["use_control"]
-MULTIQC     = VALIDATED_CONFIG["multiqc"]
-STAGE4B     = VALIDATED_CONFIG.get("stage4b", True)
-STAGE5      = VALIDATED_CONFIG.get("stage5", False)
+MULTIQC = VALIDATED_CONFIG["multiqc"]
+STAGE4B = VALIDATED_CONFIG.get("stage4b", True)
+STAGE5 = VALIDATED_CONFIG.get("stage5", False)
 IDR_SETTINGS = VALIDATED_CONFIG.get("idr", {})
 IDR_THRESHOLD = float(IDR_SETTINGS.get("threshold", 0.05))
 IDR_RANK = str(IDR_SETTINGS.get("rank", "p.value"))
@@ -74,43 +74,27 @@ GENOME_RESOURCES = VALIDATED_CONFIG.get("genome_resources", {})
 # Stage 55: reproducibility-driven IDR
 REPRODUCIBILITY_CONFIG = VALIDATED_CONFIG.get("reproducibility", {})
 REPRO_ENABLED = REPRODUCIBILITY_CONFIG.get("enabled", False)
-ATAC_IDR_ENABLED = (
-    REPRO_ENABLED
-    and REPRODUCIBILITY_CONFIG.get("idr", {}).get("atac_narrow", False)
-)
+ATAC_IDR_ENABLED = REPRO_ENABLED and REPRODUCIBILITY_CONFIG.get("idr", {}).get("atac_narrow", False)
 
 # Stage 64: CUT&Tag narrow IDR (supported opt-in)
-CUTTAG_IDR_ENABLED = (
-    REPRO_ENABLED
-    and REPRODUCIBILITY_CONFIG.get("idr", {}).get("cuttag_narrow", False)
-)
+CUTTAG_IDR_ENABLED = REPRO_ENABLED and REPRODUCIBILITY_CONFIG.get("idr", {}).get("cuttag_narrow", False)
 
 # Stage 65: broad-peak IDR (experimental opt-in only)
-BROAD_CHIPSEQ_IDR_ENABLED = (
-    REPRO_ENABLED
-    and REPRODUCIBILITY_CONFIG.get("idr", {}).get(
-        "chipseq_broad_experimental", False)
+BROAD_CHIPSEQ_IDR_ENABLED = REPRO_ENABLED and REPRODUCIBILITY_CONFIG.get("idr", {}).get(
+    "chipseq_broad_experimental", False
 )
-BROAD_CUTTAG_IDR_ENABLED = (
-    REPRO_ENABLED
-    and REPRODUCIBILITY_CONFIG.get("idr", {}).get(
-        "cuttag_broad_experimental", False)
+BROAD_CUTTAG_IDR_ENABLED = REPRO_ENABLED and REPRODUCIBILITY_CONFIG.get("idr", {}).get(
+    "cuttag_broad_experimental", False
 )
 BROAD_IDR_ENABLED = BROAD_CHIPSEQ_IDR_ENABLED or BROAD_CUTTAG_IDR_ENABLED
 
 # Stage 62: consensus gating (reuses REPRO_ENABLED from Stage 55)
-CONSENSUS_ENABLED = (
-    REPRO_ENABLED
-    and REPRODUCIBILITY_CONFIG.get("consensus", {}).get("enabled", True)
-)
+CONSENSUS_ENABLED = REPRO_ENABLED and REPRODUCIBILITY_CONFIG.get("consensus", {}).get("enabled", True)
 
 # Stage 7b: CUT&Tag peak caller config
 CUTTAG_CONFIG = VALIDATED_CONFIG.get("cuttag", {})
 SEACR_CFG = CUTTAG_CONFIG.get("seacr", {})
-SEACR_ENABLED = (
-    SEACR_CFG.get("enabled", False)
-    if isinstance(SEACR_CFG, dict) else False
-)
+SEACR_ENABLED = SEACR_CFG.get("enabled", False) if isinstance(SEACR_CFG, dict) else False
 SEACR_MODE = str(SEACR_CFG.get("mode", "stringent"))
 SEACR_NORMALIZATION = str(SEACR_CFG.get("normalization", "non"))
 SEACR_THRESHOLD = float(SEACR_CFG.get("threshold", 0.01))
@@ -118,6 +102,7 @@ SEACR_THRESHOLD = float(SEACR_CFG.get("threshold", 0.01))
 # ---------------------------------------------------------------------------
 # 2. Helper functions
 # ---------------------------------------------------------------------------
+
 
 def _normalize_genome(genome):
     """Resolve effective genome size from genome_resources or legacy fallback.
@@ -159,70 +144,52 @@ validate_picard_reference_resources(VALIDATED_CONFIG, SAMPLES)
 validate_tss_annotation_resources(VALIDATED_CONFIG, SAMPLES)
 
 # --- Derived ID lists ---
-SAMPLE_MAP           = {s["id"]: s for s in SAMPLES}
-ALL_SAMPLE_IDS       = [s["id"] for s in SAMPLES]
-TREATMENT_SAMPLE_IDS = [
-    s["id"] for s in SAMPLES if s["role"] == "treatment"
-]
+SAMPLE_MAP = {s["id"]: s for s in SAMPLES}
+ALL_SAMPLE_IDS = [s["id"] for s in SAMPLES]
+TREATMENT_SAMPLE_IDS = [s["id"] for s in SAMPLES if s["role"] == "treatment"]
 # use_control gates both FASTQ-based control_sample and external control_bam.
 # When false, control rows are not required as rule-all targets and
 # control_sample / control_bam are silently ignored.
-ACTIVE_SAMPLE_IDS = (
-    ALL_SAMPLE_IDS if USE_CONTROL else TREATMENT_SAMPLE_IDS
-)
-CONTROL_SAMPLE_IDS   = [
-    s["id"] for s in SAMPLES if s["role"] == "control"
-]
-CUTTAG_ACTIVE_SAMPLE_IDS = [
-    sid for sid in ACTIVE_SAMPLE_IDS
-    if SAMPLE_MAP[sid]["assay"] == "cuttag"
-]
+ACTIVE_SAMPLE_IDS = ALL_SAMPLE_IDS if USE_CONTROL else TREATMENT_SAMPLE_IDS
+CONTROL_SAMPLE_IDS = [s["id"] for s in SAMPLES if s["role"] == "control"]
+CUTTAG_ACTIVE_SAMPLE_IDS = [sid for sid in ACTIVE_SAMPLE_IDS if SAMPLE_MAP[sid]["assay"] == "cuttag"]
 
 # Stage 7b: SEACR sidecar sample list (CUT&Tag PE treatment only)
 if SEACR_ENABLED:
     SEACR_SAMPLE_IDS = [
-        sid for sid in TREATMENT_SAMPLE_IDS
-        if SAMPLE_MAP[sid]["assay"] == "cuttag"
-        and SAMPLE_MAP[sid]["layout"] == "PE"
+        sid
+        for sid in TREATMENT_SAMPLE_IDS
+        if SAMPLE_MAP[sid]["assay"] == "cuttag" and SAMPLE_MAP[sid]["layout"] == "PE"
     ]
 else:
     SEACR_SAMPLE_IDS = []
 
 # Stage 39: MNase-centric derived lists
-MNASE_SAMPLE_IDS = [
-    s["id"] for s in SAMPLES
-    if s["role"] == "treatment" and s["assay"] == "mnase"
-]
+MNASE_SAMPLE_IDS = [s["id"] for s in SAMPLES if s["role"] == "treatment" and s["assay"] == "mnase"]
 
 # Peak-centric treatment samples (all treatment samples that are NOT MNase)
-PEAK_SAMPLE_IDS = [
-    s["id"] for s in SAMPLES
-    if s["role"] == "treatment" and s["assay"] != "mnase"
-]
+PEAK_SAMPLE_IDS = [s["id"] for s in SAMPLES if s["role"] == "treatment" and s["assay"] != "mnase"]
 
 # ---------------------------------------------------------------------------
 # 4. Assay policy functions (no rules — define-only files)
 # ---------------------------------------------------------------------------
 
+
 include: "rules/chipseq.smk"
 include: "rules/cuttag.smk"
 include: "rules/atac.smk"
-
 # ---------------------------------------------------------------------------
 # 4b. MNase path helpers (no rules — define-only file)
 # ---------------------------------------------------------------------------
 include: "rules/paths.smk"
-
 # ---------------------------------------------------------------------------
 # 5. Derived metadata, QC gating, dispatch wrappers
 # ---------------------------------------------------------------------------
 include: "rules/metadata.smk"
-
 # ---------------------------------------------------------------------------
 # 5b. IDR path helpers — must be included before IDR rule files
 # ---------------------------------------------------------------------------
 include: "rules/idr_paths.smk"
-
 # ---------------------------------------------------------------------------
 # 6. Target builder helpers — return flat lists for rule all input
 # ---------------------------------------------------------------------------
@@ -233,6 +200,7 @@ include: "rules/targets.smk"
 # 7. Default target — rule all
 #    Defined BEFORE executable rule includes to remain the default target.
 # ---------------------------------------------------------------------------
+
 
 rule all:
     input:
@@ -251,12 +219,17 @@ rule all:
         + _broad_idr_targets()
         + _consensus_targets()
         # Stage 25: result manifest (runs after all other outputs are complete)
-        + ([f"{OUTDIR}/multiqc/result_manifest.tsv"] if QC_CONFIG.get("summary", True) and TREATMENT_SAMPLE_IDS else [])
+        + (
+            [f"{OUTDIR}/multiqc/result_manifest.tsv"]
+            if QC_CONFIG.get("summary", True) and TREATMENT_SAMPLE_IDS
+            else []
+        ),
 
 
 # ---------------------------------------------------------------------------
 # 8. Executable rule files
 # ---------------------------------------------------------------------------
+
 
 include: "rules/common.smk"
 include: "rules/peaks.smk"

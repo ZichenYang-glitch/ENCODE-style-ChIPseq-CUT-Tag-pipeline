@@ -11,6 +11,7 @@
 # 1. FastQC — sentinel-based output, layout-aware input list
 # ---------------------------------------------------------------------------
 
+
 def _fastqc_inputs(wildcards):
     """Return [fq1] for SE, [fq1, fq2] for PE.  Never returns empty string."""
     s = SAMPLE_MAP[wildcards.sample]
@@ -20,16 +21,16 @@ def _fastqc_inputs(wildcards):
 
 
 rule fastqc:
-    output:
-        done = f"{OUTDIR}/{{sample}}/logs/{{sample}}.fastqc.done",
     input:
         lambda wc: _fastqc_inputs(wc),
-    params:
-        qcdir = lambda wc: f"{OUTDIR}/{wc.sample}/01_qc",
-        extra = _tool_param("fastqc", "extra_args", ""),
-    threads: THREADS,
+    output:
+        done=f"{OUTDIR}/{{sample}}/logs/{{sample}}.fastqc.done",
     conda:
-        "../envs/fastqc.yml",
+        "../envs/fastqc.yml"
+    threads: THREADS
+    params:
+        qcdir=lambda wc: f"{OUTDIR}/{wc.sample}/01_qc",
+        extra=_tool_param("fastqc", "extra_args", ""),
     shell:
         """
         set -e -o pipefail
@@ -44,6 +45,7 @@ rule fastqc:
 # 2. Trim Galore — layout-aware input list + report preservation
 # ---------------------------------------------------------------------------
 
+
 def _trim_galore_inputs(wildcards):
     """Return [fq1] for SE, [fq1, fq2] for PE.  Never returns empty string."""
     s = SAMPLE_MAP[wildcards.sample]
@@ -53,23 +55,23 @@ def _trim_galore_inputs(wildcards):
 
 
 rule trim_galore:
-    output:
-        r1   = f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R1_val_1.fq.gz",
-        r2   = f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R2_val_2.fq.gz",
-        done = f"{OUTDIR}/{{sample}}/logs/{{sample}}.trim.done",
     input:
         lambda wc: _trim_galore_inputs(wc),
-    params:
-        layout     = lambda wc: SAMPLE_MAP[wc.sample]["layout"],
-        do_trim    = TRIM,
-        trimdir    = lambda wc: f"{OUTDIR}/{wc.sample}/01_qc/trim_galore",
-        quality    = f"--quality {v}" if (v := _tool_param("trim_galore", "quality", "")) != "" else "",
-        length     = f"--length {v}" if (v := _tool_param("trim_galore", "length", "")) != "" else "",
-        stringency = f"--stringency {v}" if (v := _tool_param("trim_galore", "stringency", "")) != "" else "",
-        extra      = _tool_param("trim_galore", "extra_args", ""),
-    threads: THREADS,
+    output:
+        r1=f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R1_val_1.fq.gz",
+        r2=f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R2_val_2.fq.gz",
+        done=f"{OUTDIR}/{{sample}}/logs/{{sample}}.trim.done",
     conda:
-        "../envs/trim.yml",
+        "../envs/trim.yml"
+    threads: THREADS
+    params:
+        layout=lambda wc: SAMPLE_MAP[wc.sample]["layout"],
+        do_trim=TRIM,
+        trimdir=lambda wc: f"{OUTDIR}/{wc.sample}/01_qc/trim_galore",
+        quality=f"--quality {v}" if (v := _tool_param("trim_galore", "quality", "")) != "" else "",
+        length=f"--length {v}" if (v := _tool_param("trim_galore", "length", "")) != "" else "",
+        stringency=f"--stringency {v}" if (v := _tool_param("trim_galore", "stringency", "")) != "" else "",
+        extra=_tool_param("trim_galore", "extra_args", ""),
     shell:
         """
         set -e -o pipefail
@@ -119,26 +121,27 @@ rule trim_galore:
 # 3. Bowtie2 alignment + samtools sort (SE/PE dispatch in shell)
 # ---------------------------------------------------------------------------
 
+
 rule bowtie2_align:
-    output:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
     input:
-        r1 = f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R1_val_1.fq.gz",
-        r2 = f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R2_val_2.fq.gz",
-    params:
-        layout       = lambda wc: SAMPLE_MAP[wc.sample]["layout"],
-        bt2_idx      = lambda wc: SAMPLE_MAP[wc.sample]["bt2_idx"],
-        sample       = "{sample}",
-        mode         = f"--{v}" if (v := _tool_param("bowtie2", "mode", "")) else "",
-        dovetail     = "--dovetail" if _tool_param("bowtie2", "dovetail", False) else "",
-        no_mixed     = "--no-mixed" if _tool_param("bowtie2", "no_mixed", False) else "",
-        no_discordant = "--no-discordant" if _tool_param("bowtie2", "no_discordant", False) else "",
-        extra        = _tool_param("bowtie2", "extra_args", ""),
+        r1=f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R1_val_1.fq.gz",
+        r2=f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R2_val_2.fq.gz",
+    output:
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.bowtie2.log",
-    threads: THREADS,
     conda:
-        "../envs/align.yml",
+        "../envs/align.yml"
+    threads: THREADS
+    params:
+        layout=lambda wc: SAMPLE_MAP[wc.sample]["layout"],
+        bt2_idx=lambda wc: SAMPLE_MAP[wc.sample]["bt2_idx"],
+        sample="{sample}",
+        mode=f"--{v}" if (v := _tool_param("bowtie2", "mode", "")) else "",
+        dovetail="--dovetail" if _tool_param("bowtie2", "dovetail", False) else "",
+        no_mixed="--no-mixed" if _tool_param("bowtie2", "no_mixed", False) else "",
+        no_discordant="--no-discordant" if _tool_param("bowtie2", "no_discordant", False) else "",
+        extra=_tool_param("bowtie2", "extra_args", ""),
     shell:
         """
         set -e -o pipefail
@@ -148,12 +151,12 @@ rule bowtie2_align:
             bowtie2 $RG -x {params.bt2_idx:q} -1 {input.r1:q} -2 {input.r2:q} -p {threads} \
                 {params.mode} {params.dovetail} {params.no_mixed} {params.no_discordant} \
                 {params.extra} \
-                2> {log:q} | samtools view -b | samtools sort -@ {threads} -o {output.bam:q}
+                2>{log:q} | samtools view -b | samtools sort -@ {threads} -o {output.bam:q}
         else
             bowtie2 $RG -x {params.bt2_idx:q} -U {input.r1:q} -p {threads} \
                 {params.mode} {params.dovetail} {params.no_mixed} {params.no_discordant} \
                 {params.extra} \
-                2> {log:q} | samtools view -b | samtools sort -@ {threads} -o {output.bam:q}
+                2>{log:q} | samtools view -b | samtools sort -@ {threads} -o {output.bam:q}
         fi
         """
 
@@ -162,14 +165,15 @@ rule bowtie2_align:
 # 4. Samtools index — sorted BAM
 # ---------------------------------------------------------------------------
 
+
 rule samtools_index_sorted:
-    output:
-        bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam.bai",
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
-    threads: THREADS,
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
+    output:
+        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam.bai",
     conda:
-        "../envs/samtools.yml",
+        "../envs/samtools.yml"
+    threads: THREADS
     shell:
         "set -e -o pipefail; samtools index -@ {threads} {input.bam:q}"
 
@@ -178,22 +182,23 @@ rule samtools_index_sorted:
 # 5. MAPQ filter — remove low-quality, secondary, supplementary reads
 # ---------------------------------------------------------------------------
 
+
 rule samtools_filter:
-    output:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
-    params:
-        mapq         = MAPQ,
-        filter_flags = _filter_flags_arg(),
-        extra        = _tool_param("samtools_filter", "extra_args", ""),
-    threads: THREADS,
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
+    output:
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
     conda:
-        "../envs/samtools.yml",
+        "../envs/samtools.yml"
+    threads: THREADS
+    params:
+        mapq=MAPQ,
+        filter_flags=_filter_flags_arg(),
+        extra=_tool_param("samtools_filter", "extra_args", ""),
     shell:
         """
         set -e -o pipefail
-        samtools view -@ {threads} -b -q {params.mapq} {params.filter_flags} {params.extra} {input.bam:q} > {output.bam:q}
+        samtools view -@ {threads} -b -q {params.mapq} {params.filter_flags} {params.extra} {input.bam:q} >{output.bam:q}
         """
 
 
@@ -201,14 +206,15 @@ rule samtools_filter:
 # 6. Samtools index — filtered BAM
 # ---------------------------------------------------------------------------
 
+
 rule samtools_index_filt:
-    output:
-        bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam.bai",
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
-    threads: THREADS,
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
+    output:
+        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam.bai",
     conda:
-        "../envs/samtools.yml",
+        "../envs/samtools.yml"
+    threads: THREADS
     shell:
         "set -e -o pipefail; samtools index -@ {threads} {input.bam:q}"
 
@@ -217,21 +223,26 @@ rule samtools_index_filt:
 # 7. Duplicate handling → final.bam contract
 # ---------------------------------------------------------------------------
 
+
 rule duplicate_handling:
-    output:
-        bam     = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
-        bai     = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
-        metrics = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
-        bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam.bai",
-    params:
-        remove_dup = lambda wc: get_remove_dup(wc),
-        picard_od  = f"OPTICAL_DUPLICATE_PIXEL_DISTANCE={v}" if (v := _tool_param("picard_markduplicates", "optical_duplicate_pixel_distance", "")) != "" else "",
-        picard_extra = _tool_param("picard_markduplicates", "extra_args", ""),
-    threads: THREADS,
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
+        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam.bai",
+    output:
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+        metrics=f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
     conda:
-        "../envs/samtools.yml",
+        "../envs/samtools.yml"
+    threads: THREADS
+    params:
+        remove_dup=lambda wc: get_remove_dup(wc),
+        picard_od=(
+            f"OPTICAL_DUPLICATE_PIXEL_DISTANCE={v}"
+            if (v := _tool_param("picard_markduplicates", "optical_duplicate_pixel_distance", "")) != ""
+            else ""
+        ),
+        picard_extra=_tool_param("picard_markduplicates", "extra_args", ""),
     shell:
         """
         set -e -o pipefail
@@ -254,7 +265,7 @@ rule duplicate_handling:
                 samtools sort -@ {threads} -o "$TMP_POS" "$TMP_FIX"
                 samtools markdup -r -@ {threads} "$TMP_POS" {output.bam:q}
                 rm -f "$TMP_NAME" "$TMP_FIX" "$TMP_POS"
-                echo "samtools markdup used (picard not found)." > {output.metrics}
+                echo "samtools markdup used (picard not found)." >{output.metrics}
             fi
             samtools index -@ {threads} {output.bam}
         else
@@ -267,7 +278,7 @@ rule duplicate_handling:
                     {params.picard_od} {params.picard_extra} \
                     >/dev/null 2>&1 || true
             else
-                echo "picard not found; duplicate metrics unavailable." > {output.metrics}
+                echo "picard not found; duplicate metrics unavailable." >{output.metrics}
             fi
             ln -sf $(basename {input.bam}) {output.bam}
             ln -sf $(basename {input.bai}) {output.bai}
@@ -279,14 +290,15 @@ rule duplicate_handling:
 # 8. Flagstat — sorted BAM (pre-filter QC)
 # ---------------------------------------------------------------------------
 
+
 rule samtools_flagstat:
-    output:
-        flagstat = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.flagstat.txt",
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
-    threads: THREADS,
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
+    output:
+        flagstat=f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.flagstat.txt",
     conda:
-        "../envs/samtools.yml",
+        "../envs/samtools.yml"
+    threads: THREADS
     shell:
         "set -e -o pipefail; samtools flagstat -@ {threads} {input.bam:q} > {output.flagstat:q}"
 
@@ -295,14 +307,15 @@ rule samtools_flagstat:
 # 9. Flagstat — final BAM (post-filter, post-dedup QC)
 # ---------------------------------------------------------------------------
 
+
 rule samtools_flagstat_final:
-    output:
-        flagstat = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.final.flagstat.txt",
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
-    threads: THREADS,
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+    output:
+        flagstat=f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.final.flagstat.txt",
     conda:
-        "../envs/samtools.yml",
+        "../envs/samtools.yml"
+    threads: THREADS
     shell:
         "set -e -o pipefail; samtools flagstat -@ {threads} {input.bam:q} > {output.flagstat:q}"
 
@@ -311,15 +324,16 @@ rule samtools_flagstat_final:
 # 10. Idxstats — chromosomal read distribution
 # ---------------------------------------------------------------------------
 
+
 rule samtools_idxstats:
-    output:
-        idxstats = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.idxstats.txt",
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
-        bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam.bai",
-    threads: THREADS,
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
+        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam.bai",
+    output:
+        idxstats=f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.idxstats.txt",
     conda:
-        "../envs/samtools.yml",
+        "../envs/samtools.yml"
+    threads: THREADS
     shell:
         "set -e -o pipefail; samtools idxstats {input.bam:q} > {output.idxstats:q}"
 
@@ -327,6 +341,7 @@ rule samtools_idxstats:
 # ---------------------------------------------------------------------------
 # 11. bigWig generation (deepTools bamCoverage)
 # ---------------------------------------------------------------------------
+
 
 def _bamcoverage_inputs(wildcards):
     """Return input list for bamcoverage: [final.bam, final.bam.bai, ...optional peaks].
@@ -340,34 +355,31 @@ def _bamcoverage_inputs(wildcards):
         f"{OUTDIR}/{wildcards.sample}/02_align/{wildcards.sample}.final.bam.bai",
     ]
     ext = str(config.get("extend_reads", "auto"))
-    if (
-        s["role"] == "treatment"
-        and s["layout"] == "SE"
-        and s["assay"] == "chipseq"
-        and ext in ("auto", "yes")
-    ):
-        inputs.append(
-            f"{OUTDIR}/{wildcards.sample}/04_peaks/{wildcards.sample}"
-        )
+    if s["role"] == "treatment" and s["layout"] == "SE" and s["assay"] == "chipseq" and ext in ("auto", "yes"):
+        inputs.append(f"{OUTDIR}/{wildcards.sample}/04_peaks/{wildcards.sample}")
     return inputs
 
 
 rule bamcoverage:
-    output:
-        bw = f"{OUTDIR}/{{sample}}/03_bigwig/{{sample}}.CPM.bw",
     input:
         lambda wc: _bamcoverage_inputs(wc),
-    params:
-        ext_args        = lambda wc: get_extend_reads(wc),
-        binsize         = BINSIZE,
-        normalize_using = f"--normalizeUsing {v}" if (v := _tool_param("bamcoverage", "normalize_using", "CPM")) != "" else "--normalizeUsing CPM",
-        smooth_length   = f"--smoothLength {v}" if (v := _tool_param("bamcoverage", "smooth_length", "")) != "" else "",
-        extra           = _tool_param("bamcoverage", "extra_args", ""),
+    output:
+        bw=f"{OUTDIR}/{{sample}}/03_bigwig/{{sample}}.CPM.bw",
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.bamCoverage.log",
-    threads: THREADS,
     conda:
-        "../envs/deeptools.yml",
+        "../envs/deeptools.yml"
+    threads: THREADS
+    params:
+        ext_args=lambda wc: get_extend_reads(wc),
+        binsize=BINSIZE,
+        normalize_using=(
+            f"--normalizeUsing {v}"
+            if (v := _tool_param("bamcoverage", "normalize_using", "CPM")) != ""
+            else "--normalizeUsing CPM"
+        ),
+        smooth_length=f"--smoothLength {v}" if (v := _tool_param("bamcoverage", "smooth_length", "")) != "" else "",
+        extra=_tool_param("bamcoverage", "extra_args", ""),
     shell:
         """
         set -e -o pipefail

@@ -1,4 +1,3 @@
-
 # ---------------------------------------------------------------------------
 # 7. Target builder helpers — return flat lists for rule all input
 # ---------------------------------------------------------------------------
@@ -51,6 +50,7 @@ def _manifest_dependency_targets():
 
 
 import json as _json
+
 _MANIFEST_CONFIG_JSON = _json.dumps(VALIDATED_CONFIG)
 
 
@@ -301,13 +301,15 @@ def _replicate_targets():
             "{outdir}/experiments/{experiment}/02_align/biorep{bio_rep}.final.bam",
             zip,
             outdir=OUTDIR,
-            experiment=_EXP_LIST, bio_rep=_BR_LIST,
+            experiment=_EXP_LIST,
+            bio_rep=_BR_LIST,
         )
         targets += expand(
             "{outdir}/experiments/{experiment}/02_align/biorep{bio_rep}.final.bam.bai",
             zip,
             outdir=OUTDIR,
-            experiment=_EXP_LIST, bio_rep=_BR_LIST,
+            experiment=_EXP_LIST,
+            bio_rep=_BR_LIST,
         )
     if STAGE4B and POOLED_CONTROL_EXPERIMENTS:
         targets += expand(
@@ -435,8 +437,7 @@ def _idr_targets():
             {"outdir": OUTDIR, "experiment": IDR_EXPERIMENTS},
         ),
         (
-            f"{OUTDIR}/experiments/{{experiment}}/06_idr/true_replicates/"
-            f"idr.thresholded.narrowPeak",
+            f"{OUTDIR}/experiments/{{experiment}}/06_idr/true_replicates/" f"idr.thresholded.narrowPeak",
             False,
             {"outdir": OUTDIR, "experiment": IDR_EXPERIMENTS},
         ),
@@ -452,8 +453,7 @@ def _idr_targets():
             },
         ),
         (
-            f"{OUTDIR}/experiments/{{experiment}}/06_idr/self_pseudoreplicates/"
-            f"biorep{{bio_rep}}.idr.txt",
+            f"{OUTDIR}/experiments/{{experiment}}/06_idr/self_pseudoreplicates/" f"biorep{{bio_rep}}.idr.txt",
             True,
             {"outdir": OUTDIR, "experiment": IDR_SELF_EXP, "bio_rep": IDR_SELF_BR},
         ),
@@ -469,8 +469,7 @@ def _idr_targets():
             {"outdir": OUTDIR, "experiment": IDR_EXPERIMENTS},
         ),
         (
-            f"{OUTDIR}/experiments/{{experiment}}/06_idr/pooled_pseudoreplicates/"
-            f"idr.thresholded.narrowPeak",
+            f"{OUTDIR}/experiments/{{experiment}}/06_idr/pooled_pseudoreplicates/" f"idr.thresholded.narrowPeak",
             False,
             {"outdir": OUTDIR, "experiment": IDR_EXPERIMENTS},
         ),
@@ -569,8 +568,7 @@ def _atac_idr_targets():
             {"outdir": OUTDIR, "experiment": ATAC_IDR_EXPERIMENTS},
         ),
         (
-            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/final/"
-            f"reproducibility_summary.tsv",
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/final/" f"reproducibility_summary.tsv",
             False,
             {"outdir": OUTDIR, "experiment": ATAC_IDR_EXPERIMENTS},
         ),
@@ -654,8 +652,7 @@ def _cuttag_idr_targets():
             {"outdir": OUTDIR, "experiment": CUTTAG_IDR_EXPERIMENTS},
         ),
         (
-            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/final/"
-            f"reproducibility_summary.tsv",
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/final/" f"reproducibility_summary.tsv",
             False,
             {"outdir": OUTDIR, "experiment": CUTTAG_IDR_EXPERIMENTS},
         ),
@@ -763,8 +760,7 @@ def _broad_idr_targets():
             },
         ),
         (
-            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/final/"
-            f"reproducibility_summary.tsv",
+            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/final/" f"reproducibility_summary.tsv",
             False,
             {"outdir": OUTDIR, "experiment": BROAD_IDR_EXPERIMENTS},
         ),
@@ -786,33 +782,37 @@ def _consensus_targets():
         targets += expand(
             "{outdir}/experiments/{experiment}/06_reproducibility/consensus/"
             "{experiment}.{assay}.macs3.{peak_mode}.consensus.{suffix}",
-            outdir=OUTDIR, experiment=exps,
-            assay=[assay], peak_mode=[peak_mode], suffix=[suffix],
+            outdir=OUTDIR,
+            experiment=exps,
+            assay=[assay],
+            peak_mode=[peak_mode],
+            suffix=[suffix],
         )
         targets += expand(
             "{outdir}/experiments/{experiment}/06_reproducibility/consensus/"
             "{experiment}.{assay}.macs3.{peak_mode}.consensus.summary.tsv",
-            outdir=OUTDIR, experiment=exps,
-            assay=[assay], peak_mode=[peak_mode],
+            outdir=OUTDIR,
+            experiment=exps,
+            assay=[assay],
+            peak_mode=[peak_mode],
         )
 
         # Final consensus for modes where consensus is primary
         final_exps = list(exps)
-        if (assay == "chipseq" and peak_mode == "broad"
-            and BROAD_CHIPSEQ_IDR_ENABLED):
+        if assay == "chipseq" and peak_mode == "broad" and BROAD_CHIPSEQ_IDR_ENABLED:
             idr_set = set(BROAD_CHIPSEQ_IDR_EXPERIMENTS)
             final_exps = [e for e in exps if e not in idr_set]
-        elif (assay == "cuttag" and peak_mode == "broad"
-              and BROAD_CUTTAG_IDR_ENABLED):
+        elif assay == "cuttag" and peak_mode == "broad" and BROAD_CUTTAG_IDR_ENABLED:
             idr_set = set(BROAD_CUTTAG_IDR_EXPERIMENTS)
             final_exps = [e for e in exps if e not in idr_set]
-        elif (assay == "cuttag" and peak_mode == "narrow"
-              and CUTTAG_IDR_ENABLED):
+        elif assay == "cuttag" and peak_mode == "narrow" and CUTTAG_IDR_ENABLED:
             idr_set = set(CUTTAG_IDR_EXPERIMENTS)
             final_exps = [e for e in exps if e not in idr_set]
-        elif (assay == "chipseq" and peak_mode == "broad") or \
-             (assay == "cuttag" and peak_mode == "narrow") or \
-             (assay == "cuttag" and peak_mode == "broad"):
+        elif (
+            (assay == "chipseq" and peak_mode == "broad")
+            or (assay == "cuttag" and peak_mode == "narrow")
+            or (assay == "cuttag" and peak_mode == "broad")
+        ):
             pass
         else:
             final_exps = []
@@ -821,8 +821,11 @@ def _consensus_targets():
                 "{outdir}/experiments/{experiment}/06_reproducibility/final/"
                 "{experiment}.{assay}.macs3.{peak_mode}."
                 "replicate_validated.consensus.{suffix}",
-                outdir=OUTDIR, experiment=exps,
-                assay=[assay], peak_mode=[peak_mode], suffix=[suffix],
+                outdir=OUTDIR,
+                experiment=exps,
+                assay=[assay],
+                peak_mode=[peak_mode],
+                suffix=[suffix],
             )
 
     # Stage 63: SEACR consensus targets
@@ -830,20 +833,23 @@ def _consensus_targets():
         targets += expand(
             "{outdir}/experiments/{experiment}/06_reproducibility/consensus/"
             "{experiment}.cuttag.seacr.{mode}.consensus.bed",
-            outdir=OUTDIR, experiment=SEACR_CONSENSUS_EXPERIMENTS,
+            outdir=OUTDIR,
+            experiment=SEACR_CONSENSUS_EXPERIMENTS,
             mode=[SEACR_MODE],
         )
         targets += expand(
             "{outdir}/experiments/{experiment}/06_reproducibility/consensus/"
             "{experiment}.cuttag.seacr.{mode}.consensus.summary.tsv",
-            outdir=OUTDIR, experiment=SEACR_CONSENSUS_EXPERIMENTS,
+            outdir=OUTDIR,
+            experiment=SEACR_CONSENSUS_EXPERIMENTS,
             mode=[SEACR_MODE],
         )
         targets += expand(
             "{outdir}/experiments/{experiment}/06_reproducibility/final/"
             "{experiment}.cuttag.seacr.{mode}."
             "replicate_validated.consensus.bed",
-            outdir=OUTDIR, experiment=SEACR_CONSENSUS_EXPERIMENTS,
+            outdir=OUTDIR,
+            experiment=SEACR_CONSENSUS_EXPERIMENTS,
             mode=[SEACR_MODE],
         )
 

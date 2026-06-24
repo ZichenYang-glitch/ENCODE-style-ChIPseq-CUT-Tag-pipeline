@@ -1,24 +1,19 @@
-
 # ---------------------------------------------------------------------------
 # 3a. Stage 4a replicate-aware metadata (derived structures, no scheduling changes)
 # ---------------------------------------------------------------------------
 
-EXPERIMENT_IDS = sorted(
-    {s["experiment"] for s in SAMPLES}
-)
+EXPERIMENT_IDS = sorted({s["experiment"] for s in SAMPLES})
 
 SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {exp: [] for exp in EXPERIMENT_IDS}
 for s in SAMPLES:
     SAMPLES_BY_EXPERIMENT[s["experiment"]].append(s["id"])
 
 TREATMENT_SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {
-    exp: [sid for sid in sids if SAMPLE_MAP[sid]["role"] == "treatment"]
-    for exp, sids in SAMPLES_BY_EXPERIMENT.items()
+    exp: [sid for sid in sids if SAMPLE_MAP[sid]["role"] == "treatment"] for exp, sids in SAMPLES_BY_EXPERIMENT.items()
 }
 
 CONTROL_SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {
-    exp: [sid for sid in sids if SAMPLE_MAP[sid]["role"] == "control"]
-    for exp, sids in SAMPLES_BY_EXPERIMENT.items()
+    exp: [sid for sid in sids if SAMPLE_MAP[sid]["role"] == "control"] for exp, sids in SAMPLES_BY_EXPERIMENT.items()
 }
 
 
@@ -37,10 +32,7 @@ if STAGE4B:
 
     # Biological replicates for a specific experiment + role
     def _bioreps_for(experiment, role):
-        return sorted(
-            bio_rep for (exp, r, bio_rep) in BIO_REP_GROUPS
-            if exp == experiment and r == role
-        )
+        return sorted(bio_rep for (exp, r, bio_rep) in BIO_REP_GROUPS if exp == experiment and r == role)
 
     # Pre-computed (experiment, bio_rep) pairs for treatment expand() calls.
     # Only includes bio-reps that need merging (multiple tech-reps) or are
@@ -69,10 +61,7 @@ if STAGE4B:
     _EXP_LIST, _BR_LIST = _biorep_expand_pairs()
 
     # Experiments with >=2 treatment biological replicates → pooled BAMs + peaks
-    MULTI_BIOREP_EXPERIMENTS = sorted(
-        exp for exp in EXPERIMENT_IDS
-        if len(_bioreps_for(exp, "treatment")) >= 2
-    )
+    MULTI_BIOREP_EXPERIMENTS = sorted(exp for exp in EXPERIMENT_IDS if len(_bioreps_for(exp, "treatment")) >= 2)
 
     # Control BAM resolution for a given experiment.
     # Returns list of (source_type, path) tuples where source_type is
@@ -104,8 +93,7 @@ if STAGE4B:
     # experiment has controls actually referenced by its treatment rows
     # (1 unique → symlink, >1 → merge).
     POOLED_CONTROL_EXPERIMENTS = sorted(
-        exp for exp in MULTI_BIOREP_EXPERIMENTS
-        if USE_CONTROL and _resolve_experiment_controls(exp)
+        exp for exp in MULTI_BIOREP_EXPERIMENTS if USE_CONTROL and _resolve_experiment_controls(exp)
     )
 
 else:
@@ -115,13 +103,11 @@ else:
 # Stage 39: MNase and peak-centric experiment subsets (subset of MULTI_BIOREP_EXPERIMENTS)
 # Used for assay-specific pooled target expansions (peaks vs nucleosome outputs).
 PEAK_MULTI_BIOREP_EXPERIMENTS = [
-    exp for exp in MULTI_BIOREP_EXPERIMENTS
-    if SAMPLE_MAP[TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0]]["assay"] != "mnase"
+    exp for exp in MULTI_BIOREP_EXPERIMENTS if SAMPLE_MAP[TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0]]["assay"] != "mnase"
 ]
 
 MNASE_MULTI_BIOREP_EXPERIMENTS = [
-    exp for exp in MULTI_BIOREP_EXPERIMENTS
-    if SAMPLE_MAP[TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0]]["assay"] == "mnase"
+    exp for exp in MULTI_BIOREP_EXPERIMENTS if SAMPLE_MAP[TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0]]["assay"] == "mnase"
 ]
 
 
@@ -201,9 +187,13 @@ def _build_idr_pseudorep_lists(experiments):
             pr_peak_pr.append(pr)
 
     return (
-        split_source_exp, split_source_name,
-        pr_peak_exp, pr_peak_src, pr_peak_pr,
-        self_exp, self_br,
+        split_source_exp,
+        split_source_name,
+        pr_peak_exp,
+        pr_peak_src,
+        pr_peak_pr,
+        self_exp,
+        self_br,
     )
 
 
@@ -261,10 +251,19 @@ def _build_broad_idr_pseudorep_lists(experiments, assays):
             pr_peak_pr.append(pr)
 
     return (
-        split_source_exp, split_source_name, split_source_assay,
-        pr_peak_exp, pr_peak_src, pr_peak_assay, pr_peak_pr,
-        self_exp, self_br, self_assay,
-        biorep_exp_list, biorep_list, biorep_assay,
+        split_source_exp,
+        split_source_name,
+        split_source_assay,
+        pr_peak_exp,
+        pr_peak_src,
+        pr_peak_assay,
+        pr_peak_pr,
+        self_exp,
+        self_br,
+        self_assay,
+        biorep_exp_list,
+        biorep_list,
+        biorep_assay,
     )
 
 
@@ -275,9 +274,13 @@ IDR_EXPERIMENTS, IDR_BIOREP_EXP_LIST, IDR_BIOREP_LIST = _build_idr_experiment_li
 
 # Stage 5b precomputed expansion lists
 (
-    IDR_SPLIT_SOURCE_EXP, IDR_SPLIT_SOURCE_NAME,
-    IDR_PR_PEAK_EXP, IDR_PR_PEAK_SRC, IDR_PR_PEAK_PR,
-    IDR_SELF_EXP, IDR_SELF_BR,
+    IDR_SPLIT_SOURCE_EXP,
+    IDR_SPLIT_SOURCE_NAME,
+    IDR_PR_PEAK_EXP,
+    IDR_PR_PEAK_SRC,
+    IDR_PR_PEAK_PR,
+    IDR_SELF_EXP,
+    IDR_SELF_BR,
 ) = _build_idr_pseudorep_lists(IDR_EXPERIMENTS)
 
 
@@ -288,9 +291,13 @@ ATAC_IDR_EXPERIMENTS, ATAC_IDR_BIOREP_EXP_LIST, ATAC_IDR_BIOREP_LIST = _build_id
 
 # Stage 55 pseudorep expansion lists
 (
-    ATAC_IDR_SPLIT_SOURCE_EXP, ATAC_IDR_SPLIT_SOURCE_NAME,
-    ATAC_IDR_PR_PEAK_EXP, ATAC_IDR_PR_PEAK_SRC, ATAC_IDR_PR_PEAK_PR,
-    ATAC_IDR_SELF_EXP, ATAC_IDR_SELF_BR,
+    ATAC_IDR_SPLIT_SOURCE_EXP,
+    ATAC_IDR_SPLIT_SOURCE_NAME,
+    ATAC_IDR_PR_PEAK_EXP,
+    ATAC_IDR_PR_PEAK_SRC,
+    ATAC_IDR_PR_PEAK_PR,
+    ATAC_IDR_SELF_EXP,
+    ATAC_IDR_SELF_BR,
 ) = _build_idr_pseudorep_lists(ATAC_IDR_EXPERIMENTS)
 
 
@@ -301,18 +308,26 @@ CUTTAG_IDR_EXPERIMENTS, CUTTAG_IDR_BIOREP_EXP_LIST, CUTTAG_IDR_BIOREP_LIST = _bu
 CUTTAG_IDR_EXPERIMENTS = sorted(CUTTAG_IDR_EXPERIMENTS)
 
 (
-    CUTTAG_IDR_SPLIT_SOURCE_EXP, CUTTAG_IDR_SPLIT_SOURCE_NAME,
-    CUTTAG_IDR_PR_PEAK_EXP, CUTTAG_IDR_PR_PEAK_SRC, CUTTAG_IDR_PR_PEAK_PR,
-    CUTTAG_IDR_SELF_EXP, CUTTAG_IDR_SELF_BR,
+    CUTTAG_IDR_SPLIT_SOURCE_EXP,
+    CUTTAG_IDR_SPLIT_SOURCE_NAME,
+    CUTTAG_IDR_PR_PEAK_EXP,
+    CUTTAG_IDR_PR_PEAK_SRC,
+    CUTTAG_IDR_PR_PEAK_PR,
+    CUTTAG_IDR_SELF_EXP,
+    CUTTAG_IDR_SELF_BR,
 ) = _build_idr_pseudorep_lists(CUTTAG_IDR_EXPERIMENTS)
 
 
 # Stage 65 broad-peak IDR experiment lists (experimental opt-in)
-BROAD_CHIPSEQ_IDR_EXPERIMENTS, BROAD_CHIPSEQ_IDR_BIOREP_EXP_LIST, BROAD_CHIPSEQ_IDR_BIOREP_LIST = _build_idr_experiment_lists(
-    BROAD_IDR_ENABLED and STAGE4B and BROAD_CHIPSEQ_IDR_ENABLED, "chipseq", "broad", MULTI_BIOREP_EXPERIMENTS
+BROAD_CHIPSEQ_IDR_EXPERIMENTS, BROAD_CHIPSEQ_IDR_BIOREP_EXP_LIST, BROAD_CHIPSEQ_IDR_BIOREP_LIST = (
+    _build_idr_experiment_lists(
+        BROAD_IDR_ENABLED and STAGE4B and BROAD_CHIPSEQ_IDR_ENABLED, "chipseq", "broad", MULTI_BIOREP_EXPERIMENTS
+    )
 )
-BROAD_CUTTAG_IDR_EXPERIMENTS, BROAD_CUTTAG_IDR_BIOREP_EXP_LIST, BROAD_CUTTAG_IDR_BIOREP_LIST = _build_idr_experiment_lists(
-    BROAD_IDR_ENABLED and STAGE4B and BROAD_CUTTAG_IDR_ENABLED, "cuttag", "broad", MULTI_BIOREP_EXPERIMENTS
+BROAD_CUTTAG_IDR_EXPERIMENTS, BROAD_CUTTAG_IDR_BIOREP_EXP_LIST, BROAD_CUTTAG_IDR_BIOREP_LIST = (
+    _build_idr_experiment_lists(
+        BROAD_IDR_ENABLED and STAGE4B and BROAD_CUTTAG_IDR_ENABLED, "cuttag", "broad", MULTI_BIOREP_EXPERIMENTS
+    )
 )
 
 BROAD_CHIPSEQ_IDR_EXPERIMENTS = sorted(BROAD_CHIPSEQ_IDR_EXPERIMENTS)
@@ -321,17 +336,25 @@ BROAD_CUTTAG_IDR_EXPERIMENTS = sorted(BROAD_CUTTAG_IDR_EXPERIMENTS)
 BROAD_IDR_EXPERIMENTS = []
 BROAD_IDR_EXPERIMENT_ASSAY = []
 for exp, assay in sorted(
-    [(e, "chipseq") for e in BROAD_CHIPSEQ_IDR_EXPERIMENTS]
-    + [(e, "cuttag") for e in BROAD_CUTTAG_IDR_EXPERIMENTS]
+    [(e, "chipseq") for e in BROAD_CHIPSEQ_IDR_EXPERIMENTS] + [(e, "cuttag") for e in BROAD_CUTTAG_IDR_EXPERIMENTS]
 ):
     BROAD_IDR_EXPERIMENTS.append(exp)
     BROAD_IDR_EXPERIMENT_ASSAY.append(assay)
 
 (
-    BROAD_IDR_SPLIT_SOURCE_EXP, BROAD_IDR_SPLIT_SOURCE_NAME, BROAD_IDR_SPLIT_SOURCE_ASSAY,
-    BROAD_IDR_PR_PEAK_EXP, BROAD_IDR_PR_PEAK_SRC, BROAD_IDR_PR_PEAK_ASSAY, BROAD_IDR_PR_PEAK_PR,
-    BROAD_IDR_SELF_EXP, BROAD_IDR_SELF_BR, BROAD_IDR_SELF_ASSAY,
-    BROAD_IDR_BIOREP_EXP_LIST, BROAD_IDR_BIOREP_LIST, BROAD_IDR_BIOREP_ASSAY,
+    BROAD_IDR_SPLIT_SOURCE_EXP,
+    BROAD_IDR_SPLIT_SOURCE_NAME,
+    BROAD_IDR_SPLIT_SOURCE_ASSAY,
+    BROAD_IDR_PR_PEAK_EXP,
+    BROAD_IDR_PR_PEAK_SRC,
+    BROAD_IDR_PR_PEAK_ASSAY,
+    BROAD_IDR_PR_PEAK_PR,
+    BROAD_IDR_SELF_EXP,
+    BROAD_IDR_SELF_BR,
+    BROAD_IDR_SELF_ASSAY,
+    BROAD_IDR_BIOREP_EXP_LIST,
+    BROAD_IDR_BIOREP_LIST,
+    BROAD_IDR_BIOREP_ASSAY,
 ) = _build_broad_idr_pseudorep_lists(BROAD_IDR_EXPERIMENTS, BROAD_IDR_EXPERIMENT_ASSAY)
 
 
@@ -384,11 +407,7 @@ if CONSENSUS_ENABLED and STAGE4B and SEACR_ENABLED:
         bioreps = _bioreps_for(exp, "treatment")
         if len(bioreps) < 2:
             continue
-        if all(
-            SAMPLE_MAP[sid]["assay"] == "cuttag"
-            and SAMPLE_MAP[sid]["layout"] == "PE"
-            for sid in treatment_ids
-        ):
+        if all(SAMPLE_MAP[sid]["assay"] == "cuttag" and SAMPLE_MAP[sid]["layout"] == "PE" for sid in treatment_ids):
             SEACR_CONSENSUS_EXPERIMENTS.append(exp)
     SEACR_CONSENSUS_EXPERIMENTS = sorted(SEACR_CONSENSUS_EXPERIMENTS)
 else:
@@ -399,19 +418,22 @@ else:
 # 3b. Stage 3 QC configuration and genome resource helpers
 # ---------------------------------------------------------------------------
 
-QC_CONFIG = VALIDATED_CONFIG.get("qc", {
-    "blacklist_filter": True,
-    "frip": True,
-    "library_complexity": True,
-    "nrf_pbc": True,
-    "signal_tracks": True,
-    "summary": True,
-    "cuttag_fragment_size": True,
-    "cross_correlation": False,
-    "preseq_complexity": False,
-    "picard_metrics": False,
-    "tss_enrichment": False,
-})
+QC_CONFIG = VALIDATED_CONFIG.get(
+    "qc",
+    {
+        "blacklist_filter": True,
+        "frip": True,
+        "library_complexity": True,
+        "nrf_pbc": True,
+        "signal_tracks": True,
+        "summary": True,
+        "cuttag_fragment_size": True,
+        "cross_correlation": False,
+        "preseq_complexity": False,
+        "picard_metrics": False,
+        "tss_enrichment": False,
+    },
+)
 
 # Stage 4c: structured tool parameters (absent → empty dict, defaults silently)
 TOOL_PARAMS = VALIDATED_CONFIG.get("tool_parameters", {})
@@ -431,23 +453,16 @@ def _filter_flags_arg():
         return "-F 0x904"
     if isinstance(raw, int):
         # Check if the original config had hex representation
-        raw_config = (
-            VALIDATED_CONFIG.get("tool_parameters", {})
-            .get("samtools_filter", {})
-            .get("filter_flags", "")
-        )
-        if isinstance(raw_config, str) and (
-            raw_config.strip().startswith("0x")
-            or raw_config.strip().startswith("0X")
-        ):
+        raw_config = VALIDATED_CONFIG.get("tool_parameters", {}).get("samtools_filter", {}).get("filter_flags", "")
+        if isinstance(raw_config, str) and (raw_config.strip().startswith("0x") or raw_config.strip().startswith("0X")):
             return f"-F {raw_config.strip()}"
         return f"-F {raw}"
     return f"-F {raw}"
 
+
 # Samples with a configured blacklist path (resource-gated blacklist filtering)
 BLACKLIST_SAMPLES = [
-    s for s in TREATMENT_SAMPLE_IDS
-    if GENOME_RESOURCES.get(SAMPLE_MAP[s]["genome"], {}).get("blacklist", "")
+    s for s in TREATMENT_SAMPLE_IDS if GENOME_RESOURCES.get(SAMPLE_MAP[s]["genome"], {}).get("blacklist", "")
 ]
 
 
@@ -463,9 +478,7 @@ def has_genome_resource(sample, key):
 
 
 TSS_SAMPLE_IDS = [
-    sid for sid in PEAK_SAMPLE_IDS
-    if QC_CONFIG.get("tss_enrichment", False)
-    and has_genome_resource(sid, "gtf")
+    sid for sid in PEAK_SAMPLE_IDS if QC_CONFIG.get("tss_enrichment", False) and has_genome_resource(sid, "gtf")
 ]
 TSS_GENOMES = sorted({SAMPLE_MAP[sid]["genome"] for sid in TSS_SAMPLE_IDS})
 
@@ -474,19 +487,16 @@ TSS_GENOMES = sorted({SAMPLE_MAP[sid]["genome"] for sid in TSS_SAMPLE_IDS})
 # has_genome_resource() checks non-empty genome_resources.<genome>.chrom_sizes.
 # Path existence for non-empty chrom_sizes is already enforced by validate_samples.py.
 SIGNAL_BW_SAMPLE_IDS = [
-    sid for sid in PEAK_SAMPLE_IDS
-    if QC_CONFIG.get("signal_tracks", True)
-    and has_genome_resource(sid, "chrom_sizes")
+    sid for sid in PEAK_SAMPLE_IDS if QC_CONFIG.get("signal_tracks", True) and has_genome_resource(sid, "chrom_sizes")
 ]
 
 if STAGE4B:
     SIGNAL_BW_EXPERIMENTS = [
-        exp for exp in PEAK_MULTI_BIOREP_EXPERIMENTS
+        exp
+        for exp in PEAK_MULTI_BIOREP_EXPERIMENTS
         if QC_CONFIG.get("signal_tracks", True)
         and SIGNAL_BW_SAMPLE_IDS
-        and has_genome_resource(
-            TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0], "chrom_sizes"
-        )
+        and has_genome_resource(TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0], "chrom_sizes")
     ]
 else:
     SIGNAL_BW_EXPERIMENTS = []
@@ -505,10 +515,10 @@ def _pooled_chrom_sizes(experiment):
     return get_genome_resource(tids[0], "chrom_sizes")
 
 
-
 # ---------------------------------------------------------------------------
 # 5. Dispatch wrappers — wire assay-specific policy to generic names
 # ---------------------------------------------------------------------------
+
 
 def get_remove_dup(wildcards):
     """Return "yes" or "no" for duplicate removal, dispatched by assay."""
@@ -556,6 +566,7 @@ def get_extend_reads(wildcards):
 # 6. MACS3 input resolution — tracks control dependencies
 # ---------------------------------------------------------------------------
 
+
 def _macs3_inputs(wildcards):
     """Return input list for macs3_callpeak.
 
@@ -573,9 +584,7 @@ def _macs3_inputs(wildcards):
     if USE_CONTROL:
         if s.get("control_sample"):
             cs = s["control_sample"]
-            inputs.append(
-                f"{OUTDIR}/{cs}/02_align/{cs}.final.bam"
-            )
+            inputs.append(f"{OUTDIR}/{cs}/02_align/{cs}.final.bam")
         elif s.get("control_bam"):
             inputs.append(s["control_bam"])
     return inputs
