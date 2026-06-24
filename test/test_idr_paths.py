@@ -197,6 +197,10 @@ def test_idr_macs3_args_empty_experiment(idr_paths_namespace):
     assert idr_paths_namespace["idr_macs3_args"]("NOEXP", "chipseq", "narrow") == ""
 
 
+def test_idr_biorep_labels(idr_paths_namespace):
+    assert idr_paths_namespace["idr_biorep_labels"]("EXP1") == ("1", "2")
+
+
 # -----------------------------------------------------------------------------
 # Legacy contract tests: prove the shared helpers produce the exact strings that
 # the four IDR rule files previously inlined. These are intentionally verbose so
@@ -354,3 +358,23 @@ def test_legacy_idr_macs3_args_match_inlined(
     args = idr_paths_namespace_chipseq_pe["idr_macs3_args"]("EXP1", assay, peak_mode)
     for part in expected_parts:
         assert part in args, f"{part!r} not in {args!r}"
+
+
+def test_legacy_idr_biorep_labels_match_inlined(idr_paths_namespace):
+    """Legacy idr.smk / idr_atac.smk / idr_cuttag.smk / idr_broad.smk summary rules
+    previously inlined:
+
+        bio_rep_a = str(sorted(_bioreps_for(wc.experiment, "treatment"))[0])
+        bio_rep_b = str(sorted(_bioreps_for(wc.experiment, "treatment"))[1])
+
+    or via private helpers:
+
+        bioreps = sorted(_bioreps_for(experiment, "treatment"))
+        return str(bioreps[0]), str(bioreps[1])
+    """
+    exp = "EXP1"
+    expected_a = str(sorted(["1", "2"])[0])
+    expected_b = str(sorted(["1", "2"])[1])
+    labels = idr_paths_namespace["idr_biorep_labels"](exp)
+    assert labels == (expected_a, expected_b)
+    assert labels == ("1", "2")

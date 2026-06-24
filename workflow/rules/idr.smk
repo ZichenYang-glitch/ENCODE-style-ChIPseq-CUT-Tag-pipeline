@@ -406,8 +406,8 @@ rule stage5b_summary:
         self2_thresh = lambda wc: _self_thresh_path(wc.experiment, 1),
     params:
         experiment = lambda wc: wc.experiment,
-        bio_rep_a  = lambda wc: str(sorted(_bioreps_for(wc.experiment, "treatment"))[0]),
-        bio_rep_b  = lambda wc: str(sorted(_bioreps_for(wc.experiment, "treatment"))[1]),
+        bio_rep_a  = lambda wc: idr_biorep_labels(wc.experiment)[0],
+        bio_rep_b  = lambda wc: idr_biorep_labels(wc.experiment)[1],
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.stage5b.summary.log",
     conda:

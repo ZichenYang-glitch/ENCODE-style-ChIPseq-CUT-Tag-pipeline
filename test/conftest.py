@@ -157,6 +157,7 @@ def _load_idr_paths_namespace(
             ("idr_macs3", "extra_args"): "",
             ("macs3", "broad_cutoff"): 0.1,
         }.get((tool, key), default),
+        "_bioreps_for": lambda experiment, sample_type: ["1", "2"],
     }
     exec(compile(code, str(idr_paths_file), "exec"), namespace)
     return namespace

@@ -427,8 +427,8 @@ rule cuttag_idr_summary:
         assay         = "cuttag",
         caller        = "macs3",
         peak_mode     = "narrow",
-        bio_rep_a     = lambda wc: _idr_biorep_labels(wc.experiment)[0],
-        bio_rep_b     = lambda wc: _idr_biorep_labels(wc.experiment)[1],
+        bio_rep_a     = lambda wc: idr_biorep_labels(wc.experiment)[0],
+        bio_rep_b     = lambda wc: idr_biorep_labels(wc.experiment)[1],
         final_method  = "idr",
         final_output  = lambda wc: (
             f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/final/"
@@ -460,13 +460,3 @@ rule cuttag_idr_summary:
             --output-tsv {output.summary:q} \
             --output-peak {output.final_peak:q}
         """
-
-
-# ---------------------------------------------------------------------------
-# Helper: resolve biorep labels for IDR summary
-# ---------------------------------------------------------------------------
-
-def _idr_biorep_labels(experiment):
-    """Return (br_a, br_b) as strings for the experiment's 2 bioreps."""
-    bioreps = sorted(_bioreps_for(experiment, "treatment"))
-    return str(bioreps[0]), str(bioreps[1])

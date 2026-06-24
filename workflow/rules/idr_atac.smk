@@ -426,8 +426,8 @@ rule atac_idr_summary:
         assay        = "atac",
         caller       = "macs3",
         peak_mode    = "narrow",
-        bio_rep_a    = lambda wc: str(sorted(_bioreps_for(wc.experiment, "treatment"))[0]),
-        bio_rep_b    = lambda wc: str(sorted(_bioreps_for(wc.experiment, "treatment"))[1]),
+        bio_rep_a    = lambda wc: idr_biorep_labels(wc.experiment)[0],
+        bio_rep_b    = lambda wc: idr_biorep_labels(wc.experiment)[1],
         final_method = "idr",
         final_output = lambda wc: (
             f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/final/"

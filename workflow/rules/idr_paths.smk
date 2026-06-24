@@ -105,3 +105,13 @@ def idr_macs3_args(experiment, assay, peak_mode):
     if extra:
         parts.append(extra)
     return " ".join(parts)
+
+
+def idr_biorep_labels(experiment):
+    """Return (br_a, br_b) as strings for the experiment's two treatment bioreps.
+
+    Mirrors the biorep label resolution previously inlined in idr.smk,
+    idr_atac.smk, idr_cuttag.smk, and idr_broad.smk summary rules.
+    """
+    bioreps = sorted(_bioreps_for(experiment, "treatment"))
+    return str(bioreps[0]), str(bioreps[1])
