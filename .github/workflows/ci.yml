@@ -45,7 +45,7 @@ jobs:
 
       - name: Stage 8a dry-run smoke profiles
         shell: micromamba-shell {0}
-        run: python3 test/test_stage8_smoke_profiles.py
+        run: python3 -m pytest test/test_stage8_smoke_profiles.py -v
 
       - name: No-hardcoded-paths guard
         shell: micromamba-shell {0}
