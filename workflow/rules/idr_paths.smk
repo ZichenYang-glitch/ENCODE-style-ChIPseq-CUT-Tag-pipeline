@@ -147,3 +147,36 @@ def idr_repro_peak_input(experiment, index, assay, peak_suffix):
         f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
         f"idr_peaks/{experiment}_{filename_infix}biorep{br}_idr.{peak_suffix}"
     )
+
+
+def idr_self_thresh_path(experiment, index, assay, peak_suffix):
+    """Return the self-pseudoreplicate IDR thresholded peak path.
+
+    This path is used as input.self{1,2}_thresh for the reproducibility
+    summary rules in ATAC, CUT&Tag narrow, and broad-peak modes.  The
+    filename infix and suffix depend on the assay/peak-mode combination.
+
+    Valid combinations:
+      - assay in {"atac", "cuttag"}, peak_suffix == "narrowPeak"
+      - assay in {"chipseq", "cuttag"}, peak_suffix == "broadPeak"
+
+    Anything else raises ValueError so callers cannot silently generate a
+    path that no rule produces.
+    """
+    if peak_suffix == "narrowPeak" and assay in ("atac", "cuttag"):
+        filename_infix = f"{assay}_"
+    elif peak_suffix == "broadPeak" and assay in ("chipseq", "cuttag"):
+        filename_infix = f"broad_{assay}_"
+    else:
+        raise ValueError(
+            f"Unsupported IDR self-threshold path: "
+            f"assay={assay!r}, peak_suffix={peak_suffix!r}"
+        )
+
+    bioreps = sorted(_bioreps_for(experiment, "treatment"))
+    br = bioreps[index]
+    return (
+        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
+        f"self_pseudoreplicates/"
+        f"{experiment}_{filename_infix}biorep{br}_idr.thresholded.{peak_suffix}"
+    )

@@ -460,3 +460,85 @@ def test_legacy_idr_repro_peak_input_match_private_helpers(idr_paths_namespace):
         f"results/experiments/{exp}/06_reproducibility/idr/"
         f"idr_peaks/{exp}_broad_cuttag_biorep2_idr.broadPeak"
     )
+
+
+@pytest.mark.parametrize(
+    "index,assay,peak_suffix,expected",
+    [
+        (
+            0,
+            "atac",
+            "narrowPeak",
+            "results/experiments/EXP1/06_reproducibility/idr/"
+            "self_pseudoreplicates/EXP1_atac_biorep1_idr.thresholded.narrowPeak",
+        ),
+        (
+            1,
+            "cuttag",
+            "narrowPeak",
+            "results/experiments/EXP1/06_reproducibility/idr/"
+            "self_pseudoreplicates/EXP1_cuttag_biorep2_idr.thresholded.narrowPeak",
+        ),
+        (
+            0,
+            "chipseq",
+            "broadPeak",
+            "results/experiments/EXP1/06_reproducibility/idr/"
+            "self_pseudoreplicates/EXP1_broad_chipseq_biorep1_idr.thresholded.broadPeak",
+        ),
+        (
+            1,
+            "cuttag",
+            "broadPeak",
+            "results/experiments/EXP1/06_reproducibility/idr/"
+            "self_pseudoreplicates/EXP1_broad_cuttag_biorep2_idr.thresholded.broadPeak",
+        ),
+    ],
+)
+def test_idr_self_thresh_path(idr_paths_namespace, index, assay, peak_suffix, expected):
+    assert idr_paths_namespace["idr_self_thresh_path"](
+        "EXP1", index, assay, peak_suffix
+    ) == expected
+
+
+@pytest.mark.parametrize(
+    "assay,peak_suffix",
+    [
+        ("chipseq", "narrowPeak"),
+        ("atac", "broadPeak"),
+        ("unknown", "narrowPeak"),
+        ("atac", "unknown"),
+    ],
+)
+def test_idr_self_thresh_path_invalid_combo(idr_paths_namespace, assay, peak_suffix):
+    with pytest.raises(ValueError):
+        idr_paths_namespace["idr_self_thresh_path"]("EXP1", 0, assay, peak_suffix)
+
+
+def test_legacy_idr_self_thresh_path_match_private_helpers(idr_paths_namespace):
+    """Legacy _atac_self_thresh_path / _cuttag_self_thresh_path / _broad_self_thresh_path."""
+    exp = "EXP1"
+    assert idr_paths_namespace["idr_self_thresh_path"](
+        exp, 0, "atac", "narrowPeak"
+    ) == (
+        f"results/experiments/{exp}/06_reproducibility/idr/"
+        f"self_pseudoreplicates/{exp}_atac_biorep1_idr.thresholded.narrowPeak"
+    )
+    assert idr_paths_namespace["idr_self_thresh_path"](
+        exp, 1, "cuttag", "narrowPeak"
+    ) == (
+        f"results/experiments/{exp}/06_reproducibility/idr/"
+        f"self_pseudoreplicates/{exp}_cuttag_biorep2_idr.thresholded.narrowPeak"
+    )
+    assert idr_paths_namespace["idr_self_thresh_path"](
+        exp, 0, "chipseq", "broadPeak"
+    ) == (
+        f"results/experiments/{exp}/06_reproducibility/idr/"
+        f"self_pseudoreplicates/{exp}_broad_chipseq_biorep1_idr.thresholded.broadPeak"
+    )
+    assert idr_paths_namespace["idr_self_thresh_path"](
+        exp, 1, "cuttag", "broadPeak"
+    ) == (
+        f"results/experiments/{exp}/06_reproducibility/idr/"
+        f"self_pseudoreplicates/{exp}_broad_cuttag_biorep2_idr.thresholded.broadPeak"
+    )

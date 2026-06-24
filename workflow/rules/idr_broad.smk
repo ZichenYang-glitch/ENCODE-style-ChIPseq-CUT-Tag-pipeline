@@ -37,22 +37,6 @@ def _broad_idr_biorep_inputs(wildcards):
     )
 
 
-
-def _broad_self_thresh_path(experiment, index, assay):
-    """Return self-IDR thresholded path for the given 0-based biorep index."""
-    bioreps = sorted(_bioreps_for(experiment, "treatment"))
-    br = bioreps[index]
-    return (
-        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
-        f"self_pseudoreplicates/"
-        f"{experiment}_broad_{assay}_biorep{br}_idr.thresholded.broadPeak"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Helper: which assay does this broad IDR experiment belong to?
-# ---------------------------------------------------------------------------
-
 def _broad_idr_assay(experiment):
     """Return 'chipseq' or 'cuttag' for a broad IDR experiment."""
     if experiment in BROAD_CHIPSEQ_IDR_EXPERIMENTS:
@@ -453,10 +437,8 @@ rule broad_idr_chipseq_summary:
         pool_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
                       f"idr/pooled_pseudoreplicates/"
                       f"{{experiment}}_broad_chipseq_idr.thresholded.broadPeak",
-        self1_thresh = lambda wc: _broad_self_thresh_path(
-            wc.experiment, 0, "chipseq"),
-        self2_thresh = lambda wc: _broad_self_thresh_path(
-            wc.experiment, 1, "chipseq"),
+        self1_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 0, "chipseq", "broadPeak"),
+        self2_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 1, "chipseq", "broadPeak"),
     params:
         experiment    = lambda wc: wc.experiment,
         assay         = "chipseq",
@@ -511,10 +493,8 @@ rule broad_idr_cuttag_summary:
         pool_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
                       f"idr/pooled_pseudoreplicates/"
                       f"{{experiment}}_broad_cuttag_idr.thresholded.broadPeak",
-        self1_thresh = lambda wc: _broad_self_thresh_path(
-            wc.experiment, 0, "cuttag"),
-        self2_thresh = lambda wc: _broad_self_thresh_path(
-            wc.experiment, 1, "cuttag"),
+        self1_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 0, "cuttag", "broadPeak"),
+        self2_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 1, "cuttag", "broadPeak"),
     params:
         experiment    = lambda wc: wc.experiment,
         assay         = "cuttag",

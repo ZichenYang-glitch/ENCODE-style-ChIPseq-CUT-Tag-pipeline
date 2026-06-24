@@ -168,23 +168,6 @@ def _atac_idr_pseudorep_inputs(wildcards):
     )
 
 
-# ---------------------------------------------------------------------------
-# Helper: self-IDR thresholded path for an ATAC bio_rep index
-# ---------------------------------------------------------------------------
-
-def _atac_self_thresh_path(experiment, index):
-    """Return the thresholded self-IDR narrowPeak for an ATAC bio_rep at index."""
-    bioreps = _bioreps_for(experiment, "treatment")
-    br = bioreps[index]
-    return (
-        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
-        f"self_pseudoreplicates/{experiment}_atac_biorep{br}_idr.thresholded.narrowPeak"
-    )
-
-
-# ---------------------------------------------------------------------------
-# 3. ATAC pseudoreplicate BAM splitting — deterministic hash-based
-# ---------------------------------------------------------------------------
 
 rule atac_split_pseudoreps:
     output:
@@ -402,8 +385,8 @@ rule atac_idr_summary:
                        f"true_replicates/{{experiment}}_atac_idr.thresholded.narrowPeak",
         pool_thresh  = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
                        f"pooled_pseudoreplicates/{{experiment}}_atac_idr.thresholded.narrowPeak",
-        self1_thresh = lambda wc: _atac_self_thresh_path(wc.experiment, 0),
-        self2_thresh = lambda wc: _atac_self_thresh_path(wc.experiment, 1),
+        self1_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 0, "atac", "narrowPeak"),
+        self2_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 1, "atac", "narrowPeak"),
     params:
         experiment   = lambda wc: wc.experiment,
         assay        = "atac",

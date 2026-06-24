@@ -33,22 +33,6 @@ def _cuttag_idr_biorep_peaks_inputs(wildcards):
     )
 
 
-
-def _cuttag_self_thresh_path(experiment, index):
-    """Return self-IDR thresholded path for the given 0-based biorep index."""
-    bioreps = sorted(_bioreps_for(experiment, "treatment"))
-    br = bioreps[index]
-    return (
-        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
-        f"self_pseudoreplicates/"
-        f"{experiment}_cuttag_biorep{br}_idr.thresholded.narrowPeak"
-    )
-
-
-# ============================================================================
-# 1. Per-biorep IDR-ready MACS3
-# ============================================================================
-
 rule cuttag_macs3_idr_biorep:
     output:
         f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
@@ -403,8 +387,8 @@ rule cuttag_idr_summary:
         pool_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
                       f"idr/pooled_pseudoreplicates/"
                       f"{{experiment}}_cuttag_idr.thresholded.narrowPeak",
-        self1_thresh = lambda wc: _cuttag_self_thresh_path(wc.experiment, 0),
-        self2_thresh = lambda wc: _cuttag_self_thresh_path(wc.experiment, 1),
+        self1_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 0, "cuttag", "narrowPeak"),
+        self2_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 1, "cuttag", "narrowPeak"),
     params:
         experiment    = lambda wc: wc.experiment,
         assay         = "cuttag",
