@@ -126,308 +126,213 @@ MNASE_MULTI_BIOREP_EXPERIMENTS = [
 
 
 # ---------------------------------------------------------------------------
-# 3a3. Stage 5a IDR derived structures
+# 3a3. Stage 5a/5b/55/64/65 IDR derived structures
 # ---------------------------------------------------------------------------
 
-if STAGE5:
-    IDR_EXPERIMENTS = []
-    IDR_BIOREP_EXP_LIST = []
-    IDR_BIOREP_LIST = []
 
-    for exp in MULTI_BIOREP_EXPERIMENTS:
-        bioreps = _bioreps_for(exp, "treatment")
-        if len(bioreps) == 2:
-            first = SAMPLE_MAP[TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0]]
-            if first["assay"] == "chipseq" and first["peak_mode"] == "narrow":
-                IDR_EXPERIMENTS.append(exp)
-                for br in sorted(bioreps):
-                    IDR_BIOREP_EXP_LIST.append(exp)
-                    IDR_BIOREP_LIST.append(br)
-else:
-    IDR_EXPERIMENTS = []
-    IDR_BIOREP_EXP_LIST = []
-    IDR_BIOREP_LIST = []
-
-# Stage 5b precomputed expansion lists (gated on STAGE5 and IDR_EXPERIMENTS)
-if STAGE5 and IDR_EXPERIMENTS:
-    IDR_SPLIT_SOURCE_EXP = []
-    IDR_SPLIT_SOURCE_NAME = []
-    IDR_PR_PEAK_EXP = []
-    IDR_PR_PEAK_SRC = []
-    IDR_PR_PEAK_PR = []
-    IDR_SELF_EXP = []
-    IDR_SELF_BR = []
-
-    for exp in IDR_EXPERIMENTS:
-        bioreps = sorted(_bioreps_for(exp, "treatment"))
-        br_a = bioreps[0]
-        br_b = bioreps[1]
-
-        for br in (br_a, br_b):
-            src = f"biorep{br}"
-            IDR_SPLIT_SOURCE_EXP.append(exp)
-            IDR_SPLIT_SOURCE_NAME.append(src)
-            for pr in ("1", "2"):
-                IDR_PR_PEAK_EXP.append(exp)
-                IDR_PR_PEAK_SRC.append(src)
-                IDR_PR_PEAK_PR.append(pr)
-            IDR_SELF_EXP.append(exp)
-            IDR_SELF_BR.append(br)
-
-        IDR_SPLIT_SOURCE_EXP.append(exp)
-        IDR_SPLIT_SOURCE_NAME.append("pooled")
-        for pr in ("1", "2"):
-            IDR_PR_PEAK_EXP.append(exp)
-            IDR_PR_PEAK_SRC.append("pooled")
-            IDR_PR_PEAK_PR.append(pr)
-else:
-    IDR_SPLIT_SOURCE_EXP = []
-    IDR_SPLIT_SOURCE_NAME = []
-    IDR_PR_PEAK_EXP = []
-    IDR_PR_PEAK_SRC = []
-    IDR_PR_PEAK_PR = []
-    IDR_SELF_EXP = []
-    IDR_SELF_BR = []
+def _idr_exp_matches(exp, assay, peak_mode):
+    """Return True if experiment's first treatment sample matches assay/peak_mode."""
+    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(exp, [])
+    if not treatment_ids:
+        return False
+    first = SAMPLE_MAP[treatment_ids[0]]
+    return first["assay"] == assay and first["peak_mode"] == peak_mode
 
 
-# ---------------------------------------------------------------------------
-# 3a4. Stage 55 ATAC narrow IDR derived structures
-# ---------------------------------------------------------------------------
+def _build_idr_experiment_lists(enabled, assay, peak_mode, multi_experiments):
+    """Build IDR experiment and biorep expansion lists for a single assay profile.
 
-if ATAC_IDR_ENABLED:
-    ATAC_IDR_EXPERIMENTS = []
-    ATAC_IDR_BIOREP_EXP_LIST = []
-    ATAC_IDR_BIOREP_LIST = []
+    Returns (experiments, biorep_exp_list, biorep_list).  The three lists are
+    empty when disabled or when no experiment matches the profile.
+    """
+    experiments = []
+    biorep_exp_list = []
+    biorep_list = []
+    if not enabled:
+        return experiments, biorep_exp_list, biorep_list
 
-    for exp in MULTI_BIOREP_EXPERIMENTS:
-        bioreps = _bioreps_for(exp, "treatment")
-        if len(bioreps) == 2:
-            first = SAMPLE_MAP[TREATMENT_SAMPLES_BY_EXPERIMENT[exp][0]]
-            if first["assay"] == "atac" and first["peak_mode"] == "narrow":
-                ATAC_IDR_EXPERIMENTS.append(exp)
-                for br in sorted(bioreps):
-                    ATAC_IDR_BIOREP_EXP_LIST.append(exp)
-                    ATAC_IDR_BIOREP_LIST.append(br)
-else:
-    ATAC_IDR_EXPERIMENTS = []
-    ATAC_IDR_BIOREP_EXP_LIST = []
-    ATAC_IDR_BIOREP_LIST = []
-
-# Stage 55 pseudorep expansion lists
-if ATAC_IDR_ENABLED and ATAC_IDR_EXPERIMENTS:
-    ATAC_IDR_SPLIT_SOURCE_EXP = []
-    ATAC_IDR_SPLIT_SOURCE_NAME = []
-    ATAC_IDR_PR_PEAK_EXP = []
-    ATAC_IDR_PR_PEAK_SRC = []
-    ATAC_IDR_PR_PEAK_PR = []
-    ATAC_IDR_SELF_EXP = []
-    ATAC_IDR_SELF_BR = []
-
-    for exp in ATAC_IDR_EXPERIMENTS:
-        bioreps = sorted(_bioreps_for(exp, "treatment"))
-        br_a = bioreps[0]
-        br_b = bioreps[1]
-
-        for br in (br_a, br_b):
-            src = f"biorep{br}"
-            ATAC_IDR_SPLIT_SOURCE_EXP.append(exp)
-            ATAC_IDR_SPLIT_SOURCE_NAME.append(src)
-            for pr in ("1", "2"):
-                ATAC_IDR_PR_PEAK_EXP.append(exp)
-                ATAC_IDR_PR_PEAK_SRC.append(src)
-                ATAC_IDR_PR_PEAK_PR.append(pr)
-            ATAC_IDR_SELF_EXP.append(exp)
-            ATAC_IDR_SELF_BR.append(br)
-
-        ATAC_IDR_SPLIT_SOURCE_EXP.append(exp)
-        ATAC_IDR_SPLIT_SOURCE_NAME.append("pooled")
-        for pr in ("1", "2"):
-            ATAC_IDR_PR_PEAK_EXP.append(exp)
-            ATAC_IDR_PR_PEAK_SRC.append("pooled")
-            ATAC_IDR_PR_PEAK_PR.append(pr)
-else:
-    ATAC_IDR_SPLIT_SOURCE_EXP = []
-    ATAC_IDR_SPLIT_SOURCE_NAME = []
-    ATAC_IDR_PR_PEAK_EXP = []
-    ATAC_IDR_PR_PEAK_SRC = []
-    ATAC_IDR_PR_PEAK_PR = []
-    ATAC_IDR_SELF_EXP = []
-    ATAC_IDR_SELF_BR = []
-
-
-# ---------------------------------------------------------------------------
-# 3a4b. Stage 64 CUT&Tag narrow IDR experiment lists
-# ---------------------------------------------------------------------------
-
-if CUTTAG_IDR_ENABLED:
-    CUTTAG_IDR_EXPERIMENTS = []
-    CUTTAG_IDR_BIOREP_EXP_LIST = []
-    CUTTAG_IDR_BIOREP_LIST = []
-    for exp in MULTI_BIOREP_EXPERIMENTS:
-        treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(exp, [])
-        if not treatment_ids:
-            continue
-        first = SAMPLE_MAP[treatment_ids[0]]
-        if first["assay"] != "cuttag":
-            continue
-        if first["peak_mode"] != "narrow":
+    for exp in multi_experiments:
+        if not _idr_exp_matches(exp, assay, peak_mode):
             continue
         bioreps = sorted(_bioreps_for(exp, "treatment"))
         if len(bioreps) != 2:
             continue
-        CUTTAG_IDR_EXPERIMENTS.append(exp)
+        experiments.append(exp)
         for br in bioreps:
-            CUTTAG_IDR_BIOREP_EXP_LIST.append(exp)
-            CUTTAG_IDR_BIOREP_LIST.append(br)
-    CUTTAG_IDR_EXPERIMENTS = sorted(CUTTAG_IDR_EXPERIMENTS)
+            biorep_exp_list.append(exp)
+            biorep_list.append(br)
+    return experiments, biorep_exp_list, biorep_list
 
-    if CUTTAG_IDR_EXPERIMENTS:
-        CUTTAG_IDR_SPLIT_SOURCE_EXP = []
-        CUTTAG_IDR_SPLIT_SOURCE_NAME = []
-        CUTTAG_IDR_PR_PEAK_EXP = []
-        CUTTAG_IDR_PR_PEAK_SRC = []
-        CUTTAG_IDR_PR_PEAK_PR = []
-        CUTTAG_IDR_SELF_EXP = []
-        CUTTAG_IDR_SELF_BR = []
-        for exp in CUTTAG_IDR_EXPERIMENTS:
-            bioreps = sorted(_bioreps_for(exp, "treatment"))
-            br_a, br_b = bioreps[0], bioreps[1]
-            for br in (br_a, br_b):
-                CUTTAG_IDR_SPLIT_SOURCE_EXP.append(exp)
-                CUTTAG_IDR_SPLIT_SOURCE_NAME.append(f"biorep{br}")
-                for pr in ("1", "2"):
-                    CUTTAG_IDR_PR_PEAK_EXP.append(exp)
-                    CUTTAG_IDR_PR_PEAK_SRC.append(f"biorep{br}")
-                    CUTTAG_IDR_PR_PEAK_PR.append(pr)
-                CUTTAG_IDR_SELF_EXP.append(exp)
-                CUTTAG_IDR_SELF_BR.append(br)
-            CUTTAG_IDR_SPLIT_SOURCE_EXP.append(exp)
-            CUTTAG_IDR_SPLIT_SOURCE_NAME.append("pooled")
+
+def _build_idr_pseudorep_lists(experiments):
+    """Build pseudoreplicate expansion lists for a narrow IDR profile.
+
+    Returns (split_source_exp, split_source_name, pr_peak_exp, pr_peak_src,
+             pr_peak_pr, self_exp, self_br).
+    """
+    split_source_exp = []
+    split_source_name = []
+    pr_peak_exp = []
+    pr_peak_src = []
+    pr_peak_pr = []
+    self_exp = []
+    self_br = []
+
+    for exp in experiments:
+        bioreps = sorted(_bioreps_for(exp, "treatment"))
+        br_a, br_b = bioreps[0], bioreps[1]
+
+        for br in (br_a, br_b):
+            src = f"biorep{br}"
+            split_source_exp.append(exp)
+            split_source_name.append(src)
             for pr in ("1", "2"):
-                CUTTAG_IDR_PR_PEAK_EXP.append(exp)
-                CUTTAG_IDR_PR_PEAK_SRC.append("pooled")
-                CUTTAG_IDR_PR_PEAK_PR.append(pr)
-    else:
-        CUTTAG_IDR_SPLIT_SOURCE_EXP = []
-        CUTTAG_IDR_SPLIT_SOURCE_NAME = []
-        CUTTAG_IDR_PR_PEAK_EXP = []
-        CUTTAG_IDR_PR_PEAK_SRC = []
-        CUTTAG_IDR_PR_PEAK_PR = []
-        CUTTAG_IDR_SELF_EXP = []
-        CUTTAG_IDR_SELF_BR = []
-else:
-    CUTTAG_IDR_EXPERIMENTS = []
-    CUTTAG_IDR_BIOREP_EXP_LIST = []
-    CUTTAG_IDR_BIOREP_LIST = []
-    CUTTAG_IDR_SPLIT_SOURCE_EXP = []
-    CUTTAG_IDR_SPLIT_SOURCE_NAME = []
-    CUTTAG_IDR_PR_PEAK_EXP = []
-    CUTTAG_IDR_PR_PEAK_SRC = []
-    CUTTAG_IDR_PR_PEAK_PR = []
-    CUTTAG_IDR_SELF_EXP = []
-    CUTTAG_IDR_SELF_BR = []
+                pr_peak_exp.append(exp)
+                pr_peak_src.append(src)
+                pr_peak_pr.append(pr)
+            self_exp.append(exp)
+            self_br.append(br)
+
+        split_source_exp.append(exp)
+        split_source_name.append("pooled")
+        for pr in ("1", "2"):
+            pr_peak_exp.append(exp)
+            pr_peak_src.append("pooled")
+            pr_peak_pr.append(pr)
+
+    return (
+        split_source_exp, split_source_name,
+        pr_peak_exp, pr_peak_src, pr_peak_pr,
+        self_exp, self_br,
+    )
 
 
-# ---------------------------------------------------------------------------
-# 3a4c. Stage 65 broad-peak IDR experiment lists (experimental opt-in)
-# ---------------------------------------------------------------------------
+def _build_broad_idr_pseudorep_lists(experiments, assays):
+    """Build pseudoreplicate expansion lists for broad IDR, with assay dimension.
 
-BROAD_CHIPSEQ_IDR_EXPERIMENTS = []
-BROAD_CUTTAG_IDR_EXPERIMENTS = []
+    experiments and assays must be aligned (one assay per experiment).  Returns
+    (split_source_exp, split_source_name, split_source_assay,
+     pr_peak_exp, pr_peak_src, pr_peak_assay, pr_peak_pr,
+     self_exp, self_br, self_assay,
+     biorep_exp_list, biorep_list, biorep_assay).
+    """
+    split_source_exp = []
+    split_source_name = []
+    split_source_assay = []
+    pr_peak_exp = []
+    pr_peak_src = []
+    pr_peak_assay = []
+    pr_peak_pr = []
+    self_exp = []
+    self_br = []
+    self_assay = []
+    biorep_exp_list = []
+    biorep_list = []
+    biorep_assay = []
+
+    for exp, assay in zip(experiments, assays):
+        bioreps = sorted(_bioreps_for(exp, "treatment"))
+        br_a, br_b = bioreps[0], bioreps[1]
+
+        for br in (br_a, br_b):
+            src = f"biorep{br}"
+            split_source_exp.append(exp)
+            split_source_name.append(src)
+            split_source_assay.append(assay)
+            for pr in ("1", "2"):
+                pr_peak_exp.append(exp)
+                pr_peak_src.append(src)
+                pr_peak_assay.append(assay)
+                pr_peak_pr.append(pr)
+            self_exp.append(exp)
+            self_br.append(br)
+            self_assay.append(assay)
+            biorep_exp_list.append(exp)
+            biorep_list.append(br)
+            biorep_assay.append(assay)
+
+        split_source_exp.append(exp)
+        split_source_name.append("pooled")
+        split_source_assay.append(assay)
+        for pr in ("1", "2"):
+            pr_peak_exp.append(exp)
+            pr_peak_src.append("pooled")
+            pr_peak_assay.append(assay)
+            pr_peak_pr.append(pr)
+
+    return (
+        split_source_exp, split_source_name, split_source_assay,
+        pr_peak_exp, pr_peak_src, pr_peak_assay, pr_peak_pr,
+        self_exp, self_br, self_assay,
+        biorep_exp_list, biorep_list, biorep_assay,
+    )
+
+
+# Stage 5a
+IDR_EXPERIMENTS, IDR_BIOREP_EXP_LIST, IDR_BIOREP_LIST = _build_idr_experiment_lists(
+    STAGE5, "chipseq", "narrow", MULTI_BIOREP_EXPERIMENTS
+)
+
+# Stage 5b precomputed expansion lists
+(
+    IDR_SPLIT_SOURCE_EXP, IDR_SPLIT_SOURCE_NAME,
+    IDR_PR_PEAK_EXP, IDR_PR_PEAK_SRC, IDR_PR_PEAK_PR,
+    IDR_SELF_EXP, IDR_SELF_BR,
+) = _build_idr_pseudorep_lists(IDR_EXPERIMENTS)
+
+
+# Stage 55 ATAC narrow IDR
+ATAC_IDR_EXPERIMENTS, ATAC_IDR_BIOREP_EXP_LIST, ATAC_IDR_BIOREP_LIST = _build_idr_experiment_lists(
+    ATAC_IDR_ENABLED, "atac", "narrow", MULTI_BIOREP_EXPERIMENTS
+)
+
+# Stage 55 pseudorep expansion lists
+(
+    ATAC_IDR_SPLIT_SOURCE_EXP, ATAC_IDR_SPLIT_SOURCE_NAME,
+    ATAC_IDR_PR_PEAK_EXP, ATAC_IDR_PR_PEAK_SRC, ATAC_IDR_PR_PEAK_PR,
+    ATAC_IDR_SELF_EXP, ATAC_IDR_SELF_BR,
+) = _build_idr_pseudorep_lists(ATAC_IDR_EXPERIMENTS)
+
+
+# Stage 64 CUT&Tag narrow IDR
+CUTTAG_IDR_EXPERIMENTS, CUTTAG_IDR_BIOREP_EXP_LIST, CUTTAG_IDR_BIOREP_LIST = _build_idr_experiment_lists(
+    CUTTAG_IDR_ENABLED, "cuttag", "narrow", MULTI_BIOREP_EXPERIMENTS
+)
+CUTTAG_IDR_EXPERIMENTS = sorted(CUTTAG_IDR_EXPERIMENTS)
+
+(
+    CUTTAG_IDR_SPLIT_SOURCE_EXP, CUTTAG_IDR_SPLIT_SOURCE_NAME,
+    CUTTAG_IDR_PR_PEAK_EXP, CUTTAG_IDR_PR_PEAK_SRC, CUTTAG_IDR_PR_PEAK_PR,
+    CUTTAG_IDR_SELF_EXP, CUTTAG_IDR_SELF_BR,
+) = _build_idr_pseudorep_lists(CUTTAG_IDR_EXPERIMENTS)
+
+
+# Stage 65 broad-peak IDR experiment lists (experimental opt-in)
+BROAD_CHIPSEQ_IDR_EXPERIMENTS, BROAD_CHIPSEQ_IDR_BIOREP_EXP_LIST, BROAD_CHIPSEQ_IDR_BIOREP_LIST = _build_idr_experiment_lists(
+    BROAD_IDR_ENABLED and STAGE4B and BROAD_CHIPSEQ_IDR_ENABLED, "chipseq", "broad", MULTI_BIOREP_EXPERIMENTS
+)
+BROAD_CUTTAG_IDR_EXPERIMENTS, BROAD_CUTTAG_IDR_BIOREP_EXP_LIST, BROAD_CUTTAG_IDR_BIOREP_LIST = _build_idr_experiment_lists(
+    BROAD_IDR_ENABLED and STAGE4B and BROAD_CUTTAG_IDR_ENABLED, "cuttag", "broad", MULTI_BIOREP_EXPERIMENTS
+)
+
+BROAD_CHIPSEQ_IDR_EXPERIMENTS = sorted(BROAD_CHIPSEQ_IDR_EXPERIMENTS)
+BROAD_CUTTAG_IDR_EXPERIMENTS = sorted(BROAD_CUTTAG_IDR_EXPERIMENTS)
+
 BROAD_IDR_EXPERIMENTS = []
 BROAD_IDR_EXPERIMENT_ASSAY = []
+for exp, assay in sorted(
+    [(e, "chipseq") for e in BROAD_CHIPSEQ_IDR_EXPERIMENTS]
+    + [(e, "cuttag") for e in BROAD_CUTTAG_IDR_EXPERIMENTS]
+):
+    BROAD_IDR_EXPERIMENTS.append(exp)
+    BROAD_IDR_EXPERIMENT_ASSAY.append(assay)
 
-BROAD_CHIPSEQ_IDR_BIOREP_EXP_LIST = []
-BROAD_CHIPSEQ_IDR_BIOREP_LIST = []
-BROAD_CUTTAG_IDR_BIOREP_EXP_LIST = []
-BROAD_CUTTAG_IDR_BIOREP_LIST = []
-
-BROAD_IDR_SPLIT_SOURCE_EXP = []
-BROAD_IDR_SPLIT_SOURCE_NAME = []
-BROAD_IDR_SPLIT_SOURCE_ASSAY = []
-BROAD_IDR_PR_PEAK_EXP = []
-BROAD_IDR_PR_PEAK_SRC = []
-BROAD_IDR_PR_PEAK_ASSAY = []
-BROAD_IDR_PR_PEAK_PR = []
-BROAD_IDR_SELF_EXP = []
-BROAD_IDR_SELF_BR = []
-BROAD_IDR_SELF_ASSAY = []
-
-BROAD_IDR_BIOREP_EXP_LIST = []
-BROAD_IDR_BIOREP_LIST = []
-BROAD_IDR_BIOREP_ASSAY = []
-
-if BROAD_IDR_ENABLED and STAGE4B:
-    for flag, assay, exp_list, br_exp_list, br_list, br_assay_list in [
-        (BROAD_CHIPSEQ_IDR_ENABLED, "chipseq",
-         BROAD_CHIPSEQ_IDR_EXPERIMENTS,
-         BROAD_CHIPSEQ_IDR_BIOREP_EXP_LIST,
-         BROAD_CHIPSEQ_IDR_BIOREP_LIST,
-         []),
-        (BROAD_CUTTAG_IDR_ENABLED, "cuttag",
-         BROAD_CUTTAG_IDR_EXPERIMENTS,
-         BROAD_CUTTAG_IDR_BIOREP_EXP_LIST,
-         BROAD_CUTTAG_IDR_BIOREP_LIST,
-         []),
-    ]:
-        if not flag:
-            continue
-        for exp in MULTI_BIOREP_EXPERIMENTS:
-            treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(exp, [])
-            if not treatment_ids:
-                continue
-            first = SAMPLE_MAP[treatment_ids[0]]
-            if first["assay"] != assay:
-                continue
-            if first["peak_mode"] != "broad":
-                continue
-            bioreps = sorted(_bioreps_for(exp, "treatment"))
-            if len(bioreps) != 2:
-                continue
-            exp_list.append(exp)
-            for br in bioreps:
-                br_exp_list.append(exp)
-                br_list.append(br)
-        exp_list[:] = sorted(exp_list)
-
-    for exp, assay in sorted(
-        [(e, "chipseq") for e in BROAD_CHIPSEQ_IDR_EXPERIMENTS]
-        + [(e, "cuttag") for e in BROAD_CUTTAG_IDR_EXPERIMENTS]
-    ):
-        BROAD_IDR_EXPERIMENTS.append(exp)
-        BROAD_IDR_EXPERIMENT_ASSAY.append(assay)
-
-    if BROAD_IDR_EXPERIMENTS:
-        for exp_list, assay in [
-            (BROAD_CHIPSEQ_IDR_EXPERIMENTS, "chipseq"),
-            (BROAD_CUTTAG_IDR_EXPERIMENTS, "cuttag"),
-        ]:
-            for exp in exp_list:
-                bioreps = sorted(_bioreps_for(exp, "treatment"))
-                br_a, br_b = bioreps[0], bioreps[1]
-                for br in (br_a, br_b):
-                    BROAD_IDR_SPLIT_SOURCE_EXP.append(exp)
-                    BROAD_IDR_SPLIT_SOURCE_NAME.append(f"biorep{br}")
-                    BROAD_IDR_SPLIT_SOURCE_ASSAY.append(assay)
-                    for pr in ("1", "2"):
-                        BROAD_IDR_PR_PEAK_EXP.append(exp)
-                        BROAD_IDR_PR_PEAK_SRC.append(f"biorep{br}")
-                        BROAD_IDR_PR_PEAK_ASSAY.append(assay)
-                        BROAD_IDR_PR_PEAK_PR.append(pr)
-                    BROAD_IDR_SELF_EXP.append(exp)
-                    BROAD_IDR_SELF_BR.append(br)
-                    BROAD_IDR_SELF_ASSAY.append(assay)
-                    BROAD_IDR_BIOREP_EXP_LIST.append(exp)
-                    BROAD_IDR_BIOREP_LIST.append(br)
-                    BROAD_IDR_BIOREP_ASSAY.append(assay)
-                BROAD_IDR_SPLIT_SOURCE_EXP.append(exp)
-                BROAD_IDR_SPLIT_SOURCE_NAME.append("pooled")
-                BROAD_IDR_SPLIT_SOURCE_ASSAY.append(assay)
-                for pr in ("1", "2"):
-                    BROAD_IDR_PR_PEAK_EXP.append(exp)
-                    BROAD_IDR_PR_PEAK_SRC.append("pooled")
-                    BROAD_IDR_PR_PEAK_ASSAY.append(assay)
-                    BROAD_IDR_PR_PEAK_PR.append(pr)
+(
+    BROAD_IDR_SPLIT_SOURCE_EXP, BROAD_IDR_SPLIT_SOURCE_NAME, BROAD_IDR_SPLIT_SOURCE_ASSAY,
+    BROAD_IDR_PR_PEAK_EXP, BROAD_IDR_PR_PEAK_SRC, BROAD_IDR_PR_PEAK_ASSAY, BROAD_IDR_PR_PEAK_PR,
+    BROAD_IDR_SELF_EXP, BROAD_IDR_SELF_BR, BROAD_IDR_SELF_ASSAY,
+    BROAD_IDR_BIOREP_EXP_LIST, BROAD_IDR_BIOREP_LIST, BROAD_IDR_BIOREP_ASSAY,
+) = _build_broad_idr_pseudorep_lists(BROAD_IDR_EXPERIMENTS, BROAD_IDR_EXPERIMENT_ASSAY)
 
 
 # ---------------------------------------------------------------------------
