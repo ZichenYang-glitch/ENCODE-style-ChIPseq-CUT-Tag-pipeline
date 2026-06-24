@@ -5,14 +5,16 @@ assertions and shared fixtures.
 """
 
 import csv
+import io
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
 
-
-MAKE_MANIFEST = "scripts/make_manifest.py"
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+import scripts.make_manifest as make_manifest
 
 
 def _make_samples(
@@ -71,19 +73,38 @@ def manifest_case(tmp_config):
 
 
 def _run_manifest(config_path, out, use_json=False):
-    """Run make_manifest.py and return parsed rows."""
-    import subprocess
-    import sys
-
-    cmd = [sys.executable, MAKE_MANIFEST, "--output", out]
+    """Run make_manifest.py directly and return parsed rows."""
+    old_argv = sys.argv
+    old_stdout = sys.stdout
+    old_stderr = sys.stderr
+    stdout_capture = io.StringIO()
+    stderr_capture = io.StringIO()
+    sys.stdout = stdout_capture
+    sys.stderr = stderr_capture
+    sys.argv = ["make_manifest.py", "--output", out]
     if use_json:
         with open(config_path) as fh:
-            config_json = fh.read()
-        cmd.extend(["--config-json", config_json])
+            sys.argv.extend(["--config-json", fh.read()])
     else:
-        cmd.extend(["--config", config_path])
+        sys.argv.extend(["--config", config_path])
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        make_manifest.main()
+        returncode = 0
+    except SystemExit as exc:
+        returncode = exc.code if exc.code is not None else 0
+    finally:
+        sys.argv = old_argv
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
+
+    class _Result:
+        def __init__(self, returncode, stdout, stderr):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    result = _Result(returncode, stdout_capture.getvalue(), stderr_capture.getvalue())
     rows = []
     if result.returncode == 0 and os.path.exists(out):
         with open(out, newline="") as fh:
@@ -191,13 +212,16 @@ def test_no_crlf(manifest_case):
 
 def test_strict_flag_fails_on_missing(manifest_case):
     _, config_path, _, out = manifest_case()
-    import subprocess
-    import sys
-    result = subprocess.run(
-        [sys.executable, MAKE_MANIFEST, "--config", config_path, "--output", out, "--strict"],
-        capture_output=True, text=True,
-    )
-    assert result.returncode != 0
+    old_argv = sys.argv
+    sys.argv = ["make_manifest.py", "--config", config_path, "--output", out, "--strict"]
+    try:
+        make_manifest.main()
+        returncode = 0
+    except SystemExit as exc:
+        returncode = exc.code if exc.code is not None else 0
+    finally:
+        sys.argv = old_argv
+    assert returncode != 0
 
 
 # ---------------------------------------------------------------------------

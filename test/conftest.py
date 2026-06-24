@@ -1,7 +1,6 @@
 """Shared pytest fixtures for the test suite."""
 
 import csv
-import glob
 import os
 import re
 import shutil
@@ -31,7 +30,7 @@ for _search_dir in (_TEST_DIR, _LEGACY_DIR):
             except OSError:
                 continue
             if "def main(" in _src or 'if __name__ == "__main__":' in _src:
-                collect_ignore.append(_f)
+                collect_ignore.append(os.path.relpath(_path, _TEST_DIR))
 
 
 def pytest_addoption(parser):
@@ -246,22 +245,43 @@ def _write_yaml(fh, data, indent=0):
 
 
 @pytest.fixture
-def run_validator(validator_script):
-    """Return a helper that runs validate_samples.py on a config path.
+def run_validator():
+    """Return a helper that runs the config validator CLI entry point.
 
-    Returns a ``Result`` object with ``rc``, ``stdout``, ``stderr`` attributes.
+    Returns a ``Result`` object with ``returncode``, ``stdout``, ``stderr``
+    attributes, matching the subprocess interface used by legacy tests.
     """
+    from encode_pipeline.config import validator
+
+    class _Result:
+        def __init__(self, returncode, stdout, stderr):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
 
     def _run(config_path, strict_inputs=False):
-        cmd = [sys.executable, validator_script, "--config", str(config_path)]
+        import io
+
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        old_argv = sys.argv
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        sys.stdout = stdout_capture
+        sys.stderr = stderr_capture
+        sys.argv = ["validate_samples.py", "--config", str(config_path)]
         if strict_inputs:
-            cmd.append("--strict-inputs")
-        p = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-        )
-        return p
+            sys.argv.append("--strict-inputs")
+        try:
+            validator.main()
+            return _Result(0, stdout_capture.getvalue(), stderr_capture.getvalue())
+        except SystemExit as exc:
+            code = exc.code if exc.code is not None else 0
+            return _Result(code, stdout_capture.getvalue(), stderr_capture.getvalue())
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+            sys.argv = old_argv
 
     return _run
 
