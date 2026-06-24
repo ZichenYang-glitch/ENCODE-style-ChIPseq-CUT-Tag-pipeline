@@ -1,6 +1,7 @@
 """Shared pytest fixtures for the test suite."""
 
 import csv
+import glob
 import os
 import re
 import shutil
@@ -8,6 +9,23 @@ import tempfile
 from pathlib import Path
 
 import pytest
+
+
+# Ignore legacy test_stage*.py files that have their own main()/__main__ guard;
+# they are executed via test_stage_shim.py instead. Files without an entry point
+# (e.g. test_stage8_smoke_profiles.py) remain normal pytest modules.
+_TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+collect_ignore = []
+for _f in os.listdir(_TEST_DIR):
+    if _f.startswith("test_stage") and _f.endswith(".py") and _f != "test_stage_shim.py":
+        _path = os.path.join(_TEST_DIR, _f)
+        try:
+            with open(_path, encoding="utf-8") as _fh:
+                _src = _fh.read()
+        except OSError:
+            continue
+        if "def main(" in _src or 'if __name__ == "__main__":' in _src:
+            collect_ignore.append(_f)
 
 
 def pytest_addoption(parser):
