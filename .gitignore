@@ -49,3 +49,5 @@ deep-research-report.md
 
 # --- Stage 37: smoke script must not be ignored ---
 !scripts/smoke_container_runner.sh
+deep-research.md
+docs/architecture/implementation-plan.md
