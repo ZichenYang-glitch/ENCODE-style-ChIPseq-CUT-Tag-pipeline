@@ -322,14 +322,8 @@ rule atac_idr_pooled_pseudoreps:
         thr_out = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
                   f"pooled_pseudoreplicates/{{experiment}}_atac_idr.thresholded.narrowPeak",
     input:
-        peaks1 = (
-            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
-            f"idr_peaks/{{experiment}}_atac_pooled_pr1_idr.narrowPeak"
-        ),
-        peaks2 = (
-            f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
-            f"idr_peaks/{{experiment}}_atac_pooled_pr2_idr.narrowPeak"
-        ),
+        peaks1 = lambda wc: idr_pooled_peak_input(wc.experiment, 1, "atac", "narrowPeak"),
+        peaks2 = lambda wc: idr_pooled_peak_input(wc.experiment, 2, "atac", "narrowPeak"),
     params:
         threshold    = IDR_THRESHOLD,
         rank         = IDR_RANK,

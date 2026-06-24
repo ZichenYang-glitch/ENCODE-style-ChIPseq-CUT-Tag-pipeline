@@ -360,16 +360,8 @@ rule broad_idr_pooled_pseudoreps:
                   f"idr/pooled_pseudoreplicates/"
                   f"{{experiment}}_broad_{{assay}}_idr.thresholded.broadPeak",
     input:
-        peaks1 = lambda wc: (
-            f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/idr/"
-            f"idr_peaks/{wc.experiment}_broad_{wc.assay}_"
-            f"pooled_pr1_idr.broadPeak"
-        ),
-        peaks2 = lambda wc: (
-            f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/idr/"
-            f"idr_peaks/{wc.experiment}_broad_{wc.assay}_"
-            f"pooled_pr2_idr.broadPeak"
-        ),
+        peaks1 = lambda wc: idr_pooled_peak_input(wc.experiment, 1, wc.assay, "broadPeak"),
+        peaks2 = lambda wc: idr_pooled_peak_input(wc.experiment, 2, wc.assay, "broadPeak"),
     params:
         threshold     = IDR_THRESHOLD,
         rank          = IDR_RANK,

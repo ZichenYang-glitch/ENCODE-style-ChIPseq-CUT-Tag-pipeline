@@ -327,10 +327,8 @@ rule cuttag_idr_pooled_pseudoreps:
                   f"idr/pooled_pseudoreplicates/"
                   f"{{experiment}}_cuttag_idr.thresholded.narrowPeak",
     input:
-        peaks1 = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
-                 f"idr/idr_peaks/{{experiment}}_cuttag_pooled_pr1_idr.narrowPeak",
-        peaks2 = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
-                 f"idr/idr_peaks/{{experiment}}_cuttag_pooled_pr2_idr.narrowPeak",
+        peaks1 = lambda wc: idr_pooled_peak_input(wc.experiment, 1, "cuttag", "narrowPeak"),
+        peaks2 = lambda wc: idr_pooled_peak_input(wc.experiment, 2, "cuttag", "narrowPeak"),
     params:
         threshold     = IDR_THRESHOLD,
         rank          = IDR_RANK,
