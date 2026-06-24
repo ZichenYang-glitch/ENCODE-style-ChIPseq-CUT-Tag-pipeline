@@ -117,6 +117,26 @@ def idr_biorep_labels(experiment):
     return str(bioreps[0]), str(bioreps[1])
 
 
+def _idr_filename_infix(assay, peak_suffix):
+    """Return the filename infix for reproducibility IDR peak files.
+
+    Valid combinations:
+      - assay in {"atac", "cuttag"}, peak_suffix == "narrowPeak"
+      - assay in {"chipseq", "cuttag"}, peak_suffix == "broadPeak"
+
+    Anything else raises ValueError so callers cannot silently generate a
+    path that no rule produces.
+    """
+    if peak_suffix == "narrowPeak" and assay in ("atac", "cuttag"):
+        return f"{assay}_"
+    if peak_suffix == "broadPeak" and assay in ("chipseq", "cuttag"):
+        return f"broad_{assay}_"
+    raise ValueError(
+        f"Unsupported IDR filename infix: "
+        f"assay={assay!r}, peak_suffix={peak_suffix!r}"
+    )
+
+
 def idr_repro_peak_input(experiment, index, assay, peak_suffix):
     """Return the 06_reproducibility/idr peak file for a bio_rep by 0-based index.
 
@@ -131,15 +151,7 @@ def idr_repro_peak_input(experiment, index, assay, peak_suffix):
     Anything else raises ValueError so callers cannot silently generate a
     path that no rule produces.
     """
-    if peak_suffix == "narrowPeak" and assay in ("atac", "cuttag"):
-        filename_infix = f"{assay}_"
-    elif peak_suffix == "broadPeak" and assay in ("chipseq", "cuttag"):
-        filename_infix = f"broad_{assay}_"
-    else:
-        raise ValueError(
-            f"Unsupported IDR reproducibility peak input: "
-            f"assay={assay!r}, peak_suffix={peak_suffix!r}"
-        )
+    filename_infix = _idr_filename_infix(assay, peak_suffix)
 
     bioreps = sorted(_bioreps_for(experiment, "treatment"))
     br = bioreps[index]
@@ -163,15 +175,7 @@ def idr_self_thresh_path(experiment, index, assay, peak_suffix):
     Anything else raises ValueError so callers cannot silently generate a
     path that no rule produces.
     """
-    if peak_suffix == "narrowPeak" and assay in ("atac", "cuttag"):
-        filename_infix = f"{assay}_"
-    elif peak_suffix == "broadPeak" and assay in ("chipseq", "cuttag"):
-        filename_infix = f"broad_{assay}_"
-    else:
-        raise ValueError(
-            f"Unsupported IDR self-threshold path: "
-            f"assay={assay!r}, peak_suffix={peak_suffix!r}"
-        )
+    filename_infix = _idr_filename_infix(assay, peak_suffix)
 
     bioreps = sorted(_bioreps_for(experiment, "treatment"))
     br = bioreps[index]
@@ -196,15 +200,7 @@ def idr_pooled_peak_input(experiment, pr, assay, peak_suffix):
     Anything else raises ValueError so callers cannot silently generate a
     path that no rule produces.
     """
-    if peak_suffix == "narrowPeak" and assay in ("atac", "cuttag"):
-        filename_infix = f"{assay}_"
-    elif peak_suffix == "broadPeak" and assay in ("chipseq", "cuttag"):
-        filename_infix = f"broad_{assay}_"
-    else:
-        raise ValueError(
-            f"Unsupported IDR pooled peak input: "
-            f"assay={assay!r}, peak_suffix={peak_suffix!r}"
-        )
+    filename_infix = _idr_filename_infix(assay, peak_suffix)
 
     return (
         f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
@@ -226,15 +222,7 @@ def idr_pooled_thresh_path(experiment, assay, peak_suffix):
     Anything else raises ValueError so callers cannot silently generate a
     path that no rule produces.
     """
-    if peak_suffix == "narrowPeak" and assay in ("atac", "cuttag"):
-        filename_infix = f"{assay}_"
-    elif peak_suffix == "broadPeak" and assay in ("chipseq", "cuttag"):
-        filename_infix = f"broad_{assay}_"
-    else:
-        raise ValueError(
-            f"Unsupported IDR pooled threshold path: "
-            f"assay={assay!r}, peak_suffix={peak_suffix!r}"
-        )
+    filename_infix = _idr_filename_infix(assay, peak_suffix)
 
     return (
         f"{OUTDIR}/experiments/{experiment}/06_reproducibility/idr/"
