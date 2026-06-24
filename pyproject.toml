@@ -35,6 +35,11 @@ addopts = "--strict-markers -v"
 source = ["src/encode_pipeline", "scripts"]
 branch = true
 
+[tool.coverage.report]
+fail_under = 23
+show_missing = true
+skip_covered = false
+
 [tool.snakefmt]
 line_length = 120
 include = '\.smk$|Snakefile'
