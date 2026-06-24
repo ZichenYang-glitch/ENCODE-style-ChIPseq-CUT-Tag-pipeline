@@ -377,8 +377,7 @@ rule atac_idr_summary:
     input:
         true_thresh  = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
                        f"true_replicates/{{experiment}}_atac_idr.thresholded.narrowPeak",
-        pool_thresh  = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
-                       f"pooled_pseudoreplicates/{{experiment}}_atac_idr.thresholded.narrowPeak",
+        pool_thresh  = lambda wc: idr_pooled_thresh_path(wc.experiment, "atac", "narrowPeak"),
         self1_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 0, "atac", "narrowPeak"),
         self2_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 1, "atac", "narrowPeak"),
     params:

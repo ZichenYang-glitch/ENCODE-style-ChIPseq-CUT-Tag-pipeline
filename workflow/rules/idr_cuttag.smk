@@ -382,9 +382,7 @@ rule cuttag_idr_summary:
         true_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
                       f"idr/true_replicates/"
                       f"{{experiment}}_cuttag_idr.thresholded.narrowPeak",
-        pool_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
-                      f"idr/pooled_pseudoreplicates/"
-                      f"{{experiment}}_cuttag_idr.thresholded.narrowPeak",
+        pool_thresh = lambda wc: idr_pooled_thresh_path(wc.experiment, "cuttag", "narrowPeak"),
         self1_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 0, "cuttag", "narrowPeak"),
         self2_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 1, "cuttag", "narrowPeak"),
     params:

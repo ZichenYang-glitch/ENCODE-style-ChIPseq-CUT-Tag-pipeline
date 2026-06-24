@@ -676,3 +676,81 @@ def test_legacy_idr_pooled_peak_input_match_private_helpers(idr_paths_namespace)
         f"results/experiments/{exp}/06_reproducibility/idr/"
         f"idr_peaks/{exp}_broad_cuttag_pooled_pr2_idr.broadPeak"
     )
+
+
+@pytest.mark.parametrize(
+    "assay,peak_suffix,expected",
+    [
+        (
+            "atac",
+            "narrowPeak",
+            "results/experiments/EXP1/06_reproducibility/idr/"
+            "pooled_pseudoreplicates/EXP1_atac_idr.thresholded.narrowPeak",
+        ),
+        (
+            "cuttag",
+            "narrowPeak",
+            "results/experiments/EXP1/06_reproducibility/idr/"
+            "pooled_pseudoreplicates/EXP1_cuttag_idr.thresholded.narrowPeak",
+        ),
+        (
+            "chipseq",
+            "broadPeak",
+            "results/experiments/EXP1/06_reproducibility/idr/"
+            "pooled_pseudoreplicates/EXP1_broad_chipseq_idr.thresholded.broadPeak",
+        ),
+        (
+            "cuttag",
+            "broadPeak",
+            "results/experiments/EXP1/06_reproducibility/idr/"
+            "pooled_pseudoreplicates/EXP1_broad_cuttag_idr.thresholded.broadPeak",
+        ),
+    ],
+)
+def test_idr_pooled_thresh_path(idr_paths_namespace, assay, peak_suffix, expected):
+    assert idr_paths_namespace["idr_pooled_thresh_path"](
+        "EXP1", assay, peak_suffix
+    ) == expected
+
+
+@pytest.mark.parametrize(
+    "assay,peak_suffix",
+    [
+        ("chipseq", "narrowPeak"),
+        ("atac", "broadPeak"),
+        ("unknown", "narrowPeak"),
+        ("atac", "unknown"),
+    ],
+)
+def test_idr_pooled_thresh_path_invalid_combo(idr_paths_namespace, assay, peak_suffix):
+    with pytest.raises(ValueError):
+        idr_paths_namespace["idr_pooled_thresh_path"]("EXP1", assay, peak_suffix)
+
+
+def test_legacy_idr_pooled_thresh_path_match_inlined(idr_paths_namespace):
+    """Legacy summary rule input.pool_thresh literals."""
+    exp = "EXP1"
+    assert idr_paths_namespace["idr_pooled_thresh_path"](
+        exp, "atac", "narrowPeak"
+    ) == (
+        f"results/experiments/{exp}/06_reproducibility/idr/"
+        f"pooled_pseudoreplicates/{exp}_atac_idr.thresholded.narrowPeak"
+    )
+    assert idr_paths_namespace["idr_pooled_thresh_path"](
+        exp, "cuttag", "narrowPeak"
+    ) == (
+        f"results/experiments/{exp}/06_reproducibility/idr/"
+        f"pooled_pseudoreplicates/{exp}_cuttag_idr.thresholded.narrowPeak"
+    )
+    assert idr_paths_namespace["idr_pooled_thresh_path"](
+        exp, "chipseq", "broadPeak"
+    ) == (
+        f"results/experiments/{exp}/06_reproducibility/idr/"
+        f"pooled_pseudoreplicates/{exp}_broad_chipseq_idr.thresholded.broadPeak"
+    )
+    assert idr_paths_namespace["idr_pooled_thresh_path"](
+        exp, "cuttag", "broadPeak"
+    ) == (
+        f"results/experiments/{exp}/06_reproducibility/idr/"
+        f"pooled_pseudoreplicates/{exp}_broad_cuttag_idr.thresholded.broadPeak"
+    )

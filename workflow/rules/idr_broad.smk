@@ -426,9 +426,7 @@ rule broad_idr_chipseq_summary:
         true_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
                       f"idr/true_replicates/"
                       f"{{experiment}}_broad_chipseq_idr.thresholded.broadPeak",
-        pool_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
-                      f"idr/pooled_pseudoreplicates/"
-                      f"{{experiment}}_broad_chipseq_idr.thresholded.broadPeak",
+        pool_thresh = lambda wc: idr_pooled_thresh_path(wc.experiment, "chipseq", "broadPeak"),
         self1_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 0, "chipseq", "broadPeak"),
         self2_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 1, "chipseq", "broadPeak"),
     params:
@@ -482,9 +480,7 @@ rule broad_idr_cuttag_summary:
         true_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
                       f"idr/true_replicates/"
                       f"{{experiment}}_broad_cuttag_idr.thresholded.broadPeak",
-        pool_thresh = f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/"
-                      f"idr/pooled_pseudoreplicates/"
-                      f"{{experiment}}_broad_cuttag_idr.thresholded.broadPeak",
+        pool_thresh = lambda wc: idr_pooled_thresh_path(wc.experiment, "cuttag", "broadPeak"),
         self1_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 0, "cuttag", "broadPeak"),
         self2_thresh = lambda wc: idr_self_thresh_path(wc.experiment, 1, "cuttag", "broadPeak"),
     params:
