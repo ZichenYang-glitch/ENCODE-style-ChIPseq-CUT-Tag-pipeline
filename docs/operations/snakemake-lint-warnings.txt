@@ -529,4 +529,3 @@ Lints for rule result_manifest (line 207, workflow/rules/report.smk):
       unreadable.
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
-

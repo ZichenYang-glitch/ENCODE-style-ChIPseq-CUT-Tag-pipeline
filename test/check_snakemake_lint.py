@@ -26,22 +26,32 @@ def _snakemake_command():
 
 
 def _normalize(text, repo_root):
-    """Remove machine-specific absolute paths from lint output."""
+    """Remove machine-specific absolute paths and trailing whitespace."""
     root = str(repo_root)
     # Match both '/root/' prefix and '/root' at end of string/line.
     text = text.replace(root + os.sep, "")
     text = text.replace(root, ".")
-    return text
+    # Strip trailing whitespace from each line and remove trailing blank lines
+    # so the baseline stays stable regardless of how snakemake terminates its
+    # output.
+    lines = [line.rstrip() for line in text.splitlines()]
+    while lines and lines[-1] == "":
+        lines.pop()
+    return "\n".join(lines) + "\n"
 
 
 def _run_lint(repo_root):
     """Run `snakemake --lint` and return normalized stdout+stderr."""
-    cmd = [_snakemake_command(), "--lint"]
+    cmd = [_snakemake_command(), "--lint", "--workflow-profile", "none"]
+    env = os.environ.copy()
+    if not env.get("XDG_CACHE_HOME"):
+        env["XDG_CACHE_HOME"] = "/tmp/encode-pipeline-snakemake-cache"
     result = subprocess.run(
         cmd,
         cwd=repo_root,
         capture_output=True,
         text=True,
+        env=env,
     )
     combined = result.stdout + result.stderr
     return _normalize(combined, repo_root)
