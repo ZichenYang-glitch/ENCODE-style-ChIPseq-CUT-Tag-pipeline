@@ -1,0 +1,55 @@
+name: Lock Check
+
+"on":
+  pull_request:
+  push:
+    branches: [main, "stage*"]
+
+permissions:
+  contents: read
+
+jobs:
+  lock-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify every modified env YAML has a matching lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin ${{ github.base_ref }} --depth=1 2>/dev/null || true
+          BASE="origin/${{ github.base_ref }}"
+          if ! git rev-parse "$BASE" >/dev/null 2>&1; then
+            echo "No base ref available; skipping lock freshness check."
+            exit 0
+          fi
+          changed_yamls=$(git diff --name-only "$BASE"...HEAD -- workflow/envs/*.yml || true)
+          if [ -z "$changed_yamls" ]; then
+            echo "No environment YAMLs changed."
+            exit 0
+          fi
+          failed=0
+          for yml in $changed_yamls; do
+            lock="${yml%.yml}.lock"
+            if git diff --name-only "$BASE"...HEAD -- "$lock" | grep -q .; then
+              echo "OK: $yml -> $lock also modified"
+            else
+              echo "FAIL: $yml modified without matching $lock"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Verify every env YAML has a lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          for yml in workflow/envs/*.yml; do
+            lock="${yml%.yml}.lock"
+            if [ ! -f "$lock" ]; then
+              echo "MISSING: $lock for $yml"
+              exit 1
+            fi
+          done
+          echo "All environment YAMLs have matching lockfiles."
