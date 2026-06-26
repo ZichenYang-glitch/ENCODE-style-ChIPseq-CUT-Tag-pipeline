@@ -39,12 +39,12 @@ def test_fast_checks_commands():
         content = fh.read()
 
     required = [
-        "test_validation_stress.py",
+        "test/config/test_validation.py",
         "test_stage8_smoke_profiles.py",
         "test_no_hardcoded_paths.py",
         "test_stage22_bigwig_stress.py",
         "test_stage24_qc_summary_unit.py",
-        "test_stage25_manifest_stress.py",
+        "test/manifest/test_make_manifest.py",
         "test_stage27_public_validation_plan.py",
         "test_stage27b_metadata_ci_plan.py",
         "test_stage27c_ci_workflow.py",

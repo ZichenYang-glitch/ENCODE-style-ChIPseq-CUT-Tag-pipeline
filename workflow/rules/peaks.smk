@@ -4,22 +4,23 @@
 # Assay-specific MACS3 parameters dispatched through get_macs3_args().
 # Control input (if any) is tracked as a dependency via _macs3_inputs().
 
+
 rule macs3_callpeak:
-    output:
-        peaks = directory(f"{OUTDIR}/{{sample}}/04_peaks/{{sample}}"),
     input:
         lambda wc: _macs3_inputs(wc),
-    params:
-        macs3_args = lambda wc: get_macs3_args(wc),
-        bdg_args   = lambda wc: "-B" if QC_CONFIG.get("signal_tracks", True) else "",
-        sample     = "{sample}",
-        peak_mode  = lambda wc: SAMPLE_MAP[wc.sample]["peak_mode"],
-        extra      = _tool_param("macs3", "extra_args", ""),
+    output:
+        peaks=directory(f"{OUTDIR}/{{sample}}/04_peaks/{{sample}}"),
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.macs3.log",
-    threads: THREADS,
     conda:
-        "../envs/macs3.yml",
+        "../envs/macs3.yml"
+    threads: THREADS
+    params:
+        macs3_args=lambda wc: get_macs3_args(wc),
+        bdg_args=lambda wc: "-B" if QC_CONFIG.get("signal_tracks", True) else "",
+        sample="{sample}",
+        peak_mode=lambda wc: SAMPLE_MAP[wc.sample]["peak_mode"],
+        extra=_tool_param("macs3", "extra_args", ""),
     shell:
         """
         set -e -o pipefail
@@ -66,6 +67,7 @@ rule macs3_callpeak:
 # Pooled MACS3 peak calling (Stage 4b)
 # ---------------------------------------------------------------------------
 
+
 def _pooled_macs3_args(experiment):
     """Return MACS3 args string for a pooled experiment.
 
@@ -75,8 +77,10 @@ def _pooled_macs3_args(experiment):
     treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
     if not treatment_ids:
         return ""
+
     class _Wildcards:
         sample = treatment_ids[0]
+
     return get_macs3_args(_Wildcards)
 
 
@@ -99,32 +103,26 @@ def _pooled_peaks_inputs(wildcards):
         f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.final.bam.bai",
     ]
     if exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(
-            f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.control.final.bam"
-        )
+        inputs.append(f"{OUTDIR}/experiments/{exp}/02_align/{exp}.pooled.control.final.bam")
     return inputs
 
 
 rule macs3_pooled_peaks:
-    output:
-        peaks = directory(
-            f"{OUTDIR}/experiments/{{experiment}}/04_peaks/pooled/{{experiment}}_pooled_peaks"
-        ),
     input:
         lambda wc: _pooled_peaks_inputs(wc),
-    params:
-        macs3_args = lambda wc: _pooled_macs3_args(wc.experiment),
-        bdg_args   = lambda wc: "-B" if QC_CONFIG.get("signal_tracks", True) else "",
-        sample     = "{experiment}",
-        peak_mode  = lambda wc: SAMPLE_MAP[
-            TREATMENT_SAMPLES_BY_EXPERIMENT[wc.experiment][0]
-        ]["peak_mode"],
-        extra      = _tool_param("macs3", "extra_args", ""),
+    output:
+        peaks=directory(f"{OUTDIR}/experiments/{{experiment}}/04_peaks/pooled/{{experiment}}_pooled_peaks"),
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.macs3.log",
-    threads: THREADS,
     conda:
-        "../envs/macs3.yml",
+        "../envs/macs3.yml"
+    threads: THREADS
+    params:
+        macs3_args=lambda wc: _pooled_macs3_args(wc.experiment),
+        bdg_args=lambda wc: "-B" if QC_CONFIG.get("signal_tracks", True) else "",
+        sample="{experiment}",
+        peak_mode=lambda wc: SAMPLE_MAP[TREATMENT_SAMPLES_BY_EXPERIMENT[wc.experiment][0]]["peak_mode"],
+        extra=_tool_param("macs3", "extra_args", ""),
     shell:
         """
         set -e -o pipefail

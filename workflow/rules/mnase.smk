@@ -14,6 +14,7 @@
 # MNase config helpers (Stage 39 + Stage 40)
 # ---------------------------------------------------------------------------
 
+
 def get_mono_range():
     """Return (min, max) mono-nucleosome fragment range from config.
 
@@ -85,6 +86,7 @@ def _caller_enabled(name):
 # MNase policy functions — consumed by dispatch wrappers in workflow/Snakefile
 # ---------------------------------------------------------------------------
 
+
 def get_remove_dup_mnase(wildcards):
     """MNase duplicate removal policy.
 
@@ -125,19 +127,20 @@ def get_macs3_args_mnase(wildcards):
 # 1. Mono-nucleosome BAM — alignmentSieve from final.bam
 # ---------------------------------------------------------------------------
 
+
 rule mnase_split_mono:
-    output:
-        bam = mnase_fragment_bam("{sample}", "mono"),
-        bai = mnase_fragment_bai("{sample}", "mono"),
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
-        bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
-    params:
-        mono_min = get_mono_range()[0],
-        mono_max = get_mono_range()[1],
-    threads: THREADS,
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+    output:
+        bam=mnase_fragment_bam("{sample}", "mono"),
+        bai=mnase_fragment_bai("{sample}", "mono"),
     conda:
-        "../envs/deeptools.yml",
+        "../envs/deeptools.yml"
+    threads: THREADS
+    params:
+        mono_min=get_mono_range()[0],
+        mono_max=get_mono_range()[1],
     shell:
         """
         set -e -o pipefail
@@ -158,19 +161,20 @@ rule mnase_split_mono:
 # 2. Sub-nucleosome BAM — alignmentSieve from final.bam (Stage 40)
 # ---------------------------------------------------------------------------
 
+
 rule mnase_split_sub:
-    output:
-        bam = mnase_fragment_bam("{sample}", "sub"),
-        bai = mnase_fragment_bai("{sample}", "sub"),
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
-        bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
-    params:
-        sub_min = get_fragment_range("sub")[0],
-        sub_max = get_fragment_range("sub")[1],
-    threads: THREADS,
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+    output:
+        bam=mnase_fragment_bam("{sample}", "sub"),
+        bai=mnase_fragment_bai("{sample}", "sub"),
     conda:
-        "../envs/deeptools.yml",
+        "../envs/deeptools.yml"
+    threads: THREADS
+    params:
+        sub_min=get_fragment_range("sub")[0],
+        sub_max=get_fragment_range("sub")[1],
     shell:
         """
         set -e -o pipefail
@@ -191,19 +195,20 @@ rule mnase_split_sub:
 # 3. Di-nucleosome BAM — alignmentSieve from final.bam (Stage 40)
 # ---------------------------------------------------------------------------
 
+
 rule mnase_split_di:
-    output:
-        bam = mnase_fragment_bam("{sample}", "di"),
-        bai = mnase_fragment_bai("{sample}", "di"),
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
-        bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
-    params:
-        di_min = get_fragment_range("di")[0],
-        di_max = get_fragment_range("di")[1],
-    threads: THREADS,
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+    output:
+        bam=mnase_fragment_bam("{sample}", "di"),
+        bai=mnase_fragment_bai("{sample}", "di"),
     conda:
-        "../envs/deeptools.yml",
+        "../envs/deeptools.yml"
+    threads: THREADS
+    params:
+        di_min=get_fragment_range("di")[0],
+        di_max=get_fragment_range("di")[1],
     shell:
         """
         set -e -o pipefail
@@ -224,22 +229,27 @@ rule mnase_split_di:
 # 4. Dyad BigWig — bamCoverage --MNase --binSize 1 from final.bam
 # ---------------------------------------------------------------------------
 
+
 rule mnase_dyad_bigwig:
-    output:
-        bw = mnase_signal_bw("{sample}", "dyad"),
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
-        bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
-    params:
-        normalize_using = f"--normalizeUsing {v}" if (v := _tool_param("bamcoverage", "normalize_using", "CPM")) != "" else "--normalizeUsing CPM",
-        extra = _tool_param("bamcoverage", "extra_args", ""),
-        dyad_min = get_dyad_range()[0],
-        dyad_max = get_dyad_range()[1],
+        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+    output:
+        bw=mnase_signal_bw("{sample}", "dyad"),
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.mnase_dyad_bw.log",
-    threads: THREADS,
     conda:
-        "../envs/deeptools.yml",
+        "../envs/deeptools.yml"
+    threads: THREADS
+    params:
+        normalize_using=(
+            f"--normalizeUsing {v}"
+            if (v := _tool_param("bamcoverage", "normalize_using", "CPM")) != ""
+            else "--normalizeUsing CPM"
+        ),
+        extra=_tool_param("bamcoverage", "extra_args", ""),
+        dyad_min=get_dyad_range()[0],
+        dyad_max=get_dyad_range()[1],
     shell:
         """
         set -e -o pipefail
@@ -267,22 +277,27 @@ rule mnase_dyad_bigwig:
 # 3. Mono occupancy BigWig — bamCoverage from mono.bam
 # ---------------------------------------------------------------------------
 
+
 rule mnase_mono_bigwig:
-    output:
-        bw = mnase_signal_bw("{sample}", "mono"),
     input:
-        bam = mnase_fragment_bam("{sample}", "mono"),
-        bai = mnase_fragment_bai("{sample}", "mono"),
-    params:
-        binsize = BINSIZE,
-        normalize_using = f"--normalizeUsing {v}" if (v := _tool_param("bamcoverage", "normalize_using", "CPM")) != "" else "--normalizeUsing CPM",
-        smooth_length = f"--smoothLength {v}" if (v := _tool_param("bamcoverage", "smooth_length", "")) != "" else "",
-        extra = _tool_param("bamcoverage", "extra_args", ""),
+        bam=mnase_fragment_bam("{sample}", "mono"),
+        bai=mnase_fragment_bai("{sample}", "mono"),
+    output:
+        bw=mnase_signal_bw("{sample}", "mono"),
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.mnase_mono_bw.log",
-    threads: THREADS,
     conda:
-        "../envs/deeptools.yml",
+        "../envs/deeptools.yml"
+    threads: THREADS
+    params:
+        binsize=BINSIZE,
+        normalize_using=(
+            f"--normalizeUsing {v}"
+            if (v := _tool_param("bamcoverage", "normalize_using", "CPM")) != ""
+            else "--normalizeUsing CPM"
+        ),
+        smooth_length=f"--smoothLength {v}" if (v := _tool_param("bamcoverage", "smooth_length", "")) != "" else "",
+        extra=_tool_param("bamcoverage", "extra_args", ""),
     shell:
         """
         set -e -o pipefail
@@ -304,19 +319,20 @@ rule mnase_mono_bigwig:
 # 4. Pooled mono-nucleosome BAM — alignmentSieve from pooled final.bam
 # ---------------------------------------------------------------------------
 
+
 rule mnase_pooled_mono:
-    output:
-        bam = mnase_pooled_fragment_bam("{experiment}", "mono"),
-        bai = mnase_pooled_fragment_bai("{experiment}", "mono"),
     input:
-        bam = f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam",
-        bai = f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam.bai",
-    params:
-        mono_min = get_mono_range()[0],
-        mono_max = get_mono_range()[1],
-    threads: THREADS,
+        bam=f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam",
+        bai=f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam.bai",
+    output:
+        bam=mnase_pooled_fragment_bam("{experiment}", "mono"),
+        bai=mnase_pooled_fragment_bai("{experiment}", "mono"),
     conda:
-        "../envs/deeptools.yml",
+        "../envs/deeptools.yml"
+    threads: THREADS
+    params:
+        mono_min=get_mono_range()[0],
+        mono_max=get_mono_range()[1],
     shell:
         """
         set -e -o pipefail
@@ -337,22 +353,27 @@ rule mnase_pooled_mono:
 # 5. Pooled dyad BigWig — bamCoverage --MNase from pooled final.bam
 # ---------------------------------------------------------------------------
 
+
 rule mnase_pooled_dyad_bigwig:
-    output:
-        bw = mnase_pooled_signal_bw("{experiment}", "dyad"),
     input:
-        bam = f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam",
-        bai = f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam.bai",
-    params:
-        normalize_using = f"--normalizeUsing {v}" if (v := _tool_param("bamcoverage", "normalize_using", "CPM")) != "" else "--normalizeUsing CPM",
-        extra = _tool_param("bamcoverage", "extra_args", ""),
-        dyad_min = get_dyad_range()[0],
-        dyad_max = get_dyad_range()[1],
+        bam=f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam",
+        bai=f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam.bai",
+    output:
+        bw=mnase_pooled_signal_bw("{experiment}", "dyad"),
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.mnase_dyad_bw.log",
-    threads: THREADS,
     conda:
-        "../envs/deeptools.yml",
+        "../envs/deeptools.yml"
+    threads: THREADS
+    params:
+        normalize_using=(
+            f"--normalizeUsing {v}"
+            if (v := _tool_param("bamcoverage", "normalize_using", "CPM")) != ""
+            else "--normalizeUsing CPM"
+        ),
+        extra=_tool_param("bamcoverage", "extra_args", ""),
+        dyad_min=get_dyad_range()[0],
+        dyad_max=get_dyad_range()[1],
     shell:
         """
         set -e -o pipefail
@@ -380,22 +401,27 @@ rule mnase_pooled_dyad_bigwig:
 # 6. Pooled mono occupancy BigWig — bamCoverage from pooled mono.bam
 # ---------------------------------------------------------------------------
 
+
 rule mnase_pooled_mono_bigwig:
-    output:
-        bw = mnase_pooled_signal_bw("{experiment}", "mono"),
     input:
-        bam = mnase_pooled_fragment_bam("{experiment}", "mono"),
-        bai = mnase_pooled_fragment_bai("{experiment}", "mono"),
-    params:
-        binsize = BINSIZE,
-        normalize_using = f"--normalizeUsing {v}" if (v := _tool_param("bamcoverage", "normalize_using", "CPM")) != "" else "--normalizeUsing CPM",
-        smooth_length = f"--smoothLength {v}" if (v := _tool_param("bamcoverage", "smooth_length", "")) != "" else "",
-        extra = _tool_param("bamcoverage", "extra_args", ""),
+        bam=mnase_pooled_fragment_bam("{experiment}", "mono"),
+        bai=mnase_pooled_fragment_bai("{experiment}", "mono"),
+    output:
+        bw=mnase_pooled_signal_bw("{experiment}", "mono"),
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.pooled.mnase_mono_bw.log",
-    threads: THREADS,
     conda:
-        "../envs/deeptools.yml",
+        "../envs/deeptools.yml"
+    threads: THREADS
+    params:
+        binsize=BINSIZE,
+        normalize_using=(
+            f"--normalizeUsing {v}"
+            if (v := _tool_param("bamcoverage", "normalize_using", "CPM")) != ""
+            else "--normalizeUsing CPM"
+        ),
+        smooth_length=f"--smoothLength {v}" if (v := _tool_param("bamcoverage", "smooth_length", "")) != "" else "",
+        extra=_tool_param("bamcoverage", "extra_args", ""),
     shell:
         """
         set -e -o pipefail
@@ -417,33 +443,34 @@ rule mnase_pooled_mono_bigwig:
 # 7. MNase QC summary (Stage 40)
 # ---------------------------------------------------------------------------
 
+
 rule mnase_qc_summary:
+    input:
+        sub_bam=mnase_fragment_bam("{sample}", "sub"),
+        mono_bam=mnase_fragment_bam("{sample}", "mono"),
+        di_bam=mnase_fragment_bam("{sample}", "di"),
+        dyad_bw=mnase_signal_bw("{sample}", "dyad"),
+        mono_bw=mnase_signal_bw("{sample}", "mono"),
     output:
         mnase_qc_summary_tsv("{sample}"),
-    input:
-        sub_bam  = mnase_fragment_bam("{sample}", "sub"),
-        mono_bam = mnase_fragment_bam("{sample}", "mono"),
-        di_bam   = mnase_fragment_bam("{sample}", "di"),
-        dyad_bw  = mnase_signal_bw("{sample}", "dyad"),
-        mono_bw  = mnase_signal_bw("{sample}", "mono"),
-    params:
-        sample  = "{sample}",
-        assay   = lambda wc: SAMPLE_MAP[wc.sample]["assay"],
-        peak_mode = lambda wc: SAMPLE_MAP[wc.sample]["peak_mode"],
-        sub_min  = get_fragment_range("sub")[0],
-        sub_max  = get_fragment_range("sub")[1],
-        mono_min = get_fragment_range("mono")[0],
-        mono_max = get_fragment_range("mono")[1],
-        di_min   = get_fragment_range("di")[0],
-        di_max   = get_fragment_range("di")[1],
-        dyad_min = get_dyad_range()[0],
-        dyad_max = get_dyad_range()[1],
-        insert_size_metrics = f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.insert_size_metrics",
-        danpos3_enabled = str(_caller_enabled("danpos3")).lower(),
-        inps_enabled    = str(_caller_enabled("inps")).lower(),
-        sem_enabled     = str(_caller_enabled("sem")).lower(),
     conda:
-        "../envs/deeptools.yml",
+        "../envs/deeptools.yml"
+    params:
+        sample="{sample}",
+        assay=lambda wc: SAMPLE_MAP[wc.sample]["assay"],
+        peak_mode=lambda wc: SAMPLE_MAP[wc.sample]["peak_mode"],
+        sub_min=get_fragment_range("sub")[0],
+        sub_max=get_fragment_range("sub")[1],
+        mono_min=get_fragment_range("mono")[0],
+        mono_max=get_fragment_range("mono")[1],
+        di_min=get_fragment_range("di")[0],
+        di_max=get_fragment_range("di")[1],
+        dyad_min=get_dyad_range()[0],
+        dyad_max=get_dyad_range()[1],
+        insert_size_metrics=f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.insert_size_metrics",
+        danpos3_enabled=str(_caller_enabled("danpos3")).lower(),
+        inps_enabled=str(_caller_enabled("inps")).lower(),
+        sem_enabled=str(_caller_enabled("sem")).lower(),
     shell:
         """
         set -e -o pipefail

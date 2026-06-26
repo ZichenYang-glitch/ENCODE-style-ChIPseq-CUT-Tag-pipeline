@@ -17,10 +17,7 @@ def get_macs3_args_atac(wildcards):
     fmt = "BAMPE" if s["layout"] == "PE" else "BAM"
     genome = _normalize_genome(s["genome"])
     qvalue = _tool_param("macs3", "qvalue", 0.01)
-    return (
-        f"-f {fmt} -g {genome} -q {qvalue} "
-        "--nomodel --shift -100 --extsize 200"
-    )
+    return f"-f {fmt} -g {genome} -q {qvalue} " "--nomodel --shift -100 --extsize 200"
 
 
 def get_remove_dup_atac(wildcards):

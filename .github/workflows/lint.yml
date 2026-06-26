@@ -1,0 +1,41 @@
+name: Lint
+
+"on":
+  pull_request:
+  push:
+    branches: [main, "stage*"]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup micromamba
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/ci-fast.yml
+          environment-name: ci-fast
+          cache-environment: true
+          cache-environment-key: ci-fast-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.yml') }}
+
+      - name: Install lint tools
+        shell: micromamba-shell {0}
+        run: pip install snakefmt
+
+      - name: snakefmt check
+        shell: micromamba-shell {0}
+        run: snakefmt --check workflow/
+
+      - name: snakemake lint baseline
+        shell: micromamba-shell {0}
+        run: python3 test/check_snakemake_lint.py

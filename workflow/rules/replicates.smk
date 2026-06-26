@@ -13,33 +13,32 @@
 # Helper: list of (sample_id,) final.bam paths for a (experiment, role, bio_rep) key
 # ---------------------------------------------------------------------------
 
+
 def _biorep_techrep_bams(experiment, role, bio_rep):
     """Return sorted final.bam paths for every tech-rep in a biorep group."""
     key = (experiment, role, bio_rep)
     sids = sorted(BIO_REP_GROUPS.get(key, []))
-    return [
-        f"{OUTDIR}/{sid}/02_align/{sid}.final.bam"
-        for sid in sids
-    ]
+    return [f"{OUTDIR}/{sid}/02_align/{sid}.final.bam" for sid in sids]
 
 
 # ---------------------------------------------------------------------------
 # 1. Biological-replicate BAM — merge technical replicates or symlink
 # ---------------------------------------------------------------------------
 
+
 rule merge_biorep_bam:
-    output:
-        bam = f"{OUTDIR}/experiments/{{experiment}}/02_align/biorep{{bio_rep}}.final.bam",
-        bai = f"{OUTDIR}/experiments/{{experiment}}/02_align/biorep{{bio_rep}}.final.bam.bai",
     input:
         lambda wc: _biorep_techrep_bams(wc.experiment, "treatment", int(wc.bio_rep)),
-    params:
-        bio_rep = "{bio_rep}",
+    output:
+        bam=f"{OUTDIR}/experiments/{{experiment}}/02_align/biorep{{bio_rep}}.final.bam",
+        bai=f"{OUTDIR}/experiments/{{experiment}}/02_align/biorep{{bio_rep}}.final.bam.bai",
     wildcard_constraints:
-        bio_rep = r"\d+",
-    threads: THREADS,
+        bio_rep=r"\d+",
     conda:
-        "../envs/samtools.yml",
+        "../envs/samtools.yml"
+    threads: THREADS
+    params:
+        bio_rep="{bio_rep}",
     shell:
         """
         set -e -o pipefail
@@ -62,27 +61,22 @@ rule merge_biorep_bam:
 # 2. Pooled treatment BAM — merge all treatment biorep BAMs for an experiment
 # ---------------------------------------------------------------------------
 
+
 def _treatment_biorep_bams(experiment):
     """Return sorted treatment biorep BAM paths for an experiment."""
-    bioreps = sorted(set(
-        br for (exp, role, br) in BIO_REP_GROUPS
-        if exp == experiment and role == "treatment"
-    ))
-    return [
-        f"{OUTDIR}/experiments/{experiment}/02_align/biorep{br}.final.bam"
-        for br in bioreps
-    ]
+    bioreps = sorted(set(br for (exp, role, br) in BIO_REP_GROUPS if exp == experiment and role == "treatment"))
+    return [f"{OUTDIR}/experiments/{experiment}/02_align/biorep{br}.final.bam" for br in bioreps]
 
 
 rule pool_treatment_bam:
-    output:
-        bam = f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam",
-        bai = f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam.bai",
     input:
         lambda wc: _treatment_biorep_bams(wc.experiment),
-    threads: THREADS,
+    output:
+        bam=f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam",
+        bai=f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam.bai",
     conda:
-        "../envs/samtools.yml",
+        "../envs/samtools.yml"
+    threads: THREADS
     shell:
         """
         set -e -o pipefail
@@ -97,6 +91,7 @@ rule pool_treatment_bam:
 # 3. Pooled control BAM — merge or symlink control(s) for the experiment
 # ---------------------------------------------------------------------------
 
+
 def _pooled_control_inputs(experiment):
     """Return list of control final.bam paths for pooled control BAM.
 
@@ -109,14 +104,14 @@ def _pooled_control_inputs(experiment):
 
 
 rule pool_control_bam:
-    output:
-        bam = f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.control.final.bam",
-        bai = f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.control.final.bam.bai",
     input:
         lambda wc: _pooled_control_inputs(wc.experiment),
-    threads: THREADS,
+    output:
+        bam=f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.control.final.bam",
+        bai=f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.control.final.bam.bai",
     conda:
-        "../envs/samtools.yml",
+        "../envs/samtools.yml"
+    threads: THREADS
     shell:
         """
         set -e -o pipefail

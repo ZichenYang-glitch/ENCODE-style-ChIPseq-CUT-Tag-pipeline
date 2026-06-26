@@ -1,0 +1,531 @@
+Lints for snakefile workflow/Snakefile:
+    * Mixed rules and functions in same snakefile.:
+      Small one-liner functions used only once should be defined as lambda
+      expressions. Other functions should be collected in a common module, e.g.
+      'rules/common.smk'. This makes the workflow steps more readable.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/modularization.html#includes
+
+Lints for snakefile workflow/rules/common.smk:
+    * Mixed rules and functions in same snakefile.:
+      Small one-liner functions used only once should be defined as lambda
+      expressions. Other functions should be collected in a common module, e.g.
+      'rules/common.smk'. This makes the workflow steps more readable.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/modularization.html#includes
+
+Lints for snakefile workflow/rules/peaks.smk:
+    * Mixed rules and functions in same snakefile.:
+      Small one-liner functions used only once should be defined as lambda
+      expressions. Other functions should be collected in a common module, e.g.
+      'rules/common.smk'. This makes the workflow steps more readable.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/modularization.html#includes
+
+Lints for snakefile workflow/rules/mnase.smk:
+    * Mixed rules and functions in same snakefile.:
+      Small one-liner functions used only once should be defined as lambda
+      expressions. Other functions should be collected in a common module, e.g.
+      'rules/common.smk'. This makes the workflow steps more readable.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/modularization.html#includes
+
+Lints for snakefile workflow/rules/replicates.smk:
+    * Mixed rules and functions in same snakefile.:
+      Small one-liner functions used only once should be defined as lambda
+      expressions. Other functions should be collected in a common module, e.g.
+      'rules/common.smk'. This makes the workflow steps more readable.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/modularization.html#includes
+
+Lints for snakefile workflow/rules/idr.smk:
+    * Mixed rules and functions in same snakefile.:
+      Small one-liner functions used only once should be defined as lambda
+      expressions. Other functions should be collected in a common module, e.g.
+      'rules/common.smk'. This makes the workflow steps more readable.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/modularization.html#includes
+
+Lints for snakefile workflow/rules/idr_reproducibility.smk:
+    * Mixed rules and functions in same snakefile.:
+      Small one-liner functions used only once should be defined as lambda
+      expressions. Other functions should be collected in a common module, e.g.
+      'rules/common.smk'. This makes the workflow steps more readable.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/modularization.html#includes
+
+Lints for snakefile workflow/rules/consensus.smk:
+    * Mixed rules and functions in same snakefile.:
+      Small one-liner functions used only once should be defined as lambda
+      expressions. Other functions should be collected in a common module, e.g.
+      'rules/common.smk'. This makes the workflow steps more readable.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/modularization.html#includes
+
+Lints for snakefile workflow/rules/qc.smk:
+    * Absolute path "/tmp" in line 422:
+      Do not define absolute paths inside of the workflow, since this renders
+      your workflow irreproducible on other machines. Use path relative to the
+      working directory instead, or make the path configurable via a config
+      file.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/configuration.html#configuration
+    * Absolute path "/tmp" in line 447:
+      Do not define absolute paths inside of the workflow, since this renders
+      your workflow irreproducible on other machines. Use path relative to the
+      working directory instead, or make the path configurable via a config
+      file.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/configuration.html#configuration
+    * Absolute path "/tmp" in line 545:
+      Do not define absolute paths inside of the workflow, since this renders
+      your workflow irreproducible on other machines. Use path relative to the
+      working directory instead, or make the path configurable via a config
+      file.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/configuration.html#configuration
+    * Absolute path "/tmp" in line 570:
+      Do not define absolute paths inside of the workflow, since this renders
+      your workflow irreproducible on other machines. Use path relative to the
+      working directory instead, or make the path configurable via a config
+      file.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/configuration.html#configuration
+    * Mixed rules and functions in same snakefile.:
+      Small one-liner functions used only once should be defined as lambda
+      expressions. Other functions should be collected in a common module, e.g.
+      'rules/common.smk'. This makes the workflow steps more readable.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/modularization.html#includes
+
+Lints for snakefile workflow/rules/report.smk:
+    * Mixed rules and functions in same snakefile.:
+      Small one-liner functions used only once should be defined as lambda
+      expressions. Other functions should be collected in a common module, e.g.
+      'rules/common.smk'. This makes the workflow steps more readable.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/modularization.html#includes
+
+Lints for rule fastqc (line 23, workflow/rules/common.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule trim_galore (line 57, workflow/rules/common.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule samtools_index_sorted (line 169, workflow/rules/common.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule samtools_filter (line 186, workflow/rules/common.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule samtools_index_filt (line 210, workflow/rules/common.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule duplicate_handling (line 227, workflow/rules/common.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule samtools_flagstat (line 294, workflow/rules/common.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule samtools_flagstat_final (line 311, workflow/rules/common.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule samtools_idxstats (line 328, workflow/rules/common.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule mnase_split_mono (line 131, workflow/rules/mnase.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule mnase_split_sub (line 165, workflow/rules/mnase.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule mnase_split_di (line 199, workflow/rules/mnase.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule mnase_pooled_mono (line 323, workflow/rules/mnase.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule mnase_qc_summary (line 447, workflow/rules/mnase.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule merge_biorep_bam (line 29, workflow/rules/replicates.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule pool_treatment_bam (line 71, workflow/rules/replicates.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule pool_control_bam (line 106, workflow/rules/replicates.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule idr_true_replicates (line 111, workflow/rules/idr.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule idr_self_pseudoreps (line 283, workflow/rules/idr.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule idr_pooled_pseudoreps (line 344, workflow/rules/idr.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule idr_self_pseudoreps_narrow (line 276, workflow/rules/idr_reproducibility.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule idr_pooled_pseudoreps_narrow (line 347, workflow/rules/idr_reproducibility.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule idr_self_pseudoreps_broad (line 746, workflow/rules/idr_reproducibility.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule idr_pooled_pseudoreps_broad (line 817, workflow/rules/idr_reproducibility.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule consensus_final (line 366, workflow/rules/consensus.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+    * Specify a conda environment or container for each rule.:
+      This way, the used software for each specific step is documented, and the
+      workflow can be executed on any machine without prerequisites.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#integrated-package-management
+      https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#running-jobs-in-containers
+
+Lints for rule consensus_seacr_bedgraph (line 484, workflow/rules/consensus.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule consensus_seacr_biorep_peaks (line 506, workflow/rules/consensus.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule consensus_final_seacr (line 614, workflow/rules/consensus.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+    * Specify a conda environment or container for each rule.:
+      This way, the used software for each specific step is documented, and the
+      workflow can be executed on any machine without prerequisites.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#integrated-package-management
+      https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#running-jobs-in-containers
+
+Lints for rule blacklist_filter_bam (line 72, workflow/rules/qc.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule blacklist_filter_peaks (line 97, workflow/rules/qc.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule peak_counts (line 121, workflow/rules/qc.smk):
+    * Do not access input and output files individually by index in shell commands:
+      When individual access to input or output files is needed (i.e., just
+      writing '{input}' is impossible), use names ('{input.somename}') instead
+      of index based access.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/rules.html#rules
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule seacr_bedgraph (line 257, workflow/rules/qc.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule seacr_call (line 272, workflow/rules/qc.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule pooled_experiment_qc_summary (line 599, workflow/rules/qc.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+    * Param pooled_fe_path is a prefix of input or output file but hardcoded:
+      If this is meant to represent a file path prefix, it will fail when
+      running workflow in environments without a shared filesystem. Instead,
+      provide a function that infers the appropriate prefix from the input or
+      output file, e.g.: lambda w, input: os.path.splitext(input[0])[0]
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
+      https://snakemake.readthedocs.io/en/stable/tutorial/advanced.html#tutorial-input-functions
+    * Param pooled_ppois_path is a prefix of input or output file but hardcoded:
+      If this is meant to represent a file path prefix, it will fail when
+      running workflow in environments without a shared filesystem. Instead,
+      provide a function that infers the appropriate prefix from the input or
+      output file, e.g.: lambda w, input: os.path.splitext(input[0])[0]
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
+      https://snakemake.readthedocs.io/en/stable/tutorial/advanced.html#tutorial-input-functions
+
+Lints for rule qc_summary (line 675, workflow/rules/qc.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+    * Shell command directly uses variable USE_CONTROL from outside of the rule:
+      It is recommended to pass all files as input and output, and non-file
+      parameters via the params directive. Otherwise, provenance tracking is
+      less accurate.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
+
+Lints for rule picard_collect_multiple_metrics (line 809, workflow/rules/qc.smk):
+    * Shell command directly uses variable OUTDIR from outside of the rule:
+      It is recommended to pass all files as input and output, and non-file
+      parameters via the params directive. Otherwise, provenance tracking is
+      less accurate.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
+
+Lints for rule tss_bed_from_gtf (line 848, workflow/rules/qc.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule stage3_qc_summary (line 912, workflow/rules/qc.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule pipeline_done (line 20, workflow/rules/report.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+    * Specify a conda environment or container for each rule.:
+      This way, the used software for each specific step is documented, and the
+      workflow can be executed on any machine without prerequisites.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#integrated-package-management
+      https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#running-jobs-in-containers
+
+Lints for rule cross_correlation_summary (line 119, workflow/rules/report.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule multiqc (line 141, workflow/rules/report.smk):
+    * Param multiqc_dir is a prefix of input or output file but hardcoded:
+      If this is meant to represent a file path prefix, it will fail when
+      running workflow in environments without a shared filesystem. Instead,
+      provide a function that infers the appropriate prefix from the input or
+      output file, e.g.: lambda w, input: os.path.splitext(input[0])[0]
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
+      https://snakemake.readthedocs.io/en/stable/tutorial/advanced.html#tutorial-input-functions
+
+Lints for rule result_manifest (line 207, workflow/rules/report.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files

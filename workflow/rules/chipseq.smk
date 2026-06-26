@@ -66,6 +66,7 @@ def get_extend_reads_chipseq(wildcards):
             frag = _extract_macs3_fragment_size(wildcards)
             if not frag:
                 import sys
+
                 print(
                     f"Warning: MACS3 fragment size unavailable for "
                     f"{wildcards.sample}, using --extendReads 200 (fallback).",

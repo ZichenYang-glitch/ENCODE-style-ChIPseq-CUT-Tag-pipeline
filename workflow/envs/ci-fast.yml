@@ -7,4 +7,5 @@ dependencies:
   - python >=3.10,<3.13
   - pyyaml
   - pytest
+  - pytest-cov
   - snakemake-minimal >=8.0,<9

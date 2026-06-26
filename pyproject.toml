@@ -17,6 +17,7 @@ dev = [
     "pytest-cov",
     "ruff",
     "mypy",
+    "snakefmt",
 ]
 
 [project.scripts]
@@ -33,3 +34,13 @@ addopts = "--strict-markers -v"
 [tool.coverage.run]
 source = ["src/encode_pipeline", "scripts"]
 branch = true
+
+[tool.coverage.report]
+fail_under = 23
+show_missing = true
+skip_covered = false
+
+[tool.snakefmt]
+line_length = 120
+include = '\.smk$|Snakefile'
+exclude = '\.snakemake/|workflow/rules/(idr|consensus|report|qc)\.smk$'

@@ -57,7 +57,7 @@ def idr_split_input(experiment, source):
     """
     if source == "pooled":
         return idr_pooled_treatment_bam(experiment)
-    br_label = source[len("biorep"):]
+    br_label = source[len("biorep") :]
     return idr_biorep_bam(experiment, br_label)
 
 
@@ -131,10 +131,7 @@ def _idr_filename_infix(assay, peak_suffix):
         return f"{assay}_"
     if peak_suffix == "broadPeak" and assay in ("chipseq", "cuttag"):
         return f"broad_{assay}_"
-    raise ValueError(
-        f"Unsupported IDR filename infix: "
-        f"assay={assay!r}, peak_suffix={peak_suffix!r}"
-    )
+    raise ValueError(f"Unsupported IDR filename infix: " f"assay={assay!r}, peak_suffix={peak_suffix!r}")
 
 
 def idr_repro_peak_input(experiment, index, assay, peak_suffix):
