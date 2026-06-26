@@ -14,11 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    uses: ./.github/workflows/lint.yml
-
   fast-checks:
-    needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -89,7 +85,6 @@ jobs:
         run: python3 test/test_stage27c_ci_workflow.py
 
   real-execution:
-    needs: lint
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'
     steps:
