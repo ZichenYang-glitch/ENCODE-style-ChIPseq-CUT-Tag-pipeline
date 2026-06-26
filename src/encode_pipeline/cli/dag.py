@@ -108,6 +108,9 @@ def _run_snakemake_dryrun(config_path):
         raise RuntimeError("snakemake executable not found on PATH")
 
     workdir = os.path.dirname(config_path)
+    env = os.environ.copy()
+    if not env.get("XDG_CACHE_HOME"):
+        env["XDG_CACHE_HOME"] = "/tmp/encode-pipeline-snakemake-cache"
     result = subprocess.run(
         [
             snakemake,
@@ -120,7 +123,7 @@ def _run_snakemake_dryrun(config_path):
         cwd=workdir,
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        env={**env, "PYTHONDONTWRITEBYTECODE": "1"},
     )
     if result.returncode != 0:
         raise RuntimeError(
