@@ -48,11 +48,20 @@ def test_fast_checks_commands():
         "test_stage27_public_validation_plan.py",
         "test_stage27b_metadata_ci_plan.py",
         "test_stage27c_ci_workflow.py",
+        "workflow/envs/ci-fast.lock",
+        "workflow/envs/chipseq.lock",
+    ]
+    forbidden = [
+        "needs: lint",
+        "uses: ./.github/workflows/lint.yml",
     ]
     missing = [s for s in required if s not in content]
-    passed = len(missing) == 0
-    if not passed:
-        print("  Missing tests:", missing)
+    found_forbidden = [s for s in forbidden if s in content]
+    passed = len(missing) == 0 and len(found_forbidden) == 0
+    if missing:
+        print("  Missing:", missing)
+    if found_forbidden:
+        print("  Forbidden:", found_forbidden)
     _record("2-fast_checks_commands", passed)
 
 
@@ -122,7 +131,7 @@ def test_ci_fast_uses_ci_fast_env():
     with open(CI_WORKFLOW) as fh:
         content = fh.read()
 
-    passed = "ci-fast.yml" in content
+    passed = "workflow/envs/ci-fast.lock" in content
     _record("7-ci_fast_uses_ci_fast_env", passed)
 
 
