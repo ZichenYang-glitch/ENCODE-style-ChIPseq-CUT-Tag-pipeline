@@ -110,6 +110,55 @@ QUARANTINED: dict[str, str] = {
 }
 
 
+def _is_legacy_script(path):
+    """Return True if the file looks like a legacy main()/__main__ script."""
+    src = path.read_text(encoding="utf-8")
+    return _has_main(src) or _has_main_guard(src)
+
+
+def _discover_legacy_scripts():
+    """Return all root-level legacy-style test_stage*.py files except this shim."""
+    return sorted(
+        p
+        for p in TEST_DIR.glob("test_stage*.py")
+        if p.name != "test_stage_shim.py" and _is_legacy_script(p)
+    )
+
+
+def test_legacy_scripts_are_classified():
+    """Guard: every legacy-style stage script must be allowlisted or quarantined."""
+    classified = set(ALLOWLIST) | set(QUARANTINED)
+    legacy_scripts = _discover_legacy_scripts()
+    unclassified = [p.name for p in legacy_scripts if p.name not in classified]
+
+    if unclassified:
+        pytest.fail(
+            "New legacy stage script(s) must be allowlisted or quarantined: "
+            + ", ".join(sorted(unclassified))
+        )
+
+
+def test_allowlist_and_quarantine_refer_to_existing_scripts():
+    """Every allowlisted or quarantined entry must exist at the test root."""
+    classified = set(ALLOWLIST) | set(QUARANTINED)
+    missing = [name for name in classified if not (TEST_DIR / name).exists()]
+    if missing:
+        pytest.fail(
+            "ALLOWLIST/QUARANTINED refer to missing scripts: "
+            + ", ".join(sorted(missing))
+        )
+
+
+def test_allowlist_and_quarantine_are_disjoint():
+    """A script must not be both allowlisted and quarantined."""
+    overlap = set(ALLOWLIST) & set(QUARANTINED)
+    if overlap:
+        pytest.fail(
+            "Script(s) appear in both ALLOWLIST and QUARANTINED: "
+            + ", ".join(sorted(overlap))
+        )
+
+
 def _allowlist_paths():
     """Return Paths for the explicitly allowlisted legacy scripts."""
     return [TEST_DIR / name for name in ALLOWLIST]
