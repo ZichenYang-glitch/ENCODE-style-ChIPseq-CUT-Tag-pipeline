@@ -22,6 +22,8 @@ dev = [
 
 [project.scripts]
 encode-validate = "encode_pipeline.cli.validate:main"
+encode-manifest = "encode_pipeline.cli.manifest:main"
+encode-dag = "encode_pipeline.cli.dag:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
