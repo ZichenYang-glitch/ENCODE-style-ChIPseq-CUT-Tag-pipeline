@@ -23,10 +23,10 @@ jobs:
       - name: Setup micromamba
         uses: mamba-org/setup-micromamba@v3
         with:
-          environment-file: workflow/envs/ci-fast.yml
+          environment-file: workflow/envs/ci-fast.lock
           environment-name: ci-fast
           cache-environment: true
-          cache-environment-key: ci-fast-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.yml') }}
+          cache-environment-key: ci-fast-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.lock') }}
 
       - name: Install lint tools
         shell: micromamba-shell {0}
