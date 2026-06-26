@@ -7,7 +7,7 @@ keep heavy or conflicting tools isolated.
 For the shortest setup path, create only the runner environment first:
 
 ```bash
-micromamba create -f workflow/envs/runner.yml
+micromamba create -n chipseq-runner --file workflow/envs/runner.lock
 micromamba activate chipseq-runner
 ```
 
@@ -21,13 +21,53 @@ snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use
 Snakemake creates the rule environments it needs on first use and reuses them
 on later runs.
 
-## Environment Files
+## Locked Environments
+
+Every `workflow/envs/*.yml` has a matching `workflow/envs/*.lock` file generated
+with [conda-lock](https://github.com/conda/conda-lock) in **explicit** format.
+The YAML files keep semantic version ranges as the intent document; the
+lockfiles capture the exact resolved package URLs so CI and users can reproduce
+the same environment with any conda-compatible installer.
+
+We evaluated `conda-lock` against `pixi` on the five most constrained
+environments (`chipseq`, `idr`, `macs3`, `deeptools`, `picard`) on `linux-64`.
+`conda-lock` resolved all of them, including `idr.yml` with its `python <3.10`
+constraint. We render the lockfiles in explicit format so they can be installed
+with `micromamba create --file` directly, without requiring `conda-lock` at
+install time. For this reason the project uses `conda-lock`.
+
+To install from a lockfile:
+
+```bash
+micromamba create -n chipseq --file workflow/envs/chipseq.lock
+```
+
+Or with conda:
+
+```bash
+conda create -n chipseq --file workflow/envs/chipseq.lock
+```
+
+## Updating an Environment
+
+1. Edit the source YAML (`workflow/envs/<name>.yml`) to express the new intent.
+2. Regenerate the lockfile:
+
+   ```bash
+   conda-lock lock -f workflow/envs/<name>.yml -p linux-64 --kind explicit \
+       --lockfile workflow/envs/<name>.lock
+   ```
+
+3. Commit both the `.yml` and the `.lock`.
+
+The CI `lock-check` workflow fails if a YAML is modified without a matching
+`.lock` file.
 
 | File | Used for |
 |------|----------|
-| `workflow/envs/runner.yml` | First install and local workflow entry point: Python, PyYAML, `snakemake-minimal` |
-| `workflow/envs/ci-fast.yml` | GitHub Actions fast checks: validation and dry-run smoke profiles |
-| `workflow/envs/chipseq.yml` | Core runtime for the tiny real-execution harness and manual CI real-execution job |
+| `workflow/envs/runner.yml` | First install and local workflow entry point; lockfile is `runner.lock` |
+| `workflow/envs/ci-fast.yml` | GitHub Actions fast checks; lockfile is `ci-fast.lock` |
+| `workflow/envs/chipseq.yml` | Core runtime for tiny real-execution harness; lockfile is `chipseq.lock` |
 | `workflow/envs/fastqc.yml` | FastQC with pinned OpenJDK 17 |
 | `workflow/envs/trim.yml` | Trim Galore and cutadapt |
 | `workflow/envs/align.yml` | Bowtie2 alignment and samtools conversion |
@@ -77,7 +117,7 @@ work directory. The directory is generated output and should not be committed.
 Create the runner:
 
 ```bash
-micromamba create -f workflow/envs/runner.yml
+micromamba create -n chipseq-runner --file workflow/envs/runner.lock
 micromamba activate chipseq-runner
 ```
 
@@ -115,10 +155,10 @@ rm -rf .snakemake/conda
 ## Tiny Real Execution
 
 The Stage 8b tiny real-execution harness intentionally uses the core
-`chipseq.yml` runtime instead of creating all rule-specific environments:
+`chipseq` runtime instead of creating all rule-specific environments:
 
 ```bash
-micromamba create -f workflow/envs/chipseq.yml
+micromamba create -n chipseq --file workflow/envs/chipseq.lock
 micromamba activate chipseq
 python3 test/test_stage8b_tiny_execution.py
 ```
@@ -130,9 +170,9 @@ It does not run IDR, SEACR, or MultiQC.
 
 GitHub Actions uses two paths:
 
-- `fast-checks`: uses `workflow/envs/ci-fast.yml` for config validation and
+- `fast-checks`: uses `workflow/envs/ci-fast.lock` for config validation and
   dry-run smoke profiles.
-- `real-execution`: manual `workflow_dispatch`, uses `workflow/envs/chipseq.yml`
+- `real-execution`: manual `workflow_dispatch`, uses `workflow/envs/chipseq.lock`
   for the tiny real-execution harness.
 
 Full rule-specific environments are primarily for real user runs with

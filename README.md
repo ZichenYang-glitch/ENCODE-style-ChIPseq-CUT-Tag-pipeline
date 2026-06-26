@@ -59,14 +59,14 @@ See [Limitations](#limitations) for known gaps.
 ```bash
 git clone https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline.git
 cd ENCODE-style-ChIPseq-CUT-Tag-pipeline
-micromamba create -f workflow/envs/runner.yml
+micromamba create -n chipseq-runner --file workflow/envs/runner.lock
 micromamba activate chipseq-runner
 ```
 
 Or with conda:
 
 ```bash
-conda env create --file workflow/envs/runner.yml
+conda create -n chipseq-runner --file workflow/envs/runner.lock
 conda activate chipseq-runner
 ```
 
@@ -489,7 +489,7 @@ snakemake only) and runs validation plus 9 Python test suites:
 
 A manual `workflow_dispatch` job runs the tiny real-execution harness
 using the core `chipseq` environment.  See `.github/workflows/ci.yml`
-and the `workflow/envs/ci-fast.yml` minimal environment.
+and the `workflow/envs/ci-fast.lock` minimal environment.
 Design: `docs/superpowers/specs/2026-05-18-stage8c-github-actions-ci-design.md`
 
 For local environment layout, first-run behavior, and cleanup commands, see
@@ -501,7 +501,7 @@ For local environment layout, first-run behavior, and cleanup commands, see
 
 ```bash
 # Create the lightweight runner environment
-micromamba create -f workflow/envs/runner.yml
+micromamba create -n chipseq-runner --file workflow/envs/runner.lock
 micromamba activate chipseq-runner
 ```
 
@@ -516,7 +516,7 @@ python3 test/test_stage8_smoke_profiles.py
 **Tiny real execution (requires the core chipseq env):**
 
 ```bash
-micromamba create -f workflow/envs/chipseq.yml
+micromamba create -n chipseq --file workflow/envs/chipseq.lock
 micromamba activate chipseq
 python3 test/test_stage8b_tiny_execution.py
 ```
