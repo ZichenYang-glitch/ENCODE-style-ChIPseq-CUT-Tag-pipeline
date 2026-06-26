@@ -52,8 +52,8 @@ def main():
            f"got {type(artifacts).__name__} with {len(artifacts) if isinstance(artifacts, list) else 'N/A'} entries")
 
     # 2. Entry count
-    _check("2-entry_count", len(artifacts) == 62,
-           f"expected 62, got {len(artifacts)}")
+    _check("2-entry_count", len(artifacts) == 86,
+           f"expected 86, got {len(artifacts)}")
 
     # 3. All entries are Artifact instances
     all_art = all(isinstance(a, Artifact) for a in artifacts)
@@ -209,10 +209,10 @@ def main():
     _check("22-non_string_tool_rejected", len(errors) > 0,
            f"expected errors, got {errors}")
 
-    # 23. artifacts_by_id returns 62 entries
+    # 23. artifacts_by_id returns 86 entries
     by_id = artifacts_by_id(artifacts)
-    _check("23-artifacts_by_id_62", len(by_id) == 62,
-           f"expected 62, got {len(by_id)}")
+    _check("23-artifacts_by_id_86", len(by_id) == 86,
+           f"expected 86, got {len(by_id)}")
 
     # 24. duplicate id raises ValueError
     dup_test = [Artifact(**d), Artifact(**d)]
