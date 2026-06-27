@@ -48,7 +48,7 @@ review.
 - `test_stage36_singularity_smoke_report.py`
 - `test_stage37_container_ux.py`
 
-### `manual-integration` (15)
+### `manual-integration` (14)
 
 - `test_stage12_stress.py`
 - `test_stage18_19_stress.py`
@@ -81,7 +81,7 @@ consolidation:
 
 - `test_stage8b_tiny_execution.py`
 
-### `migrate-to-pytest` (22)
+### `migrate-to-pytest` (23)
 
 Config validation superseded by `test/config/test_validation.py`:
 
