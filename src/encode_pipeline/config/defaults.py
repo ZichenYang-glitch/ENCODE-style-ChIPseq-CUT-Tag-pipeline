@@ -102,26 +102,13 @@ TOOL_PARAMETERS_KEYS = {
 # Genome resource path fields validated for file existence
 GENOME_RESOURCE_PATH_FIELDS = ("chrom_sizes", "blacklist", "gtf", "reference_fasta")
 
-# QC config keys (static key list only; default values remain in validator.py)
-QC_KEYS = frozenset({
-    "blacklist_filter",
-    "frip",
-    "library_complexity",
-    "nrf_pbc",
-    "signal_tracks",
-    "summary",
-    "cuttag_fragment_size",
-    "cross_correlation",
-    "preseq_complexity",
-    "picard_metrics",
-    "tss_enrichment",
-})
-
-# MNase static default ranges (returned as lists in validated config)
-MNASE_MONO_RANGE_DEFAULT = [140, 200]
+# MNase static default ranges. Validator converts these to lists when building
+# the validated config so downstream consumers see the same output types as
+# before.
+MNASE_MONO_RANGE_DEFAULT = (140, 200)
 MNASE_FRAGMENT_DEFAULTS = {
-    "sub": [1, 139],
-    "mono": [140, 200],
-    "di": [300, 400],
+    "sub": (1, 139),
+    "mono": (140, 200),
+    "di": (300, 400),
 }
-MNASE_DYAD_RANGE_DEFAULT = [130, 200]
+MNASE_DYAD_RANGE_DEFAULT = (130, 200)
