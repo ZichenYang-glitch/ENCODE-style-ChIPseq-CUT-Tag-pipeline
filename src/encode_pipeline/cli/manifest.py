@@ -1,7 +1,7 @@
 """CLI entry point: encode-manifest.
 
-Thin wrapper around scripts.make_manifest that adds structured logging and
-writes to stdout when no --output is given.
+Package-native manifest generator with structured logging.
+Writes to stdout when no --output is given.
 """
 
 import argparse
@@ -17,11 +17,8 @@ from encode_pipeline.cli._logging import (
     header_comment_lines,
     make_context,
 )
-
-# Make scripts.make_manifest importable whether the package is installed or not.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-import scripts.make_manifest as _make_manifest
 from encode_pipeline.config.validate import validate_config
+from encode_pipeline.manifest import build_manifest_rows, write_manifest_tsv
 
 
 def _load_config(config_path, config_json):
@@ -56,24 +53,23 @@ def main(argv=None):
     run_id, version, config_hash = make_context(cfg)
     emit(run_id, version, config_hash)
 
-    if args.output:
-        # File mode: delegate directly to make_manifest for byte-identical output.
-        argv_for_make = ["make_manifest.py"]
-        if args.config_json:
-            argv_for_make.extend(["--config-json", args.config_json])
-        elif args.config:
-            argv_for_make.extend(["--config", args.config])
-        argv_for_make.extend(["--output", args.output])
-        if args.strict:
-            argv_for_make.append("--strict")
+    # Always build rows via the package API.
+    rows, missing_count, na_count = build_manifest_rows(cfg)
 
-        old_argv = sys.argv
-        sys.argv = argv_for_make
-        try:
-            _make_manifest.main()
-        finally:
-            sys.argv = old_argv
-        return
+    if args.output:
+        write_manifest_tsv(rows, args.output)
+        print(f"Manifest written: {args.output}")
+        print(
+            f"  {len(rows)} rows: "
+            f"{len(rows) - missing_count - na_count} present, "
+            f"{missing_count} missing, "
+            f"{na_count} not_applicable"
+        )
+        if args.strict and missing_count > 0:
+            print(f"ERROR: --strict mode, {missing_count} missing output(s)",
+                  file=sys.stderr)
+            return 1
+        return 0
 
     # Stdout mode: generate to a temp file, prepend structured header, stream.
     with tempfile.NamedTemporaryFile(
@@ -82,28 +78,7 @@ def main(argv=None):
         tmp_path = tmp.name
 
     try:
-        argv_for_make = [
-            "make_manifest.py",
-            "--config-json",
-            json.dumps(cfg),
-            "--output",
-            tmp_path,
-        ]
-        if args.strict:
-            argv_for_make.append("--strict")
-
-        old_stdout = sys.stdout
-        old_argv = sys.argv
-        # Redirect make_manifest's summary prints to stderr so they don't
-        # contaminate the TSV stream.
-        sys.stdout = sys.stderr
-        sys.argv = argv_for_make
-        try:
-            _make_manifest.main()
-        finally:
-            sys.stdout = old_stdout
-            sys.argv = old_argv
-
+        write_manifest_tsv(rows, tmp_path)
         comments = header_comment_lines(run_id, version, config_hash)
         with open(tmp_path, "rb") as fh:
             body = fh.read()
@@ -111,6 +86,10 @@ def main(argv=None):
     finally:
         os.unlink(tmp_path)
 
+    if args.strict and missing_count > 0:
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

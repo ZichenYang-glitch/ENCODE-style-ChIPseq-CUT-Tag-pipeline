@@ -11,7 +11,8 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-import scripts.make_manifest as make_manifest
+import scripts.make_manifest as make_manifest_script
+from encode_pipeline.manifest import make as make_manifest
 
 from encode_pipeline.artifacts import (
     Artifact,
@@ -33,37 +34,50 @@ MANIFEST_SCRIPT = REPO_ROOT / "scripts" / "make_manifest.py"
 
 
 def _extract_manifest_output_types(manifest_path):
-    """AST-extract output_type strings from _add_row(...) calls."""
-    with open(manifest_path) as fh:
-        tree = ast.parse(fh.read(), filename=manifest_path)
+    """AST-extract output_type strings from _add_row(...) calls.
 
+    The real manifest generator now lives in
+    ``src/encode_pipeline/manifest/make.py``; ``scripts/make_manifest.py`` is a
+    thin backward-compatible wrapper. We extract output types from the package
+    implementation so the catalog contract stays meaningful.
+    """
+    impl_path = REPO_ROOT / "src" / "encode_pipeline" / "manifest" / "make.py"
+    targets = [manifest_path, impl_path]
     types = set()
 
-    class AddRowVisitor(ast.NodeVisitor):
-        def visit_Call(self, node):
-            if (isinstance(node.func, ast.Name)
-                    and node.func.id == "_add_row"):
-                if len(node.args) >= 7:
-                    val = self._extract_string(node.args[6])
-                    if val:
-                        types.add(val)
-            self.generic_visit(node)
+    for target in targets:
+        with open(target) as fh:
+            try:
+                tree = ast.parse(fh.read(), filename=target)
+            except SyntaxError:
+                continue
 
-        @staticmethod
-        def _extract_string(node):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                return node.value
-            if isinstance(node, ast.JoinedStr):
-                parts = []
-                for v in node.values:
-                    if isinstance(v, ast.Constant) and isinstance(v.value, str):
-                        parts.append(v.value)
-                    elif isinstance(v, ast.FormattedValue):
-                        parts.append("<N>")
-                return "".join(parts)
-            return None
+        class AddRowVisitor(ast.NodeVisitor):
+            def visit_Call(self, node):
+                if (isinstance(node.func, ast.Name)
+                        and node.func.id == "_add_row"):
+                    if len(node.args) >= 7:
+                        val = self._extract_string(node.args[6])
+                        if val:
+                            types.add(val)
+                self.generic_visit(node)
 
-    AddRowVisitor().visit(tree)
+            @staticmethod
+            def _extract_string(node):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    return node.value
+                if isinstance(node, ast.JoinedStr):
+                    parts = []
+                    for v in node.values:
+                        if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                            parts.append(v.value)
+                        elif isinstance(v, ast.FormattedValue):
+                            parts.append("<N>")
+                    return "".join(parts)
+                return None
+
+        AddRowVisitor().visit(tree)
+
     return types
 
 
@@ -109,7 +123,7 @@ def _run_manifest(config, samples_tsv, tmp_config, chrom_sizes=False):
     sys.stderr = stderr_capture
     sys.argv = ["make_manifest.py", "--config", str(config_path), "--output", str(out)]
     try:
-        make_manifest.main()
+        make_manifest_script.main()
         returncode = 0
     except SystemExit as exc:
         returncode = exc.code if exc.code is not None else 0
