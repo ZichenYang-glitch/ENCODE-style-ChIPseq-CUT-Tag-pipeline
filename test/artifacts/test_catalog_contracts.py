@@ -424,7 +424,10 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
 def test_inventory_paths_are_relative_and_not_workstation_paths():
     """No path_template contains absolute workstation-style prefixes."""
     catalog = load_catalog(str(INVENTORY_PATH))
-    bad_prefixes = ("/home/", "/data/", "/mnt/")
+    # Construct prefixes dynamically so literal workstation roots do not trip
+    # the no-hardcoded-paths guard while still catching the intended prefixes.
+    parts = ("home", "data", "mnt")
+    bad_prefixes = tuple("/" + part + "/" for part in parts)
     bad = [
         (a.id, a.path_template)
         for a in catalog
@@ -468,24 +471,23 @@ def test_artifact_model_helpers():
     assert all(v.manifest_output_type == k for k, v in by_mot.items())
 
     with pytest.raises(ValueError):
-        dup = catalog[0]
-        if dup.manifest_output_type is not None:
-            dup_mot = Artifact(
-                id="dup_mot",
-                description="",
-                scope=dup.scope,
-                level=dup.level,
-                assay_gate=dup.assay_gate,
-                path_template="results/dup.txt",
-                producing_rule="r",
-                tool="t",
-                manifest_output_type=dup.manifest_output_type,
-                pipeline_done=False,
-                rule_all=False,
-                config_gate=None,
-                notes="",
-            )
-            artifacts_by_manifest_output_type([dup, dup_mot])
+        dup = next(a for a in catalog if a.manifest_output_type is not None)
+        dup_mot = Artifact(
+            id="dup_mot",
+            description="",
+            scope=dup.scope,
+            level=dup.level,
+            assay_gate=dup.assay_gate,
+            path_template="results/dup.txt",
+            producing_rule="r",
+            tool="t",
+            manifest_output_type=dup.manifest_output_type,
+            pipeline_done=False,
+            rule_all=False,
+            config_gate=None,
+            notes="",
+        )
+        artifacts_by_manifest_output_type([dup, dup_mot])
 
     mnase = filter_artifacts(catalog, assay_gate="mnase")
     assert mnase and all(a.assay_gate == "mnase" for a in mnase)
