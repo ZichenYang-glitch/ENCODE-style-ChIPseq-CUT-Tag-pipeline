@@ -1,8 +1,9 @@
 # Loop Engineering
 
-This repo uses Claude Code's `/loop` command for long-running supervision, not
-for autonomous implementation. A human is always in the loop for merges,
-scope decisions, and PR creation.
+This repo uses Claude Code's `/loop` command under a supervised scope model.
+Within an explicitly approved PR scope, a loop can implement changes and
+monitor CI. Scope changes, PR creation, and merges must pass through a human
+gate.
 
 ## Supervised loop model
 
@@ -37,8 +38,8 @@ A good loop prompt starts with the current baseline:
 
 - `origin/main` SHA and recent merge state.
 - Open PR numbers, titles, and CI status.
-- Explicit next-action constraints (for example, "Do not start PR47 until PR #46
-  is merged").
+- Explicit next-action constraints (for example, "Do not start the next PR until
+  the current PR is merged and the next scope is explicitly approved").
 
 Keep the prompt self-contained so a future wake-up does not rely on stale
 memory.
@@ -70,10 +71,10 @@ Pause or cancel the loop and report to the user when any of these occur:
 
 ## Example loop commands
 
-Monitor a single PR until it is reviewed or merged:
+Monitor the active PR until it is reviewed or merged:
 
 ```text
-/loop 15m Supervised split-PR loop: check PR #46 CI and merge state. If green and clean, report "PR #46 is waiting for review/merge." Do not merge. Do not start PR47 until PR #46 is merged.
+/loop 15m Supervised PR loop: check the active PR CI and merge state. If green and clean, report that it is waiting for review/merge. Do not merge. Do not start the next PR until the current PR is merged and the next scope is explicitly approved.
 ```
 
 Check for stale loops and cancel them:

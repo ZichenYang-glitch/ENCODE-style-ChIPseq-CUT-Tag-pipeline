@@ -60,8 +60,11 @@ manual archaeology.
 
 ## Lock-check behavior
 
-The `lock-check` workflow installs every conda environment from its explicit
-lockfile (`workflow/envs/*.lock`) and fails if a lockfile is stale or missing.
+The `lock-check` workflow verifies that every `workflow/envs/*.yml` has a
+matching `.lock` file and that PRs modifying an env YAML also modify the
+corresponding lockfile. It does not install every environment or prove lockfile
+freshness; CI separately installs the fast-check environment from
+`workflow/envs/ci-fast.lock`.
 
 ## When to run focused vs full verification
 
