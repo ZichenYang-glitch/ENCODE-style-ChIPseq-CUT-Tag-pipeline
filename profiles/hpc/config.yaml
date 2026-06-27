@@ -1,0 +1,24 @@
+# HPC Snakemake profile template.
+# Usage: snakemake --profile profiles/hpc
+#
+# Storage plugin configuration is intentionally left as documentation-only
+# for Phase 5; enable it once your HPC site provides a supported plugin
+# (e.g. XRootD, S3, GS, or via snakemake-storage-plugin-*).
+
+configfile: "config/config.yaml"
+cores: all
+jobs: 100
+use-conda: true
+conda-frontend: mamba
+rerun-incomplete: true
+keep-going: true
+show-failed-logs: true
+
+# Shadow directory for intermediate files on node-local scratch.
+shadow-prefix: "/scratch/$USER/snakemake-shadow"
+
+# Optional storage plugin placeholder (do not enable without a valid plugin).
+# storage:
+#   default: "xrootd"
+#   xrootd:
+#     host: "xrootd.example.com"

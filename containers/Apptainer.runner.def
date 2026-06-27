@@ -5,7 +5,7 @@ From: condaforge/miniforge3:24.11.3-0
     workflow/envs/runner.yml /opt/pipeline/workflow/envs/runner.yml
 
 %post
-    conda env create -f /opt/pipeline/workflow/envs/runner.yml -y
+    conda env create -f /opt/pipeline/workflow/envs/runner.yml -n chipseq-runner -y
     conda clean -afy
 
 %environment

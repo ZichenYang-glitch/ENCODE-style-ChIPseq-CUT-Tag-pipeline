@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/macs3.yml /opt/pipeline/workflow/envs/macs3.yml
+
+%post
+    conda env create -f /opt/pipeline/workflow/envs/macs3.yml -n chipseq-macs3 -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/chipseq-macs3/bin:$PATH

@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/picard.yml /opt/pipeline/workflow/envs/picard.yml
+
+%post
+    conda env create -f /opt/pipeline/workflow/envs/picard.yml -n chipseq-picard -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/chipseq-picard/bin:$PATH

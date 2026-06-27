@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/samtools.yml /opt/pipeline/workflow/envs/samtools.yml
+
+%post
+    conda env create -f /opt/pipeline/workflow/envs/samtools.yml -n chipseq-samtools -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/chipseq-samtools/bin:$PATH

@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/align.yml /opt/pipeline/workflow/envs/align.yml
+
+%post
+    conda env create -f /opt/pipeline/workflow/envs/align.yml -n chipseq-align -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/chipseq-align/bin:$PATH

@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/seacr.yml /opt/pipeline/workflow/envs/seacr.yml
+
+%post
+    conda env create -f /opt/pipeline/workflow/envs/seacr.yml -n chipseq-seacr -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/chipseq-seacr/bin:$PATH

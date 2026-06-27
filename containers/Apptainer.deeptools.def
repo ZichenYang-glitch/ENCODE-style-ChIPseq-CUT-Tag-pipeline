@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/deeptools.yml /opt/pipeline/workflow/envs/deeptools.yml
+
+%post
+    conda env create -f /opt/pipeline/workflow/envs/deeptools.yml -n chipseq-deeptools -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/chipseq-deeptools/bin:$PATH
