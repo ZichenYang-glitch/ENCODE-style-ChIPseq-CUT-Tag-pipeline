@@ -198,6 +198,35 @@ PR53.
 **Why:** This is the next-lowest-risk extraction after constants. The helpers
 are stateless, have no I/O, and the PR53 tests provide a safety net.
 
+## Recommended PR55: pin genome resource validation
+
+**Target:** Add direct-API pytest characterization tests for
+`genome_resources`, `effective_genome_size`, optional genome resource path
+fields, and the Picard/TSS resource gates.
+
+**Why:** Extraction PR56 will move effective genome size checks, genome resource
+mapping validation, and `validate_picard_reference_resources` /
+`validate_tss_annotation_resources` into `encode_pipeline.config.genome`.
+These checks combine config normalization, filesystem path validation, and
+treatment-genome-only resource gates, so they need a focused safety net before
+the module move.
+
+**Acceptable content:** Tests that call
+`encode_pipeline.config.validate.validate_config`,
+`validate_picard_reference_resources`, and
+`validate_tss_annotation_resources` directly. No changes to
+`validator.py`, `defaults.py`, schema files, CLI behavior, or Snakemake rules.
+
+## Recommended PR56: extract genome resource helpers
+
+**Target:** Move effective genome size validation, genome resource mapping
+validation, and Picard/TSS resource gate functions into
+`encode_pipeline.config.genome`, preserving the behavior pinned by PR55.
+
+**Why:** This is the next focused validator boundary after coercion. The logic
+is still small enough to review, but more stateful than pure coercion because
+it validates filesystem-backed resource paths.
+
 ## Files involved
 
 - `src/encode_pipeline/config/validator.py` — current legacy module.
