@@ -11,6 +11,7 @@ import csv
 import os
 import sys
 
+from encode_pipeline.config.coercion import coerce_bool, coerce_int
 from encode_pipeline.config import defaults
 
 
@@ -94,33 +95,12 @@ def _validate_strict_inputs(samples: list, strict_inputs: bool) -> None:
 
 def _coerce_int(value, *, name: str, minimum: int) -> int:
     """Return a strictly parsed integer, rejecting bools and floats."""
-    if isinstance(value, bool):
-        raise ValidationError(
-            f"config {name} must be an integer, got {value!r}"
-        )
-    if isinstance(value, int):
-        parsed = value
-    elif isinstance(value, str):
-        text = value.strip()
-        if not text.isdigit():
-            raise ValidationError(
-                f"config {name} must be an integer, got {value!r}"
-            )
-        parsed = int(text)
-    else:
-        raise ValidationError(
-            f"config {name} must be an integer, got {value!r}"
-        )
-
-    if parsed < minimum:
-        if minimum == 1:
-            raise ValidationError(
-                f"config {name} must be positive, got {parsed}"
-            )
-        raise ValidationError(
-            f"config {name} must be non-negative, got {parsed}"
-        )
-    return parsed
+    return coerce_int(
+        value,
+        name=name,
+        minimum=minimum,
+        error_cls=ValidationError,
+    )
 
 
 def _validate_effective_genome_size(genome: str, value) -> None:
@@ -1275,13 +1255,7 @@ def _coerce_bool(value, name):
     """Coerce a value to bool. Accepts bool or string bool.
     Raises ValidationError for anything else.
     """
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str) and value.lower() in ("true", "false"):
-        return value.lower() == "true"
-    raise ValidationError(
-        f"{name} must be true or false, got {value!r}"
-    )
+    return coerce_bool(value, name, error_cls=ValidationError)
 
 
 def _sanitize_identifier(value: str) -> str:
