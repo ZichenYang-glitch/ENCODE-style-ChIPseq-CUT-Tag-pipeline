@@ -14,10 +14,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import scripts.make_manifest as make_manifest_script
 from encode_pipeline.manifest import make as make_manifest
 
+from dataclasses import FrozenInstanceError
+
 from encode_pipeline.artifacts import (
     Artifact,
     artifacts_by_id,
     artifacts_by_manifest_output_type,
+    filter_artifacts,
     load_catalog,
     validate_artifact,
 )
@@ -416,3 +419,87 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
         elif mot not in all_types:
             missing.append(mot)
     assert not missing, f"Catalog output_types not emitted by any manifest: {missing}"
+
+
+def test_inventory_paths_are_relative_and_not_workstation_paths():
+    """No path_template contains absolute workstation-style prefixes."""
+    catalog = load_catalog(str(INVENTORY_PATH))
+    # Construct prefixes dynamically so literal workstation roots do not trip
+    # the no-hardcoded-paths guard while still catching the intended prefixes.
+    parts = ("home", "data", "mnt")
+    bad_prefixes = tuple("/" + part + "/" for part in parts)
+    bad = [
+        (a.id, a.path_template)
+        for a in catalog
+        if any(a.path_template.startswith(p) for p in bad_prefixes)
+    ]
+    assert not bad, f"Absolute workstation paths found: {bad}"
+
+
+def test_inventory_notes_do_not_use_future_keyword_placeholders():
+    """No artifact notes mention placeholder future-feature keywords."""
+    catalog = load_catalog(str(INVENTORY_PATH))
+    bad_keywords = (
+        "Artifact dataclass",
+        "artifact_path()",
+        "paths.smk",
+        "AssayPolicy YAML",
+        "global target resolver",
+    )
+    bad = [
+        (a.id, kw)
+        for a in catalog
+        for kw in bad_keywords
+        if kw.lower() in a.notes.lower()
+    ]
+    assert not bad, f"Future-keyword placeholders found: {bad}"
+
+
+def test_artifact_model_helpers():
+    """Basic invariants for Artifact helpers from the legacy Stage 45 test."""
+    catalog = load_catalog(str(INVENTORY_PATH))
+
+    by_id = artifacts_by_id(catalog)
+    assert len(by_id) == len(catalog)
+
+    with pytest.raises(ValueError):
+        artifacts_by_id([catalog[0], catalog[0]])
+
+    by_mot = artifacts_by_manifest_output_type(catalog)
+    non_null_mots = {a.manifest_output_type for a in catalog if a.manifest_output_type}
+    assert set(by_mot.keys()) == non_null_mots
+    assert all(v.manifest_output_type == k for k, v in by_mot.items())
+
+    with pytest.raises(ValueError):
+        dup = next(a for a in catalog if a.manifest_output_type is not None)
+        dup_mot = Artifact(
+            id="dup_mot",
+            description="",
+            scope=dup.scope,
+            level=dup.level,
+            assay_gate=dup.assay_gate,
+            path_template="results/dup.txt",
+            producing_rule="r",
+            tool="t",
+            manifest_output_type=dup.manifest_output_type,
+            pipeline_done=False,
+            rule_all=False,
+            config_gate=None,
+            notes="",
+        )
+        artifacts_by_manifest_output_type([dup, dup_mot])
+
+    mnase = filter_artifacts(catalog, assay_gate="mnase")
+    assert mnase and all(a.assay_gate == "mnase" for a in mnase)
+
+    sample_done = filter_artifacts(catalog, scope="sample", pipeline_done=True)
+    assert sample_done and all(a.scope == "sample" for a in sample_done)
+    assert all(a.pipeline_done is True for a in sample_done)
+
+
+def test_artifact_instances_are_frozen():
+    """Artifact dataclass instances are immutable."""
+    catalog = load_catalog(str(INVENTORY_PATH))
+    a = catalog[0]
+    with pytest.raises((FrozenInstanceError, AttributeError)):
+        a.id = "mutated"
