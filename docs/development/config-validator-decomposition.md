@@ -170,6 +170,34 @@ stays valid; the sequence simply adds more tests before the next extraction.
 - Do not migrate legacy tests in PR52 unless their coverage is needed to
   characterize the extracted constants.
 
+## Recommended PR53: pin coercion behavior
+
+**Target:** Add direct-API pytest characterization tests for
+`_coerce_int`-like behavior in `validate_config` (`threads`, `mapq`,
+`binsize`) and boolean coercion patterns (`trim`, `use_control`, `multiqc`,
+`stage4b`, `stage5`) as well as `_coerce_bool` reproducibility call sites
+(`reproducibility.enabled`, `reproducibility.consensus.enabled`, and
+`reproducibility.idr.*` flags).
+
+**Why:** Extraction PR54 will move `_coerce_int` and `_coerce_bool` into
+`encode_pipeline.config.coercion`. Without pinned behavior, subtle
+normalization changes could go unnoticed.
+
+**Acceptable content:** Tests that call
+`encode_pipeline.config.validate.validate_config` directly and assert
+normalized return values or `ValidationError` substrings. No changes to
+`validator.py` or `defaults.py`.
+
+## Recommended PR54: extract coercion helpers
+
+**Target:** Move `_coerce_int` and `_coerce_bool` into
+`encode_pipeline.config.coercion` and update `validate_config` (and any
+reproducibility helpers) to import them, preserving the behavior pinned by
+PR53.
+
+**Why:** This is the next-lowest-risk extraction after constants. The helpers
+are stateless, have no I/O, and the PR53 tests provide a safety net.
+
 ## Files involved
 
 - `src/encode_pipeline/config/validator.py` — current legacy module.
