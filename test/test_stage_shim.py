@@ -274,16 +274,6 @@ LEGACY_STAGE_CLASSIFICATION: dict[str, dict[str, str]] = {
         "rationale": "covered by native pytest QC tests",
         "next_action": "verify coverage and delete",
     },
-    "test_stage43_artifact_inventory.py": {
-        "category": "migrate-to-pytest",
-        "rationale": "covered by test/artifacts/test_catalog_contracts.py",
-        "next_action": "verify coverage and delete",
-    },
-    "test_stage45_artifact_model.py": {
-        "category": "migrate-to-pytest",
-        "rationale": "covered by test/artifacts/test_catalog_contracts.py",
-        "next_action": "verify coverage and delete",
-    },
     "test_stage47_mnase_path_contract.py": {
         "category": "migrate-to-pytest",
         "rationale": "covered by native MNase pytest tests",
@@ -304,19 +294,9 @@ LEGACY_STAGE_CLASSIFICATION: dict[str, dict[str, str]] = {
         "rationale": "covered by native consensus pytest tests",
         "next_action": "verify coverage and delete",
     },
-    "test_stage57_shell_safety.py": {
-        "category": "migrate-to-pytest",
-        "rationale": "covered by native shell safety tests",
-        "next_action": "verify coverage and delete",
-    },
     "test_stage58_mixed_idr_validation.py": {
         "category": "migrate-to-pytest",
         "rationale": "covered by test/config/test_validation.py",
-        "next_action": "verify coverage and delete",
-    },
-    "test_stage59_env_pinning.py": {
-        "category": "migrate-to-pytest",
-        "rationale": "covered by lockfile CI checks",
         "next_action": "verify coverage and delete",
     },
     "test_stage62_consensus_dryrun.py": {

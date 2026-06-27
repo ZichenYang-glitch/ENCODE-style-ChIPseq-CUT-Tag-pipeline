@@ -13,8 +13,8 @@ summarizes that mapping; if the two drift, trust the Python mapping.
 | `manual-integration` | 14 |
 | `delete-candidate` | 6 |
 | `real-execution-only` | 1 |
-| `migrate-to-pytest` | 23 |
-| **Total classified legacy scripts** | **54** |
+| `migrate-to-pytest` | 19 |
+| **Total classified legacy scripts** | **50** |
 
 `test_stage8_smoke_profiles.py` is a pytest-native module and is not part of
 the legacy classification.
@@ -81,7 +81,7 @@ consolidation:
 
 - `test_stage8b_tiny_execution.py`
 
-### `migrate-to-pytest` (23)
+### `migrate-to-pytest` (19)
 
 Config validation superseded by `test/config/test_validation.py`:
 
@@ -99,32 +99,27 @@ Config validation superseded by `test/config/test_validation.py`:
 Other contracts covered by native pytest harnesses:
 
 - `test_stage24_qc_summary_unit.py`
-- `test_stage43_artifact_inventory.py`
-- `test_stage45_artifact_model.py`
 - `test_stage47_mnase_path_contract.py`
 - `test_stage49_manifest_artifact_contract.py`
 - `test_stage50_output_contract_dry_run.py`
 - `test_stage54_consensus.py`
-- `test_stage57_shell_safety.py`
 - `test_stage58_mixed_idr_validation.py`
-- `test_stage59_env_pinning.py`
 - `test_stage62_consensus_dryrun.py`
 - `test_stage63_seacr_consensus_dryrun.py`
 - `test_stage66_reproducibility_manifest.py`
 
-## Recommended Batch 1 for PR49
+## Completed Batch 1 (PR49)
 
-Start with low-risk scripts that have no external tool dependency, no Snakemake
-execution, and no working-tree side effects:
+PR49 migrated the following low-risk scripts to native pytest and deleted the
+legacy originals:
 
-1. `test_stage57_shell_safety.py` — scans rule files for `set -e -o pipefail`.
-2. `test_stage59_env_pinning.py` — parses conda env YAMLs for version pins.
-3. `test_stage43_artifact_inventory.py` — reads artifact inventory via
-   `lib.artifact`.
-4. `test_stage45_artifact_model.py` — tests `lib.artifact` models and helpers.
+1. `test_stage57_shell_safety.py` → `test/test_shell_safety.py`
+2. `test_stage59_env_pinning.py` → `test/test_env_pinning.py`
+3. `test_stage43_artifact_inventory.py` and `test_stage45_artifact_model.py` →
+   extended `test/artifacts/test_catalog_contracts.py`
 
-Batch 1 should either be deleted (if native pytest coverage is complete) or
-rewritten as native pytest tests. Do not add them to the shim allowlist.
+Future batches should continue with the remaining `migrate-to-pytest` scripts
+using the same rules below.
 
 ## Rules for retiring or migrating a legacy script
 
@@ -142,5 +137,6 @@ rewritten as native pytest tests. Do not add them to the shim allowlist.
 
 ## Status
 
-PR48 introduced the structured classification only. PR49 will begin with Batch
-1 migration or deletion.
+PR48 introduced the structured classification. PR49 completed Batch 1 by
+migrating shell safety, env pinning, and artifact model/inventory contracts to
+native pytest and deleting the corresponding legacy scripts.
