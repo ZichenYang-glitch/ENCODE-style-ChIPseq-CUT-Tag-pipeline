@@ -9,26 +9,27 @@ Usage:
 
 import csv
 import os
-import re
 import sys
 
-_SAMPLE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
-_SANITIZE_RE = re.compile(r"[^A-Za-z0-9_.-]")
+from encode_pipeline.config import defaults
 
 
 class ValidationError(Exception):
     """Raised when config or sample sheet validation fails."""
 
 
+# Keep module-level aliases for backward compatibility with any code that may
+# have imported these private names. These aliases are deprecated; prefer
+# encode_pipeline.config.defaults directly.
+_SAMPLE_ID_RE = defaults.SAMPLE_ID_RE
+_SANITIZE_RE = defaults.SANITIZE_RE
+_BT2_STANDARD = defaults.BT2_STANDARD
+_BT2_LARGE = defaults.BT2_LARGE
+
+
 # ---------------------------------------------------------------------------
 # Stage 30: strict input validation helpers
 # ---------------------------------------------------------------------------
-
-_BT2_STANDARD = [
-    "{prefix}.1.bt2", "{prefix}.2.bt2", "{prefix}.3.bt2", "{prefix}.4.bt2",
-    "{prefix}.rev.1.bt2", "{prefix}.rev.2.bt2",
-]
-_BT2_LARGE = [f.replace(".bt2", ".bt2l") for f in _BT2_STANDARD]
 
 
 def _check_fastq_exists(path: str, sample_id: str, label: str) -> None:
@@ -194,7 +195,7 @@ def validate_config(config: dict) -> dict:
 
     # remove_dup — "auto", "yes", or "no"
     remove_dup = str(config.get("remove_dup", "auto"))
-    if remove_dup not in ("auto", "yes", "no"):
+    if remove_dup not in defaults.REMOVE_DUP_KEYWORDS:
         raise ValidationError(
             f"config remove_dup must be auto, yes, or no, "
             f"got {remove_dup!r}"
@@ -214,7 +215,7 @@ def validate_config(config: dict) -> dict:
 
     # extend_reads — "auto", "yes", "no", or positive integer string
     ext_raw = str(config.get("extend_reads", "auto"))
-    if ext_raw not in ("auto", "yes", "no") and not (
+    if ext_raw not in defaults.EXTEND_READS_KEYWORDS and not (
         ext_raw.isdigit() and int(ext_raw) > 0
     ):
         raise ValidationError(
@@ -368,7 +369,7 @@ def _validate_cuttag_config(cuttag: dict) -> dict:
             f"cuttag must be a mapping, got {type(cuttag).__name__}"
         )
 
-    known = {"peak_caller", "seacr"}
+    known = defaults.CUTTAG_TOP_KEYS
     for key in cuttag:
         if key not in known:
             raise ValidationError(
@@ -393,7 +394,7 @@ def _validate_cuttag_config(cuttag: dict) -> dict:
             f"got {type(seacr_raw).__name__}"
         )
 
-    seacr_known = {"enabled", "mode", "normalization", "threshold"}
+    seacr_known = defaults.CUTTAG_SEACR_KEYS
     for key in seacr_raw:
         if key not in seacr_known:
             raise ValidationError(
@@ -413,7 +414,7 @@ def _validate_cuttag_config(cuttag: dict) -> dict:
         )
 
     mode = str(seacr_raw.get("mode", "stringent"))
-    if mode not in ("stringent", "relaxed"):
+    if mode not in defaults.CUTTAG_SEACR_MODES:
         raise ValidationError(
             f"cuttag.seacr.mode must be 'stringent' or 'relaxed', "
             f"got {mode!r}"
@@ -469,7 +470,7 @@ def _validate_mnase_config(mnase: dict) -> dict:
             f"mnase must be a mapping, got {type(mnase).__name__}"
         )
 
-    known = {"mono_range", "fragments", "dyad_range", "callers"}
+    known = defaults.MNASE_TOP_KEYS
     for key in mnase:
         if key not in known:
             raise ValidationError(
@@ -478,7 +479,7 @@ def _validate_mnase_config(mnase: dict) -> dict:
 
     # --- mono_range (Stage 39, deprecated in favor of fragments.mono) ---
 
-    mono_range = mnase.get("mono_range", [140, 200])
+    mono_range = mnase.get("mono_range", defaults.MNASE_MONO_RANGE_DEFAULT)
     _validate_range_pair(mono_range, "mnase.mono_range")
 
     # --- fragments (Stage 40) ---
@@ -490,7 +491,7 @@ def _validate_mnase_config(mnase: dict) -> dict:
             f"got {type(fragments_raw).__name__}"
         )
 
-    fragments_known = {"sub", "mono", "di"}
+    fragments_known = defaults.MNASE_FRAGMENTS_KEYS
     for key in fragments_raw:
         if key not in fragments_known:
             raise ValidationError(
@@ -514,14 +515,14 @@ def _validate_mnase_config(mnase: dict) -> dict:
         return [int(hard_default[0]), int(hard_default[1])]
 
     fragments = {
-        "sub":  _resolve_fragment_range("sub",  mono_range, [1, 139]),
-        "mono": _resolve_fragment_range("mono", mono_range, [140, 200]),
-        "di":   _resolve_fragment_range("di",   mono_range, [300, 400]),
+        "sub":  _resolve_fragment_range("sub",  mono_range, defaults.MNASE_FRAGMENT_DEFAULTS["sub"]),
+        "mono": _resolve_fragment_range("mono", mono_range, defaults.MNASE_FRAGMENT_DEFAULTS["mono"]),
+        "di":   _resolve_fragment_range("di",   mono_range, defaults.MNASE_FRAGMENT_DEFAULTS["di"]),
     }
 
     # --- dyad_range (Stage 40) ---
 
-    dyad_range = mnase.get("dyad_range", [130, 200])
+    dyad_range = mnase.get("dyad_range", defaults.MNASE_DYAD_RANGE_DEFAULT)
     _validate_range_pair(dyad_range, "mnase.dyad_range")
 
     # --- callers (Stage 40, execution deferred) ---
@@ -533,7 +534,7 @@ def _validate_mnase_config(mnase: dict) -> dict:
             f"got {type(callers_raw).__name__}"
         )
 
-    callers_known = {"danpos3", "inps", "sem"}
+    callers_known = defaults.MNASE_CALLERS
     callers = {}
     for ck in callers_raw:
         if ck not in callers_known:
@@ -738,7 +739,7 @@ def _validate_genome_resources(resources: dict) -> dict:
         _validate_effective_genome_size(genome, egs)
 
         # Optional path fields: if non-empty, validate existence
-        for field in ("chrom_sizes", "blacklist", "gtf", "reference_fasta"):
+        for field in defaults.GENOME_RESOURCE_PATH_FIELDS:
             path = entry.get(field, "")
             if path and not os.path.isfile(path):
                 raise ValidationError(
@@ -770,24 +771,10 @@ def _validate_tool_params(tool_params) -> dict:
             f"got {type(tool_params).__name__}"
         )
 
-    KNOWN_TOOLS = {
-        "fastqc", "trim_galore", "bowtie2", "samtools_filter",
-        "picard_markduplicates", "bamcoverage", "macs3", "multiqc",
-        "idr_macs3",
-    }
+    KNOWN_TOOLS = defaults.TOOL_PARAMETERS_TOOLS
 
     # Known keys per tool
-    KNOWN_KEYS = {
-        "fastqc": {"extra_args"},
-        "trim_galore": {"quality", "length", "stringency", "extra_args"},
-        "bowtie2": {"mode", "dovetail", "no_mixed", "no_discordant", "extra_args"},
-        "samtools_filter": {"filter_flags", "extra_args"},
-        "picard_markduplicates": {"optical_duplicate_pixel_distance", "extra_args"},
-        "bamcoverage": {"normalize_using", "smooth_length", "extra_args"},
-        "macs3": {"qvalue", "broad_cutoff", "extra_args"},
-        "multiqc": {"title", "extra_args"},
-        "idr_macs3": {"pvalue", "extra_args"},
-    }
+    KNOWN_KEYS = defaults.TOOL_PARAMETERS_KEYS
 
     def _normalize_bool(key, raw):
         if isinstance(raw, bool):
@@ -963,7 +950,7 @@ def _validate_tool_params(tool_params) -> dict:
                 raise ValidationError(
                     f"tool_parameters.bowtie2.mode must be a string"
                 )
-            if mode not in ("", "very-fast", "fast", "sensitive", "very-sensitive"):
+            if mode not in defaults.BOWTIE2_MODES:
                 raise ValidationError(
                     f"tool_parameters.bowtie2.mode must be one of: "
                     f"very-fast, fast, sensitive, very-sensitive, "
@@ -1009,7 +996,7 @@ def _validate_tool_params(tool_params) -> dict:
                 raise ValidationError(
                     f"tool_parameters.bamcoverage.normalize_using must be a string"
                 )
-            ALLOWED_NORM = {"CPM", "RPKM", "BPM", "None"}
+            ALLOWED_NORM = defaults.BAMCOVERAGE_NORMALIZE_USING
             if norm_using not in ALLOWED_NORM:
                 raise ValidationError(
                     f"tool_parameters.bamcoverage.normalize_using must be "
@@ -1093,7 +1080,7 @@ def _validate_idr_settings(idr):
         )
 
     rank = str(idr.get("rank", "p.value"))
-    if rank not in ("p.value", "signal.value"):
+    if rank not in defaults.IDR_RANKS:
         raise ValidationError(
             f"idr.rank must be 'p.value' or 'signal.value', got {rank!r}"
         )
@@ -1121,7 +1108,7 @@ def _validate_idr_settings(idr):
         )
 
     # Reject unknown keys
-    known = {"seed", "threshold", "rank"}
+    known = defaults.IDR_KEYS
     for key in idr:
         if key not in known:
             raise ValidationError(
@@ -1205,7 +1192,7 @@ def _validate_reproducibility(raw, validated_config):
     consensus["reciprocal_overlap"] = overlap
 
     # Reject unknown consensus keys
-    known_consensus = {"enabled", "min_replicates", "reciprocal_overlap"}
+    known_consensus = defaults.REPRODUCIBILITY_CONSENSUS_KEYS
     for key in consensus_raw:
         if key not in known_consensus:
             raise ValidationError(
@@ -1263,10 +1250,7 @@ def _validate_reproducibility(raw, validated_config):
         idr_result[flag] = val
 
     # Reject unknown idr keys (no seacr_experimental)
-    known_idr = {
-        "chipseq_narrow", "atac_narrow", "cuttag_narrow",
-        "chipseq_broad_experimental", "cuttag_broad_experimental",
-    }
+    known_idr = defaults.REPRODUCIBILITY_IDR_KEYS
     for key in idr_raw:
         if key not in known_idr:
             raise ValidationError(
@@ -1276,7 +1260,7 @@ def _validate_reproducibility(raw, validated_config):
     result["idr"] = idr_result
 
     # Reject unknown top-level reproducibility keys
-    known_top = {"enabled", "consensus", "idr"}
+    known_top = defaults.REPRODUCIBILITY_TOP_KEYS
     for key in raw:
         if key not in known_top:
             raise ValidationError(
@@ -1372,10 +1356,7 @@ def load_and_validate_samples(
         fieldnames = reader.fieldnames or []
 
         # Required columns
-        required = [
-            "sample", "fastq_1", "layout", "assay",
-            "target", "peak_mode", "genome", "bowtie2_index",
-        ]
+        required = list(defaults.SAMPLE_REQUIRED_COLUMNS)
         for col in required:
             if col not in fieldnames:
                 raise ValidationError(
@@ -1439,7 +1420,7 @@ def load_and_validate_samples(
                 raise ValidationError(
                     f"Sample {sid!r} has empty 'fastq_1'"
                 )
-            if lo not in ("PE", "SE"):
+            if lo not in defaults.LAYOUTS:
                 raise ValidationError(
                     f"Sample {sid!r}: layout must be PE or SE, "
                     f"got {lo!r}"
@@ -1453,7 +1434,7 @@ def load_and_validate_samples(
                     f"Sample {sid!r}: assay=mnase requires paired-end "
                     f"layout (PE), got {lo!r}"
                 )
-            if assay not in ("chipseq", "cuttag", "atac", "mnase"):
+            if assay not in defaults.ASSAYS:
                 raise ValidationError(
                     f"Sample {sid!r}: assay must be chipseq, cuttag, "
                     f"atac, or mnase, got {assay!r}"
@@ -1462,7 +1443,7 @@ def load_and_validate_samples(
                 raise ValidationError(
                     f"Sample {sid!r} has empty 'target'"
                 )
-            if pmode not in ("narrow", "broad", "nucleosome"):
+            if pmode not in defaults.PEAK_MODES:
                 raise ValidationError(
                     f"Sample {sid!r}: peak_mode must be narrow, broad, "
                     f"or nucleosome, got {pmode!r}"
@@ -1510,7 +1491,7 @@ def load_and_validate_samples(
                 raise ValidationError(
                     f"Sample {sid!r} has empty 'condition' after defaulting"
                 )
-            if role not in ("treatment", "control"):
+            if role not in defaults.ROLES:
                 raise ValidationError(
                     f"Sample {sid!r}: role must be treatment or control, "
                     f"got {role!r}"
