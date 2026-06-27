@@ -175,7 +175,9 @@ stays valid; the sequence simply adds more tests before the next extraction.
 **Target:** Add direct-API pytest characterization tests for
 `_coerce_int`-like behavior in `validate_config` (`threads`, `mapq`,
 `binsize`) and boolean coercion patterns (`trim`, `use_control`, `multiqc`,
-`stage4b`, `stage5`).
+`stage4b`, `stage5`) as well as `_coerce_bool` reproducibility call sites
+(`reproducibility.enabled`, `reproducibility.consensus.enabled`, and
+`reproducibility.idr.*` flags).
 
 **Why:** Extraction PR54 will move `_coerce_int` and `_coerce_bool` into
 `encode_pipeline.config.coercion`. Without pinned behavior, subtle
@@ -189,7 +191,9 @@ normalized return values or `ValidationError` substrings. No changes to
 ## Recommended PR54: extract coercion helpers
 
 **Target:** Move `_coerce_int` and `_coerce_bool` into
-`encode_pipeline.config.coercion` and update `validate_config` to import them.
+`encode_pipeline.config.coercion` and update `validate_config` (and any
+reproducibility helpers) to import them, preserving the behavior pinned by
+PR53.
 
 **Why:** This is the next-lowest-risk extraction after constants. The helpers
 are stateless, have no I/O, and the PR53 tests provide a safety net.

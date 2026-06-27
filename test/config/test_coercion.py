@@ -170,3 +170,84 @@ def test_bool_flag_rejects_invalid_string(tmp_path, field):
     config = _make_config(tmp_path, **{field: "yes"})
     with pytest.raises(ValidationError, match="must be true or false"):
         validate_config(config)
+
+
+# ---------------------------------------------------------------------------
+# reproducibility boolean coercion (_coerce_bool call sites)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (True, True),
+        (False, False),
+        ("true", True),
+        ("false", False),
+        ("TRUE", True),
+    ],
+)
+def test_reproducibility_enabled_accepts_bool_and_string_booleans(
+    tmp_path, raw, expected
+):
+    config = _make_config(tmp_path, reproducibility={"enabled": raw})
+    validated = validate_config(config)
+    assert validated["reproducibility"]["enabled"] == expected
+
+
+def test_reproducibility_enabled_rejects_invalid_string(tmp_path):
+    config = _make_config(tmp_path, reproducibility={"enabled": "yes"})
+    with pytest.raises(
+        ValidationError, match="reproducibility.enabled must be true or false"
+    ):
+        validate_config(config)
+
+
+def test_reproducibility_consensus_enabled_accepts_string_false(tmp_path):
+    config = _make_config(
+        tmp_path,
+        reproducibility={"enabled": True, "consensus": {"enabled": "false"}},
+    )
+    validated = validate_config(config)
+    assert validated["reproducibility"]["consensus"]["enabled"] is False
+
+
+@pytest.mark.parametrize(
+    "flag,raw,expected",
+    [
+        ("atac_narrow", "true", True),
+        ("cuttag_narrow", "false", False),
+        ("chipseq_broad_experimental", "true", True),
+        ("cuttag_broad_experimental", "false", False),
+    ],
+)
+def test_reproducibility_idr_flag_accepts_string_booleans(
+    tmp_path, flag, raw, expected
+):
+    config = _make_config(
+        tmp_path,
+        reproducibility={"enabled": True, "idr": {flag: raw}},
+    )
+    validated = validate_config(config)
+    assert validated["reproducibility"]["idr"][flag] == expected
+
+
+@pytest.mark.parametrize(
+    "flag",
+    [
+        "atac_narrow",
+        "cuttag_narrow",
+        "chipseq_broad_experimental",
+        "cuttag_broad_experimental",
+    ],
+)
+def test_reproducibility_idr_flag_rejects_invalid_string(tmp_path, flag):
+    config = _make_config(
+        tmp_path,
+        reproducibility={"enabled": True, "idr": {flag: "yes"}},
+    )
+    with pytest.raises(
+        ValidationError,
+        match=f"reproducibility.idr.{flag} must be true or false",
+    ):
+        validate_config(config)
