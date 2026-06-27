@@ -1,0 +1,10 @@
+# Default Snakemake profile for local execution.
+# Usage: snakemake --profile profiles/default
+
+configfile: "config/config.yaml"
+cores: 4
+use-conda: true
+conda-frontend: mamba
+rerun-incomplete: true
+keep-going: true
+show-failed-logs: true

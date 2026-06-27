@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/ci-fast.lock /opt/pipeline/workflow/envs/ci-fast.lock
+
+%post
+    conda create -n ci-fast --file /opt/pipeline/workflow/envs/ci-fast.lock -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/ci-fast/bin:$PATH

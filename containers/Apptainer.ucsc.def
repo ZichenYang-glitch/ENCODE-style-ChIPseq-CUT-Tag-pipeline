@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/ucsc.lock /opt/pipeline/workflow/envs/ucsc.lock
+
+%post
+    conda create -n chipseq-ucsc --file /opt/pipeline/workflow/envs/ucsc.lock -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/chipseq-ucsc/bin:$PATH

@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/trim.lock /opt/pipeline/workflow/envs/trim.lock
+
+%post
+    conda create -n chipseq-trim --file /opt/pipeline/workflow/envs/trim.lock -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/chipseq-trim/bin:$PATH

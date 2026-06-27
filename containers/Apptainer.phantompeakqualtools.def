@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/phantompeakqualtools.lock /opt/pipeline/workflow/envs/phantompeakqualtools.lock
+
+%post
+    conda create -n chipseq-phantompeakqualtools --file /opt/pipeline/workflow/envs/phantompeakqualtools.lock -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/chipseq-phantompeakqualtools/bin:$PATH

@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/multiqc.lock /opt/pipeline/workflow/envs/multiqc.lock
+
+%post
+    conda create -n chipseq-multiqc --file /opt/pipeline/workflow/envs/multiqc.lock -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/chipseq-multiqc/bin:$PATH

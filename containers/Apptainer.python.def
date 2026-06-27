@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/python.lock /opt/pipeline/workflow/envs/python.lock
+
+%post
+    conda create -n chipseq-python --file /opt/pipeline/workflow/envs/python.lock -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/chipseq-python/bin:$PATH
