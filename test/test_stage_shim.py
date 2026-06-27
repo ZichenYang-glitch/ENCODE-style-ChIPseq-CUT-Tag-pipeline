@@ -397,7 +397,7 @@ def test_allowlist_and_quarantine_are_disjoint():
 def test_classifications_use_approved_categories():
     """Every classification entry must use an approved category."""
     bad = [
-        (name, meta["category"])
+        (name, meta.get("category"))
         for name, meta in LEGACY_STAGE_CLASSIFICATION.items()
         if meta.get("category") not in _APPROVED_CATEGORIES
     ]

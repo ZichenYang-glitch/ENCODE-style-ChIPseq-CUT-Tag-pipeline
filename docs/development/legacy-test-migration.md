@@ -10,10 +10,10 @@ summarizes that mapping; if the two drift, trust the Python mapping.
 | Category | Count |
 |---|---|
 | `obsolete-plan-doc` | 10 |
-| `manual-integration` | 15 |
+| `manual-integration` | 14 |
 | `delete-candidate` | 6 |
 | `real-execution-only` | 1 |
-| `migrate-to-pytest` | 22 |
+| `migrate-to-pytest` | 23 |
 | **Total classified legacy scripts** | **54** |
 
 `test_stage8_smoke_profiles.py` is a pytest-native module and is not part of
