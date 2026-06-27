@@ -2,10 +2,10 @@ Bootstrap: docker
 From: condaforge/miniforge3:24.11.3-0
 
 %files
-    workflow/envs/multiqc.yml /opt/pipeline/workflow/envs/multiqc.yml
+    workflow/envs/multiqc.lock /opt/pipeline/workflow/envs/multiqc.lock
 
 %post
-    conda env create -f /opt/pipeline/workflow/envs/multiqc.yml -n chipseq-multiqc -y
+    conda create -n chipseq-multiqc --file /opt/pipeline/workflow/envs/multiqc.lock -y
     conda clean -afy
 
 %environment

@@ -2,10 +2,10 @@ Bootstrap: docker
 From: condaforge/miniforge3:24.11.3-0
 
 %files
-    workflow/envs/trim.yml /opt/pipeline/workflow/envs/trim.yml
+    workflow/envs/trim.lock /opt/pipeline/workflow/envs/trim.lock
 
 %post
-    conda env create -f /opt/pipeline/workflow/envs/trim.yml -n chipseq-trim -y
+    conda create -n chipseq-trim --file /opt/pipeline/workflow/envs/trim.lock -y
     conda clean -afy
 
 %environment

@@ -2,10 +2,10 @@ Bootstrap: docker
 From: condaforge/miniforge3:24.11.3-0
 
 %files
-    workflow/envs/align.yml /opt/pipeline/workflow/envs/align.yml
+    workflow/envs/align.lock /opt/pipeline/workflow/envs/align.lock
 
 %post
-    conda env create -f /opt/pipeline/workflow/envs/align.yml -n chipseq-align -y
+    conda create -n chipseq-align --file /opt/pipeline/workflow/envs/align.lock -y
     conda clean -afy
 
 %environment

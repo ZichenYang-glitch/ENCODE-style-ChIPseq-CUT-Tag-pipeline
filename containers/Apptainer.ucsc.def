@@ -2,10 +2,10 @@ Bootstrap: docker
 From: condaforge/miniforge3:24.11.3-0
 
 %files
-    workflow/envs/ucsc.yml /opt/pipeline/workflow/envs/ucsc.yml
+    workflow/envs/ucsc.lock /opt/pipeline/workflow/envs/ucsc.lock
 
 %post
-    conda env create -f /opt/pipeline/workflow/envs/ucsc.yml -n chipseq-ucsc -y
+    conda create -n chipseq-ucsc --file /opt/pipeline/workflow/envs/ucsc.lock -y
     conda clean -afy
 
 %environment

@@ -2,10 +2,10 @@ Bootstrap: docker
 From: condaforge/miniforge3:24.11.3-0
 
 %files
-    workflow/envs/idr.yml /opt/pipeline/workflow/envs/idr.yml
+    workflow/envs/idr.lock /opt/pipeline/workflow/envs/idr.lock
 
 %post
-    conda env create -f /opt/pipeline/workflow/envs/idr.yml -n chipseq-idr -y
+    conda create -n chipseq-idr --file /opt/pipeline/workflow/envs/idr.lock -y
     conda clean -afy
 
 %environment

@@ -2,10 +2,10 @@ Bootstrap: docker
 From: condaforge/miniforge3:24.11.3-0
 
 %files
-    workflow/envs/preseq.yml /opt/pipeline/workflow/envs/preseq.yml
+    workflow/envs/preseq.lock /opt/pipeline/workflow/envs/preseq.lock
 
 %post
-    conda env create -f /opt/pipeline/workflow/envs/preseq.yml -n chipseq-preseq -y
+    conda create -n chipseq-preseq --file /opt/pipeline/workflow/envs/preseq.lock -y
     conda clean -afy
 
 %environment

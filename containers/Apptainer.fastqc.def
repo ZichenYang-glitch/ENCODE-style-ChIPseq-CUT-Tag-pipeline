@@ -2,10 +2,10 @@ Bootstrap: docker
 From: condaforge/miniforge3:24.11.3-0
 
 %files
-    workflow/envs/fastqc.yml /opt/pipeline/workflow/envs/fastqc.yml
+    workflow/envs/fastqc.lock /opt/pipeline/workflow/envs/fastqc.lock
 
 %post
-    conda env create -f /opt/pipeline/workflow/envs/fastqc.yml -n chipseq-fastqc -y
+    conda create -n chipseq-fastqc --file /opt/pipeline/workflow/envs/fastqc.lock -y
     conda clean -afy
 
 %environment

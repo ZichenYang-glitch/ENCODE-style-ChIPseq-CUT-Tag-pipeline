@@ -2,10 +2,10 @@ Bootstrap: docker
 From: condaforge/miniforge3:24.11.3-0
 
 %files
-    workflow/envs/seacr.yml /opt/pipeline/workflow/envs/seacr.yml
+    workflow/envs/seacr.lock /opt/pipeline/workflow/envs/seacr.lock
 
 %post
-    conda env create -f /opt/pipeline/workflow/envs/seacr.yml -n chipseq-seacr -y
+    conda create -n chipseq-seacr --file /opt/pipeline/workflow/envs/seacr.lock -y
     conda clean -afy
 
 %environment

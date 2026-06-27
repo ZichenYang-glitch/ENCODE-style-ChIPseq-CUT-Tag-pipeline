@@ -2,10 +2,10 @@ Bootstrap: docker
 From: condaforge/miniforge3:24.11.3-0
 
 %files
-    workflow/envs/samtools.yml /opt/pipeline/workflow/envs/samtools.yml
+    workflow/envs/samtools.lock /opt/pipeline/workflow/envs/samtools.lock
 
 %post
-    conda env create -f /opt/pipeline/workflow/envs/samtools.yml -n chipseq-samtools -y
+    conda create -n chipseq-samtools --file /opt/pipeline/workflow/envs/samtools.lock -y
     conda clean -afy
 
 %environment

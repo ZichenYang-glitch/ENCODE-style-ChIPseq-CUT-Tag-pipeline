@@ -2,10 +2,10 @@ Bootstrap: docker
 From: condaforge/miniforge3:24.11.3-0
 
 %files
-    workflow/envs/picard.yml /opt/pipeline/workflow/envs/picard.yml
+    workflow/envs/picard.lock /opt/pipeline/workflow/envs/picard.lock
 
 %post
-    conda env create -f /opt/pipeline/workflow/envs/picard.yml -n chipseq-picard -y
+    conda create -n chipseq-picard --file /opt/pipeline/workflow/envs/picard.lock -y
     conda clean -afy
 
 %environment

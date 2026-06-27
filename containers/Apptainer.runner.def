@@ -2,10 +2,10 @@ Bootstrap: docker
 From: condaforge/miniforge3:24.11.3-0
 
 %files
-    workflow/envs/runner.yml /opt/pipeline/workflow/envs/runner.yml
+    workflow/envs/runner.lock /opt/pipeline/workflow/envs/runner.lock
 
 %post
-    conda env create -f /opt/pipeline/workflow/envs/runner.yml -n chipseq-runner -y
+    conda create -n chipseq-runner --file /opt/pipeline/workflow/envs/runner.lock -y
     conda clean -afy
 
 %environment

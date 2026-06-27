@@ -2,10 +2,10 @@ Bootstrap: docker
 From: condaforge/miniforge3:24.11.3-0
 
 %files
-    workflow/envs/ci-fast.yml /opt/pipeline/workflow/envs/ci-fast.yml
+    workflow/envs/ci-fast.lock /opt/pipeline/workflow/envs/ci-fast.lock
 
 %post
-    conda env create -f /opt/pipeline/workflow/envs/ci-fast.yml -n ci-fast -y
+    conda create -n ci-fast --file /opt/pipeline/workflow/envs/ci-fast.lock -y
     conda clean -afy
 
 %environment
