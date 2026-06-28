@@ -254,6 +254,36 @@ rules.
 resources. It depends on static defaults and pure normalization logic, but it
 is broad enough to warrant a dedicated characterization PR first.
 
+## Recommended PR59: pin reproducibility and IDR behavior
+
+**Target:** Add direct-API characterization tests for
+`reproducibility` structure validation, consensus numeric settings, IDR
+settings, Stage 4b gates, and reproducibility warnings.
+
+**Why:** Extraction PR60 will move `_validate_reproducibility` and
+`_validate_idr_settings` into `encode_pipeline.config.reproducibility`. These
+helpers contain subtle behavior that must stay unchanged, including disabled
+reproducibility short-circuiting nested validation, IDR settings only being
+validated when Stage 5 or a reproducibility IDR mode is enabled, and warnings
+for experimental broad IDR and contradictory legacy chipseq narrow IDR config.
+
+**Acceptable content:** Tests that call
+`encode_pipeline.config.validate.validate_config` directly and assert
+normalized `reproducibility` / `idr` values, `ValidationError` substrings, and
+warning messages. No changes to `validator.py`, `defaults.py`, schema files,
+CLI behavior, Snakemake rules, lockfiles, or CI.
+
+## Recommended PR60: extract reproducibility helpers
+
+**Target:** Move `_validate_reproducibility` and `_validate_idr_settings` into
+`encode_pipeline.config.reproducibility`, preserving the behavior pinned by
+PR59.
+
+**Why:** Reproducibility and IDR policy is a coherent validator boundary after
+tool-parameter extraction. It depends on static defaults, coercion helpers, and
+an injected error class, but it should not import `validator.py` or introduce
+new public APIs.
+
 ## Files involved
 
 - `src/encode_pipeline/config/validator.py` — current legacy module.
