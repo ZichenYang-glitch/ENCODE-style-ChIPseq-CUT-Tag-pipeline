@@ -13,6 +13,7 @@ import sys
 
 from encode_pipeline.config import defaults
 from encode_pipeline.config import genome as genome_validation
+from encode_pipeline.config import qc as qc_validation
 from encode_pipeline.config import reproducibility as reproducibility_validation
 from encode_pipeline.config import tools as tools_validation
 from encode_pipeline.config.coercion import coerce_int
@@ -589,38 +590,9 @@ def _parse_range_int(value, label, original):
 def _validate_qc_config(qc: dict) -> dict:
     """Validate and normalize the qc config block.
 
-    Missing keys default to True. Accepts boolean or string boolean.
-    Returns a normalized dict with boolean values.
+    Thin wrapper around encode_pipeline.config.qc.validate_qc_config.
     """
-    if not isinstance(qc, dict):
-        raise ValidationError(
-            f"qc must be a mapping, got {type(qc).__name__}"
-        )
-
-    def _normalize_bool(key: str, default: bool = True) -> bool:
-        raw = qc.get(key, default)
-        if isinstance(raw, bool):
-            return raw
-        val = str(raw).lower()
-        if val in ("true", "false"):
-            return val == "true"
-        raise ValidationError(
-            f"qc.{key} must be true or false, got {raw!r}"
-        )
-
-    return {
-        "blacklist_filter": _normalize_bool("blacklist_filter"),
-        "frip": _normalize_bool("frip"),
-        "library_complexity": _normalize_bool("library_complexity"),
-        "nrf_pbc": _normalize_bool("nrf_pbc"),
-        "signal_tracks": _normalize_bool("signal_tracks"),
-        "summary": _normalize_bool("summary"),
-        "cuttag_fragment_size": _normalize_bool("cuttag_fragment_size"),
-        "cross_correlation": _normalize_bool("cross_correlation", False),
-        "preseq_complexity": _normalize_bool("preseq_complexity", False),
-        "picard_metrics": _normalize_bool("picard_metrics", False),
-        "tss_enrichment": _normalize_bool("tss_enrichment", False),
-    }
+    return qc_validation.validate_qc_config(qc, error_cls=ValidationError)
 
 
 def validate_picard_reference_resources(
