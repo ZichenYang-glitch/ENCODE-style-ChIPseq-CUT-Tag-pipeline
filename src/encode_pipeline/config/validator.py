@@ -11,6 +11,7 @@ import csv
 import os
 import sys
 
+from encode_pipeline.config import cuttag as cuttag_validation
 from encode_pipeline.config import defaults
 from encode_pipeline.config import genome as genome_validation
 from encode_pipeline.config import qc as qc_validation
@@ -338,97 +339,10 @@ def _validate_cuttag_config(cuttag: dict) -> dict:
 
     Absent block → all defaults. Only validates keys for Stage 7b.
     """
-    if not isinstance(cuttag, dict):
-        raise ValidationError(
-            f"cuttag must be a mapping, got {type(cuttag).__name__}"
-        )
-
-    known = defaults.CUTTAG_TOP_KEYS
-    for key in cuttag:
-        if key not in known:
-            raise ValidationError(
-                f"cuttag: unknown key {key!r}. Known: {sorted(known)}"
-            )
-
-    peak_caller = str(cuttag.get("peak_caller", "macs3"))
-    if peak_caller != "macs3":
-        raise ValidationError(
-            f"cuttag.peak_caller must be 'macs3' in Stage 7b, "
-            f"got {peak_caller!r}"
-        )
-
-    seacr_raw = cuttag.get("seacr", {})
-    if isinstance(seacr_raw, bool):
-        raise ValidationError(
-            "cuttag.seacr must be a mapping, got boolean"
-        )
-    if not isinstance(seacr_raw, dict):
-        raise ValidationError(
-            f"cuttag.seacr must be a mapping, "
-            f"got {type(seacr_raw).__name__}"
-        )
-
-    seacr_known = defaults.CUTTAG_SEACR_KEYS
-    for key in seacr_raw:
-        if key not in seacr_known:
-            raise ValidationError(
-                f"cuttag.seacr: unknown key {key!r}. "
-                f"Known: {sorted(seacr_known)}"
-            )
-
-    enabled_raw = seacr_raw.get("enabled", False)
-    if isinstance(enabled_raw, bool):
-        seacr_enabled = enabled_raw
-    elif str(enabled_raw).lower() in ("true", "false"):
-        seacr_enabled = str(enabled_raw).lower() == "true"
-    else:
-        raise ValidationError(
-            f"cuttag.seacr.enabled must be true or false, "
-            f"got {enabled_raw!r}"
-        )
-
-    mode = str(seacr_raw.get("mode", "stringent"))
-    if mode not in defaults.CUTTAG_SEACR_MODES:
-        raise ValidationError(
-            f"cuttag.seacr.mode must be 'stringent' or 'relaxed', "
-            f"got {mode!r}"
-        )
-
-    normalization = str(seacr_raw.get("normalization", "non"))
-    if normalization != "non":
-        raise ValidationError(
-            f"cuttag.seacr.normalization must be 'non' in Stage 7b, "
-            f"got {normalization!r}"
-        )
-
-    threshold_raw = seacr_raw.get("threshold", 0.01)
-    if isinstance(threshold_raw, bool):
-        raise ValidationError(
-            f"cuttag.seacr.threshold must be a float in (0, 1), "
-            f"got {threshold_raw!r}"
-        )
-    try:
-        threshold = float(threshold_raw)
-    except (ValueError, TypeError):
-        raise ValidationError(
-            f"cuttag.seacr.threshold must be a float in (0, 1), "
-            f"got {threshold_raw!r}"
-        )
-    if not (0 < threshold < 1):
-        raise ValidationError(
-            f"cuttag.seacr.threshold must be in (0, 1), "
-            f"got {threshold}"
-        )
-
-    return {
-        "peak_caller": peak_caller,
-        "seacr": {
-            "enabled": seacr_enabled,
-            "mode": mode,
-            "normalization": normalization,
-            "threshold": threshold,
-        },
-    }
+    return cuttag_validation.validate_cuttag_config(
+        cuttag,
+        error_cls=ValidationError,
+    )
 
 
 def _validate_mnase_config(mnase: dict) -> dict:
