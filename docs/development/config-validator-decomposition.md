@@ -343,6 +343,44 @@ PR63.
 stateless, has no I/O, and the PR63 tests provide a safety net for the
 move.
 
+## Recommended PR65: pin MNase config behavior
+
+**Target:** Add direct-API pytest characterization tests for
+`_validate_mnase_config` behavior, including default expansion, range pair
+parsing for `mono_range`, `fragments.*`, and `dyad_range`, fragment range
+precedence (`fragments.mono` overrides only the `fragments.mono` value while
+`mono_range` remains independent), `callers` mapping validation, unknown-key
+rejection at all levels, and strict type rules (bool and float endpoints
+rejected, string int endpoints accepted, returned ranges are `list`, not
+tuple).
+
+**Why:** Extraction PR66 will move `_validate_mnase_config` and its nested
+range helpers into `encode_pipeline.config.mnase`. MNase validation is more
+complex than QC/CUT&Tag because of the range-parsing chain, fragment
+precedence, and callers-not-implemented gating, so it needs a focused
+characterization PR first.
+
+**Acceptable content:** Tests that call
+`encode_pipeline.config.validate.validate_config` directly and assert
+normalized `validated["mnase"]` values or `ValidationError` substrings.
+Prefer stable substrings (e.g. `mnase: unknown key`,
+`mnase.fragments: unknown key`, `mnase.callers: unknown key`,
+`must be a list of 2 positive ints`, `elements must be integers`,
+`values must be positive`, `min must be < max`, `caller execution is not
+implemented`) over exact key lists. No changes to `validator.py`,
+`defaults.py`, schema files, CLI behavior, or Snakemake rules.
+
+## Recommended PR66: extract MNase helpers
+
+**Target:** Move `_validate_mnase_config`, `_validate_range_pair`, and
+`_parse_range_int` from `validator.py` into `encode_pipeline.config.mnase`,
+preserving the behavior pinned by PR65.
+
+**Why:** MNase validation is the next focused boundary after CUT&Tag. It is
+stateless, has no I/O, and the PR65 tests provide a safety net, but the
+range-parsing helpers are reused across multiple fields so the extraction
+must keep them coherent.
+
 ## Files involved
 
 - `src/encode_pipeline/config/validator.py` — current legacy module.
