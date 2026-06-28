@@ -310,6 +310,39 @@ Snakemake rules.
 extraction. It is mostly stateless boolean normalization, but the
 unknown-key behavior and default mapping must stay stable.
 
+## Recommended PR63: pin CUT&Tag config behavior
+
+**Target:** Add direct-API pytest characterization tests for
+`_validate_cuttag_config` behavior, including default expansion,
+`peak_caller` gating, `seacr` mapping validation, unknown-key rejection for
+both top-level and nested keys, boolean/string-boolean normalization for
+`seacr.enabled`, allowed-value checks for `seacr.mode` and
+`seacr.normalization`, and open-interval `(0, 1)` validation for
+`seacr.threshold` including explicit bool rejection.
+
+**Why:** Extraction PR64 will move `_validate_cuttag_config` into
+`encode_pipeline.config.cuttag`. CUT&Tag validation differs from QC in that
+unknown keys are rejected rather than silently ignored, and it contains
+float-threshold and enum checks that must stay stable.
+
+**Acceptable content:** Tests that call
+`encode_pipeline.config.validate.validate_config` directly and assert
+normalized `validated["cuttag"]` values or `ValidationError` substrings.
+Prefer stable substrings (e.g. `cuttag: unknown key`,
+`cuttag.seacr: unknown key`) over exact key lists so tests do not become
+fragile when the known-key set changes. No changes to `validator.py`,
+`defaults.py`, schema files, CLI behavior, or Snakemake rules.
+
+## Recommended PR64: extract CUT&Tag helpers
+
+**Target:** Move `_validate_cuttag_config` and any CUT&Tag-related constants
+into `encode_pipeline.config.cuttag`, preserving the behavior pinned by
+PR63.
+
+**Why:** CUT&Tag validation is the next focused boundary after QC. It is
+stateless, has no I/O, and the PR63 tests provide a safety net for the
+move.
+
 ## Files involved
 
 - `src/encode_pipeline/config/validator.py` — current legacy module.
