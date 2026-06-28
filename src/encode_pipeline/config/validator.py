@@ -11,8 +11,9 @@ import csv
 import os
 import sys
 
-from encode_pipeline.config.coercion import coerce_bool, coerce_int
 from encode_pipeline.config import defaults
+from encode_pipeline.config import genome as genome_validation
+from encode_pipeline.config.coercion import coerce_bool, coerce_int
 
 
 class ValidationError(Exception):
@@ -105,21 +106,11 @@ def _coerce_int(value, *, name: str, minimum: int) -> int:
 
 def _validate_effective_genome_size(genome: str, value) -> None:
     """Validate MACS3 effective genome size shortcut or positive integer."""
-    if isinstance(value, bool):
-        valid = False
-    elif isinstance(value, int):
-        valid = value > 0
-    elif isinstance(value, str):
-        text = value.strip()
-        valid = text in ("hs", "mm") or (text.isdigit() and int(text) > 0)
-    else:
-        valid = False
-
-    if not valid:
-        raise ValidationError(
-            f"genome_resources.{genome}: effective_genome_size must be "
-            f"'hs', 'mm', or a positive integer, got {value!r}"
-        )
+    return genome_validation.validate_effective_genome_size(
+        genome,
+        value,
+        error_cls=ValidationError,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -640,25 +631,11 @@ def validate_picard_reference_resources(
     qc.picard_metrics is true and any treatment genome is missing
     reference_fasta. Does nothing when qc.picard_metrics is false.
     """
-    qc = validated_config.get("qc", {})
-    if not qc.get("picard_metrics", False):
-        return
-    genome_resources = validated_config.get("genome_resources", {})
-    treatment_genomes = {
-        s["genome"] for s in samples if s["role"] == "treatment"
-    }
-    missing = []
-    for genome in sorted(treatment_genomes):
-        ref = genome_resources.get(genome, {}).get("reference_fasta", "")
-        if not ref:
-            missing.append(genome)
-    if missing:
-        raise ValidationError(
-            f"qc.picard_metrics is true but reference_fasta is missing "
-            f"for genome(s): {', '.join(missing)}. "
-            f"Set genome_resources[{missing[0]}].reference_fasta "
-            f"or set qc.picard_metrics: false."
-        )
+    return genome_validation.validate_picard_reference_resources(
+        validated_config,
+        samples,
+        error_cls=ValidationError,
+    )
 
 
 def validate_tss_annotation_resources(validated_config: dict, samples: list[dict]):
@@ -669,25 +646,11 @@ def validate_tss_annotation_resources(validated_config: dict, samples: list[dict
     any treatment genome is missing a GTF annotation. Does nothing when
     qc.tss_enrichment is false.
     """
-    qc = validated_config.get("qc", {})
-    if not qc.get("tss_enrichment", False):
-        return
-    genome_resources = validated_config.get("genome_resources", {})
-    treatment_genomes = {
-        s["genome"] for s in samples if s["role"] == "treatment"
-    }
-    missing = []
-    for genome in sorted(treatment_genomes):
-        gtf = genome_resources.get(genome, {}).get("gtf", "")
-        if not gtf:
-            missing.append(genome)
-    if missing:
-        raise ValidationError(
-            f"qc.tss_enrichment is true but gtf is missing "
-            f"for genome(s): {', '.join(missing)}. "
-            f"Set genome_resources[{missing[0]}].gtf "
-            f"or set qc.tss_enrichment: false."
-        )
+    return genome_validation.validate_tss_annotation_resources(
+        validated_config,
+        samples,
+        error_cls=ValidationError,
+    )
 
 
 def _validate_genome_resources(resources: dict) -> dict:
@@ -696,38 +659,10 @@ def _validate_genome_resources(resources: dict) -> dict:
     Returns the resources dict unchanged if valid.
     Raises ValidationError on invalid entries.
     """
-    if not isinstance(resources, dict):
-        raise ValidationError(
-            f"genome_resources must be a mapping, "
-            f"got {type(resources).__name__}"
-        )
-
-    for genome, entry in resources.items():
-        if not isinstance(entry, dict):
-            raise ValidationError(
-                f"genome_resources.{genome} must be a mapping, "
-                f"got {type(entry).__name__}"
-            )
-
-        egs = entry.get("effective_genome_size")
-        if egs is None or egs == "":
-            raise ValidationError(
-                f"genome_resources.{genome}: "
-                f"effective_genome_size is required"
-            )
-
-        _validate_effective_genome_size(genome, egs)
-
-        # Optional path fields: if non-empty, validate existence
-        for field in defaults.GENOME_RESOURCE_PATH_FIELDS:
-            path = entry.get(field, "")
-            if path and not os.path.isfile(path):
-                raise ValidationError(
-                    f"genome_resources.{genome}.{field}: "
-                    f"file not found: {path}"
-                )
-
-    return resources
+    return genome_validation.validate_genome_resources(
+        resources,
+        error_cls=ValidationError,
+    )
 
 
 def _validate_tool_params(tool_params) -> dict:
