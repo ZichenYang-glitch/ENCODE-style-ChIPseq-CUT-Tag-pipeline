@@ -284,6 +284,32 @@ tool-parameter extraction. It depends on static defaults, coercion helpers, and
 an injected error class, but it should not import `validator.py` or introduce
 new public APIs.
 
+## Recommended PR61: pin QC config behavior
+
+**Target:** Add direct-API pytest characterization tests for
+`_validate_qc_config` behavior, including default expansion, boolean
+normalization, invalid-value rejection, mapping validation, and silent
+ignoring of unknown QC keys.
+
+**Why:** Extraction PR62 will move `_validate_qc_config` into
+`encode_pipeline.config.qc`. Without pinned behavior, default values and
+unknown-key handling could drift.
+
+**Acceptable content:** Tests that call
+`encode_pipeline.config.validate.validate_config` directly and assert
+normalized `validated["qc"]` values or `ValidationError` substrings. No
+changes to `validator.py`, `defaults.py`, schema files, CLI behavior, or
+Snakemake rules.
+
+## Recommended PR62: extract QC helpers
+
+**Target:** Move `_validate_qc_config` and any QC-related constants into
+`encode_pipeline.config.qc`, preserving the behavior pinned by PR61.
+
+**Why:** QC validation is a coherent boundary after reproducibility
+extraction. It is mostly stateless boolean normalization, but the
+unknown-key behavior and default mapping must stay stable.
+
 ## Files involved
 
 - `src/encode_pipeline/config/validator.py` — current legacy module.
