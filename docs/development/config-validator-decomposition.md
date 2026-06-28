@@ -227,6 +227,33 @@ validation, and Picard/TSS resource gate functions into
 is still small enough to review, but more stateful than pure coercion because
 it validates filesystem-backed resource paths.
 
+## Recommended PR57: pin tool parameter validation
+
+**Target:** Add direct-API pytest characterization tests for
+`tool_parameters` structure validation, unknown tool/key rejection,
+per-tool default expansion, integer/float/bool/string normalization, samtools
+filter flag parsing, and unsupported value rejection.
+
+**Why:** Extraction PR58 will move `_validate_tool_params` and its nested
+normalization helpers into `encode_pipeline.config.tools`. The current logic
+has several tool-specific branches and mixed normalization rules, so focused
+tests should pin behavior before the move.
+
+**Acceptable content:** Tests that call
+`encode_pipeline.config.validate.validate_config` directly and assert
+normalized `tool_parameters` values or `ValidationError` substrings. No changes
+to `validator.py`, `defaults.py`, schema files, CLI behavior, or Snakemake
+rules.
+
+## Recommended PR58: extract tool parameter helpers
+
+**Target:** Move `_validate_tool_params` and its nested helper logic into
+`encode_pipeline.config.tools`, preserving the behavior pinned by PR57.
+
+**Why:** Tool parameter validation is a coherent boundary after genome
+resources. It depends on static defaults and pure normalization logic, but it
+is broad enough to warrant a dedicated characterization PR first.
+
 ## Files involved
 
 - `src/encode_pipeline/config/validator.py` — current legacy module.
