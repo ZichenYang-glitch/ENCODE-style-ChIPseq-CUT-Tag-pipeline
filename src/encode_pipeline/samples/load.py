@@ -5,10 +5,8 @@ TSV parsing and loading logic should move here from
 encode_pipeline.config.validator.
 """
 
-from encode_pipeline.config.validator import (
-    ValidationError,
-    load_and_validate_samples,
-)
+from encode_pipeline.errors import ValidationError
+from encode_pipeline.samples.loader import load_and_validate_samples
 
 __all__ = [
     "ValidationError",

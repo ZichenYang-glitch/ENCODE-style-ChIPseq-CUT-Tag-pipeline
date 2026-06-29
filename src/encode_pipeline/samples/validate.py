@@ -1,13 +1,11 @@
-"""Per-sample validation helpers.
+"""Per-sample validation helpers."""
 
-Phase 0 exposes a thin wrapper around the legacy loader's per-row checks.
-A dedicated row-level validator can be extracted here in a later phase.
-"""
+import csv
+import os
+import tempfile
 
-from encode_pipeline.config.validator import (
-    ValidationError,
-    load_and_validate_samples,
-)
+from encode_pipeline.errors import ValidationError
+from encode_pipeline.samples.load import load_and_validate_samples
 from encode_pipeline.samples.models import SampleRecord
 
 __all__ = [
@@ -21,12 +19,9 @@ def validate_sample_row(row: dict, *, use_control: bool = False) -> SampleRecord
     """Validate a single sample row dict and return a typed SampleRecord.
 
     This is a convenience wrapper that builds a one-row sample sheet in
-    memory and runs the legacy loader. It is intended for unit tests and
+    memory and runs the sample loader. It is intended for unit tests and
     future CLI usage, not for hot-path Snakefile parsing.
     """
-    import csv
-    import tempfile
-
     required = [
         "sample", "fastq_1", "layout", "assay",
         "target", "peak_mode", "genome", "bowtie2_index",
@@ -51,7 +46,6 @@ def validate_sample_row(row: dict, *, use_control: bool = False) -> SampleRecord
             strict_inputs=False,
         )
     finally:
-        import os
         os.unlink(path)
 
     if len(samples) != 1:

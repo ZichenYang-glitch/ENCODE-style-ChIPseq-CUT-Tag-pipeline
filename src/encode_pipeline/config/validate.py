@@ -5,8 +5,8 @@ plan is to gradually move logic from encode_pipeline.config.validator
 into this module and break it into smaller helpers.
 """
 
+from encode_pipeline.config.errors import ValidationError
 from encode_pipeline.config.validator import (
-    ValidationError,
     validate_config,
     validate_picard_reference_resources,
     validate_tss_annotation_resources,
