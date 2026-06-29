@@ -7,7 +7,7 @@ import yaml
 
 from encode_pipeline.cli._logging import emit, make_context
 from encode_pipeline.config.validate import validate_config
-from encode_pipeline.config.validator import main as _validator_main
+from encode_pipeline.cli._validator import main as _validator_main
 
 
 def main(argv=None):
