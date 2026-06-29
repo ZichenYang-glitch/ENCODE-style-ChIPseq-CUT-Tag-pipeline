@@ -7,9 +7,7 @@ Usage:
     python3 scripts/validate_samples.py --config config/config.yaml
 """
 
-import csv
 import os
-import sys
 
 from encode_pipeline.config import cuttag as cuttag_validation
 from encode_pipeline.config import defaults
@@ -72,15 +70,6 @@ def _coerce_int(value, *, name: str, minimum: int) -> int:
         value,
         name=name,
         minimum=minimum,
-        error_cls=ValidationError,
-    )
-
-
-def _validate_effective_genome_size(genome: str, value) -> None:
-    """Validate MACS3 effective genome size shortcut or positive integer."""
-    return genome_validation.validate_effective_genome_size(
-        genome,
-        value,
         error_cls=ValidationError,
     )
 
