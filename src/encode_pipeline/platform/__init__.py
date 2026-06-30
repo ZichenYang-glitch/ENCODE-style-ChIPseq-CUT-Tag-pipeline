@@ -12,6 +12,7 @@ from encode_pipeline.platform.adapters import (
     WorkflowSchema,
     WorkspacePlan,
 )
+from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, IssueSeverity, Result
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "WorkflowCapabilities",
     "WorkflowInputs",
     "WorkflowMetadata",
+    "WorkflowRegistry",
     "WorkflowSchema",
     "WorkspacePlan",
 ]
