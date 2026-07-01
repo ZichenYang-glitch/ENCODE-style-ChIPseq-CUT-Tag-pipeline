@@ -45,6 +45,12 @@ deep-research-report.md
 *.tar.zst
 *.docker.tar
 
+# --- Frontend build artifacts ---
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
 # --- Legacy ignores ---
 *.sh
 *.gz
