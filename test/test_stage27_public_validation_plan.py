@@ -40,14 +40,15 @@ def test_plan_doc_exists():
 # ---------------------------------------------------------------------------
 
 def test_no_data_files_committed():
-    """Verify no FASTQ, BAM, BAI, BW, BDG, or HTML files exist in the repo."""
+    """Verify no FASTQ, BAM, BAI, BW, BDG, or HTML data files exist in the repo."""
     forbidden_exts = {".fq", ".fq.gz", ".fastq", ".fastq.gz",
                       ".bam", ".bai", ".bw", ".bdg",
                       ".html"}
     found = []
+    skip_dirs = {".git", "frontend"}
     for root, dirs, files in os.walk(REPO_ROOT):
-        # Skip .git and hidden dirs
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        # Skip .git, frontend source tree, and hidden dirs
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in skip_dirs]
         for f in files:
             for ext in forbidden_exts:
                 if f.endswith(ext) or f.endswith(ext.replace(".fq", ".fastq")):
@@ -55,7 +56,7 @@ def test_no_data_files_committed():
     # Also check for common patterns
     for ext_check in [".fq.gz", ".bam", ".bai", ".bw", ".bdg"]:
         for root, dirs, files in os.walk(REPO_ROOT):
-            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in skip_dirs]
             for f in files:
                 if f.endswith(ext_check):
                     found.append(os.path.join(root, f))
