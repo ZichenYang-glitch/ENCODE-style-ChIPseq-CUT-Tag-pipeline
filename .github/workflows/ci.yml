@@ -29,7 +29,7 @@ jobs:
 
       - name: Install encode-pipeline package
         shell: micromamba-shell {0}
-        run: pip install -e .
+        run: pip install -e ".[api]"
 
       - name: Validate default config
         shell: micromamba-shell {0}
@@ -70,6 +70,7 @@ jobs:
             test/config/test_validation.py \
             test/manifest/test_make_manifest.py \
             test/test_stage8_smoke_profiles.py \
+            test/api/test_routes_workflows.py \
             --cov=src/encode_pipeline --cov=scripts --cov-report=term
 
       - name: Stage 27a public validation plan tests
