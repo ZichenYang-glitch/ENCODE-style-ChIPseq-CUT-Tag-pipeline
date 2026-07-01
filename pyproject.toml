@@ -12,6 +12,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+api = [
+    "fastapi",
+    "uvicorn[standard]",
+]
 dev = [
     "pytest",
     "pytest-cov",
