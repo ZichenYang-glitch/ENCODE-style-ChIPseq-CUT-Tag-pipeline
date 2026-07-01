@@ -50,7 +50,7 @@ export interface ListWorkflowsResponse {
 export interface GetWorkflowSchemaResponse {
   ok: boolean;
   workflow_id: string;
-  schema: WorkflowSchema | null;
+  schema_hints: WorkflowSchema | null;
   issues: Issue[];
 }
 

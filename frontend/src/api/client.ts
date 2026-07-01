@@ -43,19 +43,19 @@ export function createStubWorkflowClient(): WorkflowApiClient {
     },
 
     async getWorkflowSchema(workflowId) {
-      const schema = stubWorkflowSchemas[workflowId];
-      if (!schema) {
+      const schemaHints = stubWorkflowSchemas[workflowId];
+      if (!schemaHints) {
         return {
           ok: false,
           workflow_id: workflowId,
-          schema: null,
+          schema_hints: null,
           issues: [workflowNotFoundIssue(workflowId)],
         };
       }
       return {
         ok: true,
         workflow_id: workflowId,
-        schema,
+        schema_hints: schemaHints,
         issues: [],
       };
     },
