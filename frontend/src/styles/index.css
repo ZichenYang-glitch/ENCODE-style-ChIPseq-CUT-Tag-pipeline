@@ -35,9 +35,3 @@ textarea.font-mono {
   font-family: var(--font-mono);
 }
 
-@layer components {
-  .command-card {
-    @apply rounded border bg-[var(--color-surface)] shadow-sm;
-    border-color: var(--color-border);
-  }
-}
