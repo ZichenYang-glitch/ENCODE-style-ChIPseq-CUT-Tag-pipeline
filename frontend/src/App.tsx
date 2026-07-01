@@ -134,11 +134,11 @@ export function App() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg)] text-[var(--color-text)]">
-      <header className="border-b border-[var(--color-border)] px-4 py-3">
-        <h1 className="text-lg font-semibold">Workflow Platform</h1>
+      <header className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
+        <h1 className="text-base font-semibold tracking-wide text-[var(--color-accent)]">Workflow Platform</h1>
       </header>
-      <main className="flex flex-1 flex-col gap-4 p-4 lg:flex-row">
-        <aside className="w-full shrink-0 lg:w-64">
+      <main className="mx-auto flex w-full max-w-screen-2xl flex-1 flex-col gap-3 p-3 lg:flex-row">
+        <aside className="w-full shrink-0 lg:w-56">
           <Panel title="Workflows">
             {workflows.length === 0 ? (
               <p className="text-sm text-[var(--color-text-muted)]">Loading…</p>
@@ -152,11 +152,12 @@ export function App() {
           </Panel>
         </aside>
 
-        <section className="flex min-w-0 flex-1 flex-col gap-4">
+        <section className="flex min-w-0 flex-1 flex-col gap-3">
           {selectedWorkflow && (
-            <Panel title={selectedWorkflow.metadata.name}>
+            <Panel title="Workflow detail">
               <WorkflowDetail
                 workflowId={selectedWorkflow.metadata.workflow_id}
+                workflowName={selectedWorkflow.metadata.name}
                 schemaHints={schemaHints}
               />
             </Panel>
@@ -183,22 +184,12 @@ export function App() {
               </p>
             </Panel>
           )}
-          {validationResult && (
-            <Panel title="Validation results">
-              <div className="mb-3 flex items-center gap-2 text-sm">
-                <span className="font-medium">Status:</span>
-                {validationResult.ok ? (
-                  <span className="text-green-600">Valid</span>
-                ) : (
-                  <span className="text-[var(--color-error)]">Invalid</span>
-                )}
-              </div>
-              <IssuePanel issues={displayedIssues} />
-            </Panel>
-          )}
+          <Panel title="Validation results">
+            <IssuePanel issues={displayedIssues} />
+          </Panel>
         </section>
 
-        <aside className="flex w-full flex-col gap-4 lg:w-80">
+        <aside className="flex w-full flex-col gap-3 lg:w-72">
           <AgentSidebar
             workflowId={selectedWorkflowId}
             issues={displayedIssues}

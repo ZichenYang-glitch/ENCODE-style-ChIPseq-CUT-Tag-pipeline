@@ -7,7 +7,7 @@ interface AgentSidebarProps {
 
 export function AgentSidebar({ workflowId, issues }: AgentSidebarProps) {
   return (
-    <div className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-sm">
       <header className="mb-3 border-b border-[var(--color-border)] pb-2">
         <h3 className="text-sm font-semibold text-[var(--color-text)]">
           Validation Assistant — Read Only
