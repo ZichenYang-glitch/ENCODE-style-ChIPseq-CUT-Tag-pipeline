@@ -1,5 +1,6 @@
 """Tests for default workflow service composition."""
 
+import asyncio
 import os
 import subprocess
 import sys
@@ -7,12 +8,14 @@ import textwrap
 from pathlib import Path
 
 from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
+from encode_pipeline.api.models import AgentRequest
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.services.validation import ValidationService
 
 from encode_pipeline.services.defaults import (
+    create_default_agent_service,
     create_default_validation_service,
     create_default_workflow_registry,
 )
@@ -108,14 +111,41 @@ def test_unknown_workflow_through_default_service_returns_workflow_not_found():
     )
 
 
+def test_create_default_agent_service_returns_agent_service():
+    service = create_default_agent_service()
+
+    assert service.__class__.__name__ == "AgentService"
+
+
+def test_create_default_agent_service_wires_safety_components():
+    service = create_default_agent_service()
+    request = AgentRequest(message="Explain.")
+
+    response = asyncio.run(service.chat(WORKFLOW_ID, request))
+
+    assert response.ok is True
+    assert "mock explanation" in response.message.lower()
+
+
+def test_create_default_agent_service_redacts_paths_in_response():
+    service = create_default_agent_service()
+    request = AgentRequest(message="Where is my data?")
+
+    response = asyncio.run(service.chat(WORKFLOW_ID, request))
+
+    assert "/home" not in response.message.lower()
+
+
 def test_services_package_exports_default_factory_functions():
     code = """
         from encode_pipeline.services import (
+            create_default_agent_service,
             create_default_validation_service,
             create_default_workflow_registry,
         )
         print(create_default_workflow_registry.__name__)
         print(create_default_validation_service.__name__)
+        print(create_default_agent_service.__name__)
     """
     proc = _run_python(code)
 
@@ -123,6 +153,7 @@ def test_services_package_exports_default_factory_functions():
     assert proc.stdout.splitlines() == [
         "create_default_workflow_registry",
         "create_default_validation_service",
+        "create_default_agent_service",
     ]
 
 

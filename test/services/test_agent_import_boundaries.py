@@ -1,7 +1,8 @@
-"""Static import-boundary tests for the PR92 agent model/LLM layer.
+"""Static import-boundary tests for the PR92/PR93/PR96 agent layers.
 
-These tests verify that the agent API models and LLM client module do not
-depend on execution, adapter, validator, or provider-specific modules.
+These tests verify that the agent API models, LLM client module, and safety
+components do not depend on execution, adapter, validator, or
+provider-specific modules.
 """
 
 from __future__ import annotations
@@ -13,10 +14,13 @@ from pathlib import Path
 
 import pytest
 
-# Modules introduced or hardened in PR92/PR93.
+# Modules introduced or hardened in PR92/PR93/PR96.
 _AGENT_MODULES = [
     "encode_pipeline.api.models",
     "encode_pipeline.services.agent",
+    "encode_pipeline.services.agent_audit",
+    "encode_pipeline.services.agent_output_filter",
+    "encode_pipeline.services.agent_redaction",
     "encode_pipeline.services.agent_tools",
     "encode_pipeline.services.llm_client",
     "encode_pipeline.services.workflow_info",
