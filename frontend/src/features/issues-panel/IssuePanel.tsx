@@ -14,7 +14,7 @@ const severityRank: Record<Severity, number> = {
 function groupIssues(issues: Issue[]): Record<string, Issue[]> {
   const grouped: Record<string, Issue[]> = {};
   for (const issue of issues) {
-    const source = issue.source;
+    const source = issue.source ?? 'unknown';
     if (!grouped[source]) {
       grouped[source] = [];
     }
