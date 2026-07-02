@@ -33,3 +33,4 @@ def test_expected_routes_are_registered() -> None:
     assert "/api/v1/workflows" in paths
     assert "/api/v1/workflows/{workflow_id}/schema" in paths
     assert "/api/v1/workflows/{workflow_id}/validate" in paths
+    assert "/api/v1/workflows/{workflow_id}/agent/chat" in paths

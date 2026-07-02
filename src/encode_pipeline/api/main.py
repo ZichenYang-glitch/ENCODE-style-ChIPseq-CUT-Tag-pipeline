@@ -11,6 +11,7 @@ from encode_pipeline.api.models import ValidationResponse
 from encode_pipeline.api.routes import api_v1_router
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.services.defaults import (
+    create_default_agent_service,
     create_default_validation_service,
     create_default_workflow_registry,
 )
@@ -24,8 +25,10 @@ def create_app() -> FastAPI:
         description="Validation-first workflow platform API.",
     )
 
-    app.state.registry = create_default_workflow_registry()
-    app.state.validation_service = create_default_validation_service()
+    registry = create_default_workflow_registry()
+    app.state.registry = registry
+    app.state.validation_service = create_default_validation_service(registry=registry)
+    app.state.agent_service = create_default_agent_service(registry=registry)
 
     app.include_router(api_v1_router, prefix="/api/v1")
     app.add_exception_handler(RequestValidationError, _handle_request_validation_error)

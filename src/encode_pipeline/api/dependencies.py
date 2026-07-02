@@ -16,3 +16,8 @@ def get_registry(request: Request) -> WorkflowRegistry:
 def get_validation_service(request: Request) -> ValidationService:
     """Return the app validation service."""
     return request.app.state.validation_service
+
+
+def get_agent_service(request: Request) -> "AgentService":
+    """Return the app agent service."""
+    return request.app.state.agent_service
