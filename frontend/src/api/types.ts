@@ -5,7 +5,7 @@ export interface Issue {
   message: string;
   severity: Severity;
   path: string | null;
-  source: string;
+  source: string | null;
   technical_message: string | null;
   hint: string | null;
   context: Record<string, unknown>;
@@ -58,5 +58,43 @@ export interface ValidateWorkflowResponse {
   ok: boolean;
   workflow_id: string;
   value: unknown;
+  issues: Issue[];
+}
+
+export interface AgentToolCall {
+  tool_name: string;
+  input_summary: Record<string, unknown>;
+  output_summary: string;
+  read_only: true;
+}
+
+export interface AgentSuggestion {
+  type: 'config_edit' | 'schema_hint' | 'assay_selection' | 'general';
+  description: string;
+  target_path: string | null;
+  current_value: unknown | null;
+  proposed_value: unknown | null;
+  rationale: string | null;
+  disclaimer: string;
+}
+
+export interface AgentContext {
+  current_issues: Issue[];
+  current_config: Record<string, unknown> | null;
+  current_schema: Record<string, unknown> | null;
+}
+
+export interface AgentRequest {
+  session_id: string | null;
+  message: string;
+  context: AgentContext | null;
+}
+
+export interface AgentResponse {
+  ok: boolean;
+  session_id: string | null;
+  message: string;
+  suggestions: AgentSuggestion[];
+  tool_calls: AgentToolCall[];
   issues: Issue[];
 }
