@@ -1,7 +1,7 @@
 # Run Lifecycle and Progress Boundary Design
 
-> **Status:** design review  
-> **Scope:** docs-only boundary and API contract for workflow run lifecycle and progress tracking  
+> **Status:** design review
+> **Scope:** docs-only boundary and API contract for workflow run lifecycle and progress tracking
 > **Date:** 2026-07-03
 
 This document defines the next platform phase after the validation MVP and the read-only agent layer: a workflow run lifecycle and progress-tracking boundary. It is a specification document only. It does not implement FastAPI routes, service code, frontend code, Snakemake execution, databases, or storage backends.
@@ -28,7 +28,7 @@ Add a stable, workflow-neutral run lifecycle and progress-tracking boundary to t
 - Appending log chunks for later display.
 - Recording artifact references produced by a run.
 - Cancelling a run before or during execution.
-- Exposing all of the above through a read-only API and, later, read-only agent tools.
+- Exposing lifecycle operations and progress inspection through API endpoints, while keeping later agent tools read-only.
 
 ### 1.2 Non-goals
 
@@ -708,6 +708,6 @@ Before PR99 is submitted:
 
 - `git diff --name-only origin/main..HEAD` shows only `docs/development/2026-07-03-run-lifecycle-progress-boundary-design.md`.
 - `git diff --check origin/main..HEAD` is clean.
-- A placeholder scan over the spec file has no matches for `TODO`, `TBD`, `FIXME`, or `XXX`.
+- Placeholder scan over this file returns no matches for common unfinished-marker patterns.
 - Commit messages contain no attribution, tool, or vendor trailers.
 - The spec contains no executable code files, no Pydantic/TypeScript source files, and no implementation plan for PR100.
