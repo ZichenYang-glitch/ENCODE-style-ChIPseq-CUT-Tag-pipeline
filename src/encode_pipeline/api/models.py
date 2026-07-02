@@ -107,7 +107,7 @@ class AgentContext(BaseModel):
 
     current_issues: list[IssueResponse] = Field(default_factory=list)
     current_config: dict[str, Any] = Field(default_factory=dict)
-    current_schema: dict[str, Any] | None = None
+    current_schema: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentRequest(BaseModel):

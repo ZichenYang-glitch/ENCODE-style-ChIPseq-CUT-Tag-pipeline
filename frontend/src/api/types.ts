@@ -61,6 +61,11 @@ export interface ValidateWorkflowResponse {
   issues: Issue[];
 }
 
+export interface AgentApiError extends Error {
+  status: number;
+  statusText: string;
+}
+
 export interface AgentToolCall {
   tool_name: string;
   input_summary: Record<string, unknown>;
@@ -80,8 +85,8 @@ export interface AgentSuggestion {
 
 export interface AgentContext {
   current_issues: Issue[];
-  current_config: Record<string, unknown> | null;
-  current_schema: Record<string, unknown> | null;
+  current_config: Record<string, unknown>;
+  current_schema: Record<string, unknown>;
 }
 
 export interface AgentRequest {

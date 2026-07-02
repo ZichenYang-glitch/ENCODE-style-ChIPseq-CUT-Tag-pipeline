@@ -3,6 +3,7 @@ import { Badge } from '../../components/Badge';
 
 interface IssuePanelProps {
   issues: Issue[];
+  onAskAgent?: (issue: Issue) => void;
 }
 
 const severityRank: Record<Severity, number> = {
@@ -36,7 +37,7 @@ function countBySeverity(issues: Issue[]) {
   );
 }
 
-export function IssuePanel({ issues }: IssuePanelProps) {
+export function IssuePanel({ issues, onAskAgent }: IssuePanelProps) {
   const grouped = groupIssues(issues);
   const counts = countBySeverity(issues);
 
@@ -91,6 +92,18 @@ export function IssuePanel({ issues }: IssuePanelProps) {
                   <p className="mt-1 text-sm text-[var(--color-text-muted)]">
                     {issue.hint}
                   </p>
+                )}
+                {onAskAgent && (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => onAskAgent(issue)}
+                      className="text-xs text-[var(--color-accent)] hover:underline focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                      aria-label={`Ask Agent about ${issue.code}`}
+                    >
+                      Ask Agent
+                    </button>
+                  </div>
                 )}
                 {issue.technical_message && (
                   <details className="mt-2">
