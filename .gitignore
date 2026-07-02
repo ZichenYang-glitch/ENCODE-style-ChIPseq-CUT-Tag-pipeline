@@ -15,6 +15,7 @@ reference/
 miniconda3/
 .snakemake/
 results/
+.worktrees/
 
 # --- Python packaging artifacts ---
 *.egg-info/
