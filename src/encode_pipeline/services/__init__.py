@@ -5,9 +5,11 @@ from encode_pipeline.services.defaults import (
     create_default_workflow_registry,
 )
 from encode_pipeline.services.validation import ValidationService
+from encode_pipeline.services.workflow_info import WorkflowInfoService
 
 __all__ = [
     "ValidationService",
+    "WorkflowInfoService",
     "create_default_validation_service",
     "create_default_workflow_registry",
 ]
