@@ -1,7 +1,20 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App';
+
+vi.mock('./api/agentClient', () => ({
+  createAgentApiClient: vi.fn().mockReturnValue({
+    chat: vi.fn().mockResolvedValue({
+      ok: true,
+      session_id: null,
+      message: 'Mock agent reply.',
+      suggestions: [],
+      tool_calls: [],
+      issues: [],
+    }),
+  }),
+}));
 
 describe('App shell', () => {
   it('renders the workflow platform heading', async () => {
@@ -61,5 +74,72 @@ describe('App shell', () => {
     expect(
       await screen.findByText(/Validation Assistant — Read Only/i),
     ).toBeInTheDocument();
+  });
+
+  it('prefills the agent sidebar when Ask Agent is clicked on an issue', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const workflowButton = await screen.findByText(/ENCODE-style ChIP-seq/i);
+    await user.click(workflowButton);
+
+    const validateButton = await screen.findByTestId('validate-button');
+    await user.click(validateButton);
+
+    const askButton = await screen.findByRole('button', {
+      name: /Ask Agent about ENCODE_SAMPLES_INVALID/i,
+    });
+    await user.click(askButton);
+
+    expect(
+      await screen.findByDisplayValue('Explain issue ENCODE_SAMPLES_INVALID.'),
+    ).toBeInTheDocument();
+  });
+
+  it('sends only the clicked issue in current_issues when Ask Agent is clicked and sent', async () => {
+    const { createAgentApiClient } = await import('./api/agentClient');
+    const agentClient = vi.mocked(createAgentApiClient).mock.results[0].value as {
+      chat: ReturnType<typeof vi.fn>;
+    };
+    const chat = vi.fn().mockResolvedValue({
+      ok: true,
+      session_id: null,
+      message: 'Mock agent reply.',
+      suggestions: [],
+      tool_calls: [],
+      issues: [],
+    });
+    agentClient.chat = chat;
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    const workflowButton = await screen.findByText(/ENCODE-style ChIP-seq/i);
+    await user.click(workflowButton);
+
+    const validateButton = await screen.findByTestId('validate-button');
+    await user.click(validateButton);
+
+    const askButton = await screen.findByRole('button', {
+      name: /Ask Agent about ENCODE_SAMPLES_INVALID/i,
+    });
+    await user.click(askButton);
+
+    expect(
+      await screen.findByDisplayValue('Explain issue ENCODE_SAMPLES_INVALID.'),
+    ).toBeInTheDocument();
+
+    const sendButton = screen.getByRole('button', { name: /Send message/i });
+    await user.click(sendButton);
+
+    await waitFor(() => {
+      expect(chat).toHaveBeenCalledTimes(1);
+    });
+
+    const [, request] = chat.mock.calls[0];
+    expect(request.context.current_issues).toHaveLength(1);
+    expect(request.context.current_issues[0]).toMatchObject({
+      code: 'ENCODE_SAMPLES_INVALID',
+    });
   });
 });

@@ -73,10 +73,13 @@ def test_agent_context_defaults_are_fresh_mutable_containers():
     issue = IssueResponse(code="X", message="m")
     ctx1.current_issues.append(issue)
     ctx1.current_config["key"] = "value"
+    ctx1.current_schema["field"] = "value"
     assert ctx2.current_issues == []
     assert ctx2.current_config == {}
+    assert ctx2.current_schema == {}
     assert ctx1.current_issues == [issue]
     assert ctx1.current_config == {"key": "value"}
+    assert ctx1.current_schema == {"field": "value"}
 
 
 def test_agent_request_round_trips_through_dump_and_validate():

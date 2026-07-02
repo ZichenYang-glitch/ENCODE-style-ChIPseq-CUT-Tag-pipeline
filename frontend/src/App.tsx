@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createAgentApiClient } from './api/agentClient';
 import { createStubWorkflowClient } from './api/client';
 import type {
   Issue,
@@ -15,6 +16,7 @@ import { WorkflowCatalog } from './features/workflow-catalog/WorkflowCatalog';
 import { WorkflowDetail } from './features/workflow-detail/WorkflowDetail';
 
 const client = createStubWorkflowClient();
+const agentClient = createAgentApiClient();
 
 function createParseErrorIssue(path: 'config' | 'options', message: string): Issue {
   return {
@@ -41,6 +43,10 @@ export function App() {
   const [validationResult, setValidationResult] =
     useState<ValidateWorkflowResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [agentDraftMessage, setAgentDraftMessage] = useState('');
+  const [agentFocusedIssue, setAgentFocusedIssue] = useState<Issue | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -132,6 +138,19 @@ export function App() {
     setLoading(false);
   }
 
+  function handleAskAgent(issue: Issue) {
+    setAgentDraftMessage(`Explain issue ${issue.code}.`);
+    setAgentFocusedIssue(issue);
+  }
+
+  function handleAgentDraftConsumed() {
+    setAgentDraftMessage('');
+  }
+
+  function handleAgentFocusedIssueConsumed() {
+    setAgentFocusedIssue(null);
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg)] text-[var(--color-text)]">
       <header className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
@@ -185,7 +204,10 @@ export function App() {
             </Panel>
           )}
           <Panel title="Validation results">
-            <IssuePanel issues={displayedIssues} />
+            <IssuePanel
+              issues={displayedIssues}
+              onAskAgent={handleAskAgent}
+            />
           </Panel>
         </section>
 
@@ -193,6 +215,11 @@ export function App() {
           <AgentSidebar
             workflowId={selectedWorkflowId}
             issues={displayedIssues}
+            agentClient={agentClient}
+            draftMessage={agentDraftMessage || undefined}
+            onDraftConsumed={handleAgentDraftConsumed}
+            focusedIssue={agentFocusedIssue}
+            onFocusedIssueConsumed={handleAgentFocusedIssueConsumed}
           />
         </aside>
       </main>
