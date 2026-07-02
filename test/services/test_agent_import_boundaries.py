@@ -13,18 +13,21 @@ from pathlib import Path
 
 import pytest
 
-# Modules introduced or hardened in PR92.
+# Modules introduced or hardened in PR92/PR93.
 _AGENT_MODULES = [
     "encode_pipeline.api.models",
+    "encode_pipeline.services.agent",
+    "encode_pipeline.services.agent_tools",
     "encode_pipeline.services.llm_client",
+    "encode_pipeline.services.workflow_info",
 ]
 
-# Top-level module/package names that PR92 agent/LLM code must not import.
+# Top-level module/package names that agent/LLM code must not import.
 _FORBIDDEN_TOP_LEVEL = {
     # Execution and shell access
     "snakemake",
     "subprocess",
-    # Adapter / validation internals (out of scope for PR92)
+    # Adapter / validation internals (out of scope for PR92/PR93)
     "encode_pipeline.adapters",
     "encode_pipeline.config.validator",
     "encode_pipeline.samples",
@@ -39,6 +42,17 @@ _FORBIDDEN_TOP_LEVEL = {
     "mastra",
     "transformers",
     "torch",
+}
+
+# Forbidden text tokens that must not appear in agent layer source files.
+_FORBIDDEN_TOKENS = {
+    "preview_dag",
+    "plan_workspace",
+    "build_command",
+    "run_workflow",
+    "submit_job",
+    "kill_job",
+    "apply_config_edit",
 }
 
 
@@ -112,3 +126,11 @@ def test_agent_module_does_not_import_adapters_or_validator_submodules(module_na
     assert "encode_pipeline.adapters" not in imported, f"{module_name} imports encode_pipeline.adapters"
     assert "encode_pipeline.config.validator" not in imported, f"{module_name} imports encode_pipeline.config.validator"
     assert "encode_pipeline.samples" not in imported, f"{module_name} imports encode_pipeline.samples"
+
+
+@pytest.mark.parametrize("module_name", _AGENT_MODULES)
+def test_agent_module_does_not_reference_forbidden_tokens(module_name: str):
+    """Guard against execution/mutation method names appearing in agent source."""
+    source = _module_source_path(module_name).read_text(encoding="utf-8")
+    violations = sorted(token for token in _FORBIDDEN_TOKENS if token in source)
+    assert not violations, f"{module_name} references forbidden tokens: {violations}"
