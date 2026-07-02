@@ -17,6 +17,9 @@ api = [
     "uvicorn[standard]",
     "httpx2",
 ]
+llm-openai = [
+    "openai",
+]
 dev = [
     "pytest",
     "pytest-cov",

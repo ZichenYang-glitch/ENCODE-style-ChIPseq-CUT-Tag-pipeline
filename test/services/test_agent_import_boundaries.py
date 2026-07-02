@@ -10,11 +10,12 @@ from __future__ import annotations
 import ast
 import importlib
 import inspect
+import sys
 from pathlib import Path
 
 import pytest
 
-# Modules introduced or hardened in PR92/PR93/PR96.
+# Modules introduced or hardened in PR92/PR93/PR96/PR97.
 _AGENT_MODULES = [
     "encode_pipeline.api.models",
     "encode_pipeline.services.agent",
@@ -23,6 +24,7 @@ _AGENT_MODULES = [
     "encode_pipeline.services.agent_redaction",
     "encode_pipeline.services.agent_tools",
     "encode_pipeline.services.llm_client",
+    "encode_pipeline.services.llm_factory",
     "encode_pipeline.services.workflow_info",
 ]
 
@@ -138,3 +140,21 @@ def test_agent_module_does_not_reference_forbidden_tokens(module_name: str):
     source = _module_source_path(module_name).read_text(encoding="utf-8")
     violations = sorted(token for token in _FORBIDDEN_TOKENS if token in source)
     assert not violations, f"{module_name} references forbidden tokens: {violations}"
+
+
+def test_importing_defaults_does_not_load_provider_sdk_without_env(monkeypatch):
+    """Importing defaults with no provider env vars must not load openai."""
+    monkeypatch.delenv("ENCODE_AGENT_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("ENCODE_AGENT_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("ENCODE_AGENT_LLM_MODEL", raising=False)
+
+    # Remove any already-loaded openai modules to detect a fresh import.
+    for name in list(sys.modules):
+        if name == "openai" or name.startswith("openai."):
+            del sys.modules[name]
+
+    import encode_pipeline.services.defaults as defaults_module
+
+    assert "openai" not in sys.modules
+    # Importing the module should not create an LLM client eagerly.
+    assert defaults_module.create_default_agent_service is not None

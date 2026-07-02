@@ -31,6 +31,7 @@ from encode_pipeline.services.agent_tools import (
     build_explain_issues_tool,
 )
 from encode_pipeline.services.llm_client import MockLLMClient
+from encode_pipeline.services.llm_providers.openai_client import OpenAILLMClient
 from encode_pipeline.services.validation import ValidationService
 from encode_pipeline.services.workflow_info import WorkflowInfoService
 
@@ -453,3 +454,116 @@ def test_chat_redacts_not_found_response_issues():
     assert response.ok is False
     assert len(response.issues) == 1
     assert response.issues[0].context == {"workflow_id": "missing"}
+
+
+# Minimal fake OpenAI client for PR97 provider regression tests.
+
+
+class _FakeCompletionMessage:
+    def __init__(self, content: str | None) -> None:
+        self.content = content
+
+
+class _FakeCompletionChoice:
+    def __init__(self, message: _FakeCompletionMessage) -> None:
+        self.message = message
+
+
+class _FakeCompletionResponse:
+    def __init__(self, choices: list[_FakeCompletionChoice]) -> None:
+        self.choices = choices
+
+
+class _FakeCompletions:
+    def __init__(self, response_content: str = "fake response") -> None:
+        self.response_content = response_content
+        self.last_messages: list[dict] = []
+
+    async def create(
+        self,
+        *,
+        model: str,
+        messages: list[dict],
+        tools: list | None = None,
+        **kwargs,
+    ) -> _FakeCompletionResponse:
+        self.last_model = model
+        self.last_messages = messages
+        return _FakeCompletionResponse(
+            choices=[
+                _FakeCompletionChoice(
+                    message=_FakeCompletionMessage(content=self.response_content)
+                )
+            ]
+        )
+
+
+class _FakeChat:
+    def __init__(self) -> None:
+        self.completions = _FakeCompletions()
+
+
+class _FakeOpenAIClient:
+    def __init__(self) -> None:
+        self.chat = _FakeChat()
+
+
+def test_chat_filters_provider_output_like_mock_output():
+    adapter = FakeAdapter(workflow_id="fake")
+    registry = WorkflowRegistry(adapters=[adapter])
+    workflow_info = WorkflowInfoService(registry=registry)
+    validation_service = ValidationService(registry=registry)
+    fake = _FakeOpenAIClient()
+    fake.chat.completions.response_content = "Run this shell command: rm -rf /tmp"
+    llm_client = OpenAILLMClient(api_key="fake-key", client=fake)
+    service = AgentService(
+        workflow_info,
+        validation_service,
+        llm_client,
+        output_filter=OutputFilter(),
+    )
+    request = AgentRequest(message="Explain.")
+
+    response = _run_chat(service, "fake", request)
+
+    assert response.ok is True
+    assert "filtered" in response.message.lower()
+    assert "rm" not in response.message.lower()
+
+
+def test_chat_redacts_provider_prompt_and_output():
+    adapter = FakeAdapter(workflow_id="fake")
+    registry = WorkflowRegistry(adapters=[adapter])
+    workflow_info = WorkflowInfoService(registry=registry)
+    validation_service = ValidationService(registry=registry)
+    fake = _FakeOpenAIClient()
+    fake.chat.completions.response_content = "ok"
+    llm_client = OpenAILLMClient(api_key="fake-key", client=fake)
+    service = AgentService(
+        workflow_info,
+        validation_service,
+        llm_client,
+        redaction_policy=RedactionPolicy(),
+    )
+    path = _HOME_PREFIX + "/user/secret.tsv"
+    issue = IssueResponse(
+        code="X",
+        message="Bad.",
+        context={"api_key": "leaked", "file": path},
+    )
+    request = AgentRequest(
+        message="Explain",
+        context=AgentContext(current_issues=[issue]),
+    )
+
+    response = _run_chat(service, "fake", request)
+
+    prompt_text = " ".join(
+        str(message.get("content", "")) for message in fake.chat.completions.last_messages
+    )
+    assert "<REDACTED>" in prompt_text
+    assert "<FILE_PATH>" in prompt_text
+    assert "leaked" not in prompt_text
+    assert path not in prompt_text
+    assert "leaked" not in response.message
+    assert path not in response.message
