@@ -9,7 +9,6 @@ import pytest
 from encode_pipeline.platform.adapters import (
     CommandSpec,
     DagPreview,
-    WorkflowAdapter,
     WorkflowCapabilities,
     WorkflowInputs,
     WorkflowMetadata,

@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.validation import ValidationService
+
+
+if TYPE_CHECKING:
+    from encode_pipeline.services.agent import AgentService
 
 
 DEFAULT_MOCK_RESPONSE = (
@@ -39,10 +45,10 @@ def create_default_agent_service(
     """Return a fresh agent service wired to the default registry and mock LLM.
 
     Composes the default registry, workflow info service, validation service,
-    and a deterministic provider-neutral mock LLM client. This function uses
-    lazy imports to preserve the lazy-import guarantees of the services
-    package: importing ``encode_pipeline.services.defaults`` must not eagerly
-    pull in Pydantic, FastAPI, or heavy workflow modules.
+    a deterministic provider-neutral mock LLM client, and the PR96 safety
+    components (redaction policy, output filter, and bounded in-memory audit
+    sink). This function uses lazy imports to preserve the lazy-import
+    guarantees of the services package.
 
     Args:
         registry: Optional existing registry. When omitted, a fresh default
@@ -50,6 +56,9 @@ def create_default_agent_service(
             compose all services from one adapter instance.
     """
     from encode_pipeline.services.agent import AgentService
+    from encode_pipeline.services.agent_audit import InMemoryAuditSink
+    from encode_pipeline.services.agent_output_filter import OutputFilter
+    from encode_pipeline.services.agent_redaction import RedactionPolicy
     from encode_pipeline.services.llm_client import MockLLMClient
     from encode_pipeline.services.validation import ValidationService
     from encode_pipeline.services.workflow_info import WorkflowInfoService
@@ -59,4 +68,11 @@ def create_default_agent_service(
     workflow_info = WorkflowInfoService(registry=registry)
     validation_service = ValidationService(registry=registry)
     llm_client = MockLLMClient(response_text=DEFAULT_MOCK_RESPONSE)
-    return AgentService(workflow_info, validation_service, llm_client)
+    return AgentService(
+        workflow_info,
+        validation_service,
+        llm_client,
+        redaction_policy=RedactionPolicy(),
+        output_filter=OutputFilter(),
+        audit_sink=InMemoryAuditSink(),
+    )

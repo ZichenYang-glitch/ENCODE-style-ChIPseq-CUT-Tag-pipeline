@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from encode_pipeline.api.models import (
     AgentContext,
     AgentRequest,
@@ -25,8 +23,10 @@ from encode_pipeline.platform.adapters import (
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Result
 from encode_pipeline.services.agent import AgentService
+from encode_pipeline.services.agent_audit import InMemoryAuditSink
+from encode_pipeline.services.agent_output_filter import OutputFilter
+from encode_pipeline.services.agent_redaction import RedactionPolicy
 from encode_pipeline.services.agent_tools import (
-    AgentTool,
     ReadOnlyToolRegistry,
     build_explain_issues_tool,
 )
@@ -252,3 +252,204 @@ def test_chat_response_message_matches_explain_issues_tool_output():
 
     assert response.message == "matched explanation"
     assert response.tool_calls[0].output_summary == response.message
+
+
+_HOME_PREFIX = "/" + "home"
+
+
+def test_chat_redacts_paths_with_default_redaction_policy():
+    adapter = FakeAdapter(workflow_id="fake")
+    registry = WorkflowRegistry(adapters=[adapter])
+    workflow_info = WorkflowInfoService(registry=registry)
+    validation_service = ValidationService(registry=registry)
+    path = _HOME_PREFIX + "/user/secret.tsv"
+    llm_client = MockLLMClient(response_text=f"Check {path} now.")
+    service = AgentService(workflow_info, validation_service, llm_client)
+    request = AgentRequest(message="Explain.")
+
+    response = _run_chat(service, "fake", request)
+
+    assert response.message == "Check <FILE_PATH> now."
+
+
+def test_chat_filters_execution_like_output_with_default_filter():
+    adapter = FakeAdapter(workflow_id="fake")
+    registry = WorkflowRegistry(adapters=[adapter])
+    workflow_info = WorkflowInfoService(registry=registry)
+    validation_service = ValidationService(registry=registry)
+    llm_client = MockLLMClient(response_text="Run this shell command: rm -rf /tmp")
+    service = AgentService(workflow_info, validation_service, llm_client)
+    request = AgentRequest(message="Explain.")
+
+    response = _run_chat(service, "fake", request)
+
+    assert response.ok is True
+    assert "filtered" in response.message.lower()
+    assert "rm" not in response.message.lower()
+
+
+def test_chat_records_llm_response_redaction_counts_for_paths():
+    adapter = FakeAdapter(workflow_id="fake")
+    registry = WorkflowRegistry(adapters=[adapter])
+    workflow_info = WorkflowInfoService(registry=registry)
+    validation_service = ValidationService(registry=registry)
+    path = _HOME_PREFIX + "/user/secret.tsv"
+    llm_client = MockLLMClient(response_text=f"Check {path} now.")
+    audit_sink = InMemoryAuditSink(bound=10)
+    service = AgentService(
+        workflow_info,
+        validation_service,
+        llm_client,
+        audit_sink=audit_sink,
+    )
+    request = AgentRequest(message="Explain.")
+
+    _run_chat(service, "fake", request)
+
+    events = audit_sink.events()
+    llm_response = events[-1]
+    assert llm_response.event_type == "LLM_RESPONSE"
+    assert llm_response.redaction_counts["paths"] >= 1
+
+
+def test_chat_redacts_paths_in_response_and_tool_calls():
+    adapter = FakeAdapter(workflow_id="fake")
+    registry = WorkflowRegistry(adapters=[adapter])
+    workflow_info = WorkflowInfoService(registry=registry)
+    validation_service = ValidationService(registry=registry)
+    path = _HOME_PREFIX + "/user/secret.tsv"
+    llm_client = MockLLMClient(response_text=f"Check {path} now.")
+    service = AgentService(
+        workflow_info,
+        validation_service,
+        llm_client,
+        redaction_policy=RedactionPolicy(),
+    )
+    request = AgentRequest(message="Explain.")
+
+    response = _run_chat(service, "fake", request)
+
+    assert response.message == "Check <FILE_PATH> now."
+    assert response.tool_calls[0].output_summary == "Check <FILE_PATH> now."
+
+
+def test_chat_redacts_sensitive_keys_in_context_issues():
+    adapter = FakeAdapter(workflow_id="fake")
+    registry = WorkflowRegistry(adapters=[adapter])
+    workflow_info = WorkflowInfoService(registry=registry)
+    validation_service = ValidationService(registry=registry)
+    llm_client = MockLLMClient(response_text="ok")
+    service = AgentService(
+        workflow_info,
+        validation_service,
+        llm_client,
+        redaction_policy=RedactionPolicy(),
+    )
+    issue = IssueResponse(
+        code="X",
+        message="Bad.",
+        context={"api_key": "leaked", "file": _HOME_PREFIX + "/user/x.tsv"},
+    )
+    request = AgentRequest(
+        message="Explain",
+        context=AgentContext(current_issues=[issue]),
+    )
+
+    response = _run_chat(service, "fake", request)
+
+    input_summary = response.tool_calls[0].input_summary
+    redacted_issue = input_summary["issues"][0]
+    assert redacted_issue["context"]["api_key"] == "<REDACTED>"
+    assert redacted_issue["context"]["file"] == "<FILE_PATH>"
+
+
+def test_chat_filters_execution_like_output():
+    adapter = FakeAdapter(workflow_id="fake")
+    registry = WorkflowRegistry(adapters=[adapter])
+    workflow_info = WorkflowInfoService(registry=registry)
+    validation_service = ValidationService(registry=registry)
+    llm_client = MockLLMClient(response_text="Run this shell command: rm -rf /tmp")
+    service = AgentService(
+        workflow_info,
+        validation_service,
+        llm_client,
+        output_filter=OutputFilter(),
+    )
+    request = AgentRequest(message="Explain.")
+
+    response = _run_chat(service, "fake", request)
+
+    assert response.ok is True
+    assert "filtered" in response.message.lower()
+    assert "rm" not in response.message.lower()
+
+
+def test_chat_records_audit_events_for_request_tool_call_and_response():
+    adapter = FakeAdapter(workflow_id="fake")
+    registry = WorkflowRegistry(adapters=[adapter])
+    workflow_info = WorkflowInfoService(registry=registry)
+    validation_service = ValidationService(registry=registry)
+    llm_client = MockLLMClient(response_text="ok")
+    audit_sink = InMemoryAuditSink(bound=10)
+    service = AgentService(
+        workflow_info,
+        validation_service,
+        llm_client,
+        audit_sink=audit_sink,
+    )
+    request = AgentRequest(session_id="sess-audit", message="Explain.")
+
+    _run_chat(service, "fake", request)
+
+    events = audit_sink.events()
+    assert len(events) == 3
+    assert events[0].event_type == "AGENT_REQUEST"
+    assert events[0].workflow_id == "fake"
+    assert events[0].session_id == "sess-audit"
+    assert events[1].event_type == "TOOL_CALL"
+    assert events[1].tool_name == "explain_issues"
+    assert events[2].event_type == "LLM_RESPONSE"
+    assert not any(event.filtered for event in events)
+
+
+def test_chat_records_output_filtered_audit_event():
+    adapter = FakeAdapter(workflow_id="fake")
+    registry = WorkflowRegistry(adapters=[adapter])
+    workflow_info = WorkflowInfoService(registry=registry)
+    validation_service = ValidationService(registry=registry)
+    llm_client = MockLLMClient(response_text="snakemake --cores 4")
+    audit_sink = InMemoryAuditSink(bound=10)
+    service = AgentService(
+        workflow_info,
+        validation_service,
+        llm_client,
+        output_filter=OutputFilter(),
+        audit_sink=audit_sink,
+    )
+    request = AgentRequest(message="Explain.")
+
+    _run_chat(service, "fake", request)
+
+    events = audit_sink.events()
+    assert len(events) == 4
+    assert events[2].event_type == "OUTPUT_FILTERED"
+    assert events[2].filtered is True
+
+
+def test_chat_redacts_not_found_response_issues():
+    workflow_info = WorkflowInfoService(registry=WorkflowRegistry())
+    validation_service = ValidationService(registry=WorkflowRegistry())
+    llm_client = MockLLMClient(response_text="unused")
+    service = AgentService(
+        workflow_info,
+        validation_service,
+        llm_client,
+        redaction_policy=RedactionPolicy(),
+    )
+    request = AgentRequest(message="Explain.")
+
+    response = _run_chat(service, "missing", request)
+
+    assert response.ok is False
+    assert len(response.issues) == 1
+    assert response.issues[0].context == {"workflow_id": "missing"}
