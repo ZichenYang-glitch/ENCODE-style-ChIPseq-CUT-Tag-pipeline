@@ -14,6 +14,15 @@ from encode_pipeline.platform.adapters import (
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, IssueSeverity, Result
+from encode_pipeline.platform.runs import (
+    RunArtifactRef,
+    RunEvent,
+    RunLogChunk,
+    RunRecord,
+    RunStatus,
+    can_transition,
+    require_transition,
+)
 
 __all__ = [
     "CommandSpec",
@@ -23,6 +32,11 @@ __all__ = [
     "Issue",
     "IssueSeverity",
     "Result",
+    "RunArtifactRef",
+    "RunEvent",
+    "RunLogChunk",
+    "RunRecord",
+    "RunStatus",
     "WorkflowAdapter",
     "WorkflowCapabilities",
     "WorkflowInputs",
@@ -30,4 +44,6 @@ __all__ = [
     "WorkflowRegistry",
     "WorkflowSchema",
     "WorkspacePlan",
+    "can_transition",
+    "require_transition",
 ]

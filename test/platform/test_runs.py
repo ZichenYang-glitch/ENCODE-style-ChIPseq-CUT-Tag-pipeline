@@ -248,3 +248,19 @@ def test_run_artifact_ref_metadata_is_defensively_copied():
 
     metadata["sample"] = "S2"
     assert ref.metadata == {"sample": "S1"}
+
+
+def test_platform_package_exports_run_primitives():
+    from encode_pipeline.platform import (
+        RunArtifactRef,
+        RunEvent,
+        RunLogChunk,
+        RunRecord,
+        RunStatus,
+        can_transition,
+        require_transition,
+    )
+
+    assert RunStatus.CREATED.value == "created"
+    assert can_transition(RunStatus.CREATED, RunStatus.VALIDATING)
+    assert require_transition(RunStatus.CREATED, RunStatus.VALIDATING) is None
