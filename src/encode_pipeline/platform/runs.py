@@ -58,6 +58,18 @@ def require_transition(from_status: RunStatus, to_status: RunStatus) -> None:
         )
 
 
+def _normalize_status(value: RunStatus | str) -> RunStatus:
+    """Return a RunStatus, accepting either a RunStatus or its string value."""
+    if isinstance(value, RunStatus):
+        return value
+    if isinstance(value, str):
+        try:
+            return RunStatus(value)
+        except ValueError as exc:
+            raise ValueError(f"Invalid run status: {value!r}") from exc
+    raise ValueError(f"Invalid run status: {value!r}")
+
+
 @dataclass(frozen=True)
 class RunRecord:
     """Immutable snapshot of a workflow run."""
@@ -65,7 +77,7 @@ class RunRecord:
     run_id: str
     workflow_id: str
     inputs: Mapping[str, Any]
-    status: RunStatus
+    status: RunStatus | str
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None
@@ -76,11 +88,14 @@ class RunRecord:
     tags: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "status", _normalize_status(self.status))
         object.__setattr__(self, "inputs", _copy_mapping(self.inputs, "inputs"))
         object.__setattr__(self, "tags", _copy_string_mapping(self.tags, "tags"))
+        if self.error is not None and not isinstance(self.error, Issue):
+            raise ValueError("RunRecord error must be an Issue or None")
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-ready dict with fresh copies of mutable or collection-valued fields."""
+        """Return a dict representation with fresh copies of mutable fields."""
         return {
             "run_id": self.run_id,
             "workflow_id": self.workflow_id,
@@ -136,9 +151,11 @@ class RunEvent:
             raise ValueError("RunEvent status must be a RunStatus or None")
         if not isinstance(self.sequence, int) or isinstance(self.sequence, bool):
             raise ValueError("RunEvent sequence must be an integer")
+        if self.issue is not None and not isinstance(self.issue, Issue):
+            raise ValueError("RunEvent issue must be an Issue or None")
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-ready dict with fresh copies of mutable fields."""
+        """Return a dict representation with fresh copies of mutable fields."""
         return {
             "event_id": self.event_id,
             "run_id": self.run_id,
@@ -172,7 +189,7 @@ class RunLogChunk:
             raise ValueError("RunLogChunk sequence must be an integer")
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-ready dict."""
+        """Return a dict representation."""
         return {
             "chunk_id": self.chunk_id,
             "run_id": self.run_id,
@@ -219,7 +236,7 @@ class RunArtifactRef:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-ready dict with fresh copies of mutable fields."""
+        """Return a dict representation with fresh copies of mutable fields."""
         return {
             "artifact_id": self.artifact_id,
             "run_id": self.run_id,

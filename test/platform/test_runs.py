@@ -43,6 +43,34 @@ def test_can_transition_rejects_invalid_transitions():
     assert not can_transition(RunStatus.FAILED, RunStatus.CANCELLED)
 
 
+def test_all_active_statuses_can_transition_to_cancelled():
+    from encode_pipeline.platform.runs import RunStatus, can_transition
+
+    active = {
+        RunStatus.CREATED,
+        RunStatus.VALIDATING,
+        RunStatus.PLANNED,
+        RunStatus.QUEUED,
+        RunStatus.RUNNING,
+    }
+    for status in active:
+        assert can_transition(status, RunStatus.CANCELLED)
+
+
+def test_all_terminal_statuses_are_absorbing():
+    from encode_pipeline.platform.runs import RunStatus, can_transition
+
+    terminal = {
+        RunStatus.SUCCEEDED,
+        RunStatus.FAILED,
+        RunStatus.CANCELLED,
+    }
+    for status in terminal:
+        assert not can_transition(status, RunStatus.CREATED)
+        assert not can_transition(status, RunStatus.RUNNING)
+        assert not can_transition(status, RunStatus.CANCELLED)
+
+
 def test_require_transition_raises_on_invalid():
     from encode_pipeline.platform.runs import RunStatus, require_transition
 
@@ -130,6 +158,74 @@ def test_run_record_to_dict_is_json_ready():
     assert data["tags"] == {"env": "test"}
 
 
+def test_run_record_normalizes_string_status():
+    from datetime import datetime, timezone
+    from encode_pipeline.platform.runs import RunRecord, RunStatus
+
+    now = datetime.now(timezone.utc)
+    record = RunRecord(
+        run_id="run-1",
+        workflow_id="wf-1",
+        inputs={},
+        status="running",
+        created_at=now,
+        updated_at=now,
+        started_at=None,
+        ended_at=None,
+        current_stage=None,
+        cancellation_reason=None,
+        error=None,
+        tags={},
+    )
+
+    assert record.status is RunStatus.RUNNING
+    assert record.to_dict()["status"] == "running"
+
+
+def test_run_record_rejects_invalid_status():
+    from datetime import datetime, timezone
+    from encode_pipeline.platform.runs import RunRecord
+
+    now = datetime.now(timezone.utc)
+    with pytest.raises(ValueError, match="Invalid run status"):
+        RunRecord(
+            run_id="run-1",
+            workflow_id="wf-1",
+            inputs={},
+            status="not-a-status",
+            created_at=now,
+            updated_at=now,
+            started_at=None,
+            ended_at=None,
+            current_stage=None,
+            cancellation_reason=None,
+            error=None,
+            tags={},
+        )
+
+
+def test_run_record_rejects_non_issue_error():
+    from datetime import datetime, timezone
+    from encode_pipeline.platform.runs import RunRecord
+
+    now = datetime.now(timezone.utc)
+    with pytest.raises(ValueError, match="RunRecord error must be an Issue or None"):
+        RunRecord(
+            run_id="run-1",
+            workflow_id="wf-1",
+            inputs={},
+            status="created",
+            created_at=now,
+            updated_at=now,
+            started_at=None,
+            ended_at=None,
+            current_stage=None,
+            cancellation_reason=None,
+            error={"code": "BAD"},
+            tags={},
+        )
+
+
 def test_run_event_stores_sequence_and_issue():
     from datetime import datetime, timezone
     from encode_pipeline.platform.runs import RunEvent, RunStatus
@@ -177,6 +273,25 @@ def test_run_event_context_is_defensively_copied():
 
     context["sample"] = "S2"
     assert event.context == {"sample": "S1"}
+
+
+def test_run_event_rejects_non_issue_issue():
+    from datetime import datetime, timezone
+    from encode_pipeline.platform.runs import RunEvent, RunStatus
+
+    with pytest.raises(ValueError, match="RunEvent issue must be an Issue or None"):
+        RunEvent(
+            event_id="evt-1",
+            run_id="run-1",
+            sequence=1,
+            event_type="status_changed",
+            timestamp=datetime.now(timezone.utc),
+            status=RunStatus.CREATED,
+            stage=None,
+            message="Run created.",
+            context={},
+            issue={"code": "BAD"},
+        )
 
 
 def test_run_log_chunk_stores_sequence_and_lines():
