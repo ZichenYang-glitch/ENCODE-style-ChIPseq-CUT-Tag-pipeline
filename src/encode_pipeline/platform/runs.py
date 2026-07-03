@@ -76,13 +76,11 @@ class RunRecord:
     tags: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "inputs", _copy_mapping(self.inputs, "inputs")
-        )
+        object.__setattr__(self, "inputs", _copy_mapping(self.inputs, "inputs"))
         object.__setattr__(self, "tags", _copy_string_mapping(self.tags, "tags"))
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-ready dict with fresh copies of mutable fields."""
+        """Return a JSON-ready dict with fresh copies of mutable or collection-valued fields."""
         return {
             "run_id": self.run_id,
             "workflow_id": self.workflow_id,
@@ -136,7 +134,7 @@ class RunEvent:
         )
         if self.status is not None and not isinstance(self.status, RunStatus):
             raise ValueError("RunEvent status must be a RunStatus or None")
-        if not isinstance(self.sequence, int):
+        if not isinstance(self.sequence, int) or isinstance(self.sequence, bool):
             raise ValueError("RunEvent sequence must be an integer")
 
     def to_dict(self) -> dict[str, Any]:
@@ -170,7 +168,7 @@ class RunLogChunk:
         object.__setattr__(
             self, "lines", _normalize_string_tuple(self.lines, "lines")
         )
-        if not isinstance(self.sequence, int):
+        if not isinstance(self.sequence, int) or isinstance(self.sequence, bool):
             raise ValueError("RunLogChunk sequence must be an integer")
 
     def to_dict(self) -> dict[str, Any]:

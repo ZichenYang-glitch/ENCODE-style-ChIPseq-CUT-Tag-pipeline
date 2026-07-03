@@ -281,6 +281,8 @@ def test_importing_platform_runs_does_not_import_services_or_adapters():
         forbidden = {
             "encode_pipeline.services",
             "encode_pipeline.adapters",
+            "encode_pipeline.api",
+            "encode_pipeline.frontend",
             "fastapi",
             "pydantic",
             "snakemake",
