@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createAgentApiClient } from './api/agentClient';
 import { createStubWorkflowClient } from './api/client';
+import { createStubRunApiClient } from './api/runClient';
+import type { RunApiClient } from './api/runClient';
 import type {
   Issue,
   ValidateWorkflowResponse,
@@ -11,12 +13,14 @@ import type {
 import { Panel } from './components/Panel';
 import { AgentSidebar } from './features/agent-sidebar/AgentSidebar';
 import { IssuePanel } from './features/issues-panel/IssuePanel';
+import { RunProgressPanel } from './features/run-progress/RunProgressPanel';
 import { ValidationWorkspace } from './features/validation-workspace/ValidationWorkspace';
 import { WorkflowCatalog } from './features/workflow-catalog/WorkflowCatalog';
 import { WorkflowDetail } from './features/workflow-detail/WorkflowDetail';
 
 const client = createStubWorkflowClient();
 const agentClient = createAgentApiClient();
+const runClient: RunApiClient = createStubRunApiClient();
 
 function createParseErrorIssue(path: 'config' | 'options', message: string): Issue {
   return {
@@ -42,6 +46,9 @@ export function App() {
   const [optionsText, setOptionsText] = useState('{}');
   const [validationResult, setValidationResult] =
     useState<ValidateWorkflowResponse | null>(null);
+  const [validatedInputs, setValidatedInputs] = useState<WorkflowInputs | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
   const [agentDraftMessage, setAgentDraftMessage] = useState('');
   const [agentFocusedIssue, setAgentFocusedIssue] = useState<Issue | null>(
@@ -67,6 +74,8 @@ export function App() {
     }
     let cancelled = false;
     setSchemaHints(null);
+    setValidationResult(null);
+    setValidatedInputs(null);
     client.getWorkflowSchema(selectedWorkflowId).then((response) => {
       if (!cancelled) {
         setSchemaHints(response.schema_hints);
@@ -123,6 +132,7 @@ export function App() {
         value: null,
         issues,
       });
+      setValidatedInputs(null);
       setLoading(false);
       return;
     }
@@ -135,7 +145,30 @@ export function App() {
 
     const response = await client.validateWorkflow(selectedWorkflowId, inputs);
     setValidationResult(response);
+    if (response.ok) {
+      setValidatedInputs(inputs);
+    } else {
+      setValidatedInputs(null);
+    }
     setLoading(false);
+  }
+
+  function handleConfigChange(value: string) {
+    setConfigText(value);
+    setValidationResult(null);
+    setValidatedInputs(null);
+  }
+
+  function handleSamplesChange(value: string) {
+    setSamplesText(value);
+    setValidationResult(null);
+    setValidatedInputs(null);
+  }
+
+  function handleOptionsChange(value: string) {
+    setOptionsText(value);
+    setValidationResult(null);
+    setValidatedInputs(null);
   }
 
   function handleAskAgent(issue: Issue) {
@@ -189,9 +222,9 @@ export function App() {
                 samplesText={samplesText}
                 optionsText={optionsText}
                 loading={loading}
-                onConfigChange={setConfigText}
-                onSamplesChange={setSamplesText}
-                onOptionsChange={setOptionsText}
+                onConfigChange={handleConfigChange}
+                onSamplesChange={handleSamplesChange}
+                onOptionsChange={handleOptionsChange}
                 onValidate={handleValidate}
               />
             </Panel>
@@ -201,6 +234,16 @@ export function App() {
               <p className="text-sm text-[var(--color-text-muted)]">
                 Select a workflow from the catalog to begin validation.
               </p>
+            </Panel>
+          )}
+          {selectedWorkflow && (
+            <Panel title="Run progress">
+              <RunProgressPanel
+                workflowId={selectedWorkflow.metadata.workflow_id}
+                validationResult={validationResult}
+                validatedInputs={validatedInputs}
+                runClient={runClient}
+              />
             </Panel>
           )}
           <Panel title="Validation results">
