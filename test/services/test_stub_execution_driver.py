@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from encode_pipeline.platform.adapters import (
     CommandSpec,
     DagPreview,
@@ -105,3 +107,28 @@ def test_advance_to_terminal_failure_tag():
 
     logs = service.list_logs("run-1", "stdout")
     assert logs[-1].lines == ("[stub] marking failed state",)
+
+
+def test_advance_to_terminal_is_idempotent_for_terminal_run():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run("fake", WorkflowInputs(config={}))
+    driver = StubExecutionDriver(service)
+
+    driver.advance_to_terminal("run-1")
+    before_events = service.list_events("run-1")
+    before_logs = service.list_logs("run-1", "stdout")
+
+    driver.advance_to_terminal("run-1")
+
+    assert service.list_events("run-1") == before_events
+    assert service.list_logs("run-1", "stdout") == before_logs
+
+
+def test_advance_to_terminal_unknown_run_raises_key_error():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry)
+    driver = StubExecutionDriver(service)
+
+    with pytest.raises(KeyError):
+        driver.advance_to_terminal("run-missing")
