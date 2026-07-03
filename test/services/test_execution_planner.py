@@ -149,6 +149,20 @@ def test_plan_run_does_not_record_artifacts(planner, run_service):
     assert artifacts == ()
 
 
+def test_plan_run_does_not_call_adapter_planning_methods(planner, run_service):
+    inputs = WorkflowInputs(config={}, samples=None, options={})
+    record = run_service.create_run("stub", inputs)
+
+    result = planner.plan_run(record.run_id)
+
+    assert result.is_success is True
+    plan = result.value
+    assert plan.status.value == "unsupported"
+    assert plan.dag_preview is None
+    assert plan.workspace_plan is None
+    assert plan.command_spec is None
+
+
 def test_plan_run_defensively_copies_inputs(planner, run_service):
     inputs = WorkflowInputs(
         config={"samples": ["s1"]},
