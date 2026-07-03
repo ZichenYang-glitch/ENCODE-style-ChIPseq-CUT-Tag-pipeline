@@ -12,6 +12,7 @@ from encode_pipeline.platform.results import Issue
 from encode_pipeline.services.defaults import (
     create_default_agent_service,
     create_default_run_service,
+    create_default_stub_execution_driver,
     create_default_validation_service,
     create_default_workflow_registry,
 )
@@ -30,6 +31,9 @@ def create_app() -> FastAPI:
     app.state.validation_service = create_default_validation_service(registry=registry)
     app.state.agent_service = create_default_agent_service(registry=registry)
     app.state.run_service = create_default_run_service(registry=registry)
+    app.state.stub_execution_driver = create_default_stub_execution_driver(
+        run_service=app.state.run_service,
+    )
 
     app.include_router(api_v1_router, prefix="/api/v1")
     app.add_exception_handler(RequestValidationError, _handle_request_validation_error)
