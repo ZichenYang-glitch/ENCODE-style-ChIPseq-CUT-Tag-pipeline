@@ -7,7 +7,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
-from encode_pipeline.api.dependencies import get_run_service
+from encode_pipeline.api.dependencies import (
+    get_run_service,
+    get_stub_execution_driver,
+)
 from encode_pipeline.api.models import (
     IssueResponse,
     RunCreateRequest,
@@ -20,6 +23,7 @@ from encode_pipeline.api.models import (
 )
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.services.runs import RunService
+from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
 
 
 router = APIRouter(tags=["runs"])
@@ -94,6 +98,7 @@ def create_run(
     workflow_id: str,
     request_body: RunCreateRequest,
     run_service: RunService = Depends(get_run_service),
+    stub_driver: StubExecutionDriver | None = Depends(get_stub_execution_driver),
 ) -> RunResponse | JSONResponse:
     """Create a new run for the given workflow."""
     inputs = WorkflowInputs(
@@ -121,6 +126,10 @@ def create_run(
                 issues=[_api_request_invalid_issue(str(exc), context={"workflow_id": workflow_id})],
             ).model_dump(),
         )
+
+    if stub_driver is not None:
+        stub_driver.advance_to_terminal(record.run_id)
+        record = run_service.get_run(record.run_id)
 
     return RunResponse(ok=True, run=_run_record_response(record), issues=[])
 

@@ -90,3 +90,12 @@ def create_default_run_service(
     if registry is None:
         registry = create_default_workflow_registry()
     return RunService(registry=registry)
+
+
+def create_default_stub_execution_driver(
+    run_service: "RunService",
+) -> "StubExecutionDriver":
+    """Return a stub execution driver wired to the given run service."""
+    from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
+
+    return StubExecutionDriver(run_service=run_service)
