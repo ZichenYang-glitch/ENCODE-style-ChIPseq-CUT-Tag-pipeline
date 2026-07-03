@@ -19,7 +19,6 @@ from encode_pipeline.api.models import (
     RunResponse,
 )
 from encode_pipeline.platform.adapters import WorkflowInputs
-from encode_pipeline.platform.results import Issue
 from encode_pipeline.services.runs import RunService
 
 
