@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import pytest
 
 from encode_pipeline.platform.adapters import (
@@ -132,3 +135,60 @@ def test_advance_to_terminal_unknown_run_raises_key_error():
 
     with pytest.raises(KeyError):
         driver.advance_to_terminal("run-missing")
+
+
+def test_stub_execution_driver_import_boundary() -> None:
+    source_path = (
+        Path(__file__).resolve().parents[2]
+        / "src/encode_pipeline/services/stub_execution_driver.py"
+    )
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    forbidden_modules = {
+        "encode_pipeline.api",
+        "encode_pipeline.frontend",
+        "snakemake",
+        "subprocess",
+        "openai",
+    }
+    imported_modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            imported_modules.add(node.module)
+
+    assert not any(
+        module == forbidden or module.startswith(f"{forbidden}.")
+        for module in imported_modules
+        for forbidden in forbidden_modules
+    )
+
+
+def test_stub_output_contains_no_execution_like_wording():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run("fake", WorkflowInputs(config={}))
+    driver = StubExecutionDriver(service)
+    driver.advance_to_terminal("run-1")
+
+    forbidden = [
+        "execution",
+        "execute",
+        "command",
+        "snakemake",
+        "subprocess",
+        "launch",
+        "submit",
+        "pipeline",
+    ]
+    text = ""
+    for event in service.list_events("run-1"):
+        text += event.message.lower()
+    for chunk in service.list_logs("run-1", "stdout"):
+        for line in chunk.lines:
+            text += line.lower()
+
+    for word in forbidden:
+        assert word not in text, f"forbidden word {word!r} found in stub output"
