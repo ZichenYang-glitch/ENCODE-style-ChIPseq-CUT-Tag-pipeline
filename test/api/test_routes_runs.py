@@ -291,3 +291,78 @@ def test_api_routes_runs_import_boundary() -> None:
     )
     assert "encode_pipeline.config.validator" not in source
     assert "encode_pipeline.samples.load" not in source
+
+
+def test_create_run_returns_succeeded_with_default_driver(
+    client: TestClient,
+    workflow_id: str,
+) -> None:
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/runs",
+        json={"config": {"samples": "samples.tsv"}},
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["ok"] is True
+    assert data["run"]["status"] == "succeeded"
+
+
+def test_create_run_with_failure_tag_returns_failed(
+    client: TestClient,
+    workflow_id: str,
+) -> None:
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/runs",
+        json={
+            "config": {"samples": "samples.tsv"},
+            "tags": {"stub_outcome": "failure"},
+        },
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["ok"] is True
+    assert data["run"]["status"] == "failed"
+    assert data["run"]["error"]["code"] == "STUB_FAILURE"
+
+
+def test_create_run_generates_stub_events(
+    client: TestClient,
+    workflow_id: str,
+) -> None:
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/runs",
+        json={"config": {"samples": "samples.tsv"}},
+    )
+    run_id = response.json()["run"]["run_id"]
+
+    response = client.get(f"/api/v1/runs/{run_id}/events")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    statuses = [event["status"] for event in data["events"]]
+    assert statuses == [
+        "created",
+        "validating",
+        "planned",
+        "queued",
+        "running",
+        "succeeded",
+    ]
+
+
+def test_create_run_generates_stub_logs(
+    client: TestClient,
+    workflow_id: str,
+) -> None:
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/runs",
+        json={"config": {"samples": "samples.tsv"}},
+    )
+    run_id = response.json()["run"]["run_id"]
+
+    response = client.get(f"/api/v1/runs/{run_id}/logs")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert len(data["chunks"]) == 5
+    assert data["chunks"][0]["lines"] == ["[stub] validating inputs"]
