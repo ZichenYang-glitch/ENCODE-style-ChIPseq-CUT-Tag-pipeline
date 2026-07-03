@@ -178,3 +178,10 @@ def test_plan_run_defensively_copies_inputs(planner, run_service):
     original_inputs["config"]["samples"].append("s2")
 
     assert plan.inputs_snapshot["config"] == {"samples": ["s1"]}
+
+
+def test_default_factory_returns_planner(run_service):
+    from encode_pipeline.services import ExecutionPlanner, create_default_execution_planner
+
+    planner = create_default_execution_planner(run_service=run_service)
+    assert isinstance(planner, ExecutionPlanner)

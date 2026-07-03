@@ -99,3 +99,12 @@ def create_default_stub_execution_driver(
     from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
 
     return StubExecutionDriver(run_service=run_service)
+
+
+def create_default_execution_planner(
+    run_service: "RunService",
+) -> "ExecutionPlanner":
+    """Return an execution planner wired to the given run service."""
+    from encode_pipeline.services.planning import ExecutionPlanner
+
+    return ExecutionPlanner(run_service=run_service)
