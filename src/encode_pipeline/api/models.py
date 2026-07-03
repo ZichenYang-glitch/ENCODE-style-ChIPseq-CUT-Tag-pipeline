@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -126,4 +127,85 @@ class AgentResponse(BaseModel):
     message: str
     suggestions: list[AgentSuggestion] = Field(default_factory=list)
     tool_calls: list[AgentToolCall] = Field(default_factory=list)
+    issues: list[IssueResponse] = Field(default_factory=list)
+
+
+class RunRecordResponse(BaseModel):
+    """JSON-ready RunRecord shape."""
+
+    run_id: str
+    workflow_id: str
+    inputs: dict[str, Any]
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    ended_at: datetime | None
+    current_stage: str | None
+    cancellation_reason: str | None
+    error: IssueResponse | None = None
+    tags: dict[str, str] = Field(default_factory=dict)
+
+
+class RunEventResponse(BaseModel):
+    """JSON-ready RunEvent shape."""
+
+    event_id: str
+    run_id: str
+    sequence: int
+    event_type: str
+    timestamp: datetime
+    status: str | None = None
+    stage: str | None = None
+    message: str
+    context: dict[str, Any] = Field(default_factory=dict)
+    issue: IssueResponse | None = None
+
+
+class RunLogChunkResponse(BaseModel):
+    """JSON-ready RunLogChunk shape."""
+
+    chunk_id: str
+    run_id: str
+    stream_name: str
+    sequence: int
+    timestamp: datetime
+    lines: list[str]
+
+
+class RunCreateRequest(BaseModel):
+    """Request body for POST /api/v1/workflows/{workflow_id}/runs."""
+
+    config: dict[str, Any]
+    samples: str | list[dict[str, str]] | None = None
+    options: dict[str, Any] = Field(default_factory=dict)
+    tags: dict[str, str] = Field(default_factory=dict)
+
+
+class RunResponse(BaseModel):
+    """Envelope for single-run endpoints."""
+
+    ok: bool
+    run: RunRecordResponse | None = None
+    issues: list[IssueResponse] = Field(default_factory=list)
+
+
+class RunEventsResponse(BaseModel):
+    """Envelope for GET /api/v1/runs/{run_id}/events."""
+
+    ok: bool
+    run_id: str
+    events: list[RunEventResponse] = Field(default_factory=list)
+    next_cursor: str | None = None
+    issues: list[IssueResponse] = Field(default_factory=list)
+
+
+class RunLogsResponse(BaseModel):
+    """Envelope for GET /api/v1/runs/{run_id}/logs."""
+
+    ok: bool
+    run_id: str
+    stream_name: str
+    chunks: list[RunLogChunkResponse] = Field(default_factory=list)
+    next_cursor: str | None = None
     issues: list[IssueResponse] = Field(default_factory=list)

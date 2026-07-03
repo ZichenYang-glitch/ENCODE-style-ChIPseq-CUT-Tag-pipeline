@@ -10,6 +10,7 @@ from encode_pipeline.services.validation import ValidationService
 
 if TYPE_CHECKING:
     from encode_pipeline.services.agent import AgentService
+    from encode_pipeline.services.runs import RunService
 
 
 def create_default_workflow_registry() -> WorkflowRegistry:
@@ -72,3 +73,20 @@ def create_default_agent_service(
         output_filter=OutputFilter(),
         audit_sink=InMemoryAuditSink(),
     )
+
+
+def create_default_run_service(
+    registry: WorkflowRegistry | None = None,
+) -> "RunService":
+    """Return a fresh run service wired to the default registry.
+
+    Args:
+        registry: Optional existing registry. When omitted, a fresh default
+            registry is created. Passing a shared registry lets ``create_app``
+            compose all services from one adapter instance.
+    """
+    from encode_pipeline.services.runs import RunService
+
+    if registry is None:
+        registry = create_default_workflow_registry()
+    return RunService(registry=registry)
