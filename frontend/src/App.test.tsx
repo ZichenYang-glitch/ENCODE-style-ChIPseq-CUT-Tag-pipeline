@@ -76,6 +76,35 @@ describe('App shell', () => {
     ).toBeInTheDocument();
   });
 
+  it('renders the Run progress panel and disables Create run before validation', async () => {
+    render(<App />);
+
+    const workflowButton = await screen.findByText(/ENCODE-style ChIP-seq/i);
+    await userEvent.click(workflowButton);
+
+    expect(await screen.findByText(/Run progress/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Validate inputs before creating a run record/i),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('create-run-button')).toBeDisabled();
+  });
+
+  it('enables Create run after successful validation', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const workflowButton = await screen.findByText(/ENCODE-style ChIP-seq/i);
+    await user.click(workflowButton);
+
+    const samplesInput = screen.getByLabelText(/Samples \(path string\)/i);
+    await user.type(samplesInput, 'samples.tsv');
+
+    const validateButton = await screen.findByTestId('validate-button');
+    await user.click(validateButton);
+
+    expect(await screen.findByTestId('create-run-button')).toBeEnabled();
+  });
+
   it('prefills the agent sidebar when Ask Agent is clicked on an issue', async () => {
     const user = userEvent.setup();
     render(<App />);
