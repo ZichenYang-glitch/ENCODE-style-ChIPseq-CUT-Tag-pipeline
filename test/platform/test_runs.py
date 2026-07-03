@@ -1,3 +1,5 @@
+from dataclasses import FrozenInstanceError
+
 import pytest
 
 
@@ -38,3 +40,83 @@ def test_require_transition_raises_on_invalid():
 
     with pytest.raises(ValueError, match="Illegal transition"):
         require_transition(RunStatus.SUCCEEDED, RunStatus.FAILED)
+
+
+def test_run_record_stores_status_and_error():
+    from datetime import datetime, timezone
+    from encode_pipeline.platform.runs import RunRecord, RunStatus
+    from encode_pipeline.platform.results import Issue
+
+    now = datetime.now(timezone.utc)
+    error = Issue(code="RUN_FAILED", message="Run failed")
+    record = RunRecord(
+        run_id="run-1",
+        workflow_id="wf-1",
+        inputs={"config": {"samples": "samples.tsv"}},
+        status=RunStatus.FAILED,
+        created_at=now,
+        updated_at=now,
+        started_at=None,
+        ended_at=now,
+        current_stage=None,
+        cancellation_reason=None,
+        error=error,
+        tags={"env": "test"},
+    )
+
+    assert record.run_id == "run-1"
+    assert record.status == RunStatus.FAILED
+    assert record.error == error
+    assert record.ended_at == now
+
+
+def test_run_record_is_frozen():
+    from datetime import datetime, timezone
+    from encode_pipeline.platform.runs import RunRecord, RunStatus
+
+    now = datetime.now(timezone.utc)
+    record = RunRecord(
+        run_id="run-1",
+        workflow_id="wf-1",
+        inputs={},
+        status=RunStatus.CREATED,
+        created_at=now,
+        updated_at=now,
+        started_at=None,
+        ended_at=None,
+        current_stage=None,
+        cancellation_reason=None,
+        error=None,
+        tags={},
+    )
+
+    with pytest.raises(FrozenInstanceError):
+        record.status = RunStatus.RUNNING
+
+
+def test_run_record_to_dict_is_json_ready():
+    from datetime import datetime, timezone
+    from encode_pipeline.platform.runs import RunRecord, RunStatus
+
+    now = datetime.now(timezone.utc)
+    record = RunRecord(
+        run_id="run-1",
+        workflow_id="wf-1",
+        inputs={"config": {}},
+        status=RunStatus.CREATED,
+        created_at=now,
+        updated_at=now,
+        started_at=None,
+        ended_at=None,
+        current_stage=None,
+        cancellation_reason=None,
+        error=None,
+        tags={"env": "test"},
+    )
+
+    data = record.to_dict()
+    assert data["run_id"] == "run-1"
+    assert data["status"] == "created"
+    assert data["created_at"] is now
+    assert data["inputs"] == {"config": {}}
+    assert data["tags"] == {"env": "test"}
