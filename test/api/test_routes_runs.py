@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -256,11 +258,28 @@ def test_list_events_invalid_limit_returns_400(
 
 def test_api_routes_runs_import_boundary() -> None:
     """Run routes must not import execution or engine internals."""
-    from encode_pipeline.api.routes import runs
+    source_path = Path(__file__).resolve().parents[2] / "src/encode_pipeline/api/routes/runs.py"
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
 
-    module_source = str(runs)
-    assert "snakemake" not in module_source
-    assert "subprocess" not in module_source
-    assert "openai" not in module_source
-    assert "encode_pipeline.config.validator" not in module_source
-    assert "encode_pipeline.samples.load" not in module_source
+    forbidden_modules = {
+        "encode_pipeline.config.validator",
+        "encode_pipeline.samples",
+        "snakemake",
+        "subprocess",
+        "openai",
+    }
+    imported_modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            imported_modules.add(node.module)
+
+    assert not any(
+        module == forbidden or module.startswith(f"{forbidden}.")
+        for module in imported_modules
+        for forbidden in forbidden_modules
+    )
+    assert "encode_pipeline.config.validator" not in source
+    assert "encode_pipeline.samples.load" not in source

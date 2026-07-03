@@ -10,6 +10,7 @@ from encode_pipeline.services.validation import ValidationService
 
 if TYPE_CHECKING:
     from encode_pipeline.services.agent import AgentService
+    from encode_pipeline.services.runs import RunService
 
 
 def create_default_workflow_registry() -> WorkflowRegistry:

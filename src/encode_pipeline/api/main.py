@@ -6,7 +6,6 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from encode_pipeline.api.dependencies import get_registry, get_validation_service
 from encode_pipeline.api.models import ValidationResponse
 from encode_pipeline.api.routes import api_v1_router
 from encode_pipeline.platform.results import Issue
