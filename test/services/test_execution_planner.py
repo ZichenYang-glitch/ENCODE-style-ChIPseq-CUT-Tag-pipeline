@@ -78,3 +78,89 @@ def test_plan_run_unknown_run_returns_failure():
     assert issue.severity.value == "error"
     assert issue.path == "does-not-exist"
     assert issue.source == "execution_planner"
+
+
+def test_plan_run_valid_run_returns_unsupported_plan(planner, run_service):
+    inputs = WorkflowInputs(config={"genome": "hg38"}, samples=None, options={})
+    record = run_service.create_run("stub", inputs)
+
+    result = planner.plan_run(record.run_id)
+
+    assert result.is_success is True
+    plan = result.value
+    assert plan is not None
+    assert plan.run_id == record.run_id
+    assert plan.workflow_id == record.workflow_id
+    assert plan.status.value == "unsupported"
+    assert plan.dag_preview is None
+    assert plan.workspace_plan is None
+    assert plan.command_spec is None
+    assert plan.can_execute is False
+    assert len(result.issues) == 1
+    issue = result.issues[0]
+    assert issue.code == "EXECUTION_PLANNING_UNSUPPORTED"
+    assert issue.message == "Execution planning is not supported yet."
+    assert issue.severity.value == "info"
+    assert issue.path == "execution_plan"
+    assert issue.source == "execution_planner"
+
+
+def test_plan_run_does_not_change_run_status(planner, run_service):
+    inputs = WorkflowInputs(config={}, samples=None, options={})
+    record = run_service.create_run("stub", inputs)
+    original_status = record.status
+    original_updated_at = record.updated_at
+
+    planner.plan_run(record.run_id)
+
+    after = run_service.get_run(record.run_id)
+    assert after.status == original_status
+    assert after.updated_at == original_updated_at
+
+
+def test_plan_run_does_not_add_events(planner, run_service):
+    inputs = WorkflowInputs(config={}, samples=None, options={})
+    record = run_service.create_run("stub", inputs)
+    before_count = len(run_service.list_events(record.run_id))
+
+    planner.plan_run(record.run_id)
+
+    after_count = len(run_service.list_events(record.run_id))
+    assert after_count == before_count
+
+
+def test_plan_run_does_not_append_logs(planner, run_service):
+    inputs = WorkflowInputs(config={}, samples=None, options={})
+    record = run_service.create_run("stub", inputs)
+
+    planner.plan_run(record.run_id)
+
+    chunks = run_service.list_logs(record.run_id, "stdout")
+    assert chunks == ()
+
+
+def test_plan_run_does_not_record_artifacts(planner, run_service):
+    inputs = WorkflowInputs(config={}, samples=None, options={})
+    record = run_service.create_run("stub", inputs)
+
+    planner.plan_run(record.run_id)
+
+    artifacts = run_service.list_artifacts(record.run_id)
+    assert artifacts == ()
+
+
+def test_plan_run_defensively_copies_inputs(planner, run_service):
+    inputs = WorkflowInputs(
+        config={"samples": ["s1"]},
+        samples=None,
+        options={},
+    )
+    record = run_service.create_run("stub", inputs)
+
+    result = planner.plan_run(record.run_id)
+    plan = result.value
+
+    original_inputs = run_service.get_run(record.run_id).inputs
+    original_inputs["config"]["samples"].append("s2")
+
+    assert plan.inputs_snapshot["config"] == {"samples": ["s1"]}
