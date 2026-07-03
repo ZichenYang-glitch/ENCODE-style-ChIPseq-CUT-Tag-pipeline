@@ -1,6 +1,14 @@
+import os
+import subprocess
+import sys
+import textwrap
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 
 import pytest
+
+
+SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 
 
 def test_run_status_values_and_terminal_detection():
@@ -264,3 +272,33 @@ def test_platform_package_exports_run_primitives():
     assert RunStatus.CREATED.value == "created"
     assert can_transition(RunStatus.CREATED, RunStatus.VALIDATING)
     assert require_transition(RunStatus.CREATED, RunStatus.VALIDATING) is None
+
+
+def test_importing_platform_runs_does_not_import_services_or_adapters():
+    code = """
+        import sys
+        import encode_pipeline.platform.runs
+        forbidden = {
+            "encode_pipeline.services",
+            "encode_pipeline.adapters",
+            "fastapi",
+            "pydantic",
+            "snakemake",
+            "subprocess",
+            "openai",
+        }
+        found = [name for name in sys.modules if any(name.startswith(p) for p in forbidden)]
+        print(found)
+    """
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(SRC_ROOT)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    proc = subprocess.run(
+        [sys.executable, "-c", textwrap.dedent(code)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "[]"
