@@ -200,3 +200,35 @@ def _normalize_string_tuple(values: Any, name: str) -> tuple[str, ...]:
             raise ValueError(f"{name} entries must be strings")
         normalized.append(value)
     return tuple(normalized)
+
+
+@dataclass(frozen=True)
+class RunArtifactRef:
+    """Opaque reference to an artifact produced by a run."""
+
+    artifact_id: str
+    run_id: str
+    artifact_type: str
+    name: str
+    uri: str
+    mime_type: str | None
+    produced_at: datetime
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "metadata", _copy_mapping(self.metadata, "metadata")
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-ready dict with fresh copies of mutable fields."""
+        return {
+            "artifact_id": self.artifact_id,
+            "run_id": self.run_id,
+            "artifact_type": self.artifact_type,
+            "name": self.name,
+            "uri": self.uri,
+            "mime_type": self.mime_type,
+            "produced_at": self.produced_at,
+            "metadata": deepcopy(dict(self.metadata)),
+        }

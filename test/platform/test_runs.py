@@ -207,3 +207,44 @@ def test_run_log_chunk_lines_are_defensively_copied():
 
     lines.append("line 2")
     assert list(chunk.lines) == ["line 1"]
+
+
+def test_run_artifact_ref_stores_uri_and_metadata():
+    from datetime import datetime, timezone
+    from encode_pipeline.platform.runs import RunArtifactRef
+
+    now = datetime.now(timezone.utc)
+    ref = RunArtifactRef(
+        artifact_id="art-1",
+        run_id="run-1",
+        artifact_type="file",
+        name="peaks.narrowPeak",
+        uri="run://runs/run-1/artifacts/peaks.narrowPeak",
+        mime_type="text/plain",
+        produced_at=now,
+        metadata={"sample": "S1"},
+    )
+
+    assert ref.artifact_type == "file"
+    assert ref.uri == "run://runs/run-1/artifacts/peaks.narrowPeak"
+    assert ref.to_dict()["metadata"] == {"sample": "S1"}
+
+
+def test_run_artifact_ref_metadata_is_defensively_copied():
+    from datetime import datetime, timezone
+    from encode_pipeline.platform.runs import RunArtifactRef
+
+    metadata = {"sample": "S1"}
+    ref = RunArtifactRef(
+        artifact_id="art-1",
+        run_id="run-1",
+        artifact_type="file",
+        name="peaks.narrowPeak",
+        uri="run://runs/run-1/artifacts/peaks.narrowPeak",
+        mime_type=None,
+        produced_at=datetime.now(timezone.utc),
+        metadata=metadata,
+    )
+
+    metadata["sample"] = "S2"
+    assert ref.metadata == {"sample": "S1"}
