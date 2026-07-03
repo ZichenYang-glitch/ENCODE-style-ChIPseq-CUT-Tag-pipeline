@@ -113,3 +113,43 @@ def _copy_string_mapping(mapping: Mapping[str, str], name: str) -> dict[str, str
         if not isinstance(key, str) or not isinstance(value, str):
             raise ValueError(f"{name} keys and values must be strings")
     return copied
+
+
+@dataclass(frozen=True)
+class RunEvent:
+    """Immutable record of a run lifecycle event."""
+
+    event_id: str
+    run_id: str
+    sequence: int
+    event_type: str
+    timestamp: datetime
+    status: RunStatus | None
+    stage: str | None
+    message: str
+    context: Mapping[str, Any] = field(default_factory=dict)
+    issue: Issue | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "context", _copy_mapping(self.context, "context")
+        )
+        if self.status is not None and not isinstance(self.status, RunStatus):
+            raise ValueError("RunEvent status must be a RunStatus or None")
+        if not isinstance(self.sequence, int):
+            raise ValueError("RunEvent sequence must be an integer")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-ready dict with fresh copies of mutable fields."""
+        return {
+            "event_id": self.event_id,
+            "run_id": self.run_id,
+            "sequence": self.sequence,
+            "event_type": self.event_type,
+            "timestamp": self.timestamp,
+            "status": self.status.value if self.status is not None else None,
+            "stage": self.stage,
+            "message": self.message,
+            "context": deepcopy(dict(self.context)),
+            "issue": self.issue.to_dict() if self.issue is not None else None,
+        }

@@ -120,3 +120,52 @@ def test_run_record_to_dict_is_json_ready():
     assert data["created_at"] is now
     assert data["inputs"] == {"config": {}}
     assert data["tags"] == {"env": "test"}
+
+
+def test_run_event_stores_sequence_and_issue():
+    from datetime import datetime, timezone
+    from encode_pipeline.platform.runs import RunEvent, RunStatus
+    from encode_pipeline.platform.results import Issue
+
+    now = datetime.now(timezone.utc)
+    issue = Issue(code="STAGE_WARN", message="Stage warning", severity="warning")
+    event = RunEvent(
+        event_id="evt-1",
+        run_id="run-1",
+        sequence=3,
+        event_type="issue_added",
+        timestamp=now,
+        status=RunStatus.RUNNING,
+        stage="alignment",
+        message="Warning during alignment.",
+        context={"sample": "S1"},
+        issue=issue,
+    )
+
+    assert event.sequence == 3
+    assert event.event_type == "issue_added"
+    assert event.issue == issue
+    assert event.to_dict()["sequence"] == 3
+    assert event.to_dict()["issue"]["code"] == "STAGE_WARN"
+
+
+def test_run_event_context_is_defensively_copied():
+    from datetime import datetime, timezone
+    from encode_pipeline.platform.runs import RunEvent, RunStatus
+
+    context = {"sample": "S1"}
+    event = RunEvent(
+        event_id="evt-1",
+        run_id="run-1",
+        sequence=1,
+        event_type="status_changed",
+        timestamp=datetime.now(timezone.utc),
+        status=RunStatus.CREATED,
+        stage=None,
+        message="Run created.",
+        context=context,
+        issue=None,
+    )
+
+    context["sample"] = "S2"
+    assert event.context == {"sample": "S1"}
