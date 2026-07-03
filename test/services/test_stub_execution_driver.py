@@ -62,7 +62,7 @@ def test_advance_to_terminal_success_path():
     record = driver.advance_to_terminal("run-1")
 
     assert record.status is RunStatus.SUCCEEDED
-    assert record.current_stage is None
+    assert record.current_stage == "run"
     assert record.started_at is not None
     assert record.ended_at is not None
 
@@ -79,3 +79,29 @@ def test_advance_to_terminal_success_path():
     logs = service.list_logs("run-1", "stdout")
     assert len(logs) == 5
     assert logs[0].lines == ("[stub] validating inputs",)
+
+
+def test_advance_to_terminal_failure_tag():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run(
+        "fake",
+        WorkflowInputs(config={}),
+        tags={"stub_outcome": "failure"},
+    )
+    driver = StubExecutionDriver(service)
+
+    record = driver.advance_to_terminal("run-1")
+
+    assert record.status is RunStatus.FAILED
+    assert record.error is not None
+    assert record.error.code == "STUB_FAILURE"
+    assert record.error.source == "stub_driver"
+    assert record.ended_at is not None
+
+    events = service.list_events("run-1")
+    statuses = [event.status for event in events]
+    assert statuses == [RunStatus.CREATED, RunStatus.VALIDATING, RunStatus.FAILED]
+
+    logs = service.list_logs("run-1", "stdout")
+    assert logs[-1].lines == ("[stub] marking failed state",)
