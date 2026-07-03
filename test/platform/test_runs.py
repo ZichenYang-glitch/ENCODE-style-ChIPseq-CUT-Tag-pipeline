@@ -169,3 +169,41 @@ def test_run_event_context_is_defensively_copied():
 
     context["sample"] = "S2"
     assert event.context == {"sample": "S1"}
+
+
+def test_run_log_chunk_stores_sequence_and_lines():
+    from datetime import datetime, timezone
+    from encode_pipeline.platform.runs import RunLogChunk
+
+    now = datetime.now(timezone.utc)
+    chunk = RunLogChunk(
+        chunk_id="log-1",
+        run_id="run-1",
+        stream_name="stdout",
+        sequence=7,
+        timestamp=now,
+        lines=["line 1", "line 2"],
+    )
+
+    assert chunk.stream_name == "stdout"
+    assert chunk.sequence == 7
+    assert chunk.lines == ("line 1", "line 2")
+    assert chunk.to_dict()["lines"] == ["line 1", "line 2"]
+
+
+def test_run_log_chunk_lines_are_defensively_copied():
+    from datetime import datetime, timezone
+    from encode_pipeline.platform.runs import RunLogChunk
+
+    lines = ["line 1"]
+    chunk = RunLogChunk(
+        chunk_id="log-1",
+        run_id="run-1",
+        stream_name="stdout",
+        sequence=1,
+        timestamp=datetime.now(timezone.utc),
+        lines=lines,
+    )
+
+    lines.append("line 2")
+    assert list(chunk.lines) == ["line 1"]

@@ -153,3 +153,50 @@ class RunEvent:
             "context": deepcopy(dict(self.context)),
             "issue": self.issue.to_dict() if self.issue is not None else None,
         }
+
+
+@dataclass(frozen=True)
+class RunLogChunk:
+    """Immutable append-only chunk of a run log stream."""
+
+    chunk_id: str
+    run_id: str
+    stream_name: str
+    sequence: int
+    timestamp: datetime
+    lines: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "lines", _normalize_string_tuple(self.lines, "lines")
+        )
+        if not isinstance(self.sequence, int):
+            raise ValueError("RunLogChunk sequence must be an integer")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-ready dict."""
+        return {
+            "chunk_id": self.chunk_id,
+            "run_id": self.run_id,
+            "stream_name": self.stream_name,
+            "sequence": self.sequence,
+            "timestamp": self.timestamp,
+            "lines": list(self.lines),
+        }
+
+
+def _normalize_string_tuple(values: Any, name: str) -> tuple[str, ...]:
+    if isinstance(values, str):
+        raw_values = (values,)
+    else:
+        try:
+            raw_values = tuple(values)
+        except TypeError as exc:
+            raise ValueError(f"{name} must be an iterable of strings") from exc
+
+    normalized = []
+    for value in raw_values:
+        if not isinstance(value, str):
+            raise ValueError(f"{name} entries must be strings")
+        normalized.append(value)
+    return tuple(normalized)
