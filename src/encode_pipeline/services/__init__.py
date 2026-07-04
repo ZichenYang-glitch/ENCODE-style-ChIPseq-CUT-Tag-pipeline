@@ -7,8 +7,9 @@ from encode_pipeline.services.defaults import (
     create_default_stub_execution_driver,
     create_default_validation_service,
     create_default_workflow_registry,
+    create_default_workspace_planner,
 )
-from encode_pipeline.services.planning import ExecutionPlanner
+from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
 from encode_pipeline.services.validation import ValidationService
@@ -19,6 +20,7 @@ __all__ = [
     "RunService",
     "StubExecutionDriver",
     "ValidationService",
+    "WorkspacePlanner",
     "WorkflowInfoService",
     "create_default_agent_service",
     "create_default_execution_planner",
@@ -26,4 +28,5 @@ __all__ = [
     "create_default_stub_execution_driver",
     "create_default_validation_service",
     "create_default_workflow_registry",
+    "create_default_workspace_planner",
 ]

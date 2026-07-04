@@ -302,3 +302,10 @@ def test_plan_workspace_propagates_path_policy_failure(run_service, tmp_path):
     assert result.is_failure is True
     issue = result.issues[0]
     assert issue.code == "WORKSPACE_BASE_DIR_RELATIVE"
+
+
+def test_default_factory_returns_workspace_planner():
+    from encode_pipeline.services import WorkspacePlanner, create_default_workspace_planner
+
+    planner = create_default_workspace_planner()
+    assert isinstance(planner, WorkspacePlanner)
