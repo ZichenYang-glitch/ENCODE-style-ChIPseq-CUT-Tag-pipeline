@@ -135,3 +135,76 @@ def test_execution_plan_rejects_non_issue_issues():
             created_at=datetime.now(timezone.utc),
             issues=("not-an-issue",),
         )
+
+
+from pathlib import Path
+
+from encode_pipeline.platform.planning import (
+    WorkspaceBaseDirRelativeError,
+    WorkspacePathAbsoluteError,
+    WorkspacePathPolicy,
+    WorkspacePathTraversalError,
+    WorkspacePathInvalidError,
+)
+
+
+def test_workspace_path_policy_accepts_valid_relative_paths(tmp_path):
+    base_dir = tmp_path.resolve()
+    policy = WorkspacePathPolicy(base_dir=base_dir)
+
+    assert policy.resolve("logs") == base_dir / "logs"
+    assert policy.resolve("results/peaks") == base_dir / "results" / "peaks"
+
+
+def test_workspace_path_policy_rejects_relative_base_dir(tmp_path):
+    with pytest.raises(WorkspaceBaseDirRelativeError) as exc_info:
+        WorkspacePathPolicy(base_dir=Path("relative/path"))
+    assert exc_info.value.code == "WORKSPACE_BASE_DIR_RELATIVE"
+
+
+def test_workspace_path_policy_rejects_absolute_planned_path(tmp_path):
+    base_dir = tmp_path.resolve()
+    policy = WorkspacePathPolicy(base_dir=base_dir)
+
+    with pytest.raises(WorkspacePathAbsoluteError) as exc_info:
+        policy.resolve("/tmp/logs")
+    assert exc_info.value.code == "WORKSPACE_PATH_ABSOLUTE"
+
+
+def test_workspace_path_policy_rejects_parent_traversal(tmp_path):
+    base_dir = tmp_path.resolve()
+    policy = WorkspacePathPolicy(base_dir=base_dir)
+
+    for path in ("../logs", "results/../../escape", "a/../b"):
+        with pytest.raises(WorkspacePathTraversalError) as exc_info:
+            policy.resolve(path)
+        assert exc_info.value.code == "WORKSPACE_PATH_TRAVERSAL"
+
+
+def test_workspace_path_policy_rejects_dot_component(tmp_path):
+    base_dir = tmp_path.resolve()
+    policy = WorkspacePathPolicy(base_dir=base_dir)
+
+    for path in ("./logs", "results/./peaks", "."):
+        with pytest.raises(WorkspacePathTraversalError) as exc_info:
+            policy.resolve(path)
+        assert exc_info.value.code == "WORKSPACE_PATH_TRAVERSAL"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "",
+        "~/logs",
+        "C:\\logs",
+        "logs with spaces",
+        "logs\x00file",
+    ],
+)
+def test_workspace_path_policy_rejects_invalid_paths(tmp_path, path):
+    base_dir = tmp_path.resolve()
+    policy = WorkspacePathPolicy(base_dir=base_dir)
+
+    with pytest.raises(WorkspacePathInvalidError) as exc_info:
+        policy.resolve(path)
+    assert exc_info.value.code == "WORKSPACE_PATH_INVALID"
