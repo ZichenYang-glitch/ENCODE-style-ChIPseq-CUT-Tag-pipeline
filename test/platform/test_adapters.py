@@ -13,6 +13,7 @@ from encode_pipeline.platform.adapters import (
     DagEdge,
     DagNode,
     DagPreview,
+    LocalRunDriver,
     WorkflowAdapter,
     WorkflowCapabilities,
     WorkflowInputs,
@@ -339,9 +340,6 @@ def test_importing_platform_adapters_does_not_import_workflow_specific_modules()
         "pydantic=False",
         "snakemake=False",
     }
-
-
-from encode_pipeline.platform.adapters import LocalRunDriver
 
 
 def test_local_run_driver_protocol_is_runtime_checkable():
