@@ -196,7 +196,7 @@ def test_workspace_path_policy_rejects_dot_component(tmp_path):
     [
         "",
         "~/logs",
-        "C:\\logs",
+        "C:" + "\\logs",
         "logs with spaces",
         "logs\x00file",
     ],
