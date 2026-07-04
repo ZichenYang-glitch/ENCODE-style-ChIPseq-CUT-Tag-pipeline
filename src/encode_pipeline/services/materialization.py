@@ -88,7 +88,7 @@ class WorkspaceMaterializer:
 
         policy = WorkspacePathPolicy(base_dir=base_dir)
 
-        resolved_files: list[tuple[Path, bytes]] = []
+        resolved_files: list[tuple[Path, bytes, str]] = []
         for index, (file_path, contents) in enumerate(plan.files):
             path_locator = f"workspace_plan.files[{index}]"
             try:
@@ -161,7 +161,7 @@ class WorkspaceMaterializer:
                     ]
                 )
 
-            resolved_files.append((resolved, contents))
+            resolved_files.append((resolved, contents, path_locator))
 
         resolved_directories: list[Path] = []
         for index, directory in enumerate(plan.directories):
@@ -250,7 +250,7 @@ class WorkspaceMaterializer:
                     ]
                 )
 
-        for resolved, contents in resolved_files:
+        for resolved, contents, path_locator in resolved_files:
             try:
                 resolved.parent.mkdir(parents=True, exist_ok=True)
                 with open(resolved, "xb") as handle:
@@ -262,7 +262,7 @@ class WorkspaceMaterializer:
                             code="WORKSPACE_MATERIALIZATION_ALREADY_EXISTS",
                             message="Planned file already exists.",
                             severity="error",
-                            path="workspace_plan.files",
+                            path=path_locator,
                             source="workspace_materializer",
                         )
                     ]
@@ -274,7 +274,7 @@ class WorkspaceMaterializer:
                             code="WORKSPACE_MATERIALIZATION_WRITE_ERROR",
                             message="Failed to write file.",
                             severity="error",
-                            path="workspace_plan.files",
+                            path=path_locator,
                             source="workspace_materializer",
                         )
                     ]
