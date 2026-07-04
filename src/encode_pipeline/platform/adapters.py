@@ -6,9 +6,13 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from encode_pipeline.platform.results import Result
+
+if TYPE_CHECKING:
+    from encode_pipeline.platform.planning import ExecutionPlan
+    from encode_pipeline.platform.runs import RunRecord
 
 
 SamplePayload = str | Path | list[dict[str, str]] | None
@@ -302,6 +306,18 @@ class WorkflowAdapter(Protocol):
 
     def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
         """Build an engine-neutral command description without executing it."""
+
+
+@runtime_checkable
+class LocalRunDriver(Protocol):
+    """Structural protocol for local workflow execution drivers."""
+
+    def run(self, run_id: str, plan: "ExecutionPlan") -> "Result[RunRecord]":
+        """Attempt to execute the planned run locally.
+
+        Returns a Result wrapping the run record. Concrete drivers may return
+        failures for unsupported plans, missing command specs, or runtime errors.
+        """
 
 
 def _normalize_required_string(value: str, name: str) -> str:
