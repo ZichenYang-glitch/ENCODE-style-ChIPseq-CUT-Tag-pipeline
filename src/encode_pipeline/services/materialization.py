@@ -43,18 +43,24 @@ class WorkspaceMaterializer:
                 ]
             )
 
-        if base_dir.exists() and base_dir.is_symlink():
-            return Result.failure(
-                [
-                    Issue(
-                        code="WORKSPACE_MATERIALIZATION_SYMLINK",
-                        message="base_dir is a symlink.",
-                        severity="error",
-                        path="base_dir",
-                        source="workspace_materializer",
+        # Reject any symlink in the logical path of base_dir, including
+        # symlinked existing ancestors and a broken-symlink base_dir itself.
+        for component in (*base_dir.parents[::-1], base_dir):
+            try:
+                if component.is_symlink():
+                    return Result.failure(
+                        [
+                            Issue(
+                                code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                                message="base_dir path contains a symlink.",
+                                severity="error",
+                                path="base_dir",
+                                source="workspace_materializer",
+                            )
+                        ]
                     )
-                ]
-            )
+            except OSError:
+                continue
 
         try:
             base_dir.mkdir(parents=True, exist_ok=True)
@@ -64,19 +70,6 @@ class WorkspaceMaterializer:
                     Issue(
                         code="WORKSPACE_MATERIALIZATION_BASE_DIR_CREATE_ERROR",
                         message="base_dir could not be created.",
-                        severity="error",
-                        path="base_dir",
-                        source="workspace_materializer",
-                    )
-                ]
-            )
-
-        if base_dir.is_symlink():
-            return Result.failure(
-                [
-                    Issue(
-                        code="WORKSPACE_MATERIALIZATION_SYMLINK",
-                        message="base_dir is a symlink.",
                         severity="error",
                         path="base_dir",
                         source="workspace_materializer",

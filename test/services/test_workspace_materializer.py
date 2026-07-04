@@ -34,6 +34,41 @@ def test_workspace_materializer_refuses_symlink_base_dir(tmp_path):
     assert issue.path == "base_dir"
 
 
+def test_workspace_materializer_refuses_symlink_parent_of_base_dir(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    symlink_dir = tmp_path / "link"
+    symlink_dir.symlink_to(real_dir)
+    base_dir = symlink_dir / "workspace"
+
+    materializer = WorkspaceMaterializer()
+    result = materializer.materialize(WorkspacePlan(), base_dir)
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_SYMLINK"
+    assert issue.path == "base_dir"
+
+
+def test_workspace_materializer_refuses_broken_symlink_base_dir(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    broken_link = tmp_path / "broken_link"
+    broken_link.symlink_to(tmp_path / "does_not_exist")
+
+    materializer = WorkspaceMaterializer()
+    result = materializer.materialize(WorkspacePlan(), broken_link)
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_SYMLINK"
+    assert issue.path == "base_dir"
+
+
 def test_workspace_materializer_refuses_invalid_plan_type(tmp_path):
     from encode_pipeline.services.materialization import WorkspaceMaterializer
 
