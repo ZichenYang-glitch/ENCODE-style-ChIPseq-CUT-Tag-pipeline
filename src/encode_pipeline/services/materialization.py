@@ -88,6 +88,81 @@ class WorkspaceMaterializer:
 
         policy = WorkspacePathPolicy(base_dir=base_dir)
 
+        resolved_files: list[tuple[Path, bytes]] = []
+        for index, (file_path, contents) in enumerate(plan.files):
+            path_locator = f"workspace_plan.files[{index}]"
+            try:
+                resolved = policy.resolve(file_path)
+            except WorkspacePathError as exc:
+                return Result.failure(
+                    [
+                        Issue(
+                            code=f"WORKSPACE_MATERIALIZATION_PATH_POLICY_{exc.code.removeprefix('WORKSPACE_')}",
+                            message=_WORKSPACE_PATH_ERROR_MESSAGES.get(
+                                exc.code, "Planned path violates workspace path policy."
+                            ),
+                            severity="error",
+                            path=path_locator,
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
+
+            for parent in resolved.relative_to(base_dir).parents:
+                parent_path = base_dir / parent
+                if parent_path.is_symlink():
+                    return Result.failure(
+                        [
+                            Issue(
+                                code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                                message="Parent directory under base_dir is a symlink.",
+                                severity="error",
+                                path=path_locator,
+                                source="workspace_materializer",
+                            )
+                        ]
+                    )
+
+            if resolved.is_symlink():
+                return Result.failure(
+                    [
+                        Issue(
+                            code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                            message="Planned file path is a symlink.",
+                            severity="error",
+                            path=path_locator,
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
+
+            if resolved.exists():
+                if not resolved.is_file():
+                    return Result.failure(
+                        [
+                            Issue(
+                                code="WORKSPACE_MATERIALIZATION_WRONG_TYPE",
+                                message="Planned file path exists but is not a regular file.",
+                                severity="error",
+                                path=path_locator,
+                                source="workspace_materializer",
+                            )
+                        ]
+                    )
+                return Result.failure(
+                    [
+                        Issue(
+                            code="WORKSPACE_MATERIALIZATION_ALREADY_EXISTS",
+                            message="Planned file already exists.",
+                            severity="error",
+                            path=path_locator,
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
+
+            resolved_files.append((resolved, contents))
+
         resolved_directories: list[Path] = []
         for index, directory in enumerate(plan.directories):
             path_locator = f"workspace_plan.directories[{index}]"
@@ -170,6 +245,36 @@ class WorkspaceMaterializer:
                             message="Failed to create directory.",
                             severity="error",
                             path="workspace_plan.directories",
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
+
+        for resolved, contents in resolved_files:
+            try:
+                resolved.parent.mkdir(parents=True, exist_ok=True)
+                with open(resolved, "xb") as handle:
+                    handle.write(contents)
+            except FileExistsError:
+                return Result.failure(
+                    [
+                        Issue(
+                            code="WORKSPACE_MATERIALIZATION_ALREADY_EXISTS",
+                            message="Planned file already exists.",
+                            severity="error",
+                            path="workspace_plan.files",
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
+            except OSError:
+                return Result.failure(
+                    [
+                        Issue(
+                            code="WORKSPACE_MATERIALIZATION_WRITE_ERROR",
+                            message="Failed to write file.",
+                            severity="error",
+                            path="workspace_plan.files",
                             source="workspace_materializer",
                         )
                     ]

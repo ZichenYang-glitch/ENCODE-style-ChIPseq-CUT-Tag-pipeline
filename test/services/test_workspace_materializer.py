@@ -201,3 +201,103 @@ def test_workspace_materializer_path_policy_errors_use_safe_messages(tmp_path):
     assert invalid_issue.code == "WORKSPACE_MATERIALIZATION_PATH_POLICY_PATH_INVALID"
     assert invalid_issue.message == "Planned path is invalid."
     assert "has space" not in invalid_issue.message
+
+
+def test_workspace_materializer_creates_files(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    base_dir = tmp_path.resolve()
+    plan = WorkspacePlan(
+        directories=("logs",),
+        files=(("logs/run.log", b"started\n"),),
+    )
+
+    result = WorkspaceMaterializer().materialize(plan, base_dir)
+
+    assert result.is_success is True
+    assert (base_dir / "logs" / "run.log").read_bytes() == b"started\n"
+
+
+def test_workspace_materializer_creates_parent_directories_for_files(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    base_dir = tmp_path.resolve()
+    plan = WorkspacePlan(files=(("results/peaks/out.narrowPeak", b""),))
+
+    result = WorkspaceMaterializer().materialize(plan, base_dir)
+
+    assert result.is_success is True
+    assert (base_dir / "results" / "peaks" / "out.narrowPeak").is_file()
+
+
+def test_workspace_materializer_refuses_existing_file(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    base_dir = tmp_path.resolve()
+    (base_dir / "existing.txt").write_text("old", encoding="utf-8")
+    plan = WorkspacePlan(files=(("existing.txt", b"new"),))
+
+    result = WorkspaceMaterializer().materialize(plan, base_dir)
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_ALREADY_EXISTS"
+    assert issue.path == "workspace_plan.files[0]"
+    assert (base_dir / "existing.txt").read_text(encoding="utf-8") == "old"
+
+
+def test_workspace_materializer_refuses_wrong_type_for_file(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    base_dir = tmp_path.resolve()
+    (base_dir / "is_dir").mkdir()
+    plan = WorkspacePlan(files=(("is_dir", b"x"),))
+
+    result = WorkspaceMaterializer().materialize(plan, base_dir)
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_WRONG_TYPE"
+    assert issue.path == "workspace_plan.files[0]"
+
+
+def test_workspace_materializer_refuses_symlink_target_file(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    base_dir = tmp_path.resolve()
+    real = base_dir / "real.txt"
+    real.write_text("x", encoding="utf-8")
+    link = base_dir / "link.txt"
+    link.symlink_to(real)
+    plan = WorkspacePlan(files=(("link.txt", b"y"),))
+
+    result = WorkspaceMaterializer().materialize(plan, base_dir)
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_SYMLINK"
+    assert issue.path == "workspace_plan.files[0]"
+
+
+def test_workspace_materializer_refuses_symlink_parent_under_base_dir(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    base_dir = tmp_path.resolve()
+    real = base_dir / "real"
+    real.mkdir()
+    link = base_dir / "link"
+    link.symlink_to(real)
+    plan = WorkspacePlan(files=(("link/file.txt", b"x"),))
+
+    result = WorkspaceMaterializer().materialize(plan, base_dir)
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_SYMLINK"
+    assert issue.path == "workspace_plan.files[0]"
