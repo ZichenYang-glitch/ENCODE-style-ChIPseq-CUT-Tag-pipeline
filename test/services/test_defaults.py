@@ -12,6 +12,7 @@ from encode_pipeline.api.models import AgentRequest
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue
+from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.validation import ValidationService
 
 from encode_pipeline.services.defaults import (
@@ -235,6 +236,16 @@ def test_calling_default_registry_factory_intentionally_imports_encode_adapter()
         "before=False",
         "after=True",
     ]
+
+
+def test_create_default_local_run_driver_returns_instance():
+    from encode_pipeline.services import create_default_local_run_driver
+
+    registry = create_default_workflow_registry()
+    run_service = RunService(registry=registry)
+    driver = create_default_local_run_driver(run_service=run_service)
+
+    assert driver.__class__.__name__ == "LocalRunDriver"
 
 
 def _run_python(code: str) -> subprocess.CompletedProcess[str]:

@@ -92,6 +92,15 @@ def create_default_run_service(
     return RunService(registry=registry)
 
 
+def create_default_local_run_driver(
+    run_service: "RunService",
+) -> "LocalRunDriver":
+    """Return a fail-closed local run driver wired to the given run service."""
+    from encode_pipeline.services.local_run_driver import LocalRunDriver
+
+    return LocalRunDriver(run_service=run_service)
+
+
 def create_default_stub_execution_driver(
     run_service: "RunService",
 ) -> "StubExecutionDriver":
