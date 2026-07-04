@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from encode_pipeline.platform.adapters import WorkspacePlan
+from encode_pipeline.platform.planning import WorkspacePathError, WorkspacePathPolicy
 from encode_pipeline.platform.results import Issue, Result
 
 
@@ -76,5 +77,69 @@ class WorkspaceMaterializer:
                     )
                 ]
             )
+
+        policy = WorkspacePathPolicy(base_dir=base_dir)
+
+        resolved_directories: list[Path] = []
+        for index, directory in enumerate(plan.directories):
+            path_locator = f"workspace_plan.directories[{index}]"
+            try:
+                resolved = policy.resolve(directory)
+            except WorkspacePathError as exc:
+                return Result.failure(
+                    [
+                        Issue(
+                            code=f"WORKSPACE_MATERIALIZATION_PATH_POLICY_{exc.code.removeprefix('WORKSPACE_')}",
+                            message=str(exc),
+                            severity="error",
+                            path=path_locator,
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
+
+            if resolved.is_symlink():
+                return Result.failure(
+                    [
+                        Issue(
+                            code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                            message="Planned directory path is a symlink.",
+                            severity="error",
+                            path=path_locator,
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
+
+            if resolved.exists() and not resolved.is_dir():
+                return Result.failure(
+                    [
+                        Issue(
+                            code="WORKSPACE_MATERIALIZATION_WRONG_TYPE",
+                            message="Planned directory path exists but is not a directory.",
+                            severity="error",
+                            path=path_locator,
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
+
+            resolved_directories.append(resolved)
+
+        for resolved in resolved_directories:
+            try:
+                resolved.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                return Result.failure(
+                    [
+                        Issue(
+                            code="WORKSPACE_MATERIALIZATION_WRITE_ERROR",
+                            message="Failed to create directory.",
+                            severity="error",
+                            path="workspace_plan.directories",
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
 
         return Result.success(None)
