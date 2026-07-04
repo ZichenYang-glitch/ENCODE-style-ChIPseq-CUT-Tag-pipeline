@@ -56,20 +56,31 @@ class WorkspaceMaterializer:
         # symlinked existing ancestors and a broken-symlink base_dir itself.
         for component in (*base_dir.parents[::-1], base_dir):
             try:
-                if component.is_symlink():
-                    return Result.failure(
-                        [
-                            Issue(
-                                code="WORKSPACE_MATERIALIZATION_SYMLINK",
-                                message="base_dir path contains a symlink.",
-                                severity="error",
-                                path="base_dir",
-                                source="workspace_materializer",
-                            )
-                        ]
-                    )
+                is_symlink = component.is_symlink()
             except OSError:
-                continue
+                return Result.failure(
+                    [
+                        Issue(
+                            code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                            message="Could not verify symlink safety.",
+                            severity="error",
+                            path="base_dir",
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
+            if is_symlink:
+                return Result.failure(
+                    [
+                        Issue(
+                            code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                            message="base_dir path contains a symlink.",
+                            severity="error",
+                            path="base_dir",
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
 
         try:
             base_dir.mkdir(parents=True, exist_ok=True)
@@ -110,7 +121,21 @@ class WorkspaceMaterializer:
 
             for parent in resolved.relative_to(base_dir).parents:
                 parent_path = base_dir / parent
-                if parent_path.is_symlink():
+                try:
+                    parent_is_symlink = parent_path.is_symlink()
+                except OSError:
+                    return Result.failure(
+                        [
+                            Issue(
+                                code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                                message="Could not verify symlink safety.",
+                                severity="error",
+                                path=path_locator,
+                                source="workspace_materializer",
+                            )
+                        ]
+                    )
+                if parent_is_symlink:
                     return Result.failure(
                         [
                             Issue(
@@ -123,7 +148,21 @@ class WorkspaceMaterializer:
                         ]
                     )
 
-            if resolved.is_symlink():
+            try:
+                resolved_is_symlink = resolved.is_symlink()
+            except OSError:
+                return Result.failure(
+                    [
+                        Issue(
+                            code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                            message="Could not verify symlink safety.",
+                            severity="error",
+                            path=path_locator,
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
+            if resolved_is_symlink:
                 return Result.failure(
                     [
                         Issue(
@@ -136,8 +175,36 @@ class WorkspaceMaterializer:
                     ]
                 )
 
-            if resolved.exists():
-                if not resolved.is_file():
+            try:
+                resolved_exists = resolved.exists()
+            except OSError:
+                return Result.failure(
+                    [
+                        Issue(
+                            code="WORKSPACE_MATERIALIZATION_WRITE_ERROR",
+                            message="Filesystem preflight check failed.",
+                            severity="error",
+                            path=path_locator,
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
+            if resolved_exists:
+                try:
+                    resolved_is_file = resolved.is_file()
+                except OSError:
+                    return Result.failure(
+                        [
+                            Issue(
+                                code="WORKSPACE_MATERIALIZATION_WRITE_ERROR",
+                                message="Filesystem preflight check failed.",
+                                severity="error",
+                                path=path_locator,
+                                source="workspace_materializer",
+                            )
+                        ]
+                    )
+                if not resolved_is_file:
                     return Result.failure(
                         [
                             Issue(
@@ -163,7 +230,7 @@ class WorkspaceMaterializer:
 
             resolved_files.append((resolved, contents, path_locator))
 
-        resolved_directories: list[Path] = []
+        resolved_directories: list[tuple[Path, str]] = []
         for index, directory in enumerate(plan.directories):
             path_locator = f"workspace_plan.directories[{index}]"
             try:
@@ -183,7 +250,21 @@ class WorkspaceMaterializer:
                     ]
                 )
 
-            if resolved.is_symlink():
+            try:
+                resolved_is_symlink = resolved.is_symlink()
+            except OSError:
+                return Result.failure(
+                    [
+                        Issue(
+                            code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                            message="Could not verify symlink safety.",
+                            severity="error",
+                            path=path_locator,
+                            source="workspace_materializer",
+                        )
+                    ]
+                )
+            if resolved_is_symlink:
                 return Result.failure(
                     [
                         Issue(
@@ -204,37 +285,77 @@ class WorkspaceMaterializer:
                 if parent == base_dir:
                     continue
                 try:
-                    if parent.is_symlink():
-                        return Result.failure(
-                            [
-                                Issue(
-                                    code="WORKSPACE_MATERIALIZATION_SYMLINK",
-                                    message="Planned directory path has a symlinked parent under base_dir.",
-                                    severity="error",
-                                    path=path_locator,
-                                    source="workspace_materializer",
-                                )
-                            ]
-                        )
+                    parent_is_symlink = parent.is_symlink()
                 except OSError:
-                    continue
+                    return Result.failure(
+                        [
+                            Issue(
+                                code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                                message="Could not verify symlink safety.",
+                                severity="error",
+                                path=path_locator,
+                                source="workspace_materializer",
+                            )
+                        ]
+                    )
+                if parent_is_symlink:
+                    return Result.failure(
+                        [
+                            Issue(
+                                code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                                message="Planned directory path has a symlinked parent under base_dir.",
+                                severity="error",
+                                path=path_locator,
+                                source="workspace_materializer",
+                            )
+                        ]
+                    )
 
-            if resolved.exists() and not resolved.is_dir():
+            try:
+                resolved_exists = resolved.exists()
+            except OSError:
                 return Result.failure(
                     [
                         Issue(
-                            code="WORKSPACE_MATERIALIZATION_WRONG_TYPE",
-                            message="Planned directory path exists but is not a directory.",
+                            code="WORKSPACE_MATERIALIZATION_WRITE_ERROR",
+                            message="Filesystem preflight check failed.",
                             severity="error",
                             path=path_locator,
                             source="workspace_materializer",
                         )
                     ]
                 )
+            if resolved_exists:
+                try:
+                    resolved_is_dir = resolved.is_dir()
+                except OSError:
+                    return Result.failure(
+                        [
+                            Issue(
+                                code="WORKSPACE_MATERIALIZATION_WRITE_ERROR",
+                                message="Filesystem preflight check failed.",
+                                severity="error",
+                                path=path_locator,
+                                source="workspace_materializer",
+                            )
+                        ]
+                    )
+                if not resolved_is_dir:
+                    return Result.failure(
+                        [
+                            Issue(
+                                code="WORKSPACE_MATERIALIZATION_WRONG_TYPE",
+                                message="Planned directory path exists but is not a directory.",
+                                severity="error",
+                                path=path_locator,
+                                source="workspace_materializer",
+                            )
+                        ]
+                    )
 
-            resolved_directories.append(resolved)
+            resolved_directories.append((resolved, path_locator))
 
-        for resolved in resolved_directories:
+        for resolved, path_locator in resolved_directories:
             try:
                 resolved.mkdir(parents=True, exist_ok=True)
             except OSError:
@@ -244,7 +365,7 @@ class WorkspaceMaterializer:
                             code="WORKSPACE_MATERIALIZATION_WRITE_ERROR",
                             message="Failed to create directory.",
                             severity="error",
-                            path="workspace_plan.directories",
+                            path=path_locator,
                             source="workspace_materializer",
                         )
                     ]

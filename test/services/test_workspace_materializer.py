@@ -363,6 +363,8 @@ def test_workspace_materializer_import_boundary() -> None:
     forbidden_modules = {
         "encode_pipeline.api",
         "encode_pipeline.frontend",
+        "fastapi",
+        "pydantic",
         "snakemake",
         "subprocess",
     }
@@ -378,3 +380,86 @@ def test_workspace_materializer_import_boundary() -> None:
         for module in imported_modules
         for forbidden in forbidden_modules
     )
+
+
+def test_workspace_materializer_refuses_plan_path_escape(tmp_path, monkeypatch):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.platform.planning import WorkspacePathEscapeError, WorkspacePathPolicy
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    def fake_resolve(self, relative_path):
+        raise WorkspacePathEscapeError("Planned path escapes base_dir.")
+
+    monkeypatch.setattr(WorkspacePathPolicy, "resolve", fake_resolve)
+
+    base_dir = tmp_path.resolve()
+    plan = WorkspacePlan(files=(("any", b"x"),))
+
+    result = WorkspaceMaterializer().materialize(plan, base_dir)
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_PATH_POLICY_PATH_ESCAPE"
+    assert issue.path == "workspace_plan.files[0]"
+
+
+def test_workspace_materializer_refuses_non_path_base_dir(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    materializer = WorkspaceMaterializer()
+    result = materializer.materialize(WorkspacePlan(), str(tmp_path.resolve()))
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_BASE_DIR_RELATIVE"
+    assert issue.path == "base_dir"
+
+
+def test_workspace_materializer_write_error_failure(tmp_path):
+    import stat
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    base_dir = tmp_path.resolve()
+    parent = base_dir / "parent"
+    parent.mkdir()
+    parent.chmod(stat.S_IRUSR | stat.S_IXUSR)
+
+    try:
+        plan = WorkspacePlan(directories=("parent/child",))
+        result = WorkspaceMaterializer().materialize(plan, base_dir)
+    finally:
+        parent.chmod(stat.S_IRWXU)
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_WRITE_ERROR"
+    assert issue.path == "workspace_plan.directories[0]"
+
+
+def test_workspace_materializer_does_not_overwrite_on_partial_failure(tmp_path):
+    import stat
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    base_dir = tmp_path.resolve()
+    a_file = base_dir / "a" / "first.txt"
+    b_dir = base_dir / "b"
+    b_dir.mkdir()
+    b_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)
+
+    try:
+        plan = WorkspacePlan(
+            files=(("a/first.txt", b"first"), ("b/second.txt", b"second")),
+        )
+        result = WorkspaceMaterializer().materialize(plan, base_dir)
+    finally:
+        b_dir.chmod(stat.S_IRWXU)
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_WRITE_ERROR"
+    assert issue.path == "workspace_plan.files[1]"
+    assert a_file.read_bytes() == b"first"
+    assert not (base_dir / "b" / "second.txt").exists()
