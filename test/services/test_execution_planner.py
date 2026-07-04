@@ -245,3 +245,46 @@ def test_plan_workspace_does_not_mutate_input_plan(run_service, tmp_path):
     assert input_plan.status is PlanStatus.UNSUPPORTED
     assert input_plan.workspace_plan is None
     assert input_plan.command_spec is None
+
+
+def test_plan_workspace_rejects_relative_base_dir(run_service, tmp_path):
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner()
+
+    result = workspace_planner.plan_workspace(input_plan, base_dir=Path("relative/path"))
+
+    assert result.is_failure is True
+    assert result.value is None
+    assert len(result.issues) == 1
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_BASE_DIR_RELATIVE"
+    assert issue.path == "base_dir"
+
+
+def test_plan_workspace_does_not_mutate_run_service(run_service, tmp_path):
+    input_plan = _make_execution_plan(run_service)
+    before_record = run_service.get_run(input_plan.run_id)
+    before_events = run_service.list_events(input_plan.run_id)
+    before_logs = run_service.list_logs(input_plan.run_id, "stdout")
+    before_artifacts = run_service.list_artifacts(input_plan.run_id)
+
+    workspace_planner = WorkspacePlanner()
+    workspace_planner.plan_workspace(input_plan, base_dir=tmp_path.resolve())
+
+    after_record = run_service.get_run(input_plan.run_id)
+    assert after_record.status == before_record.status
+    assert after_record.updated_at == before_record.updated_at
+    assert run_service.list_events(input_plan.run_id) == before_events
+    assert run_service.list_logs(input_plan.run_id, "stdout") == before_logs
+    assert run_service.list_artifacts(input_plan.run_id) == before_artifacts
+
+
+def test_plan_workspace_does_not_call_adapter_planning_methods(run_service, tmp_path):
+    # fake_adapter fixture already raises on planning methods.
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner()
+
+    result = workspace_planner.plan_workspace(input_plan, base_dir=tmp_path.resolve())
+
+    assert result.is_success is True
+    assert result.value.workspace_plan is not None
