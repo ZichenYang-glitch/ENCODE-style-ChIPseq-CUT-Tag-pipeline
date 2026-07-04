@@ -108,3 +108,10 @@ def create_default_execution_planner(
     from encode_pipeline.services.planning import ExecutionPlanner
 
     return ExecutionPlanner(run_service=run_service)
+
+
+def create_default_workspace_planner() -> "WorkspacePlanner":
+    """Return a fresh workspace planner."""
+    from encode_pipeline.services.planning import WorkspacePlanner
+
+    return WorkspacePlanner()
