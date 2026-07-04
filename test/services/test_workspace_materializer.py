@@ -145,3 +145,59 @@ def test_workspace_materializer_refuses_symlink_target_directory(tmp_path):
     issue = result.issues[0]
     assert issue.code == "WORKSPACE_MATERIALIZATION_SYMLINK"
     assert issue.path == "workspace_plan.directories[0]"
+
+
+def test_workspace_materializer_refuses_symlink_parent_directory_under_base_dir(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    base_dir = tmp_path.resolve()
+    real = base_dir / "real"
+    real.mkdir()
+    link = base_dir / "link"
+    link.symlink_to(real)
+    plan = WorkspacePlan(directories=("link/nested",))
+
+    result = WorkspaceMaterializer().materialize(plan, base_dir)
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_SYMLINK"
+    assert issue.path == "workspace_plan.directories[0]"
+    assert issue.message == "Planned directory path has a symlinked parent under base_dir."
+
+
+def test_workspace_materializer_path_policy_errors_use_safe_messages(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    base_dir = tmp_path.resolve()
+
+    materializer = WorkspaceMaterializer()
+
+    absolute_result = materializer.materialize(
+        WorkspacePlan(directories=("/absolute/path",)), base_dir
+    )
+    assert absolute_result.is_failure is True
+    absolute_issue = absolute_result.issues[0]
+    assert absolute_issue.code == "WORKSPACE_MATERIALIZATION_PATH_POLICY_PATH_ABSOLUTE"
+    assert absolute_issue.message == "Planned path must not be absolute."
+    assert "/absolute/path" not in absolute_issue.message
+
+    traversal_result = materializer.materialize(
+        WorkspacePlan(directories=("../escape",)), base_dir
+    )
+    assert traversal_result.is_failure is True
+    traversal_issue = traversal_result.issues[0]
+    assert traversal_issue.code == "WORKSPACE_MATERIALIZATION_PATH_POLICY_PATH_TRAVERSAL"
+    assert traversal_issue.message == "Planned path must not contain '.' or '..' components."
+    assert "../escape" not in traversal_issue.message
+
+    invalid_result = materializer.materialize(
+        WorkspacePlan(directories=("has space",)), base_dir
+    )
+    assert invalid_result.is_failure is True
+    invalid_issue = invalid_result.issues[0]
+    assert invalid_issue.code == "WORKSPACE_MATERIALIZATION_PATH_POLICY_PATH_INVALID"
+    assert invalid_issue.message == "Planned path is invalid."
+    assert "has space" not in invalid_issue.message

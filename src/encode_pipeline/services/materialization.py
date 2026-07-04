@@ -8,6 +8,14 @@ from encode_pipeline.platform.adapters import WorkspacePlan
 from encode_pipeline.platform.planning import WorkspacePathError, WorkspacePathPolicy
 from encode_pipeline.platform.results import Issue, Result
 
+_WORKSPACE_PATH_ERROR_MESSAGES = {
+    "WORKSPACE_BASE_DIR_RELATIVE": "Workspace path policy rejected a planned path.",
+    "WORKSPACE_PATH_ABSOLUTE": "Planned path must not be absolute.",
+    "WORKSPACE_PATH_TRAVERSAL": "Planned path must not contain '.' or '..' components.",
+    "WORKSPACE_PATH_INVALID": "Planned path is invalid.",
+    "WORKSPACE_PATH_ESCAPE": "Planned path escapes base_dir.",
+}
+
 
 class WorkspaceMaterializer:
     """Pure filesystem materialization boundary for workspace plans."""
@@ -90,7 +98,9 @@ class WorkspaceMaterializer:
                     [
                         Issue(
                             code=f"WORKSPACE_MATERIALIZATION_PATH_POLICY_{exc.code.removeprefix('WORKSPACE_')}",
-                            message=str(exc),
+                            message=_WORKSPACE_PATH_ERROR_MESSAGES.get(
+                                exc.code, "Planned path violates workspace path policy."
+                            ),
                             severity="error",
                             path=path_locator,
                             source="workspace_materializer",
@@ -110,6 +120,29 @@ class WorkspaceMaterializer:
                         )
                     ]
                 )
+
+            for parent in resolved.parents:
+                try:
+                    parent.relative_to(base_dir)
+                except ValueError:
+                    continue
+                if parent == base_dir:
+                    continue
+                try:
+                    if parent.is_symlink():
+                        return Result.failure(
+                            [
+                                Issue(
+                                    code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                                    message="Planned directory path has a symlinked parent under base_dir.",
+                                    severity="error",
+                                    path=path_locator,
+                                    source="workspace_materializer",
+                                )
+                            ]
+                        )
+                except OSError:
+                    continue
 
             if resolved.exists() and not resolved.is_dir():
                 return Result.failure(
