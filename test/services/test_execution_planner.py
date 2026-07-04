@@ -191,7 +191,7 @@ from pathlib import Path
 
 from encode_pipeline.platform.adapters import WorkspacePlan
 from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
-from encode_pipeline.services.planning import WorkspacePlanner
+from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 
 
 def _make_execution_plan(run_service):
