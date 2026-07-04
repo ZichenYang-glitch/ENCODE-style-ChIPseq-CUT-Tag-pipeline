@@ -301,3 +301,80 @@ def test_workspace_materializer_refuses_symlink_parent_under_base_dir(tmp_path):
     issue = result.issues[0]
     assert issue.code == "WORKSPACE_MATERIALIZATION_SYMLINK"
     assert issue.path == "workspace_plan.files[0]"
+
+
+def test_workspace_materializer_refuses_plan_path_traversal(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    base_dir = tmp_path.resolve()
+    plan = WorkspacePlan(directories=("../escape",))
+
+    result = WorkspaceMaterializer().materialize(plan, base_dir)
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_PATH_POLICY_PATH_TRAVERSAL"
+    assert issue.path == "workspace_plan.directories[0]"
+
+
+def test_workspace_materializer_refuses_plan_path_absolute(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    base_dir = tmp_path.resolve()
+    plan = WorkspacePlan(files=(("/etc/passwd", b"x"),))
+
+    result = WorkspaceMaterializer().materialize(plan, base_dir)
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_PATH_POLICY_PATH_ABSOLUTE"
+    assert issue.path == "workspace_plan.files[0]"
+
+
+def test_workspace_materializer_preflight_blocks_all_writes_on_any_failure(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    base_dir = tmp_path.resolve()
+    plan = WorkspacePlan(
+        directories=("logs",),
+        files=(("../escape", b"x"),),
+    )
+
+    result = WorkspaceMaterializer().materialize(plan, base_dir)
+
+    assert result.is_failure is True
+    assert not (base_dir / "logs").exists()
+
+
+def test_workspace_materializer_import_boundary() -> None:
+    import ast
+    from pathlib import Path
+
+    source_path = (
+        Path(__file__).resolve().parents[2]
+        / "src/encode_pipeline/services/materialization.py"
+    )
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    forbidden_modules = {
+        "encode_pipeline.api",
+        "encode_pipeline.frontend",
+        "snakemake",
+        "subprocess",
+    }
+    imported_modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            imported_modules.add(node.module)
+
+    assert not any(
+        module == forbidden or module.startswith(f"{forbidden}.")
+        for module in imported_modules
+        for forbidden in forbidden_modules
+    )
