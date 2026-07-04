@@ -124,3 +124,10 @@ def create_default_workspace_planner() -> "WorkspacePlanner":
     from encode_pipeline.services.planning import WorkspacePlanner
 
     return WorkspacePlanner()
+
+
+def create_default_workspace_materializer() -> "WorkspaceMaterializer":
+    """Return a fresh workspace materializer."""
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    return WorkspaceMaterializer()
