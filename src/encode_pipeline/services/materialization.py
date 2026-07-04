@@ -43,4 +43,45 @@ class WorkspaceMaterializer:
                 ]
             )
 
+        if base_dir.exists() and base_dir.is_symlink():
+            return Result.failure(
+                [
+                    Issue(
+                        code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                        message="base_dir is a symlink.",
+                        severity="error",
+                        path="base_dir",
+                        source="workspace_materializer",
+                    )
+                ]
+            )
+
+        try:
+            base_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return Result.failure(
+                [
+                    Issue(
+                        code="WORKSPACE_MATERIALIZATION_BASE_DIR_CREATE_ERROR",
+                        message="base_dir could not be created.",
+                        severity="error",
+                        path="base_dir",
+                        source="workspace_materializer",
+                    )
+                ]
+            )
+
+        if base_dir.is_symlink():
+            return Result.failure(
+                [
+                    Issue(
+                        code="WORKSPACE_MATERIALIZATION_SYMLINK",
+                        message="base_dir is a symlink.",
+                        severity="error",
+                        path="base_dir",
+                        source="workspace_materializer",
+                    )
+                ]
+            )
+
         return Result.success(None)

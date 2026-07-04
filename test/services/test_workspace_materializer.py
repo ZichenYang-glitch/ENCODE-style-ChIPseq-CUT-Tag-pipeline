@@ -3,6 +3,37 @@
 from pathlib import Path
 
 
+def test_workspace_materializer_refuses_relative_base_dir(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    materializer = WorkspaceMaterializer()
+    result = materializer.materialize(WorkspacePlan(), Path("relative/path"))
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_BASE_DIR_RELATIVE"
+    assert issue.path == "base_dir"
+
+
+def test_workspace_materializer_refuses_symlink_base_dir(tmp_path):
+    from encode_pipeline.platform.adapters import WorkspacePlan
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    symlink_dir = tmp_path / "link"
+    symlink_dir.symlink_to(real_dir)
+
+    materializer = WorkspaceMaterializer()
+    result = materializer.materialize(WorkspacePlan(), symlink_dir)
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_MATERIALIZATION_SYMLINK"
+    assert issue.path == "base_dir"
+
+
 def test_workspace_materializer_refuses_invalid_plan_type(tmp_path):
     from encode_pipeline.services.materialization import WorkspaceMaterializer
 
