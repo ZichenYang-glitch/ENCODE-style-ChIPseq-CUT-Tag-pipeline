@@ -19,7 +19,6 @@ from encode_pipeline.platform.adapters import (
 from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Result
-from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.local_run_driver import LocalRunDriver
 from encode_pipeline.services.runs import RunService
 
