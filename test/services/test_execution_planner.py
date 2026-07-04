@@ -288,3 +288,17 @@ def test_plan_workspace_does_not_call_adapter_planning_methods(run_service, tmp_
 
     assert result.is_success is True
     assert result.value.workspace_plan is not None
+
+
+def test_plan_workspace_propagates_path_policy_failure(run_service, tmp_path):
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner()
+
+    # Use a base_dir that is absolute but whose value we will monkeypatch the
+    # planner to produce an invalid path. Since the default layout is fixed and
+    # safe, the simplest failure path is a non-absolute base_dir.
+    result = workspace_planner.plan_workspace(input_plan, base_dir=Path("not-absolute"))
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_BASE_DIR_RELATIVE"
