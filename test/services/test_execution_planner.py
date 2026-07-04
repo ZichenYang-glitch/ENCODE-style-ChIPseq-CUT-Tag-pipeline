@@ -185,3 +185,63 @@ def test_default_factory_returns_planner(run_service):
 
     planner = create_default_execution_planner(run_service=run_service)
     assert isinstance(planner, ExecutionPlanner)
+
+
+from pathlib import Path
+
+from encode_pipeline.platform.adapters import WorkspacePlan
+from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
+from encode_pipeline.services.planning import WorkspacePlanner
+
+
+def _make_execution_plan(run_service):
+    inputs = WorkflowInputs(config={}, samples=None, options={})
+    record = run_service.create_run("stub", inputs)
+    planner = ExecutionPlanner(run_service=run_service)
+    return planner.plan_run(record.run_id).value
+
+
+def test_plan_workspace_returns_pending_plan_with_workspace_plan(run_service, tmp_path):
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner()
+    base_dir = tmp_path.resolve()
+
+    result = workspace_planner.plan_workspace(input_plan, base_dir=base_dir)
+
+    assert result.is_success is True
+    plan = result.value
+    assert plan is not None
+    assert plan is not input_plan
+    assert plan.status is PlanStatus.PENDING
+    assert plan.workspace_plan is not None
+    assert plan.workspace_plan.directories == ("logs", "results")
+    assert plan.workspace_plan.files == ()
+    assert plan.command_spec is None
+    assert plan.can_execute is False
+    assert plan.run_id == input_plan.run_id
+    assert plan.workflow_id == input_plan.workflow_id
+    assert plan.dag_preview == input_plan.dag_preview
+    assert plan.inputs_snapshot == input_plan.inputs_snapshot
+
+
+def test_plan_workspace_does_not_create_directories_or_files(run_service, tmp_path):
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner()
+    base_dir = tmp_path.resolve()
+
+    workspace_planner.plan_workspace(input_plan, base_dir=base_dir)
+
+    assert not (base_dir / "logs").exists()
+    assert not (base_dir / "results").exists()
+
+
+def test_plan_workspace_does_not_mutate_input_plan(run_service, tmp_path):
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner()
+    base_dir = tmp_path.resolve()
+
+    workspace_planner.plan_workspace(input_plan, base_dir=base_dir)
+
+    assert input_plan.status is PlanStatus.UNSUPPORTED
+    assert input_plan.workspace_plan is None
+    assert input_plan.command_spec is None
