@@ -248,6 +248,13 @@ def test_create_default_local_run_driver_returns_instance():
     assert driver.__class__.__name__ == "LocalRunDriver"
 
 
+def test_create_default_workspace_materializer_returns_instance():
+    from encode_pipeline.services import create_default_workspace_materializer
+
+    materializer = create_default_workspace_materializer()
+    assert materializer.__class__.__name__ == "WorkspaceMaterializer"
+
+
 def _run_python(code: str) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(SRC_ROOT)
