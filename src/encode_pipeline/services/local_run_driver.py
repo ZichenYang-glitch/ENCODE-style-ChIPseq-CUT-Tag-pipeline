@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from encode_pipeline.platform.adapters import CommandSpec
 from encode_pipeline.platform.planning import PlanStatus, WorkspacePathError, WorkspacePathPolicy
 from encode_pipeline.platform.results import Issue, Result
 
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
     from encode_pipeline.platform.runs import RunRecord
     from encode_pipeline.services.command_builder import CommandBuilder
     from encode_pipeline.services.materialization import WorkspaceMaterializer
+    from encode_pipeline.services.process_runner import ProcessRunner
     from encode_pipeline.services.runs import RunService
 
 
@@ -34,9 +36,12 @@ class LocalRunDriver:
         materializer: "WorkspaceMaterializer",
         command_builder: "CommandBuilder",
         workspace_root: Path,
+        *,
+        process_runner: "ProcessRunner | None" = None,
     ) -> None:
         from encode_pipeline.services.command_builder import CommandBuilder
         from encode_pipeline.services.materialization import WorkspaceMaterializer
+        from encode_pipeline.services.process_runner import ProcessRunner
         from encode_pipeline.services.runs import RunService
 
         if not isinstance(run_service, RunService):
@@ -47,10 +52,15 @@ class LocalRunDriver:
             raise ValueError("LocalRunDriver requires a CommandBuilder instance")
         if not isinstance(workspace_root, Path) or not workspace_root.is_absolute():
             raise ValueError("LocalRunDriver requires an absolute workspace_root Path")
+        if process_runner is not None and not isinstance(process_runner, ProcessRunner):
+            raise ValueError("LocalRunDriver requires a ProcessRunner instance or None")
         self._run_service = run_service
         self._materializer = materializer
         self._command_builder = command_builder
         self._workspace_root = workspace_root
+        self._process_runner = (
+            process_runner if process_runner is not None else ProcessRunner()
+        )
 
     def run(self, run_id: str, plan: "ExecutionPlan") -> "Result[RunRecord]":
         """Validate plan and refuse execution.
@@ -110,6 +120,17 @@ class LocalRunDriver:
                     path="plan",
                     source="local_run_driver",
                 )
+            return self._refuse(issue, plan, record.run_id)
+
+        # Dry-run flag conflict check
+        if any(arg in ("-n", "--dry-run") for arg in plan.command_spec.argv):
+            issue = Issue(
+                code="LOCAL_RUN_DRY_RUN_FLAG_CONFLICT",
+                message="CommandSpec argv already contains a dry-run flag.",
+                severity="error",
+                path="command_spec",
+                source="local_run_driver",
+            )
             return self._refuse(issue, plan, record.run_id)
 
         issue = Issue(
@@ -223,4 +244,85 @@ class LocalRunDriver:
             },
         )
 
-        return planned_plan
+        # Dry-run flag conflict check
+        original_argv = planned_plan.command_spec.argv
+        if any(arg in ("-n", "--dry-run") for arg in original_argv):
+            issue = Issue(
+                code="LOCAL_RUN_DRY_RUN_FLAG_CONFLICT",
+                message="CommandSpec argv already contains a dry-run flag.",
+                severity="error",
+                path="command_spec",
+                source="local_run_driver",
+            )
+            return self._refuse(issue, planned_plan, run_id)
+
+        # Build dry-run CommandSpec
+        dry_run_spec = CommandSpec(
+            argv=original_argv + ("-n",),
+            cwd=planned_plan.command_spec.cwd,
+            env=planned_plan.command_spec.env,
+        )
+
+        # Execute dry-run via ProcessRunner
+        dry_run_result = self._process_runner.run(dry_run_spec)
+
+        if dry_run_result.is_success and dry_run_result.value.exit_code == 0:
+            self._run_service.add_event(
+                run_id=run_id,
+                event_type="dry_run_completed",
+                message="Snakemake dry-run completed successfully.",
+                status=None,
+                context={"exit_code": 0},
+            )
+            return planned_plan
+
+        if dry_run_result.is_success:  # exit_code != 0
+            self._run_service.add_event(
+                run_id=run_id,
+                event_type="dry_run_failed",
+                message="Snakemake dry-run failed with a non-zero exit code.",
+                status=None,
+                context={
+                    "reason_code": "LOCAL_RUN_DRY_RUN_FAILED",
+                    "exit_code": dry_run_result.value.exit_code,
+                    "issue_count": len(dry_run_result.issues),
+                },
+            )
+            return self._refuse(
+                Issue(
+                    code="LOCAL_RUN_DRY_RUN_FAILED",
+                    message="Snakemake dry-run failed.",
+                    severity="error",
+                    path="command_spec",
+                    source="local_run_driver",
+                ),
+                planned_plan,
+                run_id,
+                additional_issues=dry_run_result.issues,
+            )
+
+        # ProcessRunner failure (timeout / not found / OSError)
+        first_issue_code = dry_run_result.issues[0].code if dry_run_result.issues else "UNKNOWN"
+        self._run_service.add_event(
+            run_id=run_id,
+            event_type="dry_run_failed",
+            message="Snakemake dry-run could not be executed.",
+            status=None,
+            context={
+                "reason_code": "LOCAL_RUN_PROCESS_FAILED",
+                "process_issue_code": first_issue_code,
+                "issue_count": len(dry_run_result.issues),
+            },
+        )
+        return self._refuse(
+            Issue(
+                code="LOCAL_RUN_PROCESS_FAILED",
+                message="ProcessRunner failed to execute the dry-run command.",
+                severity="error",
+                path="command_spec",
+                source="local_run_driver",
+            ),
+            planned_plan,
+            run_id,
+            additional_issues=dry_run_result.issues,
+        )
