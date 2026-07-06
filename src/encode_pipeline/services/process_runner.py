@@ -7,7 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from encode_pipeline.platform.results import Issue, IssueSeverity, Result
+from encode_pipeline.platform.results import Issue, Result
 
 if TYPE_CHECKING:
     from encode_pipeline.platform.adapters import CommandSpec
