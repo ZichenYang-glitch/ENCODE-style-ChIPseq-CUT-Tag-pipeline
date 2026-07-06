@@ -192,3 +192,75 @@ def test_process_runner_passes_env_overrides(monkeypatch):
     result = runner.run(spec)
     assert result.is_success is True
     assert result.value.stdout.strip() == "hello_from_spec"
+
+
+# ---------------------------------------------------------------------------
+# Failure modes
+# ---------------------------------------------------------------------------
+
+
+def test_process_runner_timeout_returns_failure():
+    runner = ProcessRunner(
+        allowed_executables=(sys.executable, Path(sys.executable).name),
+        timeout_seconds=0.1,
+    )
+    spec = CommandSpec(
+        argv=(sys.executable, "-c", "import time; time.sleep(10)")
+    )
+    result = runner.run(spec)
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "PROCESS_RUNNER_TIMEOUT"
+    assert issue.severity.value == "error"
+    assert issue.context == {"timeout_seconds": 0.1}
+
+
+def test_process_runner_executable_not_found():
+    runner = ProcessRunner(allowed_executables=("nonexistent_binary_xyz_123",))
+    spec = CommandSpec(argv=("nonexistent_binary_xyz_123", "--help"))
+    result = runner.run(spec)
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "PROCESS_RUNNER_EXECUTABLE_NOT_FOUND"
+    assert issue.path == "command_spec.argv[0]"
+    assert issue.source == "process_runner"
+
+
+def test_process_runner_output_truncation():
+    runner = ProcessRunner(
+        allowed_executables=(sys.executable, Path(sys.executable).name),
+        max_output_bytes=100,
+    )
+    spec = CommandSpec(
+        argv=(sys.executable, "-c", "print('x' * 200_000)")
+    )
+    result = runner.run(spec)
+    assert result.is_success is True
+    assert result.value.exit_code == 0
+    assert len(result.value.stdout) <= 100
+    trunc_issues = [
+        i for i in result.issues if i.code == "PROCESS_RUNNER_OUTPUT_LIMIT_EXCEEDED"
+    ]
+    assert len(trunc_issues) == 1
+    assert trunc_issues[0].severity.value == "warning"
+
+
+def test_process_runner_stderr_truncation():
+    runner = ProcessRunner(
+        allowed_executables=(sys.executable, Path(sys.executable).name),
+        max_output_bytes=50,
+    )
+    spec = CommandSpec(
+        argv=(
+            sys.executable,
+            "-c",
+            "import sys; sys.stderr.write('e' * 100_000)",
+        )
+    )
+    result = runner.run(spec)
+    assert result.is_success is True
+    assert len(result.value.stderr) <= 50
+    trunc_issues = [
+        i for i in result.issues if i.code == "PROCESS_RUNNER_OUTPUT_LIMIT_EXCEEDED"
+    ]
+    assert len(trunc_issues) == 1
