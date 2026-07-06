@@ -114,3 +114,81 @@ def test_process_runner_rejects_non_command_spec():
     assert issue.code == "PROCESS_RUNNER_INVALID_COMMAND_SPEC"
     assert issue.path == "command_spec"
     assert issue.source == "process_runner"
+
+
+# ---------------------------------------------------------------------------
+# Successful execution
+# ---------------------------------------------------------------------------
+
+
+def test_process_runner_captures_stdout():
+    runner = _make_runner()
+    spec = CommandSpec(argv=(sys.executable, "-c", "print('hello')"))
+    result = runner.run(spec)
+    assert result.is_success is True
+    assert result.value.exit_code == 0
+    assert result.value.stdout.strip() == "hello"
+    assert result.value.stderr == ""
+
+
+def test_process_runner_captures_stderr():
+    runner = _make_runner()
+    spec = CommandSpec(
+        argv=(sys.executable, "-c", "import sys; sys.stderr.write('err msg\\n')")
+    )
+    result = runner.run(spec)
+    assert result.is_success is True
+    assert result.value.exit_code == 0
+    assert "err msg" in result.value.stderr
+
+
+def test_process_runner_no_issues_on_clean_exit():
+    runner = _make_runner()
+    spec = CommandSpec(argv=(sys.executable, "-c", "pass"))
+    result = runner.run(spec)
+    assert result.is_success is True
+    assert result.value.exit_code == 0
+    assert len(result.issues) == 0
+
+
+def test_process_runner_nonzero_exit_is_success_with_warning():
+    runner = _make_runner()
+    spec = CommandSpec(argv=(sys.executable, "-c", "import sys; sys.exit(3)"))
+    result = runner.run(spec)
+    assert result.is_success is True
+    assert result.value.exit_code == 3
+    nonzero_issues = [
+        i for i in result.issues if i.code == "PROCESS_RUNNER_NONZERO_EXIT"
+    ]
+    assert len(nonzero_issues) == 1
+    issue = nonzero_issues[0]
+    assert issue.severity.value == "warning"
+    assert issue.context == {"exit_code": 3}
+    assert issue.source == "process_runner"
+
+
+def test_process_runner_respects_cwd(tmp_path):
+    runner = _make_runner()
+    spec = CommandSpec(
+        argv=(sys.executable, "-c", "import os; print(os.getcwd())"),
+        cwd=str(tmp_path),
+    )
+    result = runner.run(spec)
+    assert result.is_success is True
+    assert result.value.stdout.strip() == str(tmp_path)
+
+
+def test_process_runner_passes_env_overrides(monkeypatch):
+    monkeypatch.delenv("PR112_TEST_VAR", raising=False)
+    runner = _make_runner()
+    spec = CommandSpec(
+        argv=(
+            sys.executable,
+            "-c",
+            "import os; print(os.environ.get('PR112_TEST_VAR', 'NOT_SET'))",
+        ),
+        env={"PR112_TEST_VAR": "hello_from_spec"},
+    )
+    result = runner.run(spec)
+    assert result.is_success is True
+    assert result.value.stdout.strip() == "hello_from_spec"
