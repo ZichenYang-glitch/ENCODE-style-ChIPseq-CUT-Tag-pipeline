@@ -2,6 +2,7 @@
 
 from encode_pipeline.services.defaults import (
     create_default_agent_service,
+    create_default_command_builder,
     create_default_execution_planner,
     create_default_local_run_driver,
     create_default_run_service,
@@ -11,6 +12,7 @@ from encode_pipeline.services.defaults import (
     create_default_workspace_materializer,
     create_default_workspace_planner,
 )
+from encode_pipeline.services.command_builder import CommandBuilder
 from encode_pipeline.services.local_run_driver import LocalRunDriver
 from encode_pipeline.services.materialization import WorkspaceMaterializer
 from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
@@ -20,6 +22,7 @@ from encode_pipeline.services.validation import ValidationService
 from encode_pipeline.services.workflow_info import WorkflowInfoService
 
 __all__ = [
+    "CommandBuilder",
     "ExecutionPlanner",
     "LocalRunDriver",
     "RunService",
@@ -29,6 +32,7 @@ __all__ = [
     "WorkspacePlanner",
     "WorkflowInfoService",
     "create_default_agent_service",
+    "create_default_command_builder",
     "create_default_execution_planner",
     "create_default_local_run_driver",
     "create_default_run_service",

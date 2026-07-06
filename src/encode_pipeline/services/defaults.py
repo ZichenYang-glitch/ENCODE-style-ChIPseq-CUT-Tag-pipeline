@@ -131,3 +131,20 @@ def create_default_workspace_materializer() -> "WorkspaceMaterializer":
     from encode_pipeline.services.materialization import WorkspaceMaterializer
 
     return WorkspaceMaterializer()
+
+
+def create_default_command_builder(
+    registry: WorkflowRegistry | None = None,
+) -> "CommandBuilder":
+    """Return a fresh command builder wired to the default registry.
+
+    Args:
+        registry: Optional existing registry. When omitted, a fresh default
+            registry is created. Passing a shared registry lets ``create_app``
+            compose all services from one adapter instance.
+    """
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    if registry is None:
+        registry = create_default_workflow_registry()
+    return CommandBuilder(registry=registry)
