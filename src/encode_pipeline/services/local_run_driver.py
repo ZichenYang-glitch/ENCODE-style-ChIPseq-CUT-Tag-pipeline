@@ -263,4 +263,66 @@ class LocalRunDriver:
             env=planned_plan.command_spec.env,
         )
 
-        return planned_plan
+        # Execute dry-run via ProcessRunner
+        dry_run_result = self._process_runner.run(dry_run_spec)
+
+        if dry_run_result.is_success and dry_run_result.value.exit_code == 0:
+            self._run_service.add_event(
+                run_id=run_id,
+                event_type="dry_run_completed",
+                message="Snakemake dry-run completed successfully.",
+                status=None,
+                context={"exit_code": 0},
+            )
+            return planned_plan
+
+        if dry_run_result.is_success:  # exit_code != 0
+            self._run_service.add_event(
+                run_id=run_id,
+                event_type="dry_run_failed",
+                message="Snakemake dry-run failed with a non-zero exit code.",
+                status=None,
+                context={
+                    "reason_code": "LOCAL_RUN_DRY_RUN_FAILED",
+                    "exit_code": dry_run_result.value.exit_code,
+                    "issue_count": len(dry_run_result.issues),
+                },
+            )
+            return self._refuse(
+                Issue(
+                    code="LOCAL_RUN_DRY_RUN_FAILED",
+                    message="Snakemake dry-run failed.",
+                    severity="error",
+                    path="command_spec",
+                    source="local_run_driver",
+                ),
+                planned_plan,
+                run_id,
+                additional_issues=dry_run_result.issues,
+            )
+
+        # ProcessRunner failure (timeout / not found / OSError)
+        first_issue_code = dry_run_result.issues[0].code if dry_run_result.issues else "UNKNOWN"
+        self._run_service.add_event(
+            run_id=run_id,
+            event_type="dry_run_failed",
+            message="Snakemake dry-run could not be executed.",
+            status=None,
+            context={
+                "reason_code": "LOCAL_RUN_PROCESS_FAILED",
+                "process_issue_code": first_issue_code,
+                "issue_count": len(dry_run_result.issues),
+            },
+        )
+        return self._refuse(
+            Issue(
+                code="LOCAL_RUN_PROCESS_FAILED",
+                message="ProcessRunner failed to execute the dry-run command.",
+                severity="error",
+                path="command_spec",
+                source="local_run_driver",
+            ),
+            planned_plan,
+            run_id,
+            additional_issues=dry_run_result.issues,
+        )
