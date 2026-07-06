@@ -577,6 +577,153 @@ def test_dry_run_nonzero_does_not_record_dry_run_completed(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# ProcessRunner failure tests
+# ---------------------------------------------------------------------------
+
+
+class _FakeProcessRunnerTimeout(ProcessRunner):
+    """Test double simulating a ProcessRunner timeout."""
+
+    def __init__(self):
+        super().__init__(allowed_executables=("snakemake",))
+
+    def run(self, spec):
+        return Result.failure(
+            [
+                Issue(
+                    code="PROCESS_RUNNER_TIMEOUT",
+                    message="Subprocess timed out.",
+                    severity="error",
+                    path="command_spec",
+                    source="process_runner",
+                    context={"timeout_seconds": 300.0},
+                )
+            ]
+        )
+
+
+class _FakeProcessRunnerNotFound(ProcessRunner):
+    """Test double simulating executable not found."""
+
+    def __init__(self):
+        super().__init__(allowed_executables=("snakemake",))
+
+    def run(self, spec):
+        return Result.failure(
+            [
+                Issue(
+                    code="PROCESS_RUNNER_EXECUTABLE_NOT_FOUND",
+                    message="Executable not found.",
+                    severity="error",
+                    path="command_spec.argv[0]",
+                    source="process_runner",
+                )
+            ]
+        )
+
+
+def test_process_runner_timeout_returns_failure_with_wrapper(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunnerTimeout(),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    result = driver.run("run-1", plan)
+
+    assert result.is_failure is True
+    assert result.issues[0].code == "LOCAL_RUN_PROCESS_FAILED"
+    assert result.issues[0].source == "local_run_driver"
+    assert result.issues[0].severity == "error"
+    assert len(result.issues) == 2
+    assert result.issues[1].code == "PROCESS_RUNNER_TIMEOUT"
+
+
+def test_process_runner_timeout_records_dry_run_failed_event(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunnerTimeout(),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    driver.run("run-1", plan)
+    events = service.list_events("run-1")
+    dry_run_events = [e for e in events if e.event_type == "dry_run_failed"]
+
+    assert len(dry_run_events) == 1
+    assert dry_run_events[0].context["reason_code"] == "LOCAL_RUN_PROCESS_FAILED"
+    assert dry_run_events[0].context["process_issue_code"] == "PROCESS_RUNNER_TIMEOUT"
+    assert dry_run_events[0].context["issue_count"] == 1
+
+
+def test_process_runner_timeout_runner_refused_reason_is_process_failed(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunnerTimeout(),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    driver.run("run-1", plan)
+    events = service.list_events("run-1")
+    refuse_event = [e for e in events if e.event_type == "runner_refused"][0]
+
+    assert refuse_event.context["reason_code"] == "LOCAL_RUN_PROCESS_FAILED"
+
+
+def test_process_runner_not_found_returns_failure_with_wrapper(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunnerNotFound(),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    result = driver.run("run-1", plan)
+
+    assert result.is_failure is True
+    assert result.issues[0].code == "LOCAL_RUN_PROCESS_FAILED"
+    assert result.issues[1].code == "PROCESS_RUNNER_EXECUTABLE_NOT_FOUND"
+
+
+def test_process_runner_not_found_records_dry_run_failed_event(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunnerNotFound(),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    driver.run("run-1", plan)
+    events = service.list_events("run-1")
+    dry_run_events = [e for e in events if e.event_type == "dry_run_failed"]
+
+    assert dry_run_events[0].context["process_issue_code"] == "PROCESS_RUNNER_EXECUTABLE_NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
 # Existing tests updated for new constructor
 # ---------------------------------------------------------------------------
 
@@ -1144,6 +1291,138 @@ def test_run_prepare_success_event_has_no_command_leakage(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Safety tests
+# ---------------------------------------------------------------------------
+
+
+def test_dry_run_events_contain_no_stdout_or_stderr(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunner(),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    driver.run("run-1", plan)
+    events = service.list_events("run-1")
+
+    context_text = str([e.context for e in events])
+    assert "hello" not in context_text  # stdout from _FakeProcessRunner if leaked
+    assert "error" not in context_text  # stderr from _FakeProcessRunnerNonzero if leaked
+
+
+def test_dry_run_events_contain_no_paths(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    workspace_root = tmp_path / "my-secret-workspaces"
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=workspace_root,
+        process_runner=_FakeProcessRunner(),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    driver.run("run-1", plan)
+    events = service.list_events("run-1")
+
+    context_text = str([e.context for e in events])
+    assert "my-secret-workspaces" not in context_text
+    assert "Snakefile" not in context_text
+    assert "config.yaml" not in context_text
+
+
+def test_dry_run_events_contain_no_command_strings(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunner(),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    driver.run("run-1", plan)
+    events = service.list_events("run-1")
+
+    context_text = str([e.context for e in events])
+    assert "snakemake" not in context_text
+    assert "--cores" not in context_text
+    assert "-n" not in context_text
+    assert "--dry-run" not in context_text
+
+
+def test_dry_run_does_not_transition_run_status(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    record = service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    original_status = record.status
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunner(),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    before_events = service.list_events("run-1")
+    driver.run("run-1", plan)
+    after = service.get_run("run-1")
+    after_events = service.list_events("run-1")
+
+    assert after.status == original_status
+    new_events = after_events[len(before_events):]
+    assert not any(e.event_type == "status_changed" for e in new_events)
+
+
+def test_dry_run_does_not_append_logs(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunner(),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    driver.run("run-1", plan)
+
+    assert service.list_logs("run-1", "stdout") == ()
+    assert service.list_logs("run-1", "stderr") == ()
+
+
+def test_dry_run_flag_conflict_events_contain_no_command_leakage(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+    )
+    plan = _make_plan(
+        status=PlanStatus.PLANNED,
+        command_spec=CommandSpec(argv=("snakemake", "-n", "--configfile", "/secret/path.yaml")),
+    )
+
+    driver.run("run-1", plan)
+    events = service.list_events("run-1")
+
+    context_text = str([e.context for e in events])
+    assert "/secret/path.yaml" not in context_text
+    assert "--configfile" not in context_text
+
+
+# ---------------------------------------------------------------------------
 # Import boundary test
 # ---------------------------------------------------------------------------
 
@@ -1169,8 +1448,14 @@ def test_local_run_driver_import_boundary() -> None:
         elif isinstance(node, ast.ImportFrom) and node.module is not None:
             imported_modules.add(node.module)
 
-    assert not any(
-        module == forbidden or module.startswith(f"{forbidden}.")
+    violations = [
+        module
         for module in imported_modules
         for forbidden in forbidden_modules
-    )
+        if module == forbidden or module.startswith(f"{forbidden}.")
+    ]
+    assert not violations, f"Forbidden imports found: {violations}"
+
+    # Verify required imports are present
+    assert "encode_pipeline.services.process_runner" in imported_modules
+    assert "encode_pipeline.platform.adapters" in imported_modules
