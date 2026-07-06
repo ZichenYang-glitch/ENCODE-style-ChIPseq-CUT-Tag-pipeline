@@ -255,6 +255,14 @@ def test_create_default_workspace_materializer_returns_instance():
     assert materializer.__class__.__name__ == "WorkspaceMaterializer"
 
 
+def test_create_default_command_builder_returns_instance():
+    from encode_pipeline.services import create_default_command_builder
+
+    builder = create_default_command_builder()
+
+    assert builder.__class__.__name__ == "CommandBuilder"
+
+
 def _run_python(code: str) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(SRC_ROOT)
