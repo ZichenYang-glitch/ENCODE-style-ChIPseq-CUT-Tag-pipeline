@@ -75,3 +75,42 @@ def test_process_runner_rejects_negative_max_output_bytes():
 def test_process_runner_rejects_bool_max_output_bytes():
     with pytest.raises(ValueError, match="must be an int"):
         ProcessRunner(max_output_bytes=True)
+
+
+# ---------------------------------------------------------------------------
+# Allowlist enforcement
+# ---------------------------------------------------------------------------
+
+
+def test_process_runner_rejects_executable_not_in_allowlist():
+    runner = ProcessRunner(allowed_executables=("snakemake",))
+    spec = CommandSpec(argv=("python", "-c", "print(1)"))
+    result = runner.run(spec)
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "PROCESS_RUNNER_EXECUTABLE_NOT_ALLOWED"
+    assert issue.path == "command_spec.argv[0]"
+    assert issue.source == "process_runner"
+
+
+def test_process_runner_allows_executable_in_allowlist():
+    runner = _make_runner()
+    spec = CommandSpec(argv=(sys.executable, "-c", "print(42)"))
+    result = runner.run(spec)
+    assert result.is_success is True
+    assert result.value.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Invalid spec
+# ---------------------------------------------------------------------------
+
+
+def test_process_runner_rejects_non_command_spec():
+    runner = ProcessRunner()
+    result = runner.run("not-a-command-spec")
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "PROCESS_RUNNER_INVALID_COMMAND_SPEC"
+    assert issue.path == "command_spec"
+    assert issue.source == "process_runner"
