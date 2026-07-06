@@ -16,26 +16,26 @@ if TYPE_CHECKING:
     from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
 
 
-def get_registry(request: Request) -> WorkflowRegistry:
+async def get_registry(request: Request) -> WorkflowRegistry:
     """Return the app registry."""
     return request.app.state.registry
 
 
-def get_validation_service(request: Request) -> ValidationService:
+async def get_validation_service(request: Request) -> ValidationService:
     """Return the app validation service."""
     return request.app.state.validation_service
 
 
-def get_agent_service(request: Request) -> "AgentService":
+async def get_agent_service(request: Request) -> "AgentService":
     """Return the app agent service."""
     return request.app.state.agent_service
 
 
-def get_run_service(request: Request) -> "RunService":
+async def get_run_service(request: Request) -> "RunService":
     """Return the app run service."""
     return request.app.state.run_service
 
 
-def get_stub_execution_driver(request: Request) -> StubExecutionDriver | None:
+async def get_stub_execution_driver(request: Request) -> StubExecutionDriver | None:
     """Return the app stub execution driver, if configured."""
     return getattr(request.app.state, "stub_execution_driver", None)

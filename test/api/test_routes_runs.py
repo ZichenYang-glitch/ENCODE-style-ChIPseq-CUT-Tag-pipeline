@@ -10,16 +10,16 @@ import pytest
 
 from encode_pipeline.api.main import create_app
 from encode_pipeline.platform.adapters import WorkflowInputs
+from api_test_client import ApiTestClient
 
 fastapi = pytest.importorskip("fastapi")
-from fastapi.testclient import TestClient  # noqa: E402
 
 
 @pytest.fixture
-def client() -> Iterator[TestClient]:
+def client() -> Iterator[ApiTestClient]:
     """Default app wired to the bundled ENCODE-style adapter."""
     app = create_app()
-    with TestClient(app) as tc:
+    with ApiTestClient(app) as tc:
         yield tc
 
 
@@ -28,7 +28,7 @@ def workflow_id() -> str:
     return "encode-style-chipseq-cuttag-atac-mnase"
 
 
-def _create_run(client: TestClient, workflow_id: str) -> str:
+def _create_run(client: ApiTestClient, workflow_id: str) -> str:
     response = client.post(
         f"/api/v1/workflows/{workflow_id}/runs",
         json={"config": {"samples": "samples.tsv"}, "tags": {"env": "test"}},
@@ -38,7 +38,7 @@ def _create_run(client: TestClient, workflow_id: str) -> str:
 
 
 def test_create_run_returns_201_with_run_response(
-    client: TestClient,
+    client: ApiTestClient,
     workflow_id: str,
 ) -> None:
     response = client.post(
@@ -55,7 +55,7 @@ def test_create_run_returns_201_with_run_response(
     assert data["issues"] == []
 
 
-def test_create_run_unknown_workflow_returns_404(client: TestClient) -> None:
+def test_create_run_unknown_workflow_returns_404(client: ApiTestClient) -> None:
     response = client.post(
         "/api/v1/workflows/missing-workflow/runs",
         json={"config": {}},
@@ -67,7 +67,7 @@ def test_create_run_unknown_workflow_returns_404(client: TestClient) -> None:
     assert data["issues"][0]["code"] == "WORKFLOW_NOT_FOUND"
 
 
-def test_create_run_malformed_workflow_id_returns_400(client: TestClient) -> None:
+def test_create_run_malformed_workflow_id_returns_400(client: ApiTestClient) -> None:
     # FastAPI path parameters cannot be empty, so simulate malformed by relying
     # on registry normalization via a whitespace-only id that becomes empty.
     # This is the closest realistic path; the route catches ValueError.
@@ -81,10 +81,10 @@ def test_create_run_malformed_workflow_id_returns_400(client: TestClient) -> Non
     assert data["issues"][0]["code"] == "API_REQUEST_INVALID"
 
 
-def test_create_run_malformed_body_returns_400(client: TestClient, workflow_id: str) -> None:
+def test_create_run_malformed_body_returns_400(client: ApiTestClient, workflow_id: str) -> None:
     response = client.post(
         f"/api/v1/workflows/{workflow_id}/runs",
-        data="not-json",
+        content="not-json",
         headers={"content-type": "application/json"},
     )
     assert response.status_code == 400
@@ -93,7 +93,7 @@ def test_create_run_malformed_body_returns_400(client: TestClient, workflow_id: 
     assert data["issues"][0]["code"] == "API_REQUEST_INVALID"
 
 
-def test_get_run_returns_200(client: TestClient, workflow_id: str) -> None:
+def test_get_run_returns_200(client: ApiTestClient, workflow_id: str) -> None:
     run_id = _create_run(client, workflow_id)
     response = client.get(f"/api/v1/runs/{run_id}")
     assert response.status_code == 200
@@ -102,7 +102,7 @@ def test_get_run_returns_200(client: TestClient, workflow_id: str) -> None:
     assert data["run"]["run_id"] == run_id
 
 
-def test_get_run_unknown_returns_404(client: TestClient) -> None:
+def test_get_run_unknown_returns_404(client: ApiTestClient) -> None:
     response = client.get("/api/v1/runs/run-missing")
     assert response.status_code == 404
     data = response.json()
@@ -110,7 +110,7 @@ def test_get_run_unknown_returns_404(client: TestClient) -> None:
     assert data["issues"][0]["code"] == "RUN_NOT_FOUND"
 
 
-def test_cancel_run_active_returns_200(client: TestClient, workflow_id: str) -> None:
+def test_cancel_run_active_returns_200(client: ApiTestClient, workflow_id: str) -> None:
     service = client.app.state.run_service
     record = service.create_run(workflow_id, WorkflowInputs(config={"samples": "samples.tsv"}))
     run_id = record.run_id
@@ -123,7 +123,7 @@ def test_cancel_run_active_returns_200(client: TestClient, workflow_id: str) -> 
 
 
 def test_cancel_run_terminal_returns_200_unchanged(
-    client: TestClient,
+    client: ApiTestClient,
     workflow_id: str,
 ) -> None:
     run_id = _create_run(client, workflow_id)
@@ -139,7 +139,7 @@ def test_cancel_run_terminal_returns_200_unchanged(
     assert data["run"]["status"] == "succeeded"
 
 
-def test_cancel_run_unknown_returns_404(client: TestClient) -> None:
+def test_cancel_run_unknown_returns_404(client: ApiTestClient) -> None:
     response = client.post("/api/v1/runs/run-missing/cancel")
     assert response.status_code == 404
     data = response.json()
@@ -147,7 +147,7 @@ def test_cancel_run_unknown_returns_404(client: TestClient) -> None:
     assert data["issues"][0]["code"] == "RUN_NOT_FOUND"
 
 
-def test_list_events_returns_200(client: TestClient, workflow_id: str) -> None:
+def test_list_events_returns_200(client: ApiTestClient, workflow_id: str) -> None:
     run_id = _create_run(client, workflow_id)
     response = client.get(f"/api/v1/runs/{run_id}/events")
     assert response.status_code == 200
@@ -159,7 +159,7 @@ def test_list_events_returns_200(client: TestClient, workflow_id: str) -> None:
 
 
 def test_list_events_pagination_next_cursor(
-    client: TestClient,
+    client: ApiTestClient,
     workflow_id: str,
 ) -> None:
     run_id = _create_run(client, workflow_id)
@@ -180,7 +180,7 @@ def test_list_events_pagination_next_cursor(
     assert data["events"][0]["message"] == "Stage 1"
 
 
-def test_list_events_unknown_run_returns_404(client: TestClient) -> None:
+def test_list_events_unknown_run_returns_404(client: ApiTestClient) -> None:
     response = client.get("/api/v1/runs/run-missing/events")
     assert response.status_code == 404
     data = response.json()
@@ -189,7 +189,7 @@ def test_list_events_unknown_run_returns_404(client: TestClient) -> None:
 
 
 def test_list_events_invalid_cursor_returns_400(
-    client: TestClient,
+    client: ApiTestClient,
     workflow_id: str,
 ) -> None:
     run_id = _create_run(client, workflow_id)
@@ -200,7 +200,7 @@ def test_list_events_invalid_cursor_returns_400(
     assert data["issues"][0]["code"] == "RUN_CURSOR_NOT_FOUND"
 
 
-def test_list_logs_returns_200(client: TestClient, workflow_id: str) -> None:
+def test_list_logs_returns_200(client: ApiTestClient, workflow_id: str) -> None:
     run_id = _create_run(client, workflow_id)
     service = client.app.state.run_service
     service.append_log(run_id, "stdout", ["line 1"])
@@ -217,7 +217,7 @@ def test_list_logs_returns_200(client: TestClient, workflow_id: str) -> None:
 
 
 def test_list_logs_pagination_next_cursor(
-    client: TestClient,
+    client: ApiTestClient,
     workflow_id: str,
 ) -> None:
     run_id = _create_run(client, workflow_id)
@@ -232,7 +232,7 @@ def test_list_logs_pagination_next_cursor(
     assert data["next_cursor"] == data["chunks"][0]["chunk_id"]
 
 
-def test_list_logs_unknown_run_returns_404(client: TestClient) -> None:
+def test_list_logs_unknown_run_returns_404(client: ApiTestClient) -> None:
     response = client.get("/api/v1/runs/run-missing/logs")
     assert response.status_code == 404
     data = response.json()
@@ -241,7 +241,7 @@ def test_list_logs_unknown_run_returns_404(client: TestClient) -> None:
 
 
 def test_list_logs_invalid_cursor_returns_400(
-    client: TestClient,
+    client: ApiTestClient,
     workflow_id: str,
 ) -> None:
     run_id = _create_run(client, workflow_id)
@@ -253,7 +253,7 @@ def test_list_logs_invalid_cursor_returns_400(
 
 
 def test_list_events_invalid_limit_returns_400(
-    client: TestClient,
+    client: ApiTestClient,
     workflow_id: str,
 ) -> None:
     run_id = _create_run(client, workflow_id)
@@ -294,7 +294,7 @@ def test_api_routes_runs_import_boundary() -> None:
 
 
 def test_create_run_returns_succeeded_with_default_driver(
-    client: TestClient,
+    client: ApiTestClient,
     workflow_id: str,
 ) -> None:
     response = client.post(
@@ -308,7 +308,7 @@ def test_create_run_returns_succeeded_with_default_driver(
 
 
 def test_create_run_with_failure_tag_returns_failed(
-    client: TestClient,
+    client: ApiTestClient,
     workflow_id: str,
 ) -> None:
     response = client.post(
@@ -326,7 +326,7 @@ def test_create_run_with_failure_tag_returns_failed(
 
 
 def test_create_run_generates_stub_events(
-    client: TestClient,
+    client: ApiTestClient,
     workflow_id: str,
 ) -> None:
     response = client.post(
@@ -351,7 +351,7 @@ def test_create_run_generates_stub_events(
 
 
 def test_create_run_generates_stub_logs(
-    client: TestClient,
+    client: ApiTestClient,
     workflow_id: str,
 ) -> None:
     response = client.post(

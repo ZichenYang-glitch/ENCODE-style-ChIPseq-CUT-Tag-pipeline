@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 fastapi = pytest.importorskip("fastapi")
 
+from encode_pipeline.api import dependencies  # noqa: E402
 from encode_pipeline.api.main import create_app  # noqa: E402
 
 
@@ -27,6 +30,19 @@ def _collect_route_paths(routes, prefix: str = "") -> set[str]:
     return paths
 
 
+def _collect_route_endpoints(routes, prefix: str = "") -> list[tuple[str, object]]:
+    endpoints: list[tuple[str, object]] = []
+    for route in routes:
+        if type(route).__name__ == "_IncludedRouter":
+            include_prefix = getattr(route.include_context, "prefix", "")
+            endpoints.extend(
+                _collect_route_endpoints(route.original_router.routes, prefix + include_prefix)
+            )
+        elif hasattr(route, "path") and hasattr(route, "endpoint"):
+            endpoints.append((prefix + route.path, route.endpoint))
+    return endpoints
+
+
 def test_expected_routes_are_registered() -> None:
     app = create_app()
     paths = {path.rstrip("/") for path in _collect_route_paths(app.routes)}
@@ -39,3 +55,29 @@ def test_expected_routes_are_registered() -> None:
     assert "/api/v1/runs/{run_id}/events" in paths
     assert "/api/v1/runs/{run_id}/logs" in paths
     assert "/api/v1/runs/{run_id}/cancel" in paths
+
+
+def test_api_dependencies_are_async_to_avoid_testclient_threadpool_hang() -> None:
+    dependency_names = [
+        "get_registry",
+        "get_validation_service",
+        "get_agent_service",
+        "get_run_service",
+        "get_stub_execution_driver",
+    ]
+
+    for name in dependency_names:
+        assert inspect.iscoroutinefunction(getattr(dependencies, name))
+
+
+def test_api_route_handlers_are_async_to_avoid_testclient_threadpool_hang() -> None:
+    app = create_app()
+    route_handlers = [
+        endpoint
+        for path, endpoint in _collect_route_endpoints(app.routes)
+        if path.startswith("/api/v1/")
+    ]
+
+    assert route_handlers
+    for endpoint in route_handlers:
+        assert inspect.iscoroutinefunction(endpoint), endpoint
