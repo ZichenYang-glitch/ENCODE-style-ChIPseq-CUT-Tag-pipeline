@@ -264,3 +264,90 @@ def test_process_runner_stderr_truncation():
         i for i in result.issues if i.code == "PROCESS_RUNNER_OUTPUT_LIMIT_EXCEEDED"
     ]
     assert len(trunc_issues) == 1
+
+
+# ---------------------------------------------------------------------------
+# Safety: no env or path leakage in issues
+# ---------------------------------------------------------------------------
+
+
+def test_process_runner_issues_contain_no_env_values(monkeypatch):
+    monkeypatch.setenv("PR112_SECRET", "do-not-leak")
+    runner = _make_runner()
+    spec = CommandSpec(
+        argv=(sys.executable, "-c", "import sys; sys.exit(1)"),
+    )
+    result = runner.run(spec)
+    for issue in result.issues:
+        assert "do-not-leak" not in issue.message
+        assert "do-not-leak" not in str(issue.context)
+        assert "PR112_SECRET" not in issue.message
+
+
+def test_process_runner_issues_contain_no_filesystem_paths(tmp_path):
+    runner = _make_runner()
+    spec = CommandSpec(
+        argv=(sys.executable, "-c", "import sys; sys.exit(1)"),
+        cwd=str(tmp_path),
+    )
+    result = runner.run(spec)
+    cwd_str = str(tmp_path)
+    for issue in result.issues:
+        assert cwd_str not in issue.message
+        assert cwd_str not in str(issue.context or {})
+
+
+# ---------------------------------------------------------------------------
+# Import boundary
+# ---------------------------------------------------------------------------
+
+
+def test_process_runner_import_boundary():
+    source_path = (
+        Path(__file__).resolve().parents[2]
+        / "src/encode_pipeline/services/process_runner.py"
+    )
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    forbidden_modules = {
+        "encode_pipeline.api",
+        "encode_pipeline.frontend",
+        "fastapi",
+        "pydantic",
+        "snakemake",
+        "encode_pipeline.services.runs",
+        "encode_pipeline.services.local_run_driver",
+    }
+    imported_modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            imported_modules.add(node.module)
+
+    violations = [
+        m for m in imported_modules
+        for f in forbidden_modules
+        if m == f or m.startswith(f"{f}.")
+    ]
+    assert not violations, f"Forbidden imports found: {violations}"
+
+
+def test_process_runner_allows_required_stdlib_imports():
+    source_path = (
+        Path(__file__).resolve().parents[2]
+        / "src/encode_pipeline/services/process_runner.py"
+    )
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    imported_modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            imported_modules.add(node.module)
+
+    assert "subprocess" in imported_modules
+    assert "os" in imported_modules
