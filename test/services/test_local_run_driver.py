@@ -1296,6 +1296,19 @@ def test_run_prepare_success_event_has_no_command_leakage(tmp_path):
 
 
 def test_dry_run_events_contain_no_stdout_or_stderr(tmp_path):
+    class _FakeProcessRunnerWithOutput(ProcessRunner):
+        def __init__(self):
+            super().__init__(allowed_executables=("snakemake",))
+
+        def run(self, spec):
+            return Result.success(
+                ProcessResult(
+                    exit_code=0,
+                    stdout="SENSITIVE_OUTPUT_abc123",
+                    stderr="SENSITIVE_ERROR_xyz789",
+                )
+            )
+
     service = _make_run_service_with_encode_adapter()
     service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
     driver = LocalRunDriver(
@@ -1303,7 +1316,7 @@ def test_dry_run_events_contain_no_stdout_or_stderr(tmp_path):
         materializer=_make_materializer(),
         command_builder=_make_command_builder(),
         workspace_root=tmp_path / "workspaces",
-        process_runner=_FakeProcessRunner(),
+        process_runner=_FakeProcessRunnerWithOutput(),
     )
     plan = _make_pending_plan_with_workspace()
 
@@ -1311,8 +1324,8 @@ def test_dry_run_events_contain_no_stdout_or_stderr(tmp_path):
     events = service.list_events("run-1")
 
     context_text = str([e.context for e in events])
-    assert "hello" not in context_text  # stdout from _FakeProcessRunner if leaked
-    assert "error" not in context_text  # stderr from _FakeProcessRunnerNonzero if leaked
+    assert "SENSITIVE_OUTPUT_abc123" not in context_text
+    assert "SENSITIVE_ERROR_xyz789" not in context_text
 
 
 def test_dry_run_events_contain_no_paths(tmp_path):
