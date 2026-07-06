@@ -15,16 +15,16 @@ from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.services.defaults import create_default_validation_service
 from encode_pipeline.services.validation import ValidationService
+from api_test_client import ApiTestClient
 
 fastapi = pytest.importorskip("fastapi")
-from fastapi.testclient import TestClient  # noqa: E402
 
 
 @pytest.fixture
-def client() -> Iterator[TestClient]:
+def client() -> Iterator[ApiTestClient]:
     """Default app wired to the bundled ENCODE-style adapter."""
     app = create_app()
-    with TestClient(app) as tc:
+    with ApiTestClient(app) as tc:
         yield tc
 
 
@@ -45,7 +45,7 @@ def minimal_config_and_samples() -> Iterator[tuple[str, str]]:
 
 
 @pytest.fixture
-def unsupported_capability_client() -> Iterator[TestClient]:
+def unsupported_capability_client() -> Iterator[ApiTestClient]:
     """App with a workflow that does not support validation."""
     class StubAdapter:
         metadata = WorkflowMetadata(
@@ -84,11 +84,11 @@ def unsupported_capability_client() -> Iterator[TestClient]:
     app = create_app()
     app.state.registry = registry
     app.state.validation_service = service
-    with TestClient(app) as tc:
+    with ApiTestClient(app) as tc:
         yield tc
 
 
-def test_list_workflows_returns_encode_workflow(client: TestClient) -> None:
+def test_list_workflows_returns_encode_workflow(client: ApiTestClient) -> None:
     response = client.get("/api/v1/workflows")
     assert response.status_code == 200
     data = response.json()
@@ -100,7 +100,7 @@ def test_list_workflows_returns_encode_workflow(client: TestClient) -> None:
     assert data["issues"] == []
 
 
-def test_get_schema_returns_hints(client: TestClient) -> None:
+def test_get_schema_returns_hints(client: ApiTestClient) -> None:
     workflow_id = "encode-style-chipseq-cuttag-atac-mnase"
     response = client.get(f"/api/v1/workflows/{workflow_id}/schema")
     assert response.status_code == 200
@@ -113,7 +113,7 @@ def test_get_schema_returns_hints(client: TestClient) -> None:
     assert data["issues"] == []
 
 
-def test_get_schema_unknown_workflow_returns_404(client: TestClient) -> None:
+def test_get_schema_unknown_workflow_returns_404(client: ApiTestClient) -> None:
     response = client.get("/api/v1/workflows/missing-workflow/schema")
     assert response.status_code == 404
     data = response.json()
@@ -124,7 +124,7 @@ def test_get_schema_unknown_workflow_returns_404(client: TestClient) -> None:
 
 
 def test_validate_success(
-    client: TestClient,
+    client: ApiTestClient,
     minimal_config_and_samples: tuple[str, str],
 ) -> None:
     config_path, samples_path = minimal_config_and_samples
@@ -144,7 +144,7 @@ def test_validate_success(
     assert data["issues"] == []
 
 
-def test_validate_failure_with_structured_issues(client: TestClient) -> None:
+def test_validate_failure_with_structured_issues(client: ApiTestClient) -> None:
     workflow_id = "encode-style-chipseq-cuttag-atac-mnase"
     response = client.post(
         f"/api/v1/workflows/{workflow_id}/validate",
@@ -159,7 +159,7 @@ def test_validate_failure_with_structured_issues(client: TestClient) -> None:
     assert "ENCODE_CONFIG_INVALID" in codes or "ENCODE_SAMPLES_INVALID" in codes
 
 
-def test_validate_unknown_workflow_returns_404(client: TestClient) -> None:
+def test_validate_unknown_workflow_returns_404(client: ApiTestClient) -> None:
     response = client.post(
         "/api/v1/workflows/missing-workflow/validate",
         json={"config": {}, "samples": "samples.tsv"},
@@ -171,7 +171,7 @@ def test_validate_unknown_workflow_returns_404(client: TestClient) -> None:
 
 
 def test_validate_unsupported_capability_returns_409(
-    unsupported_capability_client: TestClient,
+    unsupported_capability_client: ApiTestClient,
 ) -> None:
     response = unsupported_capability_client.post(
         "/api/v1/workflows/no-validation/validate",
@@ -183,11 +183,11 @@ def test_validate_unsupported_capability_returns_409(
     assert data["issues"][0]["code"] == "WORKFLOW_CAPABILITY_UNSUPPORTED"
 
 
-def test_validate_malformed_json_returns_400(client: TestClient) -> None:
+def test_validate_malformed_json_returns_400(client: ApiTestClient) -> None:
     workflow_id = "encode-style-chipseq-cuttag-atac-mnase"
     response = client.post(
         f"/api/v1/workflows/{workflow_id}/validate",
-        data="not-json",
+        content="not-json",
         headers={"content-type": "application/json"},
     )
     assert response.status_code == 400
@@ -196,7 +196,7 @@ def test_validate_malformed_json_returns_400(client: TestClient) -> None:
     assert data["issues"][0]["code"] == "API_REQUEST_INVALID"
 
 
-def test_validate_wrong_field_types_returns_400(client: TestClient) -> None:
+def test_validate_wrong_field_types_returns_400(client: ApiTestClient) -> None:
     workflow_id = "encode-style-chipseq-cuttag-atac-mnase"
     response = client.post(
         f"/api/v1/workflows/{workflow_id}/validate",

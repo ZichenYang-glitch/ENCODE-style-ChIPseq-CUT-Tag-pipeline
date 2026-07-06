@@ -94,7 +94,7 @@ def _run_log_chunk_response(chunk: Any) -> RunLogChunkResponse:
 
 
 @router.post("/workflows/{workflow_id}/runs", response_model=RunResponse, status_code=201)
-def create_run(
+async def create_run(
     workflow_id: str,
     request_body: RunCreateRequest,
     run_service: RunService = Depends(get_run_service),
@@ -135,7 +135,7 @@ def create_run(
 
 
 @router.get("/runs/{run_id}", response_model=RunResponse)
-def get_run(
+async def get_run(
     run_id: str,
     run_service: RunService = Depends(get_run_service),
 ) -> RunResponse | JSONResponse:
@@ -156,7 +156,7 @@ def get_run(
 
 
 @router.post("/runs/{run_id}/cancel", response_model=RunResponse)
-def cancel_run(
+async def cancel_run(
     run_id: str,
     run_service: RunService = Depends(get_run_service),
 ) -> RunResponse | JSONResponse:
@@ -177,7 +177,7 @@ def cancel_run(
 
 
 @router.get("/runs/{run_id}/events", response_model=RunEventsResponse)
-def list_run_events(
+async def list_run_events(
     run_id: str,
     after: str | None = None,
     limit: int = Query(default=50, ge=1),
@@ -227,7 +227,7 @@ def list_run_events(
 
 
 @router.get("/runs/{run_id}/logs", response_model=RunLogsResponse)
-def list_run_logs(
+async def list_run_logs(
     run_id: str,
     stream_name: str = "stdout",
     after: str | None = None,

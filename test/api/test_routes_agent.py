@@ -16,24 +16,24 @@ from encode_pipeline.services.defaults import create_default_agent_service
 from encode_pipeline.services.llm_client import MockLLMClient
 from encode_pipeline.services.validation import ValidationService
 from encode_pipeline.services.workflow_info import WorkflowInfoService
+from api_test_client import ApiTestClient
 
 fastapi = pytest.importorskip("fastapi")
-from fastapi.testclient import TestClient  # noqa: E402
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 DEFAULT_MOCK_RESPONSE = "This is a deterministic mock explanation from the workflow agent."
 
 
 @pytest.fixture
-def client() -> Iterator[TestClient]:
+def client() -> Iterator[ApiTestClient]:
     """Default app wired to the bundled ENCODE-style adapter and mock LLM."""
     app = create_app()
-    with TestClient(app) as tc:
+    with ApiTestClient(app) as tc:
         yield tc
 
 
 @pytest.fixture
-def deterministic_client() -> Iterator[TestClient]:
+def deterministic_client() -> Iterator[ApiTestClient]:
     """App with a deterministic mock LLM client for reproducibility checks."""
     app = create_app()
     registry = app.state.registry
@@ -41,11 +41,11 @@ def deterministic_client() -> Iterator[TestClient]:
     validation_service = ValidationService(registry=registry)
     llm_client = MockLLMClient(response_text="Deterministic mock explanation.")
     app.state.agent_service = AgentService(workflow_info, validation_service, llm_client)
-    with TestClient(app) as tc:
+    with ApiTestClient(app) as tc:
         yield tc
 
 
-def test_agent_chat_returns_agent_response_for_known_workflow(client: TestClient) -> None:
+def test_agent_chat_returns_agent_response_for_known_workflow(client: ApiTestClient) -> None:
     response = client.post(
         f"/api/v1/workflows/{WORKFLOW_ID}/agent/chat",
         json={"session_id": "sess-1", "message": "Explain the issues."},
@@ -60,7 +60,7 @@ def test_agent_chat_returns_agent_response_for_known_workflow(client: TestClient
     assert "tool_calls" in data
 
 
-def test_agent_chat_message_is_deterministic(deterministic_client: TestClient) -> None:
+def test_agent_chat_message_is_deterministic(deterministic_client: ApiTestClient) -> None:
     payload = {"session_id": "sess-2", "message": "Explain the issues."}
     first = deterministic_client.post(
         f"/api/v1/workflows/{WORKFLOW_ID}/agent/chat",
@@ -79,7 +79,7 @@ def test_agent_chat_message_is_deterministic(deterministic_client: TestClient) -
     assert first_data["tool_calls"] == second_data["tool_calls"]
 
 
-def test_agent_chat_includes_read_only_explain_issues_tool_call(client: TestClient) -> None:
+def test_agent_chat_includes_read_only_explain_issues_tool_call(client: ApiTestClient) -> None:
     response = client.post(
         f"/api/v1/workflows/{WORKFLOW_ID}/agent/chat",
         json={"message": "Explain the issues."},
@@ -94,7 +94,7 @@ def test_agent_chat_includes_read_only_explain_issues_tool_call(client: TestClie
     assert "output_summary" in tool_call
 
 
-def test_agent_chat_unknown_workflow_returns_ok_false(client: TestClient) -> None:
+def test_agent_chat_unknown_workflow_returns_ok_false(client: ApiTestClient) -> None:
     response = client.post(
         "/api/v1/workflows/missing-workflow/agent/chat",
         json={"message": "Explain the issues."},
@@ -111,7 +111,7 @@ def test_agent_chat_unknown_workflow_returns_ok_false(client: TestClient) -> Non
     assert data["tool_calls"] == []
 
 
-def test_agent_chat_does_not_require_api_keys_or_network(client: TestClient) -> None:
+def test_agent_chat_does_not_require_api_keys_or_network(client: ApiTestClient) -> None:
     """The default composition uses MockLLMClient, so no keys/network are needed."""
     response = client.post(
         f"/api/v1/workflows/{WORKFLOW_ID}/agent/chat",
@@ -124,10 +124,10 @@ def test_agent_chat_does_not_require_api_keys_or_network(client: TestClient) -> 
     assert data["message"] == DEFAULT_MOCK_RESPONSE
 
 
-def test_agent_chat_malformed_request_returns_400(client: TestClient) -> None:
+def test_agent_chat_malformed_request_returns_400(client: ApiTestClient) -> None:
     response = client.post(
         f"/api/v1/workflows/{WORKFLOW_ID}/agent/chat",
-        data="not-json",
+        content="not-json",
         headers={"content-type": "application/json"},
     )
     assert response.status_code == 400
@@ -136,7 +136,7 @@ def test_agent_chat_malformed_request_returns_400(client: TestClient) -> None:
     assert data["issues"][0]["code"] == "API_REQUEST_INVALID"
 
 
-def test_agent_route_uses_app_state_services(client: TestClient) -> None:
+def test_agent_route_uses_app_state_services(client: ApiTestClient) -> None:
     """The endpoint should resolve the agent service from app.state, not recreate it."""
     app = client.app
     assert hasattr(app.state, "agent_service")
@@ -145,7 +145,7 @@ def test_agent_route_uses_app_state_services(client: TestClient) -> None:
     assert hasattr(app.state, "validation_service")
 
 
-def test_agent_route_registry_matches_validation_service_registry(client: TestClient) -> None:
+def test_agent_route_registry_matches_validation_service_registry(client: ApiTestClient) -> None:
     """create_app should compose services from a single shared registry instance."""
     app = client.app
     agent_service = app.state.agent_service

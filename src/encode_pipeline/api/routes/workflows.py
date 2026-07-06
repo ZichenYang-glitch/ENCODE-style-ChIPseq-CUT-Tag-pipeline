@@ -61,7 +61,7 @@ def _conflict_response(workflow_id: str, body: dict) -> JSONResponse:
 
 
 @router.get("/", response_model=WorkflowListResponse)
-def list_workflows(
+async def list_workflows(
     registry: WorkflowRegistry = Depends(get_registry),
 ) -> WorkflowListResponse:
     """List registered workflows with metadata and capabilities."""
@@ -78,7 +78,7 @@ def list_workflows(
 
 
 @router.get("/{workflow_id}/schema", response_model=SchemaResponse)
-def get_schema(
+async def get_schema(
     workflow_id: str,
     registry: WorkflowRegistry = Depends(get_registry),
 ) -> SchemaResponse:
@@ -105,7 +105,7 @@ def get_schema(
 
 
 @router.post("/{workflow_id}/validate", response_model=ValidationResponse)
-def validate_workflow(
+async def validate_workflow(
     workflow_id: str,
     request_body: ValidationRequest,
     validation_service: ValidationService = Depends(get_validation_service),

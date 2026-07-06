@@ -15,7 +15,7 @@ dependencies = [
 api = [
     "fastapi",
     "uvicorn[standard]",
-    "httpx2",
+    "httpx",
 ]
 llm-openai = [
     "openai",
