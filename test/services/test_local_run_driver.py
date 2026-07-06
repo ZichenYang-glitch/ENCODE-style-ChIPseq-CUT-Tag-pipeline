@@ -252,6 +252,116 @@ def test_constructor_rejects_non_process_runner():
 
 
 # ---------------------------------------------------------------------------
+# Dry-run flag conflict tests
+# ---------------------------------------------------------------------------
+
+
+def test_run_refuses_when_argv_contains_dash_n(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+    )
+    plan = _make_plan(
+        status=PlanStatus.PLANNED,
+        workflow_id="encode-style-chipseq-cuttag-atac-mnase",
+        command_spec=CommandSpec(argv=("snakemake", "-n")),
+    )
+
+    result = driver.run("run-1", plan)
+
+    assert result.is_failure is True
+    assert result.issues[0].code == "LOCAL_RUN_DRY_RUN_FLAG_CONFLICT"
+    assert result.issues[0].source == "local_run_driver"
+    assert result.issues[0].path == "command_spec"
+
+
+def test_run_refuses_when_argv_contains_dash_dash_dry_run(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+    )
+    plan = _make_plan(
+        status=PlanStatus.PLANNED,
+        workflow_id="encode-style-chipseq-cuttag-atac-mnase",
+        command_spec=CommandSpec(argv=("snakemake", "--dry-run")),
+    )
+
+    result = driver.run("run-1", plan)
+
+    assert result.is_failure is True
+    assert result.issues[0].code == "LOCAL_RUN_DRY_RUN_FLAG_CONFLICT"
+
+
+def test_flag_conflict_records_runner_refused_with_correct_reason_code(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+    )
+    plan = _make_plan(
+        status=PlanStatus.PLANNED,
+        workflow_id="encode-style-chipseq-cuttag-atac-mnase",
+        command_spec=CommandSpec(argv=("snakemake", "-n")),
+    )
+
+    driver.run("run-1", plan)
+    events = service.list_events("run-1")
+    refuse_event = [e for e in events if e.event_type == "runner_refused"][0]
+
+    assert refuse_event.context["reason_code"] == "LOCAL_RUN_DRY_RUN_FLAG_CONFLICT"
+    # No dry_run events
+    event_types = [e.event_type for e in events]
+    assert "dry_run_completed" not in event_types
+    assert "dry_run_failed" not in event_types
+
+
+def test_flag_conflict_does_not_call_process_runner(tmp_path):
+    """ProcessRunner.run() must not be called when flag conflict is detected."""
+    calls = []
+
+    class SpyProcessRunner(ProcessRunner):
+        def __init__(self):
+            super().__init__(allowed_executables=("snakemake",))
+
+        def run(self, spec):
+            calls.append(("run", spec))
+            return Result.success(
+                ProcessResult(exit_code=0, stdout="", stderr="")
+            )
+
+    spy = SpyProcessRunner()
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=spy,
+    )
+    plan = _make_plan(
+        status=PlanStatus.PLANNED,
+        workflow_id="encode-style-chipseq-cuttag-atac-mnase",
+        command_spec=CommandSpec(argv=("snakemake", "-n")),
+    )
+
+    driver.run("run-1", plan)
+
+    assert len(calls) == 0
+
+
+# ---------------------------------------------------------------------------
 # Existing tests updated for new constructor
 # ---------------------------------------------------------------------------
 
@@ -373,7 +483,7 @@ def test_local_run_driver_refuses_executable_plan_with_not_implemented():
     )
     plan = _make_plan(
         status=PlanStatus.PLANNED,
-        command_spec=CommandSpec(argv=("snakemake", "-n")),
+        command_spec=CommandSpec(argv=("snakemake", "--cores", "4")),
     )
 
     result = driver.run("run-1", plan)

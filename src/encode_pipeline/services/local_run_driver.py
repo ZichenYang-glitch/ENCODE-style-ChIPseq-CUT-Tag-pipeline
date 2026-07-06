@@ -6,11 +6,11 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from encode_pipeline.platform.adapters import CommandSpec
 from encode_pipeline.platform.planning import PlanStatus, WorkspacePathError, WorkspacePathPolicy
 from encode_pipeline.platform.results import Issue, Result
 
 if TYPE_CHECKING:
-    from encode_pipeline.platform.adapters import CommandSpec
     from encode_pipeline.platform.planning import ExecutionPlan
     from encode_pipeline.platform.runs import RunRecord
     from encode_pipeline.services.command_builder import CommandBuilder
@@ -122,6 +122,17 @@ class LocalRunDriver:
                 )
             return self._refuse(issue, plan, record.run_id)
 
+        # Dry-run flag conflict check
+        if any(arg in ("-n", "--dry-run") for arg in plan.command_spec.argv):
+            issue = Issue(
+                code="LOCAL_RUN_DRY_RUN_FLAG_CONFLICT",
+                message="CommandSpec argv already contains a dry-run flag.",
+                severity="error",
+                path="command_spec",
+                source="local_run_driver",
+            )
+            return self._refuse(issue, plan, record.run_id)
+
         issue = Issue(
             code="LOCAL_RUN_NOT_IMPLEMENTED",
             message="Local execution is not implemented yet.",
@@ -231,6 +242,25 @@ class LocalRunDriver:
                 "has_command_spec": True,
                 "plan_status": planned_plan.status.value,
             },
+        )
+
+        # Dry-run flag conflict check
+        original_argv = planned_plan.command_spec.argv
+        if any(arg in ("-n", "--dry-run") for arg in original_argv):
+            issue = Issue(
+                code="LOCAL_RUN_DRY_RUN_FLAG_CONFLICT",
+                message="CommandSpec argv already contains a dry-run flag.",
+                severity="error",
+                path="command_spec",
+                source="local_run_driver",
+            )
+            return self._refuse(issue, planned_plan, run_id)
+
+        # Build dry-run CommandSpec
+        dry_run_spec = CommandSpec(
+            argv=original_argv + ("-n",),
+            cwd=planned_plan.command_spec.cwd,
+            env=planned_plan.command_spec.env,
         )
 
         return planned_plan
