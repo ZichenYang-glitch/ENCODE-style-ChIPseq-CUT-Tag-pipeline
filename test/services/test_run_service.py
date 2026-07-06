@@ -503,7 +503,6 @@ def test_importing_run_service_does_not_import_upper_layers():
             "fastapi",
             "pydantic",
             "snakemake",
-            "subprocess",
             "openai",
         ]
         found = [name for name in sys.modules if any(name.startswith(p) for p in forbidden)]

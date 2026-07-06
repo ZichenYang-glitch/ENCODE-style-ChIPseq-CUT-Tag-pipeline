@@ -14,6 +14,7 @@ from encode_pipeline.services.defaults import (
 )
 from encode_pipeline.services.command_builder import CommandBuilder
 from encode_pipeline.services.local_run_driver import LocalRunDriver
+from encode_pipeline.services.process_runner import ProcessRunner
 from encode_pipeline.services.materialization import WorkspaceMaterializer
 from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 from encode_pipeline.services.runs import RunService
@@ -25,6 +26,7 @@ __all__ = [
     "CommandBuilder",
     "ExecutionPlanner",
     "LocalRunDriver",
+    "ProcessRunner",
     "RunService",
     "StubExecutionDriver",
     "ValidationService",
