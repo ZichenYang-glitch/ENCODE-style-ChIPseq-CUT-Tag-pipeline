@@ -198,6 +198,60 @@ def test_local_run_driver_constructor_does_not_create_directories(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Constructor — process_runner parameter
+# ---------------------------------------------------------------------------
+
+from encode_pipeline.services.process_runner import ProcessResult, ProcessRunner
+
+
+class _FakeProcessRunner(ProcessRunner):
+    """Test double that overrides run() to return controlled results."""
+
+    def __init__(self):
+        super().__init__(allowed_executables=("snakemake",))
+
+    def run(self, spec):
+        return Result.success(
+            ProcessResult(exit_code=0, stdout="", stderr="")
+        )
+
+
+def test_constructor_defaults_process_runner_to_process_runner_instance():
+    driver = LocalRunDriver(
+        run_service=_make_run_service(),
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=Path("/tmp/test-workspaces"),
+    )
+    assert isinstance(driver._process_runner, ProcessRunner)
+    assert driver._process_runner._allowed_executables == ("snakemake",)
+
+
+def test_constructor_accepts_explicit_process_runner():
+    explicit = ProcessRunner(allowed_executables=("snakemake",), timeout_seconds=10.0)
+    driver = LocalRunDriver(
+        run_service=_make_run_service(),
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=Path("/tmp/test-workspaces"),
+        process_runner=explicit,
+    )
+    assert driver._process_runner is explicit
+    assert driver._process_runner._timeout_seconds == 10.0
+
+
+def test_constructor_rejects_non_process_runner():
+    with pytest.raises(ValueError, match="ProcessRunner"):
+        LocalRunDriver(
+            run_service=_make_run_service(),
+            materializer=_make_materializer(),
+            command_builder=_make_command_builder(),
+            workspace_root=Path("/tmp/test-workspaces"),
+            process_runner="not-a-runner",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Existing tests updated for new constructor
 # ---------------------------------------------------------------------------
 

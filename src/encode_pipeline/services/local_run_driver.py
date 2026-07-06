@@ -10,10 +10,12 @@ from encode_pipeline.platform.planning import PlanStatus, WorkspacePathError, Wo
 from encode_pipeline.platform.results import Issue, Result
 
 if TYPE_CHECKING:
+    from encode_pipeline.platform.adapters import CommandSpec
     from encode_pipeline.platform.planning import ExecutionPlan
     from encode_pipeline.platform.runs import RunRecord
     from encode_pipeline.services.command_builder import CommandBuilder
     from encode_pipeline.services.materialization import WorkspaceMaterializer
+    from encode_pipeline.services.process_runner import ProcessRunner
     from encode_pipeline.services.runs import RunService
 
 
@@ -34,9 +36,12 @@ class LocalRunDriver:
         materializer: "WorkspaceMaterializer",
         command_builder: "CommandBuilder",
         workspace_root: Path,
+        *,
+        process_runner: "ProcessRunner | None" = None,
     ) -> None:
         from encode_pipeline.services.command_builder import CommandBuilder
         from encode_pipeline.services.materialization import WorkspaceMaterializer
+        from encode_pipeline.services.process_runner import ProcessRunner
         from encode_pipeline.services.runs import RunService
 
         if not isinstance(run_service, RunService):
@@ -47,10 +52,15 @@ class LocalRunDriver:
             raise ValueError("LocalRunDriver requires a CommandBuilder instance")
         if not isinstance(workspace_root, Path) or not workspace_root.is_absolute():
             raise ValueError("LocalRunDriver requires an absolute workspace_root Path")
+        if process_runner is not None and not isinstance(process_runner, ProcessRunner):
+            raise ValueError("LocalRunDriver requires a ProcessRunner instance or None")
         self._run_service = run_service
         self._materializer = materializer
         self._command_builder = command_builder
         self._workspace_root = workspace_root
+        self._process_runner = (
+            process_runner if process_runner is not None else ProcessRunner()
+        )
 
     def run(self, run_id: str, plan: "ExecutionPlan") -> "Result[RunRecord]":
         """Validate plan and refuse execution.
