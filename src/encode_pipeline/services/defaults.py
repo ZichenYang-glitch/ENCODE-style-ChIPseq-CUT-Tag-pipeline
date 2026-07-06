@@ -9,7 +9,11 @@ from encode_pipeline.services.validation import ValidationService
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from encode_pipeline.services.agent import AgentService
+    from encode_pipeline.services.command_builder import CommandBuilder
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
     from encode_pipeline.services.runs import RunService
 
 
@@ -94,11 +98,40 @@ def create_default_run_service(
 
 def create_default_local_run_driver(
     run_service: "RunService",
+    *,
+    workspace_root: Path | None = None,
+    materializer: "WorkspaceMaterializer | None" = None,
+    command_builder: "CommandBuilder | None" = None,
 ) -> "LocalRunDriver":
-    """Return a fail-closed local run driver wired to the given run service."""
-    from encode_pipeline.services.local_run_driver import LocalRunDriver
+    """Return a local run driver wired to the given run service.
 
-    return LocalRunDriver(run_service=run_service)
+    Args:
+        run_service: Required run service for lifeccle management.
+        workspace_root: Parent directory for per-run workspace directories.
+            Defaults to ``Path.home() / ".encode-pipeline" / "workspaces"``.
+        materializer: Optional workspace materializer. Defaults to
+            ``WorkspaceMaterializer()``.
+        command_builder: Optional command builder. Defaults to
+            ``create_default_command_builder()``.
+    """
+    from pathlib import Path
+
+    from encode_pipeline.services.command_builder import CommandBuilder
+    from encode_pipeline.services.local_run_driver import LocalRunDriver
+    from encode_pipeline.services.materialization import WorkspaceMaterializer
+
+    if workspace_root is None:
+        workspace_root = Path.home() / ".encode-pipeline" / "workspaces"
+    if materializer is None:
+        materializer = WorkspaceMaterializer()
+    if command_builder is None:
+        command_builder = create_default_command_builder()
+    return LocalRunDriver(
+        run_service=run_service,
+        materializer=materializer,
+        command_builder=command_builder,
+        workspace_root=workspace_root,
+    )
 
 
 def create_default_stub_execution_driver(
