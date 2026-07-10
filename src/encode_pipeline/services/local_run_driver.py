@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from encode_pipeline.platform.adapters import CommandSpec
-from encode_pipeline.platform.planning import PlanStatus, WorkspacePathError, WorkspacePathPolicy
+from encode_pipeline.platform.planning import (
+    PlanStatus,
+    WorkspacePathError,
+    WorkspacePathPolicy,
+)
 from encode_pipeline.platform.results import Issue, Result
 
 if TYPE_CHECKING:
@@ -305,7 +309,9 @@ class LocalRunDriver:
             )
 
         # ProcessRunner failure (timeout / not found / OSError)
-        first_issue_code = dry_run_result.issues[0].code if dry_run_result.issues else "UNKNOWN"
+        first_issue_code = (
+            dry_run_result.issues[0].code if dry_run_result.issues else "UNKNOWN"
+        )
         self._run_service.add_event(
             run_id=run_id,
             event_type="dry_run_failed",
@@ -330,7 +336,9 @@ class LocalRunDriver:
             additional_issues=dry_run_result.issues,
         )
 
-    def _append_dry_run_logs(self, run_id: str, process_result: "ProcessResult") -> None:
+    def _append_dry_run_logs(
+        self, run_id: str, process_result: "ProcessResult"
+    ) -> None:
         """Append non-empty stdout/stderr from a dry-run ProcessResult to RunService logs."""
         if process_result.stdout:
             self._run_service.append_log(

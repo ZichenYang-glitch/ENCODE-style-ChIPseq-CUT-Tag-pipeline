@@ -22,6 +22,7 @@ from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.services.command_builder import CommandBuilder
 from encode_pipeline.services.local_run_driver import LocalRunDriver
 from encode_pipeline.services.materialization import WorkspaceMaterializer
+from encode_pipeline.services.process_runner import ProcessResult, ProcessRunner
 from encode_pipeline.services.runs import RunService
 
 
@@ -147,7 +148,9 @@ def _make_plan(
 
 
 def test_local_run_driver_requires_run_service():
-    with pytest.raises(ValueError, match="LocalRunDriver requires a RunService instance"):
+    with pytest.raises(
+        ValueError, match="LocalRunDriver requires a RunService instance"
+    ):
         LocalRunDriver(
             run_service="not-a-run-service",
             materializer=_make_materializer(),
@@ -157,7 +160,9 @@ def test_local_run_driver_requires_run_service():
 
 
 def test_local_run_driver_requires_materializer():
-    with pytest.raises(ValueError, match="LocalRunDriver requires a WorkspaceMaterializer instance"):
+    with pytest.raises(
+        ValueError, match="LocalRunDriver requires a WorkspaceMaterializer instance"
+    ):
         LocalRunDriver(
             run_service=_make_run_service(),
             materializer="not-a-materializer",
@@ -167,7 +172,9 @@ def test_local_run_driver_requires_materializer():
 
 
 def test_local_run_driver_requires_command_builder():
-    with pytest.raises(ValueError, match="LocalRunDriver requires a CommandBuilder instance"):
+    with pytest.raises(
+        ValueError, match="LocalRunDriver requires a CommandBuilder instance"
+    ):
         LocalRunDriver(
             run_service=_make_run_service(),
             materializer=_make_materializer(),
@@ -177,7 +184,9 @@ def test_local_run_driver_requires_command_builder():
 
 
 def test_local_run_driver_requires_absolute_workspace_root():
-    with pytest.raises(ValueError, match="LocalRunDriver requires an absolute workspace_root Path"):
+    with pytest.raises(
+        ValueError, match="LocalRunDriver requires an absolute workspace_root Path"
+    ):
         LocalRunDriver(
             run_service=_make_run_service(),
             materializer=_make_materializer(),
@@ -188,7 +197,7 @@ def test_local_run_driver_requires_absolute_workspace_root():
 
 def test_local_run_driver_constructor_does_not_create_directories(tmp_path):
     workspace_root = tmp_path / "nonexistent"
-    driver = LocalRunDriver(
+    LocalRunDriver(
         run_service=_make_run_service(),
         materializer=_make_materializer(),
         command_builder=_make_command_builder(),
@@ -200,8 +209,6 @@ def test_local_run_driver_constructor_does_not_create_directories(tmp_path):
 # ---------------------------------------------------------------------------
 # Constructor — process_runner parameter
 # ---------------------------------------------------------------------------
-
-from encode_pipeline.services.process_runner import ProcessResult, ProcessRunner
 
 
 class _FakeProcessRunner(ProcessRunner):
@@ -274,7 +281,9 @@ def test_constructor_rejects_non_process_runner():
 
 def test_run_refuses_when_argv_contains_dash_n(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -297,7 +306,9 @@ def test_run_refuses_when_argv_contains_dash_n(tmp_path):
 
 def test_run_refuses_when_argv_contains_dash_dash_dry_run(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -318,7 +329,9 @@ def test_run_refuses_when_argv_contains_dash_dash_dry_run(tmp_path):
 
 def test_flag_conflict_records_runner_refused_with_correct_reason_code(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -352,13 +365,13 @@ def test_flag_conflict_does_not_call_process_runner(tmp_path):
 
         def run(self, spec):
             calls.append(("run", spec))
-            return Result.success(
-                ProcessResult(exit_code=0, stdout="", stderr="")
-            )
+            return Result.success(ProcessResult(exit_code=0, stdout="", stderr=""))
 
     spy = SpyProcessRunner()
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -384,7 +397,9 @@ def test_flag_conflict_does_not_call_process_runner(tmp_path):
 
 def test_dry_run_exit_zero_returns_planned_plan_and_refuses(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -402,7 +417,9 @@ def test_dry_run_exit_zero_returns_planned_plan_and_refuses(tmp_path):
 
 def test_dry_run_exit_zero_records_dry_run_completed_event(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -423,7 +440,9 @@ def test_dry_run_exit_zero_records_dry_run_completed_event(tmp_path):
 
 def test_dry_run_exit_zero_does_not_record_dry_run_failed(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -442,7 +461,9 @@ def test_dry_run_exit_zero_does_not_record_dry_run_failed(tmp_path):
 
 def test_dry_run_exit_zero_original_plan_not_mutated(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -463,7 +484,9 @@ def test_dry_run_exit_zero_original_plan_not_mutated(tmp_path):
 
 def test_dry_run_exit_zero_runner_refused_reason_is_local_run_not_implemented(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -513,7 +536,9 @@ class _FakeProcessRunnerNonzero(ProcessRunner):
 
 def test_dry_run_nonzero_returns_failure_with_wrapper(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -540,7 +565,9 @@ def test_dry_run_nonzero_returns_failure_with_wrapper(tmp_path):
 
 def test_dry_run_nonzero_records_dry_run_failed_event(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -562,7 +589,9 @@ def test_dry_run_nonzero_records_dry_run_failed_event(tmp_path):
 
 def test_dry_run_nonzero_runner_refused_reason_is_dry_run_failed(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -581,7 +610,9 @@ def test_dry_run_nonzero_runner_refused_reason_is_dry_run_failed(tmp_path):
 
 def test_dry_run_nonzero_does_not_record_dry_run_completed(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -646,7 +677,9 @@ class _FakeProcessRunnerNotFound(ProcessRunner):
 
 def test_process_runner_timeout_returns_failure_with_wrapper(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -668,7 +701,9 @@ def test_process_runner_timeout_returns_failure_with_wrapper(tmp_path):
 
 def test_process_runner_timeout_records_dry_run_failed_event(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -690,7 +725,9 @@ def test_process_runner_timeout_records_dry_run_failed_event(tmp_path):
 
 def test_process_runner_timeout_runner_refused_reason_is_process_failed(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -709,7 +746,9 @@ def test_process_runner_timeout_runner_refused_reason_is_process_failed(tmp_path
 
 def test_process_runner_not_found_returns_failure_with_wrapper(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -728,7 +767,9 @@ def test_process_runner_not_found_returns_failure_with_wrapper(tmp_path):
 
 def test_process_runner_not_found_records_dry_run_failed_event(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -742,7 +783,10 @@ def test_process_runner_not_found_records_dry_run_failed_event(tmp_path):
     events = service.list_events("run-1")
     dry_run_events = [e for e in events if e.event_type == "dry_run_failed"]
 
-    assert dry_run_events[0].context["process_issue_code"] == "PROCESS_RUNNER_EXECUTABLE_NOT_FOUND"
+    assert (
+        dry_run_events[0].context["process_issue_code"]
+        == "PROCESS_RUNNER_EXECUTABLE_NOT_FOUND"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -950,7 +994,7 @@ def test_local_run_driver_does_not_transition_run_status():
     after_events = service.list_events("run-1")
 
     assert after.status == original_status
-    new_events = after_events[len(before_events):]
+    new_events = after_events[len(before_events) :]
     assert not any(event.event_type == "status_changed" for event in new_events)
 
 
@@ -995,7 +1039,9 @@ def test_local_run_driver_unknown_run_does_not_record_event():
 
 def test_run_materializes_and_builds_command_then_refuses(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     workspace_root = tmp_path / "workspaces"
     driver = LocalRunDriver(
         run_service=service,
@@ -1026,7 +1072,9 @@ def test_run_materializes_and_builds_command_then_refuses(tmp_path):
 
 def test_run_runner_refused_context_after_successful_prepare(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1053,7 +1101,9 @@ def test_run_runner_refused_context_after_successful_prepare(tmp_path):
 
 def test_workspace_materialized_event_context(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1081,7 +1131,9 @@ def test_workspace_materialized_event_context(tmp_path):
 
 def test_command_built_event_context(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1100,7 +1152,9 @@ def test_command_built_event_context(tmp_path):
 
 def test_no_status_changed_events(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1113,7 +1167,7 @@ def test_no_status_changed_events(tmp_path):
     driver.run("run-1", plan)
     after = service.list_events("run-1")
 
-    new_events = after[len(before):]
+    new_events = after[len(before) :]
     assert not any(e.event_type == "status_changed" for e in new_events)
 
 
@@ -1124,7 +1178,9 @@ def test_no_status_changed_events(tmp_path):
 
 def test_run_materialization_failure_refuses_and_includes_underlying_issues(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1163,7 +1219,9 @@ def test_run_materialization_failure_refuses_and_includes_underlying_issues(tmp_
 
 def test_run_command_build_failure_refuses_and_includes_underlying_issues(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1199,7 +1257,9 @@ def test_run_command_build_failure_refuses_and_includes_underlying_issues(tmp_pa
 # ---------------------------------------------------------------------------
 
 
-def test_run_pending_without_workspace_plan_refuses_with_missing_workspace_plan(tmp_path):
+def test_run_pending_without_workspace_plan_refuses_with_missing_workspace_plan(
+    tmp_path,
+):
     service = _make_run_service()
     service.create_run("fake", WorkflowInputs(config={}))
     driver = LocalRunDriver(
@@ -1271,7 +1331,9 @@ def test_run_workspace_dir_derivation_with_traversal_refuses(tmp_path):
 
 def test_run_materialization_failure_event_has_no_paths(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1294,7 +1356,9 @@ def test_run_materialization_failure_event_has_no_paths(tmp_path):
 
 def test_run_prepare_success_event_has_no_command_leakage(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1332,7 +1396,9 @@ def test_dry_run_events_contain_no_stdout_or_stderr(tmp_path):
             )
 
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1352,7 +1418,9 @@ def test_dry_run_events_contain_no_stdout_or_stderr(tmp_path):
 
 def test_dry_run_events_contain_no_paths(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     workspace_root = tmp_path / "my-secret-workspaces"
     driver = LocalRunDriver(
         run_service=service,
@@ -1374,7 +1442,9 @@ def test_dry_run_events_contain_no_paths(tmp_path):
 
 def test_dry_run_events_contain_no_command_strings(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1396,7 +1466,9 @@ def test_dry_run_events_contain_no_command_strings(tmp_path):
 
 def test_dry_run_does_not_transition_run_status(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    record = service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    record = service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     original_status = record.status
     driver = LocalRunDriver(
         run_service=service,
@@ -1413,13 +1485,15 @@ def test_dry_run_does_not_transition_run_status(tmp_path):
     after_events = service.list_events("run-1")
 
     assert after.status == original_status
-    new_events = after_events[len(before_events):]
+    new_events = after_events[len(before_events) :]
     assert not any(e.event_type == "status_changed" for e in new_events)
 
 
 def test_dry_run_empty_output_does_not_append_logs(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1437,7 +1511,9 @@ def test_dry_run_empty_output_does_not_append_logs(tmp_path):
 
 def test_dry_run_success_appends_stdout(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1457,7 +1533,9 @@ def test_dry_run_success_appends_stdout(tmp_path):
 
 def test_dry_run_success_appends_stderr(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1477,7 +1555,9 @@ def test_dry_run_success_appends_stderr(tmp_path):
 
 def test_dry_run_success_appends_both_streams(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1502,7 +1582,9 @@ def test_dry_run_success_appends_both_streams(tmp_path):
 
 def test_dry_run_trailing_newline_does_not_add_empty_line(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1520,7 +1602,9 @@ def test_dry_run_trailing_newline_does_not_add_empty_line(tmp_path):
 
 def test_dry_run_process_failure_does_not_fabricate_logs(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1556,7 +1640,9 @@ def test_dry_run_appends_logs_before_event(tmp_path):
         registry=_make_registry(),
         id_factory=lambda: "run-1",
     )
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1569,13 +1655,21 @@ def test_dry_run_appends_logs_before_event(tmp_path):
     driver.run("run-1", plan)
 
     event_indices = {call: i for i, call in enumerate(service.calls)}
-    assert event_indices[("append_log", "stdout", ("out",))] < event_indices[("add_event", "dry_run_completed")]
-    assert event_indices[("append_log", "stderr", ("err",))] < event_indices[("add_event", "dry_run_completed")]
+    assert (
+        event_indices[("append_log", "stdout", ("out",))]
+        < event_indices[("add_event", "dry_run_completed")]
+    )
+    assert (
+        event_indices[("append_log", "stderr", ("err",))]
+        < event_indices[("add_event", "dry_run_completed")]
+    )
 
 
 def test_dry_run_single_chunk_per_stream_per_invocation(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1597,7 +1691,9 @@ def test_dry_run_single_chunk_per_stream_per_invocation(tmp_path):
 
 def test_dry_run_flag_conflict_events_contain_no_command_leakage(tmp_path):
     service = _make_run_service_with_encode_adapter()
-    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
+    )
     driver = LocalRunDriver(
         run_service=service,
         materializer=_make_materializer(),
@@ -1606,7 +1702,9 @@ def test_dry_run_flag_conflict_events_contain_no_command_leakage(tmp_path):
     )
     plan = _make_plan(
         status=PlanStatus.PLANNED,
-        command_spec=CommandSpec(argv=("snakemake", "-n", "--configfile", "/secret/path.yaml")),
+        command_spec=CommandSpec(
+            argv=("snakemake", "-n", "--configfile", "/secret/path.yaml")
+        ),
     )
 
     driver.run("run-1", plan)
