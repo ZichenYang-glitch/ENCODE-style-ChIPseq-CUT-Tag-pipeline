@@ -395,7 +395,7 @@ def test_flag_conflict_does_not_call_process_runner(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_dry_run_exit_zero_returns_planned_plan_and_refuses(tmp_path):
+def test_dry_run_exit_zero_returns_planned_plan(tmp_path):
     service = _make_run_service_with_encode_adapter()
     service.create_run(
         "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
@@ -411,8 +411,9 @@ def test_dry_run_exit_zero_returns_planned_plan_and_refuses(tmp_path):
 
     result = driver.run("run-1", plan)
 
-    assert result.is_failure is True
-    assert result.issues[0].code == "LOCAL_RUN_NOT_IMPLEMENTED"
+    assert result.is_success is True
+    assert result.value.status is PlanStatus.PLANNED
+    assert result.value.command_spec is not None
 
 
 def test_dry_run_exit_zero_records_dry_run_completed_event(tmp_path):
@@ -480,29 +481,6 @@ def test_dry_run_exit_zero_original_plan_not_mutated(tmp_path):
     assert plan.command_spec is None
     # A new planned_plan was returned from _prepare — that has the command_spec,
     # but this original plan object is untouched
-
-
-def test_dry_run_exit_zero_runner_refused_reason_is_local_run_not_implemented(tmp_path):
-    service = _make_run_service_with_encode_adapter()
-    service.create_run(
-        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
-    )
-    driver = LocalRunDriver(
-        run_service=service,
-        materializer=_make_materializer(),
-        command_builder=_make_command_builder(),
-        workspace_root=tmp_path / "workspaces",
-        process_runner=_FakeProcessRunner(),
-    )
-    plan = _make_pending_plan_with_workspace()
-
-    driver.run("run-1", plan)
-    events = service.list_events("run-1")
-    refuse_event = [e for e in events if e.event_type == "runner_refused"][0]
-
-    assert refuse_event.context["reason_code"] == "LOCAL_RUN_NOT_IMPLEMENTED"
-    assert refuse_event.context["can_execute"] is True
-    assert refuse_event.context["has_command_spec"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -1040,7 +1018,7 @@ def test_local_run_driver_unknown_run_does_not_record_event():
 # ---------------------------------------------------------------------------
 
 
-def test_run_materializes_and_builds_command_then_refuses(tmp_path):
+def test_run_materializes_and_builds_command_then_returns_planned(tmp_path):
     service = _make_run_service_with_encode_adapter()
     service.create_run(
         "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
@@ -1057,8 +1035,8 @@ def test_run_materializes_and_builds_command_then_refuses(tmp_path):
 
     result = driver.run("run-1", plan)
 
-    assert result.is_failure is True
-    assert result.issues[0].code == "LOCAL_RUN_NOT_IMPLEMENTED"
+    assert result.is_success is True
+    assert result.value.status is PlanStatus.PLANNED
     # Verify filesystem state
     config_file = workspace_root / "run-1" / "config" / "config.yaml"
     assert config_file.is_file()
@@ -1068,33 +1046,8 @@ def test_run_materializes_and_builds_command_then_refuses(tmp_path):
     event_types = [e.event_type for e in events]
     assert "workspace_materialized" in event_types
     assert "command_built" in event_types
-    assert "runner_refused" in event_types
-    # runner_refused must be last
-    assert event_types[-1] == "runner_refused"
-
-
-def test_run_runner_refused_context_after_successful_prepare(tmp_path):
-    service = _make_run_service_with_encode_adapter()
-    service.create_run(
-        "encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={})
-    )
-    driver = LocalRunDriver(
-        run_service=service,
-        materializer=_make_materializer(),
-        command_builder=_make_command_builder(),
-        workspace_root=tmp_path / "workspaces",
-        process_runner=_FakeProcessRunner(),
-    )
-    plan = _make_pending_plan_with_workspace()
-
-    driver.run("run-1", plan)
-    events = service.list_events("run-1")
-    refuse_event = [e for e in events if e.event_type == "runner_refused"][0]
-
-    assert refuse_event.context["reason_code"] == "LOCAL_RUN_NOT_IMPLEMENTED"
-    assert refuse_event.context["plan_status"] == "planned"
-    assert refuse_event.context["can_execute"] is True
-    assert refuse_event.context["has_command_spec"] is True
+    assert "dry_run_completed" in event_types
+    assert "runner_refused" not in event_types
 
 
 # ---------------------------------------------------------------------------
