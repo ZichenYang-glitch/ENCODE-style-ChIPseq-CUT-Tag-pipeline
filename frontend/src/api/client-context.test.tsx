@@ -7,7 +7,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 describe('ClientProvider', () => {
-  it('provides default stub clients', () => {
+  it('provides default generated clients', () => {
     const { result } = renderHook(() => useClients(), { wrapper });
     expect(result.current.workflowClient).toBeDefined();
     expect(result.current.runClient).toBeDefined();

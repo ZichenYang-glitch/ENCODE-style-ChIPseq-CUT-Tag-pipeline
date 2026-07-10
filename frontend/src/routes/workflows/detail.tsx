@@ -49,12 +49,20 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
   const navigate = useNavigate();
   const { workflowClient, agentClient, runClient } = useClients();
 
-  const { data: workflowsData, isLoading: workflowsLoading } = useQuery({
+  const {
+    data: workflowsData,
+    isLoading: workflowsLoading,
+    error: workflowsError,
+  } = useQuery({
     queryKey: ['workflows'],
     queryFn: () => workflowClient.listWorkflows(),
   });
 
-  const { data: schemaData, isLoading: schemaLoading } = useQuery({
+  const {
+    data: schemaData,
+    isLoading: schemaLoading,
+    error: schemaError,
+  } = useQuery({
     queryKey: ['workflow', workflowId, 'schema'],
     queryFn: () => workflowClient.getWorkflowSchema(workflowId),
   });
@@ -96,7 +104,16 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
     !schemaLoading &&
     workflowsData !== undefined &&
     schemaData !== undefined &&
-    (workflow === undefined || schemaData.ok === false);
+    ((workflowsData.ok && workflow === undefined) ||
+      schemaData.issues.some((issue) => issue.code === 'WORKFLOW_NOT_FOUND'));
+
+  const loadError = workflowsError ?? schemaError;
+  const loadIssue =
+    workflowsData?.ok === false
+      ? workflowsData.issues[0]
+      : schemaData?.ok === false && !isNotFound
+        ? schemaData.issues[0]
+        : null;
 
   const notFoundIssues = useMemo(
     () => (isNotFound ? [createNotFoundIssue(workflowId)] : []),
@@ -157,14 +174,37 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
       options,
     };
 
-    const response = await workflowClient.validateWorkflow(workflowId, inputs);
-    setValidationResult(response);
-    if (response.ok) {
-      setValidatedInputs(inputs);
-    } else {
+    try {
+      const response = await workflowClient.validateWorkflow(workflowId, inputs);
+      setValidationResult(response);
+      if (response.ok) {
+        setValidatedInputs(inputs);
+      } else {
+        setValidatedInputs(null);
+      }
+    } catch (error) {
+      setValidationResult({
+        ok: false,
+        workflow_id: workflowId,
+        value: null,
+        issues: [
+          {
+            code: 'API_UNAVAILABLE',
+            message:
+              error instanceof Error ? error.message : 'Validation request failed.',
+            severity: 'error',
+            path: null,
+            source: 'ui',
+            technical_message: null,
+            hint: null,
+            context: {},
+          },
+        ],
+      });
       setValidatedInputs(null);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   function handleConfigChange(value: string) {
@@ -212,6 +252,20 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
         </Panel>
         <Panel title="Validation results">
           <IssuePanel issues={displayedIssues} onAskAgent={handleAskAgent} />
+        </Panel>
+      </section>
+    );
+  }
+
+  if (loadError || loadIssue) {
+    return (
+      <section className="flex min-w-0 flex-1 flex-col gap-3">
+        <Panel title="Workflow unavailable">
+          <p className="text-sm text-[var(--color-error)]" role="alert">
+            {loadError instanceof Error
+              ? loadError.message
+              : loadIssue?.message ?? 'Unable to load workflow details.'}
+          </p>
         </Panel>
       </section>
     );

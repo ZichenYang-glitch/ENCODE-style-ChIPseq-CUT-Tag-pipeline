@@ -15,6 +15,7 @@ export interface RunApiError extends Error {
 
 export interface RunApiClient {
   createRun(workflowId: string, request: RunCreateRequest): Promise<RunResponse>;
+  preflightRun(runId: string): Promise<RunResponse>;
   getRun(runId: string): Promise<RunResponse>;
   listRunEvents(
     runId: string,
@@ -73,6 +74,11 @@ export function createRunApiClient(baseUrl?: string): RunApiClient {
       return getJson<RunResponse>(url);
     },
 
+    async preflightRun(runId) {
+      const url = `${root}/api/v1/runs/${encodeURIComponent(runId)}/preflight`;
+      return postJson<RunResponse>(url, {});
+    },
+
     async listRunEvents(runId, options = {}) {
       const params = new URLSearchParams();
       if (options.after !== undefined) params.set('after', options.after);
@@ -116,6 +122,7 @@ export function createStubRunApiClient(): RunApiClient {
   let counter = 0;
   const runs = new Map<string, RunRecordResponse>();
   const cancelledRuns = new Set<string>();
+  const preflightedRuns = new Set<string>();
 
   function nextRunId(): string {
     counter += 1;
@@ -160,6 +167,36 @@ export function createStubRunApiClient(): RunApiClient {
       return { ok: true, run, issues: [] };
     },
 
+    async preflightRun(runId) {
+      const run = runs.get(runId);
+      if (!run) {
+        return { ok: false, run: null, issues: [runNotFoundIssue(runId)] };
+      }
+      if (run.status !== 'created') {
+        return {
+          ok: false,
+          run: null,
+          issues: [
+            {
+              code: 'PREFLIGHT_ALREADY_TRIGGERED',
+              message: 'Preflight has already been triggered for this run.',
+              severity: 'error',
+              path: 'run_id',
+              source: 'stub',
+              technical_message: null,
+              hint: null,
+              context: { current_status: run.status },
+            },
+          ],
+        };
+      }
+      run.status = 'planned';
+      run.current_stage = 'preflight';
+      run.updated_at = now();
+      preflightedRuns.add(runId);
+      return { ok: true, run, issues: [] };
+    },
+
     async listRunEvents(runId) {
       const run = runs.get(runId);
       if (!run) {
@@ -196,6 +233,21 @@ export function createStubRunApiClient(): RunApiClient {
             new_status: 'cancelled',
             cancellation_reason: 'User requested cancellation.',
           },
+          issue: null,
+        });
+      }
+
+      if (preflightedRuns.has(runId)) {
+        events.push({
+          event_id: `${runId}-evt-preflight`,
+          run_id: runId,
+          sequence: events.length + 1,
+          event_type: 'preflight_completed',
+          timestamp: run.updated_at,
+          status: 'planned',
+          stage: 'preflight',
+          message: 'Stub preflight completed.',
+          context: {},
           issue: null,
         });
       }

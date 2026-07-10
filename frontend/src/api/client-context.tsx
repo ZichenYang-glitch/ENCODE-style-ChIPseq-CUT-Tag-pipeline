@@ -1,7 +1,12 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
-import { createAgentApiClient, type AgentApiClient } from './agentClient';
-import { createStubRunApiClient, type RunApiClient } from './runClient';
-import { createStubWorkflowClient, type WorkflowApiClient } from './client';
+import type { AgentApiClient } from './agentClient';
+import type { RunApiClient } from './runClient';
+import type { WorkflowApiClient } from './client';
+import {
+  createGeneratedAgentClient,
+  createGeneratedRunClient,
+  createGeneratedWorkflowClient,
+} from './generated-client-adapters';
 
 export interface ClientContextValue {
   workflowClient: WorkflowApiClient;
@@ -19,9 +24,9 @@ export interface ClientProviderProps {
 export function ClientProvider({ children, clients }: ClientProviderProps) {
   const value = useMemo<ClientContextValue>(
     () => ({
-      workflowClient: clients?.workflowClient ?? createStubWorkflowClient(),
-      runClient: clients?.runClient ?? createStubRunApiClient(),
-      agentClient: clients?.agentClient ?? createAgentApiClient(),
+      workflowClient: clients?.workflowClient ?? createGeneratedWorkflowClient(),
+      runClient: clients?.runClient ?? createGeneratedRunClient(),
+      agentClient: clients?.agentClient ?? createGeneratedAgentClient(),
     }),
     [clients],
   );

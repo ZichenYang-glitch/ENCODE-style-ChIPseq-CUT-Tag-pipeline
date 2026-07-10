@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { appRoutes } from '../../app/router';
 import { renderWithRouter } from '../../test/test-utils';
 import { createStubRunApiClient } from '../../api/runClient';
+import { createStubWorkflowClient } from '../../api/client';
 import type { RunApiClient } from '../../api/runClient';
 import type { RunResponse } from '../../api/runTypes';
 import type { WorkflowApiClient } from '../../api/client';
@@ -267,6 +268,36 @@ describe('Router', () => {
     expect(screen.queryByLabelText(/Samples \(path string\)/i)).not.toBeInTheDocument();
     expect(screen.queryByTestId('create-run-button')).not.toBeInTheDocument();
     expect(screen.queryByText(/Validation Assistant/i)).not.toBeInTheDocument();
+  });
+
+  it('does not report workflow API failures as not found', async () => {
+    const workflowClient = createStubWorkflowClient();
+    workflowClient.listWorkflows = vi.fn().mockResolvedValue({
+      ok: false,
+      workflows: [],
+      issues: [
+        {
+          code: 'API_UNAVAILABLE',
+          message: 'Workflow service is unavailable.',
+          severity: 'error',
+          path: null,
+          source: 'api',
+          technical_message: null,
+          hint: null,
+          context: {},
+        },
+      ],
+    });
+
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}`],
+      clients: { workflowClient },
+    });
+
+    expect(
+      await screen.findByRole('heading', { name: /Workflow unavailable/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Workflow not found/i)).not.toBeInTheDocument();
   });
 
   it('renders the 404 back link as a single interactive element', async () => {
