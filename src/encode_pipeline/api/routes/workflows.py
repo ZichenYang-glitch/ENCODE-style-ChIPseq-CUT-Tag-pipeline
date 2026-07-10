@@ -60,7 +60,7 @@ def _conflict_response(workflow_id: str, body: dict) -> JSONResponse:
     return JSONResponse(status_code=409, content=body)
 
 
-@router.get("/", response_model=WorkflowListResponse)
+@router.get("/", response_model=WorkflowListResponse, operation_id="listWorkflows")
 async def list_workflows(
     registry: WorkflowRegistry = Depends(get_registry),
 ) -> WorkflowListResponse:
@@ -77,7 +77,7 @@ async def list_workflows(
     return WorkflowListResponse(ok=True, workflows=items, issues=[])
 
 
-@router.get("/{workflow_id}/schema", response_model=SchemaResponse)
+@router.get("/{workflow_id}/schema", response_model=SchemaResponse, operation_id="getWorkflowSchema")
 async def get_schema(
     workflow_id: str,
     registry: WorkflowRegistry = Depends(get_registry),
@@ -104,7 +104,7 @@ async def get_schema(
     )
 
 
-@router.post("/{workflow_id}/validate", response_model=ValidationResponse)
+@router.post("/{workflow_id}/validate", response_model=ValidationResponse, operation_id="validateWorkflow")
 async def validate_workflow(
     workflow_id: str,
     request_body: ValidationRequest,
