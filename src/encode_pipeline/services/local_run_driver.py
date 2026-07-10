@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from encode_pipeline.platform.adapters import CommandSpec
-from encode_pipeline.platform.planning import PlanStatus, WorkspacePathError, WorkspacePathPolicy
+from encode_pipeline.platform.planning import (
+    PlanStatus,
+    WorkspacePathError,
+    WorkspacePathPolicy,
+)
 from encode_pipeline.platform.results import Issue, Result
 
 if TYPE_CHECKING:
@@ -15,7 +19,7 @@ if TYPE_CHECKING:
     from encode_pipeline.platform.runs import RunRecord
     from encode_pipeline.services.command_builder import CommandBuilder
     from encode_pipeline.services.materialization import WorkspaceMaterializer
-    from encode_pipeline.services.process_runner import ProcessRunner
+    from encode_pipeline.services.process_runner import ProcessResult, ProcessRunner
     from encode_pipeline.services.runs import RunService
 
 
@@ -266,6 +270,9 @@ class LocalRunDriver:
         # Execute dry-run via ProcessRunner
         dry_run_result = self._process_runner.run(dry_run_spec)
 
+        if dry_run_result.is_success:
+            self._append_dry_run_logs(run_id, dry_run_result.value)
+
         if dry_run_result.is_success and dry_run_result.value.exit_code == 0:
             self._run_service.add_event(
                 run_id=run_id,
@@ -302,7 +309,9 @@ class LocalRunDriver:
             )
 
         # ProcessRunner failure (timeout / not found / OSError)
-        first_issue_code = dry_run_result.issues[0].code if dry_run_result.issues else "UNKNOWN"
+        first_issue_code = (
+            dry_run_result.issues[0].code if dry_run_result.issues else "UNKNOWN"
+        )
         self._run_service.add_event(
             run_id=run_id,
             event_type="dry_run_failed",
@@ -326,3 +335,16 @@ class LocalRunDriver:
             run_id,
             additional_issues=dry_run_result.issues,
         )
+
+    def _append_dry_run_logs(
+        self, run_id: str, process_result: "ProcessResult"
+    ) -> None:
+        """Append non-empty stdout/stderr from a dry-run ProcessResult to RunService logs."""
+        if process_result.stdout:
+            self._run_service.append_log(
+                run_id, "stdout", process_result.stdout.splitlines()
+            )
+        if process_result.stderr:
+            self._run_service.append_log(
+                run_id, "stderr", process_result.stderr.splitlines()
+            )
