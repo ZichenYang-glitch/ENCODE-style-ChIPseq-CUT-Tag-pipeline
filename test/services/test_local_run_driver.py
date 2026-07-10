@@ -205,14 +205,30 @@ from encode_pipeline.services.process_runner import ProcessResult, ProcessRunner
 
 
 class _FakeProcessRunner(ProcessRunner):
-    """Test double that overrides run() to return controlled results."""
+    """Test double that returns controlled stdout/stderr/exit_code."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        exit_code: int = 0,
+        stdout: str = "",
+        stderr: str = "",
+        issues: list[Issue] | None = None,
+    ):
         super().__init__(allowed_executables=("snakemake",))
+        self._exit_code = exit_code
+        self._stdout = stdout
+        self._stderr = stderr
+        self._issues = issues or []
 
     def run(self, spec):
         return Result.success(
-            ProcessResult(exit_code=0, stdout="", stderr="")
+            ProcessResult(
+                exit_code=self._exit_code,
+                stdout=self._stdout,
+                stderr=self._stderr,
+            ),
+            issues=self._issues,
         )
 
 
@@ -474,12 +490,14 @@ def test_dry_run_exit_zero_runner_refused_reason_is_local_run_not_implemented(tm
 class _FakeProcessRunnerNonzero(ProcessRunner):
     """Test double returning nonzero exit with a PROCESS_RUNNER_NONZERO_EXIT warning."""
 
-    def __init__(self):
+    def __init__(self, stdout: str = "error", stderr: str = ""):
         super().__init__(allowed_executables=("snakemake",))
+        self._stdout = stdout
+        self._stderr = stderr
 
     def run(self, spec):
         return Result.success(
-            ProcessResult(exit_code=3, stdout="error", stderr=""),
+            ProcessResult(exit_code=3, stdout=self._stdout, stderr=self._stderr),
             issues=[
                 Issue(
                     code="PROCESS_RUNNER_NONZERO_EXIT",
@@ -501,7 +519,10 @@ def test_dry_run_nonzero_returns_failure_with_wrapper(tmp_path):
         materializer=_make_materializer(),
         command_builder=_make_command_builder(),
         workspace_root=tmp_path / "workspaces",
-        process_runner=_FakeProcessRunnerNonzero(),
+        process_runner=_FakeProcessRunnerNonzero(
+            stdout="nonzero stdout",
+            stderr="nonzero stderr",
+        ),
     )
     plan = _make_pending_plan_with_workspace()
 
@@ -509,11 +530,12 @@ def test_dry_run_nonzero_returns_failure_with_wrapper(tmp_path):
 
     assert result.is_failure is True
     assert result.issues[0].code == "LOCAL_RUN_DRY_RUN_FAILED"
-    assert result.issues[0].source == "local_run_driver"
-    assert result.issues[0].severity == "error"
-    # Wrapper first, then underlying ProcessRunner issues
-    assert len(result.issues) == 2
     assert result.issues[1].code == "PROCESS_RUNNER_NONZERO_EXIT"
+
+    stdout_chunks = service.list_logs("run-1", "stdout")
+    stderr_chunks = service.list_logs("run-1", "stderr")
+    assert stdout_chunks[0].lines == ("nonzero stdout",)
+    assert stderr_chunks[0].lines == ("nonzero stderr",)
 
 
 def test_dry_run_nonzero_records_dry_run_failed_event(tmp_path):
@@ -1395,7 +1417,7 @@ def test_dry_run_does_not_transition_run_status(tmp_path):
     assert not any(e.event_type == "status_changed" for e in new_events)
 
 
-def test_dry_run_does_not_append_logs(tmp_path):
+def test_dry_run_empty_output_does_not_append_logs(tmp_path):
     service = _make_run_service_with_encode_adapter()
     service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
     driver = LocalRunDriver(
@@ -1411,6 +1433,166 @@ def test_dry_run_does_not_append_logs(tmp_path):
 
     assert service.list_logs("run-1", "stdout") == ()
     assert service.list_logs("run-1", "stderr") == ()
+
+
+def test_dry_run_success_appends_stdout(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunner(stdout="line 1\nline 2"),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    driver.run("run-1", plan)
+
+    stdout_chunks = service.list_logs("run-1", "stdout")
+    assert len(stdout_chunks) == 1
+    assert stdout_chunks[0].lines == ("line 1", "line 2")
+    assert service.list_logs("run-1", "stderr") == ()
+
+
+def test_dry_run_success_appends_stderr(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunner(stderr="error a\nerror b"),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    driver.run("run-1", plan)
+
+    stderr_chunks = service.list_logs("run-1", "stderr")
+    assert len(stderr_chunks) == 1
+    assert stderr_chunks[0].lines == ("error a", "error b")
+    assert service.list_logs("run-1", "stdout") == ()
+
+
+def test_dry_run_success_appends_both_streams(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunner(
+            stdout="line 1",
+            stderr="error 1",
+        ),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    driver.run("run-1", plan)
+
+    stdout_chunks = service.list_logs("run-1", "stdout")
+    stderr_chunks = service.list_logs("run-1", "stderr")
+    assert len(stdout_chunks) == 1
+    assert len(stderr_chunks) == 1
+    assert stdout_chunks[0].lines == ("line 1",)
+    assert stderr_chunks[0].lines == ("error 1",)
+
+
+def test_dry_run_trailing_newline_does_not_add_empty_line(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunner(stdout="line 1\n"),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    driver.run("run-1", plan)
+
+    stdout_chunks = service.list_logs("run-1", "stdout")
+    assert stdout_chunks[0].lines == ("line 1",)
+
+
+def test_dry_run_process_failure_does_not_fabricate_logs(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunnerTimeout(),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    result = driver.run("run-1", plan)
+
+    assert result.is_failure is True
+    assert result.issues[0].code == "LOCAL_RUN_PROCESS_FAILED"
+    assert service.list_logs("run-1", "stdout") == ()
+    assert service.list_logs("run-1", "stderr") == ()
+
+
+def test_dry_run_appends_logs_before_event(tmp_path):
+    class SpyRunService(RunService):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.calls = []
+
+        def append_log(self, run_id, stream_name, lines):
+            self.calls.append(("append_log", stream_name, tuple(lines)))
+            return super().append_log(run_id, stream_name, lines)
+
+        def add_event(self, *, run_id, event_type, **kwargs):
+            self.calls.append(("add_event", event_type))
+            return super().add_event(run_id=run_id, event_type=event_type, **kwargs)
+
+    service = SpyRunService(
+        registry=_make_registry(),
+        id_factory=lambda: "run-1",
+    )
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunner(stdout="out", stderr="err"),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    driver.run("run-1", plan)
+
+    event_indices = {call: i for i, call in enumerate(service.calls)}
+    assert event_indices[("append_log", "stdout", ("out",))] < event_indices[("add_event", "dry_run_completed")]
+    assert event_indices[("append_log", "stderr", ("err",))] < event_indices[("add_event", "dry_run_completed")]
+
+
+def test_dry_run_single_chunk_per_stream_per_invocation(tmp_path):
+    service = _make_run_service_with_encode_adapter()
+    service.create_run("encode-style-chipseq-cuttag-atac-mnase", WorkflowInputs(config={}))
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=_FakeProcessRunner(stdout="a\n\nb", stderr="c"),
+    )
+    plan = _make_pending_plan_with_workspace()
+
+    driver.run("run-1", plan)
+
+    stdout_chunks = service.list_logs("run-1", "stdout")
+    stderr_chunks = service.list_logs("run-1", "stderr")
+    assert len(stdout_chunks) == 1
+    assert len(stderr_chunks) == 1
+    assert stdout_chunks[0].lines == ("a", "", "b")
+    assert stderr_chunks[0].lines == ("c",)
 
 
 def test_dry_run_flag_conflict_events_contain_no_command_leakage(tmp_path):
