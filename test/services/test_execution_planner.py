@@ -189,7 +189,13 @@ def test_default_factory_returns_planner(run_service):
 
 from pathlib import Path
 
-from encode_pipeline.platform.adapters import WorkspacePlan
+from encode_pipeline.platform.adapters import (
+    DagPreview,
+    WorkspacePlan,
+    WorkflowCapabilities,
+    WorkflowMetadata,
+    WorkflowSchema,
+)
 from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
 from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 
@@ -298,3 +304,90 @@ def test_default_factory_returns_workspace_planner():
 
     planner = create_default_workspace_planner()
     assert isinstance(planner, WorkspacePlanner)
+
+
+def test_workspace_planner_reconstructs_inputs_from_snapshot(run_service, tmp_path):
+    from encode_pipeline.services.planning import WorkspacePlanner
+
+    inputs = WorkflowInputs(
+        config={"samples": "/abs/samples.tsv"},
+        samples="/abs/samples.tsv",
+        options={"strict_inputs": True},
+    )
+    record = run_service.create_run("stub", inputs)
+    planner = ExecutionPlanner(run_service=run_service)
+    plan = planner.plan_run(record.run_id).value
+
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
+    result = workspace_planner._reconstruct_inputs(plan.inputs_snapshot)
+
+    assert result.is_success is True
+    assert result.value.config == {"samples": "/abs/samples.tsv"}
+    assert result.value.samples == "/abs/samples.tsv"
+    assert result.value.options == {"strict_inputs": True}
+
+
+def test_workspace_planner_fails_on_malformed_inputs_snapshot_missing_config(run_service, tmp_path):
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
+
+    result = workspace_planner.plan_workspace(
+        ExecutionPlan(
+            plan_id=input_plan.plan_id,
+            run_id=input_plan.run_id,
+            workflow_id=input_plan.workflow_id,
+            status=input_plan.status,
+            inputs_snapshot={"samples": None, "options": {}},
+            created_at=input_plan.created_at,
+        ),
+        base_dir=tmp_path.resolve(),
+    )
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_PLAN_MALFORMED_INPUTS"
+    assert issue.path == "inputs_snapshot.config"
+
+
+def test_workspace_planner_fails_on_malformed_inputs_snapshot_invalid_options_type(run_service, tmp_path):
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
+
+    result = workspace_planner.plan_workspace(
+        ExecutionPlan(
+            plan_id=input_plan.plan_id,
+            run_id=input_plan.run_id,
+            workflow_id=input_plan.workflow_id,
+            status=input_plan.status,
+            inputs_snapshot={"config": {}, "samples": None, "options": "not-a-mapping"},
+            created_at=input_plan.created_at,
+        ),
+        base_dir=tmp_path.resolve(),
+    )
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_PLAN_MALFORMED_INPUTS"
+    assert issue.path == "inputs_snapshot.options"
+
+
+def test_workspace_planner_fails_on_malformed_inputs_snapshot_invalid_samples_type(run_service, tmp_path):
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
+
+    result = workspace_planner.plan_workspace(
+        ExecutionPlan(
+            plan_id=input_plan.plan_id,
+            run_id=input_plan.run_id,
+            workflow_id=input_plan.workflow_id,
+            status=input_plan.status,
+            inputs_snapshot={"config": {}, "samples": 123, "options": {}},
+            created_at=input_plan.created_at,
+        ),
+        base_dir=tmp_path.resolve(),
+    )
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_PLAN_MALFORMED_INPUTS"
+    assert issue.path == "inputs_snapshot.samples"

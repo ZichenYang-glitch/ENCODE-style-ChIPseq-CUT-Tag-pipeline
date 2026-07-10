@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping
 from uuid import uuid4
 
 from encode_pipeline.platform.adapters import WorkspacePlan
@@ -89,6 +90,71 @@ class WorkspacePlanner:
             raise ValueError("WorkspacePlanner requires a WorkflowRegistry instance")
         self._registry = registry
 
+    @staticmethod
+    def _reconstruct_inputs(
+        inputs_snapshot: Mapping[str, Any],
+    ) -> Result[WorkflowInputs]:
+        """Rebuild WorkflowInputs from an ExecutionPlan inputs snapshot."""
+        from encode_pipeline.platform.adapters import WorkflowInputs
+        from encode_pipeline.platform.results import Issue
+
+        def _malformed(path: str) -> Result[WorkflowInputs]:
+            return Result.failure(
+                [
+                    Issue(
+                        code="WORKSPACE_PLAN_MALFORMED_INPUTS",
+                        message="Execution plan inputs snapshot is malformed and cannot be reconstructed into workflow inputs.",
+                        severity="error",
+                        path=path,
+                        source="workspace_planner",
+                    )
+                ]
+            )
+
+        if not isinstance(inputs_snapshot, Mapping):
+            return _malformed("inputs_snapshot")
+
+        config = inputs_snapshot.get("config")
+        if not isinstance(config, Mapping):
+            return _malformed("inputs_snapshot.config")
+
+        samples = inputs_snapshot.get("samples")
+        if samples is not None:
+            if isinstance(samples, Path):
+                samples = str(samples)
+            if isinstance(samples, str):
+                pass
+            elif isinstance(samples, list):
+                for index, row in enumerate(samples):
+                    if not isinstance(row, Mapping):
+                        return _malformed(f"inputs_snapshot.samples[{index}]")
+                    if not all(
+                        isinstance(k, str) and isinstance(v, str)
+                        for k, v in row.items()
+                    ):
+                        return _malformed(f"inputs_snapshot.samples[{index}]")
+            else:
+                return _malformed("inputs_snapshot.samples")
+
+        options = inputs_snapshot.get("options")
+        if options is None:
+            options = {}
+        elif not isinstance(options, Mapping):
+            return _malformed("inputs_snapshot.options")
+        else:
+            options = dict(options)
+
+        try:
+            return Result.success(
+                WorkflowInputs(
+                    config=config,
+                    samples=samples,
+                    options=options,
+                )
+            )
+        except ValueError:
+            return _malformed("inputs_snapshot")
+
     def plan_workspace(
         self,
         plan: ExecutionPlan,
@@ -122,6 +188,11 @@ class WorkspacePlanner:
                     )
                 ]
             )
+
+        inputs_result = self._reconstruct_inputs(plan.inputs_snapshot)
+        if inputs_result.is_failure:
+            return inputs_result
+        inputs = inputs_result.value
 
         directories = ("logs", "results")
         files: tuple[tuple[str, bytes], ...] = ()
