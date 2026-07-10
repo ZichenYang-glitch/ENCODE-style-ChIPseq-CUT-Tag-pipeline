@@ -513,7 +513,7 @@ def test_dry_run_exit_zero_runner_refused_reason_is_local_run_not_implemented(tm
 class _FakeProcessRunnerNonzero(ProcessRunner):
     """Test double returning nonzero exit with a PROCESS_RUNNER_NONZERO_EXIT warning."""
 
-    def __init__(self, stdout: str = "error", stderr: str = ""):
+    def __init__(self, stdout: str = "", stderr: str = ""):
         super().__init__(allowed_executables=("snakemake",))
         self._stdout = stdout
         self._stderr = stderr
@@ -555,6 +555,9 @@ def test_dry_run_nonzero_returns_failure_with_wrapper(tmp_path):
 
     assert result.is_failure is True
     assert result.issues[0].code == "LOCAL_RUN_DRY_RUN_FAILED"
+    assert result.issues[0].source == "local_run_driver"
+    assert result.issues[0].severity == "error"
+    assert len(result.issues) == 2
     assert result.issues[1].code == "PROCESS_RUNNER_NONZERO_EXIT"
 
     stdout_chunks = service.list_logs("run-1", "stdout")
@@ -1622,7 +1625,22 @@ def test_dry_run_process_failure_does_not_fabricate_logs(tmp_path):
     assert service.list_logs("run-1", "stderr") == ()
 
 
-def test_dry_run_appends_logs_before_event(tmp_path):
+@pytest.mark.parametrize(
+    "process_runner,event_type",
+    [
+        pytest.param(
+            _FakeProcessRunner(stdout="out", stderr="err"),
+            "dry_run_completed",
+            id="exit-0",
+        ),
+        pytest.param(
+            _FakeProcessRunnerNonzero(stdout="out", stderr="err"),
+            "dry_run_failed",
+            id="nonzero-exit",
+        ),
+    ],
+)
+def test_dry_run_appends_logs_before_event(tmp_path, process_runner, event_type):
     class SpyRunService(RunService):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
@@ -1648,7 +1666,7 @@ def test_dry_run_appends_logs_before_event(tmp_path):
         materializer=_make_materializer(),
         command_builder=_make_command_builder(),
         workspace_root=tmp_path / "workspaces",
-        process_runner=_FakeProcessRunner(stdout="out", stderr="err"),
+        process_runner=process_runner,
     )
     plan = _make_pending_plan_with_workspace()
 
@@ -1657,11 +1675,11 @@ def test_dry_run_appends_logs_before_event(tmp_path):
     event_indices = {call: i for i, call in enumerate(service.calls)}
     assert (
         event_indices[("append_log", "stdout", ("out",))]
-        < event_indices[("add_event", "dry_run_completed")]
+        < event_indices[("add_event", event_type)]
     )
     assert (
         event_indices[("append_log", "stderr", ("err",))]
-        < event_indices[("add_event", "dry_run_completed")]
+        < event_indices[("add_event", event_type)]
     )
 
 

@@ -75,6 +75,12 @@ export function RunProgressPanel({
     setError(null);
   }, [workflowId, validatedInputs]);
 
+  useEffect(() => {
+    setStdoutLogs([]);
+    setStderrLogs([]);
+    setActiveLogStream('stdout');
+  }, [run?.run_id]);
+
   const canCreateRun =
     workflowId !== null &&
     validationResult?.ok === true &&

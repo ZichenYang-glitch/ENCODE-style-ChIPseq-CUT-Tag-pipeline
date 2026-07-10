@@ -48,6 +48,20 @@ describe('RunLogPanel', () => {
     expect(onStreamChange).toHaveBeenCalledWith('stderr');
   });
 
+  it('renders stderr chunks when active stream is stderr', () => {
+    render(
+      <RunLogPanel
+        stdoutChunks={[makeChunk({ lines: ['stdout line'] })]}
+        stderrChunks={[makeChunk({ stream_name: 'stderr', lines: ['stderr line'] })]}
+        activeStream="stderr"
+        onStreamChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('stderr line')).toBeInTheDocument();
+    expect(screen.queryByText('stdout line')).not.toBeInTheDocument();
+  });
+
   it('renders empty state when active stream has no chunks', () => {
     render(
       <RunLogPanel

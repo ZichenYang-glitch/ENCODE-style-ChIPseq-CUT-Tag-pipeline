@@ -365,6 +365,27 @@ describe('RunProgressPanel', () => {
     });
   });
 
+  it('resets log stream selector to stdout when a new run is created with the same workflow and inputs', async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      validationResult: successfulValidation,
+      validatedInputs,
+    });
+
+    await user.click(screen.getByTestId('create-run-button'));
+    await waitFor(() => {
+      expect(screen.getByTestId('stdout-tab')).toHaveAttribute('aria-selected', 'true');
+    });
+
+    await user.click(screen.getByTestId('stderr-tab'));
+    expect(screen.getByTestId('stderr-tab')).toHaveAttribute('aria-selected', 'true');
+
+    await user.click(screen.getByTestId('create-run-button'));
+    await waitFor(() => {
+      expect(screen.getByTestId('stdout-tab')).toHaveAttribute('aria-selected', 'true');
+    });
+  });
+
   it('does not render execution-like wording', () => {
     renderPanel({
       validationResult: successfulValidation,

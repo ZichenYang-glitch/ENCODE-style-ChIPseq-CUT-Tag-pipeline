@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import type { RunLogChunkResponse } from '../../api/runTypes';
 
 interface RunLogPanelProps {
@@ -13,6 +14,10 @@ export function RunLogPanel({
   activeStream,
   onStreamChange,
 }: RunLogPanelProps) {
+  const baseId = useId();
+  const stdoutTabId = `${baseId}-stdout-tab`;
+  const stderrTabId = `${baseId}-stderr-tab`;
+  const panelId = `${baseId}-panel`;
   const chunks = activeStream === 'stdout' ? stdoutChunks : stderrChunks;
 
   return (
@@ -20,8 +25,10 @@ export function RunLogPanel({
       <div className="flex gap-1" role="tablist" aria-label="Log streams">
         <button
           type="button"
+          id={stdoutTabId}
           role="tab"
           aria-selected={activeStream === 'stdout'}
+          aria-controls={panelId}
           className={`rounded px-3 py-1 text-xs font-medium ${
             activeStream === 'stdout'
               ? 'bg-[var(--color-accent)] text-white'
@@ -34,8 +41,10 @@ export function RunLogPanel({
         </button>
         <button
           type="button"
+          id={stderrTabId}
           role="tab"
           aria-selected={activeStream === 'stderr'}
+          aria-controls={panelId}
           className={`rounded px-3 py-1 text-xs font-medium ${
             activeStream === 'stderr'
               ? 'bg-[var(--color-accent)] text-white'
@@ -48,30 +57,36 @@ export function RunLogPanel({
         </button>
       </div>
 
-      {chunks.length === 0 ? (
-        <p
-          className="text-sm text-[var(--color-text-muted)]"
-          data-testid="run-log-panel-empty"
-        >
-          No log entries yet.
-        </p>
-      ) : (
-        <div className="space-y-2" data-testid="run-log-chunks">
-          {chunks.map((chunk) => (
-            <div
-              key={chunk.chunk_id}
-              className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2"
-            >
-              <div className="mb-1 text-xs text-[var(--color-text-muted)]">
-                {new Date(chunk.timestamp).toLocaleString()} — {chunk.stream_name}
+      <div
+        id={panelId}
+        role="tabpanel"
+        aria-labelledby={activeStream === 'stdout' ? stdoutTabId : stderrTabId}
+      >
+        {chunks.length === 0 ? (
+          <p
+            className="text-sm text-[var(--color-text-muted)]"
+            data-testid="run-log-panel-empty"
+          >
+            No log entries yet.
+          </p>
+        ) : (
+          <div className="space-y-2" data-testid="run-log-chunks">
+            {chunks.map((chunk) => (
+              <div
+                key={chunk.chunk_id}
+                className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2"
+              >
+                <div className="mb-1 text-xs text-[var(--color-text-muted)]">
+                  {new Date(chunk.timestamp).toLocaleString()} — {chunk.stream_name}
+                </div>
+                <pre className="overflow-auto font-mono text-xs text-[var(--color-text)]">
+                  {chunk.lines.join('\n')}
+                </pre>
               </div>
-              <pre className="overflow-auto font-mono text-xs text-[var(--color-text)]">
-                {chunk.lines.join('\n')}
-              </pre>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
