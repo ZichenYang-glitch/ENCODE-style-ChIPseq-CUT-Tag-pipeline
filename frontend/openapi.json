@@ -13,7 +13,7 @@
         ],
         "summary": "List Workflows",
         "description": "List registered workflows with metadata and capabilities.",
-        "operationId": "list_workflows_api_v1_workflows__get",
+        "operationId": "listWorkflows",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -35,7 +35,7 @@
         ],
         "summary": "Get Schema",
         "description": "Return adapter-owned schema hints for one workflow.",
-        "operationId": "get_schema_api_v1_workflows__workflow_id__schema_get",
+        "operationId": "getWorkflowSchema",
         "parameters": [
           {
             "name": "workflow_id",
@@ -78,7 +78,7 @@
         ],
         "summary": "Validate Workflow",
         "description": "Validate submitted workflow inputs.",
-        "operationId": "validate_workflow_api_v1_workflows__workflow_id__validate_post",
+        "operationId": "validateWorkflow",
         "parameters": [
           {
             "name": "workflow_id",
@@ -131,7 +131,7 @@
         ],
         "summary": "Chat With Workflow Agent",
         "description": "Chat with the workflow-scoped agent for a registered workflow.\n\nThe endpoint is read-only and backed by a deterministic mock LLM client.\nIt returns a structured envelope; an unknown workflow yields ``ok=false``\nwith a ``WORKFLOW_NOT_FOUND`` issue rather than an HTTP 404.",
-        "operationId": "chat_with_workflow_agent_api_v1_workflows__workflow_id__agent_chat_post",
+        "operationId": "chatWithWorkflowAgent",
         "parameters": [
           {
             "name": "workflow_id",
@@ -184,7 +184,7 @@
         ],
         "summary": "Create Run",
         "description": "Create a new run for the given workflow.",
-        "operationId": "create_run_api_v1_workflows__workflow_id__runs_post",
+        "operationId": "createRun",
         "parameters": [
           {
             "name": "workflow_id",
@@ -237,7 +237,7 @@
         ],
         "summary": "Get Run",
         "description": "Return the run record.",
-        "operationId": "get_run_api_v1_runs__run_id__get",
+        "operationId": "getRun",
         "parameters": [
           {
             "name": "run_id",
@@ -280,7 +280,7 @@
         ],
         "summary": "Cancel Run",
         "description": "Cancel an active run, or return an already-terminal run unchanged.",
-        "operationId": "cancel_run_api_v1_runs__run_id__cancel_post",
+        "operationId": "cancelRun",
         "parameters": [
           {
             "name": "run_id",
@@ -323,7 +323,7 @@
         ],
         "summary": "List Run Events",
         "description": "List run events with cursor pagination.",
-        "operationId": "list_run_events_api_v1_runs__run_id__events_get",
+        "operationId": "listRunEvents",
         "parameters": [
           {
             "name": "run_id",
@@ -393,7 +393,7 @@
         ],
         "summary": "List Run Logs",
         "description": "List log chunks for a run stream with cursor pagination.",
-        "operationId": "list_run_logs_api_v1_runs__run_id__logs_get",
+        "operationId": "listRunLogs",
         "parameters": [
           {
             "name": "run_id",
@@ -473,7 +473,7 @@
         ],
         "summary": "Trigger Preflight",
         "description": "Trigger local preflight for an existing run.\n\nThe actual planning/materialization/dry-run work runs in a background task\nso the HTTP response returns immediately with the run in ``VALIDATING``.",
-        "operationId": "trigger_preflight_api_v1_runs__run_id__preflight_post",
+        "operationId": "triggerPreflight",
         "parameters": [
           {
             "name": "run_id",

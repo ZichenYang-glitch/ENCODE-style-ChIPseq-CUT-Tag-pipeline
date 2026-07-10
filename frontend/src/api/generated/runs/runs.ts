@@ -6,8 +6,8 @@
  * OpenAPI spec version: 0.3.0
  */
 import type {
-  ListRunEventsApiV1RunsRunIdEventsGetParams,
-  ListRunLogsApiV1RunsRunIdLogsGetParams,
+  ListRunEventsParams,
+  ListRunLogsParams,
   RunCreateRequest,
   RunEventsResponse,
   RunLogsResponse,
@@ -20,7 +20,7 @@ import { fetcher } from '../../fetcher';
  * Create a new run for the given workflow.
  * @summary Create Run
  */
-export const getCreateRunApiV1WorkflowsWorkflowIdRunsPostUrl = (workflowId: string,) => {
+export const getCreateRunUrl = (workflowId: string,) => {
 
 
 
@@ -28,10 +28,10 @@ export const getCreateRunApiV1WorkflowsWorkflowIdRunsPostUrl = (workflowId: stri
   return `/api/v1/workflows/${workflowId}/runs`
 }
 
-export const createRunApiV1WorkflowsWorkflowIdRunsPost = async (workflowId: string,
+export const createRun = async (workflowId: string,
     runCreateRequest: RunCreateRequest, options?: RequestInit): Promise<RunResponse> => {
 
-  return fetcher<RunResponse>(getCreateRunApiV1WorkflowsWorkflowIdRunsPostUrl(workflowId),
+  return fetcher<RunResponse>(getCreateRunUrl(workflowId),
   {
     ...options,
     method: 'POST',
@@ -46,7 +46,7 @@ export const createRunApiV1WorkflowsWorkflowIdRunsPost = async (workflowId: stri
  * Return the run record.
  * @summary Get Run
  */
-export const getGetRunApiV1RunsRunIdGetUrl = (runId: string,) => {
+export const getGetRunUrl = (runId: string,) => {
 
 
 
@@ -54,9 +54,9 @@ export const getGetRunApiV1RunsRunIdGetUrl = (runId: string,) => {
   return `/api/v1/runs/${runId}`
 }
 
-export const getRunApiV1RunsRunIdGet = async (runId: string, options?: RequestInit): Promise<RunResponse> => {
+export const getRun = async (runId: string, options?: RequestInit): Promise<RunResponse> => {
 
-  return fetcher<RunResponse>(getGetRunApiV1RunsRunIdGetUrl(runId),
+  return fetcher<RunResponse>(getGetRunUrl(runId),
   {
     ...options,
     method: 'GET'
@@ -70,7 +70,7 @@ export const getRunApiV1RunsRunIdGet = async (runId: string, options?: RequestIn
  * Cancel an active run, or return an already-terminal run unchanged.
  * @summary Cancel Run
  */
-export const getCancelRunApiV1RunsRunIdCancelPostUrl = (runId: string,) => {
+export const getCancelRunUrl = (runId: string,) => {
 
 
 
@@ -78,9 +78,9 @@ export const getCancelRunApiV1RunsRunIdCancelPostUrl = (runId: string,) => {
   return `/api/v1/runs/${runId}/cancel`
 }
 
-export const cancelRunApiV1RunsRunIdCancelPost = async (runId: string, options?: RequestInit): Promise<RunResponse> => {
+export const cancelRun = async (runId: string, options?: RequestInit): Promise<RunResponse> => {
 
-  return fetcher<RunResponse>(getCancelRunApiV1RunsRunIdCancelPostUrl(runId),
+  return fetcher<RunResponse>(getCancelRunUrl(runId),
   {
     ...options,
     method: 'POST'
@@ -94,8 +94,8 @@ export const cancelRunApiV1RunsRunIdCancelPost = async (runId: string, options?:
  * List run events with cursor pagination.
  * @summary List Run Events
  */
-export const getListRunEventsApiV1RunsRunIdEventsGetUrl = (runId: string,
-    params?: ListRunEventsApiV1RunsRunIdEventsGetParams,) => {
+export const getListRunEventsUrl = (runId: string,
+    params?: ListRunEventsParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -110,10 +110,10 @@ export const getListRunEventsApiV1RunsRunIdEventsGetUrl = (runId: string,
   return stringifiedParams.length > 0 ? `/api/v1/runs/${runId}/events?${stringifiedParams}` : `/api/v1/runs/${runId}/events`
 }
 
-export const listRunEventsApiV1RunsRunIdEventsGet = async (runId: string,
-    params?: ListRunEventsApiV1RunsRunIdEventsGetParams, options?: RequestInit): Promise<RunEventsResponse> => {
+export const listRunEvents = async (runId: string,
+    params?: ListRunEventsParams, options?: RequestInit): Promise<RunEventsResponse> => {
 
-  return fetcher<RunEventsResponse>(getListRunEventsApiV1RunsRunIdEventsGetUrl(runId,params),
+  return fetcher<RunEventsResponse>(getListRunEventsUrl(runId,params),
   {
     ...options,
     method: 'GET'
@@ -127,8 +127,8 @@ export const listRunEventsApiV1RunsRunIdEventsGet = async (runId: string,
  * List log chunks for a run stream with cursor pagination.
  * @summary List Run Logs
  */
-export const getListRunLogsApiV1RunsRunIdLogsGetUrl = (runId: string,
-    params?: ListRunLogsApiV1RunsRunIdLogsGetParams,) => {
+export const getListRunLogsUrl = (runId: string,
+    params?: ListRunLogsParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -143,10 +143,10 @@ export const getListRunLogsApiV1RunsRunIdLogsGetUrl = (runId: string,
   return stringifiedParams.length > 0 ? `/api/v1/runs/${runId}/logs?${stringifiedParams}` : `/api/v1/runs/${runId}/logs`
 }
 
-export const listRunLogsApiV1RunsRunIdLogsGet = async (runId: string,
-    params?: ListRunLogsApiV1RunsRunIdLogsGetParams, options?: RequestInit): Promise<RunLogsResponse> => {
+export const listRunLogs = async (runId: string,
+    params?: ListRunLogsParams, options?: RequestInit): Promise<RunLogsResponse> => {
 
-  return fetcher<RunLogsResponse>(getListRunLogsApiV1RunsRunIdLogsGetUrl(runId,params),
+  return fetcher<RunLogsResponse>(getListRunLogsUrl(runId,params),
   {
     ...options,
     method: 'GET'

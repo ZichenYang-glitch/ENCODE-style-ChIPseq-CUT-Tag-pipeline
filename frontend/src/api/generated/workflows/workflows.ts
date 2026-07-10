@@ -18,7 +18,7 @@ import { fetcher } from '../../fetcher';
  * List registered workflows with metadata and capabilities.
  * @summary List Workflows
  */
-export const getListWorkflowsApiV1WorkflowsGetUrl = () => {
+export const getListWorkflowsUrl = () => {
 
 
 
@@ -26,9 +26,9 @@ export const getListWorkflowsApiV1WorkflowsGetUrl = () => {
   return `/api/v1/workflows/`
 }
 
-export const listWorkflowsApiV1WorkflowsGet = async ( options?: RequestInit): Promise<WorkflowListResponse> => {
+export const listWorkflows = async ( options?: RequestInit): Promise<WorkflowListResponse> => {
 
-  return fetcher<WorkflowListResponse>(getListWorkflowsApiV1WorkflowsGetUrl(),
+  return fetcher<WorkflowListResponse>(getListWorkflowsUrl(),
   {
     ...options,
     method: 'GET'
@@ -42,7 +42,7 @@ export const listWorkflowsApiV1WorkflowsGet = async ( options?: RequestInit): Pr
  * Return adapter-owned schema hints for one workflow.
  * @summary Get Schema
  */
-export const getGetSchemaApiV1WorkflowsWorkflowIdSchemaGetUrl = (workflowId: string,) => {
+export const getGetWorkflowSchemaUrl = (workflowId: string,) => {
 
 
 
@@ -50,9 +50,9 @@ export const getGetSchemaApiV1WorkflowsWorkflowIdSchemaGetUrl = (workflowId: str
   return `/api/v1/workflows/${workflowId}/schema`
 }
 
-export const getSchemaApiV1WorkflowsWorkflowIdSchemaGet = async (workflowId: string, options?: RequestInit): Promise<SchemaResponse> => {
+export const getWorkflowSchema = async (workflowId: string, options?: RequestInit): Promise<SchemaResponse> => {
 
-  return fetcher<SchemaResponse>(getGetSchemaApiV1WorkflowsWorkflowIdSchemaGetUrl(workflowId),
+  return fetcher<SchemaResponse>(getGetWorkflowSchemaUrl(workflowId),
   {
     ...options,
     method: 'GET'
@@ -66,7 +66,7 @@ export const getSchemaApiV1WorkflowsWorkflowIdSchemaGet = async (workflowId: str
  * Validate submitted workflow inputs.
  * @summary Validate Workflow
  */
-export const getValidateWorkflowApiV1WorkflowsWorkflowIdValidatePostUrl = (workflowId: string,) => {
+export const getValidateWorkflowUrl = (workflowId: string,) => {
 
 
 
@@ -74,10 +74,10 @@ export const getValidateWorkflowApiV1WorkflowsWorkflowIdValidatePostUrl = (workf
   return `/api/v1/workflows/${workflowId}/validate`
 }
 
-export const validateWorkflowApiV1WorkflowsWorkflowIdValidatePost = async (workflowId: string,
+export const validateWorkflow = async (workflowId: string,
     validationRequest: ValidationRequest, options?: RequestInit): Promise<ValidationResponse> => {
 
-  return fetcher<ValidationResponse>(getValidateWorkflowApiV1WorkflowsWorkflowIdValidatePostUrl(workflowId),
+  return fetcher<ValidationResponse>(getValidateWorkflowUrl(workflowId),
   {
     ...options,
     method: 'POST',

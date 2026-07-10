@@ -18,7 +18,7 @@ The actual planning/materialization/dry-run work runs in a background task
 so the HTTP response returns immediately with the run in ``VALIDATING``.
  * @summary Trigger Preflight
  */
-export const getTriggerPreflightApiV1RunsRunIdPreflightPostUrl = (runId: string,) => {
+export const getTriggerPreflightUrl = (runId: string,) => {
 
 
 
@@ -26,9 +26,9 @@ export const getTriggerPreflightApiV1RunsRunIdPreflightPostUrl = (runId: string,
   return `/api/v1/runs/${runId}/preflight`
 }
 
-export const triggerPreflightApiV1RunsRunIdPreflightPost = async (runId: string, options?: RequestInit): Promise<RunResponse> => {
+export const triggerPreflight = async (runId: string, options?: RequestInit): Promise<RunResponse> => {
 
-  return fetcher<RunResponse>(getTriggerPreflightApiV1RunsRunIdPreflightPostUrl(runId),
+  return fetcher<RunResponse>(getTriggerPreflightUrl(runId),
   {
     ...options,
     method: 'POST'

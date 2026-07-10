@@ -20,7 +20,7 @@ It returns a structured envelope; an unknown workflow yields ``ok=false``
 with a ``WORKFLOW_NOT_FOUND`` issue rather than an HTTP 404.
  * @summary Chat With Workflow Agent
  */
-export const getChatWithWorkflowAgentApiV1WorkflowsWorkflowIdAgentChatPostUrl = (workflowId: string,) => {
+export const getChatWithWorkflowAgentUrl = (workflowId: string,) => {
 
 
 
@@ -28,10 +28,10 @@ export const getChatWithWorkflowAgentApiV1WorkflowsWorkflowIdAgentChatPostUrl = 
   return `/api/v1/workflows/${workflowId}/agent/chat`
 }
 
-export const chatWithWorkflowAgentApiV1WorkflowsWorkflowIdAgentChatPost = async (workflowId: string,
+export const chatWithWorkflowAgent = async (workflowId: string,
     agentRequest: AgentRequest, options?: RequestInit): Promise<AgentResponse> => {
 
-  return fetcher<AgentResponse>(getChatWithWorkflowAgentApiV1WorkflowsWorkflowIdAgentChatPostUrl(workflowId),
+  return fetcher<AgentResponse>(getChatWithWorkflowAgentUrl(workflowId),
   {
     ...options,
     method: 'POST',

@@ -6,7 +6,8 @@
  * OpenAPI spec version: 0.3.0
  */
 
-export type ListRunEventsApiV1RunsRunIdEventsGetParams = {
+export type ListRunLogsParams = {
+stream_name?: string;
 after?: string | null;
 /**
  * @minimum 1
