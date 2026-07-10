@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App';
+import { appRoutes } from './app/router';
+import { renderWithRouter } from './test/test-utils';
 
 vi.mock('./api/agentClient', () => ({
   createAgentApiClient: vi.fn().mockReturnValue({
@@ -25,7 +27,7 @@ describe('App shell', () => {
   });
 
   it('shows the stub workflow catalog', async () => {
-    render(<App />);
+    renderWithRouter(appRoutes, { initialEntries: ['/workflows'] });
     expect(
       await screen.findByText(/ENCODE-style ChIP-seq/i),
     ).toBeInTheDocument();
@@ -33,7 +35,7 @@ describe('App shell', () => {
 
   it('loads schema hints when a workflow is selected', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderWithRouter(appRoutes, { initialEntries: ['/workflows'] });
     const workflowButton = await screen.findByText(/ENCODE-style ChIP-seq/i);
     await user.click(workflowButton);
     expect(await screen.findByText(/Config schema/i)).toBeInTheDocument();
@@ -43,9 +45,10 @@ describe('App shell', () => {
 
   it('renders stub validation issues when Validate is clicked', async () => {
     const user = userEvent.setup();
-    render(<App />);
-    const workflowButton = await screen.findByText(/ENCODE-style ChIP-seq/i);
-    await user.click(workflowButton);
+    renderWithRouter(appRoutes, {
+      initialEntries: ['/workflows/encode-style-chipseq-cuttag-atac-mnase'],
+    });
+    await screen.findByText(/Config schema/i);
     const validateButton = await screen.findByTestId('validate-button');
     await user.click(validateButton);
     expect(await screen.findByText(/Sample sheet is invalid/i)).toBeInTheDocument();
@@ -54,9 +57,10 @@ describe('App shell', () => {
 
   it('renders a frontend parse error for invalid JSON and does not require a backend', async () => {
     const user = userEvent.setup();
-    render(<App />);
-    const workflowButton = await screen.findByText(/ENCODE-style ChIP-seq/i);
-    await user.click(workflowButton);
+    renderWithRouter(appRoutes, {
+      initialEntries: ['/workflows/encode-style-chipseq-cuttag-atac-mnase'],
+    });
+    await screen.findByText(/Config schema/i);
 
     const configInput = screen.getByLabelText(/Config \(JSON\)/i);
     await user.clear(configInput);
@@ -70,18 +74,20 @@ describe('App shell', () => {
   });
 
   it('renders the read-only agent sidebar label', async () => {
-    render(<App />);
+    renderWithRouter(appRoutes, {
+      initialEntries: ['/workflows/encode-style-chipseq-cuttag-atac-mnase'],
+    });
     expect(
       await screen.findByText(/Validation Assistant — Read Only/i),
     ).toBeInTheDocument();
   });
 
   it('renders the Run progress panel and disables Create run before validation', async () => {
-    render(<App />);
+    renderWithRouter(appRoutes, {
+      initialEntries: ['/workflows/encode-style-chipseq-cuttag-atac-mnase'],
+    });
 
-    const workflowButton = await screen.findByText(/ENCODE-style ChIP-seq/i);
-    await userEvent.click(workflowButton);
-
+    await screen.findByText(/Config schema/i);
     expect(await screen.findByText(/Run progress/i)).toBeInTheDocument();
     expect(
       screen.getByText(/Validate inputs before creating a run record/i),
@@ -91,10 +97,11 @@ describe('App shell', () => {
 
   it('enables Create run after successful validation', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderWithRouter(appRoutes, {
+      initialEntries: ['/workflows/encode-style-chipseq-cuttag-atac-mnase'],
+    });
 
-    const workflowButton = await screen.findByText(/ENCODE-style ChIP-seq/i);
-    await user.click(workflowButton);
+    await screen.findByText(/Config schema/i);
 
     const samplesInput = screen.getByLabelText(/Samples \(path string\)/i);
     await user.type(samplesInput, 'samples.tsv');
@@ -107,11 +114,11 @@ describe('App shell', () => {
 
   it('prefills the agent sidebar when Ask Agent is clicked on an issue', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderWithRouter(appRoutes, {
+      initialEntries: ['/workflows/encode-style-chipseq-cuttag-atac-mnase'],
+    });
 
-    const workflowButton = await screen.findByText(/ENCODE-style ChIP-seq/i);
-    await user.click(workflowButton);
-
+    await screen.findByText(/Config schema/i);
     const validateButton = await screen.findByTestId('validate-button');
     await user.click(validateButton);
 
@@ -141,11 +148,11 @@ describe('App shell', () => {
     agentClient.chat = chat;
 
     const user = userEvent.setup();
-    render(<App />);
+    renderWithRouter(appRoutes, {
+      initialEntries: ['/workflows/encode-style-chipseq-cuttag-atac-mnase'],
+    });
 
-    const workflowButton = await screen.findByText(/ENCODE-style ChIP-seq/i);
-    await user.click(workflowButton);
-
+    await screen.findByText(/Config schema/i);
     const validateButton = await screen.findByTestId('validate-button');
     await user.click(validateButton);
 
