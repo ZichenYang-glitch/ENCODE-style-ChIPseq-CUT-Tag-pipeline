@@ -13,8 +13,11 @@ if TYPE_CHECKING:
 
     from encode_pipeline.services.agent import AgentService
     from encode_pipeline.services.command_builder import CommandBuilder
+    from encode_pipeline.services.local_run_driver import LocalRunDriver
     from encode_pipeline.services.materialization import WorkspaceMaterializer
+    from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
     from encode_pipeline.services.runs import RunService
+    from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
 
 
 def create_default_workflow_registry() -> WorkflowRegistry:
@@ -97,12 +100,12 @@ def create_default_run_service(
 
 
 def create_default_local_run_driver(
-    run_service: "RunService",
+    run_service: RunService,
     *,
     workspace_root: Path | None = None,
-    materializer: "WorkspaceMaterializer | None" = None,
-    command_builder: "CommandBuilder | None" = None,
-) -> "LocalRunDriver":
+    materializer: WorkspaceMaterializer | None = None,
+    command_builder: CommandBuilder | None = None,
+) -> LocalRunDriver:
     """Return a local run driver wired to the given run service.
 
     Args:
@@ -116,7 +119,6 @@ def create_default_local_run_driver(
     """
     from pathlib import Path
 
-    from encode_pipeline.services.command_builder import CommandBuilder
     from encode_pipeline.services.local_run_driver import LocalRunDriver
     from encode_pipeline.services.materialization import WorkspaceMaterializer
 
@@ -135,8 +137,8 @@ def create_default_local_run_driver(
 
 
 def create_default_stub_execution_driver(
-    run_service: "RunService",
-) -> "StubExecutionDriver":
+    run_service: RunService,
+) -> StubExecutionDriver:
     """Return a stub execution driver wired to the given run service."""
     from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
 
@@ -144,19 +146,23 @@ def create_default_stub_execution_driver(
 
 
 def create_default_execution_planner(
-    run_service: "RunService",
-) -> "ExecutionPlanner":
+    run_service: RunService,
+) -> ExecutionPlanner:
     """Return an execution planner wired to the given run service."""
     from encode_pipeline.services.planning import ExecutionPlanner
 
     return ExecutionPlanner(run_service=run_service)
 
 
-def create_default_workspace_planner() -> "WorkspacePlanner":
-    """Return a fresh workspace planner."""
+def create_default_workspace_planner(
+    registry: WorkflowRegistry | None = None,
+) -> WorkspacePlanner:
+    """Return a fresh workspace planner wired to the given registry."""
     from encode_pipeline.services.planning import WorkspacePlanner
 
-    return WorkspacePlanner()
+    if registry is None:
+        registry = create_default_workflow_registry()
+    return WorkspacePlanner(registry=registry)
 
 
 def create_default_workspace_materializer() -> "WorkspaceMaterializer":

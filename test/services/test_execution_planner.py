@@ -1,25 +1,26 @@
 """Tests for the ExecutionPlanner service boundary."""
 
+from pathlib import Path
+
 import pytest
 
-from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.adapters import (
+    DagPreview,
+    WorkspacePlan,
+    WorkflowCapabilities,
+    WorkflowInputs,
+    WorkflowMetadata,
+    WorkflowSchema,
+)
+from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.results import Result
+from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 from encode_pipeline.services.runs import RunService
 
 
 @pytest.fixture
 def fake_adapter():
-    from encode_pipeline.platform.adapters import (
-        CommandSpec,
-        DagPreview,
-        WorkflowAdapter,
-        WorkflowCapabilities,
-        WorkflowMetadata,
-        WorkflowSchema,
-        WorkspacePlan,
-    )
-    from encode_pipeline.platform.results import Result
-
     class _FakeAdapter:
         metadata = WorkflowMetadata(
             workflow_id="stub",
@@ -42,9 +43,11 @@ def fake_adapter():
             inputs: WorkflowInputs,
             workspace: str,
         ) -> Result[WorkspacePlan]:
-            raise AssertionError("ExecutionPlanner must not call plan_workspace")
+            return Result.success(
+                WorkspacePlan(directories=("logs", "results"), files=())
+            )
 
-        def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
+        def build_command(self, plan: WorkspacePlan) -> Result[object]:
             raise AssertionError("ExecutionPlanner must not call build_command")
 
     return _FakeAdapter()
@@ -181,17 +184,13 @@ def test_plan_run_defensively_copies_inputs(planner, run_service):
 
 
 def test_default_factory_returns_planner(run_service):
-    from encode_pipeline.services import ExecutionPlanner, create_default_execution_planner
+    from encode_pipeline.services import (
+        ExecutionPlanner,
+        create_default_execution_planner,
+    )
 
     planner = create_default_execution_planner(run_service=run_service)
     assert isinstance(planner, ExecutionPlanner)
-
-
-from pathlib import Path
-
-from encode_pipeline.platform.adapters import WorkspacePlan
-from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
-from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 
 
 def _make_execution_plan(run_service):
@@ -203,7 +202,7 @@ def _make_execution_plan(run_service):
 
 def test_plan_workspace_returns_pending_plan_with_workspace_plan(run_service, tmp_path):
     input_plan = _make_execution_plan(run_service)
-    workspace_planner = WorkspacePlanner()
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
     base_dir = tmp_path.resolve()
 
     result = workspace_planner.plan_workspace(input_plan, base_dir=base_dir)
@@ -226,7 +225,7 @@ def test_plan_workspace_returns_pending_plan_with_workspace_plan(run_service, tm
 
 def test_plan_workspace_does_not_create_directories_or_files(run_service, tmp_path):
     input_plan = _make_execution_plan(run_service)
-    workspace_planner = WorkspacePlanner()
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
     base_dir = tmp_path.resolve()
 
     workspace_planner.plan_workspace(input_plan, base_dir=base_dir)
@@ -237,7 +236,7 @@ def test_plan_workspace_does_not_create_directories_or_files(run_service, tmp_pa
 
 def test_plan_workspace_does_not_mutate_input_plan(run_service, tmp_path):
     input_plan = _make_execution_plan(run_service)
-    workspace_planner = WorkspacePlanner()
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
     base_dir = tmp_path.resolve()
 
     workspace_planner.plan_workspace(input_plan, base_dir=base_dir)
@@ -249,9 +248,11 @@ def test_plan_workspace_does_not_mutate_input_plan(run_service, tmp_path):
 
 def test_plan_workspace_rejects_relative_base_dir(run_service, tmp_path):
     input_plan = _make_execution_plan(run_service)
-    workspace_planner = WorkspacePlanner()
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
 
-    result = workspace_planner.plan_workspace(input_plan, base_dir=Path("relative/path"))
+    result = workspace_planner.plan_workspace(
+        input_plan, base_dir=Path("relative/path")
+    )
 
     assert result.is_failure is True
     assert result.value is None
@@ -268,7 +269,7 @@ def test_plan_workspace_does_not_mutate_run_service(run_service, tmp_path):
     before_logs = run_service.list_logs(input_plan.run_id, "stdout")
     before_artifacts = run_service.list_artifacts(input_plan.run_id)
 
-    workspace_planner = WorkspacePlanner()
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
     workspace_planner.plan_workspace(input_plan, base_dir=tmp_path.resolve())
 
     after_record = run_service.get_run(input_plan.run_id)
@@ -279,20 +280,9 @@ def test_plan_workspace_does_not_mutate_run_service(run_service, tmp_path):
     assert run_service.list_artifacts(input_plan.run_id) == before_artifacts
 
 
-def test_plan_workspace_does_not_call_adapter_planning_methods(run_service, tmp_path):
-    # fake_adapter fixture already raises on planning methods.
-    input_plan = _make_execution_plan(run_service)
-    workspace_planner = WorkspacePlanner()
-
-    result = workspace_planner.plan_workspace(input_plan, base_dir=tmp_path.resolve())
-
-    assert result.is_success is True
-    assert result.value.workspace_plan is not None
-
-
 def test_plan_workspace_propagates_path_policy_failure(run_service, tmp_path):
     input_plan = _make_execution_plan(run_service)
-    workspace_planner = WorkspacePlanner()
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
 
     # Use a base_dir that is absolute but whose value we will monkeypatch the
     # planner to produce an invalid path. Since the default layout is fixed and
@@ -305,7 +295,277 @@ def test_plan_workspace_propagates_path_policy_failure(run_service, tmp_path):
 
 
 def test_default_factory_returns_workspace_planner():
-    from encode_pipeline.services import WorkspacePlanner, create_default_workspace_planner
+    from encode_pipeline.services import (
+        WorkspacePlanner,
+        create_default_workspace_planner,
+    )
 
     planner = create_default_workspace_planner()
     assert isinstance(planner, WorkspacePlanner)
+
+
+def test_workspace_planner_reconstructs_inputs_from_snapshot(run_service, tmp_path):
+    from encode_pipeline.services.planning import WorkspacePlanner
+
+    inputs = WorkflowInputs(
+        config={"samples": "/abs/samples.tsv"},
+        samples="/abs/samples.tsv",
+        options={"strict_inputs": True},
+    )
+    record = run_service.create_run("stub", inputs)
+    planner = ExecutionPlanner(run_service=run_service)
+    plan = planner.plan_run(record.run_id).value
+
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
+    result = workspace_planner._reconstruct_inputs(plan.inputs_snapshot)
+
+    assert result.is_success is True
+    assert result.value.config == {"samples": "/abs/samples.tsv"}
+    assert result.value.samples == "/abs/samples.tsv"
+    assert result.value.options == {"strict_inputs": True}
+
+
+def test_workspace_planner_fails_on_malformed_inputs_snapshot_missing_config(
+    run_service, tmp_path
+):
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
+
+    result = workspace_planner.plan_workspace(
+        ExecutionPlan(
+            plan_id=input_plan.plan_id,
+            run_id=input_plan.run_id,
+            workflow_id=input_plan.workflow_id,
+            status=input_plan.status,
+            inputs_snapshot={"samples": None, "options": {}},
+            created_at=input_plan.created_at,
+        ),
+        base_dir=tmp_path.resolve(),
+    )
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_PLAN_MALFORMED_INPUTS"
+    assert issue.path == "inputs_snapshot.config"
+
+
+def test_workspace_planner_fails_on_malformed_inputs_snapshot_invalid_options_type(
+    run_service, tmp_path
+):
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
+
+    result = workspace_planner.plan_workspace(
+        ExecutionPlan(
+            plan_id=input_plan.plan_id,
+            run_id=input_plan.run_id,
+            workflow_id=input_plan.workflow_id,
+            status=input_plan.status,
+            inputs_snapshot={"config": {}, "samples": None, "options": "not-a-mapping"},
+            created_at=input_plan.created_at,
+        ),
+        base_dir=tmp_path.resolve(),
+    )
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_PLAN_MALFORMED_INPUTS"
+    assert issue.path == "inputs_snapshot.options"
+
+
+def test_workspace_planner_fails_on_malformed_inputs_snapshot_invalid_samples_type(
+    run_service, tmp_path
+):
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
+
+    result = workspace_planner.plan_workspace(
+        ExecutionPlan(
+            plan_id=input_plan.plan_id,
+            run_id=input_plan.run_id,
+            workflow_id=input_plan.workflow_id,
+            status=input_plan.status,
+            inputs_snapshot={"config": {}, "samples": 123, "options": {}},
+            created_at=input_plan.created_at,
+        ),
+        base_dir=tmp_path.resolve(),
+    )
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_PLAN_MALFORMED_INPUTS"
+    assert issue.path == "inputs_snapshot.samples"
+
+
+def test_workspace_planner_delegates_to_adapter_and_preserves_info_issue(
+    run_service, tmp_path
+):
+    class _CustomAdapter:
+        metadata = WorkflowMetadata(
+            workflow_id="stub",
+            name="Stub",
+            version="0.0.1",
+        )
+        capabilities = WorkflowCapabilities(supports=("workspace_plan",))
+
+        def schema(self):
+            return WorkflowSchema()
+
+        def validate(self, inputs):
+            from encode_pipeline.platform.results import Result
+
+            return Result.success(None)
+
+        def preview_dag(self, inputs):
+            from encode_pipeline.platform.results import Result
+
+            return Result.success(DagPreview())
+
+        def plan_workspace(self, inputs, workspace):
+            from encode_pipeline.platform.results import Result, Issue
+
+            return Result.success(
+                WorkspacePlan(
+                    directories=("logs",), files=(("config/config.yaml", b"x"),)
+                ),
+                issues=[
+                    Issue(
+                        code="ADAPTER_WORKSPACE_PLANNING_COMPLETE",
+                        message="Adapter planned workspace.",
+                        severity="info",
+                        source="adapter",
+                    )
+                ],
+            )
+
+        def build_command(self, plan):
+            from encode_pipeline.platform.results import Result
+
+            return Result.failure([])
+
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner(
+        registry=WorkflowRegistry(adapters=[_CustomAdapter()])
+    )
+    result = workspace_planner.plan_workspace(input_plan, base_dir=tmp_path.resolve())
+
+    assert result.is_success is True
+    updated = result.value
+    assert updated.status is PlanStatus.PENDING
+    assert updated.workspace_plan is not None
+    assert updated.workspace_plan.directories == ("logs",)
+    assert updated.workspace_plan.files == (("config/config.yaml", b"x"),)
+    assert any(
+        issue.code == "ADAPTER_WORKSPACE_PLANNING_COMPLETE" for issue in updated.issues
+    )
+
+
+def test_workspace_planner_fails_when_workflow_not_in_registry(run_service, tmp_path):
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner(registry=WorkflowRegistry(adapters=[]))
+
+    result = workspace_planner.plan_workspace(input_plan, base_dir=tmp_path.resolve())
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_PLAN_WORKFLOW_NOT_FOUND"
+    assert issue.path == "workflow_id"
+
+
+def test_workspace_planner_rejects_adapter_returned_absolute_path(
+    run_service, tmp_path
+):
+    class _BadAdapter:
+        metadata = WorkflowMetadata(
+            workflow_id="stub",
+            name="Stub",
+            version="0.0.1",
+        )
+        capabilities = WorkflowCapabilities(supports=("workspace_plan",))
+
+        def schema(self):
+            return WorkflowSchema()
+
+        def validate(self, inputs):
+            from encode_pipeline.platform.results import Result
+
+            return Result.success(None)
+
+        def preview_dag(self, inputs):
+            from encode_pipeline.platform.results import Result
+
+            return Result.success(DagPreview())
+
+        def plan_workspace(self, inputs, workspace):
+            from encode_pipeline.platform.results import Result
+
+            return Result.success(WorkspacePlan(files=(("/etc/passwd", b"x"),)))
+
+        def build_command(self, plan):
+            from encode_pipeline.platform.results import Result
+
+            return Result.failure([])
+
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner(
+        registry=WorkflowRegistry(adapters=[_BadAdapter()])
+    )
+    result = workspace_planner.plan_workspace(input_plan, base_dir=tmp_path.resolve())
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_PATH_ABSOLUTE"
+    assert issue.path == "workspace_plan.files[0]"
+    payload = issue.to_dict()
+    for value in payload.values():
+        if isinstance(value, str):
+            assert "/etc/passwd" not in value
+    for ctx_value in payload["context"].values():
+        if isinstance(ctx_value, str):
+            assert "/etc/passwd" not in ctx_value
+
+
+def test_workspace_planner_rejects_adapter_returned_traversal_path(
+    run_service, tmp_path
+):
+    class _BadAdapter:
+        metadata = WorkflowMetadata(
+            workflow_id="stub",
+            name="Stub",
+            version="0.0.1",
+        )
+        capabilities = WorkflowCapabilities(supports=("workspace_plan",))
+
+        def schema(self):
+            return WorkflowSchema()
+
+        def validate(self, inputs):
+            from encode_pipeline.platform.results import Result
+
+            return Result.success(None)
+
+        def preview_dag(self, inputs):
+            from encode_pipeline.platform.results import Result
+
+            return Result.success(DagPreview())
+
+        def plan_workspace(self, inputs, workspace):
+            from encode_pipeline.platform.results import Result
+
+            return Result.success(WorkspacePlan(files=(("../escape", b"x"),)))
+
+        def build_command(self, plan):
+            from encode_pipeline.platform.results import Result
+
+            return Result.failure([])
+
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner(
+        registry=WorkflowRegistry(adapters=[_BadAdapter()])
+    )
+    result = workspace_planner.plan_workspace(input_plan, base_dir=tmp_path.resolve())
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "WORKSPACE_PATH_TRAVERSAL"
+    assert issue.path == "workspace_plan.files[0]"
