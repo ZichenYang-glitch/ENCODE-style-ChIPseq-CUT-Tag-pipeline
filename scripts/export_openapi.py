@@ -17,7 +17,9 @@ def export_openapi(output_path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Export FastAPI OpenAPI schema to JSON.")
+    parser = argparse.ArgumentParser(
+        description="Export FastAPI OpenAPI schema to JSON."
+    )
     parser.add_argument(
         "--output",
         type=Path,

@@ -33,7 +33,7 @@ jobs:
 
       - name: OpenAPI contract drift gate
         shell: micromamba-shell {0}
-        run: python3 -m pytest test/api/test_openapi_export.py::test_committed_openapi_matches_current_app -v
+        run: python3 -m pytest test/api/test_openapi_export.py -v
 
       - name: Validate default config
         shell: micromamba-shell {0}
@@ -110,7 +110,8 @@ jobs:
       - name: Verify generated client is up to date
         run: |
           npm run openapi:generate
-          git diff --exit-code openapi.json src/api/generated/
+          git diff --exit-code -- openapi.json src/api/generated/
+          test -z "$(git ls-files --others --exclude-standard -- src/api/generated/)"
 
       - name: Type check
         run: npm run typecheck
