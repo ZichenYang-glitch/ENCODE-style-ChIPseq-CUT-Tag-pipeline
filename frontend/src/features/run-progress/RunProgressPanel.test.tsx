@@ -522,6 +522,79 @@ describe('RunProgressPanel', () => {
     expect(screen.getByTestId('run-event-feed-empty')).toBeInTheDocument();
   });
 
+  it('does not treat failed logs as successful empty arrays', async () => {
+    const runClient: RunApiClient = {
+      createRun: vi.fn(),
+      getRun: vi.fn().mockResolvedValue({
+        ok: true,
+        run: {
+          run_id: 'run-1',
+          workflow_id: WORKFLOW_ID,
+          inputs: validatedInputs as unknown as Record<string, unknown>,
+          status: 'created',
+          created_at: '2026-07-04T12:00:00.000Z',
+          updated_at: '2026-07-04T12:00:00.000Z',
+          started_at: null,
+          ended_at: null,
+          current_stage: null,
+          cancellation_reason: null,
+          error: null,
+          tags: {},
+        },
+        issues: [],
+      } as unknown as RunResponse),
+      listRunEvents: vi.fn().mockResolvedValue({
+        ok: true,
+        run_id: 'run-1',
+        events: [],
+        next_cursor: null,
+        issues: [],
+      }),
+      listRunLogs: vi.fn().mockImplementation(async (_, options = {}) => {
+        const streamName = options.streamName ?? 'stdout';
+        if (streamName === 'stderr') {
+          return {
+            ok: false,
+            run_id: 'run-1',
+            stream_name: 'stderr',
+            chunks: [],
+            next_cursor: null,
+            issues: [
+              {
+                code: 'RUN_LOGS_UNAVAILABLE',
+                message: 'Stderr logs unavailable.',
+                severity: 'error',
+                path: 'logs',
+                source: 'stub',
+                technical_message: null,
+                hint: null,
+                context: {},
+              },
+            ],
+          };
+        }
+        return {
+          ok: true,
+          run_id: 'run-1',
+          stream_name: 'stdout',
+          chunks: [],
+          next_cursor: null,
+          issues: [],
+        };
+      }),
+      cancelRun: vi.fn(),
+    };
+
+    renderPanel({
+      runId: 'run-1',
+      runClient,
+    });
+
+    expect(await screen.findByTestId('run-progress-error')).toHaveTextContent(
+      /RUN_LOGS_UNAVAILABLE: Stderr logs unavailable/i,
+    );
+  });
+
   it('ignores stale responses after runId changes', async () => {
     const runClient: RunApiClient = {
       createRun: vi.fn(),

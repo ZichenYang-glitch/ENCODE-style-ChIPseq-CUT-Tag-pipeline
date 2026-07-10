@@ -120,15 +120,23 @@ export function RunProgressPanel({
         ]);
         if (stale) return;
 
-        if (!eventsResponse.ok) {
-          setError(firstIssueMessage(eventsResponse.issues));
-          setEvents([]);
-          setStdoutLogs([]);
-          setStderrLogs([]);
-        } else {
-          setEvents(eventsResponse.events);
+        const detailsIssue = !eventsResponse.ok
+          ? firstIssueMessage(eventsResponse.issues)
+          : !stdoutResponse.ok
+            ? firstIssueMessage(stdoutResponse.issues)
+            : !stderrResponse.ok
+              ? firstIssueMessage(stderrResponse.issues)
+              : null;
+
+        if (detailsIssue) {
+          setError(detailsIssue);
+          setEvents(eventsResponse.ok ? eventsResponse.events : []);
           setStdoutLogs(stdoutResponse.ok ? stdoutResponse.chunks : []);
           setStderrLogs(stderrResponse.ok ? stderrResponse.chunks : []);
+        } else {
+          setEvents(eventsResponse.events);
+          setStdoutLogs(stdoutResponse.chunks);
+          setStderrLogs(stderrResponse.chunks);
         }
       } catch (err) {
         if (stale) return;
@@ -171,17 +179,25 @@ export function RunProgressPanel({
       setRun(runResponse.run);
     }
 
-    if (!eventsResponse.ok) {
-      setError(firstIssueMessage(eventsResponse.issues));
-      setEvents([]);
-      setStdoutLogs([]);
-      setStderrLogs([]);
+    const detailsIssue = !eventsResponse.ok
+      ? firstIssueMessage(eventsResponse.issues)
+      : !stdoutResponse.ok
+        ? firstIssueMessage(stdoutResponse.issues)
+        : !stderrResponse.ok
+          ? firstIssueMessage(stderrResponse.issues)
+          : null;
+
+    if (detailsIssue) {
+      setError(detailsIssue);
+      setEvents(eventsResponse.ok ? eventsResponse.events : []);
+      setStdoutLogs(stdoutResponse.ok ? stdoutResponse.chunks : []);
+      setStderrLogs(stderrResponse.ok ? stderrResponse.chunks : []);
       return;
     }
 
     setEvents(eventsResponse.events);
-    setStdoutLogs(stdoutResponse.ok ? stdoutResponse.chunks : []);
-    setStderrLogs(stderrResponse.ok ? stderrResponse.chunks : []);
+    setStdoutLogs(stdoutResponse.chunks);
+    setStderrLogs(stderrResponse.chunks);
   }
 
   async function handleCreateRun() {
