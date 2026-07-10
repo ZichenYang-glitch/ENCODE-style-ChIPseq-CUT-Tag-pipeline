@@ -8,13 +8,14 @@ from typing import TYPE_CHECKING, Any
 from collections.abc import Mapping
 from uuid import uuid4
 
-from encode_pipeline.platform.adapters import WorkspacePlan
+from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.planning import (
     ExecutionPlan,
     PlanStatus,
     WorkspacePathError,
     WorkspacePathPolicy,
 )
+from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 
 if TYPE_CHECKING:
@@ -84,8 +85,6 @@ class WorkspacePlanner:
     """
 
     def __init__(self, registry: WorkflowRegistry) -> None:
-        from encode_pipeline.platform.registry import WorkflowRegistry
-
         if not isinstance(registry, WorkflowRegistry):
             raise ValueError("WorkspacePlanner requires a WorkflowRegistry instance")
         self._registry = registry
@@ -95,7 +94,6 @@ class WorkspacePlanner:
         inputs_snapshot: Mapping[str, Any],
     ) -> Result[WorkflowInputs]:
         """Rebuild WorkflowInputs from an ExecutionPlan inputs snapshot."""
-        from encode_pipeline.platform.adapters import WorkflowInputs
         from encode_pipeline.platform.results import Issue
 
         def _malformed(path: str) -> Result[WorkflowInputs]:
@@ -190,7 +188,8 @@ class WorkspacePlanner:
                     Issue(
                         code=exc.code,
                         message=self._WORKSPACE_PATH_ERROR_MESSAGES.get(
-                            exc.code, "Workspace path policy rejected the base directory."
+                            exc.code,
+                            "Workspace path policy rejected the base directory.",
                         ),
                         severity="error",
                         path="base_dir",
@@ -233,7 +232,8 @@ class WorkspacePlanner:
                         Issue(
                             code=exc.code,
                             message=self._WORKSPACE_PATH_ERROR_MESSAGES.get(
-                                exc.code, "Planned workspace path violates workspace path policy."
+                                exc.code,
+                                "Planned workspace path violates workspace path policy.",
                             ),
                             severity="error",
                             path=f"workspace_plan.directories[{index}]",
@@ -251,7 +251,8 @@ class WorkspacePlanner:
                         Issue(
                             code=exc.code,
                             message=self._WORKSPACE_PATH_ERROR_MESSAGES.get(
-                                exc.code, "Planned workspace path violates workspace path policy."
+                                exc.code,
+                                "Planned workspace path violates workspace path policy.",
                             ),
                             severity="error",
                             path=f"workspace_plan.files[{index}]",

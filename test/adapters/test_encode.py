@@ -107,7 +107,9 @@ def test_adapter_plan_workspace_rejects_relative_fastq_path(tmp_path):
     assert "relative/S1_1.fq.gz" not in str(payload)
 
 
-def test_adapter_plan_workspace_rejects_relative_genome_resource_path(tmp_path, monkeypatch):
+def test_adapter_plan_workspace_rejects_relative_genome_resource_path(
+    tmp_path, monkeypatch
+):
     samples_tsv = tmp_path / "samples.tsv"
     samples_tsv.write_text(
         "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"

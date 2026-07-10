@@ -271,19 +271,21 @@ class EncodeStyleWorkflowAdapter:
         strict_inputs = bool(inputs.options.get("strict_inputs", False))
 
         if isinstance(inputs.samples, list):
-            return Result.failure([
-                Issue(
-                    code="ENCODE_ADAPTER_UNSUPPORTED",
-                    message=(
-                        "The current ENCODE-style adapter supports TSV/CSV "
-                        "sample paths only; inline sample rows are not "
-                        "supported yet."
-                    ),
-                    source="adapter",
-                    path="samples",
-                    context={"feature": "inline_samples"},
-                )
-            ])
+            return Result.failure(
+                [
+                    Issue(
+                        code="ENCODE_ADAPTER_UNSUPPORTED",
+                        message=(
+                            "The current ENCODE-style adapter supports TSV/CSV "
+                            "sample paths only; inline sample rows are not "
+                            "supported yet."
+                        ),
+                        source="adapter",
+                        path="samples",
+                        context={"feature": "inline_samples"},
+                    )
+                ]
+            )
         if isinstance(inputs.samples, (str, Path)):
             config["samples"] = str(inputs.samples)
 
@@ -298,14 +300,16 @@ class EncodeStyleWorkflowAdapter:
         try:
             validated_config = validate_config(config)
         except ValidationError as exc:
-            return Result.failure([
-                _issue_from_exception(
-                    exc,
-                    code="ENCODE_CONFIG_INVALID",
-                    source="config",
-                    path="config",
-                )
-            ])
+            return Result.failure(
+                [
+                    _issue_from_exception(
+                        exc,
+                        code="ENCODE_CONFIG_INVALID",
+                        source="config",
+                        path="config",
+                    )
+                ]
+            )
 
         flags = _sample_validation_flags(validated_config)
         try:
@@ -320,27 +324,31 @@ class EncodeStyleWorkflowAdapter:
                 reproducibility_idr_cuttag_broad=flags["cuttag_broad"],
             )
         except ValidationError as exc:
-            return Result.failure([
-                _issue_from_exception(
-                    exc,
-                    code="ENCODE_SAMPLES_INVALID",
-                    source="samples",
-                    path="samples",
-                )
-            ])
+            return Result.failure(
+                [
+                    _issue_from_exception(
+                        exc,
+                        code="ENCODE_SAMPLES_INVALID",
+                        source="samples",
+                        path="samples",
+                    )
+                ]
+            )
 
         try:
             validate_picard_reference_resources(validated_config, samples)
             validate_tss_annotation_resources(validated_config, samples)
         except ValidationError as exc:
-            return Result.failure([
-                _issue_from_exception(
-                    exc,
-                    code="ENCODE_RESOURCES_INVALID",
-                    source="config",
-                    path="config.genome_resources",
-                )
-            ])
+            return Result.failure(
+                [
+                    _issue_from_exception(
+                        exc,
+                        code="ENCODE_RESOURCES_INVALID",
+                        source="config",
+                        path="config.genome_resources",
+                    )
+                ]
+            )
 
         return Result.success({"config": validated_config, "samples": samples})
 
@@ -356,7 +364,9 @@ class EncodeStyleWorkflowAdapter:
         """Plan workspace directories and files for the ENCODE workflow."""
         validated = self.validate(inputs)
         if validated.is_failure:
-            return Result.failure([_sanitize_issue(issue) for issue in validated.issues])
+            return Result.failure(
+                [_sanitize_issue(issue) for issue in validated.issues]
+            )
 
         validated_value = validated.value
         validated_config = validated_value["config"]
@@ -371,28 +381,32 @@ class EncodeStyleWorkflowAdapter:
         try:
             config_yaml = _render_config_yaml(workspace_config)
         except ValueError:
-            return Result.failure([
-                Issue(
-                    code="ENCODE_WORKSPACE_RENDER_FAILED",
-                    message="Config could not be rendered to YAML.",
-                    severity="error",
-                    path="config",
-                    source="adapter",
-                )
-            ])
+            return Result.failure(
+                [
+                    Issue(
+                        code="ENCODE_WORKSPACE_RENDER_FAILED",
+                        message="Config could not be rendered to YAML.",
+                        severity="error",
+                        path="config",
+                        source="adapter",
+                    )
+                ]
+            )
 
         try:
             samples_tsv = _render_samples_tsv(sample_rows)
         except ValueError:
-            return Result.failure([
-                Issue(
-                    code="ENCODE_WORKSPACE_RENDER_FAILED",
-                    message="Samples could not be rendered to TSV.",
-                    severity="error",
-                    path="samples",
-                    source="adapter",
-                )
-            ])
+            return Result.failure(
+                [
+                    Issue(
+                        code="ENCODE_WORKSPACE_RENDER_FAILED",
+                        message="Samples could not be rendered to TSV.",
+                        severity="error",
+                        path="samples",
+                        source="adapter",
+                    )
+                ]
+            )
 
         workspace_plan = WorkspacePlan(
             directories=("logs", "results"),
@@ -449,12 +463,8 @@ def _sample_validation_flags(validated_config: dict[str, Any]) -> dict[str, bool
     return {
         "atac_narrow": bool(enabled and idr.get("atac_narrow", False)),
         "cuttag_narrow": bool(enabled and idr.get("cuttag_narrow", False)),
-        "chipseq_broad": bool(
-            enabled and idr.get("chipseq_broad_experimental", False)
-        ),
-        "cuttag_broad": bool(
-            enabled and idr.get("cuttag_broad_experimental", False)
-        ),
+        "chipseq_broad": bool(enabled and idr.get("chipseq_broad_experimental", False)),
+        "cuttag_broad": bool(enabled and idr.get("cuttag_broad_experimental", False)),
     }
 
 
@@ -474,12 +484,14 @@ def _issue_from_exception(
 
 
 def _unsupported_method(method: str) -> Result[Any]:
-    return Result.failure([
-        Issue(
-            code="ENCODE_ADAPTER_UNSUPPORTED",
-            message=f"{method} is not supported by the current adapter.",
-            source="adapter",
-            path=method,
-            context={"method": method},
-        )
-    ])
+    return Result.failure(
+        [
+            Issue(
+                code="ENCODE_ADAPTER_UNSUPPORTED",
+                message=f"{method} is not supported by the current adapter.",
+                source="adapter",
+                path=method,
+                context={"method": method},
+            )
+        ]
+    )
