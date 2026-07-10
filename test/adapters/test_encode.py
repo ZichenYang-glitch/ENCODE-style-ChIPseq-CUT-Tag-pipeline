@@ -164,6 +164,24 @@ def test_adapter_plan_workspace_issue_does_not_leak_user_path(tmp_path):
     for ctx_value in payload["context"].values():
         if isinstance(ctx_value, str):
             assert missing_path not in ctx_value
+    assert issue.hint is None
+    assert issue.context == {}
+
+
+def test_adapter_plan_workspace_rejects_inline_sample_rows():
+    adapter = EncodeStyleWorkflowAdapter()
+    inputs = WorkflowInputs(
+        config={},
+        samples=[{"sample": "S1", "fastq_1": "/abs/S1_1.fq.gz"}],
+        options={},
+    )
+    result = adapter.plan_workspace(inputs, "/workspace")
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "ENCODE_ADAPTER_UNSUPPORTED"
+    assert issue.hint is None
+    assert issue.context == {}
 
 
 def test_adapter_plan_workspace_semantic_round_trip_via_loader(tmp_path):
