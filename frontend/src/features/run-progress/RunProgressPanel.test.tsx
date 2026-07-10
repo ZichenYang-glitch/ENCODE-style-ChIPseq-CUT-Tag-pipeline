@@ -3,10 +3,9 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import { RunProgressPanel } from './RunProgressPanel';
-import { ClientProvider } from '../../api/client-context';
 import type { RunApiClient } from '../../api/runClient';
 import type { ValidateWorkflowResponse, WorkflowInputs } from '../../api/types';
-import type { RunEventResponse } from '../../api/runTypes';
+import type { RunEventResponse, RunResponse } from '../../api/runTypes';
 
 const WORKFLOW_ID = 'encode-style-chipseq-cuttag-atac-mnase';
 
@@ -201,11 +200,7 @@ function renderPanel(props: Partial<Parameters<typeof RunProgressPanel>[0]> = {}
   });
 
   function Wrapper({ children }: { children: React.ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <ClientProvider clients={{ runClient }}>{children}</ClientProvider>
-      </QueryClientProvider>
-    );
+    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   }
 
   const result = render(
@@ -429,6 +424,204 @@ describe('RunProgressPanel', () => {
     );
     expect(screen.getByTestId('run-event-feed')).toBeInTheDocument();
     expect(screen.getByText(/\[stub\] validating inputs/i)).toBeInTheDocument();
+  });
+
+  it('displays a safe issue message when getRun returns ok=false', async () => {
+    const runClient: RunApiClient = {
+      createRun: vi.fn(),
+      getRun: vi.fn().mockResolvedValue({
+        ok: false,
+        run: null,
+        issues: [
+          {
+            code: 'RUN_NOT_FOUND',
+            message: 'Run was not found.',
+            severity: 'error',
+            path: 'run_id',
+            source: 'stub',
+            technical_message: null,
+            hint: null,
+            context: { run_id: 'missing-run' },
+          },
+        ],
+      } as RunResponse),
+      listRunEvents: vi.fn(),
+      listRunLogs: vi.fn(),
+      cancelRun: vi.fn(),
+    };
+
+    renderPanel({
+      runId: 'missing-run',
+      runClient,
+    });
+
+    expect(await screen.findByTestId('run-progress-error')).toHaveTextContent(
+      /RUN_NOT_FOUND: Run was not found/i,
+    );
+    expect(screen.queryByText(/Validate inputs before creating a run record/i)).not.toBeInTheDocument();
+  });
+
+  it('does not treat failed events/logs as successful empty arrays', async () => {
+    const runClient: RunApiClient = {
+      createRun: vi.fn(),
+      getRun: vi.fn().mockResolvedValue({
+        ok: true,
+        run: {
+          run_id: 'run-1',
+          workflow_id: WORKFLOW_ID,
+          inputs: validatedInputs as unknown as Record<string, unknown>,
+          status: 'created',
+          created_at: '2026-07-04T12:00:00.000Z',
+          updated_at: '2026-07-04T12:00:00.000Z',
+          started_at: null,
+          ended_at: null,
+          current_stage: null,
+          cancellation_reason: null,
+          error: null,
+          tags: {},
+        },
+        issues: [],
+      } as unknown as RunResponse),
+      listRunEvents: vi.fn().mockResolvedValue({
+        ok: false,
+        run_id: 'run-1',
+        events: [],
+        next_cursor: null,
+        issues: [
+          {
+            code: 'RUN_EVENTS_UNAVAILABLE',
+            message: 'Events unavailable.',
+            severity: 'error',
+            path: 'events',
+            source: 'stub',
+            technical_message: null,
+            hint: null,
+            context: {},
+          },
+        ],
+      }),
+      listRunLogs: vi.fn().mockResolvedValue({
+        ok: true,
+        run_id: 'run-1',
+        stream_name: 'stdout',
+        chunks: [],
+        next_cursor: null,
+        issues: [],
+      }),
+      cancelRun: vi.fn(),
+    };
+
+    renderPanel({
+      runId: 'run-1',
+      runClient,
+    });
+
+    expect(await screen.findByTestId('run-progress-error')).toHaveTextContent(
+      /RUN_EVENTS_UNAVAILABLE: Events unavailable/i,
+    );
+    expect(screen.getByTestId('run-event-feed-empty')).toBeInTheDocument();
+  });
+
+  it('ignores stale responses after runId changes', async () => {
+    const runClient: RunApiClient = {
+      createRun: vi.fn(),
+      getRun: vi.fn().mockImplementation(async (runId) => {
+        const delay = runId === 'slow-run' ? 300 : 10;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return {
+          ok: true,
+          run: {
+            run_id: runId,
+            workflow_id: WORKFLOW_ID,
+            inputs: validatedInputs as unknown as Record<string, unknown>,
+            status: 'created',
+            created_at: '2026-07-04T12:00:00.000Z',
+            updated_at: '2026-07-04T12:00:00.000Z',
+            started_at: null,
+            ended_at: null,
+            current_stage: null,
+            cancellation_reason: null,
+            error: null,
+            tags: {},
+          },
+          issues: [],
+        } as unknown as RunResponse;
+      }),
+      listRunEvents: vi.fn().mockImplementation(async (runId) => {
+        const delay = runId === 'slow-run' ? 300 : 10;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return {
+          ok: true,
+          run_id: runId,
+          events: [
+            {
+              event_id: `${runId}-evt-1`,
+              run_id: runId,
+              sequence: 1,
+              event_type: 'status_changed',
+              timestamp: '2026-07-04T12:00:00.000Z',
+              status: 'created',
+              stage: null,
+              message: `Run ${runId} created.`,
+              context: { previous_status: null, new_status: 'created' },
+              issue: null,
+            },
+          ],
+          next_cursor: null,
+          issues: [],
+        };
+      }),
+      listRunLogs: vi.fn().mockResolvedValue({
+        ok: true,
+        run_id: 'run-1',
+        stream_name: 'stdout',
+        chunks: [],
+        next_cursor: null,
+        issues: [],
+      }),
+      cancelRun: vi.fn(),
+    };
+
+    const { rerender } = renderPanel({
+      runId: 'slow-run',
+      runClient,
+    });
+
+    // Immediately switch to a faster run before slow-run responses arrive.
+    rerender({ runId: 'fast-run', runClient });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('run-status-badge')).toHaveTextContent('created');
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Run fast-run created/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/Run slow-run created/i)).not.toBeInTheDocument();
+
+    // Wait long enough that the stale slow-run responses would have landed.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(screen.queryByText(/Run slow-run created/i)).not.toBeInTheDocument();
+  });
+
+  it('calls getRun only once per runId on deep link', async () => {
+    const runClient = createMockRunClient();
+    await runClient.createRun(WORKFLOW_ID, {
+      config: validatedInputs.config,
+      samples: validatedInputs.samples as Record<string, string>[],
+      options: validatedInputs.options,
+    });
+
+    renderPanel({
+      runId: 'run-1',
+      runClient,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('run-status-badge')).toBeInTheDocument();
+    });
+
+    expect(runClient.getRun).toHaveBeenCalledTimes(1);
   });
 
   it('does not render execution-like wording', () => {

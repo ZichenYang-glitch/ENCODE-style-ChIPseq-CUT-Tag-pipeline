@@ -160,4 +160,28 @@ describe('Router', () => {
       await screen.findByRole('heading', { name: /Workflow Platform/i }),
     ).toBeInTheDocument();
   });
+
+  it('renders not-found state for unknown workflowId', async () => {
+    renderWithRouter(appRoutes, {
+      initialEntries: ['/workflows/missing-id'],
+    });
+
+    expect(await screen.findByText(/Workflow not found/i)).toBeInTheDocument();
+    expect(screen.getByText(/missing-id/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Samples \(path string\)/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('create-run-button')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Validation Assistant/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the 404 back link as a single interactive element', async () => {
+    renderWithRouter(appRoutes, {
+      initialEntries: ['/unknown-route'],
+    });
+
+    const link = await screen.findByRole('link', { name: /Back to workflows/i });
+    expect(link).toBeInTheDocument();
+    expect(link.tagName.toLowerCase()).toBe('a');
+    expect(link.querySelector('button')).toBeNull();
+    expect(screen.getAllByRole('link').length).toBe(1);
+  });
 });

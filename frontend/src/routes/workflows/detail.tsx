@@ -32,16 +32,29 @@ function createParseErrorIssue(path: 'config' | 'options', message: string): Iss
   };
 }
 
+function createNotFoundIssue(workflowId: string): Issue {
+  return {
+    code: 'WORKFLOW_NOT_FOUND',
+    message: 'Workflow was not found.',
+    severity: 'error',
+    path: 'workflow_id',
+    source: 'registry',
+    technical_message: null,
+    hint: 'Select a workflow from the catalog.',
+    context: { workflow_id: workflowId },
+  };
+}
+
 export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
   const navigate = useNavigate();
   const { workflowClient, agentClient, runClient } = useClients();
 
-  const { data: workflowsData } = useQuery({
+  const { data: workflowsData, isLoading: workflowsLoading } = useQuery({
     queryKey: ['workflows'],
     queryFn: () => workflowClient.listWorkflows(),
   });
 
-  const { data: schemaData } = useQuery({
+  const { data: schemaData, isLoading: schemaLoading } = useQuery({
     queryKey: ['workflow', workflowId, 'schema'],
     queryFn: () => workflowClient.getWorkflowSchema(workflowId),
   });
@@ -78,9 +91,24 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
     setAgentFocusedIssue(null);
   }, [workflowId]);
 
+  const isNotFound =
+    !workflowsLoading &&
+    !schemaLoading &&
+    workflowsData !== undefined &&
+    schemaData !== undefined &&
+    (workflow === undefined || schemaData.ok === false);
+
+  const notFoundIssues = useMemo(
+    () => (isNotFound ? [createNotFoundIssue(workflowId)] : []),
+    [isNotFound, workflowId],
+  );
+
   const displayedIssues = useMemo(
-    () => validationResult?.issues ?? [],
-    [validationResult],
+    () =>
+      isNotFound
+        ? notFoundIssues
+        : validationResult?.issues ?? [],
+    [isNotFound, notFoundIssues, validationResult],
   );
 
   async function handleValidate() {
@@ -172,6 +200,21 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
 
   function handleRunCreated(runId: string) {
     navigate(`/runs/${runId}`);
+  }
+
+  if (isNotFound) {
+    return (
+      <section className="flex min-w-0 flex-1 flex-col gap-3">
+        <Panel title="Workflow not found">
+          <p className="text-sm text-[var(--color-error)]">
+            No workflow with ID <code>{workflowId}</code> was found.
+          </p>
+        </Panel>
+        <Panel title="Validation results">
+          <IssuePanel issues={displayedIssues} onAskAgent={handleAskAgent} />
+        </Panel>
+      </section>
+    );
   }
 
   return (

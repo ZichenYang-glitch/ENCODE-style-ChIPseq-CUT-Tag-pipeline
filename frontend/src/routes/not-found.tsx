@@ -8,9 +8,9 @@ export function NotFoundPage() {
       <p className="text-sm text-[var(--color-text-muted)]">
         This page does not exist.
       </p>
-      <Link to="/workflows">
-        <Button variant="primary">Back to workflows</Button>
-      </Link>
+      <Button variant="primary" asChild>
+        <Link to="/workflows">Back to workflows</Link>
+      </Button>
     </div>
   );
 }
