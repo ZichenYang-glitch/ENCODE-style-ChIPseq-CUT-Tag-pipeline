@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RefreshCw, Ban } from 'lucide-react';
 import type { RunApiClient } from '../../api/runClient';
 import type {
@@ -76,27 +76,38 @@ export function RunProgressPanel({
   const [activeLogStream, setActiveLogStream] = useState<'stdout' | 'stderr'>('stdout');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestGeneration = useRef(0);
+
+  function startRequestGeneration(): number {
+    requestGeneration.current += 1;
+    return requestGeneration.current;
+  }
+
+  function isCurrentRequest(generation: number): boolean {
+    return requestGeneration.current === generation;
+  }
 
   useEffect(() => {
+    const generation = startRequestGeneration();
     setRun(null);
     setEvents([]);
     setStdoutLogs([]);
     setStderrLogs([]);
     setActiveLogStream('stdout');
     setError(null);
+    setLoading(false);
 
     if (!runId) {
       return;
     }
 
     const targetRunId = runId;
-    let stale = false;
     setLoading(true);
 
     async function loadRun() {
       try {
         const runResponse = await runClient.getRun(targetRunId);
-        if (stale) return;
+        if (!isCurrentRequest(generation)) return;
 
         if (!runResponse.ok) {
           setError(firstIssueMessage(runResponse.issues));
@@ -118,7 +129,7 @@ export function RunProgressPanel({
           runClient.listRunLogs(runRecord.run_id, { streamName: 'stdout', limit: 50 }),
           runClient.listRunLogs(runRecord.run_id, { streamName: 'stderr', limit: 50 }),
         ]);
-        if (stale) return;
+        if (!isCurrentRequest(generation)) return;
 
         const detailsIssue = !eventsResponse.ok
           ? firstIssueMessage(eventsResponse.issues)
@@ -139,25 +150,30 @@ export function RunProgressPanel({
           setStderrLogs(stderrResponse.chunks);
         }
       } catch (err) {
-        if (stale) return;
+        if (!isCurrentRequest(generation)) return;
         setError(err instanceof Error ? err.message : 'Failed to load run.');
       } finally {
-        if (!stale) setLoading(false);
+        if (isCurrentRequest(generation)) setLoading(false);
       }
     }
 
     loadRun();
     return () => {
-      stale = true;
+      if (isCurrentRequest(generation)) {
+        requestGeneration.current += 1;
+      }
     };
-  }, [runId, runClient]);
+  }, [runId, runClient, workflowId, validatedInputs]);
 
   const canCreateRun =
     workflowId !== null &&
     validationResult?.ok === true &&
     validatedInputs !== null;
 
-  async function refreshRun(runIdToRefresh: string) {
+  async function refreshRun(
+    runIdToRefresh: string,
+    generation: number,
+  ): Promise<boolean> {
     const [runResponse, eventsResponse, stdoutResponse, stderrResponse] =
       await Promise.all([
         runClient.getRun(runIdToRefresh),
@@ -166,13 +182,17 @@ export function RunProgressPanel({
         runClient.listRunLogs(runIdToRefresh, { streamName: 'stderr', limit: 50 }),
       ]);
 
+    if (!isCurrentRequest(generation)) {
+      return false;
+    }
+
     if (!runResponse.ok) {
       setError(firstIssueMessage(runResponse.issues));
       setRun(null);
       setEvents([]);
       setStdoutLogs([]);
       setStderrLogs([]);
-      return;
+      return false;
     }
 
     if (runResponse.run) {
@@ -192,17 +212,19 @@ export function RunProgressPanel({
       setEvents(eventsResponse.ok ? eventsResponse.events : []);
       setStdoutLogs(stdoutResponse.ok ? stdoutResponse.chunks : []);
       setStderrLogs(stderrResponse.ok ? stderrResponse.chunks : []);
-      return;
+      return false;
     }
 
     setEvents(eventsResponse.events);
     setStdoutLogs(stdoutResponse.chunks);
     setStderrLogs(stderrResponse.chunks);
+    return true;
   }
 
   async function handleCreateRun() {
     if (!canCreateRun || !workflowId || !validatedInputs) return;
 
+    const generation = startRequestGeneration();
     setLoading(true);
     setError(null);
 
@@ -211,6 +233,8 @@ export function RunProgressPanel({
         workflowId,
         toRunCreateRequest(validatedInputs),
       );
+
+      if (!isCurrentRequest(generation)) return;
 
       if (!response.ok) {
         setError(firstIssueMessage(response.issues));
@@ -224,53 +248,61 @@ export function RunProgressPanel({
         setStdoutLogs([]);
         setStderrLogs([]);
         setActiveLogStream('stdout');
-        await refreshRun(createdRun.run_id);
-        onRunCreated?.(createdRun.run_id);
+        const refreshed = await refreshRun(createdRun.run_id, generation);
+        if (refreshed && isCurrentRequest(generation)) {
+          onRunCreated?.(createdRun.run_id);
+        }
       }
     } catch (err) {
+      if (!isCurrentRequest(generation)) return;
       setError(
         err instanceof Error ? err.message : 'Failed to create run record.',
       );
     } finally {
-      setLoading(false);
+      if (isCurrentRequest(generation)) setLoading(false);
     }
   }
 
   async function handleCancelRun() {
     if (!run) return;
 
+    const generation = startRequestGeneration();
     setLoading(true);
     setError(null);
 
     try {
       const response = await runClient.cancelRun(run.run_id);
+      if (!isCurrentRequest(generation)) return;
       if (!response.ok) {
         setError(firstIssueMessage(response.issues));
         setLoading(false);
         return;
       }
-      await refreshRun(run.run_id);
+      await refreshRun(run.run_id, generation);
     } catch (err) {
+      if (!isCurrentRequest(generation)) return;
       setError(err instanceof Error ? err.message : 'Failed to cancel run.');
     } finally {
-      setLoading(false);
+      if (isCurrentRequest(generation)) setLoading(false);
     }
   }
 
   async function handleRefresh() {
     if (!run) return;
 
+    const generation = startRequestGeneration();
     setLoading(true);
     setError(null);
 
     try {
-      await refreshRun(run.run_id);
+      await refreshRun(run.run_id, generation);
     } catch (err) {
+      if (!isCurrentRequest(generation)) return;
       setError(
         err instanceof Error ? err.message : 'Failed to refresh run progress.',
       );
     } finally {
-      setLoading(false);
+      if (isCurrentRequest(generation)) setLoading(false);
     }
   }
 

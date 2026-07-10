@@ -1,13 +1,55 @@
-import { describe, it, expect } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { appRoutes } from '../../app/router';
 import { renderWithRouter } from '../../test/test-utils';
 import { createStubRunApiClient } from '../../api/runClient';
+import type { RunApiClient } from '../../api/runClient';
+import type { RunResponse } from '../../api/runTypes';
 import type { WorkflowApiClient } from '../../api/client';
 import { stubWorkflows, stubWorkflowSchemas } from '../../data/stubWorkflows';
 
 const WORKFLOW_ID = 'encode-style-chipseq-cuttag-atac-mnase';
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+async function createRunActionRaceClient() {
+  const baseClient = createStubRunApiClient();
+  await baseClient.createRun(WORKFLOW_ID, {
+    config: { genome: 'hg38' },
+    samples: [{ name: 'sample-1', fastq_r1: 's1_R1.fq.gz' }],
+    options: { threads: 4 },
+  });
+  await baseClient.createRun(WORKFLOW_ID, {
+    config: { genome: 'mm10' },
+    samples: [{ name: 'sample-2', fastq_r1: 's2_R1.fq.gz' }],
+    options: { threads: 2 },
+  });
+
+  const delayedRefresh = deferred<RunResponse>();
+  const delayedResponse = await baseClient.getRun('stub-run-1');
+  let runOneGetCount = 0;
+  const runClient: RunApiClient = {
+    ...baseClient,
+    getRun: vi.fn(async (runId) => {
+      if (runId === 'stub-run-1') {
+        runOneGetCount += 1;
+        if (runOneGetCount === 2) {
+          return delayedRefresh.promise;
+        }
+      }
+      return baseClient.getRun(runId);
+    }),
+  };
+
+  return { runClient, delayedRefresh, delayedResponse };
+}
 
 describe('Router', () => {
   it('redirects / to /workflows', async () => {
@@ -140,6 +182,60 @@ describe('Router', () => {
       'created',
     );
     expect(screen.getByTestId('run-event-feed')).toBeInTheDocument();
+  });
+
+  it('ignores a stale manual refresh after navigating to another run', async () => {
+    const user = userEvent.setup();
+    const { runClient, delayedRefresh, delayedResponse } =
+      await createRunActionRaceClient();
+    const { router } = renderWithRouter(appRoutes, {
+      initialEntries: ['/runs/stub-run-1'],
+      clients: { runClient },
+    });
+
+    expect(await screen.findByText('stub-run-1')).toBeInTheDocument();
+    await user.click(screen.getByTestId('refresh-run-button'));
+    await waitFor(() => expect(runClient.getRun).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      await router.navigate('/runs/stub-run-2');
+    });
+    expect(await screen.findByText('stub-run-2')).toBeInTheDocument();
+
+    await act(async () => {
+      delayedRefresh.resolve(delayedResponse);
+      await delayedRefresh.promise;
+    });
+
+    expect(screen.getByText('stub-run-2')).toBeInTheDocument();
+    expect(screen.queryByText('stub-run-1')).not.toBeInTheDocument();
+  });
+
+  it('ignores a stale post-cancel refresh after navigating to another run', async () => {
+    const user = userEvent.setup();
+    const { runClient, delayedRefresh, delayedResponse } =
+      await createRunActionRaceClient();
+    const { router } = renderWithRouter(appRoutes, {
+      initialEntries: ['/runs/stub-run-1'],
+      clients: { runClient },
+    });
+
+    expect(await screen.findByText('stub-run-1')).toBeInTheDocument();
+    await user.click(screen.getByTestId('cancel-run-button'));
+    await waitFor(() => expect(runClient.getRun).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      await router.navigate('/runs/stub-run-2');
+    });
+    expect(await screen.findByText('stub-run-2')).toBeInTheDocument();
+
+    await act(async () => {
+      delayedRefresh.resolve(delayedResponse);
+      await delayedRefresh.promise;
+    });
+
+    expect(screen.getByText('stub-run-2')).toBeInTheDocument();
+    expect(screen.queryByText('stub-run-1')).not.toBeInTheDocument();
   });
 
   it('renders a 404 page for unknown routes', async () => {
