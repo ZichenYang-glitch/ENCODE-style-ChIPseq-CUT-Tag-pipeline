@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from encode_pipeline import __version__
 from encode_pipeline.platform.adapters import (
@@ -20,6 +23,32 @@ from encode_pipeline.platform.results import Issue, Result
 
 
 _WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
+
+
+def _render_config_yaml(config: dict[str, Any]) -> bytes:
+    """Serialize a validated config dict to UTF-8 YAML bytes."""
+    try:
+        return yaml.safe_dump(
+            config,
+            default_flow_style=False,
+            sort_keys=False,
+            allow_unicode=True,
+        ).encode("utf-8")
+    except yaml.YAMLError as exc:
+        raise ValueError("Config could not be serialized to YAML.") from exc
+
+
+def _prepare_workspace_config(validated_config: dict[str, Any]) -> dict[str, Any]:
+    """Return a workspace-local copy of the config with samples/outdir overrides."""
+    workspace_config = dict(validated_config)
+    workspace_config["samples"] = "config/samples.tsv"
+    workspace_config["outdir"] = "results"
+    return workspace_config
+
+
+def _sanitize_issue(issue: Issue) -> Issue:
+    """Placeholder: strict sanitization implemented in Task 8."""
+    return issue
 
 
 class EncodeStyleWorkflowAdapter:
@@ -194,8 +223,48 @@ class EncodeStyleWorkflowAdapter:
         inputs: WorkflowInputs,
         workspace: str | Path,
     ) -> Result[WorkspacePlan]:
-        """Return unsupported until run workspace planning is designed."""
-        return _unsupported_method("plan_workspace")
+        """Plan workspace directories and files for the ENCODE workflow."""
+        validated = self.validate(inputs)
+        if validated.is_failure:
+            return Result.failure([_sanitize_issue(issue) for issue in validated.issues])
+
+        validated_value = validated.value
+        validated_config = validated_value["config"]
+        sample_rows = validated_value["samples"]
+
+        workspace_config = _prepare_workspace_config(validated_config)
+
+        try:
+            config_yaml = _render_config_yaml(workspace_config)
+        except ValueError:
+            return Result.failure([
+                Issue(
+                    code="ENCODE_WORKSPACE_RENDER_FAILED",
+                    message="Config could not be rendered to YAML.",
+                    severity="error",
+                    path="config",
+                    source="adapter",
+                )
+            ])
+
+        workspace_plan = WorkspacePlan(
+            directories=("logs", "results"),
+            files=(("config/config.yaml", config_yaml),),
+        )
+
+        return Result.success(
+            workspace_plan,
+            issues=[
+                Issue(
+                    code="ENCODE_WORKSPACE_PLANNING_COMPLETE",
+                    message="Workspace plan created.",
+                    severity="info",
+                    path="workspace_plan",
+                    source="adapter",
+                    context={"file_count": 1, "directory_count": 2},
+                )
+            ],
+        )
 
     def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
         """Return unsupported until command construction is designed."""
