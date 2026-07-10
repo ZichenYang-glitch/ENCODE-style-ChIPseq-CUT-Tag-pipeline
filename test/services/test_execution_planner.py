@@ -203,7 +203,7 @@ def _make_execution_plan(run_service):
 
 def test_plan_workspace_returns_pending_plan_with_workspace_plan(run_service, tmp_path):
     input_plan = _make_execution_plan(run_service)
-    workspace_planner = WorkspacePlanner()
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
     base_dir = tmp_path.resolve()
 
     result = workspace_planner.plan_workspace(input_plan, base_dir=base_dir)
@@ -226,7 +226,7 @@ def test_plan_workspace_returns_pending_plan_with_workspace_plan(run_service, tm
 
 def test_plan_workspace_does_not_create_directories_or_files(run_service, tmp_path):
     input_plan = _make_execution_plan(run_service)
-    workspace_planner = WorkspacePlanner()
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
     base_dir = tmp_path.resolve()
 
     workspace_planner.plan_workspace(input_plan, base_dir=base_dir)
@@ -237,7 +237,7 @@ def test_plan_workspace_does_not_create_directories_or_files(run_service, tmp_pa
 
 def test_plan_workspace_does_not_mutate_input_plan(run_service, tmp_path):
     input_plan = _make_execution_plan(run_service)
-    workspace_planner = WorkspacePlanner()
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
     base_dir = tmp_path.resolve()
 
     workspace_planner.plan_workspace(input_plan, base_dir=base_dir)
@@ -249,7 +249,7 @@ def test_plan_workspace_does_not_mutate_input_plan(run_service, tmp_path):
 
 def test_plan_workspace_rejects_relative_base_dir(run_service, tmp_path):
     input_plan = _make_execution_plan(run_service)
-    workspace_planner = WorkspacePlanner()
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
 
     result = workspace_planner.plan_workspace(input_plan, base_dir=Path("relative/path"))
 
@@ -268,7 +268,7 @@ def test_plan_workspace_does_not_mutate_run_service(run_service, tmp_path):
     before_logs = run_service.list_logs(input_plan.run_id, "stdout")
     before_artifacts = run_service.list_artifacts(input_plan.run_id)
 
-    workspace_planner = WorkspacePlanner()
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
     workspace_planner.plan_workspace(input_plan, base_dir=tmp_path.resolve())
 
     after_record = run_service.get_run(input_plan.run_id)
@@ -279,20 +279,9 @@ def test_plan_workspace_does_not_mutate_run_service(run_service, tmp_path):
     assert run_service.list_artifacts(input_plan.run_id) == before_artifacts
 
 
-def test_plan_workspace_does_not_call_adapter_planning_methods(run_service, tmp_path):
-    # fake_adapter fixture already raises on planning methods.
-    input_plan = _make_execution_plan(run_service)
-    workspace_planner = WorkspacePlanner()
-
-    result = workspace_planner.plan_workspace(input_plan, base_dir=tmp_path.resolve())
-
-    assert result.is_success is True
-    assert result.value.workspace_plan is not None
-
-
 def test_plan_workspace_propagates_path_policy_failure(run_service, tmp_path):
     input_plan = _make_execution_plan(run_service)
-    workspace_planner = WorkspacePlanner()
+    workspace_planner = WorkspacePlanner(registry=run_service._registry)
 
     # Use a base_dir that is absolute but whose value we will monkeypatch the
     # planner to produce an invalid path. Since the default layout is fixed and

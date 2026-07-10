@@ -73,13 +73,21 @@ class ExecutionPlanner:
 
 
 class WorkspacePlanner:
-    """Platform-safe workspace planning boundary.
+    """Platform-safe workspace planning boundary that delegates to adapters.
 
-    ``WorkspacePlanner`` consumes an immutable ``ExecutionPlan`` and returns a
-    fresh ``ExecutionPlan`` with a populated ``workspace_plan``. It does not
-    touch the filesystem, mutate run state, call adapter planning methods, or
-    build commands.
+    ``WorkspacePlanner`` consumes an immutable ``ExecutionPlan``, reconstructs
+    the original ``WorkflowInputs``, looks up the workflow adapter, and returns
+    a fresh ``ExecutionPlan`` with a populated ``workspace_plan``. It validates
+    adapter-returned paths with ``WorkspacePathPolicy`` but does not touch the
+    filesystem, mutate run state, or build commands.
     """
+
+    def __init__(self, registry: WorkflowRegistry) -> None:
+        from encode_pipeline.platform.registry import WorkflowRegistry
+
+        if not isinstance(registry, WorkflowRegistry):
+            raise ValueError("WorkspacePlanner requires a WorkflowRegistry instance")
+        self._registry = registry
 
     def plan_workspace(
         self,

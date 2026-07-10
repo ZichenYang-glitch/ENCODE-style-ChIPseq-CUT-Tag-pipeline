@@ -152,11 +152,15 @@ def create_default_execution_planner(
     return ExecutionPlanner(run_service=run_service)
 
 
-def create_default_workspace_planner() -> "WorkspacePlanner":
-    """Return a fresh workspace planner."""
+def create_default_workspace_planner(
+    registry: WorkflowRegistry | None = None,
+) -> "WorkspacePlanner":
+    """Return a fresh workspace planner wired to the given registry."""
     from encode_pipeline.services.planning import WorkspacePlanner
 
-    return WorkspacePlanner()
+    if registry is None:
+        registry = create_default_workflow_registry()
+    return WorkspacePlanner(registry=registry)
 
 
 def create_default_workspace_materializer() -> "WorkspaceMaterializer":
