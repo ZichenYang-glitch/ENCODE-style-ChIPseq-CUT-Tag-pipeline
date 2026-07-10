@@ -36,7 +36,7 @@ class EncodeStyleWorkflowAdapter:
         engines=("snakemake",),
         tags=("chipseq", "cuttag", "atac", "mnase", "encode-style"),
     )
-    capabilities = WorkflowCapabilities(supports=("validation",))
+    capabilities = WorkflowCapabilities(supports=("validation", "workspace_plan"))
 
     def schema(self) -> WorkflowSchema:
         """Return minimal UI/agent discovery hints, not complete JSON Schema."""
