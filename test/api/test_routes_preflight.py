@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+
+import httpx
 
 from encode_pipeline.api.main import create_app
 from encode_pipeline.platform.results import Result
@@ -13,8 +16,6 @@ from encode_pipeline.services.materialization import WorkspaceMaterializer
 from encode_pipeline.services.planning import ExecutionPlanner
 from encode_pipeline.services.preflight import LocalPreflightService
 from encode_pipeline.services.process_runner import ProcessResult, ProcessRunner
-
-from api_test_client import ApiTestClient
 
 
 class _FakeProcessRunner(ProcessRunner):
@@ -63,13 +64,17 @@ def _test_app(tmp_path: Path):
     return app
 
 
-def _client(tmp_path: Path):
-    return ApiTestClient(_test_app(tmp_path))
+def _client(tmp_path: Path) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=_test_app(tmp_path)),
+        base_url="http://testserver",
+        follow_redirects=True,
+    )
 
 
-def _create_run(client, tmp_path: Path):
+async def _create_run(client: httpx.AsyncClient, tmp_path: Path):
     samples_tsv = _make_valid_samples_tsv(tmp_path)
-    response = client.post(
+    response = await client.post(
         "/api/v1/workflows/encode-style-chipseq-cuttag-atac-mnase/runs",
         json={
             "config": {
@@ -86,77 +91,92 @@ def _create_run(client, tmp_path: Path):
 
 
 def test_trigger_preflight_returns_202_and_validating_status(tmp_path):
-    client = _client(tmp_path)
-    run = _create_run(client, tmp_path)
+    async def scenario() -> None:
+        async with _client(tmp_path) as client:
+            run = await _create_run(client, tmp_path)
 
-    response = client.post(f"/api/v1/runs/{run['run_id']}/preflight")
+            response = await client.post(f"/api/v1/runs/{run['run_id']}/preflight")
 
-    assert response.status_code == 202
-    body = response.json()
-    assert body["ok"] is True
-    # Response body is serialized before BackgroundTasks execute.
-    assert body["run"]["status"] == "validating"
+            assert response.status_code == 202
+            body = response.json()
+            assert body["ok"] is True
+            # Response body is serialized before BackgroundTasks execute.
+            assert body["run"]["status"] == "validating"
+
+    asyncio.run(scenario())
 
 
 def test_trigger_preflight_reaches_planned_on_get(tmp_path):
-    client = _client(tmp_path)
-    run = _create_run(client, tmp_path)
+    async def scenario() -> None:
+        async with _client(tmp_path) as client:
+            run = await _create_run(client, tmp_path)
 
-    client.post(f"/api/v1/runs/{run['run_id']}/preflight")
+            await client.post(f"/api/v1/runs/{run['run_id']}/preflight")
 
-    # httpx ASGITransport waits for the background task before returning control.
-    response = client.get(f"/api/v1/runs/{run['run_id']}")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["run"]["status"] == "planned"
+            # httpx ASGITransport waits for the background task before returning control.
+            response = await client.get(f"/api/v1/runs/{run['run_id']}")
+            assert response.status_code == 200
+            body = response.json()
+            assert body["run"]["status"] == "planned"
 
-    events = client.get(f"/api/v1/runs/{run['run_id']}/events").json()["events"]
-    event_types = [e["event_type"] for e in events]
-    assert "workspace_materialized" in event_types
-    assert "command_built" in event_types
-    assert "dry_run_completed" in event_types
-    assert "preflight_completed" in event_types
+            events = (await client.get(f"/api/v1/runs/{run['run_id']}/events")).json()[
+                "events"
+            ]
+            event_types = [event["event_type"] for event in events]
+            assert "workspace_materialized" in event_types
+            assert "command_built" in event_types
+            assert "dry_run_completed" in event_types
+            assert "preflight_completed" in event_types
+
+    asyncio.run(scenario())
 
 
 def test_trigger_preflight_returns_404_for_unknown_run(tmp_path):
-    client = _client(tmp_path)
-    response = client.post("/api/v1/runs/does-not-exist/preflight")
-    assert response.status_code == 404
+    async def scenario() -> None:
+        async with _client(tmp_path) as client:
+            response = await client.post("/api/v1/runs/does-not-exist/preflight")
+            assert response.status_code == 404
+
+    asyncio.run(scenario())
 
 
 def test_trigger_preflight_returns_409_when_already_triggered(tmp_path):
-    client = _client(tmp_path)
-    run = _create_run(client, tmp_path)
-    client.post(f"/api/v1/runs/{run['run_id']}/preflight")
+    async def scenario() -> None:
+        async with _client(tmp_path) as client:
+            run = await _create_run(client, tmp_path)
+            await client.post(f"/api/v1/runs/{run['run_id']}/preflight")
 
-    response = client.post(f"/api/v1/runs/{run['run_id']}/preflight")
+            response = await client.post(f"/api/v1/runs/{run['run_id']}/preflight")
 
-    assert response.status_code == 409
-    assert response.json()["issues"][0]["code"] == "PREFLIGHT_ALREADY_TRIGGERED"
+            assert response.status_code == 409
+            assert response.json()["issues"][0]["code"] == "PREFLIGHT_ALREADY_TRIGGERED"
+
+    asyncio.run(scenario())
 
 
-def test_trigger_preflight_after_event_loop_exercise_returns_202_and_planned(
+def test_trigger_preflight_remains_responsive_after_prior_requests(
     tmp_path,
 ):
-    """Regression: passing a sync callable directly to BackgroundTasks can hang
-    after earlier API requests have exercised the event loop. The async wrapper
-    must keep preflight responsive without depending on real Snakemake.
-    """
-    client = _client(tmp_path)
-    run = _create_run(client, tmp_path)
+    """Preflight completes after earlier API calls in one ASGI client session."""
 
-    for _ in range(3):
-        response = client.get("/api/v1/workflows")
-        assert response.status_code == 200
-        response = client.get(
-            "/api/v1/workflows/encode-style-chipseq-cuttag-atac-mnase/schema"
-        )
-        assert response.status_code == 200
+    async def scenario() -> None:
+        async with _client(tmp_path) as client:
+            run = await _create_run(client, tmp_path)
 
-    response = client.post(f"/api/v1/runs/{run['run_id']}/preflight")
-    assert response.status_code == 202
-    assert response.json()["run"]["status"] == "validating"
+            for _ in range(3):
+                response = await client.get("/api/v1/workflows")
+                assert response.status_code == 200
+                response = await client.get(
+                    "/api/v1/workflows/encode-style-chipseq-cuttag-atac-mnase/schema"
+                )
+                assert response.status_code == 200
 
-    response = client.get(f"/api/v1/runs/{run['run_id']}")
-    assert response.status_code == 200
-    assert response.json()["run"]["status"] == "planned"
+            response = await client.post(f"/api/v1/runs/{run['run_id']}/preflight")
+            assert response.status_code == 202
+            assert response.json()["run"]["status"] == "validating"
+
+            response = await client.get(f"/api/v1/runs/{run['run_id']}")
+            assert response.status_code == 200
+            assert response.json()["run"]["status"] == "planned"
+
+    asyncio.run(scenario())

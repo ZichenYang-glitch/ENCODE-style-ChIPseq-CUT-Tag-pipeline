@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
 
@@ -25,12 +23,14 @@ async def _run_preflight_in_background(
     preflight_service: LocalPreflightService,
     run_id: str,
 ) -> None:
-    """Async wrapper for the synchronous preflight worker.
+    """Run the synchronous preflight after the HTTP response body is sent.
 
-    Avoids passing a synchronous callable directly to ``BackgroundTasks``,
-    which can hang under Python 3.13 with the current ASGI test client.
+    The async wrapper avoids FastAPI's synchronous BackgroundTasks threadpool,
+    which hangs under the supported Python 3.13 ASGI test environment. PR117
+    runs only the dry-run preflight path; a future worker backend will provide
+    concurrent, cancellable long-running execution.
     """
-    await asyncio.to_thread(preflight_service.run_preflight, run_id)
+    preflight_service.run_preflight(run_id)
 
 
 def _preflight_already_triggered_issue(current_status: str):
