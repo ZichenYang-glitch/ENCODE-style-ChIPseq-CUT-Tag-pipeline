@@ -23,7 +23,9 @@ def _collect_route_paths(routes, prefix: str = "") -> set[str]:
         if type(route).__name__ == "_IncludedRouter":
             include_prefix = getattr(route.include_context, "prefix", "")
             paths.update(
-                _collect_route_paths(route.original_router.routes, prefix + include_prefix)
+                _collect_route_paths(
+                    route.original_router.routes, prefix + include_prefix
+                )
             )
         elif hasattr(route, "path"):
             paths.add(prefix + route.path)
@@ -36,7 +38,9 @@ def _collect_route_endpoints(routes, prefix: str = "") -> list[tuple[str, object
         if type(route).__name__ == "_IncludedRouter":
             include_prefix = getattr(route.include_context, "prefix", "")
             endpoints.extend(
-                _collect_route_endpoints(route.original_router.routes, prefix + include_prefix)
+                _collect_route_endpoints(
+                    route.original_router.routes, prefix + include_prefix
+                )
             )
         elif hasattr(route, "path") and hasattr(route, "endpoint"):
             endpoints.append((prefix + route.path, route.endpoint))
@@ -55,6 +59,7 @@ def test_expected_routes_are_registered() -> None:
     assert "/api/v1/runs/{run_id}/events" in paths
     assert "/api/v1/runs/{run_id}/logs" in paths
     assert "/api/v1/runs/{run_id}/cancel" in paths
+    assert "/api/v1/runs/{run_id}/preflight" in paths
 
 
 def test_api_dependencies_are_async_to_avoid_testclient_threadpool_hang() -> None:
@@ -63,11 +68,18 @@ def test_api_dependencies_are_async_to_avoid_testclient_threadpool_hang() -> Non
         "get_validation_service",
         "get_agent_service",
         "get_run_service",
-        "get_stub_execution_driver",
+        "get_preflight_service",
     ]
 
     for name in dependency_names:
         assert inspect.iscoroutinefunction(getattr(dependencies, name))
+
+
+def test_create_app_exposes_preflight_service_and_local_run_driver() -> None:
+    app = create_app()
+    assert hasattr(app.state, "preflight_service")
+    assert hasattr(app.state, "local_run_driver")
+    assert not hasattr(app.state, "stub_execution_driver")
 
 
 def test_api_route_handlers_are_async_to_avoid_testclient_threadpool_hang() -> None:

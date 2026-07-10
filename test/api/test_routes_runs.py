@@ -50,7 +50,7 @@ def test_create_run_returns_201_with_run_response(
     assert data["ok"] is True
     run = data["run"]
     assert run["workflow_id"] == workflow_id
-    assert run["status"] == "succeeded"
+    assert run["status"] == "created"
     assert run["tags"] == {"env": "test"}
     assert data["issues"] == []
 
@@ -81,7 +81,9 @@ def test_create_run_malformed_workflow_id_returns_400(client: ApiTestClient) -> 
     assert data["issues"][0]["code"] == "API_REQUEST_INVALID"
 
 
-def test_create_run_malformed_body_returns_400(client: ApiTestClient, workflow_id: str) -> None:
+def test_create_run_malformed_body_returns_400(
+    client: ApiTestClient, workflow_id: str
+) -> None:
     response = client.post(
         f"/api/v1/workflows/{workflow_id}/runs",
         content="not-json",
@@ -112,7 +114,9 @@ def test_get_run_unknown_returns_404(client: ApiTestClient) -> None:
 
 def test_cancel_run_active_returns_200(client: ApiTestClient, workflow_id: str) -> None:
     service = client.app.state.run_service
-    record = service.create_run(workflow_id, WorkflowInputs(config={"samples": "samples.tsv"}))
+    record = service.create_run(
+        workflow_id, WorkflowInputs(config={"samples": "samples.tsv"})
+    )
     run_id = record.run_id
 
     response = client.post(f"/api/v1/runs/{run_id}/cancel")
@@ -122,7 +126,7 @@ def test_cancel_run_active_returns_200(client: ApiTestClient, workflow_id: str) 
     assert data["run"]["status"] == "cancelled"
 
 
-def test_cancel_run_terminal_returns_200_unchanged(
+def test_cancel_run_created_returns_cancelled_unchanged(
     client: ApiTestClient,
     workflow_id: str,
 ) -> None:
@@ -131,12 +135,12 @@ def test_cancel_run_terminal_returns_200_unchanged(
     assert response.status_code == 200
     data = response.json()
     assert data["ok"] is True
-    assert data["run"]["status"] == "succeeded"
+    assert data["run"]["status"] == "cancelled"
     response = client.post(f"/api/v1/runs/{run_id}/cancel")
     assert response.status_code == 200
     data = response.json()
     assert data["ok"] is True
-    assert data["run"]["status"] == "succeeded"
+    assert data["run"]["status"] == "cancelled"
 
 
 def test_cancel_run_unknown_returns_404(client: ApiTestClient) -> None:
@@ -154,7 +158,7 @@ def test_list_events_returns_200(client: ApiTestClient, workflow_id: str) -> Non
     data = response.json()
     assert data["ok"] is True
     assert data["run_id"] == run_id
-    assert len(data["events"]) == 6
+    assert len(data["events"]) == 1
     assert data["next_cursor"] is None
 
 
@@ -167,13 +171,15 @@ def test_list_events_pagination_next_cursor(
     service.add_event(run_id, "stage_started", "Stage 1")
     service.add_event(run_id, "stage_completed", "Stage 2")
 
-    response = client.get(f"/api/v1/runs/{run_id}/events?limit=6")
+    response = client.get(f"/api/v1/runs/{run_id}/events?limit=1")
     assert response.status_code == 200
     data = response.json()
-    assert len(data["events"]) == 6
+    assert len(data["events"]) == 1
     assert data["next_cursor"] == data["events"][-1]["event_id"]
 
-    response = client.get(f"/api/v1/runs/{run_id}/events?after={data['next_cursor']}&limit=1")
+    response = client.get(
+        f"/api/v1/runs/{run_id}/events?after={data['next_cursor']}&limit=1"
+    )
     assert response.status_code == 200
     data = response.json()
     assert len(data["events"]) == 1
@@ -211,7 +217,7 @@ def test_list_logs_returns_200(client: ApiTestClient, workflow_id: str) -> None:
     assert data["ok"] is True
     assert data["run_id"] == run_id
     assert data["stream_name"] == "stdout"
-    assert len(data["chunks"]) == 6
+    assert len(data["chunks"]) == 1
     assert data["chunks"][-1]["lines"] == ["line 1"]
     assert data["next_cursor"] is None
 
@@ -266,7 +272,9 @@ def test_list_events_invalid_limit_returns_400(
 
 def test_api_routes_runs_import_boundary() -> None:
     """Run routes must not import execution or engine internals."""
-    source_path = Path(__file__).resolve().parents[2] / "src/encode_pipeline/api/routes/runs.py"
+    source_path = (
+        Path(__file__).resolve().parents[2] / "src/encode_pipeline/api/routes/runs.py"
+    )
     source = source_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
@@ -293,7 +301,7 @@ def test_api_routes_runs_import_boundary() -> None:
     assert "encode_pipeline.samples.load" not in source
 
 
-def test_create_run_returns_succeeded_with_default_driver(
+def test_create_run_returns_created_with_default_driver(
     client: ApiTestClient,
     workflow_id: str,
 ) -> None:
@@ -304,28 +312,10 @@ def test_create_run_returns_succeeded_with_default_driver(
     assert response.status_code == 201
     data = response.json()
     assert data["ok"] is True
-    assert data["run"]["status"] == "succeeded"
+    assert data["run"]["status"] == "created"
 
 
-def test_create_run_with_failure_tag_returns_failed(
-    client: ApiTestClient,
-    workflow_id: str,
-) -> None:
-    response = client.post(
-        f"/api/v1/workflows/{workflow_id}/runs",
-        json={
-            "config": {"samples": "samples.tsv"},
-            "tags": {"stub_outcome": "failure"},
-        },
-    )
-    assert response.status_code == 201
-    data = response.json()
-    assert data["ok"] is True
-    assert data["run"]["status"] == "failed"
-    assert data["run"]["error"]["code"] == "STUB_FAILURE"
-
-
-def test_create_run_generates_stub_events(
+def test_create_run_generates_created_event(
     client: ApiTestClient,
     workflow_id: str,
 ) -> None:
@@ -340,29 +330,4 @@ def test_create_run_generates_stub_events(
     data = response.json()
     assert data["ok"] is True
     statuses = [event["status"] for event in data["events"]]
-    assert statuses == [
-        "created",
-        "validating",
-        "planned",
-        "queued",
-        "running",
-        "succeeded",
-    ]
-
-
-def test_create_run_generates_stub_logs(
-    client: ApiTestClient,
-    workflow_id: str,
-) -> None:
-    response = client.post(
-        f"/api/v1/workflows/{workflow_id}/runs",
-        json={"config": {"samples": "samples.tsv"}},
-    )
-    run_id = response.json()["run"]["run_id"]
-
-    response = client.get(f"/api/v1/runs/{run_id}/logs")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["ok"] is True
-    assert len(data["chunks"]) == 5
-    assert data["chunks"][0]["lines"] == ["[stub] validating inputs"]
+    assert statuses == ["created"]
