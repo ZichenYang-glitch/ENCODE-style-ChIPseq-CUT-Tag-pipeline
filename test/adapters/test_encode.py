@@ -139,3 +139,26 @@ def test_adapter_plan_workspace_rejects_relative_genome_resource_path(tmp_path, 
     issue = result.issues[0]
     assert issue.code == "ENCODE_WORKSPACE_RELATIVE_EXTERNAL_PATH"
     assert issue.path == "config.genome_resources.hs.reference_fasta"
+
+
+def test_adapter_plan_workspace_issue_does_not_leak_user_path(tmp_path):
+    missing_path = str(tmp_path / "does_not_exist.tsv")
+    config = {
+        "samples": missing_path,
+        "threads": 1,
+        "genome_resources": {"hs": {"effective_genome_size": "hs"}},
+    }
+
+    adapter = EncodeStyleWorkflowAdapter()
+    inputs = WorkflowInputs(config=config, samples=missing_path, options={})
+    result = adapter.plan_workspace(inputs, str(tmp_path / "workspace"))
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    payload = issue.to_dict()
+    for value in payload.values():
+        if isinstance(value, str):
+            assert missing_path not in value
+    for ctx_value in payload["context"].values():
+        if isinstance(ctx_value, str):
+            assert missing_path not in ctx_value

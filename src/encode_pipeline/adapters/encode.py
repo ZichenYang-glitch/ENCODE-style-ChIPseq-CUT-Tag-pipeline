@@ -153,9 +153,32 @@ def _enforce_external_input_policy(
     return None
 
 
+_GENERIC_ADAPTER_MESSAGES = {
+    "ENCODE_ADAPTER_UNSUPPORTED": "The requested feature is not supported by the current adapter.",
+    "ENCODE_CONFIG_INVALID": "Workflow configuration is invalid.",
+    "ENCODE_SAMPLES_INVALID": "Sample sheet is invalid.",
+    "ENCODE_RESOURCES_INVALID": "Genome resources are invalid.",
+    "ENCODE_OPTIONS_INVALID": "Adapter options are invalid.",
+}
+
+_DEFAULT_ADAPTER_VALIDATION_MESSAGE = "Workflow input validation failed."
+
+
 def _sanitize_issue(issue: Issue) -> Issue:
-    """Placeholder: strict sanitization implemented in Task 8."""
-    return issue
+    """Return a path-free, strictly bounded copy of a validate() issue."""
+    safe_message = _GENERIC_ADAPTER_MESSAGES.get(
+        issue.code, _DEFAULT_ADAPTER_VALIDATION_MESSAGE
+    )
+    return Issue(
+        code=issue.code,
+        message=safe_message,
+        severity=issue.severity,
+        path=issue.path,
+        source=issue.source,
+        technical_message=safe_message,
+        hint=None,
+        context={},
+    )
 
 
 class EncodeStyleWorkflowAdapter:
