@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
@@ -24,6 +26,46 @@ from encode_pipeline.platform.results import Issue, Result
 
 _WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 
+_WORKSPACE_SAMPLE_COLUMNS = (
+    "sample",
+    "fastq_1",
+    "fastq_2",
+    "layout",
+    "assay",
+    "target",
+    "peak_mode",
+    "genome",
+    "bowtie2_index",
+    "control_bam",
+    "role",
+    "control_sample",
+    "experiment",
+    "condition",
+    "replicate",
+    "biological_replicate",
+    "technical_replicate",
+)
+
+_SAMPLE_DICT_TO_TSV = {
+    "id": "sample",
+    "fq1": "fastq_1",
+    "fq2": "fastq_2",
+    "layout": "layout",
+    "assay": "assay",
+    "target": "target",
+    "peak_mode": "peak_mode",
+    "genome": "genome",
+    "bt2_idx": "bowtie2_index",
+    "control_bam": "control_bam",
+    "role": "role",
+    "control_sample": "control_sample",
+    "experiment": "experiment",
+    "condition": "condition",
+    "replicate": "replicate",
+    "biological_replicate": "biological_replicate",
+    "technical_replicate": "technical_replicate",
+}
+
 
 def _render_config_yaml(config: dict[str, Any]) -> bytes:
     """Serialize a validated config dict to UTF-8 YAML bytes."""
@@ -44,6 +86,31 @@ def _prepare_workspace_config(validated_config: dict[str, Any]) -> dict[str, Any
     workspace_config["samples"] = "config/samples.tsv"
     workspace_config["outdir"] = "results"
     return workspace_config
+
+
+def _render_samples_tsv(sample_rows: list[dict[str, Any]]) -> bytes:
+    """Serialize validated sample rows to canonical TSV bytes."""
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=_WORKSPACE_SAMPLE_COLUMNS,
+        extrasaction="ignore",
+        delimiter="\t",
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    for row in sample_rows:
+        mapped: dict[str, str] = {}
+        for src_key, tsv_col in _SAMPLE_DICT_TO_TSV.items():
+            value = row.get(src_key)
+            mapped[tsv_col] = "" if value is None else str(value)
+        for value in mapped.values():
+            if "\t" in value or "\n" in value or "\r" in value:
+                raise ValueError(
+                    "Sample value contains forbidden tab or newline character."
+                )
+        writer.writerow(mapped)
+    return output.getvalue().encode("utf-8")
 
 
 def _sanitize_issue(issue: Issue) -> Issue:
@@ -247,9 +314,25 @@ class EncodeStyleWorkflowAdapter:
                 )
             ])
 
+        try:
+            samples_tsv = _render_samples_tsv(sample_rows)
+        except ValueError:
+            return Result.failure([
+                Issue(
+                    code="ENCODE_WORKSPACE_RENDER_FAILED",
+                    message="Samples could not be rendered to TSV.",
+                    severity="error",
+                    path="samples",
+                    source="adapter",
+                )
+            ])
+
         workspace_plan = WorkspacePlan(
             directories=("logs", "results"),
-            files=(("config/config.yaml", config_yaml),),
+            files=(
+                ("config/config.yaml", config_yaml),
+                ("config/samples.tsv", samples_tsv),
+            ),
         )
 
         return Result.success(
@@ -261,7 +344,7 @@ class EncodeStyleWorkflowAdapter:
                     severity="info",
                     path="workspace_plan",
                     source="adapter",
-                    context={"file_count": 1, "directory_count": 2},
+                    context={"file_count": 2, "directory_count": 2},
                 )
             ],
         )
