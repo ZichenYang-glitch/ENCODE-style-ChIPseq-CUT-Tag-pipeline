@@ -162,3 +162,78 @@ def test_adapter_plan_workspace_issue_does_not_leak_user_path(tmp_path):
     for ctx_value in payload["context"].values():
         if isinstance(ctx_value, str):
             assert missing_path not in ctx_value
+
+
+def test_adapter_plan_workspace_semantic_round_trip_via_loader(tmp_path):
+    import csv
+    import io
+
+    from encode_pipeline.samples.load import load_and_validate_samples
+
+    samples_tsv = tmp_path / "samples.tsv"
+    samples_tsv.write_text(
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\t"
+        "bowtie2_index\tcontrol_bam\trole\tcontrol_sample\texperiment\tcondition\t"
+        "replicate\tbiological_replicate\ttechnical_replicate\n"
+        "S1\t/abs/S1_1.fq.gz\t/abs/S1_2.fq.gz\tPE\tchipseq\tH3K27ac\tnarrow\ths\t"
+        "/abs/bt2/GRCh38\t\ttreatment\tS2\texp1\tcond1\t1\t1\t1\n"
+        "S2\t/abs/S2_1.fq.gz\t/abs/S2_2.fq.gz\tPE\tchipseq\tINPUT\tnarrow\ths\t"
+        "/abs/bt2/GRCh38\t\tcontrol\t\texp1\tcond1\t1\t1\t2\n",
+        encoding="utf-8",
+    )
+
+    config = {
+        "samples": str(samples_tsv),
+        "threads": 1,
+        "use_control": True,
+        "genome_resources": {"hs": {"effective_genome_size": "hs"}},
+    }
+
+    adapter = EncodeStyleWorkflowAdapter()
+    inputs = WorkflowInputs(config=config, samples=str(samples_tsv), options={})
+    result = adapter.plan_workspace(inputs, str(tmp_path / "workspace"))
+
+    assert result.is_success is True
+    plan = result.value
+    tsv_bytes = dict(plan.files)["config/samples.tsv"]
+
+    reader = csv.DictReader(io.StringIO(tsv_bytes.decode("utf-8")), delimiter="\t")
+    assert reader.fieldnames == [
+        "sample",
+        "fastq_1",
+        "fastq_2",
+        "layout",
+        "assay",
+        "target",
+        "peak_mode",
+        "genome",
+        "bowtie2_index",
+        "control_bam",
+        "role",
+        "control_sample",
+        "experiment",
+        "condition",
+        "replicate",
+        "biological_replicate",
+        "technical_replicate",
+    ]
+
+    rendered = tmp_path / "rendered_samples.tsv"
+    rendered.write_bytes(tsv_bytes)
+
+    loaded = load_and_validate_samples(
+        str(rendered),
+        use_control=True,
+        stage5_enabled=False,
+        strict_inputs=False,
+    )
+
+    assert len(loaded) == 2
+    s1 = next(r for r in loaded if r["id"] == "S1")
+    s2 = next(r for r in loaded if r["id"] == "S2")
+    assert s1["layout"] == "PE"
+    assert s1["control_sample"] == "S2"
+    assert s2["role"] == "control"
+    assert s1["biological_replicate"] == 1
+    assert s1["technical_replicate"] == 1
+    assert s2["technical_replicate"] == 2
