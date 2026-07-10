@@ -16,7 +16,6 @@ from encode_pipeline.platform.results import Issue, Result
 
 if TYPE_CHECKING:
     from encode_pipeline.platform.planning import ExecutionPlan
-    from encode_pipeline.platform.runs import RunRecord
     from encode_pipeline.services.command_builder import CommandBuilder
     from encode_pipeline.services.materialization import WorkspaceMaterializer
     from encode_pipeline.services.process_runner import ProcessResult, ProcessRunner
@@ -28,10 +27,11 @@ class LocalRunDriver:
 
     Validates the plan/run association, then for PENDING plans with a
     workspace_plan: derives a per-run workspace directory, materializes
-    workspace files, builds the CommandSpec, records progress events,
-    and refuses execution with LOCAL_RUN_NOT_IMPLEMENTED.
+    workspace files, builds the CommandSpec, executes a Snakemake dry-run,
+    and returns the PLANNED ExecutionPlan on success. Still refuses real
+    execution of a PLANNED plan with LOCAL_RUN_NOT_IMPLEMENTED.
 
-    Does not invoke subprocess, Snakemake, or transition run status.
+    Does not transition run status.
     """
 
     def __init__(
@@ -66,11 +66,13 @@ class LocalRunDriver:
             process_runner if process_runner is not None else ProcessRunner()
         )
 
-    def run(self, run_id: str, plan: "ExecutionPlan") -> "Result[RunRecord]":
-        """Validate plan and refuse execution.
+    def run(self, run_id: str, plan: "ExecutionPlan") -> "Result[ExecutionPlan]":
+        """Validate plan, materialize workspace, build command, and dry-run.
 
-        For PENDING plans with a workspace_plan, materializes the workspace
-        and builds the command spec before refusing.
+        For PENDING plans with a workspace_plan, materializes the workspace,
+        builds the CommandSpec, executes a Snakemake dry-run, and returns the
+        PLANNED ExecutionPlan on success. For PLANNED plans, refuses real
+        execution with LOCAL_RUN_NOT_IMPLEMENTED.
         """
         record = self._run_service.get_run(run_id)
 
@@ -88,14 +90,7 @@ class LocalRunDriver:
             prepared = self._prepare(run_id, plan)
             if isinstance(prepared, Result):
                 return prepared
-            issue = Issue(
-                code="LOCAL_RUN_NOT_IMPLEMENTED",
-                message="Local execution is not implemented yet.",
-                severity="error",
-                path="plan",
-                source="local_run_driver",
-            )
-            return self._refuse(issue, prepared, record.run_id)
+            return Result.success(prepared)
 
         if plan.status is PlanStatus.PENDING:
             issue = Issue(
@@ -153,7 +148,7 @@ class LocalRunDriver:
         run_id: str,
         *,
         additional_issues: Iterable[Issue] = (),
-    ) -> "Result[RunRecord]":
+    ) -> "Result[ExecutionPlan]":
         """Record a runner_refused event and return a failure result."""
         self._run_service.add_event(
             run_id=run_id,
@@ -169,11 +164,16 @@ class LocalRunDriver:
         )
         return Result.failure([issue] + list(additional_issues))
 
+    def derive_workspace_dir(self, run_id: str) -> Path:
+        """Return the absolute per-run workspace directory under workspace_root."""
+        policy = WorkspacePathPolicy(base_dir=self._workspace_root)
+        return policy.resolve(run_id)
+
     def _prepare(
         self,
         run_id: str,
         plan: "ExecutionPlan",
-    ) -> "ExecutionPlan | Result[RunRecord]":
+    ) -> "ExecutionPlan | Result[ExecutionPlan]":
         """Materialize workspace and build command spec for a PENDING plan.
 
         Returns the PLANNED ExecutionPlan on success, or a failure Result

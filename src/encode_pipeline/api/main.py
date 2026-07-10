@@ -11,11 +11,14 @@ from encode_pipeline.api.routes import api_v1_router
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.services.defaults import (
     create_default_agent_service,
+    create_default_local_run_driver,
     create_default_run_service,
-    create_default_stub_execution_driver,
     create_default_validation_service,
+    create_default_workspace_planner,
     create_default_workflow_registry,
 )
+from encode_pipeline.services.planning import ExecutionPlanner
+from encode_pipeline.services.preflight import LocalPreflightService
 
 
 def create_app() -> FastAPI:
@@ -27,13 +30,22 @@ def create_app() -> FastAPI:
     )
 
     registry = create_default_workflow_registry()
+    run_service = create_default_run_service(registry=registry)
+    local_run_driver = create_default_local_run_driver(run_service=run_service)
+    preflight_service = LocalPreflightService(
+        run_service=run_service,
+        execution_planner=ExecutionPlanner(run_service=run_service),
+        workspace_planner=create_default_workspace_planner(registry=registry),
+        local_run_driver=local_run_driver,
+    )
+
     app.state.registry = registry
     app.state.validation_service = create_default_validation_service(registry=registry)
     app.state.agent_service = create_default_agent_service(registry=registry)
-    app.state.run_service = create_default_run_service(registry=registry)
-    app.state.stub_execution_driver = create_default_stub_execution_driver(
-        run_service=app.state.run_service,
-    )
+    app.state.run_service = run_service
+    app.state.local_run_driver = local_run_driver
+    app.state.preflight_service = preflight_service
+    # Stub driver is intentionally not attached in production.
 
     app.include_router(api_v1_router, prefix="/api/v1")
     app.add_exception_handler(RequestValidationError, _handle_request_validation_error)
@@ -48,10 +60,14 @@ def _issue_from_request_validation_error(
 ) -> Issue:
     """Build a stable API_REQUEST_INVALID issue from a Pydantic validation error."""
     errors = exc.errors()
-    sanitized = "; ".join(
-        f"{'.'.join(str(loc) for loc in error.get('loc', []))}: {error.get('msg', '')}"
-        for error in errors
-    ) if errors else None
+    sanitized = (
+        "; ".join(
+            f"{'.'.join(str(loc) for loc in error.get('loc', []))}: {error.get('msg', '')}"
+            for error in errors
+        )
+        if errors
+        else None
+    )
 
     return Issue(
         code="API_REQUEST_INVALID",
