@@ -155,6 +155,14 @@ class WorkspacePlanner:
         except ValueError:
             return _malformed("inputs_snapshot")
 
+    _WORKSPACE_PATH_ERROR_MESSAGES = {
+        "WORKSPACE_BASE_DIR_RELATIVE": "Workspace base directory must be absolute.",
+        "WORKSPACE_PATH_ABSOLUTE": "Planned workspace path must be relative.",
+        "WORKSPACE_PATH_TRAVERSAL": "Planned workspace path must not contain parent references.",
+        "WORKSPACE_PATH_INVALID": "Planned workspace path is invalid.",
+        "WORKSPACE_PATH_ESCAPE": "Planned workspace path escapes the workspace directory.",
+    }
+
     def plan_workspace(
         self,
         plan: ExecutionPlan,
@@ -181,7 +189,9 @@ class WorkspacePlanner:
                 [
                     Issue(
                         code=exc.code,
-                        message=str(exc),
+                        message=self._WORKSPACE_PATH_ERROR_MESSAGES.get(
+                            exc.code, "Workspace path policy rejected the base directory."
+                        ),
                         severity="error",
                         path="base_dir",
                         source="workspace_planner",
@@ -194,31 +204,61 @@ class WorkspacePlanner:
             return inputs_result
         inputs = inputs_result.value
 
-        directories = ("logs", "results")
-        files: tuple[tuple[str, bytes], ...] = ()
-
         try:
-            for directory in directories:
-                policy.resolve(directory)
-            for file_path, _ in files:
-                policy.resolve(file_path)
-        except WorkspacePathError as exc:
+            adapter = self._registry.get(plan.workflow_id)
+        except KeyError:
             return Result.failure(
                 [
                     Issue(
-                        code=exc.code,
-                        message=str(exc),
+                        code="WORKSPACE_PLAN_WORKFLOW_NOT_FOUND",
+                        message="Workflow is not supported.",
                         severity="error",
-                        path="workspace_plan",
+                        path="workflow_id",
                         source="workspace_planner",
                     )
                 ]
             )
 
-        workspace_plan = WorkspacePlan(
-            directories=directories,
-            files=files,
-        )
+        adapter_result = adapter.plan_workspace(inputs, base_dir)
+        if adapter_result.is_failure:
+            return adapter_result
+        adapter_plan = adapter_result.value
+
+        for index, directory in enumerate(adapter_plan.directories):
+            try:
+                policy.resolve(directory)
+            except WorkspacePathError as exc:
+                return Result.failure(
+                    [
+                        Issue(
+                            code=exc.code,
+                            message=self._WORKSPACE_PATH_ERROR_MESSAGES.get(
+                                exc.code, "Planned workspace path violates workspace path policy."
+                            ),
+                            severity="error",
+                            path=f"workspace_plan.directories[{index}]",
+                            source="workspace_planner",
+                        )
+                    ]
+                )
+
+        for index, (file_path, _) in enumerate(adapter_plan.files):
+            try:
+                policy.resolve(file_path)
+            except WorkspacePathError as exc:
+                return Result.failure(
+                    [
+                        Issue(
+                            code=exc.code,
+                            message=self._WORKSPACE_PATH_ERROR_MESSAGES.get(
+                                exc.code, "Planned workspace path violates workspace path policy."
+                            ),
+                            severity="error",
+                            path=f"workspace_plan.files[{index}]",
+                            source="workspace_planner",
+                        )
+                    ]
+                )
 
         updated_plan = ExecutionPlan(
             plan_id=str(uuid4()),
@@ -227,18 +267,9 @@ class WorkspacePlanner:
             status=PlanStatus.PENDING,
             inputs_snapshot=plan.inputs_snapshot,
             dag_preview=plan.dag_preview,
-            workspace_plan=workspace_plan,
+            workspace_plan=adapter_plan,
             command_spec=None,
             created_at=datetime.now(timezone.utc),
-            issues=plan.issues
-            + (
-                Issue(
-                    code="WORKSPACE_PLANNING_COMPLETE",
-                    message="Workspace planning completed.",
-                    severity="info",
-                    path="workspace_plan",
-                    source="workspace_planner",
-                ),
-            ),
+            issues=plan.issues + adapter_result.issues,
         )
         return Result.success(updated_plan, issues=updated_plan.issues)
