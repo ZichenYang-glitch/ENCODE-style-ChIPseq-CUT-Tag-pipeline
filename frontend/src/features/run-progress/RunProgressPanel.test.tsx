@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, type Mock } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RunProgressPanel } from './RunProgressPanel';
@@ -134,13 +134,28 @@ function createMockRunClient(): RunApiClient {
       }
       return { ok: true, run_id: runId, events, next_cursor: null, issues: [] };
     }),
-    listRunLogs: vi.fn().mockResolvedValue({
-      ok: true,
-      run_id: '',
-      stream_name: 'stdout',
-      chunks: [],
-      next_cursor: null,
-      issues: [],
+    listRunLogs: vi.fn().mockImplementation(async (runId, options = {}) => {
+      const streamName = options.streamName ?? 'stdout';
+      const chunks = streamName === 'stderr'
+        ? []
+        : [
+            {
+              chunk_id: `${runId}-log-1`,
+              run_id: runId,
+              stream_name: 'stdout',
+              sequence: 1,
+              timestamp: '2026-07-04T12:00:00.000Z',
+              lines: ['[stub] validating inputs'],
+            },
+          ];
+      return {
+        ok: true,
+        run_id: runId,
+        stream_name: streamName,
+        chunks,
+        next_cursor: null,
+        issues: [],
+      };
     }),
     cancelRun: vi.fn().mockImplementation(async (runId) => {
       const record = runs.get(runId);
@@ -210,7 +225,7 @@ describe('RunProgressPanel', () => {
     expect(screen.getByTestId('create-run-button')).toBeEnabled();
   });
 
-  it('creates a run record and shows status, events, and empty logs', async () => {
+  it('creates a run record and shows status, events, and stdout logs', async () => {
     const user = userEvent.setup();
     const { runClient } = renderPanel({
       validationResult: successfulValidation,
@@ -227,9 +242,7 @@ describe('RunProgressPanel', () => {
     expect(await screen.findByTestId('run-status-badge')).toHaveTextContent('created');
     expect(screen.getByTestId('run-event-feed')).toBeInTheDocument();
     expect(screen.getByText(/status_changed/i)).toBeInTheDocument();
-    expect(screen.getByTestId('run-log-panel-empty')).toHaveTextContent(
-      /No log entries yet/i,
-    );
+    expect(screen.getByText(/\[stub\] validating inputs/i)).toBeInTheDocument();
   });
 
   it('rejects validated samples that are not compatible with run creation', async () => {
@@ -291,7 +304,64 @@ describe('RunProgressPanel', () => {
     await waitFor(() => {
       expect(runClient.getRun).toHaveBeenCalledTimes(2);
       expect(runClient.listRunEvents).toHaveBeenCalledTimes(2);
+      expect(runClient.listRunLogs).toHaveBeenCalledTimes(4); // 2 streams x 2 refreshes
+    });
+  });
+
+  it('fetches stdout and stderr logs when creating a run', async () => {
+    const user = userEvent.setup();
+    const { runClient } = renderPanel({
+      validationResult: successfulValidation,
+      validatedInputs,
+    });
+
+    await user.click(screen.getByTestId('create-run-button'));
+
+    await waitFor(() => {
       expect(runClient.listRunLogs).toHaveBeenCalledTimes(2);
+    });
+
+    const stdoutCalls = (runClient.listRunLogs as Mock).mock.calls.filter(
+      ([, options]) => options?.streamName === 'stdout',
+    );
+    const stderrCalls = (runClient.listRunLogs as Mock).mock.calls.filter(
+      ([, options]) => options?.streamName === 'stderr',
+    );
+
+    expect(stdoutCalls).toHaveLength(1);
+    expect(stderrCalls).toHaveLength(1);
+  });
+
+  it('resets log stream selector to stdout when workflow or inputs change', async () => {
+    const user = userEvent.setup();
+    const newRunClient = createMockRunClient();
+    const { rerender } = renderPanel({
+      validationResult: successfulValidation,
+      validatedInputs,
+    });
+
+    await user.click(screen.getByTestId('create-run-button'));
+    await waitFor(() => {
+      expect(screen.getByTestId('stdout-tab')).toHaveAttribute('aria-selected', 'true');
+    });
+
+    await user.click(screen.getByTestId('stderr-tab'));
+    expect(screen.getByTestId('stderr-tab')).toHaveAttribute('aria-selected', 'true');
+
+    rerender(
+      <RunProgressPanel
+        workflowId="other-workflow"
+        validationResult={successfulValidation}
+        validatedInputs={{ ...validatedInputs, samples: [{ name: 'sample-2', fastq_r1: 's2_R1.fq.gz' }] }}
+        runClient={newRunClient}
+      />,
+    );
+
+    // Inputs changed, so the existing run is cleared. Creating a new run should
+    // show the selector reset to stdout.
+    await user.click(screen.getByTestId('create-run-button'));
+    await waitFor(() => {
+      expect(screen.getByTestId('stdout-tab')).toHaveAttribute('aria-selected', 'true');
     });
   });
 
