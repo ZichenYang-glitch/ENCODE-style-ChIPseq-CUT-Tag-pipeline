@@ -99,6 +99,9 @@ class LocalPreflightService:
                 ]
             )
 
+        if record.status is RunStatus.CANCELLED:
+            return self._cancelled_result()
+
         if record.status is not RunStatus.VALIDATING:
             return Result.failure(
                 [

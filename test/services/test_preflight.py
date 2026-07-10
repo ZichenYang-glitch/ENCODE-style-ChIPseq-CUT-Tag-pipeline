@@ -233,3 +233,33 @@ def test_preflight_respects_cancellation_during_dry_run(tmp_path):
     assert not any(
         e.context["new_status"] in ("planned", "failed") for e in status_events
     )
+
+
+def test_run_preflight_returns_cancelled_when_cancelled_before_worker_start(tmp_path):
+    """Cancellation before the background worker starts must preserve CANCELLED
+    and must not begin workspace materialization, command build, or dry-run.
+    """
+    service = _make_service(tmp_path)
+    inputs = _make_valid_inputs(tmp_path)
+    record = service._run_service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase", inputs
+    )
+    service._run_service.transition_run(
+        record.run_id, RunStatus.VALIDATING, stage="preflight"
+    )
+    service._run_service.cancel_run(record.run_id, reason="Cancelled before worker.")
+
+    result = service.run_preflight(record.run_id)
+
+    assert result.is_failure is True
+    assert result.issues[0].code == "PREFLIGHT_CANCELLED"
+    updated = service._run_service.get_run(record.run_id)
+    assert updated.status is RunStatus.CANCELLED
+
+    event_types = [
+        e.event_type for e in service._run_service.list_events(record.run_id)
+    ]
+    assert "workspace_materialized" not in event_types
+    assert "command_built" not in event_types
+    assert "dry_run_completed" not in event_types
+    assert "preflight_completed" not in event_types

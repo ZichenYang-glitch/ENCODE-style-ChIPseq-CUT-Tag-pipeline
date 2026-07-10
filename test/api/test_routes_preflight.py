@@ -133,3 +133,30 @@ def test_trigger_preflight_returns_409_when_already_triggered(tmp_path):
 
     assert response.status_code == 409
     assert response.json()["issues"][0]["code"] == "PREFLIGHT_ALREADY_TRIGGERED"
+
+
+def test_trigger_preflight_after_event_loop_exercise_returns_202_and_planned(
+    tmp_path,
+):
+    """Regression: passing a sync callable directly to BackgroundTasks can hang
+    after earlier API requests have exercised the event loop. The async wrapper
+    must keep preflight responsive without depending on real Snakemake.
+    """
+    client = _client(tmp_path)
+    run = _create_run(client, tmp_path)
+
+    for _ in range(3):
+        response = client.get("/api/v1/workflows")
+        assert response.status_code == 200
+        response = client.get(
+            "/api/v1/workflows/encode-style-chipseq-cuttag-atac-mnase/schema"
+        )
+        assert response.status_code == 200
+
+    response = client.post(f"/api/v1/runs/{run['run_id']}/preflight")
+    assert response.status_code == 202
+    assert response.json()["run"]["status"] == "validating"
+
+    response = client.get(f"/api/v1/runs/{run['run_id']}")
+    assert response.status_code == 200
+    assert response.json()["run"]["status"] == "planned"

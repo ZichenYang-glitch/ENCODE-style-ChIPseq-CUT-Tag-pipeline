@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
 
@@ -17,6 +19,18 @@ from encode_pipeline.services.runs import RunService
 
 
 router = APIRouter(tags=["preflight"])
+
+
+async def _run_preflight_in_background(
+    preflight_service: LocalPreflightService,
+    run_id: str,
+) -> None:
+    """Async wrapper for the synchronous preflight worker.
+
+    Avoids passing a synchronous callable directly to ``BackgroundTasks``,
+    which can hang under Python 3.13 with the current ASGI test client.
+    """
+    await asyncio.to_thread(preflight_service.run_preflight, run_id)
 
 
 def _preflight_already_triggered_issue(current_status: str):
@@ -72,6 +86,10 @@ async def trigger_preflight(
         stage="preflight",
         message="Local preflight accepted.",
     )
-    background_tasks.add_task(preflight_service.run_preflight, run_id)
+    background_tasks.add_task(
+        _run_preflight_in_background,
+        preflight_service,
+        run_id,
+    )
     updated = run_service.get_run(run_id)
     return RunResponse(ok=True, run=_run_record_response(updated), issues=[])
