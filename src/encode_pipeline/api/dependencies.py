@@ -7,13 +7,12 @@ from typing import TYPE_CHECKING
 from fastapi import Request
 
 from encode_pipeline.platform.registry import WorkflowRegistry
-from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
 from encode_pipeline.services.validation import ValidationService
 
 if TYPE_CHECKING:
     from encode_pipeline.services.agent import AgentService
+    from encode_pipeline.services.preflight import LocalPreflightService
     from encode_pipeline.services.runs import RunService
-    from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
 
 
 async def get_registry(request: Request) -> WorkflowRegistry:
@@ -36,6 +35,6 @@ async def get_run_service(request: Request) -> "RunService":
     return request.app.state.run_service
 
 
-async def get_stub_execution_driver(request: Request) -> StubExecutionDriver | None:
-    """Return the app stub execution driver, if configured."""
-    return getattr(request.app.state, "stub_execution_driver", None)
+async def get_preflight_service(request: Request) -> "LocalPreflightService":
+    """Return the app local preflight service."""
+    return request.app.state.preflight_service
