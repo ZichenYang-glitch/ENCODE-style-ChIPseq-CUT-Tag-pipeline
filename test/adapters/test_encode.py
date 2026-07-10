@@ -78,3 +78,64 @@ def test_adapter_plan_workspace_round_trip_pe_control_replicate(tmp_path):
     assert rows[0]["biological_replicate"] == "1"
     assert rows[1]["role"] == "control"
     assert rows[1]["technical_replicate"] == "2"
+
+
+def test_adapter_plan_workspace_rejects_relative_fastq_path(tmp_path):
+    samples_tsv = tmp_path / "samples.tsv"
+    samples_tsv.write_text(
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
+        "S1\trelative/S1_1.fq.gz\t/abs/S1_2.fq.gz\tPE\tchipseq\tH3K27ac\tnarrow\ths\t/abs/bt2/GRCh38\n",
+        encoding="utf-8",
+    )
+
+    config = {
+        "samples": str(samples_tsv),
+        "threads": 1,
+        "genome_resources": {"hs": {"effective_genome_size": "hs"}},
+    }
+
+    adapter = EncodeStyleWorkflowAdapter()
+    inputs = WorkflowInputs(config=config, samples=str(samples_tsv), options={})
+    result = adapter.plan_workspace(inputs, str(tmp_path / "workspace"))
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "ENCODE_WORKSPACE_RELATIVE_EXTERNAL_PATH"
+    assert issue.path == "samples[0].fastq_1"
+    assert issue.context == {"field": "fastq_1"}
+    payload = issue.to_dict()
+    assert "relative/S1_1.fq.gz" not in str(payload)
+
+
+def test_adapter_plan_workspace_rejects_relative_genome_resource_path(tmp_path, monkeypatch):
+    samples_tsv = tmp_path / "samples.tsv"
+    samples_tsv.write_text(
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
+        "S1\t/abs/S1_1.fq.gz\t/abs/S1_2.fq.gz\tPE\tchipseq\tH3K27ac\tnarrow\ths\t/abs/bt2/GRCh38\n",
+        encoding="utf-8",
+    )
+
+    relative_ref = tmp_path / "relative_ref.fa"
+    relative_ref.write_text(">chr1\nACGT\n", encoding="utf-8")
+
+    config = {
+        "samples": str(samples_tsv),
+        "threads": 1,
+        "genome_resources": {
+            "hs": {
+                "effective_genome_size": "hs",
+                "reference_fasta": "relative_ref.fa",
+            }
+        },
+    }
+
+    monkeypatch.chdir(tmp_path)
+
+    adapter = EncodeStyleWorkflowAdapter()
+    inputs = WorkflowInputs(config=config, samples=str(samples_tsv), options={})
+    result = adapter.plan_workspace(inputs, str(tmp_path / "workspace"))
+
+    assert result.is_failure is True
+    issue = result.issues[0]
+    assert issue.code == "ENCODE_WORKSPACE_RELATIVE_EXTERNAL_PATH"
+    assert issue.path == "config.genome_resources.hs.reference_fasta"

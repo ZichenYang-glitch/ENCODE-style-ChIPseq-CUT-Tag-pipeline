@@ -113,6 +113,46 @@ def _render_samples_tsv(sample_rows: list[dict[str, Any]]) -> bytes:
     return output.getvalue().encode("utf-8")
 
 
+def _enforce_external_input_policy(
+    validated_config: dict[str, Any],
+    sample_rows: list[dict[str, Any]],
+) -> Issue | None:
+    """Fail fast if any external reference is a relative path."""
+    sample_fields = ("fq1", "fq2", "bt2_idx", "control_bam")
+    for index, row in enumerate(sample_rows):
+        for field in sample_fields:
+            value = row.get(field)
+            if isinstance(value, str) and value and not Path(value).is_absolute():
+                return Issue(
+                    code="ENCODE_WORKSPACE_RELATIVE_EXTERNAL_PATH",
+                    message="External input path must be absolute.",
+                    severity="error",
+                    path=f"samples[{index}].{_SAMPLE_DICT_TO_TSV[field]}",
+                    source="adapter",
+                    context={"field": _SAMPLE_DICT_TO_TSV[field]},
+                )
+
+    genome_resources = validated_config.get("genome_resources")
+    if isinstance(genome_resources, Mapping):
+        for genome in sorted(genome_resources.keys()):
+            resource = genome_resources[genome]
+            if not isinstance(resource, Mapping):
+                continue
+            for field in ("chrom_sizes", "blacklist", "gtf", "reference_fasta"):
+                value = resource.get(field)
+                if isinstance(value, str) and value and not Path(value).is_absolute():
+                    return Issue(
+                        code="ENCODE_WORKSPACE_RELATIVE_EXTERNAL_PATH",
+                        message="External input path must be absolute.",
+                        severity="error",
+                        path=f"config.genome_resources.{genome}.{field}",
+                        source="adapter",
+                        context={"field": field},
+                    )
+
+    return None
+
+
 def _sanitize_issue(issue: Issue) -> Issue:
     """Placeholder: strict sanitization implemented in Task 8."""
     return issue
@@ -298,6 +338,10 @@ class EncodeStyleWorkflowAdapter:
         validated_value = validated.value
         validated_config = validated_value["config"]
         sample_rows = validated_value["samples"]
+
+        policy_result = _enforce_external_input_policy(validated_config, sample_rows)
+        if policy_result is not None:
+            return Result.failure([policy_result])
 
         workspace_config = _prepare_workspace_config(validated_config)
 
