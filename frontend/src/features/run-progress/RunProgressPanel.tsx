@@ -60,14 +60,18 @@ export function RunProgressPanel({
 }: RunProgressPanelProps) {
   const [run, setRun] = useState<RunRecordResponse | null>(null);
   const [events, setEvents] = useState<RunEventResponse[]>([]);
-  const [logs, setLogs] = useState<RunLogChunkResponse[]>([]);
+  const [stdoutLogs, setStdoutLogs] = useState<RunLogChunkResponse[]>([]);
+  const [stderrLogs, setStderrLogs] = useState<RunLogChunkResponse[]>([]);
+  const [activeLogStream, setActiveLogStream] = useState<'stdout' | 'stderr'>('stdout');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setRun(null);
     setEvents([]);
-    setLogs([]);
+    setStdoutLogs([]);
+    setStderrLogs([]);
+    setActiveLogStream('stdout');
     setError(null);
   }, [workflowId, validatedInputs]);
 
@@ -77,17 +81,19 @@ export function RunProgressPanel({
     validatedInputs !== null;
 
   async function refreshRun(runId: string) {
-    const [runResponse, eventsResponse, logsResponse] = await Promise.all([
+    const [runResponse, eventsResponse, stdoutResponse, stderrResponse] = await Promise.all([
       runClient.getRun(runId),
       runClient.listRunEvents(runId, { limit: 50 }),
       runClient.listRunLogs(runId, { streamName: 'stdout', limit: 50 }),
+      runClient.listRunLogs(runId, { streamName: 'stderr', limit: 50 }),
     ]);
 
     if (runResponse.run) {
       setRun(runResponse.run);
     }
     setEvents(eventsResponse.events);
-    setLogs(logsResponse.chunks);
+    setStdoutLogs(stdoutResponse.chunks);
+    setStderrLogs(stderrResponse.chunks);
   }
 
   async function handleCreateRun() {
@@ -203,7 +209,12 @@ export function RunProgressPanel({
             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
               Logs
             </h4>
-            <RunLogPanel chunks={logs} />
+            <RunLogPanel
+              stdoutChunks={stdoutLogs}
+              stderrChunks={stderrLogs}
+              activeStream={activeLogStream}
+              onStreamChange={setActiveLogStream}
+            />
           </div>
         </div>
       )}
