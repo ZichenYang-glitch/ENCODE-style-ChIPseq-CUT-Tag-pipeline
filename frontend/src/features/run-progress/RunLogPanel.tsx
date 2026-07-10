@@ -1,36 +1,77 @@
 import type { RunLogChunkResponse } from '../../api/runTypes';
 
 interface RunLogPanelProps {
-  chunks: RunLogChunkResponse[];
+  stdoutChunks: RunLogChunkResponse[];
+  stderrChunks: RunLogChunkResponse[];
+  activeStream: 'stdout' | 'stderr';
+  onStreamChange: (stream: 'stdout' | 'stderr') => void;
 }
 
-export function RunLogPanel({ chunks }: RunLogPanelProps) {
-  if (chunks.length === 0) {
-    return (
-      <p
-        className="text-sm text-[var(--color-text-muted)]"
-        data-testid="run-log-panel-empty"
-      >
-        No log entries yet.
-      </p>
-    );
-  }
+export function RunLogPanel({
+  stdoutChunks,
+  stderrChunks,
+  activeStream,
+  onStreamChange,
+}: RunLogPanelProps) {
+  const chunks = activeStream === 'stdout' ? stdoutChunks : stderrChunks;
 
   return (
     <div className="space-y-2" data-testid="run-log-panel">
-      {chunks.map((chunk) => (
-        <div
-          key={chunk.chunk_id}
-          className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2"
+      <div className="flex gap-1" role="tablist" aria-label="Log streams">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeStream === 'stdout'}
+          className={`rounded px-3 py-1 text-xs font-medium ${
+            activeStream === 'stdout'
+              ? 'bg-[var(--color-accent)] text-white'
+              : 'border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)]'
+          }`}
+          onClick={() => onStreamChange('stdout')}
+          data-testid="stdout-tab"
         >
-          <div className="mb-1 text-xs text-[var(--color-text-muted)]">
-            {new Date(chunk.timestamp).toLocaleString()} — {chunk.stream_name}
-          </div>
-          <pre className="overflow-auto font-mono text-xs text-[var(--color-text)]">
-            {chunk.lines.join('\n')}
-          </pre>
+          stdout
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeStream === 'stderr'}
+          className={`rounded px-3 py-1 text-xs font-medium ${
+            activeStream === 'stderr'
+              ? 'bg-[var(--color-accent)] text-white'
+              : 'border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)]'
+          }`}
+          onClick={() => onStreamChange('stderr')}
+          data-testid="stderr-tab"
+        >
+          stderr
+        </button>
+      </div>
+
+      {chunks.length === 0 ? (
+        <p
+          className="text-sm text-[var(--color-text-muted)]"
+          data-testid="run-log-panel-empty"
+        >
+          No log entries yet.
+        </p>
+      ) : (
+        <div className="space-y-2" data-testid="run-log-chunks">
+          {chunks.map((chunk) => (
+            <div
+              key={chunk.chunk_id}
+              className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2"
+            >
+              <div className="mb-1 text-xs text-[var(--color-text-muted)]">
+                {new Date(chunk.timestamp).toLocaleString()} — {chunk.stream_name}
+              </div>
+              <pre className="overflow-auto font-mono text-xs text-[var(--color-text)]">
+                {chunk.lines.join('\n')}
+              </pre>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }
