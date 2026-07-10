@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, type Mock } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import { RunProgressPanel } from './RunProgressPanel';
+import { ClientProvider } from '../../api/client-context';
 import type { RunApiClient } from '../../api/runClient';
 import type { ValidateWorkflowResponse, WorkflowInputs } from '../../api/types';
 import type { RunEventResponse } from '../../api/runTypes';
@@ -194,9 +196,34 @@ function renderPanel(props: Partial<Parameters<typeof RunProgressPanel>[0]> = {}
     validatedInputs: null,
     runClient,
   };
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
+  function Wrapper({ children }: { children: React.ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <ClientProvider clients={{ runClient }}>{children}</ClientProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  const result = render(
+    <Wrapper>
+      <RunProgressPanel {...defaultProps} {...props} />
+    </Wrapper>,
+  );
+
   return {
     runClient,
-    ...render(<RunProgressPanel {...defaultProps} {...props} />),
+    ...result,
+    rerender(nextProps: Partial<Parameters<typeof RunProgressPanel>[0]> = {}) {
+      result.rerender(
+        <Wrapper>
+          <RunProgressPanel {...defaultProps} {...nextProps} />
+        </Wrapper>,
+      );
+    },
   };
 }
 
@@ -348,14 +375,12 @@ describe('RunProgressPanel', () => {
     await user.click(screen.getByTestId('stderr-tab'));
     expect(screen.getByTestId('stderr-tab')).toHaveAttribute('aria-selected', 'true');
 
-    rerender(
-      <RunProgressPanel
-        workflowId="other-workflow"
-        validationResult={successfulValidation}
-        validatedInputs={{ ...validatedInputs, samples: [{ name: 'sample-2', fastq_r1: 's2_R1.fq.gz' }] }}
-        runClient={newRunClient}
-      />,
-    );
+    rerender({
+      workflowId: 'other-workflow',
+      validationResult: successfulValidation,
+      validatedInputs: { ...validatedInputs, samples: [{ name: 'sample-2', fastq_r1: 's2_R1.fq.gz' }] },
+      runClient: newRunClient,
+    });
 
     // Inputs changed, so the existing run is cleared. Creating a new run should
     // show the selector reset to stdout.
@@ -384,6 +409,26 @@ describe('RunProgressPanel', () => {
     await waitFor(() => {
       expect(screen.getByTestId('stdout-tab')).toHaveAttribute('aria-selected', 'true');
     });
+  });
+
+  it('loads an existing run when runId is provided', async () => {
+    const runClient = createMockRunClient();
+    await runClient.createRun(WORKFLOW_ID, {
+      config: validatedInputs.config,
+      samples: validatedInputs.samples as Record<string, string>[],
+      options: validatedInputs.options,
+    });
+
+    renderPanel({
+      runId: 'run-1',
+      runClient,
+    });
+
+    expect(await screen.findByTestId('run-status-badge')).toHaveTextContent(
+      'created',
+    );
+    expect(screen.getByTestId('run-event-feed')).toBeInTheDocument();
+    expect(screen.getByText(/\[stub\] validating inputs/i)).toBeInTheDocument();
   });
 
   it('does not render execution-like wording', () => {

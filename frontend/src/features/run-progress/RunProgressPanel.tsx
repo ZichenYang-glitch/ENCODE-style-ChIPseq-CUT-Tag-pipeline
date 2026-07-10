@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { RefreshCw, Ban } from 'lucide-react';
+import { useClients } from '../../api/client-context';
 import type { RunApiClient } from '../../api/runClient';
 import type {
   RunCreateRequest,
@@ -13,10 +16,12 @@ import { RunLogPanel } from './RunLogPanel';
 import { RunStatusBadge } from './RunStatusBadge';
 
 interface RunProgressPanelProps {
-  workflowId: string | null;
-  validationResult: ValidateWorkflowResponse | null;
-  validatedInputs: WorkflowInputs | null;
-  runClient: RunApiClient;
+  workflowId?: string | null;
+  validationResult?: ValidateWorkflowResponse | null;
+  validatedInputs?: WorkflowInputs | null;
+  runClient?: RunApiClient;
+  runId?: string | null;
+  onRunCreated?: (runId: string) => void;
 }
 
 const terminalStatuses = ['succeeded', 'failed', 'cancelled'];
@@ -53,11 +58,16 @@ function toRunCreateRequest(inputs: WorkflowInputs): RunCreateRequest {
 }
 
 export function RunProgressPanel({
-  workflowId,
-  validationResult,
-  validatedInputs,
-  runClient,
+  workflowId = null,
+  validationResult = null,
+  validatedInputs = null,
+  runClient: runClientProp,
+  runId = null,
+  onRunCreated,
 }: RunProgressPanelProps) {
+  const { runClient: clientFromContext } = useClients();
+  const runClient = runClientProp ?? clientFromContext;
+
   const [run, setRun] = useState<RunRecordResponse | null>(null);
   const [events, setEvents] = useState<RunEventResponse[]>([]);
   const [stdoutLogs, setStdoutLogs] = useState<RunLogChunkResponse[]>([]);
@@ -66,6 +76,38 @@ export function RunProgressPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const {
+    data: runQueryData,
+    isLoading: runQueryLoading,
+    error: runQueryError,
+  } = useQuery({
+    queryKey: ['run', runId],
+    queryFn: async () => {
+      if (!runId) return null;
+      const response = await runClient.getRun(runId);
+      return response;
+    },
+    enabled: runId !== null,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (runId && runQueryData?.ok && runQueryData.run) {
+      setRun(runQueryData.run);
+      void refreshRun(runQueryData.run.run_id);
+    }
+  }, [runId, runQueryData]);
+
+  useEffect(() => {
+    if (runQueryError) {
+      setError(
+        runQueryError instanceof Error
+          ? runQueryError.message
+          : 'Failed to load run record.',
+      );
+    }
+  }, [runQueryError]);
+
   useEffect(() => {
     setRun(null);
     setEvents([]);
@@ -73,26 +115,21 @@ export function RunProgressPanel({
     setStderrLogs([]);
     setActiveLogStream('stdout');
     setError(null);
-  }, [workflowId, validatedInputs]);
-
-  useEffect(() => {
-    setStdoutLogs([]);
-    setStderrLogs([]);
-    setActiveLogStream('stdout');
-  }, [run?.run_id]);
+  }, [workflowId, validatedInputs, runId]);
 
   const canCreateRun =
     workflowId !== null &&
     validationResult?.ok === true &&
     validatedInputs !== null;
 
-  async function refreshRun(runId: string) {
-    const [runResponse, eventsResponse, stdoutResponse, stderrResponse] = await Promise.all([
-      runClient.getRun(runId),
-      runClient.listRunEvents(runId, { limit: 50 }),
-      runClient.listRunLogs(runId, { streamName: 'stdout', limit: 50 }),
-      runClient.listRunLogs(runId, { streamName: 'stderr', limit: 50 }),
-    ]);
+  async function refreshRun(runIdToRefresh: string) {
+    const [runResponse, eventsResponse, stdoutResponse, stderrResponse] =
+      await Promise.all([
+        runClient.getRun(runIdToRefresh),
+        runClient.listRunEvents(runIdToRefresh, { limit: 50 }),
+        runClient.listRunLogs(runIdToRefresh, { streamName: 'stdout', limit: 50 }),
+        runClient.listRunLogs(runIdToRefresh, { streamName: 'stderr', limit: 50 }),
+      ]);
 
     if (runResponse.run) {
       setRun(runResponse.run);
@@ -125,7 +162,11 @@ export function RunProgressPanel({
       const createdRun = response.run;
       if (createdRun) {
         setRun(createdRun);
+        setStdoutLogs([]);
+        setStderrLogs([]);
+        setActiveLogStream('stdout');
         await refreshRun(createdRun.run_id);
+        onRunCreated?.(createdRun.run_id);
       }
     } catch (err) {
       setError(
@@ -174,10 +215,14 @@ export function RunProgressPanel({
 
   return (
     <div className="space-y-4" data-testid="run-progress-panel">
-      {!run && (
+      {!run && !runQueryLoading && (
         <p className="text-sm text-[var(--color-text-muted)]">
           Validate inputs before creating a run record.
         </p>
+      )}
+
+      {runQueryLoading && (
+        <p className="text-sm text-[var(--color-text-muted)]">Loading run…</p>
       )}
 
       {error && (
@@ -242,6 +287,7 @@ export function RunProgressPanel({
               disabled={!canRefresh || loading}
               data-testid="refresh-run-button"
             >
+              <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden="true" />
               Refresh
             </Button>
             <Button
@@ -250,6 +296,7 @@ export function RunProgressPanel({
               disabled={!canCancelRun || loading}
               data-testid="cancel-run-button"
             >
+              <Ban className="mr-1.5 h-4 w-4" aria-hidden="true" />
               Cancel run
             </Button>
           </>
