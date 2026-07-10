@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "openapi:export": "python3 ../scripts/export_openapi.py --output openapi.json",
-    "openapi:generate": "orval",
+    "openapi:generate": "orval && node scripts/clean-generated.js",
     "openapi:regenerate": "npm run openapi:export && npm run openapi:generate"
   },
   "dependencies": {
