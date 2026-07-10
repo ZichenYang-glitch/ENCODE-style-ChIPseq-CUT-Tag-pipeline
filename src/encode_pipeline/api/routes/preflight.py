@@ -46,7 +46,12 @@ def _preflight_already_triggered_issue(current_status: str):
     )
 
 
-@router.post("/runs/{run_id}/preflight", response_model=RunResponse, status_code=202)
+@router.post(
+    "/runs/{run_id}/preflight",
+    response_model=RunResponse,
+    status_code=202,
+    operation_id="triggerPreflight",
+)
 async def trigger_preflight(
     run_id: str,
     background_tasks: BackgroundTasks,

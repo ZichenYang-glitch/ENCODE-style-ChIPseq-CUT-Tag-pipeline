@@ -12,7 +12,11 @@ from encode_pipeline.services.agent import AgentService
 router = APIRouter(prefix="/workflows", tags=["agent"])
 
 
-@router.post("/{workflow_id}/agent/chat", response_model=AgentResponse)
+@router.post(
+    "/{workflow_id}/agent/chat",
+    response_model=AgentResponse,
+    operation_id="chatWithWorkflowAgent",
+)
 async def chat_with_workflow_agent(
     workflow_id: str,
     request_body: AgentRequest,
