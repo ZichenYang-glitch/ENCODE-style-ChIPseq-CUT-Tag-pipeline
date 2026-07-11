@@ -38,6 +38,7 @@ def test_can_transition_rejects_invalid_transitions():
     from encode_pipeline.platform.runs import RunStatus, can_transition
 
     assert not can_transition(RunStatus.CREATED, RunStatus.RUNNING)
+    assert not can_transition(RunStatus.QUEUED, RunStatus.FAILED)
     assert not can_transition(RunStatus.RUNNING, RunStatus.PLANNED)
     assert not can_transition(RunStatus.SUCCEEDED, RunStatus.FAILED)
     assert not can_transition(RunStatus.FAILED, RunStatus.CANCELLED)
@@ -384,7 +385,23 @@ def test_platform_package_exports_run_primitives():
         require_transition,
     )
 
-    assert RunStatus.CREATED.value == "created"
+    assert [
+        RunArtifactRef.__name__,
+        RunEvent.__name__,
+        RunLogChunk.__name__,
+        RunRecord.__name__,
+        RunStatus.CREATED.value,
+        can_transition.__name__,
+        require_transition.__name__,
+    ] == [
+        "RunArtifactRef",
+        "RunEvent",
+        "RunLogChunk",
+        "RunRecord",
+        "created",
+        "can_transition",
+        "require_transition",
+    ]
     assert can_transition(RunStatus.CREATED, RunStatus.VALIDATING)
     assert require_transition(RunStatus.CREATED, RunStatus.VALIDATING) is None
 

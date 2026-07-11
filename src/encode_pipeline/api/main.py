@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import AsyncIterator
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from encode_pipeline.api.models import ValidationResponse
 from encode_pipeline.api.routes import api_v1_router
+from encode_pipeline.persistence import open_run_persistence
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.services.defaults import (
     create_default_agent_service,
@@ -21,17 +26,38 @@ from encode_pipeline.services.planning import ExecutionPlanner
 from encode_pipeline.services.preflight import LocalPreflightService
 
 
-def create_app() -> FastAPI:
+def create_app(
+    *,
+    database_url: str | None = None,
+    workspace_root: Path | None = None,
+) -> FastAPI:
     """Return a configured FastAPI app with default platform services."""
+    persistence = open_run_persistence(database_url)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            persistence.close()
+
     app = FastAPI(
         title="Workflow Platform API",
         version="0.3.0",
         description="Validation-first workflow platform API.",
+        lifespan=lifespan,
     )
 
     registry = create_default_workflow_registry()
-    run_service = create_default_run_service(registry=registry)
-    local_run_driver = create_default_local_run_driver(run_service=run_service)
+    run_service = create_default_run_service(
+        registry=registry,
+        repository=persistence.repository,
+    )
+    recovered_runs = run_service.recover_interrupted_runs()
+    local_run_driver = create_default_local_run_driver(
+        run_service=run_service,
+        workspace_root=workspace_root,
+    )
     preflight_service = LocalPreflightService(
         run_service=run_service,
         execution_planner=ExecutionPlanner(run_service=run_service),
@@ -40,6 +66,9 @@ def create_app() -> FastAPI:
     )
 
     app.state.registry = registry
+    app.state.persistence = persistence
+    app.state.database_url = persistence.database_url
+    app.state.recovered_run_ids = tuple(run.run_id for run in recovered_runs)
     app.state.validation_service = create_default_validation_service(registry=registry)
     app.state.agent_service = create_default_agent_service(registry=registry)
     app.state.run_service = run_service

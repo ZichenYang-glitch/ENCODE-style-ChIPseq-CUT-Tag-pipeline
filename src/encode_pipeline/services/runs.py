@@ -20,6 +20,7 @@ from encode_pipeline.platform.runs import (
     require_transition,
 )
 from encode_pipeline.services.run_repositories import (
+    ConcurrentRunUpdateError,
     InMemoryRunRepository,
     RunEventDraft,
     RunRepository,
@@ -164,6 +165,76 @@ class RunService:
         """Return all runs in creation order."""
         with self._lock:
             return self._repository.list_runs()
+
+    def recover_interrupted_runs(self) -> tuple[RunRecord, ...]:
+        """Mark work interrupted by an API restart as failed.
+
+        ``CREATED`` and ``PLANNED`` are quiescent persisted states and remain
+        available for user action. ``VALIDATING``, ``QUEUED``, and ``RUNNING``
+        imply work that belonged to the prior API process, so this method
+        records an explicit terminal failure instead of claiming that work is
+        still active after that process has disappeared.
+        """
+        recoverable_statuses = {
+            RunStatus.VALIDATING,
+            RunStatus.QUEUED,
+            RunStatus.RUNNING,
+        }
+        with self._lock:
+            recovered: list[RunRecord] = []
+            for current in self._repository.list_runs():
+                if current.status not in recoverable_statuses:
+                    continue
+
+                now = datetime.now(timezone.utc)
+                issue = Issue(
+                    code="RUN_INTERRUPTED_BY_API_RESTART",
+                    message="Run was interrupted by an API restart.",
+                    severity="error",
+                    path="run_id",
+                    source="run_service",
+                    hint="Review the run events and submit a new preflight if needed.",
+                )
+                updated = RunRecord(
+                    run_id=current.run_id,
+                    workflow_id=current.workflow_id,
+                    inputs=current.inputs,
+                    status=RunStatus.FAILED,
+                    created_at=current.created_at,
+                    updated_at=now,
+                    started_at=current.started_at,
+                    ended_at=now,
+                    current_stage=current.current_stage,
+                    cancellation_reason=current.cancellation_reason,
+                    error=issue,
+                    tags=current.tags,
+                )
+                try:
+                    self._repository.update_run(
+                        updated,
+                        expected_status=current.status,
+                        event=RunEventDraft(
+                            event_type="run_recovered_after_restart",
+                            message=(
+                                "Run marked failed because the API restarted before "
+                                "active work completed."
+                            ),
+                            status=RunStatus.FAILED,
+                            stage=current.current_stage,
+                            context={
+                                "previous_status": current.status.value,
+                                "new_status": RunStatus.FAILED.value,
+                                "reason_code": "API_RESTART_INTERRUPTED",
+                            },
+                            issue=issue,
+                        ),
+                    )
+                except (ConcurrentRunUpdateError, KeyError):
+                    # A concurrent writer already changed or deleted the run.
+                    # Re-reading it on the next startup keeps recovery idempotent.
+                    continue
+                recovered.append(updated)
+            return tuple(recovered)
 
     def _emit_event(
         self,

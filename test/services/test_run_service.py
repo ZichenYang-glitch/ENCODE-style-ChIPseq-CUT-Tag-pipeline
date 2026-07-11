@@ -470,6 +470,84 @@ def test_record_artifact_rejects_duplicate_artifact_id():
         service.record_artifact("run-1", artifact)
 
 
+def test_recover_interrupted_runs_marks_only_active_states_as_failed():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    run_ids = iter(
+        [
+            "run-created",
+            "run-planned",
+            "run-validating",
+            "run-queued",
+            "run-running",
+            "run-succeeded",
+        ]
+    )
+    service = RunService(registry=registry, id_factory=lambda: next(run_ids))
+    created = service.create_run("fake", WorkflowInputs(config={}))
+    planned = service.create_run("fake", WorkflowInputs(config={}))
+    validating = service.create_run("fake", WorkflowInputs(config={}))
+    queued = service.create_run("fake", WorkflowInputs(config={}))
+    running = service.create_run("fake", WorkflowInputs(config={}))
+    succeeded = service.create_run("fake", WorkflowInputs(config={}))
+
+    service.transition_run(planned.run_id, RunStatus.VALIDATING)
+    service.transition_run(planned.run_id, RunStatus.PLANNED)
+    service.transition_run(validating.run_id, RunStatus.VALIDATING, stage="preflight")
+    service.transition_run(queued.run_id, RunStatus.VALIDATING)
+    service.transition_run(queued.run_id, RunStatus.PLANNED)
+    service.transition_run(queued.run_id, RunStatus.QUEUED, stage="queue")
+    service.transition_run(running.run_id, RunStatus.VALIDATING)
+    service.transition_run(running.run_id, RunStatus.PLANNED)
+    service.transition_run(running.run_id, RunStatus.QUEUED)
+    service.transition_run(running.run_id, RunStatus.RUNNING, stage="run")
+    service.transition_run(succeeded.run_id, RunStatus.VALIDATING)
+    service.transition_run(succeeded.run_id, RunStatus.PLANNED)
+    service.transition_run(succeeded.run_id, RunStatus.QUEUED)
+    service.transition_run(succeeded.run_id, RunStatus.RUNNING)
+    service.transition_run(succeeded.run_id, RunStatus.SUCCEEDED)
+
+    recovered = service.recover_interrupted_runs()
+
+    assert [record.run_id for record in recovered] == [
+        validating.run_id,
+        queued.run_id,
+        running.run_id,
+    ]
+    assert service.get_run(created.run_id).status is RunStatus.CREATED
+    assert service.get_run(planned.run_id).status is RunStatus.PLANNED
+    assert service.get_run(succeeded.run_id).status is RunStatus.SUCCEEDED
+    for record in recovered:
+        assert record.status is RunStatus.FAILED
+        assert record.ended_at is not None
+        assert record.error == Issue(
+            code="RUN_INTERRUPTED_BY_API_RESTART",
+            message="Run was interrupted by an API restart.",
+            source="run_service",
+            path="run_id",
+            hint="Review the run events and submit a new preflight if needed.",
+        )
+        event = service.list_events(record.run_id)[-1]
+        assert event.event_type == "run_recovered_after_restart"
+        assert event.status is RunStatus.FAILED
+        assert event.context["reason_code"] == "API_RESTART_INTERRUPTED"
+        assert event.issue == record.error
+
+
+def test_recover_interrupted_runs_is_idempotent_after_terminal_transition():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run("fake", WorkflowInputs(config={}))
+    service.transition_run("run-1", RunStatus.VALIDATING)
+
+    first = service.recover_interrupted_runs()
+    events_after_first = service.list_events("run-1")
+    second = service.recover_interrupted_runs()
+
+    assert len(first) == 1
+    assert second == ()
+    assert service.list_events("run-1") == events_after_first
+
+
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 
 

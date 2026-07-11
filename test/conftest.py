@@ -22,7 +22,11 @@ for _search_dir in (_TEST_DIR, _LEGACY_DIR):
     if not os.path.isdir(_search_dir):
         continue
     for _f in os.listdir(_search_dir):
-        if _f.startswith("test_stage") and _f.endswith(".py") and _f != "test_stage_shim.py":
+        if (
+            _f.startswith("test_stage")
+            and _f.endswith(".py")
+            and _f != "test_stage_shim.py"
+        ):
             _path = os.path.join(_search_dir, _f)
             try:
                 with open(_path, encoding="utf-8") as _fh:
@@ -41,6 +45,22 @@ def pytest_addoption(parser):
         default=False,
         help="Update DAG snapshot fixtures from current dry-run output",
     )
+
+
+@pytest.fixture(autouse=True)
+def isolate_api_database(request, monkeypatch):
+    """Give API tests a disposable file-backed database without shadowing conftest."""
+    api_test_dir = Path(__file__).resolve().parent / "api"
+    if api_test_dir not in Path(request.fspath).resolve().parents:
+        yield
+        return
+
+    tmp_path = request.getfixturevalue("tmp_path")
+    monkeypatch.setenv(
+        "ENCODE_PIPELINE_DATABASE_URL",
+        f"sqlite:///{tmp_path / 'platform.db'}",
+    )
+    yield
 
 
 @pytest.fixture(scope="session")

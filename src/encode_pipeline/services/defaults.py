@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from encode_pipeline.services.materialization import WorkspaceMaterializer
     from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
     from encode_pipeline.services.runs import RunService
+    from encode_pipeline.services.run_repositories import RunRepository
     from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
 
 
@@ -84,6 +85,8 @@ def create_default_agent_service(
 
 def create_default_run_service(
     registry: WorkflowRegistry | None = None,
+    *,
+    repository: "RunRepository | None" = None,
 ) -> "RunService":
     """Return a fresh run service wired to the default registry.
 
@@ -91,12 +94,14 @@ def create_default_run_service(
         registry: Optional existing registry. When omitted, a fresh default
             registry is created. Passing a shared registry lets ``create_app``
             compose all services from one adapter instance.
+        repository: Optional run storage backend. Omitted callers retain the
+            lightweight in-memory service used by isolated domain tests.
     """
     from encode_pipeline.services.runs import RunService
 
     if registry is None:
         registry = create_default_workflow_registry()
-    return RunService(registry=registry)
+    return RunService(registry=registry, repository=repository)
 
 
 def create_default_local_run_driver(
