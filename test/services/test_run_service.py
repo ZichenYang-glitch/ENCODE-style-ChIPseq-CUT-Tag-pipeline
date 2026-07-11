@@ -27,7 +27,10 @@ from encode_pipeline.platform.execution import (
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunArtifactRef, RunRecord, RunStatus
-from encode_pipeline.services.run_repositories import InMemoryRunRepository
+from encode_pipeline.services.run_repositories import (
+    ConcurrentRunUpdateError,
+    InMemoryRunRepository,
+)
 from encode_pipeline.services.runs import RunService
 
 
@@ -520,6 +523,77 @@ def test_ensure_execution_assignment_requires_planned_run():
 
     with pytest.raises(ValueError, match="only be created for planned runs"):
         service.ensure_execution_assignment("run-1", queue_name="runs")
+
+
+def test_queue_dispatched_run_requires_marker_and_is_idempotent():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run("fake", WorkflowInputs(config={}))
+    service.transition_run("run-1", RunStatus.VALIDATING)
+    service.transition_run("run-1", RunStatus.PLANNED)
+    assignment = service.ensure_execution_assignment("run-1", queue_name="runs")
+
+    with pytest.raises(ValueError, match="has not been dispatched"):
+        service.queue_dispatched_run(
+            "run-1",
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+
+    service.mark_execution_dispatched("run-1", job_id=assignment.job_id)
+    queued = service.queue_dispatched_run(
+        "run-1",
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+    )
+    events_after_first = service.list_events("run-1")
+    retried = service.queue_dispatched_run(
+        "run-1",
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+    )
+
+    assert queued.status is RunStatus.QUEUED
+    assert queued.current_stage == "execution"
+    assert retried == queued
+    assert service.list_events("run-1") == events_after_first
+    queued_events = [
+        event
+        for event in events_after_first
+        if event.status is RunStatus.QUEUED
+        and event.context.get("new_status") == RunStatus.QUEUED.value
+    ]
+    assert len(queued_events) == 1
+    assert queued_events[0].context["job_id"] == assignment.job_id
+
+    with pytest.raises(ValueError, match="identity"):
+        service.queue_dispatched_run(
+            "run-1",
+            job_id="wrong-job",
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+
+
+def test_execution_claim_requires_queued_status():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run("fake", WorkflowInputs(config={}))
+    service.transition_run("run-1", RunStatus.VALIDATING)
+    service.transition_run("run-1", RunStatus.PLANNED)
+    assignment = service.ensure_execution_assignment("run-1", queue_name="runs")
+    service.mark_execution_dispatched("run-1", job_id=assignment.job_id)
+
+    with pytest.raises(ConcurrentRunUpdateError, match="no longer claimable"):
+        service.claim_execution_assignment(
+            "run-1",
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
 
 
 def test_recover_interrupted_runs_fails_api_owned_validation_even_if_assigned():

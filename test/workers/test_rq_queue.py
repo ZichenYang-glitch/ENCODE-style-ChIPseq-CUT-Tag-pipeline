@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 
 import fakeredis
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
+from rq.exceptions import DuplicateJobError, InvalidJobOperation
 from rq.job import JobStatus
 from rq.serializers import JSONSerializer
 
@@ -15,10 +17,13 @@ from encode_pipeline.platform.execution import RunExecutionAssignment
 from encode_pipeline.services.run_queue import RunQueue
 from encode_pipeline.workers.rq_queue import (
     FAILURE_TTL_SECONDS,
+    RQ_JOB_CLEANUP_GRACE_SECONDS,
     RESULT_TTL_SECONDS,
     RqRunQueue,
     RunQueueIdentityError,
     RunQueueJobUnavailableError,
+    RunQueueUnavailableError,
+    rq_job_timeout_seconds,
 )
 
 from .conftest import worker_settings
@@ -42,9 +47,16 @@ def test_rq_run_queue_enqueues_only_run_id_with_canonical_job_identity(tmp_path)
     assert job.id == assignment.job_id
     assert job.origin == configured.queue_name
     assert job.serializer is JSONSerializer
-    assert job.timeout == configured.job_timeout_seconds
+    assert job.timeout == rq_job_timeout_seconds(configured.job_timeout_seconds)
+    assert job.timeout - configured.job_timeout_seconds == (
+        RQ_JOB_CLEANUP_GRACE_SECONDS
+    )
     assert job.result_ttl == RESULT_TTL_SECONDS
     assert job.failure_ttl == FAILURE_TTL_SECONDS
+
+
+def test_rq_timeout_keeps_fixed_cleanup_window_for_one_second_workflow():
+    assert rq_job_timeout_seconds(1) == 1 + RQ_JOB_CLEANUP_GRACE_SECONDS
 
 
 def test_rq_run_queue_requires_a_durable_assignment(tmp_path):
@@ -126,7 +138,7 @@ def test_rq_run_queue_rejects_unsuccessful_terminal_duplicate(
         run_queue.enqueue_execution(assignment)
 
 
-def test_rq_run_queue_returns_successful_terminal_duplicate(tmp_path):
+def test_rq_run_queue_rejects_successful_terminal_duplicate(tmp_path):
     connection = fakeredis.FakeRedis()
     configured = worker_settings(tmp_path)
     run_queue = RqRunQueue(configured, connection=connection)
@@ -136,7 +148,8 @@ def test_rq_run_queue_returns_successful_terminal_duplicate(tmp_path):
     assert job is not None
     job.set_status(JobStatus.FINISHED)
 
-    assert run_queue.enqueue_execution(assignment) == assignment.job_id
+    with pytest.raises(RunQueueJobUnavailableError, match="scheduling state"):
+        run_queue.enqueue_execution(assignment)
 
 
 def test_rq_run_queue_rejects_created_job_that_was_never_queued(tmp_path):
@@ -158,6 +171,50 @@ def test_rq_run_queue_rejects_created_job_that_was_never_queued(tmp_path):
         run_queue.enqueue_execution(assignment)
 
     assert len(run_queue._queue) == 0
+
+
+def test_rq_run_queue_maps_duplicate_job_deletion_race_to_unavailable(
+    tmp_path,
+    monkeypatch,
+):
+    connection = fakeredis.FakeRedis()
+    configured = worker_settings(tmp_path)
+    run_queue = RqRunQueue(configured, connection=connection)
+    assignment = _assignment(configured.queue_name)
+    run_queue.enqueue_execution(assignment)
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    assert job is not None
+
+    def duplicate(*_args, **_kwargs):
+        raise DuplicateJobError
+
+    def deleted_during_refresh(*_args, **_kwargs):
+        raise InvalidJobOperation("job was deleted")
+
+    monkeypatch.setattr(run_queue._queue, "enqueue", duplicate)
+    monkeypatch.setattr(run_queue._queue, "fetch_job", lambda _job_id: job)
+    monkeypatch.setattr(job, "get_status", deleted_during_refresh)
+
+    with pytest.raises(RunQueueJobUnavailableError, match="scheduling state"):
+        run_queue.enqueue_execution(assignment)
+
+
+def test_rq_run_queue_sanitizes_backend_connection_errors(tmp_path, monkeypatch):
+    run_queue = RqRunQueue(
+        worker_settings(tmp_path),
+        connection=fakeredis.FakeRedis(),
+    )
+    assignment = _assignment(run_queue.queue_name)
+
+    def unavailable(*_args, **_kwargs):
+        raise RedisConnectionError("redis://password@private-host:6379")
+
+    monkeypatch.setattr(run_queue._queue, "enqueue", unavailable)
+
+    with pytest.raises(RunQueueUnavailableError) as raised:
+        run_queue.enqueue_execution(assignment)
+
+    assert "private-host" not in str(raised.value)
 
 
 def test_rq_run_queue_closes_only_owned_connections(tmp_path, monkeypatch):

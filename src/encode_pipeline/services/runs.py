@@ -231,7 +231,100 @@ class RunService:
                 run_id,
                 job_id=job_id,
                 dispatched_at=datetime.now(timezone.utc),
-                allowed_statuses=frozenset({RunStatus.PLANNED, RunStatus.QUEUED}),
+                allowed_statuses=frozenset(
+                    {
+                        RunStatus.PLANNED,
+                        RunStatus.QUEUED,
+                        RunStatus.CANCELLED,
+                    }
+                ),
+            )
+
+    def queue_dispatched_run(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+    ) -> RunRecord:
+        """Atomically move a dispatched planned run into the worker queue."""
+        with self._lock:
+            current = self._repository.get_run(run_id)
+            assignment = self._repository.get_execution_assignment(run_id)
+            if assignment is None:
+                raise ValueError("Run has no durable execution assignment.")
+            if (
+                assignment.job_id != job_id
+                or assignment.backend != backend
+                or assignment.queue_name != queue_name
+            ):
+                raise ValueError("execution assignment identity does not match")
+            if assignment.dispatched_at is None:
+                raise ValueError("execution assignment has not been dispatched")
+            if current.status is not RunStatus.PLANNED:
+                if current.status in {
+                    RunStatus.QUEUED,
+                    RunStatus.RUNNING,
+                    RunStatus.SUCCEEDED,
+                    RunStatus.FAILED,
+                    RunStatus.CANCELLED,
+                }:
+                    return current
+                raise ValueError(
+                    "Only planned runs may enter the execution queue; "
+                    f"run {run_id!r} is {current.status.value!r}."
+                )
+
+            now = datetime.now(timezone.utc)
+            updated = RunRecord(
+                run_id=current.run_id,
+                workflow_id=current.workflow_id,
+                inputs=current.inputs,
+                status=RunStatus.QUEUED,
+                created_at=current.created_at,
+                updated_at=now,
+                started_at=current.started_at,
+                ended_at=current.ended_at,
+                current_stage="execution",
+                cancellation_reason=current.cancellation_reason,
+                error=None,
+                tags=current.tags,
+            )
+            queued = self._repository.queue_dispatched_run(
+                updated,
+                expected_status=RunStatus.PLANNED,
+                job_id=job_id,
+                backend=backend,
+                queue_name=queue_name,
+                event=RunEventDraft(
+                    event_type="status_changed",
+                    message="Run submitted for worker execution.",
+                    status=RunStatus.QUEUED,
+                    stage="execution",
+                    context={
+                        "previous_status": RunStatus.PLANNED.value,
+                        "new_status": RunStatus.QUEUED.value,
+                        "backend": assignment.backend,
+                        "job_id": assignment.job_id,
+                        "queue_name": assignment.queue_name,
+                    },
+                ),
+            )
+            if queued:
+                return updated
+
+            raced = self._repository.get_run(run_id)
+            if raced.status in {
+                RunStatus.QUEUED,
+                RunStatus.RUNNING,
+                RunStatus.SUCCEEDED,
+                RunStatus.FAILED,
+                RunStatus.CANCELLED,
+            }:
+                return raced
+            raise ConcurrentRunUpdateError(
+                f"Run {run_id!r} changed while it was being queued."
             )
 
     def claim_execution_assignment(
@@ -259,7 +352,7 @@ class RunService:
                 backend=backend,
                 queue_name=queue_name,
                 claimed_at=datetime.now(timezone.utc),
-                allowed_statuses=frozenset({RunStatus.PLANNED, RunStatus.QUEUED}),
+                allowed_statuses=frozenset({RunStatus.QUEUED}),
                 event=RunEventDraft(
                     event_type="worker_dependencies_rebuilt",
                     message=(
@@ -398,6 +491,7 @@ class RunService:
         *,
         stage: str | None = None,
         message: str | None = None,
+        event_type: str = "status_changed",
         context: Mapping[str, Any] | None = None,
         issue: Issue | None = None,
     ) -> RunRecord:
@@ -447,7 +541,7 @@ class RunService:
                 updated,
                 expected_status=current.status,
                 event=RunEventDraft(
-                    event_type="status_changed",
+                    event_type=event_type,
                     message=event_message,
                     status=to_status,
                     stage=updated_stage,

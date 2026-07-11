@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunRecord, RunStatus
+from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
 
 if TYPE_CHECKING:
     from encode_pipeline.services.local_run_driver import LocalRunDriver
@@ -71,12 +72,27 @@ class LocalPreflightService:
                 ]
             )
 
-        self._run_service.transition_run(
-            run_id,
-            RunStatus.VALIDATING,
-            stage="preflight",
-            message="Local preflight started.",
-        )
+        try:
+            self._run_service.transition_run(
+                run_id,
+                RunStatus.VALIDATING,
+                stage="preflight",
+                message="Local preflight started.",
+            )
+        except (ConcurrentRunUpdateError, ValueError):
+            current = self._run_service.get_run(run_id)
+            return Result.failure(
+                [
+                    Issue(
+                        code="PREFLIGHT_ALREADY_TRIGGERED",
+                        message="Preflight has already been triggered for this run.",
+                        severity="error",
+                        path="run_id",
+                        source="preflight_service",
+                        context={"current_status": current.status.value},
+                    )
+                ]
+            )
         return self._run_preflight(run_id)
 
     def run_preflight(self, run_id: str) -> Result[RunRecord]:
@@ -148,14 +164,7 @@ class LocalPreflightService:
                 RunStatus.PLANNED,
                 stage="preflight",
                 message="Local preflight completed; dry-run succeeded.",
-                context={"reason_code": "PREFLIGHT_COMPLETED"},
-            )
-            self._run_service.add_event(
-                run_id=run_id,
                 event_type="preflight_completed",
-                message="Run is planned and ready for execution.",
-                status=RunStatus.PLANNED,
-                stage="preflight",
                 context={
                     "plan_status": final_plan.status.value,
                     "has_command_spec": final_plan.command_spec is not None,

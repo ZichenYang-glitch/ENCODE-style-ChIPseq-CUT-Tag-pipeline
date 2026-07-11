@@ -354,6 +354,54 @@ class SqlAlchemyRunRepository:
             session.flush()
             return _execution_assignment_from_row(row)
 
+    def queue_dispatched_run(
+        self,
+        record: RunRecord,
+        *,
+        expected_status: RunStatus,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        event: RunEventDraft,
+    ) -> bool:
+        """Queue a dispatched planned run and append exactly one event."""
+        if expected_status is not RunStatus.PLANNED:
+            raise ValueError("expected_status must be planned")
+        if record.status is not RunStatus.QUEUED:
+            raise ValueError("queued record must have queued status")
+
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, record.run_id)
+            assignment = session.get(RunExecutionAssignmentRow, record.run_id)
+            if assignment is None:
+                raise KeyError(record.run_id)
+            _require_assignment_row_identity(
+                assignment,
+                job_id=job_id,
+                backend=backend,
+                queue_name=queue_name,
+            )
+            if assignment.dispatched_at is None:
+                raise ValueError("execution assignment has not been dispatched")
+            if RunStatus(current.status) is not expected_status:
+                return False
+
+            result = session.execute(
+                update(RunRow)
+                .where(
+                    RunRow.run_id == record.run_id,
+                    RunRow.status == expected_status.value,
+                )
+                .values(**_run_values(record))
+            )
+            if result.rowcount != 1:
+                raise ConcurrentRunUpdateError(
+                    f"Run {record.run_id!r} changed while it was being queued."
+                )
+            self._insert_event(session, record.run_id, event)
+            return True
+
     def claim_execution_assignment(
         self,
         run_id: str,

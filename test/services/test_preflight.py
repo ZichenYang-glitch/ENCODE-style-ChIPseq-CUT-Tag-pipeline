@@ -117,6 +117,11 @@ def test_preflight_transitions_run_to_planned(tmp_path):
     assert "command_built" in event_types
     assert "dry_run_completed" in event_types
     assert "preflight_completed" in event_types
+    completed = [event for event in events if event.event_type == "preflight_completed"]
+    assert len(completed) == 1
+    assert completed[0].status is RunStatus.PLANNED
+    assert completed[0].context["new_status"] == RunStatus.PLANNED.value
+    assert events[-1] == completed[0]
 
 
 def test_preflight_refuses_duplicate_trigger(tmp_path):

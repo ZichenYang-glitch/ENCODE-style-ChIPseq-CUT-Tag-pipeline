@@ -13,7 +13,9 @@ def _make_pending_plan(
     *,
     workflow_id: str = _WORKFLOW_ID,
     inputs_snapshot: dict | None = None,
-    workspace_plan_files: tuple[tuple[str, bytes], ...] = (("config/config.yaml", b""),),
+    workspace_plan_files: tuple[tuple[str, bytes], ...] = (
+        ("config/config.yaml", b""),
+    ),
 ):
     from encode_pipeline.platform.adapters import WorkspacePlan
     from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
@@ -97,7 +99,6 @@ def test_command_builder_requires_workspace_plan(tmp_path):
 
 
 def test_command_builder_requires_config_file_in_workspace(tmp_path):
-    from encode_pipeline.platform.adapters import WorkspacePlan
     from encode_pipeline.services.command_builder import CommandBuilder
 
     plan = _make_pending_plan(workspace_plan_files=(("samples.tsv", b""),))
@@ -310,6 +311,26 @@ def test_command_builder_refuses_missing_snakefile(tmp_path, monkeypatch):
     issue = result.issues[0]
     assert issue.code == "COMMAND_BUILD_SNAKEFILE_NOT_FOUND"
     assert issue.path == "workflow"
+
+
+def test_command_builder_does_not_swallow_worker_hard_timeout(
+    tmp_path,
+    monkeypatch,
+):
+    from encode_pipeline.platform.planning import WorkspacePathPolicy
+    from encode_pipeline.services.command_builder import CommandBuilder
+    from encode_pipeline.workers.timeouts import WorkerHardTimeout
+
+    def timeout(_self, _path):
+        raise WorkerHardTimeout("RQ deadline reached")
+
+    monkeypatch.setattr(WorkspacePathPolicy, "resolve", timeout)
+
+    with pytest.raises(WorkerHardTimeout, match="RQ deadline reached"):
+        CommandBuilder(registry=_make_registry()).build_command(
+            _make_pending_plan(),
+            tmp_path.resolve(),
+        )
 
 
 def test_command_builder_issues_use_logical_paths(tmp_path):

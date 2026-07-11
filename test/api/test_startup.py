@@ -65,6 +65,7 @@ def test_expected_routes_are_registered() -> None:
     assert "/api/v1/runs/{run_id}" in paths
     assert "/api/v1/runs/{run_id}/events" in paths
     assert "/api/v1/runs/{run_id}/logs" in paths
+    assert "/api/v1/runs/{run_id}/start" in paths
     assert "/api/v1/runs/{run_id}/cancel" in paths
     assert "/api/v1/runs/{run_id}/preflight" in paths
 
@@ -75,6 +76,7 @@ def test_api_dependencies_are_async_to_avoid_testclient_threadpool_hang() -> Non
         "get_validation_service",
         "get_agent_service",
         "get_run_service",
+        "get_run_submission_service",
         "get_preflight_service",
     ]
 
@@ -84,6 +86,7 @@ def test_api_dependencies_are_async_to_avoid_testclient_threadpool_hang() -> Non
 
 def test_create_app_exposes_preflight_service_and_local_run_driver() -> None:
     app = create_app()
+    assert hasattr(app.state, "run_submission_service")
     assert hasattr(app.state, "preflight_service")
     assert hasattr(app.state, "local_run_driver")
     assert not hasattr(app.state, "stub_execution_driver")

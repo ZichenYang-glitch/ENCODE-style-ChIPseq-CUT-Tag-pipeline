@@ -13,6 +13,7 @@ from encode_pipeline.api.models import RunResponse
 from encode_pipeline.api.routes.runs import _run_not_found_issue, _run_record_response
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.preflight import LocalPreflightService
+from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
 from encode_pipeline.services.runs import RunService
 
 
@@ -85,12 +86,23 @@ async def trigger_preflight(
             ).model_dump(),
         )
 
-    run_service.transition_run(
-        run_id,
-        RunStatus.VALIDATING,
-        stage="preflight",
-        message="Local preflight accepted.",
-    )
+    try:
+        run_service.transition_run(
+            run_id,
+            RunStatus.VALIDATING,
+            stage="preflight",
+            message="Local preflight accepted.",
+        )
+    except (ConcurrentRunUpdateError, ValueError):
+        current = run_service.get_run(run_id)
+        return JSONResponse(
+            status_code=409,
+            content=RunResponse(
+                ok=False,
+                run=None,
+                issues=[_preflight_already_triggered_issue(current.status.value)],
+            ).model_dump(),
+        )
     background_tasks.add_task(
         _run_preflight_in_background,
         preflight_service,

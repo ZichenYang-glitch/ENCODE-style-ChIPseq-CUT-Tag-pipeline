@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from rq import Worker
+
 from encode_pipeline.workers import cli
+from encode_pipeline.workers.timeouts import WorkerUnixSignalDeathPenalty
 
 from .conftest import worker_settings
 
@@ -21,10 +24,18 @@ def test_worker_cli_starts_named_json_worker_in_burst_mode(tmp_path, monkeypatch
     captured = {}
 
     class FakeWorker:
-        def __init__(self, queues, *, connection, serializer):
+        def __init__(
+            self,
+            queues,
+            *,
+            connection,
+            serializer,
+            work_horse_killed_handler,
+        ):
             captured["queues"] = queues
             captured["connection"] = connection
             captured["serializer"] = serializer
+            captured["work_horse_killed_handler"] = work_horse_killed_handler
 
         def work(self, *, burst):
             captured["burst"] = burst
@@ -36,13 +47,14 @@ def test_worker_cli_starts_named_json_worker_in_burst_mode(tmp_path, monkeypatch
         "create_rq_queue",
         lambda _settings, *, connection: queue,
     )
-    monkeypatch.setattr(cli, "Worker", FakeWorker)
+    monkeypatch.setattr(cli, "DurableWorker", FakeWorker)
 
     assert cli.main(["--burst"]) == 0
     assert captured == {
         "queues": [queue],
         "connection": connection,
         "serializer": cli.JSONSerializer,
+        "work_horse_killed_handler": cli.handle_work_horse_killed,
         "burst": True,
     }
     assert connection_closed is True
@@ -68,7 +80,7 @@ def test_worker_cli_closes_redis_if_worker_construction_fails(tmp_path, monkeypa
     )
     monkeypatch.setattr(
         cli,
-        "Worker",
+        "DurableWorker",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("worker failed")),
     )
 
@@ -80,3 +92,8 @@ def test_worker_cli_closes_redis_if_worker_construction_fails(tmp_path, monkeypa
         raise AssertionError("worker construction unexpectedly succeeded")
 
     assert connection_closed is True
+
+
+def test_durable_worker_uses_hard_timeout_death_penalty():
+    assert issubclass(cli.DurableWorker, Worker)
+    assert cli.DurableWorker.death_penalty_class is WorkerUnixSignalDeathPenalty

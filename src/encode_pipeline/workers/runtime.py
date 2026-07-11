@@ -8,12 +8,15 @@ from types import TracebackType
 from encode_pipeline.persistence.runtime import RunPersistence, open_run_persistence
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.command_builder import CommandBuilder
+from encode_pipeline.services.local_execution import LocalExecutionService
 from encode_pipeline.services.local_run_driver import LocalRunDriver
 from encode_pipeline.services.materialization import WorkspaceMaterializer
 from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 from encode_pipeline.services.preflight import LocalPreflightService
+from encode_pipeline.services.process_runner import ProcessRunner
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.workers.settings import WorkerSettings, load_worker_settings
+from encode_pipeline.workers.timeouts import WorkerHardTimeout
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,7 @@ class WorkerRuntime:
     materializer: WorkspaceMaterializer
     command_builder: CommandBuilder
     local_run_driver: LocalRunDriver
+    local_execution_service: LocalExecutionService
     preflight_service: LocalPreflightService
 
     def close(self) -> None:
@@ -52,6 +56,7 @@ def open_worker_runtime(settings: WorkerSettings | None = None) -> WorkerRuntime
     from encode_pipeline.services.defaults import (
         create_default_command_builder,
         create_default_execution_planner,
+        create_default_local_execution_service,
         create_default_local_run_driver,
         create_default_run_service,
         create_default_workflow_registry,
@@ -79,6 +84,17 @@ def open_worker_runtime(settings: WorkerSettings | None = None) -> WorkerRuntime
             workspace_root=resolved_settings.workspace_root,
             materializer=materializer,
             command_builder=command_builder,
+            process_runner=ProcessRunner(
+                timeout_seconds=resolved_settings.job_timeout_seconds,
+                passthrough_exceptions=(WorkerHardTimeout,),
+            ),
+        )
+        local_execution_service = create_default_local_execution_service(
+            run_service,
+            execution_planner=execution_planner,
+            workspace_planner=workspace_planner,
+            command_builder=command_builder,
+            local_run_driver=local_run_driver,
         )
         preflight_service = LocalPreflightService(
             run_service=run_service,
@@ -96,6 +112,7 @@ def open_worker_runtime(settings: WorkerSettings | None = None) -> WorkerRuntime
             materializer=materializer,
             command_builder=command_builder,
             local_run_driver=local_run_driver,
+            local_execution_service=local_execution_service,
             preflight_service=preflight_service,
         )
     except BaseException:

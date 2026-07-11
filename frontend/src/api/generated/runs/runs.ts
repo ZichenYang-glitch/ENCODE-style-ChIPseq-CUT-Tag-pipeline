@@ -67,6 +67,30 @@ export const getRun = async (runId: string, options?: RequestInit): Promise<RunR
 
 
 /**
+ * Explicitly submit a planned run for durable worker execution.
+ * @summary Start Run
+ */
+export const getStartRunUrl = (runId: string,) => {
+
+
+
+
+  return `/api/v1/runs/${runId}/start`
+}
+
+export const startRun = async (runId: string, options?: RequestInit): Promise<RunResponse> => {
+
+  return fetcher<RunResponse>(getStartRunUrl(runId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+/**
  * Cancel an active run, or return an already-terminal run unchanged.
  * @summary Cancel Run
  */

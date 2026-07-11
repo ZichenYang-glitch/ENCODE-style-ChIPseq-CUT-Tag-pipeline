@@ -125,6 +125,17 @@ class RunRepository(Protocol):
         allowed_statuses: frozenset[RunStatus],
     ) -> RunExecutionAssignment: ...
 
+    def queue_dispatched_run(
+        self,
+        record: RunRecord,
+        *,
+        expected_status: RunStatus,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        event: RunEventDraft,
+    ) -> bool: ...
+
     def claim_execution_assignment(
         self,
         run_id: str,
@@ -347,6 +358,45 @@ class InMemoryRunRepository:
             assignment = replace(assignment, dispatched_at=dispatched_at)
             self._execution_assignments[run_id] = assignment
             return assignment
+
+    def queue_dispatched_run(
+        self,
+        record: RunRecord,
+        *,
+        expected_status: RunStatus,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        event: RunEventDraft,
+    ) -> bool:
+        """Queue a dispatched planned run and append exactly one event."""
+        with self._lock:
+            if expected_status is not RunStatus.PLANNED:
+                raise ValueError("expected_status must be planned")
+            if record.status is not RunStatus.QUEUED:
+                raise ValueError("queued record must have queued status")
+
+            current = self._runs[record.run_id]
+            assignment = self._execution_assignments[record.run_id]
+            _require_assignment_identity(
+                assignment,
+                job_id=job_id,
+                backend=backend,
+                queue_name=queue_name,
+            )
+            if assignment.dispatched_at is None:
+                raise ValueError("execution assignment has not been dispatched")
+            if current.status is not expected_status:
+                return False
+
+            queued_event = self._make_event(
+                record.run_id,
+                len(self._events[record.run_id]) + 1,
+                event,
+            )
+            self._runs[record.run_id] = record
+            self._events[record.run_id].append(queued_event)
+            return True
 
     def claim_execution_assignment(
         self,

@@ -112,6 +112,79 @@ def test_in_memory_dispatch_mark_is_idempotent_after_status_changes():
     assert retried.dispatched_at == dispatched_at
 
 
+def test_in_memory_queue_dispatched_run_is_atomic_and_idempotent():
+    repository = InMemoryRunRepository()
+    planned = replace(_record(), status=RunStatus.PLANNED)
+    repository.create_run(planned, _created_event())
+    assignment = repository.ensure_execution_assignment(
+        _assignment(planned.run_id, "job-1"),
+        expected_status=RunStatus.PLANNED,
+    )
+    queued = replace(
+        planned,
+        status=RunStatus.QUEUED,
+        updated_at=datetime.now(timezone.utc),
+        current_stage="execution",
+    )
+    event = RunEventDraft(
+        event_type="status_changed",
+        message="Run queued.",
+        status=RunStatus.QUEUED,
+    )
+
+    with pytest.raises(ValueError, match="has not been dispatched"):
+        repository.queue_dispatched_run(
+            queued,
+            expected_status=RunStatus.PLANNED,
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+            event=event,
+        )
+
+    repository.mark_execution_dispatched(
+        planned.run_id,
+        job_id=assignment.job_id,
+        dispatched_at=datetime.now(timezone.utc),
+        allowed_statuses=frozenset({RunStatus.PLANNED}),
+    )
+    for backend, queue_name in (
+        ("other", assignment.queue_name),
+        (assignment.backend, "other"),
+    ):
+        with pytest.raises(ValueError, match="identity does not match"):
+            repository.queue_dispatched_run(
+                queued,
+                expected_status=RunStatus.PLANNED,
+                job_id=assignment.job_id,
+                backend=backend,
+                queue_name=queue_name,
+                event=event,
+            )
+    assert repository.get_run(planned.run_id).status is RunStatus.PLANNED
+
+    assert repository.queue_dispatched_run(
+        queued,
+        expected_status=RunStatus.PLANNED,
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+        event=event,
+    )
+    assert not repository.queue_dispatched_run(
+        queued,
+        expected_status=RunStatus.PLANNED,
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+        event=event,
+    )
+
+    assert repository.get_run(planned.run_id) == queued
+    events = repository.list_events(planned.run_id)
+    assert [item.status for item in events].count(RunStatus.QUEUED) == 1
+
+
 def test_in_memory_execution_assignment_rejects_cross_run_job_reuse():
     repository = InMemoryRunRepository()
     first = _record()

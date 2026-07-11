@@ -25,6 +25,7 @@ from encode_pipeline.services.defaults import (
 )
 from encode_pipeline.services.planning import ExecutionPlanner
 from encode_pipeline.services.preflight import LocalPreflightService
+from encode_pipeline.services.run_submission import RunSubmissionService
 from encode_pipeline.workers.rq_queue import RqRunQueue
 from encode_pipeline.workers.settings import (
     WORKSPACE_ROOT_ENV,
@@ -67,6 +68,10 @@ def create_app(
         registry=registry,
         repository=persistence.repository,
     )
+    run_submission_service = RunSubmissionService(
+        run_service=run_service,
+        run_queue=run_queue,
+    )
     recovered_runs = run_service.recover_interrupted_runs()
     local_run_driver = create_default_local_run_driver(
         run_service=run_service,
@@ -89,6 +94,7 @@ def create_app(
     app.state.validation_service = create_default_validation_service(registry=registry)
     app.state.agent_service = create_default_agent_service(registry=registry)
     app.state.run_service = run_service
+    app.state.run_submission_service = run_submission_service
     app.state.local_run_driver = local_run_driver
     app.state.preflight_service = preflight_service
     # Stub driver is intentionally not attached in production.
