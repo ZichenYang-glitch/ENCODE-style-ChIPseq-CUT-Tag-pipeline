@@ -6,9 +6,6 @@ import asyncio
 import os
 from pathlib import Path
 import shutil
-import signal
-import subprocess
-import sys
 from uuid import uuid4
 
 import pytest
@@ -31,6 +28,8 @@ from encode_pipeline.workers.settings import (
     WorkerSettings,
 )
 
+from .process_helpers import run_burst_worker
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PROFILE_ROOT = REPOSITORY_ROOT / "test" / "profiles" / "platform_worker_tiny"
@@ -51,33 +50,6 @@ def _request(app, method: str, url: str, **kwargs) -> httpx.Response:
             return response
 
     return asyncio.run(send())
-
-
-def _run_burst_worker(environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    """Run one isolated worker and reap its whole test-only process group."""
-    argv = [sys.executable, "-m", "encode_pipeline.workers.cli", "--burst"]
-    process = subprocess.Popen(
-        argv,
-        cwd=REPOSITORY_ROOT,
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-    )
-    try:
-        stdout, stderr = process.communicate(timeout=60)
-    except subprocess.TimeoutExpired as exc:
-        os.killpg(process.pid, signal.SIGKILL)
-        stdout, stderr = process.communicate()
-        raise AssertionError(
-            f"independent RQ worker timed out; stdout={stdout!r}; stderr={stderr!r}"
-        ) from exc
-    finally:
-        if process.poll() is None:  # pragma: no cover - defensive test cleanup
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=5)
-    return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
 
 
 def _cleanup_redis_queue(
@@ -220,7 +192,11 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
             "PYTHONPATH": str(REPOSITORY_ROOT / "src"),
         }
     )
-    completed = _run_burst_worker(environment)
+    completed = run_burst_worker(
+        environment,
+        cwd=REPOSITORY_ROOT,
+        timeout_seconds=60,
+    )
     assert completed.returncode == 0, completed.stderr
 
     persistence = open_run_persistence(database_url)

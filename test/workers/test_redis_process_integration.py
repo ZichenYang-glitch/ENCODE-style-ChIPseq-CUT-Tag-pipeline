@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import signal
 import subprocess
 import sys
 import time
@@ -30,6 +29,7 @@ from encode_pipeline.workers.settings import (
 )
 
 from .conftest import create_planned_run
+from .process_helpers import run_burst_worker, terminate_rq_worker
 from .signal_timeout_helpers import CAUGHT_MARKER_ENV, ENTERED_MARKER_ENV
 
 
@@ -37,8 +37,21 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TEST_REDIS_URL_ENV = "ENCODE_PIPELINE_TEST_REDIS_URL"
 
 
+def _create_fake_snakemake(tmp_path: Path) -> Path:
+    """Return a deterministic executable for the worker-boundary test."""
+    executable_dir = tmp_path / "test-bin"
+    executable_dir.mkdir()
+    snakemake = executable_dir / "snakemake"
+    snakemake.write_text(
+        "#!/bin/sh\nprintf 'worker stdout\\n'\nprintf 'worker stderr\\n' >&2\n",
+        encoding="utf-8",
+    )
+    snakemake.chmod(0o755)
+    return snakemake
+
+
 def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
-    """A fresh worker process receives only run_id and writes through SQLite."""
+    """A fresh worker receives only run_id and rebuilds from SQLite."""
     redis_url = os.getenv(TEST_REDIS_URL_ENV)
     if redis_url is None:
         pytest.skip(f"{TEST_REDIS_URL_ENV} is not configured")
@@ -68,6 +81,7 @@ def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
         assert run_queue.enqueue_execution(assignment) == assignment.job_id
         assert len(run_queue._queue) == 1
 
+        fake_snakemake = _create_fake_snakemake(tmp_path)
         environment = dict(os.environ)
         environment.update(
             {
@@ -77,15 +91,15 @@ def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
                 WORKSPACE_ROOT_ENV: str(configured.workspace_root),
                 "PYTHONDONTWRITEBYTECODE": "1",
                 "PYTHONPATH": str(REPOSITORY_ROOT / "src"),
+                "PATH": os.pathsep.join(
+                    [str(fake_snakemake.parent), environment.get("PATH", os.defpath)]
+                ),
             }
         )
-        completed = subprocess.run(
-            [sys.executable, "-m", "encode_pipeline.workers.cli", "--burst"],
+        completed = run_burst_worker(
+            environment,
             cwd=REPOSITORY_ROOT,
-            env=environment,
-            capture_output=True,
-            text=True,
-            timeout=30,
+            timeout_seconds=30,
         )
 
         assert completed.returncode == 0, completed.stderr
@@ -106,17 +120,23 @@ def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
                 registry=create_default_workflow_registry(),
                 repository=persistence.repository,
             )
+            record = run_service.get_run(run_id)
             events = run_service.list_events(run_id, limit=100)
             persisted_assignment = run_service.get_execution_assignment(run_id)
+            stdout = run_service.list_logs(run_id, "stdout", limit=100)
+            stderr = run_service.list_logs(run_id, "stderr", limit=100)
         finally:
             persistence.close()
 
+        assert record.status.value == "succeeded"
         assert [event.event_type for event in events].count(
             "worker_dependencies_rebuilt"
         ) == 1
         assert persisted_assignment is not None
         assert persisted_assignment.dispatched_at is not None
         assert persisted_assignment.claimed_at is not None
+        assert stdout[0].lines == ("worker stdout",)
+        assert stderr[0].lines == ("worker stderr",)
     finally:
         if connected:
             job = run_queue._queue.fetch_job(assignment.job_id)
@@ -199,8 +219,7 @@ def test_real_rq_sigalrm_persists_timeout_and_reaps_worker(tmp_path):
         try:
             stdout, stderr = worker_process.communicate(timeout=15)
         except subprocess.TimeoutExpired as exc:
-            os.killpg(worker_process.pid, signal.SIGKILL)
-            stdout, stderr = worker_process.communicate()
+            stdout, stderr = terminate_rq_worker(worker_process)
             raise AssertionError(
                 f"DurableWorker timeout hung; stdout={stdout!r}; stderr={stderr!r}"
             ) from exc
@@ -238,8 +257,7 @@ def test_real_rq_sigalrm_persists_timeout_and_reaps_worker(tmp_path):
             os.killpg(worker_process.pid, 0)
     finally:
         if worker_process is not None and worker_process.poll() is None:
-            os.killpg(worker_process.pid, signal.SIGKILL)
-            worker_process.wait(timeout=5)
+            terminate_rq_worker(worker_process)
         if connected:
             job = queue.fetch_job(assignment.job_id)
             if job is not None:
