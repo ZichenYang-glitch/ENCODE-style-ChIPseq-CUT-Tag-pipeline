@@ -214,20 +214,29 @@ def test_local_execution_rejects_changed_preflight_workspace(tmp_path):
     assert record.error.context == {"reason_code": "LOCAL_EXECUTION_WORKSPACE_INVALID"}
 
 
-def test_local_execution_does_not_overwrite_concurrent_cancellation(tmp_path):
-    holder = {}
-
-    def cancel():
-        holder["run_service"].cancel_run("run-1", reason="race")
-
-    runner = ControlledRunner(callback=cancel)
+def test_local_execution_does_not_start_process_when_queued_cancel_wins(
+    tmp_path,
+    monkeypatch,
+):
+    runner = ControlledRunner()
     service, run_service, _workspace = _prepared_service(tmp_path, runner)
-    holder["run_service"] = run_service
+    original_transition = run_service.transition_run
+    cancelled = False
+
+    def cancel_before_running(run_id, to_status, **kwargs):
+        nonlocal cancelled
+        if to_status is RunStatus.RUNNING and not cancelled:
+            cancelled = True
+            run_service.cancel_run(run_id, reason="race")
+        return original_transition(run_id, to_status, **kwargs)
+
+    monkeypatch.setattr(run_service, "transition_run", cancel_before_running)
 
     result = service.execute("run-1")
 
     assert result.is_failure
     assert result.issues[0].code == "LOCAL_EXECUTION_CANCELLED"
+    assert runner.specs == []
     assert run_service.get_run("run-1").status is RunStatus.CANCELLED
     assert all(
         event.status is not RunStatus.FAILED

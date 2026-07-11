@@ -91,7 +91,7 @@ export const startRun = async (runId: string, options?: RequestInit): Promise<Ru
 
 
 /**
- * Cancel an active run, or return an already-terminal run unchanged.
+ * Cancel a run before execution starts; refuse unsafe running cancellation.
  * @summary Cancel Run
  */
 export const getCancelRunUrl = (runId: string,) => {

@@ -51,6 +51,8 @@ def run_execution_job(run_id: str) -> None:
                 raise
             except WorkerJobIdentityError:
                 raise
+            except WorkerExecutionError:
+                raise
             except Exception:
                 _record_initialization_failure_fallback(run_id, current_job)
                 raise WorkerExecutionError(
@@ -118,6 +120,8 @@ def _initialize_execution_with_runtime(runtime, current_job, run_id: str) -> boo
             backend="rq",
             queue_name=runtime.settings.queue_name,
         )
+        if not _require_matching_workflow_build(runtime, record):
+            return False
         claim = runtime.run_service.claim_execution_assignment(
             run_id,
             job_id=current_job.id,
@@ -137,6 +141,66 @@ def _initialize_execution_with_runtime(runtime, current_job, run_id: str) -> boo
     if not claim.acquired:
         return False
     return True
+
+
+def _require_matching_workflow_build(runtime, record) -> bool:
+    """Fail closed before claim when durable and local workflow builds differ."""
+    persisted = runtime.run_service.get_workflow_build_identity(record.run_id)
+    if persisted is None:
+        return _fail_workflow_build_identity(
+            runtime.run_service,
+            record.run_id,
+            code="RUN_WORKFLOW_BUILD_IDENTITY_MISSING",
+            message="Run has no durable workflow build identity.",
+        )
+
+    current_result = runtime.build_identity_provider.capture(record.workflow_id)
+    if current_result.is_failure:
+        return _fail_workflow_build_identity(
+            runtime.run_service,
+            record.run_id,
+            code="RUN_WORKFLOW_BUILD_IDENTITY_UNAVAILABLE",
+            message="Workflow build identity could not be verified.",
+        )
+    if not persisted.matches(current_result.value):
+        return _fail_workflow_build_identity(
+            runtime.run_service,
+            record.run_id,
+            code="RUN_WORKFLOW_BUILD_IDENTITY_MISMATCH",
+            message="Workflow build differs from the preflighted build.",
+        )
+    return True
+
+
+def _fail_workflow_build_identity(
+    run_service,
+    run_id: str,
+    *,
+    code: str,
+    message: str,
+) -> bool:
+    issue = Issue(
+        code=code,
+        message=message,
+        severity="error",
+        path="workflow",
+        source="worker",
+        hint="Create a new run and complete preflight with the current build.",
+        context={"reason_code": code},
+    )
+    current = run_service.get_run(run_id)
+    if current.status is RunStatus.CANCELLED:
+        return False
+    if current.status is RunStatus.QUEUED:
+        run_service.transition_run(
+            run_id,
+            RunStatus.FAILED,
+            stage="execution",
+            message="Workflow build identity verification failed.",
+            issue=issue,
+            context={"reason_code": code},
+        )
+    raise WorkerExecutionError("durable workflow build identity check failed")
 
 
 def _execute_claimed_run(runtime, run_id: str) -> None:

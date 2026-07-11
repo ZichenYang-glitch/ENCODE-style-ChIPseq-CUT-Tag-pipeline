@@ -352,7 +352,7 @@
           "runs"
         ],
         "summary": "Cancel Run",
-        "description": "Cancel an active run, or return an already-terminal run unchanged.",
+        "description": "Cancel a run before execution starts; refuse unsafe running cancellation.",
         "operationId": "cancelRun",
         "parameters": [
           {
@@ -375,6 +375,26 @@
                 }
               }
             }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "description": "Validation Error",

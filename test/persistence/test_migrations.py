@@ -17,6 +17,7 @@ EXPECTED_TABLES = {
     "run_events",
     "run_execution_assignments",
     "run_logs",
+    "run_workflow_build_identities",
     "runs",
 }
 
@@ -31,7 +32,7 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
     assert set(inspector.get_table_names()) == EXPECTED_TABLES
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260711_02"
+            "20260712_03"
         )
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert connection.scalar(text("PRAGMA journal_mode")) == "wal"
@@ -62,6 +63,12 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
     assert assignment_foreign_key["referred_table"] == "runs"
     assert assignment_foreign_key["options"] == {"ondelete": "CASCADE"}
     assert inspector.get_pk_constraint("run_execution_assignments")[
+        "constrained_columns"
+    ] == ["run_id"]
+    build_foreign_key = inspector.get_foreign_keys("run_workflow_build_identities")[0]
+    assert build_foreign_key["referred_table"] == "runs"
+    assert build_foreign_key["options"] == {"ondelete": "CASCADE"}
+    assert inspector.get_pk_constraint("run_workflow_build_identities")[
         "constrained_columns"
     ] == ["run_id"]
     engine.dispose()
@@ -101,3 +108,50 @@ def test_execution_assignment_migration_can_downgrade_independently(tmp_path):
     upgraded_engine = create_database_engine(database_url)
     assert "run_execution_assignments" in inspect(upgraded_engine).get_table_names()
     upgraded_engine.dispose()
+
+
+def test_build_identity_migration_does_not_backfill_legacy_planned_runs(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
+    upgrade_database(database_url, "20260711_02")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO runs (
+                    run_id, workflow_id, inputs, status, created_at, updated_at,
+                    started_at, ended_at, current_stage, cancellation_reason,
+                    error, tags
+                ) VALUES (
+                    :run_id, :workflow_id, :inputs, 'planned', :created_at,
+                    :updated_at, NULL, NULL, 'preflight', NULL, NULL, :tags
+                )
+                """
+            ),
+            {
+                "run_id": "legacy-planned",
+                "workflow_id": "encode-style-chipseq-cuttag-atac-mnase",
+                "inputs": '{"config":{},"samples":null,"options":{}}',
+                "created_at": "2026-07-12 00:00:00",
+                "updated_at": "2026-07-12 00:00:00",
+                "tags": "{}",
+            },
+        )
+    engine.dispose()
+
+    upgrade_database(database_url)
+    upgraded = create_database_engine(database_url)
+    with upgraded.connect() as connection:
+        assert (
+            connection.scalar(
+                text("SELECT status FROM runs WHERE run_id = 'legacy-planned'")
+            )
+            == "planned"
+        )
+        assert (
+            connection.scalar(
+                text("SELECT count(*) FROM run_workflow_build_identities")
+            )
+            == 0
+        )
+    upgraded.dispose()

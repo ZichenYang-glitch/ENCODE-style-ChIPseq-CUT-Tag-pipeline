@@ -26,6 +26,10 @@ class RunNotReadyError(RunSubmissionError):
     """The run has not completed preflight."""
 
 
+class RunBuildIdentityMissingError(RunSubmissionError):
+    """A legacy planned run has no durable workflow build identity."""
+
+
 class RunStartConflictError(RunSubmissionError):
     """Durable run and queue identities cannot be reconciled."""
 
@@ -58,6 +62,14 @@ class RunSubmissionService:
         if current.status in {RunStatus.CREATED, RunStatus.VALIDATING}:
             raise RunNotReadyError(
                 "Run must complete preflight before it can start.",
+                record=current,
+            )
+        if (
+            current.status is RunStatus.PLANNED
+            and self._run_service.get_workflow_build_identity(run_id) is None
+        ):
+            raise RunBuildIdentityMissingError(
+                "Run must be preflighted with a durable workflow build identity.",
                 record=current,
             )
 

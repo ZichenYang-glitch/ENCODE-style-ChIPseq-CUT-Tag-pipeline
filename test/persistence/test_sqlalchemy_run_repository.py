@@ -16,6 +16,7 @@ from encode_pipeline.persistence import (
     upgrade_database,
 )
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import RunExecutionAssignment
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.runs import RunArtifactRef, RunRecord, RunStatus
@@ -199,6 +200,65 @@ def test_run_update_and_event_roll_back_together(repository, monkeypatch):
 
     assert repository.get_run("run-1") == record
     assert len(repository.list_events("run-1")) == 1
+
+
+def test_complete_preflight_identity_run_and_event_round_trip(repository):
+    created = _record("run-1")
+    validating = replace(created, status=RunStatus.VALIDATING)
+    repository.create_run(created, _created_event())
+    repository.update_run(
+        validating,
+        expected_status=RunStatus.CREATED,
+        event=RunEventDraft(
+            event_type="status_changed",
+            message="Run validating.",
+            status=RunStatus.VALIDATING,
+        ),
+    )
+    planned = replace(validating, status=RunStatus.PLANNED)
+    identity = _build_identity()
+
+    repository.complete_preflight(
+        planned,
+        identity,
+        expected_status=RunStatus.VALIDATING,
+        event=RunEventDraft(
+            event_type="preflight_completed",
+            message="Preflight complete.",
+            status=RunStatus.PLANNED,
+        ),
+    )
+
+    assert repository.get_run("run-1") == planned
+    assert repository.get_workflow_build_identity("run-1") == identity
+    assert repository.list_events("run-1")[-1].status is RunStatus.PLANNED
+
+
+def test_complete_preflight_rolls_back_identity_and_run_when_event_fails(
+    repository,
+    monkeypatch,
+):
+    validating = replace(_record("run-1"), status=RunStatus.VALIDATING)
+    repository.create_run(validating, _created_event())
+
+    def fail_event(_session, _run_id, _draft):
+        raise RuntimeError("event insert failed")
+
+    monkeypatch.setattr(repository, "_insert_event", fail_event)
+    with pytest.raises(RuntimeError, match="event insert failed"):
+        repository.complete_preflight(
+            replace(validating, status=RunStatus.PLANNED),
+            _build_identity(),
+            expected_status=RunStatus.VALIDATING,
+            event=RunEventDraft(
+                event_type="preflight_completed",
+                message="Preflight complete.",
+                status=RunStatus.PLANNED,
+            ),
+        )
+
+    assert repository.get_run("run-1") == validating
+    assert repository.get_workflow_build_identity("run-1") is None
 
 
 def test_concurrent_appends_keep_unique_monotonic_sequences(repository):
@@ -709,4 +769,15 @@ def _assignment(run_id: str, job_id: str) -> RunExecutionAssignment:
         backend="rq",
         queue_name="default",
         created_at=datetime.now(timezone.utc),
+    )
+
+
+def _build_identity() -> WorkflowBuildIdentity:
+    return WorkflowBuildIdentity(
+        workflow_id=WORKFLOW_ID,
+        adapter_version="0.3.0",
+        scheme="sha256-tree-v1",
+        logical_entrypoint="workflow/Snakefile",
+        digest="a" * 64,
+        captured_at=datetime.now(timezone.utc),
     )

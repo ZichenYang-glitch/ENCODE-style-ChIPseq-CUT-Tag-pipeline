@@ -33,6 +33,26 @@ def test_open_worker_runtime_reopens_sqlite_and_full_execution_dependencies(tmp_
         )
 
 
+def test_open_worker_runtime_aligns_command_and_identity_project_roots(tmp_path):
+    from encode_pipeline.services.defaults import (
+        create_default_workflow_build_identity_provider,
+    )
+
+    configured = worker_settings(tmp_path)
+    project_root = (tmp_path / "source").resolve()
+    provider = create_default_workflow_build_identity_provider(
+        project_root=project_root,
+    )
+
+    with open_worker_runtime(
+        configured,
+        build_identity_provider=provider,
+    ) as runtime:
+        assert runtime.build_identity_provider is provider
+        assert runtime.command_builder._project_root == project_root
+        assert runtime.local_run_driver._command_builder is runtime.command_builder
+
+
 def test_open_worker_runtime_closes_persistence_if_composition_fails(
     tmp_path, monkeypatch
 ):

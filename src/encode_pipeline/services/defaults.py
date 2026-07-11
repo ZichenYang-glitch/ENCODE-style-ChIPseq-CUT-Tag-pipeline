@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from encode_pipeline.services.run_repositories import RunRepository
     from encode_pipeline.services.process_runner import ProcessRunner
     from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
+    from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 
 
 def create_default_workflow_registry() -> WorkflowRegistry:
@@ -43,6 +44,19 @@ def create_default_validation_service(
     if registry is None:
         registry = create_default_workflow_registry()
     return ValidationService(registry=registry)
+
+
+def create_default_workflow_build_identity_provider(
+    registry: WorkflowRegistry | None = None,
+    *,
+    project_root: Path | None = None,
+) -> WorkflowBuildIdentityProvider:
+    """Return a build identity provider for the bundled source tree."""
+    from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
+
+    if registry is None:
+        registry = create_default_workflow_registry()
+    return WorkflowBuildIdentityProvider(registry, project_root=project_root)
 
 
 def create_default_agent_service(
@@ -204,6 +218,8 @@ def create_default_workspace_materializer() -> "WorkspaceMaterializer":
 
 def create_default_command_builder(
     registry: WorkflowRegistry | None = None,
+    *,
+    project_root: Path | None = None,
 ) -> "CommandBuilder":
     """Return a fresh command builder wired to the default registry.
 
@@ -211,9 +227,11 @@ def create_default_command_builder(
         registry: Optional existing registry. When omitted, a fresh default
             registry is created. Passing a shared registry lets ``create_app``
             compose all services from one adapter instance.
+        project_root: Optional absolute root containing ``workflow/Snakefile``.
+            Omitted callers use the bundled project root.
     """
     from encode_pipeline.services.command_builder import CommandBuilder
 
     if registry is None:
         registry = create_default_workflow_registry()
-    return CommandBuilder(registry=registry)
+    return CommandBuilder(registry=registry, project_root=project_root)

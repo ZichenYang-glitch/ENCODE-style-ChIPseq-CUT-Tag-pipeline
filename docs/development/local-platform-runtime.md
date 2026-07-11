@@ -45,6 +45,8 @@ events or issues:
 export ENCODE_PIPELINE_DATABASE_URL="sqlite:////absolute/path/platform.db"
 export ENCODE_PIPELINE_WORKSPACE_ROOT="/absolute/path/workspaces"
 export ENCODE_PIPELINE_REDIS_URL="redis://localhost:6379/0"
+export ENCODE_PIPELINE_REDIS_CONNECT_TIMEOUT_SECONDS="2"
+export ENCODE_PIPELINE_REDIS_API_READ_TIMEOUT_SECONDS="5"
 export ENCODE_PIPELINE_QUEUE_NAME="encode-pipeline"
 export ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS="604800"
 
@@ -60,6 +62,17 @@ database is deliberately rejected because it cannot preserve state across the
 migration, API, and worker connections. Relative SQLite and workspace paths are
 also rejected so processes with different working directories cannot silently
 open different state.
+
+The Redis timeout values must be positive finite numbers. The API queue client
+uses the two-second connection timeout and five-second command read timeout by
+default. The synchronous start submission runs in FastAPI's worker threadpool,
+so a slow or unavailable Redis endpoint cannot block the server event loop; a
+timeout is returned as the same public-safe `503 RUN_QUEUE_UNAVAILABLE` response
+as another Redis connection failure. The worker connection uses the same finite
+connection timeout but deliberately does not inherit the API read timeout. RQ
+sets the worker socket read timeout from its longer blocking dequeue interval,
+so an idle worker can wait for work without being disconnected every five
+seconds.
 
 `encode-worker --burst` processes the jobs currently in the configured queue
 and exits. It is intended for integration tests and operational checks; the
@@ -78,6 +91,13 @@ normalize or swallow that outer deadline. Job preparation, surrounding
 `Job.perform` bookkeeping, and success, failure, or stopped callbacks remain
 outside the main phase and retain RQ's native timeout behavior. Other RQ timeout
 exception types are also left unchanged.
+
+The runtime dependency is restricted to the RQ 2.10 minor series
+(`rq>=2.10,<2.11`) because the phase boundary currently relies on the private
+`Job._execute` hook. A compatibility canary verifies that exact dispatch
+contract, and CI runs a real Redis, independent-process SIGALRM timeout test.
+Any RQ minor upgrade must deliberately update that guard and pass the real
+signal test before the supported range is widened.
 
 When the workflow deadline expires, that outer window lets the worker terminate
 the directly spawned Snakemake process, perform a best-effort drain of output
@@ -112,15 +132,48 @@ curl -X POST "http://127.0.0.1:8000/api/v1/runs/${RUN_ID}/start"
 `POST /api/v1/runs/{run_id}/start` returns `202` only after the queue has
 accepted the run's stable job identity and SQLite records a dispatch marker and
 the `queued` transition. Runs that have not completed preflight return `409`.
-An unavailable queue returns `503` with `RUN_QUEUE_UNAVAILABLE`; an identity or
-state conflict returns `409` with `RUN_START_CONFLICT`. Public errors do not
-include Redis URLs, credentials, command lines, or workspace paths.
+An unavailable queue returns `503` with `RUN_QUEUE_UNAVAILABLE`; a missing
+workflow build identity returns `409` with
+`RUN_WORKFLOW_BUILD_IDENTITY_MISSING`; and a queue/job identity or lifecycle
+conflict returns `409` with `RUN_START_CONFLICT`. Public errors do not include
+Redis URLs, credentials, command lines, or workspace paths.
 
 The normal lifecycle is:
 
 ```text
 PLANNED --start--> QUEUED --worker claim--> RUNNING --> SUCCEEDED | FAILED
 ```
+
+### Durable workflow build identity
+
+A run planned by the current preflight path has both a successful dry-run and a
+one-to-one workflow build identity in SQLite. The identity records the workflow
+ID and adapter version, the logical `workflow/Snakefile` entrypoint, a versioned
+hashing scheme, a SHA-256 digest, and its capture time. The digest is computed
+from logical relative paths and file contents, never absolute paths,
+modification times, or workspace state. Its controlled manifest covers the
+Python adapter/platform package, workflow source and lock/config files, the
+default Snakemake profile, top-level execution scripts, and `pyproject.toml`.
+Missing files, non-regular files, and symlinks fail closed.
+
+Preflight captures the identity before planning and again after the Snakemake
+dry-run. Source drift between those captures fails the run with
+`PREFLIGHT_WORKFLOW_BUILD_CHANGED`. On success, the `validating -> planned`
+transition, identity row, and final preflight event are committed in one SQLite
+transaction. Existing databases are deliberately not backfilled: a legacy
+`planned` run without an identity is rejected by the start endpoint with
+`409 RUN_WORKFLOW_BUILD_IDENTITY_MISSING`.
+
+After a worker has validated the durable run/job assignment and converged the
+run to `queued`, but before it claims the assignment, enters `running`, or
+starts a process, it fingerprints its reconstructed local source tree. A
+missing identity, unreadable local source, or mismatch becomes a durable
+`failed` run with `RUN_WORKFLOW_BUILD_IDENTITY_MISSING`,
+`RUN_WORKFLOW_BUILD_IDENTITY_UNAVAILABLE`, or
+`RUN_WORKFLOW_BUILD_IDENTITY_MISMATCH`, respectively. The assignment remains
+unclaimed and Snakemake is not started. The API and worker compose the command
+builder and identity provider from the same explicit project source root, so
+the verified logical entrypoint is the one used to build the command.
 
 The RQ payload contains only `run_id`, serialized with RQ's JSON serializer.
 The worker reopens SQLite, rebuilds the default registry and service graph,
@@ -256,11 +309,13 @@ existing Snakemake profiles and execution harness.
 
 ## Current cancellation boundary
 
-The existing cancel route can durably move a non-terminal run to `cancelled`,
-and worker completion checks will not overwrite that terminal state. In PR124,
-however, cancellation does not cancel the RQ job, signal a running Snakemake
-process, or terminate descendants. A process already running may continue and
-append logs until it exits even though SQLite reports `cancelled`.
+The cancel route can durably move `created`, `validating`, `planned`, or `queued`
+runs to `cancelled`. A queued RQ job is not removed in PR124, but the worker
+rechecks SQLite and treats that cancelled job as a clean no-op without starting
+Snakemake. Once a run is `running`, cancellation fails closed with HTTP `409`
+and the stable `RUN_CANCELLATION_NOT_AVAILABLE` issue; the run, events, and
+active process remain unchanged. This prevents SQLite from claiming a terminal
+cancellation while a workflow process is still alive.
 
 RQ job cancellation, real process cancellation, POSIX process-group creation
 and termination, cancellation races, and orphan-process tests are explicitly

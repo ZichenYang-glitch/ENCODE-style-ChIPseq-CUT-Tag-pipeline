@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 import os
+from pathlib import Path
+import shutil
 from types import SimpleNamespace
 
 import fakeredis
@@ -16,12 +18,15 @@ import encode_pipeline.workers.jobs as worker_jobs
 from encode_pipeline.persistence.runtime import open_run_persistence
 from encode_pipeline.platform.execution import RunExecutionAssignment
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.defaults import (
     create_default_run_service,
     create_default_workflow_registry,
 )
 from encode_pipeline.services.local_execution import LocalExecutionService
+from encode_pipeline.services.process_runner import ProcessRunner
+from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 from encode_pipeline.workers.jobs import handle_work_horse_killed
 from encode_pipeline.workers.rq_queue import RqRunQueue
 from encode_pipeline.workers.settings import (
@@ -73,6 +78,23 @@ def _read_run(configured, run_id):
         )
     finally:
         persistence.close()
+
+
+def _copy_controlled_project(destination: Path) -> None:
+    source = Path(__file__).resolve().parents[2]
+    destination.mkdir()
+    shutil.copy2(source / "pyproject.toml", destination / "pyproject.toml")
+    for relative in (
+        Path("src/encode_pipeline"),
+        Path("workflow"),
+        Path("profiles/default"),
+        Path("scripts"),
+    ):
+        shutil.copytree(source / relative, destination / relative)
+
+
+def _fail_if_process_starts(*_args, **_kwargs):
+    raise AssertionError("ProcessRunner must not run before build verification")
 
 
 def test_rq_worker_rebuilds_dependencies_and_persists_handshake_event(
@@ -187,7 +209,145 @@ def test_rq_worker_rejects_missing_durable_assignment(tmp_path, monkeypatch):
     assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
 
 
-def test_rq_worker_treats_job_after_run_is_cancelled_as_clean_noop(
+def test_rq_worker_fails_legacy_planned_run_without_build_before_claim(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "missing-build-run",
+        assign_queue=configured.queue_name,
+        bind_build_identity=False,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+    monkeypatch.setattr(ProcessRunner, "run", _fail_if_process_starts)
+    connection = fakeredis.FakeRedis()
+    run_queue = RqRunQueue(configured, connection=connection)
+    run_queue.enqueue_execution(assignment)
+
+    assert _run_burst(connection, run_queue) is True
+
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    record, events, persisted_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert job is not None
+    assert job.is_failed
+    assert record.status is RunStatus.FAILED
+    assert record.error is not None
+    assert record.error.code == "RUN_WORKFLOW_BUILD_IDENTITY_MISSING"
+    assert events[-1].issue == record.error
+    assert events[-1].context["reason_code"] == record.error.code
+    assert persisted_assignment is not None
+    assert persisted_assignment.dispatched_at is not None
+    assert persisted_assignment.claimed_at is None
+    assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
+
+
+def test_rq_worker_rejects_project_a_build_on_project_b_before_process(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    project_a = tmp_path / "project-a"
+    _copy_controlled_project(project_a)
+    snakefile_a = project_a / "workflow" / "Snakefile"
+    snakefile_a.write_text(
+        snakefile_a.read_text(encoding="utf-8") + "\n# project A drift\n",
+        encoding="utf-8",
+    )
+    registry = create_default_workflow_registry()
+    identity_result = WorkflowBuildIdentityProvider(
+        registry,
+        project_root=project_a,
+    ).capture("encode-style-chipseq-cuttag-atac-mnase")
+    assert identity_result.is_success
+    assignment = create_planned_run(
+        configured,
+        "mismatched-build-run",
+        assign_queue=configured.queue_name,
+        build_identity=identity_result.value,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+    monkeypatch.setattr(ProcessRunner, "run", _fail_if_process_starts)
+    connection = fakeredis.FakeRedis()
+    run_queue = RqRunQueue(configured, connection=connection)
+    run_queue.enqueue_execution(assignment)
+
+    assert _run_burst(connection, run_queue) is True
+
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    record, events, persisted_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert job is not None
+    assert job.is_failed
+    assert record.status is RunStatus.FAILED
+    assert record.error is not None
+    assert record.error.code == "RUN_WORKFLOW_BUILD_IDENTITY_MISMATCH"
+    assert events[-1].issue == record.error
+    assert events[-1].context["reason_code"] == record.error.code
+    assert persisted_assignment is not None
+    assert persisted_assignment.claimed_at is None
+    assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
+
+
+def test_rq_worker_fails_closed_when_local_build_cannot_be_fingerprinted(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "unavailable-build-run",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+
+    def unavailable(_self, _workflow_id):
+        return Result.failure(
+            [
+                Issue(
+                    code="WORKFLOW_BUILD_SOURCE_UNAVAILABLE",
+                    message="Controlled source is unavailable.",
+                    severity="error",
+                    source="test",
+                )
+            ]
+        )
+
+    monkeypatch.setattr(WorkflowBuildIdentityProvider, "capture", unavailable)
+    monkeypatch.setattr(ProcessRunner, "run", _fail_if_process_starts)
+    connection = fakeredis.FakeRedis()
+    run_queue = RqRunQueue(configured, connection=connection)
+    run_queue.enqueue_execution(assignment)
+
+    assert _run_burst(connection, run_queue) is True
+
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    record, events, persisted_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert job is not None
+    assert job.is_failed
+    assert record.status is RunStatus.FAILED
+    assert record.error is not None
+    assert record.error.code == "RUN_WORKFLOW_BUILD_IDENTITY_UNAVAILABLE"
+    assert events[-1].issue == record.error
+    assert events[-1].context["reason_code"] == record.error.code
+    assert persisted_assignment is not None
+    assert persisted_assignment.claimed_at is None
+    assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
+
+
+def test_rq_worker_treats_queued_cancellation_as_clean_noop_without_process(
     tmp_path, monkeypatch
 ):
     configured = worker_settings(tmp_path)
@@ -197,20 +357,36 @@ def test_rq_worker_treats_job_after_run_is_cancelled_as_clean_noop(
         assign_queue=configured.queue_name,
     )
     assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+    connection = fakeredis.FakeRedis()
+    run_queue = RqRunQueue(configured, connection=connection)
+    run_queue.enqueue_execution(assignment)
+
     persistence = open_run_persistence(configured.database_url)
     try:
         run_service = create_default_run_service(
             registry=create_default_workflow_registry(),
             repository=persistence.repository,
         )
+        run_service.mark_execution_dispatched(
+            assignment.run_id,
+            job_id=assignment.job_id,
+        )
+        queued = run_service.queue_dispatched_run(
+            assignment.run_id,
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+        assert queued.status is RunStatus.QUEUED
         run_service.cancel_run("cancelled-run", reason="Cancelled before worker claim.")
     finally:
         persistence.close()
 
-    _configure_worker_environment(monkeypatch, configured)
-    connection = fakeredis.FakeRedis()
-    run_queue = RqRunQueue(configured, connection=connection)
-    run_queue.enqueue_execution(assignment)
+    def fail_if_process_starts(*_args, **_kwargs):
+        raise AssertionError("ProcessRunner must not run for a cancelled queued job")
+
+    monkeypatch.setattr(ProcessRunner, "run", fail_if_process_starts)
 
     assert _run_burst(connection, run_queue) is True
 
@@ -220,6 +396,16 @@ def test_rq_worker_treats_job_after_run_is_cancelled_as_clean_noop(
     assert job.is_finished
     assert record.status is RunStatus.CANCELLED
     assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
+    persistence = open_run_persistence(configured.database_url)
+    try:
+        run_service = create_default_run_service(
+            registry=create_default_workflow_registry(),
+            repository=persistence.repository,
+        )
+        assert run_service.list_logs("cancelled-run", "stdout") == ()
+        assert run_service.list_logs("cancelled-run", "stderr") == ()
+    finally:
+        persistence.close()
 
 
 def test_rq_worker_persists_nonzero_execution_failure(tmp_path, monkeypatch):

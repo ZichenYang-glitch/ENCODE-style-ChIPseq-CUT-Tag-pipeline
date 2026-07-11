@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from redis import Redis
+from redis import ConnectionPool, Redis
+from redis.connection import parse_url
 from redis.exceptions import RedisError
 from rq import Queue
 from rq.exceptions import DuplicateJobError, InvalidJobOperation
@@ -39,11 +40,41 @@ def rq_job_timeout_seconds(workflow_timeout_seconds: int) -> int:
     return workflow_timeout_seconds + RQ_JOB_CLEANUP_GRACE_SECONDS
 
 
-def create_redis_connection(settings: WorkerSettings) -> Redis:
-    """Create a Redis client from validated shared worker settings."""
+def create_api_redis_connection(settings: WorkerSettings) -> Redis:
+    """Create a bounded-latency Redis client for synchronous API commands."""
     if not isinstance(settings, WorkerSettings):
         raise ValueError("settings must be a WorkerSettings instance")
-    return Redis.from_url(settings.redis_url)
+    return _create_redis_connection(
+        settings,
+        socket_timeout=settings.redis_api_read_timeout_seconds,
+    )
+
+
+def create_worker_redis_connection(settings: WorkerSettings) -> Redis:
+    """Create a worker client without imposing the API command read timeout.
+
+    RQ configures its own socket read timeout from the blocking dequeue interval
+    when the worker is constructed. The finite connection timeout remains shared
+    so an unavailable Redis endpoint cannot stall worker startup indefinitely.
+    """
+    if not isinstance(settings, WorkerSettings):
+        raise ValueError("settings must be a WorkerSettings instance")
+    return _create_redis_connection(settings, socket_timeout=None)
+
+
+def _create_redis_connection(
+    settings: WorkerSettings,
+    *,
+    socket_timeout: float | None,
+) -> Redis:
+    options = parse_url(settings.redis_url)
+    # Explicit application settings win over optional URL query parameters.
+    options.update(
+        socket_connect_timeout=settings.redis_connect_timeout_seconds,
+        socket_timeout=socket_timeout,
+        retry_on_timeout=False,
+    )
+    return Redis.from_pool(ConnectionPool(**options))
 
 
 def create_rq_queue(
@@ -53,7 +84,7 @@ def create_rq_queue(
 ) -> Queue:
     """Create the named RQ queue using the safe JSON serializer."""
     redis_connection = (
-        create_redis_connection(settings) if connection is None else connection
+        create_api_redis_connection(settings) if connection is None else connection
     )
     return Queue(
         name=settings.queue_name,

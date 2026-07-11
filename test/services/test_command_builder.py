@@ -292,17 +292,14 @@ def test_command_builder_command_spec_has_empty_env_and_no_cwd(tmp_path):
     assert result.value.command_spec.env == {}
 
 
-def test_command_builder_refuses_missing_snakefile(tmp_path, monkeypatch):
-    from encode_pipeline.services import command_builder
+def test_command_builder_refuses_missing_snakefile(tmp_path):
     from encode_pipeline.services.command_builder import CommandBuilder
 
-    builder = CommandBuilder(registry=_make_registry())
     fake_repo = tmp_path / "repo"
     fake_repo.mkdir()
-    monkeypatch.setattr(
-        command_builder,
-        "_bundled_snakefile_path",
-        lambda: fake_repo / "workflow" / "Snakefile",
+    builder = CommandBuilder(
+        registry=_make_registry(),
+        project_root=fake_repo.resolve(),
     )
 
     result = builder.build_command(_make_pending_plan(), tmp_path.resolve())
@@ -311,6 +308,38 @@ def test_command_builder_refuses_missing_snakefile(tmp_path, monkeypatch):
     issue = result.issues[0]
     assert issue.code == "COMMAND_BUILD_SNAKEFILE_NOT_FOUND"
     assert issue.path == "workflow"
+
+
+def test_command_builder_uses_snakefile_from_explicit_project_root(tmp_path):
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    project_root = tmp_path / "source"
+    workflow_dir = project_root / "workflow"
+    workflow_dir.mkdir(parents=True)
+    snakefile = workflow_dir / "Snakefile"
+    snakefile.write_text("rule all:\n    input: []\n", encoding="utf-8")
+    builder = CommandBuilder(
+        registry=_make_registry(),
+        project_root=project_root.resolve(),
+    )
+
+    result = builder.build_command(_make_pending_plan(), tmp_path.resolve())
+
+    assert result.is_success is True
+    assert result.value.command_spec.argv[2] == str(snakefile.resolve())
+
+
+def test_command_builder_requires_absolute_project_root():
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    with pytest.raises(
+        ValueError,
+        match="project_root must be an absolute pathlib.Path",
+    ):
+        CommandBuilder(
+            registry=_make_registry(),
+            project_root=Path("relative-source"),
+        )
 
 
 def test_command_builder_does_not_swallow_worker_hard_timeout(

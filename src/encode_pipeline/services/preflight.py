@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from encode_pipeline.services.local_run_driver import LocalRunDriver
     from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
     from encode_pipeline.services.runs import RunService
+    from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 
 
 class LocalPreflightService:
@@ -30,11 +31,13 @@ class LocalPreflightService:
         execution_planner: "ExecutionPlanner",
         workspace_planner: "WorkspacePlanner",
         local_run_driver: "LocalRunDriver",
+        build_identity_provider: "WorkflowBuildIdentityProvider",
     ) -> None:
         self._run_service = run_service
         self._execution_planner = execution_planner
         self._workspace_planner = workspace_planner
         self._local_run_driver = local_run_driver
+        self._build_identity_provider = build_identity_provider
 
     def preflight(self, run_id: str) -> Result[RunRecord]:
         """Run the full local preflight path for *run_id*.
@@ -136,6 +139,11 @@ class LocalPreflightService:
 
     def _run_preflight(self, run_id: str) -> Result[RunRecord]:
         try:
+            current = self._run_service.get_run(run_id)
+            build_before = self._build_identity_provider.capture(current.workflow_id)
+            if build_before.is_failure:
+                return self._fail(run_id, build_before.issues)
+
             plan_result = self._execution_planner.plan_run(run_id)
             if plan_result.is_failure:
                 return self._fail(run_id, plan_result.issues)
@@ -155,16 +163,32 @@ class LocalPreflightService:
                 return self._fail(run_id, run_result.issues)
 
             final_plan = run_result.value
+            build_after = self._build_identity_provider.capture(current.workflow_id)
+            if build_after.is_failure:
+                return self._fail(run_id, build_after.issues)
+            if not build_before.value.matches(build_after.value):
+                return self._fail(
+                    run_id,
+                    [
+                        Issue(
+                            code="PREFLIGHT_WORKFLOW_BUILD_CHANGED",
+                            message="Workflow source changed during preflight.",
+                            severity="error",
+                            source="preflight_service",
+                            path="workflow",
+                        )
+                    ],
+                )
+
             current = self._run_service.get_run(run_id)
             if current.status is RunStatus.CANCELLED:
                 return self._cancelled_result()
 
-            updated = self._run_service.transition_run(
+            updated = self._run_service.complete_preflight(
                 run_id,
-                RunStatus.PLANNED,
+                build_after.value,
                 stage="preflight",
                 message="Local preflight completed; dry-run succeeded.",
-                event_type="preflight_completed",
                 context={
                     "plan_status": final_plan.status.value,
                     "has_command_spec": final_plan.command_spec is not None,

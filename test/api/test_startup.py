@@ -92,6 +92,20 @@ def test_create_app_exposes_preflight_service_and_local_run_driver() -> None:
     assert not hasattr(app.state, "stub_execution_driver")
 
 
+def test_create_app_aligns_command_and_identity_project_roots(tmp_path: Path) -> None:
+    project_root = (tmp_path / "source").resolve()
+    app = create_app(
+        database_url=f"sqlite:///{tmp_path / 'platform.db'}",
+        project_root=project_root,
+    )
+
+    assert app.state.build_identity_provider.project_root == project_root
+    assert app.state.local_run_driver._command_builder._project_root == project_root
+
+    app.state.run_queue.close()
+    app.state.persistence.close()
+
+
 def test_create_app_composes_shared_api_and_worker_settings(
     tmp_path: Path,
     monkeypatch,
@@ -118,14 +132,17 @@ def test_create_app_composes_shared_api_and_worker_settings(
     app.state.persistence.close()
 
 
-def test_api_route_handlers_are_async_to_avoid_testclient_threadpool_hang() -> None:
+def test_only_sync_submission_route_uses_fastapi_threadpool() -> None:
     app = create_app()
     route_handlers = [
-        endpoint
+        (path.rstrip("/"), endpoint)
         for path, endpoint in _collect_route_endpoints(app.routes)
         if path.startswith("/api/v1/")
     ]
 
     assert route_handlers
-    for endpoint in route_handlers:
-        assert inspect.iscoroutinefunction(endpoint), endpoint
+    for path, endpoint in route_handlers:
+        if path == "/api/v1/runs/{run_id}/start":
+            assert not inspect.iscoroutinefunction(endpoint), endpoint
+        else:
+            assert inspect.iscoroutinefunction(endpoint), endpoint

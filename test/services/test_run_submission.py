@@ -9,12 +9,16 @@ import pytest
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.execution import RunExecutionAssignment
 from encode_pipeline.platform.runs import RunStatus
-from encode_pipeline.services.defaults import create_default_workflow_registry
+from encode_pipeline.services.defaults import (
+    create_default_workflow_build_identity_provider,
+    create_default_workflow_registry,
+)
 from encode_pipeline.services.run_queue import (
     RunQueueJobUnavailableError,
     RunQueueUnavailableError,
 )
 from encode_pipeline.services.run_submission import (
+    RunBuildIdentityMissingError,
     RunNotReadyError,
     RunStartConflictError,
     RunSubmissionService,
@@ -54,6 +58,16 @@ def _service() -> RunService:
 def _planned_run(service: RunService) -> None:
     service.create_run(WORKFLOW_ID, WorkflowInputs(config={}))
     service.transition_run("run-1", RunStatus.VALIDATING)
+    identity_result = create_default_workflow_build_identity_provider(
+        registry=create_default_workflow_registry()
+    ).capture(WORKFLOW_ID)
+    assert identity_result.is_success
+    service.complete_preflight("run-1", identity_result.value)
+
+
+def _legacy_planned_run(service: RunService) -> None:
+    service.create_run(WORKFLOW_ID, WorkflowInputs(config={}))
+    service.transition_run("run-1", RunStatus.VALIDATING)
     service.transition_run("run-1", RunStatus.PLANNED)
 
 
@@ -83,6 +97,19 @@ def test_start_run_dispatches_and_queues_exactly_once():
         len([event for event in events_after_first if event.status is RunStatus.QUEUED])
         == 1
     )
+
+
+def test_start_rejects_legacy_planned_run_without_build_identity():
+    run_service = _service()
+    _legacy_planned_run(run_service)
+    queue = RecordingRunQueue()
+
+    with pytest.raises(RunBuildIdentityMissingError):
+        RunSubmissionService(run_service, queue).start_run("run-1")
+
+    assert run_service.get_run("run-1").status is RunStatus.PLANNED
+    assert run_service.get_execution_assignment("run-1") is None
+    assert queue.assignments == []
 
 
 def test_queue_failure_preserves_planned_reservation_for_retry():

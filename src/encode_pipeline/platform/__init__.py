@@ -12,6 +12,7 @@ from encode_pipeline.platform.adapters import (
     WorkflowSchema,
     WorkspacePlan,
 )
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import (
     RunExecutionClaim,
     RunExecutionAssignment,
@@ -47,6 +48,7 @@ __all__ = [
     "RunRecord",
     "RunStatus",
     "WorkflowAdapter",
+    "WorkflowBuildIdentity",
     "WorkflowCapabilities",
     "WorkflowInputs",
     "WorkflowMetadata",

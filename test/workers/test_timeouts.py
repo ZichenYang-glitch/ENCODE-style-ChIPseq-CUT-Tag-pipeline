@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import inspect
+
+import fakeredis
 import pytest
-from rq import Worker
+import rq
+from rq import Queue, Worker
+from rq.job import Job
+from rq.serializers import JSONSerializer
 from rq.timeouts import (
     BaseTimeoutException,
     HorseMonitorTimeoutException,
@@ -25,6 +31,33 @@ def _raised_timeout_type(penalty) -> type[BaseException]:
     except BaseException as exc:
         return type(exc)
     raise AssertionError("death penalty did not raise")
+
+
+def _rq_execution_canary() -> str:
+    return "original execution unexpectedly ran"
+
+
+def test_supported_rq_minor_preserves_private_execute_contract():
+    """Fail loudly before an RQ upgrade can bypass phase-aware timeouts."""
+    major_minor = tuple(int(part) for part in rq.__version__.split(".")[:2])
+    assert major_minor == (2, 10)
+    assert tuple(inspect.signature(Job._execute).parameters) == ("self",)
+
+    connection = fakeredis.FakeRedis()
+    queue = Queue(
+        "rq-compatibility-canary", connection=connection, serializer=JSONSerializer
+    )
+    job = queue.enqueue(_rq_execution_canary)
+    calls: list[str] = []
+
+    def replacement_execute():
+        calls.append("patched")
+        return "replacement execution ran"
+
+    job._execute = replacement_execute
+
+    assert job.perform() == "replacement execution ran"
+    assert calls == ["patched"]
 
 
 def test_worker_hard_timeout_bypasses_application_exception_handlers():

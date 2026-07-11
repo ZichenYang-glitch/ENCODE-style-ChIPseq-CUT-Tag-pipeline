@@ -17,7 +17,9 @@ from encode_pipeline.persistence.models import (
     RunExecutionAssignmentRow,
     RunLogRow,
     RunRow,
+    RunWorkflowBuildIdentityRow,
 )
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import (
     RunExecutionAssignment,
     RunExecutionClaim,
@@ -102,6 +104,58 @@ class SqlAlchemyRunRepository:
                     f"Run {record.run_id!r} changed while it was being updated."
                 )
             return self._insert_event(session, record.run_id, event)
+
+    def complete_preflight(
+        self,
+        record: RunRecord,
+        identity: WorkflowBuildIdentity,
+        *,
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent:
+        """Atomically persist a build identity, PLANNED run, and event."""
+        if record.status is not RunStatus.PLANNED:
+            raise ValueError("completed preflight record must be planned")
+        if identity.workflow_id != record.workflow_id:
+            raise ValueError("workflow build identity does not match the run")
+
+        try:
+            with self._lock, self._session_factory.begin() as session:
+                _begin_write(session)
+                if session.get(RunWorkflowBuildIdentityRow, record.run_id) is not None:
+                    raise ValueError("run already has a workflow build identity")
+                result = session.execute(
+                    update(RunRow)
+                    .where(
+                        RunRow.run_id == record.run_id,
+                        RunRow.status == expected_status.value,
+                    )
+                    .values(**_run_values(record))
+                )
+                if result.rowcount != 1:
+                    if (
+                        session.scalar(
+                            select(RunRow.id).where(RunRow.run_id == record.run_id)
+                        )
+                        is None
+                    ):
+                        raise KeyError(record.run_id)
+                    raise ConcurrentRunUpdateError(
+                        f"Run {record.run_id!r} changed while preflight completed."
+                    )
+                session.add(_workflow_build_identity_row(record.run_id, identity))
+                session.flush()
+                return self._insert_event(session, record.run_id, event)
+        except IntegrityError as exc:
+            raise ValueError("workflow build identity could not be persisted") from exc
+
+    def get_workflow_build_identity(
+        self,
+        run_id: str,
+    ) -> WorkflowBuildIdentity | None:
+        with self._session_factory() as session:
+            row = session.get(RunWorkflowBuildIdentityRow, run_id)
+            return _workflow_build_identity_from_row(row) if row is not None else None
 
     def add_event(self, run_id: str, event: RunEventDraft) -> RunEvent:
         with self._lock, self._session_factory.begin() as session:
@@ -511,6 +565,21 @@ def _run_row(record: RunRecord) -> RunRow:
     return RunRow(run_id=record.run_id, **_run_values(record))
 
 
+def _workflow_build_identity_row(
+    run_id: str,
+    identity: WorkflowBuildIdentity,
+) -> RunWorkflowBuildIdentityRow:
+    return RunWorkflowBuildIdentityRow(
+        run_id=run_id,
+        workflow_id=identity.workflow_id,
+        adapter_version=identity.adapter_version,
+        scheme=identity.scheme,
+        logical_entrypoint=identity.logical_entrypoint,
+        digest=identity.digest,
+        captured_at=identity.captured_at,
+    )
+
+
 def _begin_write(session: Session) -> None:
     """Serialize SQLite writers before read-then-increment sequence allocation."""
     bind = session.get_bind()
@@ -601,6 +670,19 @@ def _execution_assignment_from_row(
         created_at=_as_utc(row.created_at),
         dispatched_at=_optional_utc(row.dispatched_at),
         claimed_at=_optional_utc(row.claimed_at),
+    )
+
+
+def _workflow_build_identity_from_row(
+    row: RunWorkflowBuildIdentityRow,
+) -> WorkflowBuildIdentity:
+    return WorkflowBuildIdentity(
+        workflow_id=row.workflow_id,
+        adapter_version=row.adapter_version,
+        scheme=row.scheme,
+        logical_entrypoint=row.logical_entrypoint,
+        digest=row.digest,
+        captured_at=_as_utc(row.captured_at),
     )
 
 

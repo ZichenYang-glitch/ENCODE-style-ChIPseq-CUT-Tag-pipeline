@@ -9,6 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import (
     RunExecutionAssignment,
     RunExecutionClaim,
@@ -31,6 +32,14 @@ from encode_pipeline.services.run_repositories import (
     RunEventDraft,
     RunRepository,
 )
+
+
+class RunCancellationNotAvailableError(RuntimeError):
+    """Cancellation cannot safely mutate the current durable run state."""
+
+    def __init__(self, record: RunRecord) -> None:
+        super().__init__("Run cancellation is not available in the current state.")
+        self.record = record
 
 
 class RunService:
@@ -484,6 +493,70 @@ class RunService:
             ),
         )
 
+    def get_workflow_build_identity(
+        self,
+        run_id: str,
+    ) -> WorkflowBuildIdentity | None:
+        """Return the durable workflow build bound at successful preflight."""
+        with self._lock:
+            return self._repository.get_workflow_build_identity(run_id)
+
+    def complete_preflight(
+        self,
+        run_id: str,
+        identity: WorkflowBuildIdentity,
+        *,
+        stage: str = "preflight",
+        message: str = "Local preflight completed; dry-run succeeded.",
+        context: Mapping[str, Any] | None = None,
+    ) -> RunRecord:
+        """Atomically bind build identity and transition VALIDATING to PLANNED."""
+        if not isinstance(identity, WorkflowBuildIdentity):
+            raise ValueError("identity must be a WorkflowBuildIdentity")
+        with self._lock:
+            current = self._repository.get_run(run_id)
+            require_transition(current.status, RunStatus.PLANNED)
+            if identity.workflow_id != current.workflow_id:
+                raise ValueError("workflow build identity does not match the run")
+
+            now = datetime.now(timezone.utc)
+            updated = RunRecord(
+                run_id=current.run_id,
+                workflow_id=current.workflow_id,
+                inputs=current.inputs,
+                status=RunStatus.PLANNED,
+                created_at=current.created_at,
+                updated_at=now,
+                started_at=current.started_at,
+                ended_at=current.ended_at,
+                current_stage=stage,
+                cancellation_reason=current.cancellation_reason,
+                error=None,
+                tags=current.tags,
+            )
+            event_context = dict(context or {})
+            event_context.update(
+                {
+                    "previous_status": current.status.value,
+                    "new_status": RunStatus.PLANNED.value,
+                    "workflow_build_scheme": identity.scheme,
+                    "workflow_build_digest": identity.digest,
+                }
+            )
+            self._repository.complete_preflight(
+                updated,
+                identity,
+                expected_status=current.status,
+                event=RunEventDraft(
+                    event_type="preflight_completed",
+                    message=message,
+                    status=RunStatus.PLANNED,
+                    stage=stage,
+                    context=event_context,
+                ),
+            )
+            return updated
+
     def transition_run(
         self,
         run_id: str,
@@ -556,44 +629,58 @@ class RunService:
         run_id: str,
         reason: str | None = None,
     ) -> RunRecord:
-        """Cancel an active run, or return an already-terminal run unchanged."""
-        with self._lock:
-            current = self._repository.get_run(run_id)
-            if current.status.is_terminal:
-                return current
+        """Cancel a pre-running run, or return an already-terminal run unchanged.
 
-            now = datetime.now(timezone.utc)
-            updated = RunRecord(
-                run_id=current.run_id,
-                workflow_id=current.workflow_id,
-                inputs=current.inputs,
-                status=RunStatus.CANCELLED,
-                created_at=current.created_at,
-                updated_at=now,
-                started_at=current.started_at,
-                ended_at=now,
-                current_stage=current.current_stage,
-                cancellation_reason=reason,
-                error=None,
-                tags=current.tags,
-            )
-            self._repository.update_run(
-                updated,
-                expected_status=current.status,
-                event=RunEventDraft(
-                    event_type="status_changed",
-                    message="Run cancelled.",
+        PR124 deliberately refuses ``RUNNING`` runs because this service cannot
+        yet terminate the worker-owned process.  Expected-status writes and a
+        canonical re-read make cancellation race safely with worker startup:
+        whichever status change reaches SQLite first determines the outcome.
+        """
+        with self._lock:
+            while True:
+                current = self._repository.get_run(run_id)
+                if current.status.is_terminal:
+                    return current
+                if current.status is RunStatus.RUNNING:
+                    raise RunCancellationNotAvailableError(current)
+
+                now = datetime.now(timezone.utc)
+                updated = RunRecord(
+                    run_id=current.run_id,
+                    workflow_id=current.workflow_id,
+                    inputs=current.inputs,
                     status=RunStatus.CANCELLED,
-                    stage=current.current_stage,
-                    context={
-                        "previous_status": current.status.value,
-                        "new_status": RunStatus.CANCELLED.value,
-                        "cancellation_reason": reason,
-                    },
-                    issue=None,
-                ),
-            )
-            return updated
+                    created_at=current.created_at,
+                    updated_at=now,
+                    started_at=current.started_at,
+                    ended_at=now,
+                    current_stage=current.current_stage,
+                    cancellation_reason=reason,
+                    error=None,
+                    tags=current.tags,
+                )
+                try:
+                    self._repository.update_run(
+                        updated,
+                        expected_status=current.status,
+                        event=RunEventDraft(
+                            event_type="status_changed",
+                            message="Run cancelled.",
+                            status=RunStatus.CANCELLED,
+                            stage=current.current_stage,
+                            context={
+                                "previous_status": current.status.value,
+                                "new_status": RunStatus.CANCELLED.value,
+                                "cancellation_reason": reason,
+                            },
+                            issue=None,
+                        ),
+                    )
+                except ConcurrentRunUpdateError:
+                    # Another API/worker process advanced the monotonic state.
+                    # Re-read SQLite and re-apply the terminal/RUNNING policy.
+                    continue
+                return updated
 
     def record_artifact(
         self,

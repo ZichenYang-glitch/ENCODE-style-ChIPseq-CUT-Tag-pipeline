@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 
 from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Result
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.command_builder import CommandBuilder
-from encode_pipeline.services.defaults import create_default_workspace_planner
+from encode_pipeline.services.defaults import (
+    create_default_workflow_build_identity_provider,
+    create_default_workspace_planner,
+)
 from encode_pipeline.services.local_run_driver import LocalRunDriver
 from encode_pipeline.services.materialization import WorkspaceMaterializer
 from encode_pipeline.services.planning import ExecutionPlanner
@@ -80,6 +85,7 @@ def _make_service(
     runner: ProcessRunner | None = None,
     registry=None,
     run_service=None,
+    build_identity_provider=None,
 ):
     registry = registry or _make_registry()
     run_service = run_service or _make_run_service(registry=registry)
@@ -91,12 +97,36 @@ def _make_service(
         workspace_root=workspace_root,
         process_runner=runner or _FakeProcessRunner(),
     )
+    build_identity_provider = (
+        build_identity_provider
+        or create_default_workflow_build_identity_provider(registry=registry)
+    )
     return LocalPreflightService(
         run_service=run_service,
         execution_planner=ExecutionPlanner(run_service=run_service),
         workspace_planner=create_default_workspace_planner(registry=registry),
         local_run_driver=local_run_driver,
+        build_identity_provider=build_identity_provider,
     )
+
+
+def _build_identity(digest: str) -> WorkflowBuildIdentity:
+    return WorkflowBuildIdentity(
+        workflow_id="encode-style-chipseq-cuttag-atac-mnase",
+        adapter_version="1.0.0",
+        scheme="sha256-tree-v1",
+        logical_entrypoint="workflow/Snakefile",
+        digest=digest,
+        captured_at=datetime.now(timezone.utc),
+    )
+
+
+class _SequencedBuildIdentityProvider:
+    def __init__(self, *identities: WorkflowBuildIdentity) -> None:
+        self._identities = iter(identities)
+
+    def capture(self, _workflow_id: str):
+        return Result.success(next(self._identities))
 
 
 def test_preflight_transitions_run_to_planned(tmp_path):
@@ -121,7 +151,12 @@ def test_preflight_transitions_run_to_planned(tmp_path):
     assert len(completed) == 1
     assert completed[0].status is RunStatus.PLANNED
     assert completed[0].context["new_status"] == RunStatus.PLANNED.value
+    assert completed[0].context["workflow_build_scheme"] == "sha256-tree-v1"
+    assert len(completed[0].context["workflow_build_digest"]) == 64
     assert events[-1] == completed[0]
+    identity = service._run_service.get_workflow_build_identity(record.run_id)
+    assert identity is not None
+    assert identity.digest == completed[0].context["workflow_build_digest"]
 
 
 def test_preflight_refuses_duplicate_trigger(tmp_path):
@@ -164,6 +199,30 @@ def test_preflight_fails_when_dry_run_exits_nonzero(tmp_path):
 
     logs = service._run_service.list_logs(record.run_id, "stderr")
     assert any("dry-run error" in line for chunk in logs for line in chunk.lines)
+
+
+def test_preflight_fails_closed_when_workflow_source_changes_during_dry_run(
+    tmp_path,
+):
+    provider = _SequencedBuildIdentityProvider(
+        _build_identity("a" * 64),
+        _build_identity("b" * 64),
+    )
+    service = _make_service(tmp_path, build_identity_provider=provider)
+    record = service._run_service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase",
+        _make_valid_inputs(tmp_path),
+    )
+
+    result = service.preflight(record.run_id)
+
+    assert result.is_failure is True
+    assert result.issues[0].code == "PREFLIGHT_WORKFLOW_BUILD_CHANGED"
+    failed = service._run_service.get_run(record.run_id)
+    assert failed.status is RunStatus.FAILED
+    assert failed.error is not None
+    assert failed.error.context == {"reason_code": "PREFLIGHT_WORKFLOW_BUILD_CHANGED"}
+    assert service._run_service.get_workflow_build_identity(record.run_id) is None
 
 
 def test_preflight_fails_when_workspace_collides(tmp_path):

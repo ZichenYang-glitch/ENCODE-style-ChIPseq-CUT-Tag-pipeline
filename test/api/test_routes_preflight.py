@@ -62,6 +62,7 @@ def _test_app(tmp_path: Path):
         execution_planner=ExecutionPlanner(run_service=run_service),
         workspace_planner=create_default_workspace_planner(registry=registry),
         local_run_driver=local_run_driver,
+        build_identity_provider=app.state.build_identity_provider,
     )
     return app
 

@@ -41,7 +41,11 @@ def test_worker_cli_starts_named_json_worker_in_burst_mode(tmp_path, monkeypatch
             captured["burst"] = burst
 
     monkeypatch.setattr(cli, "load_worker_settings", lambda: configured)
-    monkeypatch.setattr(cli, "create_redis_connection", lambda _settings: connection)
+    monkeypatch.setattr(
+        cli,
+        "create_worker_redis_connection",
+        lambda _settings: connection,
+    )
     monkeypatch.setattr(
         cli,
         "create_rq_queue",
@@ -71,7 +75,9 @@ def test_worker_cli_closes_redis_if_worker_construction_fails(tmp_path, monkeypa
 
     monkeypatch.setattr(cli, "load_worker_settings", lambda: configured)
     monkeypatch.setattr(
-        cli, "create_redis_connection", lambda _settings: FakeConnection()
+        cli,
+        "create_worker_redis_connection",
+        lambda _settings: FakeConnection(),
     )
     monkeypatch.setattr(
         cli,

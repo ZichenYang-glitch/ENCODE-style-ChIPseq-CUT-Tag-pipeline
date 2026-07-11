@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import fakeredis
 import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from rq.exceptions import DuplicateJobError, InvalidJobOperation
 from rq.job import JobStatus
 from rq.serializers import JSONSerializer
@@ -23,6 +24,8 @@ from encode_pipeline.workers.rq_queue import (
     RunQueueIdentityError,
     RunQueueJobUnavailableError,
     RunQueueUnavailableError,
+    create_api_redis_connection,
+    create_worker_redis_connection,
     rq_job_timeout_seconds,
 )
 
@@ -57,6 +60,36 @@ def test_rq_run_queue_enqueues_only_run_id_with_canonical_job_identity(tmp_path)
 
 def test_rq_timeout_keeps_fixed_cleanup_window_for_one_second_workflow():
     assert rq_job_timeout_seconds(1) == 1 + RQ_JOB_CLEANUP_GRACE_SECONDS
+
+
+def test_redis_connection_profiles_keep_api_commands_bounded_and_worker_reads_blocking(
+    tmp_path,
+):
+    configured = replace(
+        worker_settings(tmp_path),
+        redis_url=(
+            "redis://localhost:6379/0?socket_connect_timeout=99&socket_timeout=99"
+            "&retry_on_timeout=true"
+        ),
+        redis_connect_timeout_seconds=1.25,
+        redis_api_read_timeout_seconds=4.5,
+    )
+
+    api_connection = create_api_redis_connection(configured)
+    worker_connection = create_worker_redis_connection(configured)
+    try:
+        api_options = api_connection.connection_pool.connection_kwargs
+        worker_options = worker_connection.connection_pool.connection_kwargs
+
+        assert api_options["socket_connect_timeout"] == 1.25
+        assert api_options["socket_timeout"] == 4.5
+        assert api_options["retry_on_timeout"] is False
+        assert worker_options["socket_connect_timeout"] == 1.25
+        assert worker_options["socket_timeout"] is None
+        assert worker_options["retry_on_timeout"] is False
+    finally:
+        api_connection.close()
+        worker_connection.close()
 
 
 def test_rq_run_queue_requires_a_durable_assignment(tmp_path):
@@ -199,7 +232,12 @@ def test_rq_run_queue_maps_duplicate_job_deletion_race_to_unavailable(
         run_queue.enqueue_execution(assignment)
 
 
-def test_rq_run_queue_sanitizes_backend_connection_errors(tmp_path, monkeypatch):
+@pytest.mark.parametrize("error_type", [RedisConnectionError, RedisTimeoutError])
+def test_rq_run_queue_sanitizes_backend_connection_errors(
+    tmp_path,
+    monkeypatch,
+    error_type,
+):
     run_queue = RqRunQueue(
         worker_settings(tmp_path),
         connection=fakeredis.FakeRedis(),
@@ -207,7 +245,7 @@ def test_rq_run_queue_sanitizes_backend_connection_errors(tmp_path, monkeypatch)
     assignment = _assignment(run_queue.queue_name)
 
     def unavailable(*_args, **_kwargs):
-        raise RedisConnectionError("redis://password@private-host:6379")
+        raise error_type("redis://password@private-host:6379")
 
     monkeypatch.setattr(run_queue._queue, "enqueue", unavailable)
 

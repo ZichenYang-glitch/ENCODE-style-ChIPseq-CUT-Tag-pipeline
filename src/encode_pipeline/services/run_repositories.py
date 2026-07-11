@@ -13,6 +13,7 @@ from encode_pipeline.platform.execution import (
     RunExecutionClaim,
     RunExecutionOwnership,
 )
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
@@ -60,6 +61,20 @@ class RunRepository(Protocol):
         expected_status: RunStatus,
         event: RunEventDraft,
     ) -> RunEvent: ...
+
+    def complete_preflight(
+        self,
+        record: RunRecord,
+        identity: WorkflowBuildIdentity,
+        *,
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent: ...
+
+    def get_workflow_build_identity(
+        self,
+        run_id: str,
+    ) -> WorkflowBuildIdentity | None: ...
 
     def fail_interrupted_run_if_unowned(
         self,
@@ -160,6 +175,7 @@ class InMemoryRunRepository:
         self._artifacts: dict[str, dict[str, RunArtifactRef]] = {}
         self._execution_assignments: dict[str, RunExecutionAssignment] = {}
         self._execution_run_ids_by_job: dict[str, str] = {}
+        self._workflow_build_identities: dict[str, WorkflowBuildIdentity] = {}
 
     def contains_run(self, run_id: str) -> bool:
         with self._lock:
@@ -205,6 +221,44 @@ class InMemoryRunRepository:
             self._runs[record.run_id] = record
             self._events[record.run_id].append(updated_event)
             return updated_event
+
+    def complete_preflight(
+        self,
+        record: RunRecord,
+        identity: WorkflowBuildIdentity,
+        *,
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent:
+        """Atomically bind a build identity to the PLANNED transition."""
+        with self._lock:
+            if record.status is not RunStatus.PLANNED:
+                raise ValueError("completed preflight record must be planned")
+            if identity.workflow_id != record.workflow_id:
+                raise ValueError("workflow build identity does not match the run")
+            current = self._runs[record.run_id]
+            if current.status is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {record.run_id!r} changed while preflight completed."
+                )
+            if record.run_id in self._workflow_build_identities:
+                raise ValueError("run already has a workflow build identity")
+            completed_event = self._make_event(
+                record.run_id,
+                len(self._events[record.run_id]) + 1,
+                event,
+            )
+            self._runs[record.run_id] = record
+            self._workflow_build_identities[record.run_id] = identity
+            self._events[record.run_id].append(completed_event)
+            return completed_event
+
+    def get_workflow_build_identity(
+        self,
+        run_id: str,
+    ) -> WorkflowBuildIdentity | None:
+        with self._lock:
+            return self._workflow_build_identities.get(run_id)
 
     def fail_interrupted_run_if_unowned(
         self,
