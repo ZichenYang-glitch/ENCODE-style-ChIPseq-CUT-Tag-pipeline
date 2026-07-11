@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from encode_pipeline.services.local_run_driver import LocalRunDriver
+from encode_pipeline.services.local_execution import LocalExecutionService
 from encode_pipeline.services.preflight import LocalPreflightService
 from encode_pipeline.workers.runtime import open_worker_runtime
+from encode_pipeline.workers.timeouts import WorkerHardTimeout
 
 from .conftest import WORKFLOW_ID, create_planned_run, worker_settings
 
@@ -21,8 +23,34 @@ def test_open_worker_runtime_reopens_sqlite_and_full_execution_dependencies(tmp_
         assert record.workflow_id == WORKFLOW_ID
         assert runtime.registry.get(WORKFLOW_ID).metadata.workflow_id == WORKFLOW_ID
         assert isinstance(runtime.local_run_driver, LocalRunDriver)
+        assert isinstance(runtime.local_execution_service, LocalExecutionService)
         assert isinstance(runtime.preflight_service, LocalPreflightService)
         assert runtime.local_run_driver._workspace_root == configured.workspace_root
+        process_timeout = runtime.local_run_driver._process_runner._timeout_seconds
+        assert process_timeout == configured.job_timeout_seconds
+        assert runtime.local_run_driver._process_runner._passthrough_exceptions == (
+            WorkerHardTimeout,
+        )
+
+
+def test_open_worker_runtime_aligns_command_and_identity_project_roots(tmp_path):
+    from encode_pipeline.services.defaults import (
+        create_default_workflow_build_identity_provider,
+    )
+
+    configured = worker_settings(tmp_path)
+    project_root = (tmp_path / "source").resolve()
+    provider = create_default_workflow_build_identity_provider(
+        project_root=project_root,
+    )
+
+    with open_worker_runtime(
+        configured,
+        build_identity_provider=provider,
+    ) as runtime:
+        assert runtime.build_identity_provider is provider
+        assert runtime.command_builder._project_root == project_root
+        assert runtime.local_run_driver._command_builder is runtime.command_builder
 
 
 def test_open_worker_runtime_closes_persistence_if_composition_fails(

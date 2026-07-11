@@ -28,8 +28,8 @@ class LocalRunDriver:
     Validates the plan/run association, then for PENDING plans with a
     workspace_plan: derives a per-run workspace directory, materializes
     workspace files, builds the CommandSpec, executes a Snakemake dry-run,
-    and returns the PLANNED ExecutionPlan on success. Still refuses real
-    execution of a PLANNED plan with LOCAL_RUN_NOT_IMPLEMENTED.
+    and returns the PLANNED ExecutionPlan on success. A PLANNED plan is run
+    without dry-run flags while stdout and stderr are persisted incrementally.
 
     Does not transition run status.
     """
@@ -71,8 +71,8 @@ class LocalRunDriver:
 
         For PENDING plans with a workspace_plan, materializes the workspace,
         builds the CommandSpec, executes a Snakemake dry-run, and returns the
-        PLANNED ExecutionPlan on success. For PLANNED plans, refuses real
-        execution with LOCAL_RUN_NOT_IMPLEMENTED.
+        PLANNED ExecutionPlan on success. PLANNED plans execute through the
+        controlled ProcessRunner boundary.
         """
         record = self._run_service.get_run(run_id)
 
@@ -132,14 +132,7 @@ class LocalRunDriver:
             )
             return self._refuse(issue, plan, record.run_id)
 
-        issue = Issue(
-            code="LOCAL_RUN_NOT_IMPLEMENTED",
-            message="Local execution is not implemented yet.",
-            severity="error",
-            path="plan",
-            source="local_run_driver",
-        )
-        return self._refuse(issue, plan, record.run_id)
+        return self._execute(run_id, plan)
 
     def _refuse(
         self,
@@ -347,4 +340,89 @@ class LocalRunDriver:
         if process_result.stderr:
             self._run_service.append_log(
                 run_id, "stderr", process_result.stderr.splitlines()
+            )
+
+    def _execute(
+        self,
+        run_id: str,
+        plan: "ExecutionPlan",
+    ) -> "Result[ExecutionPlan]":
+        """Execute one already-planned command and persist both output streams."""
+        assert plan.command_spec is not None
+        streamed: set[str] = set()
+
+        def persist_chunk(stream_name: str, lines: tuple[str, ...]) -> None:
+            if not lines:
+                return
+            self._run_service.append_log(run_id, stream_name, lines)
+            streamed.add(stream_name)
+
+        process_result = self._process_runner.run(
+            plan.command_spec,
+            output_callback=persist_chunk,
+        )
+        self._persist_execution_warnings(run_id, process_result.issues)
+        if process_result.is_failure:
+            reason_code = (
+                process_result.issues[0].code
+                if process_result.issues
+                else "PROCESS_RUNNER_FAILED"
+            )
+            issue = Issue(
+                code="LOCAL_RUN_PROCESS_FAILED",
+                message="Workflow process could not be executed.",
+                severity="error",
+                path="command_spec",
+                source="local_run_driver",
+                context={"reason_code": reason_code},
+            )
+            return Result.failure([issue, *process_result.issues])
+
+        completed = process_result.value
+        # Test doubles and non-streaming ProcessRunner implementations can still
+        # return captured output. Persist it once when no callback chunk for that
+        # stream was observed.
+        if completed.stdout and "stdout" not in streamed:
+            self._run_service.append_log(
+                run_id,
+                "stdout",
+                completed.stdout.splitlines(),
+            )
+        if completed.stderr and "stderr" not in streamed:
+            self._run_service.append_log(
+                run_id,
+                "stderr",
+                completed.stderr.splitlines(),
+            )
+
+        if completed.exit_code != 0:
+            issue = Issue(
+                code="LOCAL_RUN_EXECUTION_FAILED",
+                message="Workflow process exited with a non-zero status.",
+                severity="error",
+                path="command_spec",
+                source="local_run_driver",
+                context={"exit_code": completed.exit_code},
+            )
+            return Result.failure([issue, *process_result.issues])
+
+        return Result.success(plan, issues=process_result.issues)
+
+    def _persist_execution_warnings(
+        self,
+        run_id: str,
+        issues: Iterable[Issue],
+    ) -> None:
+        """Persist user-visible execution warnings before any failure return."""
+        for process_issue in issues:
+            if process_issue.code != "PROCESS_RUNNER_OUTPUT_LIMIT_EXCEEDED":
+                continue
+            self._run_service.add_event(
+                run_id=run_id,
+                event_type="execution_output_truncated",
+                message="Workflow output exceeded the persisted log size limit.",
+                status=None,
+                stage="execution",
+                context={"reason_code": process_issue.code},
+                issue=process_issue,
             )

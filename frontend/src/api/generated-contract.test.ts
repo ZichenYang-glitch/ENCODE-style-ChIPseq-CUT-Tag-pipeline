@@ -20,6 +20,7 @@ describe('generated OpenAPI client coverage', () => {
     expect(paths).toContain('/api/v1/workflows/{workflow_id}/agent/chat');
     expect(paths).toContain('/api/v1/workflows/{workflow_id}/runs');
     expect(paths).toContain('/api/v1/runs/{run_id}');
+    expect(paths).toContain('/api/v1/runs/{run_id}/start');
     expect(paths).toContain('/api/v1/runs/{run_id}/cancel');
     expect(paths).toContain('/api/v1/runs/{run_id}/events');
     expect(paths).toContain('/api/v1/runs/{run_id}/logs');

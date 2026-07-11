@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -16,11 +17,15 @@ from encode_pipeline.persistence.runtime import (
 
 
 REDIS_URL_ENV = "ENCODE_PIPELINE_REDIS_URL"
+REDIS_CONNECT_TIMEOUT_SECONDS_ENV = "ENCODE_PIPELINE_REDIS_CONNECT_TIMEOUT_SECONDS"
+REDIS_API_READ_TIMEOUT_SECONDS_ENV = "ENCODE_PIPELINE_REDIS_API_READ_TIMEOUT_SECONDS"
 QUEUE_NAME_ENV = "ENCODE_PIPELINE_QUEUE_NAME"
 WORKSPACE_ROOT_ENV = "ENCODE_PIPELINE_WORKSPACE_ROOT"
 JOB_TIMEOUT_SECONDS_ENV = "ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS"
 
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"
+DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS = 2.0
+DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS = 5.0
 DEFAULT_QUEUE_NAME = "encode-pipeline"
 DEFAULT_JOB_TIMEOUT_SECONDS = 604_800
 
@@ -34,6 +39,8 @@ class WorkerSettings:
     queue_name: str
     workspace_root: Path
     job_timeout_seconds: int = DEFAULT_JOB_TIMEOUT_SECONDS
+    redis_connect_timeout_seconds: float = DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS
+    redis_api_read_timeout_seconds: float = DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS
 
     def __post_init__(self) -> None:
         database_url = resolve_database_url(self.database_url)
@@ -48,6 +55,14 @@ class WorkerSettings:
             self.job_timeout_seconds,
             "job_timeout_seconds",
         )
+        redis_connect_timeout_seconds = _positive_float(
+            self.redis_connect_timeout_seconds,
+            "redis_connect_timeout_seconds",
+        )
+        redis_api_read_timeout_seconds = _positive_float(
+            self.redis_api_read_timeout_seconds,
+            "redis_api_read_timeout_seconds",
+        )
         if not isinstance(self.workspace_root, Path):
             raise ValueError("workspace_root must be a pathlib.Path")
         workspace_root = self.workspace_root.expanduser()
@@ -59,6 +74,16 @@ class WorkerSettings:
         object.__setattr__(self, "queue_name", queue_name)
         object.__setattr__(self, "workspace_root", workspace_root)
         object.__setattr__(self, "job_timeout_seconds", job_timeout_seconds)
+        object.__setattr__(
+            self,
+            "redis_connect_timeout_seconds",
+            redis_connect_timeout_seconds,
+        )
+        object.__setattr__(
+            self,
+            "redis_api_read_timeout_seconds",
+            redis_api_read_timeout_seconds,
+        )
 
 
 def load_worker_settings(
@@ -89,6 +114,20 @@ def load_worker_settings(
             ),
             "job_timeout_seconds",
         ),
+        redis_connect_timeout_seconds=_positive_float(
+            source.get(
+                REDIS_CONNECT_TIMEOUT_SECONDS_ENV,
+                str(DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS),
+            ),
+            "redis_connect_timeout_seconds",
+        ),
+        redis_api_read_timeout_seconds=_positive_float(
+            source.get(
+                REDIS_API_READ_TIMEOUT_SECONDS_ENV,
+                str(DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS),
+            ),
+            "redis_api_read_timeout_seconds",
+        ),
     )
 
 
@@ -107,4 +146,16 @@ def _positive_int(value: object, field_name: str) -> int:
         raise ValueError(f"{field_name} must be a positive integer") from None
     if normalized <= 0:
         raise ValueError(f"{field_name} must be a positive integer")
+    return normalized
+
+
+def _positive_float(value: object, field_name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a positive finite number")
+    try:
+        normalized = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name} must be a positive finite number") from None
+    if normalized <= 0 or not math.isfinite(normalized):
+        raise ValueError(f"{field_name} must be a positive finite number")
     return normalized

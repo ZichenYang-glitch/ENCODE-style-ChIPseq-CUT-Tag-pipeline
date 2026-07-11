@@ -68,12 +68,17 @@ _SAMPLE_DICT_TO_TSV = {
 
 
 def _render_config_yaml(config: dict[str, Any]) -> bytes:
-    """Serialize a validated config dict to UTF-8 YAML bytes."""
+    """Serialize a validated config dict to canonical UTF-8 YAML bytes.
+
+    Validation builds some nested mappings from sets of known keys. Sorting
+    every mapping keeps preflight workspace bytes stable across API and worker
+    processes with different Python hash seeds.
+    """
     try:
         return yaml.safe_dump(
             config,
             default_flow_style=False,
-            sort_keys=False,
+            sort_keys=True,
             allow_unicode=True,
         ).encode("utf-8")
     except yaml.YAMLError as exc:

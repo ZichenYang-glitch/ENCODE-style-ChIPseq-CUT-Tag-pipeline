@@ -16,6 +16,7 @@ from encode_pipeline.persistence import (
     upgrade_database,
 )
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import RunExecutionAssignment
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.runs import RunArtifactRef, RunRecord, RunStatus
@@ -201,6 +202,65 @@ def test_run_update_and_event_roll_back_together(repository, monkeypatch):
     assert len(repository.list_events("run-1")) == 1
 
 
+def test_complete_preflight_identity_run_and_event_round_trip(repository):
+    created = _record("run-1")
+    validating = replace(created, status=RunStatus.VALIDATING)
+    repository.create_run(created, _created_event())
+    repository.update_run(
+        validating,
+        expected_status=RunStatus.CREATED,
+        event=RunEventDraft(
+            event_type="status_changed",
+            message="Run validating.",
+            status=RunStatus.VALIDATING,
+        ),
+    )
+    planned = replace(validating, status=RunStatus.PLANNED)
+    identity = _build_identity()
+
+    repository.complete_preflight(
+        planned,
+        identity,
+        expected_status=RunStatus.VALIDATING,
+        event=RunEventDraft(
+            event_type="preflight_completed",
+            message="Preflight complete.",
+            status=RunStatus.PLANNED,
+        ),
+    )
+
+    assert repository.get_run("run-1") == planned
+    assert repository.get_workflow_build_identity("run-1") == identity
+    assert repository.list_events("run-1")[-1].status is RunStatus.PLANNED
+
+
+def test_complete_preflight_rolls_back_identity_and_run_when_event_fails(
+    repository,
+    monkeypatch,
+):
+    validating = replace(_record("run-1"), status=RunStatus.VALIDATING)
+    repository.create_run(validating, _created_event())
+
+    def fail_event(_session, _run_id, _draft):
+        raise RuntimeError("event insert failed")
+
+    monkeypatch.setattr(repository, "_insert_event", fail_event)
+    with pytest.raises(RuntimeError, match="event insert failed"):
+        repository.complete_preflight(
+            replace(validating, status=RunStatus.PLANNED),
+            _build_identity(),
+            expected_status=RunStatus.VALIDATING,
+            event=RunEventDraft(
+                event_type="preflight_completed",
+                message="Preflight complete.",
+                status=RunStatus.PLANNED,
+            ),
+        )
+
+    assert repository.get_run("run-1") == validating
+    assert repository.get_workflow_build_identity("run-1") is None
+
+
 def test_concurrent_appends_keep_unique_monotonic_sequences(repository):
     repository.create_run(_record("run-1"), _created_event())
 
@@ -348,6 +408,78 @@ def test_dispatch_mark_is_idempotent_after_status_changes(repository):
     assert retried == dispatched
 
 
+def test_queue_dispatched_run_is_atomic_and_idempotent(repository):
+    planned = replace(_record("run-1"), status=RunStatus.PLANNED)
+    repository.create_run(planned, _created_event())
+    assignment = repository.ensure_execution_assignment(
+        _assignment(planned.run_id, "job-1"),
+        expected_status=RunStatus.PLANNED,
+    )
+    queued = replace(
+        planned,
+        status=RunStatus.QUEUED,
+        updated_at=datetime.now(timezone.utc),
+        current_stage="execution",
+    )
+    event = RunEventDraft(
+        event_type="status_changed",
+        message="Run queued.",
+        status=RunStatus.QUEUED,
+    )
+
+    with pytest.raises(ValueError, match="has not been dispatched"):
+        repository.queue_dispatched_run(
+            queued,
+            expected_status=RunStatus.PLANNED,
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+            event=event,
+        )
+
+    repository.mark_execution_dispatched(
+        planned.run_id,
+        job_id=assignment.job_id,
+        dispatched_at=datetime.now(timezone.utc),
+        allowed_statuses=frozenset({RunStatus.PLANNED}),
+    )
+    for backend, queue_name in (
+        ("other", assignment.queue_name),
+        (assignment.backend, "other"),
+    ):
+        with pytest.raises(ValueError, match="identity does not match"):
+            repository.queue_dispatched_run(
+                queued,
+                expected_status=RunStatus.PLANNED,
+                job_id=assignment.job_id,
+                backend=backend,
+                queue_name=queue_name,
+                event=event,
+            )
+    assert repository.get_run(planned.run_id).status is RunStatus.PLANNED
+
+    assert repository.queue_dispatched_run(
+        queued,
+        expected_status=RunStatus.PLANNED,
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+        event=event,
+    )
+    assert not repository.queue_dispatched_run(
+        queued,
+        expected_status=RunStatus.PLANNED,
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+        event=event,
+    )
+
+    assert repository.get_run(planned.run_id) == queued
+    events = repository.list_events(planned.run_id)
+    assert [item.status for item in events].count(RunStatus.QUEUED) == 1
+
+
 def test_execution_assignment_rejects_cross_run_job_reuse(repository):
     repository.create_run(_record("run-1"), _created_event())
     repository.create_run(_record("run-2"), _created_event())
@@ -406,6 +538,58 @@ def test_independent_repositories_concurrently_choose_one_assignment(database_ur
         assert resolved[0] in {first, second}
         assert first_repository.get_execution_assignment("run-1") == resolved[0]
         assert second_repository.get_execution_assignment("run-1") == resolved[0]
+    finally:
+        first_engine.dispose()
+        second_engine.dispose()
+
+
+def test_independent_services_concurrently_queue_one_status_event(database_url):
+    upgrade_database(database_url)
+    first_engine = create_database_engine(database_url)
+    second_engine = create_database_engine(database_url)
+    first_service = RunService(
+        create_default_workflow_registry(),
+        id_factory=lambda: "run-1",
+        repository=SqlAlchemyRunRepository(create_session_factory(first_engine)),
+    )
+    second_service = RunService(
+        create_default_workflow_registry(),
+        repository=SqlAlchemyRunRepository(create_session_factory(second_engine)),
+    )
+    first_service.create_run(WORKFLOW_ID, WorkflowInputs(config={}))
+    first_service.transition_run("run-1", RunStatus.VALIDATING)
+    first_service.transition_run("run-1", RunStatus.PLANNED)
+    assignment = first_service.ensure_execution_assignment(
+        "run-1",
+        queue_name="default",
+    )
+    first_service.mark_execution_dispatched("run-1", job_id=assignment.job_id)
+    barrier = Barrier(2)
+
+    def queue(service):
+        barrier.wait(timeout=5)
+        return service.queue_dispatched_run(
+            "run-1",
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(queue, first_service)
+            second = pool.submit(queue, second_service)
+            results = (first.result(), second.result())
+
+        assert all(record.status is RunStatus.QUEUED for record in results)
+        events = first_service.list_events("run-1")
+        queued_events = [
+            event
+            for event in events
+            if event.status is RunStatus.QUEUED
+            and event.context.get("new_status") == RunStatus.QUEUED.value
+        ]
+        assert len(queued_events) == 1
     finally:
         first_engine.dispose()
         second_engine.dispose()
@@ -585,4 +769,15 @@ def _assignment(run_id: str, job_id: str) -> RunExecutionAssignment:
         backend="rq",
         queue_name="default",
         created_at=datetime.now(timezone.utc),
+    )
+
+
+def _build_identity() -> WorkflowBuildIdentity:
+    return WorkflowBuildIdentity(
+        workflow_id=WORKFLOW_ID,
+        adapter_version="0.3.0",
+        scheme="sha256-tree-v1",
+        logical_entrypoint="workflow/Snakefile",
+        digest="a" * 64,
+        captured_at=datetime.now(timezone.utc),
     )

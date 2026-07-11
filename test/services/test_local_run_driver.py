@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -228,7 +229,11 @@ class _FakeProcessRunner(ProcessRunner):
         self._stderr = stderr
         self._issues = issues or []
 
-    def run(self, spec):
+    def run(self, spec, *, output_callback=None):
+        if output_callback is not None and self._stdout:
+            output_callback("stdout", tuple(self._stdout.splitlines()))
+        if output_callback is not None and self._stderr:
+            output_callback("stderr", tuple(self._stderr.splitlines()))
         return Result.success(
             ProcessResult(
                 exit_code=self._exit_code,
@@ -881,7 +886,7 @@ def test_local_run_driver_rejects_planned_plan_missing_command_spec():
     assert issue.path == "plan"
 
 
-def test_local_run_driver_refuses_executable_plan_with_not_implemented():
+def test_local_run_driver_executes_planned_command():
     service = _make_run_service()
     service.create_run("fake", WorkflowInputs(config={}))
     driver = LocalRunDriver(
@@ -889,6 +894,7 @@ def test_local_run_driver_refuses_executable_plan_with_not_implemented():
         materializer=_make_materializer(),
         command_builder=_make_command_builder(),
         workspace_root=Path("/tmp/test-workspaces"),
+        process_runner=_FakeProcessRunner(stdout="started", stderr="warning"),
     )
     plan = _make_plan(
         status=PlanStatus.PLANNED,
@@ -897,12 +903,99 @@ def test_local_run_driver_refuses_executable_plan_with_not_implemented():
 
     result = driver.run("run-1", plan)
 
-    assert result.is_failure is True
-    issue = result.issues[0]
-    assert issue.code == "LOCAL_RUN_NOT_IMPLEMENTED"
-    assert issue.severity.value == "error"
-    assert issue.source == "local_run_driver"
-    assert issue.path == "plan"
+    assert result.is_success is True
+    assert result.value is plan
+    assert service.list_logs("run-1", "stdout")[0].lines == ("started",)
+    assert service.list_logs("run-1", "stderr")[0].lines == ("warning",)
+
+
+def test_local_run_driver_bounds_persisted_stream_output():
+    service = _make_run_service()
+    service.create_run("fake", WorkflowInputs(config={}))
+    runner = ProcessRunner(
+        allowed_executables=(sys.executable,),
+        max_output_bytes=64,
+    )
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=Path("/tmp/test-workspaces"),
+        process_runner=runner,
+    )
+    plan = _make_plan(
+        status=PlanStatus.PLANNED,
+        command_spec=CommandSpec(
+            argv=(sys.executable, "-c", "print('x' * 10000)"),
+        ),
+    )
+
+    result = driver.run("run-1", plan)
+
+    assert result.is_success
+    persisted = "".join(
+        line for chunk in service.list_logs("run-1", "stdout") for line in chunk.lines
+    )
+    assert len(persisted.encode("utf-8")) <= 64
+    assert any(
+        issue.code == "PROCESS_RUNNER_OUTPUT_LIMIT_EXCEEDED" for issue in result.issues
+    )
+    truncation_events = [
+        event
+        for event in service.list_events("run-1", limit=100)
+        if event.event_type == "execution_output_truncated"
+    ]
+    assert len(truncation_events) == 1
+    assert truncation_events[0].stage == "execution"
+    assert truncation_events[0].context == {
+        "reason_code": "PROCESS_RUNNER_OUTPUT_LIMIT_EXCEEDED"
+    }
+    assert truncation_events[0].issue is not None
+    assert truncation_events[0].issue.code == "PROCESS_RUNNER_OUTPUT_LIMIT_EXCEEDED"
+
+
+def test_local_run_driver_persists_truncation_before_timeout_failure():
+    service = _make_run_service()
+    service.create_run("fake", WorkflowInputs(config={}))
+    runner = ProcessRunner(
+        allowed_executables=(sys.executable,),
+        timeout_seconds=0.1,
+        max_output_bytes=8,
+    )
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=_make_command_builder(),
+        workspace_root=Path("/tmp/test-workspaces"),
+        process_runner=runner,
+    )
+    plan = _make_plan(
+        status=PlanStatus.PLANNED,
+        command_spec=CommandSpec(
+            argv=(
+                sys.executable,
+                "-c",
+                "import time; print('x' * 1000, flush=True); time.sleep(10)",
+            ),
+        ),
+    )
+
+    result = driver.run("run-1", plan)
+
+    assert result.is_failure
+    assert [issue.code for issue in result.issues] == [
+        "LOCAL_RUN_PROCESS_FAILED",
+        "PROCESS_RUNNER_TIMEOUT",
+        "PROCESS_RUNNER_OUTPUT_LIMIT_EXCEEDED",
+    ]
+    truncation_events = [
+        event
+        for event in service.list_events("run-1", limit=100)
+        if event.event_type == "execution_output_truncated"
+    ]
+    assert len(truncation_events) == 1
+    assert truncation_events[0].issue is not None
+    assert truncation_events[0].issue.code == "PROCESS_RUNNER_OUTPUT_LIMIT_EXCEEDED"
 
 
 def test_local_run_driver_records_runner_refused_event():

@@ -19,6 +19,11 @@ python -m pip install -e ".[api]"
 uvicorn encode_pipeline.api.main:create_app --factory --reload
 ```
 
+The API extra installs the platform runtime, Redis client, and RQ worker. It
+does not install the scientific environment. Run the worker in an environment
+where the `snakemake` executable is on `PATH`; the bundled workflow continues
+to manage its rule-specific tools through its existing Snakemake configuration.
+
 By default, the application uses:
 
 ```text
@@ -40,6 +45,8 @@ events or issues:
 export ENCODE_PIPELINE_DATABASE_URL="sqlite:////absolute/path/platform.db"
 export ENCODE_PIPELINE_WORKSPACE_ROOT="/absolute/path/workspaces"
 export ENCODE_PIPELINE_REDIS_URL="redis://localhost:6379/0"
+export ENCODE_PIPELINE_REDIS_CONNECT_TIMEOUT_SECONDS="2"
+export ENCODE_PIPELINE_REDIS_API_READ_TIMEOUT_SECONDS="5"
 export ENCODE_PIPELINE_QUEUE_NAME="encode-pipeline"
 export ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS="604800"
 
@@ -56,14 +63,182 @@ migration, API, and worker connections. Relative SQLite and workspace paths are
 also rejected so processes with different working directories cannot silently
 open different state.
 
+The Redis timeout values must be positive finite numbers. The API queue client
+uses the two-second connection timeout and five-second command read timeout by
+default. The synchronous start submission runs in FastAPI's worker threadpool,
+so a slow or unavailable Redis endpoint cannot block the server event loop; a
+timeout is returned as the same public-safe `503 RUN_QUEUE_UNAVAILABLE` response
+as another Redis connection failure. The worker connection uses the same finite
+connection timeout but deliberately does not inherit the API read timeout. RQ
+sets the worker socket read timeout from its longer blocking dequeue interval,
+so an idle worker can wait for work without being disconnected every five
+seconds.
+
 `encode-worker --burst` processes the jobs currently in the configured queue
 and exits. It is intended for integration tests and operational checks; the
 normal local worker stays running.
 
-Execution jobs have a configurable timeout (seven days by default). RQ result
-metadata is retained for one day and failure metadata for seven days. These are
-scheduling-retention settings only; durable run state and events remain in
-SQLite.
+`ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS` is the workflow deadline enforced by the
+worker's `ProcessRunner` (seven days by default); it is not the outer RQ timeout.
+RQ sets its job timeout to that deadline plus a fixed 30-second cleanup grace.
+The production `encode-worker` uses a phase-aware `DurableWorker`. Its
+death-penalty adapter leaves RQ's configured exception unchanged and converts a
+`JobTimeoutException` to `WorkerHardTimeout` only when the timeout signal is
+actually delivered while the worker is inside the wrapped `job._execute` main
+phase. `WorkerHardTimeout` derives directly from `BaseException`, not
+`Exception`, so application `except Exception` handlers cannot accidentally
+normalize or swallow that outer deadline. Job preparation, surrounding
+`Job.perform` bookkeeping, and success, failure, or stopped callbacks remain
+outside the main phase and retain RQ's native timeout behavior. Other RQ timeout
+exception types are also left unchanged.
+
+The runtime dependency is restricted to the RQ 2.10 minor series
+(`rq>=2.10,<2.11`) because the phase boundary currently relies on the private
+`Job._execute` hook. A compatibility canary verifies that exact dispatch
+contract, and CI runs a real Redis, independent-process SIGALRM timeout test.
+Any RQ minor upgrade must deliberately update that guard and pass the real
+signal test before the supported range is widened.
+
+When the workflow deadline expires, that outer window lets the worker terminate
+the directly spawned Snakemake process, perform a best-effort drain of output
+that is immediately available, and persist the durable failure before RQ
+applies its own timeout. The post-termination drain stops at the first of
+256 KiB, eight non-blocking selector iterations, or 50 milliseconds; a
+descendant that keeps a pipe open cannot extend that bounded drain.
+
+If the outer RQ timeout is delivered, the timeout exception passes through the
+process and execution layers. The worker makes a best-effort SQLite transition
+to `failed` with reason code `WORKER_JOB_TIMEOUT`, then re-raises the original
+`WorkerHardTimeout` so RQ also records the job failure. The database mapping can
+itself fail, so this is not a substitute for later operational reconciliation.
+The grace does not extend the workflow's execution budget, and it does not
+guarantee termination of Snakemake descendants or a process group; that cleanup
+boundary remains PR125.
+
+RQ result metadata is retained for one day and failure metadata for seven days.
+These are scheduling-retention settings only; durable run state and events
+remain in SQLite.
+
+## Submission and execution lifecycle
+
+Preflight remains an explicit prerequisite. A successful preflight validates
+the adapter inputs, materializes the per-run workspace, completes a Snakemake
+dry-run, and leaves the run in `planned`. Execution is then submitted explicitly:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/runs/${RUN_ID}/start"
+```
+
+`POST /api/v1/runs/{run_id}/start` returns `202` only after the queue has
+accepted the run's stable job identity and SQLite records a dispatch marker and
+the `queued` transition. Runs that have not completed preflight return `409`.
+An unavailable queue returns `503` with `RUN_QUEUE_UNAVAILABLE`; a missing
+workflow build identity returns `409` with
+`RUN_WORKFLOW_BUILD_IDENTITY_MISSING`; and a queue/job identity or lifecycle
+conflict returns `409` with `RUN_START_CONFLICT`. Public errors do not include
+Redis URLs, credentials, command lines, or workspace paths.
+
+The normal lifecycle is:
+
+```text
+PLANNED --start--> QUEUED --worker claim--> RUNNING --> SUCCEEDED | FAILED
+```
+
+### Durable workflow build identity
+
+A run planned by the current preflight path has both a successful dry-run and a
+one-to-one workflow build identity in SQLite. The identity records the workflow
+ID and adapter version, the logical `workflow/Snakefile` entrypoint, a versioned
+hashing scheme, a SHA-256 digest, and its capture time. The digest is computed
+from logical relative paths and file contents, never absolute paths,
+modification times, or workspace state. Its controlled manifest covers the
+Python adapter/platform package, workflow source and lock/config files, the
+default Snakemake profile, top-level execution scripts, and `pyproject.toml`.
+Missing files, non-regular files, and symlinks fail closed.
+
+Preflight captures the identity before planning and again after the Snakemake
+dry-run. Source drift between those captures fails the run with
+`PREFLIGHT_WORKFLOW_BUILD_CHANGED`. On success, the `validating -> planned`
+transition, identity row, and final preflight event are committed in one SQLite
+transaction. Existing databases are deliberately not backfilled: a legacy
+`planned` run without an identity is rejected by the start endpoint with
+`409 RUN_WORKFLOW_BUILD_IDENTITY_MISSING`.
+
+After a worker has validated the durable run/job assignment and converged the
+run to `queued`, but before it claims the assignment, enters `running`, or
+starts a process, it fingerprints its reconstructed local source tree. A
+missing identity, unreadable local source, or mismatch becomes a durable
+`failed` run with `RUN_WORKFLOW_BUILD_IDENTITY_MISSING`,
+`RUN_WORKFLOW_BUILD_IDENTITY_UNAVAILABLE`, or
+`RUN_WORKFLOW_BUILD_IDENTITY_MISMATCH`, respectively. The assignment remains
+unclaimed and Snakemake is not started. The API and worker compose the command
+builder and identity provider from the same explicit project source root, so
+the verified logical entrypoint is the one used to build the command.
+
+The RQ payload contains only `run_id`, serialized with RQ's JSON serializer.
+The worker reopens SQLite, rebuilds the default registry and service graph,
+reconstructs the execution plan from the persisted inputs, and verifies that
+the materialized workspace still matches that plan. It does not receive an
+adapter, service, configuration object, or other process-local instance from
+the API. After atomically claiming the SQLite assignment, it executes the
+rebuilt Snakemake command and records the terminal state. A missing or modified
+workspace, command-construction error, process startup error, timeout, non-zero
+exit, or handled worker exception becomes a durable `failed` run with a stable,
+public-safe reason code.
+
+SQLite remains canonical throughout this sequence. RQ status can help an
+operator inspect scheduling, but API reads, restart recovery, duplicate-worker
+suppression, events, logs, and terminal outcomes all use SQLite state.
+
+## Worker initialization failure repair
+
+Runtime bootstrap, dependency composition, and adapter reconstruction can fail
+before the normal execution service is usable. The worker then makes a
+best-effort attempt to reopen the canonical SQLite database without depending
+on the adapter registry. It mutates the run only when the persisted assignment
+strictly matches the dequeued run ID, job ID, `rq` backend, and queue name. With
+that ownership proof, the fallback can repair a missing dispatch marker,
+converge a still-`planned` run through `queued`, and durably transition the run
+to `failed` with reason code `WORKER_INITIALIZATION_FAILED`. Identity drift or
+an unrelated lifecycle state is left unchanged.
+
+This repair still depends on reaching the canonical database. If the configured
+database URL is invalid, unavailable, or points somewhere that does not contain
+the matching assignment, the worker cannot truthfully write canonical state.
+RQ records the job failure, but SQLite may remain at its previous state and
+requires operator investigation or a later reconciliation path. The worker does
+not fabricate a recovery from Redis metadata or mark a different database as
+authoritative.
+
+## Submission failure windows and idempotency
+
+Submission deliberately separates a durable reservation from confirmed
+dispatch so each crash window has an explicit meaning:
+
+- Before enqueue, SQLite may contain a `planned` run and an assignment without
+  `dispatched_at`. This is a reservation, not worker ownership. It survives an
+  API restart and a retry reuses the same job ID.
+- If Redis cannot confirm enqueue, the API does not synthesize `queued`. The
+  reservation normally remains `planned` and retryable. A concurrent worker may
+  already have advanced SQLite, so clients should treat the returned run and a
+  subsequent `GET` as authoritative rather than infer state from the HTTP error
+  alone.
+- If Redis accepted the job but the API stopped before persisting the marker or
+  transition, the worker can persist `dispatched_at`, atomically move
+  `planned` to `queued`, and then claim the assignment. Retrying start converges
+  on the same RQ job identity.
+- Once `queued` and `dispatched_at` are durable, an API restart preserves the
+  run without asking Redis. Once the worker claim is durable, a later API
+  restart also preserves `running`.
+- Repeated start requests reuse the stable assignment and cannot append a
+  second `queued` event. A duplicate worker invocation sees `claimed_at` and
+  returns without executing Snakemake again. A backend job whose run ID,
+  function, queue, or stable job ID conflicts with SQLite is rejected.
+
+These rules cover API failure and retry races. A hard worker crash after an
+atomic claim still leaves durable evidence that the worker owned the run, but
+there is no heartbeat or lease reconciler yet; the API does not guess that the
+claimed job is dead.
 
 ## Restart semantics
 
@@ -86,16 +261,63 @@ Recovery checks ownership and writes the failed state plus one
 `run_recovered_after_restart` event in a single SQLite write transaction.
 Re-running recovery is idempotent. A claim marker proves the hand-off occurred;
 it does not prove that a worker is still alive. Worker crash/heartbeat
-reconciliation is not implemented in PR123 and is deliberately not guessed by
-the API process.
+reconciliation is deliberately not guessed by the API process.
 
-## Current boundary
+## Persistent process logs and environment isolation
 
-The API's preflight remains the existing local background dry-run path. The RQ
-worker currently validates its durable job identity, rebuilds dependencies from
-SQLite and the default registry, and atomically claims the assignment while
-recording one handshake event. A duplicate worker invocation observes the
-existing claim and returns without recording a second handshake. No public
-route submits execution yet. Real Snakemake execution, persistent streaming
-logs, worker failure reconciliation, process cancellation, authentication, HPC
-scheduling, and artifact extraction remain later milestones.
+The process runner drains stdout and stderr concurrently and appends bounded
+line chunks to the run log tables while Snakemake is executing. Logs written
+before a later process failure remain readable through
+`GET /api/v1/runs/{run_id}/logs`; they are not stored in Redis or deferred until
+the terminal transition. The default capture and persistence limit is
+10,000,000 bytes per stream for one invocation. Additional output is drained to
+avoid blocking the child, but is truncated with a structured warning. A log
+persistence callback failure terminates the direct child and is mapped to a
+durable execution failure.
+
+Snakemake receives a reduced environment containing the runtime values needed
+to locate the toolchain and trust store, such as `PATH`, selected Conda values,
+locale, home, temporary-directory, and TLS certificate settings. Platform,
+agent, cloud, source-control, and model-provider credentials are not inherited.
+A `CommandSpec` is also rejected if it attempts to override a protected secret
+name. In particular, the SQLite and Redis connection settings used by the API
+and worker are not copied into the scientific subprocess environment.
+
+## Deterministic worker E2E
+
+`test/profiles/platform_worker_tiny/` is the platform execution profile. It has
+one control-only sample while `use_control` is disabled, so the bundled
+workflow resolves to a deterministic `all` job without invoking bioinformatics
+tools or reading large scientific inputs. This is intentionally an engine and
+lifecycle check, not a substitute for the scientific workflow tests.
+
+`test/workers/test_tiny_execution_e2e.py` uses a real Redis queue, file-backed
+SQLite, a separate `encode-worker --burst` process, and the real Snakemake
+executable. It proves create → preflight → start, closes and reopens the API
+before worker execution, observes `queued` survive restart, and then verifies
+`queued` → `running` → `succeeded`, the durable dispatch and claim markers, RQ
+completion, and persisted Snakemake log markers. Run it with:
+
+```bash
+ENCODE_PIPELINE_TEST_REDIS_URL=redis://localhost:6379/0 \
+  PYTHONPATH=src python -m pytest test/workers/test_tiny_execution_e2e.py -v
+```
+
+The test skips when either the dedicated Redis test URL or `snakemake` on
+`PATH` is unavailable. Real scientific data execution remains covered by the
+existing Snakemake profiles and execution harness.
+
+## Current cancellation boundary
+
+The cancel route can durably move `created`, `validating`, `planned`, or `queued`
+runs to `cancelled`. A queued RQ job is not removed in PR124, but the worker
+rechecks SQLite and treats that cancelled job as a clean no-op without starting
+Snakemake. Once a run is `running`, cancellation fails closed with HTTP `409`
+and the stable `RUN_CANCELLATION_NOT_AVAILABLE` issue; the run, events, and
+active process remain unchanged. This prevents SQLite from claiming a terminal
+cancellation while a workflow process is still alive.
+
+RQ job cancellation, real process cancellation, POSIX process-group creation
+and termination, cancellation races, and orphan-process tests are explicitly
+deferred to PR125. Authentication, multi-tenancy, HPC scheduling, artifact
+extraction, and QC UI are also outside this local-execution milestone.

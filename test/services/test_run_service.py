@@ -24,11 +24,18 @@ from encode_pipeline.platform.execution import (
     RunExecutionAssignment,
     build_execution_job_id,
 )
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunArtifactRef, RunRecord, RunStatus
-from encode_pipeline.services.run_repositories import InMemoryRunRepository
-from encode_pipeline.services.runs import RunService
+from encode_pipeline.services.run_repositories import (
+    ConcurrentRunUpdateError,
+    InMemoryRunRepository,
+)
+from encode_pipeline.services.runs import (
+    RunCancellationNotAvailableError,
+    RunService,
+)
 
 
 class FakeAdapter:
@@ -180,6 +187,34 @@ def test_transition_run_follows_pr99_graph():
     assert record.ended_at is not None
 
 
+def test_complete_preflight_atomically_binds_identity_and_planned_event():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run("fake", WorkflowInputs(config={}))
+    service.transition_run("run-1", RunStatus.VALIDATING)
+    identity = WorkflowBuildIdentity(
+        workflow_id="fake",
+        adapter_version="1.0.0",
+        scheme="sha256-tree-v1",
+        logical_entrypoint="workflow/Snakefile",
+        digest="a" * 64,
+        captured_at=datetime.now(timezone.utc),
+    )
+
+    record = service.complete_preflight(
+        "run-1",
+        identity,
+        context={"reason_code": "PREFLIGHT_COMPLETED"},
+    )
+
+    assert record.status is RunStatus.PLANNED
+    assert service.get_workflow_build_identity("run-1") == identity
+    event = service.list_events("run-1")[-1]
+    assert event.event_type == "preflight_completed"
+    assert event.status is RunStatus.PLANNED
+    assert event.context["workflow_build_digest"] == identity.digest
+
+
 def test_transition_run_rejects_illegal_transition():
     registry = WorkflowRegistry(adapters=[FakeAdapter()])
     service = RunService(registry=registry, id_factory=lambda: "run-1")
@@ -261,7 +296,7 @@ def test_cancel_run_is_idempotent_for_terminal_run():
     assert service.list_events("run-1") == before_events
 
 
-def test_cancel_run_preserves_started_at_and_sets_ended_at_for_running_run():
+def test_cancel_run_refuses_running_without_mutating_run_or_events():
     registry = WorkflowRegistry(adapters=[FakeAdapter()])
     service = RunService(registry=registry, id_factory=lambda: "run-1")
     service.create_run("fake", WorkflowInputs(config={}))
@@ -269,13 +304,62 @@ def test_cancel_run_preserves_started_at_and_sets_ended_at_for_running_run():
     service.transition_run("run-1", RunStatus.PLANNED)
     service.transition_run("run-1", RunStatus.QUEUED)
     running = service.transition_run("run-1", RunStatus.RUNNING)
+    events_before = service.list_events("run-1")
 
-    record = service.cancel_run("run-1", reason="User requested cancellation.")
+    with pytest.raises(RunCancellationNotAvailableError) as raised:
+        service.cancel_run("run-1", reason="User requested cancellation.")
 
-    assert record.status is RunStatus.CANCELLED
-    assert record.started_at is running.started_at
-    assert record.ended_at is not None
-    assert record.cancellation_reason == "User requested cancellation."
+    assert raised.value.record == running
+    assert service.get_run("run-1") == running
+    assert service.get_run("run-1").ended_at is None
+    assert service.get_run("run-1").cancellation_reason is None
+    assert service.list_events("run-1") == events_before
+
+
+def test_cancel_run_rechecks_worker_start_after_compare_and_swap_loss():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    repository = InMemoryRunRepository()
+    service = RunService(
+        registry=registry,
+        id_factory=lambda: "run-1",
+        repository=repository,
+    )
+    service.create_run("fake", WorkflowInputs(config={}))
+    service.transition_run("run-1", RunStatus.VALIDATING)
+    service.transition_run("run-1", RunStatus.PLANNED)
+    service.transition_run("run-1", RunStatus.QUEUED)
+    original_update = repository.update_run
+    worker_won = False
+
+    def race_with_worker(record, *, expected_status, event):
+        nonlocal worker_won
+        if record.status is RunStatus.CANCELLED and not worker_won:
+            worker_won = True
+            service.transition_run(
+                "run-1",
+                RunStatus.RUNNING,
+                stage="execution",
+                message="Worker started local workflow execution.",
+            )
+        return original_update(
+            record,
+            expected_status=expected_status,
+            event=event,
+        )
+
+    repository.update_run = race_with_worker  # type: ignore[method-assign]
+
+    with pytest.raises(RunCancellationNotAvailableError) as raised:
+        service.cancel_run("run-1", reason="race")
+
+    current = service.get_run("run-1")
+    assert raised.value.record == current
+    assert current.status is RunStatus.RUNNING
+    assert current.ended_at is None
+    assert current.cancellation_reason is None
+    assert [event.status for event in service.list_events("run-1")].count(
+        RunStatus.CANCELLED
+    ) == 0
 
 
 def test_add_event_records_event_without_mutating_status():
@@ -520,6 +604,77 @@ def test_ensure_execution_assignment_requires_planned_run():
 
     with pytest.raises(ValueError, match="only be created for planned runs"):
         service.ensure_execution_assignment("run-1", queue_name="runs")
+
+
+def test_queue_dispatched_run_requires_marker_and_is_idempotent():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run("fake", WorkflowInputs(config={}))
+    service.transition_run("run-1", RunStatus.VALIDATING)
+    service.transition_run("run-1", RunStatus.PLANNED)
+    assignment = service.ensure_execution_assignment("run-1", queue_name="runs")
+
+    with pytest.raises(ValueError, match="has not been dispatched"):
+        service.queue_dispatched_run(
+            "run-1",
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+
+    service.mark_execution_dispatched("run-1", job_id=assignment.job_id)
+    queued = service.queue_dispatched_run(
+        "run-1",
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+    )
+    events_after_first = service.list_events("run-1")
+    retried = service.queue_dispatched_run(
+        "run-1",
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+    )
+
+    assert queued.status is RunStatus.QUEUED
+    assert queued.current_stage == "execution"
+    assert retried == queued
+    assert service.list_events("run-1") == events_after_first
+    queued_events = [
+        event
+        for event in events_after_first
+        if event.status is RunStatus.QUEUED
+        and event.context.get("new_status") == RunStatus.QUEUED.value
+    ]
+    assert len(queued_events) == 1
+    assert queued_events[0].context["job_id"] == assignment.job_id
+
+    with pytest.raises(ValueError, match="identity"):
+        service.queue_dispatched_run(
+            "run-1",
+            job_id="wrong-job",
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+
+
+def test_execution_claim_requires_queued_status():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run("fake", WorkflowInputs(config={}))
+    service.transition_run("run-1", RunStatus.VALIDATING)
+    service.transition_run("run-1", RunStatus.PLANNED)
+    assignment = service.ensure_execution_assignment("run-1", queue_name="runs")
+    service.mark_execution_dispatched("run-1", job_id=assignment.job_id)
+
+    with pytest.raises(ConcurrentRunUpdateError, match="no longer claimable"):
+        service.claim_execution_assignment(
+            "run-1",
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
 
 
 def test_recover_interrupted_runs_fails_api_owned_validation_even_if_assigned():

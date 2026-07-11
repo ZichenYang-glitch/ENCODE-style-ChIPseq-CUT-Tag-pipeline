@@ -8,24 +8,42 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 from encode_pipeline.platform.adapters import CommandSpec, WorkspacePlan
-from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus, WorkspacePathPolicy
+from encode_pipeline.platform.planning import (
+    ExecutionPlan,
+    PlanStatus,
+    WorkspacePathPolicy,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 
 
-def _bundled_snakefile_path() -> Path:
-    """Return the controlled repo-relative path to the bundled Snakefile."""
-    return Path(__file__).resolve().parents[3] / "workflow" / "Snakefile"
+def _bundled_snakefile_path(project_root: Path | None = None) -> Path:
+    """Return the controlled project-relative path to the bundled Snakefile."""
+    root = Path(__file__).resolve().parents[3] if project_root is None else project_root
+    return root / "workflow" / "Snakefile"
 
 
 class CommandBuilder:
     """Pure command-spec construction boundary for planned workflow runs."""
 
-    def __init__(self, registry: WorkflowRegistry) -> None:
+    def __init__(
+        self,
+        registry: WorkflowRegistry,
+        *,
+        project_root: Path | None = None,
+    ) -> None:
         """Initialize with an adapter registry for engine validation."""
         if not isinstance(registry, WorkflowRegistry):
             raise ValueError("registry must be a WorkflowRegistry")
+        root = (
+            Path(__file__).resolve().parents[3]
+            if project_root is None
+            else project_root
+        )
+        if not isinstance(root, Path) or not root.is_absolute():
+            raise ValueError("project_root must be an absolute pathlib.Path")
         self._registry = registry
+        self._project_root = root
 
     def build_command(
         self,
@@ -113,7 +131,7 @@ class CommandBuilder:
                 ]
             )
 
-        snakefile = _bundled_snakefile_path()
+        snakefile = _bundled_snakefile_path(self._project_root)
         if not snakefile.is_file():
             return Result.failure(
                 [

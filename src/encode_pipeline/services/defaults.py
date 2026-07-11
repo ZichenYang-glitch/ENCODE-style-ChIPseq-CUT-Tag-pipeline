@@ -14,11 +14,14 @@ if TYPE_CHECKING:
     from encode_pipeline.services.agent import AgentService
     from encode_pipeline.services.command_builder import CommandBuilder
     from encode_pipeline.services.local_run_driver import LocalRunDriver
+    from encode_pipeline.services.local_execution import LocalExecutionService
     from encode_pipeline.services.materialization import WorkspaceMaterializer
     from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
     from encode_pipeline.services.runs import RunService
     from encode_pipeline.services.run_repositories import RunRepository
+    from encode_pipeline.services.process_runner import ProcessRunner
     from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
+    from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 
 
 def create_default_workflow_registry() -> WorkflowRegistry:
@@ -41,6 +44,19 @@ def create_default_validation_service(
     if registry is None:
         registry = create_default_workflow_registry()
     return ValidationService(registry=registry)
+
+
+def create_default_workflow_build_identity_provider(
+    registry: WorkflowRegistry | None = None,
+    *,
+    project_root: Path | None = None,
+) -> WorkflowBuildIdentityProvider:
+    """Return a build identity provider for the bundled source tree."""
+    from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
+
+    if registry is None:
+        registry = create_default_workflow_registry()
+    return WorkflowBuildIdentityProvider(registry, project_root=project_root)
 
 
 def create_default_agent_service(
@@ -110,6 +126,7 @@ def create_default_local_run_driver(
     workspace_root: Path | None = None,
     materializer: WorkspaceMaterializer | None = None,
     command_builder: CommandBuilder | None = None,
+    process_runner: ProcessRunner | None = None,
 ) -> LocalRunDriver:
     """Return a local run driver wired to the given run service.
 
@@ -121,6 +138,7 @@ def create_default_local_run_driver(
             ``WorkspaceMaterializer()``.
         command_builder: Optional command builder. Defaults to
             ``create_default_command_builder()``.
+        process_runner: Optional controlled subprocess runner.
     """
     from pathlib import Path
 
@@ -138,6 +156,27 @@ def create_default_local_run_driver(
         materializer=materializer,
         command_builder=command_builder,
         workspace_root=workspace_root,
+        process_runner=process_runner,
+    )
+
+
+def create_default_local_execution_service(
+    run_service: RunService,
+    *,
+    execution_planner: ExecutionPlanner,
+    workspace_planner: WorkspacePlanner,
+    command_builder: CommandBuilder,
+    local_run_driver: LocalRunDriver,
+) -> LocalExecutionService:
+    """Return durable execution orchestration from worker-local dependencies."""
+    from encode_pipeline.services.local_execution import LocalExecutionService
+
+    return LocalExecutionService(
+        run_service=run_service,
+        execution_planner=execution_planner,
+        workspace_planner=workspace_planner,
+        command_builder=command_builder,
+        local_run_driver=local_run_driver,
     )
 
 
@@ -179,6 +218,8 @@ def create_default_workspace_materializer() -> "WorkspaceMaterializer":
 
 def create_default_command_builder(
     registry: WorkflowRegistry | None = None,
+    *,
+    project_root: Path | None = None,
 ) -> "CommandBuilder":
     """Return a fresh command builder wired to the default registry.
 
@@ -186,9 +227,11 @@ def create_default_command_builder(
         registry: Optional existing registry. When omitted, a fresh default
             registry is created. Passing a shared registry lets ``create_app``
             compose all services from one adapter instance.
+        project_root: Optional absolute root containing ``workflow/Snakefile``.
+            Omitted callers use the bundled project root.
     """
     from encode_pipeline.services.command_builder import CommandBuilder
 
     if registry is None:
         registry = create_default_workflow_registry()
-    return CommandBuilder(registry=registry)
+    return CommandBuilder(registry=registry, project_root=project_root)

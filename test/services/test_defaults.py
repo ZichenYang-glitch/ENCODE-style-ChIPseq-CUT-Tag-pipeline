@@ -263,6 +263,15 @@ def test_create_default_command_builder_returns_instance():
     assert builder.__class__.__name__ == "CommandBuilder"
 
 
+def test_create_default_command_builder_forwards_project_root(tmp_path):
+    from encode_pipeline.services import create_default_command_builder
+
+    project_root = (tmp_path / "source").resolve()
+    builder = create_default_command_builder(project_root=project_root)
+
+    assert builder._project_root == project_root
+
+
 def _run_python(code: str) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(SRC_ROOT)

@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
-from encode_pipeline.api.dependencies import get_run_service
+from encode_pipeline.api.dependencies import get_run_service, get_run_submission_service
 from encode_pipeline.api.models import (
     IssueResponse,
     RunCreateRequest,
@@ -19,7 +19,17 @@ from encode_pipeline.api.models import (
     RunResponse,
 )
 from encode_pipeline.platform.adapters import WorkflowInputs
-from encode_pipeline.services.runs import RunService
+from encode_pipeline.services.runs import (
+    RunCancellationNotAvailableError,
+    RunService,
+)
+from encode_pipeline.services.run_submission import (
+    RunBuildIdentityMissingError,
+    RunNotReadyError,
+    RunStartConflictError,
+    RunSubmissionService,
+    RunSubmissionUnavailableError,
+)
 
 
 router = APIRouter(tags=["runs"])
@@ -65,6 +75,53 @@ def _run_cursor_not_found_issue() -> IssueResponse:
         code="RUN_CURSOR_NOT_FOUND",
         message="Cursor does not exist for this run/stream.",
         path="after",
+    )
+
+
+def _run_not_ready_issue(current_status: str) -> IssueResponse:
+    return _issue(
+        code="RUN_NOT_READY",
+        message="Run must complete preflight before it can start.",
+        path="run_id",
+        context={"current_status": current_status},
+    )
+
+
+def _run_workflow_build_identity_missing_issue(
+    current_status: str,
+) -> IssueResponse:
+    return _issue(
+        code="RUN_WORKFLOW_BUILD_IDENTITY_MISSING",
+        message="Run has no durable workflow build identity.",
+        path="run_id",
+        context={"current_status": current_status},
+    )
+
+
+def _run_start_conflict_issue(current_status: str) -> IssueResponse:
+    return _issue(
+        code="RUN_START_CONFLICT",
+        message="Run execution submission conflicts with durable state.",
+        path="run_id",
+        context={"current_status": current_status},
+    )
+
+
+def _run_queue_unavailable_issue(current_status: str) -> IssueResponse:
+    return _issue(
+        code="RUN_QUEUE_UNAVAILABLE",
+        message="The execution queue could not confirm submission.",
+        path="run_id",
+        context={"current_status": current_status, "retryable": True},
+    )
+
+
+def _run_cancellation_not_available_issue(current_status: str) -> IssueResponse:
+    return _issue(
+        code="RUN_CANCELLATION_NOT_AVAILABLE",
+        message="Run cancellation is not available in the current state.",
+        path="run_id",
+        context={"current_status": current_status},
     )
 
 
@@ -157,12 +214,89 @@ async def get_run(
     return RunResponse(ok=True, run=_run_record_response(record), issues=[])
 
 
-@router.post("/runs/{run_id}/cancel", response_model=RunResponse, operation_id="cancelRun")
+@router.post(
+    "/runs/{run_id}/start",
+    response_model=RunResponse,
+    status_code=202,
+    operation_id="startRun",
+    responses={
+        404: {"model": RunResponse},
+        409: {"model": RunResponse},
+        503: {"model": RunResponse},
+    },
+)
+def start_run(
+    run_id: str,
+    submission_service: RunSubmissionService = Depends(get_run_submission_service),
+) -> RunResponse | JSONResponse:
+    """Explicitly submit a planned run for durable worker execution."""
+    try:
+        record = submission_service.start_run(run_id)
+    except KeyError:
+        return JSONResponse(
+            status_code=404,
+            content=RunResponse(
+                ok=False,
+                run=None,
+                issues=[_run_not_found_issue(run_id)],
+            ).model_dump(mode="json"),
+        )
+    except RunNotReadyError as exc:
+        return JSONResponse(
+            status_code=409,
+            content=RunResponse(
+                ok=False,
+                run=_run_record_response(exc.record),
+                issues=[_run_not_ready_issue(exc.record.status.value)],
+            ).model_dump(mode="json"),
+        )
+    except RunBuildIdentityMissingError as exc:
+        return JSONResponse(
+            status_code=409,
+            content=RunResponse(
+                ok=False,
+                run=_run_record_response(exc.record),
+                issues=[
+                    _run_workflow_build_identity_missing_issue(exc.record.status.value)
+                ],
+            ).model_dump(mode="json"),
+        )
+    except RunStartConflictError as exc:
+        return JSONResponse(
+            status_code=409,
+            content=RunResponse(
+                ok=False,
+                run=_run_record_response(exc.record),
+                issues=[_run_start_conflict_issue(exc.record.status.value)],
+            ).model_dump(mode="json"),
+        )
+    except RunSubmissionUnavailableError as exc:
+        return JSONResponse(
+            status_code=503,
+            content=RunResponse(
+                ok=False,
+                run=_run_record_response(exc.record),
+                issues=[_run_queue_unavailable_issue(exc.record.status.value)],
+            ).model_dump(mode="json"),
+        )
+
+    return RunResponse(ok=True, run=_run_record_response(record), issues=[])
+
+
+@router.post(
+    "/runs/{run_id}/cancel",
+    response_model=RunResponse,
+    operation_id="cancelRun",
+    responses={
+        404: {"model": RunResponse},
+        409: {"model": RunResponse},
+    },
+)
 async def cancel_run(
     run_id: str,
     run_service: RunService = Depends(get_run_service),
 ) -> RunResponse | JSONResponse:
-    """Cancel an active run, or return an already-terminal run unchanged."""
+    """Cancel a run before execution starts; refuse unsafe running cancellation."""
     try:
         record = run_service.cancel_run(run_id, reason="User requested cancellation.")
     except KeyError:
@@ -172,13 +306,26 @@ async def cancel_run(
                 ok=False,
                 run=None,
                 issues=[_run_not_found_issue(run_id)],
-            ).model_dump(),
+            ).model_dump(mode="json"),
+        )
+    except RunCancellationNotAvailableError as exc:
+        return JSONResponse(
+            status_code=409,
+            content=RunResponse(
+                ok=False,
+                run=_run_record_response(exc.record),
+                issues=[_run_cancellation_not_available_issue(exc.record.status.value)],
+            ).model_dump(mode="json"),
         )
 
     return RunResponse(ok=True, run=_run_record_response(record), issues=[])
 
 
-@router.get("/runs/{run_id}/events", response_model=RunEventsResponse, operation_id="listRunEvents")
+@router.get(
+    "/runs/{run_id}/events",
+    response_model=RunEventsResponse,
+    operation_id="listRunEvents",
+)
 async def list_run_events(
     run_id: str,
     after: str | None = None,
@@ -228,7 +375,9 @@ async def list_run_events(
     )
 
 
-@router.get("/runs/{run_id}/logs", response_model=RunLogsResponse, operation_id="listRunLogs")
+@router.get(
+    "/runs/{run_id}/logs", response_model=RunLogsResponse, operation_id="listRunLogs"
+)
 async def list_run_logs(
     run_id: str,
     stream_name: str = "stdout",

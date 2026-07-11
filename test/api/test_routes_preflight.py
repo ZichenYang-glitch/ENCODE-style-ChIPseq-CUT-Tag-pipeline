@@ -9,6 +9,7 @@ import httpx
 
 from encode_pipeline.api.main import create_app
 from encode_pipeline.platform.results import Result
+from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.command_builder import CommandBuilder
 from encode_pipeline.services.defaults import create_default_workspace_planner
 from encode_pipeline.services.local_run_driver import LocalRunDriver
@@ -16,6 +17,7 @@ from encode_pipeline.services.materialization import WorkspaceMaterializer
 from encode_pipeline.services.planning import ExecutionPlanner
 from encode_pipeline.services.preflight import LocalPreflightService
 from encode_pipeline.services.process_runner import ProcessResult, ProcessRunner
+from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
 
 
 class _FakeProcessRunner(ProcessRunner):
@@ -60,6 +62,7 @@ def _test_app(tmp_path: Path):
         execution_planner=ExecutionPlanner(run_service=run_service),
         workspace_planner=create_default_workspace_planner(registry=registry),
         local_run_driver=local_run_driver,
+        build_identity_provider=app.state.build_identity_provider,
     )
     return app
 
@@ -150,6 +153,40 @@ def test_trigger_preflight_returns_409_when_already_triggered(tmp_path):
 
             assert response.status_code == 409
             assert response.json()["issues"][0]["code"] == "PREFLIGHT_ALREADY_TRIGGERED"
+
+    asyncio.run(scenario())
+
+
+def test_trigger_preflight_returns_409_when_another_request_wins_transition(
+    tmp_path,
+    monkeypatch,
+):
+    async def scenario() -> None:
+        app = _test_app(tmp_path)
+        run_service = app.state.run_service
+        original_transition = run_service.transition_run
+
+        def concurrent_transition(run_id, to_status, **kwargs):
+            original_transition(run_id, to_status, **kwargs)
+            raise ConcurrentRunUpdateError("another request won")
+
+        monkeypatch.setattr(run_service, "transition_run", concurrent_transition)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            run = await _create_run(client, tmp_path)
+
+            response = await client.post(f"/api/v1/runs/{run['run_id']}/preflight")
+
+            assert response.status_code == 409
+            assert response.json()["issues"][0]["code"] == (
+                "PREFLIGHT_ALREADY_TRIGGERED"
+            )
+            assert response.json()["issues"][0]["context"] == {
+                "current_status": "validating"
+            }
+            assert run_service.get_run(run["run_id"]).status is RunStatus.VALIDATING
 
     asyncio.run(scenario())
 

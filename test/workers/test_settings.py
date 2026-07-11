@@ -9,11 +9,15 @@ import pytest
 from encode_pipeline.persistence.runtime import DATABASE_URL_ENV
 from encode_pipeline.workers import settings
 from encode_pipeline.workers.settings import (
+    DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS,
+    DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_JOB_TIMEOUT_SECONDS,
     DEFAULT_QUEUE_NAME,
     DEFAULT_REDIS_URL,
     JOB_TIMEOUT_SECONDS_ENV,
     QUEUE_NAME_ENV,
+    REDIS_API_READ_TIMEOUT_SECONDS_ENV,
+    REDIS_CONNECT_TIMEOUT_SECONDS_ENV,
     REDIS_URL_ENV,
     WORKSPACE_ROOT_ENV,
     WorkerSettings,
@@ -32,6 +36,8 @@ def test_load_worker_settings_reads_shared_environment(tmp_path):
             QUEUE_NAME_ENV: "epigenomics",
             WORKSPACE_ROOT_ENV: str(workspace_root),
             JOB_TIMEOUT_SECONDS_ENV: "3600",
+            REDIS_CONNECT_TIMEOUT_SECONDS_ENV: "1.25",
+            REDIS_API_READ_TIMEOUT_SECONDS_ENV: "4.5",
         }
     )
 
@@ -41,6 +47,8 @@ def test_load_worker_settings_reads_shared_environment(tmp_path):
         queue_name="epigenomics",
         workspace_root=workspace_root,
         job_timeout_seconds=3600,
+        redis_connect_timeout_seconds=1.25,
+        redis_api_read_timeout_seconds=4.5,
     )
 
 
@@ -56,6 +64,14 @@ def test_load_worker_settings_uses_local_defaults(tmp_path, monkeypatch):
     assert configured.queue_name == DEFAULT_QUEUE_NAME
     assert configured.workspace_root == tmp_path / ".encode-pipeline" / "workspaces"
     assert configured.job_timeout_seconds == DEFAULT_JOB_TIMEOUT_SECONDS
+    assert (
+        configured.redis_connect_timeout_seconds
+        == DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS
+    )
+    assert (
+        configured.redis_api_read_timeout_seconds
+        == DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS
+    )
 
 
 def test_worker_settings_requires_absolute_workspace(tmp_path):
@@ -104,6 +120,45 @@ def test_worker_settings_rejects_non_redis_urls_without_echoing_value(
 def test_load_worker_settings_rejects_invalid_job_timeout(value):
     with pytest.raises(ValueError, match="job_timeout_seconds"):
         load_worker_settings({JOB_TIMEOUT_SECONDS_ENV: value})
+
+
+@pytest.mark.parametrize(
+    ("environment_name", "value", "field_name"),
+    [
+        (
+            REDIS_CONNECT_TIMEOUT_SECONDS_ENV,
+            "0",
+            "redis_connect_timeout_seconds",
+        ),
+        (
+            REDIS_CONNECT_TIMEOUT_SECONDS_ENV,
+            "nan",
+            "redis_connect_timeout_seconds",
+        ),
+        (
+            REDIS_API_READ_TIMEOUT_SECONDS_ENV,
+            "-1",
+            "redis_api_read_timeout_seconds",
+        ),
+        (
+            REDIS_API_READ_TIMEOUT_SECONDS_ENV,
+            "infinity",
+            "redis_api_read_timeout_seconds",
+        ),
+        (
+            REDIS_API_READ_TIMEOUT_SECONDS_ENV,
+            "not-a-number",
+            "redis_api_read_timeout_seconds",
+        ),
+    ],
+)
+def test_load_worker_settings_rejects_invalid_redis_timeouts(
+    environment_name,
+    value,
+    field_name,
+):
+    with pytest.raises(ValueError, match=field_name):
+        load_worker_settings({environment_name: value})
 
 
 def test_worker_settings_repr_hides_redis_credentials(tmp_path):

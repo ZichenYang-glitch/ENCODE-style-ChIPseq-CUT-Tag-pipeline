@@ -32,7 +32,7 @@ def test_can_transition_accepts_pr99_path():
     assert can_transition(RunStatus.QUEUED, RunStatus.FAILED)
     assert can_transition(RunStatus.RUNNING, RunStatus.SUCCEEDED)
     assert can_transition(RunStatus.RUNNING, RunStatus.FAILED)
-    assert can_transition(RunStatus.RUNNING, RunStatus.CANCELLED)
+    assert not can_transition(RunStatus.RUNNING, RunStatus.CANCELLED)
 
 
 def test_can_transition_rejects_invalid_transitions():
@@ -45,18 +45,18 @@ def test_can_transition_rejects_invalid_transitions():
     assert not can_transition(RunStatus.FAILED, RunStatus.CANCELLED)
 
 
-def test_all_active_statuses_can_transition_to_cancelled():
+def test_only_pre_running_active_statuses_can_transition_to_cancelled():
     from encode_pipeline.platform.runs import RunStatus, can_transition
 
-    active = {
+    cancellable = {
         RunStatus.CREATED,
         RunStatus.VALIDATING,
         RunStatus.PLANNED,
         RunStatus.QUEUED,
-        RunStatus.RUNNING,
     }
-    for status in active:
+    for status in cancellable:
         assert can_transition(status, RunStatus.CANCELLED)
+    assert not can_transition(RunStatus.RUNNING, RunStatus.CANCELLED)
 
 
 def test_all_terminal_statuses_are_absorbing():

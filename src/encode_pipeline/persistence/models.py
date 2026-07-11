@@ -73,6 +73,24 @@ class RunExecutionAssignmentRow(Base):
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class RunWorkflowBuildIdentityRow(Base):
+    __tablename__ = "run_workflow_build_identities"
+
+    run_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("runs.run_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    workflow_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    adapter_version: Mapped[str] = mapped_column(String(255), nullable=False)
+    scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    logical_entrypoint: Mapped[str] = mapped_column(String(512), nullable=False)
+    digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
 class RunEventRow(Base):
     __tablename__ = "run_events"
     __table_args__ = (

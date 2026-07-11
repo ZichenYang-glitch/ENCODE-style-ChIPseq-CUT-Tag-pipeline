@@ -10,6 +10,7 @@ import pytest
 
 from encode_pipeline.api.main import create_app
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.runs import RunStatus
 from api_test_client import ApiTestClient
 
 fastapi = pytest.importorskip("fastapi")
@@ -141,6 +142,56 @@ def test_cancel_run_created_returns_cancelled_unchanged(
     data = response.json()
     assert data["ok"] is True
     assert data["run"]["status"] == "cancelled"
+
+
+def test_cancel_run_running_returns_stable_409_without_mutation(
+    client: ApiTestClient,
+    workflow_id: str,
+) -> None:
+    service = client.app.state.run_service
+    record = service.create_run(
+        workflow_id,
+        WorkflowInputs(config={"samples": "samples.tsv"}),
+    )
+    service.transition_run(record.run_id, RunStatus.VALIDATING)
+    service.transition_run(record.run_id, RunStatus.PLANNED)
+    service.transition_run(record.run_id, RunStatus.QUEUED)
+    running = service.transition_run(record.run_id, RunStatus.RUNNING)
+    events_before = service.list_events(record.run_id, limit=100)
+
+    response = client.post(f"/api/v1/runs/{record.run_id}/cancel")
+
+    assert response.status_code == 409
+    data = response.json()
+    assert data["ok"] is False
+    assert data["run"]["status"] == "running"
+    assert data["run"]["ended_at"] is None
+    assert data["run"]["cancellation_reason"] is None
+    assert data["issues"][0] == {
+        "code": "RUN_CANCELLATION_NOT_AVAILABLE",
+        "message": "Run cancellation is not available in the current state.",
+        "severity": "error",
+        "path": "run_id",
+        "source": "api",
+        "technical_message": None,
+        "hint": None,
+        "context": {"current_status": "running"},
+    }
+    assert service.get_run(record.run_id) == running
+    assert service.list_events(record.run_id, limit=100) == events_before
+
+
+def test_cancel_run_openapi_declares_not_found_and_conflict_responses(
+    client: ApiTestClient,
+) -> None:
+    responses = client.app.openapi()["paths"]["/api/v1/runs/{run_id}/cancel"]["post"][
+        "responses"
+    ]
+
+    for status_code in ("404", "409"):
+        assert responses[status_code]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/RunResponse"
+        }
 
 
 def test_cancel_run_unknown_returns_404(client: ApiTestClient) -> None:

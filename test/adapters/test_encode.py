@@ -4,6 +4,27 @@ from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
 from encode_pipeline.platform.adapters import WorkflowInputs
 
 
+def test_workspace_config_yaml_is_canonical_across_mapping_order():
+    from encode_pipeline.adapters.encode import _render_config_yaml
+
+    first = {
+        "tool_parameters": {
+            "samtools_filter": {"filter_flags": "", "extra_args": ""},
+            "fastqc": {"extra_args": ""},
+        },
+        "mnase": {"callers": {"danpos3": False, "sem": False}},
+    }
+    second = {
+        "mnase": {"callers": {"sem": False, "danpos3": False}},
+        "tool_parameters": {
+            "fastqc": {"extra_args": ""},
+            "samtools_filter": {"extra_args": "", "filter_flags": ""},
+        },
+    }
+
+    assert _render_config_yaml(first) == _render_config_yaml(second)
+
+
 def test_encode_adapter_declares_workspace_plan_capability():
     adapter = EncodeStyleWorkflowAdapter()
     assert "workspace_plan" in adapter.capabilities.supports

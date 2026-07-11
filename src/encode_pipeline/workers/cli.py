@@ -5,14 +5,15 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from rq import Worker
 from rq.serializers import JSONSerializer
 
 from encode_pipeline.workers.rq_queue import (
-    create_redis_connection,
     create_rq_queue,
+    create_worker_redis_connection,
 )
+from encode_pipeline.workers.jobs import handle_work_horse_killed
 from encode_pipeline.workers.settings import load_worker_settings
+from encode_pipeline.workers.timeouts import DurableWorker
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,13 +31,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Start one RQ worker using the shared environment configuration."""
     args = build_parser().parse_args(argv)
     settings = load_worker_settings()
-    connection = create_redis_connection(settings)
+    connection = create_worker_redis_connection(settings)
     try:
         queue = create_rq_queue(settings, connection=connection)
-        worker = Worker(
+        worker = DurableWorker(
             [queue],
             connection=connection,
             serializer=JSONSerializer,
+            work_horse_killed_handler=handle_work_horse_killed,
         )
         worker.work(burst=args.burst)
     finally:

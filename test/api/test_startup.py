@@ -65,6 +65,7 @@ def test_expected_routes_are_registered() -> None:
     assert "/api/v1/runs/{run_id}" in paths
     assert "/api/v1/runs/{run_id}/events" in paths
     assert "/api/v1/runs/{run_id}/logs" in paths
+    assert "/api/v1/runs/{run_id}/start" in paths
     assert "/api/v1/runs/{run_id}/cancel" in paths
     assert "/api/v1/runs/{run_id}/preflight" in paths
 
@@ -75,6 +76,7 @@ def test_api_dependencies_are_async_to_avoid_testclient_threadpool_hang() -> Non
         "get_validation_service",
         "get_agent_service",
         "get_run_service",
+        "get_run_submission_service",
         "get_preflight_service",
     ]
 
@@ -84,9 +86,24 @@ def test_api_dependencies_are_async_to_avoid_testclient_threadpool_hang() -> Non
 
 def test_create_app_exposes_preflight_service_and_local_run_driver() -> None:
     app = create_app()
+    assert hasattr(app.state, "run_submission_service")
     assert hasattr(app.state, "preflight_service")
     assert hasattr(app.state, "local_run_driver")
     assert not hasattr(app.state, "stub_execution_driver")
+
+
+def test_create_app_aligns_command_and_identity_project_roots(tmp_path: Path) -> None:
+    project_root = (tmp_path / "source").resolve()
+    app = create_app(
+        database_url=f"sqlite:///{tmp_path / 'platform.db'}",
+        project_root=project_root,
+    )
+
+    assert app.state.build_identity_provider.project_root == project_root
+    assert app.state.local_run_driver._command_builder._project_root == project_root
+
+    app.state.run_queue.close()
+    app.state.persistence.close()
 
 
 def test_create_app_composes_shared_api_and_worker_settings(
@@ -115,14 +132,17 @@ def test_create_app_composes_shared_api_and_worker_settings(
     app.state.persistence.close()
 
 
-def test_api_route_handlers_are_async_to_avoid_testclient_threadpool_hang() -> None:
+def test_only_sync_submission_route_uses_fastapi_threadpool() -> None:
     app = create_app()
     route_handlers = [
-        endpoint
+        (path.rstrip("/"), endpoint)
         for path, endpoint in _collect_route_endpoints(app.routes)
         if path.startswith("/api/v1/")
     ]
 
     assert route_handlers
-    for endpoint in route_handlers:
-        assert inspect.iscoroutinefunction(endpoint), endpoint
+    for path, endpoint in route_handlers:
+        if path == "/api/v1/runs/{run_id}/start":
+            assert not inspect.iscoroutinefunction(endpoint), endpoint
+        else:
+            assert inspect.iscoroutinefunction(endpoint), endpoint

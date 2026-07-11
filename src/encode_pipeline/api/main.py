@@ -17,14 +17,17 @@ from encode_pipeline.persistence import DATABASE_URL_ENV, open_run_persistence
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.services.defaults import (
     create_default_agent_service,
+    create_default_command_builder,
     create_default_local_run_driver,
     create_default_run_service,
     create_default_validation_service,
+    create_default_workflow_build_identity_provider,
     create_default_workspace_planner,
     create_default_workflow_registry,
 )
 from encode_pipeline.services.planning import ExecutionPlanner
 from encode_pipeline.services.preflight import LocalPreflightService
+from encode_pipeline.services.run_submission import RunSubmissionService
 from encode_pipeline.workers.rq_queue import RqRunQueue
 from encode_pipeline.workers.settings import (
     WORKSPACE_ROOT_ENV,
@@ -36,6 +39,7 @@ def create_app(
     *,
     database_url: str | None = None,
     workspace_root: Path | None = None,
+    project_root: Path | None = None,
 ) -> FastAPI:
     """Return a configured FastAPI app with default platform services."""
     settings_environment = dict(os.environ)
@@ -63,20 +67,34 @@ def create_app(
     )
 
     registry = create_default_workflow_registry()
+    build_identity_provider = create_default_workflow_build_identity_provider(
+        registry=registry,
+        project_root=project_root,
+    )
     run_service = create_default_run_service(
         registry=registry,
         repository=persistence.repository,
     )
+    run_submission_service = RunSubmissionService(
+        run_service=run_service,
+        run_queue=run_queue,
+    )
     recovered_runs = run_service.recover_interrupted_runs()
+    command_builder = create_default_command_builder(
+        registry=registry,
+        project_root=project_root,
+    )
     local_run_driver = create_default_local_run_driver(
         run_service=run_service,
         workspace_root=worker_settings.workspace_root,
+        command_builder=command_builder,
     )
     preflight_service = LocalPreflightService(
         run_service=run_service,
         execution_planner=ExecutionPlanner(run_service=run_service),
         workspace_planner=create_default_workspace_planner(registry=registry),
         local_run_driver=local_run_driver,
+        build_identity_provider=build_identity_provider,
     )
 
     app.state.registry = registry
@@ -89,6 +107,8 @@ def create_app(
     app.state.validation_service = create_default_validation_service(registry=registry)
     app.state.agent_service = create_default_agent_service(registry=registry)
     app.state.run_service = run_service
+    app.state.build_identity_provider = build_identity_provider
+    app.state.run_submission_service = run_submission_service
     app.state.local_run_driver = local_run_driver
     app.state.preflight_service = preflight_service
     # Stub driver is intentionally not attached in production.

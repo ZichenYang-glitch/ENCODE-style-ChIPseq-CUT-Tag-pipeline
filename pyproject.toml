@@ -18,7 +18,7 @@ api = [
     "uvicorn[standard]",
     "httpx",
     "redis>=7,<9",
-    "rq>=2.10,<3",
+    "rq>=2.10,<2.11",
     "sqlalchemy>=2,<3",
 ]
 llm-openai = [

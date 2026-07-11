@@ -42,7 +42,9 @@ _VALID_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
         RunStatus.FAILED,
         RunStatus.CANCELLED,
     },
-    RunStatus.RUNNING: {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED},
+    # PR124 cannot stop an already-running process.  Keep the lifecycle
+    # fail-closed until PR125 owns process termination before cancellation.
+    RunStatus.RUNNING: {RunStatus.SUCCEEDED, RunStatus.FAILED},
     RunStatus.SUCCEEDED: set(),
     RunStatus.FAILED: set(),
     RunStatus.CANCELLED: set(),

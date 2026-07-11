@@ -1,0 +1,2 @@
+sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index	experiment	condition	replicate	biological_replicate	technical_replicate	role	control_sample	control_bam
+C1	/tmp/encode-platform-unused-R1.fastq.gz	/tmp/encode-platform-unused-R2.fastq.gz	PE	chipseq	input	narrow	hs	/tmp/encode-platform-unused-bowtie2-index	platform-smoke	control	1	1	1	control	""	""
