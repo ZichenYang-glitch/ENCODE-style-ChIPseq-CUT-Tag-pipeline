@@ -52,7 +52,7 @@ def test_run_service_round_trip_survives_repository_reopen(database_url):
     )
     inputs = WorkflowInputs(
         config={"assay": "chipseq"},
-        samples=[{"id": "S1", "fastq_1": "/data/S1.fastq.gz"}],
+        samples=[{"id": "S1", "fastq_1": "fixtures/S1.fastq.gz"}],
         options={"cores": 2},
     )
     created = first_service.create_run(WORKFLOW_ID, inputs, tags={"owner": "test"})
