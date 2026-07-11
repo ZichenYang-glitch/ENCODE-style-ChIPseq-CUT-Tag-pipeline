@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import site
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +20,8 @@ from encode_pipeline.services.defaults import (
 from encode_pipeline.workers.settings import (
     JOB_TIMEOUT_SECONDS_ENV,
     QUEUE_NAME_ENV,
+    REDIS_API_READ_TIMEOUT_SECONDS_ENV,
+    REDIS_CONNECT_TIMEOUT_SECONDS_ENV,
     REDIS_URL_ENV,
     WORKSPACE_ROOT_ENV,
 )
@@ -63,12 +66,16 @@ def _isolated_app_schema(tmp_path: Path, name: str) -> dict:
 def _export_schema(output: Path, *, environment: dict[str, str] | None = None) -> None:
     result = subprocess.run(
         [sys.executable, "scripts/export_openapi.py", "--output", str(output)],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
         env=environment,
     )
-    assert result.returncode == 0
+    assert result.returncode == 0, (
+        "OpenAPI export subprocess failed.\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
 
 
 def _collect_operations(schema: dict) -> dict[tuple[str, str], str]:
@@ -171,6 +178,10 @@ def test_export_does_not_create_default_runtime_database(tmp_path):
     output = tmp_path / "default-openapi.json"
     environment = dict(os.environ)
     environment.pop("ENCODE_PIPELINE_DATABASE_URL", None)
+    # The CI environment may install editable dependencies in the user site.
+    # Preserve that import location while HOME independently exercises runtime
+    # default-path isolation in the child process.
+    environment["PYTHONUSERBASE"] = site.getuserbase()
     environment["HOME"] = str(fake_home)
 
     _export_schema(output, environment=environment)
@@ -185,6 +196,8 @@ def test_export_ignores_invalid_environment_worker_settings(tmp_path):
     environment[REDIS_URL_ENV] = "not-a-redis-url"
     environment[QUEUE_NAME_ENV] = " "
     environment[JOB_TIMEOUT_SECONDS_ENV] = "not-an-integer"
+    environment[REDIS_CONNECT_TIMEOUT_SECONDS_ENV] = "not-a-timeout"
+    environment[REDIS_API_READ_TIMEOUT_SECONDS_ENV] = "not-a-timeout"
     environment[WORKSPACE_ROOT_ENV] = "relative/runtime-workspaces"
 
     _export_schema(output, environment=environment)

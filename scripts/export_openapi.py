@@ -12,8 +12,12 @@ from unittest.mock import patch
 from encode_pipeline.api.main import create_app
 from encode_pipeline.workers.settings import (
     DEFAULT_JOB_TIMEOUT_SECONDS,
+    DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS,
+    DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS,
     JOB_TIMEOUT_SECONDS_ENV,
     QUEUE_NAME_ENV,
+    REDIS_API_READ_TIMEOUT_SECONDS_ENV,
+    REDIS_CONNECT_TIMEOUT_SECONDS_ENV,
     REDIS_URL_ENV,
 )
 
@@ -30,6 +34,12 @@ def export_openapi(output_path: Path) -> None:
             REDIS_URL_ENV: OPENAPI_REDIS_URL,
             QUEUE_NAME_ENV: OPENAPI_QUEUE_NAME,
             JOB_TIMEOUT_SECONDS_ENV: str(DEFAULT_JOB_TIMEOUT_SECONDS),
+            REDIS_CONNECT_TIMEOUT_SECONDS_ENV: str(
+                DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS
+            ),
+            REDIS_API_READ_TIMEOUT_SECONDS_ENV: str(
+                DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS
+            ),
         }
         with patch.dict(os.environ, isolated_worker_environment):
             app = create_app(
