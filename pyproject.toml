@@ -17,6 +17,8 @@ api = [
     "fastapi",
     "uvicorn[standard]",
     "httpx",
+    "redis>=7,<9",
+    "rq>=2.10,<3",
     "sqlalchemy>=2,<3",
 ]
 llm-openai = [
@@ -27,6 +29,7 @@ dev = [
     "pytest-cov",
     "ruff",
     "mypy",
+    "fakeredis[lua]>=2.36,<3",
     "snakefmt",
 ]
 
@@ -34,6 +37,7 @@ dev = [
 encode-validate = "encode_pipeline.cli.validate:main"
 encode-manifest = "encode_pipeline.cli.manifest:main"
 encode-dag = "encode_pipeline.cli.dag:main"
+encode-worker = "encode_pipeline.workers.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

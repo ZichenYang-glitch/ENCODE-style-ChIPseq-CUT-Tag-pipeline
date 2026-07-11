@@ -36,7 +36,15 @@ def test_resolve_database_url_defaults_under_platform_home(tmp_path, monkeypatch
 
 
 @pytest.mark.parametrize(
-    "database_url", ["", "sqlite://", "sqlite:///:memory:", "postgresql://db"]
+    "database_url",
+    [
+        "",
+        "sqlite://",
+        "sqlite:///:memory:",
+        "sqlite:///relative/platform.db",
+        "sqlite:///~/platform.db",
+        "postgresql://db",
+    ],
 )
 def test_resolve_database_url_rejects_non_durable_backends(database_url):
     with pytest.raises(ValueError):

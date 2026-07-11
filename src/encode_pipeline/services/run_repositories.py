@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from threading import RLock
 from typing import Any, Protocol, TypeVar
 
+from encode_pipeline.platform.execution import (
+    RunExecutionAssignment,
+    RunExecutionClaim,
+    RunExecutionOwnership,
+)
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
@@ -56,6 +61,15 @@ class RunRepository(Protocol):
         event: RunEventDraft,
     ) -> RunEvent: ...
 
+    def fail_interrupted_run_if_unowned(
+        self,
+        record: RunRecord,
+        *,
+        expected_status: RunStatus,
+        required_ownership: RunExecutionOwnership | None,
+        event: RunEventDraft,
+    ) -> bool: ...
+
     def add_event(self, run_id: str, event: RunEventDraft) -> RunEvent: ...
 
     def list_events(
@@ -90,6 +104,39 @@ class RunRepository(Protocol):
 
     def list_artifacts(self, run_id: str) -> tuple[RunArtifactRef, ...]: ...
 
+    def ensure_execution_assignment(
+        self,
+        assignment: RunExecutionAssignment,
+        *,
+        expected_status: RunStatus,
+    ) -> RunExecutionAssignment: ...
+
+    def get_execution_assignment(
+        self,
+        run_id: str,
+    ) -> RunExecutionAssignment | None: ...
+
+    def mark_execution_dispatched(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        dispatched_at: datetime,
+        allowed_statuses: frozenset[RunStatus],
+    ) -> RunExecutionAssignment: ...
+
+    def claim_execution_assignment(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        claimed_at: datetime,
+        allowed_statuses: frozenset[RunStatus],
+        event: RunEventDraft,
+    ) -> RunExecutionClaim: ...
+
 
 class InMemoryRunRepository:
     """Thread-safe in-memory implementation used by unit tests and adapters."""
@@ -100,6 +147,8 @@ class InMemoryRunRepository:
         self._events: dict[str, list[RunEvent]] = {}
         self._logs: dict[str, dict[str, list[RunLogChunk]]] = {}
         self._artifacts: dict[str, dict[str, RunArtifactRef]] = {}
+        self._execution_assignments: dict[str, RunExecutionAssignment] = {}
+        self._execution_run_ids_by_job: dict[str, str] = {}
 
     def contains_run(self, run_id: str) -> bool:
         with self._lock:
@@ -145,6 +194,32 @@ class InMemoryRunRepository:
             self._runs[record.run_id] = record
             self._events[record.run_id].append(updated_event)
             return updated_event
+
+    def fail_interrupted_run_if_unowned(
+        self,
+        record: RunRecord,
+        *,
+        expected_status: RunStatus,
+        required_ownership: RunExecutionOwnership | None,
+        event: RunEventDraft,
+    ) -> bool:
+        with self._lock:
+            current = self._runs[record.run_id]
+            if current.status is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {record.run_id!r} changed while it was being recovered."
+                )
+            assignment = self._execution_assignments.get(record.run_id)
+            if _assignment_has_ownership(assignment, required_ownership):
+                return False
+            updated_event = self._make_event(
+                record.run_id,
+                len(self._events[record.run_id]) + 1,
+                event,
+            )
+            self._runs[record.run_id] = record
+            self._events[record.run_id].append(updated_event)
+            return True
 
     def add_event(self, run_id: str, event: RunEventDraft) -> RunEvent:
         with self._lock:
@@ -218,6 +293,99 @@ class InMemoryRunRepository:
         with self._lock:
             return tuple(self._artifacts[run_id].values())
 
+    def ensure_execution_assignment(
+        self,
+        assignment: RunExecutionAssignment,
+        *,
+        expected_status: RunStatus,
+    ) -> RunExecutionAssignment:
+        with self._lock:
+            current = self._runs[assignment.run_id]
+            if current.status is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {assignment.run_id!r} is no longer assignable."
+                )
+            existing = self._execution_assignments.get(assignment.run_id)
+            if existing is not None:
+                return existing
+            assigned_run_id = self._execution_run_ids_by_job.get(assignment.job_id)
+            if assigned_run_id is not None:
+                raise ValueError(
+                    f"Execution job_id {assignment.job_id!r} is already assigned "
+                    f"to run {assigned_run_id!r}."
+                )
+            self._execution_assignments[assignment.run_id] = assignment
+            self._execution_run_ids_by_job[assignment.job_id] = assignment.run_id
+            return assignment
+
+    def get_execution_assignment(
+        self,
+        run_id: str,
+    ) -> RunExecutionAssignment | None:
+        with self._lock:
+            return self._execution_assignments.get(run_id)
+
+    def mark_execution_dispatched(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        dispatched_at: datetime,
+        allowed_statuses: frozenset[RunStatus],
+    ) -> RunExecutionAssignment:
+        with self._lock:
+            current = self._runs[run_id]
+            assignment = self._execution_assignments[run_id]
+            if assignment.job_id != job_id:
+                raise ValueError("job_id does not match the execution assignment")
+            if assignment.dispatched_at is not None:
+                return assignment
+            if current.status not in allowed_statuses:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer dispatchable."
+                )
+            assignment = replace(assignment, dispatched_at=dispatched_at)
+            self._execution_assignments[run_id] = assignment
+            return assignment
+
+    def claim_execution_assignment(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        claimed_at: datetime,
+        allowed_statuses: frozenset[RunStatus],
+        event: RunEventDraft,
+    ) -> RunExecutionClaim:
+        with self._lock:
+            current = self._runs[run_id]
+            assignment = self._execution_assignments[run_id]
+            _require_assignment_identity(
+                assignment,
+                job_id=job_id,
+                backend=backend,
+                queue_name=queue_name,
+            )
+            if assignment.claimed_at is not None:
+                return RunExecutionClaim(assignment=assignment, acquired=False)
+            if current.status not in allowed_statuses:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer claimable."
+                )
+            assignment = replace(
+                assignment,
+                dispatched_at=assignment.dispatched_at or claimed_at,
+                claimed_at=claimed_at,
+            )
+            self._execution_assignments[run_id] = assignment
+            self._append_event(
+                run_id,
+                replace(event, status=current.status),
+            )
+            return RunExecutionClaim(assignment=assignment, acquired=True)
+
     def _append_event(self, run_id: str, draft: RunEventDraft) -> RunEvent:
         events = self._events[run_id]
         sequence = len(events) + 1
@@ -251,3 +419,31 @@ class InMemoryRunRepository:
             if getattr(item, id_attr) == cursor:
                 return index
         raise KeyError(cursor)
+
+
+def _require_assignment_identity(
+    assignment: RunExecutionAssignment,
+    *,
+    job_id: str,
+    backend: str,
+    queue_name: str,
+) -> None:
+    if (
+        assignment.job_id != job_id
+        or assignment.backend != backend
+        or assignment.queue_name != queue_name
+    ):
+        raise ValueError("execution assignment identity does not match")
+
+
+def _assignment_has_ownership(
+    assignment: RunExecutionAssignment | None,
+    required_ownership: RunExecutionOwnership | None,
+) -> bool:
+    if required_ownership is None:
+        return False
+    if assignment is None or assignment.backend != "rq":
+        return False
+    if required_ownership is RunExecutionOwnership.DISPATCHED:
+        return assignment.dispatched_at is not None
+    return assignment.claimed_at is not None

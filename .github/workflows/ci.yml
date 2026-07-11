@@ -16,6 +16,16 @@ concurrency:
 jobs:
   fast-checks:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4.9-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v5
 
@@ -29,11 +39,27 @@ jobs:
 
       - name: Install encode-pipeline package
         shell: micromamba-shell {0}
-        run: pip install -e ".[api]"
+        run: pip install -e ".[api,dev]"
 
       - name: OpenAPI contract drift gate
         shell: micromamba-shell {0}
         run: python3 -m pytest test/api/test_openapi_export.py -v
+
+      - name: Durable execution boundary tests
+        shell: micromamba-shell {0}
+        env:
+          ENCODE_PIPELINE_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+        run: >-
+          python3 -m pytest
+          test/platform/test_execution.py
+          test/platform/test_runs.py
+          test/services/test_run_repositories.py
+          test/services/test_run_service.py
+          test/persistence
+          test/api/test_persistent_composition.py
+          test/api/test_startup.py
+          test/workers
+          -v
 
       - name: Validate default config
         shell: micromamba-shell {0}
