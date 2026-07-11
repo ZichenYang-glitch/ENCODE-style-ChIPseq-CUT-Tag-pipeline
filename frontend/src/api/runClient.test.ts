@@ -142,6 +142,31 @@ describe('createRunApiClient', () => {
     expect(response.run?.run_id).toBe(RUN_ID);
   });
 
+  it('POSTs to /api/v1/runs/{id}/preflight with empty body', async () => {
+    const fetchMock = mockFetch({
+      ok: true,
+      status: 202,
+      statusText: 'Accepted',
+      json: async () => sampleRunResponse,
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = createRunApiClient('');
+    const response = await client.preflightRun(RUN_ID);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/v1/runs/${RUN_ID}/preflight`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+        credentials: 'omit',
+      }),
+    );
+    expect(response.ok).toBe(true);
+  });
+
   it('GETs /api/v1/runs/{id}/events with after and limit', async () => {
     const fetchMock = mockFetch({
       ok: true,
@@ -300,6 +325,29 @@ describe('createStubRunApiClient', () => {
     const secondCancelResponse = await client.cancelRun(runId);
     expect(secondCancelResponse.ok).toBe(true);
     expect(secondCancelResponse.run?.status).toBe('cancelled');
+  });
+
+  it('preflights a created run exactly once', async () => {
+    const client = createStubRunApiClient();
+    const createResponse = await client.createRun(WORKFLOW_ID, sampleCreateRequest);
+    const runId = createResponse.run!.run_id;
+
+    const preflightResponse = await client.preflightRun(runId);
+    expect(preflightResponse.ok).toBe(true);
+    expect(preflightResponse.run).toMatchObject({
+      status: 'planned',
+      current_stage: 'preflight',
+    });
+
+    const eventsResponse = await client.listRunEvents(runId);
+    expect(eventsResponse.events.at(-1)).toMatchObject({
+      event_type: 'preflight_completed',
+      status: 'planned',
+    });
+
+    const repeatedResponse = await client.preflightRun(runId);
+    expect(repeatedResponse.ok).toBe(false);
+    expect(repeatedResponse.issues[0].code).toBe('PREFLIGHT_ALREADY_TRIGGERED');
   });
 
   it('returns the created event, and a cancelled event after cancellation', async () => {

@@ -70,6 +70,35 @@ function createMockRunClient(): RunApiClient {
         issues: [],
       };
     }),
+    preflightRun: vi.fn().mockImplementation(async (runId) => {
+      const record = runs.get(runId);
+      if (!record) {
+        return {
+          ok: false,
+          run: null,
+          issues: [{ code: 'RUN_NOT_FOUND', message: 'Not found.' }],
+        };
+      }
+      record.status = 'planned';
+      return {
+        ok: true,
+        run: {
+          run_id: runId,
+          workflow_id: WORKFLOW_ID,
+          inputs: validatedInputs,
+          status: 'planned',
+          created_at: '2026-07-04T12:00:00.000Z',
+          updated_at: '2026-07-04T12:01:00.000Z',
+          started_at: null,
+          ended_at: null,
+          current_stage: 'preflight',
+          cancellation_reason: null,
+          error: null,
+          tags: {},
+        },
+        issues: [],
+      };
+    }),
     getRun: vi.fn().mockImplementation(async (runId) => {
       const record = runs.get(runId);
       if (!record) {
@@ -261,10 +290,33 @@ describe('RunProgressPanel', () => {
     });
     expect(runClient.createRun).toHaveBeenCalledWith(WORKFLOW_ID, validatedInputs);
 
-    expect(await screen.findByTestId('run-status-badge')).toHaveTextContent('created');
+    expect(await screen.findByTestId('run-status-badge')).toHaveTextContent('planned');
+    expect(runClient.preflightRun).toHaveBeenCalledWith('run-1');
     expect(screen.getByTestId('run-event-feed')).toBeInTheDocument();
     expect(screen.getByText(/status_changed/i)).toBeInTheDocument();
     expect(screen.getByText(/\[stub\] validating inputs/i)).toBeInTheDocument();
+  });
+
+  it('reports a malformed successful create response', async () => {
+    const runClient = createMockRunClient();
+    vi.mocked(runClient.createRun).mockResolvedValue({
+      ok: true,
+      run: null,
+      issues: [],
+    });
+    const user = userEvent.setup();
+
+    renderPanel({
+      validationResult: successfulValidation,
+      validatedInputs,
+      runClient,
+    });
+    await user.click(screen.getByTestId('create-run-button'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Run record missing.',
+    );
+    expect(runClient.preflightRun).not.toHaveBeenCalled();
   });
 
   it('rejects validated samples that are not compatible with run creation', async () => {
@@ -429,6 +481,7 @@ describe('RunProgressPanel', () => {
   it('displays a safe issue message when getRun returns ok=false', async () => {
     const runClient: RunApiClient = {
       createRun: vi.fn(),
+      preflightRun: vi.fn(),
       getRun: vi.fn().mockResolvedValue({
         ok: false,
         run: null,
@@ -464,6 +517,7 @@ describe('RunProgressPanel', () => {
   it('does not treat failed events/logs as successful empty arrays', async () => {
     const runClient: RunApiClient = {
       createRun: vi.fn(),
+      preflightRun: vi.fn(),
       getRun: vi.fn().mockResolvedValue({
         ok: true,
         run: {
@@ -525,6 +579,7 @@ describe('RunProgressPanel', () => {
   it('does not treat failed logs as successful empty arrays', async () => {
     const runClient: RunApiClient = {
       createRun: vi.fn(),
+      preflightRun: vi.fn(),
       getRun: vi.fn().mockResolvedValue({
         ok: true,
         run: {
@@ -598,6 +653,7 @@ describe('RunProgressPanel', () => {
   it('ignores stale responses after runId changes', async () => {
     const runClient: RunApiClient = {
       createRun: vi.fn(),
+      preflightRun: vi.fn(),
       getRun: vi.fn().mockImplementation(async (runId) => {
         const delay = runId === 'slow-run' ? 300 : 10;
         await new Promise((resolve) => setTimeout(resolve, delay));
@@ -696,6 +752,141 @@ describe('RunProgressPanel', () => {
 
     expect(runClient.getRun).toHaveBeenCalledTimes(1);
   });
+
+  it('polls an active preflight until it reaches planned', async () => {
+    const baseClient = createMockRunClient();
+    let getRunCalls = 0;
+    const runClient: RunApiClient = {
+      ...baseClient,
+      getRun: vi.fn(async () => {
+        getRunCalls += 1;
+        return {
+          ok: true,
+          run: {
+            run_id: 'run-polling',
+            workflow_id: WORKFLOW_ID,
+            inputs: {
+              config: validatedInputs.config,
+              samples: validatedInputs.samples,
+              options: validatedInputs.options,
+            },
+            status: getRunCalls === 1 ? 'validating' : 'planned',
+            created_at: '2026-07-04T12:00:00.000Z',
+            updated_at: '2026-07-04T12:01:00.000Z',
+            started_at: null,
+            ended_at: null,
+            current_stage: 'preflight',
+            cancellation_reason: null,
+            error: null,
+            tags: {},
+          },
+          issues: [],
+        };
+      }),
+      listRunEvents: vi.fn().mockResolvedValue({
+        ok: true,
+        run_id: 'run-polling',
+        events: [],
+        next_cursor: null,
+        issues: [],
+      }),
+      listRunLogs: vi.fn().mockImplementation(async (_, options = {}) => ({
+        ok: true,
+        run_id: 'run-polling',
+        stream_name: options.streamName ?? 'stdout',
+        chunks: [],
+        next_cursor: null,
+        issues: [],
+      })),
+    };
+
+    renderPanel({ runId: 'run-polling', runClient });
+
+    expect(await screen.findByTestId('run-status-badge')).toHaveTextContent(
+      'validating',
+    );
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('run-status-badge')).toHaveTextContent(
+          'planned',
+        );
+      },
+      { timeout: 2500 },
+    );
+
+    const callsAtTerminalStatus = vi.mocked(runClient.getRun).mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    expect(runClient.getRun).toHaveBeenCalledTimes(callsAtTerminalStatus);
+  }, 4000);
+
+  it('pauses preflight polling while cancellation is in flight', async () => {
+    const baseClient = createMockRunClient();
+    let status = 'validating';
+    const getRun = vi.fn(async () => ({
+      ok: true,
+      run: {
+        run_id: 'run-cancelling',
+        workflow_id: WORKFLOW_ID,
+        inputs: {
+          config: validatedInputs.config,
+          samples: validatedInputs.samples,
+          options: validatedInputs.options,
+        },
+        status,
+        created_at: '2026-07-04T12:00:00.000Z',
+        updated_at: '2026-07-04T12:01:00.000Z',
+        started_at: null,
+        ended_at: null,
+        current_stage: 'preflight',
+        cancellation_reason:
+          status === 'cancelled' ? 'User requested cancellation.' : null,
+        error: null,
+        tags: {},
+      },
+      issues: [],
+    }));
+    const runClient: RunApiClient = {
+      ...baseClient,
+      getRun,
+      listRunEvents: vi.fn().mockResolvedValue({
+        ok: true,
+        run_id: 'run-cancelling',
+        events: [],
+        next_cursor: null,
+        issues: [],
+      }),
+      listRunLogs: vi.fn().mockImplementation(async (_, options = {}) => ({
+        ok: true,
+        run_id: 'run-cancelling',
+        stream_name: options.streamName ?? 'stdout',
+        chunks: [],
+        next_cursor: null,
+        issues: [],
+      })),
+      cancelRun: vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        status = 'cancelled';
+        return getRun();
+      }),
+    };
+    const user = userEvent.setup();
+
+    renderPanel({ runId: 'run-cancelling', runClient });
+    expect(await screen.findByTestId('run-status-badge')).toHaveTextContent(
+      'validating',
+    );
+    await user.click(screen.getByTestId('cancel-run-button'));
+
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('run-status-badge')).toHaveTextContent(
+          'cancelled',
+        );
+      },
+      { timeout: 2500 },
+    );
+    expect(runClient.cancelRun).toHaveBeenCalledTimes(1);
+  }, 4000);
 
   it('does not render execution-like wording', () => {
     renderPanel({

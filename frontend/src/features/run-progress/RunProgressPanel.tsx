@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, Ban } from 'lucide-react';
 import type { RunApiClient } from '../../api/runClient';
 import type {
@@ -23,6 +24,20 @@ interface RunProgressPanelProps {
 }
 
 const terminalStatuses = ['succeeded', 'failed', 'cancelled'];
+const preflightPollingStatuses = ['validating', 'queued', 'running'];
+const PREFLIGHT_POLL_INTERVAL_MS = 1000;
+
+interface RunSnapshot {
+  run: RunRecordResponse | null;
+  events: RunEventResponse[];
+  stdoutLogs: RunLogChunkResponse[];
+  stderrLogs: RunLogChunkResponse[];
+  issue: string | null;
+}
+
+function runProgressQueryKey(runId: string | null) {
+  return ['run-progress', runId] as const;
+}
 
 function isStringRecord(value: unknown): value is Record<string, string> {
   return (
@@ -61,6 +76,53 @@ function firstIssueMessage(issues: Issue[] | undefined): string {
   return `${issue.code}: ${issue.message}`;
 }
 
+async function loadRunSnapshot(
+  runClient: RunApiClient,
+  runId: string,
+): Promise<RunSnapshot> {
+  const runResponse = await runClient.getRun(runId);
+  if (!runResponse.ok) {
+    return {
+      run: null,
+      events: [],
+      stdoutLogs: [],
+      stderrLogs: [],
+      issue: firstIssueMessage(runResponse.issues),
+    };
+  }
+
+  if (!runResponse.run) {
+    return {
+      run: null,
+      events: [],
+      stdoutLogs: [],
+      stderrLogs: [],
+      issue: 'Run record missing.',
+    };
+  }
+
+  const [eventsResponse, stdoutResponse, stderrResponse] = await Promise.all([
+    runClient.listRunEvents(runId, { limit: 50 }),
+    runClient.listRunLogs(runId, { streamName: 'stdout', limit: 50 }),
+    runClient.listRunLogs(runId, { streamName: 'stderr', limit: 50 }),
+  ]);
+  const issue = !eventsResponse.ok
+    ? firstIssueMessage(eventsResponse.issues)
+    : !stdoutResponse.ok
+      ? firstIssueMessage(stdoutResponse.issues)
+      : !stderrResponse.ok
+        ? firstIssueMessage(stderrResponse.issues)
+        : null;
+
+  return {
+    run: runResponse.run,
+    events: eventsResponse.ok ? eventsResponse.events : [],
+    stdoutLogs: stdoutResponse.ok ? stdoutResponse.chunks : [],
+    stderrLogs: stderrResponse.ok ? stderrResponse.chunks : [],
+    issue,
+  };
+}
+
 export function RunProgressPanel({
   workflowId = null,
   validationResult = null,
@@ -69,14 +131,42 @@ export function RunProgressPanel({
   runId = null,
   onRunCreated,
 }: RunProgressPanelProps) {
-  const [run, setRun] = useState<RunRecordResponse | null>(null);
-  const [events, setEvents] = useState<RunEventResponse[]>([]);
-  const [stdoutLogs, setStdoutLogs] = useState<RunLogChunkResponse[]>([]);
-  const [stderrLogs, setStderrLogs] = useState<RunLogChunkResponse[]>([]);
+  const [localRunId, setLocalRunId] = useState<string | null>(null);
+  const [optimisticRun, setOptimisticRun] =
+    useState<RunRecordResponse | null>(null);
   const [activeLogStream, setActiveLogStream] = useState<'stdout' | 'stderr'>('stdout');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const requestGeneration = useRef(0);
+  const queryClient = useQueryClient();
+
+  const targetRunId = runId ?? localRunId;
+  const runQuery = useQuery({
+    queryKey: runProgressQueryKey(targetRunId),
+    queryFn: () => loadRunSnapshot(runClient, targetRunId!),
+    enabled: targetRunId !== null,
+    refetchInterval: (query) => {
+      if (actionLoading) return false;
+      const status = query.state.data?.run?.status;
+      return status && preflightPollingStatuses.includes(status)
+        ? PREFLIGHT_POLL_INTERVAL_MS
+        : false;
+    },
+  });
+
+  const snapshot = runQuery.data;
+  const run = snapshot?.run ?? optimisticRun;
+  const events = snapshot?.events ?? [];
+  const stdoutLogs = snapshot?.stdoutLogs ?? [];
+  const stderrLogs = snapshot?.stderrLogs ?? [];
+  const queryError =
+    runQuery.error instanceof Error
+      ? runQuery.error.message
+      : runQuery.error
+        ? 'Failed to load run.'
+        : snapshot?.issue ?? null;
+  const error = actionError ?? queryError;
+  const loading = actionLoading || (targetRunId !== null && runQuery.isLoading);
 
   function startRequestGeneration(): number {
     requestGeneration.current += 1;
@@ -88,145 +178,29 @@ export function RunProgressPanel({
   }
 
   useEffect(() => {
-    const generation = startRequestGeneration();
-    setRun(null);
-    setEvents([]);
-    setStdoutLogs([]);
-    setStderrLogs([]);
+    startRequestGeneration();
+    setLocalRunId(null);
+    setOptimisticRun(null);
     setActiveLogStream('stdout');
-    setError(null);
-    setLoading(false);
-
-    if (!runId) {
-      return;
-    }
-
-    const targetRunId = runId;
-    setLoading(true);
-
-    async function loadRun() {
-      try {
-        const runResponse = await runClient.getRun(targetRunId);
-        if (!isCurrentRequest(generation)) return;
-
-        if (!runResponse.ok) {
-          setError(firstIssueMessage(runResponse.issues));
-          setLoading(false);
-          return;
-        }
-
-        const runRecord = runResponse.run;
-        if (!runRecord) {
-          setError('Run record missing.');
-          setLoading(false);
-          return;
-        }
-
-        setRun(runRecord);
-
-        const [eventsResponse, stdoutResponse, stderrResponse] = await Promise.all([
-          runClient.listRunEvents(runRecord.run_id, { limit: 50 }),
-          runClient.listRunLogs(runRecord.run_id, { streamName: 'stdout', limit: 50 }),
-          runClient.listRunLogs(runRecord.run_id, { streamName: 'stderr', limit: 50 }),
-        ]);
-        if (!isCurrentRequest(generation)) return;
-
-        const detailsIssue = !eventsResponse.ok
-          ? firstIssueMessage(eventsResponse.issues)
-          : !stdoutResponse.ok
-            ? firstIssueMessage(stdoutResponse.issues)
-            : !stderrResponse.ok
-              ? firstIssueMessage(stderrResponse.issues)
-              : null;
-
-        if (detailsIssue) {
-          setError(detailsIssue);
-          setEvents(eventsResponse.ok ? eventsResponse.events : []);
-          setStdoutLogs(stdoutResponse.ok ? stdoutResponse.chunks : []);
-          setStderrLogs(stderrResponse.ok ? stderrResponse.chunks : []);
-        } else {
-          setEvents(eventsResponse.events);
-          setStdoutLogs(stdoutResponse.chunks);
-          setStderrLogs(stderrResponse.chunks);
-        }
-      } catch (err) {
-        if (!isCurrentRequest(generation)) return;
-        setError(err instanceof Error ? err.message : 'Failed to load run.');
-      } finally {
-        if (isCurrentRequest(generation)) setLoading(false);
-      }
-    }
-
-    loadRun();
-    return () => {
-      if (isCurrentRequest(generation)) {
-        requestGeneration.current += 1;
-      }
-    };
+    setActionError(null);
+    setActionLoading(false);
   }, [runId, runClient, workflowId, validatedInputs]);
+
+  useEffect(() => {
+    setActiveLogStream('stdout');
+  }, [targetRunId]);
 
   const canCreateRun =
     workflowId !== null &&
     validationResult?.ok === true &&
     validatedInputs !== null;
 
-  async function refreshRun(
-    runIdToRefresh: string,
-    generation: number,
-  ): Promise<boolean> {
-    const [runResponse, eventsResponse, stdoutResponse, stderrResponse] =
-      await Promise.all([
-        runClient.getRun(runIdToRefresh),
-        runClient.listRunEvents(runIdToRefresh, { limit: 50 }),
-        runClient.listRunLogs(runIdToRefresh, { streamName: 'stdout', limit: 50 }),
-        runClient.listRunLogs(runIdToRefresh, { streamName: 'stderr', limit: 50 }),
-      ]);
-
-    if (!isCurrentRequest(generation)) {
-      return false;
-    }
-
-    if (!runResponse.ok) {
-      setError(firstIssueMessage(runResponse.issues));
-      setRun(null);
-      setEvents([]);
-      setStdoutLogs([]);
-      setStderrLogs([]);
-      return false;
-    }
-
-    if (runResponse.run) {
-      setRun(runResponse.run);
-    }
-
-    const detailsIssue = !eventsResponse.ok
-      ? firstIssueMessage(eventsResponse.issues)
-      : !stdoutResponse.ok
-        ? firstIssueMessage(stdoutResponse.issues)
-        : !stderrResponse.ok
-          ? firstIssueMessage(stderrResponse.issues)
-          : null;
-
-    if (detailsIssue) {
-      setError(detailsIssue);
-      setEvents(eventsResponse.ok ? eventsResponse.events : []);
-      setStdoutLogs(stdoutResponse.ok ? stdoutResponse.chunks : []);
-      setStderrLogs(stderrResponse.ok ? stderrResponse.chunks : []);
-      return false;
-    }
-
-    setEvents(eventsResponse.events);
-    setStdoutLogs(stdoutResponse.chunks);
-    setStderrLogs(stderrResponse.chunks);
-    return true;
-  }
-
   async function handleCreateRun() {
     if (!canCreateRun || !workflowId || !validatedInputs) return;
 
     const generation = startRequestGeneration();
-    setLoading(true);
-    setError(null);
+    setActionLoading(true);
+    setActionError(null);
 
     try {
       const response = await runClient.createRun(
@@ -237,29 +211,36 @@ export function RunProgressPanel({
       if (!isCurrentRequest(generation)) return;
 
       if (!response.ok) {
-        setError(firstIssueMessage(response.issues));
-        setLoading(false);
+        setActionError(firstIssueMessage(response.issues));
         return;
       }
 
       const createdRun = response.run;
-      if (createdRun) {
-        setRun(createdRun);
-        setStdoutLogs([]);
-        setStderrLogs([]);
-        setActiveLogStream('stdout');
-        const refreshed = await refreshRun(createdRun.run_id, generation);
-        if (refreshed && isCurrentRequest(generation)) {
-          onRunCreated?.(createdRun.run_id);
-        }
+      if (!createdRun) {
+        setActionError('Run record missing.');
+        return;
+      }
+
+      setOptimisticRun(createdRun);
+      setActiveLogStream('stdout');
+      const preflightResponse = await runClient.preflightRun(createdRun.run_id);
+      if (!isCurrentRequest(generation)) return;
+      if (!preflightResponse.ok) {
+        setActionError(firstIssueMessage(preflightResponse.issues));
+        return;
+      }
+      if (preflightResponse.run) setOptimisticRun(preflightResponse.run);
+      setLocalRunId(createdRun.run_id);
+      if (onRunCreated) {
+        onRunCreated(createdRun.run_id);
       }
     } catch (err) {
       if (!isCurrentRequest(generation)) return;
-      setError(
+      setActionError(
         err instanceof Error ? err.message : 'Failed to create run record.',
       );
     } finally {
-      if (isCurrentRequest(generation)) setLoading(false);
+      if (isCurrentRequest(generation)) setActionLoading(false);
     }
   }
 
@@ -267,23 +248,37 @@ export function RunProgressPanel({
     if (!run) return;
 
     const generation = startRequestGeneration();
-    setLoading(true);
-    setError(null);
+    setActionLoading(true);
+    setActionError(null);
 
     try {
       const response = await runClient.cancelRun(run.run_id);
       if (!isCurrentRequest(generation)) return;
       if (!response.ok) {
-        setError(firstIssueMessage(response.issues));
-        setLoading(false);
+        setActionError(firstIssueMessage(response.issues));
         return;
       }
-      await refreshRun(run.run_id, generation);
+      if (response.run) {
+        const cancelledRun = response.run;
+        queryClient.setQueryData<RunSnapshot>(
+          runProgressQueryKey(cancelledRun.run_id),
+          (current) => ({
+            run: cancelledRun,
+            events: current?.events ?? [],
+            stdoutLogs: current?.stdoutLogs ?? [],
+            stderrLogs: current?.stderrLogs ?? [],
+            issue: current?.issue ?? null,
+          }),
+        );
+      }
+      await runQuery.refetch();
     } catch (err) {
       if (!isCurrentRequest(generation)) return;
-      setError(err instanceof Error ? err.message : 'Failed to cancel run.');
+      setActionError(
+        err instanceof Error ? err.message : 'Failed to cancel run.',
+      );
     } finally {
-      if (isCurrentRequest(generation)) setLoading(false);
+      if (isCurrentRequest(generation)) setActionLoading(false);
     }
   }
 
@@ -291,18 +286,18 @@ export function RunProgressPanel({
     if (!run) return;
 
     const generation = startRequestGeneration();
-    setLoading(true);
-    setError(null);
+    setActionLoading(true);
+    setActionError(null);
 
     try {
-      await refreshRun(run.run_id, generation);
+      await runQuery.refetch();
     } catch (err) {
       if (!isCurrentRequest(generation)) return;
-      setError(
+      setActionError(
         err instanceof Error ? err.message : 'Failed to refresh run progress.',
       );
     } finally {
-      if (isCurrentRequest(generation)) setLoading(false);
+      if (isCurrentRequest(generation)) setActionLoading(false);
     }
   }
 
@@ -384,7 +379,7 @@ export function RunProgressPanel({
           disabled={!canCreateRun || loading}
           data-testid="create-run-button"
         >
-          {loading && !run ? 'Creating run record…' : 'Create run'}
+          {loading && !run ? 'Starting preflight…' : 'Start preflight'}
         </Button>
         {run && (
           <>

@@ -1,0 +1,161 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from './fetcher';
+import {
+  createGeneratedAgentClient,
+  createGeneratedRunClient,
+  createGeneratedWorkflowClient,
+} from './generated-client-adapters';
+import {
+  getWorkflowSchema,
+  listWorkflows,
+  validateWorkflow,
+} from './generated/workflows/workflows';
+import { getRun } from './generated/runs/runs';
+import { triggerPreflight } from './generated/preflight/preflight';
+import { chatWithWorkflowAgent } from './generated/agent/agent';
+
+vi.mock('./generated/workflows/workflows', () => ({
+  getWorkflowSchema: vi.fn(),
+  listWorkflows: vi.fn(),
+  validateWorkflow: vi.fn(),
+}));
+vi.mock('./generated/runs/runs', () => ({
+  cancelRun: vi.fn(),
+  createRun: vi.fn(),
+  getRun: vi.fn(),
+  listRunEvents: vi.fn(),
+  listRunLogs: vi.fn(),
+}));
+vi.mock('./generated/preflight/preflight', () => ({
+  triggerPreflight: vi.fn(),
+}));
+vi.mock('./generated/agent/agent', () => ({
+  chatWithWorkflowAgent: vi.fn(),
+}));
+
+describe('generated client adapters', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('normalizes optional workflow transport fields', async () => {
+    vi.mocked(listWorkflows).mockResolvedValue({
+      ok: true,
+      workflows: [
+        {
+          metadata: {
+            workflow_id: 'encode',
+            name: 'ENCODE',
+            version: '1.0.0',
+          },
+          capabilities: {},
+        },
+      ],
+    });
+
+    const response = await createGeneratedWorkflowClient().listWorkflows();
+
+    expect(response).toEqual({
+      ok: true,
+      workflows: [
+        {
+          metadata: {
+            workflow_id: 'encode',
+            name: 'ENCODE',
+            version: '1.0.0',
+            description: '',
+            engines: [],
+            tags: [],
+          },
+          capabilities: { supports: [] },
+        },
+      ],
+      issues: [],
+    });
+  });
+
+  it('uses generated validation and schema operations', async () => {
+    vi.mocked(getWorkflowSchema).mockResolvedValue({
+      ok: true,
+      workflow_id: 'encode',
+      schema_hints: {
+        config_schema: { type: 'object' },
+        sample_schema: { type: 'table' },
+        option_schema: {},
+      },
+      issues: [],
+    });
+    vi.mocked(validateWorkflow).mockResolvedValue({
+      ok: true,
+      workflow_id: 'encode',
+      value: { normalized: true },
+      issues: [],
+    });
+    const client = createGeneratedWorkflowClient();
+
+    const schema = await client.getWorkflowSchema('encode');
+    const validation = await client.validateWorkflow('encode', {
+      config: { genome: 'hg38' },
+      samples: 'samples.tsv',
+      options: {},
+    });
+
+    expect(schema.schema_hints?.config_schema).toEqual({ type: 'object' });
+    expect(validation.ok).toBe(true);
+    expect(validateWorkflow).toHaveBeenCalledWith('encode', {
+      config: { genome: 'hg38' },
+      samples: 'samples.tsv',
+      options: {},
+    });
+  });
+
+  it('calls the generated preflight operation', async () => {
+    vi.mocked(triggerPreflight).mockResolvedValue({
+      ok: true,
+      run: null,
+      issues: [],
+    });
+
+    const response = await createGeneratedRunClient().preflightRun('run-1');
+
+    expect(triggerPreflight).toHaveBeenCalledWith('run-1');
+    expect(response).toEqual({ ok: true, run: null, issues: [] });
+  });
+
+  it('converts safe ApiError details into a run issue envelope', async () => {
+    vi.mocked(getRun).mockRejectedValue(
+      new ApiError(404, 'RUN_NOT_FOUND', 'Run was not found.'),
+    );
+
+    const response = await createGeneratedRunClient().getRun('missing');
+
+    expect(response.ok).toBe(false);
+    expect(response.issues[0]).toMatchObject({
+      code: 'RUN_NOT_FOUND',
+      message: 'Run was not found.',
+      context: { status: 404 },
+    });
+  });
+
+  it('normalizes optional agent response collections', async () => {
+    vi.mocked(chatWithWorkflowAgent).mockResolvedValue({
+      ok: true,
+      message: 'Ready.',
+    });
+
+    const response = await createGeneratedAgentClient().chat('encode', {
+      session_id: null,
+      message: 'Explain this.',
+      context: null,
+    });
+
+    expect(response).toEqual({
+      ok: true,
+      session_id: null,
+      message: 'Ready.',
+      suggestions: [],
+      tool_calls: [],
+      issues: [],
+    });
+  });
+});

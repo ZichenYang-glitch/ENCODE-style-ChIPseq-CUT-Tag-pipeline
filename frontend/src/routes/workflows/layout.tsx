@@ -8,7 +8,7 @@ export function WorkflowsLayout() {
   const navigate = useNavigate();
   const { workflowId } = useParams<{ workflowId: string }>();
   const { workflowClient } = useClients();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['workflows'],
     queryFn: () => workflowClient.listWorkflows(),
   });
@@ -17,8 +17,14 @@ export function WorkflowsLayout() {
     <>
       <aside className="w-full shrink-0 lg:w-56">
         <Panel title="Workflows">
-          {isLoading || !data ? (
+          {isLoading ? (
             <p className="text-sm text-[var(--color-text-muted)]">Loading…</p>
+          ) : error || !data?.ok ? (
+            <p className="text-sm text-[var(--color-error)]" role="alert">
+              {error instanceof Error
+                ? error.message
+                : data?.issues[0]?.message ?? 'Unable to load workflows.'}
+            </p>
           ) : (
             <WorkflowCatalog
               workflows={data.workflows}

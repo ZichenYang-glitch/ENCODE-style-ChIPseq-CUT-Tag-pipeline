@@ -1,26 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { App } from './App';
 import { appRoutes } from './app/router';
 import { renderWithRouter } from './test/test-utils';
 
-vi.mock('./api/agentClient', () => ({
-  createAgentApiClient: vi.fn().mockReturnValue({
-    chat: vi.fn().mockResolvedValue({
-      ok: true,
-      session_id: null,
-      message: 'Mock agent reply.',
-      suggestions: [],
-      tool_calls: [],
-      issues: [],
-    }),
-  }),
-}));
-
 describe('App shell', () => {
   it('renders the workflow platform heading', async () => {
-    render(<App />);
+    renderWithRouter(appRoutes, { initialEntries: ['/workflows'] });
     expect(
       await screen.findByRole('heading', { name: /workflow platform/i }),
     ).toBeInTheDocument();
@@ -133,10 +119,6 @@ describe('App shell', () => {
   });
 
   it('sends only the clicked issue in current_issues when Ask Agent is clicked and sent', async () => {
-    const { createAgentApiClient } = await import('./api/agentClient');
-    const agentClient = vi.mocked(createAgentApiClient).mock.results[0].value as {
-      chat: ReturnType<typeof vi.fn>;
-    };
     const chat = vi.fn().mockResolvedValue({
       ok: true,
       session_id: null,
@@ -145,11 +127,10 @@ describe('App shell', () => {
       tool_calls: [],
       issues: [],
     });
-    agentClient.chat = chat;
-
     const user = userEvent.setup();
     renderWithRouter(appRoutes, {
       initialEntries: ['/workflows/encode-style-chipseq-cuttag-atac-mnase'],
+      clients: { agentClient: { chat } },
     });
 
     await screen.findByText(/Config schema/i);
