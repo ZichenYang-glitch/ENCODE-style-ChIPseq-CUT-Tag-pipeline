@@ -23,9 +23,19 @@ def alembic_config(database_url: str) -> Config:
 
 def upgrade_database(database_url: str, revision: str = "head") -> None:
     """Upgrade a platform database to the requested revision."""
+    _ensure_database_parent(database_url)
     command.upgrade(alembic_config(database_url), revision)
 
 
 def downgrade_database(database_url: str, revision: str) -> None:
     """Downgrade a platform database to the requested revision."""
+    _ensure_database_parent(database_url)
     command.downgrade(alembic_config(database_url), revision)
+
+
+def _ensure_database_parent(database_url: str) -> None:
+    """Create a file-backed SQLite parent before Alembic opens its own engine."""
+    from encode_pipeline.persistence.database import create_database_engine
+
+    engine = create_database_engine(database_url)
+    engine.dispose()
