@@ -13,9 +13,11 @@ dependencies = [
 
 [project.optional-dependencies]
 api = [
+    "alembic>=1.13,<2",
     "fastapi",
     "uvicorn[standard]",
     "httpx",
+    "sqlalchemy>=2,<3",
 ]
 llm-openai = [
     "openai",
@@ -35,6 +37,9 @@ encode-dag = "encode_pipeline.cli.dag:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"encode_pipeline.persistence" = ["alembic/script.py.mako"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

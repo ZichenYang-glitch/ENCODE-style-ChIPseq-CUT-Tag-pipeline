@@ -502,6 +502,8 @@ def test_importing_run_service_does_not_import_upper_layers():
             "encode_pipeline.frontend",
             "fastapi",
             "pydantic",
+            "sqlalchemy",
+            "alembic",
             "snakemake",
             "openai",
         ]
