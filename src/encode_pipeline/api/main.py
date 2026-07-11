@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -12,7 +13,7 @@ from fastapi.responses import JSONResponse
 
 from encode_pipeline.api.models import ValidationResponse
 from encode_pipeline.api.routes import api_v1_router
-from encode_pipeline.persistence import open_run_persistence
+from encode_pipeline.persistence import DATABASE_URL_ENV, open_run_persistence
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.services.defaults import (
     create_default_agent_service,
@@ -24,6 +25,11 @@ from encode_pipeline.services.defaults import (
 )
 from encode_pipeline.services.planning import ExecutionPlanner
 from encode_pipeline.services.preflight import LocalPreflightService
+from encode_pipeline.workers.rq_queue import RqRunQueue
+from encode_pipeline.workers.settings import (
+    WORKSPACE_ROOT_ENV,
+    load_worker_settings,
+)
 
 
 def create_app(
@@ -32,13 +38,21 @@ def create_app(
     workspace_root: Path | None = None,
 ) -> FastAPI:
     """Return a configured FastAPI app with default platform services."""
-    persistence = open_run_persistence(database_url)
+    settings_environment = dict(os.environ)
+    if database_url is not None:
+        settings_environment[DATABASE_URL_ENV] = database_url
+    if workspace_root is not None:
+        settings_environment[WORKSPACE_ROOT_ENV] = str(workspace_root)
+    worker_settings = load_worker_settings(settings_environment)
+    persistence = open_run_persistence(worker_settings.database_url)
+    run_queue = RqRunQueue(worker_settings)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         try:
             yield
         finally:
+            run_queue.close()
             persistence.close()
 
     app = FastAPI(
@@ -56,7 +70,7 @@ def create_app(
     recovered_runs = run_service.recover_interrupted_runs()
     local_run_driver = create_default_local_run_driver(
         run_service=run_service,
-        workspace_root=workspace_root,
+        workspace_root=worker_settings.workspace_root,
     )
     preflight_service = LocalPreflightService(
         run_service=run_service,
@@ -68,6 +82,9 @@ def create_app(
     app.state.registry = registry
     app.state.persistence = persistence
     app.state.database_url = persistence.database_url
+    app.state.workspace_root = worker_settings.workspace_root
+    app.state.worker_settings = worker_settings
+    app.state.run_queue = run_queue
     app.state.recovered_run_ids = tuple(run.run_id for run in recovered_runs)
     app.state.validation_service = create_default_validation_service(registry=registry)
     app.state.agent_service = create_default_agent_service(registry=registry)

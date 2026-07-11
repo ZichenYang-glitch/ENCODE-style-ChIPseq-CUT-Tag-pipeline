@@ -37,7 +37,11 @@ _VALID_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
     RunStatus.CREATED: {RunStatus.VALIDATING, RunStatus.CANCELLED},
     RunStatus.VALIDATING: {RunStatus.PLANNED, RunStatus.FAILED, RunStatus.CANCELLED},
     RunStatus.PLANNED: {RunStatus.QUEUED, RunStatus.CANCELLED},
-    RunStatus.QUEUED: {RunStatus.RUNNING, RunStatus.CANCELLED},
+    RunStatus.QUEUED: {
+        RunStatus.RUNNING,
+        RunStatus.FAILED,
+        RunStatus.CANCELLED,
+    },
     RunStatus.RUNNING: {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED},
     RunStatus.SUCCEEDED: set(),
     RunStatus.FAILED: set(),
@@ -144,9 +148,7 @@ class RunEvent:
     issue: Issue | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "context", _copy_mapping(self.context, "context")
-        )
+        object.__setattr__(self, "context", _copy_mapping(self.context, "context"))
         if self.status is not None and not isinstance(self.status, RunStatus):
             raise ValueError("RunEvent status must be a RunStatus or None")
         if not isinstance(self.sequence, int) or isinstance(self.sequence, bool):
@@ -182,9 +184,7 @@ class RunLogChunk:
     lines: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "lines", _normalize_string_tuple(self.lines, "lines")
-        )
+        object.__setattr__(self, "lines", _normalize_string_tuple(self.lines, "lines"))
         if not isinstance(self.sequence, int) or isinstance(self.sequence, bool):
             raise ValueError("RunLogChunk sequence must be an integer")
 
@@ -231,9 +231,7 @@ class RunArtifactRef:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "metadata", _copy_mapping(self.metadata, "metadata")
-        )
+        object.__setattr__(self, "metadata", _copy_mapping(self.metadata, "metadata"))
 
     def to_dict(self) -> dict[str, Any]:
         """Return a dict representation with fresh copies of mutable fields."""

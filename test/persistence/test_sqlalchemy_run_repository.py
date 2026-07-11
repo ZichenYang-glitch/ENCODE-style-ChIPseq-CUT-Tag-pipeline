@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from threading import Barrier
 
 import pytest
 
@@ -15,6 +16,7 @@ from encode_pipeline.persistence import (
     upgrade_database,
 )
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.execution import RunExecutionAssignment
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.runs import RunArtifactRef, RunRecord, RunStatus
 from encode_pipeline.services.defaults import create_default_workflow_registry
@@ -234,6 +236,309 @@ def test_concurrent_appends_keep_unique_monotonic_sequences(repository):
     )
 
 
+def test_independent_repositories_serialize_event_and_log_sequences(database_url):
+    upgrade_database(database_url)
+    first_engine = create_database_engine(database_url)
+    second_engine = create_database_engine(database_url)
+    first_repository = SqlAlchemyRunRepository(create_session_factory(first_engine))
+    second_repository = SqlAlchemyRunRepository(create_session_factory(second_engine))
+    first_repository.create_run(_record("run-1"), _created_event())
+    event_barrier = Barrier(2)
+
+    def append_event(repository, label):
+        event_barrier.wait(timeout=5)
+        return repository.add_event(
+            "run-1",
+            RunEventDraft(event_type=label, message=label),
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = (
+                pool.submit(append_event, first_repository, "first"),
+                pool.submit(append_event, second_repository, "second"),
+            )
+            for future in futures:
+                future.result()
+
+        log_barrier = Barrier(2)
+
+        def append_log(repository, label):
+            log_barrier.wait(timeout=5)
+            return repository.append_log("run-1", "stdout", [label])
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = (
+                pool.submit(append_log, first_repository, "first"),
+                pool.submit(append_log, second_repository, "second"),
+            )
+            for future in futures:
+                future.result()
+
+        events = first_repository.list_events("run-1", limit=10)
+        logs = second_repository.list_logs("run-1", "stdout", limit=10)
+        assert [event.sequence for event in events] == [1, 2, 3]
+        assert {event.event_type for event in events[1:]} == {"first", "second"}
+        assert [chunk.sequence for chunk in logs] == [1, 2]
+        assert {chunk.lines for chunk in logs} == {("first",), ("second",)}
+    finally:
+        first_engine.dispose()
+        second_engine.dispose()
+
+
+def test_execution_assignment_round_trips_and_returns_canonical_existing(
+    repository,
+):
+    repository.create_run(_record("run-1"), _created_event())
+    original = _assignment("run-1", "job-original")
+    replacement = replace(
+        original,
+        job_id="job-replacement",
+        queue_name="priority",
+        created_at=original.created_at + timedelta(seconds=1),
+    )
+
+    assert repository.get_execution_assignment("run-1") is None
+    assert (
+        repository.ensure_execution_assignment(
+            original, expected_status=RunStatus.CREATED
+        )
+        == original
+    )
+    assert (
+        repository.ensure_execution_assignment(
+            replacement, expected_status=RunStatus.CREATED
+        )
+        == original
+    )
+    assert repository.get_execution_assignment("run-1") == original
+
+
+def test_dispatch_mark_is_idempotent_after_status_changes(repository):
+    record = _record("run-1")
+    repository.create_run(record, _created_event())
+    assignment = repository.ensure_execution_assignment(
+        _assignment(record.run_id, "job-1"),
+        expected_status=RunStatus.CREATED,
+    )
+    dispatched_at = datetime.now(timezone.utc)
+    dispatched = repository.mark_execution_dispatched(
+        record.run_id,
+        job_id=assignment.job_id,
+        dispatched_at=dispatched_at,
+        allowed_statuses=frozenset({RunStatus.CREATED}),
+    )
+    repository.update_run(
+        replace(record, status=RunStatus.VALIDATING),
+        expected_status=RunStatus.CREATED,
+        event=RunEventDraft(
+            event_type="status_changed",
+            message="Run advanced.",
+            status=RunStatus.VALIDATING,
+        ),
+    )
+
+    retried = repository.mark_execution_dispatched(
+        record.run_id,
+        job_id=assignment.job_id,
+        dispatched_at=dispatched_at + timedelta(seconds=1),
+        allowed_statuses=frozenset({RunStatus.CREATED}),
+    )
+
+    assert retried == dispatched
+
+
+def test_execution_assignment_rejects_cross_run_job_reuse(repository):
+    repository.create_run(_record("run-1"), _created_event())
+    repository.create_run(_record("run-2"), _created_event())
+    repository.ensure_execution_assignment(
+        _assignment("run-1", "shared-job"),
+        expected_status=RunStatus.CREATED,
+    )
+
+    with pytest.raises(ValueError, match="shared-job.*already assigned"):
+        repository.ensure_execution_assignment(
+            _assignment("run-2", "shared-job"),
+            expected_status=RunStatus.CREATED,
+        )
+
+
+def test_execution_assignment_requires_a_persisted_run(repository):
+    with pytest.raises(KeyError, match="missing"):
+        repository.ensure_execution_assignment(
+            _assignment("missing", "job-1"),
+            expected_status=RunStatus.CREATED,
+        )
+    assert repository.get_execution_assignment("missing") is None
+
+
+def test_independent_repositories_concurrently_choose_one_assignment(database_url):
+    upgrade_database(database_url)
+    first_engine = create_database_engine(database_url)
+    second_engine = create_database_engine(database_url)
+    first_repository = SqlAlchemyRunRepository(create_session_factory(first_engine))
+    second_repository = SqlAlchemyRunRepository(create_session_factory(second_engine))
+    first_repository.create_run(_record("run-1"), _created_event())
+    first = _assignment("run-1", "job-first")
+    second = replace(
+        first,
+        job_id="job-second",
+        created_at=first.created_at + timedelta(seconds=1),
+    )
+    barrier = Barrier(2)
+
+    def ensure(repository, assignment):
+        barrier.wait()
+        return repository.ensure_execution_assignment(
+            assignment,
+            expected_status=RunStatus.CREATED,
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = (
+                pool.submit(ensure, first_repository, first),
+                pool.submit(ensure, second_repository, second),
+            )
+            resolved = tuple(future.result() for future in futures)
+
+        assert resolved[0] == resolved[1]
+        assert resolved[0] in {first, second}
+        assert first_repository.get_execution_assignment("run-1") == resolved[0]
+        assert second_repository.get_execution_assignment("run-1") == resolved[0]
+    finally:
+        first_engine.dispose()
+        second_engine.dispose()
+
+
+def test_recovery_and_dispatch_race_preserves_exactly_one_outcome(database_url):
+    upgrade_database(database_url)
+    first_engine = create_database_engine(database_url)
+    second_engine = create_database_engine(database_url)
+    first_service = RunService(
+        create_default_workflow_registry(),
+        id_factory=lambda: "run-1",
+        repository=SqlAlchemyRunRepository(create_session_factory(first_engine)),
+    )
+    second_service = RunService(
+        create_default_workflow_registry(),
+        repository=SqlAlchemyRunRepository(create_session_factory(second_engine)),
+    )
+    first_service.create_run(WORKFLOW_ID, WorkflowInputs(config={}))
+    first_service.transition_run("run-1", RunStatus.VALIDATING)
+    first_service.transition_run("run-1", RunStatus.PLANNED)
+    assignment = first_service.ensure_execution_assignment(
+        "run-1",
+        queue_name="default",
+    )
+    first_service.transition_run("run-1", RunStatus.QUEUED)
+    barrier = Barrier(2)
+
+    def recover():
+        barrier.wait(timeout=5)
+        return first_service.recover_interrupted_runs()
+
+    def dispatch():
+        barrier.wait(timeout=5)
+        try:
+            return second_service.mark_execution_dispatched(
+                "run-1",
+                job_id=assignment.job_id,
+            )
+        except ConcurrentRunUpdateError:
+            return None
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            recovery_future = pool.submit(recover)
+            dispatch_future = pool.submit(dispatch)
+            recovered = recovery_future.result()
+            dispatched = dispatch_future.result()
+
+        final_record = second_service.get_run("run-1")
+        final_assignment = second_service.get_execution_assignment("run-1")
+        assert final_assignment is not None
+        if final_record.status is RunStatus.QUEUED:
+            assert recovered == ()
+            assert dispatched is not None
+            assert final_assignment.dispatched_at is not None
+        else:
+            assert final_record.status is RunStatus.FAILED
+            assert [record.run_id for record in recovered] == ["run-1"]
+            assert dispatched is None
+            assert final_assignment.dispatched_at is None
+        assert second_service.list_events("run-1")[-1].status is final_record.status
+    finally:
+        first_engine.dispose()
+        second_engine.dispose()
+
+
+def test_worker_claim_and_cancel_race_never_writes_after_cancellation(database_url):
+    upgrade_database(database_url)
+    first_engine = create_database_engine(database_url)
+    second_engine = create_database_engine(database_url)
+    first_service = RunService(
+        create_default_workflow_registry(),
+        id_factory=lambda: "run-1",
+        repository=SqlAlchemyRunRepository(create_session_factory(first_engine)),
+    )
+    second_service = RunService(
+        create_default_workflow_registry(),
+        repository=SqlAlchemyRunRepository(create_session_factory(second_engine)),
+    )
+    first_service.create_run(WORKFLOW_ID, WorkflowInputs(config={}))
+    first_service.transition_run("run-1", RunStatus.VALIDATING)
+    first_service.transition_run("run-1", RunStatus.PLANNED)
+    assignment = first_service.ensure_execution_assignment(
+        "run-1",
+        queue_name="default",
+    )
+    first_service.mark_execution_dispatched("run-1", job_id=assignment.job_id)
+    first_service.transition_run("run-1", RunStatus.QUEUED)
+    barrier = Barrier(2)
+
+    def claim():
+        barrier.wait(timeout=5)
+        try:
+            return first_service.claim_execution_assignment(
+                "run-1",
+                job_id=assignment.job_id,
+                backend=assignment.backend,
+                queue_name=assignment.queue_name,
+            )
+        except ConcurrentRunUpdateError:
+            return None
+
+    def cancel():
+        barrier.wait(timeout=5)
+        return second_service.cancel_run("run-1", reason="race test")
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            claim_future = pool.submit(claim)
+            cancel_future = pool.submit(cancel)
+            claim_result = claim_future.result()
+            cancelled = cancel_future.result()
+
+        assert cancelled.status is RunStatus.CANCELLED
+        assert second_service.get_run("run-1").status is RunStatus.CANCELLED
+        events = second_service.list_events("run-1", limit=100)
+        assert events[-1].status is RunStatus.CANCELLED
+        handshake_sequences = [
+            event.sequence
+            for event in events
+            if event.event_type == "worker_dependencies_rebuilt"
+        ]
+        if claim_result is None:
+            assert handshake_sequences == []
+        else:
+            assert claim_result.acquired is True
+            assert handshake_sequences[-1] < events[-1].sequence
+    finally:
+        first_engine.dispose()
+        second_engine.dispose()
+
+
 def _record(run_id: str) -> RunRecord:
     now = datetime.now(timezone.utc)
     return RunRecord(
@@ -270,4 +575,14 @@ def _artifact(run_id: str, artifact_id: str) -> RunArtifactRef:
         mime_type="application/json",
         produced_at=datetime.now(timezone.utc),
         metadata={},
+    )
+
+
+def _assignment(run_id: str, job_id: str) -> RunExecutionAssignment:
+    return RunExecutionAssignment(
+        run_id=run_id,
+        job_id=job_id,
+        backend="rq",
+        queue_name="default",
+        created_at=datetime.now(timezone.utc),
     )

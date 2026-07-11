@@ -54,6 +54,8 @@ def resolve_database_url(database_url: str | None = None) -> str:
         ":memory:",
     }:
         raise ValueError("database_url must point to a file-backed SQLite database")
+    if not Path(parsed_url.database).is_absolute():
+        raise ValueError("database_url must point to an absolute SQLite database path")
     return resolved_url
 
 

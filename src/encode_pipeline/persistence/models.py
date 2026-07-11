@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -42,6 +43,34 @@ class RunRow(Base):
     cancellation_reason: Mapped[str | None] = mapped_column(Text)
     error: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     tags: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False)
+
+
+class RunExecutionAssignmentRow(Base):
+    __tablename__ = "run_execution_assignments"
+    __table_args__ = (
+        UniqueConstraint(
+            "job_id",
+            name="uq_run_execution_assignments_job_id",
+        ),
+        CheckConstraint(
+            "claimed_at IS NULL OR dispatched_at IS NOT NULL",
+            name="ck_run_execution_assignments_claim_requires_dispatch",
+        ),
+    )
+
+    run_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("runs.run_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    job_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    backend: Mapped[str] = mapped_column(String(64), nullable=False)
+    queue_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class RunEventRow(Base):

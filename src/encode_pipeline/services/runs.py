@@ -9,6 +9,12 @@ from typing import Any
 from uuid import uuid4
 
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.execution import (
+    RunExecutionAssignment,
+    RunExecutionClaim,
+    RunExecutionOwnership,
+    build_execution_job_id,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.runs import (
@@ -166,35 +172,160 @@ class RunService:
         with self._lock:
             return self._repository.list_runs()
 
-    def recover_interrupted_runs(self) -> tuple[RunRecord, ...]:
-        """Mark work interrupted by an API restart as failed.
+    def ensure_execution_assignment(
+        self,
+        run_id: str,
+        *,
+        queue_name: str,
+        backend: str = "rq",
+    ) -> RunExecutionAssignment:
+        """Return the durable worker assignment for a planned run.
 
-        ``CREATED`` and ``PLANNED`` are quiescent persisted states and remain
-        available for user action. ``VALIDATING``, ``QUEUED``, and ``RUNNING``
-        imply work that belonged to the prior API process, so this method
-        records an explicit terminal failure instead of claiming that work is
-        still active after that process has disappeared.
+        The job identity is derived only from ``run_id`` so retries made while
+        the run remains planned resolve to the same backend job.  The
+        repository returns the first persisted assignment as the canonical
+        value when this method is called more than once.
         """
-        recoverable_statuses = {
-            RunStatus.VALIDATING,
-            RunStatus.QUEUED,
-            RunStatus.RUNNING,
-        }
+        with self._lock:
+            current = self._repository.get_run(run_id)
+            if current.status is not RunStatus.PLANNED:
+                raise ValueError(
+                    "Execution assignments may only be created for planned runs; "
+                    f"run {run_id!r} is {current.status.value!r}."
+                )
+            assignment = RunExecutionAssignment(
+                run_id=run_id,
+                job_id=build_execution_job_id(run_id),
+                backend=backend,
+                queue_name=queue_name,
+                created_at=datetime.now(timezone.utc),
+            )
+            persisted = self._repository.ensure_execution_assignment(
+                assignment,
+                expected_status=RunStatus.PLANNED,
+            )
+            if persisted.backend != backend or persisted.queue_name != queue_name:
+                raise ValueError(
+                    "Existing execution assignment does not match the configured "
+                    "backend and queue."
+                )
+            return persisted
+
+    def get_execution_assignment(
+        self,
+        run_id: str,
+    ) -> RunExecutionAssignment | None:
+        """Return the durable worker assignment for ``run_id``, if present."""
+        with self._lock:
+            return self._repository.get_execution_assignment(run_id)
+
+    def mark_execution_dispatched(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+    ) -> RunExecutionAssignment:
+        """Persist that the configured backend accepted this execution job."""
+        with self._lock:
+            return self._repository.mark_execution_dispatched(
+                run_id,
+                job_id=job_id,
+                dispatched_at=datetime.now(timezone.utc),
+                allowed_statuses=frozenset({RunStatus.PLANNED, RunStatus.QUEUED}),
+            )
+
+    def claim_execution_assignment(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        context: Mapping[str, Any] | None = None,
+    ) -> RunExecutionClaim:
+        """Atomically claim a dispatched job and write its first worker event."""
+        with self._lock:
+            event_context = dict(context or {})
+            event_context.update(
+                {
+                    "backend": backend,
+                    "job_id": job_id,
+                    "queue_name": queue_name,
+                }
+            )
+            return self._repository.claim_execution_assignment(
+                run_id,
+                job_id=job_id,
+                backend=backend,
+                queue_name=queue_name,
+                claimed_at=datetime.now(timezone.utc),
+                allowed_statuses=frozenset({RunStatus.PLANNED, RunStatus.QUEUED}),
+                event=RunEventDraft(
+                    event_type="worker_dependencies_rebuilt",
+                    message=(
+                        "Worker rebuilt execution dependencies from durable state."
+                    ),
+                    stage="execution",
+                    context=event_context,
+                ),
+            )
+
+    def recover_interrupted_runs(self) -> tuple[RunRecord, ...]:
+        """Recover active runs according to their durable execution owner.
+
+        Validation is API-owned and therefore cannot survive an API restart.
+        Queued work requires a durable dispatch marker and running work requires
+        an atomic worker claim; those runs remain untouched while active records
+        without the required ownership evidence are failed as orphans.
+        Quiescent and terminal states are always preserved.
+        """
         with self._lock:
             recovered: list[RunRecord] = []
             for current in self._repository.list_runs():
-                if current.status not in recoverable_statuses:
+                if current.status is RunStatus.VALIDATING:
+                    required_ownership = None
+                    issue = Issue(
+                        code="RUN_INTERRUPTED_BY_API_RESTART",
+                        message="Run was interrupted by an API restart.",
+                        severity="error",
+                        path="run_id",
+                        source="run_service",
+                        hint=(
+                            "Review the run events and submit a new preflight if "
+                            "needed."
+                        ),
+                    )
+                    reason_code = "API_RESTART_INTERRUPTED"
+                    event_message = (
+                        "Run marked failed because API-owned validation was "
+                        "interrupted by an API restart."
+                    )
+                elif current.status in {RunStatus.QUEUED, RunStatus.RUNNING}:
+                    required_ownership = (
+                        RunExecutionOwnership.DISPATCHED
+                        if current.status is RunStatus.QUEUED
+                        else RunExecutionOwnership.CLAIMED
+                    )
+                    reason_code = "WORKER_OWNERSHIP_NOT_CONFIRMED"
+                    issue = Issue(
+                        code="RUN_ORPHANED_AFTER_API_RESTART",
+                        message=(
+                            "Run has an active status but no confirmed durable worker "
+                            "ownership."
+                        ),
+                        severity="error",
+                        path="run_id",
+                        source="run_service",
+                        hint="Review the run events and submit the run again.",
+                    )
+                    event_message = (
+                        "Run marked failed because durable worker ownership was not "
+                        "confirmed after the API restart."
+                    )
+                else:
                     continue
 
                 now = datetime.now(timezone.utc)
-                issue = Issue(
-                    code="RUN_INTERRUPTED_BY_API_RESTART",
-                    message="Run was interrupted by an API restart.",
-                    severity="error",
-                    path="run_id",
-                    source="run_service",
-                    hint="Review the run events and submit a new preflight if needed.",
-                )
                 updated = RunRecord(
                     run_id=current.run_id,
                     workflow_id=current.workflow_id,
@@ -210,21 +341,19 @@ class RunService:
                     tags=current.tags,
                 )
                 try:
-                    self._repository.update_run(
+                    was_recovered = self._repository.fail_interrupted_run_if_unowned(
                         updated,
                         expected_status=current.status,
+                        required_ownership=required_ownership,
                         event=RunEventDraft(
                             event_type="run_recovered_after_restart",
-                            message=(
-                                "Run marked failed because the API restarted before "
-                                "active work completed."
-                            ),
+                            message=event_message,
                             status=RunStatus.FAILED,
                             stage=current.current_stage,
                             context={
                                 "previous_status": current.status.value,
                                 "new_status": RunStatus.FAILED.value,
-                                "reason_code": "API_RESTART_INTERRUPTED",
+                                "reason_code": reason_code,
                             },
                             issue=issue,
                         ),
@@ -232,6 +361,8 @@ class RunService:
                 except (ConcurrentRunUpdateError, KeyError):
                     # A concurrent writer already changed or deleted the run.
                     # Re-reading it on the next startup keeps recovery idempotent.
+                    continue
+                if not was_recovered:
                     continue
                 recovered.append(updated)
             return tuple(recovered)

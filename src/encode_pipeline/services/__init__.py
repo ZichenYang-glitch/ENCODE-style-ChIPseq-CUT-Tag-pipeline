@@ -18,6 +18,7 @@ from encode_pipeline.services.process_runner import ProcessRunner
 from encode_pipeline.services.materialization import WorkspaceMaterializer
 from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 from encode_pipeline.services.runs import RunService
+from encode_pipeline.services.run_queue import RunQueue
 from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
 from encode_pipeline.services.validation import ValidationService
 from encode_pipeline.services.workflow_info import WorkflowInfoService
@@ -28,6 +29,7 @@ __all__ = [
     "LocalRunDriver",
     "ProcessRunner",
     "RunService",
+    "RunQueue",
     "StubExecutionDriver",
     "ValidationService",
     "WorkspaceMaterializer",

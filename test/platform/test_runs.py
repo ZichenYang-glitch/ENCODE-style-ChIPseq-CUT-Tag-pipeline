@@ -29,6 +29,7 @@ def test_can_transition_accepts_pr99_path():
     assert can_transition(RunStatus.VALIDATING, RunStatus.FAILED)
     assert can_transition(RunStatus.PLANNED, RunStatus.QUEUED)
     assert can_transition(RunStatus.QUEUED, RunStatus.RUNNING)
+    assert can_transition(RunStatus.QUEUED, RunStatus.FAILED)
     assert can_transition(RunStatus.RUNNING, RunStatus.SUCCEEDED)
     assert can_transition(RunStatus.RUNNING, RunStatus.FAILED)
     assert can_transition(RunStatus.RUNNING, RunStatus.CANCELLED)
@@ -38,7 +39,7 @@ def test_can_transition_rejects_invalid_transitions():
     from encode_pipeline.platform.runs import RunStatus, can_transition
 
     assert not can_transition(RunStatus.CREATED, RunStatus.RUNNING)
-    assert not can_transition(RunStatus.QUEUED, RunStatus.FAILED)
+    assert not can_transition(RunStatus.PLANNED, RunStatus.FAILED)
     assert not can_transition(RunStatus.RUNNING, RunStatus.PLANNED)
     assert not can_transition(RunStatus.SUCCEEDED, RunStatus.FAILED)
     assert not can_transition(RunStatus.FAILED, RunStatus.CANCELLED)

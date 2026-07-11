@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import datetime, timezone
 from threading import RLock
 
@@ -13,8 +14,14 @@ from sqlalchemy.orm import Session, sessionmaker
 from encode_pipeline.persistence.models import (
     RunArtifactRow,
     RunEventRow,
+    RunExecutionAssignmentRow,
     RunLogRow,
     RunRow,
+)
+from encode_pipeline.platform.execution import (
+    RunExecutionAssignment,
+    RunExecutionClaim,
+    RunExecutionOwnership,
 )
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.runs import (
@@ -50,6 +57,7 @@ class SqlAlchemyRunRepository:
         with self._lock:
             try:
                 with self._session_factory.begin() as session:
+                    _begin_write(session)
                     session.add(_run_row(record))
                     session.flush()
                     return self._insert_event(session, record.run_id, event)
@@ -73,6 +81,7 @@ class SqlAlchemyRunRepository:
         event: RunEventDraft,
     ) -> RunEvent:
         with self._lock, self._session_factory.begin() as session:
+            _begin_write(session)
             result = session.execute(
                 update(RunRow)
                 .where(
@@ -96,8 +105,42 @@ class SqlAlchemyRunRepository:
 
     def add_event(self, run_id: str, event: RunEventDraft) -> RunEvent:
         with self._lock, self._session_factory.begin() as session:
+            _begin_write(session)
             self._require_run(session, run_id)
             return self._insert_event(session, run_id, event)
+
+    def fail_interrupted_run_if_unowned(
+        self,
+        record: RunRecord,
+        *,
+        expected_status: RunStatus,
+        required_ownership: RunExecutionOwnership | None,
+        event: RunEventDraft,
+    ) -> bool:
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, record.run_id)
+            if RunStatus(current.status) is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {record.run_id!r} changed while it was being recovered."
+                )
+            assignment = session.get(RunExecutionAssignmentRow, record.run_id)
+            if _assignment_row_has_ownership(assignment, required_ownership):
+                return False
+            result = session.execute(
+                update(RunRow)
+                .where(
+                    RunRow.run_id == record.run_id,
+                    RunRow.status == expected_status.value,
+                )
+                .values(**_run_values(record))
+            )
+            if result.rowcount != 1:
+                raise ConcurrentRunUpdateError(
+                    f"Run {record.run_id!r} changed while it was being recovered."
+                )
+            self._insert_event(session, record.run_id, event)
+            return True
 
     def list_events(
         self,
@@ -132,6 +175,7 @@ class SqlAlchemyRunRepository:
     ) -> RunLogChunk:
         normalized_lines = tuple(lines)
         with self._lock, self._session_factory.begin() as session:
+            _begin_write(session)
             self._require_run(session, run_id)
             sequence = self._next_log_sequence(session, run_id, stream_name)
             timestamp = datetime.now(timezone.utc)
@@ -192,6 +236,7 @@ class SqlAlchemyRunRepository:
         with self._lock:
             try:
                 with self._session_factory.begin() as session:
+                    _begin_write(session)
                     self._require_run(session, run_id)
                     session.add(
                         RunArtifactRow(
@@ -221,6 +266,138 @@ class SqlAlchemyRunRepository:
                 .order_by(RunArtifactRow.id)
             ).all()
             return tuple(_artifact_from_row(row) for row in rows)
+
+    def ensure_execution_assignment(
+        self,
+        assignment: RunExecutionAssignment,
+        *,
+        expected_status: RunStatus,
+    ) -> RunExecutionAssignment:
+        try:
+            with self._session_factory.begin() as session:
+                _begin_write(session)
+                current = self._require_run(session, assignment.run_id)
+                if RunStatus(current.status) is not expected_status:
+                    raise ConcurrentRunUpdateError(
+                        f"Run {assignment.run_id!r} is no longer assignable."
+                    )
+                row = RunExecutionAssignmentRow(
+                    run_id=assignment.run_id,
+                    job_id=assignment.job_id,
+                    backend=assignment.backend,
+                    queue_name=assignment.queue_name,
+                    created_at=assignment.created_at,
+                    dispatched_at=assignment.dispatched_at,
+                    claimed_at=assignment.claimed_at,
+                )
+                session.add(row)
+                session.flush()
+                return _execution_assignment_from_row(row)
+        except IntegrityError as exc:
+            with self._session_factory() as session:
+                existing = session.get(
+                    RunExecutionAssignmentRow,
+                    assignment.run_id,
+                )
+                if existing is not None:
+                    return _execution_assignment_from_row(existing)
+                if (
+                    session.scalar(
+                        select(RunRow.run_id).where(RunRow.run_id == assignment.run_id)
+                    )
+                    is None
+                ):
+                    raise KeyError(assignment.run_id) from exc
+                assigned_run_id = session.scalar(
+                    select(RunExecutionAssignmentRow.run_id).where(
+                        RunExecutionAssignmentRow.job_id == assignment.job_id
+                    )
+                )
+                if assigned_run_id is not None:
+                    raise ValueError(
+                        f"Execution job_id {assignment.job_id!r} is already "
+                        f"assigned to run {assigned_run_id!r}."
+                    ) from exc
+            raise
+
+    def get_execution_assignment(
+        self,
+        run_id: str,
+    ) -> RunExecutionAssignment | None:
+        with self._session_factory() as session:
+            row = session.get(RunExecutionAssignmentRow, run_id)
+            return _execution_assignment_from_row(row) if row is not None else None
+
+    def mark_execution_dispatched(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        dispatched_at: datetime,
+        allowed_statuses: frozenset[RunStatus],
+    ) -> RunExecutionAssignment:
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, run_id)
+            row = session.get(RunExecutionAssignmentRow, run_id)
+            if row is None:
+                raise KeyError(run_id)
+            if row.job_id != job_id:
+                raise ValueError("job_id does not match the execution assignment")
+            if row.dispatched_at is not None:
+                return _execution_assignment_from_row(row)
+            if RunStatus(current.status) not in allowed_statuses:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer dispatchable."
+                )
+            row.dispatched_at = dispatched_at
+            session.flush()
+            return _execution_assignment_from_row(row)
+
+    def claim_execution_assignment(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        claimed_at: datetime,
+        allowed_statuses: frozenset[RunStatus],
+        event: RunEventDraft,
+    ) -> RunExecutionClaim:
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, run_id)
+            row = session.get(RunExecutionAssignmentRow, run_id)
+            if row is None:
+                raise KeyError(run_id)
+            _require_assignment_row_identity(
+                row,
+                job_id=job_id,
+                backend=backend,
+                queue_name=queue_name,
+            )
+            assignment = _execution_assignment_from_row(row)
+            if assignment.claimed_at is not None:
+                return RunExecutionClaim(assignment=assignment, acquired=False)
+
+            current_status = RunStatus(current.status)
+            if current_status not in allowed_statuses:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer claimable."
+                )
+            row.dispatched_at = row.dispatched_at or claimed_at
+            row.claimed_at = claimed_at
+            session.flush()
+            self._insert_event(
+                session,
+                run_id,
+                replace(event, status=current_status),
+            )
+            return RunExecutionClaim(
+                assignment=_execution_assignment_from_row(row),
+                acquired=True,
+            )
 
     @staticmethod
     def _require_run(session: Session, run_id: str) -> RunRow:
@@ -284,6 +461,13 @@ class SqlAlchemyRunRepository:
 
 def _run_row(record: RunRecord) -> RunRow:
     return RunRow(run_id=record.run_id, **_run_values(record))
+
+
+def _begin_write(session: Session) -> None:
+    """Serialize SQLite writers before read-then-increment sequence allocation."""
+    bind = session.get_bind()
+    if bind.dialect.name == "sqlite":
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
 
 
 def _run_values(record: RunRecord) -> dict[str, object]:
@@ -356,6 +540,44 @@ def _artifact_from_row(row: RunArtifactRow) -> RunArtifactRef:
         produced_at=_as_utc(row.produced_at),
         metadata=row.artifact_metadata,
     )
+
+
+def _execution_assignment_from_row(
+    row: RunExecutionAssignmentRow,
+) -> RunExecutionAssignment:
+    return RunExecutionAssignment(
+        run_id=row.run_id,
+        job_id=row.job_id,
+        backend=row.backend,
+        queue_name=row.queue_name,
+        created_at=_as_utc(row.created_at),
+        dispatched_at=_optional_utc(row.dispatched_at),
+        claimed_at=_optional_utc(row.claimed_at),
+    )
+
+
+def _require_assignment_row_identity(
+    row: RunExecutionAssignmentRow,
+    *,
+    job_id: str,
+    backend: str,
+    queue_name: str,
+) -> None:
+    if row.job_id != job_id or row.backend != backend or row.queue_name != queue_name:
+        raise ValueError("execution assignment identity does not match")
+
+
+def _assignment_row_has_ownership(
+    row: RunExecutionAssignmentRow | None,
+    required_ownership: RunExecutionOwnership | None,
+) -> bool:
+    if required_ownership is None:
+        return False
+    if row is None or row.backend != "rq":
+        return False
+    if required_ownership is RunExecutionOwnership.DISPATCHED:
+        return row.dispatched_at is not None
+    return row.claimed_at is not None
 
 
 def _issue_to_json(issue: Issue | None) -> dict[str, object] | None:

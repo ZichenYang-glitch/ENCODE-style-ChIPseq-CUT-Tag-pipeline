@@ -20,9 +20,14 @@ from encode_pipeline.platform.adapters import (
     WorkflowSchema,
     WorkspacePlan,
 )
+from encode_pipeline.platform.execution import (
+    RunExecutionAssignment,
+    build_execution_job_id,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunArtifactRef, RunRecord, RunStatus
+from encode_pipeline.services.run_repositories import InMemoryRunRepository
 from encode_pipeline.services.runs import RunService
 
 
@@ -470,36 +475,236 @@ def test_record_artifact_rejects_duplicate_artifact_id():
         service.record_artifact("run-1", artifact)
 
 
-def test_recover_interrupted_runs_marks_only_active_states_as_failed():
+def test_ensure_execution_assignment_is_deterministic_and_idempotent():
     registry = WorkflowRegistry(adapters=[FakeAdapter()])
-    run_ids = iter(
-        [
-            "run-created",
-            "run-planned",
-            "run-validating",
-            "run-queued",
-            "run-running",
-            "run-succeeded",
-        ]
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run("fake", WorkflowInputs(config={}))
+    service.transition_run("run-1", RunStatus.VALIDATING)
+    service.transition_run("run-1", RunStatus.PLANNED)
+
+    first = service.ensure_execution_assignment("run-1", queue_name="runs")
+    second = service.ensure_execution_assignment("run-1", queue_name="runs")
+
+    assert first == RunExecutionAssignment(
+        run_id="run-1",
+        job_id=build_execution_job_id("run-1"),
+        backend="rq",
+        queue_name="runs",
+        created_at=first.created_at,
     )
+    assert first.created_at.tzinfo is not None
+    assert second == first
+    assert service.get_execution_assignment("run-1") == first
+    assert service.get_execution_assignment("missing") is None
+
+    with pytest.raises(ValueError, match="does not match the configured"):
+        service.ensure_execution_assignment(
+            "run-1",
+            queue_name="different-queue",
+            backend="different-backend",
+        )
+
+
+def test_ensure_execution_assignment_requires_planned_run():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run("fake", WorkflowInputs(config={}))
+
+    with pytest.raises(ValueError, match="only be created for planned runs"):
+        service.ensure_execution_assignment("run-1", queue_name="runs")
+
+    service.transition_run("run-1", RunStatus.VALIDATING)
+    service.transition_run("run-1", RunStatus.PLANNED)
+    service.ensure_execution_assignment("run-1", queue_name="runs")
+    service.transition_run("run-1", RunStatus.QUEUED)
+
+    with pytest.raises(ValueError, match="only be created for planned runs"):
+        service.ensure_execution_assignment("run-1", queue_name="runs")
+
+
+def test_recover_interrupted_runs_fails_api_owned_validation_even_if_assigned():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    repository = InMemoryRunRepository()
+    service = RunService(
+        registry=registry,
+        id_factory=lambda: "run-validating",
+        repository=repository,
+    )
+    validating = service.create_run("fake", WorkflowInputs(config={}))
+    service.transition_run(validating.run_id, RunStatus.VALIDATING, stage="preflight")
+    repository.ensure_execution_assignment(
+        RunExecutionAssignment(
+            run_id=validating.run_id,
+            job_id=build_execution_job_id(validating.run_id),
+            backend="rq",
+            queue_name="runs",
+            created_at=datetime.now(timezone.utc),
+        ),
+        expected_status=RunStatus.VALIDATING,
+    )
+
+    recovered = service.recover_interrupted_runs()
+
+    assert len(recovered) == 1
+    record = recovered[0]
+    assert record.status is RunStatus.FAILED
+    assert record.ended_at is not None
+    assert record.error == Issue(
+        code="RUN_INTERRUPTED_BY_API_RESTART",
+        message="Run was interrupted by an API restart.",
+        source="run_service",
+        path="run_id",
+        hint="Review the run events and submit a new preflight if needed.",
+    )
+    event = service.list_events(record.run_id)[-1]
+    assert event.event_type == "run_recovered_after_restart"
+    assert event.status is RunStatus.FAILED
+    assert event.context["reason_code"] == "API_RESTART_INTERRUPTED"
+    assert event.issue == record.error
+
+
+def test_recover_interrupted_runs_preserves_worker_owned_active_runs_without_noise():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    run_ids = iter(["run-queued", "run-running"])
+    service = RunService(registry=registry, id_factory=lambda: next(run_ids))
+    queued = service.create_run("fake", WorkflowInputs(config={}))
+    running = service.create_run("fake", WorkflowInputs(config={}))
+
+    for record in (queued, running):
+        service.transition_run(record.run_id, RunStatus.VALIDATING)
+        service.transition_run(record.run_id, RunStatus.PLANNED)
+        assignment = service.ensure_execution_assignment(
+            record.run_id,
+            queue_name="runs",
+        )
+        service.mark_execution_dispatched(
+            record.run_id,
+            job_id=assignment.job_id,
+        )
+        service.transition_run(record.run_id, RunStatus.QUEUED)
+        if record.run_id == running.run_id:
+            service.claim_execution_assignment(
+                record.run_id,
+                job_id=assignment.job_id,
+                backend=assignment.backend,
+                queue_name=assignment.queue_name,
+            )
+            service.transition_run(running.run_id, RunStatus.RUNNING)
+    events_before_restart = {
+        record.run_id: service.list_events(record.run_id)
+        for record in (queued, running)
+    }
+
+    first = service.recover_interrupted_runs()
+    second = service.recover_interrupted_runs()
+
+    assert first == ()
+    assert second == ()
+    assert service.get_run(queued.run_id).status is RunStatus.QUEUED
+    assert service.get_run(running.run_id).status is RunStatus.RUNNING
+    for record in (queued, running):
+        assert (
+            service.list_events(record.run_id) == events_before_restart[record.run_id]
+        )
+
+
+def test_recover_interrupted_runs_fails_unassigned_active_runs_as_orphans():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    run_ids = iter(["run-queued", "run-running"])
+    service = RunService(registry=registry, id_factory=lambda: next(run_ids))
+    queued = service.create_run("fake", WorkflowInputs(config={}))
+    running = service.create_run("fake", WorkflowInputs(config={}))
+
+    for record in (queued, running):
+        service.transition_run(record.run_id, RunStatus.VALIDATING)
+        service.transition_run(record.run_id, RunStatus.PLANNED)
+        service.transition_run(record.run_id, RunStatus.QUEUED)
+    service.transition_run(running.run_id, RunStatus.RUNNING)
+
+    recovered = service.recover_interrupted_runs()
+
+    assert [record.run_id for record in recovered] == [queued.run_id, running.run_id]
+    for record in recovered:
+        assert record.status is RunStatus.FAILED
+        assert record.error is not None
+        assert record.error.code == "RUN_ORPHANED_AFTER_API_RESTART"
+        event = service.list_events(record.run_id)[-1]
+        assert event.event_type == "run_recovered_after_restart"
+        assert event.context["reason_code"] == "WORKER_OWNERSHIP_NOT_CONFIRMED"
+
+
+def test_recover_interrupted_runs_requires_state_specific_ownership_markers():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    run_ids = iter(["run-reserved", "run-dispatched"])
+    service = RunService(registry=registry, id_factory=lambda: next(run_ids))
+    reserved = service.create_run("fake", WorkflowInputs(config={}))
+    dispatched = service.create_run("fake", WorkflowInputs(config={}))
+
+    for record in (reserved, dispatched):
+        service.transition_run(record.run_id, RunStatus.VALIDATING)
+        service.transition_run(record.run_id, RunStatus.PLANNED)
+        assignment = service.ensure_execution_assignment(
+            record.run_id,
+            queue_name="runs",
+        )
+        if record.run_id == dispatched.run_id:
+            service.mark_execution_dispatched(
+                record.run_id,
+                job_id=assignment.job_id,
+            )
+        service.transition_run(record.run_id, RunStatus.QUEUED)
+    service.transition_run(dispatched.run_id, RunStatus.RUNNING)
+
+    recovered = service.recover_interrupted_runs()
+
+    assert [record.run_id for record in recovered] == [
+        reserved.run_id,
+        dispatched.run_id,
+    ]
+    assert all(record.status is RunStatus.FAILED for record in recovered)
+
+
+def test_execution_claim_is_atomic_and_duplicate_worker_is_a_noop():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run("fake", WorkflowInputs(config={}))
+    service.transition_run("run-1", RunStatus.VALIDATING)
+    service.transition_run("run-1", RunStatus.PLANNED)
+    assignment = service.ensure_execution_assignment("run-1", queue_name="runs")
+    service.mark_execution_dispatched("run-1", job_id=assignment.job_id)
+    service.transition_run("run-1", RunStatus.QUEUED)
+
+    first = service.claim_execution_assignment(
+        "run-1",
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+    )
+    events_after_first = service.list_events("run-1")
+    second = service.claim_execution_assignment(
+        "run-1",
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+    )
+
+    assert first.acquired is True
+    assert first.assignment.dispatched_at is not None
+    assert first.assignment.claimed_at is not None
+    assert second.assignment == first.assignment
+    assert second.acquired is False
+    assert service.list_events("run-1") == events_after_first
+
+
+def test_recover_interrupted_runs_preserves_quiescent_and_terminal_states():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    run_ids = iter(["run-created", "run-planned", "run-succeeded"])
     service = RunService(registry=registry, id_factory=lambda: next(run_ids))
     created = service.create_run("fake", WorkflowInputs(config={}))
     planned = service.create_run("fake", WorkflowInputs(config={}))
-    validating = service.create_run("fake", WorkflowInputs(config={}))
-    queued = service.create_run("fake", WorkflowInputs(config={}))
-    running = service.create_run("fake", WorkflowInputs(config={}))
     succeeded = service.create_run("fake", WorkflowInputs(config={}))
-
     service.transition_run(planned.run_id, RunStatus.VALIDATING)
     service.transition_run(planned.run_id, RunStatus.PLANNED)
-    service.transition_run(validating.run_id, RunStatus.VALIDATING, stage="preflight")
-    service.transition_run(queued.run_id, RunStatus.VALIDATING)
-    service.transition_run(queued.run_id, RunStatus.PLANNED)
-    service.transition_run(queued.run_id, RunStatus.QUEUED, stage="queue")
-    service.transition_run(running.run_id, RunStatus.VALIDATING)
-    service.transition_run(running.run_id, RunStatus.PLANNED)
-    service.transition_run(running.run_id, RunStatus.QUEUED)
-    service.transition_run(running.run_id, RunStatus.RUNNING, stage="run")
     service.transition_run(succeeded.run_id, RunStatus.VALIDATING)
     service.transition_run(succeeded.run_id, RunStatus.PLANNED)
     service.transition_run(succeeded.run_id, RunStatus.QUEUED)
@@ -508,29 +713,10 @@ def test_recover_interrupted_runs_marks_only_active_states_as_failed():
 
     recovered = service.recover_interrupted_runs()
 
-    assert [record.run_id for record in recovered] == [
-        validating.run_id,
-        queued.run_id,
-        running.run_id,
-    ]
+    assert recovered == ()
     assert service.get_run(created.run_id).status is RunStatus.CREATED
     assert service.get_run(planned.run_id).status is RunStatus.PLANNED
     assert service.get_run(succeeded.run_id).status is RunStatus.SUCCEEDED
-    for record in recovered:
-        assert record.status is RunStatus.FAILED
-        assert record.ended_at is not None
-        assert record.error == Issue(
-            code="RUN_INTERRUPTED_BY_API_RESTART",
-            message="Run was interrupted by an API restart.",
-            source="run_service",
-            path="run_id",
-            hint="Review the run events and submit a new preflight if needed.",
-        )
-        event = service.list_events(record.run_id)[-1]
-        assert event.event_type == "run_recovered_after_restart"
-        assert event.status is RunStatus.FAILED
-        assert event.context["reason_code"] == "API_RESTART_INTERRUPTED"
-        assert event.issue == record.error
 
 
 def test_recover_interrupted_runs_is_idempotent_after_terminal_transition():

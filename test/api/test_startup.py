@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +11,12 @@ fastapi = pytest.importorskip("fastapi")
 
 from encode_pipeline.api import dependencies  # noqa: E402
 from encode_pipeline.api.main import create_app  # noqa: E402
+from encode_pipeline.workers.rq_queue import RqRunQueue  # noqa: E402
+from encode_pipeline.workers.settings import (  # noqa: E402
+    QUEUE_NAME_ENV,
+    REDIS_URL_ENV,
+    WORKSPACE_ROOT_ENV,
+)
 
 
 def test_create_app_builds_expected_app() -> None:
@@ -80,6 +87,32 @@ def test_create_app_exposes_preflight_service_and_local_run_driver() -> None:
     assert hasattr(app.state, "preflight_service")
     assert hasattr(app.state, "local_run_driver")
     assert not hasattr(app.state, "stub_execution_driver")
+
+
+def test_create_app_composes_shared_api_and_worker_settings(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
+    workspace_root = tmp_path / "shared-workspaces"
+    monkeypatch.setenv(REDIS_URL_ENV, "redis://redis.internal:6380/4")
+    monkeypatch.setenv(QUEUE_NAME_ENV, "epigenomics")
+    monkeypatch.setenv(WORKSPACE_ROOT_ENV, str(workspace_root))
+
+    app = create_app(database_url=database_url)
+
+    assert app.state.database_url == database_url
+    assert app.state.workspace_root == workspace_root
+    assert app.state.worker_settings.database_url == database_url
+    assert app.state.worker_settings.workspace_root == workspace_root
+    assert app.state.worker_settings.redis_url == "redis://redis.internal:6380/4"
+    assert app.state.worker_settings.queue_name == "epigenomics"
+    assert isinstance(app.state.run_queue, RqRunQueue)
+    assert app.state.run_queue.queue_name == "epigenomics"
+    assert app.state.local_run_driver._workspace_root == workspace_root
+
+    app.state.run_queue.close()
+    app.state.persistence.close()
 
 
 def test_api_route_handlers_are_async_to_avoid_testclient_threadpool_hang() -> None:

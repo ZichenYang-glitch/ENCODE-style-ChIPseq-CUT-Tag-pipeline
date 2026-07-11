@@ -12,6 +12,12 @@ from encode_pipeline.platform.adapters import (
     WorkflowSchema,
     WorkspacePlan,
 )
+from encode_pipeline.platform.execution import (
+    RunExecutionClaim,
+    RunExecutionAssignment,
+    RunExecutionOwnership,
+    build_execution_job_id,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, IssueSeverity, Result
 from encode_pipeline.platform.runs import (
@@ -34,6 +40,9 @@ __all__ = [
     "Result",
     "RunArtifactRef",
     "RunEvent",
+    "RunExecutionClaim",
+    "RunExecutionAssignment",
+    "RunExecutionOwnership",
     "RunLogChunk",
     "RunRecord",
     "RunStatus",
@@ -44,6 +53,7 @@ __all__ = [
     "WorkflowRegistry",
     "WorkflowSchema",
     "WorkspacePlan",
+    "build_execution_job_id",
     "can_transition",
     "require_transition",
 ]
