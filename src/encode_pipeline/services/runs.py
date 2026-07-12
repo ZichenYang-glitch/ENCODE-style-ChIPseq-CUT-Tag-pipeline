@@ -871,10 +871,22 @@ class RunService:
             )
             return replacement
 
-    def list_qc_metrics(self, run_id: str) -> tuple[RunQcMetric, ...]:
+    def list_qc_metrics(
+        self,
+        run_id: str,
+        *,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[RunQcMetric, ...]:
         """Return the current QC metric index in stable ID order."""
         with self._lock:
-            return self._repository.list_qc_metrics(run_id)
+            if limit is not None and limit <= 0:
+                raise ValueError("limit must be positive")
+            return self._repository.list_qc_metrics(
+                run_id,
+                after=after,
+                limit=limit,
+            )
 
     def record_qc_metrics_failure(
         self,

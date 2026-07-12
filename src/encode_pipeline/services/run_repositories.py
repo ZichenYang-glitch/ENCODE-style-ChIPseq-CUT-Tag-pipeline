@@ -167,7 +167,13 @@ class RunRepository(Protocol):
         event: RunEventDraft,
     ) -> RunEvent | None: ...
 
-    def list_qc_metrics(self, run_id: str) -> tuple[RunQcMetric, ...]: ...
+    def list_qc_metrics(
+        self,
+        run_id: str,
+        *,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[RunQcMetric, ...]: ...
 
     def record_qc_metrics_failure(
         self,
@@ -582,15 +588,35 @@ class InMemoryRunRepository:
             self._events[run_id].append(indexed_event)
             return indexed_event
 
-    def list_qc_metrics(self, run_id: str) -> tuple[RunQcMetric, ...]:
+    def list_qc_metrics(
+        self,
+        run_id: str,
+        *,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[RunQcMetric, ...]:
         with self._lock:
             self._runs[run_id]
-            return tuple(
-                sorted(
-                    self._qc_metrics[run_id].values(),
-                    key=lambda metric: metric.metric_id,
-                )
+            by_id = self._qc_metrics[run_id]
+            ordered_ids = tuple(sorted(by_id))
+            if after is not None:
+                try:
+                    cursor = by_id[after]
+                except KeyError:
+                    raise KeyError((run_id, after)) from None
+                _validate_qc_metric_fields(cursor)
+                start = ordered_ids.index(after) + 1
+            else:
+                start = 0
+            selected_ids = (
+                ordered_ids[start:]
+                if limit is None
+                else ordered_ids[start : start + limit]
             )
+            selected = tuple(by_id[metric_id] for metric_id in selected_ids)
+            for metric in selected:
+                _validate_qc_metric_fields(metric)
+            return selected
 
     def record_qc_metrics_failure(
         self,

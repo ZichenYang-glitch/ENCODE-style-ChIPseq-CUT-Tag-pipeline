@@ -16,6 +16,7 @@ from encode_pipeline.persistence import (
     create_session_factory,
     upgrade_database,
 )
+from encode_pipeline.persistence.models import RunQcMetricRow
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
     RunQcMetric,
@@ -71,13 +72,13 @@ def _event(event_type, *, context=None):
     )
 
 
-def _artifact(artifact_id, output_type="qc_summary"):
+def _artifact(artifact_id, output_type="qc_summary", *, run_id="run-1"):
     return RunArtifactRef(
         artifact_id=artifact_id,
-        run_id="run-1",
+        run_id=run_id,
         artifact_type="file",
         name=f"{artifact_id}.tsv",
-        uri=f"run://runs/run-1/artifacts/{artifact_id}",
+        uri=f"run://runs/{run_id}/artifacts/{artifact_id}",
         mime_type="text/tab-separated-values",
         produced_at=NOW,
         metadata={
@@ -95,6 +96,8 @@ def _metric(
     scope="sample",
     sample_id="S1",
     experiment_id="EXP1",
+    run_id="run-1",
+    source_artifact_id="artifact-1",
 ):
     return RunQcMetric(
         metric_id=build_qc_metric_id(
@@ -103,7 +106,7 @@ def _metric(
             sample_id,
             experiment_id,
         ),
-        run_id="run-1",
+        run_id=run_id,
         metric_key=metric_key,
         display_name="Total reads",
         value=value,
@@ -113,7 +116,7 @@ def _metric(
         experiment_id=experiment_id,
         assay="chipseq",
         qc_flag=None,
-        source_artifact_id="artifact-1",
+        source_artifact_id=source_artifact_id,
         produced_at=NOW,
     )
 
@@ -126,6 +129,94 @@ def _prepare(repository, artifacts):
         expected_status=RunStatus.SUCCEEDED,
         event=_event("artifacts_indexed", context={"artifact_count": len(artifacts)}),
     )
+
+
+def test_repositories_page_qc_metrics_in_stable_run_scoped_id_order(repository):
+    artifacts = (_artifact("artifact-1"),)
+    _prepare(repository, artifacts)
+    repository.create_run(_run("run-2"), _event("status_changed"))
+    other_artifacts = (_artifact("artifact-other", run_id="run-2"),)
+    repository.replace_artifacts(
+        "run-2",
+        other_artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+        event=_event("artifacts_indexed", context={"artifact_count": 1}),
+    )
+    metrics = (
+        _metric("sequencing.total_reads"),
+        _metric("peaks.count"),
+        _metric("library.pbc2"),
+    )
+    repository.replace_qc_metrics(
+        "run-1",
+        metrics,
+        expected_artifacts=artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+        event=_event("qc_metrics_indexed", context={"metric_count": 3}),
+    )
+    other_metric = _metric(
+        "library.nrf",
+        run_id="run-2",
+        source_artifact_id="artifact-other",
+    )
+    repository.replace_qc_metrics(
+        "run-2",
+        (other_metric,),
+        expected_artifacts=other_artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+        event=_event("qc_metrics_indexed", context={"metric_count": 1}),
+    )
+    ordered = tuple(sorted(metrics, key=lambda metric: metric.metric_id))
+
+    assert repository.list_qc_metrics("run-1") == ordered
+    assert repository.list_qc_metrics("run-1", limit=2) == ordered[:2]
+    assert repository.list_qc_metrics(
+        "run-1",
+        after=ordered[1].metric_id,
+        limit=2,
+    ) == ordered[2:]
+    assert other_metric not in repository.list_qc_metrics("run-1")
+
+    with pytest.raises(KeyError):
+        repository.list_qc_metrics("run-1", after=other_metric.metric_id)
+    with pytest.raises(KeyError):
+        repository.list_qc_metrics(
+            "run-1",
+            after=build_qc_metric_id("library.pbc1", "sample", "S1", "EXP1"),
+        )
+
+
+def test_repositories_validate_a_qc_cursor_row_before_skipping_it(repository):
+    artifacts = (_artifact("artifact-1"),)
+    _prepare(repository, artifacts)
+    metrics = (
+        _metric("sequencing.total_reads"),
+        _metric("peaks.count"),
+    )
+    repository.replace_qc_metrics(
+        "run-1",
+        metrics,
+        expected_artifacts=artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+        event=_event("qc_metrics_indexed", context={"metric_count": 2}),
+    )
+    ordered = tuple(sorted(metrics, key=lambda metric: metric.metric_id))
+    cursor = ordered[0]
+    if isinstance(repository, InMemoryRunRepository):
+        repository._qc_metrics["run-1"][cursor.metric_id] = replace(
+            cursor,
+            display_name="Private/path",
+        )
+    else:
+        with repository._session_factory.begin() as session:
+            row = session.query(RunQcMetricRow).filter_by(
+                run_id="run-1",
+                metric_id=cursor.metric_id,
+            ).one()
+            row.display_name = "Private/path"
+
+    with pytest.raises(ValueError):
+        repository.list_qc_metrics("run-1", after=cursor.metric_id, limit=1)
 
 
 def test_repositories_atomically_replace_qc_with_order_independent_sources(repository):
