@@ -210,6 +210,7 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
         events = run_service.list_events(run_id, limit=100)
         stdout = run_service.list_logs(run_id, "stdout", limit=100)
         stderr = run_service.list_logs(run_id, "stderr", limit=100)
+        qc_metrics = run_service.list_qc_metrics(run_id)
     finally:
         persistence.close()
 
@@ -231,6 +232,10 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
     )
     assert "localrule all:" in persisted_output
     assert "1 of 1 steps (100%) done" in persisted_output
+    assert qc_metrics == ()
+    qc_events = [event for event in events if event.event_type == "qc_metrics_indexed"]
+    assert len(qc_events) == 1
+    assert qc_events[0].context == {"metric_count": 0}
 
     connection = Redis.from_url(redis_url)
     run_queue = RqRunQueue(

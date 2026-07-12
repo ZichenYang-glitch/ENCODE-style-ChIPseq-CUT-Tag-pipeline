@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
     from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
     from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
+    from encode_pipeline.services.qc_summary_indexing import QcSummaryIndexingService
 
 
 def create_default_workflow_registry(
@@ -81,6 +82,26 @@ def create_default_artifact_extraction_service(
     from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
 
     return ArtifactExtractionService(
+        run_service=run_service,
+        registry=registry,
+        build_identity_provider=build_identity_provider,
+        workspace_root=workspace_root,
+    )
+
+
+def create_default_qc_summary_indexing_service(
+    *,
+    run_service: RunService,
+    registry: WorkflowRegistry,
+    build_identity_provider: WorkflowBuildIdentityProvider,
+    workspace_root: Path,
+) -> QcSummaryIndexingService:
+    """Return the platform-safe post-success QC summary indexing service."""
+    from encode_pipeline.services.qc_summary_indexing import (
+        QcSummaryIndexingService,
+    )
+
+    return QcSummaryIndexingService(
         run_service=run_service,
         registry=registry,
         build_identity_provider=build_identity_provider,

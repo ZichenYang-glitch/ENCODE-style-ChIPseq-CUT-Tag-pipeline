@@ -17,6 +17,7 @@ def _project(root: Path, *, marker: str = "same") -> Path:
         "pyproject.toml": f"[project]\nname = {marker!r}\n",
         "docs/architecture/artifact-inventory.yaml": "artifacts: []\n",
         "src/encode_pipeline/runtime.py": f"VALUE = {marker!r}\n",
+        "src/encode_pipeline/adapters/encode_qc.py": f"CATALOG = {marker!r}\n",
         "workflow/Snakefile": f"# {marker}\nrule all:\n    input: []\n",
         "workflow/rules/main.smk": f"# {marker}\n",
         "workflow/schemas/config.schema.json": '{"type":"object"}\n',
@@ -68,6 +69,20 @@ def test_build_digest_changes_when_artifact_inventory_changes(tmp_path):
     before = _capture(root)
     (root / "docs/architecture/artifact-inventory.yaml").write_text(
         "artifacts:\n- id: changed\n",
+        encoding="utf-8",
+    )
+    after = _capture(root)
+
+    assert before.is_success
+    assert after.is_success
+    assert not before.value.matches(after.value)
+
+
+def test_build_digest_changes_when_qc_parser_catalog_changes(tmp_path):
+    root = _project(tmp_path / "project")
+    before = _capture(root)
+    (root / "src/encode_pipeline/adapters/encode_qc.py").write_text(
+        "CATALOG = 'changed'\n",
         encoding="utf-8",
     )
     after = _capture(root)

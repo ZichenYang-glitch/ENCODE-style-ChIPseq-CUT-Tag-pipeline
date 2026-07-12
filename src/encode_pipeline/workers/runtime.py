@@ -15,6 +15,7 @@ from encode_pipeline.services.local_run_driver import LocalRunDriver
 from encode_pipeline.services.materialization import WorkspaceMaterializer
 from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 from encode_pipeline.services.preflight import LocalPreflightService
+from encode_pipeline.services.qc_summary_indexing import QcSummaryIndexingService
 from encode_pipeline.services.process_runner import ProcessRunner
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
@@ -38,6 +39,7 @@ class WorkerRuntime:
     local_run_driver: LocalRunDriver
     local_execution_service: LocalExecutionService
     artifact_extraction_service: ArtifactExtractionService
+    qc_summary_indexing_service: QcSummaryIndexingService
     preflight_service: LocalPreflightService
 
     def close(self) -> None:
@@ -69,6 +71,7 @@ def open_worker_runtime(
         create_default_execution_planner,
         create_default_local_execution_service,
         create_default_local_run_driver,
+        create_default_qc_summary_indexing_service,
         create_default_run_service,
         create_default_workflow_registry,
         create_default_workspace_materializer,
@@ -142,6 +145,12 @@ def open_worker_runtime(
             build_identity_provider=build_identity_provider,
             workspace_root=resolved_settings.workspace_root,
         )
+        qc_summary_indexing_service = create_default_qc_summary_indexing_service(
+            run_service=run_service,
+            registry=registry,
+            build_identity_provider=build_identity_provider,
+            workspace_root=resolved_settings.workspace_root,
+        )
         preflight_service = LocalPreflightService(
             run_service=run_service,
             execution_planner=execution_planner,
@@ -162,6 +171,7 @@ def open_worker_runtime(
             local_run_driver=local_run_driver,
             local_execution_service=local_execution_service,
             artifact_extraction_service=artifact_extraction_service,
+            qc_summary_indexing_service=qc_summary_indexing_service,
             preflight_service=preflight_service,
         )
     except BaseException:

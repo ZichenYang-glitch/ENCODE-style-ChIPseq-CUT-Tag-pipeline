@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import os
 from pathlib import Path
 import shutil
+import shlex
 from types import SimpleNamespace
 
 import fakeredis
@@ -43,13 +44,44 @@ from encode_pipeline.workers.timeouts import WorkerHardTimeout
 from .conftest import create_planned_run, worker_settings
 
 
-def _configure_worker_environment(monkeypatch, configured):
+def _configure_worker_environment(
+    monkeypatch,
+    configured,
+    *,
+    write_qc_summary: bool = False,
+):
     monkeypatch.setenv("ENCODE_PIPELINE_DATABASE_URL", configured.database_url)
     monkeypatch.setenv(REDIS_URL_ENV, configured.redis_url)
     monkeypatch.setenv(QUEUE_NAME_ENV, configured.queue_name)
     monkeypatch.setenv(WORKSPACE_ROOT_ENV, str(configured.workspace_root))
     executable_dir = configured.workspace_root.parent / "test-bin"
     executable_dir.mkdir(parents=True, exist_ok=True)
+    qc_commands = ""
+    if write_qc_summary:
+        from encode_pipeline.adapters.encode_qc import _QC_HEADER
+
+        row = {column: "NA" for column in _QC_HEADER}
+        row.update(
+            {
+                "sample": "S1",
+                "assay": "chipseq",
+                "total_reads": "1000",
+                "frip": "0.125",
+                "peak_count": "50",
+                "percent_duplication": "0.2",
+                "estimated_library_size": "9007199254740993",
+                "nrf": "0.8",
+                "pbc1": "0.75",
+                "pbc2": "3.0",
+            }
+        )
+        contents = "\t".join(_QC_HEADER) + "\n"
+        contents += "\t".join(row[column] for column in _QC_HEADER) + "\n"
+        qc_commands = (
+            "mkdir -p results/S1/01_qc\n"
+            f"printf %s {shlex.quote(contents)} > "
+            "results/S1/01_qc/S1.qc_summary.tsv\n"
+        )
     snakemake = executable_dir / "snakemake"
     snakemake.write_text(
         "#!/bin/sh\n"
@@ -59,6 +91,7 @@ def _configure_worker_environment(monkeypatch, configured):
         "done\n"
         "mkdir -p results/multiqc\n"
         "printf 'output_type\\tpath\\n' > results/multiqc/result_manifest.tsv\n"
+        f"{qc_commands}"
         "printf 'worker stdout\\n'\n"
         "printf 'worker stderr\\n' >&2\n",
         encoding="utf-8",
@@ -164,6 +197,12 @@ def test_rq_worker_rebuilds_dependencies_and_persists_handshake_event(
         assert artifacts[0].metadata["relative_path"] == (
             "results/multiqc/result_manifest.tsv"
         )
+        assert service.list_qc_metrics("handshake-run") == ()
+        qc_events = [
+            event for event in events if event.event_type == "qc_metrics_indexed"
+        ]
+        assert len(qc_events) == 1
+        assert qc_events[0].context == {"metric_count": 0}
     finally:
         persistence.close()
 
@@ -181,6 +220,72 @@ def test_rq_worker_rebuilds_dependencies_and_persists_handshake_event(
     assert [event.event_type for event in events_after_retry].count(
         "worker_dependencies_rebuilt"
     ) == 1
+
+
+def test_rq_worker_persists_nonempty_qc_metrics_for_new_sqlite_reader(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    samples = tmp_path / "qc-samples.tsv"
+    samples.write_text(
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\t"
+        "bowtie2_index\texperiment\tcondition\treplicate\tbiological_replicate\t"
+        "technical_replicate\trole\tcontrol_sample\tcontrol_bam\n"
+        "S1\t/tmp/R1.fq.gz\t/tmp/R2.fq.gz\tPE\tchipseq\tCTCF\tnarrow\ths\t"
+        "/tmp/index\tEXP1\ttreatment\t1\t1\t1\ttreatment\t\t\n",
+        encoding="utf-8",
+    )
+    assignment = create_planned_run(
+        configured,
+        "qc-run",
+        assign_queue=configured.queue_name,
+        enable_qc_summary=True,
+        samples_path=samples,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured, write_qc_summary=True)
+    connection = fakeredis.FakeRedis()
+    run_queue = RqRunQueue(configured, connection=connection)
+    run_queue.enqueue_execution(assignment)
+
+    assert _run_burst(connection, run_queue) is True
+
+    persistence = open_run_persistence(configured.database_url)
+    try:
+        service = create_default_run_service(
+            registry=create_default_workflow_registry(),
+            repository=persistence.repository,
+        )
+        record = service.get_run("qc-run")
+        metrics = service.list_qc_metrics("qc-run")
+        events = service.list_events("qc-run", limit=100)
+    finally:
+        persistence.close()
+
+    assert record.status is RunStatus.SUCCEEDED
+    assert {metric.metric_key for metric in metrics} == {
+        "library.estimated_size",
+        "library.nrf",
+        "library.pbc1",
+        "library.pbc2",
+        "library.percent_duplication",
+        "peaks.count",
+        "peaks.frip",
+        "sequencing.total_reads",
+    }
+    assert (
+        next(
+            metric
+            for metric in metrics
+            if metric.metric_key == "library.estimated_size"
+        ).value
+        == 9007199254740993
+    )
+    qc_event = next(
+        event for event in events if event.event_type == "qc_metrics_indexed"
+    )
+    assert qc_event.context == {"metric_count": 8}
 
 
 def test_rq_worker_rejects_stale_job_identity_without_writing_handshake(
@@ -583,6 +688,7 @@ def test_unexpected_failure_mapping_swallows_repository_errors():
 
 def test_post_success_artifact_exception_does_not_fail_execution_job():
     recorded: list[str] = []
+    qc_recorded: list[str] = []
 
     class Extraction:
         def extract(self, _run_id):
@@ -596,15 +702,20 @@ def test_post_success_artifact_exception_does_not_fail_execution_job():
             execute=lambda _run_id: Result.success(object())
         ),
         artifact_extraction_service=Extraction(),
+        qc_summary_indexing_service=SimpleNamespace(
+            record_artifact_source_failure=lambda run_id: qc_recorded.append(run_id)
+        ),
     )
 
     worker_jobs._execute_claimed_run(runtime, "run-1")
 
     assert recorded == ["run-1"]
+    assert qc_recorded == ["run-1"]
 
 
 def test_post_success_artifact_hard_timeout_does_not_fail_execution_job():
     recorded: list[str] = []
+    qc_recorded: list[str] = []
 
     class Extraction:
         def extract(self, _run_id):
@@ -618,6 +729,56 @@ def test_post_success_artifact_hard_timeout_does_not_fail_execution_job():
             execute=lambda _run_id: Result.success(object())
         ),
         artifact_extraction_service=Extraction(),
+        qc_summary_indexing_service=SimpleNamespace(
+            record_artifact_source_failure=lambda run_id: qc_recorded.append(run_id)
+        ),
+    )
+
+    worker_jobs._execute_claimed_run(runtime, "run-1")
+
+    assert recorded == ["run-1"]
+    assert qc_recorded == ["run-1"]
+
+
+def test_post_success_qc_receives_only_successful_complete_artifact_set():
+    artifacts = (object(), object())
+    calls = []
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda _run_id: Result.success(artifacts)
+        ),
+        qc_summary_indexing_service=SimpleNamespace(
+            index=lambda run_id, values: calls.append((run_id, values))
+        ),
+    )
+
+    worker_jobs._execute_claimed_run(runtime, "run-1")
+
+    assert calls == [("run-1", artifacts)]
+
+
+def test_post_success_qc_exception_is_recorded_without_failing_execution():
+    recorded = []
+
+    class QcIndexing:
+        def index(self, _run_id, _artifacts):
+            raise RuntimeError("/private/qc/workspace")
+
+        def record_unexpected_failure(self, run_id):
+            recorded.append(run_id)
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda _run_id: Result.success(())
+        ),
+        qc_summary_indexing_service=QcIndexing(),
     )
 
     worker_jobs._execute_claimed_run(runtime, "run-1")

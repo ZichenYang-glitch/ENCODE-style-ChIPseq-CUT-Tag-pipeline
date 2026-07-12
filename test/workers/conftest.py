@@ -42,6 +42,8 @@ def create_planned_run(
     assign_queue: str | None = None,
     bind_build_identity: bool = True,
     build_identity: WorkflowBuildIdentity | None = None,
+    enable_qc_summary: bool = False,
+    samples_path: Path | None = None,
 ) -> RunExecutionAssignment | None:
     """Persist a PLANNED run and optionally its canonical execution job ID."""
     persistence = open_run_persistence(settings.database_url)
@@ -55,7 +57,14 @@ def create_planned_run(
         config = yaml.safe_load(
             (PROFILE_ROOT / "config.yaml").read_text(encoding="utf-8")
         )
-        config["samples"] = str((PROFILE_ROOT / "samples.tsv").resolve())
+        configured_samples = (
+            (PROFILE_ROOT / "samples.tsv").resolve()
+            if samples_path is None
+            else samples_path.resolve()
+        )
+        config["samples"] = str(configured_samples)
+        if enable_qc_summary:
+            config["qc"]["summary"] = True
         service.create_run(WORKFLOW_ID, WorkflowInputs(config=config))
         service.transition_run(run_id, RunStatus.VALIDATING, stage="preflight")
         base_result = ExecutionPlanner(service).plan_run(run_id)
