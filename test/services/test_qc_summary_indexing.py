@@ -207,6 +207,26 @@ def test_no_declared_qc_sources_is_a_confirmed_empty_index(tmp_path):
     assert event.context == {"metric_count": 0}
 
 
+def test_unsupported_adapter_fails_closed_without_reading_sources(tmp_path):
+    adapter = QcAdapter((_candidate(),))
+    adapter.capabilities = WorkflowCapabilities(supports=())
+    artifact = _artifact()
+    service, run_service, _workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(artifact,),
+    )
+
+    result = service.index("run-1", artifacts)
+
+    assert result.is_failure
+    assert adapter.calls == 0
+    assert run_service.list_qc_metrics("run-1") == ()
+    assert run_service.list_events("run-1")[-1].context == {
+        "reason_code": "QC_INDEXING_UNSUPPORTED"
+    }
+
+
 def test_adapter_failure_preserves_succeeded_and_redacts_private_details(tmp_path):
     adapter = QcAdapter()
     adapter.failure = True
@@ -226,6 +246,24 @@ def test_adapter_failure_preserves_succeeded_and_redacts_private_details(tmp_pat
     assert event.context == {"reason_code": "QC_INDEXING_ADAPTER_FAILED"}
     assert str(tmp_path) not in str(event.to_dict())
     assert "SECRET" not in str(event.to_dict())
+
+
+@pytest.mark.parametrize(
+    "reason_code",
+    ("/private/workspace", "QC FAILED", "qc_indexing_failed", "A" * 129),
+)
+def test_failure_event_rejects_non_public_reason_codes(tmp_path, reason_code):
+    adapter = QcAdapter()
+    _service_under_test, run_service, _workspace, _provider, _artifacts = _service(
+        tmp_path,
+        adapter,
+    )
+    events_before = run_service.list_events("run-1")
+
+    with pytest.raises(ValueError, match="public-safe"):
+        run_service.record_qc_metrics_failure("run-1", reason_code=reason_code)
+
+    assert run_service.list_events("run-1") == events_before
 
 
 @pytest.mark.parametrize("status", [RunStatus.FAILED, RunStatus.CANCELLED])
@@ -329,6 +367,30 @@ def test_descriptor_race_never_passes_outside_bytes_to_adapter(
     assert all(
         b"OUTSIDE-SENTINEL" not in document.content for document in adapter.documents
     )
+
+
+def test_index_rejects_symlinked_parent_component(tmp_path):
+    adapter = QcAdapter((_candidate(),))
+    artifact = _artifact()
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(artifact,),
+    )
+    outside = tmp_path / "outside-results"
+    outside.mkdir()
+    (outside / "summary.tsv").write_bytes(b"OUTSIDE-SENTINEL")
+    (workspace / "results").rmdir()
+    (workspace / "results").symlink_to(outside, target_is_directory=True)
+
+    result = service.index("run-1", artifacts)
+
+    assert result.is_failure
+    assert adapter.calls == 0
+    assert run_service.list_qc_metrics("run-1") == ()
+    assert run_service.list_events("run-1")[-1].context == {
+        "reason_code": "QC_INDEXING_SOURCE_VALIDATION_FAILED"
+    }
 
 
 @pytest.mark.parametrize(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timezone
+import re
 from threading import RLock
 from typing import Any
 from uuid import uuid4
@@ -35,6 +36,9 @@ from encode_pipeline.services.run_repositories import (
     RunEventDraft,
     RunRepository,
 )
+
+
+_PUBLIC_REASON_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,127}\Z")
 
 
 class RunCancellationNotAvailableError(RuntimeError):
@@ -880,8 +884,10 @@ class RunService:
     ) -> None:
         """Record one idempotent public-safe QC indexing failure outcome."""
         with self._lock:
-            if not isinstance(reason_code, str) or not reason_code:
-                raise ValueError("reason_code must be a non-empty string")
+            if not isinstance(reason_code, str) or not _PUBLIC_REASON_CODE.fullmatch(
+                reason_code
+            ):
+                raise ValueError("reason_code must be a public-safe stable code")
             self._repository.record_qc_metrics_failure(
                 run_id,
                 reason_code=reason_code,
