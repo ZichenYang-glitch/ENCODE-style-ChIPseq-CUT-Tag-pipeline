@@ -17,6 +17,7 @@ EXPECTED_TABLES = {
     "run_events",
     "run_execution_assignments",
     "run_logs",
+    "run_qc_metrics",
     "run_workflow_build_identities",
     "runs",
 }
@@ -32,7 +33,7 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
     assert set(inspector.get_table_names()) == EXPECTED_TABLES
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260712_04"
+            "20260712_05"
         )
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert connection.scalar(text("PRAGMA journal_mode")) == "wal"
@@ -76,6 +77,22 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
     assert inspector.get_pk_constraint("run_workflow_build_identities")[
         "constrained_columns"
     ] == ["run_id"]
+    qc_foreign_key = inspector.get_foreign_keys("run_qc_metrics")[0]
+    assert qc_foreign_key["referred_table"] == "runs"
+    assert qc_foreign_key["options"] == {"ondelete": "CASCADE"}
+    assert {
+        constraint["name"]
+        for constraint in inspector.get_unique_constraints("run_qc_metrics")
+    } == {"uq_run_qc_metrics_run_metric"}
+    assert {
+        constraint["name"]
+        for constraint in inspector.get_check_constraints("run_qc_metrics")
+    } == {
+        "ck_run_qc_metrics_flag",
+        "ck_run_qc_metrics_scope",
+        "ck_run_qc_metrics_scope_identifiers",
+        "ck_run_qc_metrics_value_text_length",
+    }
     engine.dispose()
 
 
@@ -295,3 +312,72 @@ def test_cancellation_intent_migration_downgrades_without_losing_assignment(tmp_
         assert assignment["dispatched_at"] is not None
         assert assignment["claimed_at"] is not None
     engine.dispose()
+
+
+def test_qc_metric_migration_upgrades_current_main_without_changing_existing_rows(
+    tmp_path,
+):
+    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
+    upgrade_database(database_url, "20260712_04")
+    current = create_database_engine(database_url)
+    with current.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO runs (
+                    run_id, workflow_id, inputs, status, created_at, updated_at,
+                    started_at, ended_at, current_stage, cancellation_reason,
+                    error, tags
+                ) VALUES (
+                    'existing-run', 'workflow', '{}', 'succeeded',
+                    :timestamp, :timestamp, :timestamp, :timestamp,
+                    'execution', NULL, NULL, '{}'
+                )
+                """
+            ),
+            {"timestamp": "2026-07-12 00:00:00"},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO run_artifacts (
+                    artifact_id, run_id, artifact_type, name, uri, mime_type,
+                    produced_at, artifact_metadata
+                ) VALUES (
+                    'artifact-1', 'existing-run', 'file', 'summary.tsv',
+                    'run://runs/existing-run/artifacts/artifact-1',
+                    'text/tab-separated-values', :timestamp,
+                    '{"output_type":"qc_summary"}'
+                )
+                """
+            ),
+            {"timestamp": "2026-07-12 00:00:00"},
+        )
+    current.dispose()
+
+    upgrade_database(database_url)
+    upgraded = create_database_engine(database_url)
+    with upgraded.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM runs")) == 1
+        assert connection.scalar(text("SELECT count(*) FROM run_artifacts")) == 1
+        assert connection.scalar(text("SELECT count(*) FROM run_qc_metrics")) == 0
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20260712_05"
+        )
+    upgraded.dispose()
+
+
+def test_qc_metric_migration_downgrades_independently(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
+    upgrade_database(database_url)
+
+    downgrade_database(database_url, "20260712_04")
+    downgraded = create_database_engine(database_url)
+    inspector = inspect(downgraded)
+    assert "run_qc_metrics" not in inspector.get_table_names()
+    assert "run_artifacts" in inspector.get_table_names()
+    with downgraded.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20260712_04"
+        )
+    downgraded.dispose()

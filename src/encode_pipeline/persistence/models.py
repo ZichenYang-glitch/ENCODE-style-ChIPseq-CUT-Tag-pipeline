@@ -191,3 +191,55 @@ class RunArtifactRow(Base):
         DateTime(timezone=True), nullable=False
     )
     artifact_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+
+class RunQcMetricRow(Base):
+    __tablename__ = "run_qc_metrics"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "metric_id",
+            name="uq_run_qc_metrics_run_metric",
+        ),
+        CheckConstraint(
+            "scope IN ('run', 'sample', 'experiment')",
+            name="ck_run_qc_metrics_scope",
+        ),
+        CheckConstraint(
+            "qc_flag IS NULL OR qc_flag IN ('pass', 'warning', 'fail')",
+            name="ck_run_qc_metrics_flag",
+        ),
+        CheckConstraint(
+            "(scope = 'run' AND sample_id IS NULL AND experiment_id IS NULL) OR "
+            "(scope = 'sample' AND sample_id IS NOT NULL) OR "
+            "(scope = 'experiment' AND sample_id IS NULL AND "
+            "experiment_id IS NOT NULL)",
+            name="ck_run_qc_metrics_scope_identifiers",
+        ),
+        CheckConstraint(
+            "length(value_text) BETWEEN 1 AND 40",
+            name="ck_run_qc_metrics_value_text_length",
+        ),
+        Index("ix_run_qc_metrics_run_id", "run_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    metric_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    run_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    metric_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    value_text: Mapped[str] = mapped_column(String(40), nullable=False)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    sample_id: Mapped[str | None] = mapped_column(String(255))
+    experiment_id: Mapped[str | None] = mapped_column(String(255))
+    assay: Mapped[str | None] = mapped_column(String(255))
+    qc_flag: Mapped[str | None] = mapped_column(String(16))
+    source_artifact_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    produced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
