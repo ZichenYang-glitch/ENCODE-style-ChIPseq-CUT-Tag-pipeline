@@ -140,7 +140,8 @@ def test_detail_returns_strict_public_projection(client):
     assert "private" not in response.text
 
 
-def test_legal_scientific_metadata_with_spaces_is_returned(client):
+@pytest.mark.parametrize("target", ["RNA polymerase II", "Pol II/III"])
+def test_legal_scientific_metadata_text_is_returned(client, target):
     run_id = _create_run(client)
     artifact = _artifact(
         run_id,
@@ -149,7 +150,7 @@ def test_legal_scientific_metadata_with_spaces_is_returned(client):
             "relative_path": "results/artifact-polymerase.txt",
             "output_type": "summary",
             "size_bytes": 7,
-            "target": "RNA polymerase II",
+            "target": target,
         },
     )
     _record(client, artifact)
@@ -157,7 +158,7 @@ def test_legal_scientific_metadata_with_spaces_is_returned(client):
     response = client.get(f"/api/v1/runs/{run_id}/artifacts/{artifact.artifact_id}")
 
     assert response.status_code == 200
-    assert response.json()["artifact"]["metadata"]["target"] == ("RNA polymerase II")
+    assert response.json()["artifact"]["metadata"]["target"] == target
 
 
 def test_unknown_run_returns_stable_404(client):
@@ -219,10 +220,10 @@ def test_list_rejects_out_of_bounds_limits(client, limit):
             {
                 "code": "API_REQUEST_INVALID",
                 "message": "Artifact query parameters are invalid.",
-                    "severity": "error",
-                    "path": "limit",
-                    "source": "api",
-                    "hint": "Use an integer limit between 1 and 100.",
+                "severity": "error",
+                "path": "limit",
+                "source": "api",
+                "hint": "Use an integer limit between 1 and 100.",
                 "context": {},
             }
         ],
@@ -252,6 +253,9 @@ def test_list_accepts_bounded_limit_endpoints(client, limit):
         ("windows_target", "C:" + chr(92) + "private" + chr(92) + "target"),
         ("unc_target", chr(92) * 2 + "private" + chr(92) + "target"),
         ("environment_target", "WORKSPACE=/private/target"),
+        ("prefixed_environment", "prefix WORKSPACE=/private/target"),
+        ("json_path", '"path":"/private/target"'),
+        ("colon_path", "see:/private/target"),
     ],
 )
 def test_unsafe_persisted_artifact_fails_closed_without_disclosure(
@@ -272,6 +276,9 @@ def test_unsafe_persisted_artifact_fails_closed_without_disclosure(
         "windows_target",
         "unc_target",
         "environment_target",
+        "prefixed_environment",
+        "json_path",
+        "colon_path",
     }:
         unsafe = replace(
             unsafe,

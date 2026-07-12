@@ -17,8 +17,8 @@ _MIME_TYPE_PATTERN = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$"
 )
 _WINDOWS_ABSOLUTE_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
-_ENVIRONMENT_ASSIGNMENT_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-_EMBEDDED_POSIX_PATH_PATTERN = re.compile(r"(?:^|\s)/[^/\s]")
+_ENVIRONMENT_ASSIGNMENT_PATTERN = re.compile(r"(?:^|\s)[A-Za-z_][A-Za-z0-9_]*=")
+_EMBEDDED_POSIX_PATH_PATTERN = re.compile(r"(?<![A-Za-z0-9._-])/[^/\s]")
 
 
 class IssueResponse(BaseModel):
@@ -347,7 +347,7 @@ def _is_unsafe_public_text(value: str) -> bool:
         or _WINDOWS_ABSOLUTE_PATTERN.match(value) is not None
         or lowered.startswith("file:")
         or "://" in lowered
-        or _ENVIRONMENT_ASSIGNMENT_PATTERN.match(value) is not None
+        or _ENVIRONMENT_ASSIGNMENT_PATTERN.search(value) is not None
         or _EMBEDDED_POSIX_PATH_PATTERN.search(value) is not None
     )
 
