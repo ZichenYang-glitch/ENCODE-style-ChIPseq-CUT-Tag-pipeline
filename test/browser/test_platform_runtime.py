@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
 import signal
+import subprocess
+import sys
 
 from scripts.run_local_platform import (
     RuntimeConfig,
     _session_process_groups,
     build_shared_environment,
+    cleanup_service_sessions,
 )
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+OWNERSHIP_SENTINEL = ".encode-platform-playwright-owned"
 
 
 def test_shared_environment_uses_one_absolute_lifecycle_configuration(tmp_path):
@@ -47,6 +57,56 @@ def test_session_process_groups_never_include_the_test_process_group(monkeypatch
 
     groups = _session_process_groups(99)
 
-    assert groups == (99,)
+    assert groups == ()
     assert own_group not in groups
     assert signal.SIGKILL.value > 0
+
+
+def test_cleanup_service_sessions_signals_every_process_group(tmp_path, monkeypatch):
+    session_id = 10001
+    horse_group = 10002
+    pid_file = tmp_path / "service-pids.json"
+    pid_file.write_text(json.dumps({"worker": session_id}), encoding="utf-8")
+    scans = iter(((horse_group, session_id), ()))
+    monkeypatch.setattr(
+        "scripts.run_local_platform._session_process_groups",
+        lambda _session_id: next(scans, ()),
+    )
+    signals: list[tuple[int, signal.Signals]] = []
+    monkeypatch.setattr(
+        "scripts.run_local_platform.os.killpg",
+        lambda group, signum: signals.append((group, signum)),
+    )
+
+    assert cleanup_service_sessions(pid_file) == 0
+    assert (horse_group, signal.SIGTERM) in signals
+    assert (session_id, signal.SIGTERM) in signals
+
+
+def test_playwright_runtime_reset_rejects_a_mismatched_owner(tmp_path):
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    unrelated = runtime_root / "unrelated.txt"
+    unrelated.write_text("keep", encoding="utf-8")
+    (runtime_root / OWNERSHIP_SENTINEL).write_text("owner-a", encoding="utf-8")
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "ENCODE_PIPELINE_E2E_ROOT": str(runtime_root),
+            "ENCODE_PIPELINE_E2E_OWNER": "owner-b",
+        }
+    )
+
+    completed = subprocess.run(
+        [sys.executable, str(REPOSITORY_ROOT / "test/browser/platform_runtime.py")],
+        cwd=REPOSITORY_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "not owned" in completed.stderr
+    assert unrelated.read_text(encoding="utf-8") == "keep"

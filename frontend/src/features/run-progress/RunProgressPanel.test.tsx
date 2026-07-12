@@ -2,7 +2,7 @@ import { describe, it, expect, vi, type Mock } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
-import { RunProgressPanel } from './RunProgressPanel';
+import { isRunPollingPaused, RunProgressPanel } from './RunProgressPanel';
 import type { RunApiClient } from '../../api/runClient';
 import type { ValidateWorkflowResponse, WorkflowInputs } from '../../api/types';
 import type { RunEventResponse, RunResponse } from '../../api/runTypes';
@@ -275,6 +275,14 @@ function renderPanel(props: Partial<Parameters<typeof RunProgressPanel>[0]> = {}
 }
 
 describe('RunProgressPanel', () => {
+  it('marks active polling stale only after the bounded observation window', () => {
+    const startedAt = 1_000;
+
+    expect(isRunPollingPaused('running', startedAt, startedAt + 899_999)).toBe(false);
+    expect(isRunPollingPaused('running', startedAt, startedAt + 900_000)).toBe(true);
+    expect(isRunPollingPaused('succeeded', startedAt, startedAt + 900_000)).toBe(false);
+  });
+
   it('shows the no-run state and disables Create run before validation', () => {
     renderPanel();
 
@@ -934,6 +942,45 @@ describe('RunProgressPanel', () => {
     expect(screen.queryByRole('button', { name: 'Start run' })).not.toBeInTheDocument();
   });
 
+  it('treats an unconfirmed start as unknown and clears it after canonical advancement', async () => {
+    const baseClient = createMockRunClient();
+    await baseClient.createRun(WORKFLOW_ID, {
+      config: validatedInputs.config,
+      samples: validatedInputs.samples as Record<string, string>[],
+      options: validatedInputs.options,
+    });
+    await baseClient.preflightRun('run-1');
+    const originalGetRun = baseClient.getRun;
+    let status = 'planned';
+    const runClient: RunApiClient = {
+      ...baseClient,
+      getRun: vi.fn(async () => {
+        const response = await originalGetRun('run-1');
+        return {
+          ...response,
+          run: response.run ? { ...response.run, status } : null,
+        } as RunResponse;
+      }),
+      startRun: vi.fn().mockRejectedValue(new Error('response lost')),
+    };
+    const user = userEvent.setup();
+
+    renderPanel({ runId: 'run-1', runClient });
+    await user.click(await screen.findByRole('button', { name: 'Start run' }));
+    expect(
+      await screen.findByText(/could not confirm whether the run was submitted/i),
+    ).toBeInTheDocument();
+
+    status = 'queued';
+    await user.click(screen.getByRole('button', { name: 'Refresh run progress' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('run-status-badge')).toHaveTextContent('queued');
+      expect(
+        screen.queryByText(/could not confirm whether the run was submitted/i),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it('keeps a running run RUNNING after cancellation is only requested', async () => {
     const baseClient = createMockRunClient();
     const runningRun = {
@@ -1001,6 +1048,50 @@ describe('RunProgressPanel', () => {
     expect(screen.getByTestId('run-status-badge')).toHaveTextContent('running');
     expect(screen.getByRole('button', { name: 'Retry cancellation' })).toBeEnabled();
     expect(screen.queryByText('cancelled')).not.toBeInTheDocument();
+  });
+
+  it('treats an unconfirmed cancellation as unknown and clears it at canonical terminal', async () => {
+    const baseClient = createMockRunClient();
+    await baseClient.createRun(WORKFLOW_ID, {
+      config: validatedInputs.config,
+      samples: validatedInputs.samples as Record<string, string>[],
+      options: validatedInputs.options,
+    });
+    const originalGetRun = baseClient.getRun;
+    let status = 'running';
+    const runClient: RunApiClient = {
+      ...baseClient,
+      getRun: vi.fn(async () => {
+        const response = await originalGetRun('run-1');
+        return {
+          ...response,
+          run: response.run
+            ? {
+                ...response.run,
+                status,
+                started_at: '2026-07-04T12:01:00.000Z',
+                ended_at:
+                  status === 'cancelled' ? '2026-07-04T12:02:00.000Z' : null,
+                cancellation_reason:
+                  status === 'cancelled' ? 'User requested cancellation.' : null,
+              }
+            : null,
+        } as RunResponse;
+      }),
+      cancelRun: vi.fn().mockRejectedValue(new Error('response lost')),
+    };
+    const user = userEvent.setup();
+
+    renderPanel({ runId: 'run-1', runClient });
+    await user.click(await screen.findByRole('button', { name: 'Cancel run' }));
+    expect(await screen.findByText(/could not confirm cancellation/i)).toBeInTheDocument();
+
+    status = 'cancelled';
+    await user.click(screen.getByRole('button', { name: 'Refresh run progress' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('run-status-badge')).toHaveTextContent('cancelled');
+      expect(screen.queryByText(/could not confirm cancellation/i)).not.toBeInTheDocument();
+    });
   });
 
   it('restores cancellation-requested feedback from persisted events after reload', async () => {

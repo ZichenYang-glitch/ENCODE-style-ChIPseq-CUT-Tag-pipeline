@@ -15,7 +15,7 @@ import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PROFILE_ROOT = REPOSITORY_ROOT / "test" / "profiles" / "platform_worker_tiny"
-DEFAULT_RUNTIME_ROOT = Path("/tmp/encode-platform-playwright")
+OWNERSHIP_SENTINEL = ".encode-platform-playwright-owned"
 
 
 def create_controlled_project(project_root: Path) -> None:
@@ -125,15 +125,26 @@ def write_manifest(runtime_root: Path, project_root: Path, queue_name: str) -> N
     )
 
 
-def main() -> None:
-    runtime_root = Path(
-        os.environ.get("ENCODE_PIPELINE_E2E_ROOT", str(DEFAULT_RUNTIME_ROOT))
-    ).resolve()
+def prepare_owned_runtime_root(runtime_value: str, runtime_owner: str) -> Path:
+    """Reset only the invocation-owned temporary runtime directory."""
+    runtime_root = Path(runtime_value).resolve()
     if runtime_root in {Path("/"), Path("/tmp"), Path.home(), REPOSITORY_ROOT}:
         raise ValueError("E2E runtime root must be a dedicated temporary directory")
-    if runtime_root.exists():
-        shutil.rmtree(runtime_root)
+    sentinel = runtime_root / OWNERSHIP_SENTINEL
+    if not sentinel.is_file() or sentinel.read_text(encoding="utf-8") != runtime_owner:
+        raise ValueError("E2E runtime root is not owned by this Playwright invocation")
+    shutil.rmtree(runtime_root)
     runtime_root.mkdir(parents=True)
+    (runtime_root / OWNERSHIP_SENTINEL).write_text(runtime_owner, encoding="utf-8")
+    return runtime_root
+
+
+def main() -> None:
+    runtime_value = os.environ.get("ENCODE_PIPELINE_E2E_ROOT")
+    runtime_owner = os.environ.get("ENCODE_PIPELINE_E2E_OWNER")
+    if not runtime_value or not runtime_owner:
+        raise ValueError("Playwright runtime root and owner token are required")
+    runtime_root = prepare_owned_runtime_root(runtime_value, runtime_owner)
     project_root = runtime_root / "project"
     create_controlled_project(project_root)
     queue_name = f"encode-pipeline-browser-{uuid4().hex}"

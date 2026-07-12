@@ -73,6 +73,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frontend-host", default="127.0.0.1")
     parser.add_argument("--frontend-port", type=int, default=5173)
     parser.add_argument("--readiness-timeout", type=float, default=60.0)
+    parser.add_argument(
+        "--cleanup-service-pids",
+        type=Path,
+        help=argparse.SUPPRESS,
+    )
     return parser
 
 
@@ -416,8 +421,6 @@ def _session_process_groups(session_id: int) -> tuple[int, ...]:
             continue
         if group > 0 and group != os.getpgrp():
             groups.add(group)
-    if session_id > 0 and session_id != os.getpgrp():
-        groups.add(session_id)
     return tuple(sorted(groups, reverse=True))
 
 
@@ -427,6 +430,48 @@ def _signal_session(session_id: int, signum: signal.Signals) -> None:
             os.killpg(group, signum)
         except ProcessLookupError:
             pass
+
+
+def cleanup_service_sessions(pid_file: Path) -> int:
+    """Terminate every process group in the recorded service sessions."""
+    try:
+        raw = json.loads(pid_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        print("service PID evidence is invalid", file=sys.stderr)
+        return 1
+    if not isinstance(raw, dict) or not raw:
+        print("service PID evidence is invalid", file=sys.stderr)
+        return 1
+    session_ids: list[int] = []
+    for name, value in raw.items():
+        if (
+            not isinstance(name, str)
+            or isinstance(value, bool)
+            or not isinstance(value, int)
+            or value <= 1
+            or value == os.getpid()
+            or value == os.getsid(0)
+        ):
+            print("service PID evidence is unsafe", file=sys.stderr)
+            return 1
+        session_ids.append(value)
+
+    for session_id in reversed(session_ids):
+        _signal_session(session_id, signal.SIGTERM)
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        if all(not _session_process_groups(session_id) for session_id in session_ids):
+            return 0
+        time.sleep(0.05)
+    for session_id in reversed(session_ids):
+        _signal_session(session_id, signal.SIGKILL)
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        if all(not _session_process_groups(session_id) for session_id in session_ids):
+            return 0
+        time.sleep(0.05)
+    print("service sessions could not be reaped", file=sys.stderr)
+    return 1
 
 
 def _port_available(host: str, port: int) -> bool:
@@ -440,7 +485,10 @@ def _port_available(host: str, port: int) -> bool:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    config = config_from_args(build_parser().parse_args(argv))
+    args = build_parser().parse_args(argv)
+    if args.cleanup_service_pids is not None:
+        return cleanup_service_sessions(args.cleanup_service_pids.resolve())
+    config = config_from_args(args)
     if not _port_available(config.api_host, config.api_port):
         raise SystemExit(f"API port {config.api_port} is already in use")
     if not _port_available(config.frontend_host, config.frontend_port):

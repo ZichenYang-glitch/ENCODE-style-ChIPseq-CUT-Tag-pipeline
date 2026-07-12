@@ -6,6 +6,13 @@ const noProxy = [process.env.NO_PROXY, '127.0.0.1', 'localhost', '::1']
 process.env.NO_PROXY = noProxy;
 process.env.no_proxy = noProxy;
 
+if (
+  !process.env.ENCODE_PIPELINE_E2E_ROOT ||
+  !process.env.ENCODE_PIPELINE_E2E_OWNER
+) {
+  throw new Error('Run Playwright through `npm run test:e2e`.');
+}
+
 export default defineConfig({
   testDir: './e2e',
   globalTeardown: './e2e/global-teardown.ts',

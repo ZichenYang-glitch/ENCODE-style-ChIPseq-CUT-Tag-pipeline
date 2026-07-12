@@ -13,8 +13,7 @@ interface RuntimeManifest {
   queueName: string;
 }
 
-const runtimeRoot =
-  process.env.ENCODE_PIPELINE_E2E_ROOT ?? '/tmp/encode-platform-playwright';
+const runtimeRoot = process.env.ENCODE_PIPELINE_E2E_ROOT!;
 
 function manifest(): RuntimeManifest {
   return JSON.parse(

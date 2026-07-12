@@ -28,6 +28,7 @@ interface RunProgressPanelProps {
 }
 
 const pollingStatuses = new Set(['created', 'validating', 'queued', 'running']);
+const terminalStatuses = new Set(['succeeded', 'failed', 'cancelled']);
 const cancellableStatuses = new Set([
   'created',
   'validating',
@@ -40,6 +41,20 @@ const MAX_POLL_DURATION_MS = 15 * 60 * 1000;
 const PAGE_LIMIT = 100;
 const MAX_PAGES = 5;
 const claimedAutoPreflightRequests = new Set<string>();
+
+type ActionIssueKind = 'create' | 'preflight' | 'start' | 'cancel' | null;
+
+export function isRunPollingPaused(
+  status: string | undefined,
+  startedAt: number,
+  now: number,
+): boolean {
+  return (
+    status !== undefined &&
+    pollingStatuses.has(status) &&
+    now - startedAt >= MAX_POLL_DURATION_MS
+  );
+}
 
 export interface RunSnapshot {
   run: RunRecordResponse | null;
@@ -232,7 +247,10 @@ export function RunProgressPanel({
   const [localRunId, setLocalRunId] = useState<string | null>(null);
   const [activeLogStream, setActiveLogStream] = useState<'stdout' | 'stderr'>('stdout');
   const [actionIssues, setActionIssues] = useState<Issue[]>([]);
+  const [actionIssueKind, setActionIssueKind] = useState<ActionIssueKind>(null);
   const [cancellationRequested, setCancellationRequested] = useState(false);
+  const [pollingPaused, setPollingPaused] = useState(false);
+  const [pollRevision, setPollRevision] = useState(0);
   const preflightConsumedFor = useRef<string | null>(null);
   const pollStartedAt = useRef(Date.now());
   const queryClient = useQueryClient();
@@ -245,10 +263,26 @@ export function RunProgressPanel({
     refetchInterval: (query) => {
       const status = query.state.data?.run?.status;
       if (!status || !pollingStatuses.has(status)) return false;
-      if (Date.now() - pollStartedAt.current >= MAX_POLL_DURATION_MS) return false;
+      if (pollingPaused) return false;
       return POLL_INTERVAL_MS;
     },
   });
+
+  const clearActionIssues = () => {
+    setActionIssues([]);
+    setActionIssueKind(null);
+  };
+
+  const showActionIssues = (kind: Exclude<ActionIssueKind, null>, issues: Issue[]) => {
+    setActionIssueKind(kind);
+    setActionIssues(issues);
+  };
+
+  const resumePolling = () => {
+    pollStartedAt.current = Date.now();
+    setPollingPaused(false);
+    setPollRevision((revision) => revision + 1);
+  };
 
   const updateRun = (run: RunRecordResponse) => {
     queryClient.setQueryData<RunSnapshot>(
@@ -261,15 +295,15 @@ export function RunProgressPanel({
     mutationFn: (id: string) => runClient.preflightRun(id),
     onSuccess: (response) => {
       if (!response.ok) {
-        setActionIssues(response.issues);
+        showActionIssues('preflight', response.issues);
         return;
       }
-      setActionIssues([]);
+      clearActionIssues();
       if (response.run) updateRun(response.run);
       void queryClient.invalidateQueries({ queryKey: runProgressQueryKey(targetRunId) });
     },
     onError: () => {
-      setActionIssues([
+      showActionIssues('preflight', [
         safeUiIssue('PREFLIGHT_UNAVAILABLE', 'Preflight could not be started. Try again.'),
       ]);
     },
@@ -279,18 +313,22 @@ export function RunProgressPanel({
     mutationFn: (id: string) => runClient.startRun(id),
     onSuccess: (response) => {
       if (!response.ok) {
-        setActionIssues(response.issues);
+        showActionIssues('start', response.issues);
         return;
       }
-      setActionIssues([]);
+      clearActionIssues();
       if (response.run) updateRun(response.run);
-      pollStartedAt.current = Date.now();
+      resumePolling();
       void queryClient.invalidateQueries({ queryKey: runProgressQueryKey(targetRunId) });
     },
     onError: () => {
-      setActionIssues([
-        safeUiIssue('RUN_START_UNAVAILABLE', 'The run could not be started. Try again.'),
+      showActionIssues('start', [
+        safeUiIssue(
+          'RUN_START_UNAVAILABLE',
+          'Could not confirm whether the run was submitted. Refresh before retrying.',
+        ),
       ]);
+      void queryClient.invalidateQueries({ queryKey: runProgressQueryKey(targetRunId) });
     },
   });
 
@@ -298,23 +336,23 @@ export function RunProgressPanel({
     mutationFn: (id: string) => runClient.cancelRun(id),
     onSuccess: (response) => {
       if (!response.ok) {
-        setActionIssues(response.issues);
+        showActionIssues('cancel', response.issues);
         void queryClient.invalidateQueries({ queryKey: runProgressQueryKey(targetRunId) });
         return;
       }
-      setActionIssues([]);
+      clearActionIssues();
       if (response.run) {
         updateRun(response.run);
         setCancellationRequested(response.run.status === 'running');
       }
-      pollStartedAt.current = Date.now();
+      resumePolling();
       void queryClient.invalidateQueries({ queryKey: runProgressQueryKey(targetRunId) });
     },
     onError: () => {
-      setActionIssues([
+      showActionIssues('cancel', [
         safeUiIssue(
           'RUN_CANCELLATION_UNAVAILABLE',
-          'Cancellation could not be requested. The run state was not changed; try again.',
+          'Could not confirm cancellation. Refresh or retry; the canonical run status remains authoritative.',
         ),
       ]);
       void queryClient.invalidateQueries({ queryKey: runProgressQueryKey(targetRunId) });
@@ -333,10 +371,12 @@ export function RunProgressPanel({
   useEffect(() => {
     setLocalRunId(null);
     setActiveLogStream('stdout');
-    setActionIssues([]);
+    clearActionIssues();
     setCancellationRequested(false);
+    setPollingPaused(false);
     preflightConsumedFor.current = null;
     pollStartedAt.current = Date.now();
+    setPollRevision((revision) => revision + 1);
   }, [runId, runClient, workflowId, validatedInputs]);
 
   useEffect(() => {
@@ -375,20 +415,47 @@ export function RunProgressPanel({
     if (run && run.status !== 'running') setCancellationRequested(false);
   }, [run]);
 
+  useEffect(() => {
+    const status = run?.status;
+    if (!status || !pollingStatuses.has(status)) {
+      setPollingPaused(false);
+      return;
+    }
+    const remaining = MAX_POLL_DURATION_MS - (Date.now() - pollStartedAt.current);
+    if (remaining <= 0) {
+      setPollingPaused(true);
+      return;
+    }
+    setPollingPaused(false);
+    const timer = window.setTimeout(() => setPollingPaused(true), remaining);
+    return () => window.clearTimeout(timer);
+  }, [pollRevision, run?.status]);
+
+  useEffect(() => {
+    if (!run || actionIssueKind === null) return;
+    const startWasConfirmed =
+      actionIssueKind === 'start' && run.status !== 'planned';
+    const cancellationReachedTerminal =
+      actionIssueKind === 'cancel' && terminalStatuses.has(run.status);
+    if (startWasConfirmed || cancellationReachedTerminal) clearActionIssues();
+  }, [actionIssueKind, run?.status]);
+
   const canCreateRun =
     workflowId !== null && validationResult?.ok === true && validatedInputs !== null;
   const executionActionPending = startMutation.isPending || cancelMutation.isPending;
 
   async function handleCreateRun() {
-    setActionIssues([]);
+    clearActionIssues();
     try {
       const response = await createMutation.mutateAsync();
       if (!response.ok) {
-        setActionIssues(response.issues);
+        showActionIssues('create', response.issues);
         return;
       }
       if (!response.run) {
-        setActionIssues([safeUiIssue('RUN_RECORD_MISSING', 'The run record was missing.')]);
+        showActionIssues('create', [
+          safeUiIssue('RUN_RECORD_MISSING', 'The run record was missing.'),
+        ]);
         return;
       }
       updateRun(response.run);
@@ -400,15 +467,15 @@ export function RunProgressPanel({
       setLocalRunId(response.run.run_id);
       await preflightMutation.mutateAsync(response.run.run_id);
     } catch {
-      setActionIssues([
+      showActionIssues('create', [
         safeUiIssue('RUN_CREATE_UNAVAILABLE', 'The run record could not be created. Try again.'),
       ]);
     }
   }
 
   function handleRefresh() {
-    setActionIssues([]);
-    pollStartedAt.current = Date.now();
+    clearActionIssues();
+    resumePolling();
     void runQuery.refetch();
   }
 
@@ -470,11 +537,21 @@ export function RunProgressPanel({
             </div>
           )}
 
+          {pollingPaused && pollingStatuses.has(run.status) && (
+            <div
+              className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-sm text-[var(--color-text-muted)]"
+              role="status"
+              data-testid="polling-paused"
+            >
+              Automatic updates paused. Refresh to resume.
+            </div>
+          )}
+
           {run.error && <RunIssuePanel issues={[run.error]} title="Run failure" />}
 
           {snapshot?.truncated && (
             <p className="text-xs text-[var(--color-text-muted)]" role="status">
-              Showing the first {MAX_PAGES * PAGE_LIMIT} entries per stream. Refresh to load the latest bounded view.
+              Showing the first {MAX_PAGES * PAGE_LIMIT} entries per stream. Additional entries are not loaded automatically.
             </p>
           )}
 
