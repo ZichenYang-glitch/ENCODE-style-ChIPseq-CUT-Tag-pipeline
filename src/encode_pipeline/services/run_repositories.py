@@ -604,7 +604,11 @@ class InMemoryRunRepository:
                     cursor = by_id[after]
                 except KeyError:
                     raise KeyError((run_id, after)) from None
-                _validate_qc_metric_fields(cursor)
+                _validate_stored_qc_metric_identity(
+                    cursor,
+                    run_id=run_id,
+                    storage_key=after,
+                )
                 start = ordered_ids.index(after) + 1
             else:
                 start = 0
@@ -613,10 +617,16 @@ class InMemoryRunRepository:
                 if limit is None
                 else ordered_ids[start : start + limit]
             )
-            selected = tuple(by_id[metric_id] for metric_id in selected_ids)
-            for metric in selected:
-                _validate_qc_metric_fields(metric)
-            return selected
+            selected: list[RunQcMetric] = []
+            for storage_key in selected_ids:
+                metric = by_id[storage_key]
+                _validate_stored_qc_metric_identity(
+                    metric,
+                    run_id=run_id,
+                    storage_key=storage_key,
+                )
+                selected.append(metric)
+            return tuple(selected)
 
     def record_qc_metrics_failure(
         self,
@@ -1118,6 +1128,21 @@ def _validate_qc_metric_fields(metric: RunQcMetric) -> None:
     )
     if metric.metric_id != expected_metric_id:
         raise ValueError("QC metric_id does not match its semantic coordinates")
+
+
+def _validate_stored_qc_metric_identity(
+    metric: object,
+    *,
+    run_id: str,
+    storage_key: str,
+) -> None:
+    if (
+        not isinstance(metric, RunQcMetric)
+        or metric.run_id != run_id
+        or metric.metric_id != storage_key
+    ):
+        raise ValueError("Persisted QC metric identity is invalid")
+    _validate_qc_metric_fields(metric)
 
 
 def _assignment_has_ownership(

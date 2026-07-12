@@ -78,6 +78,10 @@ values, or mismatched IDs fail the whole page with HTTP 500 and
 `RunRepository.list_qc_metrics(run_id, after, limit)` has matching InMemory and
 SQLAlchemy semantics. Both implementations validate the cursor and every
 returned domain value with PR130's shared durable validator before returning.
+The InMemory implementation additionally binds each value to the requested
+`run_id` and its dictionary storage key, including the cursor before it is
+skipped; identity corruption is a data-invalid `ValueError`, never a cross-run
+result.
 SQLAlchemy uses the existing `(run_id, metric_id)` uniqueness index and applies
 ordering and limit in SQL. No migration is required.
 

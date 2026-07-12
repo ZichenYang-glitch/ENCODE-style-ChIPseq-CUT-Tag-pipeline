@@ -226,6 +226,76 @@ def test_repositories_validate_a_qc_cursor_row_before_skipping_it(repository):
         repository.list_qc_metrics("run-1", after=cursor.metric_id, limit=1)
 
 
+@pytest.mark.parametrize("corruption", ("run_id", "storage_key"))
+def test_in_memory_qc_cursor_rejects_corrupt_storage_identity(corruption):
+    repository = InMemoryRunRepository()
+    artifacts = (_artifact("artifact-1"),)
+    _prepare(repository, artifacts)
+    metrics = (
+        _metric("sequencing.total_reads"),
+        _metric("peaks.count"),
+    )
+    repository.replace_qc_metrics(
+        "run-1",
+        metrics,
+        expected_artifacts=artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+        event=_event("qc_metrics_indexed", context={"metric_count": 2}),
+    )
+    cursor = min(metrics, key=lambda metric: metric.metric_id)
+    if corruption == "run_id":
+        corrupted = replace(cursor, run_id="run-other")
+    else:
+        other_key = "library.nrf"
+        corrupted = replace(
+            cursor,
+            metric_id=build_qc_metric_id(
+                other_key,
+                cursor.scope,
+                cursor.sample_id,
+                cursor.experiment_id,
+            ),
+            metric_key=other_key,
+        )
+    repository._qc_metrics["run-1"][cursor.metric_id] = corrupted
+
+    with pytest.raises(ValueError):
+        repository.list_qc_metrics("run-1", after=cursor.metric_id, limit=1)
+
+
+@pytest.mark.parametrize("corruption", ("run_id", "storage_key"))
+def test_in_memory_selected_qc_row_rejects_corrupt_storage_identity(corruption):
+    repository = InMemoryRunRepository()
+    artifacts = (_artifact("artifact-1"),)
+    _prepare(repository, artifacts)
+    metric = _metric()
+    repository.replace_qc_metrics(
+        "run-1",
+        (metric,),
+        expected_artifacts=artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+        event=_event("qc_metrics_indexed", context={"metric_count": 1}),
+    )
+    if corruption == "run_id":
+        corrupted = replace(metric, run_id="run-other")
+    else:
+        other_key = "library.nrf"
+        corrupted = replace(
+            metric,
+            metric_id=build_qc_metric_id(
+                other_key,
+                metric.scope,
+                metric.sample_id,
+                metric.experiment_id,
+            ),
+            metric_key=other_key,
+        )
+    repository._qc_metrics["run-1"][metric.metric_id] = corrupted
+
+    with pytest.raises(ValueError):
+        repository.list_qc_metrics("run-1", limit=1)
+
+
 def test_repositories_atomically_replace_qc_with_order_independent_sources(repository):
     artifacts = (_artifact("artifact-1"), _artifact("artifact-2", "other"))
     _prepare(repository, artifacts)
