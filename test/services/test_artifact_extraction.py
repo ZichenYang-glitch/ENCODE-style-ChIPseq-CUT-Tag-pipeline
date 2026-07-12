@@ -280,7 +280,10 @@ def test_duplicate_paths_and_absolute_metadata_fail_closed(tmp_path):
     ("output_type", "mime_type"),
     [
         ("/private/workspace/output", "application/octet-stream"),
-        ("C:\\private\\output", "application/octet-stream"),
+        (
+            "C:" + chr(92) + "private" + chr(92) + "output",
+            "application/octet-stream",
+        ),
         ("summary\nprivate", "application/octet-stream"),
         ("summary", "file:///private/workspace/output"),
         ("summary", "text/plain\nprivate"),
