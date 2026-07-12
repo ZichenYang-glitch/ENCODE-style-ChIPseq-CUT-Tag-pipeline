@@ -7,7 +7,10 @@ import {
 } from 'react-router-dom';
 import { useClients } from '../../api/client-context';
 import { Panel } from '../../components/Panel';
-import { RunProgressPanel } from '../../features/run-progress/RunProgressPanel';
+import {
+  RunProgressPanel,
+  type RunDetailView,
+} from '../../features/run-progress/RunProgressPanel';
 
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
@@ -16,10 +19,13 @@ export function RunDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { runClient } = useClients();
   const selectedArtifactId = searchParams.get('artifact');
-  const activeView =
-    searchParams.get('view') === 'artifacts' || selectedArtifactId !== null
+  const requestedView = searchParams.get('view');
+  const activeView: RunDetailView =
+    requestedView === 'artifacts' || selectedArtifactId !== null
       ? 'artifacts'
-      : 'activity';
+      : requestedView === 'qc'
+        ? 'qc'
+        : 'activity';
   const beginPreflight =
     typeof location.state === 'object' &&
     location.state !== null &&
@@ -40,10 +46,13 @@ export function RunDetailPage() {
   }, [location.pathname, location.search, navigate]);
 
   const handleViewChange = useCallback(
-    (view: 'activity' | 'artifacts') => {
+    (view: RunDetailView) => {
       const next = new URLSearchParams(searchParams);
       if (view === 'artifacts') {
         next.set('view', 'artifacts');
+      } else if (view === 'qc') {
+        next.set('view', 'qc');
+        next.delete('artifact');
       } else {
         next.delete('view');
         next.delete('artifact');

@@ -314,6 +314,7 @@ describe('RunProgressPanel', () => {
 
     expect(shouldPollRunSnapshot(succeeded, 'activity')).toBe(false);
     expect(shouldPollRunSnapshot(succeeded, 'artifacts')).toBe(true);
+    expect(shouldPollRunSnapshot(succeeded, 'qc')).toBe(true);
     expect(
       shouldPollRunSnapshot(
         {
@@ -346,6 +347,78 @@ describe('RunProgressPanel', () => {
       shouldPollRunSnapshot(
         { ...succeeded, truncated: true, eventsTruncated: true },
         'artifacts',
+      ),
+    ).toBe(false);
+    expect(
+      shouldPollRunSnapshot(
+        {
+          ...succeeded,
+          events: [
+            {
+              event_id: 'event-qc-indexed',
+              run_id: 'run-1',
+              sequence: 2,
+              event_type: 'qc_metrics_indexed',
+              timestamp: '2026-07-12T12:01:01Z',
+              status: 'succeeded',
+              stage: 'qc_summary_indexing',
+              message: 'QC metrics indexed.',
+              context: { metric_count: 0 },
+              issue: null,
+            },
+          ],
+        },
+        'qc',
+      ),
+    ).toBe(false);
+    expect(
+      shouldPollRunSnapshot(
+        {
+          ...succeeded,
+          events: [
+            {
+              event_id: 'event-qc-invalidated',
+              run_id: 'run-1',
+              sequence: 3,
+              event_type: 'qc_metrics_invalidated',
+              timestamp: '2026-07-12T12:01:02Z',
+              status: 'succeeded',
+              stage: 'qc_summary_indexing',
+              message: 'QC metrics invalidated.',
+              context: {},
+              issue: null,
+            },
+          ],
+        },
+        'qc',
+      ),
+    ).toBe(true);
+    expect(
+      shouldPollRunSnapshot(
+        {
+          ...succeeded,
+          events: [
+            {
+              event_id: 'event-qc-failed',
+              run_id: 'run-1',
+              sequence: 4,
+              event_type: 'qc_metrics_indexing_failed',
+              timestamp: '2026-07-12T12:01:03Z',
+              status: 'succeeded',
+              stage: 'qc_summary_indexing',
+              message: 'QC indexing failed.',
+              context: { reason_code: 'QC_SUMMARY_SOURCE_CHANGED' },
+              issue: null,
+            },
+          ],
+        },
+        'qc',
+      ),
+    ).toBe(false);
+    expect(
+      shouldPollRunSnapshot(
+        { ...succeeded, eventsTruncated: true },
+        'qc',
       ),
     ).toBe(false);
   });

@@ -105,6 +105,46 @@ async function captureArtifactViewport(
   });
 }
 
+async function captureQcViewport(
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+  width: number,
+  height: number,
+) {
+  await page.setViewportSize({ width, height });
+  await page.reload();
+  await expect(page.getByRole('tab', { name: 'QC' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(page.getByRole('button', { name: 'Refresh run progress' })).toBeVisible();
+  const emptyState = page.getByRole('heading', { name: 'No indexed QC metrics' });
+  await expect(emptyState).toBeVisible({ timeout: 60_000 });
+  await expect(
+    page.getByText(
+      'QC metric indexing completed successfully and produced an empty result set.',
+    ),
+  ).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  const statusBox = await emptyState.boundingBox();
+  expect(statusBox).not.toBeNull();
+  expect(statusBox!.x).toBeGreaterThanOrEqual(0);
+  expect(statusBox!.x + statusBox!.width).toBeLessThanOrEqual(width + 1);
+
+  const screenshot = await page.screenshot({ fullPage: true });
+  const screenshotDirectory = process.env.ENCODE_PIPELINE_E2E_SCREENSHOT_DIR;
+  if (screenshotDirectory) {
+    mkdirSync(screenshotDirectory, { recursive: true });
+    writeFileSync(join(screenshotDirectory, `qc-${name}.png`), screenshot);
+  }
+  await testInfo.attach(`qc-workbench-${name}`, {
+    body: screenshot,
+    contentType: 'image/png',
+  });
+}
+
 function processExists(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -170,6 +210,22 @@ test('real durable execution succeeds, exposes artifacts, and survives deep-link
   await captureArtifactViewport(page, testInfo, 'tablet-1024x768', 1024, 768);
   await captureArtifactViewport(page, testInfo, 'mobile-390x844', 390, 844);
   await captureArtifactViewport(page, testInfo, 'mobile-360x800', 360, 800);
+
+  await page.getByRole('tab', { name: 'QC' }).click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}\\?view=qc$`));
+  await expect(
+    page.getByRole('heading', { name: 'No indexed QC metrics' }),
+  ).toBeVisible({ timeout: 60_000 });
+  await page.reload();
+  await expect(page.getByRole('tab', { name: 'QC' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+
+  await captureQcViewport(page, testInfo, 'desktop-1440x900', 1440, 900);
+  await captureQcViewport(page, testInfo, 'tablet-1024x768', 1024, 768);
+  await captureQcViewport(page, testInfo, 'mobile-390x844', 390, 844);
+  await captureQcViewport(page, testInfo, 'mobile-360x800', 360, 800);
 
   await page.getByRole('tab', { name: 'Activity' }).click();
   await page.reload();
