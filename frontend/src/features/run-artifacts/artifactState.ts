@@ -18,7 +18,6 @@ export type ArtifactExtractionOutcome =
 export function isValidArtifactId(value: string | null): value is string {
   return value !== null && ARTIFACT_ID_PATTERN.test(value);
 }
-
 export function artifactExtractionOutcome(
   events: RunEventResponse[],
   truncated = false,
@@ -99,4 +98,3 @@ export function formatProducedTime(value: string, locale?: string): string {
     timeStyle: 'short',
   }).format(timestamp);
 }
-

@@ -103,7 +103,6 @@ beforeEach(() => {
     issues: [],
   });
 });
-
 describe('run artifact browser route state', () => {
   it('stores tabs and selection in browser history', async () => {
     const user = userEvent.setup();
@@ -170,4 +169,3 @@ describe('run artifact browser route state', () => {
     expect(getArtifactMock).not.toHaveBeenCalled();
   });
 });
-

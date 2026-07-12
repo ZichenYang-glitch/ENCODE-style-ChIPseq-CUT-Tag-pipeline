@@ -10,7 +10,6 @@ interface ArtifactListProps {
   isFetchingNextPage: boolean;
   onLoadMore: () => void;
 }
-
 function optionalText(value: string | null | undefined): string {
   return value && value.trim() ? value : '—';
 }
@@ -169,4 +168,3 @@ export function ArtifactList({
     </div>
   );
 }
-

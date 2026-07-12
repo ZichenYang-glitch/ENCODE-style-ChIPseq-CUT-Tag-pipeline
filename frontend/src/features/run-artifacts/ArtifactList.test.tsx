@@ -87,4 +87,3 @@ describe('ArtifactList', () => {
     expect(screen.getByText('Loading more…')).toBeInTheDocument();
   });
 });
-

@@ -12,7 +12,6 @@ interface ArtifactInspectorProps {
   invalidSelection: boolean;
   onRetry: () => void;
 }
-
 const metadataLabels: Array<[
   keyof ArtifactReferenceResponse['metadata'],
   string,
@@ -175,4 +174,3 @@ function CopyField({
     </div>
   );
 }
-
