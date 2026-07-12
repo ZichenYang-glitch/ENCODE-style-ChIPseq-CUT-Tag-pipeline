@@ -151,6 +151,8 @@ def test_qc_metric_operation_is_lossless_and_has_declared_error_envelopes(tmp_pa
         "value"
     ]
     assert value_schema["type"] == "string"
+    required = set(schema["components"]["schemas"]["QcMetricResponse"]["required"])
+    assert {"sample_id", "experiment_id", "assay", "qc_flag"} <= required
 
 
 def test_committed_openapi_matches_current_app(tmp_path):

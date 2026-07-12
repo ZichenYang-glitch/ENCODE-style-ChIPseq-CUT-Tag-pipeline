@@ -1522,6 +1522,10 @@
           "value",
           "unit",
           "scope",
+          "sample_id",
+          "experiment_id",
+          "assay",
+          "qc_flag",
           "source_artifact_id",
           "produced_at"
         ],

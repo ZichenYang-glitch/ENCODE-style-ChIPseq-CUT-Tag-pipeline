@@ -82,10 +82,10 @@ SQLAlchemy uses the existing `(run_id, metric_id)` uniqueness index and applies
 ordering and limit in SQL. No migration is required.
 
 `RunService.list_qc_metrics` validates positive internal limits and delegates.
-The async route follows the existing bounded artifact-query route and calls
-`RunService.get_run` plus the paginated read directly. The SQL query is limited
-to at most 101 small metadata rows and performs no Redis, worker, workspace, or
-file I/O. It never uses a SQLAlchemy session or a workspace dependency.
+The route is a synchronous FastAPI endpoint, so Starlette runs its bounded
+`RunService.get_run` plus paginated SQLite read in the maintained worker
+threadpool instead of blocking the event loop. It performs no Redis, worker,
+workspace, or file I/O and never uses a SQLAlchemy session directly.
 Database/infrastructure
 exceptions continue through the application's generic redacted 500 boundary;
 known persisted-row and projection validation failures use the QC-specific

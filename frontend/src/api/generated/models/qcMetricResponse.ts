@@ -38,10 +38,10 @@ export interface QcMetricResponse {
   value: string;
   unit: QcMetricResponseUnit;
   scope: QcMetricResponseScope;
-  sample_id?: QcMetricResponseSampleId;
-  experiment_id?: QcMetricResponseExperimentId;
-  assay?: QcMetricResponseAssay;
-  qc_flag?: QcMetricResponseQcFlag;
+  sample_id: QcMetricResponseSampleId;
+  experiment_id: QcMetricResponseExperimentId;
+  assay: QcMetricResponseAssay;
+  qc_flag: QcMetricResponseQcFlag;
   /**
    * @maxLength 128
    * @pattern ^[A-Za-z][A-Za-z0-9_.-]{0,127}$

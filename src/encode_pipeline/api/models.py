@@ -355,10 +355,10 @@ class QcMetricResponse(BaseModel):
     )
     unit: Literal["count", "fraction", "ratio"]
     scope: Literal["run", "sample", "experiment"]
-    sample_id: str | None = Field(default=None, max_length=255)
-    experiment_id: str | None = Field(default=None, max_length=255)
-    assay: str | None = Field(default=None, max_length=255)
-    qc_flag: Literal["pass", "warning", "fail"] | None = None
+    sample_id: str | None = Field(max_length=255)
+    experiment_id: str | None = Field(max_length=255)
+    assay: str | None = Field(max_length=255)
+    qc_flag: Literal["pass", "warning", "fail"] | None
     source_artifact_id: str = Field(pattern=_LOGICAL_ID_PATTERN, max_length=128)
     produced_at: datetime
 

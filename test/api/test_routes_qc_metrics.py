@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
+import inspect
+from threading import Event, Thread
 
+import fastapi.routing
 import pytest
 from sqlalchemy import update
 
 from encode_pipeline.api.main import create_app
 from encode_pipeline.api.models import QcMetricResponse
+from encode_pipeline.api.routes.qc_metrics import list_run_qc_metrics
 from encode_pipeline.persistence.models import RunQcMetricRow
+from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
     RunQcMetric,
@@ -26,6 +32,43 @@ WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 PRODUCED_AT = datetime(2026, 7, 13, 8, 30, tzinfo=timezone.utc)
 
 
+async def _run_in_joined_test_thread(function, *args, **kwargs):
+    """Exercise sync FastAPI routes without leaking Python 3.13 threads."""
+    completed = Event()
+    results: list[object] = []
+    exceptions: list[BaseException] = []
+
+    def invoke() -> None:
+        try:
+            results.append(function(*args, **kwargs))
+        except BaseException as exc:
+            exceptions.append(exc)
+        finally:
+            completed.set()
+
+    thread = Thread(target=invoke)
+    thread.start()
+    try:
+        while not completed.is_set():
+            await asyncio.sleep(0.001)
+    finally:
+        thread.join(timeout=3)
+        if thread.is_alive():  # pragma: no cover - test deadlock guard
+            raise RuntimeError("test threadpool call did not terminate")
+    if exceptions:
+        raise exceptions[0]
+    return results[0]
+
+
+@pytest.fixture(autouse=True)
+def joined_test_threadpool(monkeypatch):
+    monkeypatch.setattr(
+        fastapi.routing,
+        "run_in_threadpool",
+        _run_in_joined_test_thread,
+    )
+
+
 @pytest.fixture
 def client(tmp_path) -> Iterator[ApiTestClient]:
     app = create_app(
@@ -37,12 +80,11 @@ def client(tmp_path) -> Iterator[ApiTestClient]:
 
 
 def _create_succeeded_run(client: ApiTestClient) -> str:
-    response = client.post(
-        f"/api/v1/workflows/{WORKFLOW_ID}/runs",
-        json={"config": {}},
+    record = client.app.state.run_service.create_run(
+        WORKFLOW_ID,
+        WorkflowInputs(config={}),
     )
-    assert response.status_code == 201
-    run_id = response.json()["run"]["run_id"]
+    run_id = record.run_id
     for status in (
         RunStatus.VALIDATING,
         RunStatus.PLANNED,
@@ -118,6 +160,10 @@ def _record_metrics(
     )
 
 
+def test_qc_metric_route_uses_fastapi_threadpool_for_sync_database_io():
+    assert not inspect.iscoroutinefunction(list_run_qc_metrics)
+
+
 def test_existing_run_without_qc_metrics_returns_empty_page(client):
     run_id = _create_succeeded_run(client)
 
@@ -169,6 +215,20 @@ def test_qc_metrics_are_stably_paginated_and_decimal_is_lossless(client):
         "peaks.count": "42",
         "library.pbc2": "1.25",
     }
+
+
+def test_qc_metrics_default_page_is_bounded_to_fifty(client):
+    run_id = _create_succeeded_run(client)
+    metrics = tuple(_metric(run_id, f"metric{i}") for i in range(51))
+    _record_metrics(client, run_id, metrics)
+
+    response = client.get(f"/api/v1/runs/{run_id}/qc-metrics")
+
+    assert response.status_code == 200
+    assert len(response.json()["qc_metrics"]) == 50
+    assert (
+        response.json()["next_cursor"] == response.json()["qc_metrics"][-1]["metric_id"]
+    )
 
 
 def test_qc_metric_projection_preserves_nullable_fields(client):

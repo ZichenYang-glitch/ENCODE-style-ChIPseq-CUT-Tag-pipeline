@@ -72,7 +72,7 @@ def _data_invalid_issue() -> IssueResponse:
         500: {"model": RunQcMetricsResponse},
     },
 )
-async def list_run_qc_metrics(
+def list_run_qc_metrics(
     run_id: str,
     after: str | None = Query(
         default=None,
