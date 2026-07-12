@@ -11,7 +11,11 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from encode_pipeline.api.models import RunArtifactsResponse, ValidationResponse
+from encode_pipeline.api.models import (
+    RunArtifactsResponse,
+    RunQcMetricsResponse,
+    ValidationResponse,
+)
 from encode_pipeline.api.routes import api_v1_router
 from encode_pipeline.persistence import DATABASE_URL_ENV, open_run_persistence
 from encode_pipeline.platform.results import Issue
@@ -175,6 +179,29 @@ async def _handle_request_validation_error(
             ok=False,
             run_id=run_id,
             artifacts=[],
+            next_cursor=None,
+            issues=[issue.to_dict()],
+        )
+        return JSONResponse(
+            status_code=400,
+            content=body.model_dump(mode="json", exclude_none=True),
+        )
+    if getattr(route, "operation_id", None) == "listRunQcMetrics":
+        run_id = request.path_params.get("run_id", "")
+        issue = Issue(
+            code="API_REQUEST_INVALID",
+            message="QC metric query parameters are invalid.",
+            severity="error",
+            path="query",
+            source="api",
+            technical_message=None,
+            hint="Use a limit between 1 and 100 and a cursor returned by this endpoint.",
+            context={},
+        )
+        body = RunQcMetricsResponse(
+            ok=False,
+            run_id=run_id,
+            qc_metrics=[],
             next_cursor=None,
             issues=[issue.to_dict()],
         )

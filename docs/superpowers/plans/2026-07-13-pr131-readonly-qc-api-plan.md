@@ -79,8 +79,8 @@
   default/1/100 limits, rejected 0/101 limits, malformed cursor, unknown run,
   unknown cursor, cross-run cursor, damaged selected row, damaged cursor row,
   strict field projection, and SQLite reopen.
-- [ ] Implement a synchronous FastAPI route so repository I/O runs through
-  FastAPI's threadpool. Call only `RunService.get_run` and
+- [ ] Implement an async FastAPI route matching the existing bounded artifact
+  query pattern. Call only `RunService.get_run` and
   `RunService.list_qc_metrics(limit=limit + 1)`.
 - [ ] Return stable sanitized issues: `RUN_NOT_FOUND` (404),
   `RUN_QC_METRIC_CURSOR_NOT_FOUND` (400), and

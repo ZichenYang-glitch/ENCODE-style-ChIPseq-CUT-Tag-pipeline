@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import PurePosixPath
 import re
 from typing import Any, Literal
 from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from encode_pipeline.platform.runs import (
+    build_qc_metric_id,
+    validate_qc_identifier_token,
+)
+from encode_pipeline.services.run_repositories import canonical_decimal_text
 
 
 _LOGICAL_ID_PATTERN = r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$"
@@ -331,6 +337,108 @@ class RunArtifactDetailResponse(BaseModel):
     ok: bool
     run_id: str
     artifact: ArtifactReferenceResponse | None = None
+    issues: list[IssueResponse] = Field(default_factory=list)
+
+
+class QcMetricResponse(BaseModel):
+    """Lossless disclosure-safe projection of one persisted QC metric."""
+
+    metric_id: str = Field(pattern=r"^qcmetric-[0-9a-f]{64}$", max_length=73)
+    metric_key: str = Field(
+        pattern=r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$",
+        max_length=128,
+    )
+    display_name: str = Field(min_length=1, max_length=255)
+    value: str = Field(
+        pattern=r"^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?$",
+        max_length=40,
+    )
+    unit: Literal["count", "fraction", "ratio"]
+    scope: Literal["run", "sample", "experiment"]
+    sample_id: str | None = Field(default=None, max_length=255)
+    experiment_id: str | None = Field(default=None, max_length=255)
+    assay: str | None = Field(default=None, max_length=255)
+    qc_flag: Literal["pass", "warning", "fail"] | None = None
+    source_artifact_id: str = Field(pattern=_LOGICAL_ID_PATTERN, max_length=128)
+    produced_at: datetime
+
+    @classmethod
+    def from_metric(
+        cls,
+        metric: Any,
+        *,
+        expected_run_id: str,
+    ) -> "QcMetricResponse":
+        """Build a strict public projection from a run-scoped domain value."""
+        if metric.run_id != expected_run_id:
+            raise ValueError("QC metric does not belong to the requested run")
+        projected = cls(
+            metric_id=metric.metric_id,
+            metric_key=metric.metric_key,
+            display_name=metric.display_name,
+            value=canonical_decimal_text(metric.value),
+            unit=metric.unit,
+            scope=metric.scope,
+            sample_id=metric.sample_id,
+            experiment_id=metric.experiment_id,
+            assay=metric.assay,
+            qc_flag=metric.qc_flag,
+            source_artifact_id=metric.source_artifact_id,
+            produced_at=metric.produced_at,
+        )
+        expected_metric_id = build_qc_metric_id(
+            projected.metric_key,
+            projected.scope,
+            projected.sample_id,
+            projected.experiment_id,
+        )
+        if projected.metric_id != expected_metric_id:
+            raise ValueError("QC metric ID does not match its semantic coordinates")
+        return projected
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str) -> str:
+        if _is_unsafe_public_text(value):
+            raise ValueError("QC metric display name is not public-safe")
+        return value
+
+    @field_validator("sample_id", "experiment_id", "assay")
+    @classmethod
+    def validate_identifier(cls, value: str | None) -> str | None:
+        if value is not None:
+            validate_qc_identifier_token(value)
+        return value
+
+    @field_validator("produced_at")
+    @classmethod
+    def normalize_produced_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("QC metric produced_at must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def validate_scope_identifiers(self) -> "QcMetricResponse":
+        if self.scope == "run" and (
+            self.sample_id is not None or self.experiment_id is not None
+        ):
+            raise ValueError("run QC scope cannot include sample or experiment IDs")
+        if self.scope == "sample" and self.sample_id is None:
+            raise ValueError("sample QC scope requires sample_id")
+        if self.scope == "experiment" and (
+            self.sample_id is not None or self.experiment_id is None
+        ):
+            raise ValueError("experiment QC scope requires only experiment_id")
+        return self
+
+
+class RunQcMetricsResponse(BaseModel):
+    """Envelope for GET /api/v1/runs/{run_id}/qc-metrics."""
+
+    ok: bool
+    run_id: str
+    qc_metrics: list[QcMetricResponse] = Field(default_factory=list)
+    next_cursor: str | None = None
     issues: list[IssueResponse] = Field(default_factory=list)
 
 

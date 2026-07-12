@@ -794,6 +794,108 @@
           }
         }
       }
+    },
+    "/api/v1/runs/{run_id}/qc-metrics": {
+      "get": {
+        "tags": [
+          "qc-metrics"
+        ],
+        "summary": "List Run Qc Metrics",
+        "description": "List persisted QC metrics with a run-scoped keyset cursor.",
+        "operationId": "listRunQcMetrics",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^qcmetric-[0-9a-f]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunQcMetricsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunQcMetricsResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunQcMetricsResponse"
+                }
+              }
+            },
+            "description": "Client Error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunQcMetricsResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunQcMetricsResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1304,6 +1406,128 @@
         "title": "IssueResponse",
         "description": "JSON-ready Issue shape from the PR84 contract."
       },
+      "QcMetricResponse": {
+        "properties": {
+          "metric_id": {
+            "type": "string",
+            "maxLength": 73,
+            "pattern": "^qcmetric-[0-9a-f]{64}$",
+            "title": "Metric Id"
+          },
+          "metric_key": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*$",
+            "title": "Metric Key"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Display Name"
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^-?(?:0|[1-9]\\d{0,25})(?:\\.\\d{1,12})?$",
+            "title": "Value"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "count",
+              "fraction",
+              "ratio"
+            ],
+            "title": "Unit"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "run",
+              "sample",
+              "experiment"
+            ],
+            "title": "Scope"
+          },
+          "sample_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Id"
+          },
+          "experiment_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experiment Id"
+          },
+          "assay": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assay"
+          },
+          "qc_flag": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pass",
+                  "warning",
+                  "fail"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qc Flag"
+          },
+          "source_artifact_id": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,127}$",
+            "title": "Source Artifact Id"
+          },
+          "produced_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Produced At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metric_id",
+          "metric_key",
+          "display_name",
+          "value",
+          "unit",
+          "scope",
+          "source_artifact_id",
+          "produced_at"
+        ],
+        "title": "QcMetricResponse",
+        "description": "Lossless disclosure-safe projection of one persisted QC metric."
+      },
       "RunArtifactDetailResponse": {
         "properties": {
           "ok": {
@@ -1643,6 +1867,50 @@
         ],
         "title": "RunLogsResponse",
         "description": "Envelope for GET /api/v1/runs/{run_id}/logs."
+      },
+      "RunQcMetricsResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "qc_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/QcMetricResponse"
+            },
+            "type": "array",
+            "title": "Qc Metrics"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "run_id"
+        ],
+        "title": "RunQcMetricsResponse",
+        "description": "Envelope for GET /api/v1/runs/{run_id}/qc-metrics."
       },
       "RunRecordResponse": {
         "properties": {

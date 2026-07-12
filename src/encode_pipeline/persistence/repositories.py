@@ -560,11 +560,7 @@ class SqlAlchemyRunRepository:
                 select(RunQcMetricRow)
                 .where(
                     RunQcMetricRow.run_id == run_id,
-                    *(
-                        (RunQcMetricRow.metric_id > after,)
-                        if after is not None
-                        else ()
-                    ),
+                    *((RunQcMetricRow.metric_id > after,) if after is not None else ()),
                 )
                 .order_by(RunQcMetricRow.metric_id)
             )

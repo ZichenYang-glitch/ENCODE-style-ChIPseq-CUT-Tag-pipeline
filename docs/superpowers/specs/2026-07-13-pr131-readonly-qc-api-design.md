@@ -82,8 +82,11 @@ SQLAlchemy uses the existing `(run_id, metric_id)` uniqueness index and applies
 ordering and limit in SQL. No migration is required.
 
 `RunService.list_qc_metrics` validates positive internal limits and delegates.
-The route first calls `RunService.get_run`, then the paginated read. It never
-uses a SQLAlchemy session or a workspace dependency. Database/infrastructure
+The async route follows the existing bounded artifact-query route and calls
+`RunService.get_run` plus the paginated read directly. The SQL query is limited
+to at most 101 small metadata rows and performs no Redis, worker, workspace, or
+file I/O. It never uses a SQLAlchemy session or a workspace dependency.
+Database/infrastructure
 exceptions continue through the application's generic redacted 500 boundary;
 known persisted-row and projection validation failures use the QC-specific
 invalid-data envelope.

@@ -170,11 +170,14 @@ def test_repositories_page_qc_metrics_in_stable_run_scoped_id_order(repository):
 
     assert repository.list_qc_metrics("run-1") == ordered
     assert repository.list_qc_metrics("run-1", limit=2) == ordered[:2]
-    assert repository.list_qc_metrics(
-        "run-1",
-        after=ordered[1].metric_id,
-        limit=2,
-    ) == ordered[2:]
+    assert (
+        repository.list_qc_metrics(
+            "run-1",
+            after=ordered[1].metric_id,
+            limit=2,
+        )
+        == ordered[2:]
+    )
     assert other_metric not in repository.list_qc_metrics("run-1")
 
     with pytest.raises(KeyError):
@@ -209,10 +212,14 @@ def test_repositories_validate_a_qc_cursor_row_before_skipping_it(repository):
         )
     else:
         with repository._session_factory.begin() as session:
-            row = session.query(RunQcMetricRow).filter_by(
-                run_id="run-1",
-                metric_id=cursor.metric_id,
-            ).one()
+            row = (
+                session.query(RunQcMetricRow)
+                .filter_by(
+                    run_id="run-1",
+                    metric_id=cursor.metric_id,
+                )
+                .one()
+            )
             row.display_name = "Private/path"
 
     with pytest.raises(ValueError):
