@@ -207,9 +207,9 @@ describe('real preflight product path', () => {
 
     preflightFinished = true;
     resolvePreflight({ ok: true, run: runRecord('validating'), issues: [] });
-    expect(await screen.findByTestId('run-status-badge')).toHaveTextContent(
-      'planned',
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId('run-status-badge')).toHaveTextContent('planned');
+    });
     expect(screen.getByText('Local preflight completed.')).toBeInTheDocument();
     expect(
       screen.getByText('Dry-run completed successfully.'),
