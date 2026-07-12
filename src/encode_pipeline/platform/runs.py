@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Mapping
 
@@ -250,4 +251,45 @@ class RunArtifactRef:
             "mime_type": self.mime_type,
             "produced_at": self.produced_at,
             "metadata": deepcopy(dict(self.metadata)),
+        }
+
+
+@dataclass(frozen=True)
+class RunQcMetric:
+    """One durable workflow-neutral numeric QC metric."""
+
+    metric_id: str
+    run_id: str
+    metric_key: str
+    display_name: str
+    value: Decimal
+    unit: str
+    scope: str
+    source_artifact_id: str
+    produced_at: datetime
+    sample_id: str | None = None
+    experiment_id: str | None = None
+    assay: str | None = None
+    qc_flag: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.value, Decimal):
+            raise ValueError("value must be a Decimal")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the explicit durable QC fields without an open metadata bag."""
+        return {
+            "metric_id": self.metric_id,
+            "run_id": self.run_id,
+            "metric_key": self.metric_key,
+            "display_name": self.display_name,
+            "value": self.value,
+            "unit": self.unit,
+            "scope": self.scope,
+            "sample_id": self.sample_id,
+            "experiment_id": self.experiment_id,
+            "assay": self.assay,
+            "qc_flag": self.qc_flag,
+            "source_artifact_id": self.source_artifact_id,
+            "produced_at": self.produced_at,
         }

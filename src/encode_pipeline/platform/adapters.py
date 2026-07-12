@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -175,6 +176,56 @@ class ExtractedArtifactCandidate:
 
 
 @dataclass(frozen=True)
+class QcSourceArtifact:
+    """Persisted artifact identity offered to an adapter as a QC source."""
+
+    artifact_id: str
+    output_type: str
+    relative_path: str
+    metadata: Mapping[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for name in ("artifact_id", "output_type", "relative_path"):
+            if not isinstance(getattr(self, name), str):
+                raise ValueError(f"{name} must be a string")
+        object.__setattr__(self, "metadata", _copy_mapping(self.metadata, "metadata"))
+
+
+@dataclass(frozen=True)
+class QcSourceDocument:
+    """Platform-vetted bounded bytes for one persisted QC source artifact."""
+
+    source: QcSourceArtifact
+    content: bytes
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source, QcSourceArtifact):
+            raise ValueError("source must be a QcSourceArtifact")
+        if not isinstance(self.content, bytes):
+            raise ValueError("content must be bytes")
+
+
+@dataclass(frozen=True)
+class ExtractedQcMetricCandidate:
+    """Adapter-neutral numeric QC metric before durable identity assignment."""
+
+    metric_key: str
+    display_name: str
+    value: Decimal
+    unit: str
+    scope: str
+    source_artifact_id: str
+    sample_id: str | None = None
+    experiment_id: str | None = None
+    assay: str | None = None
+    qc_flag: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.value, Decimal):
+            raise ValueError("value must be a Decimal")
+
+
+@dataclass(frozen=True)
 class DagNode:
     """Engine-neutral DAG preview node."""
 
@@ -336,6 +387,21 @@ class WorkflowAdapter(Protocol):
         workspace: str | Path,
     ) -> Result[tuple[ExtractedArtifactCandidate, ...]]:
         """Return logical artifact candidates without persistence identities."""
+
+
+@runtime_checkable
+class QcSummaryExtractingAdapter(Protocol):
+    """Optional adapter contract for trusted machine-readable QC summaries."""
+
+    def qc_source_output_types(self) -> tuple[str, ...]:
+        """Return exact artifact output types accepted as QC source documents."""
+
+    def extract_qc_metrics(
+        self,
+        inputs: WorkflowInputs,
+        sources: tuple[QcSourceDocument, ...],
+    ) -> Result[tuple[ExtractedQcMetricCandidate, ...]]:
+        """Map platform-vetted source bytes to neutral QC candidates."""
 
 
 @runtime_checkable
