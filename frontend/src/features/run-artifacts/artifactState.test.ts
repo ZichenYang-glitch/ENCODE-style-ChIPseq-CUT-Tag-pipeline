@@ -89,6 +89,17 @@ describe('artifactExtractionOutcome', () => {
       ).toEqual({ kind: 'unconfirmed' });
     },
   );
+
+  it.each(['/private/path', 'SECRET=value', 'ValueError: private detail', 'lowercase'])(
+    'does not expose malformed reason code %s',
+    (reasonCode) => {
+      expect(
+        artifactExtractionOutcome([
+          event(1, 'artifact_extraction_failed', { reason_code: reasonCode }),
+        ]),
+      ).toEqual({ kind: 'failed', reasonCode: null });
+    },
+  );
 });
 
 describe('artifact pagination helpers', () => {

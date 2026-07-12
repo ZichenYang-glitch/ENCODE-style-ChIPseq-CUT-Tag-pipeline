@@ -5,6 +5,7 @@ import type {
 import type { RunEventResponse } from '../../api/runTypes';
 
 const ARTIFACT_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/;
+const REASON_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/;
 const byteFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 1,
 });
@@ -18,6 +19,7 @@ export type ArtifactExtractionOutcome =
 export function isValidArtifactId(value: string | null): value is string {
   return value !== null && ARTIFACT_ID_PATTERN.test(value);
 }
+
 export function artifactExtractionOutcome(
   events: RunEventResponse[],
   truncated = false,
@@ -33,7 +35,10 @@ export function artifactExtractionOutcome(
     const reasonCode = latest.context.reason_code;
     return {
       kind: 'failed',
-      reasonCode: typeof reasonCode === 'string' ? reasonCode : null,
+      reasonCode:
+        typeof reasonCode === 'string' && REASON_CODE_PATTERN.test(reasonCode)
+          ? reasonCode
+          : null,
     };
   }
 

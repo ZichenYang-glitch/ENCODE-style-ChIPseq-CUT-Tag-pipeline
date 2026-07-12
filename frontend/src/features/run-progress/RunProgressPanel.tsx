@@ -68,6 +68,7 @@ export function isRunPollingPaused(
 export interface RunSnapshot {
   run: RunRecordResponse | null;
   events: RunEventResponse[];
+  eventsTruncated: boolean;
   stdoutLogs: RunLogChunkResponse[];
   stderrLogs: RunLogChunkResponse[];
   issues: Issue[];
@@ -77,7 +78,7 @@ export interface RunSnapshot {
 function extractionOutcome(snapshot: RunSnapshot | undefined): ArtifactExtractionOutcome {
   return artifactExtractionOutcome(
     snapshot?.events ?? [],
-    snapshot?.truncated ?? false,
+    snapshot?.eventsTruncated ?? false,
   );
 }
 
@@ -143,6 +144,7 @@ function emptySnapshot(run: RunRecordResponse): RunSnapshot {
   return {
     run,
     events: [],
+    eventsTruncated: false,
     stdoutLogs: [],
     stderrLogs: [],
     issues: [],
@@ -227,6 +229,7 @@ export async function loadRunSnapshot(
     return {
       run: null,
       events: [],
+      eventsTruncated: false,
       stdoutLogs: [],
       stderrLogs: [],
       issues: runResponse.issues,
@@ -237,6 +240,7 @@ export async function loadRunSnapshot(
     return {
       run: null,
       events: [],
+      eventsTruncated: false,
       stdoutLogs: [],
       stderrLogs: [],
       issues: [safeUiIssue('RUN_RECORD_MISSING', 'The run record was missing.')],
@@ -252,6 +256,7 @@ export async function loadRunSnapshot(
   return {
     run: runResponse.run,
     events: events.values,
+    eventsTruncated: events.truncated,
     stdoutLogs: stdout.values,
     stderrLogs: stderr.values,
     issues: [...events.issues, ...stdout.issues, ...stderr.issues],

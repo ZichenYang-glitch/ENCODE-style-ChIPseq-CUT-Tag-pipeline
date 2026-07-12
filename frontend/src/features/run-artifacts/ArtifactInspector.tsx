@@ -12,6 +12,7 @@ interface ArtifactInspectorProps {
   invalidSelection: boolean;
   onRetry: () => void;
 }
+
 const metadataLabels: Array<[
   keyof ArtifactReferenceResponse['metadata'],
   string,
@@ -85,7 +86,19 @@ export function ArtifactInspector({
         </div>
       )}
 
-      {isError && !isLoading && (
+      {isError && !isLoading && artifact && (
+        <div
+          className="mt-3 border-y border-[var(--color-warning)] bg-[var(--color-warning-bg)] px-2 py-2 text-sm text-[var(--color-warning)]"
+          role="status"
+        >
+          <p>Artifact detail refresh failed. The last confirmed detail is preserved.</p>
+          <Button className="mt-2" variant="secondary" onClick={onRetry}>
+            Retry details
+          </Button>
+        </div>
+      )}
+
+      {isError && !isLoading && !artifact && (
         <div className="mt-3" role="status">
           <p className="text-sm text-[var(--color-error)]">
             Artifact details could not be loaded.
@@ -96,7 +109,7 @@ export function ArtifactInspector({
         </div>
       )}
 
-      {artifact && !isLoading && !isError && (
+      {artifact && !isLoading && (
         <div className="mt-3 min-w-0 space-y-4">
           <div className="min-w-0">
             <p className="break-words text-sm font-medium">{artifact.output_type}</p>

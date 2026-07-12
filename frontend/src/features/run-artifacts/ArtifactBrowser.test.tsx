@@ -196,6 +196,32 @@ describe('ArtifactBrowser queries', () => {
     expect(getArtifactMock).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves confirmed detail when a background detail refresh fails', async () => {
+    const selected = artifact('artifact-a');
+    listArtifactsMock.mockResolvedValue(page([selected]));
+    getArtifactMock
+      .mockResolvedValueOnce(detail(selected))
+      .mockRejectedValueOnce(new Error('/private/path'))
+      .mockRejectedValueOnce(new Error('/private/path'));
+    const { queryClient } = renderBrowser({
+      selectedArtifactId: selected.artifact_id,
+    });
+
+    expect(await screen.findByText(selected.uri)).toBeInTheDocument();
+    await queryClient.invalidateQueries({
+      queryKey: ['run-artifact', 'run-1', 'artifact-a'],
+    });
+
+    expect(
+      await screen.findByText(
+        'Artifact detail refresh failed. The last confirmed detail is preserved.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText(selected.uri)).toBeInTheDocument();
+    expect(screen.getAllByText(selected.relative_path).length).toBeGreaterThan(0);
+    expect(screen.queryByText('/private/path')).not.toBeInTheDocument();
+  });
+
   it('fails closed for malformed successful envelopes', async () => {
     listArtifactsMock.mockResolvedValue({
       ...page([]),

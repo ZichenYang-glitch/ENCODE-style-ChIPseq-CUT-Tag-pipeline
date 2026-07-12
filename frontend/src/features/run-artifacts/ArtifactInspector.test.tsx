@@ -115,4 +115,26 @@ describe('ArtifactInspector', () => {
     );
     expect(screen.getByText('This artifact link is invalid or unavailable.')).toBeInTheDocument();
   });
+
+  it('preserves confirmed detail when a refresh fails', async () => {
+    const user = userEvent.setup();
+    const onRetry = vi.fn();
+    render(
+      <ArtifactInspector
+        artifact={artifact}
+        selectedArtifactId={artifact.artifact_id}
+        isLoading={false}
+        isError
+        invalidSelection={false}
+        onRetry={onRetry}
+      />,
+    );
+
+    expect(screen.getByText(artifact.uri)).toBeInTheDocument();
+    expect(
+      screen.getByText('Artifact detail refresh failed. The last confirmed detail is preserved.'),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry details' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
 });

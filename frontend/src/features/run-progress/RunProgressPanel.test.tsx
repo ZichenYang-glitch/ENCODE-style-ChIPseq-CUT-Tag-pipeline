@@ -305,6 +305,7 @@ describe('RunProgressPanel', () => {
         tags: {},
       },
       events: [],
+      eventsTruncated: false,
       stdoutLogs: [],
       stderrLogs: [],
       issues: [],
@@ -336,7 +337,16 @@ describe('RunProgressPanel', () => {
       ),
     ).toBe(false);
     expect(
-      shouldPollRunSnapshot({ ...succeeded, truncated: true }, 'artifacts'),
+      shouldPollRunSnapshot(
+        { ...succeeded, truncated: true, eventsTruncated: false },
+        'artifacts',
+      ),
+    ).toBe(true);
+    expect(
+      shouldPollRunSnapshot(
+        { ...succeeded, truncated: true, eventsTruncated: true },
+        'artifacts',
+      ),
     ).toBe(false);
   });
 
