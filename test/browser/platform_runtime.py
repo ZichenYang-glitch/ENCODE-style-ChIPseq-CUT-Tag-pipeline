@@ -49,16 +49,18 @@ MODE = "cancel" if int(config.get("threads", 1)) == 2 else "success"
 
 rule all:
     input:
-        "result/complete.txt"
+        "result/complete.txt",
+        "results/multiqc/result_manifest.tsv"
 
 rule browser_task:
     output:
-        "result/complete.txt"
+        complete="result/complete.txt",
+        manifest="results/multiqc/result_manifest.tsv"
     params:
         helper=str(HELPER),
         mode=MODE
     shell:
-        "python3 {params.helper:q} {params.mode:q} {output:q}"
+        "python3 {params.helper:q} {params.mode:q} {output.complete:q} {output.manifest:q}"
 """.lstrip(),
         encoding="utf-8",
     )
@@ -75,10 +77,17 @@ import time
 
 mode = sys.argv[1]
 output = Path(sys.argv[2])
+manifest = Path(sys.argv[3])
 output.parent.mkdir(parents=True, exist_ok=True)
+manifest.parent.mkdir(parents=True, exist_ok=True)
 if mode == "success":
     print("browser-e2e-success", flush=True)
     output.write_text("success\\n", encoding="utf-8")
+    manifest.write_text(
+        "output_type\\tstatus\\tpath\\n"
+        "result_manifest\\tpresent\\tresults/multiqc/result_manifest.tsv\\n",
+        encoding="utf-8",
+    )
     raise SystemExit(0)
 
 marker_root = Path(os.environ["TMPDIR"])
@@ -97,6 +106,7 @@ print("browser-e2e-cancel-entered", flush=True)
 time.sleep(300)
 child.wait(timeout=5)
 output.write_text("should-not-complete\\n", encoding="utf-8")
+manifest.write_text("should-not-complete\\n", encoding="utf-8")
 (marker_root / "browser-helper-completed").write_text("completed\\n", encoding="utf-8")
 """.lstrip(),
         encoding="utf-8",

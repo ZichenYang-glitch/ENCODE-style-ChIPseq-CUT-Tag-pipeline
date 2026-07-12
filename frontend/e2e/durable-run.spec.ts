@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { existsSync, readFileSync } from 'node:fs';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 interface RuntimeManifest {
@@ -63,6 +63,41 @@ async function expectNoHorizontalOverflow(page: Page) {
     .toBe(true);
 }
 
+async function captureArtifactViewport(
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+  width: number,
+  height: number,
+) {
+  await page.setViewportSize({ width, height });
+  await expect(page.getByRole('tab', { name: 'Artifacts' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Refresh run progress' })).toBeVisible();
+  await expect(page.getByTestId('artifact-inspector')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  const list = await page.getByTestId('artifact-list').boundingBox();
+  const inspector = await page.getByTestId('artifact-inspector').boundingBox();
+  expect(list).not.toBeNull();
+  expect(inspector).not.toBeNull();
+  if (width >= 1280) {
+    expect(inspector!.x).toBeGreaterThan(list!.x + list!.width - 2);
+  } else {
+    expect(inspector!.y).toBeGreaterThanOrEqual(list!.y + list!.height - 2);
+  }
+
+  const screenshot = await page.screenshot({ fullPage: true });
+  const screenshotDirectory = process.env.ENCODE_PIPELINE_E2E_SCREENSHOT_DIR;
+  if (screenshotDirectory) {
+    mkdirSync(screenshotDirectory, { recursive: true });
+    writeFileSync(join(screenshotDirectory, `${name}.png`), screenshot);
+  }
+  await testInfo.attach(`artifact-browser-${name}`, {
+    body: screenshot,
+    contentType: 'image/png',
+  });
+}
+
 function processExists(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -72,9 +107,9 @@ function processExists(pid: number): boolean {
   return true;
 }
 
-test('real durable execution succeeds, persists logs, and survives reload @desktop', async ({
+test('real durable execution succeeds, exposes artifacts, and survives deep-link reload @desktop', async ({
   page,
-}) => {
+}, testInfo) => {
   const runtime = manifest();
   const runId = await createPlannedRun(page, runtime.successConfig);
 
@@ -93,6 +128,43 @@ test('real durable execution succeeds, persists logs, and survives reload @deskt
   ).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
+  await page.getByRole('tab', { name: 'Artifacts' }).click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}\\?view=artifacts$`));
+  const manifestArtifact = page.getByRole('button', {
+    name: 'Open artifact result_manifest.tsv',
+  }).first();
+  await expect(manifestArtifact).toBeVisible({ timeout: 60_000 });
+  await manifestArtifact.click();
+  await expect(page).toHaveURL(
+    new RegExp(`/runs/${runId}\\?view=artifacts&artifact=[A-Za-z0-9_.-]+$`),
+  );
+  await expect(page.getByRole('heading', { name: 'Artifact details' })).toBeVisible();
+  await expect(
+    page
+      .getByTestId('artifact-inspector')
+      .getByText('results/multiqc/result_manifest.tsv', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId('artifact-inspector').getByText(/^run:\/\/runs\//)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Copy opaque uri' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /download/i })).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.getByRole('tab', { name: 'Artifacts' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(
+    page
+      .getByTestId('artifact-inspector')
+      .getByText('results/multiqc/result_manifest.tsv', { exact: true }),
+  ).toBeVisible();
+
+  await captureArtifactViewport(page, testInfo, 'desktop-1440x900', 1440, 900);
+  await captureArtifactViewport(page, testInfo, 'tablet-1024x768', 1024, 768);
+  await captureArtifactViewport(page, testInfo, 'mobile-390x844', 390, 844);
+  await captureArtifactViewport(page, testInfo, 'mobile-360x800', 360, 800);
+
+  await page.getByRole('tab', { name: 'Activity' }).click();
   await page.reload();
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
   await expect(page.getByTestId('run-status-badge')).toHaveText('succeeded');
@@ -149,6 +221,17 @@ test('running cancellation stays requested until worker acknowledgement @mobile'
   expect(existsSync(join(runtime.markerRoot, 'browser-helper-completed'))).toBe(false);
   expect(
     existsSync(join(runtime.workspaceRoot, runId, 'result', 'complete.txt')),
+  ).toBe(false);
+  expect(
+    existsSync(
+      join(
+        runtime.workspaceRoot,
+        runId,
+        'results',
+        'multiqc',
+        'result_manifest.tsv',
+      ),
+    ),
   ).toBe(false);
 
   await page.reload();

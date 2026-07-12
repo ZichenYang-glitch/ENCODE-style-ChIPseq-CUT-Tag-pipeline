@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, Play, RefreshCw } from 'lucide-react';
 import type { RunApiClient } from '../../api/runClient';
@@ -10,6 +10,11 @@ import type {
 } from '../../api/runTypes';
 import type { Issue, ValidateWorkflowResponse, WorkflowInputs } from '../../api/types';
 import { Button } from '../../components/Button';
+import { ArtifactBrowser } from '../run-artifacts/ArtifactBrowser';
+import {
+  artifactExtractionOutcome,
+  type ArtifactExtractionOutcome,
+} from '../run-artifacts/artifactState';
 import { RunEventFeed } from './RunEventFeed';
 import { RunIssuePanel } from './RunIssuePanel';
 import { RunLogPanel } from './RunLogPanel';
@@ -25,6 +30,10 @@ interface RunProgressPanelProps {
   beginPreflight?: boolean;
   preflightRequestId?: string | null;
   onPreflightConsumed?: () => void;
+  activeView?: 'activity' | 'artifacts';
+  selectedArtifactId?: string | null;
+  onViewChange?: (view: 'activity' | 'artifacts') => void;
+  onArtifactSelect?: (artifactId: string) => void;
 }
 
 const pollingStatuses = new Set(['created', 'validating', 'queued', 'running']);
@@ -63,6 +72,27 @@ export interface RunSnapshot {
   stderrLogs: RunLogChunkResponse[];
   issues: Issue[];
   truncated: boolean;
+}
+
+function extractionOutcome(snapshot: RunSnapshot | undefined): ArtifactExtractionOutcome {
+  return artifactExtractionOutcome(
+    snapshot?.events ?? [],
+    snapshot?.truncated ?? false,
+  );
+}
+
+export function shouldPollRunSnapshot(
+  snapshot: RunSnapshot | undefined,
+  activeView: 'activity' | 'artifacts',
+): boolean {
+  const status = snapshot?.run?.status;
+  if (!status) return false;
+  if (pollingStatuses.has(status)) return true;
+  return (
+    activeView === 'artifacts' &&
+    status === 'succeeded' &&
+    extractionOutcome(snapshot).kind === 'pending'
+  );
 }
 
 export function runProgressQueryKey(runId: string | null) {
@@ -243,6 +273,10 @@ export function RunProgressPanel({
   beginPreflight = false,
   preflightRequestId = null,
   onPreflightConsumed,
+  activeView = 'activity',
+  selectedArtifactId = null,
+  onViewChange = () => undefined,
+  onArtifactSelect = () => undefined,
 }: RunProgressPanelProps) {
   const [localRunId, setLocalRunId] = useState<string | null>(null);
   const [activeLogStream, setActiveLogStream] = useState<'stdout' | 'stderr'>('stdout');
@@ -261,8 +295,7 @@ export function RunProgressPanel({
     queryFn: () => loadRunSnapshot(runClient, targetRunId!),
     enabled: targetRunId !== null,
     refetchInterval: (query) => {
-      const status = query.state.data?.run?.status;
-      if (!status || !pollingStatuses.has(status)) return false;
+      if (!shouldPollRunSnapshot(query.state.data, activeView)) return false;
       if (pollingPaused) return false;
       return POLL_INTERVAL_MS;
     },
@@ -407,6 +440,8 @@ export function RunProgressPanel({
 
   const snapshot = runQuery.data;
   const run = snapshot?.run ?? null;
+  const artifactOutcome = extractionOutcome(snapshot);
+  const shouldPollSnapshot = shouldPollRunSnapshot(snapshot, activeView);
   const cancellationEventPresent =
     snapshot?.events.some((event) => event.event_type === 'cancellation_requested') ?? false;
   const showCancellationRequested =
@@ -417,8 +452,7 @@ export function RunProgressPanel({
   }, [run]);
 
   useEffect(() => {
-    const status = run?.status;
-    if (!status || !pollingStatuses.has(status)) {
+    if (!shouldPollSnapshot) {
       setPollingPaused(false);
       return;
     }
@@ -430,7 +464,7 @@ export function RunProgressPanel({
     setPollingPaused(false);
     const timer = window.setTimeout(() => setPollingPaused(true), remaining);
     return () => window.clearTimeout(timer);
-  }, [pollRevision, run?.status]);
+  }, [pollRevision, shouldPollSnapshot]);
 
   useEffect(() => {
     if (!run || actionIssueKind === null) return;
@@ -492,6 +526,19 @@ export function RunProgressPanel({
   const showMissingRunError =
     !run && !runQuery.isLoading && visibleIssues.length > 0 && runId !== null;
 
+  function handleTabKey(
+    event: KeyboardEvent<HTMLButtonElement>,
+    view: 'activity' | 'artifacts',
+  ) {
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    event.preventDefault();
+    const nextView = view === 'activity' ? 'artifacts' : 'activity';
+    onViewChange(nextView);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`run-${nextView}-tab`)?.focus();
+    });
+  }
+
   return (
     <div className="space-y-4" data-testid="run-progress-panel">
       {showNoRunPlaceholder && (
@@ -538,7 +585,7 @@ export function RunProgressPanel({
             </div>
           )}
 
-          {pollingPaused && pollingStatuses.has(run.status) && (
+          {pollingPaused && shouldPollSnapshot && (
             <div
               className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-sm text-[var(--color-text-muted)]"
               role="status"
@@ -550,47 +597,7 @@ export function RunProgressPanel({
 
           {run.error && <RunIssuePanel issues={[run.error]} title="Run failure" />}
 
-          {snapshot?.truncated && (
-            <p className="text-xs text-[var(--color-text-muted)]" role="status">
-              Showing the first {MAX_PAGES * PAGE_LIMIT} entries per stream. Additional entries are not loaded automatically.
-            </p>
-          )}
-
-          <div>
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-              Events
-            </h4>
-            <RunEventFeed events={snapshot?.events ?? []} />
-          </div>
-
-          <div>
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-              Logs
-            </h4>
-            <RunLogPanel
-              stdoutChunks={snapshot?.stdoutLogs ?? []}
-              stderrChunks={snapshot?.stderrLogs ?? []}
-              activeStream={activeLogStream}
-              onStreamChange={setActiveLogStream}
-            />
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-wrap gap-2">
-        {!runId && (
-          <Button
-            variant="primary"
-            onClick={handleCreateRun}
-            disabled={!canCreateRun || createMutation.isPending}
-            aria-label="Create run"
-            data-testid="create-run-button"
-          >
-            {createMutation.isPending ? 'Creating run…' : 'Create run'}
-          </Button>
-        )}
-        {run && (
-          <>
+          <div className="flex flex-wrap gap-2">
             {canPreflightRun && (
               <Button
                 variant="primary"
@@ -640,9 +647,104 @@ export function RunProgressPanel({
                     : 'Cancel run'}
               </Button>
             )}
-          </>
-        )}
-      </div>
+          </div>
+
+          {snapshot?.truncated && (
+            <p className="text-xs text-[var(--color-text-muted)]" role="status">
+              Showing the first {MAX_PAGES * PAGE_LIMIT} entries per stream. Additional entries are not loaded automatically.
+            </p>
+          )}
+
+          {runId && (
+            <div
+              className="flex border-b border-[var(--color-border)]"
+              role="tablist"
+              aria-label="Run detail views"
+            >
+              {(['activity', 'artifacts'] as const).map((view) => (
+                <button
+                  key={view}
+                  id={`run-${view}-tab`}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeView === view}
+                  aria-controls={`run-${view}-panel`}
+                  tabIndex={activeView === view ? 0 : -1}
+                  className={`border-b-2 px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-inset ${
+                    activeView === view
+                      ? 'border-[var(--color-accent)] text-[var(--color-accent-hover)]'
+                      : 'border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text)]'
+                  }`}
+                  onClick={() => onViewChange(view)}
+                  onKeyDown={(event) => handleTabKey(event, view)}
+                >
+                  {view === 'activity' ? 'Activity' : 'Artifacts'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {(!runId || activeView === 'activity') && (
+            <div
+              id="run-activity-panel"
+              role={runId ? 'tabpanel' : undefined}
+              aria-labelledby={runId ? 'run-activity-tab' : undefined}
+              className="space-y-3"
+            >
+              <div>
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+                  Events
+                </h4>
+                <RunEventFeed events={snapshot?.events ?? []} />
+              </div>
+
+              <div>
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+                  Logs
+                </h4>
+                <RunLogPanel
+                  stdoutChunks={snapshot?.stdoutLogs ?? []}
+                  stderrChunks={snapshot?.stderrLogs ?? []}
+                  activeStream={activeLogStream}
+                  onStreamChange={setActiveLogStream}
+                />
+              </div>
+            </div>
+          )}
+
+          {runId && activeView === 'artifacts' && (
+            <div
+              id="run-artifacts-panel"
+              role="tabpanel"
+              aria-labelledby="run-artifacts-tab"
+              className="min-w-0"
+            >
+              <ArtifactBrowser
+                runId={run.run_id}
+                runStatus={run.status}
+                outcome={artifactOutcome}
+                selectedArtifactId={selectedArtifactId}
+                onSelectArtifact={onArtifactSelect}
+                onRefreshStatus={handleRefresh}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {!runId && (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="primary"
+            onClick={handleCreateRun}
+            disabled={!canCreateRun || createMutation.isPending}
+            aria-label="Create run"
+            data-testid="create-run-button"
+          >
+            {createMutation.isPending ? 'Creating run…' : 'Create run'}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
