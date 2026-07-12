@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Copy } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowUp, Copy } from 'lucide-react';
 import type { ArtifactReferenceResponse } from '../../api/generated/models';
 import { Button } from '../../components/Button';
 import { formatBytes, formatProducedTime } from './artifactState';
@@ -11,6 +11,7 @@ interface ArtifactInspectorProps {
   isError: boolean;
   invalidSelection: boolean;
   onRetry: () => void;
+  onBackToList?: () => void;
 }
 
 const metadataLabels: Array<[
@@ -36,10 +37,23 @@ export function ArtifactInspector({
   isError,
   invalidSelection,
   onRetry,
+  onBackToList = () => undefined,
 }: ArtifactInspectorProps) {
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const inspectorRef = useRef<HTMLElement>(null);
 
   useEffect(() => setCopyStatus(null), [selectedArtifactId]);
+
+  useEffect(() => {
+    if (!selectedArtifactId || window.innerWidth >= 1280) return;
+    const frame = window.requestAnimationFrame(() => {
+      const inspector = inspectorRef.current;
+      if (inspector && typeof inspector.scrollIntoView === 'function') {
+        inspector.scrollIntoView({ block: 'start' });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedArtifactId]);
 
   async function copyValue(label: string, value: string) {
     try {
@@ -53,13 +67,27 @@ export function ArtifactInspector({
 
   return (
     <aside
+      ref={inspectorRef}
       className="min-w-0 border-t border-[var(--color-border)] pt-3 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0"
       aria-labelledby="artifact-inspector-heading"
       data-testid="artifact-inspector"
     >
-      <h3 id="artifact-inspector-heading" className="text-sm font-semibold">
-        Artifact details
-      </h3>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <h3 id="artifact-inspector-heading" className="text-sm font-semibold">
+          Artifact details
+        </h3>
+        {selectedArtifactId && (
+          <Button
+            variant="secondary"
+            className="px-2 xl:hidden"
+            onClick={onBackToList}
+            aria-label="Back to artifact list"
+          >
+            <ArrowUp className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            Back to artifacts
+          </Button>
+        )}
+      </div>
 
       {!selectedArtifactId && !invalidSelection && (
         <p className="mt-2 text-sm text-[var(--color-text-muted)]">

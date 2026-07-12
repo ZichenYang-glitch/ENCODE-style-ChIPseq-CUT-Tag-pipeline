@@ -232,6 +232,12 @@ export function ArtifactBrowser({
           isError={detailQuery.isError}
           invalidSelection={selectedArtifactId !== null && !validSelection}
           onRetry={() => void detailQuery.refetch()}
+          onBackToList={() => {
+            const list = document.getElementById('artifact-list');
+            if (list && typeof list.scrollIntoView === 'function') {
+              list.scrollIntoView({ block: 'start' });
+            }
+          }}
         />
       </div>
     </div>

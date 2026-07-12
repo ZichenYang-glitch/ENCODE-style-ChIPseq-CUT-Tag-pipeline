@@ -130,10 +130,13 @@ complete accessible text, use `title`, and wrap without horizontal overflow.
 ### `ArtifactInspector`
 
 Renders after the list in DOM order. A responsive grid places it on the right
-at desktop widths and below the list on mobile. It displays only generated
-whitelisted metadata, opaque URI, and relative path. Copy buttons use lucide
-icons, visible tooltips through `title`, accessible labels, and live success or
-failure feedback. There is no Download control.
+at desktop widths and below the list on narrower viewports. Selecting or deep
+linking an artifact on a narrow viewport scrolls the inspector into view, and a
+visible Back to artifacts control returns to the list without changing the URL
+selection. It displays only generated whitelisted metadata, opaque URI, and
+relative path. Copy buttons use lucide icons, visible tooltips through `title`,
+accessible labels, and live success or failure feedback. There is no Download
+control.
 
 ## Visual system and responsiveness
 

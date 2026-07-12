@@ -27,7 +27,10 @@ function ArtifactName({ artifact }: { artifact: ArtifactReferenceResponse }) {
       <span className="block break-words font-medium text-[var(--color-text)]">
         {artifact.output_type}
       </span>
-      <span className="block break-all text-[var(--color-text-muted)]" title={artifact.name}>
+      <span
+        className="block break-words text-[var(--color-text-muted)] [overflow-wrap:anywhere]"
+        title={artifact.name}
+      >
         {artifact.name}
       </span>
     </div>
@@ -43,7 +46,7 @@ export function ArtifactList({
   onLoadMore,
 }: ArtifactListProps) {
   return (
-    <div className="min-w-0" data-testid="artifact-list">
+    <div id="artifact-list" className="min-w-0" data-testid="artifact-list">
       <div className="hidden min-w-0 md:block">
         <table className="w-full table-fixed border-collapse text-left text-xs">
           <caption className="sr-only">Indexed run artifacts</caption>

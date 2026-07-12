@@ -71,9 +71,16 @@ async function captureArtifactViewport(
   height: number,
 ) {
   await page.setViewportSize({ width, height });
+  if (width < 1280) {
+    await page.reload();
+  }
   await expect(page.getByRole('tab', { name: 'Artifacts' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Refresh run progress' })).toBeVisible();
   await expect(page.getByTestId('artifact-inspector')).toBeVisible();
+  if (width < 1280) {
+    await expect(page.getByTestId('artifact-inspector')).toBeInViewport();
+    await expect(page.getByRole('button', { name: 'Back to artifact list' })).toBeVisible();
+  }
   await expectNoHorizontalOverflow(page);
 
   const list = await page.getByTestId('artifact-list').boundingBox();

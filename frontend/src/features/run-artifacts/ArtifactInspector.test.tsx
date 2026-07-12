@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ArtifactReferenceResponse } from '../../api/generated/models';
 import { ArtifactInspector } from './ArtifactInspector';
@@ -28,8 +28,22 @@ const artifact: ArtifactReferenceResponse = {
   },
 };
 
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  'scrollIntoView',
+);
+
 afterEach(() => {
   vi.unstubAllGlobals();
+  if (originalScrollIntoView) {
+    Object.defineProperty(
+      HTMLElement.prototype,
+      'scrollIntoView',
+      originalScrollIntoView,
+    );
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+  }
 });
 
 describe('ArtifactInspector', () => {
@@ -136,5 +150,34 @@ describe('ArtifactInspector', () => {
     ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Retry details' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('reveals a selected detail on narrow screens and returns to the list', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    const onBackToList = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    vi.stubGlobal('innerWidth', 390);
+
+    render(
+      <ArtifactInspector
+        artifact={artifact}
+        selectedArtifactId={artifact.artifact_id}
+        isLoading={false}
+        isError={false}
+        invalidSelection={false}
+        onRetry={() => undefined}
+        onBackToList={onBackToList}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Back to artifact list' }));
+    expect(onBackToList).toHaveBeenCalledTimes(1);
   });
 });
