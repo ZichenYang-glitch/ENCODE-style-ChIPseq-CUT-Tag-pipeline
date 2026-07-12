@@ -2,7 +2,12 @@ import { describe, it, expect, vi, type Mock } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
-import { isRunPollingPaused, RunProgressPanel } from './RunProgressPanel';
+import {
+  isRunPollingPaused,
+  RunProgressPanel,
+  shouldPollRunSnapshot,
+  type RunSnapshot,
+} from './RunProgressPanel';
 import type { RunApiClient } from '../../api/runClient';
 import type { ValidateWorkflowResponse, WorkflowInputs } from '../../api/types';
 import type { RunEventResponse, RunResponse } from '../../api/runTypes';
@@ -281,6 +286,68 @@ describe('RunProgressPanel', () => {
     expect(isRunPollingPaused('running', startedAt, startedAt + 899_999)).toBe(false);
     expect(isRunPollingPaused('running', startedAt, startedAt + 900_000)).toBe(true);
     expect(isRunPollingPaused('succeeded', startedAt, startedAt + 900_000)).toBe(false);
+  });
+
+  it('uses one polling eligibility for lifecycle and succeeded indexing states', () => {
+    const succeeded: RunSnapshot = {
+      run: {
+        run_id: 'run-1',
+        workflow_id: WORKFLOW_ID,
+        inputs: {},
+        status: 'succeeded',
+        created_at: '2026-07-12T12:00:00Z',
+        updated_at: '2026-07-12T12:01:00Z',
+        started_at: '2026-07-12T12:00:10Z',
+        ended_at: '2026-07-12T12:01:00Z',
+        current_stage: 'execution',
+        cancellation_reason: null,
+        error: null,
+        tags: {},
+      },
+      events: [],
+      eventsTruncated: false,
+      stdoutLogs: [],
+      stderrLogs: [],
+      issues: [],
+      truncated: false,
+    };
+
+    expect(shouldPollRunSnapshot(succeeded, 'activity')).toBe(false);
+    expect(shouldPollRunSnapshot(succeeded, 'artifacts')).toBe(true);
+    expect(
+      shouldPollRunSnapshot(
+        {
+          ...succeeded,
+          events: [
+            {
+              event_id: 'event-indexed',
+              run_id: 'run-1',
+              sequence: 1,
+              event_type: 'artifacts_indexed',
+              timestamp: '2026-07-12T12:01:00Z',
+              status: 'succeeded',
+              stage: 'artifact_extraction',
+              message: 'Artifacts indexed.',
+              context: { artifact_count: 0 },
+              issue: null,
+            },
+          ],
+        },
+        'artifacts',
+      ),
+    ).toBe(false);
+    expect(
+      shouldPollRunSnapshot(
+        { ...succeeded, truncated: true, eventsTruncated: false },
+        'artifacts',
+      ),
+    ).toBe(true);
+    expect(
+      shouldPollRunSnapshot(
+        { ...succeeded, truncated: true, eventsTruncated: true },
+        'artifacts',
+      ),
+    ).toBe(false);
   });
 
   it('shows the no-run state and disables Create run before validation', () => {
