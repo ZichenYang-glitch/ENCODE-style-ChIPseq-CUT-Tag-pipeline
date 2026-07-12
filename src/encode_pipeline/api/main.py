@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from encode_pipeline.api.models import ValidationResponse
+from encode_pipeline.api.models import RunArtifactsResponse, ValidationResponse
 from encode_pipeline.api.routes import api_v1_router
 from encode_pipeline.persistence import DATABASE_URL_ENV, open_run_persistence
 from encode_pipeline.platform.results import Issue
@@ -158,6 +158,30 @@ async def _handle_request_validation_error(
     exc: RequestValidationError,
 ) -> JSONResponse:
     """Return 400 with the PR84 API_REQUEST_INVALID envelope."""
+    route = request.scope.get("route")
+    if getattr(route, "operation_id", None) == "listRunArtifacts":
+        run_id = request.path_params.get("run_id", "")
+        issue = Issue(
+            code="API_REQUEST_INVALID",
+            message="Artifact query parameters are invalid.",
+            severity="error",
+            path="limit",
+            source="api",
+            technical_message=None,
+            hint="Use an integer limit between 1 and 100.",
+            context={},
+        )
+        body = RunArtifactsResponse(
+            ok=False,
+            run_id=run_id,
+            artifacts=[],
+            next_cursor=None,
+            issues=[issue.to_dict()],
+        )
+        return JSONResponse(
+            status_code=400,
+            content=body.model_dump(mode="json", exclude_none=True),
+        )
     workflow_id = request.path_params.get("workflow_id")
     issue = _issue_from_request_validation_error(exc, workflow_id=workflow_id)
     body = ValidationResponse(

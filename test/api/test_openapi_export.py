@@ -127,6 +127,18 @@ def test_openapi_operations_match_expected_contract(tmp_path):
     assert operations == EXPECTED_OPERATIONS
 
 
+def test_artifact_operations_do_not_publish_unreachable_422_responses(tmp_path):
+    schema = _isolated_app_schema(tmp_path, "artifact-responses")
+
+    for path in (
+        "/api/v1/runs/{run_id}/artifacts",
+        "/api/v1/runs/{run_id}/artifacts/{artifact_id}",
+    ):
+        responses = schema["paths"][path]["get"]["responses"]
+        assert "422" not in responses
+        assert "4XX" in responses
+
+
 def test_committed_openapi_matches_current_app(tmp_path):
     """Drift gate: the committed frontend/openapi.json must equal create_app().openapi().
 

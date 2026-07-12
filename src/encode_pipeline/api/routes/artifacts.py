@@ -78,6 +78,7 @@ def _artifact_data_invalid_issue() -> IssueResponse:
     operation_id="listRunArtifacts",
     responses={
         400: {"model": RunArtifactsResponse},
+        "4XX": {"model": RunArtifactsResponse},
         404: {"model": RunArtifactsResponse},
         500: {"model": RunArtifactsResponse},
     },
@@ -153,6 +154,7 @@ async def list_run_artifacts(
     response_model_exclude_none=True,
     operation_id="getRunArtifact",
     responses={
+        "4XX": {"model": RunArtifactDetailResponse},
         404: {"model": RunArtifactDetailResponse},
         500: {"model": RunArtifactDetailResponse},
     },

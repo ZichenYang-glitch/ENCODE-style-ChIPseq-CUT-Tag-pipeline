@@ -140,6 +140,26 @@ def test_detail_returns_strict_public_projection(client):
     assert "private" not in response.text
 
 
+def test_legal_scientific_metadata_with_spaces_is_returned(client):
+    run_id = _create_run(client)
+    artifact = _artifact(
+        run_id,
+        "artifact-polymerase",
+        metadata={
+            "relative_path": "results/artifact-polymerase.txt",
+            "output_type": "summary",
+            "size_bytes": 7,
+            "target": "RNA polymerase II",
+        },
+    )
+    _record(client, artifact)
+
+    response = client.get(f"/api/v1/runs/{run_id}/artifacts/{artifact.artifact_id}")
+
+    assert response.status_code == 200
+    assert response.json()["artifact"]["metadata"]["target"] == ("RNA polymerase II")
+
+
 def test_unknown_run_returns_stable_404(client):
     response = client.get("/api/v1/runs/run-missing/artifacts")
 
@@ -191,7 +211,22 @@ def test_list_rejects_out_of_bounds_limits(client, limit):
     )
 
     assert response.status_code == 400
-    assert response.json()["issues"][0]["code"] == "API_REQUEST_INVALID"
+    assert response.json() == {
+        "ok": False,
+        "run_id": run_id,
+        "artifacts": [],
+        "issues": [
+            {
+                "code": "API_REQUEST_INVALID",
+                "message": "Artifact query parameters are invalid.",
+                    "severity": "error",
+                    "path": "limit",
+                    "source": "api",
+                    "hint": "Use an integer limit between 1 and 100.",
+                "context": {},
+            }
+        ],
+    }
 
 
 @pytest.mark.parametrize("limit", [1, 100])

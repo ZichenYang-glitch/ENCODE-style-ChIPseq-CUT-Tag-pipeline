@@ -690,6 +690,16 @@
             },
             "description": "Bad Request"
           },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunArtifactsResponse"
+                }
+              }
+            },
+            "description": "Client Error"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -709,16 +719,6 @@
               }
             },
             "description": "Internal Server Error"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
           }
         }
       }
@@ -762,6 +762,16 @@
               }
             }
           },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunArtifactDetailResponse"
+                }
+              }
+            },
+            "description": "Client Error"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -781,16 +791,6 @@
               }
             },
             "description": "Internal Server Error"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
           }
         }
       }

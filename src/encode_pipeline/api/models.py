@@ -17,7 +17,8 @@ _MIME_TYPE_PATTERN = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$"
 )
 _WINDOWS_ABSOLUTE_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
-_PUBLIC_METADATA_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:+-]{0,511}$")
+_ENVIRONMENT_ASSIGNMENT_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_EMBEDDED_POSIX_PATH_PATTERN = re.compile(r"(?:^|\s)/[^/\s]")
 
 
 class IssueResponse(BaseModel):
@@ -217,10 +218,7 @@ class ArtifactMetadataResponse(BaseModel):
     )
     @classmethod
     def validate_public_metadata_text(cls, value: str | None) -> str | None:
-        if value is not None and (
-            _is_unsafe_public_text(value)
-            or _PUBLIC_METADATA_PATTERN.fullmatch(value) is None
-        ):
+        if value is not None and _is_unsafe_public_text(value):
             raise ValueError("artifact metadata value is not public-safe")
         return value
 
@@ -344,9 +342,13 @@ def _is_unsafe_public_text(value: str) -> bool:
     lowered = value.lower()
     return (
         _has_control_character(value)
-        or value.startswith(("/", "~", "\\\\"))
+        or value.startswith(("/", "~", "\\"))
+        or "\\" in value
         or _WINDOWS_ABSOLUTE_PATTERN.match(value) is not None
         or lowered.startswith("file:")
+        or "://" in lowered
+        or _ENVIRONMENT_ASSIGNMENT_PATTERN.match(value) is not None
+        or _EMBEDDED_POSIX_PATH_PATTERN.search(value) is not None
     )
 
 
