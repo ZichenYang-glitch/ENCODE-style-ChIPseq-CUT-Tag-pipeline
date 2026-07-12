@@ -31,6 +31,13 @@ from encode_pipeline.platform.runs import (
 
 _T = TypeVar("_T")
 _CANONICAL_DECIMAL = re.compile(r"^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?$")
+_QC_METRIC_ID = re.compile(r"^qcmetric-[0-9a-f]{64}$")
+_QC_METRIC_KEY = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
+_QC_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$")
+_QC_SOURCE_ARTIFACT_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
+_QC_UNITS = frozenset({"count", "fraction", "ratio"})
+_QC_SCOPES = frozenset({"run", "sample", "experiment"})
+_QC_FLAGS = frozenset({"pass", "warning", "fail"})
 _QC_OUTCOME_TYPES = frozenset(
     {
         "qc_metrics_indexed",
@@ -1013,11 +1020,68 @@ def _validated_qc_replacement(
             raise ValueError("QC metric does not match the run")
         if metric.metric_id in seen:
             raise ValueError("QC replacement contains a duplicate metric_id")
+        _validate_qc_metric_fields(metric)
         if metric.source_artifact_id not in source_artifact_ids:
             raise ValueError("QC metric source is not in the artifact generation")
-        canonical_decimal_text(metric.value)
         seen.add(metric.metric_id)
     return tuple(sorted(metrics, key=lambda metric: metric.metric_id))
+
+
+def _validate_qc_metric_fields(metric: RunQcMetric) -> None:
+    if (
+        not isinstance(metric.metric_id, str)
+        or _QC_METRIC_ID.fullmatch(metric.metric_id) is None
+    ):
+        raise ValueError("QC metric_id is invalid")
+    if (
+        not isinstance(metric.metric_key, str)
+        or len(metric.metric_key) > 128
+        or _QC_METRIC_KEY.fullmatch(metric.metric_key) is None
+    ):
+        raise ValueError("QC metric key is invalid")
+    if (
+        not isinstance(metric.display_name, str)
+        or not 1 <= len(metric.display_name) <= 255
+        or not metric.display_name.isprintable()
+        or "/" in metric.display_name
+        or "\\" in metric.display_name
+    ):
+        raise ValueError("QC metric display name is invalid")
+    canonical_decimal_text(metric.value)
+    if not isinstance(metric.unit, str) or metric.unit not in _QC_UNITS:
+        raise ValueError("QC metric unit is invalid")
+    if not isinstance(metric.scope, str) or metric.scope not in _QC_SCOPES:
+        raise ValueError("QC metric scope is invalid")
+    for value in (metric.sample_id, metric.experiment_id, metric.assay):
+        if value is not None and (
+            not isinstance(value, str) or _QC_TOKEN.fullmatch(value) is None
+        ):
+            raise ValueError("QC metric identifier is invalid")
+    if metric.scope == "run" and (
+        metric.sample_id is not None or metric.experiment_id is not None
+    ):
+        raise ValueError("run QC scope cannot have sample or experiment IDs")
+    if metric.scope == "sample" and metric.sample_id is None:
+        raise ValueError("sample QC scope requires sample_id")
+    if metric.scope == "experiment" and (
+        metric.sample_id is not None or metric.experiment_id is None
+    ):
+        raise ValueError("experiment QC scope requires only experiment_id")
+    if metric.qc_flag is not None and (
+        not isinstance(metric.qc_flag, str) or metric.qc_flag not in _QC_FLAGS
+    ):
+        raise ValueError("QC metric flag is invalid")
+    if (
+        not isinstance(metric.source_artifact_id, str)
+        or _QC_SOURCE_ARTIFACT_ID.fullmatch(metric.source_artifact_id) is None
+    ):
+        raise ValueError("QC metric source artifact ID is invalid")
+    if (
+        not isinstance(metric.produced_at, datetime)
+        or metric.produced_at.tzinfo is None
+        or metric.produced_at.utcoffset() is None
+    ):
+        raise ValueError("QC metric produced_at must be timezone-aware")
 
 
 def _assignment_has_ownership(

@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -112,15 +113,16 @@ def _artifact(
     artifact_id="artifact-1",
     output_type="qc_summary",
     relative_path="results/summary.tsv",
+    run_id="run-1",
 ):
     from datetime import datetime, timezone
 
     return RunArtifactRef(
         artifact_id=artifact_id,
-        run_id="run-1",
+        run_id=run_id,
         artifact_type="file",
         name=Path(relative_path).name,
-        uri=f"run://runs/run-1/artifacts/{artifact_id}",
+        uri=f"run://runs/{run_id}/artifacts/{artifact_id}",
         mime_type="text/tab-separated-values",
         produced_at=datetime(2026, 7, 12, tzinfo=timezone.utc),
         metadata={
@@ -135,27 +137,34 @@ def _artifact(
     )
 
 
-def _service(tmp_path, adapter, *, status=RunStatus.SUCCEEDED, artifacts=None):
+def _service(
+    tmp_path,
+    adapter,
+    *,
+    status=RunStatus.SUCCEEDED,
+    artifacts=None,
+    run_id="run-1",
+):
     registry = WorkflowRegistry([adapter])
-    run_service = RunService(registry, id_factory=lambda: "run-1")
+    run_service = RunService(registry, id_factory=lambda: run_id)
     provider = WorkflowBuildIdentityProvider(
         registry,
         project_root=_project(tmp_path / "project"),
     )
     run_service.create_run("fake", WorkflowInputs(config={}))
-    run_service.transition_run("run-1", RunStatus.VALIDATING)
+    run_service.transition_run(run_id, RunStatus.VALIDATING)
     identity = provider.capture("fake").value
-    run_service.complete_preflight("run-1", identity)
+    run_service.complete_preflight(run_id, identity)
     if status in {RunStatus.SUCCEEDED, RunStatus.FAILED}:
-        run_service.transition_run("run-1", RunStatus.QUEUED)
-        run_service.transition_run("run-1", RunStatus.RUNNING)
-    run_service.transition_run("run-1", status)
+        run_service.transition_run(run_id, RunStatus.QUEUED)
+        run_service.transition_run(run_id, RunStatus.RUNNING)
+    run_service.transition_run(run_id, status)
     workspace_root = (tmp_path / "workspaces").resolve()
-    workspace = workspace_root / "run-1"
+    workspace = workspace_root / run_id
     (workspace / "results").mkdir(parents=True)
     artifact_set = () if artifacts is None else tuple(artifacts)
     if status is RunStatus.SUCCEEDED:
-        run_service.replace_artifacts("run-1", artifact_set)
+        run_service.replace_artifacts(run_id, artifact_set)
     service = QcSummaryIndexingService(
         run_service=run_service,
         registry=registry,
@@ -188,6 +197,25 @@ def test_index_builds_deterministic_metrics_and_is_idempotent(tmp_path):
     assert [event.event_type for event in run_service.list_events("run-1")].count(
         "qc_metrics_indexed"
     ) == 1
+
+
+def test_digit_leading_canonical_run_id_indexes_qc(tmp_path):
+    run_id = "1f72c3d4-0000-4000-8000-000000000000"
+    adapter = QcAdapter((_candidate(),))
+    artifact = _artifact(run_id=run_id)
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(artifact,),
+        run_id=run_id,
+    )
+    (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+
+    result = service.index(run_id, artifacts)
+
+    assert result.is_success
+    assert result.value == run_service.list_qc_metrics(run_id)
+    assert len(result.value) == 1
 
 
 def test_no_declared_qc_sources_is_a_confirmed_empty_index(tmp_path):
@@ -391,6 +419,81 @@ def test_index_rejects_symlinked_parent_component(tmp_path):
     assert run_service.list_events("run-1")[-1].context == {
         "reason_code": "QC_INDEXING_SOURCE_VALIDATION_FAILED"
     }
+
+
+def test_intermediate_component_swap_to_symlink_fails_closed(tmp_path, monkeypatch):
+    import encode_pipeline.services.qc_summary_indexing as module
+
+    adapter = QcAdapter((_candidate(),))
+    artifact = _artifact()
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(artifact,),
+    )
+    source = workspace / "results/summary.tsv"
+    source.write_bytes(b"inside-safe")
+    outside = tmp_path / "outside-results"
+    outside.mkdir()
+    (outside / "summary.tsv").write_bytes(b"OUTSIDE-SENTINEL")
+    original_results = workspace / "results-original"
+    real_open = module.os.open
+    swapped = False
+
+    def racing_open(path, flags, *args, **kwargs):
+        nonlocal swapped
+        if path == "results" and not swapped:
+            swapped = True
+            (workspace / "results").rename(original_results)
+            (workspace / "results").symlink_to(outside, target_is_directory=True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", racing_open)
+
+    result = service.index("run-1", artifacts)
+
+    assert result.is_failure
+    assert swapped is True
+    assert adapter.calls == 0
+    assert run_service.list_qc_metrics("run-1") == ()
+
+
+def test_device_mode_descriptor_is_rejected_before_read(tmp_path, monkeypatch):
+    import encode_pipeline.services.qc_summary_indexing as module
+
+    adapter = QcAdapter((_candidate(),))
+    artifact = _artifact()
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(artifact,),
+    )
+    (workspace / "results/summary.tsv").write_bytes(b"safe-qc")
+    real_open = module.os.open
+    real_fstat = module.os.fstat
+    final_descriptor = None
+
+    def tracking_open(path, flags, *args, **kwargs):
+        nonlocal final_descriptor
+        descriptor = real_open(path, flags, *args, **kwargs)
+        if path == "summary.tsv":
+            final_descriptor = descriptor
+        return descriptor
+
+    def device_fstat(descriptor):
+        if descriptor == final_descriptor:
+            return SimpleNamespace(st_mode=module.stat.S_IFCHR, st_size=0)
+        return real_fstat(descriptor)
+
+    monkeypatch.setattr(module.os, "open", tracking_open)
+    monkeypatch.setattr(module.os, "fstat", device_fstat)
+
+    result = service.index("run-1", artifacts)
+
+    assert result.is_failure
+    assert final_descriptor is not None
+    assert adapter.calls == 0
+    assert run_service.list_qc_metrics("run-1") == ()
 
 
 @pytest.mark.parametrize(

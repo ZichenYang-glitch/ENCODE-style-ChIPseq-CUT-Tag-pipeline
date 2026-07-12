@@ -6,6 +6,7 @@ from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal
+from hashlib import sha256
 from threading import Barrier
 
 import pytest
@@ -87,9 +88,9 @@ def _artifact(artifact_id, output_type="qc_summary"):
     )
 
 
-def _metric(metric_id="qcmetric-1", value=Decimal("9007199254740993")):
+def _metric(metric_id="default", value=Decimal("9007199254740993")):
     return RunQcMetric(
-        metric_id=metric_id,
+        metric_id=f"qcmetric-{sha256(metric_id.encode()).hexdigest()}",
         run_id="run-1",
         metric_key="sequencing.total_reads",
         display_name="Total reads",
@@ -185,6 +186,44 @@ def test_repositories_reject_missing_metric_source_and_invalid_decimal(repositor
         repository.replace_qc_metrics(
             "run-1",
             (_metric(value=Decimal("0.1234567890123")),),
+            expected_artifacts=artifacts,
+            expected_status=RunStatus.SUCCEEDED,
+            event=_event("qc_metrics_indexed"),
+        )
+
+    assert repository.list_qc_metrics("run-1") == ()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"metric_id": "metric-unsafe"},
+        {"metric_id": None},
+        {"metric_key": "../unsafe"},
+        {"display_name": "Private/path"},
+        {"unit": "percent"},
+        {"unit": None},
+        {"scope": "project"},
+        {"scope": "run"},
+        {"scope": "experiment", "sample_id": "S1", "experiment_id": "EXP1"},
+        {"sample_id": "S1/private"},
+        {"assay": "chipseq/private"},
+        {"qc_flag": "unknown"},
+        {"qc_flag": ["pass"]},
+        {"produced_at": datetime(2026, 7, 12)},
+    ),
+)
+def test_repositories_reject_invalid_durable_metric_fields_atomically(
+    repository,
+    changes,
+):
+    artifacts = (_artifact("artifact-1"),)
+    _prepare(repository, artifacts)
+
+    with pytest.raises(ValueError):
+        repository.replace_qc_metrics(
+            "run-1",
+            (replace(_metric(), **changes),),
             expected_artifacts=artifacts,
             expected_status=RunStatus.SUCCEEDED,
             event=_event("qc_metrics_indexed"),

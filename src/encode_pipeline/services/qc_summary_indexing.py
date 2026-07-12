@@ -31,6 +31,7 @@ from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvid
 _MAX_SOURCE_BYTES = 1024 * 1024
 _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$")
 _SAFE_ARTIFACT_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
+_SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _SAFE_OUTPUT_TYPE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _SAFE_METRIC_KEY = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
 _ALLOWED_UNITS = frozenset({"count", "fraction", "ratio"})
@@ -192,7 +193,7 @@ class QcSummaryIndexingService:
     def _workspace_for_run(self, run_id: str) -> Path:
         if (
             not isinstance(run_id, str)
-            or _SAFE_ARTIFACT_ID.fullmatch(run_id) is None
+            or _SAFE_RUN_ID.fullmatch(run_id) is None
             or run_id in {".", ".."}
         ):
             raise ValueError("run_id is not workspace-safe")
