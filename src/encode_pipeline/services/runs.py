@@ -788,6 +788,33 @@ class RunService:
                 )
             return self._repository.record_artifact(run_id, artifact)
 
+    def replace_artifacts(
+        self,
+        run_id: str,
+        artifacts: Iterable[RunArtifactRef],
+    ) -> tuple[RunArtifactRef, ...]:
+        """Atomically replace a succeeded run's complete artifact index."""
+        with self._lock:
+            replacement = tuple(artifacts)
+            for artifact in replacement:
+                if not isinstance(artifact, RunArtifactRef):
+                    raise ValueError("artifacts must contain RunArtifactRef values")
+                if artifact.run_id != run_id:
+                    raise ValueError("artifact run_id does not match the run")
+            self._repository.replace_artifacts(
+                run_id,
+                replacement,
+                expected_status=RunStatus.SUCCEEDED,
+                event=RunEventDraft(
+                    event_type="artifacts_indexed",
+                    message="Workflow artifacts indexed.",
+                    status=RunStatus.SUCCEEDED,
+                    stage="artifact_extraction",
+                    context={"artifact_count": len(replacement)},
+                ),
+            )
+            return replacement
+
     def list_artifacts(self, run_id: str) -> tuple[RunArtifactRef, ...]:
         """Return artifact references in insertion order."""
         with self._lock:

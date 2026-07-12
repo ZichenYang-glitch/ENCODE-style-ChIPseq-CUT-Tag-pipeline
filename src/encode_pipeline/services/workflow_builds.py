@@ -95,6 +95,10 @@ class WorkflowBuildIdentityProvider:
 
         entries: dict[str, bytes] = {}
         self._add_required_file(entries, root / "pyproject.toml")
+        self._add_required_file(
+            entries,
+            root / "docs" / "architecture" / "artifact-inventory.yaml",
+        )
         self._add_tree(
             entries,
             root / "src" / "encode_pipeline",

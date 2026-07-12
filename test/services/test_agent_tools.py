@@ -62,6 +62,9 @@ class FakeAdapter:
     def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
         return Result.success(CommandSpec(argv=["run-workflow"]))
 
+    def extract_artifacts(self, inputs, workspace):
+        return Result.success(())
+
 
 def _dummy_handler(**kwargs) -> dict:
     return kwargs

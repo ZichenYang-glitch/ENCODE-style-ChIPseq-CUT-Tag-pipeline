@@ -60,6 +60,9 @@ class FakeAdapter:
     def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
         return Result.success(CommandSpec(argv=["run-workflow"]))
 
+    def extract_artifacts(self, inputs, workspace):
+        return Result.success(())
+
 
 def test_service_rejects_non_workflow_registry_registry():
     with pytest.raises(ValueError, match="WorkflowRegistry"):
@@ -76,7 +79,11 @@ def test_list_workflows_preserves_registry_order():
 
     workflows = service.list_workflows()
 
-    assert [metadata.workflow_id for metadata in workflows] == ["alpha", "beta", "gamma"]
+    assert [metadata.workflow_id for metadata in workflows] == [
+        "alpha",
+        "beta",
+        "gamma",
+    ]
     assert all(isinstance(metadata, WorkflowMetadata) for metadata in workflows)
 
 

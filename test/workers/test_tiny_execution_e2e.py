@@ -219,7 +219,9 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
     assert assignment is not None
     assert assignment.dispatched_at is not None
     assert assignment.claimed_at is not None
-    assert [event.status for event in events if event.status is not None][-3:] == [
+    assert [event.status for event in events if event.event_type == "status_changed"][
+        -3:
+    ] == [
         RunStatus.QUEUED,
         RunStatus.RUNNING,
         RunStatus.SUCCEEDED,

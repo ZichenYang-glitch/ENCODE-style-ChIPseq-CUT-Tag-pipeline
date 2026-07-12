@@ -43,7 +43,15 @@ def _create_fake_snakemake(tmp_path: Path) -> Path:
     executable_dir.mkdir()
     snakemake = executable_dir / "snakemake"
     snakemake.write_text(
-        "#!/bin/sh\nprintf 'worker stdout\\n'\nprintf 'worker stderr\\n' >&2\n",
+        "#!/bin/sh\n"
+        'while [ "$#" -gt 0 ]; do\n'
+        '  if [ "$1" = "--directory" ]; then shift; cd "$1"; break; fi\n'
+        "  shift\n"
+        "done\n"
+        "mkdir -p results/multiqc\n"
+        "printf 'output_type\\tpath\\n' > results/multiqc/result_manifest.tsv\n"
+        "printf 'worker stdout\\n'\n"
+        "printf 'worker stderr\\n' >&2\n",
         encoding="utf-8",
     )
     snakemake.chmod(0o755)
@@ -121,6 +129,7 @@ def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
                 repository=persistence.repository,
             )
             record = run_service.get_run(run_id)
+            artifacts = run_service.list_artifacts(run_id)
             events = run_service.list_events(run_id, limit=100)
             persisted_assignment = run_service.get_execution_assignment(run_id)
             stdout = run_service.list_logs(run_id, "stdout", limit=100)
@@ -129,6 +138,8 @@ def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
             persistence.close()
 
         assert record.status.value == "succeeded"
+        assert len(artifacts) == 1
+        assert artifacts[0].metadata["output_type"] == "result_manifest"
         assert [event.event_type for event in events].count(
             "worker_dependencies_rebuilt"
         ) == 1

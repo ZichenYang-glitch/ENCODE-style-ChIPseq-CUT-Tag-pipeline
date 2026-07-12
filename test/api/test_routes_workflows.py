@@ -8,12 +8,9 @@ from collections.abc import Iterator
 
 import pytest
 
-from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
 from encode_pipeline.api.main import create_app
 from encode_pipeline.platform.adapters import WorkflowCapabilities, WorkflowMetadata
 from encode_pipeline.platform.registry import WorkflowRegistry
-from encode_pipeline.platform.results import Issue
-from encode_pipeline.services.defaults import create_default_validation_service
 from encode_pipeline.services.validation import ValidationService
 from api_test_client import ApiTestClient
 
@@ -47,6 +44,7 @@ def minimal_config_and_samples() -> Iterator[tuple[str, str]]:
 @pytest.fixture
 def unsupported_capability_client() -> Iterator[ApiTestClient]:
     """App with a workflow that does not support validation."""
+
     class StubAdapter:
         metadata = WorkflowMetadata(
             workflow_id="no-validation",
@@ -60,23 +58,33 @@ def unsupported_capability_client() -> Iterator[ApiTestClient]:
 
         def schema(self):
             from encode_pipeline.platform.adapters import WorkflowSchema
+
             return WorkflowSchema()
 
         def validate(self, inputs):
             from encode_pipeline.platform.results import Result
+
             return Result.success(None)
 
         def preview_dag(self, inputs):
             from encode_pipeline.platform.results import Result
+
             return Result.success(None)
 
         def plan_workspace(self, inputs, workspace):
             from encode_pipeline.platform.results import Result
+
             return Result.success(None)
 
         def build_command(self, plan):
             from encode_pipeline.platform.results import Result
+
             return Result.success(None)
+
+        def extract_artifacts(self, inputs, workspace):
+            from encode_pipeline.platform.results import Result
+
+            return Result.success(())
 
     registry = WorkflowRegistry(adapters=[StubAdapter()])
     service = ValidationService(registry=registry)

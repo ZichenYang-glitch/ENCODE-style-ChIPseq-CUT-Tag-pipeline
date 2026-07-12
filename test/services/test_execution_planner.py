@@ -50,6 +50,9 @@ def fake_adapter():
         def build_command(self, plan: WorkspacePlan) -> Result[object]:
             raise AssertionError("ExecutionPlanner must not call build_command")
 
+        def extract_artifacts(self, inputs, workspace):
+            raise AssertionError("ExecutionPlanner must not call extract_artifacts")
+
     return _FakeAdapter()
 
 
@@ -443,6 +446,9 @@ def test_workspace_planner_delegates_to_adapter_and_preserves_info_issue(
 
             return Result.failure([])
 
+        def extract_artifacts(self, inputs, workspace):
+            return Result.success(())
+
     input_plan = _make_execution_plan(run_service)
     workspace_planner = WorkspacePlanner(
         registry=WorkflowRegistry(adapters=[_CustomAdapter()])
@@ -506,6 +512,9 @@ def test_workspace_planner_rejects_adapter_returned_absolute_path(
 
             return Result.failure([])
 
+        def extract_artifacts(self, inputs, workspace):
+            return Result.success(())
+
     input_plan = _make_execution_plan(run_service)
     workspace_planner = WorkspacePlanner(
         registry=WorkflowRegistry(adapters=[_BadAdapter()])
@@ -558,6 +567,9 @@ def test_workspace_planner_rejects_adapter_returned_traversal_path(
             from encode_pipeline.platform.results import Result
 
             return Result.failure([])
+
+        def extract_artifacts(self, inputs, workspace):
+            return Result.success(())
 
     input_plan = _make_execution_plan(run_service)
     workspace_planner = WorkspacePlanner(

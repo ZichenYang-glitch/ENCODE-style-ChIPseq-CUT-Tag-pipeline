@@ -52,6 +52,9 @@ class FakeAdapter:
     def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
         return Result.success(CommandSpec(argv=["run-workflow"]))
 
+    def extract_artifacts(self, inputs, workspace):
+        return Result.success(())
+
 
 def test_fake_adapter_can_be_registered_and_resolved_by_workflow_id():
     adapter = FakeAdapter("fake")

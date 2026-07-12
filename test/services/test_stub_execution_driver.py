@@ -57,6 +57,9 @@ class FakeAdapter:
     def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
         return Result.success(CommandSpec(argv=["run-workflow"]))
 
+    def extract_artifacts(self, inputs, workspace):
+        return Result.success(())
+
 
 def test_advance_to_terminal_success_path():
     registry = WorkflowRegistry(adapters=[FakeAdapter()])

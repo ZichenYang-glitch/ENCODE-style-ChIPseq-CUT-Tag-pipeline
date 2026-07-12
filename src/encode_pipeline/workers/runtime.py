@@ -9,6 +9,7 @@ from types import TracebackType
 from encode_pipeline.persistence.runtime import RunPersistence, open_run_persistence
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.command_builder import CommandBuilder
+from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
 from encode_pipeline.services.local_execution import LocalExecutionService
 from encode_pipeline.services.local_run_driver import LocalRunDriver
 from encode_pipeline.services.materialization import WorkspaceMaterializer
@@ -36,6 +37,7 @@ class WorkerRuntime:
     command_builder: CommandBuilder
     local_run_driver: LocalRunDriver
     local_execution_service: LocalExecutionService
+    artifact_extraction_service: ArtifactExtractionService
     preflight_service: LocalPreflightService
 
     def close(self) -> None:
@@ -63,6 +65,7 @@ def open_worker_runtime(
     """Reopen SQLite and reconstruct all adapter/execution dependencies."""
     from encode_pipeline.services.defaults import (
         create_default_command_builder,
+        create_default_artifact_extraction_service,
         create_default_execution_planner,
         create_default_local_execution_service,
         create_default_local_run_driver,
@@ -79,7 +82,12 @@ def open_worker_runtime(
 
     persistence = open_run_persistence(resolved_settings.database_url)
     try:
-        registry = create_default_workflow_registry()
+        source_hint = (
+            build_identity_provider.project_root
+            if build_identity_provider is not None
+            else project_root
+        )
+        registry = create_default_workflow_registry(project_root=source_hint)
         if build_identity_provider is None:
             build_identity_provider = create_default_workflow_build_identity_provider(
                 registry=registry,
@@ -128,6 +136,12 @@ def open_worker_runtime(
             command_builder=command_builder,
             local_run_driver=local_run_driver,
         )
+        artifact_extraction_service = create_default_artifact_extraction_service(
+            run_service=run_service,
+            registry=registry,
+            build_identity_provider=build_identity_provider,
+            workspace_root=resolved_settings.workspace_root,
+        )
         preflight_service = LocalPreflightService(
             run_service=run_service,
             execution_planner=execution_planner,
@@ -147,6 +161,7 @@ def open_worker_runtime(
             command_builder=command_builder,
             local_run_driver=local_run_driver,
             local_execution_service=local_execution_service,
+            artifact_extraction_service=artifact_extraction_service,
             preflight_service=preflight_service,
         )
     except BaseException:

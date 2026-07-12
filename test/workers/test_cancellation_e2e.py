@@ -348,6 +348,12 @@ def _create_controlled_project(project_root: Path) -> None:
         REPOSITORY_ROOT / "src" / "encode_pipeline",
         project_root / "src" / "encode_pipeline",
     )
+    inventory = project_root / "docs/architecture/artifact-inventory.yaml"
+    inventory.parent.mkdir(parents=True)
+    shutil.copy2(
+        REPOSITORY_ROOT / "docs/architecture/artifact-inventory.yaml",
+        inventory,
+    )
     workflow = project_root / "workflow"
     profile = project_root / "profiles" / "default"
     scripts = project_root / "scripts"

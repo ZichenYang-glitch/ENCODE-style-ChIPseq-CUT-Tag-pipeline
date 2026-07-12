@@ -119,6 +119,15 @@ class RunRepository(Protocol):
         artifact: RunArtifactRef,
     ) -> RunArtifactRef: ...
 
+    def replace_artifacts(
+        self,
+        run_id: str,
+        artifacts: tuple[RunArtifactRef, ...],
+        *,
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent | None: ...
+
     def list_artifacts(self, run_id: str) -> tuple[RunArtifactRef, ...]: ...
 
     def ensure_execution_assignment(
@@ -379,6 +388,48 @@ class InMemoryRunRepository:
                 raise ValueError(f"Duplicate artifact_id: {artifact.artifact_id!r}")
             artifacts[artifact.artifact_id] = artifact
             return artifact
+
+    def replace_artifacts(
+        self,
+        run_id: str,
+        artifacts: tuple[RunArtifactRef, ...],
+        *,
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent | None:
+        with self._lock:
+            current = self._runs[run_id]
+            if current.status is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer eligible for artifact replacement."
+                )
+            replacement: dict[str, RunArtifactRef] = {}
+            for artifact in artifacts:
+                if artifact.run_id != run_id:
+                    raise ValueError("artifact run_id does not match the run")
+                if artifact.artifact_id in replacement:
+                    raise ValueError("duplicate artifact_id in replacement")
+                replacement[artifact.artifact_id] = artifact
+            existing = tuple(self._artifacts[run_id].values())
+            latest_outcome = next(
+                (
+                    item.event_type
+                    for item in reversed(self._events[run_id])
+                    if item.event_type
+                    in {"artifacts_indexed", "artifact_extraction_failed"}
+                ),
+                None,
+            )
+            if existing == artifacts and latest_outcome == "artifacts_indexed":
+                return None
+            indexed_event = self._make_event(
+                run_id,
+                len(self._events[run_id]) + 1,
+                event,
+            )
+            self._artifacts[run_id] = replacement
+            self._events[run_id].append(indexed_event)
+            return indexed_event
 
     def list_artifacts(self, run_id: str) -> tuple[RunArtifactRef, ...]:
         with self._lock:

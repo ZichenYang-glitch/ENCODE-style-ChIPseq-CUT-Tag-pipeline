@@ -13,6 +13,7 @@ from encode_pipeline.platform.adapters import (
     DagEdge,
     DagNode,
     DagPreview,
+    ExtractedArtifactCandidate,
     LocalRunDriver,
     WorkflowAdapter,
     WorkflowCapabilities,
@@ -145,6 +146,24 @@ def test_inputs_preserve_path_internally_and_serialize_path_as_string():
     assert inputs.to_dict()["samples"] == "samples.tsv"
 
 
+def test_extracted_artifact_candidate_defensively_copies_metadata():
+    metadata = {"catalog_id": "cpm_bigwig", "nested": {"scope": "sample"}}
+    candidate = ExtractedArtifactCandidate(
+        output_type="cpm_bigwig",
+        relative_path="results/S1/03_bigwig/S1.CPM.bw",
+        mime_type="application/octet-stream",
+        metadata=metadata,
+    )
+
+    metadata["catalog_id"] = "changed"
+    metadata["nested"]["scope"] = "project"
+
+    assert candidate.metadata == {
+        "catalog_id": "cpm_bigwig",
+        "nested": {"scope": "sample"},
+    }
+
+
 @pytest.mark.parametrize("samples", [object(), {"sample": "S1"}, [object()]])
 def test_inputs_reject_invalid_samples_object_type(samples):
     with pytest.raises(ValueError):
@@ -253,6 +272,16 @@ def test_fake_adapter_satisfies_protocol_without_inheritance():
         def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
             return Result.success(CommandSpec(argv=["run-workflow"]))
 
+        def extract_artifacts(self, inputs, workspace):
+            return Result.success(
+                (
+                    ExtractedArtifactCandidate(
+                        output_type="summary",
+                        relative_path="results/summary.tsv",
+                    ),
+                )
+            )
+
     adapter = FakeAdapter()
     inputs = WorkflowInputs(config={"samples": "samples.tsv"})
 
@@ -262,6 +291,10 @@ def test_fake_adapter_satisfies_protocol_without_inheritance():
     assert isinstance(adapter.preview_dag(inputs).value, DagPreview)
     assert isinstance(adapter.plan_workspace(inputs, "/workspace").value, WorkspacePlan)
     assert isinstance(adapter.build_command(WorkspacePlan()).value, CommandSpec)
+    assert (
+        adapter.extract_artifacts(inputs, "/workspace").value[0].output_type
+        == "summary"
+    )
 
 
 def test_platform_exports_adapter_contract_primitives():
@@ -271,6 +304,7 @@ def test_platform_exports_adapter_contract_primitives():
             DagEdge,
             DagNode,
             DagPreview,
+            ExtractedArtifactCandidate,
             WorkflowAdapter,
             WorkflowCapabilities,
             WorkflowInputs,
@@ -283,6 +317,7 @@ def test_platform_exports_adapter_contract_primitives():
             DagEdge,
             DagNode,
             DagPreview,
+            ExtractedArtifactCandidate,
             WorkflowAdapter,
             WorkflowCapabilities,
             WorkflowInputs,

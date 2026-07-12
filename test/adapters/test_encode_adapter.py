@@ -61,7 +61,11 @@ def test_metadata_and_capabilities_match_minimal_contract():
         "mnase",
         "encode-style",
     )
-    assert adapter.capabilities.supports == ("validation", "workspace_plan")
+    assert adapter.capabilities.supports == (
+        "validation",
+        "workspace_plan",
+        "artifact_extract",
+    )
 
 
 def test_schema_returns_json_ready_hints_and_strict_inputs_option():
@@ -287,3 +291,110 @@ def test_unsupported_methods_return_failure_without_side_effects(tmp_path):
 
     assert workspace_result.is_failure
     assert workspace_result.errors[0].code != "ENCODE_ADAPTER_UNSUPPORTED"
+
+
+def _artifact_workspace(tmp_path: Path) -> Path:
+    workspace = tmp_path / "workspace"
+    (workspace / "config").mkdir(parents=True)
+    (workspace / "results").mkdir()
+    (workspace / "config/config.yaml").write_text("samples: config/samples.tsv\n")
+    (workspace / "config/samples.tsv").write_text("unused\n")
+    return workspace
+
+
+def test_extract_artifacts_maps_present_and_dynamic_manifest_rows(
+    tmp_path, monkeypatch
+):
+    workspace = _artifact_workspace(tmp_path)
+    first = workspace / "results/S1/03_bigwig/S1.CPM.bw"
+    second = workspace / "results/experiments/E1/02_align/biorep1.final.bam"
+    first.parent.mkdir(parents=True)
+    second.parent.mkdir(parents=True)
+    first.write_bytes(b"bw")
+    second.write_bytes(b"bam")
+    rows = [
+        {
+            "output_type": "cpm_bigwig",
+            "path": str(first),
+            "status": "present",
+            "sample_id": "S1",
+        },
+        {
+            "output_type": "biorep1_final_bam",
+            "path": str(second),
+            "status": "present",
+            "experiment_id": "E1",
+        },
+        {
+            "output_type": "final_bam",
+            "path": str(workspace / "results/missing.bam"),
+            "status": "missing",
+        },
+        {"output_type": "multiqc_report", "path": "", "status": "not_applicable"},
+    ]
+    monkeypatch.setattr(
+        "encode_pipeline.manifest.make.build_manifest_rows",
+        lambda *_args, **_kwargs: (rows, 1, 1),
+    )
+
+    result = _adapter().extract_artifacts(WorkflowInputs(config={}), workspace)
+
+    assert result.is_success
+    assert [(item.output_type, item.relative_path) for item in result.value] == [
+        ("biorep1_final_bam", "results/experiments/E1/02_align/biorep1.final.bam"),
+        ("cpm_bigwig", "results/S1/03_bigwig/S1.CPM.bw"),
+    ]
+    assert result.value[0].metadata["catalog_id"] == "biorep_final_bam"
+
+
+def test_extract_artifacts_skips_known_directory_aggregates(tmp_path, monkeypatch):
+    workspace = _artifact_workspace(tmp_path)
+    peak_dir = workspace / "results/S1/04_peaks/S1"
+    peak_dir.mkdir(parents=True)
+    monkeypatch.setattr(
+        "encode_pipeline.manifest.make.build_manifest_rows",
+        lambda *_args, **_kwargs: (
+            [{"output_type": "macs3_peak", "path": str(peak_dir), "status": "present"}],
+            0,
+            0,
+        ),
+    )
+
+    result = _adapter().extract_artifacts(WorkflowInputs(config={}), workspace)
+
+    assert result.is_success
+    assert result.value == ()
+
+
+def test_extract_artifacts_fails_closed_for_unknown_vocabulary(tmp_path, monkeypatch):
+    workspace = _artifact_workspace(tmp_path)
+    monkeypatch.setattr(
+        "encode_pipeline.manifest.make.build_manifest_rows",
+        lambda *_args, **_kwargs: (
+            [{"output_type": "unknown_output", "path": "", "status": "missing"}],
+            1,
+            0,
+        ),
+    )
+
+    result = _adapter().extract_artifacts(WorkflowInputs(config={}), workspace)
+
+    assert result.is_failure
+    assert result.issues[0].code == "ENCODE_ARTIFACT_CATALOG_MISMATCH"
+
+
+def test_extract_artifacts_adds_existing_result_manifest(tmp_path, monkeypatch):
+    workspace = _artifact_workspace(tmp_path)
+    manifest = workspace / "results/multiqc/result_manifest.tsv"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("output_type\tpath\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "encode_pipeline.manifest.make.build_manifest_rows",
+        lambda *_args, **_kwargs: ([], 0, 0),
+    )
+
+    result = _adapter().extract_artifacts(WorkflowInputs(config={}), workspace)
+
+    assert result.is_success
+    assert result.value[0].output_type == "result_manifest"
+    assert result.value[0].relative_path == "results/multiqc/result_manifest.tsv"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
@@ -12,9 +13,15 @@ from typing import Any
 import yaml
 
 from encode_pipeline import __version__
+from encode_pipeline.artifacts import (
+    Artifact,
+    artifacts_by_manifest_output_type,
+    load_catalog,
+)
 from encode_pipeline.platform.adapters import (
     CommandSpec,
     DagPreview,
+    ExtractedArtifactCandidate,
     WorkflowCapabilities,
     WorkflowInputs,
     WorkflowMetadata,
@@ -200,7 +207,24 @@ class EncodeStyleWorkflowAdapter:
         engines=("snakemake",),
         tags=("chipseq", "cuttag", "atac", "mnase", "encode-style"),
     )
-    capabilities = WorkflowCapabilities(supports=("validation", "workspace_plan"))
+    capabilities = WorkflowCapabilities(
+        supports=("validation", "workspace_plan", "artifact_extract")
+    )
+
+    def __init__(
+        self,
+        *,
+        catalog: tuple[Artifact, ...] | list[Artifact] | None = None,
+        catalog_path: str | None = None,
+    ) -> None:
+        if catalog is not None and catalog_path is not None:
+            raise ValueError("catalog and catalog_path are mutually exclusive")
+        loaded = load_catalog(catalog_path) if catalog is None else list(catalog)
+        self._artifact_catalog = tuple(loaded)
+        self._artifacts_by_manifest_type = artifacts_by_manifest_output_type(loaded)
+        self._artifacts_by_id = {artifact.id: artifact for artifact in loaded}
+        if len(self._artifacts_by_id) != len(loaded):
+            raise ValueError("artifact catalog contains duplicate ids")
 
     def schema(self) -> WorkflowSchema:
         """Return minimal UI/agent discovery hints, not complete JSON Schema."""
@@ -439,6 +463,97 @@ class EncodeStyleWorkflowAdapter:
         """Return unsupported until command construction is designed."""
         return _unsupported_method("build_command")
 
+    def extract_artifacts(
+        self,
+        inputs: WorkflowInputs,
+        workspace: str | Path,
+    ) -> Result[tuple[ExtractedArtifactCandidate, ...]]:
+        """Map the existing manifest vocabulary to regular-file candidates."""
+        if not isinstance(inputs, WorkflowInputs):
+            return _artifact_extraction_failure("ENCODE_ARTIFACT_INPUTS_INVALID")
+        try:
+            from encode_pipeline.manifest.make import build_manifest_rows
+
+            workspace_path = Path(workspace).absolute()
+            config_value = yaml.safe_load(
+                (workspace_path / "config" / "config.yaml").read_text(encoding="utf-8")
+            )
+            if not isinstance(config_value, dict):
+                raise ValueError("workspace config is not a mapping")
+            manifest_config = deepcopy(config_value)
+            manifest_config["outdir"] = str(workspace_path / "results")
+            samples_path = workspace_path / "config" / "samples.tsv"
+            manifest_config["samples"] = str(samples_path)
+            rows, _missing, _not_applicable = build_manifest_rows(
+                manifest_config,
+                samples_path=str(samples_path),
+            )
+        except (OSError, ValueError, yaml.YAMLError):
+            return _artifact_extraction_failure("ENCODE_ARTIFACT_MANIFEST_FAILED")
+
+        candidates: list[ExtractedArtifactCandidate] = []
+        try:
+            for row in rows:
+                output_type = row.get("output_type")
+                if not isinstance(output_type, str) or not output_type:
+                    raise ValueError("manifest output type is invalid")
+                artifact = self._catalog_artifact_for_output_type(output_type)
+                status = row.get("status")
+                if status not in {"present", "missing", "not_applicable"}:
+                    raise ValueError("manifest status is invalid")
+                if status != "present" or artifact.path_template.endswith("/"):
+                    continue
+                relative_path = (
+                    Path(str(row.get("path", "")))
+                    .relative_to(workspace_path)
+                    .as_posix()
+                )
+                candidates.append(
+                    ExtractedArtifactCandidate(
+                        output_type=output_type,
+                        relative_path=relative_path,
+                        mime_type=_artifact_mime_type(relative_path),
+                        metadata=_artifact_candidate_metadata(artifact, row),
+                    )
+                )
+
+            manifest_path = workspace_path / "results/multiqc/result_manifest.tsv"
+            if manifest_path.exists():
+                artifact = self._artifacts_by_id["result_manifest"]
+                candidates.append(
+                    ExtractedArtifactCandidate(
+                        output_type="result_manifest",
+                        relative_path="results/multiqc/result_manifest.tsv",
+                        mime_type="text/tab-separated-values",
+                        metadata=_artifact_candidate_metadata(artifact, {}),
+                    )
+                )
+        except (KeyError, TypeError, ValueError):
+            return _artifact_extraction_failure("ENCODE_ARTIFACT_CATALOG_MISMATCH")
+
+        return Result.success(
+            tuple(
+                sorted(
+                    candidates, key=lambda item: (item.output_type, item.relative_path)
+                )
+            )
+        )
+
+    def _catalog_artifact_for_output_type(self, output_type: str) -> Artifact:
+        exact = self._artifacts_by_manifest_type.get(output_type)
+        if exact is not None:
+            return exact
+        matches = []
+        for template, artifact in self._artifacts_by_manifest_type.items():
+            if "<N>" not in template:
+                continue
+            pattern = re.escape(template).replace(re.escape("<N>"), r"[1-9]\d*")
+            if re.fullmatch(pattern, output_type):
+                matches.append(artifact)
+        if len(matches) != 1:
+            raise ValueError("manifest output type has no unique catalog mapping")
+        return matches[0]
+
 
 def _validate_options(options: dict[str, object]) -> Issue | None:
     unsupported = sorted(str(key) for key in options if key != "strict_inputs")
@@ -459,6 +574,55 @@ def _validate_options(options: dict[str, object]) -> Issue | None:
             path="options.strict_inputs",
         )
     return None
+
+
+def _artifact_candidate_metadata(
+    artifact: Artifact,
+    row: Mapping[str, object],
+) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "catalog_id": artifact.id,
+        "scope": artifact.scope,
+        "level": artifact.level,
+    }
+    for key in (
+        "sample_id",
+        "experiment_id",
+        "assay",
+        "target",
+        "genome",
+        "method",
+        "qc_flag",
+    ):
+        value = row.get(key)
+        if isinstance(value, str) and value:
+            metadata[key] = value
+    return metadata
+
+
+def _artifact_mime_type(relative_path: str) -> str:
+    lowered = relative_path.lower()
+    if lowered.endswith(".tsv"):
+        return "text/tab-separated-values"
+    if lowered.endswith(".html"):
+        return "text/html"
+    if lowered.endswith((".bed", ".bedgraph", ".narrowpeak", ".broadpeak")):
+        return "text/plain"
+    return "application/octet-stream"
+
+
+def _artifact_extraction_failure(code: str) -> Result[Any]:
+    return Result.failure(
+        [
+            Issue(
+                code=code,
+                message="Workflow artifacts could not be discovered.",
+                severity="error",
+                path="artifacts",
+                source="adapter",
+            )
+        ]
+    )
 
 
 def _sample_validation_flags(validated_config: dict[str, Any]) -> dict[str, bool]:
