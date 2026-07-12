@@ -815,7 +815,24 @@ class RunService:
             )
             return replacement
 
-    def list_artifacts(self, run_id: str) -> tuple[RunArtifactRef, ...]:
-        """Return artifact references in insertion order."""
+    def list_artifacts(
+        self,
+        run_id: str,
+        *,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[RunArtifactRef, ...]:
+        """Return artifact references in stable ID order with pagination."""
         with self._lock:
-            return self._repository.list_artifacts(run_id)
+            if limit is not None and limit <= 0:
+                raise ValueError("limit must be positive")
+            return self._repository.list_artifacts(
+                run_id,
+                after=after,
+                limit=limit,
+            )
+
+    def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef:
+        """Return one artifact scoped to its canonical run."""
+        with self._lock:
+            return self._repository.get_artifact(run_id, artifact_id)

@@ -113,7 +113,7 @@ def test_run_service_round_trip_survives_repository_reopen(database_url):
     second_engine.dispose()
 
 
-def test_repository_preserves_creation_and_artifact_insertion_order(repository):
+def test_repository_preserves_creation_and_sorts_artifacts_by_public_id(repository):
     repository.create_run(_record("run-2"), _created_event())
     repository.create_run(_record("run-1"), _created_event())
     artifact_2 = _artifact("run-2", "artifact-2")
@@ -122,7 +122,38 @@ def test_repository_preserves_creation_and_artifact_insertion_order(repository):
     repository.record_artifact("run-2", artifact_1)
 
     assert [record.run_id for record in repository.list_runs()] == ["run-2", "run-1"]
-    assert repository.list_artifacts("run-2") == (artifact_2, artifact_1)
+    assert repository.list_artifacts("run-2") == (artifact_1, artifact_2)
+
+
+def test_repository_artifact_queries_are_paginated_and_run_scoped(repository):
+    repository.create_run(_record("run-1"), _created_event())
+    repository.create_run(_record("run-2"), _created_event())
+    artifact_z = _artifact("run-1", "artifact-z")
+    artifact_a = _artifact("run-1", "artifact-a")
+    artifact_m = _artifact("run-1", "artifact-m")
+    other = _artifact("run-2", "artifact-other")
+    for artifact in (artifact_z, artifact_a, artifact_m):
+        repository.record_artifact("run-1", artifact)
+    repository.record_artifact("run-2", other)
+
+    assert repository.list_artifacts("run-1") == (
+        artifact_a,
+        artifact_m,
+        artifact_z,
+    )
+    assert repository.list_artifacts("run-1", limit=2) == (
+        artifact_a,
+        artifact_m,
+    )
+    assert repository.list_artifacts("run-1", after="artifact-m", limit=2) == (
+        artifact_z,
+    )
+    assert repository.get_artifact("run-1", "artifact-m") == artifact_m
+
+    with pytest.raises(KeyError):
+        repository.list_artifacts("run-1", after=other.artifact_id)
+    with pytest.raises(KeyError):
+        repository.get_artifact("run-1", other.artifact_id)
 
 
 def test_repository_atomically_replaces_artifacts_and_event(repository):
@@ -256,6 +287,8 @@ def test_repository_preserves_key_and_cursor_errors(repository):
         repository.list_logs("missing")
     with pytest.raises(KeyError):
         repository.list_artifacts("missing")
+    with pytest.raises(KeyError):
+        repository.get_artifact("missing", "artifact-missing")
 
     repository.create_run(_record("run-1"), _created_event())
     with pytest.raises(KeyError):

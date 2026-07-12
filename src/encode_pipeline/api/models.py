@@ -3,9 +3,22 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import PurePosixPath
+import re
 from typing import Any, Literal
+from urllib.parse import quote
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+_LOGICAL_ID_PATTERN = r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$"
+_MIME_TYPE_PATTERN = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/"
+    r"[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$"
+)
+_WINDOWS_ABSOLUTE_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
+_ENVIRONMENT_ASSIGNMENT_PATTERN = re.compile(r"(?:^|\s)[A-Za-z_][A-Za-z0-9_]*=")
+_EMBEDDED_POSIX_PATH_PATTERN = re.compile(r"(?<![A-Za-z0-9._-])/[^/\s]")
 
 
 class IssueResponse(BaseModel):
@@ -91,7 +104,9 @@ class AgentToolCall(BaseModel):
 class AgentSuggestion(BaseModel):
     """A model-generated suggestion returned by the agent."""
 
-    type: Literal["config_edit", "schema_hint", "assay_selection", "general"] = "general"
+    type: Literal["config_edit", "schema_hint", "assay_selection", "general"] = (
+        "general"
+    )
     description: str = Field(..., min_length=1)
     target_path: str | None = None
     current_value: Any | None = None
@@ -171,6 +186,170 @@ class RunLogChunkResponse(BaseModel):
     sequence: int
     timestamp: datetime
     lines: list[str]
+
+
+class ArtifactMetadataResponse(BaseModel):
+    """Whitelisted adapter metadata safe for the public read API."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    catalog_id: str | None = Field(default=None, max_length=512)
+    scope: str | None = Field(default=None, max_length=512)
+    level: str | None = Field(default=None, max_length=512)
+    sample_id: str | None = Field(default=None, max_length=512)
+    experiment_id: str | None = Field(default=None, max_length=512)
+    assay: str | None = Field(default=None, max_length=512)
+    target: str | None = Field(default=None, max_length=512)
+    genome: str | None = Field(default=None, max_length=512)
+    method: str | None = Field(default=None, max_length=512)
+    qc_flag: str | None = Field(default=None, max_length=512)
+
+    @field_validator(
+        "catalog_id",
+        "scope",
+        "level",
+        "sample_id",
+        "experiment_id",
+        "assay",
+        "target",
+        "genome",
+        "method",
+        "qc_flag",
+    )
+    @classmethod
+    def validate_public_metadata_text(cls, value: str | None) -> str | None:
+        if value is not None and _is_unsafe_public_text(value):
+            raise ValueError("artifact metadata value is not public-safe")
+        return value
+
+
+class _PersistedArtifactMetadata(ArtifactMetadataResponse):
+    """Validated PR127 persistence shape before public projection."""
+
+    relative_path: str = Field(min_length=1, max_length=2048)
+    output_type: str = Field(pattern=_LOGICAL_ID_PATTERN, max_length=128)
+    size_bytes: int = Field(ge=0, strict=True)
+
+    @field_validator("relative_path")
+    @classmethod
+    def validate_relative_path(cls, value: str) -> str:
+        path = PurePosixPath(value)
+        if (
+            "\x00" in value
+            or "\\" in value
+            or value.startswith(("/", "~"))
+            or _WINDOWS_ABSOLUTE_PATTERN.match(value) is not None
+            or path.as_posix() != value
+            or len(path.parts) < 2
+            or path.parts[0] != "results"
+            or any(part in {"", ".", ".."} for part in value.split("/"))
+        ):
+            raise ValueError("artifact relative path is not public-safe")
+        return value
+
+
+class ArtifactReferenceResponse(BaseModel):
+    """Disclosure-safe API projection of a persisted RunArtifactRef."""
+
+    artifact_id: str = Field(pattern=_LOGICAL_ID_PATTERN, max_length=128)
+    run_id: str = Field(min_length=1, max_length=128)
+    artifact_type: Literal["file"]
+    name: str = Field(min_length=1, max_length=255)
+    uri: str = Field(min_length=1, max_length=2048)
+    mime_type: str | None = Field(default=None, max_length=255)
+    produced_at: datetime
+    relative_path: str
+    output_type: str
+    size_bytes: int
+    metadata: ArtifactMetadataResponse
+
+    @classmethod
+    def from_artifact(
+        cls,
+        artifact: Any,
+        *,
+        expected_run_id: str,
+    ) -> "ArtifactReferenceResponse":
+        """Build a strict public projection without domain ``to_dict`` output."""
+        if artifact.run_id != expected_run_id:
+            raise ValueError("artifact does not belong to the requested run")
+        persisted = _PersistedArtifactMetadata.model_validate(artifact.metadata)
+        controlled = ArtifactMetadataResponse.model_validate(artifact.metadata)
+        return cls(
+            artifact_id=artifact.artifact_id,
+            run_id=artifact.run_id,
+            artifact_type=artifact.artifact_type,
+            name=artifact.name,
+            uri=artifact.uri,
+            mime_type=artifact.mime_type,
+            produced_at=artifact.produced_at,
+            relative_path=persisted.relative_path,
+            output_type=persisted.output_type,
+            size_bytes=persisted.size_bytes,
+            metadata=controlled,
+        )
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        if "/" in value or "\\" in value or _has_control_character(value):
+            raise ValueError("artifact name is not public-safe")
+        return value
+
+    @field_validator("mime_type")
+    @classmethod
+    def validate_mime_type(cls, value: str | None) -> str | None:
+        if value is not None and _MIME_TYPE_PATTERN.fullmatch(value) is None:
+            raise ValueError("artifact MIME type is not public-safe")
+        return value
+
+    @model_validator(mode="after")
+    def validate_derived_fields(self) -> "ArtifactReferenceResponse":
+        expected_uri = (
+            f"run://runs/{quote(self.run_id, safe='')}/artifacts/{self.artifact_id}"
+        )
+        if self.uri != expected_uri:
+            raise ValueError("artifact URI is not the expected opaque reference")
+        if self.name != PurePosixPath(self.relative_path).name:
+            raise ValueError("artifact name does not match its relative path")
+        return self
+
+
+class RunArtifactsResponse(BaseModel):
+    """Envelope for GET /api/v1/runs/{run_id}/artifacts."""
+
+    ok: bool
+    run_id: str
+    artifacts: list[ArtifactReferenceResponse] = Field(default_factory=list)
+    next_cursor: str | None = None
+    issues: list[IssueResponse] = Field(default_factory=list)
+
+
+class RunArtifactDetailResponse(BaseModel):
+    """Envelope for one run-scoped artifact reference."""
+
+    ok: bool
+    run_id: str
+    artifact: ArtifactReferenceResponse | None = None
+    issues: list[IssueResponse] = Field(default_factory=list)
+
+
+def _has_control_character(value: str) -> bool:
+    return any(ord(character) < 32 or ord(character) == 127 for character in value)
+
+
+def _is_unsafe_public_text(value: str) -> bool:
+    lowered = value.lower()
+    return (
+        _has_control_character(value)
+        or value.startswith(("/", "~", "\\"))
+        or "\\" in value
+        or _WINDOWS_ABSOLUTE_PATTERN.match(value) is not None
+        or lowered.startswith("file:")
+        or "://" in lowered
+        or _ENVIRONMENT_ASSIGNMENT_PATTERN.search(value) is not None
+        or _EMBEDDED_POSIX_PATH_PATTERN.search(value) is not None
+    )
 
 
 class RunCreateRequest(BaseModel):

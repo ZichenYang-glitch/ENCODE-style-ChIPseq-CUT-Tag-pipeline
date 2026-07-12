@@ -37,6 +37,11 @@ EXPECTED_OPERATIONS = {
     ("POST", "/api/v1/runs/{run_id}/cancel"): "cancelRun",
     ("GET", "/api/v1/runs/{run_id}/events"): "listRunEvents",
     ("GET", "/api/v1/runs/{run_id}/logs"): "listRunLogs",
+    ("GET", "/api/v1/runs/{run_id}/artifacts"): "listRunArtifacts",
+    (
+        "GET",
+        "/api/v1/runs/{run_id}/artifacts/{artifact_id}",
+    ): "getRunArtifact",
     ("POST", "/api/v1/runs/{run_id}/preflight"): "triggerPreflight",
     ("POST", "/api/v1/workflows/{workflow_id}/agent/chat"): "chatWithWorkflowAgent",
 }
@@ -120,6 +125,18 @@ def test_openapi_operations_match_expected_contract(tmp_path):
     assert len(operation_ids) == len(set(operation_ids)), "duplicate operation_id found"
 
     assert operations == EXPECTED_OPERATIONS
+
+
+def test_artifact_operations_do_not_publish_unreachable_422_responses(tmp_path):
+    schema = _isolated_app_schema(tmp_path, "artifact-responses")
+
+    for path in (
+        "/api/v1/runs/{run_id}/artifacts",
+        "/api/v1/runs/{run_id}/artifacts/{artifact_id}",
+    ):
+        responses = schema["paths"][path]["get"]["responses"]
+        assert "422" not in responses
+        assert "4XX" in responses
 
 
 def test_committed_openapi_matches_current_app(tmp_path):

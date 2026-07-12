@@ -104,6 +104,38 @@ def test_in_memory_replace_artifacts_rejects_non_succeeded_without_mutation():
     assert repository.list_artifacts("run-1") == ()
 
 
+def test_in_memory_artifact_queries_are_sorted_paginated_and_run_scoped():
+    repository = InMemoryRunRepository()
+    repository.create_run(_record(), _created_event())
+    repository.create_run(replace(_record(), run_id="run-2"), _created_event())
+    artifact_z = _artifact("run-1", "artifact-z")
+    artifact_a = _artifact("run-1", "artifact-a")
+    artifact_m = _artifact("run-1", "artifact-m")
+    other = _artifact("run-2", "artifact-other")
+    for artifact in (artifact_z, artifact_a, artifact_m):
+        repository.record_artifact("run-1", artifact)
+    repository.record_artifact("run-2", other)
+
+    assert repository.list_artifacts("run-1") == (
+        artifact_a,
+        artifact_m,
+        artifact_z,
+    )
+    assert repository.list_artifacts("run-1", limit=2) == (
+        artifact_a,
+        artifact_m,
+    )
+    assert repository.list_artifacts("run-1", after="artifact-m", limit=2) == (
+        artifact_z,
+    )
+    assert repository.get_artifact("run-1", "artifact-m") == artifact_m
+
+    with pytest.raises(KeyError):
+        repository.list_artifacts("run-1", after=other.artifact_id)
+    with pytest.raises(KeyError):
+        repository.get_artifact("run-1", other.artifact_id)
+
+
 def test_in_memory_complete_preflight_atomically_binds_build_identity():
     repository = InMemoryRunRepository()
     created = _record()
