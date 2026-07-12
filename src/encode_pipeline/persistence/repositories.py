@@ -378,15 +378,53 @@ class SqlAlchemyRunRepository:
         except IntegrityError as exc:
             raise ValueError("artifact replacement could not be persisted") from exc
 
-    def list_artifacts(self, run_id: str) -> tuple[RunArtifactRef, ...]:
+    def list_artifacts(
+        self,
+        run_id: str,
+        *,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[RunArtifactRef, ...]:
         with self._session_factory() as session:
             self._require_run(session, run_id)
-            rows = session.scalars(
+            if after is not None:
+                cursor = session.scalar(
+                    select(RunArtifactRow.artifact_id).where(
+                        RunArtifactRow.run_id == run_id,
+                        RunArtifactRow.artifact_id == after,
+                    )
+                )
+                if cursor is None:
+                    raise KeyError((run_id, after))
+            statement = (
                 select(RunArtifactRow)
-                .where(RunArtifactRow.run_id == run_id)
-                .order_by(RunArtifactRow.id)
-            ).all()
+                .where(
+                    RunArtifactRow.run_id == run_id,
+                    *(
+                        (RunArtifactRow.artifact_id > after,)
+                        if after is not None
+                        else ()
+                    ),
+                )
+                .order_by(RunArtifactRow.artifact_id)
+            )
+            if limit is not None:
+                statement = statement.limit(limit)
+            rows = session.scalars(statement).all()
             return tuple(_artifact_from_row(row) for row in rows)
+
+    def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef:
+        with self._session_factory() as session:
+            self._require_run(session, run_id)
+            row = session.scalar(
+                select(RunArtifactRow).where(
+                    RunArtifactRow.run_id == run_id,
+                    RunArtifactRow.artifact_id == artifact_id,
+                )
+            )
+            if row is None:
+                raise KeyError((run_id, artifact_id))
+            return _artifact_from_row(row)
 
     def ensure_execution_assignment(
         self,

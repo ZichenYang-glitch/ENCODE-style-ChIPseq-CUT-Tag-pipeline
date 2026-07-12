@@ -31,7 +31,7 @@ def list_artifacts(
     run_id: str,
     *,
     after: str | None = None,
-    limit: int = 50,
+    limit: int | None = None,
 ) -> tuple[RunArtifactRef, ...]: ...
 
 def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef: ...

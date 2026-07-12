@@ -79,6 +79,9 @@ InMemory and SQLAlchemy persistence. SQLAlchemy resolves the cursor and detail
 with predicates containing both identifiers and orders list rows by
 `artifact_id`. No schema migration is needed because the current
 `(run_id, artifact_id)` unique constraint supplies the required index.
+The repository and service retain the legacy no-limit behavior when called
+without `limit`; the HTTP list route always supplies its bounded `limit + 1`,
+so the public contract is bounded without truncating internal PR127 callers.
 
 The API performs no writes and has no dependency on adapter, workspace, worker,
 or filesystem services.

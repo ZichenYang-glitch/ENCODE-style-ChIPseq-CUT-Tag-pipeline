@@ -37,6 +37,11 @@ EXPECTED_OPERATIONS = {
     ("POST", "/api/v1/runs/{run_id}/cancel"): "cancelRun",
     ("GET", "/api/v1/runs/{run_id}/events"): "listRunEvents",
     ("GET", "/api/v1/runs/{run_id}/logs"): "listRunLogs",
+    ("GET", "/api/v1/runs/{run_id}/artifacts"): "listRunArtifacts",
+    (
+        "GET",
+        "/api/v1/runs/{run_id}/artifacts/{artifact_id}",
+    ): "getRunArtifact",
     ("POST", "/api/v1/runs/{run_id}/preflight"): "triggerPreflight",
     ("POST", "/api/v1/workflows/{workflow_id}/agent/chat"): "chatWithWorkflowAgent",
 }

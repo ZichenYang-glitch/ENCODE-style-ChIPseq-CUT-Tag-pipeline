@@ -128,7 +128,15 @@ class RunRepository(Protocol):
         event: RunEventDraft,
     ) -> RunEvent | None: ...
 
-    def list_artifacts(self, run_id: str) -> tuple[RunArtifactRef, ...]: ...
+    def list_artifacts(
+        self,
+        run_id: str,
+        *,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[RunArtifactRef, ...]: ...
+
+    def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef: ...
 
     def ensure_execution_assignment(
         self,
@@ -431,9 +439,37 @@ class InMemoryRunRepository:
             self._events[run_id].append(indexed_event)
             return indexed_event
 
-    def list_artifacts(self, run_id: str) -> tuple[RunArtifactRef, ...]:
+    def list_artifacts(
+        self,
+        run_id: str,
+        *,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[RunArtifactRef, ...]:
         with self._lock:
-            return tuple(self._artifacts[run_id].values())
+            self._runs[run_id]
+            artifacts = tuple(
+                sorted(
+                    self._artifacts[run_id].values(),
+                    key=lambda artifact: artifact.artifact_id,
+                )
+            )
+            start = (
+                0
+                if after is None
+                else self._index_after(artifacts, after, "artifact_id") + 1
+            )
+            return (
+                artifacts[start:] if limit is None else artifacts[start : start + limit]
+            )
+
+    def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef:
+        with self._lock:
+            self._runs[run_id]
+            try:
+                return self._artifacts[run_id][artifact_id]
+            except KeyError:
+                raise KeyError((run_id, artifact_id)) from None
 
     def ensure_execution_assignment(
         self,

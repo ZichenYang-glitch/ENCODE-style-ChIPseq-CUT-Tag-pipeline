@@ -491,7 +491,7 @@ def test_list_logs_invalid_limit_raises_value_error():
         service.list_logs("run-1", "stdout", limit=-1)
 
 
-def test_record_artifact_stores_in_insertion_order():
+def test_record_artifact_lists_in_stable_id_order_and_supports_detail():
     registry = WorkflowRegistry(adapters=[FakeAdapter()])
     service = RunService(registry=registry, id_factory=lambda: "run-1")
     service.create_run("fake", WorkflowInputs(config={}))
@@ -516,11 +516,27 @@ def test_record_artifact_stores_in_insertion_order():
         metadata={},
     )
 
-    service.record_artifact("run-1", artifact1)
     service.record_artifact("run-1", artifact2)
+    service.record_artifact("run-1", artifact1)
 
     artifacts = service.list_artifacts("run-1")
     assert artifacts == (artifact1, artifact2)
+    assert service.list_artifacts("run-1", after="art-1", limit=1) == (artifact2,)
+    assert service.get_artifact("run-1", "art-2") == artifact2
+
+    with pytest.raises(KeyError):
+        service.list_artifacts("run-1", after="art-missing")
+    with pytest.raises(KeyError):
+        service.get_artifact("run-1", "art-missing")
+
+
+def test_list_artifacts_invalid_limit_raises_value_error():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run("fake", WorkflowInputs(config={}))
+
+    with pytest.raises(ValueError, match="limit"):
+        service.list_artifacts("run-1", limit=0)
 
 
 def test_record_artifact_rejects_mismatched_run_id():
