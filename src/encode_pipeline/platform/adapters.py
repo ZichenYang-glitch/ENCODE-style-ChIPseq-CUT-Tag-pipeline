@@ -152,6 +152,29 @@ class WorkflowInputs:
 
 
 @dataclass(frozen=True)
+class ExtractedArtifactCandidate:
+    """Adapter-neutral logical description of one discovered output file."""
+
+    output_type: str
+    relative_path: str
+    mime_type: str | None = None
+    metadata: Mapping[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.output_type, str):
+            raise ValueError("output_type must be a string")
+        if not isinstance(self.relative_path, str):
+            raise ValueError("relative_path must be a string")
+        if self.mime_type is not None and not isinstance(self.mime_type, str):
+            raise ValueError("mime_type must be a string or None")
+        object.__setattr__(
+            self,
+            "metadata",
+            _copy_mapping(self.metadata, "metadata"),
+        )
+
+
+@dataclass(frozen=True)
 class DagNode:
     """Engine-neutral DAG preview node."""
 
@@ -307,6 +330,13 @@ class WorkflowAdapter(Protocol):
     def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
         """Build an engine-neutral command description without executing it."""
 
+    def extract_artifacts(
+        self,
+        inputs: WorkflowInputs,
+        workspace: str | Path,
+    ) -> Result[tuple[ExtractedArtifactCandidate, ...]]:
+        """Return logical artifact candidates without persistence identities."""
+
 
 @runtime_checkable
 class LocalRunDriver(Protocol):
@@ -369,8 +399,7 @@ def _copy_samples(samples: SamplePayload) -> SamplePayload:
         return samples
     if not isinstance(samples, list):
         raise ValueError(
-            "WorkflowInputs samples must be str, Path, list[dict[str, str]], "
-            "or None"
+            "WorkflowInputs samples must be str, Path, list[dict[str, str]], or None"
         )
 
     copied = []

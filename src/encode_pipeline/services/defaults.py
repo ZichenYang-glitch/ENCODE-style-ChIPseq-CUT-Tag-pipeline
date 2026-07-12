@@ -22,13 +22,24 @@ if TYPE_CHECKING:
     from encode_pipeline.services.process_runner import ProcessRunner
     from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
     from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
+    from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
 
 
-def create_default_workflow_registry() -> WorkflowRegistry:
+def create_default_workflow_registry(
+    *,
+    project_root: Path | None = None,
+) -> WorkflowRegistry:
     """Return a fresh registry containing the bundled ENCODE-style adapter."""
     from encode_pipeline.adapters import EncodeStyleWorkflowAdapter
 
-    return WorkflowRegistry(adapters=[EncodeStyleWorkflowAdapter()])
+    catalog_path = (
+        None
+        if project_root is None
+        else str(project_root / "docs" / "architecture" / "artifact-inventory.yaml")
+    )
+    return WorkflowRegistry(
+        adapters=[EncodeStyleWorkflowAdapter(catalog_path=catalog_path)]
+    )
 
 
 def create_default_validation_service(
@@ -57,6 +68,24 @@ def create_default_workflow_build_identity_provider(
     if registry is None:
         registry = create_default_workflow_registry()
     return WorkflowBuildIdentityProvider(registry, project_root=project_root)
+
+
+def create_default_artifact_extraction_service(
+    *,
+    run_service: RunService,
+    registry: WorkflowRegistry,
+    build_identity_provider: WorkflowBuildIdentityProvider,
+    workspace_root: Path,
+) -> ArtifactExtractionService:
+    """Return the platform-safe post-success artifact indexing service."""
+    from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
+
+    return ArtifactExtractionService(
+        run_service=run_service,
+        registry=registry,
+        build_identity_provider=build_identity_provider,
+        workspace_root=workspace_root,
+    )
 
 
 def create_default_agent_service(

@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from threading import RLock
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -312,6 +312,68 @@ class SqlAlchemyRunRepository:
                     f"Duplicate artifact_id: {artifact.artifact_id!r}"
                 ) from exc
             return artifact
+
+    def replace_artifacts(
+        self,
+        run_id: str,
+        artifacts: tuple[RunArtifactRef, ...],
+        *,
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent | None:
+        try:
+            with self._lock, self._session_factory.begin() as session:
+                _begin_write(session)
+                current = self._require_run(session, run_id)
+                if RunStatus(current.status) is not expected_status:
+                    raise ConcurrentRunUpdateError(
+                        f"Run {run_id!r} is no longer eligible for artifact replacement."
+                    )
+                replacement_ids: set[str] = set()
+                for artifact in artifacts:
+                    if artifact.run_id != run_id:
+                        raise ValueError("artifact run_id does not match the run")
+                    if artifact.artifact_id in replacement_ids:
+                        raise ValueError("duplicate artifact_id in replacement")
+                    replacement_ids.add(artifact.artifact_id)
+                existing_rows = session.scalars(
+                    select(RunArtifactRow)
+                    .where(RunArtifactRow.run_id == run_id)
+                    .order_by(RunArtifactRow.id)
+                ).all()
+                existing = tuple(_artifact_from_row(row) for row in existing_rows)
+                indexed = session.scalar(
+                    select(RunEventRow.id)
+                    .where(
+                        RunEventRow.run_id == run_id,
+                        RunEventRow.event_type == "artifacts_indexed",
+                    )
+                    .limit(1)
+                )
+                if existing == artifacts and indexed is not None:
+                    return None
+                session.execute(
+                    delete(RunArtifactRow).where(RunArtifactRow.run_id == run_id)
+                )
+                session.add_all(
+                    [
+                        RunArtifactRow(
+                            artifact_id=artifact.artifact_id,
+                            run_id=run_id,
+                            artifact_type=artifact.artifact_type,
+                            name=artifact.name,
+                            uri=artifact.uri,
+                            mime_type=artifact.mime_type,
+                            produced_at=artifact.produced_at,
+                            artifact_metadata=dict(artifact.metadata),
+                        )
+                        for artifact in artifacts
+                    ]
+                )
+                session.flush()
+                return self._insert_event(session, run_id, event)
+        except IntegrityError as exc:
+            raise ValueError("artifact replacement could not be persisted") from exc
 
     def list_artifacts(self, run_id: str) -> tuple[RunArtifactRef, ...]:
         with self._session_factory() as session:

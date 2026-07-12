@@ -208,6 +208,13 @@ def _fail_workflow_build_identity(
 def _execute_claimed_run(runtime, run_id: str) -> None:
     execution_result = runtime.local_execution_service.execute(run_id)
     if execution_result.is_success:
+        try:
+            runtime.artifact_extraction_service.extract(run_id)
+        except Exception:
+            try:
+                runtime.artifact_extraction_service.record_unexpected_failure(run_id)
+            except Exception:
+                pass
         return
     current = runtime.run_service.get_run(run_id)
     if current.status is RunStatus.CANCELLED:

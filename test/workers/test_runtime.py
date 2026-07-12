@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import shutil
+
 from encode_pipeline.services.local_run_driver import LocalRunDriver
 from encode_pipeline.services.local_execution import LocalExecutionService
+from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
 from encode_pipeline.services.preflight import LocalPreflightService
 from encode_pipeline.workers.runtime import open_worker_runtime
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
@@ -24,6 +28,10 @@ def test_open_worker_runtime_reopens_sqlite_and_full_execution_dependencies(tmp_
         assert runtime.registry.get(WORKFLOW_ID).metadata.workflow_id == WORKFLOW_ID
         assert isinstance(runtime.local_run_driver, LocalRunDriver)
         assert isinstance(runtime.local_execution_service, LocalExecutionService)
+        assert isinstance(
+            runtime.artifact_extraction_service,
+            ArtifactExtractionService,
+        )
         assert isinstance(runtime.preflight_service, LocalPreflightService)
         assert runtime.local_run_driver._workspace_root == configured.workspace_root
         process_timeout = runtime.local_run_driver._process_runner._timeout_seconds
@@ -40,6 +48,13 @@ def test_open_worker_runtime_aligns_command_and_identity_project_roots(tmp_path)
 
     configured = worker_settings(tmp_path)
     project_root = (tmp_path / "source").resolve()
+    inventory = project_root / "docs/architecture/artifact-inventory.yaml"
+    inventory.parent.mkdir(parents=True)
+    shutil.copy2(
+        Path(__file__).resolve().parents[2]
+        / "docs/architecture/artifact-inventory.yaml",
+        inventory,
+    )
     provider = create_default_workflow_build_identity_provider(
         project_root=project_root,
     )
@@ -72,7 +87,7 @@ def test_open_worker_runtime_closes_persistence_if_composition_fails(
     )
     monkeypatch.setattr(
         "encode_pipeline.services.defaults.create_default_workflow_registry",
-        lambda: (_ for _ in ()).throw(RuntimeError("composition failed")),
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("composition failed")),
     )
 
     try:

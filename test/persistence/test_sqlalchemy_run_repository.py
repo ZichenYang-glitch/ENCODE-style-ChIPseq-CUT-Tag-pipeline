@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Barrier
 
 import pytest
+from sqlalchemy.exc import StatementError
 
 from encode_pipeline.persistence import (
     SqlAlchemyRunRepository,
@@ -122,6 +123,128 @@ def test_repository_preserves_creation_and_artifact_insertion_order(repository):
 
     assert [record.run_id for record in repository.list_runs()] == ["run-2", "run-1"]
     assert repository.list_artifacts("run-2") == (artifact_2, artifact_1)
+
+
+def test_repository_atomically_replaces_artifacts_and_event(repository):
+    succeeded = replace(
+        _record("run-1"),
+        status=RunStatus.SUCCEEDED,
+        ended_at=datetime.now(timezone.utc),
+    )
+    repository.create_run(succeeded, _created_event())
+    first = (_artifact("run-1", "artifact-1"),)
+    second = (_artifact("run-1", "artifact-2"),)
+    draft = RunEventDraft(
+        event_type="artifacts_indexed",
+        message="Workflow artifacts indexed.",
+        status=RunStatus.SUCCEEDED,
+        context={"artifact_count": 1},
+    )
+
+    repository.replace_artifacts(
+        "run-1", first, expected_status=RunStatus.SUCCEEDED, event=draft
+    )
+    repository.replace_artifacts(
+        "run-1", second, expected_status=RunStatus.SUCCEEDED, event=draft
+    )
+    duplicate = repository.replace_artifacts(
+        "run-1", second, expected_status=RunStatus.SUCCEEDED, event=draft
+    )
+
+    assert duplicate is None
+    assert repository.list_artifacts("run-1") == second
+    assert [event.event_type for event in repository.list_events("run-1")].count(
+        "artifacts_indexed"
+    ) == 2
+
+
+def test_repository_artifact_replace_rolls_back_full_set_and_event(repository):
+    succeeded = replace(
+        _record("run-1"),
+        status=RunStatus.SUCCEEDED,
+        ended_at=datetime.now(timezone.utc),
+    )
+    repository.create_run(succeeded, _created_event())
+    original = (_artifact("run-1", "artifact-1"),)
+    draft = RunEventDraft(
+        event_type="artifacts_indexed",
+        message="Workflow artifacts indexed.",
+        status=RunStatus.SUCCEEDED,
+    )
+    repository.replace_artifacts(
+        "run-1", original, expected_status=RunStatus.SUCCEEDED, event=draft
+    )
+    before_events = repository.list_events("run-1")
+    invalid = replace(
+        _artifact("run-1", "artifact-2"),
+        metadata={"not_json": object()},
+    )
+
+    with pytest.raises(StatementError):
+        repository.replace_artifacts(
+            "run-1",
+            (invalid,),
+            expected_status=RunStatus.SUCCEEDED,
+            event=draft,
+        )
+
+    assert repository.list_artifacts("run-1") == original
+    assert repository.list_events("run-1") == before_events
+
+
+def test_independent_repositories_concurrently_replace_only_complete_sets(database_url):
+    upgrade_database(database_url)
+    first_engine = create_database_engine(database_url)
+    second_engine = create_database_engine(database_url)
+    first_repository = SqlAlchemyRunRepository(create_session_factory(first_engine))
+    second_repository = SqlAlchemyRunRepository(create_session_factory(second_engine))
+    succeeded = replace(
+        _record("run-1"),
+        status=RunStatus.SUCCEEDED,
+        ended_at=datetime.now(timezone.utc),
+    )
+    first_repository.create_run(succeeded, _created_event())
+    first_set = (
+        _artifact("run-1", "artifact-a1"),
+        _artifact("run-1", "artifact-a2"),
+    )
+    second_set = (
+        _artifact("run-1", "artifact-b1"),
+        _artifact("run-1", "artifact-b2"),
+    )
+    draft = RunEventDraft(
+        event_type="artifacts_indexed",
+        message="Workflow artifacts indexed.",
+        status=RunStatus.SUCCEEDED,
+        context={"artifact_count": 2},
+    )
+    barrier = Barrier(2)
+
+    def replace_set(repository, artifacts):
+        barrier.wait(timeout=5)
+        repository.replace_artifacts(
+            "run-1",
+            artifacts,
+            expected_status=RunStatus.SUCCEEDED,
+            event=draft,
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(replace_set, first_repository, first_set)
+            second = pool.submit(replace_set, second_repository, second_set)
+            first.result()
+            second.result()
+
+        persisted = first_repository.list_artifacts("run-1")
+        assert persisted == first_set or persisted == second_set
+        assert second_repository.list_artifacts("run-1") == persisted
+        assert [
+            event.event_type for event in first_repository.list_events("run-1")
+        ].count("artifacts_indexed") == 2
+    finally:
+        first_engine.dispose()
+        second_engine.dispose()
 
 
 def test_repository_preserves_key_and_cursor_errors(repository):

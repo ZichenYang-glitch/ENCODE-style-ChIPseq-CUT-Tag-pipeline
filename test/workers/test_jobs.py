@@ -52,7 +52,15 @@ def _configure_worker_environment(monkeypatch, configured):
     executable_dir.mkdir(parents=True, exist_ok=True)
     snakemake = executable_dir / "snakemake"
     snakemake.write_text(
-        "#!/bin/sh\nprintf 'worker stdout\\n'\nprintf 'worker stderr\\n' >&2\n",
+        "#!/bin/sh\n"
+        'while [ "$#" -gt 0 ]; do\n'
+        '  if [ "$1" = "--directory" ]; then shift; cd "$1"; break; fi\n'
+        "  shift\n"
+        "done\n"
+        "mkdir -p results/multiqc\n"
+        "printf 'output_type\\tpath\\n' > results/multiqc/result_manifest.tsv\n"
+        "printf 'worker stdout\\n'\n"
+        "printf 'worker stderr\\n' >&2\n",
         encoding="utf-8",
     )
     snakemake.chmod(0o755)
@@ -89,12 +97,17 @@ def _copy_controlled_project(destination: Path) -> None:
     destination.mkdir()
     shutil.copy2(source / "pyproject.toml", destination / "pyproject.toml")
     for relative in (
+        Path("docs/architecture/artifact-inventory.yaml"),
         Path("src/encode_pipeline"),
         Path("workflow"),
         Path("profiles/default"),
         Path("scripts"),
     ):
-        shutil.copytree(source / relative, destination / relative)
+        if (source / relative).is_dir():
+            shutil.copytree(source / relative, destination / relative)
+        else:
+            (destination / relative).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source / relative, destination / relative)
 
 
 def _fail_if_process_starts(*_args, **_kwargs):
@@ -144,6 +157,12 @@ def test_rq_worker_rebuilds_dependencies_and_persists_handshake_event(
         )
         assert service.list_logs("handshake-run", "stderr")[0].lines == (
             "worker stderr",
+        )
+        artifacts = service.list_artifacts("handshake-run")
+        assert len(artifacts) == 1
+        assert artifacts[0].metadata["output_type"] == "result_manifest"
+        assert artifacts[0].metadata["relative_path"] == (
+            "results/multiqc/result_manifest.tsv"
         )
     finally:
         persistence.close()
@@ -562,6 +581,28 @@ def test_unexpected_failure_mapping_swallows_repository_errors():
     worker_jobs._record_unexpected_failure(BrokenRunService(), "run-1")
 
 
+def test_post_success_artifact_exception_does_not_fail_execution_job():
+    recorded: list[str] = []
+
+    class Extraction:
+        def extract(self, _run_id):
+            raise RuntimeError("/private/workspace")
+
+        def record_unexpected_failure(self, run_id):
+            recorded.append(run_id)
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=Extraction(),
+    )
+
+    worker_jobs._execute_claimed_run(runtime, "run-1")
+
+    assert recorded == ["run-1"]
+
+
 def test_failure_mapping_does_not_swallow_rq_timeout():
     class TimedOutRunService:
         def get_run(self, _run_id):
@@ -638,7 +679,7 @@ def test_worker_composition_fallback_refuses_identity_drift_without_mutation(
     monkeypatch.setattr(
         worker_jobs,
         "open_worker_runtime",
-        lambda: (_ for _ in ()).throw(RuntimeError("composition failed")),
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("composition failed")),
     )
 
     with pytest.raises(worker_jobs.WorkerExecutionError):
@@ -674,7 +715,9 @@ def test_worker_hard_timeout_during_composition_uses_durable_fallback(
     monkeypatch.setattr(
         worker_jobs,
         "open_worker_runtime",
-        lambda: (_ for _ in ()).throw(WorkerHardTimeout("RQ deadline reached")),
+        lambda **_kwargs: (_ for _ in ()).throw(
+            WorkerHardTimeout("RQ deadline reached")
+        ),
     )
 
     with pytest.raises(WorkerHardTimeout, match="RQ deadline reached"):
@@ -710,7 +753,7 @@ def test_missing_worker_adapter_is_initialization_failure_not_identity_error(
     )
     monkeypatch.setattr(
         "encode_pipeline.services.defaults.create_default_workflow_registry",
-        lambda: WorkflowRegistry(),
+        lambda **_kwargs: WorkflowRegistry(),
     )
 
     with pytest.raises(worker_jobs.WorkerExecutionError):

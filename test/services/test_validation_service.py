@@ -68,6 +68,9 @@ class FakeAdapter:
     def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
         return Result.success(CommandSpec(argv=["run-workflow"]))
 
+    def extract_artifacts(self, inputs, workspace):
+        return Result.success(())
+
 
 def test_service_rejects_non_workflow_registry_registry():
     with pytest.raises(ValueError, match="WorkflowRegistry"):

@@ -66,6 +66,9 @@ class FakeAdapter:
     def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
         return Result.success(CommandSpec(argv=["run-workflow"]))
 
+    def extract_artifacts(self, inputs, workspace):
+        return Result.success(())
+
 
 _DENIED_PREFIXES = (
     "run_",
@@ -559,7 +562,8 @@ def test_chat_redacts_provider_prompt_and_output():
     response = _run_chat(service, "fake", request)
 
     prompt_text = " ".join(
-        str(message.get("content", "")) for message in fake.chat.completions.last_messages
+        str(message.get("content", ""))
+        for message in fake.chat.completions.last_messages
     )
     assert "<REDACTED>" in prompt_text
     assert "<FILE_PATH>" in prompt_text

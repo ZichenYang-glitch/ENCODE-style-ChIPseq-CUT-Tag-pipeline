@@ -9,8 +9,9 @@ import pytest
 
 from encode_pipeline.platform.execution import RunExecutionAssignment
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
-from encode_pipeline.platform.runs import RunRecord, RunStatus
+from encode_pipeline.platform.runs import RunArtifactRef, RunRecord, RunStatus
 from encode_pipeline.services.run_repositories import (
+    ConcurrentRunUpdateError,
     InMemoryRunRepository,
     RunEventDraft,
 )
@@ -52,6 +53,55 @@ def test_in_memory_update_is_atomic_when_event_is_invalid():
 
     assert repository.get_run(record.run_id) == record
     assert len(repository.list_events(record.run_id)) == 1
+
+
+def test_in_memory_replace_artifacts_is_atomic_and_idempotent():
+    repository = InMemoryRunRepository()
+    succeeded = replace(
+        _record(),
+        status=RunStatus.SUCCEEDED,
+        ended_at=datetime.now(timezone.utc),
+    )
+    repository.create_run(succeeded, _created_event())
+    artifacts = (_artifact("run-1", "artifact-1"),)
+    draft = RunEventDraft(
+        event_type="artifacts_indexed",
+        message="Workflow artifacts indexed.",
+        status=RunStatus.SUCCEEDED,
+        context={"artifact_count": 1},
+    )
+
+    first = repository.replace_artifacts(
+        "run-1", artifacts, expected_status=RunStatus.SUCCEEDED, event=draft
+    )
+    second = repository.replace_artifacts(
+        "run-1", artifacts, expected_status=RunStatus.SUCCEEDED, event=draft
+    )
+
+    assert first is not None
+    assert second is None
+    assert repository.list_artifacts("run-1") == artifacts
+    assert [event.event_type for event in repository.list_events("run-1")].count(
+        "artifacts_indexed"
+    ) == 1
+
+
+def test_in_memory_replace_artifacts_rejects_non_succeeded_without_mutation():
+    repository = InMemoryRunRepository()
+    repository.create_run(_record(), _created_event())
+
+    with pytest.raises(ConcurrentRunUpdateError):
+        repository.replace_artifacts(
+            "run-1",
+            (_artifact("run-1", "artifact-1"),),
+            expected_status=RunStatus.SUCCEEDED,
+            event=RunEventDraft(
+                event_type="artifacts_indexed",
+                message="Workflow artifacts indexed.",
+            ),
+        )
+
+    assert repository.list_artifacts("run-1") == ()
 
 
 def test_in_memory_complete_preflight_atomically_binds_build_identity():
@@ -293,6 +343,19 @@ def _created_event() -> RunEventDraft:
         event_type="status_changed",
         message="Run created.",
         status=RunStatus.CREATED,
+    )
+
+
+def _artifact(run_id: str, artifact_id: str) -> RunArtifactRef:
+    return RunArtifactRef(
+        artifact_id=artifact_id,
+        run_id=run_id,
+        artifact_type="file",
+        name=f"{artifact_id}.txt",
+        uri=f"run://runs/{run_id}/artifacts/{artifact_id}",
+        mime_type="text/plain",
+        produced_at=datetime.now(timezone.utc),
+        metadata={},
     )
 
 

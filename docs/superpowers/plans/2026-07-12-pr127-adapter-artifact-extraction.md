@@ -95,4 +95,3 @@
 - [ ] Commit without attribution trailers, push `agent/pr127-adapter-artifact-extraction`, and create Draft PR127.
 - [ ] Wait for every required GitHub Action to pass; fix real failures.
 - [ ] Run final independent read-only domain/persistence and manifest/scientific merge-gate reviews; fix every blocking finding and rerun CI.
-

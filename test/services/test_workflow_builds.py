@@ -15,6 +15,7 @@ WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 def _project(root: Path, *, marker: str = "same") -> Path:
     files = {
         "pyproject.toml": f"[project]\nname = {marker!r}\n",
+        "docs/architecture/artifact-inventory.yaml": "artifacts: []\n",
         "src/encode_pipeline/runtime.py": f"VALUE = {marker!r}\n",
         "workflow/Snakefile": f"# {marker}\nrule all:\n    input: []\n",
         "workflow/rules/main.smk": f"# {marker}\n",
@@ -55,6 +56,20 @@ def test_build_digest_changes_when_controlled_source_changes(tmp_path):
     root = _project(tmp_path / "project")
     before = _capture(root)
     (root / "scripts" / "tool.py").write_text("VALUE = 'changed'\n", encoding="utf-8")
+    after = _capture(root)
+
+    assert before.is_success
+    assert after.is_success
+    assert not before.value.matches(after.value)
+
+
+def test_build_digest_changes_when_artifact_inventory_changes(tmp_path):
+    root = _project(tmp_path / "project")
+    before = _capture(root)
+    (root / "docs/architecture/artifact-inventory.yaml").write_text(
+        "artifacts:\n- id: changed\n",
+        encoding="utf-8",
+    )
     after = _capture(root)
 
     assert before.is_success
