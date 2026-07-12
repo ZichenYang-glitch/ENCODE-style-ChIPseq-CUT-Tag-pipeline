@@ -539,6 +539,16 @@ def test_list_artifacts_invalid_limit_raises_value_error():
         service.list_artifacts("run-1", limit=0)
 
 
+def test_list_qc_metrics_supports_pagination_and_rejects_invalid_limit():
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    service.create_run("fake", WorkflowInputs(config={}))
+
+    assert service.list_qc_metrics("run-1", limit=1) == ()
+    with pytest.raises(ValueError, match="limit"):
+        service.list_qc_metrics("run-1", limit=0)
+
+
 def test_record_artifact_rejects_mismatched_run_id():
     registry = WorkflowRegistry(adapters=[FakeAdapter()])
     service = RunService(registry=registry, id_factory=lambda: "run-1")

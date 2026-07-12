@@ -42,6 +42,7 @@ from encode_pipeline.services.run_repositories import (
     RunEventDraft,
     _QC_OUTCOME_TYPES,
     _sorted_artifacts,
+    _validate_qc_metric_fields,
     _validated_expected_artifacts,
     _validated_qc_replacement,
     canonical_decimal_text,
@@ -536,14 +537,36 @@ class SqlAlchemyRunRepository:
         except IntegrityError as exc:
             raise ValueError("QC replacement could not be persisted") from exc
 
-    def list_qc_metrics(self, run_id: str) -> tuple[RunQcMetric, ...]:
+    def list_qc_metrics(
+        self,
+        run_id: str,
+        *,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[RunQcMetric, ...]:
         with self._session_factory() as session:
             self._require_run(session, run_id)
-            rows = session.scalars(
+            if after is not None:
+                cursor_row = session.scalar(
+                    select(RunQcMetricRow).where(
+                        RunQcMetricRow.run_id == run_id,
+                        RunQcMetricRow.metric_id == after,
+                    )
+                )
+                if cursor_row is None:
+                    raise KeyError((run_id, after))
+                _qc_metric_from_row(cursor_row)
+            statement = (
                 select(RunQcMetricRow)
-                .where(RunQcMetricRow.run_id == run_id)
+                .where(
+                    RunQcMetricRow.run_id == run_id,
+                    *((RunQcMetricRow.metric_id > after,) if after is not None else ()),
+                )
                 .order_by(RunQcMetricRow.metric_id)
-            ).all()
+            )
+            if limit is not None:
+                statement = statement.limit(limit)
+            rows = session.scalars(statement).all()
             return tuple(_qc_metric_from_row(row) for row in rows)
 
     def record_qc_metrics_failure(
@@ -1097,7 +1120,7 @@ def _qc_metric_row(metric: RunQcMetric) -> RunQcMetricRow:
 
 
 def _qc_metric_from_row(row: RunQcMetricRow) -> RunQcMetric:
-    return RunQcMetric(
+    metric = RunQcMetric(
         metric_id=row.metric_id,
         run_id=row.run_id,
         metric_key=row.metric_key,
@@ -1112,6 +1135,8 @@ def _qc_metric_from_row(row: RunQcMetricRow) -> RunQcMetric:
         source_artifact_id=row.source_artifact_id,
         produced_at=_as_utc(row.produced_at),
     )
+    _validate_qc_metric_fields(metric)
+    return metric
 
 
 def _execution_assignment_from_row(

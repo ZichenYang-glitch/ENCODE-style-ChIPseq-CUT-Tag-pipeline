@@ -38,6 +38,7 @@ EXPECTED_OPERATIONS = {
     ("GET", "/api/v1/runs/{run_id}/events"): "listRunEvents",
     ("GET", "/api/v1/runs/{run_id}/logs"): "listRunLogs",
     ("GET", "/api/v1/runs/{run_id}/artifacts"): "listRunArtifacts",
+    ("GET", "/api/v1/runs/{run_id}/qc-metrics"): "listRunQcMetrics",
     (
         "GET",
         "/api/v1/runs/{run_id}/artifacts/{artifact_id}",
@@ -137,6 +138,21 @@ def test_artifact_operations_do_not_publish_unreachable_422_responses(tmp_path):
         responses = schema["paths"][path]["get"]["responses"]
         assert "422" not in responses
         assert "4XX" in responses
+
+
+def test_qc_metric_operation_is_lossless_and_has_declared_error_envelopes(tmp_path):
+    schema = _isolated_app_schema(tmp_path, "qc-metric-contract")
+    operation = schema["paths"]["/api/v1/runs/{run_id}/qc-metrics"]["get"]
+
+    assert operation["operationId"] == "listRunQcMetrics"
+    assert "422" not in operation["responses"]
+    assert {"200", "400", "404", "4XX", "500"} <= set(operation["responses"])
+    value_schema = schema["components"]["schemas"]["QcMetricResponse"]["properties"][
+        "value"
+    ]
+    assert value_schema["type"] == "string"
+    required = set(schema["components"]["schemas"]["QcMetricResponse"]["required"])
+    assert {"sample_id", "experiment_id", "assay", "qc_flag"} <= required
 
 
 def test_committed_openapi_matches_current_app(tmp_path):

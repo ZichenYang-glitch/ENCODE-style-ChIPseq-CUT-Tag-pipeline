@@ -167,7 +167,13 @@ class RunRepository(Protocol):
         event: RunEventDraft,
     ) -> RunEvent | None: ...
 
-    def list_qc_metrics(self, run_id: str) -> tuple[RunQcMetric, ...]: ...
+    def list_qc_metrics(
+        self,
+        run_id: str,
+        *,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[RunQcMetric, ...]: ...
 
     def record_qc_metrics_failure(
         self,
@@ -582,15 +588,45 @@ class InMemoryRunRepository:
             self._events[run_id].append(indexed_event)
             return indexed_event
 
-    def list_qc_metrics(self, run_id: str) -> tuple[RunQcMetric, ...]:
+    def list_qc_metrics(
+        self,
+        run_id: str,
+        *,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[RunQcMetric, ...]:
         with self._lock:
             self._runs[run_id]
-            return tuple(
-                sorted(
-                    self._qc_metrics[run_id].values(),
-                    key=lambda metric: metric.metric_id,
+            by_id = self._qc_metrics[run_id]
+            ordered_ids = tuple(sorted(by_id))
+            if after is not None:
+                try:
+                    cursor = by_id[after]
+                except KeyError:
+                    raise KeyError((run_id, after)) from None
+                _validate_stored_qc_metric_identity(
+                    cursor,
+                    run_id=run_id,
+                    storage_key=after,
                 )
+                start = ordered_ids.index(after) + 1
+            else:
+                start = 0
+            selected_ids = (
+                ordered_ids[start:]
+                if limit is None
+                else ordered_ids[start : start + limit]
             )
+            selected: list[RunQcMetric] = []
+            for storage_key in selected_ids:
+                metric = by_id[storage_key]
+                _validate_stored_qc_metric_identity(
+                    metric,
+                    run_id=run_id,
+                    storage_key=storage_key,
+                )
+                selected.append(metric)
+            return tuple(selected)
 
     def record_qc_metrics_failure(
         self,
@@ -1092,6 +1128,21 @@ def _validate_qc_metric_fields(metric: RunQcMetric) -> None:
     )
     if metric.metric_id != expected_metric_id:
         raise ValueError("QC metric_id does not match its semantic coordinates")
+
+
+def _validate_stored_qc_metric_identity(
+    metric: object,
+    *,
+    run_id: str,
+    storage_key: str,
+) -> None:
+    if (
+        not isinstance(metric, RunQcMetric)
+        or metric.run_id != run_id
+        or metric.metric_id != storage_key
+    ):
+        raise ValueError("Persisted QC metric identity is invalid")
+    _validate_qc_metric_fields(metric)
 
 
 def _assignment_has_ownership(
