@@ -314,6 +314,7 @@ export function RunProgressPanel({
     onSuccess: (response) => {
       if (!response.ok) {
         showActionIssues('start', response.issues);
+        void queryClient.invalidateQueries({ queryKey: runProgressQueryKey(targetRunId) });
         return;
       }
       clearActionIssues();

@@ -981,6 +981,67 @@ describe('RunProgressPanel', () => {
     });
   });
 
+  it('refetches canonical terminal state after a start conflict envelope', async () => {
+    const baseClient = createMockRunClient();
+    await baseClient.createRun(WORKFLOW_ID, {
+      config: validatedInputs.config,
+      samples: validatedInputs.samples as Record<string, string>[],
+      options: validatedInputs.options,
+    });
+    await baseClient.preflightRun('run-1');
+    const originalGetRun = baseClient.getRun;
+    let status = 'planned';
+    const runClient: RunApiClient = {
+      ...baseClient,
+      getRun: vi.fn(async () => {
+        const response = await originalGetRun('run-1');
+        return {
+          ...response,
+          run: response.run
+            ? {
+                ...response.run,
+                status,
+                ended_at:
+                  status === 'cancelled' ? '2026-07-04T12:02:00.000Z' : null,
+                cancellation_reason:
+                  status === 'cancelled' ? 'User requested cancellation.' : null,
+              }
+            : null,
+        } as RunResponse;
+      }),
+      startRun: vi.fn(async () => {
+        status = 'cancelled';
+        return {
+          ok: false,
+          run: null,
+          issues: [
+            {
+              code: 'RUN_START_CONFLICT',
+              message: 'Run can no longer be started.',
+              severity: 'error',
+              path: 'run.status',
+              source: 'api',
+              technical_message: null,
+              hint: 'Refresh the run status.',
+              context: {},
+            },
+          ],
+        } as RunResponse;
+      }),
+    };
+    const user = userEvent.setup();
+
+    renderPanel({ runId: 'run-1', runClient });
+    await user.click(await screen.findByRole('button', { name: 'Start run' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('run-status-badge')).toHaveTextContent('cancelled');
+      expect(screen.queryByRole('button', { name: 'Start run' })).not.toBeInTheDocument();
+      expect(screen.queryByText(/run can no longer be started/i)).not.toBeInTheDocument();
+    });
+    expect(runClient.getRun).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps a running run RUNNING after cancellation is only requested', async () => {
     const baseClient = createMockRunClient();
     const runningRun = {
