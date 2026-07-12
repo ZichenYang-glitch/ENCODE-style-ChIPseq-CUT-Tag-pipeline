@@ -10,8 +10,10 @@ from typing import Any, Protocol, TypeVar
 
 from encode_pipeline.platform.execution import (
     RunExecutionAssignment,
+    RunExecutionCancellationRequest,
     RunExecutionClaim,
     RunExecutionOwnership,
+    RunExecutionStopAcknowledgement,
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.results import Issue
@@ -162,6 +164,30 @@ class RunRepository(Protocol):
         allowed_statuses: frozenset[RunStatus],
         event: RunEventDraft,
     ) -> RunExecutionClaim: ...
+
+    def request_execution_cancellation(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        requested_at: datetime,
+        reason: str,
+        event: RunEventDraft,
+    ) -> RunExecutionCancellationRequest: ...
+
+    def acknowledge_execution_stop(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        acknowledged_at: datetime,
+        cancellation_event: RunEventDraft,
+        unexpected_stop_event: RunEventDraft,
+    ) -> RunExecutionStopAcknowledgement: ...
 
 
 class InMemoryRunRepository:
@@ -490,6 +516,148 @@ class InMemoryRunRepository:
             )
             return RunExecutionClaim(assignment=assignment, acquired=True)
 
+    def request_execution_cancellation(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        requested_at: datetime,
+        reason: str,
+        event: RunEventDraft,
+    ) -> RunExecutionCancellationRequest:
+        with self._lock:
+            current = self._runs[run_id]
+            assignment = self._execution_assignments[run_id]
+            _require_assignment_identity(
+                assignment,
+                job_id=job_id,
+                backend=backend,
+                queue_name=queue_name,
+            )
+            if assignment.claimed_at is None:
+                raise ValueError("execution assignment has not been claimed")
+            if current.status is not RunStatus.RUNNING:
+                if current.status.is_terminal:
+                    return RunExecutionCancellationRequest(
+                        assignment=assignment,
+                        record=current,
+                        created=False,
+                    )
+                raise ConcurrentRunUpdateError(f"Run {run_id!r} is no longer running.")
+            if assignment.cancellation_requested_at is not None:
+                return RunExecutionCancellationRequest(
+                    assignment=assignment,
+                    record=current,
+                    created=False,
+                )
+
+            updated_assignment = replace(
+                assignment,
+                cancellation_requested_at=requested_at,
+                cancellation_reason=reason,
+            )
+            created_event = self._make_event(
+                run_id,
+                len(self._events[run_id]) + 1,
+                event,
+            )
+            self._execution_assignments[run_id] = updated_assignment
+            self._events[run_id].append(created_event)
+            return RunExecutionCancellationRequest(
+                assignment=updated_assignment,
+                record=current,
+                created=True,
+            )
+
+    def acknowledge_execution_stop(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        acknowledged_at: datetime,
+        cancellation_event: RunEventDraft,
+        unexpected_stop_event: RunEventDraft,
+    ) -> RunExecutionStopAcknowledgement:
+        with self._lock:
+            current = self._runs[run_id]
+            assignment = self._execution_assignments[run_id]
+            _require_assignment_identity(
+                assignment,
+                job_id=job_id,
+                backend=backend,
+                queue_name=queue_name,
+            )
+            if current.status.is_terminal:
+                return RunExecutionStopAcknowledgement(
+                    assignment=assignment,
+                    record=current,
+                    transitioned=False,
+                )
+
+            if assignment.cancellation_requested_at is not None:
+                if assignment.claimed_at is None:
+                    raise ValueError("execution assignment has not been claimed")
+                if current.status is not RunStatus.RUNNING:
+                    raise ConcurrentRunUpdateError(
+                        f"Run {run_id!r} is no longer running."
+                    )
+                reason = assignment.cancellation_reason
+                assert reason is not None
+                updated_assignment = replace(
+                    assignment,
+                    cancellation_acknowledged_at=acknowledged_at,
+                )
+                updated = _terminal_record(
+                    current,
+                    status=RunStatus.CANCELLED,
+                    ended_at=acknowledged_at,
+                    cancellation_reason=reason,
+                    issue=None,
+                )
+                event = _canonical_cancellation_event(
+                    cancellation_event,
+                    reason=reason,
+                )
+            else:
+                if current.status not in {
+                    RunStatus.PLANNED,
+                    RunStatus.QUEUED,
+                    RunStatus.RUNNING,
+                }:
+                    raise ConcurrentRunUpdateError(
+                        f"Run {run_id!r} is not worker-owned."
+                    )
+                updated_assignment = assignment
+                updated = _terminal_record(
+                    current,
+                    status=RunStatus.FAILED,
+                    ended_at=acknowledged_at,
+                    cancellation_reason=None,
+                    issue=unexpected_stop_event.issue,
+                )
+                event = _canonical_unexpected_stop_event(
+                    unexpected_stop_event,
+                    previous_status=current.status,
+                )
+
+            created_event = self._make_event(
+                run_id,
+                len(self._events[run_id]) + 1,
+                event,
+            )
+            self._execution_assignments[run_id] = updated_assignment
+            self._runs[run_id] = updated
+            self._events[run_id].append(created_event)
+            return RunExecutionStopAcknowledgement(
+                assignment=updated_assignment,
+                record=updated,
+                transitioned=True,
+            )
+
     def _append_event(self, run_id: str, draft: RunEventDraft) -> RunEvent:
         events = self._events[run_id]
         sequence = len(events) + 1
@@ -551,3 +719,52 @@ def _assignment_has_ownership(
     if required_ownership is RunExecutionOwnership.DISPATCHED:
         return assignment.dispatched_at is not None
     return assignment.claimed_at is not None
+
+
+def _terminal_record(
+    current: RunRecord,
+    *,
+    status: RunStatus,
+    ended_at: datetime,
+    cancellation_reason: str | None,
+    issue: Issue | None,
+) -> RunRecord:
+    return replace(
+        current,
+        status=status,
+        updated_at=ended_at,
+        ended_at=ended_at,
+        cancellation_reason=cancellation_reason,
+        error=issue,
+    )
+
+
+def _canonical_cancellation_event(
+    event: RunEventDraft,
+    *,
+    reason: str,
+) -> RunEventDraft:
+    context = dict(event.context)
+    context.update(
+        {
+            "previous_status": RunStatus.RUNNING.value,
+            "new_status": RunStatus.CANCELLED.value,
+            "cancellation_reason": reason,
+        }
+    )
+    return replace(event, context=context)
+
+
+def _canonical_unexpected_stop_event(
+    event: RunEventDraft,
+    *,
+    previous_status: RunStatus,
+) -> RunEventDraft:
+    context = dict(event.context)
+    context.update(
+        {
+            "previous_status": previous_status.value,
+            "new_status": RunStatus.FAILED.value,
+        }
+    )
+    return replace(event, context=context)

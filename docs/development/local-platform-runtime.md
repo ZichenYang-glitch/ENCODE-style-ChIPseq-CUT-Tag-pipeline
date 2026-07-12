@@ -65,10 +65,12 @@ open different state.
 
 The Redis timeout values must be positive finite numbers. The API queue client
 uses the two-second connection timeout and five-second command read timeout by
-default. The synchronous start submission runs in FastAPI's worker threadpool,
-so a slow or unavailable Redis endpoint cannot block the server event loop; a
-timeout is returned as the same public-safe `503 RUN_QUEUE_UNAVAILABLE` response
-as another Redis connection failure. The worker connection uses the same finite
+default. The synchronous start and running-cancel routes run in FastAPI's worker
+threadpool, so a slow or unavailable Redis endpoint cannot block the server
+event loop. A start timeout returns the public-safe
+`503 RUN_QUEUE_UNAVAILABLE` response; a stop timeout returns the equally
+sanitized, retryable `503 RUN_CANCELLATION_UNAVAILABLE`. The worker connection
+uses the same finite
 connection timeout but deliberately does not inherit the API read timeout. RQ
 sets the worker socket read timeout from its longer blocking dequeue interval,
 so an idle worker can wait for work without being disconnected every five
@@ -95,7 +97,9 @@ exception types are also left unchanged.
 The runtime dependency is restricted to the RQ 2.10 minor series
 (`rq>=2.10,<2.11`) because the phase boundary currently relies on the private
 `Job._execute` hook. A compatibility canary verifies that exact dispatch
-contract, and CI runs a real Redis, independent-process SIGALRM timeout test.
+contract plus RQ's public stop-command signature, stopped-callback signature,
+work-horse process-group setup, and `killpg` behavior. CI runs real Redis
+independent-process SIGALRM and process-cancellation tests.
 Any RQ minor upgrade must deliberately update that guard and pass the real
 signal test before the supported range is widened.
 
@@ -111,9 +115,9 @@ process and execution layers. The worker makes a best-effort SQLite transition
 to `failed` with reason code `WORKER_JOB_TIMEOUT`, then re-raises the original
 `WorkerHardTimeout` so RQ also records the job failure. The database mapping can
 itself fail, so this is not a substitute for later operational reconciliation.
-The grace does not extend the workflow's execution budget, and it does not
-guarantee termination of Snakemake descendants or a process group; that cleanup
-boundary remains PR125.
+The grace does not extend the workflow's execution budget. User cancellation is
+a separate RQ stop-command path described below; it terminates the RQ horse
+process group rather than relying on `ProcessRunner`'s direct-child cleanup.
 
 RQ result metadata is retained for one day and failure metadata for seven days.
 These are scheduling-retention settings only; durable run state and events
@@ -142,6 +146,7 @@ The normal lifecycle is:
 
 ```text
 PLANNED --start--> QUEUED --worker claim--> RUNNING --> SUCCEEDED | FAILED
+                                                   \--stop acknowledged--> CANCELLED
 ```
 
 ### Durable workflow build identity
@@ -303,21 +308,72 @@ ENCODE_PIPELINE_TEST_REDIS_URL=redis://localhost:6379/0 \
   PYTHONPATH=src python -m pytest test/workers/test_tiny_execution_e2e.py -v
 ```
 
-The test skips when either the dedicated Redis test URL or `snakemake` on
-`PATH` is unavailable. Real scientific data execution remains covered by the
-existing Snakemake profiles and execution harness.
+`test/workers/test_cancellation_e2e.py` creates a deterministic, long-running
+tiny Snakefile under a temporary controlled project root. It uses the same real
+Redis, real Snakemake executable, file-backed SQLite, and independent
+`DurableWorker` boundary. The test records the Snakemake/helper/child PIDs and
+shared RQ horse process group, requests cancellation through HTTP, then proves
+that the group is gone, no completion marker exists, logs remain persisted,
+SQLite is `cancelled`, and RQ reports `STOPPED` in its failed-job registry. Both
+tests run in the pull-request `fast-checks` job, where Redis and Snakemake are
+required rather than optional.
 
-## Current cancellation boundary
+Ordinary local full-suite runs skip the real-process tests when the dedicated
+Redis test URL is absent. Once that URL enables the cancellation gate,
+`snakemake` and POSIX process groups are mandatory and a missing prerequisite is
+a test failure. Real scientific data execution remains covered by the existing
+Snakemake profiles and execution harness.
 
-The cancel route can durably move `created`, `validating`, `planned`, or `queued`
-runs to `cancelled`. A queued RQ job is not removed in PR124, but the worker
-rechecks SQLite and treats that cancelled job as a clean no-op without starting
-Snakemake. Once a run is `running`, cancellation fails closed with HTTP `409`
-and the stable `RUN_CANCELLATION_NOT_AVAILABLE` issue; the run, events, and
-active process remain unchanged. This prevents SQLite from claiming a terminal
-cancellation while a workflow process is still alive.
+## Running cancellation semantics
 
-RQ job cancellation, real process cancellation, POSIX process-group creation
-and termination, cancellation races, and orphan-process tests are explicitly
-deferred to PR125. Authentication, multi-tenancy, HPC scheduling, artifact
-extraction, and QC UI are also outside this local-execution milestone.
+The cancel route still moves `created`, `validating`, `planned`, or `queued`
+runs immediately to `cancelled`. A queued RQ job may still dequeue, but its
+worker rechecks SQLite and exits without starting `ProcessRunner` or Snakemake.
+
+A running run has no synthetic `cancelling` status. Cancellation proceeds in
+two durable phases:
+
+1. SQLite atomically stores `cancellation_requested_at` and the first
+   `cancellation_reason` on the claimed execution assignment, together with one
+   `cancellation_requested` event. The run remains `running`; `ended_at` and the
+   public run record's `cancellation_reason` remain unset.
+2. The synchronous API route strictly matches the run/job/backend/queue and RQ
+   job function, arguments, origin, started status, worker identity, and
+   registered module-level stopped callback. It then calls RQ 2.10's public
+   `send_stop_job_command`. A successful publish returns HTTP `202` while
+   SQLite remains active; if acknowledgement or natural completion commits
+   before the response is assembled, the route instead returns the canonical
+   terminal snapshot with HTTP `200`. Publication itself is never treated as
+   process-termination acknowledgement.
+3. RQ kills and waits for the work horse process group. Snakemake and its normal
+   descendants stay in that group because `ProcessRunner` does not create a new
+   session. Only the parent's `on_stopped(job, connection)` callback can
+   atomically store `cancellation_acknowledged_at`, move the expected
+   `running` row to `cancelled`, set `ended_at` and the persisted reason, and
+   append the single terminal event.
+
+Repeated HTTP requests preserve the first intent and event but resend the stop
+command while the run remains active, because Redis Pub/Sub delivery is not a
+durable acknowledgement. Repeated callbacks are no-ops. Natural success or
+failure and stop acknowledgement race through SQLite's expected-status write;
+whichever terminal commit wins is preserved, so no second terminal event can be
+created. A valid stopped callback without user cancellation intent atomically
+moves an exactly matched `planned`, `queued`, or `running` execution to `failed`
+with reason `WORKER_STOP_WITHOUT_CANCELLATION`, rather than impersonating a user
+cancellation or leaving an RQ-stopped job active in SQLite.
+
+An assignment/configuration conflict returns `409 RUN_CANCELLATION_CONFLICT`
+without sending a stop. Redis, RQ, OS, missing-job, stale-job, or callback
+identity failures return sanitized, retryable
+`503 RUN_CANCELLATION_UNAVAILABLE`; an intent may remain durable for a later
+retry, but SQLite is never changed to `cancelled` on that error. A pre-PR125 job
+without the stopped callback is deliberately not killed.
+
+After a successful RQ stop, the scheduling metadata is `STOPPED` and the job is
+present in RQ's failed-job registry; API lifecycle reads still use SQLite. If
+the stopped callback cannot reach SQLite after the process group is gone, the
+run can remain `running` with a durable intent and requires operator diagnosis.
+Heartbeat/lease reconciliation is intentionally not invented here.
+
+Authentication, multi-tenancy, HPC scheduling, artifact extraction, and QC UI
+remain outside this local-execution milestone.

@@ -16,7 +16,9 @@ from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import (
     RunExecutionClaim,
     RunExecutionAssignment,
+    RunExecutionCancellationRequest,
     RunExecutionOwnership,
+    RunExecutionStopAcknowledgement,
     build_execution_job_id,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
@@ -43,7 +45,9 @@ __all__ = [
     "RunEvent",
     "RunExecutionClaim",
     "RunExecutionAssignment",
+    "RunExecutionCancellationRequest",
     "RunExecutionOwnership",
+    "RunExecutionStopAcknowledgement",
     "RunLogChunk",
     "RunRecord",
     "RunStatus",

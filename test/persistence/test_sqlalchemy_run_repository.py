@@ -723,6 +723,279 @@ def test_worker_claim_and_cancel_race_never_writes_after_cancellation(database_u
         second_engine.dispose()
 
 
+def test_sqlalchemy_cancellation_intent_and_acknowledgement_survive_reopen(
+    database_url,
+):
+    upgrade_database(database_url)
+    first_engine = create_database_engine(database_url)
+    first_service, assignment = _running_service(first_engine)
+
+    requested = first_service.request_execution_cancellation(
+        "run-1",
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+        reason="User requested cancellation.",
+    )
+    assert requested.record.status is RunStatus.RUNNING
+    first_engine.dispose()
+
+    second_engine = create_database_engine(database_url)
+    second_service = RunService(
+        create_default_workflow_registry(),
+        repository=SqlAlchemyRunRepository(create_session_factory(second_engine)),
+    )
+    persisted = second_service.get_execution_assignment("run-1")
+    assert persisted is not None
+    assert persisted.cancellation_requested_at is not None
+    assert persisted.cancellation_reason == "User requested cancellation."
+    assert persisted.cancellation_acknowledged_at is None
+    assert second_service.get_run("run-1").status is RunStatus.RUNNING
+
+    acknowledged = second_service.acknowledge_execution_stop(
+        "run-1",
+        job_id=persisted.job_id,
+        backend=persisted.backend,
+        queue_name=persisted.queue_name,
+    )
+    assert acknowledged.record.status is RunStatus.CANCELLED
+    assert acknowledged.record.cancellation_reason == persisted.cancellation_reason
+    second_engine.dispose()
+
+    third_engine = create_database_engine(database_url)
+    third_service = RunService(
+        create_default_workflow_registry(),
+        repository=SqlAlchemyRunRepository(create_session_factory(third_engine)),
+    )
+    final_assignment = third_service.get_execution_assignment("run-1")
+    assert final_assignment is not None
+    assert final_assignment.cancellation_acknowledged_at is not None
+    assert third_service.get_run("run-1") == acknowledged.record
+    event_types = [
+        event.event_type for event in third_service.list_events("run-1", limit=100)
+    ]
+    assert event_types.count("cancellation_requested") == 1
+    assert event_types.count("cancellation_acknowledged") == 1
+    third_engine.dispose()
+
+
+def test_sqlalchemy_cancellation_intent_rolls_back_when_event_insert_fails(
+    database_url,
+    monkeypatch,
+):
+    upgrade_database(database_url)
+    engine = create_database_engine(database_url)
+    setup_service, assignment = _running_service(engine)
+    repository = SqlAlchemyRunRepository(create_session_factory(engine))
+    service = RunService(
+        create_default_workflow_registry(),
+        repository=repository,
+    )
+    events_before = setup_service.list_events("run-1", limit=100)
+
+    def fail_event(_session, _run_id, _draft):
+        raise RuntimeError("event insert failed")
+
+    monkeypatch.setattr(repository, "_insert_event", fail_event)
+    with pytest.raises(RuntimeError, match="event insert failed"):
+        service.request_execution_cancellation(
+            "run-1",
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+            reason="User requested cancellation.",
+        )
+
+    persisted = setup_service.get_execution_assignment("run-1")
+    assert persisted is not None
+    assert persisted.cancellation_requested_at is None
+    assert setup_service.get_run("run-1").status is RunStatus.RUNNING
+    assert setup_service.list_events("run-1", limit=100) == events_before
+    engine.dispose()
+
+
+def test_sqlalchemy_stop_ack_rolls_back_when_terminal_event_insert_fails(
+    database_url,
+    monkeypatch,
+):
+    upgrade_database(database_url)
+    engine = create_database_engine(database_url)
+    setup_service, assignment = _running_service(engine)
+    requested = setup_service.request_execution_cancellation(
+        "run-1",
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+        reason="User requested cancellation.",
+    )
+    repository = SqlAlchemyRunRepository(create_session_factory(engine))
+    service = RunService(
+        create_default_workflow_registry(),
+        repository=repository,
+    )
+    events_before = setup_service.list_events("run-1", limit=100)
+
+    def fail_event(_session, _run_id, _draft):
+        raise RuntimeError("event insert failed")
+
+    monkeypatch.setattr(repository, "_insert_event", fail_event)
+    with pytest.raises(RuntimeError, match="event insert failed"):
+        service.acknowledge_execution_stop(
+            "run-1",
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+
+    persisted = setup_service.get_execution_assignment("run-1")
+    assert persisted is not None
+    assert persisted.cancellation_requested_at == (
+        requested.assignment.cancellation_requested_at
+    )
+    assert persisted.cancellation_acknowledged_at is None
+    assert setup_service.get_run("run-1").status is RunStatus.RUNNING
+    assert setup_service.list_events("run-1", limit=100) == events_before
+    engine.dispose()
+
+
+def test_sqlalchemy_concurrent_cancellation_requests_create_one_intent_event(
+    database_url,
+):
+    upgrade_database(database_url)
+    setup_engine = create_database_engine(database_url)
+    _service, assignment = _running_service(setup_engine)
+    setup_engine.dispose()
+    first_engine = create_database_engine(database_url)
+    second_engine = create_database_engine(database_url)
+    first_service = RunService(
+        create_default_workflow_registry(),
+        repository=SqlAlchemyRunRepository(create_session_factory(first_engine)),
+    )
+    second_service = RunService(
+        create_default_workflow_registry(),
+        repository=SqlAlchemyRunRepository(create_session_factory(second_engine)),
+    )
+    barrier = Barrier(2)
+
+    def request(service, reason):
+        barrier.wait(timeout=5)
+        return service.request_execution_cancellation(
+            "run-1",
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+            reason=reason,
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = (
+                pool.submit(request, first_service, "first reason"),
+                pool.submit(request, second_service, "second reason"),
+            )
+            completed = [future.result() for future in futures]
+
+        assert sorted(result.created for result in completed) == [False, True]
+        assert completed[0].assignment == completed[1].assignment
+        events = first_service.list_events("run-1", limit=100)
+        assert [event.event_type for event in events].count(
+            "cancellation_requested"
+        ) == 1
+    finally:
+        first_engine.dispose()
+        second_engine.dispose()
+
+
+def test_sqlalchemy_natural_completion_and_stop_ack_are_single_terminal_cas(
+    database_url,
+):
+    upgrade_database(database_url)
+    setup_engine = create_database_engine(database_url)
+    setup_service, assignment = _running_service(setup_engine)
+    setup_service.request_execution_cancellation(
+        "run-1",
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+        reason="User requested cancellation.",
+    )
+    setup_engine.dispose()
+    completion_engine = create_database_engine(database_url)
+    acknowledgement_engine = create_database_engine(database_url)
+    completion_service = RunService(
+        create_default_workflow_registry(),
+        repository=SqlAlchemyRunRepository(create_session_factory(completion_engine)),
+    )
+    acknowledgement_service = RunService(
+        create_default_workflow_registry(),
+        repository=SqlAlchemyRunRepository(
+            create_session_factory(acknowledgement_engine)
+        ),
+    )
+    barrier = Barrier(2)
+
+    def complete():
+        barrier.wait(timeout=5)
+        try:
+            return completion_service.transition_run("run-1", RunStatus.SUCCEEDED)
+        except (ConcurrentRunUpdateError, ValueError):
+            return completion_service.get_run("run-1")
+
+    def acknowledge():
+        barrier.wait(timeout=5)
+        return acknowledgement_service.acknowledge_execution_stop(
+            "run-1",
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        ).record
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = (pool.submit(complete), pool.submit(acknowledge))
+            [future.result() for future in futures]
+
+        final = completion_service.get_run("run-1")
+        assert final.status in {RunStatus.SUCCEEDED, RunStatus.CANCELLED}
+        terminal_events = [
+            event
+            for event in completion_service.list_events("run-1", limit=100)
+            if event.status is not None and event.status.is_terminal
+        ]
+        assert len(terminal_events) == 1
+        assert terminal_events[0].status is final.status
+    finally:
+        completion_engine.dispose()
+        acknowledgement_engine.dispose()
+
+
+def _running_service(engine):
+    service = RunService(
+        create_default_workflow_registry(),
+        id_factory=lambda: "run-1",
+        repository=SqlAlchemyRunRepository(create_session_factory(engine)),
+    )
+    service.create_run(WORKFLOW_ID, WorkflowInputs(config={}))
+    service.transition_run("run-1", RunStatus.VALIDATING)
+    service.transition_run("run-1", RunStatus.PLANNED)
+    assignment = service.ensure_execution_assignment(
+        "run-1",
+        queue_name="default",
+    )
+    service.mark_execution_dispatched("run-1", job_id=assignment.job_id)
+    service.transition_run("run-1", RunStatus.QUEUED)
+    service.claim_execution_assignment(
+        "run-1",
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+    )
+    service.transition_run("run-1", RunStatus.RUNNING)
+    claimed = service.get_execution_assignment("run-1")
+    assert claimed is not None
+    return service, claimed
+
+
 def _record(run_id: str) -> RunRecord:
     now = datetime.now(timezone.utc)
     return RunRecord(

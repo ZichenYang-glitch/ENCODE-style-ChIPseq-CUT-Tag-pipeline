@@ -24,6 +24,9 @@ from encode_pipeline.workers.rq_queue import (
     RunQueueIdentityError,
     RunQueueJobUnavailableError,
     RunQueueUnavailableError,
+    RunQueueStopUnavailableError,
+    STOPPED_CALLBACK_PATH,
+    STOPPED_CALLBACK_TIMEOUT_SECONDS,
     create_api_redis_connection,
     create_worker_redis_connection,
     rq_job_timeout_seconds,
@@ -56,6 +59,8 @@ def test_rq_run_queue_enqueues_only_run_id_with_canonical_job_identity(tmp_path)
     )
     assert job.result_ttl == RESULT_TTL_SECONDS
     assert job.failure_ttl == FAILURE_TTL_SECONDS
+    assert job._stopped_callback_name == STOPPED_CALLBACK_PATH
+    assert job.stopped_callback_timeout == STOPPED_CALLBACK_TIMEOUT_SECONDS
 
 
 def test_rq_timeout_keeps_fixed_cleanup_window_for_one_second_workflow():
@@ -137,6 +142,24 @@ def test_rq_run_queue_is_idempotent_for_the_same_durable_identity(tmp_path):
     assert len(run_queue._queue) == 1
 
 
+def test_rq_run_queue_rejects_duplicate_without_truthful_stop_callback(tmp_path):
+    connection = fakeredis.FakeRedis()
+    configured = worker_settings(tmp_path)
+    run_queue = RqRunQueue(configured, connection=connection)
+    assignment = _assignment(configured.queue_name)
+    job = run_queue._queue.create_job(
+        "encode_pipeline.workers.jobs.run_execution_job",
+        args=(assignment.run_id,),
+        kwargs={},
+        job_id=assignment.job_id,
+        status=JobStatus.QUEUED,
+    )
+    job.save()
+
+    with pytest.raises(RunQueueIdentityError, match="durable execution identity"):
+        run_queue.enqueue_execution(assignment)
+
+
 def test_rq_run_queue_rejects_job_id_reuse_for_another_run(tmp_path):
     connection = fakeredis.FakeRedis()
     configured = worker_settings(tmp_path)
@@ -200,7 +223,7 @@ def test_rq_run_queue_rejects_created_job_that_was_never_queued(tmp_path):
     job.save()
     assert len(run_queue._queue) == 0
 
-    with pytest.raises(RunQueueJobUnavailableError, match="scheduling state"):
+    with pytest.raises(RunQueueIdentityError, match="durable execution identity"):
         run_queue.enqueue_execution(assignment)
 
     assert len(run_queue._queue) == 0
@@ -255,6 +278,104 @@ def test_rq_run_queue_sanitizes_backend_connection_errors(
     assert "private-host" not in str(raised.value)
 
 
+def test_rq_run_queue_sends_public_stop_command_for_strict_started_identity(
+    tmp_path,
+    monkeypatch,
+):
+    connection = fakeredis.FakeRedis()
+    configured = worker_settings(tmp_path)
+    run_queue = RqRunQueue(configured, connection=connection)
+    assignment = _assignment_with_cancellation_intent(configured.queue_name)
+    run_queue.enqueue_execution(assignment)
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    assert job is not None
+    assert job.func_name == "encode_pipeline.workers.jobs.run_execution_job"
+    job.set_status(JobStatus.STARTED)
+    job.worker_name = "worker-1"
+    job.save()
+    calls = []
+
+    def send_stop(connection, job_id, serializer=None):
+        calls.append((connection, job_id, serializer))
+
+    monkeypatch.setattr(rq_queue, "send_stop_job_command", send_stop)
+
+    run_queue.request_stop(assignment)
+
+    assert calls == [(connection, assignment.job_id, JSONSerializer)]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["wrong_args", "wrong_origin", "missing_callback", "queued", "no_worker"],
+)
+def test_rq_run_queue_never_stops_a_job_with_mismatched_identity(
+    tmp_path,
+    monkeypatch,
+    mutation,
+):
+    connection = fakeredis.FakeRedis()
+    configured = worker_settings(tmp_path)
+    run_queue = RqRunQueue(configured, connection=connection)
+    assignment = _assignment_with_cancellation_intent(configured.queue_name)
+    run_queue.enqueue_execution(assignment)
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    assert job is not None
+    assert job.func_name == "encode_pipeline.workers.jobs.run_execution_job"
+    job.set_status(JobStatus.STARTED)
+    job.worker_name = "worker-1"
+    if mutation == "wrong_args":
+        job.args = ["another-run"]
+    elif mutation == "wrong_origin":
+        job.origin = "another-queue"
+    elif mutation == "missing_callback":
+        job._stopped_callback_name = None
+    elif mutation == "queued":
+        job.set_status(JobStatus.QUEUED)
+    elif mutation == "no_worker":
+        job.worker_name = None
+    job.save()
+    calls = []
+    monkeypatch.setattr(
+        rq_queue,
+        "send_stop_job_command",
+        lambda *_args, **_kwargs: calls.append(True),
+    )
+
+    with pytest.raises(RunQueueStopUnavailableError):
+        run_queue.request_stop(assignment)
+
+    assert calls == []
+
+
+@pytest.mark.parametrize("error_type", [RedisConnectionError, RedisTimeoutError])
+def test_rq_run_queue_sanitizes_stop_backend_errors(
+    tmp_path,
+    monkeypatch,
+    error_type,
+):
+    connection = fakeredis.FakeRedis()
+    configured = worker_settings(tmp_path)
+    run_queue = RqRunQueue(configured, connection=connection)
+    assignment = _assignment_with_cancellation_intent(configured.queue_name)
+    run_queue.enqueue_execution(assignment)
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    assert job is not None
+    job.set_status(JobStatus.STARTED)
+    job.worker_name = "worker-1"
+    job.save()
+
+    def unavailable(*_args, **_kwargs):
+        raise error_type("redis://password@private-host:6379")
+
+    monkeypatch.setattr(rq_queue, "send_stop_job_command", unavailable)
+
+    with pytest.raises(RunQueueStopUnavailableError) as raised:
+        run_queue.request_stop(assignment)
+
+    assert "private-host" not in str(raised.value)
+
+
 def test_rq_run_queue_closes_only_owned_connections(tmp_path, monkeypatch):
     class FakeConnection:
         def __init__(self):
@@ -292,4 +413,19 @@ def _assignment(queue_name: str) -> RunExecutionAssignment:
         backend="rq",
         queue_name=queue_name,
         created_at=datetime.now(timezone.utc),
+    )
+
+
+def _assignment_with_cancellation_intent(queue_name: str) -> RunExecutionAssignment:
+    now = datetime.now(timezone.utc)
+    return RunExecutionAssignment(
+        run_id="run-123",
+        job_id="job-456",
+        backend="rq",
+        queue_name=queue_name,
+        created_at=now,
+        dispatched_at=now,
+        claimed_at=now,
+        cancellation_requested_at=now,
+        cancellation_reason="User requested cancellation.",
     )

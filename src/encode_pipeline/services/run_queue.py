@@ -23,6 +23,10 @@ class RunQueueUnavailableError(RunQueueError):
     """The queue backend could not confirm submission."""
 
 
+class RunQueueStopUnavailableError(RunQueueError):
+    """The queue backend could not confirm delivery of a stop command."""
+
+
 @runtime_checkable
 class RunQueue(Protocol):
     """Submit stable run identifiers to an out-of-process worker backend."""
@@ -37,3 +41,19 @@ class RunQueue(Protocol):
 
     def enqueue_execution(self, assignment: RunExecutionAssignment) -> str:
         """Enqueue one execution and return the backend job identifier."""
+
+
+@runtime_checkable
+class RunStopQueue(Protocol):
+    """Send a stop command for one strictly matched execution assignment."""
+
+    @property
+    def backend(self) -> str:
+        """Return the durable backend identity."""
+
+    @property
+    def queue_name(self) -> str:
+        """Return the durable queue identity."""
+
+    def request_stop(self, assignment: RunExecutionAssignment) -> None:
+        """Send the backend stop command or raise a bounded queue error."""

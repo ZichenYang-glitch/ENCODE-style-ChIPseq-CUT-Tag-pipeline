@@ -32,7 +32,7 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
     assert set(inspector.get_table_names()) == EXPECTED_TABLES
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260712_03"
+            "20260712_04"
         )
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert connection.scalar(text("PRAGMA journal_mode")) == "wal"
@@ -55,7 +55,12 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
     assert {
         constraint["name"]
         for constraint in inspector.get_check_constraints("run_execution_assignments")
-    } == {"ck_run_execution_assignments_claim_requires_dispatch"}
+    } == {
+        "ck_run_execution_assignments_ack_requires_request",
+        "ck_run_execution_assignments_claim_requires_dispatch",
+        "ck_run_execution_assignments_request_reason_pair",
+        "ck_run_execution_assignments_request_requires_claim",
+    }
     assert inspector.get_foreign_keys("run_events")[0]["options"] == {
         "ondelete": "CASCADE"
     }
@@ -155,3 +160,138 @@ def test_build_identity_migration_does_not_backfill_legacy_planned_runs(tmp_path
             == 0
         )
     upgraded.dispose()
+
+
+def test_pr123_assignment_upgrades_with_empty_cancellation_evidence(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
+    upgrade_database(database_url, "20260711_02")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO runs (
+                    run_id, workflow_id, inputs, status, created_at, updated_at,
+                    started_at, ended_at, current_stage, cancellation_reason,
+                    error, tags
+                ) VALUES (
+                    'legacy-running', 'workflow', '{}', 'running',
+                    :timestamp, :timestamp, :timestamp, NULL, 'execution',
+                    NULL, NULL, '{}'
+                )
+                """
+            ),
+            {"timestamp": "2026-07-12 00:00:00"},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO run_execution_assignments (
+                    run_id, job_id, backend, queue_name, created_at,
+                    dispatched_at, claimed_at
+                ) VALUES (
+                    'legacy-running', 'legacy-job', 'rq', 'default',
+                    :timestamp, :timestamp, :timestamp
+                )
+                """
+            ),
+            {"timestamp": "2026-07-12 00:00:00"},
+        )
+    engine.dispose()
+
+    upgrade_database(database_url)
+    upgraded = create_database_engine(database_url)
+    with upgraded.connect() as connection:
+        row = (
+            connection.execute(
+                text(
+                    """
+                SELECT job_id, dispatched_at, claimed_at,
+                       cancellation_requested_at, cancellation_reason,
+                       cancellation_acknowledged_at
+                FROM run_execution_assignments
+                WHERE run_id = 'legacy-running'
+                """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert row["job_id"] == "legacy-job"
+        assert row["dispatched_at"] is not None
+        assert row["claimed_at"] is not None
+        assert row["cancellation_requested_at"] is None
+        assert row["cancellation_reason"] is None
+        assert row["cancellation_acknowledged_at"] is None
+    upgraded.dispose()
+
+
+def test_cancellation_intent_migration_downgrades_without_losing_assignment(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
+    upgrade_database(database_url)
+    current = create_database_engine(database_url)
+    with current.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO runs (
+                    run_id, workflow_id, inputs, status, created_at, updated_at,
+                    started_at, ended_at, current_stage, cancellation_reason,
+                    error, tags
+                ) VALUES (
+                    'downgrade-running', 'workflow', '{}', 'running',
+                    :timestamp, :timestamp, :timestamp, NULL, 'execution',
+                    NULL, NULL, '{}'
+                )
+                """
+            ),
+            {"timestamp": "2026-07-12 00:00:00"},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO run_execution_assignments (
+                    run_id, job_id, backend, queue_name, created_at,
+                    dispatched_at, claimed_at, cancellation_requested_at,
+                    cancellation_reason, cancellation_acknowledged_at
+                ) VALUES (
+                    'downgrade-running', 'downgrade-job', 'rq', 'default',
+                    :timestamp, :timestamp, :timestamp, :timestamp,
+                    'User requested cancellation.', :timestamp
+                )
+                """
+            ),
+            {"timestamp": "2026-07-12 00:00:00"},
+        )
+    current.dispose()
+
+    downgrade_database(database_url, "20260712_03")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    columns = {
+        column["name"] for column in inspector.get_columns("run_execution_assignments")
+    }
+    assert "cancellation_requested_at" not in columns
+    assert "cancellation_reason" not in columns
+    assert "cancellation_acknowledged_at" not in columns
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20260712_03"
+        )
+        assignment = (
+            connection.execute(
+                text(
+                    """
+                    SELECT job_id, dispatched_at, claimed_at
+                    FROM run_execution_assignments
+                    WHERE run_id = 'downgrade-running'
+                    """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert assignment["job_id"] == "downgrade-job"
+        assert assignment["dispatched_at"] is not None
+        assert assignment["claimed_at"] is not None
+    engine.dispose()

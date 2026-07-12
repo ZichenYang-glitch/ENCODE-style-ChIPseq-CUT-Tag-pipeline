@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import inspect
+import os
+import signal
+from types import SimpleNamespace
 
 import fakeredis
 import pytest
 import rq
 from rq import Queue, Worker
+from rq.command import send_stop_job_command
 from rq.job import Job
 from rq.serializers import JSONSerializer
 from rq.timeouts import (
@@ -23,6 +27,7 @@ from encode_pipeline.workers.timeouts import (
     _EXECUTION_PHASE,
     _ExecutionPhaseState,
 )
+from encode_pipeline.workers.jobs import handle_execution_stopped
 
 
 def _raised_timeout_type(penalty) -> type[BaseException]:
@@ -58,6 +63,115 @@ def test_supported_rq_minor_preserves_private_execute_contract():
 
     assert job.perform() == "replacement execution ran"
     assert calls == ["patched"]
+
+
+def test_rq_210_stop_callback_and_command_signatures_are_compatible():
+    assert tuple(inspect.signature(send_stop_job_command).parameters) == (
+        "connection",
+        "job_id",
+        "serializer",
+    )
+    assert tuple(inspect.signature(Job.execute_stopped_callback).parameters) == (
+        "self",
+        "death_penalty_class",
+    )
+    assert tuple(inspect.signature(handle_execution_stopped).parameters) == (
+        "job",
+        "_connection",
+    )
+
+
+def test_rq_worker_kill_horse_uses_process_group_sigkill(monkeypatch):
+    worker = object.__new__(Worker)
+    worker._horse_pid = 123
+    worker.name = "canary-worker"
+    worker.log = SimpleNamespace(info=lambda *_args: None, debug=lambda *_args: None)
+    calls = []
+    monkeypatch.setattr(os, "getpgid", lambda pid: 123 if pid == 123 else None)
+    monkeypatch.setattr(
+        os,
+        "killpg",
+        lambda process_group, signum: calls.append((process_group, signum)),
+    )
+
+    Worker.kill_horse(worker)
+
+    assert calls == [(123, signal.SIGKILL)]
+
+
+def test_rq_worker_horse_still_creates_its_own_process_group():
+    assert "os.setpgrp()" in inspect.getsource(Worker.fork_work_horse)
+
+
+def test_durable_worker_never_delegates_a_zero_horse_pid(monkeypatch):
+    worker = object.__new__(DurableWorker)
+    worker._horse_pid = 0
+    worker.log = SimpleNamespace(debug=lambda *_args: None)
+    delegated = []
+    monkeypatch.setattr(
+        Worker,
+        "kill_horse",
+        lambda *_args, **_kwargs: delegated.append(True),
+    )
+
+    DurableWorker.kill_horse(worker)
+
+    assert delegated == []
+
+
+def test_durable_worker_uses_positive_pid_snapshot_during_completion_race(
+    monkeypatch,
+):
+    worker = object.__new__(DurableWorker)
+    worker._horse_pid = 123
+    worker.log = SimpleNamespace(
+        info=lambda *_args: None,
+        debug=lambda *_args: None,
+    )
+    calls = []
+
+    def get_process_group(pid):
+        assert pid == 123
+        worker._horse_pid = 0
+        return 123
+
+    monkeypatch.setattr(os, "getpgid", get_process_group)
+    monkeypatch.setattr(
+        os,
+        "killpg",
+        lambda process_group, signum: calls.append((process_group, signum)),
+    )
+
+    DurableWorker.kill_horse(worker)
+
+    assert calls == []
+
+
+def test_durable_worker_never_kills_the_parent_process_group(monkeypatch):
+    worker = object.__new__(DurableWorker)
+    worker._horse_pid = 123
+    worker.log = SimpleNamespace(
+        info=lambda *_args: None,
+        debug=lambda *_args: None,
+    )
+    group_calls = []
+    process_calls = []
+    monkeypatch.setattr(os, "getpgid", lambda pid: 456 if pid == 123 else None)
+    monkeypatch.setattr(
+        os,
+        "killpg",
+        lambda process_group, signum: group_calls.append((process_group, signum)),
+    )
+    monkeypatch.setattr(
+        os,
+        "kill",
+        lambda pid, signum: process_calls.append((pid, signum)),
+    )
+
+    DurableWorker.kill_horse(worker)
+
+    assert group_calls == []
+    assert process_calls == [(123, signal.SIGKILL)]
 
 
 def test_worker_hard_timeout_bypasses_application_exception_handlers():

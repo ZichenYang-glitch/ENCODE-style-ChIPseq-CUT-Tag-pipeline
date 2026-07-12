@@ -12,8 +12,10 @@ from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import (
     RunExecutionAssignment,
+    RunExecutionCancellationRequest,
     RunExecutionClaim,
     RunExecutionOwnership,
+    RunExecutionStopAcknowledgement,
     build_execution_job_id,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
@@ -573,6 +575,10 @@ class RunService:
             current = self._repository.get_run(run_id)
             if isinstance(to_status, str):
                 to_status = RunStatus(to_status)
+            if current.status is RunStatus.RUNNING and to_status is RunStatus.CANCELLED:
+                raise ValueError(
+                    "RUNNING cancellation requires execution-stop acknowledgement."
+                )
             require_transition(current.status, to_status)
 
             now = datetime.now(timezone.utc)
@@ -624,6 +630,92 @@ class RunService:
             )
             return updated
 
+    def request_execution_cancellation(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        reason: str,
+    ) -> RunExecutionCancellationRequest:
+        """Atomically persist user intent without claiming process termination."""
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("cancellation reason must be a non-empty string")
+        with self._lock:
+            return self._repository.request_execution_cancellation(
+                run_id,
+                job_id=job_id,
+                backend=backend,
+                queue_name=queue_name,
+                requested_at=datetime.now(timezone.utc),
+                reason=reason.strip(),
+                event=RunEventDraft(
+                    event_type="cancellation_requested",
+                    message="Run cancellation requested.",
+                    status=RunStatus.RUNNING,
+                    stage="execution",
+                    context={
+                        "job_id": job_id,
+                        "backend": backend,
+                        "queue_name": queue_name,
+                    },
+                ),
+            )
+
+    def acknowledge_execution_stop(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+    ) -> RunExecutionStopAcknowledgement:
+        """Commit the terminal state after RQ has reaped the work horse."""
+        issue = Issue(
+            code="RUN_WORKER_STOPPED_UNEXPECTEDLY",
+            message="The local execution worker stopped unexpectedly.",
+            severity="error",
+            path="execution",
+            source="worker",
+            hint="Review persisted run events and logs.",
+            context={"reason_code": "WORKER_STOP_WITHOUT_CANCELLATION"},
+        )
+        with self._lock:
+            return self._repository.acknowledge_execution_stop(
+                run_id,
+                job_id=job_id,
+                backend=backend,
+                queue_name=queue_name,
+                acknowledged_at=datetime.now(timezone.utc),
+                cancellation_event=RunEventDraft(
+                    event_type="cancellation_acknowledged",
+                    message="Run cancellation acknowledged after process termination.",
+                    status=RunStatus.CANCELLED,
+                    stage="execution",
+                    context={
+                        "job_id": job_id,
+                        "backend": backend,
+                        "queue_name": queue_name,
+                    },
+                ),
+                unexpected_stop_event=RunEventDraft(
+                    event_type="execution_stopped_unexpectedly",
+                    message="The local execution worker stopped unexpectedly.",
+                    status=RunStatus.FAILED,
+                    stage="execution",
+                    context={
+                        "previous_status": RunStatus.RUNNING.value,
+                        "new_status": RunStatus.FAILED.value,
+                        "job_id": job_id,
+                        "backend": backend,
+                        "queue_name": queue_name,
+                        "reason_code": "WORKER_STOP_WITHOUT_CANCELLATION",
+                    },
+                    issue=issue,
+                ),
+            )
+
     def cancel_run(
         self,
         run_id: str,
@@ -631,10 +723,11 @@ class RunService:
     ) -> RunRecord:
         """Cancel a pre-running run, or return an already-terminal run unchanged.
 
-        PR124 deliberately refuses ``RUNNING`` runs because this service cannot
-        yet terminate the worker-owned process.  Expected-status writes and a
-        canonical re-read make cancellation race safely with worker startup:
-        whichever status change reaches SQLite first determines the outcome.
+        ``RUNNING`` cancellation must use :class:`RunCancellationService`, which
+        records intent and waits for the worker stop acknowledgement. Expected-
+        status writes and a canonical re-read make this pre-running path race
+        safely with worker startup: whichever SQLite transition wins determines
+        the outcome.
         """
         with self._lock:
             while True:

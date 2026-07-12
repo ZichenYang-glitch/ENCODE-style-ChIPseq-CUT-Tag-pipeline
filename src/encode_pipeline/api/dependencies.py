@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from encode_pipeline.services.agent import AgentService
     from encode_pipeline.services.preflight import LocalPreflightService
     from encode_pipeline.services.run_submission import RunSubmissionService
+    from encode_pipeline.services.run_cancellation import RunCancellationService
     from encode_pipeline.services.runs import RunService
 
 
@@ -39,6 +40,11 @@ async def get_run_service(request: Request) -> "RunService":
 async def get_run_submission_service(request: Request) -> "RunSubmissionService":
     """Return the app durable run submission service."""
     return request.app.state.run_submission_service
+
+
+async def get_run_cancellation_service(request: Request) -> "RunCancellationService":
+    """Return the app durable cancellation orchestration service."""
+    return request.app.state.run_cancellation_service
 
 
 async def get_preflight_service(request: Request) -> "LocalPreflightService":
