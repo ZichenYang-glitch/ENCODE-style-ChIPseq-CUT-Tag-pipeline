@@ -9,6 +9,7 @@ import {
   getRun,
   listRunEvents,
   listRunLogs,
+  startRun,
 } from './generated/runs/runs';
 import { triggerPreflight } from './generated/preflight/preflight';
 import { chatWithWorkflowAgent } from './generated/agent/agent';
@@ -74,6 +75,18 @@ function toIssue(issue: GeneratedIssue): Issue {
 }
 
 function issuesFromError(error: ApiError): Issue[] {
+  if (error.issues.length > 0) {
+    return error.issues.map((issue) => ({
+      code: issue.code,
+      message: issue.message,
+      severity: toSeverity(issue.severity),
+      path: issue.path ?? null,
+      source: issue.source ?? null,
+      technical_message: null,
+      hint: issue.hint ?? null,
+      context: {},
+    }));
+  }
   return [
     {
       code: error.code,
@@ -83,7 +96,7 @@ function issuesFromError(error: ApiError): Issue[] {
       source: 'api',
       technical_message: null,
       hint: null,
-      context: { status: error.status },
+      context: {},
     },
   ];
 }
@@ -287,6 +300,15 @@ export function createGeneratedRunClient(): RunApiClient {
     async getRun(runId) {
       try {
         return toRunResponse(await getRun(runId));
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        return { ok: false, run: null, issues: issuesFromError(error) };
+      }
+    },
+
+    async startRun(runId) {
+      try {
+        return toRunResponse(await startRun(runId));
       } catch (error) {
         if (!(error instanceof ApiError)) throw error;
         return { ok: false, run: null, issues: issuesFromError(error) };

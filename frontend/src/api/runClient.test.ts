@@ -167,6 +167,29 @@ describe('createRunApiClient', () => {
     expect(response.ok).toBe(true);
   });
 
+  it('POSTs to /api/v1/runs/{id}/start with empty body', async () => {
+    const fetchMock = mockFetch({
+      ok: true,
+      status: 202,
+      statusText: 'Accepted',
+      json: async () => sampleRunResponse,
+    });
+    globalThis.fetch = fetchMock;
+
+    const response = await createRunApiClient('').startRun(RUN_ID);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/v1/runs/${RUN_ID}/start`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+        credentials: 'omit',
+      }),
+    );
+    expect(response.ok).toBe(true);
+  });
+
   it('GETs /api/v1/runs/{id}/events with after and limit', async () => {
     const fetchMock = mockFetch({
       ok: true,

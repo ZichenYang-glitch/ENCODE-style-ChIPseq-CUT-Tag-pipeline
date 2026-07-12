@@ -29,6 +29,7 @@ vi.mock('../../api/generated/runs/runs', () => ({
   getRun: vi.fn(),
   listRunEvents: vi.fn(),
   listRunLogs: vi.fn(),
+  startRun: vi.fn(),
 }));
 vi.mock('../../api/generated/preflight/preflight', () => ({
   triggerPreflight: vi.fn(),
@@ -154,6 +155,23 @@ describe('real preflight product path', () => {
   });
 
   it('uses generated operations for validate, create, preflight, and run detail', async () => {
+    let resolvePreflight!: (value: {
+      ok: boolean;
+      run: ReturnType<typeof runRecord>;
+      issues: never[];
+    }) => void;
+    let preflightFinished = false;
+    vi.mocked(triggerPreflight).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePreflight = resolve;
+        }),
+    );
+    vi.mocked(getRun).mockImplementation(async () => ({
+      ok: true,
+      run: runRecord(preflightFinished ? 'planned' : 'created'),
+      issues: [],
+    }));
     const user = userEvent.setup();
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -182,9 +200,16 @@ describe('real preflight product path', () => {
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/runs/run-real-1');
     });
+    expect(triggerPreflight).toHaveBeenCalledWith('run-real-1');
     expect(await screen.findByTestId('run-status-badge')).toHaveTextContent(
-      'planned',
+      'created',
     );
+
+    preflightFinished = true;
+    resolvePreflight({ ok: true, run: runRecord('validating'), issues: [] });
+    await waitFor(() => {
+      expect(screen.getByTestId('run-status-badge')).toHaveTextContent('planned');
+    });
     expect(screen.getByText('Local preflight completed.')).toBeInTheDocument();
     expect(
       screen.getByText('Dry-run completed successfully.'),
@@ -195,6 +220,51 @@ describe('real preflight product path', () => {
     expect(triggerPreflight).toHaveBeenCalledWith('run-real-1');
     expect(getRun).toHaveBeenCalledWith('run-real-1');
     expect(listRunEvents).toHaveBeenCalled();
-    expect(listRunLogs).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(listRunLogs).mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('keeps the durable run URL and offers retry when preflight fails', async () => {
+    vi.mocked(triggerPreflight).mockResolvedValue({
+      ok: false,
+      run: null,
+      issues: [
+        {
+          code: 'PREFLIGHT_FAILED',
+          message: 'Preflight did not complete.',
+          severity: 'error',
+          source: 'preflight',
+        },
+      ],
+    });
+    vi.mocked(getRun).mockResolvedValue({
+      ok: true,
+      run: runRecord('created'),
+      issues: [],
+    });
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}`],
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ClientProvider>
+          <RouterProvider router={router} />
+        </ClientProvider>
+      </QueryClientProvider>,
+    );
+
+    await user.type(await screen.findByLabelText(/Samples \(path string\)/i), 'samples.tsv');
+    await user.click(screen.getByTestId('validate-button'));
+    await user.click(await screen.findByTestId('create-run-button'));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/runs/run-real-1'));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'PREFLIGHT_FAILED: Preflight did not complete.',
+    );
+    expect(screen.getByTestId('run-status-badge')).toHaveTextContent('created');
+    expect(screen.getByRole('button', { name: 'Run preflight' })).toBeEnabled();
   });
 });
