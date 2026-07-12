@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 from collections.abc import Iterator
 from pathlib import Path
+from threading import Event, Thread
 
+import fastapi.routing
 import pytest
 
 from encode_pipeline.api.main import create_app
@@ -14,6 +17,42 @@ from encode_pipeline.platform.runs import RunStatus
 from api_test_client import ApiTestClient
 
 fastapi = pytest.importorskip("fastapi")
+
+
+async def _run_in_joined_test_thread(function, *args, **kwargs):
+    completed = Event()
+    results: list[object] = []
+    exceptions: list[BaseException] = []
+
+    def invoke() -> None:
+        try:
+            results.append(function(*args, **kwargs))
+        except BaseException as exc:
+            exceptions.append(exc)
+        finally:
+            completed.set()
+
+    thread = Thread(target=invoke)
+    thread.start()
+    try:
+        while not completed.is_set():
+            await asyncio.sleep(0.001)
+    finally:
+        thread.join(timeout=3)
+        if thread.is_alive():  # pragma: no cover - test deadlock guard
+            raise RuntimeError("test threadpool call did not terminate")
+    if exceptions:
+        raise exceptions[0]
+    return results[0]
+
+
+@pytest.fixture(autouse=True)
+def joined_test_threadpool(monkeypatch):
+    monkeypatch.setattr(
+        fastapi.routing,
+        "run_in_threadpool",
+        _run_in_joined_test_thread,
+    )
 
 
 @pytest.fixture
@@ -144,7 +183,7 @@ def test_cancel_run_created_returns_cancelled_unchanged(
     assert data["run"]["status"] == "cancelled"
 
 
-def test_cancel_run_running_returns_stable_409_without_mutation(
+def test_cancel_run_running_without_durable_assignment_returns_stable_409(
     client: ApiTestClient,
     workflow_id: str,
 ) -> None:
@@ -168,8 +207,8 @@ def test_cancel_run_running_returns_stable_409_without_mutation(
     assert data["run"]["ended_at"] is None
     assert data["run"]["cancellation_reason"] is None
     assert data["issues"][0] == {
-        "code": "RUN_CANCELLATION_NOT_AVAILABLE",
-        "message": "Run cancellation is not available in the current state.",
+        "code": "RUN_CANCELLATION_CONFLICT",
+        "message": "Run cancellation conflicts with durable execution state.",
         "severity": "error",
         "path": "run_id",
         "source": "api",
@@ -181,14 +220,14 @@ def test_cancel_run_running_returns_stable_409_without_mutation(
     assert service.list_events(record.run_id, limit=100) == events_before
 
 
-def test_cancel_run_openapi_declares_not_found_and_conflict_responses(
+def test_cancel_run_openapi_declares_async_and_error_responses(
     client: ApiTestClient,
 ) -> None:
     responses = client.app.openapi()["paths"]["/api/v1/runs/{run_id}/cancel"]["post"][
         "responses"
     ]
 
-    for status_code in ("404", "409"):
+    for status_code in ("202", "404", "409", "503"):
         assert responses[status_code]["content"]["application/json"]["schema"] == {
             "$ref": "#/components/schemas/RunResponse"
         }

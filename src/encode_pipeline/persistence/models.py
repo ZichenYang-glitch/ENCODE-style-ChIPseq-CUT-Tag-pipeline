@@ -56,6 +56,21 @@ class RunExecutionAssignmentRow(Base):
             "claimed_at IS NULL OR dispatched_at IS NOT NULL",
             name="ck_run_execution_assignments_claim_requires_dispatch",
         ),
+        CheckConstraint(
+            "(cancellation_requested_at IS NULL AND cancellation_reason IS NULL) "
+            "OR (cancellation_requested_at IS NOT NULL AND "
+            "cancellation_reason IS NOT NULL)",
+            name="ck_run_execution_assignments_request_reason_pair",
+        ),
+        CheckConstraint(
+            "cancellation_requested_at IS NULL OR claimed_at IS NOT NULL",
+            name="ck_run_execution_assignments_request_requires_claim",
+        ),
+        CheckConstraint(
+            "cancellation_acknowledged_at IS NULL "
+            "OR cancellation_requested_at IS NOT NULL",
+            name="ck_run_execution_assignments_ack_requires_request",
+        ),
     )
 
     run_id: Mapped[str] = mapped_column(
@@ -71,6 +86,13 @@ class RunExecutionAssignmentRow(Base):
     )
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancellation_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    cancellation_reason: Mapped[str | None] = mapped_column(Text)
+    cancellation_acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
 
 
 class RunWorkflowBuildIdentityRow(Base):

@@ -352,7 +352,7 @@
           "runs"
         ],
         "summary": "Cancel Run",
-        "description": "Cancel a run before execution starts; refuse unsafe running cancellation.",
+        "description": "Cancel before execution or request an acknowledged RQ process stop.",
         "operationId": "cancelRun",
         "parameters": [
           {
@@ -376,6 +376,16 @@
               }
             }
           },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -395,6 +405,16 @@
               }
             },
             "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           },
           "422": {
             "description": "Validation Error",

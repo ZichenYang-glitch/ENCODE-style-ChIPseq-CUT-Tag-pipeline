@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from rq import get_current_job
+from rq.timeouts import JobTimeoutException
 
 from encode_pipeline.persistence.runtime import open_run_persistence
 from encode_pipeline.platform.registry import WorkflowRegistry
@@ -11,6 +12,7 @@ from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.workers.runtime import open_worker_runtime
+from encode_pipeline.workers.settings import load_worker_settings
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
 
 
@@ -338,6 +340,69 @@ def handle_work_horse_killed(job, _retpid, _ret_val, _rusage) -> None:
         # RQ's parent worker must remain healthy even if durable failure mapping
         # cannot open SQLite. A later operational reconciliation can retry it.
         return
+
+
+def handle_execution_stopped(job, _connection) -> None:
+    """Acknowledge a stop only after RQ has reaped the execution process group."""
+    persistence = None
+    try:
+        if (
+            job is None
+            or job.func_name != "encode_pipeline.workers.jobs.run_execution_job"
+            or len(job.args) != 1
+            or not isinstance(job.args[0], str)
+            or job.kwargs != {}
+        ):
+            return
+        run_id = job.args[0].strip()
+        job_id = getattr(job, "id", None)
+        queue_name = getattr(job, "origin", None)
+        if (
+            not run_id
+            or not isinstance(job_id, str)
+            or not job_id.strip()
+            or not isinstance(queue_name, str)
+            or not queue_name.strip()
+        ):
+            return
+
+        settings = load_worker_settings()
+        if queue_name != settings.queue_name:
+            return
+        persistence = open_run_persistence(settings.database_url)
+        run_service = RunService(
+            WorkflowRegistry(),
+            repository=persistence.repository,
+        )
+        assignment = run_service.get_execution_assignment(run_id)
+        if (
+            assignment is None
+            or assignment.run_id != run_id
+            or assignment.job_id != job_id
+            or assignment.backend != "rq"
+            or assignment.queue_name != queue_name
+        ):
+            return
+        run_service.acknowledge_execution_stop(
+            run_id,
+            job_id=job_id,
+            backend="rq",
+            queue_name=queue_name,
+        )
+    except (JobTimeoutException, WorkerHardTimeout):
+        raise
+    except Exception:
+        # The RQ parent must remain healthy and proceed to its STOPPED metadata.
+        # SQLite remains canonical and deliberately stays diagnosable if unavailable.
+        return
+    finally:
+        if persistence is not None:
+            try:
+                persistence.close()
+            except (JobTimeoutException, WorkerHardTimeout):
+                raise
+            except Exception:
+                pass
 
 
 def _record_unexpected_failure_safely(

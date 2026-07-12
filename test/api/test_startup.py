@@ -77,6 +77,7 @@ def test_api_dependencies_are_async_to_avoid_testclient_threadpool_hang() -> Non
         "get_agent_service",
         "get_run_service",
         "get_run_submission_service",
+        "get_run_cancellation_service",
         "get_preflight_service",
     ]
 
@@ -87,6 +88,7 @@ def test_api_dependencies_are_async_to_avoid_testclient_threadpool_hang() -> Non
 def test_create_app_exposes_preflight_service_and_local_run_driver() -> None:
     app = create_app()
     assert hasattr(app.state, "run_submission_service")
+    assert hasattr(app.state, "run_cancellation_service")
     assert hasattr(app.state, "preflight_service")
     assert hasattr(app.state, "local_run_driver")
     assert not hasattr(app.state, "stub_execution_driver")
@@ -132,7 +134,7 @@ def test_create_app_composes_shared_api_and_worker_settings(
     app.state.persistence.close()
 
 
-def test_only_sync_submission_route_uses_fastapi_threadpool() -> None:
+def test_only_sync_queue_routes_use_fastapi_threadpool() -> None:
     app = create_app()
     route_handlers = [
         (path.rstrip("/"), endpoint)
@@ -142,7 +144,10 @@ def test_only_sync_submission_route_uses_fastapi_threadpool() -> None:
 
     assert route_handlers
     for path, endpoint in route_handlers:
-        if path == "/api/v1/runs/{run_id}/start":
+        if path in {
+            "/api/v1/runs/{run_id}/start",
+            "/api/v1/runs/{run_id}/cancel",
+        }:
             assert not inspect.iscoroutinefunction(endpoint), endpoint
         else:
             assert inspect.iscoroutinefunction(endpoint), endpoint

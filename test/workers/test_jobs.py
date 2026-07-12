@@ -13,6 +13,7 @@ import fakeredis
 import pytest
 from rq import SimpleWorker
 from rq.serializers import JSONSerializer
+from rq.timeouts import JobTimeoutException
 
 import encode_pipeline.workers.jobs as worker_jobs
 from encode_pipeline.persistence.runtime import open_run_persistence
@@ -27,7 +28,10 @@ from encode_pipeline.services.defaults import (
 from encode_pipeline.services.local_execution import LocalExecutionService
 from encode_pipeline.services.process_runner import ProcessRunner
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
-from encode_pipeline.workers.jobs import handle_work_horse_killed
+from encode_pipeline.workers.jobs import (
+    handle_execution_stopped,
+    handle_work_horse_killed,
+)
 from encode_pipeline.workers.rq_queue import RqRunQueue
 from encode_pipeline.workers.settings import (
     QUEUE_NAME_ENV,
@@ -744,3 +748,289 @@ def test_work_horse_death_is_mapped_to_durable_failure(tmp_path, monkeypatch):
     assert record.error.context == {"reason_code": "WORKER_PROCESS_TERMINATED"}
     assert persisted_assignment is not None
     assert persisted_assignment.dispatched_at is not None
+
+
+def test_stopped_callback_acknowledges_user_intent_after_horse_exit(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "cancelled-running-run",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+    claimed = _prepare_running_assignment(configured, assignment, request_cancel=True)
+    job = _execution_job(claimed)
+
+    handle_execution_stopped(job, fakeredis.FakeRedis())
+
+    record, events, persisted = _read_run(configured, assignment.run_id)
+    assert record.status is RunStatus.CANCELLED
+    assert record.ended_at is not None
+    assert record.cancellation_reason == "User requested cancellation."
+    assert persisted is not None
+    assert persisted.cancellation_acknowledged_at is not None
+    assert [event.event_type for event in events].count(
+        "cancellation_acknowledged"
+    ) == 1
+
+    handle_execution_stopped(job, fakeredis.FakeRedis())
+    _record, repeated_events, repeated_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert repeated_events == events
+    assert repeated_assignment == persisted
+
+
+def test_stopped_callback_without_user_intent_fails_truthfully(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "unexpected-stopped-run",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+    claimed = _prepare_running_assignment(configured, assignment)
+
+    handle_execution_stopped(_execution_job(claimed), fakeredis.FakeRedis())
+
+    record, events, persisted = _read_run(configured, assignment.run_id)
+    assert record.status is RunStatus.FAILED
+    assert record.cancellation_reason is None
+    assert record.error is not None
+    assert record.error.code == "RUN_WORKER_STOPPED_UNEXPECTEDLY"
+    assert record.error.context == {"reason_code": "WORKER_STOP_WITHOUT_CANCELLATION"}
+    assert persisted is not None
+    assert persisted.cancellation_acknowledged_at is None
+    assert events[-1].event_type == "execution_stopped_unexpectedly"
+
+
+@pytest.mark.parametrize("claimed", (False, True))
+def test_stopped_callback_before_running_fails_truthfully(
+    tmp_path,
+    monkeypatch,
+    claimed,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        f"unexpected-queued-stop-{claimed}",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+    persistence = open_run_persistence(configured.database_url)
+    try:
+        service = create_default_run_service(
+            create_default_workflow_registry(),
+            repository=persistence.repository,
+        )
+        service.mark_execution_dispatched(
+            assignment.run_id,
+            job_id=assignment.job_id,
+        )
+        service.queue_dispatched_run(
+            assignment.run_id,
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+        if claimed:
+            service.claim_execution_assignment(
+                assignment.run_id,
+                job_id=assignment.job_id,
+                backend=assignment.backend,
+                queue_name=assignment.queue_name,
+            )
+        queued_assignment = service.get_execution_assignment(assignment.run_id)
+        assert queued_assignment is not None
+    finally:
+        persistence.close()
+
+    handle_execution_stopped(
+        _execution_job(queued_assignment),
+        fakeredis.FakeRedis(),
+    )
+
+    record, events, persisted = _read_run(configured, assignment.run_id)
+    assert record.status is RunStatus.FAILED
+    assert record.error is not None
+    assert record.error.code == "RUN_WORKER_STOPPED_UNEXPECTEDLY"
+    assert persisted is not None
+    assert persisted.cancellation_acknowledged_at is None
+    assert events[-1].event_type == "execution_stopped_unexpectedly"
+    assert events[-1].context["previous_status"] == "queued"
+
+
+def test_stopped_callback_before_dispatch_fails_planned_truthfully(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "unexpected-planned-stop",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+
+    handle_execution_stopped(
+        _execution_job(assignment),
+        fakeredis.FakeRedis(),
+    )
+
+    record, events, persisted = _read_run(configured, assignment.run_id)
+    assert record.status is RunStatus.FAILED
+    assert record.error is not None
+    assert record.error.code == "RUN_WORKER_STOPPED_UNEXPECTEDLY"
+    assert persisted is not None
+    assert persisted.dispatched_at is None
+    assert persisted.cancellation_acknowledged_at is None
+    assert events[-1].event_type == "execution_stopped_unexpectedly"
+    assert events[-1].context["previous_status"] == "planned"
+
+
+def test_stopped_callback_preserves_natural_terminal_race(tmp_path, monkeypatch):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "naturally-finished-run",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+    claimed = _prepare_running_assignment(configured, assignment, request_cancel=True)
+    persistence = open_run_persistence(configured.database_url)
+    try:
+        service = create_default_run_service(
+            create_default_workflow_registry(),
+            repository=persistence.repository,
+        )
+        succeeded = service.transition_run(assignment.run_id, RunStatus.SUCCEEDED)
+        events_before = service.list_events(assignment.run_id, limit=100)
+    finally:
+        persistence.close()
+
+    handle_execution_stopped(_execution_job(claimed), fakeredis.FakeRedis())
+
+    record, events, persisted = _read_run(configured, assignment.run_id)
+    assert record == succeeded
+    assert events == events_before
+    assert persisted is not None
+    assert persisted.cancellation_acknowledged_at is None
+
+
+@pytest.mark.parametrize("field", ["job_id", "queue_name", "run_id", "func_name"])
+def test_stopped_callback_identity_drift_never_mutates_another_run(
+    tmp_path,
+    monkeypatch,
+    field,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        f"stopped-drift-{field}",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+    claimed = _prepare_running_assignment(configured, assignment, request_cancel=True)
+    job = _execution_job(claimed)
+    if field == "job_id":
+        job.id = "wrong-job"
+    elif field == "queue_name":
+        job.origin = "wrong-queue"
+    elif field == "run_id":
+        job.args = ("another-run",)
+    else:
+        job.func_name = "other.worker"
+    record_before, events_before, persisted_before = _read_run(
+        configured,
+        assignment.run_id,
+    )
+
+    handle_execution_stopped(job, fakeredis.FakeRedis())
+
+    record, events, persisted = _read_run(configured, assignment.run_id)
+    assert record == record_before
+    assert events == events_before
+    assert persisted == persisted_before
+
+
+def test_stopped_callback_does_not_swallow_rq_callback_timeout(monkeypatch):
+    monkeypatch.setattr(
+        worker_jobs,
+        "load_worker_settings",
+        lambda: (_ for _ in ()).throw(JobTimeoutException("callback deadline")),
+    )
+
+    with pytest.raises(JobTimeoutException, match="callback deadline"):
+        handle_execution_stopped(
+            SimpleNamespace(
+                id="job-1",
+                origin="runs",
+                func_name="encode_pipeline.workers.jobs.run_execution_job",
+                args=("run-1",),
+                kwargs={},
+            ),
+            fakeredis.FakeRedis(),
+        )
+
+
+def _prepare_running_assignment(configured, assignment, *, request_cancel=False):
+    persistence = open_run_persistence(configured.database_url)
+    try:
+        service = create_default_run_service(
+            create_default_workflow_registry(),
+            repository=persistence.repository,
+        )
+        service.mark_execution_dispatched(
+            assignment.run_id,
+            job_id=assignment.job_id,
+        )
+        service.queue_dispatched_run(
+            assignment.run_id,
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+        service.claim_execution_assignment(
+            assignment.run_id,
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+        service.transition_run(assignment.run_id, RunStatus.RUNNING)
+        claimed = service.get_execution_assignment(assignment.run_id)
+        assert claimed is not None
+        if request_cancel:
+            requested = service.request_execution_cancellation(
+                assignment.run_id,
+                job_id=claimed.job_id,
+                backend=claimed.backend,
+                queue_name=claimed.queue_name,
+                reason="User requested cancellation.",
+            )
+            claimed = requested.assignment
+        return claimed
+    finally:
+        persistence.close()
+
+
+def _execution_job(assignment):
+    return SimpleNamespace(
+        id=assignment.job_id,
+        origin=assignment.queue_name,
+        func_name="encode_pipeline.workers.jobs.run_execution_job",
+        args=(assignment.run_id,),
+        kwargs={},
+    )

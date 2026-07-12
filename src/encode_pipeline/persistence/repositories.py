@@ -22,8 +22,10 @@ from encode_pipeline.persistence.models import (
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import (
     RunExecutionAssignment,
+    RunExecutionCancellationRequest,
     RunExecutionClaim,
     RunExecutionOwnership,
+    RunExecutionStopAcknowledgement,
 )
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.runs import (
@@ -343,6 +345,11 @@ class SqlAlchemyRunRepository:
                     created_at=assignment.created_at,
                     dispatched_at=assignment.dispatched_at,
                     claimed_at=assignment.claimed_at,
+                    cancellation_requested_at=(assignment.cancellation_requested_at),
+                    cancellation_reason=assignment.cancellation_reason,
+                    cancellation_acknowledged_at=(
+                        assignment.cancellation_acknowledged_at
+                    ),
                 )
                 session.add(row)
                 session.flush()
@@ -499,6 +506,163 @@ class SqlAlchemyRunRepository:
             return RunExecutionClaim(
                 assignment=_execution_assignment_from_row(row),
                 acquired=True,
+            )
+
+    def request_execution_cancellation(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        requested_at: datetime,
+        reason: str,
+        event: RunEventDraft,
+    ) -> RunExecutionCancellationRequest:
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, run_id)
+            row = session.get(RunExecutionAssignmentRow, run_id)
+            if row is None:
+                raise KeyError(run_id)
+            _require_assignment_row_identity(
+                row,
+                job_id=job_id,
+                backend=backend,
+                queue_name=queue_name,
+            )
+            assignment = _execution_assignment_from_row(row)
+            if assignment.claimed_at is None:
+                raise ValueError("execution assignment has not been claimed")
+            record = _record_from_row(current)
+            if record.status is not RunStatus.RUNNING:
+                if record.status.is_terminal:
+                    return RunExecutionCancellationRequest(
+                        assignment=assignment,
+                        record=record,
+                        created=False,
+                    )
+                raise ConcurrentRunUpdateError(f"Run {run_id!r} is no longer running.")
+            if assignment.cancellation_requested_at is not None:
+                return RunExecutionCancellationRequest(
+                    assignment=assignment,
+                    record=record,
+                    created=False,
+                )
+
+            row.cancellation_requested_at = requested_at
+            row.cancellation_reason = reason
+            self._insert_event(session, run_id, event)
+            session.flush()
+            return RunExecutionCancellationRequest(
+                assignment=_execution_assignment_from_row(row),
+                record=record,
+                created=True,
+            )
+
+    def acknowledge_execution_stop(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+        acknowledged_at: datetime,
+        cancellation_event: RunEventDraft,
+        unexpected_stop_event: RunEventDraft,
+    ) -> RunExecutionStopAcknowledgement:
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, run_id)
+            row = session.get(RunExecutionAssignmentRow, run_id)
+            if row is None:
+                raise KeyError(run_id)
+            _require_assignment_row_identity(
+                row,
+                job_id=job_id,
+                backend=backend,
+                queue_name=queue_name,
+            )
+            assignment = _execution_assignment_from_row(row)
+            record = _record_from_row(current)
+            if record.status.is_terminal:
+                return RunExecutionStopAcknowledgement(
+                    assignment=assignment,
+                    record=record,
+                    transitioned=False,
+                )
+
+            if assignment.cancellation_requested_at is not None:
+                if assignment.claimed_at is None:
+                    raise ValueError("execution assignment has not been claimed")
+                if record.status is not RunStatus.RUNNING:
+                    raise ConcurrentRunUpdateError(
+                        f"Run {run_id!r} is no longer running."
+                    )
+                reason = assignment.cancellation_reason
+                assert reason is not None
+                row.cancellation_acknowledged_at = acknowledged_at
+                updated = replace(
+                    record,
+                    status=RunStatus.CANCELLED,
+                    updated_at=acknowledged_at,
+                    ended_at=acknowledged_at,
+                    cancellation_reason=reason,
+                    error=None,
+                )
+                context = dict(cancellation_event.context)
+                context.update(
+                    {
+                        "previous_status": RunStatus.RUNNING.value,
+                        "new_status": RunStatus.CANCELLED.value,
+                        "cancellation_reason": reason,
+                    }
+                )
+                event = replace(cancellation_event, context=context)
+            else:
+                if record.status not in {
+                    RunStatus.PLANNED,
+                    RunStatus.QUEUED,
+                    RunStatus.RUNNING,
+                }:
+                    raise ConcurrentRunUpdateError(
+                        f"Run {run_id!r} is not worker-owned."
+                    )
+                updated = replace(
+                    record,
+                    status=RunStatus.FAILED,
+                    updated_at=acknowledged_at,
+                    ended_at=acknowledged_at,
+                    cancellation_reason=None,
+                    error=unexpected_stop_event.issue,
+                )
+                context = dict(unexpected_stop_event.context)
+                context.update(
+                    {
+                        "previous_status": record.status.value,
+                        "new_status": RunStatus.FAILED.value,
+                    }
+                )
+                event = replace(unexpected_stop_event, context=context)
+
+            result = session.execute(
+                update(RunRow)
+                .where(
+                    RunRow.run_id == run_id,
+                    RunRow.status == record.status.value,
+                )
+                .values(**_run_values(updated))
+            )
+            if result.rowcount != 1:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} changed while stop was acknowledged."
+                )
+            self._insert_event(session, run_id, event)
+            session.flush()
+            return RunExecutionStopAcknowledgement(
+                assignment=_execution_assignment_from_row(row),
+                record=updated,
+                transitioned=True,
             )
 
     @staticmethod
@@ -670,6 +834,9 @@ def _execution_assignment_from_row(
         created_at=_as_utc(row.created_at),
         dispatched_at=_optional_utc(row.dispatched_at),
         claimed_at=_optional_utc(row.claimed_at),
+        cancellation_requested_at=_optional_utc(row.cancellation_requested_at),
+        cancellation_reason=row.cancellation_reason,
+        cancellation_acknowledged_at=_optional_utc(row.cancellation_acknowledged_at),
     )
 
 

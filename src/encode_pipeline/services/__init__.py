@@ -22,12 +22,18 @@ from encode_pipeline.services.materialization import WorkspaceMaterializer
 from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.run_submission import RunSubmissionService
+from encode_pipeline.services.run_cancellation import (
+    RunCancellationResult,
+    RunCancellationService,
+)
 from encode_pipeline.services.run_queue import (
     RunQueue,
     RunQueueError,
     RunQueueIdentityError,
     RunQueueJobUnavailableError,
     RunQueueUnavailableError,
+    RunQueueStopUnavailableError,
+    RunStopQueue,
 )
 from encode_pipeline.services.stub_execution_driver import StubExecutionDriver
 from encode_pipeline.services.validation import ValidationService
@@ -41,12 +47,16 @@ __all__ = [
     "LocalExecutionService",
     "ProcessRunner",
     "RunService",
+    "RunCancellationResult",
+    "RunCancellationService",
     "RunSubmissionService",
     "RunQueue",
     "RunQueueError",
     "RunQueueIdentityError",
     "RunQueueJobUnavailableError",
     "RunQueueUnavailableError",
+    "RunQueueStopUnavailableError",
+    "RunStopQueue",
     "StubExecutionDriver",
     "ValidationService",
     "WorkflowBuildIdentityProvider",

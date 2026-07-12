@@ -91,7 +91,7 @@ export const startRun = async (runId: string, options?: RequestInit): Promise<Ru
 
 
 /**
- * Cancel a run before execution starts; refuse unsafe running cancellation.
+ * Cancel before execution or request an acknowledged RQ process stop.
  * @summary Cancel Run
  */
 export const getCancelRunUrl = (runId: string,) => {
@@ -102,9 +102,9 @@ export const getCancelRunUrl = (runId: string,) => {
   return `/api/v1/runs/${runId}/cancel`
 }
 
-export const cancelRun = async (runId: string, options?: RequestInit): Promise<RunResponse> => {
+export const cancelRun = async (runId: string, options?: RequestInit): Promise<RunResponse | RunResponse> => {
 
-  return fetcher<RunResponse>(getCancelRunUrl(runId),
+  return fetcher<RunResponse | RunResponse>(getCancelRunUrl(runId),
   {
     ...options,
     method: 'POST'

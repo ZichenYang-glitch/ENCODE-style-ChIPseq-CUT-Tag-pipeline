@@ -27,6 +27,7 @@ from encode_pipeline.services.defaults import (
 )
 from encode_pipeline.services.planning import ExecutionPlanner
 from encode_pipeline.services.preflight import LocalPreflightService
+from encode_pipeline.services.run_cancellation import RunCancellationService
 from encode_pipeline.services.run_submission import RunSubmissionService
 from encode_pipeline.workers.rq_queue import RqRunQueue
 from encode_pipeline.workers.settings import (
@@ -79,6 +80,10 @@ def create_app(
         run_service=run_service,
         run_queue=run_queue,
     )
+    run_cancellation_service = RunCancellationService(
+        run_service=run_service,
+        run_queue=run_queue,
+    )
     recovered_runs = run_service.recover_interrupted_runs()
     command_builder = create_default_command_builder(
         registry=registry,
@@ -109,6 +114,7 @@ def create_app(
     app.state.run_service = run_service
     app.state.build_identity_provider = build_identity_provider
     app.state.run_submission_service = run_submission_service
+    app.state.run_cancellation_service = run_cancellation_service
     app.state.local_run_driver = local_run_driver
     app.state.preflight_service = preflight_service
     # Stub driver is intentionally not attached in production.

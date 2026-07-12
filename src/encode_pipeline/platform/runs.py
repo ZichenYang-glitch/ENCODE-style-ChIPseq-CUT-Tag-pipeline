@@ -42,9 +42,13 @@ _VALID_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
         RunStatus.FAILED,
         RunStatus.CANCELLED,
     },
-    # PR124 cannot stop an already-running process.  Keep the lifecycle
-    # fail-closed until PR125 owns process termination before cancellation.
-    RunStatus.RUNNING: {RunStatus.SUCCEEDED, RunStatus.FAILED},
+    # RUNNING -> CANCELLED is guarded by the execution-stop acknowledgement
+    # repository operation; RunService.transition_run cannot take this edge.
+    RunStatus.RUNNING: {
+        RunStatus.SUCCEEDED,
+        RunStatus.FAILED,
+        RunStatus.CANCELLED,
+    },
     RunStatus.SUCCEEDED: set(),
     RunStatus.FAILED: set(),
     RunStatus.CANCELLED: set(),

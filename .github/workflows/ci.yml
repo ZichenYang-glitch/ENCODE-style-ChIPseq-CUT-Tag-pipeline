@@ -54,6 +54,7 @@ jobs:
           test/platform/test_execution.py
           test/platform/test_runs.py
           test/services/test_run_repositories.py
+          test/services/test_run_cancellation.py
           test/services/test_run_service.py
           test/services/test_run_submission.py
           test/services/test_command_builder.py
@@ -62,6 +63,7 @@ jobs:
           test/services/test_process_runner.py
           test/persistence
           test/api/test_persistent_composition.py
+          test/api/test_routes_cancel.py
           test/api/test_routes_start.py
           test/api/test_startup.py
           test/workers
