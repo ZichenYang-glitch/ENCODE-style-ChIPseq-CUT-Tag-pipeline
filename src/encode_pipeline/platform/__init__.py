@@ -35,8 +35,10 @@ from encode_pipeline.platform.runs import (
     RunQcMetric,
     RunRecord,
     RunStatus,
+    build_qc_metric_id,
     can_transition,
     require_transition,
+    validate_qc_identifier_token,
 )
 
 __all__ = [
@@ -72,6 +74,8 @@ __all__ = [
     "WorkflowSchema",
     "WorkspacePlan",
     "build_execution_job_id",
+    "build_qc_metric_id",
     "can_transition",
     "require_transition",
+    "validate_qc_identifier_token",
 ]

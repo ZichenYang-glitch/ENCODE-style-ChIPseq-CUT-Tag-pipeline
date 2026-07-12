@@ -96,10 +96,13 @@ There is no arbitrary metric metadata JSON.
 
 Platform validation limits `metric_key` to a lowercase dotted token of at most
 128 characters, `display_name` to 1..255 printable characters, identifiers and
-assay to 1..255 safe token characters, and source/output IDs to the existing
-artifact identifier grammar. Control characters, NUL, path-like strings, and
-empty normalized values are rejected. Adapter source types are unique, bounded
-safe output tokens.
+assay to 1..255 characters from the canonical ENCODE-safe
+`[A-Za-z0-9_.-]` vocabulary, and source/output IDs to the existing artifact
+identifier grammar. The shared workflow-neutral token validator permits `-`,
+`.`, or `_` in the first position, matching scientific sample and experiment
+IDs, while rejecting empty strings, exact `.`/`..`, controls, slash,
+backslash, and overlong values. Adapter source types are unique, bounded safe
+output tokens.
 
 ## ENCODE v1 metric catalog
 
@@ -146,8 +149,12 @@ descriptive.
 
 `metric_id` is `qcmetric-` plus a complete SHA-256 digest over a framed tuple of
 `metric_key`, scope, sample ID, and experiment ID. It is deterministic across
-retries and independent of local paths or database row IDs. A duplicate
-semantic coordinate therefore fails before persistence.
+retries and independent of local paths or database row IDs. The domain layer
+owns the only implementation of this algorithm. Both the indexing service and
+repository call it, and the repository recomputes the ID from every metric's
+semantic coordinates before any write. A well-formed but semantically
+mismatched digest and duplicate semantic coordinates under different digests
+therefore fail atomically before persistence.
 
 Alembic revision `20260712_05` creates `run_qc_metrics` with a run foreign key,
 unique `(run_id, metric_id)`, stable run index, canonical decimal text, scope
@@ -186,8 +193,11 @@ exception string, or arbitrary JSON is stored.
    workspace component and relative source parent is traversed with `dir_fd`,
    `O_NOFOLLOW`, `O_DIRECTORY`, and `O_CLOEXEC`; the final source is opened with
    `O_NOFOLLOW`, `O_NONBLOCK`, and `O_CLOEXEC`. `fstat` must identify a regular
-   file no larger than 1 MiB. Bytes are read only from that descriptor, bounded
-   to limit + 1, and pre/post `fstat` device, inode, mode, and size must match.
+   file no larger than 1 MiB. Persisted `size_bytes` must be a non-boolean,
+   non-negative integer within that limit; the opened descriptor's `st_size`
+   must equal it. Bytes are read only from that descriptor, bounded to expected
+   size + 1, final content length must equal `size_bytes`, and pre/post `fstat`
+   device, inode, mode, size, and mtime must match.
    The implementation never calls `Path.open`, `open`, or `read_bytes` on an
    unchecked source. A race canary replaces a path component during traversal
    and proves that no outside sentinel bytes reach the adapter.
@@ -269,6 +279,8 @@ Infinity; absolute/traversal/symlink/directory/FIFO/device and oversized-file
 attacks plus a descriptor traversal race canary; deterministic IDs and absence
 of absolute paths; InMemory and
 SQLAlchemy atomic replacement, rollback, idempotency, concurrency, and reopen;
+persisted-size larger/smaller mismatches and mutation during descriptor reads;
+semantic-ID recomputation and canonical leading-punctuation identifiers;
 QC-versus-artifact replacement races and artifact-driven invalidation; Alembic
 upgrade from `20260712_04`; worker success, empty, failure isolation,
 and lifecycle exclusion; and build-identity drift.
@@ -286,5 +298,9 @@ manifest output are expected to have zero diff.
   need an explicit stable adapter mapping before adoption.
 - Source documents are capped at 1 MiB. A future legitimate larger summary
   requires an intentional policy change rather than silent acceptance.
+- Without a content checksum, replacement by different bytes with the same
+  size and filesystem identity evidence outside the descriptor's observed
+  lifetime cannot be distinguished. This PR deliberately performs safe stat
+  and bounded reads rather than hashing potentially large workflow artifacts.
 - There is no heartbeat/reconciler, immutable workflow bundle, object storage,
   checksum, authentication, multi-tenancy, HPC, or second adapter work here.

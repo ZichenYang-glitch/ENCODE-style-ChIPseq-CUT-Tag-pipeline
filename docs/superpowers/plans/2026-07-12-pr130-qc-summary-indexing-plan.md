@@ -178,6 +178,13 @@ set replacement, insert/event rollback, duplicate IDs, expected artifact set
 order independence, stale expected source rejection, concurrent artifact/QC
 replacement, and repeated identical failure no-op.
 
+Use the domain-owned framed SHA-256 helper for every fixture ID. Prove both
+repositories atomically reject a well-formed digest from different semantic
+coordinates and cannot persist identical coordinates under two legal hashes.
+Use the same domain token validator in service and repository parity tests,
+including successful `-S1`, `.S1`, `_S1` and rejected slash, exact `..`,
+control, empty, and overlong identifiers.
+
 Also prove a non-equivalent artifact replacement atomically clears QC and adds
 one `qc_metrics_invalidated`, while equivalent reordered artifacts preserve QC
 and first-ever artifact indexing writes no invalidation.
@@ -230,8 +237,10 @@ successful empty sets, idempotent retry, prior-set preservation on failure,
 FAILED/CANCELLED exclusion, redacted failure events, and exact artifact-set
 validation. Attack absolute, traversal, backslash, NUL, duplicate path,
 symlinked workspace component, final symlink, directory, FIFO, oversized file,
+persisted `size_bytes` larger/smaller/type/bound violations, read-time mutation,
 and a race that swaps a source for an outside symlink before final open. Assert
-outside sentinel bytes never reach the adapter.
+outside sentinel bytes and size-mismatched content never reach the adapter and
+that a prior complete QC set survives failure.
 
 - [ ] **Step 2: Verify RED**
 
@@ -243,15 +252,19 @@ Expected: service import failure.
 
 Traverse from `os.open("/", O_DIRECTORY | O_CLOEXEC)` using `dir_fd`,
 `O_NOFOLLOW`, and directory descriptors. Open the final source with
-`O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC`, require regular `fstat`, read
-at most `1 MiB + 1` through `os.read`, compare pre/post fd identity, and close
-all descriptors in `finally` blocks.
+`O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC`, require regular `fstat` and
+exact agreement with validated persisted `size_bytes`, read at most expected
+size + 1 through `os.read`, require exact final content length, compare pre/post
+fd identity, and close all descriptors in `finally` blocks. Document that
+same-size content replacement remains undetectable without a checksum.
 
 - [ ] **Step 4: Implement candidate validation and persistence**
 
 Validate bounded tokens, scope-ID consistency, finite Decimal grammar and
 precision, controlled units/flags, source membership, duplicate source paths,
 and duplicate semantic metric IDs before calling the atomic RunService method.
+Use the domain-owned identifier validator and framed metric-ID builder in both
+service and repository; the repository must recompute each ID before writing.
 Map all exceptions to stable reason codes with no path or exception text.
 
 - [ ] **Step 5: Run service tests**

@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
+from hashlib import sha256
+import re
 from typing import Any, Mapping
 
 from encode_pipeline.platform.results import Issue
@@ -252,6 +254,48 @@ class RunArtifactRef:
             "produced_at": self.produced_at,
             "metadata": deepcopy(dict(self.metadata)),
         }
+
+
+_QC_IDENTIFIER_TOKEN = re.compile(r"^[A-Za-z0-9_.-]{1,255}$")
+
+
+def build_qc_metric_id(
+    metric_key: str,
+    scope: str,
+    sample_id: str | None,
+    experiment_id: str | None,
+) -> str:
+    """Build the stable identifier for one semantic QC metric coordinate."""
+    if (
+        not isinstance(metric_key, str)
+        or not isinstance(scope, str)
+        or (sample_id is not None and not isinstance(sample_id, str))
+        or (experiment_id is not None and not isinstance(experiment_id, str))
+    ):
+        raise ValueError("QC metric identity coordinates must be strings")
+    coordinates = (
+        metric_key,
+        scope,
+        "" if sample_id is None else sample_id,
+        "" if experiment_id is None else experiment_id,
+    )
+    digest = sha256()
+    for value in coordinates:
+        encoded = value.encode()
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+    return f"qcmetric-{digest.hexdigest()}"
+
+
+def validate_qc_identifier_token(value: object) -> str:
+    """Return a canonical ENCODE-safe identifier or reject it."""
+    if (
+        not isinstance(value, str)
+        or value in {".", ".."}
+        or _QC_IDENTIFIER_TOKEN.fullmatch(value) is None
+    ):
+        raise ValueError("QC identifier token is invalid")
+    return value
 
 
 @dataclass(frozen=True)

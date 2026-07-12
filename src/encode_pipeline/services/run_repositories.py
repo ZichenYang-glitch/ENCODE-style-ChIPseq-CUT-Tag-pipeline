@@ -26,6 +26,8 @@ from encode_pipeline.platform.runs import (
     RunQcMetric,
     RunRecord,
     RunStatus,
+    build_qc_metric_id,
+    validate_qc_identifier_token,
 )
 
 
@@ -33,7 +35,6 @@ _T = TypeVar("_T")
 _CANONICAL_DECIMAL = re.compile(r"^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?$")
 _QC_METRIC_ID = re.compile(r"^qcmetric-[0-9a-f]{64}$")
 _QC_METRIC_KEY = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
-_QC_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$")
 _QC_SOURCE_ARTIFACT_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _QC_UNITS = frozenset({"count", "fraction", "ratio"})
 _QC_SCOPES = frozenset({"run", "sample", "experiment"})
@@ -1053,10 +1054,11 @@ def _validate_qc_metric_fields(metric: RunQcMetric) -> None:
     if not isinstance(metric.scope, str) or metric.scope not in _QC_SCOPES:
         raise ValueError("QC metric scope is invalid")
     for value in (metric.sample_id, metric.experiment_id, metric.assay):
-        if value is not None and (
-            not isinstance(value, str) or _QC_TOKEN.fullmatch(value) is None
-        ):
-            raise ValueError("QC metric identifier is invalid")
+        if value is not None:
+            try:
+                validate_qc_identifier_token(value)
+            except ValueError:
+                raise ValueError("QC metric identifier is invalid") from None
     if metric.scope == "run" and (
         metric.sample_id is not None or metric.experiment_id is not None
     ):
@@ -1082,6 +1084,14 @@ def _validate_qc_metric_fields(metric: RunQcMetric) -> None:
         or metric.produced_at.utcoffset() is None
     ):
         raise ValueError("QC metric produced_at must be timezone-aware")
+    expected_metric_id = build_qc_metric_id(
+        metric.metric_key,
+        metric.scope,
+        metric.sample_id,
+        metric.experiment_id,
+    )
+    if metric.metric_id != expected_metric_id:
+        raise ValueError("QC metric_id does not match its semantic coordinates")
 
 
 def _assignment_has_ownership(

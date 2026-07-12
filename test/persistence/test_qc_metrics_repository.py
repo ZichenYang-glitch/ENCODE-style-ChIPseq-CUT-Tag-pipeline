@@ -6,7 +6,6 @@ from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal
-from hashlib import sha256
 from threading import Barrier
 
 import pytest
@@ -22,6 +21,7 @@ from encode_pipeline.platform.runs import (
     RunQcMetric,
     RunRecord,
     RunStatus,
+    build_qc_metric_id,
 )
 from encode_pipeline.services.run_repositories import (
     ConcurrentRunUpdateError,
@@ -88,17 +88,29 @@ def _artifact(artifact_id, output_type="qc_summary"):
     )
 
 
-def _metric(metric_id="default", value=Decimal("9007199254740993")):
+def _metric(
+    metric_key="sequencing.total_reads",
+    value=Decimal("9007199254740993"),
+    *,
+    scope="sample",
+    sample_id="S1",
+    experiment_id="EXP1",
+):
     return RunQcMetric(
-        metric_id=f"qcmetric-{sha256(metric_id.encode()).hexdigest()}",
+        metric_id=build_qc_metric_id(
+            metric_key,
+            scope,
+            sample_id,
+            experiment_id,
+        ),
         run_id="run-1",
-        metric_key="sequencing.total_reads",
+        metric_key=metric_key,
         display_name="Total reads",
         value=value,
         unit="count",
-        scope="sample",
-        sample_id="S1",
-        experiment_id="EXP1",
+        scope=scope,
+        sample_id=sample_id,
+        experiment_id=experiment_id,
         assay="chipseq",
         qc_flag=None,
         source_artifact_id="artifact-1",
@@ -186,6 +198,94 @@ def test_repositories_reject_missing_metric_source_and_invalid_decimal(repositor
         repository.replace_qc_metrics(
             "run-1",
             (_metric(value=Decimal("0.1234567890123")),),
+            expected_artifacts=artifacts,
+            expected_status=RunStatus.SUCCEEDED,
+            event=_event("qc_metrics_indexed"),
+        )
+
+    assert repository.list_qc_metrics("run-1") == ()
+
+
+def test_repositories_reject_well_formed_metric_id_for_different_semantics(
+    repository,
+):
+    artifacts = (_artifact("artifact-1"),)
+    _prepare(repository, artifacts)
+    metric = _metric()
+    wrong_id = build_qc_metric_id(
+        "peaks.count",
+        metric.scope,
+        metric.sample_id,
+        metric.experiment_id,
+    )
+
+    with pytest.raises(ValueError):
+        repository.replace_qc_metrics(
+            "run-1",
+            (replace(metric, metric_id=wrong_id),),
+            expected_artifacts=artifacts,
+            expected_status=RunStatus.SUCCEEDED,
+            event=_event("qc_metrics_indexed"),
+        )
+
+    assert repository.list_qc_metrics("run-1") == ()
+
+
+def test_repositories_cannot_persist_same_semantics_under_two_legal_hashes(
+    repository,
+):
+    artifacts = (_artifact("artifact-1"),)
+    _prepare(repository, artifacts)
+    metric = _metric()
+    second_legal_hash = build_qc_metric_id(
+        "library.pbc2",
+        metric.scope,
+        metric.sample_id,
+        metric.experiment_id,
+    )
+
+    with pytest.raises(ValueError):
+        repository.replace_qc_metrics(
+            "run-1",
+            (metric, replace(metric, metric_id=second_legal_hash)),
+            expected_artifacts=artifacts,
+            expected_status=RunStatus.SUCCEEDED,
+            event=_event("qc_metrics_indexed"),
+        )
+
+    assert repository.list_qc_metrics("run-1") == ()
+
+
+@pytest.mark.parametrize("sample_id", ("-S1", ".S1", "_S1"))
+def test_repositories_accept_canonical_leading_punctuation_identifiers(
+    repository,
+    sample_id,
+):
+    artifacts = (_artifact("artifact-1"),)
+    _prepare(repository, artifacts)
+    metric = _metric(sample_id=sample_id)
+
+    repository.replace_qc_metrics(
+        "run-1",
+        (metric,),
+        expected_artifacts=artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+        event=_event("qc_metrics_indexed"),
+    )
+
+    assert repository.list_qc_metrics("run-1") == (metric,)
+
+
+@pytest.mark.parametrize("sample_id", ("/private", "..", "bad\nidentifier"))
+def test_repositories_reject_unsafe_identifiers(repository, sample_id):
+    artifacts = (_artifact("artifact-1"),)
+    _prepare(repository, artifacts)
+    metric = _metric(sample_id=sample_id)
+
+    with pytest.raises(ValueError):
+        repository.replace_qc_metrics(
+            "run-1",
+            (metric,),
             expected_artifacts=artifacts,
             expected_status=RunStatus.SUCCEEDED,
             event=_event("qc_metrics_indexed"),
@@ -331,10 +431,9 @@ def test_sqlalchemy_qc_decimal_text_survives_reopen_without_float_rounding(tmp_p
     artifacts = (_artifact("artifact-1"),)
     _prepare(first, artifacts)
     metrics = (
-        _metric("qcmetric-large", Decimal("9007199254740993")),
+        _metric("sequencing.total_reads", Decimal("9007199254740993")),
         replace(
-            _metric("qcmetric-boundary"),
-            metric_key="library.pbc2",
+            _metric("library.pbc2"),
             value=Decimal("99999999999999999999999999.999999999999"),
         ),
     )

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from decimal import Decimal
-from hashlib import sha256
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -19,7 +18,13 @@ from encode_pipeline.platform.adapters import (
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
-from encode_pipeline.platform.runs import RunArtifactRef, RunQcMetric, RunStatus
+from encode_pipeline.platform.runs import (
+    RunArtifactRef,
+    RunQcMetric,
+    RunStatus,
+    build_qc_metric_id,
+    validate_qc_identifier_token,
+)
 from encode_pipeline.services.run_repositories import (
     ConcurrentRunUpdateError,
     canonical_decimal_text,
@@ -29,7 +34,6 @@ from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvid
 
 
 _MAX_SOURCE_BYTES = 1024 * 1024
-_SAFE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$")
 _SAFE_ARTIFACT_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _SAFE_OUTPUT_TYPE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
@@ -225,8 +229,15 @@ class QcSummaryIndexingService:
             if relative_path in seen_paths:
                 raise ValueError("QC source path is duplicated")
             seen_paths.add(relative_path)
+            expected_size = self._validated_source_size(
+                artifact.metadata.get("size_bytes")
+            )
             metadata = self._validated_source_metadata(artifact.metadata)
-            content = self._read_bounded_regular_file(workspace, relative_path)
+            content = self._read_bounded_regular_file(
+                workspace,
+                relative_path,
+                expected_size,
+            )
             documents.append(
                 QcSourceDocument(
                     source=QcSourceArtifact(
@@ -272,18 +283,30 @@ class QcSummaryIndexingService:
             value = metadata.get(key)
             if value is None:
                 continue
-            if (
-                not isinstance(value, str)
-                or _SAFE_TOKEN.fullmatch(value) is None
-                or "/" in value
-                or "\\" in value
-            ):
+            try:
+                validated = validate_qc_identifier_token(value)
+            except ValueError:
                 raise ValueError("QC source metadata is invalid")
-            result[key] = value
+            result[key] = validated
         return result
 
     @staticmethod
-    def _read_bounded_regular_file(workspace: Path, relative_path: str) -> bytes:
+    def _validated_source_size(value: object) -> int:
+        if (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or value < 0
+            or value > _MAX_SOURCE_BYTES
+        ):
+            raise ValueError("QC source size is invalid")
+        return value
+
+    @staticmethod
+    def _read_bounded_regular_file(
+        workspace: Path,
+        relative_path: str,
+        expected_size: int,
+    ) -> bytes:
         required_flags = ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK")
         if any(not hasattr(os, name) for name in required_flags):
             raise OSError("safe descriptor flags are unavailable")
@@ -309,10 +332,14 @@ class QcSummaryIndexingService:
                 if not final and not stat.S_ISDIR(info.st_mode):
                     raise ValueError("QC source parent is not a directory")
             before = os.fstat(current)
-            if not stat.S_ISREG(before.st_mode) or before.st_size > _MAX_SOURCE_BYTES:
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_size != expected_size
+                or before.st_size > _MAX_SOURCE_BYTES
+            ):
                 raise ValueError("QC source is not a bounded regular file")
             chunks: list[bytes] = []
-            remaining = _MAX_SOURCE_BYTES + 1
+            remaining = expected_size + 1
             while remaining:
                 chunk = os.read(current, min(65536, remaining))
                 if not chunk:
@@ -337,6 +364,7 @@ class QcSummaryIndexingService:
             )
             if (
                 len(content) > _MAX_SOURCE_BYTES
+                or len(content) != expected_size
                 or len(content) != before.st_size
                 or identity_before != identity_after
             ):
@@ -364,7 +392,12 @@ class QcSummaryIndexingService:
             if not isinstance(candidate, ExtractedQcMetricCandidate):
                 raise ValueError("QC candidate type is invalid")
             self._validate_candidate(candidate, source_artifact_ids)
-            metric_id = self._metric_id(candidate)
+            metric_id = build_qc_metric_id(
+                candidate.metric_key,
+                candidate.scope,
+                candidate.sample_id,
+                candidate.experiment_id,
+            )
             if metric_id in seen_ids:
                 raise ValueError("QC semantic metric is duplicated")
             seen_ids.add(metric_id)
@@ -414,10 +447,11 @@ class QcSummaryIndexingService:
         if candidate.scope not in _ALLOWED_SCOPES:
             raise ValueError("QC metric scope is invalid")
         for value in (candidate.sample_id, candidate.experiment_id, candidate.assay):
-            if value is not None and (
-                not isinstance(value, str) or _SAFE_TOKEN.fullmatch(value) is None
-            ):
-                raise ValueError("QC metric identifier is invalid")
+            if value is not None:
+                try:
+                    validate_qc_identifier_token(value)
+                except ValueError:
+                    raise ValueError("QC metric identifier is invalid") from None
         if candidate.scope == "run" and (
             candidate.sample_id is not None or candidate.experiment_id is not None
         ):
@@ -432,20 +466,6 @@ class QcSummaryIndexingService:
             raise ValueError("QC metric flag is invalid")
         if candidate.source_artifact_id not in source_artifact_ids:
             raise ValueError("QC metric source artifact is invalid")
-
-    @staticmethod
-    def _metric_id(candidate: ExtractedQcMetricCandidate) -> str:
-        digest = sha256()
-        for value in (
-            candidate.metric_key,
-            candidate.scope,
-            candidate.sample_id or "",
-            candidate.experiment_id or "",
-        ):
-            encoded = value.encode()
-            digest.update(len(encoded).to_bytes(8, "big"))
-            digest.update(encoded)
-        return f"qcmetric-{digest.hexdigest()}"
 
     def _fail(
         self,
