@@ -210,10 +210,15 @@ def _execute_claimed_run(runtime, run_id: str) -> None:
     if execution_result.is_success:
         try:
             runtime.artifact_extraction_service.extract(run_id)
+        except WorkerHardTimeout:
+            try:
+                runtime.artifact_extraction_service.record_unexpected_failure(run_id)
+            except (Exception, WorkerHardTimeout):
+                pass
         except Exception:
             try:
                 runtime.artifact_extraction_service.record_unexpected_failure(run_id)
-            except Exception:
+            except (Exception, WorkerHardTimeout):
                 pass
         return
     current = runtime.run_service.get_run(run_id)

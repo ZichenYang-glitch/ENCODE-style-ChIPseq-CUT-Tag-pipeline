@@ -198,6 +198,15 @@ def test_failed_retry_preserves_the_previous_complete_artifact_set(tmp_path):
     assert event_types.count("artifacts_indexed") == 1
     assert event_types[-1] == "artifact_extraction_failed"
 
+    adapter.candidates = (original,)
+    recovered = service.extract("run-1")
+
+    assert recovered.is_success
+    assert run_service.list_artifacts("run-1") == first.value
+    event_types = [event.event_type for event in run_service.list_events("run-1")]
+    assert event_types.count("artifacts_indexed") == 2
+    assert event_types[-1] == "artifacts_indexed"
+
 
 def test_adapter_failure_is_sanitized_and_keeps_succeeded(tmp_path):
     adapter = ArtifactAdapter()
@@ -267,6 +276,43 @@ def test_duplicate_paths_and_absolute_metadata_fail_closed(tmp_path):
     assert run_service.list_artifacts("run-1") == ()
 
 
+@pytest.mark.parametrize(
+    ("output_type", "mime_type"),
+    [
+        ("/private/workspace/output", "application/octet-stream"),
+        ("C:\\private\\output", "application/octet-stream"),
+        ("summary\nprivate", "application/octet-stream"),
+        ("summary", "file:///private/workspace/output"),
+        ("summary", "text/plain\nprivate"),
+    ],
+)
+def test_hostile_logical_fields_never_reach_persistence(
+    tmp_path,
+    output_type,
+    mime_type,
+):
+    adapter = ArtifactAdapter(
+        (
+            ExtractedArtifactCandidate(
+                output_type=output_type,
+                relative_path="results/output.dat",
+                mime_type=mime_type,
+            ),
+        )
+    )
+    service, run_service, workspace, _provider = _service(tmp_path, adapter)
+    (workspace / "results/output.dat").write_bytes(b"output")
+
+    result = service.extract("run-1")
+
+    assert result.is_failure
+    assert run_service.list_artifacts("run-1") == ()
+    event = run_service.list_events("run-1")[-1]
+    assert event.event_type == "artifact_extraction_failed"
+    assert event.context == {"reason_code": "ARTIFACT_EXTRACTION_VALIDATION_FAILED"}
+    assert "/private/workspace" not in str(event.to_dict())
+
+
 def test_fifo_is_rejected_without_reading_contents(tmp_path):
     adapter = ArtifactAdapter(
         (ExtractedArtifactCandidate(output_type="fifo", relative_path="results/fifo"),)
@@ -278,6 +324,27 @@ def test_fifo_is_rejected_without_reading_contents(tmp_path):
 
     assert service.extract("run-1").is_failure
     assert run_service.list_artifacts("run-1") == ()
+
+
+def test_symlinked_workspace_root_is_rejected(tmp_path):
+    candidate = ExtractedArtifactCandidate(
+        output_type="summary",
+        relative_path="results/summary.tsv",
+    )
+    adapter = ArtifactAdapter((candidate,))
+    service, run_service, workspace, _provider = _service(tmp_path, adapter)
+    workspace_root = workspace.parent
+    real_workspace_root = tmp_path / "real-workspaces"
+    workspace_root.rename(real_workspace_root)
+    workspace_root.symlink_to(real_workspace_root, target_is_directory=True)
+    (workspace / "results/summary.tsv").write_text("summary\n", encoding="utf-8")
+
+    result = service.extract("run-1")
+
+    assert result.is_failure
+    assert run_service.list_artifacts("run-1") == ()
+    event = run_service.list_events("run-1")[-1]
+    assert event.context == {"reason_code": "ARTIFACT_EXTRACTION_VALIDATION_FAILED"}
 
 
 @pytest.mark.parametrize("terminal", [RunStatus.FAILED, RunStatus.CANCELLED])

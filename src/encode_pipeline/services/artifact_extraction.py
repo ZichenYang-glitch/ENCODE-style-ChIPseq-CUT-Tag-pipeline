@@ -25,6 +25,11 @@ from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvid
 
 _RESERVED_METADATA = frozenset({"relative_path", "output_type", "size_bytes"})
 _SAFE_METADATA_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+_SAFE_OUTPUT_TYPE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
+_SAFE_MIME_TYPE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/"
+    r"[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$"
+)
 
 
 class ArtifactExtractionService:
@@ -116,7 +121,22 @@ class ArtifactExtractionService:
             or run_id in {".", ".."}
         ):
             raise ValueError("run_id is not workspace-safe")
-        return self._workspace_root / run_id
+        self._require_directory_without_symlink_components(self._workspace_root)
+        workspace = self._workspace_root / run_id
+        self._require_directory_without_symlink_components(workspace)
+        return workspace
+
+    @staticmethod
+    def _require_directory_without_symlink_components(path: Path) -> None:
+        current = Path(path.anchor)
+        component_stat = os.lstat(current)
+        for part in path.parts[1:]:
+            current /= part
+            component_stat = os.lstat(current)
+            if stat.S_ISLNK(component_stat.st_mode):
+                raise ValueError("workspace path contains a symlink")
+        if not stat.S_ISDIR(component_stat.st_mode):
+            raise ValueError("workspace path is not a directory")
 
     def _build_references(
         self,
@@ -166,9 +186,7 @@ class ArtifactExtractionService:
                 }
             )
             mime_type = candidate.mime_type
-            if mime_type is not None and (
-                not mime_type or len(mime_type) > 255 or "\x00" in mime_type
-            ):
+            if mime_type is not None and _SAFE_MIME_TYPE.fullmatch(mime_type) is None:
                 raise ValueError("artifact MIME type is invalid")
             name = target.name
             if not name or len(name) > 255:
@@ -248,9 +266,7 @@ class ArtifactExtractionService:
     def _artifact_id(output_type: str, relative_path: str) -> str:
         if (
             not isinstance(output_type, str)
-            or not output_type
-            or len(output_type) > 128
-            or "\x00" in output_type
+            or _SAFE_OUTPUT_TYPE.fullmatch(output_type) is None
         ):
             raise ValueError("artifact output type is invalid")
         digest = sha256()

@@ -411,10 +411,16 @@ class InMemoryRunRepository:
                     raise ValueError("duplicate artifact_id in replacement")
                 replacement[artifact.artifact_id] = artifact
             existing = tuple(self._artifacts[run_id].values())
-            indexed = any(
-                item.event_type == "artifacts_indexed" for item in self._events[run_id]
+            latest_outcome = next(
+                (
+                    item.event_type
+                    for item in reversed(self._events[run_id])
+                    if item.event_type
+                    in {"artifacts_indexed", "artifact_extraction_failed"}
+                ),
+                None,
             )
-            if existing == artifacts and indexed:
+            if existing == artifacts and latest_outcome == "artifacts_indexed":
                 return None
             indexed_event = self._make_event(
                 run_id,

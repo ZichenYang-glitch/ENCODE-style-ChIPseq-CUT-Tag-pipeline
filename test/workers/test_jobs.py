@@ -603,6 +603,28 @@ def test_post_success_artifact_exception_does_not_fail_execution_job():
     assert recorded == ["run-1"]
 
 
+def test_post_success_artifact_hard_timeout_does_not_fail_execution_job():
+    recorded: list[str] = []
+
+    class Extraction:
+        def extract(self, _run_id):
+            raise WorkerHardTimeout("artifact indexing exceeded the RQ deadline")
+
+        def record_unexpected_failure(self, run_id):
+            recorded.append(run_id)
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=Extraction(),
+    )
+
+    worker_jobs._execute_claimed_run(runtime, "run-1")
+
+    assert recorded == ["run-1"]
+
+
 def test_failure_mapping_does_not_swallow_rq_timeout():
     class TimedOutRunService:
         def get_run(self, _run_id):

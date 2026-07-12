@@ -342,15 +342,18 @@ class SqlAlchemyRunRepository:
                     .order_by(RunArtifactRow.id)
                 ).all()
                 existing = tuple(_artifact_from_row(row) for row in existing_rows)
-                indexed = session.scalar(
-                    select(RunEventRow.id)
+                latest_outcome = session.scalar(
+                    select(RunEventRow.event_type)
                     .where(
                         RunEventRow.run_id == run_id,
-                        RunEventRow.event_type == "artifacts_indexed",
+                        RunEventRow.event_type.in_(
+                            ("artifacts_indexed", "artifact_extraction_failed")
+                        ),
                     )
+                    .order_by(RunEventRow.id.desc())
                     .limit(1)
                 )
-                if existing == artifacts and indexed is not None:
+                if existing == artifacts and latest_outcome == "artifacts_indexed":
                     return None
                 session.execute(
                     delete(RunArtifactRow).where(RunArtifactRow.run_id == run_id)
