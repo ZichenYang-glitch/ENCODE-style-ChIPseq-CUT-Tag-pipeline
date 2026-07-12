@@ -12,6 +12,7 @@ from encode_pipeline.platform.adapters import (
     WorkflowAdapter,
     WorkflowInputs,
     WorkspacePlan,
+    QcSummaryExtractingAdapter,
 )
 from encode_pipeline.platform.results import Issue, Result
 
@@ -45,6 +46,7 @@ def test_adapter_structurally_satisfies_workflow_adapter():
     adapter = _adapter()
 
     assert isinstance(adapter, WorkflowAdapter)
+    assert isinstance(adapter, QcSummaryExtractingAdapter)
 
 
 def test_metadata_and_capabilities_match_minimal_contract():
@@ -65,6 +67,15 @@ def test_metadata_and_capabilities_match_minimal_contract():
         "validation",
         "workspace_plan",
         "artifact_extract",
+        "qc_summary_extract",
+    )
+
+
+def test_qc_source_output_types_are_exact_and_do_not_include_aggregate_or_html():
+    assert _adapter().qc_source_output_types() == (
+        "mnase_qc_summary",
+        "pooled_qc_summary",
+        "qc_summary",
     )
 
 
