@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
+import re
 from threading import RLock
 from typing import Any, Protocol, TypeVar
 
@@ -21,12 +23,29 @@ from encode_pipeline.platform.runs import (
     RunArtifactRef,
     RunEvent,
     RunLogChunk,
+    RunQcMetric,
     RunRecord,
     RunStatus,
+    build_qc_metric_id,
+    validate_qc_identifier_token,
 )
 
 
 _T = TypeVar("_T")
+_CANONICAL_DECIMAL = re.compile(r"^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?$")
+_QC_METRIC_ID = re.compile(r"^qcmetric-[0-9a-f]{64}$")
+_QC_METRIC_KEY = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
+_QC_SOURCE_ARTIFACT_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
+_QC_UNITS = frozenset({"count", "fraction", "ratio"})
+_QC_SCOPES = frozenset({"run", "sample", "experiment"})
+_QC_FLAGS = frozenset({"pass", "warning", "fail"})
+_QC_OUTCOME_TYPES = frozenset(
+    {
+        "qc_metrics_indexed",
+        "qc_metrics_indexing_failed",
+        "qc_metrics_invalidated",
+    }
+)
 
 
 class ConcurrentRunUpdateError(RuntimeError):
@@ -138,6 +157,27 @@ class RunRepository(Protocol):
 
     def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef: ...
 
+    def replace_qc_metrics(
+        self,
+        run_id: str,
+        metrics: tuple[RunQcMetric, ...],
+        *,
+        expected_artifacts: tuple[RunArtifactRef, ...],
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent | None: ...
+
+    def list_qc_metrics(self, run_id: str) -> tuple[RunQcMetric, ...]: ...
+
+    def record_qc_metrics_failure(
+        self,
+        run_id: str,
+        *,
+        reason_code: str,
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent | None: ...
+
     def ensure_execution_assignment(
         self,
         assignment: RunExecutionAssignment,
@@ -216,6 +256,7 @@ class InMemoryRunRepository:
         self._events: dict[str, list[RunEvent]] = {}
         self._logs: dict[str, dict[str, list[RunLogChunk]]] = {}
         self._artifacts: dict[str, dict[str, RunArtifactRef]] = {}
+        self._qc_metrics: dict[str, dict[str, RunQcMetric]] = {}
         self._execution_assignments: dict[str, RunExecutionAssignment] = {}
         self._execution_run_ids_by_job: dict[str, str] = {}
         self._workflow_build_identities: dict[str, WorkflowBuildIdentity] = {}
@@ -233,6 +274,7 @@ class InMemoryRunRepository:
             self._events[record.run_id] = [created_event]
             self._logs[record.run_id] = {}
             self._artifacts[record.run_id] = {}
+            self._qc_metrics[record.run_id] = {}
             return created_event
 
     def get_run(self, run_id: str) -> RunRecord:
@@ -418,7 +460,9 @@ class InMemoryRunRepository:
                 if artifact.artifact_id in replacement:
                     raise ValueError("duplicate artifact_id in replacement")
                 replacement[artifact.artifact_id] = artifact
-            existing = tuple(self._artifacts[run_id].values())
+            existing = _sorted_artifacts(self._artifacts[run_id].values())
+            sorted_replacement = _sorted_artifacts(replacement.values())
+            equivalent = existing == sorted_replacement
             latest_outcome = next(
                 (
                     item.event_type
@@ -428,7 +472,7 @@ class InMemoryRunRepository:
                 ),
                 None,
             )
-            if existing == artifacts and latest_outcome == "artifacts_indexed":
+            if equivalent and latest_outcome == "artifacts_indexed":
                 return None
             indexed_event = self._make_event(
                 run_id,
@@ -437,6 +481,25 @@ class InMemoryRunRepository:
             )
             self._artifacts[run_id] = replacement
             self._events[run_id].append(indexed_event)
+            if not equivalent:
+                latest_qc_outcome = self._latest_event_type(
+                    run_id,
+                    _QC_OUTCOME_TYPES,
+                )
+                had_qc_state = bool(self._qc_metrics[run_id]) or (
+                    latest_qc_outcome is not None
+                )
+                self._qc_metrics[run_id] = {}
+                if had_qc_state and latest_qc_outcome != "qc_metrics_invalidated":
+                    self._append_event(
+                        run_id,
+                        RunEventDraft(
+                            event_type="qc_metrics_invalidated",
+                            message="Workflow QC metrics invalidated.",
+                            status=RunStatus.SUCCEEDED,
+                            stage="qc_summary_indexing",
+                        ),
+                    )
             return indexed_event
 
     def list_artifacts(
@@ -470,6 +533,93 @@ class InMemoryRunRepository:
                 return self._artifacts[run_id][artifact_id]
             except KeyError:
                 raise KeyError((run_id, artifact_id)) from None
+
+    def replace_qc_metrics(
+        self,
+        run_id: str,
+        metrics: tuple[RunQcMetric, ...],
+        *,
+        expected_artifacts: tuple[RunArtifactRef, ...],
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent | None:
+        with self._lock:
+            current = self._runs[run_id]
+            if current.status is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer eligible for QC replacement."
+                )
+            current_artifacts = _sorted_artifacts(self._artifacts[run_id].values())
+            if current_artifacts != _validated_expected_artifacts(
+                run_id,
+                expected_artifacts,
+            ):
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} artifact generation changed during QC indexing."
+                )
+            replacement = _validated_qc_replacement(
+                run_id,
+                metrics,
+                {artifact.artifact_id for artifact in current_artifacts},
+            )
+            existing = tuple(
+                sorted(
+                    self._qc_metrics[run_id].values(),
+                    key=lambda metric: metric.metric_id,
+                )
+            )
+            latest_outcome = self._latest_event_type(run_id, _QC_OUTCOME_TYPES)
+            if existing == replacement and latest_outcome == "qc_metrics_indexed":
+                return None
+            indexed_event = self._make_event(
+                run_id,
+                len(self._events[run_id]) + 1,
+                event,
+            )
+            self._qc_metrics[run_id] = {
+                metric.metric_id: metric for metric in replacement
+            }
+            self._events[run_id].append(indexed_event)
+            return indexed_event
+
+    def list_qc_metrics(self, run_id: str) -> tuple[RunQcMetric, ...]:
+        with self._lock:
+            self._runs[run_id]
+            return tuple(
+                sorted(
+                    self._qc_metrics[run_id].values(),
+                    key=lambda metric: metric.metric_id,
+                )
+            )
+
+    def record_qc_metrics_failure(
+        self,
+        run_id: str,
+        *,
+        reason_code: str,
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent | None:
+        with self._lock:
+            if self._runs[run_id].status is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer eligible for QC failure."
+                )
+            latest = next(
+                (
+                    item
+                    for item in reversed(self._events[run_id])
+                    if item.event_type in _QC_OUTCOME_TYPES
+                ),
+                None,
+            )
+            if (
+                latest is not None
+                and latest.event_type == "qc_metrics_indexing_failed"
+                and latest.context.get("reason_code") == reason_code
+            ):
+                return None
+            return self._append_event(run_id, event)
 
     def ensure_execution_assignment(
         self,
@@ -752,6 +902,20 @@ class InMemoryRunRepository:
         events.append(event)
         return event
 
+    def _latest_event_type(
+        self,
+        run_id: str,
+        event_types: frozenset[str],
+    ) -> str | None:
+        return next(
+            (
+                item.event_type
+                for item in reversed(self._events[run_id])
+                if item.event_type in event_types
+            ),
+            None,
+        )
+
     @staticmethod
     def _make_event(
         run_id: str,
@@ -793,6 +957,141 @@ def _require_assignment_identity(
         or assignment.queue_name != queue_name
     ):
         raise ValueError("execution assignment identity does not match")
+
+
+def canonical_decimal_text(value: Decimal) -> str:
+    """Serialize a bounded Decimal without SQLite numeric affinity."""
+    if not isinstance(value, Decimal) or not value.is_finite():
+        raise ValueError("QC value must be a finite Decimal")
+    text = format(value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    if text in {"-0", ""}:
+        text = "0"
+    if _CANONICAL_DECIMAL.fullmatch(text) is None:
+        raise ValueError("QC value exceeds durable decimal bounds")
+    return text
+
+
+def decimal_from_canonical_text(value: str) -> Decimal:
+    """Reconstruct a Decimal only from the durable canonical grammar."""
+    if not isinstance(value, str) or _CANONICAL_DECIMAL.fullmatch(value) is None:
+        raise ValueError("Persisted QC decimal is invalid")
+    try:
+        result = Decimal(value)
+    except InvalidOperation as exc:
+        raise ValueError("Persisted QC decimal is invalid") from exc
+    if not result.is_finite() or canonical_decimal_text(result) != value:
+        raise ValueError("Persisted QC decimal is not canonical")
+    return result
+
+
+def _sorted_artifacts(
+    artifacts: Iterable[RunArtifactRef],
+) -> tuple[RunArtifactRef, ...]:
+    return tuple(sorted(artifacts, key=lambda artifact: artifact.artifact_id))
+
+
+def _validated_expected_artifacts(
+    run_id: str,
+    artifacts: tuple[RunArtifactRef, ...],
+) -> tuple[RunArtifactRef, ...]:
+    if not isinstance(artifacts, tuple):
+        raise ValueError("expected_artifacts must be a tuple")
+    seen: set[str] = set()
+    for artifact in artifacts:
+        if not isinstance(artifact, RunArtifactRef) or artifact.run_id != run_id:
+            raise ValueError("expected artifact does not match the run")
+        if artifact.artifact_id in seen:
+            raise ValueError("expected artifacts contain a duplicate")
+        seen.add(artifact.artifact_id)
+    return _sorted_artifacts(artifacts)
+
+
+def _validated_qc_replacement(
+    run_id: str,
+    metrics: tuple[RunQcMetric, ...],
+    source_artifact_ids: set[str],
+) -> tuple[RunQcMetric, ...]:
+    if not isinstance(metrics, tuple):
+        raise ValueError("metrics must be a tuple")
+    seen: set[str] = set()
+    for metric in metrics:
+        if not isinstance(metric, RunQcMetric) or metric.run_id != run_id:
+            raise ValueError("QC metric does not match the run")
+        if metric.metric_id in seen:
+            raise ValueError("QC replacement contains a duplicate metric_id")
+        _validate_qc_metric_fields(metric)
+        if metric.source_artifact_id not in source_artifact_ids:
+            raise ValueError("QC metric source is not in the artifact generation")
+        seen.add(metric.metric_id)
+    return tuple(sorted(metrics, key=lambda metric: metric.metric_id))
+
+
+def _validate_qc_metric_fields(metric: RunQcMetric) -> None:
+    if (
+        not isinstance(metric.metric_id, str)
+        or _QC_METRIC_ID.fullmatch(metric.metric_id) is None
+    ):
+        raise ValueError("QC metric_id is invalid")
+    if (
+        not isinstance(metric.metric_key, str)
+        or len(metric.metric_key) > 128
+        or _QC_METRIC_KEY.fullmatch(metric.metric_key) is None
+    ):
+        raise ValueError("QC metric key is invalid")
+    if (
+        not isinstance(metric.display_name, str)
+        or not 1 <= len(metric.display_name) <= 255
+        or not metric.display_name.isprintable()
+        or "/" in metric.display_name
+        or "\\" in metric.display_name
+    ):
+        raise ValueError("QC metric display name is invalid")
+    canonical_decimal_text(metric.value)
+    if not isinstance(metric.unit, str) or metric.unit not in _QC_UNITS:
+        raise ValueError("QC metric unit is invalid")
+    if not isinstance(metric.scope, str) or metric.scope not in _QC_SCOPES:
+        raise ValueError("QC metric scope is invalid")
+    for value in (metric.sample_id, metric.experiment_id, metric.assay):
+        if value is not None:
+            try:
+                validate_qc_identifier_token(value)
+            except ValueError:
+                raise ValueError("QC metric identifier is invalid") from None
+    if metric.scope == "run" and (
+        metric.sample_id is not None or metric.experiment_id is not None
+    ):
+        raise ValueError("run QC scope cannot have sample or experiment IDs")
+    if metric.scope == "sample" and metric.sample_id is None:
+        raise ValueError("sample QC scope requires sample_id")
+    if metric.scope == "experiment" and (
+        metric.sample_id is not None or metric.experiment_id is None
+    ):
+        raise ValueError("experiment QC scope requires only experiment_id")
+    if metric.qc_flag is not None and (
+        not isinstance(metric.qc_flag, str) or metric.qc_flag not in _QC_FLAGS
+    ):
+        raise ValueError("QC metric flag is invalid")
+    if (
+        not isinstance(metric.source_artifact_id, str)
+        or _QC_SOURCE_ARTIFACT_ID.fullmatch(metric.source_artifact_id) is None
+    ):
+        raise ValueError("QC metric source artifact ID is invalid")
+    if (
+        not isinstance(metric.produced_at, datetime)
+        or metric.produced_at.tzinfo is None
+        or metric.produced_at.utcoffset() is None
+    ):
+        raise ValueError("QC metric produced_at must be timezone-aware")
+    expected_metric_id = build_qc_metric_id(
+        metric.metric_key,
+        metric.scope,
+        metric.sample_id,
+        metric.experiment_id,
+    )
+    if metric.metric_id != expected_metric_id:
+        raise ValueError("QC metric_id does not match its semantic coordinates")
 
 
 def _assignment_has_ownership(

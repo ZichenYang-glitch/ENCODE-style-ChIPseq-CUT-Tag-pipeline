@@ -5,7 +5,10 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
+from hashlib import sha256
+import re
 from typing import Any, Mapping
 
 from encode_pipeline.platform.results import Issue
@@ -250,4 +253,87 @@ class RunArtifactRef:
             "mime_type": self.mime_type,
             "produced_at": self.produced_at,
             "metadata": deepcopy(dict(self.metadata)),
+        }
+
+
+_QC_IDENTIFIER_TOKEN = re.compile(r"^[A-Za-z0-9_.-]{1,255}$")
+
+
+def build_qc_metric_id(
+    metric_key: str,
+    scope: str,
+    sample_id: str | None,
+    experiment_id: str | None,
+) -> str:
+    """Build the stable identifier for one semantic QC metric coordinate."""
+    if (
+        not isinstance(metric_key, str)
+        or not isinstance(scope, str)
+        or (sample_id is not None and not isinstance(sample_id, str))
+        or (experiment_id is not None and not isinstance(experiment_id, str))
+    ):
+        raise ValueError("QC metric identity coordinates must be strings")
+    coordinates = (
+        metric_key,
+        scope,
+        "" if sample_id is None else sample_id,
+        "" if experiment_id is None else experiment_id,
+    )
+    digest = sha256()
+    for value in coordinates:
+        encoded = value.encode()
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+    return f"qcmetric-{digest.hexdigest()}"
+
+
+def validate_qc_identifier_token(value: object) -> str:
+    """Return a canonical ENCODE-safe identifier or reject it."""
+    if (
+        not isinstance(value, str)
+        or value in {".", ".."}
+        or _QC_IDENTIFIER_TOKEN.fullmatch(value) is None
+    ):
+        raise ValueError("QC identifier token is invalid")
+    return value
+
+
+@dataclass(frozen=True)
+class RunQcMetric:
+    """One durable workflow-neutral numeric QC metric."""
+
+    metric_id: str
+    run_id: str
+    metric_key: str
+    display_name: str
+    value: Decimal
+    unit: str
+    scope: str
+    source_artifact_id: str
+    produced_at: datetime
+    sample_id: str | None = None
+    experiment_id: str | None = None
+    assay: str | None = None
+    qc_flag: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.value, Decimal):
+            raise ValueError("value must be a Decimal")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the explicit durable QC fields without an open metadata bag."""
+        return {
+            "metric_id": self.metric_id,
+            "run_id": self.run_id,
+            "metric_key": self.metric_key,
+            "display_name": self.display_name,
+            "value": self.value,
+            "unit": self.unit,
+            "scope": self.scope,
+            "sample_id": self.sample_id,
+            "experiment_id": self.experiment_id,
+            "assay": self.assay,
+            "qc_flag": self.qc_flag,
+            "source_artifact_id": self.source_artifact_id,
+            "produced_at": self.produced_at,
         }

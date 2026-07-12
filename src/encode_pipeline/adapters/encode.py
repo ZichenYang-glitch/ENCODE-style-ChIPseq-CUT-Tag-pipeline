@@ -22,6 +22,8 @@ from encode_pipeline.platform.adapters import (
     CommandSpec,
     DagPreview,
     ExtractedArtifactCandidate,
+    ExtractedQcMetricCandidate,
+    QcSourceDocument,
     WorkflowCapabilities,
     WorkflowInputs,
     WorkflowMetadata,
@@ -208,7 +210,12 @@ class EncodeStyleWorkflowAdapter:
         tags=("chipseq", "cuttag", "atac", "mnase", "encode-style"),
     )
     capabilities = WorkflowCapabilities(
-        supports=("validation", "workspace_plan", "artifact_extract")
+        supports=(
+            "validation",
+            "workspace_plan",
+            "artifact_extract",
+            "qc_summary_extract",
+        )
     )
 
     def __init__(
@@ -554,6 +561,27 @@ class EncodeStyleWorkflowAdapter:
             raise ValueError("manifest output type has no unique catalog mapping")
         return matches[0]
 
+    def qc_source_output_types(self) -> tuple[str, ...]:
+        """Return exact persisted artifact types accepted by the QC parser."""
+        from encode_pipeline.adapters.encode_qc import QC_SOURCE_OUTPUT_TYPES
+
+        return QC_SOURCE_OUTPUT_TYPES
+
+    def extract_qc_metrics(
+        self,
+        inputs: WorkflowInputs,
+        sources: tuple[QcSourceDocument, ...],
+    ) -> Result[tuple[ExtractedQcMetricCandidate, ...]]:
+        """Map platform-vetted summary bytes to neutral numeric metrics."""
+        if not isinstance(inputs, WorkflowInputs):
+            return _qc_summary_failure()
+        try:
+            from encode_pipeline.adapters.encode_qc import parse_encode_qc_sources
+
+            return Result.success(parse_encode_qc_sources(sources))
+        except (TypeError, UnicodeError, ValueError):
+            return _qc_summary_failure()
+
 
 def _validate_options(options: dict[str, object]) -> Issue | None:
     unsupported = sorted(str(key) for key in options if key != "strict_inputs")
@@ -619,6 +647,20 @@ def _artifact_extraction_failure(code: str) -> Result[Any]:
                 message="Workflow artifacts could not be discovered.",
                 severity="error",
                 path="artifacts",
+                source="adapter",
+            )
+        ]
+    )
+
+
+def _qc_summary_failure() -> Result[Any]:
+    return Result.failure(
+        [
+            Issue(
+                code="ENCODE_QC_SUMMARY_INVALID",
+                message="Workflow QC summaries could not be interpreted.",
+                severity="error",
+                path="qc_metrics",
                 source="adapter",
             )
         ]

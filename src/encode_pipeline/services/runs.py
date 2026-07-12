@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timezone
+import re
 from threading import RLock
 from typing import Any
 from uuid import uuid4
@@ -24,6 +25,7 @@ from encode_pipeline.platform.runs import (
     RunArtifactRef,
     RunEvent,
     RunLogChunk,
+    RunQcMetric,
     RunRecord,
     RunStatus,
     require_transition,
@@ -34,6 +36,9 @@ from encode_pipeline.services.run_repositories import (
     RunEventDraft,
     RunRepository,
 )
+
+
+_PUBLIC_REASON_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,127}\Z")
 
 
 class RunCancellationNotAvailableError(RuntimeError):
@@ -836,3 +841,62 @@ class RunService:
         """Return one artifact scoped to its canonical run."""
         with self._lock:
             return self._repository.get_artifact(run_id, artifact_id)
+
+    def replace_qc_metrics(
+        self,
+        run_id: str,
+        metrics: Iterable[RunQcMetric],
+        *,
+        expected_artifacts: Iterable[RunArtifactRef],
+    ) -> tuple[RunQcMetric, ...]:
+        """Atomically replace QC metrics for one complete artifact generation."""
+        with self._lock:
+            replacement = tuple(metrics)
+            artifacts = tuple(expected_artifacts)
+            for metric in replacement:
+                if not isinstance(metric, RunQcMetric) or metric.run_id != run_id:
+                    raise ValueError("QC metric does not match the run")
+            self._repository.replace_qc_metrics(
+                run_id,
+                replacement,
+                expected_artifacts=artifacts,
+                expected_status=RunStatus.SUCCEEDED,
+                event=RunEventDraft(
+                    event_type="qc_metrics_indexed",
+                    message="Workflow QC metrics indexed.",
+                    status=RunStatus.SUCCEEDED,
+                    stage="qc_summary_indexing",
+                    context={"metric_count": len(replacement)},
+                ),
+            )
+            return replacement
+
+    def list_qc_metrics(self, run_id: str) -> tuple[RunQcMetric, ...]:
+        """Return the current QC metric index in stable ID order."""
+        with self._lock:
+            return self._repository.list_qc_metrics(run_id)
+
+    def record_qc_metrics_failure(
+        self,
+        run_id: str,
+        *,
+        reason_code: str,
+    ) -> None:
+        """Record one idempotent public-safe QC indexing failure outcome."""
+        with self._lock:
+            if not isinstance(reason_code, str) or not _PUBLIC_REASON_CODE.fullmatch(
+                reason_code
+            ):
+                raise ValueError("reason_code must be a public-safe stable code")
+            self._repository.record_qc_metrics_failure(
+                run_id,
+                reason_code=reason_code,
+                expected_status=RunStatus.SUCCEEDED,
+                event=RunEventDraft(
+                    event_type="qc_metrics_indexing_failed",
+                    message="Workflow QC metrics could not be indexed.",
+                    status=RunStatus.SUCCEEDED,
+                    stage="qc_summary_indexing",
+                    context={"reason_code": reason_code},
+                ),
+            )

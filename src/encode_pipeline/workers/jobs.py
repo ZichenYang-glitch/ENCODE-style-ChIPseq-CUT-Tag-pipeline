@@ -209,15 +209,49 @@ def _execute_claimed_run(runtime, run_id: str) -> None:
     execution_result = runtime.local_execution_service.execute(run_id)
     if execution_result.is_success:
         try:
-            runtime.artifact_extraction_service.extract(run_id)
+            artifact_result = runtime.artifact_extraction_service.extract(run_id)
         except WorkerHardTimeout:
             try:
                 runtime.artifact_extraction_service.record_unexpected_failure(run_id)
             except (Exception, WorkerHardTimeout):
                 pass
+            try:
+                runtime.qc_summary_indexing_service.record_artifact_source_failure(
+                    run_id
+                )
+            except (Exception, WorkerHardTimeout):
+                pass
+            return
         except Exception:
             try:
                 runtime.artifact_extraction_service.record_unexpected_failure(run_id)
+            except (Exception, WorkerHardTimeout):
+                pass
+            try:
+                runtime.qc_summary_indexing_service.record_artifact_source_failure(
+                    run_id
+                )
+            except (Exception, WorkerHardTimeout):
+                pass
+            return
+        if artifact_result.is_failure:
+            try:
+                runtime.qc_summary_indexing_service.record_artifact_source_failure(
+                    run_id
+                )
+            except (Exception, WorkerHardTimeout):
+                pass
+            return
+        try:
+            runtime.qc_summary_indexing_service.index(run_id, artifact_result.value)
+        except WorkerHardTimeout:
+            try:
+                runtime.qc_summary_indexing_service.record_unexpected_failure(run_id)
+            except (Exception, WorkerHardTimeout):
+                pass
+        except Exception:
+            try:
+                runtime.qc_summary_indexing_service.record_unexpected_failure(run_id)
             except (Exception, WorkerHardTimeout):
                 pass
         return

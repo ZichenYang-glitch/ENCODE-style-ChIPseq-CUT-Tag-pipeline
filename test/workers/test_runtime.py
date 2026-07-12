@@ -9,6 +9,7 @@ from encode_pipeline.services.local_run_driver import LocalRunDriver
 from encode_pipeline.services.local_execution import LocalExecutionService
 from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
 from encode_pipeline.services.preflight import LocalPreflightService
+from encode_pipeline.services.qc_summary_indexing import QcSummaryIndexingService
 from encode_pipeline.workers.runtime import open_worker_runtime
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
 
@@ -31,6 +32,10 @@ def test_open_worker_runtime_reopens_sqlite_and_full_execution_dependencies(tmp_
         assert isinstance(
             runtime.artifact_extraction_service,
             ArtifactExtractionService,
+        )
+        assert isinstance(
+            runtime.qc_summary_indexing_service,
+            QcSummaryIndexingService,
         )
         assert isinstance(runtime.preflight_service, LocalPreflightService)
         assert runtime.local_run_driver._workspace_root == configured.workspace_root

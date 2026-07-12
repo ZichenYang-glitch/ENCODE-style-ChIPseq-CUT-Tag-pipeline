@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import textwrap
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,11 @@ from encode_pipeline.platform.adapters import (
     DagNode,
     DagPreview,
     ExtractedArtifactCandidate,
+    ExtractedQcMetricCandidate,
     LocalRunDriver,
+    QcSourceArtifact,
+    QcSourceDocument,
+    QcSummaryExtractingAdapter,
     WorkflowAdapter,
     WorkflowCapabilities,
     WorkflowInputs,
@@ -164,6 +169,64 @@ def test_extracted_artifact_candidate_defensively_copies_metadata():
     }
 
 
+def test_qc_source_values_are_immutable_and_defensively_copy_metadata():
+    metadata = {"scope": "sample", "sample_id": "S1"}
+    source = QcSourceArtifact(
+        artifact_id="artifact-1",
+        output_type="qc_summary",
+        relative_path="results/S1/01_qc/S1.qc_summary.tsv",
+        metadata=metadata,
+    )
+    document = QcSourceDocument(source=source, content=b"sample\tfrip\nS1\t0.5\n")
+    candidate = ExtractedQcMetricCandidate(
+        metric_key="peaks.frip",
+        display_name="Fraction of reads in peaks",
+        value=Decimal("0.5"),
+        unit="fraction",
+        scope="sample",
+        sample_id="S1",
+        experiment_id="EXP1",
+        assay="chipseq",
+        qc_flag=None,
+        source_artifact_id="artifact-1",
+    )
+
+    metadata["sample_id"] = "changed"
+
+    assert source.metadata == {"scope": "sample", "sample_id": "S1"}
+    assert document.content == b"sample\tfrip\nS1\t0.5\n"
+    assert candidate.value == Decimal("0.5")
+    with pytest.raises(ValueError):
+        QcSourceDocument(source=source, content=bytearray(b"unsafe"))
+    with pytest.raises(ValueError):
+        ExtractedQcMetricCandidate(
+            metric_key="peaks.frip",
+            display_name="FRiP",
+            value=0.5,
+            unit="fraction",
+            scope="sample",
+            sample_id="S1",
+            source_artifact_id="artifact-1",
+        )
+
+
+def test_optional_qc_adapter_protocol_is_runtime_checkable():
+    class QcAdapter:
+        def qc_source_output_types(self):
+            return ("qc_summary",)
+
+        def extract_qc_metrics(self, inputs, sources):
+            return Result.success(())
+
+    class NoQcAdapter:
+        pass
+
+    adapter = QcAdapter()
+    assert isinstance(adapter, QcSummaryExtractingAdapter)
+    assert not isinstance(NoQcAdapter(), QcSummaryExtractingAdapter)
+    assert adapter.extract_qc_metrics(WorkflowInputs(config={}), ()).value == ()
+
+
 @pytest.mark.parametrize("samples", [object(), {"sample": "S1"}, [object()]])
 def test_inputs_reject_invalid_samples_object_type(samples):
     with pytest.raises(ValueError):
@@ -305,6 +368,10 @@ def test_platform_exports_adapter_contract_primitives():
             DagNode,
             DagPreview,
             ExtractedArtifactCandidate,
+            ExtractedQcMetricCandidate,
+            QcSourceArtifact,
+            QcSourceDocument,
+            QcSummaryExtractingAdapter,
             WorkflowAdapter,
             WorkflowCapabilities,
             WorkflowInputs,
@@ -318,6 +385,10 @@ def test_platform_exports_adapter_contract_primitives():
             DagNode,
             DagPreview,
             ExtractedArtifactCandidate,
+            ExtractedQcMetricCandidate,
+            QcSourceArtifact,
+            QcSourceDocument,
+            QcSummaryExtractingAdapter,
             WorkflowAdapter,
             WorkflowCapabilities,
             WorkflowInputs,
