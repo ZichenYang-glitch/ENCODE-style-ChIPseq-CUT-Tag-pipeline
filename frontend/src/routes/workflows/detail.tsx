@@ -239,7 +239,12 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
   }
 
   function handleRunCreated(runId: string) {
-    navigate(`/runs/${runId}`);
+    navigate(`/runs/${runId}`, {
+      state: {
+        beginPreflight: true,
+        preflightRequestId: crypto.randomUUID(),
+      },
+    });
   }
 
   if (isNotFound) {

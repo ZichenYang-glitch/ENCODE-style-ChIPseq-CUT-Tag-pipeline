@@ -69,7 +69,18 @@ describe('fetcher', () => {
       json: async () => ({
         ok: false,
         run: null,
-        issues: [{ code: 'RUN_NOT_FOUND', message: 'Run was not found.' }],
+        issues: [
+          {
+            code: 'RUN_NOT_FOUND',
+            message: 'Run was not found.',
+            severity: 'error',
+            path: 'run_id',
+            source: 'repository',
+            hint: 'Refresh the run list.',
+            technical_message: '/private/path/database.sqlite failed',
+            context: { database_path: '/private/path/database.sqlite' },
+          },
+        ],
       }),
     } as Response);
     globalThis.fetch = fetchMock;
@@ -78,7 +89,24 @@ describe('fetcher', () => {
       status: 404,
       code: 'RUN_NOT_FOUND',
       message: 'Run was not found.',
+      issues: [
+        {
+          code: 'RUN_NOT_FOUND',
+          message: 'Run was not found.',
+          severity: 'error',
+          path: 'run_id',
+          source: 'repository',
+          hint: 'Refresh the run list.',
+        },
+      ],
     });
+
+    try {
+      await fetcher('/api/v1/runs/run-123', {});
+    } catch (error) {
+      expect(JSON.stringify(error)).not.toContain('/private/path');
+      expect(JSON.stringify(error)).not.toContain('database_path');
+    }
   });
 
   it('does not leak raw response bodies when backend returns non-JSON', async () => {

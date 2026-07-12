@@ -16,6 +16,7 @@ export interface RunApiError extends Error {
 export interface RunApiClient {
   createRun(workflowId: string, request: RunCreateRequest): Promise<RunResponse>;
   preflightRun(runId: string): Promise<RunResponse>;
+  startRun(runId: string): Promise<RunResponse>;
   getRun(runId: string): Promise<RunResponse>;
   listRunEvents(
     runId: string,
@@ -79,6 +80,11 @@ export function createRunApiClient(baseUrl?: string): RunApiClient {
       return postJson<RunResponse>(url, {});
     },
 
+    async startRun(runId) {
+      const url = `${root}/api/v1/runs/${encodeURIComponent(runId)}/start`;
+      return postJson<RunResponse>(url, {});
+    },
+
     async listRunEvents(runId, options = {}) {
       const params = new URLSearchParams();
       if (options.after !== undefined) params.set('after', options.after);
@@ -123,6 +129,7 @@ export function createStubRunApiClient(): RunApiClient {
   const runs = new Map<string, RunRecordResponse>();
   const cancelledRuns = new Set<string>();
   const preflightedRuns = new Set<string>();
+  const startedRuns = new Set<string>();
 
   function nextRunId(): string {
     counter += 1;
@@ -252,7 +259,36 @@ export function createStubRunApiClient(): RunApiClient {
         });
       }
 
+      if (startedRuns.has(runId)) {
+        events.push({
+          event_id: `${runId}-evt-start`,
+          run_id: runId,
+          sequence: events.length + 1,
+          event_type: 'run_queued',
+          timestamp: run.updated_at,
+          status: 'queued',
+          stage: 'execution',
+          message: 'Stub run queued.',
+          context: {},
+          issue: null,
+        });
+      }
+
       return { ok: true, run_id: runId, events, next_cursor: null, issues: [] };
+    },
+
+    async startRun(runId) {
+      const run = runs.get(runId);
+      if (!run) {
+        return { ok: false, run: null, issues: [runNotFoundIssue(runId)] };
+      }
+      if (run.status === 'planned') {
+        run.status = 'queued';
+        run.current_stage = 'execution';
+        run.updated_at = now();
+        startedRuns.add(runId);
+      }
+      return { ok: true, run, issues: [] };
     },
 
     async listRunLogs(runId, options = {}) {

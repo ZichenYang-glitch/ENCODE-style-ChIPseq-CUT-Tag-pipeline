@@ -10,7 +10,7 @@ import {
   listWorkflows,
   validateWorkflow,
 } from './generated/workflows/workflows';
-import { getRun } from './generated/runs/runs';
+import { getRun, startRun } from './generated/runs/runs';
 import { triggerPreflight } from './generated/preflight/preflight';
 import { chatWithWorkflowAgent } from './generated/agent/agent';
 
@@ -23,6 +23,7 @@ vi.mock('./generated/runs/runs', () => ({
   cancelRun: vi.fn(),
   createRun: vi.fn(),
   getRun: vi.fn(),
+  startRun: vi.fn(),
   listRunEvents: vi.fn(),
   listRunLogs: vi.fn(),
 }));
@@ -122,9 +123,27 @@ describe('generated client adapters', () => {
     expect(response).toEqual({ ok: true, run: null, issues: [] });
   });
 
+  it('calls the generated start operation', async () => {
+    vi.mocked(startRun).mockResolvedValue({ ok: true, run: null, issues: [] });
+
+    const response = await createGeneratedRunClient().startRun('run-1');
+
+    expect(startRun).toHaveBeenCalledWith('run-1');
+    expect(response).toEqual({ ok: true, run: null, issues: [] });
+  });
+
   it('converts safe ApiError details into a run issue envelope', async () => {
     vi.mocked(getRun).mockRejectedValue(
-      new ApiError(404, 'RUN_NOT_FOUND', 'Run was not found.'),
+      new ApiError(404, 'RUN_NOT_FOUND', 'Run was not found.', [
+        {
+          code: 'RUN_NOT_FOUND',
+          message: 'Run was not found.',
+          severity: 'error',
+          path: 'run_id',
+          source: 'repository',
+          hint: 'Refresh the run list.',
+        },
+      ]),
     );
 
     const response = await createGeneratedRunClient().getRun('missing');
@@ -133,7 +152,11 @@ describe('generated client adapters', () => {
     expect(response.issues[0]).toMatchObject({
       code: 'RUN_NOT_FOUND',
       message: 'Run was not found.',
-      context: { status: 404 },
+      path: 'run_id',
+      source: 'repository',
+      hint: 'Refresh the run list.',
+      technical_message: null,
+      context: {},
     });
   });
 

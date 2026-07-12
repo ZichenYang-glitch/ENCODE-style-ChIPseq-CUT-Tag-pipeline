@@ -70,7 +70,7 @@ export function RunLogPanel({
             No log entries yet.
           </p>
         ) : (
-          <div className="space-y-2" data-testid="run-log-chunks">
+          <div className="min-w-0 space-y-2" data-testid="run-log-chunks">
             {chunks.map((chunk) => (
               <div
                 key={chunk.chunk_id}
@@ -79,7 +79,7 @@ export function RunLogPanel({
                 <div className="mb-1 text-xs text-[var(--color-text-muted)]">
                   {new Date(chunk.timestamp).toLocaleString()} — {chunk.stream_name}
                 </div>
-                <pre className="overflow-auto font-mono text-xs text-[var(--color-text)]">
+                <pre className="max-w-full overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-[var(--color-text)]">
                   {chunk.lines.join('\n')}
                 </pre>
               </div>

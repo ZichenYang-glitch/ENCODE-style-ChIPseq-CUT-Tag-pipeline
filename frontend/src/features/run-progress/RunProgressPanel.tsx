@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, Ban } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Ban, Play, RefreshCw } from 'lucide-react';
 import type { RunApiClient } from '../../api/runClient';
 import type {
   RunCreateRequest,
@@ -11,6 +11,7 @@ import type {
 import type { Issue, ValidateWorkflowResponse, WorkflowInputs } from '../../api/types';
 import { Button } from '../../components/Button';
 import { RunEventFeed } from './RunEventFeed';
+import { RunIssuePanel } from './RunIssuePanel';
 import { RunLogPanel } from './RunLogPanel';
 import { RunStatusBadge } from './RunStatusBadge';
 
@@ -21,22 +22,49 @@ interface RunProgressPanelProps {
   runClient: RunApiClient;
   runId?: string | null;
   onRunCreated?: (runId: string) => void;
+  beginPreflight?: boolean;
+  preflightRequestId?: string | null;
+  onPreflightConsumed?: () => void;
 }
 
-const terminalStatuses = ['succeeded', 'failed', 'cancelled'];
-const preflightPollingStatuses = ['validating', 'queued', 'running'];
-const PREFLIGHT_POLL_INTERVAL_MS = 1000;
+const pollingStatuses = new Set(['created', 'validating', 'queued', 'running']);
+const cancellableStatuses = new Set([
+  'created',
+  'validating',
+  'planned',
+  'queued',
+  'running',
+]);
+const POLL_INTERVAL_MS = 1000;
+const MAX_POLL_DURATION_MS = 15 * 60 * 1000;
+const PAGE_LIMIT = 100;
+const MAX_PAGES = 5;
+const claimedAutoPreflightRequests = new Set<string>();
 
-interface RunSnapshot {
+export interface RunSnapshot {
   run: RunRecordResponse | null;
   events: RunEventResponse[];
   stdoutLogs: RunLogChunkResponse[];
   stderrLogs: RunLogChunkResponse[];
-  issue: string | null;
+  issues: Issue[];
+  truncated: boolean;
 }
 
-function runProgressQueryKey(runId: string | null) {
+export function runProgressQueryKey(runId: string | null) {
   return ['run-progress', runId] as const;
+}
+
+function safeUiIssue(code: string, message: string): Issue {
+  return {
+    code,
+    message,
+    severity: 'error',
+    path: null,
+    source: 'ui',
+    technical_message: null,
+    hint: null,
+    context: {},
+  };
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
@@ -51,15 +79,11 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 function normalizeSamplesForRun(
   samples: WorkflowInputs['samples'],
 ): RunCreateRequest['samples'] {
-  if (samples === null || typeof samples === 'string') {
-    return samples;
-  }
-
+  if (samples === null || typeof samples === 'string') return samples;
   if (samples.every(isStringRecord)) {
     return samples.map((sample) => ({ ...sample }));
   }
-
-  throw new Error('Validated samples are not compatible with run creation.');
+  throw new Error('incompatible samples');
 }
 
 function toRunCreateRequest(inputs: WorkflowInputs): RunCreateRequest {
@@ -70,13 +94,86 @@ function toRunCreateRequest(inputs: WorkflowInputs): RunCreateRequest {
   };
 }
 
-function firstIssueMessage(issues: Issue[] | undefined): string {
-  const issue = issues?.[0];
-  if (!issue) return 'Request failed.';
-  return `${issue.code}: ${issue.message}`;
+function emptySnapshot(run: RunRecordResponse): RunSnapshot {
+  return {
+    run,
+    events: [],
+    stdoutLogs: [],
+    stderrLogs: [],
+    issues: [],
+    truncated: false,
+  };
 }
 
-async function loadRunSnapshot(
+async function loadEventPages(
+  runClient: RunApiClient,
+  runId: string,
+): Promise<{ values: RunEventResponse[]; issues: Issue[]; truncated: boolean }> {
+  const values: RunEventResponse[] = [];
+  const issues: Issue[] = [];
+  const cursors = new Set<string>();
+  let after: string | undefined;
+
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const response = await runClient.listRunEvents(runId, {
+      after,
+      limit: PAGE_LIMIT,
+    });
+    if (!response.ok) {
+      issues.push(...response.issues);
+      return { values, issues, truncated: false };
+    }
+    values.push(...response.events);
+    if (!response.next_cursor) return { values, issues, truncated: false };
+    if (cursors.has(response.next_cursor)) {
+      issues.push(
+        safeUiIssue('RUN_CURSOR_INVALID', 'Run event pagination could not continue safely.'),
+      );
+      return { values, issues, truncated: true };
+    }
+    cursors.add(response.next_cursor);
+    after = response.next_cursor;
+  }
+
+  return { values, issues, truncated: true };
+}
+
+async function loadLogPages(
+  runClient: RunApiClient,
+  runId: string,
+  streamName: 'stdout' | 'stderr',
+): Promise<{ values: RunLogChunkResponse[]; issues: Issue[]; truncated: boolean }> {
+  const values: RunLogChunkResponse[] = [];
+  const issues: Issue[] = [];
+  const cursors = new Set<string>();
+  let after: string | undefined;
+
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const response = await runClient.listRunLogs(runId, {
+      streamName,
+      after,
+      limit: PAGE_LIMIT,
+    });
+    if (!response.ok) {
+      issues.push(...response.issues);
+      return { values, issues, truncated: false };
+    }
+    values.push(...response.chunks);
+    if (!response.next_cursor) return { values, issues, truncated: false };
+    if (cursors.has(response.next_cursor)) {
+      issues.push(
+        safeUiIssue('RUN_CURSOR_INVALID', 'Run log pagination could not continue safely.'),
+      );
+      return { values, issues, truncated: true };
+    }
+    cursors.add(response.next_cursor);
+    after = response.next_cursor;
+  }
+
+  return { values, issues, truncated: true };
+}
+
+export async function loadRunSnapshot(
   runClient: RunApiClient,
   runId: string,
 ): Promise<RunSnapshot> {
@@ -87,40 +184,38 @@ async function loadRunSnapshot(
       events: [],
       stdoutLogs: [],
       stderrLogs: [],
-      issue: firstIssueMessage(runResponse.issues),
+      issues: runResponse.issues,
+      truncated: false,
     };
   }
-
   if (!runResponse.run) {
     return {
       run: null,
       events: [],
       stdoutLogs: [],
       stderrLogs: [],
-      issue: 'Run record missing.',
+      issues: [safeUiIssue('RUN_RECORD_MISSING', 'The run record was missing.')],
+      truncated: false,
     };
   }
 
-  const [eventsResponse, stdoutResponse, stderrResponse] = await Promise.all([
-    runClient.listRunEvents(runId, { limit: 50 }),
-    runClient.listRunLogs(runId, { streamName: 'stdout', limit: 50 }),
-    runClient.listRunLogs(runId, { streamName: 'stderr', limit: 50 }),
+  const [events, stdout, stderr] = await Promise.all([
+    loadEventPages(runClient, runId),
+    loadLogPages(runClient, runId, 'stdout'),
+    loadLogPages(runClient, runId, 'stderr'),
   ]);
-  const issue = !eventsResponse.ok
-    ? firstIssueMessage(eventsResponse.issues)
-    : !stdoutResponse.ok
-      ? firstIssueMessage(stdoutResponse.issues)
-      : !stderrResponse.ok
-        ? firstIssueMessage(stderrResponse.issues)
-        : null;
-
   return {
     run: runResponse.run,
-    events: eventsResponse.ok ? eventsResponse.events : [],
-    stdoutLogs: stdoutResponse.ok ? stdoutResponse.chunks : [],
-    stderrLogs: stderrResponse.ok ? stderrResponse.chunks : [],
-    issue,
+    events: events.values,
+    stdoutLogs: stdout.values,
+    stderrLogs: stderr.values,
+    issues: [...events.issues, ...stdout.issues, ...stderr.issues],
+    truncated: events.truncated || stdout.truncated || stderr.truncated,
   };
+}
+
+function mergeRun(current: RunSnapshot | undefined, run: RunRecordResponse): RunSnapshot {
+  return current ? { ...current, run } : emptySnapshot(run);
 }
 
 export function RunProgressPanel({
@@ -130,182 +225,204 @@ export function RunProgressPanel({
   runClient,
   runId = null,
   onRunCreated,
+  beginPreflight = false,
+  preflightRequestId = null,
+  onPreflightConsumed,
 }: RunProgressPanelProps) {
   const [localRunId, setLocalRunId] = useState<string | null>(null);
-  const [optimisticRun, setOptimisticRun] =
-    useState<RunRecordResponse | null>(null);
   const [activeLogStream, setActiveLogStream] = useState<'stdout' | 'stderr'>('stdout');
-  const [actionLoading, setActionLoading] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const requestGeneration = useRef(0);
+  const [actionIssues, setActionIssues] = useState<Issue[]>([]);
+  const [cancellationRequested, setCancellationRequested] = useState(false);
+  const preflightConsumedFor = useRef<string | null>(null);
+  const pollStartedAt = useRef(Date.now());
   const queryClient = useQueryClient();
-
   const targetRunId = runId ?? localRunId;
+
   const runQuery = useQuery({
     queryKey: runProgressQueryKey(targetRunId),
     queryFn: () => loadRunSnapshot(runClient, targetRunId!),
     enabled: targetRunId !== null,
     refetchInterval: (query) => {
-      if (actionLoading) return false;
       const status = query.state.data?.run?.status;
-      return status && preflightPollingStatuses.includes(status)
-        ? PREFLIGHT_POLL_INTERVAL_MS
-        : false;
+      if (!status || !pollingStatuses.has(status)) return false;
+      if (Date.now() - pollStartedAt.current >= MAX_POLL_DURATION_MS) return false;
+      return POLL_INTERVAL_MS;
     },
   });
 
-  const snapshot = runQuery.data;
-  const run = snapshot?.run ?? optimisticRun;
-  const events = snapshot?.events ?? [];
-  const stdoutLogs = snapshot?.stdoutLogs ?? [];
-  const stderrLogs = snapshot?.stderrLogs ?? [];
-  const queryError =
-    runQuery.error instanceof Error
-      ? runQuery.error.message
-      : runQuery.error
-        ? 'Failed to load run.'
-        : snapshot?.issue ?? null;
-  const error = actionError ?? queryError;
-  const loading = actionLoading || (targetRunId !== null && runQuery.isLoading);
+  const updateRun = (run: RunRecordResponse) => {
+    queryClient.setQueryData<RunSnapshot>(
+      runProgressQueryKey(run.run_id),
+      (current) => mergeRun(current, run),
+    );
+  };
 
-  function startRequestGeneration(): number {
-    requestGeneration.current += 1;
-    return requestGeneration.current;
-  }
+  const preflightMutation = useMutation({
+    mutationFn: (id: string) => runClient.preflightRun(id),
+    onSuccess: (response) => {
+      if (!response.ok) {
+        setActionIssues(response.issues);
+        return;
+      }
+      setActionIssues([]);
+      if (response.run) updateRun(response.run);
+      void queryClient.invalidateQueries({ queryKey: runProgressQueryKey(targetRunId) });
+    },
+    onError: () => {
+      setActionIssues([
+        safeUiIssue('PREFLIGHT_UNAVAILABLE', 'Preflight could not be started. Try again.'),
+      ]);
+    },
+  });
 
-  function isCurrentRequest(generation: number): boolean {
-    return requestGeneration.current === generation;
-  }
+  const startMutation = useMutation({
+    mutationFn: (id: string) => runClient.startRun(id),
+    onSuccess: (response) => {
+      if (!response.ok) {
+        setActionIssues(response.issues);
+        return;
+      }
+      setActionIssues([]);
+      if (response.run) updateRun(response.run);
+      pollStartedAt.current = Date.now();
+      void queryClient.invalidateQueries({ queryKey: runProgressQueryKey(targetRunId) });
+    },
+    onError: () => {
+      setActionIssues([
+        safeUiIssue('RUN_START_UNAVAILABLE', 'The run could not be started. Try again.'),
+      ]);
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => runClient.cancelRun(id),
+    onSuccess: (response) => {
+      if (!response.ok) {
+        setActionIssues(response.issues);
+        void queryClient.invalidateQueries({ queryKey: runProgressQueryKey(targetRunId) });
+        return;
+      }
+      setActionIssues([]);
+      if (response.run) {
+        updateRun(response.run);
+        setCancellationRequested(response.run.status === 'running');
+      }
+      pollStartedAt.current = Date.now();
+      void queryClient.invalidateQueries({ queryKey: runProgressQueryKey(targetRunId) });
+    },
+    onError: () => {
+      setActionIssues([
+        safeUiIssue(
+          'RUN_CANCELLATION_UNAVAILABLE',
+          'Cancellation could not be requested. The run state was not changed; try again.',
+        ),
+      ]);
+      void queryClient.invalidateQueries({ queryKey: runProgressQueryKey(targetRunId) });
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      if (!workflowId || !validatedInputs) {
+        throw new Error('invalid create inputs');
+      }
+      return runClient.createRun(workflowId, toRunCreateRequest(validatedInputs));
+    },
+  });
 
   useEffect(() => {
-    startRequestGeneration();
     setLocalRunId(null);
-    setOptimisticRun(null);
     setActiveLogStream('stdout');
-    setActionError(null);
-    setActionLoading(false);
+    setActionIssues([]);
+    setCancellationRequested(false);
+    preflightConsumedFor.current = null;
+    pollStartedAt.current = Date.now();
   }, [runId, runClient, workflowId, validatedInputs]);
 
   useEffect(() => {
     setActiveLogStream('stdout');
   }, [targetRunId]);
 
+  useEffect(() => {
+    if (
+      beginPreflight &&
+      targetRunId &&
+      preflightRequestId &&
+      preflightConsumedFor.current !== targetRunId &&
+      !claimedAutoPreflightRequests.has(preflightRequestId)
+    ) {
+      preflightConsumedFor.current = targetRunId;
+      claimedAutoPreflightRequests.add(preflightRequestId);
+      preflightMutation.mutate(targetRunId);
+      onPreflightConsumed?.();
+    }
+  }, [
+    beginPreflight,
+    onPreflightConsumed,
+    preflightMutation,
+    preflightRequestId,
+    targetRunId,
+  ]);
+
+  const snapshot = runQuery.data;
+  const run = snapshot?.run ?? null;
+  const cancellationEventPresent =
+    snapshot?.events.some((event) => event.event_type === 'cancellation_requested') ?? false;
+  const showCancellationRequested =
+    run?.status === 'running' && (cancellationRequested || cancellationEventPresent);
+
+  useEffect(() => {
+    if (run && run.status !== 'running') setCancellationRequested(false);
+  }, [run]);
+
   const canCreateRun =
-    workflowId !== null &&
-    validationResult?.ok === true &&
-    validatedInputs !== null;
+    workflowId !== null && validationResult?.ok === true && validatedInputs !== null;
+  const executionActionPending = startMutation.isPending || cancelMutation.isPending;
 
   async function handleCreateRun() {
-    if (!canCreateRun || !workflowId || !validatedInputs) return;
-
-    const generation = startRequestGeneration();
-    setActionLoading(true);
-    setActionError(null);
-
+    setActionIssues([]);
     try {
-      const response = await runClient.createRun(
-        workflowId,
-        toRunCreateRequest(validatedInputs),
-      );
-
-      if (!isCurrentRequest(generation)) return;
-
+      const response = await createMutation.mutateAsync();
       if (!response.ok) {
-        setActionError(firstIssueMessage(response.issues));
+        setActionIssues(response.issues);
         return;
       }
-
-      const createdRun = response.run;
-      if (!createdRun) {
-        setActionError('Run record missing.');
+      if (!response.run) {
+        setActionIssues([safeUiIssue('RUN_RECORD_MISSING', 'The run record was missing.')]);
         return;
       }
-
-      setOptimisticRun(createdRun);
+      updateRun(response.run);
       setActiveLogStream('stdout');
-      const preflightResponse = await runClient.preflightRun(createdRun.run_id);
-      if (!isCurrentRequest(generation)) return;
-      if (!preflightResponse.ok) {
-        setActionError(firstIssueMessage(preflightResponse.issues));
-        return;
-      }
-      if (preflightResponse.run) setOptimisticRun(preflightResponse.run);
-      setLocalRunId(createdRun.run_id);
       if (onRunCreated) {
-        onRunCreated(createdRun.run_id);
-      }
-    } catch (err) {
-      if (!isCurrentRequest(generation)) return;
-      setActionError(
-        err instanceof Error ? err.message : 'Failed to create run record.',
-      );
-    } finally {
-      if (isCurrentRequest(generation)) setActionLoading(false);
-    }
-  }
-
-  async function handleCancelRun() {
-    if (!run) return;
-
-    const generation = startRequestGeneration();
-    setActionLoading(true);
-    setActionError(null);
-
-    try {
-      const response = await runClient.cancelRun(run.run_id);
-      if (!isCurrentRequest(generation)) return;
-      if (!response.ok) {
-        setActionError(firstIssueMessage(response.issues));
+        onRunCreated(response.run.run_id);
         return;
       }
-      if (response.run) {
-        const cancelledRun = response.run;
-        queryClient.setQueryData<RunSnapshot>(
-          runProgressQueryKey(cancelledRun.run_id),
-          (current) => ({
-            run: cancelledRun,
-            events: current?.events ?? [],
-            stdoutLogs: current?.stdoutLogs ?? [],
-            stderrLogs: current?.stderrLogs ?? [],
-            issue: current?.issue ?? null,
-          }),
-        );
-      }
-      await runQuery.refetch();
-    } catch (err) {
-      if (!isCurrentRequest(generation)) return;
-      setActionError(
-        err instanceof Error ? err.message : 'Failed to cancel run.',
-      );
-    } finally {
-      if (isCurrentRequest(generation)) setActionLoading(false);
+      setLocalRunId(response.run.run_id);
+      await preflightMutation.mutateAsync(response.run.run_id);
+    } catch {
+      setActionIssues([
+        safeUiIssue('RUN_CREATE_UNAVAILABLE', 'The run record could not be created. Try again.'),
+      ]);
     }
   }
 
-  async function handleRefresh() {
-    if (!run) return;
-
-    const generation = startRequestGeneration();
-    setActionLoading(true);
-    setActionError(null);
-
-    try {
-      await runQuery.refetch();
-    } catch (err) {
-      if (!isCurrentRequest(generation)) return;
-      setActionError(
-        err instanceof Error ? err.message : 'Failed to refresh run progress.',
-      );
-    } finally {
-      if (isCurrentRequest(generation)) setActionLoading(false);
-    }
+  function handleRefresh() {
+    setActionIssues([]);
+    pollStartedAt.current = Date.now();
+    void runQuery.refetch();
   }
 
-  const canCancelRun = run !== null && !terminalStatuses.includes(run.status);
-  const canRefresh = run !== null;
-
-  const showNoRunPlaceholder = !run && !loading && !error && !runId;
-  const showMissingRunError = !run && !loading && error && runId !== null;
+  const queryIssues = snapshot?.issues ?? [];
+  const unexpectedQueryIssues = runQuery.error
+    ? [safeUiIssue('RUN_PROGRESS_UNAVAILABLE', 'Run progress could not be loaded. Try again.')]
+    : [];
+  const visibleIssues = [...actionIssues, ...unexpectedQueryIssues, ...queryIssues];
+  const canCancelRun = run !== null && cancellableStatuses.has(run.status);
+  const canStartRun = run?.status === 'planned';
+  const canPreflightRun = run?.status === 'created';
+  const showNoRunPlaceholder = !run && !runQuery.isLoading && visibleIssues.length === 0 && !runId;
+  const showMissingRunError =
+    !run && !runQuery.isLoading && visibleIssues.length > 0 && runId !== null;
 
   return (
     <div className="space-y-4" data-testid="run-progress-panel">
@@ -315,21 +432,13 @@ export function RunProgressPanel({
         </p>
       )}
 
-      {loading && (
+      {runQuery.isLoading && (
         <p className="text-sm text-[var(--color-text-muted)]" data-testid="run-loading">
           Loading run…
         </p>
       )}
 
-      {error && (
-        <div
-          className="rounded border border-[var(--color-error)] bg-[var(--color-error-bg)] p-2 text-xs text-[var(--color-error)]"
-          role="alert"
-          data-testid="run-progress-error"
-        >
-          {error}
-        </div>
-      )}
+      <RunIssuePanel issues={visibleIssues} />
 
       {showMissingRunError && (
         <p className="text-sm text-[var(--color-text-muted)]" data-testid="run-missing-hint">
@@ -338,24 +447,42 @@ export function RunProgressPanel({
       )}
 
       {run && (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-3 text-sm">
+        <div className="min-w-0 space-y-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3 text-sm">
             <span className="font-medium text-[var(--color-text)]">Run ID:</span>
-            <code className="text-xs text-[var(--color-text-muted)]">
+            <code className="min-w-0 break-all text-xs text-[var(--color-text-muted)]">
               {run.run_id}
             </code>
             <RunStatusBadge status={run.status} />
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs text-[var(--color-text-muted)]">
+          <div className="grid grid-cols-1 gap-2 text-xs text-[var(--color-text-muted)] sm:grid-cols-2">
             <div>Created: {new Date(run.created_at).toLocaleString()}</div>
             <div>Updated: {new Date(run.updated_at).toLocaleString()}</div>
           </div>
+
+          {showCancellationRequested && (
+            <div
+              className="rounded border border-yellow-300 bg-yellow-50 p-2 text-sm text-yellow-800"
+              role="status"
+              data-testid="cancellation-requested"
+            >
+              Cancellation requested. The run remains running until the worker confirms termination.
+            </div>
+          )}
+
+          {run.error && <RunIssuePanel issues={[run.error]} title="Run failure" />}
+
+          {snapshot?.truncated && (
+            <p className="text-xs text-[var(--color-text-muted)]" role="status">
+              Showing the first {MAX_PAGES * PAGE_LIMIT} entries per stream. Refresh to load the latest bounded view.
+            </p>
+          )}
 
           <div>
             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
               Events
             </h4>
-            <RunEventFeed events={events} />
+            <RunEventFeed events={snapshot?.events ?? []} />
           </div>
 
           <div>
@@ -363,8 +490,8 @@ export function RunProgressPanel({
               Logs
             </h4>
             <RunLogPanel
-              stdoutChunks={stdoutLogs}
-              stderrChunks={stderrLogs}
+              stdoutChunks={snapshot?.stdoutLogs ?? []}
+              stderrChunks={snapshot?.stderrLogs ?? []}
               activeStream={activeLogStream}
               onStreamChange={setActiveLogStream}
             />
@@ -373,34 +500,68 @@ export function RunProgressPanel({
       )}
 
       <div className="flex flex-wrap gap-2">
-        <Button
-          variant="primary"
-          onClick={handleCreateRun}
-          disabled={!canCreateRun || loading}
-          data-testid="create-run-button"
-        >
-          {loading && !run ? 'Starting preflight…' : 'Start preflight'}
-        </Button>
+        {!runId && (
+          <Button
+            variant="primary"
+            onClick={handleCreateRun}
+            disabled={!canCreateRun || createMutation.isPending}
+            aria-label="Create run"
+            data-testid="create-run-button"
+          >
+            {createMutation.isPending ? 'Creating run…' : 'Create run'}
+          </Button>
+        )}
         {run && (
           <>
+            {canPreflightRun && (
+              <Button
+                variant="primary"
+                onClick={() => preflightMutation.mutate(run.run_id)}
+                disabled={preflightMutation.isPending}
+                aria-label="Run preflight"
+                data-testid="preflight-run-button"
+              >
+                {preflightMutation.isPending ? 'Starting preflight…' : 'Run preflight'}
+              </Button>
+            )}
+            {canStartRun && (
+              <Button
+                variant="primary"
+                onClick={() => startMutation.mutate(run.run_id)}
+                disabled={executionActionPending}
+                aria-label="Start run"
+                data-testid="start-run-button"
+              >
+                <Play className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                {startMutation.isPending ? 'Starting run…' : 'Start run'}
+              </Button>
+            )}
             <Button
               variant="secondary"
               onClick={handleRefresh}
-              disabled={!canRefresh || loading}
+              disabled={runQuery.isFetching || executionActionPending}
+              aria-label="Refresh run progress"
               data-testid="refresh-run-button"
             >
               <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden="true" />
               Refresh
             </Button>
-            <Button
-              variant="secondary"
-              onClick={handleCancelRun}
-              disabled={!canCancelRun || loading}
-              data-testid="cancel-run-button"
-            >
-              <Ban className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              Cancel run
-            </Button>
+            {canCancelRun && (
+              <Button
+                variant="secondary"
+                onClick={() => cancelMutation.mutate(run.run_id)}
+                disabled={executionActionPending}
+                aria-label={showCancellationRequested ? 'Retry cancellation' : 'Cancel run'}
+                data-testid="cancel-run-button"
+              >
+                <Ban className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                {cancelMutation.isPending
+                  ? 'Requesting cancellation…'
+                  : showCancellationRequested
+                    ? 'Retry cancellation'
+                    : 'Cancel run'}
+              </Button>
+            )}
           </>
         )}
       </div>

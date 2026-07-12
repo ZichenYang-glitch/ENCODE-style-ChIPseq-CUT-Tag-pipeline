@@ -14,13 +14,16 @@ const statusClasses: Record<string, string> = {
 };
 
 export function RunStatusBadge({ status }: RunStatusBadgeProps) {
-  const classes = statusClasses[status] ?? statusClasses.created;
+  const known = status in statusClasses;
+  const classes = known
+    ? statusClasses[status]
+    : 'bg-gray-50 text-gray-600 border-gray-300';
   return (
     <span
       className={`inline-flex items-center rounded border px-2 py-0.5 text-xs font-semibold ${classes}`}
       data-testid="run-status-badge"
     >
-      {status}
+      {known ? status : 'unknown'}
     </span>
   );
 }

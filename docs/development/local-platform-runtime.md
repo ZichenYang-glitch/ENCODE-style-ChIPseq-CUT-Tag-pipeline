@@ -12,6 +12,56 @@ is reported instead of being treated as a successful enqueue.
 
 ## Run locally
 
+### One-command demo stack
+
+After installing the API and frontend dependencies, one foreground command
+starts the complete local stack:
+
+```bash
+python3 -m pip install -e ".[api]"
+npm --prefix frontend ci
+python3 scripts/run_local_platform.py
+```
+
+Open `http://127.0.0.1:5173`. The supervisor starts or reuses local Redis,
+FastAPI on port 8000, one independent RQ worker, and Vite on port 5173. It
+uses one shared file-backed database and workspace tree:
+
+```text
+.local/platform-demo/platform.db
+.local/platform-demo/workspaces/
+.local/platform-demo/logs/{redis,api,worker,frontend}.log
+```
+
+Press Ctrl-C once to terminate the API, worker, any RQ work horse and normal
+descendants, Vite, and a Redis process that the launcher started. An already
+running Redis at `redis://127.0.0.1:6379/0` is reused and is not stopped or
+flushed. The default queue is `encode-pipeline-demo`; Redis remains scheduling
+metadata only, while the SQLite file remains canonical.
+
+Prerequisites are Python 3.10 or later with the `api` extra, Node.js with the
+locked frontend packages, and `snakemake` on `PATH`. `redis-server` is only
+required when Redis is not already available. The launcher performs bounded
+readiness checks for Redis, the API, the registered worker, and the frontend;
+startup failures name the failed service and point to its local log without
+printing Redis credentials.
+
+Use explicit flags for an isolated demo or non-default ports:
+
+```bash
+python3 scripts/run_local_platform.py \
+  --runtime-root /tmp/encode-platform-demo \
+  --redis-url redis://127.0.0.1:6380/0 \
+  --queue-name encode-platform-demo \
+  --api-port 8010 \
+  --frontend-port 4173
+```
+
+Vite proxies `/api` to the configured API port. The launcher sets the narrow
+`VITE_API_PROXY_TARGET` value for that process; it does not enable broad CORS.
+
+### Manual processes
+
 Install the API extra, make Redis available, and start the FastAPI factory:
 
 ```bash
