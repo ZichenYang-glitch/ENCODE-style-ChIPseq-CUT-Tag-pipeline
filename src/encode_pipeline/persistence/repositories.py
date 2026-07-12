@@ -16,6 +16,7 @@ from encode_pipeline.persistence.models import (
     RunEventRow,
     RunExecutionAssignmentRow,
     RunLogRow,
+    RunQcMetricRow,
     RunRow,
     RunWorkflowBuildIdentityRow,
 )
@@ -32,12 +33,19 @@ from encode_pipeline.platform.runs import (
     RunArtifactRef,
     RunEvent,
     RunLogChunk,
+    RunQcMetric,
     RunRecord,
     RunStatus,
 )
 from encode_pipeline.services.run_repositories import (
     ConcurrentRunUpdateError,
     RunEventDraft,
+    _QC_OUTCOME_TYPES,
+    _sorted_artifacts,
+    _validated_expected_artifacts,
+    _validated_qc_replacement,
+    canonical_decimal_text,
+    decimal_from_canonical_text,
 )
 
 
@@ -341,7 +349,11 @@ class SqlAlchemyRunRepository:
                     .where(RunArtifactRow.run_id == run_id)
                     .order_by(RunArtifactRow.id)
                 ).all()
-                existing = tuple(_artifact_from_row(row) for row in existing_rows)
+                existing = _sorted_artifacts(
+                    _artifact_from_row(row) for row in existing_rows
+                )
+                sorted_replacement = _validated_expected_artifacts(run_id, artifacts)
+                equivalent = existing == sorted_replacement
                 latest_outcome = session.scalar(
                     select(RunEventRow.event_type)
                     .where(
@@ -353,8 +365,25 @@ class SqlAlchemyRunRepository:
                     .order_by(RunEventRow.id.desc())
                     .limit(1)
                 )
-                if existing == artifacts and latest_outcome == "artifacts_indexed":
+                if equivalent and latest_outcome == "artifacts_indexed":
                     return None
+                latest_qc_outcome = session.scalar(
+                    select(RunEventRow.event_type)
+                    .where(
+                        RunEventRow.run_id == run_id,
+                        RunEventRow.event_type.in_(_QC_OUTCOME_TYPES),
+                    )
+                    .order_by(RunEventRow.id.desc())
+                    .limit(1)
+                )
+                had_qc_rows = (
+                    session.scalar(
+                        select(func.count())
+                        .select_from(RunQcMetricRow)
+                        .where(RunQcMetricRow.run_id == run_id)
+                    )
+                    or 0
+                ) > 0
                 session.execute(
                     delete(RunArtifactRow).where(RunArtifactRow.run_id == run_id)
                 )
@@ -370,11 +399,29 @@ class SqlAlchemyRunRepository:
                             produced_at=artifact.produced_at,
                             artifact_metadata=dict(artifact.metadata),
                         )
-                        for artifact in artifacts
+                        for artifact in sorted_replacement
                     ]
                 )
                 session.flush()
-                return self._insert_event(session, run_id, event)
+                indexed_event = self._insert_event(session, run_id, event)
+                if not equivalent:
+                    session.execute(
+                        delete(RunQcMetricRow).where(RunQcMetricRow.run_id == run_id)
+                    )
+                    if (
+                        had_qc_rows or latest_qc_outcome is not None
+                    ) and latest_qc_outcome != "qc_metrics_invalidated":
+                        self._insert_event(
+                            session,
+                            run_id,
+                            RunEventDraft(
+                                event_type="qc_metrics_invalidated",
+                                message="Workflow QC metrics invalidated.",
+                                status=RunStatus.SUCCEEDED,
+                                stage="qc_summary_indexing",
+                            ),
+                        )
+                return indexed_event
         except IntegrityError as exc:
             raise ValueError("artifact replacement could not be persisted") from exc
 
@@ -425,6 +472,111 @@ class SqlAlchemyRunRepository:
             if row is None:
                 raise KeyError((run_id, artifact_id))
             return _artifact_from_row(row)
+
+    def replace_qc_metrics(
+        self,
+        run_id: str,
+        metrics: tuple[RunQcMetric, ...],
+        *,
+        expected_artifacts: tuple[RunArtifactRef, ...],
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent | None:
+        try:
+            with self._lock, self._session_factory.begin() as session:
+                _begin_write(session)
+                current = self._require_run(session, run_id)
+                if RunStatus(current.status) is not expected_status:
+                    raise ConcurrentRunUpdateError(
+                        f"Run {run_id!r} is no longer eligible for QC replacement."
+                    )
+                current_artifacts = _sorted_artifacts(
+                    _artifact_from_row(row)
+                    for row in session.scalars(
+                        select(RunArtifactRow).where(RunArtifactRow.run_id == run_id)
+                    ).all()
+                )
+                if current_artifacts != _validated_expected_artifacts(
+                    run_id,
+                    expected_artifacts,
+                ):
+                    raise ConcurrentRunUpdateError(
+                        f"Run {run_id!r} artifact generation changed during QC indexing."
+                    )
+                replacement = _validated_qc_replacement(
+                    run_id,
+                    metrics,
+                    {artifact.artifact_id for artifact in current_artifacts},
+                )
+                existing = tuple(
+                    _qc_metric_from_row(row)
+                    for row in session.scalars(
+                        select(RunQcMetricRow)
+                        .where(RunQcMetricRow.run_id == run_id)
+                        .order_by(RunQcMetricRow.metric_id)
+                    ).all()
+                )
+                latest_outcome = session.scalar(
+                    select(RunEventRow.event_type)
+                    .where(
+                        RunEventRow.run_id == run_id,
+                        RunEventRow.event_type.in_(_QC_OUTCOME_TYPES),
+                    )
+                    .order_by(RunEventRow.id.desc())
+                    .limit(1)
+                )
+                if existing == replacement and latest_outcome == "qc_metrics_indexed":
+                    return None
+                session.execute(
+                    delete(RunQcMetricRow).where(RunQcMetricRow.run_id == run_id)
+                )
+                session.add_all([_qc_metric_row(metric) for metric in replacement])
+                session.flush()
+                return self._insert_event(session, run_id, event)
+        except IntegrityError as exc:
+            raise ValueError("QC replacement could not be persisted") from exc
+
+    def list_qc_metrics(self, run_id: str) -> tuple[RunQcMetric, ...]:
+        with self._session_factory() as session:
+            self._require_run(session, run_id)
+            rows = session.scalars(
+                select(RunQcMetricRow)
+                .where(RunQcMetricRow.run_id == run_id)
+                .order_by(RunQcMetricRow.metric_id)
+            ).all()
+            return tuple(_qc_metric_from_row(row) for row in rows)
+
+    def record_qc_metrics_failure(
+        self,
+        run_id: str,
+        *,
+        reason_code: str,
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent | None:
+        with self._lock, self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, run_id)
+            if RunStatus(current.status) is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer eligible for QC failure."
+                )
+            latest = session.scalar(
+                select(RunEventRow)
+                .where(
+                    RunEventRow.run_id == run_id,
+                    RunEventRow.event_type.in_(_QC_OUTCOME_TYPES),
+                )
+                .order_by(RunEventRow.id.desc())
+                .limit(1)
+            )
+            if (
+                latest is not None
+                and latest.event_type == "qc_metrics_indexing_failed"
+                and latest.context.get("reason_code") == reason_code
+            ):
+                return None
+            return self._insert_event(session, run_id, event)
 
     def ensure_execution_assignment(
         self,
@@ -923,6 +1075,42 @@ def _artifact_from_row(row: RunArtifactRow) -> RunArtifactRef:
         mime_type=row.mime_type,
         produced_at=_as_utc(row.produced_at),
         metadata=row.artifact_metadata,
+    )
+
+
+def _qc_metric_row(metric: RunQcMetric) -> RunQcMetricRow:
+    return RunQcMetricRow(
+        metric_id=metric.metric_id,
+        run_id=metric.run_id,
+        metric_key=metric.metric_key,
+        display_name=metric.display_name,
+        value_text=canonical_decimal_text(metric.value),
+        unit=metric.unit,
+        scope=metric.scope,
+        sample_id=metric.sample_id,
+        experiment_id=metric.experiment_id,
+        assay=metric.assay,
+        qc_flag=metric.qc_flag,
+        source_artifact_id=metric.source_artifact_id,
+        produced_at=metric.produced_at,
+    )
+
+
+def _qc_metric_from_row(row: RunQcMetricRow) -> RunQcMetric:
+    return RunQcMetric(
+        metric_id=row.metric_id,
+        run_id=row.run_id,
+        metric_key=row.metric_key,
+        display_name=row.display_name,
+        value=decimal_from_canonical_text(row.value_text),
+        unit=row.unit,
+        scope=row.scope,
+        sample_id=row.sample_id,
+        experiment_id=row.experiment_id,
+        assay=row.assay,
+        qc_flag=row.qc_flag,
+        source_artifact_id=row.source_artifact_id,
+        produced_at=_as_utc(row.produced_at),
     )
 
 
