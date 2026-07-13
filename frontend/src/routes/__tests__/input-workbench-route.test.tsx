@@ -230,8 +230,55 @@ describe('schema input workbench route', () => {
       input,
       textFile('sample\tunknown\nS2\tx\n', 'bad.tsv').file,
     );
-    expect(await screen.findByRole('alert')).toHaveTextContent(/not declared/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The sample file contains a column not declared by this workflow. Row 1. Column unknown.',
+    );
     expect(screen.getAllByLabelText('Sample 1 sample')[0]).toHaveValue('S1');
+
+    await user.upload(
+      input,
+      textFile(
+        `sample\tfastq_1\tlayout\nS2\t${'x'.repeat(4_097)}\tSE\n`,
+        'overlong.tsv',
+      ).file,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'A sample cell exceeds the workflow authoring limit. Row 2. Column fastq_1.',
+    );
+    expect(screen.getAllByLabelText('Sample 1 sample')[0]).toHaveValue('S1');
+  });
+
+  it('keeps the newest TSV selection when an older file read finishes later', async () => {
+    const firstRead = deferred<string>();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run?step=samples`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    const input = screen.getByLabelText('Import samples TSV');
+    const firstFile = new File(['pending'], 'first.tsv', {
+      type: 'text/tab-separated-values',
+    });
+    Object.defineProperty(firstFile, 'text', {
+      value: vi.fn().mockReturnValue(firstRead.promise),
+    });
+    const secondFile = textFile(
+      'sample\tfastq_1\tlayout\nnewest\t/data/newest.fastq.gz\tSE\n',
+      'second.tsv',
+    ).file;
+
+    fireEvent.change(input, { target: { files: [firstFile] } });
+    fireEvent.change(input, { target: { files: [secondFile] } });
+    expect((await screen.findAllByLabelText('Sample 1 sample'))[0]).toHaveValue(
+      'newest',
+    );
+
+    await act(async () => {
+      firstRead.resolve(
+        'sample\tfastq_1\tlayout\nolder\t/data/older.fastq.gz\tSE\n',
+      );
+      await firstRead.promise;
+    });
+    expect(screen.getAllByLabelText('Sample 1 sample')[0]).toHaveValue('newest');
   });
 
   it('drives steps from the URL and keeps the in-memory draft through history navigation', async () => {
@@ -254,19 +301,15 @@ describe('schema input workbench route', () => {
   });
 
   it('rejects an oversized file before reading it', async () => {
-    const schema = createAuthoringSchemaFixture();
-    schema.limits.max_request_bytes = 4;
-    generatedMocks.getWorkflowSchema.mockResolvedValue({
-      ok: true,
-      workflow_id: WORKFLOW_ID,
-      schema,
-      issues: [],
-    });
     renderWithRouter(appRoutes, {
       initialEntries: [`/workflows/${WORKFLOW_ID}/new-run?step=samples`],
     });
     await screen.findByRole('heading', { name: 'Input workbench' });
-    const { file, text: textSpy } = textFile('sample\nS1\n', 'large.tsv');
+    const file = new File([new Uint8Array(2_097_153)], 'large.tsv', {
+      type: 'text/tab-separated-values',
+    });
+    const textSpy = vi.fn().mockResolvedValue('should not be read');
+    Object.defineProperty(file, 'text', { value: textSpy });
     fireEvent.change(screen.getByLabelText('Import samples TSV'), {
       target: { files: [file] },
     });

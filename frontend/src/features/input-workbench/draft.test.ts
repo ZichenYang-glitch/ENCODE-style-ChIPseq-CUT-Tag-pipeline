@@ -4,7 +4,14 @@ import { buildDraftReview } from './draft';
 describe('buildDraftReview', () => {
   it('serializes config/options deterministically and sample keys in schema order', () => {
     const result = buildDraftReview(
-      { z: 1, nested: { b: true, a: false }, a: 'first' },
+      {
+        z: 1,
+        'é': 2,
+        a: 'first',
+        _: 4,
+        A: 5,
+        nested: { b: true, a: false },
+      },
       [
         {
           id: 'client-only',
@@ -21,9 +28,14 @@ describe('buildDraftReview', () => {
     expect(result.payload.samples).toEqual([
       { sample: 'S1', fastq_1: '/data/S1.fastq.gz', layout: 'SE' },
     ]);
-    expect(result.serialized.indexOf('"a"')).toBeLessThan(
-      result.serialized.indexOf('"z"'),
-    );
+    expect(Object.keys(JSON.parse(result.serialized).config)).toEqual([
+      'A',
+      '_',
+      'a',
+      'nested',
+      'z',
+      'é',
+    ]);
     expect(result.serialized).not.toContain('client-only');
   });
 

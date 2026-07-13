@@ -48,4 +48,24 @@ describe('readWorkbenchSchema', () => {
     const result = readWorkbenchSchema(schema);
     expect(result).toMatchObject({ ok: false, code: 'AUTHORING_SCHEMA_UNSUPPORTED' });
   });
+
+  it.each([
+    ['max_request_bytes', 2_097_152],
+    ['max_sample_rows', 1_000],
+    ['max_sample_columns', 64],
+    ['max_sample_column_name_length', 128],
+    ['max_sample_cell_length', 4_096],
+  ] as const)(
+    'fails closed when 1.0.0 %s differs from the platform ceiling',
+    (field, ceiling) => {
+      for (const value of [ceiling - 1, ceiling + 1]) {
+        const schema = createAuthoringSchemaFixture();
+        schema.limits[field] = value;
+        expect(readWorkbenchSchema(schema)).toMatchObject({
+          ok: false,
+          code: 'AUTHORING_SCHEMA_UNSUPPORTED',
+        });
+      }
+    },
+  );
 });

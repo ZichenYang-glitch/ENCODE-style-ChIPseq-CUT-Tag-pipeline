@@ -3,6 +3,12 @@ import type {
   ValidationRequestConfig,
 } from '../../api/generated/models';
 
+export function compareJsonKeys(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object') return false;
   const prototype = Object.getPrototypeOf(value);

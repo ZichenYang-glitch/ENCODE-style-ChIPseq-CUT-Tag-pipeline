@@ -76,7 +76,7 @@ function WorkbenchError({
   onRetry: () => void;
 }) {
   return (
-    <section className="min-h-[24rem] min-w-0 flex-1">
+    <section className="min-h-[38rem] min-w-0 flex-1">
       <Panel title="Input workbench unavailable">
         <div className="space-y-3">
           <p className="text-sm text-[var(--color-error)]" role="alert">

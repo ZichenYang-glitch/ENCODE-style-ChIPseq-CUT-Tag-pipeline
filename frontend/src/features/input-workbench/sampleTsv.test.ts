@@ -49,18 +49,20 @@ describe('parseSampleTsv', () => {
     expect(result.ok).toBe(false);
   });
 
-  it('enforces Unicode code-point cell limits without replacing existing rows', () => {
-    const schema = createAuthoringSchemaFixture();
-    schema.limits.max_sample_cell_length = 2;
-    const parsed = readWorkbenchSchema(schema);
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) return;
+  it('enforces the real Unicode code-point cell ceiling without replacing existing rows', () => {
+    const schema = contract();
     const existing: DraftSampleRow[] = [
       { id: 'existing', values: { sample: 'old' } },
     ];
+    const atLimit = parseSampleTsv(
+      `sample\tfastq_1\tlayout\nS1\t${'😀'.repeat(4_096)}\tSE\n`,
+      schema,
+      () => 'accepted',
+    );
+    expect(atLimit.ok).toBe(true);
     const result = parseSampleTsv(
-      'sample\tfastq_1\tlayout\nS1\t😀😀😀\tSE\n',
-      parsed.value,
+      `sample\tfastq_1\tlayout\nS1\t${'😀'.repeat(4_097)}\tSE\n`,
+      schema,
       () => 'new',
     );
     expect(result.ok).toBe(false);
@@ -70,39 +72,30 @@ describe('parseSampleTsv', () => {
   it.each([
     [
       'file bytes',
-      (schema: ReturnType<typeof createAuthoringSchemaFixture>) => {
-        schema.limits.max_request_bytes = 4;
-      },
-      'sample\tfastq_1\tlayout\nS1\t/a\tSE\n',
+      () => 'x'.repeat(2_097_153),
     ],
     [
       'row count',
-      (schema: ReturnType<typeof createAuthoringSchemaFixture>) => {
-        schema.limits.max_sample_rows = 1;
-      },
-      'sample\tfastq_1\tlayout\nS1\t/a\tSE\nS2\t/b\tSE\n',
+      () =>
+        `sample\tfastq_1\tlayout\n${Array.from(
+          { length: 1_001 },
+          (_, index) => `S${index}\t/a\tSE`,
+        ).join('\n')}\n`,
     ],
     [
       'column count',
-      (schema: ReturnType<typeof createAuthoringSchemaFixture>) => {
-        schema.limits.max_sample_columns = 2;
-      },
-      'sample\tfastq_1\tlayout\nS1\t/a\tSE\n',
+      () =>
+        `${Array.from({ length: 65 }, (_, index) => `c${index}`).join('\t')}\n${Array.from(
+          { length: 65 },
+          () => 'x',
+        ).join('\t')}\n`,
     ],
     [
       'header length',
-      (schema: ReturnType<typeof createAuthoringSchemaFixture>) => {
-        schema.limits.max_sample_column_name_length = 5;
-      },
-      'sample\tfastq_1\tlayout\nS1\t/a\tSE\n',
+      () => `${'h'.repeat(129)}\nvalue\n`,
     ],
-  ])('enforces the advertised %s ceiling', (_label, mutate, text) => {
-    const raw = createAuthoringSchemaFixture();
-    mutate(raw);
-    const parsed = readWorkbenchSchema(raw);
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) return;
-    expect(parseSampleTsv(text, parsed.value, () => 'row')).toMatchObject({
+  ])('enforces the advertised %s ceiling', (_label, makeText) => {
+    expect(parseSampleTsv(makeText(), contract(), () => 'row')).toMatchObject({
       ok: false,
       issue: { code: 'SAMPLE_TSV_LIMIT_EXCEEDED' },
     });

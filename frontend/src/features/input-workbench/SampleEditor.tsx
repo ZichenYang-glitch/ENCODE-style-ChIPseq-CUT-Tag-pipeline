@@ -1,4 +1,4 @@
-import { useMemo, type ChangeEvent } from 'react';
+import { useMemo, useRef, type ChangeEvent } from 'react';
 import {
   flexRender,
   getCoreRowModel,
@@ -58,6 +58,7 @@ function SampleCell({ column, row, rowNumber, onChange }: SampleCellProps) {
 }
 
 export function SampleEditor({ schema, draft }: SampleEditorProps) {
+  const fileSelectionRevision = useRef(0);
   const columns = useMemo<ColumnDef<DraftSampleRow>[]>(
     () => [
       {
@@ -117,6 +118,7 @@ export function SampleEditor({ schema, draft }: SampleEditorProps) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    const selectionRevision = ++fileSelectionRevision.current;
     if (file.size > schema.limits.max_request_bytes) {
       draft.failSampleImport({
         code: 'SAMPLE_TSV_LIMIT_EXCEEDED',
@@ -130,6 +132,7 @@ export function SampleEditor({ schema, draft }: SampleEditorProps) {
     try {
       text = await file.text();
     } catch {
+      if (selectionRevision !== fileSelectionRevision.current) return;
       draft.failSampleImport({
         code: 'SAMPLE_TSV_INVALID',
         message: 'The browser could not read this sample file.',
@@ -138,6 +141,7 @@ export function SampleEditor({ schema, draft }: SampleEditorProps) {
       });
       return;
     }
+    if (selectionRevision !== fileSelectionRevision.current) return;
     const result = parseSampleTsv(text, schema);
     if (!result.ok) {
       draft.failSampleImport(result.issue);
@@ -198,6 +202,15 @@ export function SampleEditor({ schema, draft }: SampleEditorProps) {
           {draft.state.sampleImportIssue.message}
           {draft.state.sampleImportIssue.row !== null &&
             ` Row ${draft.state.sampleImportIssue.row}.`}
+          {draft.state.sampleImportIssue.column !== null && (
+            <>
+              {' Column '}
+              <code className="break-all font-mono">
+                {draft.state.sampleImportIssue.column}
+              </code>
+              .
+            </>
+          )}
         </p>
       )}
 

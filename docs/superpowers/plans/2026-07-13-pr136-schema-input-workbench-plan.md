@@ -31,11 +31,13 @@ Playwright, Vite.
 - [x] Install one compatible RJSF/AJV set, YAML, Papa Parse, TanStack Table,
   CodeMirror 6 wrapper/language/view, and Radix Tabs.
 - [x] Write failing compatibility tests for real PR135 Draft 2020-12 schemas,
-  version/dialect/mode checks, and fail-closed malformed contracts.
+  version/dialect/mode checks, exact 1.0.0 ceilings, and fail-closed malformed
+  contracts.
 - [x] Implement the Ajv2020 RJSF validator and schema projection helpers.
 - [x] Write failing YAML tests for valid object updates, invalid-buffer
   preservation, duplicate keys, multi-doc/custom tags, aliases, non-object and
-  non-finite values, and controlled line/column issues.
+  non-finite values, non-string keys, unsafe integers, and controlled
+  line/column issues.
 - [x] Implement parse/stringify helpers and canonical/transient transitions.
 - [x] Write failing Papa Parse tests for quoting, CRLF, empty strings,
   duplicate/missing/unknown headers, empty/ragged files, atomic failure, and
@@ -93,6 +95,7 @@ Playwright, Vite.
   edit/add/delete, enum/string semantics, stable schema column order, and
   desktop/mobile projections.
 - [x] Implement bounded file selection and atomic TSV import.
+- [x] Ensure a slower earlier file read cannot replace a newer TSV selection.
 - [x] Render a compact TanStack desktop table and vertical mobile records from
   the same controlled rows.
 - [x] Render deterministic config/samples/options JSON and structural issues;

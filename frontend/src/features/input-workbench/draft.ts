@@ -5,7 +5,7 @@ import type {
   ValidationRequestOptions,
   ValidationRequestSamplesAnyOfItem,
 } from '../../api/generated/models';
-import { isJsonObject, isJsonValue } from './jsonSafety';
+import { compareJsonKeys, isJsonObject, isJsonValue } from './jsonSafety';
 import type { DraftSampleRow } from './sampleTsv';
 
 export type DraftReviewResult =
@@ -29,7 +29,7 @@ function stableJsonValue(value: JsonValueInput): JsonValueInput {
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(
       Object.keys(value)
-        .sort((left, right) => left.localeCompare(right))
+        .sort(compareJsonKeys)
         .map((key) => [key, stableJsonValue(value[key])]),
     );
   }

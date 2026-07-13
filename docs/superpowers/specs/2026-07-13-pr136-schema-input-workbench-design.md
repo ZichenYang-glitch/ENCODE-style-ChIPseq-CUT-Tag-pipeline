@@ -26,6 +26,9 @@ state when:
 - the response has no schema;
 - the version or dialect is unsupported;
 - the advertised authoring modes needed by the workbench are absent; or
+- any `1.0.0` input limit differs from the five exact PR135 platform ceilings;
+  narrower adapter-specific transport limits require a future contract version
+  with matching backend enforcement; or
 - config/options are not object schemas or samples is not an array-of-object
   schema.
 
@@ -71,11 +74,14 @@ Advanced YAML is a transient editing buffer:
    state. Formatting and comments may be normalized; values and unknown keys
    are retained.
 
-YAML parsing uses `yaml.parseDocument` with the core schema, strict duplicate
-key checking, and a bounded alias expansion. Multiple documents, custom tags,
-array/scalar/null roots, cyclic aliases, NaN/Infinity, `undefined`, and other
-non-JSON values fail closed. User-visible errors are normalized to a short
-message and optional line/column only.
+YAML parsing uses `yaml.parseAllDocuments` with the core schema, strict
+duplicate key checking, BigInt integer parsing, Map-preserving conversion, and
+a bounded alias expansion. The conversion requires string mapping keys,
+rejects canonical key collisions, and converts only integers within
+JavaScript's safe integer range. Multiple documents, custom tags,
+array/scalar/null roots, cyclic aliases, NaN/Infinity, unsafe integers,
+`undefined`, and other non-JSON values fail closed. User-visible errors are
+normalized to a short message and optional line/column only.
 
 Options use a second controlled RJSF form and canonical JSON object. RJSF's
 Draft 2020-12 validator is constructed with
@@ -108,7 +114,10 @@ only after every check passes. The importer:
 - normalizes every row into adapter schema order.
 
 Only `File.name` is shown; browser file paths are neither available nor sent.
-Failed imports leave the previous rows unchanged.
+Failed imports leave the previous rows unchanged. Controlled import issues show
+their bounded row and adapter column coordinates when available; parser
+exception text is never rendered. Each selection receives a monotonic local
+revision, so a slower earlier browser read cannot replace a newer selection.
 
 TanStack Table provides the desktop row/column model. Rows carry a client-only
 stable ID that is stripped during Review. Editing, adding, and deleting update
@@ -128,12 +137,12 @@ Review serializes exactly:
 }
 ```
 
-Config and option keys use stable lexical ordering; sample rows retain visible
-row order and adapter column order. The client rechecks JSON safety and the
-UTF-8 request byte ceiling with `TextEncoder`. Structural errors, including
-zero rows where the schema requires at least one, keep Review visibly not
-ready. Nothing is described as scientifically valid and no submission control
-is present.
+Config and option keys use locale-independent UTF-16 code-unit ordering;
+sample rows retain visible row order and adapter column order. The client
+rechecks JSON safety and the UTF-8 request byte ceiling with `TextEncoder`.
+Structural errors, including zero rows where the schema requires at least one,
+keep Review visibly not ready. Nothing is described as scientifically valid
+and no submission control is present.
 
 ## Interaction and presentation
 
@@ -168,12 +177,14 @@ scope.
 
 ## Tests and acceptance
 
-Pure tests cover schema compatibility, Draft 2020-12 canaries, YAML safety and
-state transitions, deterministic Review serialization, TSV quoting/CRLF,
-duplicate/missing/unknown headers, empty files, ragged rows, and every relevant
-limit. Component/route tests cover loading, null schema, failures and retry,
-unknown-field retention, invalid YAML, sample editing/add/delete, stable column
-order, Review readiness, URL deep links, and Back/Forward draft retention.
+Pure tests cover schema compatibility, exact-ceiling lower/upper rejection,
+Draft 2020-12 canaries, lossless YAML key/integer safety and state transitions,
+locale-independent Review serialization, TSV quoting/CRLF,
+duplicate/missing/unknown headers, empty files, ragged rows, and every real
+platform limit. Component/route tests cover loading, null schema, failures and
+retry, unknown-field retention, invalid YAML, sample editing/add/delete, stable
+column order, Review readiness, URL deep links, and Back/Forward draft
+retention.
 
 Real Playwright coverage uses the actual FastAPI schema endpoint. Desktop and
 mobile flows import a deterministic TSV, edit rows, edit advanced YAML, inspect

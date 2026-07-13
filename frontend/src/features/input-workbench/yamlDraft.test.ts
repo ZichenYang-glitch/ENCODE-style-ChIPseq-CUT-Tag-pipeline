@@ -11,6 +11,23 @@ describe('config YAML', () => {
     expect(parsed).toEqual({ ok: true, value: source });
   });
 
+  it('preserves the largest JSON-safe integer exactly', () => {
+    expect(parseConfigYaml('advanced: 9007199254740991\n')).toEqual({
+      ok: true,
+      value: { advanced: 9_007_199_254_740_991 },
+    });
+  });
+
+  it('stringifies keys in locale-independent UTF-16 code-unit order', () => {
+    const text = stringifyConfigYaml({ z: 1, 'é': 2, a: 3, _: 4, A: 5 });
+    expect(
+      text
+        .trim()
+        .split('\n')
+        .map((line) => line.split(':', 1)[0]),
+    ).toEqual(['A', '_', 'a', 'z', 'é']);
+  });
+
   it.each([
     ['invalid syntax', 'threads: ['],
     ['duplicate key', 'threads: 8\nthreads: 4\n'],
@@ -20,6 +37,10 @@ describe('config YAML', () => {
     ['null root', 'null\n'],
     ['non-finite value', 'value: .inf\n'],
     ['cyclic alias', '&root { self: *root }\n'],
+    ['non-string mapping key', '1: value\n'],
+    ['nested non-string mapping key', 'advanced:\n  true: value\n'],
+    ['colliding mapping keys', '1: first\n"1": second\n'],
+    ['unsafe integer', 'advanced: 9007199254740993\n'],
   ])('rejects %s with a controlled issue', (_label, text) => {
     const result = parseConfigYaml(text);
     expect(result.ok).toBe(false);
