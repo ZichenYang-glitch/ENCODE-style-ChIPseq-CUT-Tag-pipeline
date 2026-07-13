@@ -168,8 +168,16 @@ def _run_log_chunk_response(chunk: Any) -> RunLogChunkResponse:
     response_model=RunResponse,
     status_code=201,
     operation_id="createRun",
+    responses={
+        400: {"model": RunResponse},
+        404: {"model": RunResponse},
+        413: {
+            "model": RunResponse,
+            "description": "Request body too large.",
+        },
+    },
 )
-async def create_run(
+def create_run(
     workflow_id: str,
     request_body: RunCreateRequest,
     run_service: RunService = Depends(get_run_service),

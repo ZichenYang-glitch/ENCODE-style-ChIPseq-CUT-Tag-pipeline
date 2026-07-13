@@ -1,14 +1,23 @@
 """Tests for the ENCODE-style workflow adapter wrapper."""
 
+import csv
+from concurrent.futures import ThreadPoolExecutor
 import os
 import subprocess
 import sys
+import tempfile
 import textwrap
+from io import StringIO
 from pathlib import Path
+
+import jsonschema
+import pytest
+import yaml
 
 from encode_pipeline.platform.adapters import (
     CommandSpec,
     DagPreview,
+    JSON_SCHEMA_DIALECT,
     WorkflowAdapter,
     WorkflowInputs,
     WorkspacePlan,
@@ -22,13 +31,37 @@ from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 
 
-VALID_SAMPLES = (
-    "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
-    "S1\tR1.fq\tR2.fq\tPE\tchipseq\tCTCF\tnarrow\ths\tidx\n"
-)
+def _inline_row(root: Path, sample: str = "S1") -> dict[str, str]:
+    return {
+        "sample": sample,
+        "fastq_1": str((root / f"{sample}.R1.fastq.gz").resolve()),
+        "fastq_2": str((root / f"{sample}.R2.fastq.gz").resolve()),
+        "layout": "PE",
+        "assay": "chipseq",
+        "target": "CTCF",
+        "peak_mode": "narrow",
+        "genome": "hs",
+        "bowtie2_index": str((root / "indices" / "hs").resolve()),
+    }
 
 
-def _write_samples(path: Path, content: str = VALID_SAMPLES) -> Path:
+def _samples_text(root: Path, sample: str = "S1") -> str:
+    row = _inline_row(root, sample)
+    output = StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=tuple(row),
+        delimiter="\t",
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    writer.writerow(row)
+    return output.getvalue()
+
+
+def _write_samples(path: Path, content: str | None = None) -> Path:
+    if content is None:
+        content = _samples_text(path.parent)
     path.write_text(content, encoding="utf-8")
     return path
 
@@ -66,6 +99,7 @@ def test_metadata_and_capabilities_match_minimal_contract():
     assert adapter.capabilities.supports == (
         "validation",
         "workspace_plan",
+        "input_authoring",
         "artifact_extract",
         "qc_summary_extract",
     )
@@ -79,14 +113,37 @@ def test_qc_source_output_types_are_exact_and_do_not_include_aggregate_or_html()
     )
 
 
-def test_schema_returns_json_ready_hints_and_strict_inputs_option():
+def test_schema_returns_versioned_renderable_contract_and_strict_options():
     schema = _adapter().schema()
     as_dict = schema.to_dict()
 
-    assert as_dict["config_schema"]["schema_kind"] == "hints"
-    assert as_dict["sample_schema"]["schema_kind"] == "hints"
-    assert "samples" in as_dict["config_schema"]["properties"]
-    assert as_dict["sample_schema"]["required_columns"] == [
+    assert as_dict["schema_version"] == "1.0.0"
+    assert as_dict["schema_dialect"] == JSON_SCHEMA_DIALECT
+    assert as_dict["coverage"] == {
+        "config": "partial",
+        "samples": "complete",
+        "options": "complete",
+    }
+    assert as_dict["authoring_modes"] == {
+        "config": ["schema_form", "yaml"],
+        "samples": ["tsv_upload", "inline_table"],
+        "options": ["schema_form"],
+    }
+    assert as_dict["input_modes"] == {
+        "config": ["object"],
+        "samples": ["inline_rows", "server_path"],
+        "options": ["object"],
+    }
+    assert "samples" not in as_dict["config_schema"].get("required", [])
+    assert "samples" not in as_dict["config_schema"]["properties"]
+    assert as_dict["config_schema"]["properties"]["outdir"] == {
+        "type": "string",
+        "const": "results",
+        "default": "results",
+        "description": "Platform-owned run output directory.",
+    }
+    sample_items = as_dict["sample_schema"]["items"]
+    assert sample_items["required"] == [
         "sample",
         "fastq_1",
         "layout",
@@ -96,11 +153,74 @@ def test_schema_returns_json_ready_hints_and_strict_inputs_option():
         "genome",
         "bowtie2_index",
     ]
+    assert sample_items["additionalProperties"] is False
+    assert len(sample_items["properties"]) == 17
     assert as_dict["option_schema"]["properties"]["strict_inputs"] == {
         "type": "boolean",
         "default": False,
         "description": "Validate FASTQ and Bowtie2 index file existence.",
     }
+    assert as_dict["option_schema"]["additionalProperties"] is False
+
+    for name in ("config_schema", "sample_schema", "option_schema"):
+        document = as_dict[name]
+        assert document["$schema"] == JSON_SCHEMA_DIALECT
+        assert document["$id"].endswith("/1.0.0")
+        jsonschema.Draft202012Validator.check_schema(document)
+
+
+def test_schema_returns_fresh_instances_after_internal_mapping_mutation():
+    adapter = _adapter()
+    first = adapter.schema()
+    first_properties = first.config_schema["properties"]
+    assert isinstance(first_properties, dict)
+    first_outdir = first_properties["outdir"]
+    assert isinstance(first_outdir, dict)
+    first_outdir["description"] = "mutated caller value"
+
+    second = adapter.schema()
+    second_properties = second.config_schema["properties"]
+    assert isinstance(second_properties, dict)
+    second_outdir = second_properties["outdir"]
+    assert isinstance(second_outdir, dict)
+
+    assert first is not second
+    assert second_outdir["description"] == "Platform-owned run output directory."
+
+
+def test_schema_accepts_tiny_profile_without_samples_and_inline_rows(tmp_path):
+    schema = _adapter().schema()
+    tiny_config = yaml.safe_load(
+        (
+            SRC_ROOT.parents[0] / "test/profiles/platform_worker_tiny/config.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    tiny_config.pop("samples")
+    row = _inline_row(tmp_path)
+
+    jsonschema.Draft202012Validator(schema.config_schema).validate(tiny_config)
+    jsonschema.Draft202012Validator(schema.sample_schema).validate([row])
+    jsonschema.Draft202012Validator(schema.option_schema).validate(
+        {"strict_inputs": False}
+    )
+    result = _adapter().validate(
+        WorkflowInputs(
+            config=tiny_config, samples=[row], options={"strict_inputs": False}
+        )
+    )
+
+    assert result.is_success
+    assert result.value["samples"][0]["id"] == "S1"
+    assert "samples" not in result.value["config"]
+
+
+def test_schema_does_not_claim_custom_outdir_is_authorable():
+    schema = _adapter().schema()
+
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft202012Validator(schema.config_schema).validate(
+            {"outdir": "custom-results"}
+        )
 
 
 def test_importing_encode_adapter_does_not_import_heavy_workflow_modules():
@@ -254,20 +374,106 @@ def test_unsupported_options_return_options_issue(tmp_path):
     assert issue.context == {"unsupported_options": ["profile"]}
 
 
-def test_unsupported_inline_sample_rows_return_adapter_issue():
+def test_inline_sample_rows_validate_without_config_samples(tmp_path):
     result = _adapter().validate(
         WorkflowInputs(
-            config={},
-            samples=[{"sample": "S1", "fastq_1": "R1.fq"}],
+            config={"use_control": False},
+            samples=[_inline_row(tmp_path)],
         ),
     )
 
+    assert result.is_success
+    assert result.value["samples"][0]["id"] == "S1"
+    assert "samples" not in result.value["config"]
+
+
+def test_inline_rows_override_config_samples_without_fallback(tmp_path):
+    missing_server_path = (tmp_path / "must-not-be-read.tsv").resolve()
+    result = _adapter().validate(
+        WorkflowInputs(
+            config={"samples": str(missing_server_path), "use_control": False},
+            samples=[_inline_row(tmp_path)],
+        )
+    )
+
+    assert result.is_success
+    assert not missing_server_path.exists()
+    assert "samples" not in result.value["config"]
+
+
+def test_inline_unknown_column_fails_closed_without_temp_path(tmp_path):
+    row = _inline_row(tmp_path)
+    row["adapter_private_column"] = "not-allowed"
+
+    result = _adapter().validate(WorkflowInputs(config={}, samples=[row]))
+
     issue = _first_issue(result)
     assert result.is_failure
-    assert issue.code == "ENCODE_ADAPTER_UNSUPPORTED"
-    assert issue.source == "adapter"
+    assert issue.code == "ENCODE_SAMPLES_INVALID"
     assert issue.path == "samples"
-    assert issue.context == {"feature": "inline_samples"}
+    assert tempfile.gettempdir() not in str(result.to_dict())
+
+
+def test_inline_scientific_failure_is_stable_and_does_not_leak_temp_path(tmp_path):
+    row = _inline_row(tmp_path)
+    row["layout"] = "INVALID"
+
+    result = _adapter().validate(WorkflowInputs(config={}, samples=[row]))
+
+    issue = _first_issue(result)
+    assert result.is_failure
+    assert issue.code == "ENCODE_SAMPLES_INVALID"
+    assert issue.message == "Sample sheet is invalid."
+    assert issue.technical_message == "Sample sheet is invalid."
+    assert tempfile.gettempdir() not in str(result.to_dict())
+
+
+def test_validate_reuses_external_path_policy_for_inline_rows(tmp_path):
+    row = _inline_row(tmp_path)
+    row["fastq_1"] = "relative.fastq.gz"
+
+    result = _adapter().validate(WorkflowInputs(config={}, samples=[row]))
+
+    issue = _first_issue(result)
+    assert result.is_failure
+    assert issue.code == "ENCODE_WORKSPACE_RELATIVE_EXTERNAL_PATH"
+    assert issue.path == "samples[0].fastq_1"
+    assert "relative.fastq.gz" not in str(issue.to_dict())
+
+
+def test_inline_temp_directories_are_unique_and_cleaned_for_concurrent_validation(
+    tmp_path, monkeypatch
+):
+    from encode_pipeline.adapters import encode as encode_module
+
+    real_temporary_directory = tempfile.TemporaryDirectory
+    roots: list[Path] = []
+
+    def tracking_temporary_directory(*args, **kwargs):
+        directory = real_temporary_directory(*args, **kwargs)
+        roots.append(Path(directory.name))
+        return directory
+
+    monkeypatch.setattr(
+        encode_module.tempfile,
+        "TemporaryDirectory",
+        tracking_temporary_directory,
+    )
+    adapter = _adapter()
+
+    def validate(sample: str):
+        return adapter.validate(
+            WorkflowInputs(config={}, samples=[_inline_row(tmp_path, sample)])
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(validate, ("S1", "S2")))
+
+    assert all(result.is_success for result in results)
+    assert {result.value["samples"][0]["id"] for result in results} == {"S1", "S2"}
+    assert len(roots) == 2
+    assert roots[0] != roots[1]
+    assert all(not root.exists() for root in roots)
 
 
 def test_unsupported_methods_return_failure_without_side_effects(tmp_path):

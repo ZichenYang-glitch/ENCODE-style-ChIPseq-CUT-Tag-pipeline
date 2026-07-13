@@ -5,7 +5,7 @@
  * Validation-first workflow platform API.
  * OpenAPI spec version: 0.3.0
  */
-import type { SchemaResponseSchemaHints } from './schemaResponseSchemaHints';
+import type { SchemaResponseSchema } from './schemaResponseSchema';
 import type { IssueResponse } from './issueResponse';
 
 /**
@@ -14,6 +14,6 @@ import type { IssueResponse } from './issueResponse';
 export interface SchemaResponse {
   ok: boolean;
   workflow_id: string;
-  schema_hints?: SchemaResponseSchemaHints;
+  schema: SchemaResponseSchema;
   issues?: IssueResponse[];
 }

@@ -29,6 +29,7 @@ dev = [
     "pytest-cov",
     "ruff",
     "mypy",
+    "jsonschema>=4.23,<5",
     "fakeredis[lua]>=2.36,<3",
     "snakefmt",
 ]

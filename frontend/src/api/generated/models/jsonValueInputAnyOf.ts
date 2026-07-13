@@ -5,5 +5,6 @@
  * Validation-first workflow platform API.
  * OpenAPI spec version: 0.3.0
  */
+import type { JsonValueInput } from './jsonValueInput';
 
-export type ValidationResponseValue = unknown | null;
+export type JsonValueInputAnyOf = {[key: string]: JsonValueInput};

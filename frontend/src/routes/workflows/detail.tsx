@@ -130,8 +130,8 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
 
   async function handleValidate() {
     setLoading(true);
-    let config: Record<string, unknown> = {};
-    let options: Record<string, unknown> = {};
+    let config: WorkflowInputs['config'] = {};
+    let options: NonNullable<WorkflowInputs['options']> = {};
     const issues: Issue[] = [];
 
     try {

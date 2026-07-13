@@ -39,7 +39,7 @@ export const listWorkflows = async ( options?: RequestInit): Promise<WorkflowLis
 
 
 /**
- * Return adapter-owned schema hints for one workflow.
+ * Return the adapter-owned authoring contract for one workflow.
  * @summary Get Schema
  */
 export const getGetWorkflowSchemaUrl = (workflowId: string,) => {

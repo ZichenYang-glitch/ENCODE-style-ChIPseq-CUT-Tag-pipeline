@@ -148,6 +148,8 @@ def test_only_explicit_blocking_routes_use_fastapi_threadpool() -> None:
     assert route_handlers
     for path, endpoint in route_handlers:
         if path in {
+            "/api/v1/workflows/{workflow_id}/validate",
+            "/api/v1/workflows/{workflow_id}/runs",
             "/api/v1/runs/{run_id}/start",
             "/api/v1/runs/{run_id}/cancel",
             "/api/v1/runs/{run_id}/qc-metrics",

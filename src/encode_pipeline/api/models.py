@@ -6,11 +6,27 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 import re
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, Union
 from urllib.parse import quote
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    FiniteFloat,
+    field_validator,
+    model_validator,
+)
+from typing_extensions import TypeAliasType
 
+from encode_pipeline.platform.adapters import (
+    JSON_SCHEMA_DIALECT,
+    MAX_AUTHORING_REQUEST_BYTES,
+    MAX_SAMPLE_CELL_LENGTH,
+    MAX_SAMPLE_COLUMN_NAME_LENGTH,
+    MAX_SAMPLE_COLUMNS,
+    MAX_SAMPLE_ROWS,
+)
 from encode_pipeline.platform.runs import (
     build_qc_metric_id,
     validate_qc_identifier_token,
@@ -27,6 +43,19 @@ _WINDOWS_ABSOLUTE_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
 _ENVIRONMENT_ASSIGNMENT_PATTERN = re.compile(r"(?:^|\s)[A-Za-z_][A-Za-z0-9_]*=")
 _EMBEDDED_POSIX_PATH_PATTERN = re.compile(r"(?<![A-Za-z0-9._-])/[^/\s]")
 _ARTIFACT_DOWNLOAD_REASON_CODE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
+
+JsonValue = TypeAliasType(
+    "JsonValue",
+    Union[
+        dict[str, "JsonValue"],
+        list["JsonValue"],
+        str,
+        int,
+        FiniteFloat,
+        bool,
+        None,
+    ],
+)
 
 
 class IssueResponse(BaseModel):
@@ -74,21 +103,133 @@ class WorkflowListResponse(BaseModel):
     issues: list[IssueResponse] = Field(default_factory=list)
 
 
+class WorkflowSchemaCoverageResponse(BaseModel):
+    """Coverage level for each canonical adapter authoring surface."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    config: Literal["partial", "complete"]
+    samples: Literal["partial", "complete"]
+    options: Literal["partial", "complete"]
+
+
+class WorkflowSchemaModesResponse(BaseModel):
+    """Adapter-declared modes for config, samples, and options."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    config: list[str]
+    samples: list[str]
+    options: list[str]
+
+
+class WorkflowInputLimitsResponse(BaseModel):
+    """Published projection of the platform-wide authoring ceilings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_request_bytes: int = Field(
+        ge=MAX_AUTHORING_REQUEST_BYTES,
+        le=MAX_AUTHORING_REQUEST_BYTES,
+    )
+    max_sample_rows: int = Field(ge=MAX_SAMPLE_ROWS, le=MAX_SAMPLE_ROWS)
+    max_sample_columns: int = Field(
+        ge=MAX_SAMPLE_COLUMNS,
+        le=MAX_SAMPLE_COLUMNS,
+    )
+    max_sample_column_name_length: int = Field(
+        ge=MAX_SAMPLE_COLUMN_NAME_LENGTH,
+        le=MAX_SAMPLE_COLUMN_NAME_LENGTH,
+    )
+    max_sample_cell_length: int = Field(
+        ge=MAX_SAMPLE_CELL_LENGTH,
+        le=MAX_SAMPLE_CELL_LENGTH,
+    )
+
+
+class WorkflowSchemaResponse(BaseModel):
+    """Versioned renderable schema contract returned by an adapter."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = Field(pattern=r"^[1-9]\d*\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$")
+    schema_dialect: Literal[JSON_SCHEMA_DIALECT]
+    coverage: WorkflowSchemaCoverageResponse
+    authoring_modes: WorkflowSchemaModesResponse
+    input_modes: WorkflowSchemaModesResponse
+    limits: WorkflowInputLimitsResponse
+    config_schema: dict[str, JsonValue]
+    sample_schema: dict[str, JsonValue]
+    option_schema: dict[str, JsonValue]
+
+
 class SchemaResponse(BaseModel):
     """Envelope for GET /api/v1/workflows/{workflow_id}/schema."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     ok: bool
     workflow_id: str
-    schema_hints: dict[str, Any] = Field(default_factory=dict)
+    workflow_schema: WorkflowSchemaResponse | None = Field(
+        alias="schema",
+        serialization_alias="schema",
+    )
     issues: list[IssueResponse] = Field(default_factory=list)
+
+
+SampleColumnName = Annotated[
+    str,
+    Field(min_length=1, max_length=MAX_SAMPLE_COLUMN_NAME_LENGTH),
+]
+SampleCell = Annotated[str, Field(max_length=MAX_SAMPLE_CELL_LENGTH)]
+InlineSampleRow = Annotated[
+    dict[SampleColumnName, SampleCell],
+    Field(min_length=1, max_length=MAX_SAMPLE_COLUMNS),
+]
+InlineSampleRows = Annotated[
+    list[InlineSampleRow],
+    Field(min_length=1, max_length=MAX_SAMPLE_ROWS),
+]
+ServerSamplePath = Annotated[
+    str,
+    Field(min_length=1, max_length=MAX_SAMPLE_CELL_LENGTH),
+]
+SampleRequestPayload = ServerSamplePath | InlineSampleRows | None
+
+
+def _reject_sample_control_characters(
+    samples: SampleRequestPayload,
+) -> SampleRequestPayload:
+    if isinstance(samples, str) and any(
+        character in samples for character in ("\x00", "\t", "\n", "\r")
+    ):
+        raise ValueError("sample path must not contain control characters")
+    if isinstance(samples, list):
+        for row in samples:
+            for key, value in row.items():
+                if any(character in key for character in ("\x00", "\t", "\n", "\r")):
+                    raise ValueError(
+                        "sample column names must not contain control characters"
+                    )
+                if any(character in value for character in ("\x00", "\t", "\n", "\r")):
+                    raise ValueError(
+                        "sample cells must not contain NUL, tab, or newline characters"
+                    )
+    return samples
 
 
 class ValidationRequest(BaseModel):
     """Request body for POST /api/v1/workflows/{workflow_id}/validate."""
 
-    config: dict[str, Any]
-    samples: str | list[dict[str, str]] | None = None
-    options: dict[str, Any] = Field(default_factory=dict)
+    model_config = ConfigDict(extra="forbid")
+
+    config: dict[str, JsonValue]
+    samples: SampleRequestPayload = None
+    options: dict[str, JsonValue] = Field(default_factory=dict)
+
+    _validate_sample_cells = field_validator("samples")(
+        _reject_sample_control_characters
+    )
 
 
 class ValidationResponse(BaseModel):
@@ -96,7 +237,7 @@ class ValidationResponse(BaseModel):
 
     ok: bool
     workflow_id: str | None
-    value: Any | None
+    value: None = None
     issues: list[IssueResponse] = Field(default_factory=list)
 
 
@@ -514,10 +655,16 @@ def _is_unsafe_public_text(value: str) -> bool:
 class RunCreateRequest(BaseModel):
     """Request body for POST /api/v1/workflows/{workflow_id}/runs."""
 
-    config: dict[str, Any]
-    samples: str | list[dict[str, str]] | None = None
-    options: dict[str, Any] = Field(default_factory=dict)
+    model_config = ConfigDict(extra="forbid")
+
+    config: dict[str, JsonValue]
+    samples: SampleRequestPayload = None
+    options: dict[str, JsonValue] = Field(default_factory=dict)
     tags: dict[str, str] = Field(default_factory=dict)
+
+    _validate_sample_cells = field_validator("samples")(
+        _reject_sample_control_characters
+    )
 
 
 class RunResponse(BaseModel):

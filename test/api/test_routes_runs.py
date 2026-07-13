@@ -95,6 +95,54 @@ def test_create_run_returns_201_with_run_response(
     assert data["issues"] == []
 
 
+def test_create_run_persists_inline_sample_rows_without_server_path(
+    client: ApiTestClient,
+    workflow_id: str,
+    tmp_path: Path,
+) -> None:
+    row = {
+        "sample": "S1",
+        "fastq_1": str((tmp_path / "S1.R1.fastq.gz").resolve()),
+        "layout": "SE",
+        "assay": "chipseq",
+        "target": "CTCF",
+        "peak_mode": "narrow",
+        "genome": "hs",
+        "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
+    }
+
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/runs",
+        json={"config": {}, "samples": [row], "options": {}},
+    )
+
+    assert response.status_code == 201
+    run = response.json()["run"]
+    assert run["inputs"] == {"config": {}, "samples": [row], "options": {}}
+    assert "encode-platform-inline-samples" not in response.text
+
+
+def test_create_run_rejects_oversized_authoring_body_without_persisting_run(
+    client: ApiTestClient,
+    workflow_id: str,
+) -> None:
+    before = client.app.state.run_service.list_runs()
+    oversized = "x" * (2 * 1024 * 1024 + 1)
+
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/runs",
+        json={"config": {"oversized": oversized}},
+    )
+
+    assert response.status_code == 413
+    data = response.json()
+    assert data["ok"] is False
+    assert data["run"] is None
+    assert data["issues"][0]["code"] == "API_REQUEST_TOO_LARGE"
+    assert client.app.state.run_service.list_runs() == before
+    assert oversized[:128] not in response.text
+
+
 def test_create_run_unknown_workflow_returns_404(client: ApiTestClient) -> None:
     response = client.post(
         "/api/v1/workflows/missing-workflow/runs",

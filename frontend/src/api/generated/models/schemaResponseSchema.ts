@@ -5,5 +5,6 @@
  * Validation-first workflow platform API.
  * OpenAPI spec version: 0.3.0
  */
+import type { WorkflowSchemaResponse } from './workflowSchemaResponse';
 
-export type SchemaResponseSchemaHints = { [key: string]: unknown };
+export type SchemaResponseSchema = WorkflowSchemaResponse | null;

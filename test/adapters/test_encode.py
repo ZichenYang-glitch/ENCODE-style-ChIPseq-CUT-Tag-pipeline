@@ -189,20 +189,68 @@ def test_adapter_plan_workspace_issue_does_not_leak_user_path(tmp_path):
     assert issue.context == {}
 
 
-def test_adapter_plan_workspace_rejects_inline_sample_rows():
+def test_adapter_plan_workspace_accepts_inline_rows_and_is_byte_deterministic(
+    tmp_path,
+):
     adapter = EncodeStyleWorkflowAdapter()
+    row = {
+        "sample": "S1",
+        "fastq_1": str((tmp_path / "S1.R1.fastq.gz").resolve()),
+        "fastq_2": str((tmp_path / "S1.R2.fastq.gz").resolve()),
+        "layout": "PE",
+        "assay": "chipseq",
+        "target": "CTCF",
+        "peak_mode": "narrow",
+        "genome": "hs",
+        "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
+    }
     inputs = WorkflowInputs(
         config={},
-        samples=[{"sample": "S1", "fastq_1": "/abs/S1_1.fq.gz"}],
+        samples=[row],
         options={},
     )
-    result = adapter.plan_workspace(inputs, "/workspace")
+    first = adapter.plan_workspace(inputs, tmp_path / "workspace-first")
+    second = adapter.plan_workspace(inputs, tmp_path / "workspace-second")
 
-    assert result.is_failure is True
-    issue = result.issues[0]
-    assert issue.code == "ENCODE_ADAPTER_UNSUPPORTED"
-    assert issue.hint is None
-    assert issue.context == {}
+    assert first.is_success is True
+    assert second.is_success is True
+    assert first.value.files == second.value.files
+    files = dict(first.value.files)
+    assert b"samples: config/samples.tsv" in files["config/config.yaml"]
+    assert b"S1" in files["config/samples.tsv"]
+
+
+def test_inline_and_server_path_modes_render_equivalent_workspace_files(tmp_path):
+    row = {
+        "sample": "S1",
+        "fastq_1": str((tmp_path / "S1.R1.fastq.gz").resolve()),
+        "fastq_2": str((tmp_path / "S1.R2.fastq.gz").resolve()),
+        "layout": "PE",
+        "assay": "chipseq",
+        "target": "CTCF",
+        "peak_mode": "narrow",
+        "genome": "hs",
+        "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
+    }
+    samples_path = tmp_path / "samples.tsv"
+    samples_path.write_text(
+        "\t".join(row) + "\n" + "\t".join(row.values()) + "\n",
+        encoding="utf-8",
+    )
+    adapter = EncodeStyleWorkflowAdapter()
+
+    inline = adapter.plan_workspace(
+        WorkflowInputs(config={}, samples=[row]),
+        tmp_path / "workspace-inline",
+    )
+    server_path = adapter.plan_workspace(
+        WorkflowInputs(config={"samples": str(samples_path)}),
+        tmp_path / "workspace-path",
+    )
+
+    assert inline.is_success is True
+    assert server_path.is_success is True
+    assert inline.value.files == server_path.value.files
 
 
 def test_adapter_plan_workspace_semantic_round_trip_via_loader(tmp_path):

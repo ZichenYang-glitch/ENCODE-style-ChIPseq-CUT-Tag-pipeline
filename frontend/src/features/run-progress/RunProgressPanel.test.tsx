@@ -494,7 +494,9 @@ describe('RunProgressPanel', () => {
     const user = userEvent.setup();
     const invalidValidatedInputs: WorkflowInputs = {
       ...validatedInputs,
-      samples: [{ name: 'sample-1', replicate: 1 }],
+      samples: [
+        { name: 'sample-1', replicate: 1 },
+      ] as unknown as WorkflowInputs['samples'],
     };
     const { runClient } = renderPanel({
       validationResult: successfulValidation,

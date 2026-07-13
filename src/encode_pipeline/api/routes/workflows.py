@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from encode_pipeline.api.dependencies import get_registry, get_validation_service
 from encode_pipeline.api.models import (
-    IssueResponse,
     SchemaResponse,
+    WorkflowSchemaResponse,
     ValidationRequest,
     ValidationResponse,
     WorkflowCapabilityResponse,
@@ -71,18 +69,24 @@ async def list_workflows(
         items.append(
             WorkflowListItem(
                 metadata=WorkflowMetadataResponse(**metadata.to_dict()),
-                capabilities=WorkflowCapabilityResponse(**adapter.capabilities.to_dict()),
+                capabilities=WorkflowCapabilityResponse(
+                    **adapter.capabilities.to_dict()
+                ),
             )
         )
     return WorkflowListResponse(ok=True, workflows=items, issues=[])
 
 
-@router.get("/{workflow_id}/schema", response_model=SchemaResponse, operation_id="getWorkflowSchema")
+@router.get(
+    "/{workflow_id}/schema",
+    response_model=SchemaResponse,
+    operation_id="getWorkflowSchema",
+)
 async def get_schema(
     workflow_id: str,
     registry: WorkflowRegistry = Depends(get_registry),
 ) -> SchemaResponse:
-    """Return adapter-owned schema hints for one workflow."""
+    """Return the adapter-owned authoring contract for one workflow."""
     try:
         adapter = registry.get(workflow_id)
     except KeyError:
@@ -91,21 +95,31 @@ async def get_schema(
             SchemaResponse(
                 ok=False,
                 workflow_id=workflow_id,
-                schema_hints={},
+                schema=None,
                 issues=[_workflow_not_found_issue(workflow_id).to_dict()],
-            ).model_dump(),
+            ).model_dump(by_alias=True),
         )
 
     return SchemaResponse(
         ok=True,
         workflow_id=workflow_id,
-        schema_hints=dict(adapter.schema().to_dict()),
+        schema=WorkflowSchemaResponse(**adapter.schema().to_dict()),
         issues=[],
     )
 
 
-@router.post("/{workflow_id}/validate", response_model=ValidationResponse, operation_id="validateWorkflow")
-async def validate_workflow(
+@router.post(
+    "/{workflow_id}/validate",
+    response_model=ValidationResponse,
+    operation_id="validateWorkflow",
+    responses={
+        413: {
+            "model": ValidationResponse,
+            "description": "Request body too large.",
+        }
+    },
+)
+def validate_workflow(
     workflow_id: str,
     request_body: ValidationRequest,
     validation_service: ValidationService = Depends(get_validation_service),
@@ -144,6 +158,6 @@ async def validate_workflow(
     return ValidationResponse(
         ok=result.is_success,
         workflow_id=workflow_id,
-        value=result.value,
+        value=None,
         issues=[issue.to_dict() for issue in result.issues],
     )

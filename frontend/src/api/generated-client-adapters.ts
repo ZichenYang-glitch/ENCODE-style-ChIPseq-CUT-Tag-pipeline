@@ -236,7 +236,7 @@ export function createGeneratedWorkflowClient(): WorkflowApiClient {
           ok: response.ok,
           workflow_id: response.workflow_id,
           schema_hints: response.ok
-            ? toWorkflowSchema(response.schema_hints)
+            ? toWorkflowSchema(response.schema)
             : null,
           issues: mapIssues(response.issues),
         };

@@ -6,7 +6,10 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from decimal import Decimal
+import json
+import math
 from pathlib import Path
+import re
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from encode_pipeline.platform.results import Result
@@ -17,6 +20,137 @@ if TYPE_CHECKING:
 
 
 SamplePayload = str | Path | list[dict[str, str]] | None
+
+JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
+MAX_AUTHORING_REQUEST_BYTES = 2 * 1024 * 1024
+MAX_SAMPLE_ROWS = 1_000
+MAX_SAMPLE_COLUMNS = 64
+MAX_SAMPLE_COLUMN_NAME_LENGTH = 128
+MAX_SAMPLE_CELL_LENGTH = 4_096
+
+_SCHEMA_VERSION_PATTERN = re.compile(r"^[1-9]\d*\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$")
+_MODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_SCHEMA_COVERAGE_VALUES = frozenset({"partial", "complete"})
+
+
+@dataclass(frozen=True)
+class WorkflowSchemaCoverage:
+    """Coverage of each canonical adapter-owned authoring surface.
+
+    Complete means every canonical field is representable. It does not claim
+    to enumerate every legacy spelling that a scientific validator accepts.
+    """
+
+    config: str = "partial"
+    samples: str = "partial"
+    options: str = "partial"
+
+    def __post_init__(self) -> None:
+        for name in ("config", "samples", "options"):
+            value = getattr(self, name)
+            if value not in _SCHEMA_COVERAGE_VALUES:
+                raise ValueError(f"Workflow schema {name} coverage is invalid")
+
+    def to_dict(self) -> dict[str, str]:
+        """Return a JSON-ready coverage mapping."""
+        return {
+            "config": self.config,
+            "samples": self.samples,
+            "options": self.options,
+        }
+
+
+@dataclass(frozen=True)
+class WorkflowAuthoringModes:
+    """Adapter-declared editor modes for config, samples, and options."""
+
+    config: tuple[str, ...] = ()
+    samples: tuple[str, ...] = ()
+    options: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        for name in ("config", "samples", "options"):
+            object.__setattr__(
+                self,
+                name,
+                _normalize_mode_tuple(getattr(self, name), f"authoring_modes.{name}"),
+            )
+
+    def to_dict(self) -> dict[str, list[str]]:
+        """Return fresh JSON-ready mode lists."""
+        return {
+            "config": list(self.config),
+            "samples": list(self.samples),
+            "options": list(self.options),
+        }
+
+
+@dataclass(frozen=True)
+class WorkflowInputModes:
+    """Wire-level input representations accepted by an adapter."""
+
+    config: tuple[str, ...] = ("object",)
+    samples: tuple[str, ...] = ("server_path",)
+    options: tuple[str, ...] = ("object",)
+
+    def __post_init__(self) -> None:
+        for name in ("config", "samples", "options"):
+            object.__setattr__(
+                self,
+                name,
+                _normalize_mode_tuple(getattr(self, name), f"input_modes.{name}"),
+            )
+
+    def to_dict(self) -> dict[str, list[str]]:
+        """Return fresh JSON-ready mode lists."""
+        return {
+            "config": list(self.config),
+            "samples": list(self.samples),
+            "options": list(self.options),
+        }
+
+
+@dataclass(frozen=True)
+class WorkflowInputLimits:
+    """Public projection of the platform-wide authoring ceilings.
+
+    Contract version 1.0.0 only permits the exact platform values because the
+    transport and domain boundaries enforce one uniform set of ceilings.
+    """
+
+    max_request_bytes: int = MAX_AUTHORING_REQUEST_BYTES
+    max_sample_rows: int = MAX_SAMPLE_ROWS
+    max_sample_columns: int = MAX_SAMPLE_COLUMNS
+    max_sample_column_name_length: int = MAX_SAMPLE_COLUMN_NAME_LENGTH
+    max_sample_cell_length: int = MAX_SAMPLE_CELL_LENGTH
+
+    def __post_init__(self) -> None:
+        ceilings = {
+            "max_request_bytes": MAX_AUTHORING_REQUEST_BYTES,
+            "max_sample_rows": MAX_SAMPLE_ROWS,
+            "max_sample_columns": MAX_SAMPLE_COLUMNS,
+            "max_sample_column_name_length": MAX_SAMPLE_COLUMN_NAME_LENGTH,
+            "max_sample_cell_length": MAX_SAMPLE_CELL_LENGTH,
+        }
+        for name, ceiling in ceilings.items():
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"Workflow input limit {name} must be an integer")
+            if value != ceiling:
+                raise ValueError(
+                    f"Workflow input limit {name} must equal the platform "
+                    f"ceiling {ceiling}"
+                )
+
+    def to_dict(self) -> dict[str, int]:
+        """Return a JSON-ready limit mapping."""
+        return {
+            "max_request_bytes": self.max_request_bytes,
+            "max_sample_rows": self.max_sample_rows,
+            "max_sample_columns": self.max_sample_columns,
+            "max_sample_column_name_length": self.max_sample_column_name_length,
+            "max_sample_cell_length": self.max_sample_cell_length,
+        }
 
 
 @dataclass(frozen=True)
@@ -91,32 +225,83 @@ class WorkflowCapabilities:
 
 @dataclass(frozen=True)
 class WorkflowSchema:
-    """Adapter-owned schemas for config, samples, and options."""
+    """Top-level frozen authoring contract with copied JSON mappings.
 
+    Constructor mappings are defensively deep-copied and ``to_dict`` returns
+    fresh deep copies. The stored JSON Schema mappings remain ordinary mutable
+    dictionaries; top-level dataclass fields alone are frozen.
+    """
+
+    schema_version: str = "1.0.0"
+    schema_dialect: str = JSON_SCHEMA_DIALECT
+    coverage: WorkflowSchemaCoverage = field(default_factory=WorkflowSchemaCoverage)
+    authoring_modes: WorkflowAuthoringModes = field(
+        default_factory=WorkflowAuthoringModes
+    )
+    input_modes: WorkflowInputModes = field(default_factory=WorkflowInputModes)
+    limits: WorkflowInputLimits = field(default_factory=WorkflowInputLimits)
     config_schema: Mapping[str, object] = field(default_factory=dict)
     sample_schema: Mapping[str, object] = field(default_factory=dict)
     option_schema: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if (
+            not isinstance(self.schema_version, str)
+            or _SCHEMA_VERSION_PATTERN.fullmatch(self.schema_version) is None
+        ):
+            raise ValueError("WorkflowSchema schema_version must be semantic version")
+        if self.schema_dialect != JSON_SCHEMA_DIALECT:
+            raise ValueError("WorkflowSchema schema_dialect is not supported")
+        for name, expected_type in (
+            ("coverage", WorkflowSchemaCoverage),
+            ("authoring_modes", WorkflowAuthoringModes),
+            ("input_modes", WorkflowInputModes),
+            ("limits", WorkflowInputLimits),
+        ):
+            if not isinstance(getattr(self, name), expected_type):
+                raise ValueError(
+                    f"WorkflowSchema {name} must be {expected_type.__name__}"
+                )
         object.__setattr__(
             self,
             "config_schema",
-            _copy_mapping(self.config_schema, "config_schema"),
+            _copy_json_schema(
+                self.config_schema,
+                "config_schema",
+                dialect=self.schema_dialect,
+                root_type="object",
+            ),
         )
         object.__setattr__(
             self,
             "sample_schema",
-            _copy_mapping(self.sample_schema, "sample_schema"),
+            _copy_json_schema(
+                self.sample_schema,
+                "sample_schema",
+                dialect=self.schema_dialect,
+                root_type="array",
+            ),
         )
         object.__setattr__(
             self,
             "option_schema",
-            _copy_mapping(self.option_schema, "option_schema"),
+            _copy_json_schema(
+                self.option_schema,
+                "option_schema",
+                dialect=self.schema_dialect,
+                root_type="object",
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Return fresh schema dict copies."""
+        """Return a fresh JSON-ready authoring contract."""
         return {
+            "schema_version": self.schema_version,
+            "schema_dialect": self.schema_dialect,
+            "coverage": self.coverage.to_dict(),
+            "authoring_modes": self.authoring_modes.to_dict(),
+            "input_modes": self.input_modes.to_dict(),
+            "limits": self.limits.to_dict(),
             "config_schema": deepcopy(self.config_schema),
             "sample_schema": deepcopy(self.sample_schema),
             "option_schema": deepcopy(self.option_schema),
@@ -363,7 +548,7 @@ class WorkflowAdapter(Protocol):
     capabilities: WorkflowCapabilities
 
     def schema(self) -> WorkflowSchema:
-        """Return adapter-owned config, sample, and option schemas."""
+        """Return the versioned adapter-owned authoring contract."""
 
     def validate(self, inputs: WorkflowInputs) -> Result[object]:
         """Validate submitted inputs and return adapter-owned validated data."""
@@ -444,10 +629,64 @@ def _normalize_string_tuple(values: Iterable[str], name: str) -> tuple[str, ...]
     return tuple(normalized)
 
 
+def _normalize_mode_tuple(values: Iterable[str], name: str) -> tuple[str, ...]:
+    normalized = _normalize_string_tuple(values, name)
+    if len(normalized) != len(set(normalized)):
+        raise ValueError(f"{name} entries must be unique")
+    for value in normalized:
+        if _MODE_PATTERN.fullmatch(value) is None:
+            raise ValueError(f"{name} entries must be stable lowercase tokens")
+    return normalized
+
+
 def _copy_mapping(mapping: Mapping[str, object], name: str) -> dict[str, object]:
     if not isinstance(mapping, Mapping):
         raise ValueError(f"{name} must be a mapping")
     return deepcopy(dict(mapping))
+
+
+def _copy_json_schema(
+    mapping: Mapping[str, object],
+    name: str,
+    *,
+    dialect: str,
+    root_type: str,
+) -> dict[str, object]:
+    if not isinstance(mapping, Mapping):
+        raise ValueError(f"{name} must be a mapping")
+    copied = deepcopy(dict(mapping))
+    copied.setdefault("$schema", dialect)
+    copied.setdefault("type", root_type)
+    if copied.get("$schema") != dialect:
+        raise ValueError(f"{name} must use the declared schema dialect")
+    if copied.get("type") != root_type:
+        raise ValueError(f"{name} must have a {root_type} root")
+    _validate_json_value(copied, name)
+    try:
+        json.dumps(copied, allow_nan=False, ensure_ascii=False)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must contain only JSON-safe values") from exc
+    return copied
+
+
+def _validate_json_value(value: object, name: str) -> None:
+    if value is None or isinstance(value, (str, bool, int)):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(f"{name} must not contain NaN or Infinity")
+        return
+    if isinstance(value, list):
+        for item in value:
+            _validate_json_value(item, name)
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError(f"{name} keys must be strings")
+            _validate_json_value(item, name)
+        return
+    raise ValueError(f"{name} must contain only JSON-safe values")
 
 
 def _copy_string_mapping(mapping: Mapping[str, str], name: str) -> dict[str, str]:
@@ -461,11 +700,24 @@ def _copy_string_mapping(mapping: Mapping[str, str], name: str) -> dict[str, str
 
 
 def _copy_samples(samples: SamplePayload) -> SamplePayload:
-    if samples is None or isinstance(samples, (str, Path)):
+    if samples is None:
+        return samples
+    if isinstance(samples, (str, Path)):
+        sample_path = str(samples)
+        if len(sample_path) > MAX_SAMPLE_CELL_LENGTH:
+            raise ValueError("WorkflowInputs sample path exceeds the platform limit")
+        if any(character in sample_path for character in ("\x00", "\t", "\n", "\r")):
+            raise ValueError(
+                "WorkflowInputs sample path contains a forbidden control character"
+            )
         return samples
     if not isinstance(samples, list):
         raise ValueError(
             "WorkflowInputs samples must be str, Path, list[dict[str, str]], or None"
+        )
+    if not samples or len(samples) > MAX_SAMPLE_ROWS:
+        raise ValueError(
+            f"WorkflowInputs inline samples must contain 1 to {MAX_SAMPLE_ROWS} rows"
         )
 
     copied = []
@@ -473,10 +725,30 @@ def _copy_samples(samples: SamplePayload) -> SamplePayload:
         if not isinstance(row, dict):
             raise ValueError("WorkflowInputs sample rows must be dicts")
         copied_row = dict(row)
+        if not copied_row or len(copied_row) > MAX_SAMPLE_COLUMNS:
+            raise ValueError(
+                "WorkflowInputs sample rows exceed the platform column limit"
+            )
         for key, value in copied_row.items():
             if not isinstance(key, str) or not isinstance(value, str):
                 raise ValueError(
                     "WorkflowInputs sample row keys and values must be strings"
+                )
+            if not key or len(key) > MAX_SAMPLE_COLUMN_NAME_LENGTH:
+                raise ValueError(
+                    "WorkflowInputs sample column name exceeds the platform limit"
+                )
+            if any(character in key for character in ("\x00", "\t", "\n", "\r")):
+                raise ValueError(
+                    "WorkflowInputs sample column name contains a forbidden control character"
+                )
+            if len(value) > MAX_SAMPLE_CELL_LENGTH:
+                raise ValueError(
+                    "WorkflowInputs sample cell exceeds the platform limit"
+                )
+            if any(character in value for character in ("\x00", "\t", "\n", "\r")):
+                raise ValueError(
+                    "WorkflowInputs sample cell contains a forbidden control character"
                 )
         copied.append(copied_row)
     return copied
