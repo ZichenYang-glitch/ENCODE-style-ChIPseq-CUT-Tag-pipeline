@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type {
@@ -7,6 +7,7 @@ import type {
   RunArtifactsResponse,
 } from '../../api/generated/models';
 import {
+  downloadRunArtifact,
   getRunArtifact,
   listRunArtifacts,
 } from '../../api/generated/artifacts/artifacts';
@@ -19,6 +20,10 @@ import {
   safeNextArtifactCursor,
   type ArtifactExtractionOutcome,
 } from './artifactState';
+import {
+  safeArtifactDownloadFilename,
+  saveArtifactBlob,
+} from './artifactDownload';
 
 const ARTIFACT_PAGE_SIZE = 50;
 
@@ -116,6 +121,17 @@ export function ArtifactBrowser({
       ),
     retry: 1,
     retryDelay: 100,
+  });
+
+  const downloadMutation = useMutation({
+    mutationFn: async (artifact: ArtifactReferenceResponse) => {
+      const blob = await downloadRunArtifact(runId, artifact.artifact_id);
+      saveArtifactBlob(
+        blob,
+        safeArtifactDownloadFilename(artifact.name, artifact.artifact_id),
+      );
+      return artifact.artifact_id;
+    },
   });
 
   if (runStatus !== 'succeeded') {
@@ -232,6 +248,20 @@ export function ArtifactBrowser({
           isError={detailQuery.isError}
           invalidSelection={selectedArtifactId !== null && !validSelection}
           onRetry={() => void detailQuery.refetch()}
+          onDownload={(artifact) => downloadMutation.mutate(artifact)}
+          isDownloading={
+            downloadMutation.isPending &&
+            downloadMutation.variables?.artifact_id === detailQuery.data?.artifact_id
+          }
+          downloadStatus={
+            downloadMutation.variables?.artifact_id !== detailQuery.data?.artifact_id
+              ? 'idle'
+              : downloadMutation.isError
+                ? 'error'
+                : downloadMutation.isSuccess
+                  ? 'success'
+                  : 'idle'
+          }
           onBackToList={() => {
             const list = document.getElementById('artifact-list');
             if (list && typeof list.scrollIntoView === 'function') {

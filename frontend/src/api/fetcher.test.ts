@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetcher, ApiError } from './fetcher';
+import { fetcher, blobFetcher, ApiError } from './fetcher';
 
 describe('fetcher', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -123,5 +123,50 @@ describe('fetcher', () => {
     await expect(fetcher('/api/v1/runs/run-123', {})).rejects.toBeInstanceOf(
       ApiError,
     );
+  });
+
+  it('returns successful binary responses as Blob values', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', '');
+    const source = new Blob(['durable artifact'], { type: 'text/plain' });
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: async () => source,
+    } as Response);
+
+    const result = await blobFetcher('/api/v1/runs/run-1/artifacts/a/download');
+
+    expect(result).toBe(source);
+  });
+
+  it('uses the same redacted Issue handling for binary request failures', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', '');
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        ok: false,
+        issues: [
+          {
+            code: 'RUN_ARTIFACT_DOWNLOAD_CONFLICT',
+            message: 'Artifact content is no longer available as indexed.',
+            technical_message: '/private/workspace/source.tsv changed',
+            context: { path: '/private/workspace/source.tsv' },
+          },
+        ],
+      }),
+    } as Response);
+
+    await expect(
+      blobFetcher('/api/v1/runs/run-1/artifacts/a/download'),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: 'RUN_ARTIFACT_DOWNLOAD_CONFLICT',
+      issues: [
+        {
+          code: 'RUN_ARTIFACT_DOWNLOAD_CONFLICT',
+          message: 'Artifact content is no longer available as indexed.',
+        },
+      ],
+    });
   });
 });

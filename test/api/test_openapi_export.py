@@ -43,6 +43,10 @@ EXPECTED_OPERATIONS = {
         "GET",
         "/api/v1/runs/{run_id}/artifacts/{artifact_id}",
     ): "getRunArtifact",
+    (
+        "GET",
+        "/api/v1/runs/{run_id}/artifacts/{artifact_id}/download",
+    ): "downloadRunArtifact",
     ("POST", "/api/v1/runs/{run_id}/preflight"): "triggerPreflight",
     ("POST", "/api/v1/workflows/{workflow_id}/agent/chat"): "chatWithWorkflowAgent",
 }
@@ -134,10 +138,45 @@ def test_artifact_operations_do_not_publish_unreachable_422_responses(tmp_path):
     for path in (
         "/api/v1/runs/{run_id}/artifacts",
         "/api/v1/runs/{run_id}/artifacts/{artifact_id}",
+        "/api/v1/runs/{run_id}/artifacts/{artifact_id}/download",
     ):
         responses = schema["paths"][path]["get"]["responses"]
         assert "422" not in responses
         assert "4XX" in responses
+
+
+def test_artifact_download_contract_is_binary_and_has_bounded_error_envelopes(
+    tmp_path,
+):
+    schema = _isolated_app_schema(tmp_path, "artifact-download-contract")
+    operation = schema["paths"][
+        "/api/v1/runs/{run_id}/artifacts/{artifact_id}/download"
+    ]["get"]
+
+    assert operation["operationId"] == "downloadRunArtifact"
+    assert set(operation["responses"]) == {"200", "404", "409", "4XX", "500"}
+    binary = operation["responses"]["200"]["content"]["application/octet-stream"][
+        "schema"
+    ]
+    assert binary == {"type": "string", "format": "binary"}
+    for status in ("404", "409", "4XX", "500"):
+        response_schema = operation["responses"][status]["content"]["application/json"][
+            "schema"
+        ]
+        assert response_schema == {
+            "$ref": "#/components/schemas/RunArtifactDownloadErrorResponse"
+        }
+    issue_properties = schema["components"]["schemas"]["ArtifactDownloadIssueResponse"][
+        "properties"
+    ]
+    assert "technical_message" not in issue_properties
+    context_ref = issue_properties["context"]["$ref"]
+    assert context_ref == ("#/components/schemas/ArtifactDownloadIssueContextResponse")
+    context_schema = schema["components"]["schemas"][
+        "ArtifactDownloadIssueContextResponse"
+    ]
+    assert context_schema["additionalProperties"] is False
+    assert set(context_schema["properties"]) == {"reason_code"}
 
 
 def test_qc_metric_operation_is_lossless_and_has_declared_error_envelopes(tmp_path):

@@ -795,6 +795,89 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/artifacts/{artifact_id}/download": {
+      "get": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "Download Run Artifact",
+        "description": "Stream one persisted run-scoped artifact through a safe descriptor.",
+        "operationId": "downloadRunArtifact",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Artifact Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The persisted artifact byte stream.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunArtifactDownloadErrorResponse"
+                }
+              }
+            },
+            "description": "Client Error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunArtifactDownloadErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunArtifactDownloadErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunArtifactDownloadErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}/qc-metrics": {
       "get": {
         "tags": [
@@ -1112,6 +1195,87 @@
         ],
         "title": "AgentToolCall",
         "description": "Transparent record of a read-only tool invocation by the agent."
+      },
+      "ArtifactDownloadIssueContextResponse": {
+        "properties": {
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "pattern": "^[A-Z][A-Z0-9_]{0,127}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ArtifactDownloadIssueContextResponse",
+        "description": "Strict public context projection for artifact download failures."
+      },
+      "ArtifactDownloadIssueResponse": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity",
+            "default": "error"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          },
+          "context": {
+            "$ref": "#/components/schemas/ArtifactDownloadIssueContextResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ArtifactDownloadIssueResponse",
+        "description": "Allowlisted public Issue fields for artifact download failures."
       },
       "ArtifactMetadataResponse": {
         "properties": {
@@ -1567,6 +1731,38 @@
         ],
         "title": "RunArtifactDetailResponse",
         "description": "Envelope for one run-scoped artifact reference."
+      },
+      "RunArtifactDownloadErrorResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": false,
+            "title": "Ok",
+            "default": false
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "artifact_id": {
+            "type": "string",
+            "title": "Artifact Id"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactDownloadIssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "artifact_id"
+        ],
+        "title": "RunArtifactDownloadErrorResponse",
+        "description": "Disclosure-safe envelope for an artifact download failure."
       },
       "RunArtifactsResponse": {
         "properties": {

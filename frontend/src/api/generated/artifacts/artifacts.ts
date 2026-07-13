@@ -12,6 +12,7 @@ import type {
 } from '.././models';
 
 import { fetcher } from '../../fetcher';
+import { blobFetcher } from '../../fetcher';
 
 /**
  * List persisted artifact references with a run-scoped keyset cursor.
@@ -63,6 +64,32 @@ export const getRunArtifact = async (runId: string,
     artifactId: string, options?: RequestInit): Promise<RunArtifactDetailResponse> => {
 
   return fetcher<RunArtifactDetailResponse>(getGetRunArtifactUrl(runId,artifactId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * Stream one persisted run-scoped artifact through a safe descriptor.
+ * @summary Download Run Artifact
+ */
+export const getDownloadRunArtifactUrl = (runId: string,
+    artifactId: string,) => {
+
+
+
+
+  return `/api/v1/runs/${runId}/artifacts/${artifactId}/download`
+}
+
+export const downloadRunArtifact = async (runId: string,
+    artifactId: string, options?: RequestInit): Promise<Blob> => {
+
+  return blobFetcher<Blob>(getDownloadRunArtifactUrl(runId,artifactId),
   {
     ...options,
     method: 'GET'

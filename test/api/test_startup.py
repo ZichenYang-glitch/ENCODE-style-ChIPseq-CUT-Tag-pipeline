@@ -68,6 +68,7 @@ def test_expected_routes_are_registered() -> None:
     assert "/api/v1/runs/{run_id}/start" in paths
     assert "/api/v1/runs/{run_id}/cancel" in paths
     assert "/api/v1/runs/{run_id}/preflight" in paths
+    assert "/api/v1/runs/{run_id}/artifacts/{artifact_id}/download" in paths
 
 
 def test_api_dependencies_are_async_to_avoid_testclient_threadpool_hang() -> None:
@@ -76,6 +77,7 @@ def test_api_dependencies_are_async_to_avoid_testclient_threadpool_hang() -> Non
         "get_validation_service",
         "get_agent_service",
         "get_run_service",
+        "get_artifact_download_service",
         "get_run_submission_service",
         "get_run_cancellation_service",
         "get_preflight_service",
@@ -90,6 +92,7 @@ def test_create_app_exposes_preflight_service_and_local_run_driver() -> None:
     assert hasattr(app.state, "run_submission_service")
     assert hasattr(app.state, "run_cancellation_service")
     assert hasattr(app.state, "preflight_service")
+    assert hasattr(app.state, "artifact_download_service")
     assert hasattr(app.state, "local_run_driver")
     assert not hasattr(app.state, "stub_execution_driver")
 
@@ -148,6 +151,7 @@ def test_only_explicit_blocking_routes_use_fastapi_threadpool() -> None:
             "/api/v1/runs/{run_id}/start",
             "/api/v1/runs/{run_id}/cancel",
             "/api/v1/runs/{run_id}/qc-metrics",
+            "/api/v1/runs/{run_id}/artifacts/{artifact_id}/download",
         }:
             assert not inspect.iscoroutinefunction(endpoint), endpoint
         else:

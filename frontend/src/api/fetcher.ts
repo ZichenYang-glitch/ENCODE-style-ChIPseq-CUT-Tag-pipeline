@@ -102,7 +102,11 @@ function normalizeError(
   };
 }
 
-export const fetcher = async <T>(url: string, init: RequestInit = {}): Promise<T> => {
+async function request<T>(
+  url: string,
+  init: RequestInit,
+  decode: (response: Response) => Promise<T>,
+): Promise<T> {
   const baseUrl = getApiBaseUrl();
   const fullUrl = baseUrl ? `${baseUrl}${url}` : url;
 
@@ -122,5 +126,15 @@ export const fetcher = async <T>(url: string, init: RequestInit = {}): Promise<T
     throw new ApiError(response.status, code, message, issues);
   }
 
-  return response.json() as Promise<T>;
-};
+  return decode(response);
+}
+
+export const fetcher = async <T>(
+  url: string,
+  init: RequestInit = {},
+): Promise<T> => request(url, init, (response) => response.json() as Promise<T>);
+
+export const blobFetcher = async <T extends Blob = Blob>(
+  url: string,
+  init: RequestInit = {},
+): Promise<T> => request(url, init, (response) => response.blob() as Promise<T>);

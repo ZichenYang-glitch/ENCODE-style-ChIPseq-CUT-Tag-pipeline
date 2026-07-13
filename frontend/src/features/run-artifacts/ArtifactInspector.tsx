@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Copy } from 'lucide-react';
+import { ArrowUp, Copy, Download } from 'lucide-react';
 import type { ArtifactReferenceResponse } from '../../api/generated/models';
 import { Button } from '../../components/Button';
 import { formatBytes, formatProducedTime } from './artifactState';
@@ -11,6 +11,9 @@ interface ArtifactInspectorProps {
   isError: boolean;
   invalidSelection: boolean;
   onRetry: () => void;
+  onDownload?: (artifact: ArtifactReferenceResponse) => void;
+  isDownloading?: boolean;
+  downloadStatus?: 'idle' | 'success' | 'error';
   onBackToList?: () => void;
 }
 
@@ -37,6 +40,9 @@ export function ArtifactInspector({
   isError,
   invalidSelection,
   onRetry,
+  onDownload,
+  isDownloading = false,
+  downloadStatus = 'idle',
   onBackToList = () => undefined,
 }: ArtifactInspectorProps) {
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -139,12 +145,38 @@ export function ArtifactInspector({
 
       {artifact && !isLoading && (
         <div className="mt-3 min-w-0 space-y-4">
-          <div className="min-w-0">
-            <p className="break-words text-sm font-medium">{artifact.output_type}</p>
-            <p className="break-all text-xs text-[var(--color-text-muted)]" title={artifact.name}>
-              {artifact.name}
-            </p>
+          <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="break-words text-sm font-medium">{artifact.output_type}</p>
+              <p className="break-all text-xs text-[var(--color-text-muted)]" title={artifact.name}>
+                {artifact.name}
+              </p>
+            </div>
+            {onDownload && (
+              <Button
+                variant="secondary"
+                className="shrink-0 px-2"
+                onClick={() => onDownload(artifact)}
+                disabled={isDownloading}
+                aria-label={`Download ${artifact.name}`}
+                title={`Download ${artifact.name}`}
+              >
+                <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                {isDownloading ? 'Downloading…' : 'Download'}
+              </Button>
+            )}
           </div>
+
+          {downloadStatus === 'error' && (
+            <p className="text-xs text-[var(--color-error)]" role="status">
+              Download could not be completed. Retry when the artifact source is available.
+            </p>
+          )}
+          {downloadStatus === 'success' && (
+            <p className="text-xs text-[var(--color-text-muted)]" role="status">
+              Download prepared successfully.
+            </p>
+          )}
 
           <dl className="grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
             <dt className="text-[var(--color-text-muted)]">Size</dt>

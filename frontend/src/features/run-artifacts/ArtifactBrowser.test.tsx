@@ -9,6 +9,7 @@ import type {
   RunArtifactsResponse,
 } from '../../api/generated/models';
 import {
+  downloadRunArtifact,
   getRunArtifact,
   listRunArtifacts,
 } from '../../api/generated/artifacts/artifacts';
@@ -17,10 +18,12 @@ import { ArtifactBrowser } from './ArtifactBrowser';
 vi.mock('../../api/generated/artifacts/artifacts', () => ({
   listRunArtifacts: vi.fn(),
   getRunArtifact: vi.fn(),
+  downloadRunArtifact: vi.fn(),
 }));
 
 const listArtifactsMock = vi.mocked(listRunArtifacts);
 const getArtifactMock = vi.mocked(getRunArtifact);
+const downloadArtifactMock = vi.mocked(downloadRunArtifact);
 
 function artifact(id: string): ArtifactReferenceResponse {
   return {
@@ -84,6 +87,7 @@ function renderBrowser(
 beforeEach(() => {
   listArtifactsMock.mockReset();
   getArtifactMock.mockReset();
+  downloadArtifactMock.mockReset();
 });
 
 afterEach(() => {
@@ -220,6 +224,37 @@ describe('ArtifactBrowser queries', () => {
     expect(screen.getByText(selected.uri)).toBeInTheDocument();
     expect(screen.getAllByText(selected.relative_path).length).toBeGreaterThan(0);
     expect(screen.queryByText('/private/path')).not.toBeInTheDocument();
+  });
+
+  it('downloads through the generated operation and reports redacted failures', async () => {
+    const user = userEvent.setup();
+    const selected = artifact('artifact-a');
+    listArtifactsMock.mockResolvedValue(page([selected]));
+    getArtifactMock.mockResolvedValue(detail(selected));
+    downloadArtifactMock
+      .mockResolvedValueOnce(new Blob(['artifact bytes']))
+      .mockRejectedValueOnce(new Error('/private/workspace/source.tsv'));
+    const createObjectURL = vi.fn().mockReturnValue('blob:artifact');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+    renderBrowser({ selectedArtifactId: selected.artifact_id });
+
+    const button = await screen.findByRole('button', {
+      name: 'Download artifact-a.tsv',
+    });
+    await user.click(button);
+    expect(downloadArtifactMock).toHaveBeenCalledWith('run-1', 'artifact-a');
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:artifact');
+    expect(await screen.findByText('Download prepared successfully.')).toBeInTheDocument();
+
+    await user.click(button);
+    expect(await screen.findByText(/Download could not be completed/)).toBeInTheDocument();
+    expect(screen.queryByText('/private/workspace')).not.toBeInTheDocument();
   });
 
   it('fails closed for malformed successful envelopes', async () => {
