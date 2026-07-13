@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { FilePenLine } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useClients } from '../../api/client-context';
 import type {
@@ -9,6 +10,7 @@ import type {
   WorkflowSchema,
 } from '../../api/types';
 import { Panel } from '../../components/Panel';
+import { Button } from '../../components/Button';
 import { AgentSidebar } from '../../features/agent-sidebar/AgentSidebar';
 import { IssuePanel } from '../../features/issues-panel/IssuePanel';
 import { RunProgressPanel } from '../../features/run-progress/RunProgressPanel';
@@ -281,11 +283,19 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
       <section className="flex min-w-0 flex-1 flex-col gap-3">
         {workflow && (
           <Panel title="Workflow detail">
-            <WorkflowDetail
-              workflowId={workflow.metadata.workflow_id}
-              workflowName={workflow.metadata.name}
-              schemaHints={schemaHints}
-            />
+            <div className="space-y-3">
+              <WorkflowDetail
+                workflowId={workflow.metadata.workflow_id}
+                workflowName={workflow.metadata.name}
+                schemaHints={schemaHints}
+              />
+              <Button asChild variant="primary" className="gap-1.5">
+                <Link to={`/workflows/${workflow.metadata.workflow_id}/new-run`}>
+                  <FilePenLine aria-hidden="true" size={16} />
+                  Author inputs
+                </Link>
+              </Button>
+            </div>
           </Panel>
         )}
         {workflow && (
