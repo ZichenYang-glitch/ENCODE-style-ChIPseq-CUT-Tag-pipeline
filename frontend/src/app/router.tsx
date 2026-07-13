@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import {
   createBrowserRouter,
   Navigate,
@@ -11,12 +12,44 @@ import { WorkflowsIndexPage } from '../routes/workflows/index';
 import { WorkflowDetailPage } from '../routes/workflows/detail';
 import { RunDetailPage } from '../routes/runs/detail';
 
+const NewRunWorkbenchPage = lazy(() =>
+  import('../routes/workflows/new-run').then((module) => ({
+    default: module.NewRunWorkbenchPage,
+  })),
+);
+
 function WorkflowDetailRoute() {
   const { workflowId } = useParams<{ workflowId: string }>();
   if (!workflowId) {
     return <NotFoundPage />;
   }
   return <WorkflowDetailPage key={workflowId} workflowId={workflowId} />;
+}
+
+function NewRunWorkbenchRoute() {
+  const { workflowId } = useParams<{ workflowId: string }>();
+  if (!workflowId) {
+    return <NotFoundPage />;
+  }
+  return (
+    <Suspense fallback={<WorkbenchRouteLoading />}>
+      <NewRunWorkbenchPage key={workflowId} workflowId={workflowId} />
+    </Suspense>
+  );
+}
+
+function WorkbenchRouteLoading() {
+  return (
+    <section
+      data-testid="input-workbench-loading"
+      className="min-h-[38rem] min-w-0 flex-1 animate-pulse rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+      aria-label="Loading input workbench"
+    >
+      <div className="h-5 w-48 rounded bg-slate-200" />
+      <div className="mt-4 h-10 rounded bg-slate-100" />
+      <div className="mt-4 h-96 rounded bg-slate-100" />
+    </section>
+  );
 }
 
 export const appRoutes: RouteObject[] = [
@@ -30,6 +63,7 @@ export const appRoutes: RouteObject[] = [
         element: <WorkflowsLayout />,
         children: [
           { index: true, element: <WorkflowsIndexPage /> },
+          { path: ':workflowId/new-run', element: <NewRunWorkbenchRoute /> },
           { path: ':workflowId', element: <WorkflowDetailRoute /> },
         ],
       },
