@@ -9,7 +9,15 @@ from collections.abc import Iterator
 import pytest
 
 from encode_pipeline.api.main import create_app
-from encode_pipeline.platform.adapters import WorkflowCapabilities, WorkflowMetadata
+from encode_pipeline.platform.adapters import (
+    MAX_AUTHORING_REQUEST_BYTES,
+    MAX_SAMPLE_CELL_LENGTH,
+    MAX_SAMPLE_COLUMN_NAME_LENGTH,
+    MAX_SAMPLE_COLUMNS,
+    MAX_SAMPLE_ROWS,
+    WorkflowCapabilities,
+    WorkflowMetadata,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.validation import ValidationService
 from api_test_client import ApiTestClient
@@ -129,7 +137,13 @@ def test_get_schema_returns_versioned_renderable_contract(
         "options": "complete",
     }
     assert data["schema"]["sample_schema"]["type"] == "array"
-    assert data["schema"]["limits"]["max_sample_rows"] == 1000
+    assert data["schema"]["limits"] == {
+        "max_request_bytes": MAX_AUTHORING_REQUEST_BYTES,
+        "max_sample_rows": MAX_SAMPLE_ROWS,
+        "max_sample_columns": MAX_SAMPLE_COLUMNS,
+        "max_sample_column_name_length": MAX_SAMPLE_COLUMN_NAME_LENGTH,
+        "max_sample_cell_length": MAX_SAMPLE_CELL_LENGTH,
+    }
     assert data["issues"] == []
 
 

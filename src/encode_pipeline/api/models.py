@@ -124,18 +124,27 @@ class WorkflowSchemaModesResponse(BaseModel):
 
 
 class WorkflowInputLimitsResponse(BaseModel):
-    """Published workflow input limits."""
+    """Published projection of the platform-wide authoring ceilings."""
 
     model_config = ConfigDict(extra="forbid")
 
-    max_request_bytes: int = Field(gt=0, le=MAX_AUTHORING_REQUEST_BYTES)
-    max_sample_rows: int = Field(gt=0, le=MAX_SAMPLE_ROWS)
-    max_sample_columns: int = Field(gt=0, le=MAX_SAMPLE_COLUMNS)
+    max_request_bytes: int = Field(
+        ge=MAX_AUTHORING_REQUEST_BYTES,
+        le=MAX_AUTHORING_REQUEST_BYTES,
+    )
+    max_sample_rows: int = Field(ge=MAX_SAMPLE_ROWS, le=MAX_SAMPLE_ROWS)
+    max_sample_columns: int = Field(
+        ge=MAX_SAMPLE_COLUMNS,
+        le=MAX_SAMPLE_COLUMNS,
+    )
     max_sample_column_name_length: int = Field(
-        gt=0,
+        ge=MAX_SAMPLE_COLUMN_NAME_LENGTH,
         le=MAX_SAMPLE_COLUMN_NAME_LENGTH,
     )
-    max_sample_cell_length: int = Field(gt=0, le=MAX_SAMPLE_CELL_LENGTH)
+    max_sample_cell_length: int = Field(
+        ge=MAX_SAMPLE_CELL_LENGTH,
+        le=MAX_SAMPLE_CELL_LENGTH,
+    )
 
 
 class WorkflowSchemaResponse(BaseModel):

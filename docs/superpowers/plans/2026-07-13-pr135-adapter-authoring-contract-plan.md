@@ -4,12 +4,13 @@
 sample rows validate, persist, and materialize through the existing scientific
 and platform boundaries.
 
-**Architecture:** Add workflow-neutral frozen schema metadata and shared input
-limits, publish an ENCODE Draft 2020-12 partial/complete contract, bridge inline
-rows to the existing scientific validator with a private deterministic TSV,
-and enforce actual authoring request bytes before Pydantic. Keep lifecycle,
-persistence schema, worker scheduling, Snakemake targets, and scientific rules
-unchanged.
+**Architecture:** Add workflow-neutral, top-level-frozen schema metadata with
+defensive copies at construction and serialization, project the uniform
+platform input ceilings, publish an ENCODE Draft 2020-12 partial/complete
+contract, bridge inline rows to the existing scientific validator with a
+private deterministic TSV, and enforce actual authoring request bytes before
+Pydantic. Keep lifecycle, persistence schema, worker scheduling, Snakemake
+targets, and scientific rules unchanged.
 
 **Tech stack:** Python 3, dataclasses, FastAPI/Pydantic, SQLAlchemy/SQLite,
 JSON Schema Draft 2020-12, OpenAPI, Orval, pytest, React/Vite regression tests.
@@ -24,9 +25,13 @@ JSON Schema Draft 2020-12, OpenAPI, Orval, pytest, React/Vite regression tests.
 - Modify: `test/platform/test_adapters.py`
 
 - [x] Write failing tests for version/dialect, per-surface coverage, modes,
-  limits, defensive copying, JSON-safe schemas, and shared row bounds.
-- [x] Add frozen `WorkflowSchemaCoverage`, `WorkflowAuthoringModes`,
+  exact platform ceilings, top-level freezing, boundary copy isolation,
+  JSON-safe schemas, and shared row bounds.
+- [x] Add top-level-frozen `WorkflowSchemaCoverage`, `WorkflowAuthoringModes`,
   `WorkflowInputModes`, and `WorkflowInputLimits` values.
+- [x] Require contract `1.0.0` limit values to equal the transport/domain
+  ceilings; defer adapter-specific narrower values until both boundaries can
+  enforce them in a future contract version.
 - [x] Upgrade `WorkflowSchema.to_dict()` to the complete versioned envelope.
 - [x] Export the authoring primitives, dialect, and hard ceilings from the
   public `encode_pipeline.platform` façade.

@@ -9,9 +9,20 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from encode_pipeline.api.main import create_app
+from encode_pipeline.api.models import WorkflowInputLimitsResponse
 from encode_pipeline.persistence import open_run_persistence
-from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.adapters import (
+    MAX_AUTHORING_REQUEST_BYTES,
+    MAX_SAMPLE_CELL_LENGTH,
+    MAX_SAMPLE_COLUMN_NAME_LENGTH,
+    MAX_SAMPLE_COLUMNS,
+    MAX_SAMPLE_ROWS,
+    WorkflowInputs,
+)
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.defaults import (
     create_default_run_service,
@@ -56,6 +67,13 @@ HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "tra
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMMITTED_OPENAPI_PATH = REPO_ROOT / "frontend" / "openapi.json"
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
+INPUT_LIMIT_FIELDS = (
+    ("max_request_bytes", MAX_AUTHORING_REQUEST_BYTES),
+    ("max_sample_rows", MAX_SAMPLE_ROWS),
+    ("max_sample_columns", MAX_SAMPLE_COLUMNS),
+    ("max_sample_column_name_length", MAX_SAMPLE_COLUMN_NAME_LENGTH),
+    ("max_sample_cell_length", MAX_SAMPLE_CELL_LENGTH),
+)
 
 
 def _isolated_app_schema(tmp_path: Path, name: str) -> dict:
@@ -182,6 +200,12 @@ def test_workflow_authoring_contract_is_typed_versioned_and_bounded(tmp_path):
         "https://json-schema.org/draft/2020-12/schema"
     )
 
+    limits = schema["components"]["schemas"]["WorkflowInputLimitsResponse"]
+    assert set(limits["required"]) == {name for name, _ in INPUT_LIMIT_FIELDS}
+    for field_name, ceiling in INPUT_LIMIT_FIELDS:
+        assert limits["properties"][field_name]["minimum"] == ceiling
+        assert limits["properties"][field_name]["maximum"] == ceiling
+
     for request_name in ("ValidationRequest", "RunCreateRequest"):
         request = schema["components"]["schemas"][request_name]
         assert request["additionalProperties"] is False
@@ -193,6 +217,20 @@ def test_workflow_authoring_contract_is_typed_versioned_and_bounded(tmp_path):
         assert inline["items"]["maxProperties"] == 64
         assert inline["items"]["propertyNames"]["maxLength"] == 128
         assert inline["items"]["additionalProperties"]["maxLength"] == 4096
+
+
+@pytest.mark.parametrize(("field_name", "ceiling"), INPUT_LIMIT_FIELDS)
+@pytest.mark.parametrize("offset", (-1, 1), ids=("lower", "upper"))
+def test_workflow_input_limit_response_requires_exact_platform_ceiling(
+    field_name: str,
+    ceiling: int,
+    offset: int,
+):
+    values = dict(INPUT_LIMIT_FIELDS)
+    values[field_name] = ceiling + offset
+
+    with pytest.raises(ValidationError):
+        WorkflowInputLimitsResponse(**values)
 
 
 def test_authoring_operations_declare_stable_too_large_envelopes(tmp_path):

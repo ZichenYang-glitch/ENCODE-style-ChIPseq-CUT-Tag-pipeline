@@ -169,6 +169,25 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
         jsonschema.Draft202012Validator.check_schema(document)
 
 
+def test_schema_returns_fresh_instances_after_internal_mapping_mutation():
+    adapter = _adapter()
+    first = adapter.schema()
+    first_properties = first.config_schema["properties"]
+    assert isinstance(first_properties, dict)
+    first_outdir = first_properties["outdir"]
+    assert isinstance(first_outdir, dict)
+    first_outdir["description"] = "mutated caller value"
+
+    second = adapter.schema()
+    second_properties = second.config_schema["properties"]
+    assert isinstance(second_properties, dict)
+    second_outdir = second_properties["outdir"]
+    assert isinstance(second_outdir, dict)
+
+    assert first is not second
+    assert second_outdir["description"] == "Platform-owned run output directory."
+
+
 def test_schema_accepts_tiny_profile_without_samples_and_inline_rows(tmp_path):
     schema = _adapter().schema()
     tiny_config = yaml.safe_load(

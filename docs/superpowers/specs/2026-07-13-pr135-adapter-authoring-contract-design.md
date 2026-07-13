@@ -60,13 +60,16 @@ run workspace, SQLite, events, issues, or HTTP response.
 
 ## Versioned schema contract
 
-`WorkflowSchema` becomes a frozen, defensively copied contract with:
+`WorkflowSchema` becomes a top-level-frozen contract with defensive copying at
+its boundaries. Constructor mappings are deep-copied, and `to_dict()` returns a
+fresh deep copy. Its stored JSON Schema mappings remain ordinary mutable
+dictionaries; the contract does not claim deep immutability. It contains:
 
 - `schema_version`: `1.0.0`;
 - `schema_dialect`: `https://json-schema.org/draft/2020-12/schema`;
 - per-surface `coverage` values (`partial` or `complete`);
 - adapter-declared `authoring_modes` and wire-level `input_modes`;
-- bounded `limits`;
+- the platform-wide authoring ceilings projected as `limits`;
 - standard JSON Schema documents for config, sample rows, and options.
 
 Each JSON Schema has the same explicit `$schema`, a stable versioned `$id`, and
@@ -139,7 +142,7 @@ temporary names cannot affect either byte stream.
 
 ## Bounded transport and domain inputs
 
-The workflow-neutral hard ceiling and ENCODE-declared limits are:
+The uniform platform authoring ceilings projected by every `1.0.0` schema are:
 
 - request body: 2,097,152 UTF-8 bytes;
 - inline sample rows: 1–1,000;
@@ -149,7 +152,11 @@ The workflow-neutral hard ceiling and ENCODE-declared limits are:
 
 Pydantic exposes the row/column/cell constraints in OpenAPI. `WorkflowInputs`
 uses the same constants so direct service calls cannot bypass the structural
-ceiling. Adapter limits may be no wider than the platform ceiling.
+ceiling. In schema contract `1.0.0`, all five `WorkflowInputLimits` fields must
+equal these platform constants: the values are a public projection of uniform
+platform ceilings, not adapter-selectable policy. Both lower and higher values
+fail closed. Adapter-specific narrower limits are deferred to a future contract
+version that must design transport and domain enforcement at the same time.
 
 A route-scoped pure-ASGI middleware accumulates at most the limit in one byte
 buffer before Pydantic parses POST validate/create requests and rejects an
@@ -175,15 +182,17 @@ values; success is represented by `ok`, issues, and a null value.
 - Existing workspace containment and external path policy remain fail closed.
 - Request-limit responses contain no body excerpt, path, environment value, or
   exception string.
-- The schema is trusted adapter metadata, copied defensively and checked for
-  JSON-safe values; it is not executable input.
+- The schema is trusted adapter metadata, copied on construction and again for
+  serialization, and checked for JSON-safe values; it is not executable input.
+  Stored mappings are not advertised as deeply immutable.
 
 ## Tests and acceptance
 
 Tests cover Draft 2020-12 meta-schema validity, stable IDs, per-surface
-coverage, modes, limits, immutability, and invalid JSON values. The tiny profile
-without `config.samples`, its inline row, and its options must pass both the
-published schema and the existing adapter validator.
+coverage, modes, exact uniform limits, top-level freezing, boundary copy
+isolation, and invalid JSON values. The tiny profile without `config.samples`,
+its inline row, and its options must pass both the published schema and the
+existing adapter validator.
 
 Adapter tests cover precedence, empty/unknown/control-character rows,
 scientific failures, external path failures, temporary cleanup, concurrent
@@ -214,3 +223,6 @@ could leave that private directory for operating-system cleanup; a future
 in-memory scientific-loader refactor could remove that exposure. The config
 form contract is intentionally partial; advanced YAML fields remain
 backend-authoritative until explicitly added to a later schema version.
+Adapter-specific narrower input limits are likewise deferred: contract `1.0.0`
+can truthfully publish only the ceilings enforced uniformly by middleware,
+Pydantic, and `WorkflowInputs`.

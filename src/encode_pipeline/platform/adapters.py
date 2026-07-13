@@ -112,7 +112,11 @@ class WorkflowInputModes:
 
 @dataclass(frozen=True)
 class WorkflowInputLimits:
-    """Workflow-neutral hard limits declared by an adapter schema."""
+    """Public projection of the platform-wide authoring ceilings.
+
+    Contract version 1.0.0 only permits the exact platform values because the
+    transport and domain boundaries enforce one uniform set of ceilings.
+    """
 
     max_request_bytes: int = MAX_AUTHORING_REQUEST_BYTES
     max_sample_rows: int = MAX_SAMPLE_ROWS
@@ -132,9 +136,10 @@ class WorkflowInputLimits:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int):
                 raise ValueError(f"Workflow input limit {name} must be an integer")
-            if value <= 0 or value > ceiling:
+            if value != ceiling:
                 raise ValueError(
-                    f"Workflow input limit {name} must be between 1 and {ceiling}"
+                    f"Workflow input limit {name} must equal the platform "
+                    f"ceiling {ceiling}"
                 )
 
     def to_dict(self) -> dict[str, int]:
@@ -220,7 +225,12 @@ class WorkflowCapabilities:
 
 @dataclass(frozen=True)
 class WorkflowSchema:
-    """Versioned adapter-owned authoring contract and JSON Schemas."""
+    """Top-level frozen authoring contract with copied JSON mappings.
+
+    Constructor mappings are defensively deep-copied and ``to_dict`` returns
+    fresh deep copies. The stored JSON Schema mappings remain ordinary mutable
+    dictionaries; top-level dataclass fields alone are frozen.
+    """
 
     schema_version: str = "1.0.0"
     schema_dialect: str = JSON_SCHEMA_DIALECT

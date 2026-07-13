@@ -2559,31 +2559,31 @@
           "max_request_bytes": {
             "type": "integer",
             "maximum": 2097152.0,
-            "exclusiveMinimum": 0.0,
+            "minimum": 2097152.0,
             "title": "Max Request Bytes"
           },
           "max_sample_rows": {
             "type": "integer",
             "maximum": 1000.0,
-            "exclusiveMinimum": 0.0,
+            "minimum": 1000.0,
             "title": "Max Sample Rows"
           },
           "max_sample_columns": {
             "type": "integer",
             "maximum": 64.0,
-            "exclusiveMinimum": 0.0,
+            "minimum": 64.0,
             "title": "Max Sample Columns"
           },
           "max_sample_column_name_length": {
             "type": "integer",
             "maximum": 128.0,
-            "exclusiveMinimum": 0.0,
+            "minimum": 128.0,
             "title": "Max Sample Column Name Length"
           },
           "max_sample_cell_length": {
             "type": "integer",
             "maximum": 4096.0,
-            "exclusiveMinimum": 0.0,
+            "minimum": 4096.0,
             "title": "Max Sample Cell Length"
           }
         },
@@ -2597,7 +2597,7 @@
           "max_sample_cell_length"
         ],
         "title": "WorkflowInputLimitsResponse",
-        "description": "Published workflow input limits."
+        "description": "Published projection of the platform-wide authoring ceilings."
       },
       "WorkflowListItem": {
         "properties": {

@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import textwrap
+from dataclasses import FrozenInstanceError
 from decimal import Decimal
 from math import nan
 from pathlib import Path
@@ -42,6 +43,14 @@ from encode_pipeline.platform.results import Result
 
 
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
+
+INPUT_LIMIT_FIELDS = (
+    ("max_request_bytes", MAX_AUTHORING_REQUEST_BYTES),
+    ("max_sample_rows", MAX_SAMPLE_ROWS),
+    ("max_sample_columns", MAX_SAMPLE_COLUMNS),
+    ("max_sample_column_name_length", MAX_SAMPLE_COLUMN_NAME_LENGTH),
+    ("max_sample_cell_length", MAX_SAMPLE_CELL_LENGTH),
+)
 
 
 @pytest.mark.parametrize(
@@ -89,7 +98,7 @@ def test_capabilities_stores_tuple_supports_and_rejects_empty_strings():
         WorkflowCapabilities(supports=["validation", "  "])
 
 
-def test_schemas_deep_copy_nested_mappings_and_to_dict_returns_deep_copy():
+def test_schema_is_top_level_frozen_and_copies_input_and_serialized_mappings():
     config_schema = {"properties": {"threads": {"type": "integer"}}}
     sample_schema = {
         "type": "array",
@@ -109,6 +118,9 @@ def test_schemas_deep_copy_nested_mappings_and_to_dict_returns_deep_copy():
     serialized["config_schema"]["properties"]["threads"]["type"] = "number"
     serialized["sample_schema"]["items"]["properties"]["sample"]["type"] = "number"
     serialized["option_schema"]["properties"]["trim"]["type"] = "number"
+
+    with pytest.raises(FrozenInstanceError):
+        schema.schema_version = "2.0.0"
 
     assert schema.config_schema == {
         "$schema": JSON_SCHEMA_DIALECT,
@@ -148,7 +160,38 @@ def test_schemas_deep_copy_nested_mappings_and_to_dict_returns_deep_copy():
     }
 
 
-def test_schema_serializes_versioned_authoring_contract_and_defensive_values():
+def test_input_limits_default_serialization_matches_platform_ceilings():
+    assert WorkflowInputLimits().to_dict() == dict(INPUT_LIMIT_FIELDS)
+
+
+@pytest.mark.parametrize(("field_name", "ceiling"), INPUT_LIMIT_FIELDS)
+@pytest.mark.parametrize("offset", (-1, 1), ids=("lower", "upper"))
+def test_input_limits_reject_values_below_or_above_platform_ceiling(
+    field_name: str,
+    ceiling: int,
+    offset: int,
+):
+    with pytest.raises(ValueError, match="must equal the platform ceiling"):
+        WorkflowInputLimits(**{field_name: ceiling + offset})
+
+
+@pytest.mark.parametrize(("field_name", "ceiling"), INPUT_LIMIT_FIELDS)
+@pytest.mark.parametrize(
+    "invalid_value",
+    (True, "100"),
+    ids=("boolean", "string"),
+)
+def test_input_limits_reject_wrong_types(
+    field_name: str,
+    ceiling: int,
+    invalid_value: object,
+):
+    del ceiling
+    with pytest.raises(ValueError, match="must be an integer"):
+        WorkflowInputLimits(**{field_name: invalid_value})
+
+
+def test_schema_serializes_versioned_authoring_contract_values():
     coverage = WorkflowSchemaCoverage(
         config="partial",
         samples="complete",
@@ -202,8 +245,6 @@ def test_schema_serializes_versioned_authoring_contract_and_defensive_values():
         lambda: WorkflowSchemaCoverage(config="unknown"),
         lambda: WorkflowAuthoringModes(config=("",)),
         lambda: WorkflowInputModes(samples=("inline rows",)),
-        lambda: WorkflowInputLimits(max_request_bytes=0),
-        lambda: WorkflowInputLimits(max_sample_rows=MAX_SAMPLE_ROWS + 1),
         lambda: WorkflowSchema(schema_version="not-a-version"),
         lambda: WorkflowSchema(
             schema_dialect="http://json-schema.org/draft-07/schema#"
@@ -286,6 +327,22 @@ def test_inputs_reject_too_many_inline_rows():
             config={},
             samples=[{"sample": f"S{index}"} for index in range(MAX_SAMPLE_ROWS + 1)],
         )
+
+
+@pytest.mark.parametrize(
+    "samples",
+    [
+        [{"sample": f"S{index}"} for index in range(MAX_SAMPLE_ROWS)],
+        [{f"column-{index}": "value" for index in range(MAX_SAMPLE_COLUMNS)}],
+        [{"x" * MAX_SAMPLE_COLUMN_NAME_LENGTH: "value"}],
+        [{"sample": "x" * MAX_SAMPLE_CELL_LENGTH}],
+    ],
+    ids=("rows", "columns", "column-name", "cell"),
+)
+def test_inputs_accept_each_exact_platform_ceiling(samples):
+    inputs = WorkflowInputs(config={}, samples=samples)
+
+    assert len(inputs.samples) == len(samples)
 
 
 @pytest.mark.parametrize("samples", ["bad\x00path", "bad\npath", Path("bad\tpath")])
