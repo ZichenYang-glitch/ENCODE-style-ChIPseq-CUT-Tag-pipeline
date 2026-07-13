@@ -171,9 +171,11 @@ def test_schema_contract_is_read_inside_the_stable_build_capture_window() -> Non
 
 
 def test_schema_contract_failure_is_sanitized_before_adapter_validation() -> None:
+    private_detail = "private-schema-secret"
+
     class BrokenSchemaAdapter(FakeAdapter):
         def schema(self) -> WorkflowSchema:
-            raise RuntimeError("private schema failure /home/user/workflow")
+            raise RuntimeError(private_detail)
 
     adapter = BrokenSchemaAdapter()
     service, _, repository, provider = _services(adapter=adapter)
@@ -182,17 +184,18 @@ def test_schema_contract_failure_is_sanitized_before_adapter_validation() -> Non
 
     assert result.is_failure
     assert result.errors[0].code == "VALIDATION_WORKFLOW_SCHEMA_UNAVAILABLE"
-    assert "/home/" not in result.errors[0].message
+    assert private_detail not in result.errors[0].message
     assert adapter.calls == 0
     assert provider.calls == 1
     assert repository._validated_input_snapshots == {}
 
 
 def test_unexpected_snapshot_storage_failure_is_sanitized() -> None:
+    private_detail = "private-database-secret"
     service, _, repository, provider = _services()
 
     def fail_storage(_snapshot) -> None:
-        raise Exception("private database failure /home/user/platform.sqlite3")
+        raise Exception(private_detail)
 
     repository.create_validated_input_snapshot = fail_storage  # type: ignore[method-assign]
 
@@ -200,7 +203,7 @@ def test_unexpected_snapshot_storage_failure_is_sanitized() -> None:
 
     assert result.is_failure
     assert result.errors[0].code == "VALIDATED_SNAPSHOT_PERSISTENCE_FAILED"
-    assert "/home/" not in result.errors[0].message
+    assert private_detail not in result.errors[0].message
     assert provider.calls == 2
 
 
@@ -234,6 +237,7 @@ def test_build_change_during_validation_fails_closed_without_snapshot() -> None:
 
 
 def test_build_capture_failure_is_sanitized_and_skips_adapter() -> None:
+    private_detail = "private-build-source-secret"
     adapter = FakeAdapter()
     service, _, repository, _ = _services(
         adapter=adapter,
@@ -242,8 +246,8 @@ def test_build_capture_failure_is_sanitized_and_skips_adapter() -> None:
                 [
                     Issue(
                         code="WORKFLOW_BUILD_SOURCE_UNAVAILABLE",
-                        message="private /home/user/source",
-                        technical_message="private /home/user/source",
+                        message=private_detail,
+                        technical_message=private_detail,
                     )
                 ]
             )
@@ -254,7 +258,7 @@ def test_build_capture_failure_is_sanitized_and_skips_adapter() -> None:
 
     assert result.is_failure
     assert result.errors[0].code == "VALIDATION_WORKFLOW_BUILD_UNAVAILABLE"
-    assert "/home/" not in result.errors[0].message
+    assert private_detail not in result.errors[0].message
     assert adapter.calls == 0
     assert repository._validated_input_snapshots == {}
 

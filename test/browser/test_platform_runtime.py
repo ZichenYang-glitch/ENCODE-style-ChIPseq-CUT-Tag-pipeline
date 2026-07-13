@@ -324,10 +324,11 @@ def test_environment_doctor_reports_missing_packages_without_exception_details(
     tmp_path, monkeypatch
 ):
     frontend_root = tmp_path / "frontend"
+    private_detail = "private-package-location"
     monkeypatch.setattr(local_platform.sys, "version_info", (3, 12, 13))
 
     def missing_dependency(module):
-        raise ModuleNotFoundError("private /home/example/package path")
+        raise ModuleNotFoundError(private_detail)
 
     monkeypatch.setattr(
         local_platform,
@@ -340,7 +341,7 @@ def test_environment_doctor_reports_missing_packages_without_exception_details(
 
     message = str(caught.value)
     assert "Python package fastapi is unavailable" in message
-    assert "/home/" not in message
+    assert private_detail not in message
 
 
 def test_doctor_mode_has_no_port_runtime_or_process_side_effects(
