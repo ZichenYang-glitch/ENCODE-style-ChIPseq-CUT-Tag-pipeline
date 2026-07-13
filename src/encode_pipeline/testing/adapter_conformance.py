@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Callable, Never, TypeVar, cast
+from typing import Callable, NoReturn, TypeVar, cast
 
 from encode_pipeline.platform.adapters import (
     ARTIFACT_EXTRACT_CAPABILITY,
@@ -413,5 +413,5 @@ def _invoke(
     return cast(_T, value)
 
 
-def _fail(coordinate: str, message: str) -> Never:
+def _fail(coordinate: str, message: str) -> NoReturn:
     raise AdapterConformanceError(f"{coordinate}: {message}") from None
