@@ -16,7 +16,7 @@
 - Create: `scripts/results_visibility_fixture.py`
 - Create: `test/browser/test_results_visibility_fixture.py`
 
-- [ ] **Step 1: Write failing ownership and deterministic-input tests**
+- [x] **Step 1: Write failing ownership and deterministic-input tests**
 
 Add tests that call `prepare_results_visibility_fixture(project_root)` and
 require a `ResultsVisibilityInputs` value with absolute `samples_path`, four
@@ -39,7 +39,7 @@ without the sentinel and requires `ValueError` without deleting that file.
 Add a third test that prepares twice and requires only the sentinel-owned
 project to be replaced while a sibling SQLite marker remains intact.
 
-- [ ] **Step 2: Run the new tests and confirm RED**
+- [x] **Step 2: Run the new tests and confirm RED**
 
 Run:
 
@@ -51,7 +51,7 @@ PYTHONPATH=src python3 -m pytest -q \
 Expected: collection fails because `scripts.results_visibility_fixture` does
 not exist.
 
-- [ ] **Step 3: Implement the fixture builder**
+- [x] **Step 3: Implement the fixture builder**
 
 Create a frozen input dataclass and one public preparation function:
 
@@ -91,7 +91,7 @@ and QC outputs. The cancellation mode must not schedule the QC output. The
 helper writes a truthful manifest for results/empty/malformed modes, a valid or
 malformed QC TSV as requested, and the existing cancellation PID evidence.
 
-- [ ] **Step 4: Run focused fixture and build-identity tests; confirm GREEN**
+- [x] **Step 4: Run focused fixture and build-identity tests; confirm GREEN**
 
 Run:
 
@@ -103,7 +103,7 @@ PYTHONPATH=src python3 -m pytest -q \
 
 Expected: all pass and no path outside the test temporary root is changed.
 
-- [ ] **Step 5: Commit the fixture boundary**
+- [x] **Step 5: Commit the fixture boundary**
 
 ```bash
 git add scripts/results_visibility_fixture.py \
