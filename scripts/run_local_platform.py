@@ -89,8 +89,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--results-visibility-demo",
+        "--input-authoring-demo",
+        dest="results_visibility_demo",
         action="store_true",
-        help="Use the deterministic QC/artifact/download demonstration project.",
+        help=(
+            "Use the deterministic input-authoring, QC, artifact, and download "
+            "demonstration project."
+        ),
     )
     parser.add_argument("--redis-url", default="redis://127.0.0.1:6379/0")
     parser.add_argument("--queue-name")

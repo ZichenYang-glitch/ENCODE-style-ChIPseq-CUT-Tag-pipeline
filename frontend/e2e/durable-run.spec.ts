@@ -24,16 +24,127 @@ function manifest(): RuntimeManifest {
   ) as RuntimeManifest;
 }
 
+async function replaceCodeMirror(
+  editor: ReturnType<Page['getByRole']>,
+  text: string,
+) {
+  await editor.click();
+  await editor.press('Control+A');
+  await editor.press('Backspace');
+  await editor.fill(text);
+}
+
+async function setWorkbenchConfig(
+  page: Page,
+  config: Record<string, unknown>,
+) {
+  await page.getByRole('tab', { name: 'Config' }).click();
+  const yamlEditor = page.getByRole('textbox', { name: 'Advanced config YAML' });
+  if (!(await yamlEditor.isVisible())) {
+    await page.getByRole('button', { name: 'YAML mode' }).click();
+  }
+  await expect(yamlEditor).toBeVisible();
+  await replaceCodeMirror(yamlEditor, JSON.stringify(config));
+}
+
 async function createPlannedRun(
   page: Page,
   config: Record<string, unknown>,
+  options: { proveBackendRejection?: boolean } = {},
 ): Promise<string> {
   const runtime = manifest();
-  await page.goto(`/workflows/${runtime.workflowId}`);
-  await page.getByLabel('Config (JSON)').fill(JSON.stringify(config));
-  await page.getByLabel('Samples (path string)').fill(runtime.samplesPath);
-  await page.getByRole('button', { name: 'Validate' }).click();
-  await expect(page.getByTestId('create-run-button')).toBeEnabled();
+  await page.goto(`/workflows/${runtime.workflowId}/new-run`);
+  await expect(
+    page.getByRole('heading', { name: 'Input workbench' }),
+  ).toBeVisible();
+  await setWorkbenchConfig(
+    page,
+    options.proveBackendRejection
+      ? { ...config, stage4b: false, stage5: true }
+      : config,
+  );
+  await page.getByRole('tab', { name: 'Samples' }).click();
+  await page.getByLabel('Import samples TSV').setInputFiles(runtime.samplesPath);
+  await expect(
+    page.locator('[data-testid="sample-desktop-table"], [data-testid="sample-mobile-list"]')
+      .filter({ visible: true }),
+  ).toBeVisible();
+  await page.getByRole('tab', { name: 'Review' }).click();
+  await expect(
+    page.getByText(/structurally ready for backend validation/i),
+  ).toBeVisible();
+
+  if (options.proveBackendRejection) {
+    const rejectedResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().endsWith(
+          `/api/v1/workflows/${runtime.workflowId}/validate`,
+        ),
+    );
+    await page.getByRole('button', { name: 'Validate current inputs' }).click();
+    const rejectedResponse = await rejectedResponsePromise;
+    expect(rejectedResponse.status()).toBe(200);
+    const rejected = (await rejectedResponse.json()) as {
+      ok: boolean;
+      snapshot: unknown;
+      issues: Array<{ code: string }>;
+    };
+    expect(rejected.ok).toBe(false);
+    expect(rejected.snapshot).toBeNull();
+    expect(rejected.issues.map((issue) => issue.code)).toContain(
+      'ENCODE_CONFIG_INVALID',
+    );
+    await expect(page.getByRole('alert')).toContainText(
+      'ENCODE_CONFIG_INVALID',
+    );
+    await expect(
+      page.getByRole('button', { name: 'Create run from validated inputs' }),
+    ).toBeDisabled();
+    await setWorkbenchConfig(page, config);
+    await page.getByRole('tab', { name: 'Review' }).click();
+  }
+
+  const validateRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      request.url().endsWith(
+        `/api/v1/workflows/${runtime.workflowId}/validate`,
+      ),
+  );
+  const validateResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith(
+        `/api/v1/workflows/${runtime.workflowId}/validate`,
+      ),
+  );
+  await page.getByRole('button', { name: 'Validate current inputs' }).click();
+  const validateRequest = await validateRequestPromise;
+  const validatePayload = validateRequest.postDataJSON() as {
+    config: Record<string, unknown>;
+    samples: Array<Record<string, string>>;
+    options: Record<string, unknown>;
+  };
+  expect(validatePayload.config).not.toHaveProperty('samples');
+  expect(JSON.stringify(validatePayload.config)).not.toContain(
+    runtime.samplesPath,
+  );
+  expect(validatePayload.samples).toHaveLength(1);
+  expect(validatePayload.samples[0]?.sample).toBe('C1');
+  expect(validatePayload.options).toEqual({ strict_inputs: false });
+  const validateResponse = await validateResponsePromise;
+  expect(validateResponse.status()).toBe(200);
+  const validation = (await validateResponse.json()) as {
+    ok: boolean;
+    snapshot: null | { snapshot_id: string; payload_digest: string };
+  };
+  expect(validation.ok).toBe(true);
+  expect(validation.snapshot?.snapshot_id).toMatch(/^vsnap_[0-9a-f]{32}$/);
+  expect(validation.snapshot?.payload_digest).toMatch(/^[0-9a-f]{64}$/);
+  await expect(
+    page.getByText(/This exact draft can create one run/i),
+  ).toBeVisible();
 
   const preflightRequests: string[] = [];
   const recordPreflight = (request: { method(): string; url(): string }) => {
@@ -42,7 +153,18 @@ async function createPlannedRun(
     }
   };
   page.on('request', recordPreflight);
-  await page.getByRole('button', { name: 'Create run' }).click();
+  const createRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      request.url().endsWith(`/api/v1/workflows/${runtime.workflowId}/runs`),
+  );
+  await page
+    .getByRole('button', { name: 'Create run from validated inputs' })
+    .click();
+  const createRequest = await createRequestPromise;
+  expect(createRequest.postDataJSON()).toEqual({
+    snapshot_id: validation.snapshot?.snapshot_id,
+  });
   await expect(page).toHaveURL(/\/runs\/[^/]+$/);
   const runId = page.url().split('/').at(-1);
   expect(runId).toBeTruthy();
@@ -58,14 +180,21 @@ async function executeToSucceeded(
   page: Page,
   config: Record<string, unknown>,
   logMarker: string,
+  options: { proveBackendRejection?: boolean; requireRunning?: boolean } = {},
 ): Promise<string> {
-  const runId = await createPlannedRun(page, config);
+  const runId = await createPlannedRun(page, config, options);
   const startButton = page.getByRole('button', { name: 'Start run' });
   await expect(startButton).toBeEnabled();
   await startButton.click();
-  await expect(page.getByTestId('run-status-badge')).toHaveText(
-    /queued|running|succeeded/,
-  );
+  if (options.requireRunning) {
+    await expect(page.getByTestId('run-status-badge')).toHaveText('running', {
+      timeout: 60_000,
+    });
+  } else {
+    await expect(page.getByTestId('run-status-badge')).toHaveText(
+      /queued|running|succeeded/,
+    );
+  }
   await expect(page.getByTestId('run-status-badge')).toHaveText('succeeded', {
     timeout: 60_000,
   });
@@ -202,11 +331,13 @@ function processExists(pid: number): boolean {
 test('real run exposes QC source artifact and exact download @desktop', async ({
   page,
 }, testInfo) => {
+  test.setTimeout(180_000);
   const runtime = manifest();
   const runId = await executeToSucceeded(
     page,
     runtime.resultsConfig,
     'browser-e2e-results',
+    { proveBackendRejection: true, requireRunning: true },
   );
   await expectNoHorizontalOverflow(page);
 
@@ -262,9 +393,18 @@ test('real run exposes QC source artifact and exact download @desktop', async ({
   expect(rangeResponse.status()).toBe(200);
   expect(rangeResponse.headers()['content-range']).toBeUndefined();
   expect(rangeResponse.headers()['accept-ranges']).toBe('none');
-  expect((await rangeResponse.body()).toString('utf8')).toBe(
-    runtime.expectedQcSummary,
+  const workspaceArtifact = readFileSync(
+    join(
+      runtime.workspaceRoot,
+      runId,
+      'results',
+      'C1',
+      '01_qc',
+      'C1.qc_summary.tsv',
+    ),
   );
+  expect(workspaceArtifact.toString('utf8')).toBe(runtime.expectedQcSummary);
+  expect(await rangeResponse.body()).toEqual(workspaceArtifact);
 
   const downloadPromise = page.waitForEvent('download');
   await page
@@ -274,7 +414,7 @@ test('real run exposes QC source artifact and exact download @desktop', async ({
   expect(download.suggestedFilename()).toBe('C1.qc_summary.tsv');
   const downloadedPath = await download.path();
   expect(downloadedPath).not.toBeNull();
-  expect(readFileSync(downloadedPath!, 'utf8')).toBe(runtime.expectedQcSummary);
+  expect(readFileSync(downloadedPath!)).toEqual(workspaceArtifact);
   await expect(page.getByText('Download prepared successfully.')).toBeVisible();
 
   await page.reload();
@@ -339,6 +479,7 @@ test('real run exposes QC source artifact and exact download @desktop', async ({
 test('running cancellation stays requested until worker acknowledgement @mobile', async ({
   page,
 }) => {
+  test.setTimeout(180_000);
   const runtime = manifest();
   const runId = await createPlannedRun(page, runtime.cancelConfig);
 

@@ -34,7 +34,7 @@ def test_fixture_contains_deterministic_project_and_four_inputs(tmp_path):
     )
     assert [config["threads"] for config in configs] == [1, 2, 3, 4]
     assert {config["outdir"] for config in configs} == {"results"}
-    assert {config["samples"] for config in configs} == {str(inputs.samples_path)}
+    assert all("samples" not in config for config in configs)
     assert inputs.samples_path.is_absolute()
     assert inputs.samples_path == project_root / "samples.tsv"
     with inputs.samples_path.open(encoding="utf-8", newline="") as handle:
@@ -107,6 +107,7 @@ def test_fixture_replaces_only_owned_project_and_preserves_runtime_state(tmp_pat
     assert database.read_bytes() == b"canonical-sqlite-marker"
     assert second.expected_qc_summary == first.expected_qc_summary
     assert second.results_config == first.results_config
+    assert "samples" not in second.results_config
 
 
 @pytest.mark.parametrize("unsafe", [Path("/"), Path("/tmp"), REPOSITORY_ROOT])

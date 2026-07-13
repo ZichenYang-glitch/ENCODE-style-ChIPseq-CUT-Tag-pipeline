@@ -537,6 +537,15 @@ def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
     assert raw["emptyConfig"] == inputs.empty_config
     assert raw["malformedConfig"] == inputs.malformed_config
     assert raw["expectedQcSummary"] == inputs.expected_qc_summary
+    assert all(
+        "samples" not in raw[name]
+        for name in (
+            "resultsConfig",
+            "cancelConfig",
+            "emptyConfig",
+            "malformedConfig",
+        )
+    )
     serialized = json.dumps(raw)
     assert "sqlite:" not in serialized
     assert "redis:" not in serialized
@@ -573,6 +582,7 @@ def test_results_demo_prepares_isolated_project_and_bounded_inputs(tmp_path):
     assert raw["workflowId"] == "encode-style-chipseq-cuttag-atac-mnase"
     assert raw["resultsConfig"]["threads"] == 1
     assert raw["resultsConfig"]["outdir"] == "results"
+    assert "samples" not in raw["resultsConfig"]
     assert Path(raw["samplesPath"]) == config.project_root / "samples.tsv"
     serialized = json.dumps(raw)
     assert "sqlite:" not in serialized
@@ -585,6 +595,16 @@ def test_results_demo_has_dedicated_default_runtime_without_preparing_it():
 
     config = config_from_args(args)
 
+    assert config.runtime_root == REPOSITORY_ROOT / ".local/results-visibility-demo"
+    assert config.queue_name == "encode-pipeline-results-demo"
+
+
+def test_input_authoring_demo_alias_uses_the_controlled_results_runtime():
+    args = build_parser().parse_args(["--input-authoring-demo"])
+
+    config = config_from_args(args)
+
+    assert args.results_visibility_demo is True
     assert config.runtime_root == REPOSITORY_ROOT / ".local/results-visibility-demo"
     assert config.queue_name == "encode-pipeline-results-demo"
 

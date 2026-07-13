@@ -78,24 +78,28 @@ python scripts/run_local_platform.py \
 Vite proxies `/api` to the configured API port. The launcher sets the narrow
 `VITE_API_PROXY_TARGET` value for that process; it does not enable broad CORS.
 
-### One-command results visibility demo
+### One-command input-to-results demo
 
-An opt-in deterministic project exercises the full results path without
-scientific data or bioinformatics tools:
+An opt-in deterministic project exercises the complete browser authoring and
+results path without scientific data or bioinformatics tools:
 
 ```bash
-python scripts/run_local_platform.py --results-visibility-demo
+python scripts/run_local_platform.py --input-authoring-demo
 ```
 
 Open the printed `http://127.0.0.1:5173` URL. The launcher also prints the path
 to `.local/results-visibility-demo/results-visibility-inputs.json`. In the
 workflow page, choose **Author inputs**, paste the JSON `resultsConfig` into
 advanced YAML mode (JSON is valid YAML), and import the TSV at `samplesPath`.
-In Review, use Validate inputs and Create run; on the durable run URL, wait for
-preflight and then use Start run. The real worker and Snakemake process produce
-eight persisted QC metrics, a sample QC summary artifact, and a result
-manifest. The QC source action opens the persisted artifact detail, whose
-Download action returns the exact TSV.
+The config deliberately has no `samples` path: the browser reads the TSV and
+sends inline sample rows through the adapter-owned contract. In Review, use
+Validate inputs and Create run; on the durable run URL, wait for preflight and
+then use Start run. The real worker and Snakemake process move the canonical run
+through RUNNING to SUCCEEDED, then produce eight persisted QC metrics, a sample
+QC summary artifact, and a result manifest. The QC source action opens the
+persisted artifact detail, whose Download action returns the exact workspace
+bytes. `--results-visibility-demo` remains a compatible alias for existing
+local scripts.
 
 This mode uses a separate durable root:
 

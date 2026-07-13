@@ -55,10 +55,7 @@ def prepare_results_visibility_fixture(
         expected_qc_summary = _build_qc_summary()
         _write_controlled_workflow(destination, expected_qc_summary)
         samples_path = (destination / "samples.tsv").resolve(strict=True)
-        configs = tuple(
-            _build_config(source_root, samples_path, threads)
-            for threads in (1, 2, 3, 4)
-        )
+        configs = tuple(_build_config(source_root, threads) for threads in (1, 2, 3, 4))
     except BaseException:
         shutil.rmtree(destination)
         raise
@@ -187,7 +184,6 @@ def _build_qc_summary() -> str:
 
 def _build_config(
     repository_root: Path,
-    samples_path: Path,
     threads: int,
 ) -> dict[str, object]:
     profile_path = (
@@ -197,7 +193,7 @@ def _build_config(
     if not isinstance(raw, dict):
         raise ValueError("platform worker tiny config must be a mapping")
     config = copy.deepcopy(raw)
-    config["samples"] = str(samples_path)
+    config.pop("samples", None)
     config["outdir"] = "results"
     config["threads"] = threads
     return config
@@ -300,6 +296,8 @@ if mode == "cancel":
     raise SystemExit(0)
 
 print(f"browser-e2e-{{mode}}", flush=True)
+if mode == "results":
+    time.sleep(2)
 complete.write_text("success\\n", encoding="utf-8")
 has_qc = mode in {{"results", "malformed"}}
 manifest_rows = [
