@@ -31,6 +31,10 @@ def test_adapter_conformance(adapter_case: AdapterConformanceCase) -> None:
 The fixture owns scientific input and output meaning. The shared runner owns
 only workflow-neutral contract checks.
 
+Adapter-controlled descriptors, methods, and schema serialization are invoked
+through a bounded diagnostic boundary. Failures expose only the contract
+coordinate and do not chain the adapter's original exception into a traceback.
+
 ## Capability rules
 
 The current platform vocabulary is:

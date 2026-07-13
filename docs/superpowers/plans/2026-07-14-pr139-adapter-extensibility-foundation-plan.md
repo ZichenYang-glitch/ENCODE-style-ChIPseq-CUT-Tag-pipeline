@@ -21,7 +21,8 @@ and a test-only minimal adapter without implementing a second real workflow.
 - [x] Implement `AdapterConformanceCase`, `AdapterConformanceError`, and
   `verify_adapter_conformance` under `encode_pipeline.testing`.
 - [x] Keep diagnostics bounded to contract coordinates; do not include fixture
-  contents, local paths, or arbitrary exception strings.
+  contents, local paths, arbitrary exception strings, or chained exception
+  context from adapter-controlled calls.
 - [x] Cover metadata, schema, validation, DAG, workspace, command, artifact, QC,
   and declared/unsupported capability behavior.
 

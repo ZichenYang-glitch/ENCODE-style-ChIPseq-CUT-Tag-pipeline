@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import traceback
 
 import pytest
 import yaml
@@ -337,6 +338,76 @@ def test_conformance_rejects_invalid_json_schema_without_leaking_values(tmp_path
 
     assert str(raised.value) == ("adapter.schema: must satisfy JSON Schema 2020-12")
     assert "secret" not in str(raised.value)
+    assert raised.value.__context__ is None
+    assert "secret" not in "".join(traceback.format_exception(raised.value))
+
+
+def test_conformance_suppresses_adapter_exception_context(tmp_path):
+    class RaisingSchemaAdapter(MinimalConformantAdapter):
+        def schema(self) -> WorkflowSchema:
+            raise RuntimeError("/private/secret TOKEN=abc")
+
+    case = replace(_minimal_case(tmp_path), adapter=RaisingSchemaAdapter())
+
+    with pytest.raises(AdapterConformanceError) as raised:
+        verify_adapter_conformance(case)
+
+    assert str(raised.value) == "adapter.schema: raised an exception"
+    assert raised.value.__context__ is None
+    assert raised.value.__suppress_context__ is True
+    formatted = "".join(traceback.format_exception(raised.value))
+    assert "/private/secret" not in formatted
+    assert "TOKEN=abc" not in formatted
+
+
+def test_conformance_suppresses_schema_serialization_exception_context(tmp_path):
+    class RaisingWorkflowSchema(WorkflowSchema):
+        def to_dict(self) -> dict[str, object]:
+            raise RuntimeError("/private/schema TOKEN=def")
+
+    class RaisingSchemaDocumentAdapter(MinimalConformantAdapter):
+        def schema(self) -> WorkflowSchema:
+            return RaisingWorkflowSchema()
+
+    case = replace(_minimal_case(tmp_path), adapter=RaisingSchemaDocumentAdapter())
+
+    with pytest.raises(AdapterConformanceError) as raised:
+        verify_adapter_conformance(case)
+
+    assert str(raised.value) == "adapter.schema: raised an exception"
+    assert raised.value.__context__ is None
+    assert raised.value.__suppress_context__ is True
+    formatted = "".join(traceback.format_exception(raised.value))
+    assert "/private/schema" not in formatted
+    assert "TOKEN=def" not in formatted
+
+
+@pytest.mark.parametrize(
+    ("attribute", "coordinate"),
+    (("metadata", "adapter.metadata"), ("capabilities", "adapter.capabilities")),
+)
+def test_conformance_suppresses_declaration_descriptor_context(
+    tmp_path,
+    attribute,
+    coordinate,
+):
+    class RaisingDeclarationAdapter(MinimalConformantAdapter):
+        def __getattribute__(self, name: str):
+            if name == attribute:
+                raise RuntimeError("/private/declaration TOKEN=ghi")
+            return super().__getattribute__(name)
+
+    case = replace(_minimal_case(tmp_path), adapter=RaisingDeclarationAdapter())
+
+    with pytest.raises(AdapterConformanceError) as raised:
+        verify_adapter_conformance(case)
+
+    assert str(raised.value) == f"{coordinate}: raised an exception"
+    assert raised.value.__context__ is None
+    assert raised.value.__suppress_context__ is True
+    formatted = "".join(traceback.format_exception(raised.value))
+    assert "/private/declaration" not in formatted
+    assert "TOKEN=ghi" not in formatted
 
 
 def test_conformance_support_import_does_not_import_pytest():

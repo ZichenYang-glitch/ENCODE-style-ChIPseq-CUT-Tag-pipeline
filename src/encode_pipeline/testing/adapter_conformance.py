@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import Callable, Never, TypeVar, cast
 
 from encode_pipeline.platform.adapters import (
     ARTIFACT_EXTRACT_CAPABILITY,
@@ -70,63 +70,97 @@ def verify_adapter_conformance(case: AdapterConformanceCase) -> None:
     if not isinstance(case, AdapterConformanceCase):
         _fail("case", "must use AdapterConformanceCase")
     adapter = case.adapter
-    if not isinstance(adapter, WorkflowAdapter):
+    if not _invoke(
+        "adapter.protocol",
+        lambda: isinstance(adapter, WorkflowAdapter),
+    ):
         _fail("adapter.protocol", "does not satisfy WorkflowAdapter")
-    if not isinstance(adapter.metadata, WorkflowMetadata):
+    metadata = _invoke("adapter.metadata", lambda: adapter.metadata)
+    capabilities = _invoke("adapter.capabilities", lambda: adapter.capabilities)
+    if not isinstance(metadata, WorkflowMetadata):
         _fail("adapter.metadata", "must use WorkflowMetadata")
-    if not isinstance(adapter.capabilities, WorkflowCapabilities):
+    if not isinstance(capabilities, WorkflowCapabilities):
         _fail("adapter.capabilities", "must use WorkflowCapabilities")
+    workflow_id = _invoke(
+        "adapter.metadata.workflow_id",
+        lambda: metadata.workflow_id,
+    )
+    engines = _invoke("adapter.metadata.engines", lambda: metadata.engines)
+    tags = _invoke("adapter.metadata.tags", lambda: metadata.tags)
+    supports = _invoke(
+        "adapter.capabilities.supports",
+        lambda: capabilities.supports,
+    )
 
-    try:
-        registry = WorkflowRegistry((adapter,))
-        if registry.get(adapter.metadata.workflow_id) is not adapter:
-            _fail("adapter.registry", "did not preserve adapter identity")
-    except AdapterConformanceError:
-        raise
-    except Exception:
-        _fail("adapter.registry", "rejected the adapter declaration")
+    registry = _invoke(
+        "adapter.registry",
+        lambda: WorkflowRegistry((adapter,)),
+        failure_message="rejected the adapter declaration",
+    )
+    registered = _invoke(
+        "adapter.registry",
+        lambda: registry.get(workflow_id),
+        failure_message="rejected the adapter declaration",
+    )
+    if registered is not adapter:
+        _fail("adapter.registry", "did not preserve adapter identity")
 
-    if len(adapter.metadata.engines) != len(set(adapter.metadata.engines)):
+    if not _invoke(
+        "adapter.metadata.engines",
+        lambda: len(engines) == len(set(engines)),
+    ):
         _fail("adapter.metadata.engines", "must be unique")
-    if len(adapter.metadata.tags) != len(set(adapter.metadata.tags)):
+    if not _invoke(
+        "adapter.metadata.tags",
+        lambda: len(tags) == len(set(tags)),
+    ):
         _fail("adapter.metadata.tags", "must be unique")
 
-    first_schema = _invoke("adapter.schema", adapter.schema)
-    second_schema = _invoke("adapter.schema", adapter.schema)
+    first_schema = _invoke("adapter.schema", lambda: adapter.schema())
+    second_schema = _invoke("adapter.schema", lambda: adapter.schema())
     if not isinstance(first_schema, WorkflowSchema) or not isinstance(
         second_schema, WorkflowSchema
     ):
         _fail("adapter.schema", "must return WorkflowSchema")
     if first_schema is second_schema:
         _fail("adapter.schema", "must return a fresh contract instance")
-    try:
-        first_document = first_schema.to_dict()
-        second_document = second_schema.to_dict()
-        json.dumps(first_document, allow_nan=False, sort_keys=True)
-    except (TypeError, ValueError):
+    first_document = _invoke("adapter.schema", lambda: first_schema.to_dict())
+    second_document = _invoke("adapter.schema", lambda: second_schema.to_dict())
+    if not isinstance(first_document, dict) or not isinstance(second_document, dict):
         _fail("adapter.schema", "must return JSON-safe data")
-    if first_document != second_document:
+    first_serialized = _invoke(
+        "adapter.schema",
+        lambda: json.dumps(first_document, allow_nan=False, sort_keys=True),
+        failure_message="must return JSON-safe data",
+    )
+    second_serialized = _invoke(
+        "adapter.schema",
+        lambda: json.dumps(second_document, allow_nan=False, sort_keys=True),
+        failure_message="must return JSON-safe data",
+    )
+    if first_serialized != second_serialized:
         _fail("adapter.schema", "must be stable across calls")
     _verify_json_schema(first_document)
-    if INPUT_AUTHORING_CAPABILITY not in adapter.capabilities.supports:
+    if INPUT_AUTHORING_CAPABILITY not in supports:
         _fail(
             "capability.input_authoring",
             "must be declared for the renderable schema contract",
         )
 
-    _verify_validation(adapter, case)
-    workspace_plan = _verify_workspace(adapter, case)
-    _verify_dag(adapter, case.valid_inputs)
-    _verify_command(adapter, workspace_plan)
-    _verify_artifacts(adapter, case)
-    _verify_qc(adapter, case)
+    _verify_validation(adapter, supports, case)
+    workspace_plan = _verify_workspace(adapter, supports, case)
+    _verify_dag(adapter, supports, case.valid_inputs)
+    _verify_command(adapter, supports, workspace_plan)
+    _verify_artifacts(adapter, supports, case)
+    _verify_qc(adapter, supports, case)
 
 
 def _verify_validation(
     adapter: WorkflowAdapter,
+    supports: tuple[str, ...],
     case: AdapterConformanceCase,
 ) -> None:
-    supported = VALIDATION_CAPABILITY in adapter.capabilities.supports
+    supported = VALIDATION_CAPABILITY in supports
     valid_result = _result(
         "capability.validation",
         lambda: adapter.validate(case.valid_inputs),
@@ -145,10 +179,14 @@ def _verify_validation(
 
 def _verify_workspace(
     adapter: WorkflowAdapter,
+    supports: tuple[str, ...],
     case: AdapterConformanceCase,
 ) -> WorkspacePlan:
-    supported = WORKSPACE_PLAN_CAPABILITY in adapter.capabilities.supports
-    if case.planning_workspace.exists():
+    supported = WORKSPACE_PLAN_CAPABILITY in supports
+    if _invoke(
+        "capability.workspace_plan.fixture",
+        lambda: case.planning_workspace.exists(),
+    ):
         _fail("capability.workspace_plan.fixture", "must start absent")
     result = _result(
         "capability.workspace_plan",
@@ -157,44 +195,60 @@ def _verify_workspace(
             case.planning_workspace,
         ),
     )
-    if case.planning_workspace.exists():
+    if _invoke(
+        "capability.workspace_plan",
+        lambda: case.planning_workspace.exists(),
+    ):
         _fail("capability.workspace_plan", "must not materialize the workspace")
     if not supported:
         _require_failure(result, "capability.workspace_plan")
         return WorkspacePlan()
     _require_success(result, "capability.workspace_plan")
-    if not isinstance(result.value, WorkspacePlan):
+    value = _result_value(result, "capability.workspace_plan")
+    if not isinstance(value, WorkspacePlan):
         _fail("capability.workspace_plan", "must return WorkspacePlan")
-    return result.value
+    return value
 
 
-def _verify_dag(adapter: WorkflowAdapter, inputs: WorkflowInputs) -> None:
-    supported = DAG_PREVIEW_CAPABILITY in adapter.capabilities.supports
+def _verify_dag(
+    adapter: WorkflowAdapter,
+    supports: tuple[str, ...],
+    inputs: WorkflowInputs,
+) -> None:
+    supported = DAG_PREVIEW_CAPABILITY in supports
     result = _result("capability.dag_preview", lambda: adapter.preview_dag(inputs))
     if not supported:
         _require_failure(result, "capability.dag_preview")
         return
     _require_success(result, "capability.dag_preview")
-    if not isinstance(result.value, DagPreview):
+    if not isinstance(
+        _result_value(result, "capability.dag_preview"),
+        DagPreview,
+    ):
         _fail("capability.dag_preview", "must return DagPreview")
 
 
-def _verify_command(adapter: WorkflowAdapter, plan: WorkspacePlan) -> None:
-    supported = COMMAND_CAPABILITY in adapter.capabilities.supports
+def _verify_command(
+    adapter: WorkflowAdapter,
+    supports: tuple[str, ...],
+    plan: WorkspacePlan,
+) -> None:
+    supported = COMMAND_CAPABILITY in supports
     result = _result("capability.command", lambda: adapter.build_command(plan))
     if not supported:
         _require_failure(result, "capability.command")
         return
     _require_success(result, "capability.command")
-    if not isinstance(result.value, CommandSpec):
+    if not isinstance(_result_value(result, "capability.command"), CommandSpec):
         _fail("capability.command", "must return CommandSpec")
 
 
 def _verify_artifacts(
     adapter: WorkflowAdapter,
+    supports: tuple[str, ...],
     case: AdapterConformanceCase,
 ) -> None:
-    supported = ARTIFACT_EXTRACT_CAPABILITY in adapter.capabilities.supports
+    supported = ARTIFACT_EXTRACT_CAPABILITY in supports
     result = _result(
         "capability.artifact_extract",
         lambda: adapter.extract_artifacts(
@@ -206,18 +260,33 @@ def _verify_artifacts(
         _require_failure(result, "capability.artifact_extract")
         return
     _require_success(result, "capability.artifact_extract")
-    if not isinstance(result.value, tuple) or not all(
-        isinstance(candidate, ExtractedArtifactCandidate) for candidate in result.value
-    ):
+    value = _result_value(result, "capability.artifact_extract")
+    candidates_valid = _invoke(
+        "capability.artifact_extract",
+        lambda: (
+            isinstance(value, tuple)
+            and all(
+                isinstance(candidate, ExtractedArtifactCandidate) for candidate in value
+            )
+        ),
+    )
+    if not candidates_valid:
         _fail(
             "capability.artifact_extract",
             "must return a tuple of ExtractedArtifactCandidate",
         )
 
 
-def _verify_qc(adapter: WorkflowAdapter, case: AdapterConformanceCase) -> None:
-    supported = QC_SUMMARY_EXTRACT_CAPABILITY in adapter.capabilities.supports
-    implements = isinstance(adapter, QcSummaryExtractingAdapter)
+def _verify_qc(
+    adapter: WorkflowAdapter,
+    supports: tuple[str, ...],
+    case: AdapterConformanceCase,
+) -> None:
+    supported = QC_SUMMARY_EXTRACT_CAPABILITY in supports
+    implements = _invoke(
+        "capability.qc_summary_extract",
+        lambda: isinstance(adapter, QcSummaryExtractingAdapter),
+    )
     if supported != implements:
         _fail(
             "capability.qc_summary_extract",
@@ -225,28 +294,41 @@ def _verify_qc(adapter: WorkflowAdapter, case: AdapterConformanceCase) -> None:
         )
     if not supported:
         return
+    qc_adapter = cast(QcSummaryExtractingAdapter, adapter)
     source_types = _invoke(
         "capability.qc_summary_extract.source_types",
-        adapter.qc_source_output_types,
+        lambda: qc_adapter.qc_source_output_types(),
     )
-    if (
-        not isinstance(source_types, tuple)
-        or not source_types
-        or len(source_types) != len(set(source_types))
-        or any(not _safe_output_type(value) for value in source_types)
-    ):
+    source_types_valid = _invoke(
+        "capability.qc_summary_extract.source_types",
+        lambda: (
+            isinstance(source_types, tuple)
+            and bool(source_types)
+            and all(_safe_output_type(value) for value in source_types)
+            and len(source_types) == len(set(source_types))
+        ),
+    )
+    if not source_types_valid:
         _fail(
             "capability.qc_summary_extract.source_types",
             "must return unique non-empty string names",
         )
     result = _result(
         "capability.qc_summary_extract",
-        lambda: adapter.extract_qc_metrics(case.valid_inputs, case.qc_sources),
+        lambda: qc_adapter.extract_qc_metrics(case.valid_inputs, case.qc_sources),
     )
     _require_success(result, "capability.qc_summary_extract")
-    if not isinstance(result.value, tuple) or not all(
-        isinstance(candidate, ExtractedQcMetricCandidate) for candidate in result.value
-    ):
+    value = _result_value(result, "capability.qc_summary_extract")
+    candidates_valid = _invoke(
+        "capability.qc_summary_extract",
+        lambda: (
+            isinstance(value, tuple)
+            and all(
+                isinstance(candidate, ExtractedQcMetricCandidate) for candidate in value
+            )
+        ),
+    )
+    if not candidates_valid:
         _fail(
             "capability.qc_summary_extract",
             "must return a tuple of ExtractedQcMetricCandidate",
@@ -261,18 +343,29 @@ def _result(coordinate: str, callback: Callable[[], object]) -> Result:
 
 
 def _verify_json_schema(document: dict[str, object]) -> None:
-    try:
-        from jsonschema import Draft202012Validator
+    validator = _invoke(
+        "adapter.schema",
+        _load_json_schema_validator,
+        failure_message="must satisfy JSON Schema 2020-12",
+    )
+    for name in ("config_schema", "sample_schema", "option_schema"):
+        value = _invoke(
+            f"adapter.schema.{name}",
+            lambda name=name: document.get(name),
+        )
+        if not isinstance(value, dict):
+            _fail(f"adapter.schema.{name}", "must be a JSON Schema object")
+        _invoke(
+            "adapter.schema",
+            lambda value=value: validator.check_schema(value),
+            failure_message="must satisfy JSON Schema 2020-12",
+        )
 
-        for name in ("config_schema", "sample_schema", "option_schema"):
-            value = document.get(name)
-            if not isinstance(value, dict):
-                _fail(f"adapter.schema.{name}", "must be a JSON Schema object")
-            Draft202012Validator.check_schema(value)
-    except AdapterConformanceError:
-        raise
-    except Exception:
-        _fail("adapter.schema", "must satisfy JSON Schema 2020-12")
+
+def _load_json_schema_validator():
+    from jsonschema import Draft202012Validator
+
+    return Draft202012Validator
 
 
 def _safe_output_type(value: object) -> bool:
@@ -287,23 +380,38 @@ def _safe_output_type(value: object) -> bool:
 
 
 def _require_success(result: Result, coordinate: str) -> None:
-    if result.is_failure:
+    if _invoke(coordinate, lambda: result.is_failure):
         _fail(coordinate, "declared support returned failure")
 
 
 def _require_failure(result: Result, coordinate: str) -> None:
-    if result.is_success:
+    if _invoke(coordinate, lambda: result.is_success):
         _fail(coordinate, "unsupported or invalid input returned success")
 
 
-def _invoke(coordinate: str, callback: Callable[[], _T]) -> _T:
+def _result_value(result: Result, coordinate: str) -> object:
+    return _invoke(coordinate, lambda: result.value)
+
+
+def _capture(callback: Callable[[], _T]) -> tuple[bool, _T | None]:
     try:
-        return callback()
-    except AdapterConformanceError:
-        raise
+        value = callback()
     except Exception:
-        _fail(coordinate, "raised an exception")
+        return False, None
+    return True, value
 
 
-def _fail(coordinate: str, message: str) -> None:
-    raise AdapterConformanceError(f"{coordinate}: {message}")
+def _invoke(
+    coordinate: str,
+    callback: Callable[[], _T],
+    *,
+    failure_message: str = "raised an exception",
+) -> _T:
+    succeeded, value = _capture(callback)
+    if not succeeded:
+        _fail(coordinate, failure_message)
+    return cast(_T, value)
+
+
+def _fail(coordinate: str, message: str) -> Never:
+    raise AdapterConformanceError(f"{coordinate}: {message}") from None

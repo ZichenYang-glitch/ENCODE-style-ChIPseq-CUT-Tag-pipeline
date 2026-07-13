@@ -99,7 +99,10 @@ The runner verifies:
 
 The runner raises `AdapterConformanceError` with a bounded contract-coordinate
 message. It never includes input contents, paths, exception text, or adapter
-private return values.
+private return values. Adapter-controlled property, method, schema-serialization,
+and JSON Schema failures pass through one safe invocation boundary; the public
+error suppresses the original exception chain so ordinary tracebacks cannot
+recover private exception details.
 
 ## Test-only minimal adapter
 
