@@ -32,6 +32,25 @@ _SCHEMA_VERSION_PATTERN = re.compile(r"^[1-9]\d*\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)
 _MODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _SCHEMA_COVERAGE_VALUES = frozenset({"partial", "complete"})
 
+VALIDATION_CAPABILITY = "validation"
+DAG_PREVIEW_CAPABILITY = "dag_preview"
+WORKSPACE_PLAN_CAPABILITY = "workspace_plan"
+COMMAND_CAPABILITY = "command"
+INPUT_AUTHORING_CAPABILITY = "input_authoring"
+ARTIFACT_EXTRACT_CAPABILITY = "artifact_extract"
+QC_SUMMARY_EXTRACT_CAPABILITY = "qc_summary_extract"
+WORKFLOW_CAPABILITY_NAMES = frozenset(
+    {
+        VALIDATION_CAPABILITY,
+        DAG_PREVIEW_CAPABILITY,
+        WORKSPACE_PLAN_CAPABILITY,
+        COMMAND_CAPABILITY,
+        INPUT_AUTHORING_CAPABILITY,
+        ARTIFACT_EXTRACT_CAPABILITY,
+        QC_SUMMARY_EXTRACT_CAPABILITY,
+    }
+)
+
 
 @dataclass(frozen=True)
 class WorkflowSchemaCoverage:
@@ -207,15 +226,19 @@ class WorkflowMetadata:
 
 @dataclass(frozen=True)
 class WorkflowCapabilities:
-    """String capability labels supported by a workflow adapter."""
+    """Canonical capability labels supported by a workflow adapter."""
 
     supports: tuple[str, ...]
 
     def __post_init__(self) -> None:
+        supports = _normalize_mode_tuple(self.supports, "supports")
+        unknown = set(supports).difference(WORKFLOW_CAPABILITY_NAMES)
+        if unknown:
+            raise ValueError("Workflow capabilities contain an unknown name")
         object.__setattr__(
             self,
             "supports",
-            _normalize_string_tuple(self.supports, "supports"),
+            supports,
         )
 
     def to_dict(self) -> dict[str, Any]:

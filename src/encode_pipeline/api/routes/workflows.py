@@ -17,16 +17,13 @@ from encode_pipeline.api.models import (
     WorkflowListResponse,
     WorkflowMetadataResponse,
 )
-from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.adapters import VALIDATION_CAPABILITY, WorkflowInputs
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.services.validated_inputs import ValidatedInputService
 
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
-
-
-VALIDATION_CAPABILITY = "validation"
 
 
 def _workflow_not_found_issue(workflow_id: str) -> Issue:

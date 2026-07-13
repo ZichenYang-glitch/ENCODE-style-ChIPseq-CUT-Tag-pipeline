@@ -10,6 +10,7 @@ import re
 import stat
 
 from encode_pipeline.platform.adapters import (
+    QC_SUMMARY_EXTRACT_CAPABILITY,
     ExtractedQcMetricCandidate,
     QcSourceArtifact,
     QcSourceDocument,
@@ -84,7 +85,7 @@ class QcSummaryIndexingService:
         try:
             adapter = self._registry.get(record.workflow_id)
             if (
-                "qc_summary_extract" not in adapter.capabilities.supports
+                QC_SUMMARY_EXTRACT_CAPABILITY not in adapter.capabilities.supports
                 or not isinstance(adapter, QcSummaryExtractingAdapter)
             ):
                 return self._fail(run_id, "QC_INDEXING_UNSUPPORTED")

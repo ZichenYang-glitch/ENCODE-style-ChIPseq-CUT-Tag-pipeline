@@ -19,13 +19,13 @@ is now:
   run-to-results browser gate.
 - PR135–137 delivered adapter-owned authoring schemas, the schema/YAML/TSV input
   workbench, and immutable server-validated snapshots for run creation.
-- PR138 is the Milestone C acceptance gate. Milestone C is complete only on a
-  revision that contains PR138 and whose required browser gate proves authoring
-  through exact result download with real API, SQLite, Redis/RQ, Snakemake, and
-  cleanup. Revisions before that gate must treat the milestone as pending.
-- PR139 is the next foundation: a reusable adapter conformance suite and a
-  test-only minimal adapter. The intended later real-adapter order is RNA-seq,
-  followed by Hi-TrAC/TracPre2; neither workflow is implemented by PR139.
+- PR138 completed the Milestone C acceptance gate: its required browser gate
+  proves authoring through exact result download with real API, SQLite,
+  Redis/RQ, Snakemake, and cleanup.
+- PR139 establishes a reusable adapter conformance suite, canonical capability
+  declarations, and a test-only minimal adapter. The intended later
+  real-adapter order is RNA-seq, followed by Hi-TrAC/TracPre2; neither workflow
+  is implemented by PR139.
 
 Authentication, multi-user isolation, HPC/Kubernetes, object storage,
 immutable workflow bundles, Agent write operations, and a second real adapter
