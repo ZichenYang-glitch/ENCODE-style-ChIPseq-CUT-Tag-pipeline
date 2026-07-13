@@ -65,6 +65,8 @@ through TanStack Query.
 - [x] Update the legacy workflow detail path so it cannot bypass snapshots.
 - [x] Cover successful validation, stale edit, backend rejection, lost response,
   replay, 409/unconfirmed state, URL/history, and accessibility.
+- [x] Reject corrupt replay links whose consumption time differs from the
+  canonical run, and discard late create responses after draft invalidation.
 
 ### Task 5: Real browser path and full gates
 

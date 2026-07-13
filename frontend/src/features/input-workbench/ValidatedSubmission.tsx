@@ -30,6 +30,11 @@ interface ValidationAttempt {
   revision: number;
 }
 
+interface CreateAttempt {
+  snapshotId: string;
+  revision: number;
+}
+
 interface ValidatedSubmissionProps {
   workflowId: string;
   draft: InputDraftController;
@@ -136,15 +141,23 @@ export function ValidatedSubmission({
   });
 
   const createMutation = useMutation({
-    mutationFn: async () => {
-      if (activeSnapshot === null) {
-        throw new Error('validated snapshot is unavailable');
+    mutationFn: (attempt: CreateAttempt) =>
+      createRun(workflowId, {
+        snapshot_id: attempt.snapshotId,
+      }),
+    onSuccess: (response, attempt) => {
+      if (attempt.revision !== draft.state.semanticRevision) {
+        setSnapshotState(null);
+        setIssues([
+          {
+            code: 'RUN_CREATE_INPUTS_CHANGED',
+            message:
+              'Inputs changed while run creation was running. The earlier request may have created a run; review canonical runs before retrying.',
+          },
+        ]);
+        setNotice(null);
+        return;
       }
-      return createRun(workflowId, {
-        snapshot_id: activeSnapshot.snapshot_id,
-      });
-    },
-    onSuccess: (response) => {
       const run = response.run ?? null;
       if (!response.ok || run === null) {
         setIssues(
@@ -169,7 +182,19 @@ export function ValidatedSubmission({
         },
       });
     },
-    onError: (error) => {
+    onError: (error, attempt) => {
+      if (attempt.revision !== draft.state.semanticRevision) {
+        setSnapshotState(null);
+        setIssues([
+          {
+            code: 'RUN_CREATE_INPUTS_CHANGED',
+            message:
+              'Inputs changed while run creation was running. The earlier request may have created a run; review canonical runs before retrying.',
+          },
+        ]);
+        setNotice(null);
+        return;
+      }
       const apiCode = error instanceof ApiError ? error.code : null;
       if (
         apiCode === 'VALIDATED_SNAPSHOT_EXPIRED' ||
@@ -235,7 +260,14 @@ export function ValidatedSubmission({
             variant="primary"
             className="gap-1.5"
             disabled={activeSnapshot === null || validationMutation.isPending || createMutation.isPending}
-            onClick={() => createMutation.mutate()}
+            onClick={() => {
+              if (activeSnapshot !== null && snapshotState !== null) {
+                createMutation.mutate({
+                  snapshotId: activeSnapshot.snapshot_id,
+                  revision: snapshotState.revision,
+                });
+              }
+            }}
             aria-label="Create run from validated inputs"
             data-testid="create-validated-run-button"
           >

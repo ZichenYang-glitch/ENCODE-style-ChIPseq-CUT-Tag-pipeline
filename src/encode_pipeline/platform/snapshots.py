@@ -196,6 +196,8 @@ class ValidatedInputSnapshot:
             consumed_at = _utc(self.consumed_at, "consumed_at")  # type: ignore[arg-type]
             if consumed_at < validated_at:
                 raise ValueError("consumed_at cannot precede validation")
+            if consumed_at >= expires_at:
+                raise ValueError("consumed_at must precede snapshot expiry")
             object.__setattr__(self, "consumed_run_id", self.consumed_run_id.strip())
             object.__setattr__(self, "consumed_at", consumed_at)
 

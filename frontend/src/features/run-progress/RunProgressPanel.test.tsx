@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, type Mock } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import {
@@ -473,6 +473,50 @@ describe('RunProgressPanel', () => {
     expect(screen.getByTestId('run-event-feed')).toBeInTheDocument();
     expect(screen.getByText(/status_changed/i)).toBeInTheDocument();
     expect(screen.getByText(/\[stub\] validating inputs/i)).toBeInTheDocument();
+  });
+
+  it('does not navigate or preflight after validation changes during create', async () => {
+    let resolveCreate!: (response: RunResponse) => void;
+    const pendingCreate = new Promise<RunResponse>((resolve) => {
+      resolveCreate = resolve;
+    });
+    const runClient = createMockRunClient();
+    vi.mocked(runClient.createRun).mockReturnValue(pendingCreate);
+    const user = userEvent.setup();
+    const rendered = renderPanel({
+      validationResult: successfulValidation,
+      runClient,
+    });
+
+    await user.click(screen.getByTestId('create-run-button'));
+    rendered.rerender({ validationResult: null, runClient });
+    await act(async () => {
+      resolveCreate({
+        ok: true,
+        run: {
+          run_id: 'run-stale-create',
+          workflow_id: WORKFLOW_ID,
+          inputs: { ...validatedInputs },
+          status: 'created',
+          created_at: '2026-07-14T00:01:00.000Z',
+          updated_at: '2026-07-14T00:01:00.000Z',
+          started_at: null,
+          ended_at: null,
+          current_stage: null,
+          cancellation_reason: null,
+          error: null,
+          tags: {},
+        },
+        issues: [],
+      });
+      await pendingCreate;
+    });
+
+    expect(runClient.preflightRun).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('run-status-badge')).not.toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /Inputs changed while run creation was running/i,
+    );
   });
 
   it('reports a malformed successful create response', async () => {

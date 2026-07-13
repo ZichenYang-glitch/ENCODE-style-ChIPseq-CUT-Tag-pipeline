@@ -111,6 +111,10 @@ def test_snapshot_round_trips_fresh_workflow_inputs() -> None:
         {"validation_outcome": "failed"},
         {"validation_issue_codes": ("private/path",)},
         {"consumed_run_id": "run-1", "consumed_at": None},
+        {
+            "consumed_run_id": "run-1",
+            "consumed_at": NOW + timedelta(minutes=30),
+        },
     ],
 )
 def test_snapshot_rejects_corrupt_or_inconsistent_evidence(changes) -> None:

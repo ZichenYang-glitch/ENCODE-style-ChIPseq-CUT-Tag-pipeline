@@ -244,6 +244,37 @@ describe('schema input workbench route', () => {
     ).toBeVisible();
   });
 
+  it('does not navigate when the draft changes while create is in flight', async () => {
+    const pending = deferred<ReturnType<typeof createdRunResponse>>();
+    generatedMocks.createRun.mockReturnValue(pending.promise);
+    const user = userEvent.setup();
+    const { router } = renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await authorValidDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Create run from validated inputs',
+      }),
+    );
+
+    await user.click(screen.getByRole('tab', { name: 'Samples' }));
+    await user.type(screen.getAllByLabelText('Sample 1 sample')[0], '-new');
+    await act(async () => {
+      pending.resolve(createdRunResponse());
+      await pending.promise;
+    });
+
+    expect(router.state.location.pathname).toBe(
+      `/workflows/${WORKFLOW_ID}/new-run`,
+    );
+    expect(
+      await screen.findByText(/Inputs changed while run creation was running/i),
+    ).toBeVisible();
+  });
+
   it('retries an unconfirmed create with the same snapshot id', async () => {
     generatedMocks.createRun
       .mockRejectedValueOnce(new Error('private transport details'))

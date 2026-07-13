@@ -178,6 +178,24 @@ def test_in_memory_snapshot_replay_with_different_tags_is_rejected() -> None:
     assert [run.run_id for run in repository.list_runs()] == ["run-1"]
 
 
+def test_in_memory_snapshot_replay_rejects_corrupt_linked_run_timestamp() -> None:
+    repository = InMemoryRunRepository()
+    repository.create_validated_input_snapshot(_snapshot())
+    _consume(repository, _record("run-1", tags={"owner": "lab"}))
+    second_time = NOW + timedelta(minutes=2)
+    second = replace(
+        _record("run-2", tags={"owner": "lab"}),
+        created_at=second_time,
+        updated_at=second_time,
+    )
+    repository.create_run(second, _event())
+    stored = repository._validated_input_snapshots[_snapshot().snapshot_id]
+    object.__setattr__(stored, "consumed_run_id", "run-2")
+
+    with pytest.raises(ValueError, match="consumption time"):
+        _consume(repository, _record("run-other", tags={"owner": "lab"}))
+
+
 def test_in_memory_snapshot_expiry_and_build_mismatch_create_nothing() -> None:
     repository = InMemoryRunRepository()
     repository.create_validated_input_snapshot(_snapshot())

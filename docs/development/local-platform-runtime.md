@@ -54,11 +54,13 @@ flushed. The default queue is `encode-pipeline-demo`; Redis remains scheduling
 metadata only, while the SQLite file remains canonical.
 
 The launcher deliberately requires the same locked toolchain as the doctor.
-`redis-server` must be present even when an already-running compatible Redis
-will be reused, so a late fallback never fails with `FileNotFoundError`. The
-launcher performs bounded readiness checks for Redis, the API, the registered
-worker, and the frontend; startup failures name the failed service and point
-to its local log without printing Redis credentials.
+It normally verifies the local `redis-server` binary before startup. When that
+binary is absent, an explicitly configured, already-running Redis is accepted
+only after a bounded server-version check confirms Redis 7 or newer; otherwise
+startup fails before creating runtime data. The launcher performs bounded
+readiness checks for Redis, the API, the registered worker, and the frontend;
+startup failures name the failed service and point to its local log without
+printing Redis credentials.
 
 Use explicit flags for an isolated demo or non-default ports:
 

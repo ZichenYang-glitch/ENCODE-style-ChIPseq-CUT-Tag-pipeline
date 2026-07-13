@@ -1327,6 +1327,12 @@ def _validate_snapshot_linked_run(
         or record.workflow_id != snapshot.workflow_id
     ):
         raise ValueError("validated snapshot linked run identity is invalid")
+    if (
+        snapshot.consumed_at is None
+        or snapshot.consumed_at >= snapshot.expires_at
+        or record.created_at != snapshot.consumed_at
+    ):
+        raise ValueError("validated snapshot linked run consumption time is invalid")
     payload = canonical_workflow_inputs_json(
         WorkflowInputs(
             config=record.inputs.get("config", {}),

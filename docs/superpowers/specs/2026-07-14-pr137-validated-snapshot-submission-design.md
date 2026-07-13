@@ -78,8 +78,9 @@ InMemory lock or SQLite `BEGIN IMMEDIATE`, it:
 
 1. reloads and validates the snapshot;
 2. verifies workflow and expected build identity;
-3. if already consumed, validates the linked run and requested tags and returns
-   that canonical run as an idempotent replay;
+3. if already consumed, validates the linked run, requires its creation time to
+   equal the pre-expiry snapshot consumption time, checks requested tags, and
+   returns that canonical run as an idempotent replay;
 4. otherwise checks expiry, creates the CREATED run and its single initial
    event, and writes consumption evidence in the same transaction.
 
@@ -140,10 +141,14 @@ generated-operation-backed TanStack mutations:
 Validation issues remain backend facts and are rendered through controlled
 Issue fields. A lost create response leaves the snapshot available for retry;
 server idempotency returns the canonical run. A conflict or unknown response is
-described as unconfirmed and never fabricates a run. The legacy workflow-detail
-validator is updated to the same snapshot contract and guards its in-flight
-response with the current workflow/input revision, so a late response cannot
-restore a snapshot after an edit or navigation.
+described as unconfirmed and never fabricates a run. Each create attempt also
+carries the immutable workflow/snapshot or draft-revision authority that
+started it. If inputs change before its response arrives, neither workbench
+navigates nor starts preflight; it warns that the earlier request may have
+created a canonical run. The legacy workflow-detail validator is updated to the
+same snapshot contract and guards both validation and creation responses with
+the current workflow/input authority, so a late response cannot restore or act
+on a snapshot after an edit or navigation.
 
 ## Tests and residual limits
 

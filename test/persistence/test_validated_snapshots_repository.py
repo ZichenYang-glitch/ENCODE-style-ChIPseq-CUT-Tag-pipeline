@@ -142,6 +142,38 @@ def test_sqlalchemy_snapshot_expiry_and_replay_conflict_roll_back(tmp_path) -> N
     persistence.close()
 
 
+def test_sqlalchemy_snapshot_replay_rejects_corrupt_linked_run_timestamp(
+    tmp_path,
+) -> None:
+    persistence = open_run_persistence(f"sqlite:///{tmp_path / 'platform.db'}")
+    repository = persistence.repository
+    repository.create_validated_input_snapshot(_snapshot())
+    _consume(repository, "run-1", tags={"owner": "lab"})
+    second_time = NOW + timedelta(minutes=2)
+    repository.create_run(
+        _record("run-2", second_time, tags={"owner": "lab"}),
+        RunEventDraft(
+            event_type="status_changed",
+            message="Run created.",
+            status=RunStatus.CREATED,
+            context={"previous_status": None, "new_status": "created"},
+        ),
+    )
+    with persistence.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE validated_input_snapshots SET consumed_run_id = :run_id "
+                "WHERE snapshot_id = :snapshot_id"
+            ),
+            {"run_id": "run-2", "snapshot_id": _snapshot().snapshot_id},
+        )
+
+    with pytest.raises(ValueError, match="consumption time"):
+        _consume(repository, "run-other", tags={"owner": "lab"})
+
+    persistence.close()
+
+
 def test_sqlalchemy_snapshot_corruption_fails_before_run_creation(tmp_path) -> None:
     persistence = open_run_persistence(f"sqlite:///{tmp_path / 'platform.db'}")
     repository = persistence.repository

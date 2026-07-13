@@ -58,6 +58,12 @@ const claimedAutoPreflightRequests = new Set<string>();
 
 type ActionIssueKind = 'create' | 'preflight' | 'start' | 'cancel' | null;
 
+interface CreateRunAttempt {
+  authority: string;
+  workflowId: string;
+  snapshotId: string;
+}
+
 export function isRunPollingPaused(
   status: string | undefined,
   startedAt: number,
@@ -278,6 +284,14 @@ export function RunProgressPanel({
   const pollStartedAt = useRef(Date.now());
   const queryClient = useQueryClient();
   const targetRunId = runId ?? localRunId;
+  const createAuthority =
+    workflowId !== null &&
+    validationResult?.ok === true &&
+    validationResult.snapshot !== null
+      ? `${workflowId}\u0000${validationResult.snapshot.snapshot_id}`
+      : null;
+  const createAuthorityRef = useRef(createAuthority);
+  createAuthorityRef.current = createAuthority;
 
   const runQuery = useQuery({
     queryKey: runProgressQueryKey(targetRunId),
@@ -383,13 +397,10 @@ export function RunProgressPanel({
   });
 
   const createMutation = useMutation({
-    mutationFn: async () => {
-      const snapshotId = validationResult?.snapshot?.snapshot_id;
-      if (!workflowId || !snapshotId) {
-        throw new Error('validated snapshot is unavailable');
-      }
-      return runClient.createRun(workflowId, { snapshot_id: snapshotId });
-    },
+    mutationFn: (attempt: CreateRunAttempt) =>
+      runClient.createRun(attempt.workflowId, {
+        snapshot_id: attempt.snapshotId,
+      }),
   });
 
   useEffect(() => {
@@ -466,16 +477,29 @@ export function RunProgressPanel({
     if (startWasConfirmed || cancellationReachedTerminal) clearActionIssues();
   }, [actionIssueKind, run?.status]);
 
-  const canCreateRun =
-    workflowId !== null &&
-    validationResult?.ok === true &&
-    validationResult.snapshot !== null;
+  const canCreateRun = createAuthority !== null;
   const executionActionPending = startMutation.isPending || cancelMutation.isPending;
 
   async function handleCreateRun() {
     clearActionIssues();
+    const snapshotId = validationResult?.snapshot?.snapshot_id;
+    if (!workflowId || !snapshotId || createAuthority === null) return;
+    const attempt: CreateRunAttempt = {
+      authority: createAuthority,
+      workflowId,
+      snapshotId,
+    };
     try {
-      const response = await createMutation.mutateAsync();
+      const response = await createMutation.mutateAsync(attempt);
+      if (createAuthorityRef.current !== attempt.authority) {
+        showActionIssues('create', [
+          safeUiIssue(
+            'RUN_CREATE_INPUTS_CHANGED',
+            'Inputs changed while run creation was running. The earlier request may have created a run; review canonical runs before retrying.',
+          ),
+        ]);
+        return;
+      }
       if (!response.ok) {
         showActionIssues('create', response.issues);
         return;
@@ -495,6 +519,15 @@ export function RunProgressPanel({
       setLocalRunId(response.run.run_id);
       await preflightMutation.mutateAsync(response.run.run_id);
     } catch {
+      if (createAuthorityRef.current !== attempt.authority) {
+        showActionIssues('create', [
+          safeUiIssue(
+            'RUN_CREATE_INPUTS_CHANGED',
+            'Inputs changed while run creation was running. The earlier request may have created a run; review canonical runs before retrying.',
+          ),
+        ]);
+        return;
+      }
       showActionIssues('create', [
         safeUiIssue('RUN_CREATE_UNAVAILABLE', 'The run record could not be created. Try again.'),
       ]);

@@ -66,6 +66,93 @@ def test_environment_doctor_accepts_the_locked_project_toolchain(tmp_path, monke
     )
 
 
+def test_environment_doctor_accepts_a_versioned_reachable_redis_when_binary_is_absent(
+    tmp_path, monkeypatch
+):
+    frontend_root = tmp_path / "frontend"
+    (frontend_root / "node_modules" / ".bin").mkdir(parents=True)
+    (frontend_root / "node_modules" / ".bin" / "vite").touch()
+    (frontend_root / "node_modules" / ".bin" / "playwright").touch()
+    (frontend_root / "package-lock.json").touch()
+    monkeypatch.setattr(local_platform.sys, "version_info", (3, 12, 13))
+    monkeypatch.setattr(
+        local_platform,
+        "_import_runtime_dependency",
+        lambda module: None,
+    )
+    versions = {
+        "snakemake": "8.30.0\n",
+        "node": "v22.18.0\n",
+        "npm": "10.9.3\n",
+    }
+
+    def tool_version(executable, _arguments):
+        if executable == "redis-server":
+            raise RuntimeError("redis-server is unavailable on PATH")
+        return versions[executable]
+
+    monkeypatch.setattr(local_platform, "_read_tool_version", tool_version)
+    monkeypatch.setattr(
+        local_platform,
+        "_read_reachable_redis_version",
+        lambda _redis_url: (7, 4, 9),
+        raising=False,
+    )
+
+    checks = run_environment_doctor(
+        frontend_root,
+        redis_url="redis://127.0.0.1:6379/14",
+    )
+
+    assert EnvironmentCheck("Redis server", "7.4.9") in checks
+
+
+def test_environment_doctor_external_redis_failure_does_not_expose_connection(
+    tmp_path, monkeypatch
+):
+    frontend_root = tmp_path / "frontend"
+    (frontend_root / "node_modules" / ".bin").mkdir(parents=True)
+    (frontend_root / "node_modules" / ".bin" / "vite").touch()
+    (frontend_root / "node_modules" / ".bin" / "playwright").touch()
+    (frontend_root / "package-lock.json").touch()
+    monkeypatch.setattr(local_platform.sys, "version_info", (3, 12, 13))
+    monkeypatch.setattr(
+        local_platform,
+        "_import_runtime_dependency",
+        lambda module: None,
+    )
+    versions = {
+        "snakemake": "8.30.0\n",
+        "node": "v22.18.0\n",
+        "npm": "10.9.3\n",
+    }
+
+    def tool_version(executable, _arguments):
+        if executable == "redis-server":
+            raise RuntimeError("redis-server is unavailable on PATH")
+        return versions[executable]
+
+    def unavailable_redis(_redis_url):
+        raise RuntimeError("redis://user:secret@private-host:6379/0")
+
+    monkeypatch.setattr(local_platform, "_read_tool_version", tool_version)
+    monkeypatch.setattr(
+        local_platform,
+        "_read_reachable_redis_version",
+        unavailable_redis,
+    )
+
+    with pytest.raises(RuntimeError) as caught:
+        run_environment_doctor(
+            frontend_root,
+            redis_url="redis://user:secret@private-host:6379/0",
+        )
+
+    assert str(caught.value) == "redis-server is unavailable on PATH"
+    assert "secret" not in str(caught.value)
+    assert "private-host" not in str(caught.value)
+
+
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
@@ -149,7 +236,7 @@ def test_doctor_mode_has_no_port_runtime_or_process_side_effects(
     monkeypatch.setattr(
         local_platform,
         "run_environment_doctor",
-        lambda _root: (
+        lambda _root, *, redis_url: (
             calls.append("doctor") or (EnvironmentCheck("Python", "3.12.13"),)
         ),
     )
@@ -396,7 +483,7 @@ def test_main_checks_ports_then_prepares_demo_before_starting_processes(
         order.append("port")
         return True
 
-    def doctor(_frontend_root):
+    def doctor(_frontend_root, *, redis_url):
         order.append("doctor")
         return (EnvironmentCheck("Python", "3.12.13"),)
 

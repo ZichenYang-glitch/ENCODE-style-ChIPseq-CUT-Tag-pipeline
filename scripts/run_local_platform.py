@@ -148,7 +148,36 @@ def _parse_version(
     return tuple(int(part) for part in match.groups())
 
 
-def run_environment_doctor(frontend_root: Path) -> tuple[EnvironmentCheck, ...]:
+def _read_reachable_redis_version(redis_url: str) -> tuple[int, ...]:
+    """Read a bounded server version without exposing connection details."""
+    from redis import Redis
+
+    connection = Redis.from_url(
+        redis_url,
+        socket_connect_timeout=0.5,
+        socket_timeout=0.5,
+    )
+    try:
+        server_info = connection.info(section="server")
+    except Exception:
+        raise RuntimeError("the configured Redis server is unavailable") from None
+    finally:
+        connection.close()
+    raw_version = server_info.get("redis_version")
+    if not isinstance(raw_version, str):
+        raise RuntimeError("the configured Redis server version is unavailable")
+    return _parse_version(
+        raw_version,
+        r"^(\d+)\.(\d+)\.(\d+)",
+        requirement="Redis server 7.x is required",
+    )
+
+
+def run_environment_doctor(
+    frontend_root: Path,
+    *,
+    redis_url: str = "redis://127.0.0.1:6379/0",
+) -> tuple[EnvironmentCheck, ...]:
     """Verify the locked local stack before any port, directory, or process mutation."""
     python_version = tuple(sys.version_info[:3])
     if python_version[:2] != LOCKED_PYTHON_VERSION:
@@ -177,12 +206,18 @@ def run_environment_doctor(frontend_root: Path) -> tuple[EnvironmentCheck, ...]:
             "Snakemake 8.30.0 is required; recreate the locked ci-fast environment"
         )
 
-    redis_output = _read_tool_version("redis-server", ("--version",))
-    redis_version = _parse_version(
-        redis_output,
-        r"\bv=(\d+)\.(\d+)\.(\d+)\b",
-        requirement="Redis server 7.x is required",
-    )
+    try:
+        redis_output = _read_tool_version("redis-server", ("--version",))
+        redis_version = _parse_version(
+            redis_output,
+            r"\bv=(\d+)\.(\d+)\.(\d+)\b",
+            requirement="Redis server 7.x is required",
+        )
+    except RuntimeError as local_redis_error:
+        try:
+            redis_version = _read_reachable_redis_version(redis_url)
+        except RuntimeError:
+            raise local_redis_error from None
     if redis_version[0] < MINIMUM_REDIS_MAJOR:
         raise RuntimeError(
             "Redis server 7.x is required; install Redis 7 or newer in the "
@@ -702,7 +737,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.cleanup_service_pids is not None:
         return cleanup_service_sessions(args.cleanup_service_pids.resolve())
     try:
-        environment_checks = run_environment_doctor(args.frontend_root)
+        environment_checks = run_environment_doctor(
+            args.frontend_root,
+            redis_url=args.redis_url,
+        )
     except RuntimeError as error:
         print(f"environment doctor failed: {error}", file=sys.stderr)
         return 1
