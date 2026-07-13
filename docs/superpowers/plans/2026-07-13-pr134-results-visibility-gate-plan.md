@@ -171,7 +171,7 @@ git commit -m "test: index real QC results in durable gates"
 **Files:**
 - Modify: `frontend/e2e/durable-run.spec.ts`
 
-- [ ] **Step 1: Write the non-empty QC and source-download assertions**
+- [x] **Step 1: Write the non-empty QC and source-download assertions**
 
 Extend `RuntimeManifest` with the shared fixture values. After the results run
 is SUCCEEDED, navigate to QC before Artifacts and assert:
@@ -195,7 +195,7 @@ Add helpers that run the empty and malformed configs through the same real
 create/preflight/start path. Require `No indexed QC metrics` only for empty;
 require `QC metric indexing failed` and canonical `succeeded` for malformed.
 
-- [ ] **Step 2: Update screenshot assertions for real QC content**
+- [x] **Step 2: Update screenshot assertions for real QC content**
 
 Change `captureQcViewport` to require `qc-metric-list`, the total-reads row,
 the source action, and no horizontal overflow. Keep 1440x900, 1024x768,
@@ -203,7 +203,7 @@ the source action, and no horizontal overflow. Keep 1440x900, 1024x768,
 summary source and preserve desktop inspector-right/mobile inspector-below
 bounding-box assertions.
 
-- [ ] **Step 3: Run the real Playwright acceptance gate**
+- [x] **Step 3: Run the real Playwright acceptance gate**
 
 Run:
 
@@ -216,14 +216,14 @@ The pre-PR134 baseline is the already-recorded confirmed-empty QC path. With
 Tasks 1–2 and the new assertions present, both Playwright projects must pass
 with zero skips and the results run must expose eight metrics.
 
-- [ ] **Step 4: Verify browser downloads and cleanup**
+- [x] **Step 4: Verify browser downloads and cleanup**
 
 Require the direct Range canary to stay full `200` with `Accept-Ranges: none`.
 After Playwright exits, assert its owner-marked runtime root is gone and no
 Redis/worker/horse/Snakemake/Vite/helper process from the unique queue or
 runtime remains.
 
-- [ ] **Step 5: Commit the browser gate**
+- [x] **Step 5: Commit the browser gate**
 
 ```bash
 git add frontend/e2e/durable-run.spec.ts

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
@@ -128,7 +129,36 @@ def _copy_project_contract(source_root: Path, destination: Path) -> None:
         "printshellcmds: true\ncores: 2\n",
         encoding="utf-8",
     )
-    shutil.copy2(required_files[3], destination / "samples.tsv")
+    _write_results_sample_sheet(required_files[3], destination / "samples.tsv")
+
+
+def _write_results_sample_sheet(source: Path, destination: Path) -> None:
+    with source.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        rows = list(reader)
+        fieldnames = tuple(reader.fieldnames or ())
+    if len(rows) != 1 or not fieldnames or rows[0].get("sample") != "C1":
+        raise ValueError("platform worker tiny sample sheet is invalid")
+    row = dict(rows[0])
+    row.update(
+        {
+            "target": "CTCF",
+            "experiment": "platform-results",
+            "condition": "treatment",
+            "role": "treatment",
+            "control_sample": "",
+            "control_bam": "",
+        }
+    )
+    with destination.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=fieldnames,
+            delimiter="\t",
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerow(row)
 
 
 def _build_qc_summary() -> str:

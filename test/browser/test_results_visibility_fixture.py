@@ -37,6 +37,12 @@ def test_fixture_contains_deterministic_project_and_four_inputs(tmp_path):
     assert {config["samples"] for config in configs} == {str(inputs.samples_path)}
     assert inputs.samples_path.is_absolute()
     assert inputs.samples_path == project_root / "samples.tsv"
+    with inputs.samples_path.open(encoding="utf-8", newline="") as handle:
+        samples = list(csv.DictReader(handle, delimiter="\t"))
+    assert len(samples) == 1
+    assert samples[0]["sample"] == "C1"
+    assert samples[0]["role"] == "treatment"
+    assert samples[0]["target"] == "CTCF"
 
     required = (
         "pyproject.toml",
