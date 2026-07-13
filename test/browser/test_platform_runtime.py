@@ -7,12 +7,20 @@ import signal
 import subprocess
 import sys
 
+import pytest
+
+import scripts.run_local_platform as local_platform
 from scripts.run_local_platform import (
     RuntimeConfig,
     _session_process_groups,
+    build_parser,
     build_shared_environment,
     cleanup_service_sessions,
+    config_from_args,
+    prepare_runtime,
 )
+from scripts.results_visibility_fixture import prepare_results_visibility_fixture
+from platform_runtime import write_manifest
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -110,3 +118,155 @@ def test_playwright_runtime_reset_rejects_a_mismatched_owner(tmp_path):
     assert completed.returncode != 0
     assert "not owned" in completed.stderr
     assert unrelated.read_text(encoding="utf-8") == "keep"
+
+
+def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
+    tmp_path,
+):
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    inputs = prepare_results_visibility_fixture(runtime_root / "project")
+
+    write_manifest(runtime_root, "browser-queue", inputs)
+
+    raw = json.loads((runtime_root / "runtime.json").read_text(encoding="utf-8"))
+    assert set(raw) == {
+        "workflowId",
+        "samplesPath",
+        "resultsConfig",
+        "cancelConfig",
+        "emptyConfig",
+        "malformedConfig",
+        "expectedQcSummary",
+        "runtimeRoot",
+        "workspaceRoot",
+        "markerRoot",
+        "queueName",
+    }
+    assert raw["samplesPath"] == str(inputs.samples_path)
+    assert raw["resultsConfig"] == inputs.results_config
+    assert raw["cancelConfig"] == inputs.cancel_config
+    assert raw["emptyConfig"] == inputs.empty_config
+    assert raw["malformedConfig"] == inputs.malformed_config
+    assert raw["expectedQcSummary"] == inputs.expected_qc_summary
+    serialized = json.dumps(raw)
+    assert "sqlite:" not in serialized
+    assert "redis:" not in serialized
+    assert "ENCODE_PIPELINE_" not in serialized
+
+
+def test_launcher_defaults_remain_ordinary_platform_runtime():
+    args = build_parser().parse_args([])
+
+    config = config_from_args(args)
+
+    assert config.project_root == REPOSITORY_ROOT
+    assert config.runtime_root == REPOSITORY_ROOT / ".local/platform-demo"
+    assert config.queue_name == "encode-pipeline-demo"
+
+
+def test_results_demo_prepares_isolated_project_and_bounded_inputs(tmp_path):
+    runtime_root = tmp_path / "runtime" / "results-demo"
+    args = build_parser().parse_args(
+        [
+            "--results-visibility-demo",
+            "--runtime-root",
+            str(runtime_root),
+        ]
+    )
+
+    config, inputs_path = prepare_runtime(args)
+
+    assert config.runtime_root == runtime_root
+    assert config.project_root == runtime_root / "results-visibility-project"
+    assert inputs_path == runtime_root / "results-visibility-inputs.json"
+    raw = json.loads(inputs_path.read_text(encoding="utf-8"))
+    assert set(raw) == {"workflowId", "samplesPath", "resultsConfig"}
+    assert raw["workflowId"] == "encode-style-chipseq-cuttag-atac-mnase"
+    assert raw["resultsConfig"]["threads"] == 1
+    assert raw["resultsConfig"]["outdir"] == "results"
+    assert Path(raw["samplesPath"]) == config.project_root / "samples.tsv"
+    serialized = json.dumps(raw)
+    assert "sqlite:" not in serialized
+    assert "redis:" not in serialized
+    assert "ENCODE_PIPELINE_" not in serialized
+
+
+def test_results_demo_has_dedicated_default_runtime_without_preparing_it():
+    args = build_parser().parse_args(["--results-visibility-demo"])
+
+    config = config_from_args(args)
+
+    assert config.runtime_root == REPOSITORY_ROOT / ".local/results-visibility-demo"
+    assert config.queue_name == "encode-pipeline-results-demo"
+
+
+def test_results_demo_rejects_an_explicit_project_root(tmp_path):
+    args = build_parser().parse_args(
+        [
+            "--results-visibility-demo",
+            "--project-root",
+            str(tmp_path / "project"),
+            "--runtime-root",
+            str(tmp_path / "runtime"),
+        ]
+    )
+
+    with pytest.raises(ValueError, match="project-root"):
+        prepare_runtime(args)
+
+
+def test_main_checks_ports_then_prepares_demo_before_starting_processes(
+    tmp_path,
+    monkeypatch,
+):
+    order: list[str] = []
+    config = RuntimeConfig(
+        project_root=REPOSITORY_ROOT,
+        frontend_root=REPOSITORY_ROOT / "frontend",
+        runtime_root=tmp_path / "runtime",
+        redis_url="redis://127.0.0.1:6380/0",
+        queue_name="results-demo",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=30,
+    )
+
+    def configured(_args):
+        order.append("configure")
+        return config
+
+    def prepared(_args):
+        order.append("prepare")
+        return config, None
+
+    def available(_host, _port):
+        order.append("port")
+        return True
+
+    class Supervisor:
+        def __init__(self, _config):
+            order.append("process")
+
+        def run(self):
+            return 0
+
+    monkeypatch.setattr(local_platform, "config_from_args", configured)
+    monkeypatch.setattr(local_platform, "prepare_runtime", prepared)
+    monkeypatch.setattr(local_platform, "_port_available", available)
+    monkeypatch.setattr(local_platform, "PlatformSupervisor", Supervisor)
+
+    assert (
+        local_platform.main(
+            [
+                "--results-visibility-demo",
+                "--runtime-root",
+                str(tmp_path / "runtime"),
+            ]
+        )
+        == 0
+    )
+
+    assert order == ["configure", "port", "port", "prepare", "process"]

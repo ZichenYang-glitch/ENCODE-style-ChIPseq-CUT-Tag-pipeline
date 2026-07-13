@@ -5,8 +5,11 @@ import { join } from 'node:path';
 interface RuntimeManifest {
   workflowId: string;
   samplesPath: string;
-  successConfig: Record<string, unknown>;
+  resultsConfig: Record<string, unknown>;
   cancelConfig: Record<string, unknown>;
+  emptyConfig: Record<string, unknown>;
+  malformedConfig: Record<string, unknown>;
+  expectedQcSummary: string;
   runtimeRoot: string;
   workspaceRoot: string;
   markerRoot: string;
@@ -51,6 +54,28 @@ async function createPlannedRun(
   return runId!;
 }
 
+async function executeToSucceeded(
+  page: Page,
+  config: Record<string, unknown>,
+  logMarker: string,
+): Promise<string> {
+  const runId = await createPlannedRun(page, config);
+  const startButton = page.getByRole('button', { name: 'Start run' });
+  await expect(startButton).toBeEnabled();
+  await startButton.click();
+  await expect(page.getByTestId('run-status-badge')).toHaveText(
+    /queued|running|succeeded/,
+  );
+  await expect(page.getByTestId('run-status-badge')).toHaveText('succeeded', {
+    timeout: 60_000,
+  });
+  await expect(page.getByText(logMarker)).toBeVisible({ timeout: 60_000 });
+  await expect(
+    page.getByText('Local workflow execution completed successfully.'),
+  ).toBeVisible();
+  return runId;
+}
+
 async function expectNoHorizontalOverflow(page: Page) {
   await expect
     .poll(() =>
@@ -63,6 +88,23 @@ async function expectNoHorizontalOverflow(page: Page) {
     .toBe(true);
 }
 
+async function attachScreenshot(
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+) {
+  const screenshot = await page.screenshot({ fullPage: true });
+  const screenshotDirectory = process.env.ENCODE_PIPELINE_E2E_SCREENSHOT_DIR;
+  if (screenshotDirectory) {
+    mkdirSync(screenshotDirectory, { recursive: true });
+    writeFileSync(join(screenshotDirectory, `${name}.png`), screenshot);
+  }
+  await testInfo.attach(name, {
+    body: screenshot,
+    contentType: 'image/png',
+  });
+}
+
 async function captureArtifactViewport(
   page: Page,
   testInfo: TestInfo,
@@ -71,18 +113,23 @@ async function captureArtifactViewport(
   height: number,
 ) {
   await page.setViewportSize({ width, height });
-  if (width < 1280) {
-    await page.reload();
-  }
-  await expect(page.getByRole('tab', { name: 'Artifacts' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Refresh run progress' })).toBeVisible();
+  if (width < 1280) await page.reload();
+  await expect(page.getByRole('tab', { name: 'Artifacts' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(
+    page.getByRole('button', { name: 'Refresh run progress' }),
+  ).toBeVisible();
   await expect(page.getByTestId('artifact-inspector')).toBeVisible();
   await expect(
-    page.getByRole('button', { name: 'Download result_manifest.tsv' }),
+    page.getByRole('button', { name: 'Download C1.qc_summary.tsv' }),
   ).toBeVisible();
   if (width < 1280) {
     await expect(page.getByTestId('artifact-inspector')).toBeInViewport();
-    await expect(page.getByRole('button', { name: 'Back to artifact list' })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Back to artifact list' }),
+    ).toBeVisible();
   }
   await expectNoHorizontalOverflow(page);
 
@@ -95,17 +142,7 @@ async function captureArtifactViewport(
   } else {
     expect(inspector!.y).toBeGreaterThanOrEqual(list!.y + list!.height - 2);
   }
-
-  const screenshot = await page.screenshot({ fullPage: true });
-  const screenshotDirectory = process.env.ENCODE_PIPELINE_E2E_SCREENSHOT_DIR;
-  if (screenshotDirectory) {
-    mkdirSync(screenshotDirectory, { recursive: true });
-    writeFileSync(join(screenshotDirectory, `${name}.png`), screenshot);
-  }
-  await testInfo.attach(`artifact-browser-${name}`, {
-    body: screenshot,
-    contentType: 'image/png',
-  });
+  await attachScreenshot(page, testInfo, `artifact-browser-${name}`);
 }
 
 async function captureQcViewport(
@@ -121,31 +158,36 @@ async function captureQcViewport(
     'aria-selected',
     'true',
   );
-  await expect(page.getByRole('button', { name: 'Refresh run progress' })).toBeVisible();
-  const emptyState = page.getByRole('heading', { name: 'No indexed QC metrics' });
-  await expect(emptyState).toBeVisible({ timeout: 60_000 });
   await expect(
-    page.getByText(
-      'QC metric indexing completed successfully and produced an empty result set.',
-    ),
+    page.getByRole('button', { name: 'Refresh run progress' }),
   ).toBeVisible();
-  await expectNoHorizontalOverflow(page);
-
-  const statusBox = await emptyState.boundingBox();
-  expect(statusBox).not.toBeNull();
-  expect(statusBox!.x).toBeGreaterThanOrEqual(0);
-  expect(statusBox!.x + statusBox!.width).toBeLessThanOrEqual(width + 1);
-
-  const screenshot = await page.screenshot({ fullPage: true });
-  const screenshotDirectory = process.env.ENCODE_PIPELINE_E2E_SCREENSHOT_DIR;
-  if (screenshotDirectory) {
-    mkdirSync(screenshotDirectory, { recursive: true });
-    writeFileSync(join(screenshotDirectory, `qc-${name}.png`), screenshot);
-  }
-  await testInfo.attach(`qc-workbench-${name}`, {
-    body: screenshot,
-    contentType: 'image/png',
+  await expect(page.getByTestId('qc-metric-list')).toBeVisible({
+    timeout: 60_000,
   });
+  await expect(
+    page.getByRole('button', {
+      name: 'Open source artifact for Total reads',
+    }),
+  ).toBeVisible();
+  if (width >= 768) {
+    const totalReadsRow = page
+      .getByRole('table', { name: 'Indexed run QC metrics' })
+      .getByRole('row')
+      .filter({ hasText: 'Total reads' });
+    await expect(totalReadsRow.getByText('1000', { exact: true })).toBeVisible();
+  } else {
+    const totalReadsItem = page
+      .getByRole('list', { name: 'Indexed run QC metrics' })
+      .getByRole('listitem')
+      .filter({ hasText: 'Total reads' });
+    await expect(totalReadsItem.getByText('1000', { exact: true })).toBeVisible();
+  }
+  await expectNoHorizontalOverflow(page);
+  const listBox = await page.getByTestId('qc-metric-list').boundingBox();
+  expect(listBox).not.toBeNull();
+  expect(listBox!.x).toBeGreaterThanOrEqual(0);
+  expect(listBox!.x + listBox!.width).toBeLessThanOrEqual(width + 1);
+  await attachScreenshot(page, testInfo, `qc-workbench-${name}`);
 }
 
 function processExists(pid: number): boolean {
@@ -157,34 +199,46 @@ function processExists(pid: number): boolean {
   return true;
 }
 
-test('real durable execution succeeds, exposes artifacts, and survives deep-link reload @desktop', async ({
+test('real run exposes QC source artifact and exact download @desktop', async ({
   page,
 }, testInfo) => {
   const runtime = manifest();
-  const runId = await createPlannedRun(page, runtime.successConfig);
-
-  const startButton = page.getByRole('button', { name: 'Start run' });
-  await expect(startButton).toBeEnabled();
-  await startButton.click();
-  await expect(page.getByTestId('run-status-badge')).toHaveText(
-    /queued|running|succeeded/,
+  const runId = await executeToSucceeded(
+    page,
+    runtime.resultsConfig,
+    'browser-e2e-results',
   );
-  await expect(page.getByTestId('run-status-badge')).toHaveText('succeeded', {
-    timeout: 60_000,
-  });
-  await expect(page.getByText('browser-e2e-success')).toBeVisible();
-  await expect(
-    page.getByText('Local workflow execution completed successfully.'),
-  ).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
-  await page.getByRole('tab', { name: 'Artifacts' }).click();
-  await expect(page).toHaveURL(new RegExp(`/runs/${runId}\\?view=artifacts$`));
-  const manifestArtifact = page.getByRole('button', {
-    name: 'Open artifact result_manifest.tsv',
-  }).first();
-  await expect(manifestArtifact).toBeVisible({ timeout: 60_000 });
-  await manifestArtifact.click();
+  await page.getByRole('tab', { name: 'QC' }).click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}\\?view=qc$`));
+  await expect(
+    page.getByRole('heading', { name: 'Indexed QC metrics' }),
+  ).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText('8 loaded of 8')).toBeVisible();
+
+  const qcResponse = await page.request.get(
+    `/api/v1/runs/${runId}/qc-metrics?limit=50`,
+  );
+  expect(qcResponse.status()).toBe(200);
+  const qcBody = (await qcResponse.json()) as {
+    qc_metrics: Array<{ metric_key: string; value: string }>;
+  };
+  expect(qcBody.qc_metrics).toHaveLength(8);
+  expect(
+    qcBody.qc_metrics.find(
+      (metric) => metric.metric_key === 'sequencing.total_reads',
+    )?.value,
+  ).toBe('1000');
+
+  await captureQcViewport(page, testInfo, 'desktop-1440x900', 1440, 900);
+  await captureQcViewport(page, testInfo, 'tablet-1024x768', 1024, 768);
+  await captureQcViewport(page, testInfo, 'mobile-390x844', 390, 844);
+  await captureQcViewport(page, testInfo, 'mobile-360x800', 360, 800);
+
+  await page
+    .getByRole('button', { name: 'Open source artifact for Total reads' })
+    .click();
   await expect(page).toHaveURL(
     new RegExp(`/runs/${runId}\\?view=artifacts&artifact=[A-Za-z0-9_.-]+$`),
   );
@@ -192,10 +246,13 @@ test('real durable execution succeeds, exposes artifacts, and survives deep-link
   await expect(
     page
       .getByTestId('artifact-inspector')
-      .getByText('results/multiqc/result_manifest.tsv', { exact: true }),
+      .getByText('results/C1/01_qc/C1.qc_summary.tsv', { exact: true }),
   ).toBeVisible();
-  await expect(page.getByTestId('artifact-inspector').getByText(/^run:\/\/runs\//)).toBeVisible();
+  await expect(
+    page.getByTestId('artifact-inspector').getByText(/^run:\/\/runs\//),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Copy opaque uri' })).toBeVisible();
+
   const artifactId = new URL(page.url()).searchParams.get('artifact');
   expect(artifactId).toBeTruthy();
   const rangeResponse = await page.request.get(
@@ -206,21 +263,18 @@ test('real durable execution succeeds, exposes artifacts, and survives deep-link
   expect(rangeResponse.headers()['content-range']).toBeUndefined();
   expect(rangeResponse.headers()['accept-ranges']).toBe('none');
   expect((await rangeResponse.body()).toString('utf8')).toBe(
-    'output_type\tstatus\tpath\n' +
-      'result_manifest\tpresent\tresults/multiqc/result_manifest.tsv\n',
+    runtime.expectedQcSummary,
   );
+
   const downloadPromise = page.waitForEvent('download');
   await page
-    .getByRole('button', { name: 'Download result_manifest.tsv' })
+    .getByRole('button', { name: 'Download C1.qc_summary.tsv' })
     .click();
   const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe('result_manifest.tsv');
+  expect(download.suggestedFilename()).toBe('C1.qc_summary.tsv');
   const downloadedPath = await download.path();
   expect(downloadedPath).not.toBeNull();
-  expect(readFileSync(downloadedPath!, 'utf8')).toBe(
-    'output_type\tstatus\tpath\n' +
-      'result_manifest\tpresent\tresults/multiqc/result_manifest.tsv\n',
-  );
+  expect(readFileSync(downloadedPath!, 'utf8')).toBe(runtime.expectedQcSummary);
   await expect(page.getByText('Download prepared successfully.')).toBeVisible();
 
   await page.reload();
@@ -231,7 +285,7 @@ test('real durable execution succeeds, exposes artifacts, and survives deep-link
   await expect(
     page
       .getByTestId('artifact-inspector')
-      .getByText('results/multiqc/result_manifest.tsv', { exact: true }),
+      .getByText('results/C1/01_qc/C1.qc_summary.tsv', { exact: true }),
   ).toBeVisible();
 
   await captureArtifactViewport(page, testInfo, 'desktop-1440x900', 1440, 900);
@@ -240,26 +294,46 @@ test('real durable execution succeeds, exposes artifacts, and survives deep-link
   await captureArtifactViewport(page, testInfo, 'mobile-360x800', 360, 800);
 
   await page.getByRole('tab', { name: 'QC' }).click();
+  await page.reload();
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}\\?view=qc$`));
+  await expect(page.getByTestId('qc-metric-list')).toBeVisible();
+
+  const emptyRunId = await executeToSucceeded(
+    page,
+    runtime.emptyConfig,
+    'browser-e2e-empty',
+  );
+  await page.getByRole('tab', { name: 'QC' }).click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${emptyRunId}\\?view=qc$`));
   await expect(
     page.getByRole('heading', { name: 'No indexed QC metrics' }),
   ).toBeVisible({ timeout: 60_000 });
-  await page.reload();
-  await expect(page.getByRole('tab', { name: 'QC' })).toHaveAttribute(
-    'aria-selected',
-    'true',
+  await expect(
+    page.getByText(
+      'QC metric indexing completed successfully and produced an empty result set.',
+    ),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectNoHorizontalOverflow(page);
+  await attachScreenshot(page, testInfo, 'qc-confirmed-empty-mobile-390x844');
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const malformedRunId = await executeToSucceeded(
+    page,
+    runtime.malformedConfig,
+    'browser-e2e-malformed',
   );
-
-  await captureQcViewport(page, testInfo, 'desktop-1440x900', 1440, 900);
-  await captureQcViewport(page, testInfo, 'tablet-1024x768', 1024, 768);
-  await captureQcViewport(page, testInfo, 'mobile-390x844', 390, 844);
-  await captureQcViewport(page, testInfo, 'mobile-360x800', 360, 800);
-
-  await page.getByRole('tab', { name: 'Activity' }).click();
-  await page.reload();
-  await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
+  await page.getByRole('tab', { name: 'QC' }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/runs/${malformedRunId}\\?view=qc$`),
+  );
+  await expect(
+    page.getByRole('heading', { name: 'QC metric indexing failed' }),
+  ).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId('run-status-badge')).toHaveText('succeeded');
-  await expect(page.getByText('browser-e2e-success')).toBeVisible();
+  await expect(page.getByText('sample\tassay')).not.toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await attachScreenshot(page, testInfo, 'qc-indexing-failed-desktop-1440x900');
 });
 
 test('running cancellation stays requested until worker acknowledgement @mobile', async ({
@@ -321,6 +395,18 @@ test('running cancellation stays requested until worker acknowledgement @mobile'
         'results',
         'multiqc',
         'result_manifest.tsv',
+      ),
+    ),
+  ).toBe(false);
+  expect(
+    existsSync(
+      join(
+        runtime.workspaceRoot,
+        runId,
+        'results',
+        'C1',
+        '01_qc',
+        'C1.qc_summary.tsv',
       ),
     ),
   ).toBe(false);
