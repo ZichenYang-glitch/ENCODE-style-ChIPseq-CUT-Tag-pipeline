@@ -55,9 +55,7 @@ def prepare_results_visibility_fixture(
         expected_qc_summary = _build_qc_summary()
         _write_controlled_workflow(destination, expected_qc_summary)
         samples_path = (destination / "samples.tsv").resolve(strict=True)
-        configs = tuple(
-            _build_config(source_root, threads) for threads in (1, 2, 3, 4)
-        )
+        configs = tuple(_build_config(source_root, threads) for threads in (1, 2, 3, 4))
     except BaseException:
         shutil.rmtree(destination)
         raise
