@@ -47,8 +47,9 @@ The latest event by sequence among `qc_metrics_indexed`,
 `qc_metrics_indexing_failed`, and `qc_metrics_invalidated` defines the visible
 QC outcome. An indexed event is valid only when `metric_count` is a
 non-negative safe integer. A failure may display only an allowlisted stable
-reason code. A missing outcome in a truncated event snapshot is unconfirmed,
-not pending or empty.
+reason code. Any truncated event snapshot is unconfirmed because an omitted
+later event could supersede every visible outcome; it is never pending,
+indexed, failed, or empty.
 
 ```text
 canonical run snapshot

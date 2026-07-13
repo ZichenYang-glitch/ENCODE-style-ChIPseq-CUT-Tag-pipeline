@@ -23,6 +23,7 @@ export function qcIndexingOutcome(
   events: RunEventResponse[],
   truncated = false,
 ): QcIndexingOutcome {
+  if (truncated) return { kind: 'unconfirmed' };
   const latest = events
     .filter((item) =>
       [
@@ -33,7 +34,7 @@ export function qcIndexingOutcome(
     )
     .sort((left, right) => right.sequence - left.sequence)[0];
 
-  if (!latest) return truncated ? { kind: 'unconfirmed' } : { kind: 'pending' };
+  if (!latest) return { kind: 'pending' };
   if (latest.event_type === 'qc_metrics_invalidated') return { kind: 'pending' };
   if (latest.event_type === 'qc_metrics_indexing_failed') {
     const reasonCode = latest.context.reason_code;

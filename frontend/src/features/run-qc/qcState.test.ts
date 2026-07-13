@@ -100,6 +100,17 @@ describe('qcIndexingOutcome', () => {
   it('does not claim an outcome from malformed or incomplete history', () => {
     expect(qcIndexingOutcome([], false)).toEqual({ kind: 'pending' });
     expect(qcIndexingOutcome([], true)).toEqual({ kind: 'unconfirmed' });
+    for (const visibleOutcome of [
+      event(1, 'qc_metrics_indexed', { metric_count: 0 }),
+      event(1, 'qc_metrics_indexing_failed', {
+        reason_code: 'QC_SUMMARY_SOURCE_CHANGED',
+      }),
+      event(1, 'qc_metrics_invalidated'),
+    ]) {
+      expect(qcIndexingOutcome([visibleOutcome], true)).toEqual({
+        kind: 'unconfirmed',
+      });
+    }
     expect(
       qcIndexingOutcome([event(1, 'qc_metrics_indexed', { metric_count: -1 })]),
     ).toEqual({ kind: 'unconfirmed' });
