@@ -11,6 +11,7 @@ from encode_pipeline.services.validation import ValidationService
 
 if TYPE_CHECKING:
     from encode_pipeline.services.agent import AgentService
+    from encode_pipeline.services.artifact_downloads import ArtifactDownloadService
     from encode_pipeline.services.preflight import LocalPreflightService
     from encode_pipeline.services.run_submission import RunSubmissionService
     from encode_pipeline.services.run_cancellation import RunCancellationService
@@ -35,6 +36,13 @@ async def get_agent_service(request: Request) -> "AgentService":
 async def get_run_service(request: Request) -> "RunService":
     """Return the app run service."""
     return request.app.state.run_service
+
+
+async def get_artifact_download_service(
+    request: Request,
+) -> "ArtifactDownloadService":
+    """Return the descriptor-safe artifact download service."""
+    return request.app.state.artifact_download_service
 
 
 async def get_run_submission_service(request: Request) -> "RunSubmissionService":

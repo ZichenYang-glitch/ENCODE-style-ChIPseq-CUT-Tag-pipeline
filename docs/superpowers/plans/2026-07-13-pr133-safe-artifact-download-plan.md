@@ -25,18 +25,18 @@ Orval, React, TanStack Query v5, lucide-react, Vitest, Playwright.
 - Create: `src/encode_pipeline/services/artifact_downloads.py`
 - Create: `test/services/test_artifact_downloads.py`
 
-- [ ] Write failing tests for known-run lookup, missing/cross-run artifacts,
+- [x] Write failing tests for known-run lookup, missing/cross-run artifacts,
   persisted identity/path/name/MIME/size corruption, and a successful bounded
   stream.
-- [ ] Add failing absolute/traversal/backslash/NUL/noncanonical path tests and
+- [x] Add failing absolute/traversal/backslash/NUL/noncanonical path tests and
   symlink tests for workspace root, run, parent, and final components.
-- [ ] Add failing directory, FIFO, device, missing, larger/smaller, inode swap,
+- [x] Add failing directory, FIFO, device, missing, larger/smaller, inode swap,
   in-place mutation, early EOF, growth, read-error, generator-close, and
   idempotent-close tests.
-- [ ] Implement `ArtifactDownloadService.prepare` and
+- [x] Implement `ArtifactDownloadService.prepare` and
   `ArtifactDownloadPlan.iter_bytes` with descriptor-chain fingerprints,
   64-KiB reads, expected-size bounds, `Result/Issue`, and sanitized reason codes.
-- [ ] Run the focused service suite and confirm GREEN with no leaked descriptor.
+- [x] Run the focused service suite and confirm GREEN with no leaked descriptor.
 
 ### Task 2: Thin binary FastAPI contract
 
@@ -48,17 +48,17 @@ Orval, React, TanStack Query v5, lucide-react, Vitest, Playwright.
 - Create: `test/api/test_routes_artifact_download.py`
 - Modify: `test/api/test_openapi_export.py`
 
-- [ ] Write failing API tests for exact bytes, Content-Length, safe controlled
+- [x] Write failing API tests for exact bytes, Content-Length, safe controlled
   filename, MIME/nosniff/cache headers, full response to Range, and unchanged
   run/events.
-- [ ] Add missing/cross-run 404 parity, symlink/missing/size 409, corrupted row
+- [x] Add missing/cross-run 404 parity, symlink/missing/size 409, corrupted row
   and unexpected 500, path/error disclosure, SQLite reopen, and descriptor-close
   tests.
-- [ ] Add an AST/import boundary test proving the route does not use `os`,
+- [x] Add an AST/import boundary test proving the route does not use `os`,
   `Path`, `open`, or `FileResponse` for workspace access.
-- [ ] Add stable `downloadRunArtifact` operation and binary/error OpenAPI schema
+- [x] Add stable `downloadRunArtifact` operation and binary/error OpenAPI schema
   assertions.
-- [ ] Compose `ArtifactDownloadService`, add the dependency, synchronous route,
+- [x] Compose `ArtifactDownloadService`, add the dependency, synchronous route,
   `StreamingResponse`, and idempotent background cleanup. Run focused API tests.
 
 ### Task 3: Mechanical binary Orval operation
@@ -70,14 +70,14 @@ Orval, React, TanStack Query v5, lucide-react, Vitest, Playwright.
 - Mechanically regenerate: `frontend/openapi.json`
 - Mechanically regenerate: `frontend/src/api/generated/`
 
-- [ ] Add failing fetcher tests showing JSON operations still call `json()`,
+- [x] Add failing fetcher tests showing JSON operations still call `json()`,
   binary operations call `blob()` even with `application/json` MIME, and JSON
   error envelopes remain redacted.
-- [ ] Refactor the existing transport into one shared request/error path with
+- [x] Refactor the existing transport into one shared request/error path with
   exported JSON `fetcher` and blob `blobFetcher` decoders.
-- [ ] Configure only `downloadRunArtifact` to use `blobFetcher`; export OpenAPI
+- [x] Configure only `downloadRunArtifact` to use `blobFetcher`; export OpenAPI
   and regenerate Orval mechanically.
-- [ ] Assert the generated operation URL, method, return type, mutator, and zero
+- [x] Assert the generated operation URL, method, return type, mutator, and zero
   hand edits through contract/drift tests.
 
 ### Task 4: Artifact inspector download interaction
@@ -90,26 +90,26 @@ Orval, React, TanStack Query v5, lucide-react, Vitest, Playwright.
 - Modify: `frontend/src/features/run-artifacts/artifactState.ts`
 - Modify: `frontend/src/features/run-artifacts/artifactState.test.ts`
 
-- [ ] Write failing tests for generated mutation use, pending disabled label,
+- [x] Write failing tests for generated mutation use, pending disabled label,
   safe success download, URL revoke, redacted failure, Retry, selection identity,
   and controlled filename fallback.
-- [ ] Add a pure filename helper and use a TanStack mutation in
+- [x] Add a pure filename helper and use a TanStack mutation in
   `ArtifactBrowser`; never write an endpoint path or DTO.
-- [ ] Add the compact lucide Download action and polite status feedback to the
+- [x] Add the compact lucide Download action and polite status feedback to the
   existing inspector without changing list/detail truthfulness or layout.
-- [ ] Run artifact, route, fetcher, and full frontend tests, typecheck, and build.
+- [x] Run artifact, route, fetcher, and full frontend tests, typecheck, and build.
 
 ### Task 5: Real browser download gate
 
 **Files:**
 - Modify: `frontend/e2e/durable-run.spec.ts`
 
-- [ ] Extend the real success run to request the selected persisted
+- [x] Extend the real success run to request the selected persisted
   `result_manifest` through the generated UI action.
-- [ ] Assert a real Playwright download, safe suggested filename, exact
+- [x] Assert a real Playwright download, safe suggested filename, exact
   manifest bytes, and no page navigation or local path disclosure.
-- [ ] Recheck desktop/mobile overflow and retain the real cancellation test.
-- [ ] Run real Redis/RQ/Snakemake Playwright with zero skips and verify all
+- [x] Recheck desktop/mobile overflow and retain the real cancellation test.
+- [x] Run real Redis/RQ/Snakemake Playwright with zero skips and verify all
   Redis, worker, horse, Snakemake, Vite, and helper processes are reaped.
 
 ### Task 6: Full security and publication gate

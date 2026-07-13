@@ -12,6 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from encode_pipeline.api.models import (
+    RunArtifactDownloadErrorResponse,
     RunArtifactsResponse,
     RunQcMetricsResponse,
     ValidationResponse,
@@ -29,6 +30,7 @@ from encode_pipeline.services.defaults import (
     create_default_workspace_planner,
     create_default_workflow_registry,
 )
+from encode_pipeline.services.artifact_downloads import ArtifactDownloadService
 from encode_pipeline.services.planning import ExecutionPlanner
 from encode_pipeline.services.preflight import LocalPreflightService
 from encode_pipeline.services.run_cancellation import RunCancellationService
@@ -116,6 +118,10 @@ def create_app(
     app.state.validation_service = create_default_validation_service(registry=registry)
     app.state.agent_service = create_default_agent_service(registry=registry)
     app.state.run_service = run_service
+    app.state.artifact_download_service = ArtifactDownloadService(
+        run_service=run_service,
+        workspace_root=worker_settings.workspace_root,
+    )
     app.state.build_identity_provider = build_identity_provider
     app.state.run_submission_service = run_submission_service
     app.state.run_cancellation_service = run_cancellation_service
@@ -225,6 +231,27 @@ async def _handle_internal_server_error(
     exc: Exception,
 ) -> JSONResponse:
     """Return 500 with the PR84 INTERNAL_SERVER_ERROR envelope."""
+    route = request.scope.get("route")
+    if getattr(route, "operation_id", None) == "downloadRunArtifact":
+        issue = Issue(
+            code="INTERNAL_SERVER_ERROR",
+            message="Artifact download is temporarily unavailable.",
+            severity="error",
+            path="artifact_id",
+            source="runtime",
+            technical_message=None,
+            hint=None,
+            context={},
+        )
+        body = RunArtifactDownloadErrorResponse(
+            run_id=request.path_params.get("run_id", ""),
+            artifact_id=request.path_params.get("artifact_id", ""),
+            issues=[issue.to_dict()],
+        )
+        return JSONResponse(
+            status_code=500,
+            content=body.model_dump(mode="json", exclude_none=True),
+        )
     workflow_id = request.path_params.get("workflow_id")
     issue = Issue(
         code="INTERNAL_SERVER_ERROR",

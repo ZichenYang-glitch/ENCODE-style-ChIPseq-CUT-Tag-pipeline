@@ -18,6 +18,14 @@ module.exports = {
         fetch: {
           includeHttpResponseReturnType: false,
         },
+        operations: {
+          downloadRunArtifact: {
+            mutator: {
+              path: './src/api/fetcher.ts',
+              name: 'blobFetcher',
+            },
+          },
+        },
       },
     },
   },

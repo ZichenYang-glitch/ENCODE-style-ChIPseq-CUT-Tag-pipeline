@@ -97,8 +97,14 @@ The plan owns the complete open descriptor chain. Its iterator:
 - rechecks the chain after the final byte;
 - closes every descriptor in `finally`, even on read failure or generator close.
 
-The `StreamingResponse` also installs a Starlette `BackgroundTask(plan.close)`.
-`close` is idempotent, so normal completion, client disconnect, response
+Directory fingerprints intentionally compare only device, inode, and mode:
+directory size and mtime change when an unrelated sibling is created and are
+not path-entry identity. The final regular file additionally retains its
+indexed size and mtime checks.
+
+The `StreamingResponse` installs both a Starlette `BackgroundTask(plan.close)`
+and a narrow response `finally` boundary. `close` is idempotent, so normal
+completion, client disconnect, response transmission failure, response
 cleanup, or an iterator exception all converge on one descriptor release.
 
 Opening the final descriptor pins the bytes to one inode, while the retained
@@ -175,4 +181,8 @@ same inode/size/mtime, and race between checks can evade metadata-only change
 detection. Immutable artifact storage or checksums would narrow that risk but
 are explicitly deferred. A client disconnect or mutation after headers are sent
 produces a truncated transport rather than a JSON Issue; descriptors still
-close. Authentication and multi-user authorization also remain later work.
+close. The browser's generated fetch operation materializes a `Blob` before
+handing it to the native download action, so very large artifacts can pressure
+client memory even though the server remains chunk-bounded; a future native or
+stream-to-disk client boundary can address this without weakening the endpoint.
+Authentication and multi-user authorization also remain later work.

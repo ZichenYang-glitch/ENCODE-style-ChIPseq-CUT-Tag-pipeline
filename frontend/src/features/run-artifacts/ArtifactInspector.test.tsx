@@ -47,7 +47,9 @@ afterEach(() => {
 });
 
 describe('ArtifactInspector', () => {
-  it('shows only persisted public detail and no download action', () => {
+  it('shows persisted public detail and a controlled download action', async () => {
+    const user = userEvent.setup();
+    const onDownload = vi.fn();
     render(
       <ArtifactInspector
         artifact={artifact}
@@ -56,6 +58,7 @@ describe('ArtifactInspector', () => {
         isError={false}
         invalidSelection={false}
         onRetry={() => undefined}
+        onDownload={onDownload}
       />,
     );
 
@@ -64,7 +67,62 @@ describe('ArtifactInspector', () => {
     expect(screen.getByText('run://runs/run-1/artifacts/artifact-a')).toBeInTheDocument();
     expect(screen.getByText('sample-1')).toBeInTheDocument();
     expect(screen.getByText('experiment-1')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /download/i })).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole('button', { name: 'Download result_manifest.tsv' }),
+    );
+    expect(onDownload).toHaveBeenCalledWith(artifact);
+  });
+
+  it('shows honest download progress, success, and redacted failure', () => {
+    const { rerender } = render(
+      <ArtifactInspector
+        artifact={artifact}
+        selectedArtifactId={artifact.artifact_id}
+        isLoading={false}
+        isError={false}
+        invalidSelection={false}
+        onRetry={() => undefined}
+        onDownload={() => undefined}
+        isDownloading
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Download result_manifest.tsv' })).toBeDisabled();
+    expect(screen.getByText('Downloading…')).toBeInTheDocument();
+
+    rerender(
+      <ArtifactInspector
+        artifact={artifact}
+        selectedArtifactId={artifact.artifact_id}
+        isLoading={false}
+        isError={false}
+        invalidSelection={false}
+        onRetry={() => undefined}
+        onDownload={() => undefined}
+        downloadStatus="success"
+      />,
+    );
+    expect(screen.getByText('Download prepared successfully.')).toHaveAttribute(
+      'role',
+      'status',
+    );
+
+    rerender(
+      <ArtifactInspector
+        artifact={artifact}
+        selectedArtifactId={artifact.artifact_id}
+        isLoading={false}
+        isError={false}
+        invalidSelection={false}
+        onRetry={() => undefined}
+        onDownload={() => undefined}
+        downloadStatus="error"
+      />,
+    );
+    expect(screen.getByText(/Download could not be completed/)).toHaveAttribute(
+      'role',
+      'status',
+    );
+    expect(screen.queryByText(/private|exception|stderr/i)).not.toBeInTheDocument();
   });
 
   it('announces copy success and failure without changing the value', async () => {

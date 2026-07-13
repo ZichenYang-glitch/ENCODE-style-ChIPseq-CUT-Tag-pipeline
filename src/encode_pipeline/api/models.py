@@ -340,6 +340,27 @@ class RunArtifactDetailResponse(BaseModel):
     issues: list[IssueResponse] = Field(default_factory=list)
 
 
+class ArtifactDownloadIssueResponse(BaseModel):
+    """Allowlisted public Issue fields for artifact download failures."""
+
+    code: str
+    message: str
+    severity: str = "error"
+    path: str | None = None
+    source: str | None = None
+    hint: str | None = None
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class RunArtifactDownloadErrorResponse(BaseModel):
+    """Disclosure-safe envelope for an artifact download failure."""
+
+    ok: Literal[False] = False
+    run_id: str
+    artifact_id: str
+    issues: list[ArtifactDownloadIssueResponse] = Field(default_factory=list)
+
+
 class QcMetricResponse(BaseModel):
     """Lossless disclosure-safe projection of one persisted QC metric."""
 

@@ -77,6 +77,9 @@ async function captureArtifactViewport(
   await expect(page.getByRole('tab', { name: 'Artifacts' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Refresh run progress' })).toBeVisible();
   await expect(page.getByTestId('artifact-inspector')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Download result_manifest.tsv' }),
+  ).toBeVisible();
   if (width < 1280) {
     await expect(page.getByTestId('artifact-inspector')).toBeInViewport();
     await expect(page.getByRole('button', { name: 'Back to artifact list' })).toBeVisible();
@@ -193,7 +196,32 @@ test('real durable execution succeeds, exposes artifacts, and survives deep-link
   ).toBeVisible();
   await expect(page.getByTestId('artifact-inspector').getByText(/^run:\/\/runs\//)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Copy opaque uri' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /download/i })).toHaveCount(0);
+  const artifactId = new URL(page.url()).searchParams.get('artifact');
+  expect(artifactId).toBeTruthy();
+  const rangeResponse = await page.request.get(
+    `/api/v1/runs/${runId}/artifacts/${artifactId}/download`,
+    { headers: { Range: 'bytes=0-3' } },
+  );
+  expect(rangeResponse.status()).toBe(200);
+  expect(rangeResponse.headers()['content-range']).toBeUndefined();
+  expect(rangeResponse.headers()['accept-ranges']).toBe('none');
+  expect((await rangeResponse.body()).toString('utf8')).toBe(
+    'output_type\tstatus\tpath\n' +
+      'result_manifest\tpresent\tresults/multiqc/result_manifest.tsv\n',
+  );
+  const downloadPromise = page.waitForEvent('download');
+  await page
+    .getByRole('button', { name: 'Download result_manifest.tsv' })
+    .click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('result_manifest.tsv');
+  const downloadedPath = await download.path();
+  expect(downloadedPath).not.toBeNull();
+  expect(readFileSync(downloadedPath!, 'utf8')).toBe(
+    'output_type\tstatus\tpath\n' +
+      'result_manifest\tpresent\tresults/multiqc/result_manifest.tsv\n',
+  );
+  await expect(page.getByText('Download prepared successfully.')).toBeVisible();
 
   await page.reload();
   await expect(page.getByRole('tab', { name: 'Artifacts' })).toHaveAttribute(

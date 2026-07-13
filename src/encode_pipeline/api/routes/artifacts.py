@@ -2,22 +2,59 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
+from starlette.types import Receive, Scope, Send
 
-from encode_pipeline.api.dependencies import get_run_service
+from encode_pipeline.api.dependencies import (
+    get_artifact_download_service,
+    get_run_service,
+)
 from encode_pipeline.api.models import (
+    ArtifactDownloadIssueResponse,
     ArtifactReferenceResponse,
     IssueResponse,
     RunArtifactDetailResponse,
+    RunArtifactDownloadErrorResponse,
     RunArtifactsResponse,
 )
+from encode_pipeline.services.artifact_downloads import ArtifactDownloadService
 from encode_pipeline.services.runs import RunService
 
 
 router = APIRouter(tags=["artifacts"])
+
+
+_DOWNLOAD_STATUS_BY_CODE = {
+    "RUN_NOT_FOUND": 404,
+    "RUN_ARTIFACT_NOT_FOUND": 404,
+    "RUN_ARTIFACT_DOWNLOAD_CONFLICT": 409,
+    "RUN_ARTIFACT_DOWNLOAD_DATA_INVALID": 500,
+    "RUN_ARTIFACT_DOWNLOAD_UNAVAILABLE": 500,
+}
+
+
+class _ArtifactStreamingResponse(StreamingResponse):
+    """Close owned descriptors even when response transmission raises."""
+
+    def __init__(
+        self,
+        *args: Any,
+        close_callback: Callable[[], None],
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._close_callback = close_callback
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._close_callback()
 
 
 def _issue(
@@ -207,6 +244,77 @@ async def get_run_artifact(
         artifact=projected,
         issues=[],
     )
+
+
+@router.get(
+    "/runs/{run_id}/artifacts/{artifact_id}/download",
+    response_class=StreamingResponse,
+    response_model=None,
+    operation_id="downloadRunArtifact",
+    responses={
+        200: {
+            "description": "The persisted artifact byte stream.",
+            "content": {
+                "application/octet-stream": {
+                    "schema": {"type": "string", "format": "binary"}
+                }
+            },
+        },
+        "4XX": {"model": RunArtifactDownloadErrorResponse},
+        404: {"model": RunArtifactDownloadErrorResponse},
+        409: {"model": RunArtifactDownloadErrorResponse},
+        500: {"model": RunArtifactDownloadErrorResponse},
+    },
+)
+def download_run_artifact(
+    run_id: str,
+    artifact_id: str,
+    download_service: ArtifactDownloadService = Depends(get_artifact_download_service),
+) -> StreamingResponse | JSONResponse:
+    """Stream one persisted run-scoped artifact through a safe descriptor."""
+    result = download_service.prepare(run_id, artifact_id)
+    if result.is_failure or result.value is None:
+        issues = [
+            ArtifactDownloadIssueResponse(
+                code=issue.code,
+                message=issue.message,
+                severity=issue.severity.value,
+                path=issue.path,
+                source=issue.source,
+                hint=issue.hint,
+                context=dict(issue.context),
+            )
+            for issue in result.issues
+        ]
+        code = issues[0].code if issues else "RUN_ARTIFACT_DOWNLOAD_UNAVAILABLE"
+        body = RunArtifactDownloadErrorResponse(
+            run_id=run_id,
+            artifact_id=artifact_id,
+            issues=issues,
+        )
+        return JSONResponse(
+            status_code=_DOWNLOAD_STATUS_BY_CODE.get(code, 500),
+            content=body.model_dump(mode="json", exclude_none=True),
+        )
+
+    plan = result.value
+    try:
+        return _ArtifactStreamingResponse(
+            plan.iter_bytes(),
+            close_callback=plan.close,
+            media_type=plan.media_type,
+            headers={
+                "Content-Disposition": plan.content_disposition,
+                "Content-Length": str(plan.size_bytes),
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Accept-Ranges": "none",
+            },
+            background=BackgroundTask(plan.close),
+        )
+    except BaseException:
+        plan.close()
+        raise
 
 
 def _invalid_list_response(run_id: str) -> JSONResponse:
