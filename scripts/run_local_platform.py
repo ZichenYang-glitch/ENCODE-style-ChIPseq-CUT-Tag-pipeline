@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import os
 from pathlib import Path
@@ -22,6 +22,11 @@ from rq import Worker
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_RUNTIME_ROOT = REPOSITORY_ROOT / ".local" / "platform-demo"
+RESULTS_VISIBILITY_RUNTIME_ROOT = REPOSITORY_ROOT / ".local" / "results-visibility-demo"
+RESULTS_VISIBILITY_WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
+DEFAULT_QUEUE_NAME = "encode-pipeline-demo"
+RESULTS_VISIBILITY_QUEUE_NAME = "encode-pipeline-results-demo"
 
 
 @dataclass(frozen=True)
@@ -57,17 +62,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Start Redis, FastAPI, one RQ worker, and the React frontend."
     )
-    parser.add_argument("--project-root", type=Path, default=REPOSITORY_ROOT)
+    parser.add_argument("--project-root", type=Path)
     parser.add_argument(
         "--frontend-root", type=Path, default=REPOSITORY_ROOT / "frontend"
     )
     parser.add_argument(
         "--runtime-root",
         type=Path,
-        default=REPOSITORY_ROOT / ".local" / "platform-demo",
+    )
+    parser.add_argument(
+        "--results-visibility-demo",
+        action="store_true",
+        help="Use the deterministic QC/artifact/download demonstration project.",
     )
     parser.add_argument("--redis-url", default="redis://127.0.0.1:6379/0")
-    parser.add_argument("--queue-name", default="encode-pipeline-demo")
+    parser.add_argument("--queue-name")
     parser.add_argument("--api-host", default="127.0.0.1")
     parser.add_argument("--api-port", type=int, default=8000)
     parser.add_argument("--frontend-host", default="127.0.0.1")
@@ -82,18 +91,78 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def config_from_args(args: argparse.Namespace) -> RuntimeConfig:
+    demo_mode = bool(getattr(args, "results_visibility_demo", False))
+    project_root = args.project_root or REPOSITORY_ROOT
+    runtime_root = args.runtime_root or (
+        RESULTS_VISIBILITY_RUNTIME_ROOT if demo_mode else DEFAULT_RUNTIME_ROOT
+    )
+    queue_name = args.queue_name or (
+        RESULTS_VISIBILITY_QUEUE_NAME if demo_mode else DEFAULT_QUEUE_NAME
+    )
     return RuntimeConfig(
-        project_root=args.project_root.expanduser().resolve(),
+        project_root=project_root.expanduser().resolve(),
         frontend_root=args.frontend_root.expanduser().resolve(),
-        runtime_root=args.runtime_root.expanduser().resolve(),
+        runtime_root=runtime_root.expanduser().resolve(),
         redis_url=args.redis_url,
-        queue_name=args.queue_name,
+        queue_name=queue_name,
         api_host=args.api_host,
         api_port=args.api_port,
         frontend_host=args.frontend_host,
         frontend_port=args.frontend_port,
         readiness_timeout=args.readiness_timeout,
     )
+
+
+def prepare_runtime(
+    args: argparse.Namespace,
+) -> tuple[RuntimeConfig, Path | None]:
+    """Prepare an optional controlled demo before any process or port mutation."""
+    config = config_from_args(args)
+    if not args.results_visibility_demo:
+        return config, None
+    if args.project_root is not None:
+        raise ValueError(
+            "--project-root cannot be combined with --results-visibility-demo"
+        )
+
+    try:
+        from scripts.results_visibility_fixture import (
+            prepare_results_visibility_fixture,
+        )
+    except ModuleNotFoundError as exc:
+        if exc.name != "scripts":
+            raise
+        from results_visibility_fixture import (  # type: ignore[no-redef]
+            prepare_results_visibility_fixture,
+        )
+
+    project_root = config.runtime_root / "results-visibility-project"
+    inputs = prepare_results_visibility_fixture(project_root)
+    inputs_path = config.runtime_root / "results-visibility-inputs.json"
+    _write_results_visibility_inputs(
+        inputs_path,
+        {
+            "workflowId": RESULTS_VISIBILITY_WORKFLOW_ID,
+            "samplesPath": str(inputs.samples_path),
+            "resultsConfig": inputs.results_config,
+        },
+    )
+    return replace(config, project_root=project_root), inputs_path
+
+
+def _write_results_visibility_inputs(
+    destination: Path,
+    payload: Mapping[str, object],
+) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def build_shared_environment(
@@ -488,11 +557,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.cleanup_service_pids is not None:
         return cleanup_service_sessions(args.cleanup_service_pids.resolve())
-    config = config_from_args(args)
+    try:
+        config = config_from_args(args)
+    except (RuntimeError, ValueError, OSError) as error:
+        print(f"platform startup failed: {error}", file=sys.stderr)
+        return 1
     if not _port_available(config.api_host, config.api_port):
         raise SystemExit(f"API port {config.api_port} is already in use")
     if not _port_available(config.frontend_host, config.frontend_port):
         raise SystemExit(f"frontend port {config.frontend_port} is already in use")
+    try:
+        config, demo_inputs_path = (
+            prepare_runtime(args) if args.results_visibility_demo else (config, None)
+        )
+    except (RuntimeError, ValueError, OSError) as error:
+        print(f"platform startup failed: {error}", file=sys.stderr)
+        return 1
+    if demo_inputs_path is not None:
+        print(f"Results demo inputs: {demo_inputs_path}")
     try:
         return PlatformSupervisor(config).run()
     except (RuntimeError, ValueError, OSError) as error:

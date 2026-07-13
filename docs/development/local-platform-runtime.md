@@ -60,6 +60,46 @@ python3 scripts/run_local_platform.py \
 Vite proxies `/api` to the configured API port. The launcher sets the narrow
 `VITE_API_PROXY_TARGET` value for that process; it does not enable broad CORS.
 
+### One-command results visibility demo
+
+An opt-in deterministic project exercises the full results path without
+scientific data or bioinformatics tools:
+
+```bash
+python3 scripts/run_local_platform.py --results-visibility-demo
+```
+
+Open the printed `http://127.0.0.1:5173` URL. The launcher also prints the path
+to `.local/results-visibility-demo/results-visibility-inputs.json`. In the
+workflow page, paste `resultsConfig` into **Config (JSON)** and `samplesPath`
+into **Samples (path string)**, then use Validate, Create run, and Start run.
+The real worker and Snakemake process produce eight persisted QC metrics, a
+sample QC summary artifact, and a result manifest. The QC source action opens
+the persisted artifact detail, whose Download action returns the exact TSV.
+
+This mode uses a separate durable root:
+
+```text
+.local/results-visibility-demo/platform.db
+.local/results-visibility-demo/workspaces/
+.local/results-visibility-demo/results-visibility-project/
+.local/results-visibility-demo/results-visibility-inputs.json
+.local/results-visibility-demo/logs/{redis,api,worker,frontend}.log
+```
+
+Its default RQ queue is `encode-pipeline-results-demo`, distinct from the
+ordinary `encode-pipeline-demo` queue even when both use the same local Redis.
+
+The controlled project is replaced on restart only when its ownership sentinel
+matches. SQLite and workspaces are retained. An unowned directory is never
+deleted. The ordinary launcher still uses the repository's scientific workflow
+and `.local/platform-demo/`; the demo flag does not add a test branch to the
+scientific Snakefile, manifest generator, artifact catalog, or QC parser.
+
+Press Ctrl-C once to stop the demo stack and all worker/Snakemake descendants.
+The prerequisites and configurable Redis/API/frontend ports are the same as
+for the ordinary launcher.
+
 ### Manual processes
 
 Install the API extra, make Redis available, and start the FastAPI factory:
@@ -374,6 +414,14 @@ Redis test URL is absent. Once that URL enables the cancellation gate,
 a test failure. Real scientific data execution remains covered by the existing
 Snakemake profiles and execution harness.
 
+The required browser E2E uses the same controlled results project as the demo,
+but an invocation-owned temporary database, workspace, queue, and service
+sessions. It proves real validate → create → preflight → start → SUCCEEDED,
+non-empty QC persistence, QC-source artifact navigation, exact safe download,
+confirmed empty and redacted indexing-failure states, deep-link reload, mobile
+cancellation, and bounded cleanup. This remains a platform integration gate;
+scientific correctness remains in the existing workflow tests.
+
 ## Running cancellation semantics
 
 The cancel route still moves `created`, `validating`, `planned`, or `queued`
@@ -425,5 +473,6 @@ the stopped callback cannot reach SQLite after the process group is gone, the
 run can remain `running` with a durable intent and requires operator diagnosis.
 Heartbeat/lease reconciliation is intentionally not invented here.
 
-Authentication, multi-tenancy, HPC scheduling, artifact extraction, and QC UI
-remain outside this local-execution milestone.
+Authentication, multi-tenancy, HPC scheduling, object storage, immutable
+workflow bundles, automatic QC thresholds/conclusions, and a second adapter
+remain outside this local runtime.

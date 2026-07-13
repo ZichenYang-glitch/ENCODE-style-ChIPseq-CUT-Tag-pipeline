@@ -237,7 +237,7 @@ git commit -m "test: prove run QC artifact download visibility"
 - Modify: `test/browser/test_platform_runtime.py`
 - Modify: `docs/development/local-platform-runtime.md`
 
-- [ ] **Step 1: Write failing demo-mode tests**
+- [x] **Step 1: Write failing demo-mode tests**
 
 Parse `--results-visibility-demo` and require it to use
 `.local/results-visibility-demo` when `--runtime-root` is not provided, create
@@ -246,10 +246,11 @@ Parse `--results-visibility-demo` and require it to use
 and samples path. Require ordinary launcher defaults to remain
 `.local/platform-demo` and the repository project root.
 
-Test that explicit `--project-root` plus demo mode is rejected and that fixture
-preparation happens before any port/process mutation.
+Test that explicit `--project-root` plus demo mode is rejected and that
+read-only port checks happen before fixture replacement, while fixture
+preparation still happens before any service process starts.
 
-- [ ] **Step 2: Run runtime tests and confirm RED**
+- [x] **Step 2: Run runtime tests and confirm RED**
 
 Run:
 
@@ -260,7 +261,7 @@ PYTHONPATH=src python3 -m pytest -q \
 
 Expected: parser/config assertions fail because the demo flag is absent.
 
-- [ ] **Step 3: Implement the opt-in demo preparation**
+- [x] **Step 3: Implement the opt-in demo preparation**
 
 Add a boolean parser flag and retain explicit knowledge of whether project and
 runtime roots were supplied. In demo mode, call the shared fixture builder,
@@ -278,7 +279,7 @@ Platform ready: http://127.0.0.1:5173
 
 Do not auto-create a run or write SQLite outside normal API/worker paths.
 
-- [ ] **Step 4: Document one-command use and exact stop/data semantics**
+- [x] **Step 4: Document one-command use and exact stop/data semantics**
 
 Add the command, input-file purpose, URL, `.local/results-visibility-demo/`
 layout, prerequisites, Ctrl-C cleanup, and explicit statement that the fixture
@@ -286,7 +287,7 @@ does not alter the scientific workflow. Update deterministic worker E2E text
 to include persisted artifact/QC/download visibility and remove the stale
 statement that artifact extraction and QC UI are out of scope.
 
-- [ ] **Step 5: Run focused tests and commit**
+- [x] **Step 5: Run focused tests and commit**
 
 ```bash
 PYTHONPATH=src python3 -m pytest -q \
