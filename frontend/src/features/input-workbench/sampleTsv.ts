@@ -1,6 +1,10 @@
 import Papa from 'papaparse';
 import type { ValidationRequestSamplesAnyOfItem } from '../../api/generated/models';
 import type { WorkbenchSchema } from './schemaContract';
+import {
+  isSampleColumnNameSafe,
+  validateSampleRows,
+} from './sampleValidation';
 
 export interface DraftSampleRow {
   id: string;
@@ -28,10 +32,6 @@ function failure(
   column: string | null = null,
 ): SampleTsvResult {
   return { ok: false, issue: { code, message, row, column } };
-}
-
-function codePointLength(value: string): number {
-  return Array.from(value).length;
 }
 
 function isBlankRecord(row: string[]): boolean {
@@ -97,13 +97,15 @@ export function parseSampleTsv(
   if (
     headers.some(
       (header) =>
-        header === '' ||
-        codePointLength(header) > schema.limits.max_sample_column_name_length,
+        !isSampleColumnNameSafe(
+          header,
+          schema.limits.max_sample_column_name_length,
+        ),
     )
   ) {
     return failure(
       'SAMPLE_TSV_LIMIT_EXCEEDED',
-      'A sample column name is empty or exceeds the workflow authoring limit.',
+      'A sample column name is invalid or exceeds the workflow authoring limit.',
     );
   }
   if (new Set(headers).size !== headers.length) {
@@ -156,25 +158,25 @@ export function parseSampleTsv(
     for (const column of schema.sampleColumns) {
       const headerIndex = headerIndexes.get(column.key);
       const value = headerIndex === undefined ? '' : rawRow[headerIndex];
-      if (/\0|\t|\r|\n/.test(value)) {
-        return failure(
-          'SAMPLE_TSV_INVALID',
-          'Sample cells cannot contain tabs, line breaks, or NUL characters.',
-          displayRow,
-          column.key,
-        );
-      }
-      if (codePointLength(value) > schema.limits.max_sample_cell_length) {
-        return failure(
-          'SAMPLE_TSV_LIMIT_EXCEEDED',
-          'A sample cell exceeds the workflow authoring limit.',
-          displayRow,
-          column.key,
-        );
-      }
       values[column.key] = value;
     }
     rows.push({ id: createId(), values });
+  }
+  const transportIssue = validateSampleRows(
+    rows.map((row) => row.values),
+    declaredKeys,
+    schema.limits.max_sample_cell_length,
+    2,
+  );
+  if (transportIssue !== null) {
+    return failure(
+      transportIssue.code === 'SAMPLE_CELL_LIMIT_EXCEEDED'
+        ? 'SAMPLE_TSV_LIMIT_EXCEEDED'
+        : 'SAMPLE_TSV_INVALID',
+      transportIssue.message,
+      transportIssue.row,
+      transportIssue.column,
+    );
   }
   return { ok: true, rows };
 }

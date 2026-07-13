@@ -68,4 +68,76 @@ describe('readWorkbenchSchema', () => {
       }
     },
   );
+
+  it('fails closed when the sample schema declares 65 columns', () => {
+    const schema = createAuthoringSchemaFixture();
+    const items = (schema.sample_schema as {
+      items: { properties: Record<string, unknown>; required: string[] };
+    }).items;
+    items.properties = Object.fromEntries(
+      Array.from({ length: 65 }, (_, index) => [
+        `column_${index}`,
+        { type: 'string' },
+      ]),
+    );
+    items.required = [];
+
+    expect(readWorkbenchSchema(schema)).toMatchObject({
+      ok: false,
+      code: 'AUTHORING_SCHEMA_UNSUPPORTED',
+    });
+  });
+
+  it.each([
+    ['empty', ''],
+    ['129 code points', 'c'.repeat(129)],
+    ['NUL', 'bad\0column'],
+    ['tab', 'bad\tcolumn'],
+    ['carriage return', 'bad\rcolumn'],
+    ['line feed', 'bad\ncolumn'],
+  ])('fails closed for a %s sample property key', (_label, propertyKey) => {
+    const schema = createAuthoringSchemaFixture();
+    const items = (schema.sample_schema as {
+      items: { properties: Record<string, unknown>; required: string[] };
+    }).items;
+    items.properties = { [propertyKey]: { type: 'string' } };
+    items.required = [];
+
+    expect(readWorkbenchSchema(schema)).toMatchObject({
+      ok: false,
+      code: 'AUTHORING_SCHEMA_UNSUPPORTED',
+    });
+  });
+
+  it('requires every required sample key to be declared in properties', () => {
+    const schema = createAuthoringSchemaFixture();
+    const items = (schema.sample_schema as {
+      items: { properties: Record<string, unknown>; required: string[] };
+    }).items;
+    items.required = [...items.required, 'undeclared'];
+
+    expect(readWorkbenchSchema(schema)).toMatchObject({
+      ok: false,
+      code: 'AUTHORING_SCHEMA_UNSUPPORTED',
+    });
+  });
+
+  it.each([
+    ['overlong', 'x'.repeat(4_097)],
+    ['NUL', 'bad\0value'],
+    ['tab', 'bad\tvalue'],
+    ['carriage return', 'bad\rvalue'],
+    ['line feed', 'bad\nvalue'],
+  ])('fails closed for a %s sample enum string', (_label, enumValue) => {
+    const schema = createAuthoringSchemaFixture();
+    const items = (schema.sample_schema as {
+      items: { properties: Record<string, { enum?: string[] }> };
+    }).items;
+    items.properties.layout.enum = ['SE', enumValue];
+
+    expect(readWorkbenchSchema(schema)).toMatchObject({
+      ok: false,
+      code: 'AUTHORING_SCHEMA_UNSUPPORTED',
+    });
+  });
 });

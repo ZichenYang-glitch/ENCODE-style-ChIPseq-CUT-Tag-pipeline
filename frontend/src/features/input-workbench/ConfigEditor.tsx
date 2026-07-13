@@ -68,6 +68,7 @@ export function ConfigEditor({
         <SchemaObjectForm
           schema={schema.configSchema}
           value={draft.state.config}
+          resetRevision={draft.state.configFormResetRevision}
           onChange={draft.setConfig}
           ariaLabel="Workflow config form"
         />
@@ -101,6 +102,23 @@ export function ConfigEditor({
         >
           {draft.state.yamlIssue.message}
         </p>
+      )}
+      {draft.state.configFormIssue && (
+        <div
+          data-testid="config-form-safety-issue"
+          className="flex flex-col gap-2 rounded border border-red-200 bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)] sm:flex-row sm:items-center sm:justify-between"
+          role="alert"
+        >
+          <span>{draft.state.configFormIssue.message}</span>
+          <Button
+            type="button"
+            variant="secondary"
+            className="shrink-0"
+            onClick={draft.acceptConfigFormFallback}
+          >
+            Use previous safe config
+          </Button>
+        </div>
       )}
     </section>
   );

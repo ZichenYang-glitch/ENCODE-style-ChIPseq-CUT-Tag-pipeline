@@ -7,6 +7,10 @@ import type {
   WorkflowSchemaResponse,
 } from '../../api/generated/models';
 import { isJsonObject, isPlainObject } from './jsonSafety';
+import {
+  isSampleCellSafe,
+  isSampleColumnNameSafe,
+} from './sampleValidation';
 
 const SUPPORTED_SCHEMA_VERSION = '1.0.0';
 const SUPPORTED_SCHEMA_DIALECT =
@@ -101,6 +105,10 @@ function sampleSchemaParts(value: unknown): {
   ) {
     return null;
   }
+  const propertyKeys = new Set(Object.keys(value.items.properties));
+  if ((requiredValues ?? []).some((item) => !propertyKeys.has(item as string))) {
+    return null;
+  }
   return {
     schema: value as RJSFSchema,
     properties: value.items.properties,
@@ -111,16 +119,26 @@ function sampleSchemaParts(value: unknown): {
 function readSampleColumns(
   properties: Record<string, unknown>,
   required: Set<string>,
+  limits: WorkflowInputLimitsResponse,
 ): SampleColumn[] | null {
+  if (Object.keys(properties).length > limits.max_sample_columns) return null;
   const columns: SampleColumn[] = [];
   for (const [key, rawDefinition] of Object.entries(properties)) {
+    if (!isSampleColumnNameSafe(key, limits.max_sample_column_name_length)) {
+      return null;
+    }
     if (!isPlainObject(rawDefinition) || rawDefinition.type !== 'string') {
       return null;
     }
     const rawEnum = rawDefinition.enum;
     if (
       rawEnum !== undefined &&
-      (!Array.isArray(rawEnum) || !rawEnum.every((item) => typeof item === 'string'))
+      (!Array.isArray(rawEnum) ||
+        !rawEnum.every(
+          (item) =>
+            typeof item === 'string' &&
+            isSampleCellSafe(item, limits.max_sample_cell_length),
+        ))
     ) {
       return null;
     }
@@ -166,6 +184,7 @@ export function readWorkbenchSchema(
   const sampleColumns = readSampleColumns(
     sampleParts.properties,
     sampleParts.required,
+    contract.limits,
   );
   if (!sampleColumns) return unsupported();
 

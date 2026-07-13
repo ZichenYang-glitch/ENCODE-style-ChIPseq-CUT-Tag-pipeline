@@ -125,6 +125,9 @@ Playwright, Vite.
   contract files.
 - [x] Run changed-file Ruff/format applicability checks, `git diff --check`,
   and residual-process checks.
+- [x] Add merge-gate regressions for safe-integer Form input, shared manual/TSV
+  sample transport validation, sample-schema ceilings, and invalid-YAML
+  history without stale Review serialization.
 - [x] Review the complete `origin/main...HEAD` diff for state truthfulness,
   schema ownership, sensitive-data persistence, responsive overflow, and scope
   drift.

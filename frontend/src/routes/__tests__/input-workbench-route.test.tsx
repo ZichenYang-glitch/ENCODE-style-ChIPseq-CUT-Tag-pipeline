@@ -161,6 +161,89 @@ describe('schema input workbench route', () => {
     expect(await screen.findByText(/must be >= 1/i)).toBeInTheDocument();
   });
 
+  it('rejects an unsafe integer emitted by the RJSF Form without previewing stale config', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+
+    const threads = screen.getByRole('spinbutton', { name: /threads/i });
+    fireEvent.change(threads, {
+      target: { value: String(Number.MAX_SAFE_INTEGER) },
+    });
+    expect(screen.queryByTestId('config-form-safety-issue')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+    expect(screen.getByTestId('draft-review-json')).toHaveTextContent(
+      String(Number.MAX_SAFE_INTEGER),
+    );
+    await user.click(screen.getByRole('tab', { name: 'Config' }));
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: /threads/i }), {
+      target: { value: String(Number.MAX_SAFE_INTEGER + 1) },
+    });
+
+    expect(await screen.findByTestId('config-form-safety-issue')).toHaveTextContent(
+      /cannot be represented safely as JSON/i,
+    );
+    expect(screen.getByRole('spinbutton', { name: /threads/i })).toHaveValue(
+      Number.MAX_SAFE_INTEGER,
+    );
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+    expect(screen.getByTestId('draft-review-json')).toHaveTextContent(
+      /preview is unavailable/i,
+    );
+    expect(screen.getByTestId('draft-review-json')).not.toHaveTextContent(
+      String(Number.MAX_SAFE_INTEGER + 1),
+    );
+    await user.click(screen.getByRole('tab', { name: 'Config' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Use previous safe config' }),
+    );
+    expect(screen.queryByTestId('config-form-safety-issue')).not.toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: /threads/i })).toHaveValue(
+      Number.MAX_SAFE_INTEGER,
+    );
+  });
+
+  it('resets unsafe options Form state to the previous canonical value', async () => {
+    const response = successResponse();
+    response.schema!.option_schema = {
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      type: 'object',
+      properties: {
+        safe_limit: {
+          type: 'integer',
+          default: Number.MAX_SAFE_INTEGER,
+        },
+      },
+      additionalProperties: false,
+    };
+    generatedMocks.getWorkflowSchema.mockResolvedValue(response);
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run?step=options`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: /safe_limit/i }), {
+      target: { value: String(Number.MAX_SAFE_INTEGER + 1) },
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /Options form data cannot be represented safely as JSON/i,
+    );
+    expect(screen.getByRole('spinbutton', { name: /safe_limit/i })).toHaveValue(
+      Number.MAX_SAFE_INTEGER,
+    );
+    await user.click(
+      screen.getByRole('button', { name: 'Use previous safe options' }),
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: /safe_limit/i })).toHaveValue(
+      Number.MAX_SAFE_INTEGER,
+    );
+  });
+
   it('retains invalid YAML, blocks stale Review, and recovers in place', async () => {
     const user = userEvent.setup();
     renderWithRouter(appRoutes, {
@@ -178,6 +261,40 @@ describe('schema input workbench route', () => {
     fireEvent.change(yaml, { target: { value: 'threads: 4\n' } });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Form mode' })).toBeEnabled();
+  });
+
+  it('never exposes the last-known-good preview when history activates Review with invalid YAML', async () => {
+    const user = userEvent.setup();
+    const { router } = renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await user.click(screen.getByRole('button', { name: 'YAML mode' }));
+    const yaml = screen.getByLabelText('Advanced config YAML');
+    fireEvent.change(yaml, {
+      target: { value: 'threads: 4\nlast_known_good: must-not-leak\n' },
+    });
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+    expect(screen.getByTestId('draft-review-json')).toHaveTextContent(
+      'last_known_good',
+    );
+
+    await act(async () => router.navigate(-1));
+    fireEvent.change(screen.getByLabelText('Advanced config YAML'), {
+      target: { value: 'threads: [' },
+    });
+    await act(async () => router.navigate(1));
+
+    expect(screen.getByRole('tab', { name: 'Review' })).toHaveAttribute(
+      'data-state',
+      'active',
+    );
+    expect(screen.getByTestId('draft-review-json')).toHaveTextContent(
+      /preview is unavailable/i,
+    );
+    expect(screen.getByTestId('draft-review-json')).not.toHaveTextContent(
+      'last_known_good',
+    );
   });
 
   it('imports and edits quoted CRLF TSV rows in adapter column order', async () => {
@@ -208,6 +325,121 @@ describe('schema input workbench route', () => {
     expect(screen.getByTestId('draft-review-json')).toHaveTextContent('edited-S1');
     const reviewText = screen.getByTestId('draft-review-json').textContent ?? '';
     expect(reviewText.indexOf('sample')).toBeLessThan(reviewText.indexOf('fastq_1'));
+  });
+
+  it('blocks Review for an overlong manually edited sample cell without echoing its value', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run?step=samples`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await user.click(screen.getByRole('button', { name: 'Add sample row' }));
+    const overlong = 'x'.repeat(4_097);
+    fireEvent.change(screen.getAllByLabelText('Sample 1 sample')[0], {
+      target: { value: overlong },
+    });
+
+    const issue = await screen.findByTestId('sample-transport-issue');
+    expect(issue).toHaveTextContent(/exceeds the workflow authoring limit/i);
+    expect(issue).toHaveTextContent(/Row 1.*Column sample/i);
+    expect(issue).not.toHaveTextContent(overlong);
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+    expect(screen.getByText(/needs attention before backend validation/i)).toBeVisible();
+    expect(screen.getByTestId('draft-review-json')).toHaveTextContent(
+      /preview is unavailable/i,
+    );
+  });
+
+  it('describes multiple invalid sample cells without assigning the first cell coordinates to every control', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run?step=samples`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await user.click(screen.getByRole('button', { name: 'Add sample row' }));
+    const sample = screen.getAllByLabelText('Sample 1 sample')[0];
+    const fastq = screen.getAllByLabelText('Sample 1 fastq_1')[0];
+
+    await act(async () => {
+      fireEvent.change(sample, { target: { value: 'x'.repeat(4_097) } });
+      fireEvent.change(fastq, { target: { value: 'y'.repeat(4_097) } });
+    });
+
+    expect(sample).toHaveAttribute('aria-invalid', 'true');
+    expect(fastq).toHaveAttribute('aria-invalid', 'true');
+    expect(sample).toHaveAttribute(
+      'aria-describedby',
+      'sample-cell-invalid-description',
+    );
+    expect(fastq).toHaveAttribute(
+      'aria-describedby',
+      'sample-cell-invalid-description',
+    );
+    const description = document.getElementById(
+      'sample-cell-invalid-description',
+    );
+    expect(description).toHaveTextContent(/cannot be transported/i);
+    expect(description).not.toHaveTextContent(/Row 1|Column sample/i);
+    const issue = screen.getByTestId('sample-transport-issue');
+    expect(issue).toHaveTextContent(/Row 1.*Column sample/i);
+    expect(issue).not.toHaveTextContent(/fastq_1/i);
+  });
+
+  it('keeps a manual cell controlled and focused through repeated invalid edits', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run?step=samples`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await user.click(screen.getByRole('button', { name: 'Add sample row' }));
+    const sample = screen.getAllByLabelText('Sample 1 sample')[0];
+    const overlong = 'x'.repeat(4_097);
+    await user.click(sample);
+    act(() => fireEvent.change(sample, { target: { value: overlong } }));
+    expect(sample).toHaveFocus();
+
+    (sample as HTMLInputElement).setSelectionRange(
+      overlong.length,
+      overlong.length,
+    );
+    await user.keyboard('yz');
+    expect(sample).toHaveValue(`${overlong}yz`);
+    expect(sample).toHaveFocus();
+    expect(screen.getByTestId('sample-transport-issue')).toBeInTheDocument();
+
+    await user.clear(sample);
+    expect(sample).toHaveFocus();
+    await user.keyboard('recovered');
+    expect(sample).toHaveValue('recovered');
+    expect(sample).toHaveFocus();
+    expect(screen.queryByTestId('sample-transport-issue')).not.toBeInTheDocument();
+  });
+
+  it('wraps a maximum-length adapter column in the Review issue', async () => {
+    const longColumn = 'c'.repeat(128);
+    const response = successResponse();
+    const items = (response.schema?.sample_schema as {
+      items: { properties: Record<string, unknown>; required: string[] };
+    }).items;
+    items.properties = {
+      [longColumn]: { type: 'string', maxLength: 4_096 },
+    };
+    items.required = [longColumn];
+    generatedMocks.getWorkflowSchema.mockResolvedValue(response);
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run?step=samples`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await user.click(screen.getByRole('button', { name: 'Add sample row' }));
+    fireEvent.change(screen.getAllByLabelText(`Sample 1 ${longColumn}`)[0], {
+      target: { value: 'x'.repeat(4_097) },
+    });
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+
+    const column = screen.getByText(longColumn, { selector: 'code' });
+    expect(column).toHaveClass('break-all');
+    expect(column.closest('li')).toHaveClass('min-w-0', 'break-words');
   });
 
   it('keeps imported rows after a malformed replacement file', async () => {

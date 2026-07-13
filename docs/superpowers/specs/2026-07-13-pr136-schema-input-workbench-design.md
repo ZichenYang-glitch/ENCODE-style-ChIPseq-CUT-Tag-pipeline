@@ -30,7 +30,10 @@ state when:
   narrower adapter-specific transport limits require a future contract version
   with matching backend enforcement; or
 - config/options are not object schemas or samples is not an array-of-object
-  schema.
+  schema; or
+- the sample schema exceeds the published column/name ceilings, contains an
+  unsafe property key or enum string, or names a required property that it
+  does not declare.
 
 Loading uses a stable-sized placeholder. Network and contract failures expose
 only controlled messages and an explicit retry action. No exception text,
@@ -59,7 +62,11 @@ metadata under a stale schema version.
 The canonical config value is one plain JSON object. RJSF is controlled by
 that object and updates it directly. `omitExtraData` and `liveOmit` remain
 disabled, so form edits preserve advanced keys not covered by the partial
-schema.
+schema. The same canonical JSON-safety predicate guards RJSF and YAML values:
+finite integers must also satisfy `Number.isSafeInteger`. If RJSF emits an
+unsafe value, it is rejected, the previous safe object is retained with an
+explicit controlled notice, and Review serialization remains unavailable
+until the user explicitly accepts that fallback or supplies a safe value.
 
 Advanced YAML is a transient editing buffer:
 
@@ -69,7 +76,8 @@ Advanced YAML is a transient editing buffer:
    last-known-good config is retained internally.
 4. Review is blocked while the YAML buffer is invalid, and switching back to
    Form is refused until the document parses. The UI never reviews a stale
-   object as though the invalid buffer were accepted.
+   object as though the invalid buffer were accepted, including when browser
+   Back/Forward activates an existing Review URL.
 5. After a later Form edit, the next YAML entry regenerates from canonical
    state. Formatting and comments may be normalized; values and unknown keys
    are retained.
@@ -121,7 +129,10 @@ revision, so a slower earlier browser read cannot replace a newer selection.
 
 TanStack Table provides the desktop row/column model. Rows carry a client-only
 stable ID that is stripped during Review. Editing, adding, and deleting update
-the parent reducer; every cell remains a string. The desktop table lives in a
+the parent reducer. TSV imports and manual edits pass through one transport
+validator that rejects non-strings, NUL/tab/CR/LF, and values above the Unicode
+code-point ceiling. Issues expose only bounded row/adapter-column coordinates,
+and Review cannot serialize an invalid cell. The desktop table lives in a
 bounded overflow container. Below the desktop breakpoint the same rows render
 as border-separated vertical records, not a squeezed wide table.
 
@@ -141,8 +152,11 @@ Config and option keys use locale-independent UTF-16 code-unit ordering;
 sample rows retain visible row order and adapter column order. The client
 rechecks JSON safety and the UTF-8 request byte ceiling with `TextEncoder`.
 Structural errors, including zero rows where the schema requires at least one,
-keep Review visibly not ready. Nothing is described as scientifically valid
-and no submission control is present.
+keep Review visibly not ready. A transient unsafe Form value, invalid sample
+transport value, or invalid YAML buffer also makes the deterministic payload
+preview unavailable, so history navigation cannot reveal a last-known-good
+payload as if it represented the current editor. Nothing is described as
+scientifically valid and no submission control is present.
 
 ## Interaction and presentation
 

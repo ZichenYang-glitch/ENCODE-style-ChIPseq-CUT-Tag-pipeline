@@ -6,6 +6,7 @@ import { rjsfValidator } from './schemaContract';
 interface SchemaObjectFormProps {
   schema: RJSFSchema;
   value: ValidationRequestConfig;
+  resetRevision: number;
   onChange: (value: unknown) => void;
   ariaLabel: string;
 }
@@ -13,12 +14,14 @@ interface SchemaObjectFormProps {
 export function SchemaObjectForm({
   schema,
   value,
+  resetRevision,
   onChange,
   ariaLabel,
 }: SchemaObjectFormProps) {
   return (
     <div className="schema-object-form" aria-label={ariaLabel}>
       <Form
+        key={resetRevision}
         schema={schema}
         validator={rjsfValidator}
         formData={value}

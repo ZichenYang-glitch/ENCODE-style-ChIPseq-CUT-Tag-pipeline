@@ -15,6 +15,7 @@ import {
   type DraftSampleRow,
   type SampleImportIssue,
 } from './sampleTsv';
+import { validateSampleRows } from './sampleValidation';
 import {
   parseConfigYaml,
   stringifyConfigYaml,
@@ -24,24 +25,42 @@ import {
 interface InputDraftState {
   config: ValidationRequestConfig;
   configRevision: number;
+  configFormResetRevision: number;
   yamlText: string;
   yamlIssue: YamlIssue | null;
   yamlRevision: number;
+  configFormIssue: FormSafetyIssue | null;
   options: ValidationRequestOptions;
+  optionsFormResetRevision: number;
+  optionsFormIssue: FormSafetyIssue | null;
   rows: DraftSampleRow[];
   sampleImportIssue: SampleImportIssue | null;
   importedFileName: string | null;
 }
 
+interface FormSafetyIssue {
+  code: 'FORM_VALUE_UNSAFE';
+  message: string;
+}
+
+function formSafetyIssue(section: 'Config' | 'Options'): FormSafetyIssue {
+  return {
+    code: 'FORM_VALUE_UNSAFE',
+    message: `${section} form data cannot be represented safely as JSON. The previous safe value was kept.`,
+  };
+}
+
 type InputDraftAction =
-  | { type: 'config-form'; value: ValidationRequestConfig }
+  | { type: 'config-form'; value: unknown }
+  | { type: 'config-form-fallback-accepted' }
   | {
       type: 'yaml-edit';
       text: string;
       parsed: ReturnType<typeof parseConfigYaml>;
     }
   | { type: 'yaml-sync'; text: string }
-  | { type: 'options-form'; value: ValidationRequestOptions }
+  | { type: 'options-form'; value: unknown }
+  | { type: 'options-form-fallback-accepted' }
   | { type: 'samples-replace'; rows: DraftSampleRow[]; fileName: string }
   | { type: 'sample-import-failed'; issue: SampleImportIssue }
   | { type: 'sample-add'; row: DraftSampleRow }
@@ -51,11 +70,21 @@ type InputDraftAction =
 function reducer(state: InputDraftState, action: InputDraftAction): InputDraftState {
   switch (action.type) {
     case 'config-form':
+      if (!isJsonObject(action.value)) {
+        return {
+          ...state,
+          configFormIssue: formSafetyIssue('Config'),
+          configFormResetRevision: state.configFormResetRevision + 1,
+        };
+      }
       return {
         ...state,
         config: action.value,
         configRevision: state.configRevision + 1,
+        configFormIssue: null,
       };
+    case 'config-form-fallback-accepted':
+      return { ...state, configFormIssue: null };
     case 'yaml-edit':
       if (!action.parsed.ok) {
         return {
@@ -71,6 +100,7 @@ function reducer(state: InputDraftState, action: InputDraftAction): InputDraftSt
         yamlText: action.text,
         yamlIssue: null,
         yamlRevision: state.configRevision + 1,
+        configFormIssue: null,
       };
     case 'yaml-sync':
       return {
@@ -80,7 +110,16 @@ function reducer(state: InputDraftState, action: InputDraftAction): InputDraftSt
         yamlRevision: state.configRevision,
       };
     case 'options-form':
-      return { ...state, options: action.value };
+      if (!isJsonObject(action.value)) {
+        return {
+          ...state,
+          optionsFormIssue: formSafetyIssue('Options'),
+          optionsFormResetRevision: state.optionsFormResetRevision + 1,
+        };
+      }
+      return { ...state, options: action.value, optionsFormIssue: null };
+    case 'options-form-fallback-accepted':
+      return { ...state, optionsFormIssue: null };
     case 'samples-replace':
       return {
         ...state,
@@ -119,10 +158,14 @@ function createInitialState(schema: WorkbenchSchema): InputDraftState {
   return {
     config,
     configRevision: 0,
+    configFormResetRevision: 0,
     yamlText: stringifyConfigYaml(config),
     yamlIssue: null,
     yamlRevision: 0,
+    configFormIssue: null,
     options,
+    optionsFormResetRevision: 0,
+    optionsFormIssue: null,
     rows: [],
     sampleImportIssue: null,
     importedFileName: null,
@@ -143,10 +186,12 @@ export function useInputDraft(schema: WorkbenchSchema) {
         state.options,
         sampleColumnOrder,
         schema.limits.max_request_bytes,
+        schema.limits.max_sample_cell_length,
       ),
     [
       sampleColumnOrder,
       schema.limits.max_request_bytes,
+      schema.limits.max_sample_cell_length,
       state.config,
       state.options,
       state.rows,
@@ -163,7 +208,19 @@ export function useInputDraft(schema: WorkbenchSchema) {
     state.options,
     schema.optionSchema,
   );
-  const sampleValues = state.rows.map((row) => row.values);
+  const sampleValues = useMemo(
+    () => state.rows.map((row) => row.values),
+    [state.rows],
+  );
+  const sampleTransportIssue = useMemo(
+    () =>
+      validateSampleRows(
+        sampleValues,
+        sampleColumnOrder,
+        schema.limits.max_sample_cell_length,
+      ),
+    [sampleColumnOrder, sampleValues, schema.limits.max_sample_cell_length],
+  );
   const samplesValid = rjsfValidator.isValid(
     schema.sampleSchema,
     sampleValues,
@@ -171,10 +228,10 @@ export function useInputDraft(schema: WorkbenchSchema) {
   );
 
   const setConfig = useCallback((value: unknown) => {
-    if (isJsonObject(value)) dispatch({ type: 'config-form', value });
+    dispatch({ type: 'config-form', value });
   }, []);
   const setOptions = useCallback((value: unknown) => {
-    if (isJsonObject(value)) dispatch({ type: 'options-form', value });
+    dispatch({ type: 'options-form', value });
   }, []);
   const editYaml = useCallback((text: string) => {
     dispatch({ type: 'yaml-edit', text, parsed: parseConfigYaml(text) });
@@ -204,14 +261,30 @@ export function useInputDraft(schema: WorkbenchSchema) {
     configValid,
     optionsValid,
     samplesValid,
+    sampleTransportIssue,
+    reviewPreviewAvailable:
+      state.yamlIssue === null &&
+      state.configFormIssue === null &&
+      state.optionsFormIssue === null &&
+      sampleTransportIssue === null &&
+      review.ok,
     reviewReady:
       state.yamlIssue === null &&
+      state.configFormIssue === null &&
+      state.optionsFormIssue === null &&
+      sampleTransportIssue === null &&
       configValid &&
       optionsValid &&
       samplesValid &&
       review.ok,
     setConfig,
+    acceptConfigFormFallback() {
+      dispatch({ type: 'config-form-fallback-accepted' });
+    },
     setOptions,
+    acceptOptionsFormFallback() {
+      dispatch({ type: 'options-form-fallback-accepted' });
+    },
     editYaml,
     syncYaml() {
       if (

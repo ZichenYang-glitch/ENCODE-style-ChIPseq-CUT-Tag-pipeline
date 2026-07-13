@@ -1,3 +1,4 @@
+import { Button } from '../../components/Button';
 import type { InputDraftController } from './useInputDraft';
 import type { WorkbenchSchema } from './schemaContract';
 import { SchemaObjectForm } from './SchemaObjectForm';
@@ -21,9 +22,26 @@ export function OptionsEditor({ schema, draft }: OptionsEditorProps) {
       <SchemaObjectForm
         schema={schema.optionSchema}
         value={draft.state.options}
+        resetRevision={draft.state.optionsFormResetRevision}
         onChange={draft.setOptions}
         ariaLabel="Workflow options form"
       />
+      {draft.state.optionsFormIssue && (
+        <div
+          className="flex flex-col gap-2 rounded border border-red-200 bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)] sm:flex-row sm:items-center sm:justify-between"
+          role="alert"
+        >
+          <span>{draft.state.optionsFormIssue.message}</span>
+          <Button
+            type="button"
+            variant="secondary"
+            className="shrink-0"
+            onClick={draft.acceptOptionsFormFallback}
+          >
+            Use previous safe options
+          </Button>
+        </div>
+      )}
     </section>
   );
 }

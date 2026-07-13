@@ -9,6 +9,7 @@ import { FileUp, Plus, Trash2 } from 'lucide-react';
 import { Button } from '../../components/Button';
 import type { SampleColumn, WorkbenchSchema } from './schemaContract';
 import { parseSampleTsv, type DraftSampleRow } from './sampleTsv';
+import { isSampleCellSafe } from './sampleValidation';
 import type { InputDraftController } from './useInputDraft';
 
 interface SampleEditorProps {
@@ -20,19 +21,30 @@ interface SampleCellProps {
   column: SampleColumn;
   row: DraftSampleRow;
   rowNumber: number;
+  maxCellLength: number;
   onChange: (value: string) => void;
 }
 
-function SampleCell({ column, row, rowNumber, onChange }: SampleCellProps) {
+function SampleCell({
+  column,
+  row,
+  rowNumber,
+  maxCellLength,
+  onChange,
+}: SampleCellProps) {
   const label = `Sample ${rowNumber} ${column.key}`;
   const value = row.values[column.key] ?? '';
-  const className =
-    'w-full min-w-32 rounded border border-[var(--color-border)] bg-white px-2 py-1.5 text-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]';
+  const invalid = !isSampleCellSafe(value, maxCellLength);
+  const className = `w-full min-w-32 rounded border bg-white px-2 py-1.5 text-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] ${
+    invalid ? 'border-red-400' : 'border-[var(--color-border)]'
+  }`;
   if (column.enumValues) {
     const hasEmpty = column.enumValues.includes('');
     return (
       <select
         aria-label={label}
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? 'sample-cell-invalid-description' : undefined}
         className={className}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -50,6 +62,8 @@ function SampleCell({ column, row, rowNumber, onChange }: SampleCellProps) {
     <input
       type="text"
       aria-label={label}
+      aria-invalid={invalid || undefined}
+      aria-describedby={invalid ? 'sample-cell-invalid-description' : undefined}
       className={className}
       value={value}
       onChange={(event) => onChange(event.target.value)}
@@ -83,6 +97,7 @@ export function SampleEditor({ schema, draft }: SampleEditorProps) {
             column={column}
             row={row.original}
             rowNumber={row.index + 1}
+            maxCellLength={schema.limits.max_sample_cell_length}
             onChange={(value) =>
               draft.updateSample(row.original.id, column.key, value)
             }
@@ -105,7 +120,12 @@ export function SampleEditor({ schema, draft }: SampleEditorProps) {
         ),
       },
     ],
-    [draft.removeSample, draft.updateSample, schema.sampleColumns],
+    [
+      draft.removeSample,
+      draft.updateSample,
+      schema.limits.max_sample_cell_length,
+      schema.sampleColumns,
+    ],
   );
   const table = useReactTable({
     data: draft.state.rows,
@@ -152,6 +172,10 @@ export function SampleEditor({ schema, draft }: SampleEditorProps) {
 
   return (
     <section className="min-w-0 space-y-3" aria-labelledby="sample-editor-title">
+      <span id="sample-cell-invalid-description" className="sr-only">
+        This sample cell cannot be transported until it is a string within the
+        workflow limit and contains no tabs, line breaks, or NUL characters.
+      </span>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 id="sample-editor-title" className="text-sm font-semibold">
@@ -211,6 +235,21 @@ export function SampleEditor({ schema, draft }: SampleEditorProps) {
               .
             </>
           )}
+        </p>
+      )}
+      {draft.sampleTransportIssue && (
+        <p
+          id="sample-transport-issue"
+          data-testid="sample-transport-issue"
+          className="rounded border border-red-200 bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)]"
+          role="alert"
+        >
+          {draft.sampleTransportIssue.message} Row {draft.sampleTransportIssue.row}.
+          {' Column '}
+          <code className="break-all font-mono">
+            {draft.sampleTransportIssue.column}
+          </code>
+          .
         </p>
       )}
 
@@ -291,6 +330,7 @@ export function SampleEditor({ schema, draft }: SampleEditorProps) {
                         column={column}
                         row={row}
                         rowNumber={rowIndex + 1}
+                        maxCellLength={schema.limits.max_sample_cell_length}
                         onChange={(value) =>
                           draft.updateSample(row.id, column.key, value)
                         }

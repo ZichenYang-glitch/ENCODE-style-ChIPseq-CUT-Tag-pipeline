@@ -16,6 +16,10 @@ describe('config YAML', () => {
       ok: true,
       value: { advanced: 9_007_199_254_740_991 },
     });
+    expect(parseConfigYaml('advanced: -9007199254740991\n')).toEqual({
+      ok: true,
+      value: { advanced: -9_007_199_254_740_991 },
+    });
   });
 
   it('stringifies keys in locale-independent UTF-16 code-unit order', () => {
@@ -41,6 +45,7 @@ describe('config YAML', () => {
     ['nested non-string mapping key', 'advanced:\n  true: value\n'],
     ['colliding mapping keys', '1: first\n"1": second\n'],
     ['unsafe integer', 'advanced: 9007199254740993\n'],
+    ['unsafe negative integer', 'advanced: -9007199254740993\n'],
   ])('rejects %s with a controlled issue', (_label, text) => {
     const result = parseConfigYaml(text);
     expect(result.ok).toBe(false);

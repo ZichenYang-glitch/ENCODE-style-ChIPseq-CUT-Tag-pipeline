@@ -7,6 +7,7 @@ import type {
 } from '../../api/generated/models';
 import { compareJsonKeys, isJsonObject, isJsonValue } from './jsonSafety';
 import type { DraftSampleRow } from './sampleTsv';
+import { validateSampleRows } from './sampleValidation';
 
 export type DraftReviewResult =
   | {
@@ -20,7 +21,10 @@ export type DraftReviewResult =
     }
   | {
       ok: false;
-      code: 'DRAFT_NOT_JSON_SAFE' | 'DRAFT_TOO_LARGE';
+      code:
+        | 'DRAFT_NOT_JSON_SAFE'
+        | 'DRAFT_SAMPLE_INVALID'
+        | 'DRAFT_TOO_LARGE';
       message: string;
     };
 
@@ -42,6 +46,7 @@ export function buildDraftReview(
   options: ValidationRequestOptions,
   sampleColumnOrder: string[],
   maxRequestBytes: number,
+  maxSampleCellLength: number,
 ): DraftReviewResult {
   if (!isJsonObject(config) || !isJsonObject(options)) {
     return {
@@ -50,15 +55,16 @@ export function buildDraftReview(
       message: 'The draft contains a value that cannot be sent as JSON.',
     };
   }
-  if (
-    rows.some((row) =>
-      Object.values(row.values).some((value) => typeof value !== 'string'),
-    )
-  ) {
+  const sampleIssue = validateSampleRows(
+    rows.map((row) => row.values),
+    sampleColumnOrder,
+    maxSampleCellLength,
+  );
+  if (sampleIssue !== null) {
     return {
       ok: false,
-      code: 'DRAFT_NOT_JSON_SAFE',
-      message: 'Every sample cell must remain a string.',
+      code: 'DRAFT_SAMPLE_INVALID',
+      message: sampleIssue.message,
     };
   }
 

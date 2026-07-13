@@ -11,9 +11,13 @@ export function DraftReview({ schema, draft }: DraftReviewProps) {
   const issues = [
     !draft.configValid && 'Config does not satisfy the adapter schema.',
     draft.state.yamlIssue !== null && 'Config YAML still contains an error.',
+    draft.state.configFormIssue !== null && draft.state.configFormIssue.message,
     !draft.samplesValid && 'Samples do not satisfy the adapter row schema.',
     !draft.optionsValid && 'Options do not satisfy the adapter schema.',
-    !draft.review.ok && draft.review.message,
+    draft.state.optionsFormIssue !== null && draft.state.optionsFormIssue.message,
+    !draft.review.ok &&
+      draft.review.code !== 'DRAFT_SAMPLE_INVALID' &&
+      draft.review.message,
   ].filter((value): value is string => Boolean(value));
 
   return (
@@ -40,17 +44,29 @@ export function DraftReview({ schema, draft }: DraftReviewProps) {
         ) : (
           <CircleAlert className="mt-0.5 shrink-0" aria-hidden="true" size={16} />
         )}
-        <div>
+        <div className="min-w-0">
           <p className="font-medium">
             {draft.reviewReady
               ? 'Draft is structurally ready for backend validation.'
               : 'Draft needs attention before backend validation.'}
           </p>
-          {issues.length > 0 && (
+          {(issues.length > 0 || draft.sampleTransportIssue !== null) && (
             <ul className="mt-1 list-disc space-y-0.5 pl-4">
               {issues.map((item) => (
-                <li key={item}>{item}</li>
+                <li key={item} className="break-words [overflow-wrap:anywhere]">
+                  {item}
+                </li>
               ))}
+              {draft.sampleTransportIssue !== null && (
+                <li className="min-w-0 break-words [overflow-wrap:anywhere]">
+                  {draft.sampleTransportIssue.message} Row{' '}
+                  {draft.sampleTransportIssue.row}. Column{' '}
+                  <code className="break-all font-mono">
+                    {draft.sampleTransportIssue.column}
+                  </code>
+                  .
+                </li>
+              )}
             </ul>
           )}
         </div>
@@ -66,14 +82,18 @@ export function DraftReview({ schema, draft }: DraftReviewProps) {
         </div>
         <div>
           <dt className="font-medium">Serialized bytes</dt>
-          <dd>{draft.review.ok ? draft.review.byteSize.toLocaleString() : 'Unavailable'}</dd>
+          <dd>
+            {draft.reviewPreviewAvailable && draft.review.ok
+              ? draft.review.byteSize.toLocaleString()
+              : 'Unavailable'}
+          </dd>
         </div>
       </dl>
       <pre
         data-testid="draft-review-json"
         className="max-h-[34rem] min-h-64 max-w-full overflow-auto whitespace-pre-wrap break-words rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-3 text-xs"
       >
-        {draft.review.ok
+        {draft.reviewPreviewAvailable && draft.review.ok
           ? draft.review.serialized
           : 'A deterministic request preview is unavailable until the structural error is corrected.'}
       </pre>

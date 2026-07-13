@@ -22,7 +22,12 @@ export function isJsonValue(
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
     return true;
   }
-  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value === 'number') {
+    return (
+      Number.isFinite(value) &&
+      (!Number.isInteger(value) || Number.isSafeInteger(value))
+    );
+  }
   if (typeof value !== 'object' || seen.has(value)) return false;
 
   seen.add(value);

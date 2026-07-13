@@ -21,6 +21,7 @@ describe('buildDraftReview', () => {
       { strict_inputs: false },
       ['sample', 'fastq_1', 'layout'],
       2_097_152,
+      4_096,
     );
 
     expect(result.ok).toBe(true);
@@ -47,11 +48,37 @@ describe('buildDraftReview', () => {
         {},
         [],
         100,
+        4_096,
       ),
     ).toMatchObject({ ok: false, code: 'DRAFT_NOT_JSON_SAFE' });
-    expect(buildDraftReview({ emoji: '😀' }, [], {}, [], 10)).toMatchObject({
+    expect(
+      buildDraftReview({ emoji: '😀' }, [], {}, [], 10, 4_096),
+    ).toMatchObject({
       ok: false,
       code: 'DRAFT_TOO_LARGE',
     });
+  });
+
+  it('rejects unsafe manually edited sample cells before serialization', () => {
+    expect(
+      buildDraftReview(
+        {},
+        [{ id: 'row-1', values: { sample: 'bad\nvalue' } }],
+        {},
+        ['sample'],
+        2_097_152,
+        4_096,
+      ),
+    ).toMatchObject({ ok: false, code: 'DRAFT_SAMPLE_INVALID' });
+    expect(
+      buildDraftReview(
+        {},
+        [{ id: 'row-1', values: { sample: 'x'.repeat(4_097) } }],
+        {},
+        ['sample'],
+        2_097_152,
+        4_096,
+      ),
+    ).toMatchObject({ ok: false, code: 'DRAFT_SAMPLE_INVALID' });
   });
 });

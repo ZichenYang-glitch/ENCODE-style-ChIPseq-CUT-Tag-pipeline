@@ -62,6 +62,21 @@ test('schema workbench preserves one draft across form YAML samples review and h
   ).toBeVisible();
   await expect(page.getByText(/Draft only/)).toBeVisible();
 
+  const threadsForm = page.getByRole('spinbutton', { name: /threads/i });
+  await threadsForm.fill(String(Number.MAX_SAFE_INTEGER + 1));
+  await expect(page.getByTestId('config-form-safety-issue')).toContainText(
+    'cannot be represented safely as JSON',
+  );
+  await expect(threadsForm).toHaveValue('8');
+  await page.getByRole('tab', { name: 'Review' }).click();
+  await expect(page.getByTestId('draft-review-json')).toContainText(
+    'preview is unavailable',
+  );
+  await page.getByRole('tab', { name: 'Config' }).click();
+  await page.getByRole('button', { name: 'Use previous safe config' }).click();
+  await expect(page.getByTestId('config-form-safety-issue')).toHaveCount(0);
+  await expect(threadsForm).toHaveValue('8');
+
   await page.getByRole('button', { name: 'YAML mode' }).click();
   const yamlEditor = page.getByRole('textbox', { name: 'Advanced config YAML' });
   await expect(yamlEditor).toBeVisible();
@@ -127,6 +142,33 @@ test('schema workbench preserves one draft across form YAML samples review and h
   await page.goForward();
   await expect(review).toContainText('browser-edited-sample');
 
+  await page.getByRole('tab', { name: 'Config' }).click();
+  await page.getByRole('button', { name: 'YAML mode' }).click();
+  await replaceCodeMirror(
+    yamlEditor,
+    'threads: 8\nlast_known_good: must-not-leak\n',
+  );
+  await page.getByRole('tab', { name: 'Review' }).click();
+  await expect(review).toContainText('last_known_good');
+  await page.getByRole('tab', { name: 'Config' }).click();
+  await page.getByRole('button', { name: 'YAML mode' }).click();
+  await replaceCodeMirror(yamlEditor, 'threads: [');
+  await page.goBack();
+  await page.goBack();
+  await expect(page.getByRole('tab', { name: 'Review' })).toHaveAttribute(
+    'data-state',
+    'active',
+  );
+  await expect(review).toContainText('preview is unavailable');
+  await expect(review).not.toContainText('last_known_good');
+  await page.goForward();
+  await page.goForward();
+  await replaceCodeMirror(
+    yamlEditor,
+    'threads: 8\nadvanced_browser_field: retained\n',
+  );
+  await page.getByRole('tab', { name: 'Review' }).click();
+
   await capture(page, testInfo, 'input-workbench-desktop-1440x900', 1440, 900);
   await capture(page, testInfo, 'input-workbench-tablet-1024x768', 1024, 768);
 
@@ -153,8 +195,18 @@ test('schema workbench sample records and YAML remain operable on mobile @mobile
   await expect(page.getByTestId('sample-desktop-table')).toBeHidden();
   const sampleInput = mobileList.getByLabel('Sample 1 sample');
   await expect(sampleInput).not.toHaveValue('');
+  await sampleInput.fill('x'.repeat(4_097));
+  await expect(page.getByTestId('sample-transport-issue')).toContainText(
+    'Row 1. Column sample',
+  );
+  await page.getByRole('tab', { name: 'Review' }).click();
+  await expect(page.getByTestId('draft-review-json')).toContainText(
+    'preview is unavailable',
+  );
+  await page.getByRole('tab', { name: 'Samples' }).click();
   await sampleInput.fill('mobile-edited-sample');
   await expect(sampleInput).toHaveValue('mobile-edited-sample');
+  await expect(page.getByTestId('sample-transport-issue')).toHaveCount(0);
   await capture(
     page,
     testInfo,
