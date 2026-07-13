@@ -60,7 +60,9 @@ only after a bounded server-version check confirms Redis 7 or newer; otherwise
 startup fails before creating runtime data. The launcher performs bounded
 readiness checks for Redis, the API, the registered worker, and the frontend;
 startup failures name the failed service and point to its local log without
-printing Redis credentials.
+printing Redis credentials. The API and registered worker reach readiness
+before Vite is exposed, so browser clients cannot race the backend during
+startup.
 
 Use explicit flags for an isolated demo or non-default ports:
 

@@ -152,25 +152,35 @@ def _read_reachable_redis_version(redis_url: str) -> tuple[int, ...]:
     """Read a bounded server version without exposing connection details."""
     from redis import Redis
 
-    connection = Redis.from_url(
-        redis_url,
-        socket_connect_timeout=0.5,
-        socket_timeout=0.5,
-    )
+    connection = None
     try:
+        connection = Redis.from_url(
+            redis_url,
+            socket_connect_timeout=0.5,
+            socket_timeout=0.5,
+        )
         server_info = connection.info(section="server")
+        if not isinstance(server_info, Mapping):
+            raise ValueError("Redis server information is invalid")
+        raw_version = server_info.get("redis_version")
+        if not isinstance(raw_version, str):
+            raise ValueError("Redis server version is invalid")
+        redis_version = _parse_version(
+            raw_version,
+            r"^(\d+)\.(\d+)\.(\d+)",
+            requirement="Redis server 7.x is required",
+        )
     except Exception:
-        raise RuntimeError("the configured Redis server is unavailable") from None
+        raise RuntimeError(
+            "the configured Redis server version is unavailable"
+        ) from None
     finally:
-        connection.close()
-    raw_version = server_info.get("redis_version")
-    if not isinstance(raw_version, str):
-        raise RuntimeError("the configured Redis server version is unavailable")
-    return _parse_version(
-        raw_version,
-        r"^(\d+)\.(\d+)\.(\d+)",
-        requirement="Redis server 7.x is required",
-    )
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+    return redis_version
 
 
 def run_environment_doctor(
@@ -206,18 +216,18 @@ def run_environment_doctor(
             "Snakemake 8.30.0 is required; recreate the locked ci-fast environment"
         )
 
-    try:
+    if shutil.which("redis-server") is None:
+        try:
+            redis_version = _read_reachable_redis_version(redis_url)
+        except RuntimeError:
+            raise RuntimeError("redis-server is unavailable on PATH") from None
+    else:
         redis_output = _read_tool_version("redis-server", ("--version",))
         redis_version = _parse_version(
             redis_output,
             r"\bv=(\d+)\.(\d+)\.(\d+)\b",
             requirement="Redis server 7.x is required",
         )
-    except RuntimeError as local_redis_error:
-        try:
-            redis_version = _read_reachable_redis_version(redis_url)
-        except RuntimeError:
-            raise local_redis_error from None
     if redis_version[0] < MINIMUM_REDIS_MAJOR:
         raise RuntimeError(
             "Redis server 7.x is required; install Redis 7 or newer in the "
@@ -492,6 +502,7 @@ class PlatformSupervisor:
             [sys.executable, "-m", "encode_pipeline.workers.cli"],
             cwd=self.config.project_root,
         )
+        self._wait_backend_ready()
         self._start(
             "frontend",
             [
@@ -530,7 +541,7 @@ class PlatformSupervisor:
             encoding="utf-8",
         )
 
-    def _wait_ready(self) -> None:
+    def _wait_backend_ready(self) -> None:
         _wait_until(
             lambda: _http_ready(
                 f"http://{self.config.api_host}:{self.config.api_port}/api/v1/workflows/"
@@ -545,6 +556,8 @@ class PlatformSupervisor:
             "RQ worker",
             self._assert_processes_alive,
         )
+
+    def _wait_ready(self) -> None:
         _wait_until(
             lambda: _http_ready(
                 f"http://{self.config.frontend_host}:{self.config.frontend_port}"

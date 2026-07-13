@@ -41,6 +41,11 @@ def test_environment_doctor_accepts_the_locked_project_toolchain(tmp_path, monke
         "_import_runtime_dependency",
         lambda module: None,
     )
+    monkeypatch.setattr(
+        local_platform.shutil,
+        "which",
+        lambda executable: f"/tools/{executable}",
+    )
     versions = {
         "snakemake": "8.30.0\n",
         "redis-server": "Redis server v=7.4.7 sha=00000000 malloc=libc bits=64\n",
@@ -93,6 +98,13 @@ def test_environment_doctor_accepts_a_versioned_reachable_redis_when_binary_is_a
 
     monkeypatch.setattr(local_platform, "_read_tool_version", tool_version)
     monkeypatch.setattr(
+        local_platform.shutil,
+        "which",
+        lambda executable: (
+            None if executable == "redis-server" else f"/tools/{executable}"
+        ),
+    )
+    monkeypatch.setattr(
         local_platform,
         "_read_reachable_redis_version",
         lambda _redis_url: (7, 4, 9),
@@ -137,6 +149,13 @@ def test_environment_doctor_external_redis_failure_does_not_expose_connection(
 
     monkeypatch.setattr(local_platform, "_read_tool_version", tool_version)
     monkeypatch.setattr(
+        local_platform.shutil,
+        "which",
+        lambda executable: (
+            None if executable == "redis-server" else f"/tools/{executable}"
+        ),
+    )
+    monkeypatch.setattr(
         local_platform,
         "_read_reachable_redis_version",
         unavailable_redis,
@@ -150,6 +169,98 @@ def test_environment_doctor_external_redis_failure_does_not_expose_connection(
 
     assert str(caught.value) == "redis-server is unavailable on PATH"
     assert "secret" not in str(caught.value)
+    assert "private-host" not in str(caught.value)
+
+
+def test_environment_doctor_does_not_fallback_for_a_broken_present_redis_binary(
+    tmp_path, monkeypatch
+):
+    frontend_root = tmp_path / "frontend"
+    (frontend_root / "node_modules" / ".bin").mkdir(parents=True)
+    (frontend_root / "node_modules" / ".bin" / "vite").touch()
+    (frontend_root / "node_modules" / ".bin" / "playwright").touch()
+    (frontend_root / "package-lock.json").touch()
+    monkeypatch.setattr(local_platform.sys, "version_info", (3, 12, 13))
+    monkeypatch.setattr(
+        local_platform,
+        "_import_runtime_dependency",
+        lambda module: None,
+    )
+    monkeypatch.setattr(
+        local_platform.shutil,
+        "which",
+        lambda executable: f"/tools/{executable}",
+    )
+    versions = {
+        "snakemake": "8.30.0\n",
+        "node": "v22.18.0\n",
+        "npm": "10.9.3\n",
+    }
+
+    def tool_version(executable, _arguments):
+        if executable == "redis-server":
+            raise RuntimeError("redis-server could not report a version")
+        return versions[executable]
+
+    fallback_calls: list[str] = []
+    monkeypatch.setattr(local_platform, "_read_tool_version", tool_version)
+    monkeypatch.setattr(
+        local_platform,
+        "_read_reachable_redis_version",
+        lambda redis_url: fallback_calls.append(redis_url) or (7, 4, 9),
+    )
+
+    with pytest.raises(RuntimeError, match="could not report"):
+        run_environment_doctor(
+            frontend_root,
+            redis_url="redis://127.0.0.1:6379/14",
+        )
+
+    assert fallback_calls == []
+
+
+def test_reachable_redis_version_wraps_malformed_url_without_disclosure(
+    monkeypatch,
+):
+    def malformed_url(*_args, **_kwargs):
+        raise ValueError("redis://user:secret@private-host:not-a-port/0")
+
+    monkeypatch.setattr("redis.Redis.from_url", malformed_url)
+
+    with pytest.raises(RuntimeError) as caught:
+        local_platform._read_reachable_redis_version(
+            "redis://user:secret@private-host:not-a-port/0"
+        )
+
+    assert str(caught.value) == "the configured Redis server version is unavailable"
+    assert "secret" not in str(caught.value)
+    assert "private-host" not in str(caught.value)
+
+
+def test_reachable_redis_version_rejects_malformed_info_and_closes_connection(
+    monkeypatch,
+):
+    class MalformedInfoConnection:
+        closed = False
+
+        def info(self, *, section):
+            assert section == "server"
+            return []
+
+        def close(self):
+            self.closed = True
+
+    connection = MalformedInfoConnection()
+    monkeypatch.setattr(
+        "redis.Redis.from_url",
+        lambda *_args, **_kwargs: connection,
+    )
+
+    with pytest.raises(RuntimeError) as caught:
+        local_platform._read_reachable_redis_version("redis://private-host:6379/0")
+
+    assert str(caught.value) == "the configured Redis server version is unavailable"
+    assert connection.closed is True
     assert "private-host" not in str(caught.value)
 
 
@@ -186,6 +297,11 @@ def test_environment_doctor_rejects_incompatible_tools(
         local_platform,
         "_import_runtime_dependency",
         lambda module: None,
+    )
+    monkeypatch.setattr(
+        local_platform.shutil,
+        "which",
+        lambda executable: f"/tools/{executable}",
     )
     versions = {
         "snakemake": "8.30.0\n",
@@ -293,6 +409,40 @@ def test_shared_environment_uses_one_absolute_lifecycle_configuration(tmp_path):
     assert environment["VITE_API_PROXY_TARGET"] == "http://127.0.0.1:8010"
     assert "127.0.0.1" in environment["NO_PROXY"]
     assert environment["NO_PROXY"] == environment["no_proxy"]
+
+
+def test_supervisor_exposes_frontend_only_after_api_and_worker_are_ready(
+    tmp_path, monkeypatch
+):
+    config = RuntimeConfig(
+        project_root=tmp_path / "project",
+        frontend_root=tmp_path / "frontend",
+        runtime_root=tmp_path / "runtime",
+        redis_url="redis://127.0.0.1:6380/0",
+        queue_name="browser-e2e",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=30,
+    )
+    supervisor = local_platform.PlatformSupervisor(config)
+    order: list[str] = []
+    monkeypatch.setattr(
+        supervisor,
+        "_start",
+        lambda name, _argv, *, cwd: order.append(name),
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_wait_backend_ready",
+        lambda: order.append("backend-ready"),
+        raising=False,
+    )
+
+    supervisor._start_services()
+
+    assert order == ["api", "worker", "backend-ready", "frontend"]
 
 
 def test_session_process_groups_never_include_the_test_process_group(monkeypatch):

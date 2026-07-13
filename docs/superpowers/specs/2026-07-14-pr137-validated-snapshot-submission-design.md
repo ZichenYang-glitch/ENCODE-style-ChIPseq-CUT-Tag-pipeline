@@ -23,6 +23,9 @@ ports, creating runtime directories, or starting processes. It requires Python
 and development Python packages, and locked frontend dependencies. Failures
 name the missing requirement and a remediation action without printing PATH,
 environment variables, private filesystem locations, or subprocess output.
+An existing Redis is accepted only when `redis-server` is absent and a bounded,
+sanitized version probe confirms Redis 7 or newer. API and worker readiness
+also precede Vite startup so the browser readiness URL cannot race the backend.
 
 ## Durable snapshot model
 
