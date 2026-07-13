@@ -171,7 +171,10 @@ def _run_log_chunk_response(chunk: Any) -> RunLogChunkResponse:
     responses={
         400: {"model": RunResponse},
         404: {"model": RunResponse},
-        413: {"model": RunResponse},
+        413: {
+            "model": RunResponse,
+            "description": "Request body too large.",
+        },
     },
 )
 def create_run(

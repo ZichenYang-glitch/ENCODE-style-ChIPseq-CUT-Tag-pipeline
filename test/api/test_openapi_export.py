@@ -200,6 +200,8 @@ def test_authoring_operations_declare_stable_too_large_envelopes(tmp_path):
     validate = schema["paths"]["/api/v1/workflows/{workflow_id}/validate"]["post"]
     create = schema["paths"]["/api/v1/workflows/{workflow_id}/runs"]["post"]
 
+    assert validate["responses"]["413"]["description"] == "Request body too large."
+    assert create["responses"]["413"]["description"] == "Request body too large."
     assert validate["responses"]["413"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/ValidationResponse"
     }

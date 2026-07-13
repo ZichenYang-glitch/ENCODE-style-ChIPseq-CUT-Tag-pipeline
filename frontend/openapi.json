@@ -112,14 +112,14 @@
             }
           },
           "413": {
+            "description": "Request body too large.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ValidationResponse"
                 }
               }
-            },
-            "description": "Content Too Large"
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -248,14 +248,14 @@
             "description": "Not Found"
           },
           "413": {
+            "description": "Request body too large.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RunResponse"
                 }
               }
-            },
-            "description": "Content Too Large"
+            }
           },
           "422": {
             "description": "Validation Error",

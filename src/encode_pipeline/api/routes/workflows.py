@@ -112,7 +112,12 @@ async def get_schema(
     "/{workflow_id}/validate",
     response_model=ValidationResponse,
     operation_id="validateWorkflow",
-    responses={413: {"model": ValidationResponse}},
+    responses={
+        413: {
+            "model": ValidationResponse,
+            "description": "Request body too large.",
+        }
+    },
 )
 def validate_workflow(
     workflow_id: str,
