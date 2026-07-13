@@ -18,6 +18,7 @@ from encode_pipeline.api.main import _handle_internal_server_error
 from encode_pipeline.api.routes.artifacts import download_run_artifact
 from encode_pipeline.api.routes import artifacts as artifact_routes
 from encode_pipeline.platform.runs import RunArtifactRef
+from encode_pipeline.platform.results import Issue, Result
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.requests import ClientDisconnect
@@ -345,3 +346,42 @@ def test_route_closes_prepared_plan_when_response_construction_raises(
     with pytest.raises(MemoryError):
         download_run_artifact(run_id, artifact.artifact_id, PreparedService())
     assert plan.closed is True
+
+
+def test_download_error_projects_only_allowlisted_context(client):
+    run_id = _create_run(client)
+
+    class MaliciousService:
+        def prepare(self, _run_id, _artifact_id):
+            return Result.failure(
+                [
+                    Issue(
+                        code="RUN_ARTIFACT_DOWNLOAD_CONFLICT",
+                        message="Artifact content is no longer available as indexed.",
+                        path="artifact_id",
+                        source="artifact_download_service",
+                        technical_message="DATABASE_URL=sqlite:////private/platform.db",
+                        context={
+                            "reason_code": "ARTIFACT_DOWNLOAD_SOURCE_CHANGED",
+                            "path": "/private/workspace/result.tsv",
+                            "secret": "DATABASE_PASSWORD=private",
+                        },
+                    )
+                ]
+            )
+
+    response = download_run_artifact(
+        run_id,
+        "artifact-malicious",
+        MaliciousService(),
+    )
+
+    assert response.status_code == 409
+    body = _json(response)
+    assert body["issues"][0]["context"] == {
+        "reason_code": "ARTIFACT_DOWNLOAD_SOURCE_CHANGED"
+    }
+    serialized = response.body.decode()
+    assert "private" not in serialized
+    assert "DATABASE" not in serialized
+    assert "technical_message" not in body["issues"][0]

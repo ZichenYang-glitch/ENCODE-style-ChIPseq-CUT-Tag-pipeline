@@ -25,6 +25,7 @@ from encode_pipeline.services.runs import RunService
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 CHUNK_SIZE = 64 * 1024
+WINDOWS_SEPARATOR = chr(92)
 
 
 def _runtime(tmp_path: Path, *run_ids: str):
@@ -170,7 +171,7 @@ def test_prepare_is_run_scoped_and_never_opens_cross_run_artifact(
         "",
         "/private/file.bin",
         "~/private/file.bin",
-        "C:\\private\\file.bin",
+        f"C:{WINDOWS_SEPARATOR}private{WINDOWS_SEPARATOR}file.bin",
         "results\\file.bin",
         "results/../file.bin",
         "results/./file.bin",
@@ -452,6 +453,67 @@ def test_client_stopping_iteration_closes_every_descriptor(tmp_path):
     assert next(stream) == content[:CHUNK_SIZE]
     stream.close()
 
+    assert plan.closed is True
+
+
+@pytest.mark.parametrize("fail_at", [1, 2])
+def test_prepare_closes_new_descriptor_when_fstat_fails(
+    tmp_path,
+    monkeypatch,
+    fail_at,
+):
+    service, run_service, workspace_root = _runtime(tmp_path, "run-1")
+    artifact = _artifact("run-1", size_bytes=7)
+    _record(run_service, artifact)
+    _write(workspace_root, "run-1", "results/file.bin", b"content")
+    original_open = os.open
+    original_fstat = os.fstat
+    opened: list[int] = []
+    fstat_calls = 0
+
+    def tracking_open(*args, **kwargs):
+        descriptor = original_open(*args, **kwargs)
+        opened.append(descriptor)
+        return descriptor
+
+    def failing_fstat(descriptor):
+        nonlocal fstat_calls
+        fstat_calls += 1
+        if fstat_calls == fail_at:
+            raise OSError("private fstat failure")
+        return original_fstat(descriptor)
+
+    monkeypatch.setattr(artifact_downloads.os, "open", tracking_open)
+    monkeypatch.setattr(artifact_downloads.os, "fstat", failing_fstat)
+
+    result = service.prepare("run-1", artifact.artifact_id)
+
+    assert _failure_code(result) == "RUN_ARTIFACT_DOWNLOAD_UNAVAILABLE"
+    assert opened
+    for descriptor in opened:
+        with pytest.raises(OSError):
+            original_fstat(descriptor)
+
+
+def test_stream_read_error_is_redacted_and_closes_every_descriptor(
+    tmp_path,
+    monkeypatch,
+):
+    service, run_service, workspace_root = _runtime(tmp_path, "run-1")
+    artifact = _artifact("run-1", size_bytes=7)
+    _record(run_service, artifact)
+    _write(workspace_root, "run-1", "results/file.bin", b"content")
+    plan = service.prepare("run-1", artifact.artifact_id).value
+
+    def fail_read(_descriptor, _size):
+        raise OSError("private read failure")
+
+    monkeypatch.setattr(artifact_downloads.os, "read", fail_read)
+
+    with pytest.raises(ArtifactDownloadStreamError) as exc_info:
+        next(plan.iter_bytes())
+
+    assert "private" not in str(exc_info.value)
     assert plan.closed is True
 
 

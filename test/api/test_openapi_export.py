@@ -170,6 +170,13 @@ def test_artifact_download_contract_is_binary_and_has_bounded_error_envelopes(
         "properties"
     ]
     assert "technical_message" not in issue_properties
+    context_ref = issue_properties["context"]["$ref"]
+    assert context_ref == ("#/components/schemas/ArtifactDownloadIssueContextResponse")
+    context_schema = schema["components"]["schemas"][
+        "ArtifactDownloadIssueContextResponse"
+    ]
+    assert context_schema["additionalProperties"] is False
+    assert set(context_schema["properties"]) == {"reason_code"}
 
 
 def test_qc_metric_operation_is_lossless_and_has_declared_error_envelopes(tmp_path):

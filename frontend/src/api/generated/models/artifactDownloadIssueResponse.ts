@@ -8,7 +8,7 @@
 import type { ArtifactDownloadIssueResponsePath } from './artifactDownloadIssueResponsePath';
 import type { ArtifactDownloadIssueResponseSource } from './artifactDownloadIssueResponseSource';
 import type { ArtifactDownloadIssueResponseHint } from './artifactDownloadIssueResponseHint';
-import type { ArtifactDownloadIssueResponseContext } from './artifactDownloadIssueResponseContext';
+import type { ArtifactDownloadIssueContextResponse } from './artifactDownloadIssueContextResponse';
 
 /**
  * Allowlisted public Issue fields for artifact download failures.
@@ -20,5 +20,5 @@ export interface ArtifactDownloadIssueResponse {
   path?: ArtifactDownloadIssueResponsePath;
   source?: ArtifactDownloadIssueResponseSource;
   hint?: ArtifactDownloadIssueResponseHint;
-  context?: ArtifactDownloadIssueResponseContext;
+  context?: ArtifactDownloadIssueContextResponse;
 }

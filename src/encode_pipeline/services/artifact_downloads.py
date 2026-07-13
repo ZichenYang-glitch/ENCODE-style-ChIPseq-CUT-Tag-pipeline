@@ -267,9 +267,10 @@ class ArtifactDownloadService:
             raise ValueError("artifact path is too deep")
 
         nodes: list[_OpenedNode] = []
-        transferred = False
+        owned_descriptors: list[int] = []
         try:
             root_descriptor = os.open("/", directory_flags)
+            _own_descriptor(owned_descriptors, root_descriptor)
             nodes.append(
                 _OpenedNode(
                     descriptor=root_descriptor,
@@ -293,6 +294,7 @@ class ArtifactDownloadService:
                             "ARTIFACT_DOWNLOAD_SOURCE_MISSING_OR_UNSAFE"
                         ) from None
                     raise
+                _own_descriptor(owned_descriptors, descriptor)
                 info = os.fstat(descriptor)
                 node = _OpenedNode(
                     descriptor=descriptor,
@@ -321,15 +323,14 @@ class ArtifactDownloadService:
                 filename=filename,
                 content_disposition=content_disposition,
             )
-            transferred = True
+            owned_descriptors.clear()
             return plan
         finally:
-            if not transferred:
-                for node in reversed(nodes):
-                    try:
-                        os.close(node.descriptor)
-                    except OSError:
-                        pass
+            for descriptor in reversed(owned_descriptors):
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
 
     @staticmethod
     def _data_invalid() -> Result[ArtifactDownloadPlan]:
@@ -445,6 +446,18 @@ def _fingerprint(info: os.stat_result) -> _Fingerprint:
         size=0 if is_directory else info.st_size,
         modified_ns=0 if is_directory else info.st_mtime_ns,
     )
+
+
+def _own_descriptor(owned_descriptors: list[int], descriptor: int) -> None:
+    """Take cleanup ownership immediately after a successful ``os.open``."""
+    try:
+        owned_descriptors.append(descriptor)
+    except BaseException:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        raise
 
 
 def _verify_descriptor_chain(nodes: tuple[_OpenedNode, ...]) -> None:

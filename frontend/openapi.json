@@ -1196,6 +1196,27 @@
         "title": "AgentToolCall",
         "description": "Transparent record of a read-only tool invocation by the agent."
       },
+      "ArtifactDownloadIssueContextResponse": {
+        "properties": {
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "pattern": "^[A-Z][A-Z0-9_]{0,127}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ArtifactDownloadIssueContextResponse",
+        "description": "Strict public context projection for artifact download failures."
+      },
       "ArtifactDownloadIssueResponse": {
         "properties": {
           "code": {
@@ -1245,9 +1266,7 @@
             "title": "Hint"
           },
           "context": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Context"
+            "$ref": "#/components/schemas/ArtifactDownloadIssueContextResponse"
           }
         },
         "type": "object",

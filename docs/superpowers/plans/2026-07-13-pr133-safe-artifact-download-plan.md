@@ -56,6 +56,8 @@ Orval, React, TanStack Query v5, lucide-react, Vitest, Playwright.
   tests.
 - [x] Add an AST/import boundary test proving the route does not use `os`,
   `Path`, `open`, or `FileResponse` for workspace access.
+- [x] Project Issue context through a closed Pydantic model containing only an
+  optional validated `reason_code`; discard all other internal context keys.
 - [x] Add stable `downloadRunArtifact` operation and binary/error OpenAPI schema
   assertions.
 - [x] Compose `ArtifactDownloadService`, add the dependency, synchronous route,

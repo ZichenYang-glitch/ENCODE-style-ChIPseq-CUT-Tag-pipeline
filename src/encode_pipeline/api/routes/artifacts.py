@@ -15,6 +15,7 @@ from encode_pipeline.api.dependencies import (
     get_run_service,
 )
 from encode_pipeline.api.models import (
+    ArtifactDownloadIssueContextResponse,
     ArtifactDownloadIssueResponse,
     ArtifactReferenceResponse,
     IssueResponse,
@@ -282,7 +283,9 @@ def download_run_artifact(
                 path=issue.path,
                 source=issue.source,
                 hint=issue.hint,
-                context=dict(issue.context),
+                context=ArtifactDownloadIssueContextResponse.from_issue_context(
+                    issue.context
+                ),
             )
             for issue in result.issues
         ]

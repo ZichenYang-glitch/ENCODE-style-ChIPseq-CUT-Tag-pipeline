@@ -6,4 +6,4 @@
  * OpenAPI spec version: 0.3.0
  */
 
-export type ArtifactDownloadIssueResponseContext = { [key: string]: unknown };
+export type ArtifactDownloadIssueContextResponseReasonCode = string | null;

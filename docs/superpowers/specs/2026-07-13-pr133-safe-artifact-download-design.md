@@ -76,7 +76,9 @@ response is returned:
 4. Open `/`, every workspace-root component, the run directory, every relative
    parent, and the final file using `dir_fd`. Directories use
    `O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC`; the final node additionally uses
-   `O_NONBLOCK` so a FIFO cannot hang before it is rejected.
+   `O_NONBLOCK` so a FIFO cannot hang before it is rejected. Cleanup ownership
+   is recorded immediately after every successful `open`, before `fstat`,
+   fingerprinting, or node construction can fail.
 5. Require every parent to be a directory and the final descriptor to be a
    regular file whose `st_size` equals persisted `size_bytes`.
 6. Compare every descriptor fingerprint to its current parent-directory entry
@@ -96,6 +98,10 @@ The plan owns the complete open descriptor chain. Its iterator:
   length, or if device/inode/mode/size/mtime changes;
 - rechecks the chain after the final byte;
 - closes every descriptor in `finally`, even on read failure or generator close.
+
+Before ownership transfers to the plan, preparation keeps an independent list
+of every opened descriptor. Any exception between `open` and plan construction
+closes that full list in reverse order.
 
 Directory fingerprints intentionally compare only device, inode, and mode:
 directory size and mtime change when an unrelated sibling is created and are

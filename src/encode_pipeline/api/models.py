@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 import re
@@ -25,6 +26,7 @@ _MIME_TYPE_PATTERN = re.compile(
 _WINDOWS_ABSOLUTE_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
 _ENVIRONMENT_ASSIGNMENT_PATTERN = re.compile(r"(?:^|\s)[A-Za-z_][A-Za-z0-9_]*=")
 _EMBEDDED_POSIX_PATH_PATTERN = re.compile(r"(?<![A-Za-z0-9._-])/[^/\s]")
+_ARTIFACT_DOWNLOAD_REASON_CODE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 
 
 class IssueResponse(BaseModel):
@@ -340,6 +342,32 @@ class RunArtifactDetailResponse(BaseModel):
     issues: list[IssueResponse] = Field(default_factory=list)
 
 
+class ArtifactDownloadIssueContextResponse(BaseModel):
+    """Strict public context projection for artifact download failures."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason_code: str | None = Field(
+        default=None,
+        pattern=_ARTIFACT_DOWNLOAD_REASON_CODE_PATTERN.pattern,
+        max_length=128,
+    )
+
+    @classmethod
+    def from_issue_context(
+        cls,
+        context: Mapping[str, object],
+    ) -> ArtifactDownloadIssueContextResponse:
+        """Retain only a valid stable reason code from an internal Issue."""
+        reason_code = context.get("reason_code")
+        if (
+            not isinstance(reason_code, str)
+            or _ARTIFACT_DOWNLOAD_REASON_CODE_PATTERN.fullmatch(reason_code) is None
+        ):
+            reason_code = None
+        return cls(reason_code=reason_code)
+
+
 class ArtifactDownloadIssueResponse(BaseModel):
     """Allowlisted public Issue fields for artifact download failures."""
 
@@ -349,7 +377,9 @@ class ArtifactDownloadIssueResponse(BaseModel):
     path: str | None = None
     source: str | None = None
     hint: str | None = None
-    context: dict[str, Any] = Field(default_factory=dict)
+    context: ArtifactDownloadIssueContextResponse = Field(
+        default_factory=ArtifactDownloadIssueContextResponse
+    )
 
 
 class RunArtifactDownloadErrorResponse(BaseModel):
