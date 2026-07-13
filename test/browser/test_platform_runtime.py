@@ -13,6 +13,8 @@ from scripts.run_local_platform import (
     build_shared_environment,
     cleanup_service_sessions,
 )
+from scripts.results_visibility_fixture import prepare_results_visibility_fixture
+from platform_runtime import write_manifest
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -110,3 +112,38 @@ def test_playwright_runtime_reset_rejects_a_mismatched_owner(tmp_path):
     assert completed.returncode != 0
     assert "not owned" in completed.stderr
     assert unrelated.read_text(encoding="utf-8") == "keep"
+
+
+def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
+    tmp_path,
+):
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    inputs = prepare_results_visibility_fixture(runtime_root / "project")
+
+    write_manifest(runtime_root, "browser-queue", inputs)
+
+    raw = json.loads((runtime_root / "runtime.json").read_text(encoding="utf-8"))
+    assert set(raw) == {
+        "workflowId",
+        "samplesPath",
+        "resultsConfig",
+        "cancelConfig",
+        "emptyConfig",
+        "malformedConfig",
+        "expectedQcSummary",
+        "runtimeRoot",
+        "workspaceRoot",
+        "markerRoot",
+        "queueName",
+    }
+    assert raw["samplesPath"] == str(inputs.samples_path)
+    assert raw["resultsConfig"] == inputs.results_config
+    assert raw["cancelConfig"] == inputs.cancel_config
+    assert raw["emptyConfig"] == inputs.empty_config
+    assert raw["malformedConfig"] == inputs.malformed_config
+    assert raw["expectedQcSummary"] == inputs.expected_qc_summary
+    serialized = json.dumps(raw)
+    assert "sqlite:" not in serialized
+    assert "redis:" not in serialized
+    assert "ENCODE_PIPELINE_" not in serialized

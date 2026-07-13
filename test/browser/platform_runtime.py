@@ -10,127 +10,33 @@ import shutil
 import sys
 from uuid import uuid4
 
-import yaml
-
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-PROFILE_ROOT = REPOSITORY_ROOT / "test" / "profiles" / "platform_worker_tiny"
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
+from scripts.results_visibility_fixture import (  # noqa: E402
+    ResultsVisibilityInputs,
+    prepare_results_visibility_fixture,
+)
+
+
 OWNERSHIP_SENTINEL = ".encode-platform-playwright-owned"
 
 
-def create_controlled_project(project_root: Path) -> None:
-    project_root.mkdir(parents=True)
-    shutil.copy2(REPOSITORY_ROOT / "pyproject.toml", project_root / "pyproject.toml")
-    shutil.copytree(
-        REPOSITORY_ROOT / "src" / "encode_pipeline",
-        project_root / "src" / "encode_pipeline",
-    )
-    inventory_target = project_root / "docs" / "architecture"
-    inventory_target.mkdir(parents=True)
-    shutil.copy2(
-        REPOSITORY_ROOT / "docs" / "architecture" / "artifact-inventory.yaml",
-        inventory_target / "artifact-inventory.yaml",
-    )
-    workflow_root = project_root / "workflow"
-    profile_root = project_root / "profiles" / "default"
-    scripts_root = project_root / "scripts"
-    workflow_root.mkdir()
-    profile_root.mkdir(parents=True)
-    scripts_root.mkdir()
-    (profile_root / "config.yaml").write_text(
-        "printshellcmds: true\ncores: 2\n", encoding="utf-8"
-    )
-    (workflow_root / "Snakefile").write_text(
-        """
-from pathlib import Path
-
-HELPER = Path(workflow.basedir).parent / "scripts" / "browser_task.py"
-MODE = "cancel" if int(config.get("threads", 1)) == 2 else "success"
-
-rule all:
-    input:
-        "result/complete.txt",
-        "results/multiqc/result_manifest.tsv"
-
-rule browser_task:
-    output:
-        complete="result/complete.txt",
-        manifest="results/multiqc/result_manifest.tsv"
-    params:
-        helper=str(HELPER),
-        mode=MODE
-    shell:
-        "python3 {params.helper:q} {params.mode:q} {output.complete:q} {output.manifest:q}"
-""".lstrip(),
-        encoding="utf-8",
-    )
-    (scripts_root / "browser_task.py").write_text(
-        """
-from __future__ import annotations
-
-import json
-import os
-from pathlib import Path
-import subprocess
-import sys
-import time
-
-mode = sys.argv[1]
-output = Path(sys.argv[2])
-manifest = Path(sys.argv[3])
-output.parent.mkdir(parents=True, exist_ok=True)
-manifest.parent.mkdir(parents=True, exist_ok=True)
-if mode == "success":
-    print("browser-e2e-success", flush=True)
-    output.write_text("success\\n", encoding="utf-8")
-    manifest.write_text(
-        "output_type\\tstatus\\tpath\\n"
-        "result_manifest\\tpresent\\tresults/multiqc/result_manifest.tsv\\n",
-        encoding="utf-8",
-    )
-    raise SystemExit(0)
-
-marker_root = Path(os.environ["TMPDIR"])
-child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
-evidence = {
-    "shell_pid": os.getppid(),
-    "helper_pid": os.getpid(),
-    "child_pid": child.pid,
-    "process_group": os.getpgrp(),
-}
-temporary = marker_root / "browser-processes.json.tmp"
-temporary.write_text(json.dumps(evidence), encoding="utf-8")
-temporary.replace(marker_root / "browser-processes.json")
-print("browser-e2e-cancel-entered", flush=True)
-(marker_root / "browser-cancel-entered").write_text("entered\\n", encoding="utf-8")
-time.sleep(300)
-child.wait(timeout=5)
-output.write_text("should-not-complete\\n", encoding="utf-8")
-manifest.write_text("should-not-complete\\n", encoding="utf-8")
-(marker_root / "browser-helper-completed").write_text("completed\\n", encoding="utf-8")
-""".lstrip(),
-        encoding="utf-8",
-    )
-
-
-def write_manifest(runtime_root: Path, project_root: Path, queue_name: str) -> None:
-    base_config = yaml.safe_load(
-        (PROFILE_ROOT / "config.yaml").read_text(encoding="utf-8")
-    )
-    samples_path = project_root / "samples.tsv"
-    shutil.copy2(PROFILE_ROOT / "samples.tsv", samples_path)
-    base_config["samples"] = str(samples_path)
-    success_config = dict(base_config)
-    success_config["threads"] = 1
-    success_config["outdir"] = "browser-success"
-    cancel_config = dict(base_config)
-    cancel_config["threads"] = 2
-    cancel_config["outdir"] = "browser-cancel"
+def write_manifest(
+    runtime_root: Path,
+    queue_name: str,
+    inputs: ResultsVisibilityInputs,
+) -> None:
+    """Write the bounded browser-visible fixture contract."""
     manifest = {
         "workflowId": "encode-style-chipseq-cuttag-atac-mnase",
-        "samplesPath": str(samples_path),
-        "successConfig": success_config,
-        "cancelConfig": cancel_config,
+        "samplesPath": str(inputs.samples_path),
+        "resultsConfig": inputs.results_config,
+        "cancelConfig": inputs.cancel_config,
+        "emptyConfig": inputs.empty_config,
+        "malformedConfig": inputs.malformed_config,
+        "expectedQcSummary": inputs.expected_qc_summary,
         "runtimeRoot": str(runtime_root),
         "workspaceRoot": str(runtime_root / "workspaces"),
         "markerRoot": str(runtime_root / "tmp"),
@@ -162,9 +68,9 @@ def main() -> None:
         raise ValueError("Playwright runtime root and owner token are required")
     runtime_root = prepare_owned_runtime_root(runtime_value, runtime_owner)
     project_root = runtime_root / "project"
-    create_controlled_project(project_root)
+    inputs = prepare_results_visibility_fixture(project_root)
     queue_name = f"encode-pipeline-browser-{uuid4().hex}"
-    write_manifest(runtime_root, project_root, queue_name)
+    write_manifest(runtime_root, queue_name, inputs)
     redis_url = os.environ.get(
         "ENCODE_PIPELINE_E2E_REDIS_URL", "redis://127.0.0.1:6380/0"
     )

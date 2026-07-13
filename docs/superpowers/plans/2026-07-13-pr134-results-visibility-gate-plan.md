@@ -117,14 +117,14 @@ git commit -m "test: add deterministic results visibility fixture"
 - Modify: `test/browser/platform_runtime.py`
 - Modify: `test/browser/test_platform_runtime.py`
 
-- [ ] **Step 1: Write failing runtime-manifest assertions**
+- [x] **Step 1: Write failing runtime-manifest assertions**
 
 Extend the browser runtime test to require `runtime.json` to contain
 `resultsConfig`, `cancelConfig`, `emptyConfig`, `malformedConfig`, and the
 expected QC summary text, with no database URL, Redis URL, environment value,
 or workspace absolute path beyond the already controlled runtime fields.
 
-- [ ] **Step 2: Run the focused tests and confirm RED**
+- [x] **Step 2: Run the focused tests and confirm RED**
 
 Run:
 
@@ -136,7 +136,7 @@ PYTHONPATH=src python3 -m pytest -q \
 Expected: runtime keys and non-empty QC assertions fail against the old inline
 project.
 
-- [ ] **Step 3: Replace the inline browser project with the shared builder**
+- [x] **Step 3: Replace the inline browser project with the shared builder**
 
 Delete `create_controlled_project` and its embedded scripts from
 `test/browser/platform_runtime.py`. Call
@@ -148,7 +148,7 @@ Do not change the existing bundled-workflow tiny execution or cancellation
 tests. The real Playwright stack supplies the independent API/worker/Snakemake
 process boundary for this controlled fixture.
 
-- [ ] **Step 4: Run focused runtime tests; confirm GREEN**
+- [x] **Step 4: Run focused runtime tests; confirm GREEN**
 
 ```bash
 PYTHONPATH=src python3 -m pytest -q test/browser/test_platform_runtime.py
@@ -158,7 +158,7 @@ Expected: all pass; the serialized runtime input contains only the controlled
 fixture contract. Task 3 proves durable artifacts and metrics through the real
 independent-process stack.
 
-- [ ] **Step 5: Commit real harness reuse**
+- [x] **Step 5: Commit real harness reuse**
 
 ```bash
 git add test/browser/platform_runtime.py \
