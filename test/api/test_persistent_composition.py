@@ -22,12 +22,34 @@ def _database_url(tmp_path) -> str:
 
 
 def _create_run(client: ApiTestClient) -> str:
-    response = client.post(
-        f"/api/v1/workflows/{WORKFLOW_ID}/runs",
-        json={"config": {"samples": "samples.tsv"}},
-    )
-    assert response.status_code == 201
-    return response.json()["run"]["run_id"]
+    return client.app.state.run_service.create_run(
+        WORKFLOW_ID,
+        WorkflowInputs(config={"samples": "samples.tsv"}),
+    ).run_id
+
+
+def _close_app(app) -> None:
+    app.state.run_queue.close()
+    app.state.persistence.close()
+
+
+def _valid_snapshot_request() -> dict[str, object]:
+    return {
+        "config": {},
+        "samples": [
+            {
+                "sample": "S1",
+                "fastq_1": "/tmp/S1.R1.fastq.gz",
+                "layout": "SE",
+                "assay": "chipseq",
+                "target": "CTCF",
+                "peak_mode": "narrow",
+                "genome": "hs",
+                "bowtie2_index": "/tmp/indices/hs",
+            }
+        ],
+        "options": {},
+    }
 
 
 def test_default_api_composition_uses_environment_configured_sqlite(
@@ -99,6 +121,44 @@ def test_api_run_is_visible_after_app_factory_restart(tmp_path):
     assert logs_response.status_code == 200
     assert logs_response.json()["chunks"][0]["lines"] == ["before restart"]
     second_app.state.persistence.close()
+
+
+def test_validated_snapshot_survives_restart_and_replays_canonical_run(tmp_path):
+    database_url = _database_url(tmp_path)
+    first_app = create_app(database_url=database_url)
+    with ApiTestClient(first_app) as client:
+        validation = client.post(
+            f"/api/v1/workflows/{WORKFLOW_ID}/validate",
+            json=_valid_snapshot_request(),
+        )
+    assert validation.status_code == 200
+    snapshot_id = validation.json()["snapshot"]["snapshot_id"]
+    _close_app(first_app)
+
+    second_app = create_app(database_url=database_url)
+    with ApiTestClient(second_app) as client:
+        created = client.post(
+            f"/api/v1/workflows/{WORKFLOW_ID}/runs",
+            json={"snapshot_id": snapshot_id, "tags": {"owner": "lab"}},
+        )
+    assert created.status_code == 201
+    run_id = created.json()["run"]["run_id"]
+    _close_app(second_app)
+
+    third_app = create_app(database_url=database_url)
+    with ApiTestClient(third_app) as client:
+        replay = client.post(
+            f"/api/v1/workflows/{WORKFLOW_ID}/runs",
+            json={"snapshot_id": snapshot_id, "tags": {"owner": "lab"}},
+        )
+        persisted = client.get(f"/api/v1/runs/{run_id}")
+
+    assert replay.status_code == 200
+    assert replay.json()["run"]["run_id"] == run_id
+    assert persisted.status_code == 200
+    assert persisted.json()["run"] == replay.json()["run"]
+    assert len(third_app.state.run_service.list_runs()) == 1
+    _close_app(third_app)
 
 
 def test_api_restart_fails_api_owned_validation_with_public_safe_failure(tmp_path):

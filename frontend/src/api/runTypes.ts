@@ -1,8 +1,5 @@
 import type {
-  RunCreateRequestConfig,
-  RunCreateRequestOptions,
-  RunCreateRequestSamples,
-  RunCreateRequestTags,
+  RunCreateRequest as GeneratedRunCreateRequest,
 } from './generated/models';
 import type { Issue } from './types';
 
@@ -43,12 +40,7 @@ export interface RunLogChunkResponse {
   lines: string[];
 }
 
-export interface RunCreateRequest {
-  config: RunCreateRequestConfig;
-  samples: RunCreateRequestSamples;
-  options?: RunCreateRequestOptions;
-  tags?: RunCreateRequestTags;
-}
+export type RunCreateRequest = GeneratedRunCreateRequest;
 
 export interface RunResponse {
   ok: boolean;

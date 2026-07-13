@@ -23,6 +23,7 @@ import {
 } from './yamlDraft';
 
 interface InputDraftState {
+  semanticRevision: number;
   config: ValidationRequestConfig;
   configRevision: number;
   configFormResetRevision: number;
@@ -73,12 +74,14 @@ function reducer(state: InputDraftState, action: InputDraftAction): InputDraftSt
       if (!isJsonObject(action.value)) {
         return {
           ...state,
+          semanticRevision: state.semanticRevision + 1,
           configFormIssue: formSafetyIssue('Config'),
           configFormResetRevision: state.configFormResetRevision + 1,
         };
       }
       return {
         ...state,
+        semanticRevision: state.semanticRevision + 1,
         config: action.value,
         configRevision: state.configRevision + 1,
         configFormIssue: null,
@@ -89,12 +92,14 @@ function reducer(state: InputDraftState, action: InputDraftAction): InputDraftSt
       if (!action.parsed.ok) {
         return {
           ...state,
+          semanticRevision: state.semanticRevision + 1,
           yamlText: action.text,
           yamlIssue: action.parsed.issue,
         };
       }
       return {
         ...state,
+        semanticRevision: state.semanticRevision + 1,
         config: action.parsed.value,
         configRevision: state.configRevision + 1,
         yamlText: action.text,
@@ -113,16 +118,23 @@ function reducer(state: InputDraftState, action: InputDraftAction): InputDraftSt
       if (!isJsonObject(action.value)) {
         return {
           ...state,
+          semanticRevision: state.semanticRevision + 1,
           optionsFormIssue: formSafetyIssue('Options'),
           optionsFormResetRevision: state.optionsFormResetRevision + 1,
         };
       }
-      return { ...state, options: action.value, optionsFormIssue: null };
+      return {
+        ...state,
+        semanticRevision: state.semanticRevision + 1,
+        options: action.value,
+        optionsFormIssue: null,
+      };
     case 'options-form-fallback-accepted':
       return { ...state, optionsFormIssue: null };
     case 'samples-replace':
       return {
         ...state,
+        semanticRevision: state.semanticRevision + 1,
         rows: action.rows,
         importedFileName: action.fileName,
         sampleImportIssue: null,
@@ -132,17 +144,20 @@ function reducer(state: InputDraftState, action: InputDraftAction): InputDraftSt
     case 'sample-add':
       return {
         ...state,
+        semanticRevision: state.semanticRevision + 1,
         rows: [...state.rows, action.row],
         sampleImportIssue: null,
       };
     case 'sample-remove':
       return {
         ...state,
+        semanticRevision: state.semanticRevision + 1,
         rows: state.rows.filter((row) => row.id !== action.rowId),
       };
     case 'sample-cell':
       return {
         ...state,
+        semanticRevision: state.semanticRevision + 1,
         rows: state.rows.map((row) =>
           row.id === action.rowId
             ? { ...row, values: { ...row.values, [action.column]: action.value } }
@@ -156,6 +171,7 @@ function createInitialState(schema: WorkbenchSchema): InputDraftState {
   const config = createDefaultObject(schema.configSchema);
   const options = createDefaultObject(schema.optionSchema);
   return {
+    semanticRevision: 0,
     config,
     configRevision: 0,
     configFormResetRevision: 0,

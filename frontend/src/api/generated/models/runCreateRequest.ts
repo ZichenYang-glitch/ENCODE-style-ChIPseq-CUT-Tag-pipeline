@@ -5,17 +5,17 @@
  * Validation-first workflow platform API.
  * OpenAPI spec version: 0.3.0
  */
-import type { RunCreateRequestConfig } from './runCreateRequestConfig';
-import type { RunCreateRequestSamples } from './runCreateRequestSamples';
-import type { RunCreateRequestOptions } from './runCreateRequestOptions';
 import type { RunCreateRequestTags } from './runCreateRequestTags';
 
 /**
  * Request body for POST /api/v1/workflows/{workflow_id}/runs.
  */
 export interface RunCreateRequest {
-  config: RunCreateRequestConfig;
-  samples?: RunCreateRequestSamples;
-  options?: RunCreateRequestOptions;
+  /**
+   * @minLength 38
+   * @maxLength 38
+   * @pattern ^vsnap_[0-9a-f]{32}$
+   */
+  snapshot_id: string;
   tags?: RunCreateRequestTags;
 }

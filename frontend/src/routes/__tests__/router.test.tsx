@@ -23,14 +23,10 @@ function deferred<T>() {
 async function createRunActionRaceClient() {
   const baseClient = createStubRunApiClient();
   await baseClient.createRun(WORKFLOW_ID, {
-    config: { genome: 'hg38' },
-    samples: [{ name: 'sample-1', fastq_r1: 's1_R1.fq.gz' }],
-    options: { threads: 4 },
+    snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
   });
   await baseClient.createRun(WORKFLOW_ID, {
-    config: { genome: 'mm10' },
-    samples: [{ name: 'sample-2', fastq_r1: 's2_R1.fq.gz' }],
-    options: { threads: 2 },
+    snapshot_id: 'vsnap_abcdef0123456789abcdef0123456789',
   });
 
   const delayedRefresh = deferred<RunResponse>();
@@ -140,6 +136,15 @@ describe('Router', () => {
           ok: true,
           workflow_id: workflowId,
           value: { config: inputs.config, samples: [] },
+          snapshot: {
+            snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
+            workflow_id: workflowId,
+            schema_version: '1.0.0',
+            adapter_version: '0.3.0',
+            payload_digest: 'a'.repeat(64),
+            validated_at: '2026-07-14T00:00:00.000Z',
+            expires_at: '2026-07-14T00:30:00.000Z',
+          },
           issues: [],
         };
       },
@@ -169,9 +174,7 @@ describe('Router', () => {
   it('loads an existing run at /runs/:runId', async () => {
     const runClient = createStubRunApiClient();
     await runClient.createRun(WORKFLOW_ID, {
-      config: { genome: 'hg38' },
-      samples: [{ name: 'sample-1', fastq_r1: 's1_R1.fq.gz' }],
-      options: { threads: 4 },
+      snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
     });
 
     renderWithRouter(appRoutes, {

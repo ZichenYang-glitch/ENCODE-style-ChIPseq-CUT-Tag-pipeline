@@ -30,6 +30,10 @@ from encode_pipeline.platform.runs import (
     RunStatus,
     require_transition,
 )
+from encode_pipeline.platform.snapshots import (
+    ValidatedInputSnapshot,
+    ValidatedSnapshotRunCreation,
+)
 from encode_pipeline.services.run_repositories import (
     ConcurrentRunUpdateError,
     InMemoryRunRepository,
@@ -110,6 +114,60 @@ class RunService:
                 ),
             )
             return record
+
+    def get_validated_input_snapshot(
+        self,
+        snapshot_id: str,
+    ) -> ValidatedInputSnapshot:
+        """Return one validated snapshot without exposing repository rows."""
+        with self._lock:
+            return self._repository.get_validated_input_snapshot(snapshot_id)
+
+    def create_run_from_validated_snapshot(
+        self,
+        workflow_id: str,
+        snapshot_id: str,
+        *,
+        expected_build_identity: WorkflowBuildIdentity,
+        consumed_at: datetime,
+        tags: Mapping[str, str] | None = None,
+    ) -> ValidatedSnapshotRunCreation:
+        """Atomically consume one validated snapshot and create its run."""
+        with self._lock:
+            adapter = self._registry.get(workflow_id)
+            snapshot = self._repository.get_validated_input_snapshot(snapshot_id)
+            inputs = snapshot.to_workflow_inputs()
+            run_id = self._id_factory()
+            record = RunRecord(
+                run_id=run_id,
+                workflow_id=adapter.metadata.workflow_id,
+                inputs=inputs.to_dict(),
+                status=RunStatus.CREATED,
+                created_at=consumed_at,
+                updated_at=consumed_at,
+                started_at=None,
+                ended_at=None,
+                current_stage=None,
+                cancellation_reason=None,
+                error=None,
+                tags=tags or {},
+            )
+            return self._repository.consume_validated_input_snapshot(
+                snapshot_id,
+                workflow_id=workflow_id,
+                expected_build_identity=expected_build_identity,
+                record=record,
+                consumed_at=consumed_at,
+                event=RunEventDraft(
+                    event_type="status_changed",
+                    message="Run created.",
+                    status=RunStatus.CREATED,
+                    context={
+                        "previous_status": None,
+                        "new_status": RunStatus.CREATED.value,
+                    },
+                ),
+            )
 
     def add_event(
         self,

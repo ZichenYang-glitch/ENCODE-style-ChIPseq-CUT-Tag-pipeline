@@ -5,6 +5,7 @@ import { join } from 'node:path';
 interface RuntimeManifest {
   workflowId: string;
   samplesPath: string;
+  resultsConfig: Record<string, unknown>;
 }
 
 const runtimeRoot = process.env.ENCODE_PIPELINE_E2E_ROOT!;
@@ -122,8 +123,9 @@ test('schema workbench preserves one draft across form YAML samples review and h
   await expect(review).toContainText('browser-edited-sample');
   await expect(page.getByText(/structurally ready for backend validation/i)).toBeVisible();
   await expect(
-    page.getByRole('button', { name: /Create run|Start run|Validate/i }),
-  ).toHaveCount(0);
+    page.getByRole('button', { name: 'Validate current inputs' }),
+  ).toBeEnabled();
+  await expect(page.getByRole('button', { name: /Start run/i })).toHaveCount(0);
 
   await page.goBack();
   await expect(page.getByRole('tab', { name: 'Options' })).toHaveAttribute(
@@ -176,6 +178,69 @@ test('schema workbench preserves one draft across form YAML samples review and h
   await expect(page).toHaveURL(/step=review/);
   await expect(page.getByText(/Samples do not satisfy the adapter row schema/)).toBeVisible();
   await expect(review).not.toContainText('browser-edited-sample');
+});
+
+test('real workbench validates a server snapshot and creates one refresh-safe planned run @desktop', async ({
+  page,
+}) => {
+  const runtime = manifest();
+  await page.goto(`/workflows/${runtime.workflowId}/new-run`);
+  await expect(
+    page.getByRole('heading', { name: 'Input workbench' }),
+  ).toBeVisible();
+
+  await page.getByRole('button', { name: 'YAML mode' }).click();
+  const yamlEditor = page.getByRole('textbox', { name: 'Advanced config YAML' });
+  await replaceCodeMirror(yamlEditor, JSON.stringify(runtime.resultsConfig));
+  await page.getByRole('tab', { name: 'Samples' }).click();
+  await page.getByLabel('Import samples TSV').setInputFiles(runtime.samplesPath);
+  await expect(page.getByTestId('sample-desktop-table')).toBeVisible();
+  await page.getByRole('tab', { name: 'Review' }).click();
+  await expect(page.getByText(/structurally ready for backend validation/i)).toBeVisible();
+
+  const validateResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith(`/api/v1/workflows/${runtime.workflowId}/validate`),
+  );
+  await page.getByRole('button', { name: 'Validate current inputs' }).click();
+  const validateResponse = await validateResponsePromise;
+  expect(validateResponse.status()).toBe(200);
+  const validation = (await validateResponse.json()) as {
+    ok: boolean;
+    snapshot: null | { snapshot_id: string; payload_digest: string };
+    canonical_payload?: unknown;
+  };
+  expect(validation.ok).toBe(true);
+  expect(validation.snapshot?.snapshot_id).toMatch(/^vsnap_[0-9a-f]{32}$/);
+  expect(validation.snapshot?.payload_digest).toMatch(/^[0-9a-f]{64}$/);
+  expect(validation).not.toHaveProperty('canonical_payload');
+  await expect(page.getByText(/This exact draft can create one run/i)).toBeVisible();
+
+  const createRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      request.url().endsWith(`/api/v1/workflows/${runtime.workflowId}/runs`),
+  );
+  await page
+    .getByRole('button', { name: 'Create run from validated inputs' })
+    .click();
+  const createRequest = await createRequestPromise;
+  await expect(page).toHaveURL(/\/runs\/[^/]+$/);
+  expect(createRequest.postDataJSON()).toEqual({
+    snapshot_id: validation.snapshot?.snapshot_id,
+  });
+  const runId = page.url().split('/').at(-1);
+  expect(runId).toBeTruthy();
+  await expect(page.getByTestId('run-status-badge')).toHaveText('planned', {
+    timeout: 60_000,
+  });
+  await expect(page.getByRole('button', { name: 'Start run' })).toBeEnabled();
+
+  await page.reload();
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
+  await expect(page.getByTestId('run-status-badge')).toHaveText('planned');
+  await expect(page.getByRole('button', { name: 'Start run' })).toBeEnabled();
 });
 
 test('schema workbench sample records and YAML remain operable on mobile @mobile', async ({

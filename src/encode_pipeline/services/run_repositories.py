@@ -17,6 +17,7 @@ from encode_pipeline.platform.execution import (
     RunExecutionOwnership,
     RunExecutionStopAcknowledgement,
 )
+from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.runs import (
@@ -28,6 +29,11 @@ from encode_pipeline.platform.runs import (
     RunStatus,
     build_qc_metric_id,
     validate_qc_identifier_token,
+)
+from encode_pipeline.platform.snapshots import (
+    ValidatedInputSnapshot,
+    ValidatedSnapshotRunCreation,
+    canonical_workflow_inputs_json,
 )
 
 
@@ -52,6 +58,18 @@ class ConcurrentRunUpdateError(RuntimeError):
     """Raised when a persisted run changed after it was read."""
 
 
+class ValidatedSnapshotExpiredError(RuntimeError):
+    """Raised when an unconsumed validation snapshot passed its first-use TTL."""
+
+
+class ValidatedSnapshotBuildMismatchError(RuntimeError):
+    """Raised when current workflow source differs from validated source."""
+
+
+class ValidatedSnapshotReplayConflictError(RuntimeError):
+    """Raised when a consumed snapshot is replayed with different metadata."""
+
+
 @dataclass(frozen=True)
 class RunEventDraft:
     """Event data whose repository-owned identity has not been assigned yet."""
@@ -70,6 +88,27 @@ class RunRepository(Protocol):
     def contains_run(self, run_id: str) -> bool: ...
 
     def create_run(self, record: RunRecord, event: RunEventDraft) -> RunEvent: ...
+
+    def create_validated_input_snapshot(
+        self,
+        snapshot: ValidatedInputSnapshot,
+    ) -> ValidatedInputSnapshot: ...
+
+    def get_validated_input_snapshot(
+        self,
+        snapshot_id: str,
+    ) -> ValidatedInputSnapshot: ...
+
+    def consume_validated_input_snapshot(
+        self,
+        snapshot_id: str,
+        *,
+        workflow_id: str,
+        expected_build_identity: WorkflowBuildIdentity,
+        record: RunRecord,
+        consumed_at: datetime,
+        event: RunEventDraft,
+    ) -> ValidatedSnapshotRunCreation: ...
 
     def get_run(self, run_id: str) -> RunRecord: ...
 
@@ -266,6 +305,7 @@ class InMemoryRunRepository:
         self._execution_assignments: dict[str, RunExecutionAssignment] = {}
         self._execution_run_ids_by_job: dict[str, str] = {}
         self._workflow_build_identities: dict[str, WorkflowBuildIdentity] = {}
+        self._validated_input_snapshots: dict[str, ValidatedInputSnapshot] = {}
 
     def contains_run(self, run_id: str) -> bool:
         with self._lock:
@@ -282,6 +322,78 @@ class InMemoryRunRepository:
             self._artifacts[record.run_id] = {}
             self._qc_metrics[record.run_id] = {}
             return created_event
+
+    def create_validated_input_snapshot(
+        self,
+        snapshot: ValidatedInputSnapshot,
+    ) -> ValidatedInputSnapshot:
+        with self._lock:
+            validated = _validated_snapshot_copy(snapshot)
+            if validated.snapshot_id in self._validated_input_snapshots:
+                raise ValueError(
+                    f"Duplicate validated snapshot ID: {validated.snapshot_id!r}"
+                )
+            self._validated_input_snapshots[validated.snapshot_id] = validated
+            return _validated_snapshot_copy(validated)
+
+    def get_validated_input_snapshot(
+        self,
+        snapshot_id: str,
+    ) -> ValidatedInputSnapshot:
+        with self._lock:
+            return _validated_snapshot_copy(
+                self._validated_input_snapshots[snapshot_id]
+            )
+
+    def consume_validated_input_snapshot(
+        self,
+        snapshot_id: str,
+        *,
+        workflow_id: str,
+        expected_build_identity: WorkflowBuildIdentity,
+        record: RunRecord,
+        consumed_at: datetime,
+        event: RunEventDraft,
+    ) -> ValidatedSnapshotRunCreation:
+        with self._lock:
+            snapshot = _validated_snapshot_copy(
+                self._validated_input_snapshots[snapshot_id]
+            )
+            if snapshot.workflow_id != workflow_id:
+                raise KeyError(snapshot_id)
+            _validate_snapshot_consumption_candidate(
+                snapshot,
+                workflow_id=workflow_id,
+                expected_build_identity=expected_build_identity,
+                record=record,
+                consumed_at=consumed_at,
+            )
+            if snapshot.consumed_run_id is not None:
+                current = self._runs.get(snapshot.consumed_run_id)
+                if current is None:
+                    raise ValueError("validated snapshot references a missing run")
+                _validate_snapshot_linked_run(snapshot, current)
+                if dict(current.tags) != dict(record.tags):
+                    raise ValidatedSnapshotReplayConflictError(
+                        "validated snapshot replay metadata differs"
+                    )
+                return ValidatedSnapshotRunCreation(record=current, created=False)
+            if consumed_at >= snapshot.expires_at:
+                raise ValidatedSnapshotExpiredError(
+                    "validated snapshot expired before first use"
+                )
+            if record.run_id in self._runs:
+                raise ValueError(f"Duplicate run_id: {record.run_id!r}")
+
+            created_event = self._make_event(record.run_id, 1, event)
+            consumed = snapshot.with_consumption(record.run_id, consumed_at)
+            self._runs[record.run_id] = record
+            self._events[record.run_id] = [created_event]
+            self._logs[record.run_id] = {}
+            self._artifacts[record.run_id] = {}
+            self._qc_metrics[record.run_id] = {}
+            self._validated_input_snapshots[snapshot_id] = consumed
+            return ValidatedSnapshotRunCreation(record=record, created=True)
 
     def get_run(self, run_id: str) -> RunRecord:
         with self._lock:
@@ -1143,6 +1255,95 @@ def _validate_stored_qc_metric_identity(
     ):
         raise ValueError("Persisted QC metric identity is invalid")
     _validate_qc_metric_fields(metric)
+
+
+def _validated_snapshot_copy(
+    snapshot: ValidatedInputSnapshot,
+) -> ValidatedInputSnapshot:
+    if not isinstance(snapshot, ValidatedInputSnapshot):
+        raise ValueError("snapshot must be a ValidatedInputSnapshot")
+    return replace(snapshot)
+
+
+def _validate_snapshot_consumption_candidate(
+    snapshot: ValidatedInputSnapshot,
+    *,
+    workflow_id: str,
+    expected_build_identity: WorkflowBuildIdentity,
+    record: RunRecord,
+    consumed_at: datetime,
+) -> None:
+    if not isinstance(expected_build_identity, WorkflowBuildIdentity) or not (
+        snapshot.workflow_build_identity.matches(expected_build_identity)
+    ):
+        raise ValidatedSnapshotBuildMismatchError(
+            "validated snapshot workflow build identity differs"
+        )
+    if not isinstance(record, RunRecord):
+        raise ValueError("record must be a RunRecord")
+    if record.workflow_id != workflow_id or record.workflow_id != snapshot.workflow_id:
+        raise ValueError("run workflow does not match validated snapshot")
+    if record.status is not RunStatus.CREATED:
+        raise ValueError("validated snapshot can only create a CREATED run")
+    if any(
+        value is not None
+        for value in (
+            record.started_at,
+            record.ended_at,
+            record.current_stage,
+            record.cancellation_reason,
+            record.error,
+        )
+    ):
+        raise ValueError("new validated run contains lifecycle evidence")
+    if (
+        not isinstance(consumed_at, datetime)
+        or consumed_at.tzinfo is None
+        or consumed_at.utcoffset() is None
+    ):
+        raise ValueError("consumed_at must be timezone-aware")
+    if record.created_at != consumed_at or record.updated_at != consumed_at:
+        raise ValueError("new validated run timestamps must match consumption time")
+    candidate_payload = canonical_workflow_inputs_json(
+        WorkflowInputs(
+            config=record.inputs.get("config", {}),
+            samples=record.inputs.get("samples"),
+            options=record.inputs.get("options", {}),
+        )
+    )
+    if set(record.inputs) != {"config", "samples", "options"} or (
+        candidate_payload != snapshot.canonical_payload
+    ):
+        raise ValueError("run inputs do not match validated snapshot")
+
+
+def _validate_snapshot_linked_run(
+    snapshot: ValidatedInputSnapshot,
+    record: RunRecord,
+) -> None:
+    if (
+        snapshot.consumed_run_id is None
+        or record.run_id != snapshot.consumed_run_id
+        or record.workflow_id != snapshot.workflow_id
+    ):
+        raise ValueError("validated snapshot linked run identity is invalid")
+    if (
+        snapshot.consumed_at is None
+        or snapshot.consumed_at >= snapshot.expires_at
+        or record.created_at != snapshot.consumed_at
+    ):
+        raise ValueError("validated snapshot linked run consumption time is invalid")
+    payload = canonical_workflow_inputs_json(
+        WorkflowInputs(
+            config=record.inputs.get("config", {}),
+            samples=record.inputs.get("samples"),
+            options=record.inputs.get("options", {}),
+        )
+    )
+    if set(record.inputs) != {"config", "samples", "options"} or (
+        payload != snapshot.canonical_payload
+    ):
+        raise ValueError("validated snapshot linked run inputs are invalid")
 
 
 def _assignment_has_ownership(

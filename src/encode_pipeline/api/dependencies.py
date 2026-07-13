@@ -16,6 +16,10 @@ if TYPE_CHECKING:
     from encode_pipeline.services.run_submission import RunSubmissionService
     from encode_pipeline.services.run_cancellation import RunCancellationService
     from encode_pipeline.services.runs import RunService
+    from encode_pipeline.services.validated_inputs import (
+        ValidatedInputService,
+        ValidatedRunCreationService,
+    )
 
 
 async def get_registry(request: Request) -> WorkflowRegistry:
@@ -26,6 +30,18 @@ async def get_registry(request: Request) -> WorkflowRegistry:
 async def get_validation_service(request: Request) -> ValidationService:
     """Return the app validation service."""
     return request.app.state.validation_service
+
+
+async def get_validated_input_service(request: Request) -> "ValidatedInputService":
+    """Return successful-validation snapshot orchestration."""
+    return request.app.state.validated_input_service
+
+
+async def get_validated_run_creation_service(
+    request: Request,
+) -> "ValidatedRunCreationService":
+    """Return snapshot-only run creation orchestration."""
+    return request.app.state.validated_run_creation_service
 
 
 async def get_agent_service(request: Request) -> "AgentService":

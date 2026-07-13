@@ -5,14 +5,18 @@ from __future__ import annotations
 import ast
 import asyncio
 from collections.abc import Iterator
+from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
 from threading import Event, Thread
 
 import fastapi.routing
 import pytest
+from sqlalchemy import text
 
 from encode_pipeline.api.main import create_app
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.results import Result
 from encode_pipeline.platform.runs import RunStatus
 from api_test_client import ApiTestClient
 
@@ -68,10 +72,58 @@ def workflow_id() -> str:
     return "encode-style-chipseq-cuttag-atac-mnase"
 
 
-def _create_run(client: ApiTestClient, workflow_id: str) -> str:
+def _valid_inline_inputs() -> dict:
+    return {
+        "config": {},
+        "samples": [
+            {
+                "sample": "S1",
+                "fastq_1": "/tmp/S1.R1.fastq.gz",
+                "layout": "SE",
+                "assay": "chipseq",
+                "target": "CTCF",
+                "peak_mode": "narrow",
+                "genome": "hs",
+                "bowtie2_index": "/tmp/indices/hs",
+            }
+        ],
+        "options": {},
+    }
+
+
+def _create_snapshot(
+    client: ApiTestClient,
+    workflow_id: str,
+    inputs: dict | None = None,
+) -> str:
     response = client.post(
+        f"/api/v1/workflows/{workflow_id}/validate",
+        json=inputs or _valid_inline_inputs(),
+    )
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    return response.json()["snapshot"]["snapshot_id"]
+
+
+def _create_run_response(
+    client: ApiTestClient,
+    workflow_id: str,
+    *,
+    inputs: dict | None = None,
+    tags: dict[str, str] | None = None,
+):
+    snapshot_id = _create_snapshot(client, workflow_id, inputs)
+    return client.post(
         f"/api/v1/workflows/{workflow_id}/runs",
-        json={"config": {"samples": "samples.tsv"}, "tags": {"env": "test"}},
+        json={"snapshot_id": snapshot_id, "tags": tags or {}},
+    )
+
+
+def _create_run(client: ApiTestClient, workflow_id: str) -> str:
+    response = _create_run_response(
+        client,
+        workflow_id,
+        tags={"env": "test"},
     )
     assert response.status_code == 201
     return response.json()["run"]["run_id"]
@@ -81,9 +133,10 @@ def test_create_run_returns_201_with_run_response(
     client: ApiTestClient,
     workflow_id: str,
 ) -> None:
-    response = client.post(
-        f"/api/v1/workflows/{workflow_id}/runs",
-        json={"config": {"samples": "samples.tsv"}, "tags": {"env": "test"}},
+    response = _create_run_response(
+        client,
+        workflow_id,
+        tags={"env": "test"},
     )
     assert response.status_code == 201
     data = response.json()
@@ -111,9 +164,10 @@ def test_create_run_persists_inline_sample_rows_without_server_path(
         "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
     }
 
-    response = client.post(
-        f"/api/v1/workflows/{workflow_id}/runs",
-        json={"config": {}, "samples": [row], "options": {}},
+    response = _create_run_response(
+        client,
+        workflow_id,
+        inputs={"config": {}, "samples": [row], "options": {}},
     )
 
     assert response.status_code == 201
@@ -144,29 +198,34 @@ def test_create_run_rejects_oversized_authoring_body_without_persisting_run(
 
 
 def test_create_run_unknown_workflow_returns_404(client: ApiTestClient) -> None:
+    snapshot_id = _create_snapshot(
+        client,
+        "encode-style-chipseq-cuttag-atac-mnase",
+    )
     response = client.post(
         "/api/v1/workflows/missing-workflow/runs",
-        json={"config": {}},
+        json={"snapshot_id": snapshot_id},
     )
     assert response.status_code == 404
     data = response.json()
     assert data["ok"] is False
     assert data["run"] is None
-    assert data["issues"][0]["code"] == "WORKFLOW_NOT_FOUND"
+    assert data["issues"][0]["code"] == "VALIDATED_SNAPSHOT_NOT_FOUND"
 
 
-def test_create_run_malformed_workflow_id_returns_400(client: ApiTestClient) -> None:
-    # FastAPI path parameters cannot be empty, so simulate malformed by relying
-    # on registry normalization via a whitespace-only id that becomes empty.
-    # This is the closest realistic path; the route catches ValueError.
+def test_create_run_cross_workflow_path_does_not_disclose_snapshot(client) -> None:
+    snapshot_id = _create_snapshot(
+        client,
+        "encode-style-chipseq-cuttag-atac-mnase",
+    )
     response = client.post(
         "/api/v1/workflows/%20/runs",
-        json={"config": {}},
+        json={"snapshot_id": snapshot_id},
     )
-    assert response.status_code == 400
+    assert response.status_code == 404
     data = response.json()
     assert data["ok"] is False
-    assert data["issues"][0]["code"] == "API_REQUEST_INVALID"
+    assert data["issues"][0]["code"] == "VALIDATED_SNAPSHOT_NOT_FOUND"
 
 
 def test_create_run_malformed_body_returns_400(
@@ -181,6 +240,144 @@ def test_create_run_malformed_body_returns_400(
     data = response.json()
     assert data["ok"] is False
     assert data["issues"][0]["code"] == "API_REQUEST_INVALID"
+
+
+def test_create_run_rejects_mutable_inputs_and_client_validation_claim(
+    client: ApiTestClient,
+    workflow_id: str,
+) -> None:
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/runs",
+        json={"config": {}, "samples": [], "validated": True},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["issues"][0]["code"] == "API_REQUEST_INVALID"
+    assert client.app.state.run_service.list_runs() == ()
+
+
+def test_create_run_identical_snapshot_replay_returns_same_canonical_run(
+    client: ApiTestClient,
+    workflow_id: str,
+) -> None:
+    snapshot_id = _create_snapshot(client, workflow_id)
+    request = {"snapshot_id": snapshot_id, "tags": {"owner": "lab"}}
+
+    first = client.post(f"/api/v1/workflows/{workflow_id}/runs", json=request)
+    replay = client.post(f"/api/v1/workflows/{workflow_id}/runs", json=request)
+
+    assert first.status_code == 201
+    assert replay.status_code == 200
+    assert replay.json()["run"] == first.json()["run"]
+    assert len(client.app.state.run_service.list_runs()) == 1
+
+
+def test_create_run_snapshot_replay_with_different_tags_is_conflict(
+    client: ApiTestClient,
+    workflow_id: str,
+) -> None:
+    snapshot_id = _create_snapshot(client, workflow_id)
+    first = client.post(
+        f"/api/v1/workflows/{workflow_id}/runs",
+        json={"snapshot_id": snapshot_id, "tags": {"owner": "lab"}},
+    )
+    conflict = client.post(
+        f"/api/v1/workflows/{workflow_id}/runs",
+        json={"snapshot_id": snapshot_id, "tags": {"owner": "other"}},
+    )
+
+    assert first.status_code == 201
+    assert conflict.status_code == 409
+    assert conflict.json()["issues"][0]["code"] == (
+        "VALIDATED_SNAPSHOT_REPLAY_CONFLICT"
+    )
+    assert len(client.app.state.run_service.list_runs()) == 1
+
+
+def test_create_run_expired_snapshot_fails_without_run(
+    client: ApiTestClient,
+    workflow_id: str,
+) -> None:
+    from encode_pipeline.services.validated_inputs import ValidatedRunCreationService
+
+    snapshot_id = _create_snapshot(client, workflow_id)
+    snapshot = client.app.state.run_service.get_validated_input_snapshot(snapshot_id)
+    client.app.state.validated_run_creation_service = ValidatedRunCreationService(
+        run_service=client.app.state.run_service,
+        build_identity_provider=client.app.state.build_identity_provider,
+        clock=lambda: snapshot.expires_at,
+    )
+
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/runs",
+        json={"snapshot_id": snapshot_id},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["issues"][0]["code"] == "VALIDATED_SNAPSHOT_EXPIRED"
+    assert client.app.state.run_service.list_runs() == ()
+
+
+def test_create_run_stale_build_identity_fails_without_run(
+    client: ApiTestClient,
+    workflow_id: str,
+    monkeypatch,
+) -> None:
+    snapshot_id = _create_snapshot(client, workflow_id)
+    provider = client.app.state.build_identity_provider
+    current = provider.capture(workflow_id).value
+    assert current is not None
+    monkeypatch.setattr(
+        provider,
+        "capture",
+        lambda requested_workflow_id: Result.success(
+            replace(
+                current,
+                workflow_id=requested_workflow_id,
+                digest="b" * 64,
+                captured_at=current.captured_at + timedelta(seconds=1),
+            )
+        ),
+    )
+
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/runs",
+        json={"snapshot_id": snapshot_id},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["issues"][0]["code"] == "VALIDATED_SNAPSHOT_STALE"
+    assert client.app.state.run_service.list_runs() == ()
+
+
+def test_create_run_corrupt_snapshot_returns_safe_data_invalid_without_run(
+    client: ApiTestClient,
+    workflow_id: str,
+) -> None:
+    snapshot_id = _create_snapshot(client, workflow_id)
+    with client.app.state.persistence.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE validated_input_snapshots SET canonical_payload = :payload "
+                "WHERE snapshot_id = :snapshot_id"
+            ),
+            {
+                "payload": '{"config":{"secret":"/private/value"}}',
+                "snapshot_id": snapshot_id,
+            },
+        )
+
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/runs",
+        json={"snapshot_id": snapshot_id},
+    )
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["issues"][0]["code"] == "VALIDATED_SNAPSHOT_DATA_INVALID"
+    assert "/private/value" not in response.text
+    assert body["issues"][0]["technical_message"] is None
+    assert client.app.state.run_service.list_runs() == ()
 
 
 def test_get_run_returns_200(client: ApiTestClient, workflow_id: str) -> None:
@@ -443,10 +640,7 @@ def test_create_run_returns_created_with_default_driver(
     client: ApiTestClient,
     workflow_id: str,
 ) -> None:
-    response = client.post(
-        f"/api/v1/workflows/{workflow_id}/runs",
-        json={"config": {"samples": "samples.tsv"}},
-    )
+    response = _create_run_response(client, workflow_id)
     assert response.status_code == 201
     data = response.json()
     assert data["ok"] is True
@@ -457,10 +651,7 @@ def test_create_run_generates_created_event(
     client: ApiTestClient,
     workflow_id: str,
 ) -> None:
-    response = client.post(
-        f"/api/v1/workflows/{workflow_id}/runs",
-        json={"config": {"samples": "samples.tsv"}},
-    )
+    response = _create_run_response(client, workflow_id)
     run_id = response.json()["run"]["run_id"]
 
     response = client.get(f"/api/v1/runs/{run_id}/events")

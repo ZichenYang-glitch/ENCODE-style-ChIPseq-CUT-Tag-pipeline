@@ -206,17 +206,24 @@ def test_workflow_authoring_contract_is_typed_versioned_and_bounded(tmp_path):
         assert limits["properties"][field_name]["minimum"] == ceiling
         assert limits["properties"][field_name]["maximum"] == ceiling
 
-    for request_name in ("ValidationRequest", "RunCreateRequest"):
-        request = schema["components"]["schemas"][request_name]
-        assert request["additionalProperties"] is False
-        samples = request["properties"]["samples"]["anyOf"]
-        inline = next(item for item in samples if item.get("type") == "array")
-        assert inline["minItems"] == 1
-        assert inline["maxItems"] == 1000
-        assert inline["items"]["minProperties"] == 1
-        assert inline["items"]["maxProperties"] == 64
-        assert inline["items"]["propertyNames"]["maxLength"] == 128
-        assert inline["items"]["additionalProperties"]["maxLength"] == 4096
+    validation_request = schema["components"]["schemas"]["ValidationRequest"]
+    assert validation_request["additionalProperties"] is False
+    samples = validation_request["properties"]["samples"]["anyOf"]
+    inline = next(item for item in samples if item.get("type") == "array")
+    assert inline["minItems"] == 1
+    assert inline["maxItems"] == 1000
+    assert inline["items"]["minProperties"] == 1
+    assert inline["items"]["maxProperties"] == 64
+    assert inline["items"]["propertyNames"]["maxLength"] == 128
+    assert inline["items"]["additionalProperties"]["maxLength"] == 4096
+
+    create_request = schema["components"]["schemas"]["RunCreateRequest"]
+    assert create_request["additionalProperties"] is False
+    assert set(create_request["required"]) == {"snapshot_id"}
+    assert set(create_request["properties"]) == {"snapshot_id", "tags"}
+    assert create_request["properties"]["snapshot_id"]["pattern"] == (
+        "^vsnap_[0-9a-f]{32}$"
+    )
 
 
 @pytest.mark.parametrize(("field_name", "ceiling"), INPUT_LIMIT_FIELDS)

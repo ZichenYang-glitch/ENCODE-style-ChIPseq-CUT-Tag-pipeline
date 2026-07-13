@@ -1,4 +1,5 @@
 import type {
+  ValidatedInputSnapshotResponse,
   ValidationRequestConfig,
   ValidationRequestOptions,
   ValidationRequestSamples,
@@ -64,6 +65,7 @@ export interface ValidateWorkflowResponse {
   ok: boolean;
   workflow_id: string;
   value: unknown;
+  snapshot: ValidatedInputSnapshotResponse | null;
   issues: Issue[];
 }
 

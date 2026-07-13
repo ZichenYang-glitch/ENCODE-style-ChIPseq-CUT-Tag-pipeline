@@ -1,17 +1,25 @@
-import { act, fireEvent, screen } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SchemaResponse } from '../../api/generated/models';
+import { ApiError } from '../../api/fetcher';
 import { appRoutes } from '../../app/router';
 import { createAuthoringSchemaFixture, WORKFLOW_ID } from '../../features/input-workbench/test-fixtures';
 import { renderWithRouter } from '../../test/test-utils';
 
 const generatedMocks = vi.hoisted(() => ({
+  createRun: vi.fn(),
   getWorkflowSchema: vi.fn(),
+  validateWorkflow: vi.fn(),
 }));
 
 vi.mock('../../api/generated/workflows/workflows', () => ({
   getWorkflowSchema: generatedMocks.getWorkflowSchema,
+  validateWorkflow: generatedMocks.validateWorkflow,
+}));
+
+vi.mock('../../api/generated/runs/runs', () => ({
+  createRun: generatedMocks.createRun,
 }));
 
 vi.mock('@uiw/react-codemirror', () => ({
@@ -41,6 +49,51 @@ function successResponse(): SchemaResponse {
   };
 }
 
+function validatedSnapshotResponse() {
+  return {
+    ok: true,
+    workflow_id: WORKFLOW_ID,
+    value: null,
+    snapshot: {
+      snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
+      workflow_id: WORKFLOW_ID,
+      schema_version: '1.0.0',
+      adapter_version: '0.3.0',
+      payload_digest: 'a'.repeat(64),
+      validated_at: '2026-07-14T00:00:00.000Z',
+      expires_at: '2026-07-14T00:30:00.000Z',
+    },
+    issues: [],
+  };
+}
+
+function createdRunResponse() {
+  return {
+    ok: true,
+    run: {
+      run_id: 'run-snapshot-1',
+      workflow_id: WORKFLOW_ID,
+      inputs: {
+        config: { outdir: 'results', threads: 8, qc: {} },
+        samples: [
+          { sample: 'S1', fastq_1: '/data/S1.fastq.gz', layout: 'SE' },
+        ],
+        options: { strict_inputs: false },
+      },
+      status: 'created',
+      created_at: '2026-07-14T00:01:00.000Z',
+      updated_at: '2026-07-14T00:01:00.000Z',
+      started_at: null,
+      ended_at: null,
+      current_stage: null,
+      cancellation_reason: null,
+      error: null,
+      tags: {},
+    },
+    issues: [],
+  };
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((resolvePromise) => {
@@ -56,10 +109,30 @@ function textFile(contents: string, name: string, type = 'text/tab-separated-val
   return { file, text };
 }
 
+async function authorValidDraft(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('tab', { name: 'Samples' }));
+  await user.upload(
+    screen.getByLabelText('Import samples TSV'),
+    textFile(
+      'sample\tfastq_1\tlayout\nS1\t/data/S1.fastq.gz\tSE\n',
+      'samples.encode.tsv',
+    ).file,
+  );
+  await screen.findAllByDisplayValue('S1');
+  await user.click(screen.getByRole('tab', { name: 'Review' }));
+  expect(screen.getByText(/structurally ready for backend validation/i)).toBeVisible();
+}
+
 describe('schema input workbench route', () => {
   beforeEach(() => {
+    generatedMocks.createRun.mockReset();
+    generatedMocks.createRun.mockResolvedValue(createdRunResponse());
     generatedMocks.getWorkflowSchema.mockReset();
     generatedMocks.getWorkflowSchema.mockResolvedValue(successResponse());
+    generatedMocks.validateWorkflow.mockReset();
+    generatedMocks.validateWorkflow.mockResolvedValue(
+      validatedSnapshotResponse(),
+    );
   });
 
   it('loads the generated schema operation and renders a draft-only workbench', async () => {
@@ -73,7 +146,196 @@ describe('schema input workbench route', () => {
     expect(generatedMocks.getWorkflowSchema).toHaveBeenCalledWith(WORKFLOW_ID);
     expect(screen.getByText(/Draft only/i)).toBeInTheDocument();
     expect(screen.getByText(/refresh clears this draft/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Create run|Start run|Validate/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Start run/i })).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Review' }));
+    expect(screen.getByRole('button', { name: 'Validate current inputs' })).toBeDisabled();
+  });
+
+  it('validates the exact draft, creates from only its snapshot, and navigates to the run', async () => {
+    const user = userEvent.setup();
+    const { router } = renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await authorValidDraft(user);
+
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    await waitFor(() => expect(generatedMocks.validateWorkflow).toHaveBeenCalledTimes(1));
+    expect(generatedMocks.validateWorkflow).toHaveBeenCalledWith(
+      WORKFLOW_ID,
+      expect.objectContaining({
+        config: expect.objectContaining({ outdir: 'results', threads: 8 }),
+        samples: [
+          expect.objectContaining({
+            sample: 'S1',
+            fastq_1: '/data/S1.fastq.gz',
+            layout: 'SE',
+          }),
+        ],
+        options: expect.objectContaining({ strict_inputs: false }),
+      }),
+    );
+    expect(
+      await screen.findByText(/This exact draft can create one run/i),
+    ).toBeVisible();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Create run from validated inputs' }),
+    );
+    await waitFor(() => expect(generatedMocks.createRun).toHaveBeenCalledTimes(1));
+    expect(generatedMocks.createRun).toHaveBeenCalledWith(WORKFLOW_ID, {
+      snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
+    });
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe('/runs/run-snapshot-1'),
+    );
+  });
+
+  it('invalidates the validated snapshot immediately after a semantic edit', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await authorValidDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(
+      await screen.findByRole('button', {
+        name: 'Create run from validated inputs',
+      }),
+    ).toBeEnabled();
+
+    await user.click(screen.getByRole('tab', { name: 'Samples' }));
+    await user.type(screen.getAllByLabelText('Sample 1 sample')[0], '-changed');
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+
+    expect(
+      screen.getByRole('button', { name: 'Create run from validated inputs' }),
+    ).toBeDisabled();
+    expect(
+      await screen.findByText(/Inputs changed after validation/i),
+    ).toBeVisible();
+  });
+
+  it('discards a validation response when the draft changed in flight', async () => {
+    const pending = deferred<ReturnType<typeof validatedSnapshotResponse>>();
+    generatedMocks.validateWorkflow.mockReturnValue(pending.promise);
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await authorValidDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+
+    await user.click(screen.getByRole('tab', { name: 'Samples' }));
+    await user.type(screen.getAllByLabelText('Sample 1 sample')[0], '-new');
+    await act(async () => {
+      pending.resolve(validatedSnapshotResponse());
+      await pending.promise;
+    });
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+
+    expect(
+      screen.getByRole('button', { name: 'Create run from validated inputs' }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/Inputs changed while validation was running/i),
+    ).toBeVisible();
+  });
+
+  it('does not navigate when the draft changes while create is in flight', async () => {
+    const pending = deferred<ReturnType<typeof createdRunResponse>>();
+    generatedMocks.createRun.mockReturnValue(pending.promise);
+    const user = userEvent.setup();
+    const { router } = renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await authorValidDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Create run from validated inputs',
+      }),
+    );
+
+    await user.click(screen.getByRole('tab', { name: 'Samples' }));
+    await user.type(screen.getAllByLabelText('Sample 1 sample')[0], '-new');
+    await act(async () => {
+      pending.resolve(createdRunResponse());
+      await pending.promise;
+    });
+
+    expect(router.state.location.pathname).toBe(
+      `/workflows/${WORKFLOW_ID}/new-run`,
+    );
+    expect(
+      await screen.findByText(/Inputs changed while run creation was running/i),
+    ).toBeVisible();
+  });
+
+  it('retries an unconfirmed create with the same snapshot id', async () => {
+    generatedMocks.createRun
+      .mockRejectedValueOnce(new Error('private transport details'))
+      .mockResolvedValueOnce(createdRunResponse());
+    const user = userEvent.setup();
+    const { router } = renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await authorValidDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    const create = await screen.findByRole('button', {
+      name: 'Create run from validated inputs',
+    });
+    await user.click(create);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /could not be confirmed/i,
+    );
+    expect(screen.queryByText(/private transport details/i)).not.toBeInTheDocument();
+    expect(create).toBeEnabled();
+    await user.click(create);
+    await waitFor(() => expect(router.state.location.pathname).toBe('/runs/run-snapshot-1'));
+    expect(generatedMocks.createRun).toHaveBeenNthCalledWith(1, WORKFLOW_ID, {
+      snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
+    });
+    expect(generatedMocks.createRun).toHaveBeenNthCalledWith(2, WORKFLOW_ID, {
+      snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
+    });
+  });
+
+  it('requires revalidation after the API reports an expired snapshot', async () => {
+    generatedMocks.createRun.mockRejectedValue(
+      new ApiError(
+        409,
+        'VALIDATED_SNAPSHOT_EXPIRED',
+        'Validated input snapshot expired.',
+        [
+          {
+            code: 'VALIDATED_SNAPSHOT_EXPIRED',
+            message: 'Validated inputs expired. Validate the current draft again.',
+          },
+        ],
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await authorValidDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    const create = await screen.findByRole('button', {
+      name: 'Create run from validated inputs',
+    });
+    await user.click(create);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'VALIDATED_SNAPSHOT_EXPIRED',
+    );
+    expect(create).toBeDisabled();
   });
 
   it('keeps a stable loading region while schema loading is pending', async () => {

@@ -123,6 +123,7 @@ class AuthoringRequestLimitMiddleware:
                 ok=False,
                 workflow_id=workflow_id,
                 value=None,
+                snapshot=None,
                 issues=[issue],
             ).model_dump(mode="json")
         response = JSONResponse(

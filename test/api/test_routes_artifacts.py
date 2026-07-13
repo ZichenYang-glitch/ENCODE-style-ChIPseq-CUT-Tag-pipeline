@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import pytest
 
 from encode_pipeline.api.main import create_app
+from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.runs import RunArtifactRef
 from api_test_client import ApiTestClient
 
@@ -27,12 +28,10 @@ def client(tmp_path) -> Iterator[ApiTestClient]:
 
 
 def _create_run(client: ApiTestClient) -> str:
-    response = client.post(
-        f"/api/v1/workflows/{WORKFLOW_ID}/runs",
-        json={"config": {}},
-    )
-    assert response.status_code == 201
-    return response.json()["run"]["run_id"]
+    return client.app.state.run_service.create_run(
+        WORKFLOW_ID,
+        WorkflowInputs(config={}),
+    ).run_id
 
 
 def _artifact(

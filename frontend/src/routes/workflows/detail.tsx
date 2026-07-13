@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FilePenLine } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -84,19 +84,20 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
   const [optionsText, setOptionsText] = useState('{}');
   const [validationResult, setValidationResult] =
     useState<ValidateWorkflowResponse | null>(null);
-  const [validatedInputs, setValidatedInputs] = useState<WorkflowInputs | null>(
-    null,
-  );
   const [loading, setLoading] = useState(false);
+  const validationAttemptRef = useRef(0);
+  const workflowIdRef = useRef(workflowId);
+  workflowIdRef.current = workflowId;
   const [agentDraftMessage, setAgentDraftMessage] = useState('');
   const [agentFocusedIssue, setAgentFocusedIssue] = useState<Issue | null>(null);
 
   useEffect(() => {
+    validationAttemptRef.current += 1;
     setConfigText('{}');
     setSamplesText('');
     setOptionsText('{}');
     setValidationResult(null);
-    setValidatedInputs(null);
+    setLoading(false);
     setAgentDraftMessage('');
     setAgentFocusedIssue(null);
   }, [workflowId]);
@@ -131,6 +132,11 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
   );
 
   async function handleValidate() {
+    const attempt = validationAttemptRef.current + 1;
+    validationAttemptRef.current = attempt;
+    const isCurrentAttempt = () =>
+      validationAttemptRef.current === attempt &&
+      workflowIdRef.current === workflowId;
     setLoading(true);
     let config: WorkflowInputs['config'] = {};
     let options: NonNullable<WorkflowInputs['options']> = {};
@@ -159,14 +165,16 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
     }
 
     if (issues.length > 0) {
-      setValidationResult({
-        ok: false,
-        workflow_id: workflowId,
-        value: null,
-        issues,
-      });
-      setValidatedInputs(null);
-      setLoading(false);
+      if (isCurrentAttempt()) {
+        setValidationResult({
+          ok: false,
+          workflow_id: workflowId,
+          value: null,
+          snapshot: null,
+          issues,
+        });
+        setLoading(false);
+      }
       return;
     }
 
@@ -178,53 +186,52 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
 
     try {
       const response = await workflowClient.validateWorkflow(workflowId, inputs);
-      setValidationResult(response);
-      if (response.ok) {
-        setValidatedInputs(inputs);
-      } else {
-        setValidatedInputs(null);
+      if (isCurrentAttempt()) setValidationResult(response);
+    } catch {
+      if (isCurrentAttempt()) {
+        setValidationResult({
+          ok: false,
+          workflow_id: workflowId,
+          value: null,
+          snapshot: null,
+          issues: [
+            {
+              code: 'API_UNAVAILABLE',
+              message: 'Validation request could not be confirmed. Try again.',
+              severity: 'error',
+              path: null,
+              source: 'ui',
+              technical_message: null,
+              hint: null,
+              context: {},
+            },
+          ],
+        });
       }
-    } catch (error) {
-      setValidationResult({
-        ok: false,
-        workflow_id: workflowId,
-        value: null,
-        issues: [
-          {
-            code: 'API_UNAVAILABLE',
-            message:
-              error instanceof Error ? error.message : 'Validation request failed.',
-            severity: 'error',
-            path: null,
-            source: 'ui',
-            technical_message: null,
-            hint: null,
-            context: {},
-          },
-        ],
-      });
-      setValidatedInputs(null);
     } finally {
-      setLoading(false);
+      if (isCurrentAttempt()) setLoading(false);
     }
   }
 
   function handleConfigChange(value: string) {
+    validationAttemptRef.current += 1;
     setConfigText(value);
     setValidationResult(null);
-    setValidatedInputs(null);
+    setLoading(false);
   }
 
   function handleSamplesChange(value: string) {
+    validationAttemptRef.current += 1;
     setSamplesText(value);
     setValidationResult(null);
-    setValidatedInputs(null);
+    setLoading(false);
   }
 
   function handleOptionsChange(value: string) {
+    validationAttemptRef.current += 1;
     setOptionsText(value);
     setValidationResult(null);
-    setValidatedInputs(null);
+    setLoading(false);
   }
 
   function handleAskAgent(issue: Issue) {
@@ -318,7 +325,6 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
             <RunProgressPanel
               workflowId={workflow.metadata.workflow_id}
               validationResult={validationResult}
-              validatedInputs={validatedInputs}
               runClient={runClient}
               onRunCreated={handleRunCreated}
             />

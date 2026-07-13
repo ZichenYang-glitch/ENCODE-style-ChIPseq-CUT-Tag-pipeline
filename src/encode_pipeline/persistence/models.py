@@ -45,6 +45,61 @@ class RunRow(Base):
     tags: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False)
 
 
+class ValidatedInputSnapshotRow(Base):
+    __tablename__ = "validated_input_snapshots"
+    __table_args__ = (
+        CheckConstraint(
+            "(consumed_run_id IS NULL AND consumed_at IS NULL) OR "
+            "(consumed_run_id IS NOT NULL AND consumed_at IS NOT NULL)",
+            name="ck_validated_input_snapshots_consumption_pair",
+        ),
+        CheckConstraint(
+            "expires_at > validated_at",
+            name="ck_validated_input_snapshots_expiry",
+        ),
+        CheckConstraint(
+            "validation_outcome = 'adapter_validation_succeeded'",
+            name="ck_validated_input_snapshots_success",
+        ),
+        CheckConstraint(
+            "length(payload_digest) = 64",
+            name="ck_validated_input_snapshots_digest_length",
+        ),
+        Index("ix_validated_input_snapshots_workflow_id", "workflow_id"),
+        Index("ix_validated_input_snapshots_expires_at", "expires_at"),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    adapter_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_dialect: Mapped[str] = mapped_column(String(255), nullable=False)
+    canonical_payload: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_digest_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    validation_outcome: Mapped[str] = mapped_column(String(64), nullable=False)
+    validation_issue_codes: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    validated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    build_adapter_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    build_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    build_logical_entrypoint: Mapped[str] = mapped_column(String(512), nullable=False)
+    build_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    build_captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    consumed_run_id: Mapped[str | None] = mapped_column(
+        String(128),
+        ForeignKey("runs.run_id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class RunExecutionAssignmentRow(Base):
     __tablename__ = "run_execution_assignments"
     __table_args__ = (

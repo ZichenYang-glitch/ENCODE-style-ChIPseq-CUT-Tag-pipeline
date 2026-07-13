@@ -5,12 +5,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from encode_pipeline.api.dependencies import get_registry, get_validation_service
+from encode_pipeline.api.dependencies import get_registry, get_validated_input_service
 from encode_pipeline.api.models import (
     SchemaResponse,
     WorkflowSchemaResponse,
     ValidationRequest,
     ValidationResponse,
+    ValidatedInputSnapshotResponse,
     WorkflowCapabilityResponse,
     WorkflowListItem,
     WorkflowListResponse,
@@ -19,7 +20,7 @@ from encode_pipeline.api.models import (
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue
-from encode_pipeline.services.validation import ValidationService
+from encode_pipeline.services.validated_inputs import ValidatedInputService
 
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -116,14 +117,18 @@ async def get_schema(
         413: {
             "model": ValidationResponse,
             "description": "Request body too large.",
-        }
+        },
+        404: {"model": ValidationResponse},
+        409: {"model": ValidationResponse},
+        500: {"model": ValidationResponse},
+        503: {"model": ValidationResponse},
     },
 )
 def validate_workflow(
     workflow_id: str,
     request_body: ValidationRequest,
-    validation_service: ValidationService = Depends(get_validation_service),
-) -> ValidationResponse:
+    validation_service: ValidatedInputService = Depends(get_validated_input_service),
+) -> ValidationResponse | JSONResponse:
     """Validate submitted workflow inputs."""
     inputs = WorkflowInputs(
         config=request_body.config,
@@ -141,6 +146,7 @@ def validate_workflow(
                     ok=False,
                     workflow_id=workflow_id,
                     value=None,
+                    snapshot=None,
                     issues=[issue.to_dict() for issue in result.issues],
                 ).model_dump(),
             )
@@ -151,13 +157,37 @@ def validate_workflow(
                     ok=False,
                     workflow_id=workflow_id,
                     value=None,
+                    snapshot=None,
                     issues=[issue.to_dict() for issue in result.issues],
                 ).model_dump(),
+            )
+        status_by_code = {
+            "VALIDATION_WORKFLOW_BUILD_CHANGED": 409,
+            "VALIDATION_WORKFLOW_BUILD_UNAVAILABLE": 503,
+            "VALIDATION_WORKFLOW_SCHEMA_UNAVAILABLE": 503,
+            "VALIDATED_SNAPSHOT_PERSISTENCE_FAILED": 500,
+        }
+        status_code = status_by_code.get(first.code)
+        if status_code is not None:
+            return JSONResponse(
+                status_code=status_code,
+                content=ValidationResponse(
+                    ok=False,
+                    workflow_id=workflow_id,
+                    value=None,
+                    snapshot=None,
+                    issues=[issue.to_dict() for issue in result.issues],
+                ).model_dump(mode="json"),
             )
 
     return ValidationResponse(
         ok=result.is_success,
         workflow_id=workflow_id,
         value=None,
+        snapshot=(
+            ValidatedInputSnapshotResponse.from_snapshot(result.value)
+            if result.value is not None
+            else None
+        ),
         issues=[issue.to_dict() for issue in result.issues],
     )

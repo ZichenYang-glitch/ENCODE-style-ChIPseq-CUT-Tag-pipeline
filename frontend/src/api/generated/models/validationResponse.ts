@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.3.0
  */
 import type { ValidationResponseWorkflowId } from './validationResponseWorkflowId';
+import type { ValidationResponseSnapshot } from './validationResponseSnapshot';
 import type { IssueResponse } from './issueResponse';
 
 /**
@@ -15,5 +16,6 @@ export interface ValidationResponse {
   ok: boolean;
   workflow_id: ValidationResponseWorkflowId;
   value?: null;
+  snapshot: ValidationResponseSnapshot;
   issues?: IssueResponse[];
 }
