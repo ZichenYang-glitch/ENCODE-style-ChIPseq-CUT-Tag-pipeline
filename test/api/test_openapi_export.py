@@ -136,12 +136,34 @@ def test_workflow_authoring_contract_is_typed_versioned_and_bounded(tmp_path):
     schema = _isolated_app_schema(tmp_path, "workflow-authoring-contract")
     schema_response = schema["components"]["schemas"]["SchemaResponse"]
     assert "schema_hints" not in schema_response["properties"]
+    assert "schema" in schema_response["required"]
     assert schema_response["properties"]["schema"] == {
         "anyOf": [
             {"$ref": "#/components/schemas/WorkflowSchemaResponse"},
             {"type": "null"},
         ]
     }
+
+    for component_name in ("JsonValue-Input", "JsonValue-Output"):
+        component_ref = f"#/components/schemas/{component_name}"
+        json_value = schema["components"]["schemas"][component_name]
+        assert json_value == {
+            "anyOf": [
+                {
+                    "additionalProperties": {"$ref": component_ref},
+                    "type": "object",
+                },
+                {
+                    "items": {"$ref": component_ref},
+                    "type": "array",
+                },
+                {"type": "string"},
+                {"type": "integer"},
+                {"type": "number"},
+                {"type": "boolean"},
+                {"type": "null"},
+            ]
+        }
 
     contract = schema["components"]["schemas"]["WorkflowSchemaResponse"]
     assert contract["additionalProperties"] is False

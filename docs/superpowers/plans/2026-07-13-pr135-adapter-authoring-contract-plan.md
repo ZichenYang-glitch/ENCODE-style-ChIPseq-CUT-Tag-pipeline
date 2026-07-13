@@ -28,6 +28,8 @@ JSON Schema Draft 2020-12, OpenAPI, Orval, pytest, React/Vite regression tests.
 - [x] Add frozen `WorkflowSchemaCoverage`, `WorkflowAuthoringModes`,
   `WorkflowInputModes`, and `WorkflowInputLimits` values.
 - [x] Upgrade `WorkflowSchema.to_dict()` to the complete versioned envelope.
+- [x] Export the authoring primitives, dialect, and hard ceilings from the
+  public `encode_pipeline.platform` façade.
 - [x] Apply the same structural ceilings in `WorkflowInputs` without adding
   ENCODE-specific field knowledge.
 - [x] Run the focused platform contract tests.
@@ -71,6 +73,8 @@ JSON Schema Draft 2020-12, OpenAPI, Orval, pytest, React/Vite regression tests.
   non-authoring routes.
 - [x] Add strict Pydantic input aliases and strongly typed schema response
   models using JSON-value projections.
+- [x] Keep `schema` required-but-nullable and project JSON values as a
+  recursive union that Orval can generate without hand-written DTOs.
 - [x] Add the route-scoped actual-byte middleware and explicit 413 contracts.
 - [x] Convert validate/create endpoints to synchronous functions.
 - [x] Add create -> SQLite reopen -> plan -> materialize coverage with inline

@@ -178,3 +178,56 @@ def test_non_authoring_route_is_not_limited() -> None:
 
     assert calls == 1
     assert _status(sent) == 204
+
+
+def test_disconnect_before_complete_body_never_reaches_downstream() -> None:
+    downstream_calls = 0
+
+    async def receive() -> dict:
+        return {"type": "http.disconnect"}
+
+    async def send(_message: dict) -> None:
+        raise AssertionError("a disconnected request must not send a response")
+
+    async def downstream(_scope, _receive, _send) -> None:
+        nonlocal downstream_calls
+        downstream_calls += 1
+
+    async def invoke() -> None:
+        middleware = AuthoringRequestLimitMiddleware(downstream)
+        await middleware(
+            _scope("/api/v1/workflows/encode/validate"),
+            receive,
+            send,
+        )
+
+    asyncio.run(invoke())
+
+    assert downstream_calls == 0
+
+
+def test_receive_error_never_reaches_downstream() -> None:
+    downstream_calls = 0
+
+    async def receive() -> dict:
+        raise RuntimeError("receive failed")
+
+    async def send(_message: dict) -> None:
+        raise AssertionError("a failed receive must not send a response")
+
+    async def downstream(_scope, _receive, _send) -> None:
+        nonlocal downstream_calls
+        downstream_calls += 1
+
+    async def invoke() -> None:
+        middleware = AuthoringRequestLimitMiddleware(downstream)
+        await middleware(
+            _scope("/api/v1/workflows/encode/runs"),
+            receive,
+            send,
+        )
+
+    with pytest.raises(RuntimeError, match="receive failed"):
+        asyncio.run(invoke())
+
+    assert downstream_calls == 0

@@ -94,8 +94,9 @@ def _config_schema() -> dict[str, object]:
         "properties": {
             "outdir": {
                 "type": "string",
+                "const": "results",
                 "default": "results",
-                "maxLength": MAX_SAMPLE_CELL_LENGTH,
+                "description": "Platform-owned run output directory.",
             },
             "threads": {"type": "integer", "minimum": 1, "default": 8},
             "mapq": {"type": "integer", "minimum": 0, "default": 30},
@@ -222,6 +223,11 @@ def _sample_schema() -> dict[str, object]:
         "$schema": JSON_SCHEMA_DIALECT,
         "$id": _document_id("samples"),
         "title": "ENCODE-style sample rows",
+        "description": (
+            "Canonical authoring rows covering every external sample column. "
+            "The scientific validator remains authoritative for compatible "
+            "legacy spellings."
+        ),
         "type": "array",
         "minItems": 1,
         "maxItems": MAX_SAMPLE_ROWS,

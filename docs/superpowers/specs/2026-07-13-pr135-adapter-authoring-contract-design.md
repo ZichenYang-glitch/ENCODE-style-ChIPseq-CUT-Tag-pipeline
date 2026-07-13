@@ -73,6 +73,12 @@ Each JSON Schema has the same explicit `$schema`, a stable versioned `$id`, and
 JSON-safe content. Config and options schemas have object roots. The sample
 schema has an array root whose items use external TSV column names.
 
+Coverage describes the canonical authoring surface: `complete` means every
+canonical field is representable, not that the schema enumerates every legacy
+case, whitespace, or spelling variant accepted by the scientific validator.
+That validator remains the backend authority and may normalize compatible
+legacy inputs.
+
 The ENCODE contract declares:
 
 | Surface | Coverage | Authoring modes | Input modes |
@@ -90,11 +96,19 @@ all 17 canonical columns and uses `additionalProperties: false`; the adapter
 therefore rejects unknown inline columns. Options accepts only the boolean
 `strict_inputs` field.
 
-`SchemaResponse` exposes a typed `schema` value and removes the misleading
-`schema_hints` field. Unknown workflows return `schema: null` in the existing
-redacted 404 envelope. The existing frontend compatibility adapter performs the
-smallest mapping needed to keep the current workflow detail route working;
-PR136 will consume the generated schema operation directly.
+`outdir` is published only as the constant `results`: workspace materialization
+owns that value, so the contract never advertises it as an editable authoring
+choice.
+
+`SchemaResponse` exposes a required, nullable typed `schema` value and removes
+the misleading `schema_hints` field. Unknown workflows return `schema: null` in
+the existing redacted 404 envelope. The existing frontend compatibility adapter
+performs the smallest mapping needed to keep the current workflow detail route
+working; PR136 will consume the generated schema operation directly.
+
+The OpenAPI projection defines JSON values as a recursive union. Generated
+clients therefore accept nested objects, arrays, primitives, and null while
+rejecting non-JSON browser objects such as `Date`.
 
 ## Input priority and scientific validation
 

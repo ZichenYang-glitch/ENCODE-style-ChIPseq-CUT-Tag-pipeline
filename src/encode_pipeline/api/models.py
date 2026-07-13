@@ -6,17 +6,18 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 import re
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Union
 from urllib.parse import quote
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    JsonValue,
+    FiniteFloat,
     field_validator,
     model_validator,
 )
+from typing_extensions import TypeAliasType
 
 from encode_pipeline.platform.adapters import (
     JSON_SCHEMA_DIALECT,
@@ -42,6 +43,19 @@ _WINDOWS_ABSOLUTE_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
 _ENVIRONMENT_ASSIGNMENT_PATTERN = re.compile(r"(?:^|\s)[A-Za-z_][A-Za-z0-9_]*=")
 _EMBEDDED_POSIX_PATH_PATTERN = re.compile(r"(?<![A-Za-z0-9._-])/[^/\s]")
 _ARTIFACT_DOWNLOAD_REASON_CODE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
+
+JsonValue = TypeAliasType(
+    "JsonValue",
+    Union[
+        dict[str, "JsonValue"],
+        list["JsonValue"],
+        str,
+        int,
+        FiniteFloat,
+        bool,
+        None,
+    ],
+)
 
 
 class IssueResponse(BaseModel):
@@ -90,7 +104,7 @@ class WorkflowListResponse(BaseModel):
 
 
 class WorkflowSchemaCoverageResponse(BaseModel):
-    """Truthful coverage level for each adapter schema surface."""
+    """Coverage level for each canonical adapter authoring surface."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -148,7 +162,6 @@ class SchemaResponse(BaseModel):
     ok: bool
     workflow_id: str
     workflow_schema: WorkflowSchemaResponse | None = Field(
-        default=None,
         alias="schema",
         serialization_alias="schema",
     )

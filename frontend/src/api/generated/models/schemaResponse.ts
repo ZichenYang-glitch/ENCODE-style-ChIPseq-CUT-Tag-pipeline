@@ -14,6 +14,6 @@ import type { IssueResponse } from './issueResponse';
 export interface SchemaResponse {
   ok: boolean;
   workflow_id: string;
-  schema?: SchemaResponseSchema;
+  schema: SchemaResponseSchema;
   issues?: IssueResponse[];
 }

@@ -11,6 +11,7 @@ from io import StringIO
 from pathlib import Path
 
 import jsonschema
+import pytest
 import yaml
 
 from encode_pipeline.platform.adapters import (
@@ -135,6 +136,12 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     }
     assert "samples" not in as_dict["config_schema"].get("required", [])
     assert "samples" not in as_dict["config_schema"]["properties"]
+    assert as_dict["config_schema"]["properties"]["outdir"] == {
+        "type": "string",
+        "const": "results",
+        "default": "results",
+        "description": "Platform-owned run output directory.",
+    }
     sample_items = as_dict["sample_schema"]["items"]
     assert sample_items["required"] == [
         "sample",
@@ -186,6 +193,15 @@ def test_schema_accepts_tiny_profile_without_samples_and_inline_rows(tmp_path):
     assert result.is_success
     assert result.value["samples"][0]["id"] == "S1"
     assert "samples" not in result.value["config"]
+
+
+def test_schema_does_not_claim_custom_outdir_is_authorable():
+    schema = _adapter().schema()
+
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft202012Validator(schema.config_schema).validate(
+            {"outdir": "custom-results"}
+        )
 
 
 def test_importing_encode_adapter_does_not_import_heavy_workflow_modules():

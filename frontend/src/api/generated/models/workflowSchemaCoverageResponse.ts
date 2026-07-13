@@ -10,7 +10,7 @@ import type { WorkflowSchemaCoverageResponseSamples } from './workflowSchemaCove
 import type { WorkflowSchemaCoverageResponseOptions } from './workflowSchemaCoverageResponseOptions';
 
 /**
- * Truthful coverage level for each adapter schema surface.
+ * Coverage level for each canonical adapter authoring surface.
  */
 export interface WorkflowSchemaCoverageResponse {
   config: WorkflowSchemaCoverageResponseConfig;

@@ -35,7 +35,11 @@ _SCHEMA_COVERAGE_VALUES = frozenset({"partial", "complete"})
 
 @dataclass(frozen=True)
 class WorkflowSchemaCoverage:
-    """Truthful coverage level for each adapter-owned schema surface."""
+    """Coverage of each canonical adapter-owned authoring surface.
+
+    Complete means every canonical field is representable. It does not claim
+    to enumerate every legacy spelling that a scientific validator accepts.
+    """
 
     config: str = "partial"
     samples: str = "partial"
@@ -534,7 +538,7 @@ class WorkflowAdapter(Protocol):
     capabilities: WorkflowCapabilities
 
     def schema(self) -> WorkflowSchema:
-        """Return adapter-owned config, sample, and option schemas."""
+        """Return the versioned adapter-owned authoring contract."""
 
     def validate(self, inputs: WorkflowInputs) -> Result[object]:
         """Validate submitted inputs and return adapter-owned validated data."""

@@ -1610,7 +1610,68 @@
         "title": "IssueResponse",
         "description": "JSON-ready Issue shape from the PR84 contract."
       },
-      "JsonValue": {},
+      "JsonValue-Input": {
+        "anyOf": [
+          {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue-Input"
+            },
+            "type": "object"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/JsonValue-Input"
+            },
+            "type": "array"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "JsonValue-Output": {
+        "anyOf": [
+          {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue-Output"
+            },
+            "type": "object"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/JsonValue-Output"
+            },
+            "type": "array"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
       "QcMetricResponse": {
         "properties": {
           "metric_id": {
@@ -1853,7 +1914,7 @@
         "properties": {
           "config": {
             "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
+              "$ref": "#/components/schemas/JsonValue-Input"
             },
             "type": "object",
             "title": "Config"
@@ -1891,7 +1952,7 @@
           },
           "options": {
             "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
+              "$ref": "#/components/schemas/JsonValue-Input"
             },
             "type": "object",
             "title": "Options"
@@ -2340,7 +2401,8 @@
         "type": "object",
         "required": [
           "ok",
-          "workflow_id"
+          "workflow_id",
+          "schema"
         ],
         "title": "SchemaResponse",
         "description": "Envelope for GET /api/v1/workflows/{workflow_id}/schema."
@@ -2389,7 +2451,7 @@
         "properties": {
           "config": {
             "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
+              "$ref": "#/components/schemas/JsonValue-Input"
             },
             "type": "object",
             "title": "Config"
@@ -2427,7 +2489,7 @@
           },
           "options": {
             "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
+              "$ref": "#/components/schemas/JsonValue-Input"
             },
             "type": "object",
             "title": "Options"
@@ -2667,7 +2729,7 @@
           "options"
         ],
         "title": "WorkflowSchemaCoverageResponse",
-        "description": "Truthful coverage level for each adapter schema surface."
+        "description": "Coverage level for each canonical adapter authoring surface."
       },
       "WorkflowSchemaModesResponse": {
         "properties": {
@@ -2729,21 +2791,21 @@
           },
           "config_schema": {
             "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
+              "$ref": "#/components/schemas/JsonValue-Output"
             },
             "type": "object",
             "title": "Config Schema"
           },
           "sample_schema": {
             "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
+              "$ref": "#/components/schemas/JsonValue-Output"
             },
             "type": "object",
             "title": "Sample Schema"
           },
           "option_schema": {
             "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
+              "$ref": "#/components/schemas/JsonValue-Output"
             },
             "type": "object",
             "title": "Option Schema"
