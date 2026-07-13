@@ -20,6 +20,11 @@ from encode_pipeline.artifacts import (
     load_catalog,
 )
 from encode_pipeline.platform.adapters import (
+    ARTIFACT_EXTRACT_CAPABILITY,
+    INPUT_AUTHORING_CAPABILITY,
+    QC_SUMMARY_EXTRACT_CAPABILITY,
+    VALIDATION_CAPABILITY,
+    WORKSPACE_PLAN_CAPABILITY,
     CommandSpec,
     DagPreview,
     ExtractedArtifactCandidate,
@@ -212,11 +217,11 @@ class EncodeStyleWorkflowAdapter:
     )
     capabilities = WorkflowCapabilities(
         supports=(
-            "validation",
-            "workspace_plan",
-            "input_authoring",
-            "artifact_extract",
-            "qc_summary_extract",
+            VALIDATION_CAPABILITY,
+            WORKSPACE_PLAN_CAPABILITY,
+            INPUT_AUTHORING_CAPABILITY,
+            ARTIFACT_EXTRACT_CAPABILITY,
+            QC_SUMMARY_EXTRACT_CAPABILITY,
         )
     )
 

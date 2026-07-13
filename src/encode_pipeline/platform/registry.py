@@ -5,7 +5,13 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 
-from encode_pipeline.platform.adapters import WorkflowAdapter, WorkflowMetadata
+from encode_pipeline.platform.adapters import (
+    QC_SUMMARY_EXTRACT_CAPABILITY,
+    QcSummaryExtractingAdapter,
+    WorkflowAdapter,
+    WorkflowCapabilities,
+    WorkflowMetadata,
+)
 
 
 class WorkflowRegistry:
@@ -25,6 +31,17 @@ class WorkflowRegistry:
             if not isinstance(adapter.metadata, WorkflowMetadata):
                 raise ValueError(
                     "WorkflowRegistry adapter metadata must be WorkflowMetadata"
+                )
+            if not isinstance(adapter.capabilities, WorkflowCapabilities):
+                raise ValueError(
+                    "WorkflowRegistry adapter capabilities must be WorkflowCapabilities"
+                )
+            declares_qc = QC_SUMMARY_EXTRACT_CAPABILITY in adapter.capabilities.supports
+            implements_qc = isinstance(adapter, QcSummaryExtractingAdapter)
+            if declares_qc != implements_qc:
+                raise ValueError(
+                    "WorkflowRegistry qc_summary_extract capability and "
+                    "protocol must agree"
                 )
 
             workflow_id = adapter.metadata.workflow_id

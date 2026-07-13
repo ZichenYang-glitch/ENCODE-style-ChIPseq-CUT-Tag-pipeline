@@ -12,6 +12,7 @@ import stat
 from urllib.parse import quote
 
 from encode_pipeline.platform.adapters import (
+    ARTIFACT_EXTRACT_CAPABILITY,
     ExtractedArtifactCandidate,
     WorkflowInputs,
 )
@@ -67,7 +68,7 @@ class ArtifactExtractionService:
 
         try:
             adapter = self._registry.get(record.workflow_id)
-            if "artifact_extract" not in adapter.capabilities.supports:
+            if ARTIFACT_EXTRACT_CAPABILITY not in adapter.capabilities.supports:
                 return self._fail(run_id, "ARTIFACT_EXTRACTION_UNSUPPORTED")
             if not self._build_matches(record.run_id, record.workflow_id):
                 return self._fail(run_id, "ARTIFACT_EXTRACTION_BUILD_MISMATCH")

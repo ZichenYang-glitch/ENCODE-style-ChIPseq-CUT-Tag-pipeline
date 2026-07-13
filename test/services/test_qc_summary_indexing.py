@@ -75,6 +75,32 @@ class QcAdapter:
         return Result.success(self.candidates)
 
 
+class NoQcAdapter:
+    metadata = WorkflowMetadata(workflow_id="fake", name="Fake", version="1.0.0")
+    capabilities = WorkflowCapabilities(supports=())
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def schema(self):
+        return WorkflowSchema()
+
+    def validate(self, inputs):
+        return Result.success({})
+
+    def preview_dag(self, inputs):
+        return Result.success(DagPreview())
+
+    def plan_workspace(self, inputs, workspace):
+        return Result.success(WorkspacePlan())
+
+    def build_command(self, plan):
+        return Result.success(CommandSpec(argv=("fake",)))
+
+    def extract_artifacts(self, inputs, workspace):
+        return Result.success(())
+
+
 def _project(root: Path) -> Path:
     files = {
         "pyproject.toml": "[project]\nname='fake'\n",
@@ -281,8 +307,7 @@ def test_no_declared_qc_sources_is_a_confirmed_empty_index(tmp_path):
 
 
 def test_unsupported_adapter_fails_closed_without_reading_sources(tmp_path):
-    adapter = QcAdapter((_candidate(),))
-    adapter.capabilities = WorkflowCapabilities(supports=())
+    adapter = NoQcAdapter()
     artifact = _artifact()
     service, run_service, _workspace, _provider, artifacts = _service(
         tmp_path,

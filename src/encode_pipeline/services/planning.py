@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING, Any
 from collections.abc import Mapping
 from uuid import uuid4
 
-from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.adapters import (
+    WORKSPACE_PLAN_CAPABILITY,
+    WorkflowInputs,
+)
 from encode_pipeline.platform.planning import (
     ExecutionPlan,
     PlanStatus,
@@ -214,6 +217,23 @@ class WorkspacePlanner:
                         severity="error",
                         path="workflow_id",
                         source="workspace_planner",
+                    )
+                ]
+            )
+
+        if WORKSPACE_PLAN_CAPABILITY not in adapter.capabilities.supports:
+            return Result.failure(
+                [
+                    Issue(
+                        code="WORKSPACE_PLAN_CAPABILITY_UNSUPPORTED",
+                        message="Workflow does not support workspace planning.",
+                        severity="error",
+                        path="workflow.capabilities",
+                        source="workspace_planner",
+                        context={
+                            "workflow_id": plan.workflow_id,
+                            "capability": WORKSPACE_PLAN_CAPABILITY,
+                        },
                     )
                 ]
             )

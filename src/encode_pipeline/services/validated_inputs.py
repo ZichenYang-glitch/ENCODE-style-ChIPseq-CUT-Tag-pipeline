@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.adapters import VALIDATION_CAPABILITY, WorkflowInputs
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.snapshots import (
@@ -29,7 +29,6 @@ from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvid
 
 
 DEFAULT_SNAPSHOT_TTL = timedelta(minutes=30)
-VALIDATION_CAPABILITY = "validation"
 
 
 class ValidatedSnapshotNotFoundError(RuntimeError):

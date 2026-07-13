@@ -1,7 +1,10 @@
 """Workflow-platform shared primitives."""
 
 from encode_pipeline.platform.adapters import (
+    ARTIFACT_EXTRACT_CAPABILITY,
+    COMMAND_CAPABILITY,
     CommandSpec,
+    DAG_PREVIEW_CAPABILITY,
     DagEdge,
     DagNode,
     DagPreview,
@@ -13,6 +16,8 @@ from encode_pipeline.platform.adapters import (
     MAX_SAMPLE_COLUMN_NAME_LENGTH,
     MAX_SAMPLE_COLUMNS,
     MAX_SAMPLE_ROWS,
+    INPUT_AUTHORING_CAPABILITY,
+    QC_SUMMARY_EXTRACT_CAPABILITY,
     QcSourceArtifact,
     QcSourceDocument,
     QcSummaryExtractingAdapter,
@@ -25,6 +30,9 @@ from encode_pipeline.platform.adapters import (
     WorkflowMetadata,
     WorkflowSchema,
     WorkflowSchemaCoverage,
+    VALIDATION_CAPABILITY,
+    WORKFLOW_CAPABILITY_NAMES,
+    WORKSPACE_PLAN_CAPABILITY,
     WorkspacePlan,
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
@@ -52,7 +60,10 @@ from encode_pipeline.platform.runs import (
 )
 
 __all__ = [
+    "ARTIFACT_EXTRACT_CAPABILITY",
+    "COMMAND_CAPABILITY",
     "CommandSpec",
+    "DAG_PREVIEW_CAPABILITY",
     "DagEdge",
     "DagNode",
     "DagPreview",
@@ -66,6 +77,8 @@ __all__ = [
     "MAX_SAMPLE_COLUMN_NAME_LENGTH",
     "MAX_SAMPLE_COLUMNS",
     "MAX_SAMPLE_ROWS",
+    "INPUT_AUTHORING_CAPABILITY",
+    "QC_SUMMARY_EXTRACT_CAPABILITY",
     "Result",
     "RunArtifactRef",
     "RunEvent",
@@ -92,6 +105,9 @@ __all__ = [
     "WorkflowRegistry",
     "WorkflowSchema",
     "WorkflowSchemaCoverage",
+    "VALIDATION_CAPABILITY",
+    "WORKFLOW_CAPABILITY_NAMES",
+    "WORKSPACE_PLAN_CAPABILITY",
     "WorkspacePlan",
     "build_execution_job_id",
     "build_qc_metric_id",

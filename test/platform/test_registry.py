@@ -16,6 +16,7 @@ from encode_pipeline.platform.adapters import (
     WorkflowMetadata,
     WorkflowSchema,
     WorkspacePlan,
+    QcSourceDocument,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Result
@@ -103,6 +104,40 @@ def test_invalid_lookup_ids_raise_value_error(workflow_id):
 def test_non_adapter_entries_raise_value_error():
     with pytest.raises(ValueError, match="WorkflowRegistry adapters"):
         WorkflowRegistry(adapters=[object()])
+
+
+def test_registry_rejects_non_contract_capabilities_object():
+    adapter = FakeAdapter("fake")
+    adapter.capabilities = ("validation",)
+
+    with pytest.raises(ValueError, match="capabilities"):
+        WorkflowRegistry(adapters=[adapter])
+
+
+def test_registry_rejects_qc_capability_without_optional_protocol():
+    adapter = FakeAdapter("fake")
+    adapter.capabilities = WorkflowCapabilities(
+        supports=("validation", "qc_summary_extract")
+    )
+
+    with pytest.raises(ValueError, match="qc_summary_extract"):
+        WorkflowRegistry(adapters=[adapter])
+
+
+def test_registry_rejects_qc_protocol_without_capability():
+    class UndeclaredQcAdapter(FakeAdapter):
+        def qc_source_output_types(self) -> tuple[str, ...]:
+            return ("qc_summary",)
+
+        def extract_qc_metrics(
+            self,
+            inputs: WorkflowInputs,
+            sources: tuple[QcSourceDocument, ...],
+        ) -> Result[tuple]:
+            return Result.success(())
+
+    with pytest.raises(ValueError, match="qc_summary_extract"):
+        WorkflowRegistry(adapters=[UndeclaredQcAdapter("fake")])
 
 
 def test_registry_does_not_expose_mutable_adapter_mapping():

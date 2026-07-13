@@ -98,6 +98,21 @@ def test_capabilities_stores_tuple_supports_and_rejects_empty_strings():
         WorkflowCapabilities(supports=["validation", "  "])
 
 
+@pytest.mark.parametrize(
+    "supports",
+    [
+        ("validation", "validation"),
+        ("Validation",),
+        ("validation ",),
+        ("unknown_capability",),
+    ],
+    ids=("duplicate", "uppercase", "surrounding-space", "unknown"),
+)
+def test_capabilities_reject_ambiguous_or_unknown_declarations(supports):
+    with pytest.raises(ValueError):
+        WorkflowCapabilities(supports=supports)
+
+
 def test_schema_is_top_level_frozen_and_copies_input_and_serialized_mappings():
     config_schema = {"properties": {"threads": {"type": "integer"}}}
     sample_schema = {

@@ -14,7 +14,7 @@ from encode_pipeline.platform.adapters import (
 )
 from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
 from encode_pipeline.platform.registry import WorkflowRegistry
-from encode_pipeline.platform.results import Result
+from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 from encode_pipeline.services.runs import RunService
 
@@ -27,7 +27,7 @@ def fake_adapter():
             name="Stub Workflow",
             version="0.0.1",
         )
-        capabilities = WorkflowCapabilities(supports=())
+        capabilities = WorkflowCapabilities(supports=("workspace_plan",))
 
         def schema(self) -> WorkflowSchema:
             return WorkflowSchema()
@@ -464,6 +464,66 @@ def test_workspace_planner_delegates_to_adapter_and_preserves_info_issue(
     assert any(
         issue.code == "ADAPTER_WORKSPACE_PLANNING_COMPLETE" for issue in updated.issues
     )
+
+
+def test_workspace_planner_rejects_undeclared_capability_before_adapter_call(
+    run_service, tmp_path
+):
+    class _NoWorkspaceCapabilityAdapter:
+        metadata = WorkflowMetadata(
+            workflow_id="stub",
+            name="Stub",
+            version="0.0.1",
+        )
+        capabilities = WorkflowCapabilities(supports=("validation",))
+
+        def schema(self):
+            return WorkflowSchema()
+
+        def validate(self, inputs):
+            return Result.success(None)
+
+        def preview_dag(self, inputs):
+            return Result.success(DagPreview())
+
+        def plan_workspace(self, inputs, workspace):
+            raise AssertionError("undeclared workspace method was called")
+
+        def build_command(self, plan):
+            return Result.failure(
+                [
+                    Issue(
+                        code="UNSUPPORTED",
+                        message="Unsupported.",
+                        source="adapter",
+                    )
+                ]
+            )
+
+        def extract_artifacts(self, inputs, workspace):
+            return Result.failure(
+                [
+                    Issue(
+                        code="UNSUPPORTED",
+                        message="Unsupported.",
+                        source="adapter",
+                    )
+                ]
+            )
+
+    input_plan = _make_execution_plan(run_service)
+    workspace_planner = WorkspacePlanner(
+        registry=WorkflowRegistry(adapters=[_NoWorkspaceCapabilityAdapter()])
+    )
+
+    result = workspace_planner.plan_workspace(input_plan, base_dir=tmp_path.resolve())
+
+    assert result.is_failure
+    assert result.issues[0].code == "WORKSPACE_PLAN_CAPABILITY_UNSUPPORTED"
+    assert result.issues[0].context == {
+        "workflow_id": "stub",
+        "capability": "workspace_plan",
+    }
 
 
 def test_workspace_planner_fails_when_workflow_not_in_registry(run_service, tmp_path):
