@@ -15,10 +15,17 @@ import {
   artifactExtractionOutcome,
   type ArtifactExtractionOutcome,
 } from '../run-artifacts/artifactState';
+import { QcWorkbench } from '../run-qc/QcWorkbench';
+import {
+  qcIndexingOutcome,
+  type QcIndexingOutcome,
+} from '../run-qc/qcState';
 import { RunEventFeed } from './RunEventFeed';
 import { RunIssuePanel } from './RunIssuePanel';
 import { RunLogPanel } from './RunLogPanel';
 import { RunStatusBadge } from './RunStatusBadge';
+
+export type RunDetailView = 'activity' | 'artifacts' | 'qc';
 
 interface RunProgressPanelProps {
   workflowId?: string | null;
@@ -30,9 +37,9 @@ interface RunProgressPanelProps {
   beginPreflight?: boolean;
   preflightRequestId?: string | null;
   onPreflightConsumed?: () => void;
-  activeView?: 'activity' | 'artifacts';
+  activeView?: RunDetailView;
   selectedArtifactId?: string | null;
-  onViewChange?: (view: 'activity' | 'artifacts') => void;
+  onViewChange?: (view: RunDetailView) => void;
   onArtifactSelect?: (artifactId: string) => void;
 }
 
@@ -82,18 +89,25 @@ function extractionOutcome(snapshot: RunSnapshot | undefined): ArtifactExtractio
   );
 }
 
+function qcOutcome(snapshot: RunSnapshot | undefined): QcIndexingOutcome {
+  return qcIndexingOutcome(
+    snapshot?.events ?? [],
+    snapshot?.eventsTruncated ?? false,
+  );
+}
+
 export function shouldPollRunSnapshot(
   snapshot: RunSnapshot | undefined,
-  activeView: 'activity' | 'artifacts',
+  activeView: RunDetailView,
 ): boolean {
   const status = snapshot?.run?.status;
   if (!status) return false;
   if (pollingStatuses.has(status)) return true;
-  return (
-    activeView === 'artifacts' &&
-    status === 'succeeded' &&
-    extractionOutcome(snapshot).kind === 'pending'
-  );
+  if (status !== 'succeeded') return false;
+  if (activeView === 'artifacts') {
+    return extractionOutcome(snapshot).kind === 'pending';
+  }
+  return activeView === 'qc' && qcOutcome(snapshot).kind === 'pending';
 }
 
 export function runProgressQueryKey(runId: string | null) {
@@ -446,6 +460,7 @@ export function RunProgressPanel({
   const snapshot = runQuery.data;
   const run = snapshot?.run ?? null;
   const artifactOutcome = extractionOutcome(snapshot);
+  const qcIndexing = qcOutcome(snapshot);
   const shouldPollSnapshot = shouldPollRunSnapshot(snapshot, activeView);
   const cancellationEventPresent =
     snapshot?.events.some((event) => event.event_type === 'cancellation_requested') ?? false;
@@ -533,15 +548,22 @@ export function RunProgressPanel({
 
   function handleTabKey(
     event: KeyboardEvent<HTMLButtonElement>,
-    view: 'activity' | 'artifacts',
+    view: RunDetailView,
   ) {
-    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    const views: RunDetailView[] = ['activity', 'artifacts', 'qc'];
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
-    const nextView = view === 'activity' ? 'artifacts' : 'activity';
+    const currentIndex = views.indexOf(view);
+    const nextView =
+      event.key === 'Home'
+        ? views[0]
+        : event.key === 'End'
+          ? views.at(-1)!
+          : event.key === 'ArrowRight'
+            ? views[(currentIndex + 1) % views.length]
+            : views[(currentIndex - 1 + views.length) % views.length];
     onViewChange(nextView);
-    window.requestAnimationFrame(() => {
-      document.getElementById(`run-${nextView}-tab`)?.focus();
-    });
+    document.getElementById(`run-${nextView}-tab`)?.focus();
   }
 
   return (
@@ -666,7 +688,7 @@ export function RunProgressPanel({
               role="tablist"
               aria-label="Run detail views"
             >
-              {(['activity', 'artifacts'] as const).map((view) => (
+              {(['activity', 'artifacts', 'qc'] as const).map((view) => (
                 <button
                   key={view}
                   id={`run-${view}-tab`}
@@ -683,7 +705,11 @@ export function RunProgressPanel({
                   onClick={() => onViewChange(view)}
                   onKeyDown={(event) => handleTabKey(event, view)}
                 >
-                  {view === 'activity' ? 'Activity' : 'Artifacts'}
+                  {view === 'activity'
+                    ? 'Activity'
+                    : view === 'artifacts'
+                      ? 'Artifacts'
+                      : 'QC'}
                 </button>
               ))}
             </div>
@@ -730,6 +756,23 @@ export function RunProgressPanel({
                 outcome={artifactOutcome}
                 selectedArtifactId={selectedArtifactId}
                 onSelectArtifact={onArtifactSelect}
+                onRefreshStatus={handleRefresh}
+              />
+            </div>
+          )}
+
+          {runId && activeView === 'qc' && (
+            <div
+              id="run-qc-panel"
+              role="tabpanel"
+              aria-labelledby="run-qc-tab"
+              className="min-w-0"
+            >
+              <QcWorkbench
+                runId={run.run_id}
+                runStatus={run.status}
+                outcome={qcIndexing}
+                onOpenSourceArtifact={onArtifactSelect}
                 onRefreshStatus={handleRefresh}
               />
             </div>
