@@ -114,6 +114,7 @@ describe('generated client adapters', () => {
       ok: true,
       workflow_id: 'encode',
       value: null,
+      snapshot: null,
       issues: [],
     });
     const client = createGeneratedWorkflowClient();

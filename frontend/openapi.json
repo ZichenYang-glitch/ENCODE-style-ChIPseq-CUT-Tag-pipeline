@@ -121,6 +121,46 @@
               }
             }
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -193,7 +233,7 @@
           "runs"
         ],
         "summary": "Create Run",
-        "description": "Create a new run for the given workflow.",
+        "description": "Create or replay one run using a server-owned validated snapshot.",
         "operationId": "createRun",
         "parameters": [
           {
@@ -227,6 +267,16 @@
               }
             }
           },
+          "200": {
+            "description": "Idempotent replay of the snapshot's canonical run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
           "400": {
             "content": {
               "application/json": {
@@ -247,6 +297,16 @@
             },
             "description": "Not Found"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "413": {
             "description": "Request body too large.",
             "content": {
@@ -256,6 +316,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           },
           "422": {
             "description": "Validation Error",
@@ -1912,50 +1982,12 @@
       },
       "RunCreateRequest": {
         "properties": {
-          "config": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue-Input"
-            },
-            "type": "object",
-            "title": "Config"
-          },
-          "samples": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 4096,
-                "minLength": 1
-              },
-              {
-                "items": {
-                  "additionalProperties": {
-                    "type": "string",
-                    "maxLength": 4096
-                  },
-                  "propertyNames": {
-                    "maxLength": 128,
-                    "minLength": 1
-                  },
-                  "type": "object",
-                  "maxProperties": 64,
-                  "minProperties": 1
-                },
-                "type": "array",
-                "maxItems": 1000,
-                "minItems": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Samples"
-          },
-          "options": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue-Input"
-            },
-            "type": "object",
-            "title": "Options"
+          "snapshot_id": {
+            "type": "string",
+            "maxLength": 38,
+            "minLength": 38,
+            "pattern": "^vsnap_[0-9a-f]{32}$",
+            "title": "Snapshot Id"
           },
           "tags": {
             "additionalProperties": {
@@ -1968,7 +2000,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "config"
+          "snapshot_id"
         ],
         "title": "RunCreateRequest",
         "description": "Request body for POST /api/v1/workflows/{workflow_id}/runs."
@@ -2407,6 +2439,56 @@
         "title": "SchemaResponse",
         "description": "Envelope for GET /api/v1/workflows/{workflow_id}/schema."
       },
+      "ValidatedInputSnapshotResponse": {
+        "properties": {
+          "snapshot_id": {
+            "type": "string",
+            "maxLength": 38,
+            "pattern": "^vsnap_[0-9a-f]{32}$",
+            "title": "Snapshot Id"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version"
+          },
+          "adapter_version": {
+            "type": "string",
+            "title": "Adapter Version"
+          },
+          "payload_digest": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Payload Digest"
+          },
+          "validated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Validated At"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot_id",
+          "workflow_id",
+          "schema_version",
+          "adapter_version",
+          "payload_digest",
+          "validated_at",
+          "expires_at"
+        ],
+        "title": "ValidatedInputSnapshotResponse",
+        "description": "Safe public projection of one server-owned validation snapshot."
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -2524,6 +2606,16 @@
             "type": "null",
             "title": "Value"
           },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ValidatedInputSnapshotResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "issues": {
             "items": {
               "$ref": "#/components/schemas/IssueResponse"
@@ -2535,7 +2627,8 @@
         "type": "object",
         "required": [
           "ok",
-          "workflow_id"
+          "workflow_id",
+          "snapshot"
         ],
         "title": "ValidationResponse",
         "description": "Envelope for POST /api/v1/workflows/{workflow_id}/validate."

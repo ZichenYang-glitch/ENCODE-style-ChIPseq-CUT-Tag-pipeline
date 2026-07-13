@@ -11,6 +11,7 @@ import pytest
 
 import scripts.run_local_platform as local_platform
 from scripts.run_local_platform import (
+    EnvironmentCheck,
     RuntimeConfig,
     _session_process_groups,
     build_parser,
@@ -18,6 +19,7 @@ from scripts.run_local_platform import (
     cleanup_service_sessions,
     config_from_args,
     prepare_runtime,
+    run_environment_doctor,
 )
 from scripts.results_visibility_fixture import prepare_results_visibility_fixture
 from platform_runtime import write_manifest
@@ -25,6 +27,154 @@ from platform_runtime import write_manifest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 OWNERSHIP_SENTINEL = ".encode-platform-playwright-owned"
+
+
+def test_environment_doctor_accepts_the_locked_project_toolchain(tmp_path, monkeypatch):
+    frontend_root = tmp_path / "frontend"
+    (frontend_root / "node_modules" / ".bin").mkdir(parents=True)
+    (frontend_root / "node_modules" / ".bin" / "vite").touch()
+    (frontend_root / "node_modules" / ".bin" / "playwright").touch()
+    (frontend_root / "package-lock.json").touch()
+    monkeypatch.setattr(local_platform.sys, "version_info", (3, 12, 13))
+    monkeypatch.setattr(
+        local_platform,
+        "_import_runtime_dependency",
+        lambda module: None,
+    )
+    versions = {
+        "snakemake": "8.30.0\n",
+        "redis-server": "Redis server v=7.4.7 sha=00000000 malloc=libc bits=64\n",
+        "node": "v22.18.0\n",
+        "npm": "10.9.3\n",
+    }
+    monkeypatch.setattr(
+        local_platform,
+        "_read_tool_version",
+        lambda executable, _arguments: versions[executable],
+    )
+
+    checks = run_environment_doctor(frontend_root)
+
+    assert checks == (
+        EnvironmentCheck("Python", "3.12.13"),
+        EnvironmentCheck("Python packages", "available"),
+        EnvironmentCheck("Snakemake", "8.30.0"),
+        EnvironmentCheck("Redis server", "7.4.7"),
+        EnvironmentCheck("Node.js", "22.18.0"),
+        EnvironmentCheck("npm", "10.9.3"),
+        EnvironmentCheck("Frontend dependencies", "available"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"python": (3, 11, 9)}, "Python 3.12"),
+        ({"snakemake": "8.29.0\n"}, "Snakemake 8.30.0"),
+        (
+            {
+                "redis-server": (
+                    "Redis server v=6.2.14 sha=00000000 malloc=libc bits=64\n"
+                )
+            },
+            "Redis server 7.x",
+        ),
+        ({"node": "v18.20.0\n"}, "Node.js 20 or newer"),
+    ],
+)
+def test_environment_doctor_rejects_incompatible_tools(
+    tmp_path, monkeypatch, overrides, message
+):
+    frontend_root = tmp_path / "frontend"
+    (frontend_root / "node_modules" / ".bin").mkdir(parents=True)
+    (frontend_root / "node_modules" / ".bin" / "vite").touch()
+    (frontend_root / "node_modules" / ".bin" / "playwright").touch()
+    (frontend_root / "package-lock.json").touch()
+    monkeypatch.setattr(
+        local_platform.sys,
+        "version_info",
+        overrides.get("python", (3, 12, 13)),
+    )
+    monkeypatch.setattr(
+        local_platform,
+        "_import_runtime_dependency",
+        lambda module: None,
+    )
+    versions = {
+        "snakemake": "8.30.0\n",
+        "redis-server": "Redis server v=7.4.7 sha=00000000 malloc=libc bits=64\n",
+        "node": "v22.18.0\n",
+        "npm": "10.9.3\n",
+    }
+    versions.update({key: value for key, value in overrides.items() if key != "python"})
+    monkeypatch.setattr(
+        local_platform,
+        "_read_tool_version",
+        lambda executable, _arguments: versions[executable],
+    )
+
+    with pytest.raises(RuntimeError, match=message):
+        run_environment_doctor(frontend_root)
+
+
+def test_environment_doctor_reports_missing_packages_without_exception_details(
+    tmp_path, monkeypatch
+):
+    frontend_root = tmp_path / "frontend"
+    monkeypatch.setattr(local_platform.sys, "version_info", (3, 12, 13))
+
+    def missing_dependency(module):
+        raise ModuleNotFoundError("private /home/example/package path")
+
+    monkeypatch.setattr(
+        local_platform,
+        "_import_runtime_dependency",
+        missing_dependency,
+    )
+
+    with pytest.raises(RuntimeError) as caught:
+        run_environment_doctor(frontend_root)
+
+    message = str(caught.value)
+    assert "Python package fastapi is unavailable" in message
+    assert "/home/" not in message
+
+
+def test_doctor_mode_has_no_port_runtime_or_process_side_effects(
+    tmp_path, monkeypatch, capsys
+):
+    frontend_root = tmp_path / "frontend"
+    runtime_root = tmp_path / "runtime"
+    calls: list[str] = []
+    monkeypatch.setattr(
+        local_platform,
+        "run_environment_doctor",
+        lambda _root: (
+            calls.append("doctor") or (EnvironmentCheck("Python", "3.12.13"),)
+        ),
+    )
+    monkeypatch.setattr(
+        local_platform,
+        "_port_available",
+        lambda _host, _port: calls.append("port") or True,
+    )
+
+    assert (
+        local_platform.main(
+            [
+                "--doctor",
+                "--frontend-root",
+                str(frontend_root),
+                "--runtime-root",
+                str(runtime_root),
+            ]
+        )
+        == 0
+    )
+
+    assert calls == ["doctor"]
+    assert not runtime_root.exists()
+    assert "Python: 3.12.13" in capsys.readouterr().out
 
 
 def test_shared_environment_uses_one_absolute_lifecycle_configuration(tmp_path):
@@ -246,6 +396,10 @@ def test_main_checks_ports_then_prepares_demo_before_starting_processes(
         order.append("port")
         return True
 
+    def doctor(_frontend_root):
+        order.append("doctor")
+        return (EnvironmentCheck("Python", "3.12.13"),)
+
     class Supervisor:
         def __init__(self, _config):
             order.append("process")
@@ -255,6 +409,7 @@ def test_main_checks_ports_then_prepares_demo_before_starting_processes(
 
     monkeypatch.setattr(local_platform, "config_from_args", configured)
     monkeypatch.setattr(local_platform, "prepare_runtime", prepared)
+    monkeypatch.setattr(local_platform, "run_environment_doctor", doctor)
     monkeypatch.setattr(local_platform, "_port_available", available)
     monkeypatch.setattr(local_platform, "PlatformSupervisor", Supervisor)
 
@@ -269,4 +424,4 @@ def test_main_checks_ports_then_prepares_demo_before_starting_processes(
         == 0
     )
 
-    assert order == ["configure", "port", "port", "prepare", "process"]
+    assert order == ["doctor", "configure", "port", "port", "prepare", "process"]

@@ -10,9 +10,7 @@ function mockFetch(response: Partial<Response>) {
 }
 
 const sampleCreateRequest: RunCreateRequest = {
-  config: { genome: 'hg38' },
-  samples: [{ name: 'sample-1', fastq_r1: 's1_R1.fq.gz' }],
-  options: { threads: 4 },
+  snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
   tags: { env: 'test' },
 };
 
@@ -313,9 +311,7 @@ describe('createStubRunApiClient', () => {
     expect(response.run?.status).toBe('created');
     expect(response.run?.workflow_id).toBe(WORKFLOW_ID);
     expect(response.run?.inputs).toEqual({
-      config: { genome: 'hg38' },
-      samples: [{ name: 'sample-1', fastq_r1: 's1_R1.fq.gz' }],
-      options: { threads: 4 },
+      validated_snapshot_id: sampleCreateRequest.snapshot_id,
     });
     expect(response.run?.tags).toEqual({ env: 'test' });
     expect(response.run?.run_id).toMatch(/^stub-run-\d+$/);

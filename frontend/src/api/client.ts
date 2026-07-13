@@ -67,6 +67,7 @@ export function createStubWorkflowClient(): WorkflowApiClient {
           ok: false,
           workflow_id: workflowId,
           value: null,
+          snapshot: null,
           issues: [workflowNotFoundIssue(workflowId)],
         };
       }

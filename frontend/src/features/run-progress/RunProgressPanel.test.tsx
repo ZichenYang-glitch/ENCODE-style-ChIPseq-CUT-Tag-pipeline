@@ -20,10 +20,21 @@ const validatedInputs: WorkflowInputs = {
   options: { threads: 4 },
 };
 
+const validatedSnapshot = {
+  snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
+  workflow_id: WORKFLOW_ID,
+  schema_version: '1.0.0',
+  adapter_version: '0.3.0',
+  payload_digest: 'a'.repeat(64),
+  validated_at: '2026-07-14T00:00:00.000Z',
+  expires_at: '2026-07-14T00:30:00.000Z',
+};
+
 const successfulValidation: ValidateWorkflowResponse = {
   ok: true,
   workflow_id: WORKFLOW_ID,
   value: null,
+  snapshot: validatedSnapshot,
   issues: [],
 };
 
@@ -31,6 +42,7 @@ const failedValidation: ValidateWorkflowResponse = {
   ok: false,
   workflow_id: WORKFLOW_ID,
   value: null,
+  snapshot: null,
   issues: [
     {
       code: 'SAMPLE_INVALID',
@@ -57,11 +69,7 @@ function createMockRunClient(): RunApiClient {
         run: {
           run_id: runId,
           workflow_id: workflowId,
-          inputs: {
-            config: request.config,
-            samples: request.samples,
-            options: request.options ?? {},
-          },
+          inputs: validatedInputs,
           status: 'created',
           created_at: '2026-07-04T12:00:00.000Z',
           updated_at: '2026-07-04T12:00:00.000Z',
@@ -70,7 +78,7 @@ function createMockRunClient(): RunApiClient {
           current_stage: null,
           cancellation_reason: null,
           error: null,
-          tags: {},
+          tags: request.tags ?? {},
         },
         issues: [],
       };
@@ -249,7 +257,6 @@ function renderPanel(props: Partial<Parameters<typeof RunProgressPanel>[0]> = {}
   const defaultProps = {
     workflowId: WORKFLOW_ID,
     validationResult: null,
-    validatedInputs: null,
     runClient,
   };
   const queryClient = new QueryClient({
@@ -433,7 +440,7 @@ describe('RunProgressPanel', () => {
   });
 
   it('keeps Create run disabled after failed validation', () => {
-    renderPanel({ validationResult: failedValidation, validatedInputs });
+    renderPanel({ validationResult: failedValidation });
 
     expect(screen.getByTestId('create-run-button')).toBeDisabled();
   });
@@ -441,7 +448,6 @@ describe('RunProgressPanel', () => {
   it('enables Create run after successful validation', () => {
     renderPanel({
       validationResult: successfulValidation,
-      validatedInputs,
     });
 
     expect(screen.getByTestId('create-run-button')).toBeEnabled();
@@ -451,7 +457,6 @@ describe('RunProgressPanel', () => {
     const user = userEvent.setup();
     const { runClient } = renderPanel({
       validationResult: successfulValidation,
-      validatedInputs,
     });
 
     await user.click(screen.getByTestId('create-run-button'));
@@ -459,7 +464,9 @@ describe('RunProgressPanel', () => {
     await waitFor(() => {
       expect(runClient.createRun).toHaveBeenCalledTimes(1);
     });
-    expect(runClient.createRun).toHaveBeenCalledWith(WORKFLOW_ID, validatedInputs);
+    expect(runClient.createRun).toHaveBeenCalledWith(WORKFLOW_ID, {
+      snapshot_id: validatedSnapshot.snapshot_id,
+    });
 
     expect(await screen.findByTestId('run-status-badge')).toHaveTextContent('planned');
     expect(runClient.preflightRun).toHaveBeenCalledWith('run-1');
@@ -479,7 +486,6 @@ describe('RunProgressPanel', () => {
 
     renderPanel({
       validationResult: successfulValidation,
-      validatedInputs,
       runClient,
     });
     await user.click(screen.getByTestId('create-run-button'));
@@ -490,34 +496,23 @@ describe('RunProgressPanel', () => {
     expect(runClient.preflightRun).not.toHaveBeenCalled();
   });
 
-  it('rejects validated samples that are not compatible with run creation', async () => {
-    const user = userEvent.setup();
-    const invalidValidatedInputs: WorkflowInputs = {
-      ...validatedInputs,
-      samples: [
-        { name: 'sample-1', replicate: 1 },
-      ] as unknown as WorkflowInputs['samples'],
+  it('does not create a run when validation has no server snapshot', () => {
+    const validationWithoutSnapshot = {
+      ...successfulValidation,
+      snapshot: null,
     };
     const { runClient } = renderPanel({
-      validationResult: successfulValidation,
-      validatedInputs: invalidValidatedInputs,
+      validationResult: validationWithoutSnapshot,
     });
 
-    await user.click(screen.getByTestId('create-run-button'));
-
-    await waitFor(() => {
-      expect(runClient.createRun).not.toHaveBeenCalled();
-    });
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      /run record could not be created/i,
-    );
+    expect(screen.getByTestId('create-run-button')).toBeDisabled();
+    expect(runClient.createRun).not.toHaveBeenCalled();
   });
 
   it('cancels a run and updates the status and event feed', async () => {
     const user = userEvent.setup();
     const { runClient } = renderPanel({
       validationResult: successfulValidation,
-      validatedInputs,
     });
 
     await user.click(screen.getByTestId('create-run-button'));
@@ -538,7 +533,6 @@ describe('RunProgressPanel', () => {
     const user = userEvent.setup();
     const { runClient } = renderPanel({
       validationResult: successfulValidation,
-      validatedInputs,
     });
 
     await user.click(screen.getByTestId('create-run-button'));
@@ -559,7 +553,6 @@ describe('RunProgressPanel', () => {
     const user = userEvent.setup();
     const { runClient } = renderPanel({
       validationResult: successfulValidation,
-      validatedInputs,
     });
 
     await user.click(screen.getByTestId('create-run-button'));
@@ -584,7 +577,6 @@ describe('RunProgressPanel', () => {
     const newRunClient = createMockRunClient();
     const { rerender } = renderPanel({
       validationResult: successfulValidation,
-      validatedInputs,
     });
 
     await user.click(screen.getByTestId('create-run-button'));
@@ -597,8 +589,15 @@ describe('RunProgressPanel', () => {
 
     rerender({
       workflowId: 'other-workflow',
-      validationResult: successfulValidation,
-      validatedInputs: { ...validatedInputs, samples: [{ name: 'sample-2', fastq_r1: 's2_R1.fq.gz' }] },
+      validationResult: {
+        ...successfulValidation,
+        workflow_id: 'other-workflow',
+        snapshot: {
+          ...validatedSnapshot,
+          snapshot_id: 'vsnap_abcdef0123456789abcdef0123456789',
+          workflow_id: 'other-workflow',
+        },
+      },
       runClient: newRunClient,
     });
 
@@ -614,7 +613,6 @@ describe('RunProgressPanel', () => {
     const user = userEvent.setup();
     renderPanel({
       validationResult: successfulValidation,
-      validatedInputs,
     });
 
     await user.click(screen.getByTestId('create-run-button'));
@@ -634,9 +632,7 @@ describe('RunProgressPanel', () => {
   it('loads an existing run when runId is provided', async () => {
     const runClient = createMockRunClient();
     await runClient.createRun(WORKFLOW_ID, {
-      config: validatedInputs.config,
-      samples: validatedInputs.samples as Record<string, string>[],
-      options: validatedInputs.options,
+      snapshot_id: validatedSnapshot.snapshot_id,
     });
 
     renderPanel({
@@ -913,9 +909,7 @@ describe('RunProgressPanel', () => {
   it('calls getRun only once per runId on deep link', async () => {
     const runClient = createMockRunClient();
     await runClient.createRun(WORKFLOW_ID, {
-      config: validatedInputs.config,
-      samples: validatedInputs.samples as Record<string, string>[],
-      options: validatedInputs.options,
+      snapshot_id: validatedSnapshot.snapshot_id,
     });
 
     renderPanel({
@@ -1068,9 +1062,7 @@ describe('RunProgressPanel', () => {
   it('starts only a planned run through the real start client operation', async () => {
     const runClient = createMockRunClient();
     await runClient.createRun(WORKFLOW_ID, {
-      config: validatedInputs.config,
-      samples: validatedInputs.samples as Record<string, string>[],
-      options: validatedInputs.options,
+      snapshot_id: validatedSnapshot.snapshot_id,
     });
     await runClient.preflightRun('run-1');
     const user = userEvent.setup();
@@ -1087,9 +1079,7 @@ describe('RunProgressPanel', () => {
   it('treats an unconfirmed start as unknown and clears it after canonical advancement', async () => {
     const baseClient = createMockRunClient();
     await baseClient.createRun(WORKFLOW_ID, {
-      config: validatedInputs.config,
-      samples: validatedInputs.samples as Record<string, string>[],
-      options: validatedInputs.options,
+      snapshot_id: validatedSnapshot.snapshot_id,
     });
     await baseClient.preflightRun('run-1');
     const originalGetRun = baseClient.getRun;
@@ -1126,9 +1116,7 @@ describe('RunProgressPanel', () => {
   it('refetches canonical terminal state after a start conflict envelope', async () => {
     const baseClient = createMockRunClient();
     await baseClient.createRun(WORKFLOW_ID, {
-      config: validatedInputs.config,
-      samples: validatedInputs.samples as Record<string, string>[],
-      options: validatedInputs.options,
+      snapshot_id: validatedSnapshot.snapshot_id,
     });
     await baseClient.preflightRun('run-1');
     const originalGetRun = baseClient.getRun;
@@ -1256,9 +1244,7 @@ describe('RunProgressPanel', () => {
   it('treats an unconfirmed cancellation as unknown and clears it at canonical terminal', async () => {
     const baseClient = createMockRunClient();
     await baseClient.createRun(WORKFLOW_ID, {
-      config: validatedInputs.config,
-      samples: validatedInputs.samples as Record<string, string>[],
-      options: validatedInputs.options,
+      snapshot_id: validatedSnapshot.snapshot_id,
     });
     const originalGetRun = baseClient.getRun;
     let status = 'running';
@@ -1467,7 +1453,6 @@ describe('RunProgressPanel', () => {
   it('does not render execution-like wording', () => {
     renderPanel({
       validationResult: successfulValidation,
-      validatedInputs,
     });
 
     const panel = screen.getByTestId('run-progress-panel');

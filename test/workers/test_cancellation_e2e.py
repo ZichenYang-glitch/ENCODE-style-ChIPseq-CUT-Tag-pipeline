@@ -151,15 +151,23 @@ def test_real_worker_cancels_long_snakemake_process_group_truthfully(
         )
         samples_path = (PROFILE_ROOT / "samples.tsv").resolve()
         config["samples"] = str(samples_path)
-        created = _request(
+        validation = _request(
             app,
             "POST",
-            f"/api/v1/workflows/{WORKFLOW_ID}/runs",
+            f"/api/v1/workflows/{WORKFLOW_ID}/validate",
             json={
                 "config": config,
                 "samples": str(samples_path),
                 "options": {},
             },
+        )
+        assert validation.status_code == 200
+        assert validation.json()["ok"] is True
+        created = _request(
+            app,
+            "POST",
+            f"/api/v1/workflows/{WORKFLOW_ID}/runs",
+            json={"snapshot_id": validation.json()["snapshot"]["snapshot_id"]},
         )
         assert created.status_code == 201
         run_id = created.json()["run"]["run_id"]

@@ -119,6 +119,15 @@ describe('real preflight product path', () => {
       ok: true,
       workflow_id: WORKFLOW_ID,
       value: null,
+      snapshot: {
+        snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
+        workflow_id: WORKFLOW_ID,
+        schema_version: '1.0.0',
+        adapter_version: '0.3.0',
+        payload_digest: 'a'.repeat(64),
+        validated_at: '2026-07-14T00:00:00.000Z',
+        expires_at: '2026-07-14T00:30:00.000Z',
+      },
       issues: [],
     });
     vi.mocked(createRun).mockResolvedValue({
@@ -245,6 +254,54 @@ describe('real preflight product path', () => {
     expect(getRun).toHaveBeenCalledWith('run-real-1');
     expect(listRunEvents).toHaveBeenCalled();
     expect(vi.mocked(listRunLogs).mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does not restore a stale snapshot when legacy inputs change during validation', async () => {
+    let resolveValidation!: (value: Awaited<ReturnType<typeof validateWorkflow>>) => void;
+    vi.mocked(validateWorkflow).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveValidation = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}`],
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ClientProvider>
+          <RouterProvider router={router} />
+        </ClientProvider>
+      </QueryClientProvider>,
+    );
+
+    const samplesInput = await screen.findByLabelText(/Samples \(path string\)/i);
+    await user.type(samplesInput, 'samples.tsv');
+    await user.click(screen.getByTestId('validate-button'));
+    await user.type(samplesInput, '.changed');
+
+    resolveValidation({
+      ok: true,
+      workflow_id: WORKFLOW_ID,
+      value: null,
+      snapshot: {
+        snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
+        workflow_id: WORKFLOW_ID,
+        schema_version: '1.0.0',
+        adapter_version: '0.3.0',
+        payload_digest: 'a'.repeat(64),
+        validated_at: '2026-07-14T00:00:00.000Z',
+        expires_at: '2026-07-14T00:30:00.000Z',
+      },
+      issues: [],
+    });
+
+    await waitFor(() => expect(validateWorkflow).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('create-run-button')).toBeDisabled();
   });
 
   it('keeps the durable run URL and offers retry when preflight fails', async () => {

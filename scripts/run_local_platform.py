@@ -6,10 +6,13 @@ from __future__ import annotations
 import argparse
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+import importlib
 import json
 import os
 from pathlib import Path
+import re
 import signal
+import shutil
 import socket
 import subprocess
 import sys
@@ -17,16 +20,30 @@ import time
 from urllib.parse import urlparse
 from urllib.request import ProxyHandler, build_opener
 
-from redis import Redis
-from rq import Worker
-
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUNTIME_ROOT = REPOSITORY_ROOT / ".local" / "platform-demo"
 RESULTS_VISIBILITY_RUNTIME_ROOT = REPOSITORY_ROOT / ".local" / "results-visibility-demo"
 RESULTS_VISIBILITY_WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 DEFAULT_QUEUE_NAME = "encode-pipeline-demo"
 RESULTS_VISIBILITY_QUEUE_NAME = "encode-pipeline-results-demo"
+LOCKED_PYTHON_VERSION = (3, 12)
+LOCKED_SNAKEMAKE_VERSION = (8, 30, 0)
+MINIMUM_REDIS_MAJOR = 7
+MINIMUM_NODE_MAJOR = 20
+RUNTIME_IMPORTS = (
+    "fastapi",
+    "sqlalchemy",
+    "alembic",
+    "redis",
+    "rq",
+    "pytest",
+)
+
+
+@dataclass(frozen=True)
+class EnvironmentCheck:
+    name: str
+    version: str
 
 
 @dataclass(frozen=True)
@@ -83,11 +100,133 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frontend-port", type=int, default=5173)
     parser.add_argument("--readiness-timeout", type=float, default=60.0)
     parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Check the complete local runtime toolchain without starting services.",
+    )
+    parser.add_argument(
         "--cleanup-service-pids",
         type=Path,
         help=argparse.SUPPRESS,
     )
     return parser
+
+
+def _import_runtime_dependency(module: str) -> None:
+    importlib.import_module(module)
+
+
+def _read_tool_version(executable: str, arguments: Sequence[str]) -> str:
+    if shutil.which(executable) is None:
+        raise RuntimeError(f"{executable} is unavailable on PATH")
+    try:
+        completed = subprocess.run(
+            [executable, *arguments],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise RuntimeError(
+            f"{executable} could not report a version within five seconds"
+        ) from None
+    if completed.returncode != 0:
+        raise RuntimeError(f"{executable} could not report a version")
+    return f"{completed.stdout}\n{completed.stderr}".strip()
+
+
+def _parse_version(
+    output: str,
+    pattern: str,
+    *,
+    requirement: str,
+) -> tuple[int, ...]:
+    match = re.search(pattern, output)
+    if match is None:
+        raise RuntimeError(f"{requirement}; the installed version is unsupported")
+    return tuple(int(part) for part in match.groups())
+
+
+def run_environment_doctor(frontend_root: Path) -> tuple[EnvironmentCheck, ...]:
+    """Verify the locked local stack before any port, directory, or process mutation."""
+    python_version = tuple(sys.version_info[:3])
+    if python_version[:2] != LOCKED_PYTHON_VERSION:
+        raise RuntimeError(
+            "Python 3.12 is required; create .local/envs/ci-fast from "
+            "workflow/envs/ci-fast.lock"
+        )
+
+    for module in RUNTIME_IMPORTS:
+        try:
+            _import_runtime_dependency(module)
+        except Exception:
+            raise RuntimeError(
+                f"Python package {module} is unavailable; install the project "
+                "with the api and dev extras"
+            ) from None
+
+    snakemake_output = _read_tool_version("snakemake", ("--version",))
+    snakemake_version = _parse_version(
+        snakemake_output,
+        r"\b(\d+)\.(\d+)\.(\d+)\b",
+        requirement="Snakemake 8.30.0 is required",
+    )
+    if snakemake_version != LOCKED_SNAKEMAKE_VERSION:
+        raise RuntimeError(
+            "Snakemake 8.30.0 is required; recreate the locked ci-fast environment"
+        )
+
+    redis_output = _read_tool_version("redis-server", ("--version",))
+    redis_version = _parse_version(
+        redis_output,
+        r"\bv=(\d+)\.(\d+)\.(\d+)\b",
+        requirement="Redis server 7.x is required",
+    )
+    if redis_version[0] < MINIMUM_REDIS_MAJOR:
+        raise RuntimeError(
+            "Redis server 7.x is required; install Redis 7 or newer in the "
+            "project environment"
+        )
+
+    node_output = _read_tool_version("node", ("--version",))
+    node_version = _parse_version(
+        node_output,
+        r"\bv(\d+)\.(\d+)\.(\d+)\b",
+        requirement="Node.js 20 or newer is required",
+    )
+    if node_version[0] < MINIMUM_NODE_MAJOR:
+        raise RuntimeError("Node.js 20 or newer is required")
+
+    npm_output = _read_tool_version("npm", ("--version",))
+    npm_version = _parse_version(
+        npm_output,
+        r"\b(\d+)\.(\d+)\.(\d+)\b",
+        requirement="npm is required",
+    )
+
+    normalized_frontend = frontend_root.expanduser().resolve()
+    required_frontend_paths = (
+        normalized_frontend / "package-lock.json",
+        normalized_frontend / "node_modules" / ".bin" / "vite",
+        normalized_frontend / "node_modules" / ".bin" / "playwright",
+    )
+    if not all(path.is_file() for path in required_frontend_paths):
+        raise RuntimeError(
+            "Frontend dependencies are unavailable; run npm ci in the frontend directory"
+        )
+
+    return (
+        EnvironmentCheck("Python", ".".join(str(part) for part in python_version)),
+        EnvironmentCheck("Python packages", "available"),
+        EnvironmentCheck(
+            "Snakemake", ".".join(str(part) for part in snakemake_version)
+        ),
+        EnvironmentCheck("Redis server", ".".join(str(part) for part in redis_version)),
+        EnvironmentCheck("Node.js", ".".join(str(part) for part in node_version)),
+        EnvironmentCheck("npm", ".".join(str(part) for part in npm_version)),
+        EnvironmentCheck("Frontend dependencies", "available"),
+    )
 
 
 def config_from_args(args: argparse.Namespace) -> RuntimeConfig:
@@ -381,6 +520,9 @@ class PlatformSupervisor:
         )
 
     def _worker_ready(self) -> bool:
+        from redis import Redis
+        from rq import Worker
+
         connection = Redis.from_url(
             self.config.redis_url,
             socket_connect_timeout=1,
@@ -437,6 +579,8 @@ class PlatformSupervisor:
 
 
 def _redis_ready(redis_url: str) -> bool:
+    from redis import Redis
+
     connection = Redis.from_url(
         redis_url, socket_connect_timeout=0.5, socket_timeout=0.5
     )
@@ -557,6 +701,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.cleanup_service_pids is not None:
         return cleanup_service_sessions(args.cleanup_service_pids.resolve())
+    try:
+        environment_checks = run_environment_doctor(args.frontend_root)
+    except RuntimeError as error:
+        print(f"environment doctor failed: {error}", file=sys.stderr)
+        return 1
+    if args.doctor:
+        for check in environment_checks:
+            print(f"{check.name}: {check.version}")
+        return 0
     try:
         config = config_from_args(args)
     except (RuntimeError, ValueError, OSError) as error:

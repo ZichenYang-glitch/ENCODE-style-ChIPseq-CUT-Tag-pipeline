@@ -14,13 +14,27 @@ is reported instead of being treated as a successful enqueue.
 
 ### One-command demo stack
 
-After installing the API and frontend dependencies, one foreground command
-starts the complete local stack:
+Create the repository-local locked environment once. The environment lives
+under the ignored `.local/` directory and is never part of a commit:
 
 ```bash
-python3 -m pip install -e ".[api]"
+micromamba create -p .local/envs/ci-fast --file workflow/envs/ci-fast.lock
+./.local/envs/ci-fast/bin/python -m pip install -e ".[api,dev]"
 npm --prefix frontend ci
-python3 scripts/run_local_platform.py
+export PATH="$PWD/.local/envs/ci-fast/bin:$PATH"
+python scripts/run_local_platform.py --doctor
+```
+
+The doctor checks Python 3.12, the API/test imports, Snakemake 8.30.0, Redis
+server 7 or newer, Node.js 20 or newer, npm, and the locked frontend install.
+It exits before opening ports or creating runtime data. Failures name the
+missing prerequisite without printing environment variables or private paths.
+
+After the doctor succeeds, one foreground command starts the complete local
+stack:
+
+```bash
+python scripts/run_local_platform.py
 ```
 
 Open `http://127.0.0.1:5173`. The supervisor starts or reuses local Redis,
@@ -39,17 +53,17 @@ running Redis at `redis://127.0.0.1:6379/0` is reused and is not stopped or
 flushed. The default queue is `encode-pipeline-demo`; Redis remains scheduling
 metadata only, while the SQLite file remains canonical.
 
-Prerequisites are Python 3.10 or later with the `api` extra, Node.js with the
-locked frontend packages, and `snakemake` on `PATH`. `redis-server` is only
-required when Redis is not already available. The launcher performs bounded
-readiness checks for Redis, the API, the registered worker, and the frontend;
-startup failures name the failed service and point to its local log without
-printing Redis credentials.
+The launcher deliberately requires the same locked toolchain as the doctor.
+`redis-server` must be present even when an already-running compatible Redis
+will be reused, so a late fallback never fails with `FileNotFoundError`. The
+launcher performs bounded readiness checks for Redis, the API, the registered
+worker, and the frontend; startup failures name the failed service and point
+to its local log without printing Redis credentials.
 
 Use explicit flags for an isolated demo or non-default ports:
 
 ```bash
-python3 scripts/run_local_platform.py \
+python scripts/run_local_platform.py \
   --runtime-root /tmp/encode-platform-demo \
   --redis-url redis://127.0.0.1:6380/0 \
   --queue-name encode-platform-demo \
@@ -66,16 +80,18 @@ An opt-in deterministic project exercises the full results path without
 scientific data or bioinformatics tools:
 
 ```bash
-python3 scripts/run_local_platform.py --results-visibility-demo
+python scripts/run_local_platform.py --results-visibility-demo
 ```
 
 Open the printed `http://127.0.0.1:5173` URL. The launcher also prints the path
 to `.local/results-visibility-demo/results-visibility-inputs.json`. In the
-workflow page, paste `resultsConfig` into **Config (JSON)** and `samplesPath`
-into **Samples (path string)**, then use Validate, Create run, and Start run.
-The real worker and Snakemake process produce eight persisted QC metrics, a
-sample QC summary artifact, and a result manifest. The QC source action opens
-the persisted artifact detail, whose Download action returns the exact TSV.
+workflow page, choose **Author inputs**, paste the JSON `resultsConfig` into
+advanced YAML mode (JSON is valid YAML), and import the TSV at `samplesPath`.
+In Review, use Validate inputs and Create run; on the durable run URL, wait for
+preflight and then use Start run. The real worker and Snakemake process produce
+eight persisted QC metrics, a sample QC summary artifact, and a result
+manifest. The QC source action opens the persisted artifact detail, whose
+Download action returns the exact TSV.
 
 This mode uses a separate durable root:
 

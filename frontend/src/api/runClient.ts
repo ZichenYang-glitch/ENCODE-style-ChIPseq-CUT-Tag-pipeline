@@ -147,11 +147,7 @@ export function createStubRunApiClient(): RunApiClient {
       const run: RunRecordResponse = {
         run_id: runId,
         workflow_id: workflowId,
-        inputs: {
-          config: request.config,
-          samples: request.samples,
-          options: request.options ?? {},
-        },
+        inputs: { validated_snapshot_id: request.snapshot_id },
         status: 'created',
         created_at: timestamp,
         updated_at: timestamp,

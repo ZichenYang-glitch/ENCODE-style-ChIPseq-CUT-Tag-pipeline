@@ -20,6 +20,8 @@ from encode_pipeline.platform.adapters import (
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.validation import ValidationService
+from encode_pipeline.services.validated_inputs import ValidatedInputService
+from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 from api_test_client import ApiTestClient
 
 fastapi = pytest.importorskip("fastapi")
@@ -102,6 +104,12 @@ def unsupported_capability_client() -> Iterator[ApiTestClient]:
     app = create_app()
     app.state.registry = registry
     app.state.validation_service = service
+    app.state.validated_input_service = ValidatedInputService(
+        registry=registry,
+        validation_service=service,
+        build_identity_provider=WorkflowBuildIdentityProvider(registry),
+        repository=app.state.persistence.repository,
+    )
     with ApiTestClient(app) as tc:
         yield tc
 
@@ -176,6 +184,9 @@ def test_validate_success(
     assert data["ok"] is True
     assert data["workflow_id"] == workflow_id
     assert data["value"] is None
+    assert data["snapshot"]["workflow_id"] == workflow_id
+    assert data["snapshot"]["schema_version"] == "1.0.0"
+    assert len(data["snapshot"]["payload_digest"]) == 64
     assert data["issues"] == []
 
 
@@ -203,12 +214,11 @@ def test_validate_inline_rows_without_config_samples_is_successful(
 
     assert response.status_code == 200
     data = response.json()
-    assert data == {
-        "ok": True,
-        "workflow_id": workflow_id,
-        "value": None,
-        "issues": [],
-    }
+    assert data["ok"] is True
+    assert data["workflow_id"] == workflow_id
+    assert data["value"] is None
+    assert data["snapshot"]["snapshot_id"].startswith("vsnap_")
+    assert data["issues"] == []
     assert tempfile.gettempdir() not in response.text
 
 
@@ -242,6 +252,59 @@ def test_validate_rejects_control_characters_in_sample_path_with_safe_400(
     data = response.json()
     assert data["issues"][0]["code"] == "API_REQUEST_INVALID"
     assert "private" not in response.text
+
+
+@pytest.mark.parametrize(
+    "unsafe_value",
+    [2**53, -(2**53)],
+)
+def test_validate_rejects_unsafe_json_integers_without_echo(
+    client: ApiTestClient,
+    unsafe_value: int,
+) -> None:
+    workflow_id = "encode-style-chipseq-cuttag-atac-mnase"
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/validate",
+        json={"config": {"threads": unsafe_value}, "samples": None, "options": {}},
+    )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["issues"][0]["code"] == "API_REQUEST_INVALID"
+    assert body["issues"][0]["technical_message"] is None
+    assert str(unsafe_value) not in response.text
+
+
+def test_separate_successful_validations_create_distinct_opaque_snapshots(
+    client: ApiTestClient,
+) -> None:
+    workflow_id = "encode-style-chipseq-cuttag-atac-mnase"
+    request = {
+        "config": {},
+        "samples": [
+            {
+                "sample": "S1",
+                "fastq_1": "/tmp/S1.R1.fastq.gz",
+                "layout": "SE",
+                "assay": "chipseq",
+                "target": "CTCF",
+                "peak_mode": "narrow",
+                "genome": "hs",
+                "bowtie2_index": "/tmp/indices/hs",
+            }
+        ],
+        "options": {},
+    }
+
+    first = client.post(
+        f"/api/v1/workflows/{workflow_id}/validate", json=request
+    ).json()["snapshot"]
+    second = client.post(
+        f"/api/v1/workflows/{workflow_id}/validate", json=request
+    ).json()["snapshot"]
+
+    assert first["snapshot_id"] != second["snapshot_id"]
+    assert first["payload_digest"] == second["payload_digest"]
 
 
 def test_validate_failure_with_structured_issues(client: ApiTestClient) -> None:

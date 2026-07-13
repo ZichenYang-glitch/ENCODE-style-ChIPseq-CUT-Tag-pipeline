@@ -77,17 +77,24 @@ def _client(tmp_path: Path) -> httpx.AsyncClient:
 
 async def _create_run(client: httpx.AsyncClient, tmp_path: Path):
     samples_tsv = _make_valid_samples_tsv(tmp_path)
+    inputs = {
+        "config": {
+            "samples": str(samples_tsv),
+            "threads": 1,
+            "genome_resources": {"hs": {"effective_genome_size": "hs"}},
+        },
+        "samples": str(samples_tsv),
+        "options": {},
+    }
+    validation = await client.post(
+        "/api/v1/workflows/encode-style-chipseq-cuttag-atac-mnase/validate",
+        json=inputs,
+    )
+    assert validation.status_code == 200
+    assert validation.json()["ok"] is True
     response = await client.post(
         "/api/v1/workflows/encode-style-chipseq-cuttag-atac-mnase/runs",
-        json={
-            "config": {
-                "samples": str(samples_tsv),
-                "threads": 1,
-                "genome_resources": {"hs": {"effective_genome_size": "hs"}},
-            },
-            "samples": str(samples_tsv),
-            "options": {},
-        },
+        json={"snapshot_id": validation.json()["snapshot"]["snapshot_id"]},
     )
     assert response.status_code == 201
     return response.json()["run"]

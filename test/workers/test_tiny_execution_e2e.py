@@ -129,15 +129,23 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
 
     app = create_app(database_url=database_url, workspace_root=workspace_root)
     try:
-        created_response = _request(
+        validation_response = _request(
             app,
             "POST",
-            f"/api/v1/workflows/{WORKFLOW_ID}/runs",
+            f"/api/v1/workflows/{WORKFLOW_ID}/validate",
             json={
                 "config": config,
                 "samples": str(samples_path),
                 "options": {},
             },
+        )
+        assert validation_response.status_code == 200
+        assert validation_response.json()["ok"] is True
+        created_response = _request(
+            app,
+            "POST",
+            f"/api/v1/workflows/{WORKFLOW_ID}/runs",
+            json={"snapshot_id": validation_response.json()["snapshot"]["snapshot_id"]},
         )
         assert created_response.status_code == 201
         run_id = created_response.json()["run"]["run_id"]

@@ -262,6 +262,7 @@ export function createGeneratedWorkflowClient(): WorkflowApiClient {
           ok: response.ok,
           workflow_id: response.workflow_id ?? workflowId,
           value: response.value ?? null,
+          snapshot: response.snapshot ?? null,
           issues: mapIssues(response.issues),
         };
       } catch (error) {
@@ -270,6 +271,7 @@ export function createGeneratedWorkflowClient(): WorkflowApiClient {
           ok: false,
           workflow_id: workflowId,
           value: null,
+          snapshot: null,
           issues: issuesFromError(error),
         };
       }

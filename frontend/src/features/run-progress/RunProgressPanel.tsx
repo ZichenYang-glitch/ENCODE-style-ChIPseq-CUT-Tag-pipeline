@@ -3,12 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, Play, RefreshCw } from 'lucide-react';
 import type { RunApiClient } from '../../api/runClient';
 import type {
-  RunCreateRequest,
   RunEventResponse,
   RunLogChunkResponse,
   RunRecordResponse,
 } from '../../api/runTypes';
-import type { Issue, ValidateWorkflowResponse, WorkflowInputs } from '../../api/types';
+import type { Issue, ValidateWorkflowResponse } from '../../api/types';
 import { Button } from '../../components/Button';
 import { ArtifactBrowser } from '../run-artifacts/ArtifactBrowser';
 import {
@@ -30,7 +29,6 @@ export type RunDetailView = 'activity' | 'artifacts' | 'qc';
 interface RunProgressPanelProps {
   workflowId?: string | null;
   validationResult?: ValidateWorkflowResponse | null;
-  validatedInputs?: WorkflowInputs | null;
   runClient: RunApiClient;
   runId?: string | null;
   onRunCreated?: (runId: string) => void;
@@ -124,33 +122,6 @@ function safeUiIssue(code: string, message: string): Issue {
     technical_message: null,
     hint: null,
     context: {},
-  };
-}
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.values(value).every((entry) => typeof entry === 'string')
-  );
-}
-
-function normalizeSamplesForRun(
-  samples: WorkflowInputs['samples'],
-): RunCreateRequest['samples'] {
-  if (samples === null || typeof samples === 'string') return samples;
-  if (samples.every(isStringRecord)) {
-    return samples.map((sample) => ({ ...sample }));
-  }
-  throw new Error('incompatible samples');
-}
-
-function toRunCreateRequest(inputs: WorkflowInputs): RunCreateRequest {
-  return {
-    config: inputs.config,
-    samples: normalizeSamplesForRun(inputs.samples),
-    options: inputs.options,
   };
 }
 
@@ -285,7 +256,6 @@ function mergeRun(current: RunSnapshot | undefined, run: RunRecordResponse): Run
 export function RunProgressPanel({
   workflowId = null,
   validationResult = null,
-  validatedInputs = null,
   runClient,
   runId = null,
   onRunCreated,
@@ -414,10 +384,11 @@ export function RunProgressPanel({
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!workflowId || !validatedInputs) {
-        throw new Error('invalid create inputs');
+      const snapshotId = validationResult?.snapshot?.snapshot_id;
+      if (!workflowId || !snapshotId) {
+        throw new Error('validated snapshot is unavailable');
       }
-      return runClient.createRun(workflowId, toRunCreateRequest(validatedInputs));
+      return runClient.createRun(workflowId, { snapshot_id: snapshotId });
     },
   });
 
@@ -430,7 +401,7 @@ export function RunProgressPanel({
     preflightConsumedFor.current = null;
     pollStartedAt.current = Date.now();
     setPollRevision((revision) => revision + 1);
-  }, [runId, runClient, workflowId, validatedInputs]);
+  }, [runId, runClient, workflowId, validationResult?.snapshot?.snapshot_id]);
 
   useEffect(() => {
     setActiveLogStream('stdout');
@@ -496,7 +467,9 @@ export function RunProgressPanel({
   }, [actionIssueKind, run?.status]);
 
   const canCreateRun =
-    workflowId !== null && validationResult?.ok === true && validatedInputs !== null;
+    workflowId !== null &&
+    validationResult?.ok === true &&
+    validationResult.snapshot !== null;
   const executionActionPending = startMutation.isPending || cancelMutation.isPending;
 
   async function handleCreateRun() {

@@ -19,6 +19,7 @@ from encode_pipeline.persistence.models import (
     RunQcMetricRow,
     RunRow,
     RunWorkflowBuildIdentityRow,
+    ValidatedInputSnapshotRow,
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import (
@@ -37,14 +38,22 @@ from encode_pipeline.platform.runs import (
     RunRecord,
     RunStatus,
 )
+from encode_pipeline.platform.snapshots import (
+    ValidatedInputSnapshot,
+    ValidatedSnapshotRunCreation,
+)
 from encode_pipeline.services.run_repositories import (
     ConcurrentRunUpdateError,
     RunEventDraft,
+    ValidatedSnapshotExpiredError,
+    ValidatedSnapshotReplayConflictError,
     _QC_OUTCOME_TYPES,
     _sorted_artifacts,
     _validate_qc_metric_fields,
     _validated_expected_artifacts,
     _validated_qc_replacement,
+    _validate_snapshot_consumption_candidate,
+    _validate_snapshot_linked_run,
     canonical_decimal_text,
     decimal_from_canonical_text,
 )
@@ -76,6 +85,97 @@ class SqlAlchemyRunRepository:
                     return self._insert_event(session, record.run_id, event)
             except IntegrityError as exc:
                 raise ValueError(f"Duplicate run_id: {record.run_id!r}") from exc
+
+    def create_validated_input_snapshot(
+        self,
+        snapshot: ValidatedInputSnapshot,
+    ) -> ValidatedInputSnapshot:
+        validated = _validated_input_snapshot_from_row(
+            _validated_input_snapshot_row(snapshot)
+        )
+        try:
+            with self._lock, self._session_factory.begin() as session:
+                _begin_write(session)
+                session.add(_validated_input_snapshot_row(validated))
+                session.flush()
+        except IntegrityError as exc:
+            raise ValueError(
+                f"Duplicate validated snapshot ID: {validated.snapshot_id!r}"
+            ) from exc
+        return validated
+
+    def get_validated_input_snapshot(
+        self,
+        snapshot_id: str,
+    ) -> ValidatedInputSnapshot:
+        with self._session_factory() as session:
+            row = session.get(ValidatedInputSnapshotRow, snapshot_id)
+            if row is None:
+                raise KeyError(snapshot_id)
+            return _validated_input_snapshot_from_row(row)
+
+    def consume_validated_input_snapshot(
+        self,
+        snapshot_id: str,
+        *,
+        workflow_id: str,
+        expected_build_identity: WorkflowBuildIdentity,
+        record: RunRecord,
+        consumed_at: datetime,
+        event: RunEventDraft,
+    ) -> ValidatedSnapshotRunCreation:
+        try:
+            with self._lock, self._session_factory.begin() as session:
+                _begin_write(session)
+                row = session.get(ValidatedInputSnapshotRow, snapshot_id)
+                if row is None:
+                    raise KeyError(snapshot_id)
+                snapshot = _validated_input_snapshot_from_row(row)
+                if snapshot.workflow_id != workflow_id:
+                    raise KeyError(snapshot_id)
+                _validate_snapshot_consumption_candidate(
+                    snapshot,
+                    workflow_id=workflow_id,
+                    expected_build_identity=expected_build_identity,
+                    record=record,
+                    consumed_at=consumed_at,
+                )
+                if snapshot.consumed_run_id is not None:
+                    run_row = session.scalar(
+                        select(RunRow).where(RunRow.run_id == snapshot.consumed_run_id)
+                    )
+                    if run_row is None:
+                        raise ValueError("validated snapshot references a missing run")
+                    current = _record_from_row(run_row)
+                    _validate_snapshot_linked_run(snapshot, current)
+                    if dict(current.tags) != dict(record.tags):
+                        raise ValidatedSnapshotReplayConflictError(
+                            "validated snapshot replay metadata differs"
+                        )
+                    return ValidatedSnapshotRunCreation(
+                        record=current,
+                        created=False,
+                    )
+                if consumed_at >= snapshot.expires_at:
+                    raise ValidatedSnapshotExpiredError(
+                        "validated snapshot expired before first use"
+                    )
+
+                session.add(_run_row(record))
+                session.flush()
+                created_event = self._insert_event(
+                    session,
+                    record.run_id,
+                    event,
+                )
+                if created_event.sequence != 1:
+                    raise ValueError("validated run initial event is invalid")
+                row.consumed_run_id = record.run_id
+                row.consumed_at = consumed_at
+                session.flush()
+                return ValidatedSnapshotRunCreation(record=record, created=True)
+        except IntegrityError as exc:
+            raise ValueError("validated snapshot could not create a run") from exc
 
     def get_run(self, run_id: str) -> RunRecord:
         with self._session_factory() as session:
@@ -1022,6 +1122,35 @@ def _workflow_build_identity_row(
     )
 
 
+def _validated_input_snapshot_row(
+    snapshot: ValidatedInputSnapshot,
+) -> ValidatedInputSnapshotRow:
+    if not isinstance(snapshot, ValidatedInputSnapshot):
+        raise ValueError("snapshot must be a ValidatedInputSnapshot")
+    identity = snapshot.workflow_build_identity
+    return ValidatedInputSnapshotRow(
+        snapshot_id=snapshot.snapshot_id,
+        workflow_id=snapshot.workflow_id,
+        adapter_version=snapshot.adapter_version,
+        schema_version=snapshot.schema_version,
+        schema_dialect=snapshot.schema_dialect,
+        canonical_payload=snapshot.canonical_payload,
+        payload_digest_scheme=snapshot.payload_digest_scheme,
+        payload_digest=snapshot.payload_digest,
+        validation_outcome=snapshot.validation_outcome,
+        validation_issue_codes=list(snapshot.validation_issue_codes),
+        validated_at=snapshot.validated_at,
+        expires_at=snapshot.expires_at,
+        build_adapter_version=identity.adapter_version,
+        build_scheme=identity.scheme,
+        build_logical_entrypoint=identity.logical_entrypoint,
+        build_digest=identity.digest,
+        build_captured_at=identity.captured_at,
+        consumed_run_id=snapshot.consumed_run_id,
+        consumed_at=snapshot.consumed_at,
+    )
+
+
 def _begin_write(session: Session) -> None:
     """Serialize SQLite writers before read-then-increment sequence allocation."""
     bind = session.get_bind()
@@ -1059,6 +1188,39 @@ def _record_from_row(row: RunRow) -> RunRecord:
         cancellation_reason=row.cancellation_reason,
         error=_issue_from_json(row.error),
         tags=row.tags,
+    )
+
+
+def _validated_input_snapshot_from_row(
+    row: ValidatedInputSnapshotRow,
+) -> ValidatedInputSnapshot:
+    issue_codes = row.validation_issue_codes
+    if not isinstance(issue_codes, list):
+        raise ValueError("validated snapshot issue evidence is invalid")
+    identity = WorkflowBuildIdentity(
+        workflow_id=row.workflow_id,
+        adapter_version=row.build_adapter_version,
+        scheme=row.build_scheme,
+        logical_entrypoint=row.build_logical_entrypoint,
+        digest=row.build_digest,
+        captured_at=_as_utc(row.build_captured_at),
+    )
+    return ValidatedInputSnapshot(
+        snapshot_id=row.snapshot_id,
+        workflow_id=row.workflow_id,
+        adapter_version=row.adapter_version,
+        schema_version=row.schema_version,
+        schema_dialect=row.schema_dialect,
+        workflow_build_identity=identity,
+        canonical_payload=row.canonical_payload,
+        payload_digest_scheme=row.payload_digest_scheme,
+        payload_digest=row.payload_digest,
+        validation_outcome=row.validation_outcome,
+        validation_issue_codes=tuple(issue_codes),
+        validated_at=_as_utc(row.validated_at),
+        expires_at=_as_utc(row.expires_at),
+        consumed_run_id=row.consumed_run_id,
+        consumed_at=_optional_utc(row.consumed_at),
     )
 
 

@@ -38,6 +38,10 @@ from encode_pipeline.services.planning import ExecutionPlanner
 from encode_pipeline.services.preflight import LocalPreflightService
 from encode_pipeline.services.run_cancellation import RunCancellationService
 from encode_pipeline.services.run_submission import RunSubmissionService
+from encode_pipeline.services.validated_inputs import (
+    ValidatedInputService,
+    ValidatedRunCreationService,
+)
 from encode_pipeline.workers.rq_queue import RqRunQueue
 from encode_pipeline.workers.settings import (
     WORKSPACE_ROOT_ENV,
@@ -89,6 +93,17 @@ def create_app(
         registry=registry,
         repository=persistence.repository,
     )
+    validation_service = create_default_validation_service(registry=registry)
+    validated_input_service = ValidatedInputService(
+        registry=registry,
+        validation_service=validation_service,
+        build_identity_provider=build_identity_provider,
+        repository=persistence.repository,
+    )
+    validated_run_creation_service = ValidatedRunCreationService(
+        run_service=run_service,
+        build_identity_provider=build_identity_provider,
+    )
     run_submission_service = RunSubmissionService(
         run_service=run_service,
         run_queue=run_queue,
@@ -122,7 +137,9 @@ def create_app(
     app.state.worker_settings = worker_settings
     app.state.run_queue = run_queue
     app.state.recovered_run_ids = tuple(run.run_id for run in recovered_runs)
-    app.state.validation_service = create_default_validation_service(registry=registry)
+    app.state.validation_service = validation_service
+    app.state.validated_input_service = validated_input_service
+    app.state.validated_run_creation_service = validated_run_creation_service
     app.state.agent_service = create_default_agent_service(registry=registry)
     app.state.run_service = run_service
     app.state.artifact_download_service = ArtifactDownloadService(
@@ -148,24 +165,14 @@ def _issue_from_request_validation_error(
     workflow_id: str | None = None,
 ) -> Issue:
     """Build a stable API_REQUEST_INVALID issue from a Pydantic validation error."""
-    errors = exc.errors()
-    sanitized = (
-        "; ".join(
-            f"{'.'.join(str(loc) for loc in error.get('loc', []))}: {error.get('msg', '')}"
-            for error in errors
-        )
-        if errors
-        else None
-    )
-
     return Issue(
         code="API_REQUEST_INVALID",
         message="Request body is invalid.",
         severity="error",
         path="body",
         source="api",
-        technical_message=sanitized,
-        hint="Submit an object with config, samples, and options fields.",
+        technical_message=None,
+        hint="Submit the fields required by this operation's OpenAPI schema.",
         context={"workflow_id": workflow_id} if workflow_id is not None else {},
     )
 
@@ -238,6 +245,7 @@ async def _handle_request_validation_error(
         ok=False,
         workflow_id=workflow_id,
         value=None,
+        snapshot=None,
         issues=[issue.to_dict()],
     )
     return JSONResponse(status_code=400, content=body.model_dump())
@@ -249,6 +257,22 @@ async def _handle_internal_server_error(
 ) -> JSONResponse:
     """Return 500 with the PR84 INTERNAL_SERVER_ERROR envelope."""
     route = request.scope.get("route")
+    if getattr(route, "operation_id", None) == "createRun":
+        issue = Issue(
+            code="INTERNAL_SERVER_ERROR",
+            message="Run creation is temporarily unavailable.",
+            severity="error",
+            path="snapshot_id",
+            source="runtime",
+            technical_message=None,
+            hint=None,
+            context={},
+        )
+        body = RunResponse(ok=False, run=None, issues=[issue.to_dict()])
+        return JSONResponse(
+            status_code=500,
+            content=body.model_dump(mode="json"),
+        )
     if getattr(route, "operation_id", None) == "downloadRunArtifact":
         issue = Issue(
             code="INTERNAL_SERVER_ERROR",
@@ -284,6 +308,7 @@ async def _handle_internal_server_error(
         ok=False,
         workflow_id=workflow_id,
         value=None,
+        snapshot=None,
         issues=[issue.to_dict()],
     )
     return JSONResponse(status_code=500, content=body.model_dump())

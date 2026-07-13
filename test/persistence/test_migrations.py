@@ -20,6 +20,7 @@ EXPECTED_TABLES = {
     "run_qc_metrics",
     "run_workflow_build_identities",
     "runs",
+    "validated_input_snapshots",
 }
 
 
@@ -33,7 +34,7 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
     assert set(inspector.get_table_names()) == EXPECTED_TABLES
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260712_05"
+            "20260714_06"
         )
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert connection.scalar(text("PRAGMA journal_mode")) == "wal"
@@ -61,6 +62,22 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
         "ck_run_execution_assignments_claim_requires_dispatch",
         "ck_run_execution_assignments_request_reason_pair",
         "ck_run_execution_assignments_request_requires_claim",
+    }
+    snapshot_foreign_key = inspector.get_foreign_keys("validated_input_snapshots")[0]
+    assert snapshot_foreign_key["referred_table"] == "runs"
+    assert snapshot_foreign_key["options"] == {"ondelete": "RESTRICT"}
+    assert {
+        constraint["name"]
+        for constraint in inspector.get_unique_constraints("validated_input_snapshots")
+    } == {"uq_validated_input_snapshots_consumed_run_id"}
+    assert {
+        constraint["name"]
+        for constraint in inspector.get_check_constraints("validated_input_snapshots")
+    } == {
+        "ck_validated_input_snapshots_consumption_pair",
+        "ck_validated_input_snapshots_digest_length",
+        "ck_validated_input_snapshots_expiry",
+        "ck_validated_input_snapshots_success",
     }
     assert inspector.get_foreign_keys("run_events")[0]["options"] == {
         "ondelete": "CASCADE"
@@ -361,8 +378,12 @@ def test_qc_metric_migration_upgrades_current_main_without_changing_existing_row
         assert connection.scalar(text("SELECT count(*) FROM runs")) == 1
         assert connection.scalar(text("SELECT count(*) FROM run_artifacts")) == 1
         assert connection.scalar(text("SELECT count(*) FROM run_qc_metrics")) == 0
+        assert (
+            connection.scalar(text("SELECT count(*) FROM validated_input_snapshots"))
+            == 0
+        )
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260712_05"
+            "20260714_06"
         )
     upgraded.dispose()
 
@@ -381,3 +402,41 @@ def test_qc_metric_migration_downgrades_independently(tmp_path):
             "20260712_04"
         )
     downgraded.dispose()
+
+
+def test_validated_snapshot_migration_upgrades_current_main_without_changing_runs(
+    tmp_path,
+):
+    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
+    upgrade_database(database_url, "20260712_05")
+    current = create_database_engine(database_url)
+    with current.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO runs (
+                    run_id, workflow_id, inputs, status, created_at, updated_at,
+                    started_at, ended_at, current_stage, cancellation_reason,
+                    error, tags
+                ) VALUES (
+                    'existing-run', 'workflow', '{}', 'created',
+                    :timestamp, :timestamp, NULL, NULL, NULL, NULL, NULL, '{}'
+                )
+                """
+            ),
+            {"timestamp": "2026-07-14 00:00:00"},
+        )
+    current.dispose()
+
+    upgrade_database(database_url)
+    upgraded = create_database_engine(database_url)
+    with upgraded.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM runs")) == 1
+        assert (
+            connection.scalar(text("SELECT count(*) FROM validated_input_snapshots"))
+            == 0
+        )
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20260714_06"
+        )
+    upgraded.dispose()

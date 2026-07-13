@@ -11,6 +11,7 @@ from encode_pipeline.api.dependencies import (
     get_run_cancellation_service,
     get_run_service,
     get_run_submission_service,
+    get_validated_run_creation_service,
 )
 from encode_pipeline.api.models import (
     IssueResponse,
@@ -22,7 +23,6 @@ from encode_pipeline.api.models import (
     RunRecordResponse,
     RunResponse,
 )
-from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.services.run_cancellation import (
     RunCancellationConflictError,
     RunCancellationService,
@@ -35,6 +35,15 @@ from encode_pipeline.services.run_submission import (
     RunStartConflictError,
     RunSubmissionService,
     RunSubmissionUnavailableError,
+)
+from encode_pipeline.services.validated_inputs import (
+    ValidatedRunCreationService,
+    ValidatedSnapshotBuildUnavailableError,
+    ValidatedSnapshotDataInvalidError,
+    ValidatedSnapshotExpiredError,
+    ValidatedSnapshotNotFoundError,
+    ValidatedSnapshotReplayConflictError,
+    ValidatedSnapshotStaleError,
 )
 
 
@@ -151,6 +160,14 @@ def _api_request_invalid_issue(
     )
 
 
+def _validated_snapshot_issue(code: str, message: str) -> IssueResponse:
+    return _issue(
+        code=code,
+        message=message,
+        path="snapshot_id",
+    )
+
+
 def _run_record_response(record: Any) -> RunRecordResponse:
     return RunRecordResponse(**record.to_dict())
 
@@ -169,51 +186,127 @@ def _run_log_chunk_response(chunk: Any) -> RunLogChunkResponse:
     status_code=201,
     operation_id="createRun",
     responses={
+        200: {
+            "model": RunResponse,
+            "description": "Idempotent replay of the snapshot's canonical run.",
+        },
         400: {"model": RunResponse},
         404: {"model": RunResponse},
+        409: {"model": RunResponse},
         413: {
             "model": RunResponse,
             "description": "Request body too large.",
         },
+        503: {"model": RunResponse},
     },
 )
 def create_run(
     workflow_id: str,
     request_body: RunCreateRequest,
-    run_service: RunService = Depends(get_run_service),
+    creation_service: ValidatedRunCreationService = Depends(
+        get_validated_run_creation_service
+    ),
 ) -> RunResponse | JSONResponse:
-    """Create a new run for the given workflow."""
-    inputs = WorkflowInputs(
-        config=request_body.config,
-        samples=request_body.samples,
-        options=request_body.options,
-    )
+    """Create or replay one run using a server-owned validated snapshot."""
     try:
-        record = run_service.create_run(workflow_id, inputs, tags=request_body.tags)
-    except KeyError:
+        creation = creation_service.create_run(
+            workflow_id,
+            request_body.snapshot_id,
+            tags=request_body.tags,
+        )
+    except ValidatedSnapshotNotFoundError:
         return JSONResponse(
             status_code=404,
             content=RunResponse(
                 ok=False,
                 run=None,
-                issues=[_workflow_not_found_issue(workflow_id)],
-            ).model_dump(),
+                issues=[
+                    _validated_snapshot_issue(
+                        "VALIDATED_SNAPSHOT_NOT_FOUND",
+                        "Validated input snapshot was not found.",
+                    )
+                ],
+            ).model_dump(mode="json"),
         )
-    except ValueError as exc:
+    except ValidatedSnapshotExpiredError:
         return JSONResponse(
-            status_code=400,
+            status_code=409,
             content=RunResponse(
                 ok=False,
                 run=None,
                 issues=[
-                    _api_request_invalid_issue(
-                        str(exc), context={"workflow_id": workflow_id}
+                    _validated_snapshot_issue(
+                        "VALIDATED_SNAPSHOT_EXPIRED",
+                        "Validated input snapshot expired. Validate again.",
                     )
                 ],
-            ).model_dump(),
+            ).model_dump(mode="json"),
+        )
+    except ValidatedSnapshotStaleError:
+        return JSONResponse(
+            status_code=409,
+            content=RunResponse(
+                ok=False,
+                run=None,
+                issues=[
+                    _validated_snapshot_issue(
+                        "VALIDATED_SNAPSHOT_STALE",
+                        "Workflow source changed after validation. Validate again.",
+                    )
+                ],
+            ).model_dump(mode="json"),
+        )
+    except ValidatedSnapshotReplayConflictError:
+        return JSONResponse(
+            status_code=409,
+            content=RunResponse(
+                ok=False,
+                run=None,
+                issues=[
+                    _validated_snapshot_issue(
+                        "VALIDATED_SNAPSHOT_REPLAY_CONFLICT",
+                        "Validated input snapshot is already linked to different run metadata.",
+                    )
+                ],
+            ).model_dump(mode="json"),
+        )
+    except ValidatedSnapshotDataInvalidError:
+        return JSONResponse(
+            status_code=409,
+            content=RunResponse(
+                ok=False,
+                run=None,
+                issues=[
+                    _validated_snapshot_issue(
+                        "VALIDATED_SNAPSHOT_DATA_INVALID",
+                        "Validated input snapshot cannot be used safely.",
+                    )
+                ],
+            ).model_dump(mode="json"),
+        )
+    except ValidatedSnapshotBuildUnavailableError:
+        return JSONResponse(
+            status_code=503,
+            content=RunResponse(
+                ok=False,
+                run=None,
+                issues=[
+                    _validated_snapshot_issue(
+                        "VALIDATED_SNAPSHOT_BUILD_UNAVAILABLE",
+                        "Workflow source identity could not be confirmed. Retry later.",
+                    )
+                ],
+            ).model_dump(mode="json"),
         )
 
-    return RunResponse(ok=True, run=_run_record_response(record), issues=[])
+    response = RunResponse(
+        ok=True,
+        run=_run_record_response(creation.record),
+        issues=[],
+    )
+    if not creation.created:
+        return JSONResponse(status_code=200, content=response.model_dump(mode="json"))
+    return response
 
 
 @router.get("/runs/{run_id}", response_model=RunResponse, operation_id="getRun")

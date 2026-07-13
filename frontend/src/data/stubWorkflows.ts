@@ -73,6 +73,7 @@ export const stubValidationResponses: Record<
         ok: false,
         workflow_id: 'encode-style-chipseq-cuttag-atac-mnase',
         value: null,
+        snapshot: null,
         issues,
       };
     }
@@ -82,6 +83,15 @@ export const stubValidationResponses: Record<
       value: {
         config: inputs.config,
         samples: [],
+      },
+      snapshot: {
+        snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
+        workflow_id: 'encode-style-chipseq-cuttag-atac-mnase',
+        schema_version: '1.0.0',
+        adapter_version: '0.3.0',
+        payload_digest: 'a'.repeat(64),
+        validated_at: '2026-07-14T00:00:00Z',
+        expires_at: '2026-07-14T00:30:00Z',
       },
       issues: [],
     };

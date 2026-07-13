@@ -32,6 +32,11 @@ from encode_pipeline.platform.runs import (
     validate_qc_identifier_token,
 )
 from encode_pipeline.services.run_repositories import canonical_decimal_text
+from encode_pipeline.platform.snapshots import (
+    ValidatedInputSnapshot,
+    canonical_workflow_inputs_json,
+)
+from encode_pipeline.platform.adapters import WorkflowInputs
 
 
 _LOGICAL_ID_PATTERN = r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$"
@@ -231,6 +236,44 @@ class ValidationRequest(BaseModel):
         _reject_sample_control_characters
     )
 
+    @model_validator(mode="after")
+    def validate_canonical_json_safety(self) -> "ValidationRequest":
+        canonical_workflow_inputs_json(
+            WorkflowInputs(
+                config=self.config,
+                samples=self.samples,
+                options=self.options,
+            )
+        )
+        return self
+
+
+class ValidatedInputSnapshotResponse(BaseModel):
+    """Safe public projection of one server-owned validation snapshot."""
+
+    snapshot_id: str = Field(pattern=r"^vsnap_[0-9a-f]{32}$", max_length=38)
+    workflow_id: str
+    schema_version: str
+    adapter_version: str
+    payload_digest: str = Field(pattern=r"^[0-9a-f]{64}$", max_length=64)
+    validated_at: datetime
+    expires_at: datetime
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        snapshot: ValidatedInputSnapshot,
+    ) -> "ValidatedInputSnapshotResponse":
+        return cls(
+            snapshot_id=snapshot.snapshot_id,
+            workflow_id=snapshot.workflow_id,
+            schema_version=snapshot.schema_version,
+            adapter_version=snapshot.adapter_version,
+            payload_digest=snapshot.payload_digest,
+            validated_at=snapshot.validated_at,
+            expires_at=snapshot.expires_at,
+        )
+
 
 class ValidationResponse(BaseModel):
     """Envelope for POST /api/v1/workflows/{workflow_id}/validate."""
@@ -238,6 +281,7 @@ class ValidationResponse(BaseModel):
     ok: bool
     workflow_id: str | None
     value: None = None
+    snapshot: ValidatedInputSnapshotResponse | None
     issues: list[IssueResponse] = Field(default_factory=list)
 
 
@@ -657,14 +701,12 @@ class RunCreateRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    config: dict[str, JsonValue]
-    samples: SampleRequestPayload = None
-    options: dict[str, JsonValue] = Field(default_factory=dict)
-    tags: dict[str, str] = Field(default_factory=dict)
-
-    _validate_sample_cells = field_validator("samples")(
-        _reject_sample_control_characters
+    snapshot_id: str = Field(
+        pattern=r"^vsnap_[0-9a-f]{32}$",
+        min_length=38,
+        max_length=38,
     )
+    tags: dict[str, str] = Field(default_factory=dict)
 
 
 class RunResponse(BaseModel):

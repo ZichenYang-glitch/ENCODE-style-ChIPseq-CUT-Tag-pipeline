@@ -17,7 +17,7 @@ import type {
 import { fetcher } from '../../fetcher';
 
 /**
- * Create a new run for the given workflow.
+ * Create or replay one run using a server-owned validated snapshot.
  * @summary Create Run
  */
 export const getCreateRunUrl = (workflowId: string,) => {
@@ -29,9 +29,9 @@ export const getCreateRunUrl = (workflowId: string,) => {
 }
 
 export const createRun = async (workflowId: string,
-    runCreateRequest: RunCreateRequest, options?: RequestInit): Promise<RunResponse> => {
+    runCreateRequest: RunCreateRequest, options?: RequestInit): Promise<RunResponse | RunResponse> => {
 
-  return fetcher<RunResponse>(getCreateRunUrl(workflowId),
+  return fetcher<RunResponse | RunResponse>(getCreateRunUrl(workflowId),
   {
     ...options,
     method: 'POST',

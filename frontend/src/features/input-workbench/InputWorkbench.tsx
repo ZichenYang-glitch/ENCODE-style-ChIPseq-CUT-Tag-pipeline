@@ -9,6 +9,7 @@ import { OptionsEditor } from './OptionsEditor';
 import { SampleEditor } from './SampleEditor';
 import type { WorkbenchSchema } from './schemaContract';
 import { useInputDraft } from './useInputDraft';
+import { ValidatedSubmission } from './ValidatedSubmission';
 
 type WorkbenchStep = 'config' | 'samples' | 'options' | 'review';
 
@@ -124,8 +125,13 @@ export function InputWorkbench({ workflowId, schema }: InputWorkbenchProps) {
           <Tabs.Content value="options" className="min-w-0 pt-4 outline-none">
             <OptionsEditor schema={schema} draft={draft} />
           </Tabs.Content>
-          <Tabs.Content value="review" className="min-w-0 pt-4 outline-none">
+          <Tabs.Content
+            value="review"
+            forceMount
+            className="min-w-0 pt-4 outline-none data-[state=inactive]:hidden"
+          >
             <DraftReview schema={schema} draft={draft} />
+            <ValidatedSubmission workflowId={workflowId} draft={draft} />
           </Tabs.Content>
         </Tabs.Root>
       </Panel>
