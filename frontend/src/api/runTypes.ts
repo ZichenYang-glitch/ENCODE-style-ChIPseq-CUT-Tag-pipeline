@@ -1,3 +1,9 @@
+import type {
+  RunCreateRequestConfig,
+  RunCreateRequestOptions,
+  RunCreateRequestSamples,
+  RunCreateRequestTags,
+} from './generated/models';
 import type { Issue } from './types';
 
 export interface RunRecordResponse {
@@ -38,10 +44,10 @@ export interface RunLogChunkResponse {
 }
 
 export interface RunCreateRequest {
-  config: Record<string, unknown>;
-  samples: string | Array<Record<string, string>> | null;
-  options?: Record<string, unknown>;
-  tags?: Record<string, string>;
+  config: RunCreateRequestConfig;
+  samples: RunCreateRequestSamples;
+  options?: RunCreateRequestOptions;
+  tags?: RunCreateRequestTags;
 }
 
 export interface RunResponse {

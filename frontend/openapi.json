@@ -34,7 +34,7 @@
           "workflows"
         ],
         "summary": "Get Schema",
-        "description": "Return adapter-owned schema hints for one workflow.",
+        "description": "Return the adapter-owned authoring contract for one workflow.",
         "operationId": "getWorkflowSchema",
         "parameters": [
           {
@@ -110,6 +110,16 @@
                 }
               }
             }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
           },
           "422": {
             "description": "Validation Error",
@@ -216,6 +226,36 @@
                 }
               }
             }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
           },
           "422": {
             "description": "Validation Error",
@@ -1570,6 +1610,7 @@
         "title": "IssueResponse",
         "description": "JSON-ready Issue shape from the PR84 contract."
       },
+      "JsonValue": {},
       "QcMetricResponse": {
         "properties": {
           "metric_id": {
@@ -1811,23 +1852,36 @@
       "RunCreateRequest": {
         "properties": {
           "config": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "type": "object",
             "title": "Config"
           },
           "samples": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 4096,
+                "minLength": 1
               },
               {
                 "items": {
                   "additionalProperties": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 4096
                   },
-                  "type": "object"
+                  "propertyNames": {
+                    "maxLength": 128,
+                    "minLength": 1
+                  },
+                  "type": "object",
+                  "maxProperties": 64,
+                  "minProperties": 1
                 },
-                "type": "array"
+                "type": "array",
+                "maxItems": 1000,
+                "minItems": 1
               },
               {
                 "type": "null"
@@ -1836,7 +1890,9 @@
             "title": "Samples"
           },
           "options": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "type": "object",
             "title": "Options"
           },
@@ -1848,6 +1904,7 @@
             "title": "Tags"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "config"
@@ -2262,10 +2319,15 @@
             "type": "string",
             "title": "Workflow Id"
           },
-          "schema_hints": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Schema Hints"
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowSchemaResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "issues": {
             "items": {
@@ -2326,23 +2388,36 @@
       "ValidationRequest": {
         "properties": {
           "config": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "type": "object",
             "title": "Config"
           },
           "samples": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 4096,
+                "minLength": 1
               },
               {
                 "items": {
                   "additionalProperties": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 4096
                   },
-                  "type": "object"
+                  "propertyNames": {
+                    "maxLength": 128,
+                    "minLength": 1
+                  },
+                  "type": "object",
+                  "maxProperties": 64,
+                  "minProperties": 1
                 },
-                "type": "array"
+                "type": "array",
+                "maxItems": 1000,
+                "minItems": 1
               },
               {
                 "type": "null"
@@ -2351,11 +2426,14 @@
             "title": "Samples"
           },
           "options": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "type": "object",
             "title": "Options"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "config"
@@ -2381,12 +2459,7 @@
             "title": "Workflow Id"
           },
           "value": {
-            "anyOf": [
-              {},
-              {
-                "type": "null"
-              }
-            ],
+            "type": "null",
             "title": "Value"
           },
           "issues": {
@@ -2400,8 +2473,7 @@
         "type": "object",
         "required": [
           "ok",
-          "workflow_id",
-          "value"
+          "workflow_id"
         ],
         "title": "ValidationResponse",
         "description": "Envelope for POST /api/v1/workflows/{workflow_id}/validate."
@@ -2419,6 +2491,51 @@
         "type": "object",
         "title": "WorkflowCapabilityResponse",
         "description": "WorkflowCapabilities JSON shape."
+      },
+      "WorkflowInputLimitsResponse": {
+        "properties": {
+          "max_request_bytes": {
+            "type": "integer",
+            "maximum": 2097152.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Request Bytes"
+          },
+          "max_sample_rows": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Sample Rows"
+          },
+          "max_sample_columns": {
+            "type": "integer",
+            "maximum": 64.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Sample Columns"
+          },
+          "max_sample_column_name_length": {
+            "type": "integer",
+            "maximum": 128.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Sample Column Name Length"
+          },
+          "max_sample_cell_length": {
+            "type": "integer",
+            "maximum": 4096.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Sample Cell Length"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "max_request_bytes",
+          "max_sample_rows",
+          "max_sample_columns",
+          "max_sample_column_name_length",
+          "max_sample_cell_length"
+        ],
+        "title": "WorkflowInputLimitsResponse",
+        "description": "Published workflow input limits."
       },
       "WorkflowListItem": {
         "properties": {
@@ -2514,6 +2631,139 @@
         ],
         "title": "WorkflowMetadataResponse",
         "description": "WorkflowMetadata JSON shape."
+      },
+      "WorkflowSchemaCoverageResponse": {
+        "properties": {
+          "config": {
+            "type": "string",
+            "enum": [
+              "partial",
+              "complete"
+            ],
+            "title": "Config"
+          },
+          "samples": {
+            "type": "string",
+            "enum": [
+              "partial",
+              "complete"
+            ],
+            "title": "Samples"
+          },
+          "options": {
+            "type": "string",
+            "enum": [
+              "partial",
+              "complete"
+            ],
+            "title": "Options"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "config",
+          "samples",
+          "options"
+        ],
+        "title": "WorkflowSchemaCoverageResponse",
+        "description": "Truthful coverage level for each adapter schema surface."
+      },
+      "WorkflowSchemaModesResponse": {
+        "properties": {
+          "config": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Config"
+          },
+          "samples": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Samples"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Options"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "config",
+          "samples",
+          "options"
+        ],
+        "title": "WorkflowSchemaModesResponse",
+        "description": "Adapter-declared modes for config, samples, and options."
+      },
+      "WorkflowSchemaResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "pattern": "^[1-9]\\d*\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$",
+            "title": "Schema Version"
+          },
+          "schema_dialect": {
+            "type": "string",
+            "const": "https://json-schema.org/draft/2020-12/schema",
+            "title": "Schema Dialect"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/WorkflowSchemaCoverageResponse"
+          },
+          "authoring_modes": {
+            "$ref": "#/components/schemas/WorkflowSchemaModesResponse"
+          },
+          "input_modes": {
+            "$ref": "#/components/schemas/WorkflowSchemaModesResponse"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/WorkflowInputLimitsResponse"
+          },
+          "config_schema": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object",
+            "title": "Config Schema"
+          },
+          "sample_schema": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object",
+            "title": "Sample Schema"
+          },
+          "option_schema": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object",
+            "title": "Option Schema"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "schema_dialect",
+          "coverage",
+          "authoring_modes",
+          "input_modes",
+          "limits",
+          "config_schema",
+          "sample_schema",
+          "option_schema"
+        ],
+        "title": "WorkflowSchemaResponse",
+        "description": "Versioned renderable schema contract returned by an adapter."
       }
     }
   }

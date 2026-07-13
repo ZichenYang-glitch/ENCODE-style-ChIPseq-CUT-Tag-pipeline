@@ -24,14 +24,15 @@ from encode_pipeline.services.defaults import (
 
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
-VALID_SAMPLES = (
-    "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
-    "S1\tR1.fq\tR2.fq\tPE\tchipseq\tCTCF\tnarrow\ths\tidx\n"
-)
 
 
 def _write_samples(path: Path) -> Path:
-    path.write_text(VALID_SAMPLES, encoding="utf-8")
+    root = path.parent.resolve()
+    path.write_text(
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
+        f"S1\t{root / 'R1.fq'}\t{root / 'R2.fq'}\tPE\tchipseq\tCTCF\tnarrow\ths\t{root / 'idx'}\n",
+        encoding="utf-8",
+    )
     return path
 
 

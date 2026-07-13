@@ -5,6 +5,7 @@ import subprocess
 import sys
 import textwrap
 from decimal import Decimal
+from math import nan
 from pathlib import Path
 
 import pytest
@@ -21,11 +22,21 @@ from encode_pipeline.platform.adapters import (
     QcSourceDocument,
     QcSummaryExtractingAdapter,
     WorkflowAdapter,
+    WorkflowAuthoringModes,
     WorkflowCapabilities,
     WorkflowInputs,
+    WorkflowInputLimits,
+    WorkflowInputModes,
     WorkflowMetadata,
     WorkflowSchema,
+    WorkflowSchemaCoverage,
     WorkspacePlan,
+    JSON_SCHEMA_DIALECT,
+    MAX_AUTHORING_REQUEST_BYTES,
+    MAX_SAMPLE_CELL_LENGTH,
+    MAX_SAMPLE_COLUMN_NAME_LENGTH,
+    MAX_SAMPLE_COLUMNS,
+    MAX_SAMPLE_ROWS,
 )
 from encode_pipeline.platform.results import Result
 
@@ -80,7 +91,10 @@ def test_capabilities_stores_tuple_supports_and_rejects_empty_strings():
 
 def test_schemas_deep_copy_nested_mappings_and_to_dict_returns_deep_copy():
     config_schema = {"properties": {"threads": {"type": "integer"}}}
-    sample_schema = {"columns": ["sample", "fastq_1"]}
+    sample_schema = {
+        "type": "array",
+        "items": {"type": "object", "properties": {"sample": {"type": "string"}}},
+    }
     option_schema = {"properties": {"trim": {"type": "boolean"}}}
     schema = WorkflowSchema(
         config_schema=config_schema,
@@ -89,27 +103,123 @@ def test_schemas_deep_copy_nested_mappings_and_to_dict_returns_deep_copy():
     )
 
     config_schema["properties"]["threads"]["type"] = "string"
-    sample_schema["columns"].append("fastq_2")
+    sample_schema["items"]["properties"]["sample"]["type"] = "integer"
     option_schema["properties"]["trim"]["type"] = "string"
     serialized = schema.to_dict()
     serialized["config_schema"]["properties"]["threads"]["type"] = "number"
-    serialized["sample_schema"]["columns"].append("layout")
+    serialized["sample_schema"]["items"]["properties"]["sample"]["type"] = "number"
     serialized["option_schema"]["properties"]["trim"]["type"] = "number"
 
     assert schema.config_schema == {
+        "$schema": JSON_SCHEMA_DIALECT,
+        "type": "object",
         "properties": {"threads": {"type": "integer"}},
     }
-    assert schema.sample_schema == {"columns": ["sample", "fastq_1"]}
+    assert schema.sample_schema == {
+        "$schema": JSON_SCHEMA_DIALECT,
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {"sample": {"type": "string"}},
+        },
+    }
     assert schema.option_schema == {
+        "$schema": JSON_SCHEMA_DIALECT,
+        "type": "object",
         "properties": {"trim": {"type": "boolean"}},
     }
     assert schema.to_dict()["config_schema"] == {
+        "$schema": JSON_SCHEMA_DIALECT,
+        "type": "object",
         "properties": {"threads": {"type": "integer"}},
     }
-    assert schema.to_dict()["sample_schema"] == {"columns": ["sample", "fastq_1"]}
+    assert schema.to_dict()["sample_schema"] == {
+        "$schema": JSON_SCHEMA_DIALECT,
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {"sample": {"type": "string"}},
+        },
+    }
     assert schema.to_dict()["option_schema"] == {
+        "$schema": JSON_SCHEMA_DIALECT,
+        "type": "object",
         "properties": {"trim": {"type": "boolean"}},
     }
+
+
+def test_schema_serializes_versioned_authoring_contract_and_defensive_values():
+    coverage = WorkflowSchemaCoverage(
+        config="partial",
+        samples="complete",
+        options="complete",
+    )
+    authoring_modes = WorkflowAuthoringModes(
+        config=("schema_form", "yaml"),
+        samples=("tsv_upload", "inline_table"),
+        options=("schema_form",),
+    )
+    input_modes = WorkflowInputModes(
+        config=("object",),
+        samples=("inline_rows", "server_path"),
+        options=("object",),
+    )
+    limits = WorkflowInputLimits()
+    schema = WorkflowSchema(
+        schema_version="1.0.0",
+        schema_dialect=JSON_SCHEMA_DIALECT,
+        coverage=coverage,
+        authoring_modes=authoring_modes,
+        input_modes=input_modes,
+        limits=limits,
+    )
+
+    serialized = schema.to_dict()
+    serialized["coverage"]["config"] = "complete"
+    serialized["input_modes"]["samples"].append("unsafe")
+
+    assert schema.schema_version == "1.0.0"
+    assert schema.schema_dialect == JSON_SCHEMA_DIALECT
+    assert schema.coverage.config == "partial"
+    assert schema.input_modes.samples == ("inline_rows", "server_path")
+    assert schema.to_dict()["authoring_modes"] == {
+        "config": ["schema_form", "yaml"],
+        "samples": ["tsv_upload", "inline_table"],
+        "options": ["schema_form"],
+    }
+    assert schema.to_dict()["limits"] == {
+        "max_request_bytes": MAX_AUTHORING_REQUEST_BYTES,
+        "max_sample_rows": MAX_SAMPLE_ROWS,
+        "max_sample_columns": MAX_SAMPLE_COLUMNS,
+        "max_sample_column_name_length": MAX_SAMPLE_COLUMN_NAME_LENGTH,
+        "max_sample_cell_length": MAX_SAMPLE_CELL_LENGTH,
+    }
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: WorkflowSchemaCoverage(config="unknown"),
+        lambda: WorkflowAuthoringModes(config=("",)),
+        lambda: WorkflowInputModes(samples=("inline rows",)),
+        lambda: WorkflowInputLimits(max_request_bytes=0),
+        lambda: WorkflowInputLimits(max_sample_rows=MAX_SAMPLE_ROWS + 1),
+        lambda: WorkflowSchema(schema_version="not-a-version"),
+        lambda: WorkflowSchema(
+            schema_dialect="http://json-schema.org/draft-07/schema#"
+        ),
+        lambda: WorkflowSchema(config_schema={"type": "array"}),
+        lambda: WorkflowSchema(sample_schema={"type": "object"}),
+        lambda: WorkflowSchema(option_schema={"type": "array"}),
+        lambda: WorkflowSchema(config_schema={"type": "object", "value": nan}),
+        lambda: WorkflowSchema(
+            config_schema={"type": "object", "value": Path("local")}
+        ),
+    ],
+)
+def test_schema_contract_rejects_invalid_or_non_json_values(factory):
+    with pytest.raises(ValueError):
+        factory()
 
 
 def test_inputs_deep_copy_nested_config_options_and_to_dict_returns_deep_copy():
@@ -149,6 +259,39 @@ def test_inputs_preserve_path_internally_and_serialize_path_as_string():
 
     assert inputs.samples == sample_path
     assert inputs.to_dict()["samples"] == "samples.tsv"
+
+
+@pytest.mark.parametrize(
+    "samples",
+    [
+        [],
+        [{f"column-{index}": "value" for index in range(MAX_SAMPLE_COLUMNS + 1)}],
+        [{"x" * (MAX_SAMPLE_COLUMN_NAME_LENGTH + 1): "value"}],
+        [{"sample\tname": "value"}],
+        [{"sample": "x" * (MAX_SAMPLE_CELL_LENGTH + 1)}],
+        [{"sample": "contains\x00nul"}],
+        [{"sample": "contains\ttab"}],
+        [{"sample": "contains\nnewline"}],
+        [{"sample": "contains\rcarriage-return"}],
+    ],
+)
+def test_inputs_reject_empty_or_structurally_unsafe_inline_rows(samples):
+    with pytest.raises(ValueError):
+        WorkflowInputs(config={}, samples=samples)
+
+
+def test_inputs_reject_too_many_inline_rows():
+    with pytest.raises(ValueError):
+        WorkflowInputs(
+            config={},
+            samples=[{"sample": f"S{index}"} for index in range(MAX_SAMPLE_ROWS + 1)],
+        )
+
+
+@pytest.mark.parametrize("samples", ["bad\x00path", "bad\npath", Path("bad\tpath")])
+def test_inputs_reject_control_characters_in_sample_paths(samples):
+    with pytest.raises(ValueError):
+        WorkflowInputs(config={}, samples=samples)
 
 
 def test_extracted_artifact_candidate_defensively_copies_metadata():

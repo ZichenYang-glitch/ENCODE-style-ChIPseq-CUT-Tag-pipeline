@@ -1,5 +1,6 @@
 """Shared pytest fixtures for the test suite."""
 
+import asyncio
 import csv
 import os
 import re
@@ -8,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 
@@ -59,6 +61,52 @@ def isolate_api_database(request, monkeypatch):
     monkeypatch.setenv(
         "ENCODE_PIPELINE_DATABASE_URL",
         f"sqlite:///{tmp_path / 'platform.db'}",
+    )
+    yield
+
+
+async def _run_in_joined_test_thread(function, *args, **kwargs):
+    """Run sync API routes without leaking this environment's executor threads."""
+    completed = Event()
+    results = []
+    exceptions = []
+
+    def invoke():
+        try:
+            results.append(function(*args, **kwargs))
+        except BaseException as exc:
+            exceptions.append(exc)
+        finally:
+            completed.set()
+
+    thread = Thread(target=invoke)
+    thread.start()
+    try:
+        while not completed.is_set():
+            await asyncio.sleep(0.001)
+    finally:
+        thread.join(timeout=3)
+        if thread.is_alive():  # pragma: no cover - test deadlock guard
+            raise RuntimeError("test threadpool call did not terminate")
+    if exceptions:
+        raise exceptions[0]
+    return results[0]
+
+
+@pytest.fixture(autouse=True)
+def joined_api_test_threadpool(request, monkeypatch):
+    """Exercise synchronous FastAPI routes with a deterministic joined thread."""
+    api_test_dir = Path(__file__).resolve().parent / "api"
+    if api_test_dir not in Path(request.fspath).resolve().parents:
+        yield
+        return
+
+    import fastapi.routing
+
+    monkeypatch.setattr(
+        fastapi.routing,
+        "run_in_threadpool",
+        _run_in_joined_test_thread,
     )
     yield
 

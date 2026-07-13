@@ -31,10 +31,12 @@ def minimal_config_and_samples() -> Iterator[tuple[str, str]]:
     with tempfile.TemporaryDirectory() as tmpdir:
         samples_path = os.path.join(tmpdir, "samples.tsv")
         config_path = os.path.join(tmpdir, "config.yaml")
+        fastq_path = os.path.join(tmpdir, "ctl1.fastq.gz")
+        bowtie2_path = os.path.join(tmpdir, "bowtie2", "index")
         with open(samples_path, "w") as f:
             f.write(
                 "sample\tfastq_1\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
-                "ctl1\tctl1.fastq.gz\tSE\tchipseq\tH3K4me3\tnarrow\thg38\t/path/to/bowtie2\n"
+                f"ctl1\t{fastq_path}\tSE\tchipseq\tH3K4me3\tnarrow\thg38\t{bowtie2_path}\n"
             )
         with open(config_path, "w") as f:
             f.write(f"samples: {samples_path}\n")
@@ -108,16 +110,26 @@ def test_list_workflows_returns_encode_workflow(client: ApiTestClient) -> None:
     assert data["issues"] == []
 
 
-def test_get_schema_returns_hints(client: ApiTestClient) -> None:
+def test_get_schema_returns_versioned_renderable_contract(
+    client: ApiTestClient,
+) -> None:
     workflow_id = "encode-style-chipseq-cuttag-atac-mnase"
     response = client.get(f"/api/v1/workflows/{workflow_id}/schema")
     assert response.status_code == 200
     data = response.json()
     assert data["ok"] is True
     assert data["workflow_id"] == workflow_id
-    assert "config_schema" in data["schema_hints"]
-    assert "sample_schema" in data["schema_hints"]
-    assert "option_schema" in data["schema_hints"]
+    assert data["schema"]["schema_version"] == "1.0.0"
+    assert data["schema"]["schema_dialect"] == (
+        "https://json-schema.org/draft/2020-12/schema"
+    )
+    assert data["schema"]["coverage"] == {
+        "config": "partial",
+        "samples": "complete",
+        "options": "complete",
+    }
+    assert data["schema"]["sample_schema"]["type"] == "array"
+    assert data["schema"]["limits"]["max_sample_rows"] == 1000
     assert data["issues"] == []
 
 
@@ -127,7 +139,7 @@ def test_get_schema_unknown_workflow_returns_404(client: ApiTestClient) -> None:
     data = response.json()
     assert data["ok"] is False
     assert data["workflow_id"] == "missing-workflow"
-    assert data["schema_hints"] == {}
+    assert data["schema"] is None
     assert data["issues"][0]["code"] == "WORKFLOW_NOT_FOUND"
 
 
@@ -149,7 +161,73 @@ def test_validate_success(
     data = response.json()
     assert data["ok"] is True
     assert data["workflow_id"] == workflow_id
+    assert data["value"] is None
     assert data["issues"] == []
+
+
+def test_validate_inline_rows_without_config_samples_is_successful(
+    client: ApiTestClient,
+    tmp_path,
+) -> None:
+    workflow_id = "encode-style-chipseq-cuttag-atac-mnase"
+    row = {
+        "sample": "S1",
+        "fastq_1": str((tmp_path / "S1.R1.fastq.gz").resolve()),
+        "fastq_2": str((tmp_path / "S1.R2.fastq.gz").resolve()),
+        "layout": "PE",
+        "assay": "chipseq",
+        "target": "CTCF",
+        "peak_mode": "narrow",
+        "genome": "hs",
+        "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
+    }
+
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/validate",
+        json={"config": {}, "samples": [row], "options": {}},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data == {
+        "ok": True,
+        "workflow_id": workflow_id,
+        "value": None,
+        "issues": [],
+    }
+    assert tempfile.gettempdir() not in response.text
+
+
+def test_validate_rejects_oversized_sample_cell_with_safe_400(
+    client: ApiTestClient,
+) -> None:
+    workflow_id = "encode-style-chipseq-cuttag-atac-mnase"
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/validate",
+        json={"config": {}, "samples": [{"sample": "x" * 4097}]},
+    )
+
+    assert response.status_code == 400
+    data = response.json()
+    assert data["ok"] is False
+    assert data["value"] is None
+    assert data["issues"][0]["code"] == "API_REQUEST_INVALID"
+    assert "x" * 128 not in response.text
+
+
+def test_validate_rejects_control_characters_in_sample_path_with_safe_400(
+    client: ApiTestClient,
+) -> None:
+    workflow_id = "encode-style-chipseq-cuttag-atac-mnase"
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/validate",
+        json={"config": {}, "samples": "private\npath.tsv"},
+    )
+
+    assert response.status_code == 400
+    data = response.json()
+    assert data["issues"][0]["code"] == "API_REQUEST_INVALID"
+    assert "private" not in response.text
 
 
 def test_validate_failure_with_structured_issues(client: ApiTestClient) -> None:

@@ -15,11 +15,14 @@ from encode_pipeline.api.models import (
     RunArtifactDownloadErrorResponse,
     RunArtifactsResponse,
     RunQcMetricsResponse,
+    RunResponse,
     ValidationResponse,
 )
+from encode_pipeline.api.request_limits import AuthoringRequestLimitMiddleware
 from encode_pipeline.api.routes import api_v1_router
 from encode_pipeline.persistence import DATABASE_URL_ENV, open_run_persistence
 from encode_pipeline.platform.results import Issue
+from encode_pipeline.platform.adapters import MAX_AUTHORING_REQUEST_BYTES
 from encode_pipeline.services.defaults import (
     create_default_agent_service,
     create_default_command_builder,
@@ -71,6 +74,10 @@ def create_app(
         version="0.3.0",
         description="Validation-first workflow platform API.",
         lifespan=lifespan,
+    )
+    app.add_middleware(
+        AuthoringRequestLimitMiddleware,
+        max_request_bytes=MAX_AUTHORING_REQUEST_BYTES,
     )
 
     registry = create_default_workflow_registry()
@@ -214,6 +221,16 @@ async def _handle_request_validation_error(
         return JSONResponse(
             status_code=400,
             content=body.model_dump(mode="json", exclude_none=True),
+        )
+    if getattr(route, "operation_id", None) == "createRun":
+        issue = _issue_from_request_validation_error(
+            exc,
+            workflow_id=request.path_params.get("workflow_id"),
+        )
+        body = RunResponse(ok=False, run=None, issues=[issue.to_dict()])
+        return JSONResponse(
+            status_code=400,
+            content=body.model_dump(mode="json"),
         )
     workflow_id = request.path_params.get("workflow_id")
     issue = _issue_from_request_validation_error(exc, workflow_id=workflow_id)

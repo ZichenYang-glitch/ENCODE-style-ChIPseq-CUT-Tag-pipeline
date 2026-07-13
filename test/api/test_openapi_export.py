@@ -132,6 +132,60 @@ def test_openapi_operations_match_expected_contract(tmp_path):
     assert operations == EXPECTED_OPERATIONS
 
 
+def test_workflow_authoring_contract_is_typed_versioned_and_bounded(tmp_path):
+    schema = _isolated_app_schema(tmp_path, "workflow-authoring-contract")
+    schema_response = schema["components"]["schemas"]["SchemaResponse"]
+    assert "schema_hints" not in schema_response["properties"]
+    assert schema_response["properties"]["schema"] == {
+        "anyOf": [
+            {"$ref": "#/components/schemas/WorkflowSchemaResponse"},
+            {"type": "null"},
+        ]
+    }
+
+    contract = schema["components"]["schemas"]["WorkflowSchemaResponse"]
+    assert contract["additionalProperties"] is False
+    assert set(contract["required"]) == {
+        "schema_version",
+        "schema_dialect",
+        "coverage",
+        "authoring_modes",
+        "input_modes",
+        "limits",
+        "config_schema",
+        "sample_schema",
+        "option_schema",
+    }
+    assert contract["properties"]["schema_dialect"]["const"] == (
+        "https://json-schema.org/draft/2020-12/schema"
+    )
+
+    for request_name in ("ValidationRequest", "RunCreateRequest"):
+        request = schema["components"]["schemas"][request_name]
+        assert request["additionalProperties"] is False
+        samples = request["properties"]["samples"]["anyOf"]
+        inline = next(item for item in samples if item.get("type") == "array")
+        assert inline["minItems"] == 1
+        assert inline["maxItems"] == 1000
+        assert inline["items"]["minProperties"] == 1
+        assert inline["items"]["maxProperties"] == 64
+        assert inline["items"]["propertyNames"]["maxLength"] == 128
+        assert inline["items"]["additionalProperties"]["maxLength"] == 4096
+
+
+def test_authoring_operations_declare_stable_too_large_envelopes(tmp_path):
+    schema = _isolated_app_schema(tmp_path, "authoring-too-large")
+    validate = schema["paths"]["/api/v1/workflows/{workflow_id}/validate"]["post"]
+    create = schema["paths"]["/api/v1/workflows/{workflow_id}/runs"]["post"]
+
+    assert validate["responses"]["413"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ValidationResponse"
+    }
+    assert create["responses"]["413"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/RunResponse"
+    }
+
+
 def test_artifact_operations_do_not_publish_unreachable_422_responses(tmp_path):
     schema = _isolated_app_schema(tmp_path, "artifact-responses")
 

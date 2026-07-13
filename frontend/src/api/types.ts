@@ -1,3 +1,9 @@
+import type {
+  ValidationRequestConfig,
+  ValidationRequestOptions,
+  ValidationRequestSamples,
+} from './generated/models';
+
 export type Severity = 'error' | 'warning' | 'info';
 
 export interface Issue {
@@ -36,9 +42,9 @@ export interface WorkflowSchema {
 }
 
 export interface WorkflowInputs {
-  config: Record<string, unknown>;
-  samples: string | unknown[] | null;
-  options?: Record<string, unknown>;
+  config: ValidationRequestConfig;
+  samples: ValidationRequestSamples;
+  options?: ValidationRequestOptions;
 }
 
 export interface ListWorkflowsResponse {

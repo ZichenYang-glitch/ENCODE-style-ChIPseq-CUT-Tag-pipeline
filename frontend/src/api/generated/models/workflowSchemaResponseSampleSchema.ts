@@ -7,4 +7,4 @@
  */
 import type { JsonValue } from './jsonValue';
 
-export type ValidationRequestConfig = {[key: string]: JsonValue};
+export type WorkflowSchemaResponseSampleSchema = {[key: string]: JsonValue};

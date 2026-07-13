@@ -84,7 +84,31 @@ describe('real preflight product path', () => {
     vi.mocked(getWorkflowSchema).mockResolvedValue({
       ok: true,
       workflow_id: WORKFLOW_ID,
-      schema_hints: {
+      schema: {
+        schema_version: '1.0.0',
+        schema_dialect: 'https://json-schema.org/draft/2020-12/schema',
+        coverage: {
+          config: 'partial',
+          samples: 'complete',
+          options: 'complete',
+        },
+        authoring_modes: {
+          config: ['schema_form', 'yaml'],
+          samples: ['tsv_upload', 'inline_table'],
+          options: ['schema_form'],
+        },
+        input_modes: {
+          config: ['object'],
+          samples: ['inline_rows', 'server_path'],
+          options: ['object'],
+        },
+        limits: {
+          max_request_bytes: 2_097_152,
+          max_sample_rows: 1_000,
+          max_sample_columns: 64,
+          max_sample_column_name_length: 128,
+          max_sample_cell_length: 4_096,
+        },
         config_schema: { type: 'object' },
         sample_schema: { type: 'string' },
         option_schema: { type: 'object' },
@@ -94,7 +118,7 @@ describe('real preflight product path', () => {
     vi.mocked(validateWorkflow).mockResolvedValue({
       ok: true,
       workflow_id: WORKFLOW_ID,
-      value: { validated: true },
+      value: null,
       issues: [],
     });
     vi.mocked(createRun).mockResolvedValue({

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+import tempfile
 from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
@@ -213,6 +214,7 @@ class EncodeStyleWorkflowAdapter:
         supports=(
             "validation",
             "workspace_plan",
+            "input_authoring",
             "artifact_extract",
             "qc_summary_extract",
         )
@@ -234,64 +236,12 @@ class EncodeStyleWorkflowAdapter:
             raise ValueError("artifact catalog contains duplicate ids")
 
     def schema(self) -> WorkflowSchema:
-        """Return minimal UI/agent discovery hints, not complete JSON Schema."""
-        from encode_pipeline.config import defaults
-
-        return WorkflowSchema(
-            config_schema={
-                "schema_kind": "hints",
-                "description": (
-                    "Minimal configuration hints for the ENCODE-style "
-                    "workflow adapter. This is not complete JSON Schema."
-                ),
-                "required": ["samples"],
-                "properties": {
-                    "samples": {
-                        "type": "string",
-                        "description": "Path to the sample sheet TSV.",
-                    },
-                    "use_control": {
-                        "type": "boolean",
-                        "default": False,
-                    },
-                    "outdir": {
-                        "type": "string",
-                        "default": "results",
-                    },
-                },
-            },
-            sample_schema={
-                "schema_kind": "hints",
-                "description": (
-                    "Minimal sample-sheet hints for the ENCODE-style "
-                    "workflow adapter. This is not complete JSON Schema."
-                ),
-                "format": "tsv",
-                "required_columns": list(defaults.SAMPLE_REQUIRED_COLUMNS),
-                "allowed_values": {
-                    "assay": list(defaults.ASSAYS),
-                    "layout": list(defaults.LAYOUTS),
-                    "peak_mode": list(defaults.PEAK_MODES),
-                    "role": list(defaults.ROLES),
-                },
-            },
-            option_schema={
-                "schema_kind": "hints",
-                "description": (
-                    "Adapter options supported by validate(). This is not "
-                    "complete JSON Schema."
-                ),
-                "properties": {
-                    "strict_inputs": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": (
-                            "Validate FASTQ and Bowtie2 index file existence."
-                        ),
-                    },
-                },
-            },
+        """Return the versioned renderable authoring contract."""
+        from encode_pipeline.adapters.encode_authoring import (
+            build_encode_authoring_schema,
         )
+
+        return build_encode_authoring_schema()
 
     def validate(self, inputs: WorkflowInputs) -> Result[object]:
         """Validate inputs using current package behavior.
@@ -299,94 +249,34 @@ class EncodeStyleWorkflowAdapter:
         The success value shape is adapter-private. Platform code must not
         depend on ``{"config": ..., "samples": ...}``.
         """
-        config = deepcopy(dict(inputs.config))
-
         option_issue = _validate_options(inputs.options)
         if option_issue is not None:
             return Result.failure([option_issue])
         strict_inputs = bool(inputs.options.get("strict_inputs", False))
-
+        config = deepcopy(dict(inputs.config))
         if isinstance(inputs.samples, list):
-            return Result.failure(
-                [
-                    Issue(
-                        code="ENCODE_ADAPTER_UNSUPPORTED",
-                        message=(
-                            "The current ENCODE-style adapter supports TSV/CSV "
-                            "sample paths only; inline sample rows are not "
-                            "supported yet."
-                        ),
-                        source="adapter",
-                        path="samples",
-                        context={"feature": "inline_samples"},
-                    )
-                ]
-            )
-        if isinstance(inputs.samples, (str, Path)):
-            config["samples"] = str(inputs.samples)
-
-        from encode_pipeline.config.validate import (
-            ValidationError,
-            validate_config,
-            validate_picard_reference_resources,
-            validate_tss_annotation_resources,
-        )
-        from encode_pipeline.samples.load import load_and_validate_samples
-
-        try:
-            validated_config = validate_config(config)
-        except ValidationError as exc:
-            return Result.failure(
-                [
-                    _issue_from_exception(
-                        exc,
-                        code="ENCODE_CONFIG_INVALID",
-                        source="config",
-                        path="config",
-                    )
-                ]
-            )
-
-        flags = _sample_validation_flags(validated_config)
-        try:
-            samples = load_and_validate_samples(
-                validated_config["samples"],
-                use_control=validated_config["use_control"],
-                stage5_enabled=validated_config.get("stage5", False),
+            result = _validate_inline_inputs(
+                config,
+                inputs.samples,
                 strict_inputs=strict_inputs,
-                reproducibility_idr_atac_narrow=flags["atac_narrow"],
-                reproducibility_idr_cuttag_narrow=flags["cuttag_narrow"],
-                reproducibility_idr_chipseq_broad=flags["chipseq_broad"],
-                reproducibility_idr_cuttag_broad=flags["cuttag_broad"],
             )
-        except ValidationError as exc:
-            return Result.failure(
-                [
-                    _issue_from_exception(
-                        exc,
-                        code="ENCODE_SAMPLES_INVALID",
-                        source="samples",
-                        path="samples",
-                    )
-                ]
+        else:
+            if isinstance(inputs.samples, (str, Path)):
+                config["samples"] = str(inputs.samples)
+            result = _validate_scientific_inputs(
+                config,
+                strict_inputs=strict_inputs,
+                sanitize_errors=False,
             )
+        if result.is_failure:
+            return result
 
-        try:
-            validate_picard_reference_resources(validated_config, samples)
-            validate_tss_annotation_resources(validated_config, samples)
-        except ValidationError as exc:
-            return Result.failure(
-                [
-                    _issue_from_exception(
-                        exc,
-                        code="ENCODE_RESOURCES_INVALID",
-                        source="config",
-                        path="config.genome_resources",
-                    )
-                ]
-            )
-
-        return Result.success({"config": validated_config, "samples": samples})
+        validated_config = result.value["config"]
+        samples = result.value["samples"]
+        policy_issue = _enforce_external_input_policy(validated_config, samples)
+        if policy_issue is not None:
+            return Result.failure([policy_issue])
+        return result
 
     def preview_dag(self, inputs: WorkflowInputs) -> Result[DagPreview]:
         """Return unsupported until DAG preview is wired through the adapter."""
@@ -401,16 +291,17 @@ class EncodeStyleWorkflowAdapter:
         validated = self.validate(inputs)
         if validated.is_failure:
             return Result.failure(
-                [_sanitize_issue(issue) for issue in validated.issues]
+                [
+                    issue
+                    if issue.code == "ENCODE_WORKSPACE_RELATIVE_EXTERNAL_PATH"
+                    else _sanitize_issue(issue)
+                    for issue in validated.issues
+                ]
             )
 
         validated_value = validated.value
         validated_config = validated_value["config"]
         sample_rows = validated_value["samples"]
-
-        policy_result = _enforce_external_input_policy(validated_config, sample_rows)
-        if policy_result is not None:
-            return Result.failure([policy_result])
 
         workspace_config = _prepare_workspace_config(validated_config)
 
@@ -581,6 +472,159 @@ class EncodeStyleWorkflowAdapter:
             return Result.success(parse_encode_qc_sources(sources))
         except (TypeError, UnicodeError, ValueError):
             return _qc_summary_failure()
+
+
+def _write_inline_samples_tsv(
+    path: Path,
+    sample_rows: list[dict[str, str]],
+) -> None:
+    """Write raw external-column rows for the canonical scientific loader."""
+    if not sample_rows:
+        raise ValueError("inline sample rows must be non-empty")
+    allowed_columns = frozenset(_WORKSPACE_SAMPLE_COLUMNS)
+    for row in sample_rows:
+        if not set(row).issubset(allowed_columns):
+            raise ValueError("inline sample row contains an unknown column")
+        for value in row.values():
+            if any(character in value for character in ("\x00", "\t", "\n", "\r")):
+                raise ValueError("inline sample cell contains a control character")
+
+    with path.open("x", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=_WORKSPACE_SAMPLE_COLUMNS,
+            extrasaction="raise",
+            delimiter="\t",
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        for row in sample_rows:
+            writer.writerow(
+                {column: row.get(column, "") for column in writer.fieldnames}
+            )
+
+
+def _validate_inline_inputs(
+    config: dict[str, Any],
+    sample_rows: list[dict[str, str]],
+    *,
+    strict_inputs: bool,
+) -> Result[dict[str, Any]]:
+    """Validate inline rows through one private temporary TSV bridge."""
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="encode-platform-inline-samples-"
+        ) as temporary_root:
+            samples_path = Path(temporary_root) / "samples.tsv"
+            _write_inline_samples_tsv(samples_path, sample_rows)
+            config["samples"] = str(samples_path)
+            result = _validate_scientific_inputs(
+                config,
+                strict_inputs=strict_inputs,
+                sanitize_errors=True,
+            )
+    except (OSError, ValueError, csv.Error):
+        return _inline_samples_failure()
+
+    if result.is_failure:
+        return result
+    validated_config = dict(result.value["config"])
+    validated_config.pop("samples", None)
+    return Result.success(
+        {
+            "config": validated_config,
+            "samples": result.value["samples"],
+        }
+    )
+
+
+def _validate_scientific_inputs(
+    config: dict[str, Any],
+    *,
+    strict_inputs: bool,
+    sanitize_errors: bool,
+) -> Result[dict[str, Any]]:
+    """Run the existing config, sample, and resource validators unchanged."""
+    from encode_pipeline.config.validate import (
+        ValidationError,
+        validate_config,
+        validate_picard_reference_resources,
+        validate_tss_annotation_resources,
+    )
+    from encode_pipeline.samples.load import load_and_validate_samples
+
+    try:
+        validated_config = validate_config(config)
+    except ValidationError as exc:
+        return _scientific_validation_failure(
+            exc,
+            code="ENCODE_CONFIG_INVALID",
+            source="config",
+            path="config",
+            sanitize=sanitize_errors,
+        )
+
+    flags = _sample_validation_flags(validated_config)
+    try:
+        samples = load_and_validate_samples(
+            validated_config["samples"],
+            use_control=validated_config["use_control"],
+            stage5_enabled=validated_config.get("stage5", False),
+            strict_inputs=strict_inputs,
+            reproducibility_idr_atac_narrow=flags["atac_narrow"],
+            reproducibility_idr_cuttag_narrow=flags["cuttag_narrow"],
+            reproducibility_idr_chipseq_broad=flags["chipseq_broad"],
+            reproducibility_idr_cuttag_broad=flags["cuttag_broad"],
+        )
+    except ValidationError as exc:
+        return _scientific_validation_failure(
+            exc,
+            code="ENCODE_SAMPLES_INVALID",
+            source="samples",
+            path="samples",
+            sanitize=sanitize_errors,
+        )
+
+    try:
+        validate_picard_reference_resources(validated_config, samples)
+        validate_tss_annotation_resources(validated_config, samples)
+    except ValidationError as exc:
+        return _scientific_validation_failure(
+            exc,
+            code="ENCODE_RESOURCES_INVALID",
+            source="config",
+            path="config.genome_resources",
+            sanitize=sanitize_errors,
+        )
+
+    return Result.success({"config": validated_config, "samples": samples})
+
+
+def _scientific_validation_failure(
+    exc: Exception,
+    *,
+    code: str,
+    source: str,
+    path: str,
+    sanitize: bool,
+) -> Result[dict[str, Any]]:
+    issue = _issue_from_exception(exc, code=code, source=source, path=path)
+    return Result.failure([_sanitize_issue(issue) if sanitize else issue])
+
+
+def _inline_samples_failure() -> Result[dict[str, Any]]:
+    return Result.failure(
+        [
+            _sanitize_issue(
+                Issue(
+                    code="ENCODE_SAMPLES_INVALID",
+                    message="Sample sheet is invalid.",
+                    source="samples",
+                    path="samples",
+                )
+            )
+        ]
+    )
 
 
 def _validate_options(options: dict[str, object]) -> Issue | None:

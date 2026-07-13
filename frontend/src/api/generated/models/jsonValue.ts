@@ -5,6 +5,5 @@
  * Validation-first workflow platform API.
  * OpenAPI spec version: 0.3.0
  */
-import type { JsonValue } from './jsonValue';
 
-export type ValidationRequestConfig = {[key: string]: JsonValue};
+export interface JsonValue {}
