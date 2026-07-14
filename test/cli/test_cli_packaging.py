@@ -99,6 +99,36 @@ def test_dag_snakemake_resolution_has_explicit_precedence_and_fallback(
     assert dag_cli._find_snakemake() is None
 
 
+def test_dag_dryrun_sets_default_xdg_cache_without_overriding_configuration(
+    tmp_path, monkeypatch
+):
+    config = tmp_path / "config.yaml"
+    snakefile = tmp_path / "Snakefile"
+    observed_environments = []
+
+    def run_snakemake(arguments, **kwargs):
+        observed_environments.append(kwargs["env"])
+        return subprocess.CompletedProcess(
+            arguments,
+            returncode=0,
+            stdout="rule all:\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(dag_cli, "_find_snakemake", lambda: "/tools/snakemake")
+    monkeypatch.setattr(dag_cli.subprocess, "run", run_snakemake)
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+
+    assert dag_cli._run_snakemake_dryrun(str(config), snakefile) == ["all"]
+
+    monkeypatch.setenv("XDG_CACHE_HOME", "/configured/cache")
+    assert dag_cli._run_snakemake_dryrun(str(config), snakefile) == ["all"]
+    assert [environment["XDG_CACHE_HOME"] for environment in observed_environments] == [
+        "/tmp/encode-pipeline-snakemake-cache",
+        "/configured/cache",
+    ]
+
+
 def test_dag_cli_resolves_explicit_repo_root():
     result = subprocess.run(
         [
