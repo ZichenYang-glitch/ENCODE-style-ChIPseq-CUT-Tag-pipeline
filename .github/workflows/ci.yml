@@ -39,7 +39,9 @@ jobs:
 
       - name: Install encode-pipeline package
         shell: micromamba-shell {0}
-        run: pip install -e ".[api,dev]"
+        run: |
+          python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
+          python3 -m pip check
 
       - name: OpenAPI contract drift gate
         shell: micromamba-shell {0}
@@ -120,7 +122,9 @@ jobs:
 
       - name: Install HelixWeave test dependencies
         shell: micromamba-shell {0}
-        run: pip install -e ".[api,dev]"
+        run: |
+          python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
+          python3 -m pip check
 
       - name: Complete Python unit and contract coverage
         shell: micromamba-shell {0}
@@ -149,6 +153,8 @@ jobs:
             --include='src/encode_pipeline/api/*,src/encode_pipeline/cli/*,src/encode_pipeline/config/*,src/encode_pipeline/samples/*' \
             --fail-under=0
           python3 -m coverage report --include='scripts/*' --fail-under=0
+          python3 -m coverage report --include='workflow/lib/*' --fail-under=0
+          python3 -m coverage report --include='containers/*' --fail-under=0
 
       - name: Changed Python line coverage
         if: github.event_name == 'pull_request'
@@ -236,7 +242,9 @@ jobs:
 
       - name: Install platform package
         shell: micromamba-shell {0}
-        run: pip install -e ".[api,dev]"
+        run: |
+          python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
+          python3 -m pip check
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

@@ -23,14 +23,10 @@ jobs:
       - name: Setup micromamba
         uses: mamba-org/setup-micromamba@v3
         with:
-          environment-file: workflow/envs/ci-fast.lock
-          environment-name: ci-fast
+          environment-file: workflow/envs/ci-lint.lock
+          environment-name: ci-lint
           cache-environment: true
-          cache-environment-key: ci-fast-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.lock') }}
-
-      - name: Install lint tools
-        shell: micromamba-shell {0}
-        run: pip install snakefmt
+          cache-environment-key: ci-lint-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-lint.lock') }}
 
       - name: snakefmt check
         shell: micromamba-shell {0}

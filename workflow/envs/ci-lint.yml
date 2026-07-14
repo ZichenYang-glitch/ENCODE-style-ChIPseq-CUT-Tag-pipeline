@@ -1,0 +1,12 @@
+name: ci-lint
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - python >=3.10,<3.13
+  - packaging <26
+  - pyyaml
+  - ruff ==0.15.21
+  - snakefmt ==2.0.3
+  - snakemake-minimal >=8.0,<9

@@ -66,7 +66,8 @@ The CI `lock-check` workflow fails if a YAML is modified without a matching
 | File | Used for |
 |------|----------|
 | `workflow/envs/runner.yml` | First install and local workflow entry point; lockfile is `runner.lock` |
-| `workflow/envs/ci-fast.yml` | GitHub Actions fast checks; lockfile is `ci-fast.lock` |
+| `workflow/envs/ci-fast.yml` | GitHub Actions Python tests, coverage, API runtime, and browser backend; lockfile is `ci-fast.lock` |
+| `workflow/envs/ci-lint.yml` | GitHub Actions Ruff, snakefmt, and Snakemake lint tools; lockfile is `ci-lint.lock` |
 | `workflow/envs/chipseq.yml` | Core runtime for tiny real-execution harness; lockfile is `chipseq.lock` |
 | `workflow/envs/fastqc.yml` | FastQC with pinned OpenJDK 17 |
 | `workflow/envs/trim.yml` | Trim Galore and cutadapt |
@@ -168,10 +169,12 @@ It does not run IDR, SEACR, or MultiQC.
 
 ## CI Behavior
 
-GitHub Actions uses two paths:
+GitHub Actions uses three locked paths:
 
 - `fast-checks`: uses `workflow/envs/ci-fast.lock` for config validation and
   dry-run smoke profiles.
+- `lint`: uses `workflow/envs/ci-lint.lock` without installing the project or
+  resolving tools from a live package index.
 - `real-execution`: manual `workflow_dispatch`, uses `workflow/envs/chipseq.lock`
   for the tiny real-execution harness.
 

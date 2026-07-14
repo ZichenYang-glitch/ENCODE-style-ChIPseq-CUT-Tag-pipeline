@@ -54,13 +54,13 @@ python_files = ["test_*.py"]
 addopts = "--strict-markers -v"
 
 [tool.coverage.run]
-source = ["src/encode_pipeline", "scripts"]
+source = ["src/encode_pipeline", "scripts", "workflow/lib", "containers"]
 branch = true
 relative_files = true
 patch = ["subprocess"]
 
 [tool.coverage.report]
-fail_under = 77
+fail_under = 78
 precision = 2
 show_missing = true
 skip_covered = false

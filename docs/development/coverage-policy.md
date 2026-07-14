@@ -6,7 +6,16 @@ replace scientific DAG contracts, dry-runs, or tiny real execution.
 ## Canonical measurement
 
 Local runs and CI use the coverage configuration in `pyproject.toml` and the
-complete pytest-native `test/` tree:
+complete pytest-native `test/` tree. The canonical tools come from the explicit
+`workflow/envs/ci-fast.lock`; after creating that environment, install only the
+local package without consulting an index or resolving dependencies:
+
+```bash
+python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
+python3 -m pip check
+```
+
+Then produce the reports with:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest test -ra -p no:cacheprovider \
@@ -16,9 +25,11 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest test -ra -p no:cacheprovider \
   --cov-report=json:coverage.json
 ```
 
-The reports cover `src/encode_pipeline` and the Python files in `scripts`, with
-branch measurement enabled. XML and JSON files are CI artifacts and local
-scratch output; they are ignored by Git and must not be committed.
+The reports cover `src/encode_pipeline`, the Python files in `scripts`, the
+workflow compatibility library in `workflow/lib`, and authored container
+tooling in `containers`, with branch measurement enabled. XML and JSON files
+are CI artifacts and local scratch output; they are ignored by Git and must not
+be committed.
 
 Coverage.py's supported `patch = ["subprocess"]` mechanism measures Python
 children that inherit the test environment. This includes packaged CLI and
@@ -29,26 +40,30 @@ execution remain protected by their dedicated gates.
 
 ## Measured baseline
 
-The foundation run used Python 3.12.13, pytest 9.1.1, pytest-cov 7.1.0, and
-coverage.py 7.14.3. Percentages combine statements and branches unless a
-column says otherwise.
+The locked environment resolves Python 3.12.13, pytest 9.1.1, pytest-cov
+7.1.0, coverage.py 7.15.1, and diff-cover 9.7.2. Percentages combine statements
+and branches unless a column says otherwise.
 
 | Area | Line | Branch | Combined | Enforced floor |
 | --- | ---: | ---: | ---: | ---: |
-| Repository | 80.20% | 71.12% | 77.97% | 77% |
+| Repository | 80.97% | 71.80% | 78.72% | 78% |
 | Platform | 91.29% | 80.28% | 88.45% | 88.45% |
 | Services | 89.57% | 80.39% | 87.28% | 87.28% |
 | Persistence | 92.96% | 72.69% | 89.07% | 89.06% |
 | Workers | 84.78% | 71.83% | 82.38% | 82.37% |
 | Adapters | 92.01% | 83.78% | 89.93% | report only |
 | API, CLI, config, samples | 94.67% | 88.44% | 93.11% | report only |
-| Snakemake-facing scripts | 28.15% | 22.37% | 26.78% | report only |
+| Snakemake-facing scripts | 32.46% | 26.48% | 31.04% | report only |
+| Workflow compatibility library | 100.00% | n/a | 100.00% | report only |
+| Container definition tooling | 97.06% | 83.33% | 95.00% | report only |
 
 The repository floor is the integer floor of the complete measured result.
 Core floors are the measured combined values truncated to two decimal places,
 so they prevent regression without claiming a higher result than was observed.
-The low scripts result is visible rather than omitted; legacy test retirement
-must close real behavior gaps before raising it.
+The lower scripts result is visible rather than omitted; legacy test retirement
+must close real behavior gaps before raising it. The workflow library and
+container generator are authored runtime seams, so they remain in the global
+denominator even though their small areas do not yet have separate floors.
 
 CI prints the same area reports from the single combined coverage database.
 They can also be reproduced locally with normal coverage.py filters, for
@@ -59,6 +74,14 @@ python3 -m coverage report \
   --include='src/encode_pipeline/platform/*' --fail-under=88.45
 python3 -m coverage report --include='scripts/*' --fail-under=0
 ```
+
+The Snakemake DSL in `workflow/Snakefile` and `workflow/rules/*.smk` is not an
+importable Python source tree and is therefore outside coverage.py's
+denominator. Config/sample validation, DAG snapshots and dry-runs, Snakemake
+lint, and tiny deterministic execution provide the equivalent scientific
+gates. Dockerfiles and generated Apptainer definitions are likewise not Python
+source; their authored generator is measured, generated definitions have a
+drift test, and the real container-smoke tier exercises the runtime boundary.
 
 ## Changed lines
 
