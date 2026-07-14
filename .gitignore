@@ -25,6 +25,9 @@ __pycache__/
 build/
 dist/
 .coverage
+.coverage.*
+coverage.xml
+coverage.json
 htmlcov/
 
 # --- Windows alternate data streams ---
