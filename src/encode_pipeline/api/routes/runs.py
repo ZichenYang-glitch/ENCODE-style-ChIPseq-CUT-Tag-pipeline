@@ -20,15 +20,24 @@ from encode_pipeline.api.models import (
     RunEventsResponse,
     RunLogChunkResponse,
     RunLogsResponse,
+    RunHistoryResponse,
     RunRecordResponse,
     RunResponse,
+    RunSummaryResponse,
 )
+from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.run_cancellation import (
     RunCancellationConflictError,
     RunCancellationService,
     RunCancellationUnavailableError,
 )
-from encode_pipeline.services.runs import RunService
+from encode_pipeline.services.runs import (
+    RunHistoryCursorInvalidError,
+    RunHistoryCursorNotFoundError,
+    RunHistoryDataInvalidError,
+    RunHistoryFilterInvalidError,
+    RunService,
+)
 from encode_pipeline.services.run_submission import (
     RunBuildIdentityMissingError,
     RunNotReadyError,
@@ -91,6 +100,10 @@ def _run_cursor_not_found_issue() -> IssueResponse:
         message="Cursor does not exist for this run/stream.",
         path="after",
     )
+
+
+def _run_history_issue(code: str, message: str, *, path: str) -> IssueResponse:
+    return _issue(code=code, message=message, path=path)
 
 
 def _run_not_ready_issue(current_status: str) -> IssueResponse:
@@ -178,6 +191,16 @@ def _run_event_response(event: Any) -> RunEventResponse:
 
 def _run_log_chunk_response(chunk: Any) -> RunLogChunkResponse:
     return RunLogChunkResponse(**chunk.to_dict())
+
+
+def _run_summary_response(summary: Any) -> RunSummaryResponse:
+    return RunSummaryResponse.model_validate(summary.to_dict())
+
+
+def _run_history_content(response: RunHistoryResponse) -> dict[str, Any]:
+    content = response.model_dump(mode="json", exclude_none=True)
+    content["next_cursor"] = response.next_cursor
+    return content
 
 
 @router.post(
@@ -307,6 +330,110 @@ def create_run(
     if not creation.created:
         return JSONResponse(status_code=200, content=response.model_dump(mode="json"))
     return response
+
+
+@router.get(
+    "/runs",
+    response_model=RunHistoryResponse,
+    operation_id="listRuns",
+    responses={400: {"model": RunHistoryResponse}, 500: {"model": RunHistoryResponse}},
+)
+def list_runs(
+    after: str | None = Query(
+        default=None,
+        min_length=9,
+        max_length=1024,
+        pattern=r"^runhist_[A-Za-z0-9_-]+$",
+    ),
+    limit: int = Query(default=50, ge=1, le=100),
+    workflow_id: str | None = Query(default=None, min_length=1, max_length=255),
+    status: RunStatus | None = Query(default=None),
+    run_service: RunService = Depends(get_run_service),
+) -> RunHistoryResponse | JSONResponse:
+    """List canonical run summaries with strict keyset pagination."""
+    try:
+        page = run_service.list_run_history(
+            after=after,
+            limit=limit,
+            workflow_id=workflow_id,
+            status=status,
+        )
+        summaries = [_run_summary_response(summary) for summary in page.runs]
+    except RunHistoryFilterInvalidError:
+        response = RunHistoryResponse(
+            ok=False,
+            runs=[],
+            next_cursor=None,
+            issues=[
+                _run_history_issue(
+                    "API_REQUEST_INVALID",
+                    "Run history query parameters are invalid.",
+                    path="query",
+                )
+            ],
+        )
+        return JSONResponse(
+            status_code=400,
+            content=_run_history_content(response),
+        )
+    except RunHistoryCursorInvalidError:
+        response = RunHistoryResponse(
+            ok=False,
+            runs=[],
+            next_cursor=None,
+            issues=[
+                _run_history_issue(
+                    "RUN_HISTORY_CURSOR_INVALID",
+                    "Run history cursor is invalid for this query.",
+                    path="after",
+                )
+            ],
+        )
+        return JSONResponse(
+            status_code=400,
+            content=_run_history_content(response),
+        )
+    except RunHistoryCursorNotFoundError:
+        response = RunHistoryResponse(
+            ok=False,
+            runs=[],
+            next_cursor=None,
+            issues=[
+                _run_history_issue(
+                    "RUN_HISTORY_CURSOR_NOT_FOUND",
+                    "Run history cursor is no longer available.",
+                    path="after",
+                )
+            ],
+        )
+        return JSONResponse(
+            status_code=400,
+            content=_run_history_content(response),
+        )
+    except (RunHistoryDataInvalidError, ValueError):
+        response = RunHistoryResponse(
+            ok=False,
+            runs=[],
+            next_cursor=None,
+            issues=[
+                _run_history_issue(
+                    "RUN_HISTORY_DATA_INVALID",
+                    "Persisted run history could not be read safely.",
+                    path="runs",
+                )
+            ],
+        )
+        return JSONResponse(
+            status_code=500,
+            content=_run_history_content(response),
+        )
+
+    return RunHistoryResponse(
+        ok=True,
+        runs=summaries,
+        next_cursor=page.next_cursor,
+        issues=[],
+    )
 
 
 @router.get("/runs/{run_id}", response_model=RunResponse, operation_id="getRun")

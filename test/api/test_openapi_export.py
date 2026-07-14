@@ -43,6 +43,7 @@ EXPECTED_OPERATIONS = {
     ("GET", "/api/v1/workflows/{workflow_id}/schema"): "getWorkflowSchema",
     ("POST", "/api/v1/workflows/{workflow_id}/validate"): "validateWorkflow",
     ("POST", "/api/v1/workflows/{workflow_id}/runs"): "createRun",
+    ("GET", "/api/v1/runs"): "listRuns",
     ("GET", "/api/v1/runs/{run_id}"): "getRun",
     ("POST", "/api/v1/runs/{run_id}/start"): "startRun",
     ("POST", "/api/v1/runs/{run_id}/cancel"): "cancelRun",

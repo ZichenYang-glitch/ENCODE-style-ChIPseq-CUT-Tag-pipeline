@@ -319,6 +319,76 @@ async function captureQcViewport(
   await attachScreenshot(page, testInfo, `qc-workbench-${name}`);
 }
 
+async function captureRunHistoryViewport(
+  page: Page,
+  testInfo: TestInfo,
+  runId: string,
+  name: string,
+  width: number,
+  height: number,
+) {
+  await page.setViewportSize({ width, height });
+  await page.goto('/runs');
+  await expect(
+    page.getByRole('navigation', { name: 'Primary' }).getByRole('link', {
+      name: 'Runs',
+    }),
+  ).toHaveAttribute('aria-current', 'page');
+  await expect(
+    page.getByRole('link', { name: runId, exact: true }).filter({ visible: true }),
+  ).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('run-history-list')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  const historyBox = await page.getByTestId('run-history-list').boundingBox();
+  expect(historyBox).not.toBeNull();
+  expect(historyBox!.x).toBeGreaterThanOrEqual(0);
+  expect(historyBox!.x + historyBox!.width).toBeLessThanOrEqual(width + 1);
+  await attachScreenshot(page, testInfo, `run-history-${name}`);
+}
+
+async function verifyRunHistoryResultLinks(page: Page, runId: string) {
+  const primaryNavigation = page.getByRole('navigation', { name: 'Primary' });
+  await primaryNavigation.getByRole('link', { name: 'Runs' }).click();
+  await expect(page).toHaveURL('/runs');
+  const runLink = page
+    .getByRole('link', { name: runId, exact: true })
+    .filter({ visible: true });
+  await expect(runLink).toBeVisible({ timeout: 60_000 });
+
+  await page
+    .getByRole('link', { name: `Open QC for run ${runId}` })
+    .filter({ visible: true })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}\\?view=qc$`));
+  await expect(page.getByRole('tab', { name: 'QC' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await primaryNavigation.getByRole('link', { name: 'Runs' }).click();
+
+  await page
+    .getByRole('link', { name: `Open artifacts for run ${runId}` })
+    .filter({ visible: true })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}\\?view=artifacts$`));
+  await expect(page.getByRole('tab', { name: 'Artifacts' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await primaryNavigation.getByRole('link', { name: 'Runs' }).click();
+
+  await runLink.click();
+  await expect(page).toHaveURL(`/runs/${runId}`);
+  await expect(page.getByRole('tab', { name: 'Activity' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(primaryNavigation.getByRole('link', { name: 'Runs' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+}
+
 function processExists(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -340,6 +410,25 @@ test('real run exposes QC source artifact and exact download @desktop', async ({
     { proveBackendRejection: true, requireRunning: true },
   );
   await expectNoHorizontalOverflow(page);
+
+  await verifyRunHistoryResultLinks(page, runId);
+  await captureRunHistoryViewport(
+    page,
+    testInfo,
+    runId,
+    'desktop-1440x900',
+    1440,
+    900,
+  );
+  await captureRunHistoryViewport(
+    page,
+    testInfo,
+    runId,
+    'tablet-1024x768',
+    1024,
+    768,
+  );
+  await page.goto(`/runs/${runId}`);
 
   await page.getByRole('tab', { name: 'QC' }).click();
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}\\?view=qc$`));
@@ -474,6 +563,36 @@ test('real run exposes QC source artifact and exact download @desktop', async ({
   await expect(page.getByText('sample\tassay')).not.toBeVisible();
   await expectNoHorizontalOverflow(page);
   await attachScreenshot(page, testInfo, 'qc-indexing-failed-desktop-1440x900');
+});
+
+test('real successful run is discoverable from mobile run history @mobile', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  const runtime = manifest();
+  const runId = await executeToSucceeded(
+    page,
+    runtime.resultsConfig,
+    'browser-e2e-results',
+  );
+
+  await verifyRunHistoryResultLinks(page, runId);
+  await captureRunHistoryViewport(
+    page,
+    testInfo,
+    runId,
+    'mobile-390x844',
+    390,
+    844,
+  );
+  await captureRunHistoryViewport(
+    page,
+    testInfo,
+    runId,
+    'mobile-360x800',
+    360,
+    800,
+  );
 });
 
 test('running cancellation stays requested until worker acknowledgement @mobile', async ({

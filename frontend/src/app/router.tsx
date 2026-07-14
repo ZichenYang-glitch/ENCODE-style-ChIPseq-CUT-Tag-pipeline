@@ -18,6 +18,12 @@ const NewRunWorkbenchPage = lazy(() =>
   })),
 );
 
+const RunHistoryPage = lazy(() =>
+  import('../routes/runs').then((module) => ({
+    default: module.RunHistoryPage,
+  })),
+);
+
 function WorkflowDetailRoute() {
   const { workflowId } = useParams<{ workflowId: string }>();
   if (!workflowId) {
@@ -67,6 +73,14 @@ export const appRoutes: RouteObject[] = [
           { path: ':workflowId', element: <WorkflowDetailRoute /> },
         ],
       },
+      {
+        path: 'runs',
+        element: (
+          <Suspense fallback={<RunHistoryRouteLoading />}>
+            <RunHistoryPage />
+          </Suspense>
+        ),
+      },
       { path: 'runs/:runId', element: <RunDetailPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
@@ -75,4 +89,17 @@ export const appRoutes: RouteObject[] = [
 
 export function createAppRouter() {
   return createBrowserRouter(appRoutes);
+}
+
+function RunHistoryRouteLoading() {
+  return (
+    <section
+      className="min-h-[30rem] min-w-0 flex-1 animate-pulse rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+      aria-label="Loading run history page"
+    >
+      <div className="h-5 w-40 rounded bg-slate-200" />
+      <div className="mt-4 h-10 rounded bg-slate-100" />
+      <div className="mt-4 h-64 rounded bg-slate-100" />
+    </section>
+  );
 }

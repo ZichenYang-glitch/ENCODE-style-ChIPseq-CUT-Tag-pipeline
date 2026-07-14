@@ -28,9 +28,11 @@ from encode_pipeline.platform.adapters import (
     MAX_SAMPLE_ROWS,
 )
 from encode_pipeline.platform.runs import (
+    RunStatus,
     build_qc_metric_id,
     validate_qc_identifier_token,
 )
+from encode_pipeline.platform.run_history import RunSummary
 from encode_pipeline.services.run_repositories import canonical_decimal_text
 from encode_pipeline.platform.snapshots import (
     ValidatedInputSnapshot,
@@ -353,6 +355,48 @@ class RunRecordResponse(BaseModel):
     cancellation_reason: str | None
     error: IssueResponse | None = None
     tags: dict[str, str] = Field(default_factory=dict)
+
+
+class RunSummaryResponse(BaseModel):
+    """Strict disclosure-safe projection for one run-history row."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+    workflow_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$")
+    status: RunStatus
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    ended_at: datetime | None
+    current_stage: str | None = Field(
+        pattern=r"^[A-Za-z][A-Za-z0-9_.-]{0,254}$",
+    )
+
+    @model_validator(mode="after")
+    def validate_public_summary(self) -> "RunSummaryResponse":
+        RunSummary(
+            run_id=self.run_id,
+            workflow_id=self.workflow_id,
+            status=self.status,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+            started_at=self.started_at,
+            ended_at=self.ended_at,
+            current_stage=self.current_stage,
+        )
+        return self
+
+
+class RunHistoryResponse(BaseModel):
+    """Envelope for GET /api/v1/runs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    runs: list[RunSummaryResponse]
+    next_cursor: str | None = Field(max_length=1024)
+    issues: list[IssueResponse]
 
 
 class RunEventResponse(BaseModel):

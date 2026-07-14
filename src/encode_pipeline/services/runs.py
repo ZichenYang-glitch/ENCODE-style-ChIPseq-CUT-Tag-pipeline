@@ -21,6 +21,15 @@ from encode_pipeline.platform.execution import (
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue
+from encode_pipeline.platform.run_history import (
+    RunHistoryCursor,
+    RunHistoryPage,
+    RunSummary,
+    decode_run_history_cursor,
+    encode_run_history_cursor,
+    normalize_run_history_status,
+    normalize_run_history_workflow_filter,
+)
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
     RunEvent,
@@ -51,6 +60,22 @@ class RunCancellationNotAvailableError(RuntimeError):
     def __init__(self, record: RunRecord) -> None:
         super().__init__("Run cancellation is not available in the current state.")
         self.record = record
+
+
+class RunHistoryFilterInvalidError(ValueError):
+    """A run-history filter is not safe or supported."""
+
+
+class RunHistoryCursorInvalidError(ValueError):
+    """A run-history cursor is malformed or filter-mismatched."""
+
+
+class RunHistoryCursorNotFoundError(KeyError):
+    """A valid run-history cursor boundary no longer exists."""
+
+
+class RunHistoryDataInvalidError(ValueError):
+    """Persisted run-summary data violates the public contract."""
 
 
 class RunService:
@@ -245,6 +270,74 @@ class RunService:
         """Return all runs in creation order."""
         with self._lock:
             return self._repository.list_runs()
+
+    def list_run_history(
+        self,
+        *,
+        after: str | None = None,
+        limit: int = 50,
+        workflow_id: str | None = None,
+        status: RunStatus | str | None = None,
+    ) -> RunHistoryPage:
+        """Return one canonical, disclosure-safe run-history page."""
+        if (
+            isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= 100
+        ):
+            raise RunHistoryFilterInvalidError("run history limit is invalid")
+        try:
+            normalized_workflow_id = normalize_run_history_workflow_filter(workflow_id)
+            normalized_status = normalize_run_history_status(status)
+        except ValueError as exc:
+            raise RunHistoryFilterInvalidError(
+                "run history filters are invalid"
+            ) from exc
+
+        cursor: RunHistoryCursor | None = None
+        if after is not None:
+            try:
+                cursor = decode_run_history_cursor(
+                    after,
+                    workflow_id=normalized_workflow_id,
+                    status=normalized_status,
+                )
+            except ValueError as exc:
+                raise RunHistoryCursorInvalidError(
+                    "run history cursor is invalid"
+                ) from exc
+
+        try:
+            with self._lock:
+                candidates = self._repository.list_run_summaries(
+                    after=cursor,
+                    limit=limit + 1,
+                    workflow_id=normalized_workflow_id,
+                    status=normalized_status,
+                )
+            validated = _validated_run_summaries(candidates)
+        except KeyError as exc:
+            raise RunHistoryCursorNotFoundError(
+                "run history cursor boundary does not exist"
+            ) from exc
+        except ValueError as exc:
+            raise RunHistoryDataInvalidError(
+                "persisted run history data is invalid"
+            ) from exc
+
+        page_runs = validated[:limit]
+        next_cursor: str | None = None
+        if len(validated) > limit:
+            boundary = page_runs[-1]
+            next_cursor = encode_run_history_cursor(
+                RunHistoryCursor(
+                    created_at=boundary.created_at,
+                    run_id=boundary.run_id,
+                    workflow_id=normalized_workflow_id,
+                    status=normalized_status,
+                )
+            )
+        return RunHistoryPage(runs=page_runs, next_cursor=next_cursor)
 
     def ensure_execution_assignment(
         self,
@@ -970,3 +1063,25 @@ class RunService:
                     context={"reason_code": reason_code},
                 ),
             )
+
+
+def _validated_run_summaries(values: object) -> tuple[RunSummary, ...]:
+    if not isinstance(values, tuple):
+        raise ValueError("run history repository result must be a tuple")
+    validated: list[RunSummary] = []
+    for value in values:
+        if not isinstance(value, RunSummary):
+            raise ValueError("run history repository returned an invalid value")
+        validated.append(
+            RunSummary(
+                run_id=value.run_id,
+                workflow_id=value.workflow_id,
+                status=value.status,
+                created_at=value.created_at,
+                updated_at=value.updated_at,
+                started_at=value.started_at,
+                ended_at=value.ended_at,
+                current_stage=value.current_stage,
+            )
+        )
+    return tuple(validated)

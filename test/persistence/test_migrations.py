@@ -34,7 +34,7 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
     assert set(inspector.get_table_names()) == EXPECTED_TABLES
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260714_06"
+            "20260714_07"
         )
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert connection.scalar(text("PRAGMA journal_mode")) == "wal"
@@ -383,7 +383,7 @@ def test_qc_metric_migration_upgrades_current_main_without_changing_existing_row
             == 0
         )
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260714_06"
+            "20260714_07"
         )
     upgraded.dispose()
 
@@ -437,6 +437,94 @@ def test_validated_snapshot_migration_upgrades_current_main_without_changing_run
             == 0
         )
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260714_06"
+            "20260714_07"
         )
     upgraded.dispose()
+
+
+def test_run_history_index_migration_preserves_rows_and_supports_all_query_shapes(
+    tmp_path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'run-history-upgrade.db'}"
+    upgrade_database(database_url, "20260714_06")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runs "
+                "(run_id, workflow_id, inputs, status, created_at, updated_at, "
+                "started_at, ended_at, current_stage, cancellation_reason, "
+                "error, tags) VALUES "
+                "(:run_id, :workflow_id, '{}', :status, :created_at, :updated_at, "
+                "NULL, NULL, NULL, NULL, NULL, '{}')"
+            ),
+            {
+                "run_id": "run-1",
+                "workflow_id": "workflow-a",
+                "status": "created",
+                "created_at": "2026-07-14 08:00:00",
+                "updated_at": "2026-07-14 08:00:00",
+            },
+        )
+    engine.dispose()
+
+    upgrade_database(database_url)
+    upgraded = create_database_engine(database_url)
+    expected_indexes = {
+        "ix_runs_created_run_id",
+        "ix_runs_workflow_created_run_id",
+        "ix_runs_status_created_run_id",
+        "ix_runs_workflow_status_created_run_id",
+    }
+    assert expected_indexes <= {
+        index["name"] for index in inspect(upgraded).get_indexes("runs")
+    }
+    with upgraded.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM runs")) == 1
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20260714_07"
+        )
+        plans = {
+            "ix_runs_created_run_id": (
+                "SELECT run_id FROM runs "
+                "ORDER BY created_at DESC, run_id DESC LIMIT 51",
+                {},
+            ),
+            "ix_runs_workflow_created_run_id": (
+                "SELECT run_id FROM runs WHERE workflow_id = :workflow_id "
+                "ORDER BY created_at DESC, run_id DESC LIMIT 51",
+                {"workflow_id": "workflow-a"},
+            ),
+            "ix_runs_status_created_run_id": (
+                "SELECT run_id FROM runs WHERE status = :status "
+                "ORDER BY created_at DESC, run_id DESC LIMIT 51",
+                {"status": "created"},
+            ),
+            "ix_runs_workflow_status_created_run_id": (
+                "SELECT run_id FROM runs "
+                "WHERE workflow_id = :workflow_id AND status = :status "
+                "ORDER BY created_at DESC, run_id DESC LIMIT 51",
+                {"workflow_id": "workflow-a", "status": "created"},
+            ),
+        }
+        for index_name, (statement, parameters) in plans.items():
+            detail = " ".join(
+                str(row[3])
+                for row in connection.execute(
+                    text(f"EXPLAIN QUERY PLAN {statement}"), parameters
+                )
+            )
+            assert index_name in detail
+            assert "USE TEMP B-TREE FOR ORDER BY" not in detail
+    upgraded.dispose()
+
+    downgrade_database(database_url, "20260714_06")
+    downgraded = create_database_engine(database_url)
+    assert expected_indexes.isdisjoint(
+        {index["name"] for index in inspect(downgraded).get_indexes("runs")}
+    )
+    with downgraded.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM runs")) == 1
+    downgraded.dispose()
+
+    upgrade_database(database_url)

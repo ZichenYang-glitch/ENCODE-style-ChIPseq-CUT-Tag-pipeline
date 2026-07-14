@@ -20,6 +20,7 @@ from encode_pipeline.platform.execution import (
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.results import Issue
+from encode_pipeline.platform.run_history import RunHistoryCursor, RunSummary
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
     RunEvent,
@@ -113,6 +114,15 @@ class RunRepository(Protocol):
     def get_run(self, run_id: str) -> RunRecord: ...
 
     def list_runs(self) -> tuple[RunRecord, ...]: ...
+
+    def list_run_summaries(
+        self,
+        *,
+        after: RunHistoryCursor | None = None,
+        limit: int = 50,
+        workflow_id: str | None = None,
+        status: RunStatus | None = None,
+    ) -> tuple[RunSummary, ...]: ...
 
     def update_run(
         self,
@@ -402,6 +412,57 @@ class InMemoryRunRepository:
     def list_runs(self) -> tuple[RunRecord, ...]:
         with self._lock:
             return tuple(self._runs.values())
+
+    def list_run_summaries(
+        self,
+        *,
+        after: RunHistoryCursor | None = None,
+        limit: int = 50,
+        workflow_id: str | None = None,
+        status: RunStatus | None = None,
+    ) -> tuple[RunSummary, ...]:
+        """Return one validated, descending keyset page of public summaries."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise ValueError("run summary limit must be a positive integer")
+        if workflow_id is not None and not isinstance(workflow_id, str):
+            raise ValueError("run summary workflow_id filter must be a string")
+        if status is not None and not isinstance(status, RunStatus):
+            raise ValueError("run summary status filter must be a RunStatus")
+        if after is not None and not isinstance(after, RunHistoryCursor):
+            raise ValueError("run summary cursor is invalid")
+        if after is not None and (
+            after.workflow_id != workflow_id or after.status is not status
+        ):
+            raise ValueError("run summary cursor filters do not match")
+
+        with self._lock:
+            if after is not None:
+                boundary_record = self._runs.get(after.run_id)
+                if boundary_record is None:
+                    raise KeyError(after.run_id)
+                boundary = _summary_from_record(after.run_id, boundary_record)
+                if boundary.created_at != after.created_at or not _summary_matches(
+                    boundary,
+                    workflow_id=workflow_id,
+                    status=status,
+                ):
+                    raise KeyError(after.run_id)
+
+            selected: list[RunSummary] = []
+            for mapping_key, record in self._runs.items():
+                if workflow_id is not None and record.workflow_id != workflow_id:
+                    continue
+                if status is not None and record.status is not status:
+                    continue
+                summary = _summary_from_record(mapping_key, record)
+                if after is not None and not _summary_is_after(summary, after):
+                    continue
+                selected.append(summary)
+            selected.sort(
+                key=lambda summary: (summary.created_at, summary.run_id),
+                reverse=True,
+            )
+            return tuple(selected[:limit])
 
     def update_run(
         self,
@@ -1105,6 +1166,41 @@ def _require_assignment_identity(
         or assignment.queue_name != queue_name
     ):
         raise ValueError("execution assignment identity does not match")
+
+
+def _summary_from_record(mapping_key: str, record: RunRecord) -> RunSummary:
+    if not isinstance(mapping_key, str) or not isinstance(record, RunRecord):
+        raise ValueError("persisted run summary identity is invalid")
+    if mapping_key != record.run_id:
+        raise ValueError("persisted run summary identity is invalid")
+    return RunSummary(
+        run_id=record.run_id,
+        workflow_id=record.workflow_id,
+        status=record.status,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        started_at=record.started_at,
+        ended_at=record.ended_at,
+        current_stage=record.current_stage,
+    )
+
+
+def _summary_matches(
+    summary: RunSummary,
+    *,
+    workflow_id: str | None,
+    status: RunStatus | None,
+) -> bool:
+    return (workflow_id is None or summary.workflow_id == workflow_id) and (
+        status is None or summary.status is status
+    )
+
+
+def _summary_is_after(summary: RunSummary, cursor: RunHistoryCursor) -> bool:
+    return (summary.created_at, summary.run_id) < (
+        cursor.created_at,
+        cursor.run_id,
+    )
 
 
 def canonical_decimal_text(value: Decimal) -> str:
