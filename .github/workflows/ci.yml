@@ -28,12 +28,14 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Confirm exact checkout and tier
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           actual_sha=$(git rev-parse HEAD)
           test "$actual_sha" = "$EXPECTED_SHA"
@@ -42,11 +44,15 @@ jobs:
           else
             tier="full-main"
           fi
-          echo "event=$EVENT_NAME tier=$tier sha=$actual_sha"
+          pr_head_sha=${PR_HEAD_SHA:-n/a}
+          pr_base_sha=${PR_BASE_SHA:-n/a}
+          echo "event=$EVENT_NAME tier=$tier tested-sha=$actual_sha pr-head-sha=$pr_head_sha pr-base-sha=$pr_base_sha"
           echo "### CI identity" >> "$GITHUB_STEP_SUMMARY"
           echo "- Event: \`$EVENT_NAME\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tier: \`$tier\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- SHA: \`$actual_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tested SHA: \`$actual_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR head SHA: \`$pr_head_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR base SHA: \`$pr_base_sha\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup micromamba
         uses: mamba-org/setup-micromamba@v3
@@ -144,17 +150,27 @@ jobs:
         if: needs.fast-checks.result == 'success'
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Confirm exact checkout and coverage tier
         if: needs.fast-checks.result == 'success'
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           actual_sha=$(git rev-parse HEAD)
           test "$actual_sha" = "$EXPECTED_SHA"
-          echo "event=$EVENT_NAME coverage-sha=$actual_sha"
+          pr_head_sha=${PR_HEAD_SHA:-n/a}
+          pr_base_sha=${PR_BASE_SHA:-n/a}
+          echo "event=$EVENT_NAME tier=coverage tested-sha=$actual_sha pr-head-sha=$pr_head_sha pr-base-sha=$pr_base_sha"
+          echo "### CI identity" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Event: \`$EVENT_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tier: \`coverage\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tested SHA: \`$actual_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR head SHA: \`$pr_head_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR base SHA: \`$pr_base_sha\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Download Python coverage evidence
         if: needs.fast-checks.result == 'success'
@@ -229,16 +245,26 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Confirm exact checkout
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           actual_sha=$(git rev-parse HEAD)
           test "$actual_sha" = "$EXPECTED_SHA"
-          echo "event=$EVENT_NAME tier=frontend sha=$actual_sha"
+          pr_head_sha=${PR_HEAD_SHA:-n/a}
+          pr_base_sha=${PR_BASE_SHA:-n/a}
+          echo "event=$EVENT_NAME tier=frontend tested-sha=$actual_sha pr-head-sha=$pr_head_sha pr-base-sha=$pr_base_sha"
+          echo "### CI identity" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Event: \`$EVENT_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tier: \`frontend\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tested SHA: \`$actual_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR head SHA: \`$pr_head_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR base SHA: \`$pr_base_sha\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -298,16 +324,26 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Confirm exact checkout
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           actual_sha=$(git rev-parse HEAD)
           test "$actual_sha" = "$EXPECTED_SHA"
-          echo "event=$EVENT_NAME tier=browser-e2e sha=$actual_sha"
+          pr_head_sha=${PR_HEAD_SHA:-n/a}
+          pr_base_sha=${PR_BASE_SHA:-n/a}
+          echo "event=$EVENT_NAME tier=browser-e2e tested-sha=$actual_sha pr-head-sha=$pr_head_sha pr-base-sha=$pr_base_sha"
+          echo "### CI identity" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Event: \`$EVENT_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tier: \`browser-e2e\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tested SHA: \`$actual_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR head SHA: \`$pr_head_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR base SHA: \`$pr_base_sha\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup micromamba
         uses: mamba-org/setup-micromamba@v3
@@ -388,16 +424,26 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Confirm exact checkout
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           actual_sha=$(git rev-parse HEAD)
           test "$actual_sha" = "$EXPECTED_SHA"
-          echo "event=$EVENT_NAME tier=platform-real sha=$actual_sha"
+          pr_head_sha=${PR_HEAD_SHA:-n/a}
+          pr_base_sha=${PR_BASE_SHA:-n/a}
+          echo "event=$EVENT_NAME tier=platform-real tested-sha=$actual_sha pr-head-sha=$pr_head_sha pr-base-sha=$pr_base_sha"
+          echo "### CI identity" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Event: \`$EVENT_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tier: \`platform-real\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tested SHA: \`$actual_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR head SHA: \`$pr_head_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR base SHA: \`$pr_base_sha\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup micromamba
         uses: mamba-org/setup-micromamba@v3
@@ -409,7 +455,9 @@ jobs:
 
       - name: Install platform package
         shell: micromamba-shell {0}
-        run: pip install -e ".[api,dev]"
+        run: |
+          python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
+          python3 -m pip check
 
       - name: Run Redis, timeout, cancellation, and tiny execution gate
         shell: micromamba-shell {0}
@@ -459,16 +507,26 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Confirm exact checkout
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           actual_sha=$(git rev-parse HEAD)
           test "$actual_sha" = "$EXPECTED_SHA"
-          echo "event=$EVENT_NAME tier=scientific-real sha=$actual_sha"
+          pr_head_sha=${PR_HEAD_SHA:-n/a}
+          pr_base_sha=${PR_BASE_SHA:-n/a}
+          echo "event=$EVENT_NAME tier=scientific-real tested-sha=$actual_sha pr-head-sha=$pr_head_sha pr-base-sha=$pr_base_sha"
+          echo "### CI identity" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Event: \`$EVENT_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tier: \`scientific-real\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tested SHA: \`$actual_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR head SHA: \`$pr_head_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR base SHA: \`$pr_base_sha\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup micromamba
         uses: mamba-org/setup-micromamba@v3
@@ -526,16 +584,26 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Confirm exact checkout
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           actual_sha=$(git rev-parse HEAD)
           test "$actual_sha" = "$EXPECTED_SHA"
-          echo "event=$EVENT_NAME tier=container-smoke sha=$actual_sha"
+          pr_head_sha=${PR_HEAD_SHA:-n/a}
+          pr_base_sha=${PR_BASE_SHA:-n/a}
+          echo "event=$EVENT_NAME tier=container-smoke tested-sha=$actual_sha pr-head-sha=$pr_head_sha pr-base-sha=$pr_base_sha"
+          echo "### CI identity" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Event: \`$EVENT_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tier: \`container-smoke\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tested SHA: \`$actual_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR head SHA: \`$pr_head_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR base SHA: \`$pr_base_sha\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build runner image
         run: docker build -f containers/Dockerfile.runner -t helixweave-runner:ci .

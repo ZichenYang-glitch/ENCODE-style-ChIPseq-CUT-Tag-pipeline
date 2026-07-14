@@ -72,7 +72,7 @@ baseline was measured from the complete deterministic suite.
 
 | Area | Line | Branch | Combined | Enforced floor |
 | --- | ---: | ---: | ---: | ---: |
-| Repository | 84.5830% | 75.3696% | 82.3213% | 82% |
+| Repository | 84.6220% | 75.3822% | 82.3564% | 82% |
 | Platform | 91.29% | 80.28% | 88.45% | 88.45% |
 | Services | 89.57% | 80.39% | 87.28% | 87.28% |
 | Persistence | 92.96% | 72.69% | 89.07% | 89.06% |

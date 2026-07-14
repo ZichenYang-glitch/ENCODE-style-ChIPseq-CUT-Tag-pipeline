@@ -8,7 +8,9 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
-EXACT_REF = "${{ github.event.pull_request.head.sha || github.sha }}"
+EVENT_SHA = "${{ github.sha }}"
+PR_HEAD_SHA = "${{ github.event.pull_request.head.sha }}"
+PR_BASE_SHA = "${{ github.event.pull_request.base.sha }}"
 
 
 def _load(name: str) -> dict:
@@ -24,6 +26,15 @@ def _checkout_steps(workflow: dict):
         for step in job["steps"]:
             if str(step.get("uses", "")).startswith("actions/checkout@"):
                 yield step
+
+
+def _checkout_jobs(workflow: dict):
+    for job_id, job in workflow["jobs"].items():
+        if any(
+            str(step.get("uses", "")).startswith("actions/checkout@")
+            for step in job["steps"]
+        ):
+            yield job_id, job
 
 
 def test_all_workflows_parse_and_required_jobs_keep_stable_ids():
@@ -60,14 +71,44 @@ def test_ci_event_matrix_and_concurrency_are_tier_aware():
     assert "github.event_name" in workflow["concurrency"]["group"]
 
 
-def test_every_checkout_uses_full_history_and_the_exact_event_sha():
+def test_pull_request_jobs_checkout_the_merge_result_and_report_pr_identity():
     for name in ("ci.yml", "lint.yml", "lock-check.yml"):
         workflow = _load(name)
-        checkouts = list(_checkout_steps(workflow))
-        assert checkouts, name
-        for checkout in checkouts:
+        assert "pull_request" in workflow["on"]
+        jobs = list(_checkout_jobs(workflow))
+        assert jobs, name
+        for job_id, job in jobs:
+            checkout = next(_checkout_steps({"jobs": {job_id: job}}))
             assert checkout["with"]["fetch-depth"] == 0
-            assert checkout["with"]["ref"] == EXACT_REF
+            # On pull_request, github.sha is GitHub's synthetic merge commit.
+            assert checkout["with"]["ref"] == EVENT_SHA
+
+            identity = next(
+                step
+                for step in job["steps"]
+                if str(step.get("name", "")).startswith("Confirm exact checkout")
+            )
+            assert identity["env"]["EXPECTED_SHA"] == EVENT_SHA
+            assert identity["env"]["PR_HEAD_SHA"] == PR_HEAD_SHA
+            assert identity["env"]["PR_BASE_SHA"] == PR_BASE_SHA
+            assert "tested-sha=" in identity["run"]
+            assert "pr-head-sha=" in identity["run"]
+            assert "pr-base-sha=" in identity["run"]
+            assert "Tested SHA:" in identity["run"]
+            assert "PR head SHA:" in identity["run"]
+            assert "PR base SHA:" in identity["run"]
+
+
+def test_non_pr_jobs_checkout_the_exact_event_sha_without_a_head_fallback():
+    for name in ("ci.yml", "lint.yml", "lock-check.yml"):
+        workflow = _load(name)
+        assert "workflow_dispatch" in workflow["on"]
+        assert "push" in workflow["on"]
+        for checkout in _checkout_steps(workflow):
+            # On push, dispatch, schedule, and release, github.sha is the exact
+            # event commit; no pull-request-head fallback may override it.
+            assert checkout["with"]["ref"] == EVENT_SHA
+            assert "pull_request.head.sha" not in checkout["with"]["ref"]
 
 
 def test_fast_checks_is_the_only_deterministic_pytest_coverage_producer():
