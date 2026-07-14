@@ -33,6 +33,9 @@ from .process_helpers import run_burst_worker, terminate_rq_worker
 from .signal_timeout_helpers import CAUGHT_MARKER_ENV, ENTERED_MARKER_ENV
 
 
+pytestmark = pytest.mark.platform_real_execution
+
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TEST_REDIS_URL_ENV = "ENCODE_PIPELINE_TEST_REDIS_URL"
 

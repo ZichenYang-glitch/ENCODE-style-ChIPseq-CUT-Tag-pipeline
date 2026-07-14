@@ -20,7 +20,6 @@ Usage:
 
 import argparse
 import shutil
-import sys
 
 
 def count_peaks(path):

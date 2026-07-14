@@ -172,14 +172,23 @@ runner.
 
 ## CI Behavior
 
-GitHub Actions uses three locked paths:
+GitHub Actions keeps deterministic and real execution separate:
 
-- `fast-checks`: uses `workflow/envs/ci-fast.lock` for config validation and
-  dry-run smoke profiles.
-- `lint`: uses `workflow/envs/ci-lint.lock` without installing the project or
+- `fast-checks` uses `workflow/envs/ci-fast.lock`. Pull requests run one fast
+  unit/contract/validator/DAG-smoke pytest selection. Pushes to `main`, manual
+  dispatches, nightly schedules, and releases run one complete deterministic
+  selection in the same environment.
+- `platform-real-execution` uses `workflow/envs/ci-fast.lock` plus a real Redis
+  service for Redis/RQ, SIGALRM, cancellation, and tiny Snakemake contracts.
+- `real-execution` uses `workflow/envs/chipseq.lock` for the complete
+  `test/real_execution` scientific tier.
+- `container-smoke` builds the runner image and exercises `profiles/default`.
+- `lint` uses `workflow/envs/ci-lint.lock` without installing the project or
   resolving tools from a live package index.
-- `real-execution`: manual `workflow_dispatch`, uses `workflow/envs/chipseq.lock`
-  for the complete `test/real_execution` tier.
+
+The three real jobs run only on manual dispatch, nightly schedule, or published
+release, and are not recommended required PR checks. Their pytest entry points
+are fail-closed and require zero skips and zero xfails in CI.
 
 Full rule-specific environments are primarily for real user runs with
 `--use-conda`.

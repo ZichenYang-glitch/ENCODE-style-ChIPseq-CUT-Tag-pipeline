@@ -1,7 +1,6 @@
 """Boundary and import-surface tests for the sample loading extraction."""
 
 import ast
-import importlib
 import inspect
 import subprocess
 import sys

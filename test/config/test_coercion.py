@@ -5,8 +5,6 @@ encode_pipeline.config.validate.validate_config so that future extractions
 (e.g., PR54 coercion helpers) can be verified behavior-preserving.
 """
 
-from pathlib import Path
-
 import pytest
 
 from encode_pipeline.config.validate import ValidationError, validate_config

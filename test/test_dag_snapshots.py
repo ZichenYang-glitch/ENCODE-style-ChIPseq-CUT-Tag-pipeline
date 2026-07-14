@@ -20,12 +20,14 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 
 import pytest
 
 from conftest import SMOKE_PROFILES, prepare_profile_workdir
 from _tool_resolver import resolve_tool
+
+
+pytestmark = pytest.mark.full_main
 
 
 SNAKEMAKE = resolve_tool("snakemake", "SNAKEMAKE")
@@ -157,8 +159,9 @@ def test_key_markers(profile, snapshots_dir, request):
         pytest.skip("Key marker check not needed during snapshot update")
 
     snapshot_path = os.path.join(snapshots_dir, f"{profile}.txt")
-    if not os.path.exists(snapshot_path):
-        pytest.skip(f"Snapshot missing for {profile}")
+    assert os.path.exists(snapshot_path), (
+        f"Snapshot missing for {profile}; run with --update-snapshots"
+    )
 
     rules = set(_read_snapshot(snapshot_path))
     for marker_name, marker in KEY_MARKERS.items():

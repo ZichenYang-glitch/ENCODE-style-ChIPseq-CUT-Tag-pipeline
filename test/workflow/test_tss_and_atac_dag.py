@@ -6,6 +6,8 @@ import shutil
 import sys
 import tempfile
 
+import pytest
+
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(_REPO, "test"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,6 +20,9 @@ from test_optional_qc_dag import (  # noqa: E402
     _write_samples_tsv,
     _write_yaml,
 )
+
+
+pytestmark = pytest.mark.full_main
 
 
 def _sample(td, sid="s1", assay="chipseq", peak_mode="narrow"):

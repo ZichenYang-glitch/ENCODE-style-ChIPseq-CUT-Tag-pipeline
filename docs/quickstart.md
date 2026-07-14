@@ -99,8 +99,8 @@ snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use
 
 ## Smoke and test execution
 
-The pipeline ships with three bundled test harnesses that run on synthetic data
-(no real FASTQs needed):
+The repository ships with four bundled test selections that use contracts or
+synthetic data (no real FASTQs needed):
 
 ```bash
 # Config and sample validation contracts
@@ -111,6 +111,11 @@ python3 -m pytest test/config/test_validation.py \
 # Requires snakemake on PATH.
 python3 -m pytest test/workflow/test_smoke_profiles.py -v
 
+# Real platform execution — Redis/RQ, cancellation, and tiny Snakemake
+# Requires Redis plus the locked ci-fast environment.
+ENCODE_PIPELINE_TEST_REDIS_URL=redis://127.0.0.1:6379/15 \
+  python3 -m pytest -m platform_real_execution test/workers -ra -v
+
 # Real execution — focused tool contracts plus a synthetic end-to-end run
 # Requires the core chipseq Conda environment.
 python3 -m pytest -m real_execution \
@@ -118,8 +123,8 @@ python3 -m pytest -m real_execution \
 ```
 
 All temporary output lands under pytest-managed temporary directories. Missing
-external tools are reported as explicit skips during local development and as
-failures in the CI real-execution gate.
+external services or tools can be explicit skips during opt-in local
+development and are failures in the corresponding fail-closed CI real tier.
 
 The validation contracts and smoke profiles are fast and check config parsing
 and DAG connectivity. The tiny execution test runs real tools (Bowtie2, samtools,

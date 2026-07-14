@@ -29,7 +29,7 @@ dev = [
     "diff-cover>=9,<10",
     "pytest",
     "pytest-cov>=7,<8",
-    "ruff",
+    "ruff==0.15.21",
     "mypy",
     "jsonschema>=4.23,<5",
     "fakeredis[lua]>=2.36,<3",
@@ -51,9 +51,17 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["test"]
 python_files = ["test_*.py"]
-addopts = ["--strict-markers", "-v", "-m", "not real_execution"]
+addopts = [
+    "--strict-markers",
+    "-v",
+    "-m",
+    "not real_execution and not platform_real_execution",
+]
+xfail_strict = true
 markers = [
-    "real_execution: requires external workflow or bioinformatics executables and is excluded from the default suite",
+    "full_main: deterministic but broader contracts run on full-main, dispatch, nightly, and release tiers",
+    "platform_real_execution: requires real Redis/RQ, POSIX process control, or a real Snakemake process",
+    "real_execution: requires external scientific workflow or bioinformatics executables",
 ]
 
 [tool.coverage.run]
@@ -63,10 +71,17 @@ relative_files = true
 patch = ["subprocess"]
 
 [tool.coverage.report]
-fail_under = 78
+fail_under = 82
 precision = 2
 show_missing = true
 skip_covered = false
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
 
 [tool.snakefmt]
 line_length = 120

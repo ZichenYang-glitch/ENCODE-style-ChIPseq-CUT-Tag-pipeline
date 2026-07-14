@@ -9,7 +9,7 @@ import subprocess
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_REPO, "scripts"))
-from parse_cross_correlation import (
+from parse_cross_correlation import (  # noqa: E402
     parse_cc_qc_file,
     sample_name_from_path,
     _quality_flag,

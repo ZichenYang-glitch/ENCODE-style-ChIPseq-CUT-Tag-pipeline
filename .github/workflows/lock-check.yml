@@ -3,49 +3,49 @@ name: Lock Check
 "on":
   pull_request:
   push:
-    branches: [main, "stage*"]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lock-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
-      - uses: actions/checkout@v5
+      - name: Record job start
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
 
-      - name: Verify every modified env YAML has a matching lockfile
-        shell: bash
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Confirm exact checkout
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          set -euo pipefail
-          git fetch origin ${{ github.base_ref }} --depth=1 2>/dev/null || true
-          BASE="origin/${{ github.base_ref }}"
-          if ! git rev-parse "$BASE" >/dev/null 2>&1; then
-            echo "No base ref available; skipping lock freshness check."
-            exit 0
-          fi
-          changed_yamls=$(git diff --name-only "$BASE"...HEAD -- workflow/envs/*.yml || true)
-          if [ -z "$changed_yamls" ]; then
-            echo "No environment YAMLs changed."
-            exit 0
-          fi
-          failed=0
-          for yml in $changed_yamls; do
-            lock="${yml%.yml}.lock"
-            if git diff --name-only "$BASE"...HEAD -- "$lock" | grep -q .; then
-              echo "OK: $yml -> $lock also modified"
-            else
-              echo "FAIL: $yml modified without matching $lock"
-              failed=1
-            fi
-          done
-          exit "$failed"
+          actual_sha=$(git rev-parse HEAD)
+          test "$actual_sha" = "$EXPECTED_SHA"
+          echo "event=$EVENT_NAME tier=lock-check sha=$actual_sha"
 
       - name: Verify every env YAML has a lockfile
         shell: bash
         run: |
           set -euo pipefail
-          for yml in workflow/envs/*.yml; do
+          shopt -s nullglob
+          yamls=(workflow/envs/*.yml)
+          if [ "${#yamls[@]}" -eq 0 ]; then
+            echo "No environment YAML files found."
+            exit 1
+          fi
+          for yml in "${yamls[@]}"; do
             lock="${yml%.yml}.lock"
             if [ ! -f "$lock" ]; then
               echo "MISSING: $lock for $yml"
@@ -53,3 +53,132 @@ jobs:
             fi
           done
           echo "All environment YAMLs have matching lockfiles."
+
+      - name: Verify changed env YAMLs have matching lock changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Manual dispatch: presence was checked; no event diff is available."
+            exit 0
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
+            base="$PR_BASE_SHA"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            base="$PUSH_BEFORE_SHA"
+          else
+            echo "No freshness policy for event $EVENT_NAME; presence check remains authoritative."
+            exit 0
+          fi
+
+          if [ -z "$base" ] || [[ "$base" =~ ^0+$ ]]; then
+            if [ "$EVENT_NAME" = "push" ]; then
+              echo "Push base is empty or all-zero; presence checked, freshness not claimed."
+              exit 0
+            fi
+            echo "Pull-request base SHA is unexpectedly empty or all-zero."
+            exit 1
+          fi
+          if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            if [ "$EVENT_NAME" = "push" ]; then
+              echo "Push base $base is unavailable; presence checked, freshness not claimed."
+              exit 0
+            fi
+            echo "Pull-request base SHA $base is unavailable."
+            exit 1
+          fi
+
+          lock_changed() {
+            local lock=$1
+            local status
+            if git diff --quiet "$base"...HEAD -- "$lock"; then
+              return 1
+            else
+              status=$?
+            fi
+            if [ "$status" -eq 1 ]; then
+              return 0
+            fi
+            echo "FAIL: git diff failed for $lock with status $status"
+            failed=1
+            return 1
+          }
+          require_added_or_modified_lock() {
+            local yml=$1
+            local lock="${yml%.yml}.lock"
+            if [ ! -f "$lock" ]; then
+              echo "FAIL: $yml changed but $lock is absent at HEAD"
+              failed=1
+            elif ! lock_changed "$lock"; then
+              echo "FAIL: $yml changed without matching change to $lock"
+              failed=1
+            else
+              echo "OK: $yml -> $lock also changed"
+            fi
+          }
+          require_deleted_lock() {
+            local yml=$1
+            local lock="${yml%.yml}.lock"
+            if [ -e "$lock" ]; then
+              echo "FAIL: deleted $yml left $lock at HEAD"
+              failed=1
+            elif ! lock_changed "$lock"; then
+              echo "FAIL: deleted $yml had no matching lock deletion"
+              failed=1
+            else
+              echo "OK: deleted $yml -> deleted $lock"
+            fi
+          }
+
+          failed=0
+          changed=0
+          diff_file=$(mktemp)
+          trap 'rm -f "$diff_file"' EXIT
+          git diff --name-status -z --find-renames "$base"...HEAD -- \
+            ':(glob)workflow/envs/*.yml' > "$diff_file"
+          while IFS= read -r -d '' status; do
+            changed=$((changed + 1))
+            case "$status" in
+              R*)
+                IFS= read -r -d '' old_yml
+                IFS= read -r -d '' new_yml
+                require_deleted_lock "$old_yml"
+                require_added_or_modified_lock "$new_yml"
+                ;;
+              C*)
+                IFS= read -r -d '' _old_yml
+                IFS= read -r -d '' new_yml
+                require_added_or_modified_lock "$new_yml"
+                ;;
+              D*)
+                IFS= read -r -d '' yml
+                require_deleted_lock "$yml"
+                ;;
+              A*|M*|T*)
+                IFS= read -r -d '' yml
+                require_added_or_modified_lock "$yml"
+                ;;
+              *)
+                IFS= read -r -d '' yml
+                echo "FAIL: unsupported git status $status for $yml"
+                failed=1
+                ;;
+            esac
+          done < "$diff_file"
+
+          if [ "$changed" -eq 0 ]; then
+            echo "No environment YAMLs changed."
+          fi
+          exit "$failed"
+
+      - name: Report lock-check wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_STARTED ))
+          echo "### lock-check timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Soft budget: 60s (informational)" >> "$GITHUB_STEP_SUMMARY"

@@ -11,7 +11,6 @@ import argparse
 import csv
 import os
 import subprocess
-import sys
 
 
 def _count_reads(bam_path: str) -> str:

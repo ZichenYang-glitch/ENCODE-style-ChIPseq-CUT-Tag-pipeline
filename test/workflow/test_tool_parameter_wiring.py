@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
+
+pytestmark = pytest.mark.full_main
+
 
 SAMPLE_COLUMNS = (
     "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\t"

@@ -26,7 +26,6 @@ def _biological_replicates(rows):
 
 def _validate_treatment_consistency(exp, rows, error_cls):
     """Check that treatment rows in one experiment agree on key fields."""
-    first = rows[0]
     for field in ("assay", "target", "condition", "genome", "peak_mode", "layout"):
         values = {r[field] for r in rows}
         if len(values) > 1:

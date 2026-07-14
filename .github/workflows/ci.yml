@@ -3,31 +3,50 @@ name: CI
 "on":
   pull_request:
   push:
-    branches: [main, "stage*"]
+    branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: "17 19 * * *"
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   fast-checks:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7.4.9-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
+    timeout-minutes: 12
     steps:
+      - name: Record job start
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Confirm exact checkout and tier
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          actual_sha=$(git rev-parse HEAD)
+          test "$actual_sha" = "$EXPECTED_SHA"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            tier="pr-fast"
+          else
+            tier="full-main"
+          fi
+          echo "event=$EVENT_NAME tier=$tier sha=$actual_sha"
+          echo "### CI identity" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Event: \`$EVENT_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tier: \`$tier\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA: \`$actual_sha\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup micromamba
         uses: mamba-org/setup-micromamba@v3
@@ -37,41 +56,39 @@ jobs:
           cache-environment: true
           cache-environment-key: ci-fast-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.lock') }}
 
-      - name: Install encode-pipeline package
+      - name: Install HelixWeave test dependencies
         shell: micromamba-shell {0}
         run: |
           python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
           python3 -m pip check
 
-      - name: OpenAPI contract drift gate
-        shell: micromamba-shell {0}
-        run: python3 -m pytest test/api/test_openapi_export.py -v
-
-      - name: Durable execution boundary tests
+      - name: Run deterministic Python tier once
         shell: micromamba-shell {0}
         env:
-          ENCODE_PIPELINE_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+          EVENT_NAME: ${{ github.event_name }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            marker='not full_main and not platform_real_execution and not real_execution'
+          else
+            marker='not platform_real_execution and not real_execution'
+          fi
+          python3 -m pytest test -ra -p no:cacheprovider \
+            -m "$marker" \
+            --durations=25 --durations-min=1.0 \
+            --junitxml=pytest-report.xml \
+            --cov --cov-config=pyproject.toml --cov-context=test \
+            --cov-fail-under=0 \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-report=json:coverage.json
+
+      - name: Require passing, zero-skip Python outcomes
+        if: always()
+        shell: micromamba-shell {0}
         run: >-
-          python3 -m pytest
-          test/platform/test_execution.py
-          test/platform/test_runs.py
-          test/services/test_run_repositories.py
-          test/services/test_run_cancellation.py
-          test/services/test_run_service.py
-          test/services/test_run_submission.py
-          test/services/test_command_builder.py
-          test/services/test_local_execution.py
-          test/services/test_local_run_driver.py
-          test/services/test_process_runner.py
-          test/services/test_artifact_downloads.py
-          test/persistence
-          test/api/test_routes_artifact_downloads.py
-          test/api/test_persistent_composition.py
-          test/api/test_routes_cancel.py
-          test/api/test_routes_start.py
-          test/api/test_startup.py
-          test/workers
-          -v
+          python3 scripts/check_junit_outcomes.py pytest-report.xml
+          --label "deterministic ${{ github.event_name }} tier"
 
       - name: Validate default config
         shell: micromamba-shell {0}
@@ -81,30 +98,73 @@ jobs:
         shell: micromamba-shell {0}
         run: encode-validate --config config/config.yaml
 
-      - name: Validation contracts
-        shell: micromamba-shell {0}
-        run: python3 -m pytest test/config/test_validation.py -v
+      - name: Upload Python test and coverage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage-${{ github.run_id }}
+          path: |
+            .coverage
+            coverage.xml
+            coverage.json
+            pytest-report.xml
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
 
-      - name: Snakemake dry-run smoke profiles
-        shell: micromamba-shell {0}
-        run: python3 -m pytest test/workflow/test_smoke_profiles.py -v
-
-      - name: No-hardcoded-paths guard
-        shell: micromamba-shell {0}
-        run: python3 test/test_no_hardcoded_paths.py
-
-      - name: Manifest contracts
-        shell: micromamba-shell {0}
-        run: python3 -m pytest test/manifest/test_make_manifest.py -v
+      - name: Report fast-checks wall time
+        if: always()
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          elapsed=$(( $(date +%s) - JOB_STARTED ))
+          if [ "$EVENT_NAME" = "pull_request" ]; then budget=240; else budget=420; fi
+          echo "### fast-checks timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Soft budget: ${budget}s (informational)" >> "$GITHUB_STEP_SUMMARY"
 
   coverage:
+    needs: fast-checks
+    if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
+      - name: Record job start
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Require successful coverage producer
+        env:
+          PRODUCER_RESULT: ${{ needs.fast-checks.result }}
+        run: |
+          echo "fast-checks result: $PRODUCER_RESULT"
+          test "$PRODUCER_RESULT" = "success"
+
       - uses: actions/checkout@v5
+        if: needs.fast-checks.result == 'success'
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Confirm exact checkout and coverage tier
+        if: needs.fast-checks.result == 'success'
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          actual_sha=$(git rev-parse HEAD)
+          test "$actual_sha" = "$EXPECTED_SHA"
+          echo "event=$EVENT_NAME coverage-sha=$actual_sha"
+
+      - name: Download Python coverage evidence
+        if: needs.fast-checks.result == 'success'
+        uses: actions/download-artifact@v5
+        with:
+          name: python-coverage-${{ github.run_id }}
+          path: .
 
       - name: Setup micromamba
+        if: needs.fast-checks.result == 'success'
         uses: mamba-org/setup-micromamba@v3
         with:
           environment-file: workflow/envs/ci-fast.lock
@@ -112,26 +172,19 @@ jobs:
           cache-environment: true
           cache-environment-key: coverage-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.lock') }}
 
-      - name: Install HelixWeave test dependencies
+      - name: Enforce changed-line coverage
+        if: needs.fast-checks.result == 'success' && github.event_name == 'pull_request'
         shell: micromamba-shell {0}
-        run: |
-          python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
-          python3 -m pip check
+        run: >-
+          diff-cover coverage.xml
+          --compare-branch='${{ github.event.pull_request.base.sha }}'
+          --fail-under=80
 
-      - name: Complete Python unit and contract coverage
-        shell: micromamba-shell {0}
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-        run: |
-          python3 -m pytest test -ra -p no:cacheprovider \
-            --cov --cov-config=pyproject.toml --cov-context=test \
-            --cov-report=term-missing \
-            --cov-report=xml:coverage.xml \
-            --cov-report=json:coverage.json
-
-      - name: Coverage area baselines
+      - name: Enforce complete-suite coverage ratchets
+        if: needs.fast-checks.result == 'success' && github.event_name != 'pull_request'
         shell: micromamba-shell {0}
         run: |
+          python3 -m coverage report --fail-under=82
           python3 -m coverage report \
             --include='src/encode_pipeline/platform/*' --fail-under=88.45
           python3 -m coverage report \
@@ -140,7 +193,8 @@ jobs:
             --include='src/encode_pipeline/persistence/*' --fail-under=89.06
           python3 -m coverage report \
             --include='src/encode_pipeline/workers/*' --fail-under=82.37
-          python3 -m coverage report --include='src/encode_pipeline/adapters/*' --fail-under=0
+          python3 -m coverage report \
+            --include='src/encode_pipeline/adapters/*' --fail-under=0
           python3 -m coverage report \
             --include='src/encode_pipeline/api/*,src/encode_pipeline/cli/*,src/encode_pipeline/config/*,src/encode_pipeline/samples/*' \
             --fail-under=0
@@ -148,24 +202,13 @@ jobs:
           python3 -m coverage report --include='workflow/lib/*' --fail-under=0
           python3 -m coverage report --include='containers/*' --fail-under=0
 
-      - name: Changed Python line coverage
-        if: github.event_name == 'pull_request'
-        shell: micromamba-shell {0}
-        run: >-
-          diff-cover coverage.xml
-          --compare-branch='${{ github.event.pull_request.base.sha }}'
-          --fail-under=80
-
-      - name: Upload Python coverage reports
+      - name: Report coverage wall time
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-coverage-${{ github.sha }}
-          path: |
-            coverage.xml
-            coverage.json
-          if-no-files-found: warn
-          retention-days: 14
+        run: |
+          elapsed=$(( $(date +%s) - JOB_STARTED ))
+          echo "### coverage timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Soft budget: 60s (informational)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Maintenance documentation and public validation contracts
         shell: micromamba-shell {0}
@@ -178,11 +221,24 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./frontend
+    timeout-minutes: 8
     steps:
+      - name: Record job start
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Confirm exact checkout
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          actual_sha=$(git rev-parse HEAD)
+          test "$actual_sha" = "$EXPECTED_SHA"
+          echo "event=$EVENT_NAME tier=frontend sha=$actual_sha"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -192,25 +248,39 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
+        working-directory: frontend
         run: npm ci
 
       - name: Verify generated client is up to date
+        working-directory: frontend
         run: |
           npm run openapi:generate
           git diff --exit-code -- openapi.json src/api/generated/
           test -z "$(git ls-files --others --exclude-standard -- src/api/generated/)"
 
+      - name: Test
+        working-directory: frontend
+        run: npm test -- --run
+
       - name: Type check
+        working-directory: frontend
         run: npm run typecheck
 
       - name: Build
+        working-directory: frontend
         run: npm run build
 
-      - name: Test
-        run: npm test -- --run
+      - name: Report frontend wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_STARTED ))
+          echo "### frontend timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Soft budget: 120s (informational)" >> "$GITHUB_STEP_SUMMARY"
 
   browser-e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     services:
       redis:
         image: redis:7.4.9-alpine
@@ -222,7 +292,22 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
+      - name: Record job start
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Confirm exact checkout
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          actual_sha=$(git rev-parse HEAD)
+          test "$actual_sha" = "$EXPECTED_SHA"
+          echo "event=$EVENT_NAME tier=browser-e2e sha=$actual_sha"
 
       - name: Setup micromamba
         uses: mamba-org/setup-micromamba@v3
@@ -264,18 +349,126 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             frontend/playwright-report/
             frontend/test-results/
           if-no-files-found: ignore
           retention-days: 7
 
-  real-execution:
+      - name: Report browser wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_STARTED ))
+          echo "### browser-e2e timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Soft budget: 240s (informational)" >> "$GITHUB_STEP_SUMMARY"
+
+  platform-real-execution:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'release'
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 12
+    services:
+      redis:
+        image: redis:7.4.9-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
+      - name: Record job start
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Confirm exact checkout
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          actual_sha=$(git rev-parse HEAD)
+          test "$actual_sha" = "$EXPECTED_SHA"
+          echo "event=$EVENT_NAME tier=platform-real sha=$actual_sha"
+
+      - name: Setup micromamba
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/ci-fast.lock
+          environment-name: ci-fast
+          cache-environment: true
+          cache-environment-key: platform-real-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.lock') }}
+
+      - name: Install platform package
+        shell: micromamba-shell {0}
+        run: pip install -e ".[api,dev]"
+
+      - name: Run Redis, timeout, cancellation, and tiny execution gate
+        shell: micromamba-shell {0}
+        env:
+          ENCODE_PIPELINE_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+        run: >-
+          python3 -m pytest -m platform_real_execution test/workers -ra
+          -p no:cacheprovider --durations=25 --durations-min=1.0
+          --junitxml=platform-real-report.xml
+
+      - name: Require passing, zero-skip platform outcomes
+        if: always()
+        shell: micromamba-shell {0}
+        run: >-
+          python3 scripts/check_junit_outcomes.py platform-real-report.xml
+          --label "platform real-execution tier"
+
+      - name: Upload platform real-execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-real-junit-${{ github.run_id }}
+          path: platform-real-report.xml
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+      - name: Report platform real wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_STARTED ))
+          echo "### platform real-execution timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Soft budget: 360s (informational)" >> "$GITHUB_STEP_SUMMARY"
+
+  real-execution:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Record job start
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Confirm exact checkout
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          actual_sha=$(git rev-parse HEAD)
+          test "$actual_sha" = "$EXPECTED_SHA"
+          echo "event=$EVENT_NAME tier=scientific-real sha=$actual_sha"
 
       - name: Setup micromamba
         uses: mamba-org/setup-micromamba@v3
@@ -290,5 +483,70 @@ jobs:
         env:
           HELIXWEAVE_REQUIRE_REAL_EXECUTION: "1"
         run: >-
-          python3 -m pytest -m real_execution
-          test/real_execution -v
+          python3 -m pytest -m real_execution test/real_execution -ra
+          -p no:cacheprovider --durations=25 --durations-min=1.0
+          --junitxml=scientific-real-report.xml
+
+      - name: Require passing, zero-skip scientific outcomes
+        if: always()
+        shell: micromamba-shell {0}
+        run: >-
+          python3 scripts/check_junit_outcomes.py scientific-real-report.xml
+          --label "scientific real-execution tier"
+
+      - name: Upload scientific real-execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scientific-real-junit-${{ github.run_id }}
+          path: scientific-real-report.xml
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+      - name: Report scientific real wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_STARTED ))
+          echo "### scientific real-execution timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Soft budget: 1200s (informational)" >> "$GITHUB_STEP_SUMMARY"
+
+  container-smoke:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Record job start
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Confirm exact checkout
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          actual_sha=$(git rev-parse HEAD)
+          test "$actual_sha" = "$EXPECTED_SHA"
+          echo "event=$EVENT_NAME tier=container-smoke sha=$actual_sha"
+
+      - name: Build runner image
+        run: docker build -f containers/Dockerfile.runner -t helixweave-runner:ci .
+
+      - name: Smoke-test runner image
+        run: bash scripts/smoke_container_runner.sh docker helixweave-runner:ci
+
+      - name: Report container wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_STARTED ))
+          echo "### container-smoke timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Soft budget: 1200s (informational)" >> "$GITHUB_STEP_SUMMARY"

@@ -1,7 +1,5 @@
 """YAML config loading with PyYAML and stdlib fallback."""
 
-import os
-
 
 def load_yaml(path: str) -> dict:
     """Load YAML config, preferring PyYAML if available, with stdlib fallback.

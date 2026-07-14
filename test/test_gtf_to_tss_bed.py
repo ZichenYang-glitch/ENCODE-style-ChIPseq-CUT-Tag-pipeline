@@ -9,7 +9,7 @@ import tempfile
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_REPO, "scripts"))
 
-from gtf_to_tss_bed import collect_tss_records, main
+from gtf_to_tss_bed import collect_tss_records, main  # noqa: E402
 
 
 def _write(path, text):

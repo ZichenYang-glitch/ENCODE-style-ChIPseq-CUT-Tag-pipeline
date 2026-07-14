@@ -12,7 +12,6 @@ Usage:
 
 import argparse
 import json
-import sys
 
 _VALIDATION_DATASETS = [
     {

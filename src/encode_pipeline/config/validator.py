@@ -18,6 +18,10 @@ from encode_pipeline.config import qc as qc_validation
 from encode_pipeline.config import reproducibility as reproducibility_validation
 from encode_pipeline.config import tools as tools_validation
 from encode_pipeline.config.coercion import coerce_int
+from encode_pipeline.config.yaml_loader import load_yaml as _load_yaml  # noqa: F401
+from encode_pipeline.config.yaml_loader import (  # noqa: F401
+    parse_config_minimal as _parse_config_minimal,
+)
 
 
 ValidationError = errors.ValidationError
@@ -406,13 +410,8 @@ def _validate_reproducibility(raw, validated_config):
 # YAML loading compatibility surface
 # ---------------------------------------------------------------------------
 
-from encode_pipeline.config.yaml_loader import load_yaml as _load_yaml
-from encode_pipeline.config.yaml_loader import parse_config_minimal as _parse_config_minimal
-
-
-# Keep deprecated aliases for code that may still import private names.
-_load_yaml = _load_yaml
-_parse_config_minimal = _parse_config_minimal
+# The imports above retain deprecated aliases for code that may still import
+# these private names.
 
 
 # ---------------------------------------------------------------------------
