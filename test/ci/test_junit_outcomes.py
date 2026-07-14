@@ -35,7 +35,8 @@ def test_accepts_a_nonempty_all_passing_report(tmp_path):
     assert "PR fast pytest outcomes" in summary.read_text(encoding="utf-8")
 
 
-def test_rejects_skip_and_xfail_outcomes(tmp_path):
+def test_rejects_skip_and_xfail_outcomes(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     report = tmp_path / "report.xml"
     _write_report(
         report,
@@ -51,7 +52,8 @@ def test_rejects_skip_and_xfail_outcomes(tmp_path):
     assert counts["xfailed"] == 1
 
 
-def test_rejects_failures_errors_empty_and_malformed_reports(tmp_path):
+def test_rejects_failures_errors_empty_and_malformed_reports(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     failing = tmp_path / "failing.xml"
     empty = tmp_path / "empty.xml"
     malformed = tmp_path / "malformed.xml"

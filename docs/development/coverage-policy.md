@@ -67,33 +67,30 @@ execution remain protected by their dedicated gates.
 
 The locked environment resolves Python 3.12.13, pytest 9.1.1, pytest-cov
 7.1.0, coverage.py 7.15.1, and diff-cover 9.7.2. Percentages combine statements
-and branches unless a column says otherwise. The conservative post-retirement
-baseline below was measured by the complete deterministic suite on the hosted
-exact-HEAD integration gate. It is the authoritative baseline for ratchets.
+and branches unless a column says otherwise. The post-retirement baseline below
+was measured by the complete deterministic suite after making ambient runner
+inputs explicit in the affected behavior tests.
 
 | Area | Line | Branch | Combined | Enforced floor |
 | --- | ---: | ---: | ---: | ---: |
-| Repository | 85.3777% | 75.9474% | 83.0680% | 83% |
+| Repository | 85.4375% | 76.1842% | 83.1711% | 83% |
 | Platform | 91.2866% | 80.2817% | 88.4522% | 88.45% |
 | Services | 89.5655% | 80.3922% | 87.2808% | 87.28% |
 | Persistence | 92.9593% | 72.6852% | 89.0667% | 89.06% |
 | Workers | 84.7756% | 71.8310% | 82.3760% | 82.37% |
 | Adapters | 92.0091% | 83.7838% | 89.9317% | report only |
-| API, CLI, config, samples | 94.7014% | 88.4422% | 93.1317% | report only |
-| Snakemake-facing scripts | 58.1197% | 50.8143% | 56.3965% | report only |
+| API, CLI, config, samples | 94.9958% | 89.3216% | 93.5728% | report only |
+| Snakemake-facing scripts | 58.1197% | 51.1401% | 56.4733% | report only |
 | Workflow compatibility library | 100.00% | n/a | 100.00% | report only |
 | Container definition tooling | 97.06% | 83.33% | 95.00% | report only |
 
-The same locked selection measured 85.4033% line, 76.0526% branch, and 83.1131%
-combined locally. The hosted run covered seven fewer opportunities, confined
-to environment-sensitive entry-point branches in `encode_pipeline.cli.dag`,
-`scripts/run_local_platform.py`, and `scripts/check_junit_outcomes.py`. No file
-or source root was omitted, and all four core-area results were identical.
-Using the lower hosted result avoids presenting the slightly higher local
-observation as an exact CI baseline while keeping both measurements
-reproducible from the same configuration and selection.
+The tests explicitly control `SNAKEMAKE` resolution, `NO_PROXY` normalization,
+and the optional `GITHUB_STEP_SUMMARY` destination. These inputs previously
+made a small number of CLI and script branches depend on the host environment;
+they now exercise the same behavior paths locally and on GitHub-hosted runners.
+No file or source root is omitted, and all four core-area results are unchanged.
 
-The repository floor is the integer floor of the conservative hosted result.
+The repository floor is the integer floor of the complete measured result.
 Core floors remain at their previously verified values because the retirement
 did not reduce those areas. Raise report-only areas only with substantive
 producer, CLI, or scientific-script behavior tests. The workflow library and

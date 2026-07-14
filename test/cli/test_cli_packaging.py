@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from encode_pipeline.cli import dag as dag_cli
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -56,6 +58,47 @@ def test_manifest_cli_has_no_sys_path_insert():
 # ---------------------------------------------------------------------------
 
 
+def _dag_cli_environment(**updates):
+    snakemake = dag_cli._find_snakemake()
+    assert snakemake is not None
+    environment = {
+        **os.environ,
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "SNAKEMAKE": snakemake,
+    }
+    environment.update(updates)
+    return environment
+
+
+def test_dag_snakemake_resolution_has_explicit_precedence_and_fallback(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("SNAKEMAKE", "/configured/snakemake")
+    monkeypatch.setattr(
+        dag_cli.shutil,
+        "which",
+        lambda _executable: pytest.fail("PATH lookup must follow SNAKEMAKE"),
+    )
+    assert dag_cli._find_snakemake() == "/configured/snakemake"
+
+    monkeypatch.delenv("SNAKEMAKE")
+    monkeypatch.setattr(dag_cli.shutil, "which", lambda _executable: "/path/snakemake")
+    assert dag_cli._find_snakemake() == "/path/snakemake"
+
+    home = tmp_path / "home"
+    candidate = home / "miniconda3" / "envs" / "chipseq" / "bin" / "snakemake"
+    candidate.parent.mkdir(parents=True)
+    candidate.touch()
+    candidate.chmod(0o755)
+    monkeypatch.setattr(dag_cli.shutil, "which", lambda _executable: None)
+    monkeypatch.setattr(dag_cli.Path, "home", classmethod(lambda _cls: home))
+
+    assert dag_cli._find_snakemake() == str(candidate)
+
+    candidate.unlink()
+    assert dag_cli._find_snakemake() is None
+
+
 def test_dag_cli_resolves_explicit_repo_root():
     result = subprocess.run(
         [
@@ -71,7 +114,7 @@ def test_dag_cli_resolves_explicit_repo_root():
         cwd=tempfile.gettempdir(),
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        env=_dag_cli_environment(),
     )
     assert result.returncode == 0, result.stderr
     assert "No differences for chipseq_se_noctrl" in result.stdout
@@ -90,18 +133,14 @@ def test_dag_cli_fails_without_repo_root_outside_repo():
         cwd=tempfile.gettempdir(),
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        env=_dag_cli_environment(),
     )
     assert result.returncode == 2
     assert "Could not locate encode-pipeline repository root" in result.stderr
 
 
 def test_dag_cli_resolves_env_repo_root():
-    env = {
-        **os.environ,
-        "ENCODE_PIPELINE_REPO_ROOT": str(REPO_ROOT),
-        "PYTHONDONTWRITEBYTECODE": "1",
-    }
+    env = _dag_cli_environment(ENCODE_PIPELINE_REPO_ROOT=str(REPO_ROOT))
     result = subprocess.run(
         [
             sys.executable,

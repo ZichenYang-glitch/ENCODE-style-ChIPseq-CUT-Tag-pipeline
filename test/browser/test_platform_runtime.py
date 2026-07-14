@@ -407,7 +407,9 @@ def test_shared_environment_uses_one_absolute_lifecycle_configuration(tmp_path):
         readiness_timeout=30,
     )
 
-    environment = build_shared_environment(config, {"PATH": "/tools"})
+    environment = build_shared_environment(
+        config, {"PATH": "/tools", "NO_PROXY": "127.0.0.1"}
+    )
 
     assert environment["ENCODE_PIPELINE_DATABASE_URL"] == (
         f"sqlite:///{tmp_path / 'runtime' / 'platform.db'}"
@@ -420,6 +422,7 @@ def test_shared_environment_uses_one_absolute_lifecycle_configuration(tmp_path):
     assert environment["PYTHONPATH"] == str(project_root / "src")
     assert environment["VITE_API_PROXY_TARGET"] == "http://127.0.0.1:8010"
     assert "127.0.0.1" in environment["NO_PROXY"]
+    assert environment["NO_PROXY"].split(",").count("127.0.0.1") == 1
     assert environment["NO_PROXY"] == environment["no_proxy"]
 
 
