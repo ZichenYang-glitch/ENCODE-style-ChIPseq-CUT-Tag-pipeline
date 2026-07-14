@@ -12,6 +12,10 @@ pipeline parity for every assay, mark, replicate design, or QC metric.
 
 - Broad-peak IDR is experimental and opt-in. It is not the default final-output
   policy. See [reproducibility policy](docs/reproducibility-policy.md).
+- The opt-in broad-peak IDR warning says consensus remains primary, while the
+  current DAG and result manifest select the broad-IDR artifact as the final
+  reproducibility output. This pre-existing policy/implementation mismatch
+  needs an explicit scientific decision before either behavior is changed.
 - SEACR CUT&Tag outputs use consensus behavior; SEACR IDR has no supported rank
   scheme and is outside the current policy.
 - IDR eligibility remains bounded by assay, peak mode, and replicate policy.
@@ -77,13 +81,14 @@ the durable ownership and safety boundaries.
 ## Maintenance baseline
 
 The current maintenance goal is replacing historical test/process scaffolding
-with measurable coverage and explicit CI tiers. Until that stacked change set
-is merged:
+with measurable coverage and explicit CI tiers. The complete default Python
+suite now establishes the coverage baseline, and historical stage-numbered
+test scaffolding has been retired into named pytest behavior contracts. Until
+the final CI-tier change is merged:
 
-- the global coverage threshold represents only the existing partial gate;
-- legacy stage scripts remain quarantined outside normal pytest collection;
-- CI tiers still contain overlapping test invocations; and
-- conditionally skipped real execution is not suitable as a required check.
+- fast and coverage jobs still contain overlapping test invocations;
+- wall-time budgets are not yet reported consistently; and
+- conditionally selected real execution is not suitable as a required check.
 
 These are quality-infrastructure limitations, not claims that scientific or
 runtime behavior is untested. The maintenance exit gate must prove that

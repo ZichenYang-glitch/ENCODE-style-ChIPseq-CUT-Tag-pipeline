@@ -20,7 +20,7 @@ import sys
 _NA = "NA"
 
 # Must match assemble_qc_summary.py exactly.
-# A test in test_stage24_qc_summary_unit.py catches drift.
+# test/scripts/test_qc_summary.py catches drift.
 _QC_SUMMARY_COLUMNS = [
     "sample", "assay", "target", "genome", "layout", "peak_mode",
     "use_control", "control_type", "final_bam", "peaks",

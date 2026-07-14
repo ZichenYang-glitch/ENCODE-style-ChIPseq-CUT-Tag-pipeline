@@ -60,10 +60,11 @@ and branches unless a column says otherwise.
 The repository floor is the integer floor of the complete measured result.
 Core floors are the measured combined values truncated to two decimal places,
 so they prevent regression without claiming a higher result than was observed.
-The lower scripts result is visible rather than omitted; legacy test retirement
-must close real behavior gaps before raising it. The workflow library and
-container generator are authored runtime seams, so they remain in the global
-denominator even though their small areas do not yet have separate floors.
+The low scripts result is visible rather than omitted; raise it only with
+substantive producer, CLI, or scientific-script behavior tests. The workflow
+library and container generator are authored runtime seams, so they remain in
+the global denominator even though their small areas do not yet have separate
+floors.
 
 CI prints the same area reports from the single combined coverage database.
 They can also be reproduced locally with normal coverage.py filters, for
@@ -105,8 +106,8 @@ branch, use the preceding branch as the review base.
   runtime paths target 75–85% or better for both dimensions.
 - Prefer lifecycle, persistence, worker, adapter, API, CLI, artifact/QC, and
   scientific contract behavior over tests for trivial getters.
-- A core regression found during legacy retirement must be fixed before the
-  old test is removed.
+- A core regression found during test maintenance must be fixed before the
+  replacement is accepted.
 
 Generated sources may be excluded when they appear in the Python source tree.
 Pure typing branches and genuinely unreachable platform fallbacks may use the

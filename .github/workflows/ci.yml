@@ -81,27 +81,19 @@ jobs:
         shell: micromamba-shell {0}
         run: encode-validate --config config/config.yaml
 
-      - name: Validation stress tests
+      - name: Validation contracts
         shell: micromamba-shell {0}
         run: python3 -m pytest test/config/test_validation.py -v
 
-      - name: Stage 8a dry-run smoke profiles
+      - name: Snakemake dry-run smoke profiles
         shell: micromamba-shell {0}
-        run: python3 -m pytest test/test_stage8_smoke_profiles.py -v
+        run: python3 -m pytest test/workflow/test_smoke_profiles.py -v
 
       - name: No-hardcoded-paths guard
         shell: micromamba-shell {0}
         run: python3 test/test_no_hardcoded_paths.py
 
-      - name: Stage 22 BigWig stress tests
-        shell: micromamba-shell {0}
-        run: python3 test/test_stage22_bigwig_stress.py
-
-      - name: Stage 24 QC summary unit tests
-        shell: micromamba-shell {0}
-        run: python3 test/test_stage24_qc_summary_unit.py
-
-      - name: Stage 25 manifest stress tests
+      - name: Manifest contracts
         shell: micromamba-shell {0}
         run: python3 -m pytest test/manifest/test_make_manifest.py -v
 
@@ -293,6 +285,10 @@ jobs:
           cache-environment: true
           cache-environment-key: chipseq-${{ runner.os }}-${{ hashFiles('workflow/envs/chipseq.lock') }}
 
-      - name: Stage 8b tiny real execution
+      - name: Scientific real-execution suite
         shell: micromamba-shell {0}
-        run: python3 test/test_stage8b_tiny_execution.py
+        env:
+          HELIXWEAVE_REQUIRE_REAL_EXECUTION: "1"
+        run: >-
+          python3 -m pytest -m real_execution
+          test/real_execution -v

@@ -488,7 +488,7 @@ replicate-level outputs).
 - `workflow/schemas/` — human-readable config and sample sheet contracts
 - `config/` — default config and sample sheet
 - `scripts/` — validation, QC helpers, and analysis scripts
-- `test/` — stress tests for validation, DAG, and helper scripts
+- `test/` — behavior and contract tests for validation, DAG, and helper scripts
 
 ### Smoke-test profiles
 
@@ -498,25 +498,28 @@ via dry-run only. Focused contracts cover ATAC, TSS, MNase, artifact inventory,
 manifest behavior, and output paths. Run with:
 
 ```bash
-SNAKEMAKE=/path/to/snakemake python3 test/test_stage8_smoke_profiles.py
+SNAKEMAKE=/path/to/snakemake python3 -m pytest test/workflow/test_smoke_profiles.py -v
 ```
 
 All temporary files stay under `/tmp` — nothing is written into the
 repository. For troubleshooting and test execution details, see
 [docs/quickstart.md](docs/quickstart.md).
 
-### Tiny real execution
+### Real execution
 
-One real end-to-end run through preprocessing + signal on synthetic
-fixtures (20 kb pseudo-random reference, 1 000 PE reads, Bowtie2 index
-built at runtime — zero binary files committed):
+The real-execution tier combines focused samtools contracts with one
+end-to-end preprocessing + signal run on synthetic fixtures (20 kb
+pseudo-random reference, 1 000 PE reads, Bowtie2 index built at runtime — zero
+binary files committed):
 
 ```bash
-SNAKEMAKE=/path/to/snakemake python3 test/test_stage8b_tiny_execution.py
+SNAKEMAKE=/path/to/snakemake python3 -m pytest -m real_execution \
+  test/real_execution -v
 ```
 
-All outputs land under `/tmp`. Exit code 0 = PASS, 1 = FAIL, 2 = SKIP.
-MACS3 is intentionally skipped (Stage 8a dry-run covers the DAG).
+All outputs land under pytest-managed temporary directories. Missing external
+tools are reported as an explicit skip. MACS3 is intentionally omitted because
+the dry-run profiles cover its DAG.
 See [the real-execution harness](docs/development/real-execution-harness.md)
 for tier ownership and prerequisites.
 
@@ -555,7 +558,7 @@ micromamba activate chipseq-runner
 ```bash
 python3 scripts/validate_samples.py --config config/config.yaml
 python3 -m pytest test/config/test_validation.py -v
-python3 test/test_stage8_smoke_profiles.py
+python3 -m pytest test/workflow/test_smoke_profiles.py -v
 ```
 
 **Tiny real execution (requires the core chipseq env):**
@@ -563,7 +566,8 @@ python3 test/test_stage8_smoke_profiles.py
 ```bash
 micromamba create -n chipseq --file workflow/envs/chipseq.lock
 micromamba activate chipseq
-python3 test/test_stage8b_tiny_execution.py
+python3 -m pytest -m real_execution \
+  test/real_execution -v
 ```
 
 **Full workflow run:**

@@ -921,8 +921,8 @@ artifacts:
   level: pooled_experiment
   assay_gate: cuttag
   path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak
-  producing_rule: cuttag_idr_summary
-  tool: cuttag_idr_summary.py
+  producing_rule: idr_summary_cuttag_narrow
+  tool: idr_reproducibility_summary.py
   manifest_output_type: cuttag_macs3_narrow_idr_final_peak
   pipeline_done: false
   rule_all: true
@@ -935,8 +935,8 @@ artifacts:
   level: pooled_experiment
   assay_gate: atac
   path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.atac.macs3.narrow.replicate_validated.idr.narrowPeak
-  producing_rule: atac_idr_summary
-  tool: atac_idr_summary.py
+  producing_rule: idr_summary_atac_narrow
+  tool: idr_reproducibility_summary.py
   manifest_output_type: atac_macs3_narrow_idr_final_peak
   pipeline_done: false
   rule_all: true
@@ -949,8 +949,8 @@ artifacts:
   level: pooled_experiment
   assay_gate: chipseq
   path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.chipseq.macs3.broad.replicate_validated.idr.broadPeak
-  producing_rule: broad_idr_chipseq_summary
-  tool: broad_idr_summary.py
+  producing_rule: idr_summary_chipseq_broad
+  tool: idr_reproducibility_summary.py
   manifest_output_type: chipseq_macs3_broad_idr_final_peak
   pipeline_done: false
   rule_all: true
@@ -963,8 +963,8 @@ artifacts:
   level: pooled_experiment
   assay_gate: cuttag
   path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.cuttag.macs3.broad.replicate_validated.idr.broadPeak
-  producing_rule: broad_idr_cuttag_summary
-  tool: broad_idr_summary.py
+  producing_rule: idr_summary_cuttag_broad
+  tool: idr_reproducibility_summary.py
   manifest_output_type: cuttag_macs3_broad_idr_final_peak
   pipeline_done: false
   rule_all: true
@@ -1037,8 +1037,8 @@ artifacts:
   level: pooled_experiment
   assay_gate: atac
   path_template: results/experiments/<experiment>/06_reproducibility/final/reproducibility_summary.tsv
-  producing_rule: atac_idr_summary
-  tool: atac_idr_summary.py
+  producing_rule: idr_summary_atac_narrow
+  tool: idr_reproducibility_summary.py
   manifest_output_type: atac_macs3_narrow_idr_summary
   pipeline_done: false
   rule_all: true
@@ -1051,8 +1051,8 @@ artifacts:
   level: pooled_experiment
   assay_gate: cuttag
   path_template: results/experiments/<experiment>/06_reproducibility/final/reproducibility_summary.tsv
-  producing_rule: cuttag_idr_summary
-  tool: cuttag_idr_summary.py
+  producing_rule: idr_summary_cuttag_narrow
+  tool: idr_reproducibility_summary.py
   manifest_output_type: cuttag_macs3_narrow_idr_summary
   pipeline_done: false
   rule_all: true
@@ -1065,8 +1065,8 @@ artifacts:
   level: pooled_experiment
   assay_gate: chipseq
   path_template: results/experiments/<experiment>/06_reproducibility/final/reproducibility_summary.tsv
-  producing_rule: broad_idr_chipseq_summary
-  tool: broad_idr_summary.py
+  producing_rule: idr_summary_chipseq_broad
+  tool: idr_reproducibility_summary.py
   manifest_output_type: chipseq_macs3_broad_idr_summary
   pipeline_done: false
   rule_all: true
@@ -1079,8 +1079,8 @@ artifacts:
   level: pooled_experiment
   assay_gate: cuttag
   path_template: results/experiments/<experiment>/06_reproducibility/final/reproducibility_summary.tsv
-  producing_rule: broad_idr_cuttag_summary
-  tool: broad_idr_summary.py
+  producing_rule: idr_summary_cuttag_broad
+  tool: idr_reproducibility_summary.py
   manifest_output_type: cuttag_macs3_broad_idr_summary
   pipeline_done: false
   rule_all: true

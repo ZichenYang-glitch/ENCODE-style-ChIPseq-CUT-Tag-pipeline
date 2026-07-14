@@ -1,9 +1,4 @@
-"""Shell safety contract tests.
-
-Preserve the legacy Stage 57 intent: every Snakemake shell block must start
-with `set -e -o pipefail`, or carry an explicit exemption marker
-`# no pipefail: <reason>`.
-"""
+"""Require guarded Snakemake shell blocks or an explicit exemption."""
 
 import re
 from pathlib import Path
@@ -29,7 +24,7 @@ def _smk_files():
 def _extract_shell_blocks(content):
     """Yield (line_number, block_text) for each shell: block.
 
-    This is the same conservative parser used by the legacy Stage 57 test.
+    The parser is deliberately conservative and only inspects shell blocks.
     """
     blocks = []
     lines = content.split("\n")

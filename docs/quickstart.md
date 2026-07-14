@@ -103,22 +103,26 @@ The pipeline ships with three bundled test harnesses that run on synthetic data
 (no real FASTQs needed):
 
 ```bash
-# Validation stress tests — 15 config/sample checks, <5 seconds
-python3 test/test_validation_stress.py
+# Config and sample validation contracts
+python3 -m pytest test/config/test_validation.py \
+  test/samples/test_load_and_validate_samples.py -v
 
-# Dry-run smoke profiles — 7 dispatch paths, <30 seconds
+# Dry-run smoke profiles — 8 dispatch paths, <30 seconds
 # Requires snakemake on PATH.
-python3 test/test_stage8_smoke_profiles.py
+python3 -m pytest test/workflow/test_smoke_profiles.py -v
 
-# Tiny real execution — preprocessing + signal on synthetic 1k reads, <60 seconds
+# Real execution — focused tool contracts plus a synthetic end-to-end run
 # Requires the core chipseq Conda environment.
-python3 test/test_stage8b_tiny_execution.py
+python3 -m pytest -m real_execution \
+  test/real_execution -v
 ```
 
-All temporary output lands under `/tmp`. Exit code 0 = PASS.
+All temporary output lands under pytest-managed temporary directories. Missing
+external tools are reported as explicit skips during local development and as
+failures in the CI real-execution gate.
 
-The stress tests and smoke profiles are fast and check config parsing and DAG
-connectivity. The tiny execution test runs real tools (Bowtie2, samtools,
+The validation contracts and smoke profiles are fast and check config parsing
+and DAG connectivity. The tiny execution test runs real tools (Bowtie2, samtools,
 deepTools) on synthetic fixtures and confirms the preprocessing+signal path
 end to end. MACS3 is intentionally skipped in tiny execution (dry-run smoke
 profiles cover the peak-calling DAG).
@@ -174,7 +178,8 @@ rule environments so the first install stays small.
 
 ### Missing tools for tiny execution
 
-The tiny execution test (`test_stage8b_tiny_execution.py`) requires:
+The tiny execution test
+(`test/real_execution/test_scientific_tiny_preprocessing.py`) requires:
 - `bowtie2` and `bowtie2-build` on PATH
 - `samtools` on PATH
 - `deepTools` (`bamCoverage`) on PATH

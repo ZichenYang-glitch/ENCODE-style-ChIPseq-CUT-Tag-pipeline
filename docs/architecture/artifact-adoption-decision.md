@@ -29,11 +29,11 @@ Stages 41 through 50 built a layered artifact contract test infrastructure:
 
 Rationale:
 
-1. **No demonstrated maintenance pain.** The contract tests prove equivalence exists, but no one has reported drift between inventory, manifest, or output-contract. The existing Stage 43/49/50 tests would catch drift immediately if it occurred.
+1. **No demonstrated maintenance pain.** The contract tests prove equivalence exists, but no one has reported drift between inventory, manifest, or output-contract. The maintained artifact, manifest, and output-contract tests catch drift immediately if it occurs.
 
-2. **Blast radius is high.** Artifact-assisted `_mnase_targets()` or `rule all` would touch the DAG's demand-driven resolution. A bug here would silently drop targets from the pipeline. The existing `test_stage39_mnase_stress.py` (38 checks) already validates DAG correctness — replacing it with artifact-backed helpers would replace a proven validation with an unproven one.
+2. **Blast radius is high.** Artifact-assisted `_mnase_targets()` or `rule all` would touch the DAG's demand-driven resolution. A bug here would silently drop targets from the pipeline. The maintained smoke-profile, DAG-snapshot, and direct MNase-target tests already validate DAG correctness — replacing them with artifact-backed helpers would replace proven validation with an unproven one.
 
-3. **No test would validate artifact-backed targets better than the existing stress tests already do.** Artifact-backed targets would require rewriting `_mnase_targets()` to iterate `filter_artifacts(..., assay_gate="mnase")` instead of using hardcoded `expand()` calls. The DAG output would be identical — so the only test value is "does the new code produce the same targets as the old code?", which is already validated by the stress tests.
+3. **No test would validate artifact-backed targets better than the existing DAG contract tests already do.** Artifact-backed targets would require rewriting `_mnase_targets()` to iterate `filter_artifacts(..., assay_gate="mnase")` instead of using hardcoded `expand()` calls. The DAG output would be identical — so the only test value is "does the new code produce the same targets as the old code?", which is already validated by the DAG contracts.
 
 4. **The valuable artifact layer is already built.** `load_artifacts()`, `validate_artifact()`, `filter_artifacts()`, and `artifacts_by_id()` are proven and usable. The contract tests cover all critical cross-references. This infrastructure is ready to use without adopting it into runtime.
 
@@ -51,9 +51,9 @@ Rationale:
 ### B. Manifest Generation from Artifact Inventory
 
 - **Value:** `scripts/make_manifest.py` could read `manifest_output_type` from the inventory instead of hardcoding `_add_row()` calls.
-- **Risk:** Medium — `make_manifest.py` is standalone Python that doesn't import `.smk` files. Adding `workflow/lib/artifact.py` as a dependency introduces a new import path. The manifest stress test (18 checks) would need to be refactored.
+- **Risk:** Medium — `make_manifest.py` is standalone Python that doesn't import `.smk` files. Adding `workflow/lib/artifact.py` as a dependency introduces a new import path. The manifest contract suite would need to be refactored.
 - **Preconditions:** `make_manifest.py` would need to import from `workflow/lib/`. Currently it only imports from `scripts/`. This is a cross-directory dependency.
-- **Blast radius:** `scripts/make_manifest.py` + `test/test_stage25_manifest_stress.py`.
+- **Blast radius:** `scripts/make_manifest.py` + `test/manifest/test_make_manifest.py`.
 - **Recommended stage if chosen:** 53 (requires import-path decision first).
 - **Non-goals:** Changing manifest output schema; adding new columns; generating from inventory at CI time.
 
@@ -70,10 +70,10 @@ Rationale:
 
 - **Value:** `_mnase_targets()` could iterate `filter_artifacts(..., assay_gate="mnase")` instead of hardcoding 13 `expand()` calls.
 - **Risk:** High — `targets.smk` feeds `rule all`. A missing target means missing pipeline output.
-- **Preconditions:** All artifact contract tests pass; stress tests verify identical DAG output before and after; explicit decision to accept blast radius.
+- **Preconditions:** All artifact contract tests pass; DAG contracts verify identical output before and after; explicit decision to accept blast radius.
 - **Blast radius:** `targets.smk` + `rule all` + DAG resolution.
 - **Recommended stage if chosen:** 54+ (only after manifest/paths adoption proves low-risk).
-- **Non-goals:** Replacing `_base_targets()` for non-MNase assays; removing existing stress tests.
+- **Non-goals:** Replacing `_base_targets()` for non-MNase assays; removing existing DAG contracts.
 
 ### E. Global Target Resolver
 
@@ -82,7 +82,7 @@ Rationale:
 - **Preconditions:** All earlier adoption stages proven stable; artifact inventory complete for all assays; explicit team decision.
 - **Blast radius:** `rule all` + all target builders + DAG resolution.
 - **Recommended stage if chosen:** 55+ (explicit team decision gate).
-- **Non-goals:** Rewriting `rule all` without per-assay target validation; removing stress tests.
+- **Non-goals:** Rewriting `rule all` without per-assay target validation; removing per-assay DAG contracts.
 
 ### F. Pause Artifact Work — Return to Release Hardening / Science
 

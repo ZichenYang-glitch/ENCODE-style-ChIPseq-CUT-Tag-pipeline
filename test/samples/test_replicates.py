@@ -43,6 +43,27 @@ def _sample(
     }
 
 
+def _treatment_group(
+    *,
+    experiment,
+    assay,
+    peak_mode,
+    biological_replicates=(1, 2),
+    layout="PE",
+):
+    return [
+        _sample(
+            sid=f"{experiment}_{biological_replicate}",
+            experiment=experiment,
+            assay=assay,
+            peak_mode=peak_mode,
+            layout=layout,
+            biological_replicate=biological_replicate,
+        )
+        for biological_replicate in biological_replicates
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Baseline / grouping
 # ---------------------------------------------------------------------------
@@ -103,6 +124,7 @@ def test_single_treatment_experiment_skips_consistency_checks():
 # ---------------------------------------------------------------------------
 # Consistency fields
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "field,value1,value2",
@@ -254,12 +276,15 @@ def test_control_sample_must_belong_to_same_experiment():
 # ---------------------------------------------------------------------------
 
 
-def test_stage5_chipseq_narrow_two_bioreps_passes():
+def test_chipseq_narrow_idr_two_bioreps_passes():
     samples = [
         _sample(sid="S1", biological_replicate=1),
         _sample(sid="S2", biological_replicate=2),
     ]
-    assert validate_replicate_groups(samples, use_control=False, stage5_enabled=True) is None
+    assert (
+        validate_replicate_groups(samples, use_control=False, stage5_enabled=True)
+        is None
+    )
 
 
 @pytest.mark.parametrize(
@@ -270,7 +295,7 @@ def test_stage5_chipseq_narrow_two_bioreps_passes():
         ("cuttag", "narrow"),
     ],
 )
-def test_stage5_skips_non_chipseq_narrow(assay, peak_mode):
+def test_chipseq_narrow_idr_skips_other_assay_modes(assay, peak_mode):
     samples = [
         _sample(sid="S1", assay=assay, peak_mode=peak_mode, biological_replicate=1),
         _sample(sid="S2", assay=assay, peak_mode=peak_mode, biological_replicate=2),
@@ -282,7 +307,7 @@ def test_stage5_skips_non_chipseq_narrow(assay, peak_mode):
         validate_replicate_groups(samples, use_control=False, stage5_enabled=True)
 
 
-def test_stage5_chipseq_narrow_wrong_biorep_count_rejected():
+def test_chipseq_narrow_idr_wrong_biorep_count_rejected():
     samples = [
         _sample(sid="S1", biological_replicate=1),
         _sample(sid="S2", biological_replicate=1, technical_replicate=2),
@@ -291,7 +316,7 @@ def test_stage5_chipseq_narrow_wrong_biorep_count_rejected():
         validate_replicate_groups(samples, use_control=False, stage5_enabled=True)
 
 
-def test_stage5_no_eligible_experiment_rejected():
+def test_chipseq_narrow_idr_without_eligible_experiment_rejected():
     samples = [
         _sample(sid="S1", assay="atac", peak_mode="narrow", biological_replicate=1),
         _sample(sid="S2", assay="atac", peak_mode="narrow", biological_replicate=2),
@@ -307,6 +332,7 @@ def test_stage5_no_eligible_experiment_rejected():
 # Reproducibility IDR eligibility gates
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "flag,assay,peak_mode,label",
     [
@@ -316,7 +342,9 @@ def test_stage5_no_eligible_experiment_rejected():
         ("reproducibility_idr_cuttag_broad", "cuttag", "broad", "CUT&Tag broad"),
     ],
 )
-def test_reproducibility_idr_gate_valid_eligible_experiment_passes(flag, assay, peak_mode, label):
+def test_reproducibility_idr_gate_valid_eligible_experiment_passes(
+    flag, assay, peak_mode, label
+):
     samples = [
         _sample(sid="S1", assay=assay, peak_mode=peak_mode, biological_replicate=1),
         _sample(sid="S2", assay=assay, peak_mode=peak_mode, biological_replicate=2),
@@ -334,7 +362,9 @@ def test_reproducibility_idr_gate_valid_eligible_experiment_passes(flag, assay, 
         ("reproducibility_idr_cuttag_broad", "cuttag", "broad", "CUT&Tag broad"),
     ],
 )
-def test_reproducibility_idr_gate_wrong_biorep_count_rejected(flag, assay, peak_mode, label):
+def test_reproducibility_idr_gate_wrong_biorep_count_rejected(
+    flag, assay, peak_mode, label
+):
     samples = [
         _sample(sid="S1", assay=assay, peak_mode=peak_mode, biological_replicate=1),
         _sample(
@@ -420,6 +450,151 @@ def test_reproducibility_idr_gate_wrong_assay_or_mode_skipped(
     kwargs = {flag: True}
     with pytest.raises(ValidationError, match="no eligible"):
         validate_replicate_groups(samples, use_control=False, **kwargs)
+
+
+def test_all_idr_modes_validate_independently_in_one_mixed_sample_sheet():
+    samples = [
+        *_treatment_group(
+            experiment="CHIP_NARROW",
+            assay="chipseq",
+            peak_mode="narrow",
+        ),
+        *_treatment_group(
+            experiment="ATAC_NARROW",
+            assay="atac",
+            peak_mode="narrow",
+        ),
+        *_treatment_group(
+            experiment="CUTTAG_NARROW",
+            assay="cuttag",
+            peak_mode="narrow",
+        ),
+        *_treatment_group(
+            experiment="CHIP_BROAD",
+            assay="chipseq",
+            peak_mode="broad",
+        ),
+        *_treatment_group(
+            experiment="CUTTAG_BROAD",
+            assay="cuttag",
+            peak_mode="broad",
+        ),
+        *_treatment_group(
+            experiment="MNASE",
+            assay="mnase",
+            peak_mode="nucleosome",
+        ),
+    ]
+
+    assert (
+        validate_replicate_groups(
+            samples,
+            use_control=False,
+            stage5_enabled=True,
+            reproducibility_idr_atac_narrow=True,
+            reproducibility_idr_cuttag_narrow=True,
+            reproducibility_idr_chipseq_broad=True,
+            reproducibility_idr_cuttag_broad=True,
+        )
+        is None
+    )
+
+
+def test_cuttag_narrow_idr_accepts_single_end_replicate_groups():
+    samples = _treatment_group(
+        experiment="CUTTAG_SE",
+        assay="cuttag",
+        peak_mode="narrow",
+        layout="SE",
+    )
+
+    assert (
+        validate_replicate_groups(
+            samples,
+            use_control=False,
+            reproducibility_idr_cuttag_narrow=True,
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "flag,assay,eligible_mode,irrelevant_mode",
+    [
+        ("reproducibility_idr_atac_narrow", "atac", "narrow", "broad"),
+        ("reproducibility_idr_cuttag_narrow", "cuttag", "narrow", "broad"),
+        ("reproducibility_idr_chipseq_broad", "chipseq", "broad", "narrow"),
+        ("reproducibility_idr_cuttag_broad", "cuttag", "broad", "narrow"),
+    ],
+)
+def test_idr_modes_ignore_wrong_peak_mode_in_mixed_sample_sheets(
+    flag, assay, eligible_mode, irrelevant_mode
+):
+    samples = [
+        *_treatment_group(
+            experiment="ELIGIBLE",
+            assay=assay,
+            peak_mode=eligible_mode,
+        ),
+        *_treatment_group(
+            experiment="IRRELEVANT",
+            assay=assay,
+            peak_mode=irrelevant_mode,
+            biological_replicates=(1, 2, 3),
+        ),
+    ]
+
+    assert validate_replicate_groups(samples, use_control=False, **{flag: True}) is None
+
+
+@pytest.mark.parametrize(
+    "flag,assay,peak_mode,error_pattern",
+    [
+        (
+            "reproducibility_idr_atac_narrow",
+            "atac",
+            "narrow",
+            "ATAC narrow experiment 'INVALID'.*exactly 2",
+        ),
+        (
+            "reproducibility_idr_cuttag_narrow",
+            "cuttag",
+            "narrow",
+            "CUT&Tag narrow experiment 'INVALID'.*exactly 2",
+        ),
+        (
+            "reproducibility_idr_chipseq_broad",
+            "chipseq",
+            "broad",
+            "ChIP-seq broad experiment 'INVALID'.*exactly 2",
+        ),
+        (
+            "reproducibility_idr_cuttag_broad",
+            "cuttag",
+            "broad",
+            "CUT&Tag broad experiment 'INVALID'.*exactly 2",
+        ),
+    ],
+)
+def test_idr_modes_reject_any_invalid_eligible_experiment_in_mixed_sample_sheets(
+    flag, assay, peak_mode, error_pattern
+):
+    samples = [
+        *_treatment_group(
+            experiment="VALID",
+            assay=assay,
+            peak_mode=peak_mode,
+        ),
+        *_treatment_group(
+            experiment="INVALID",
+            assay=assay,
+            peak_mode=peak_mode,
+            biological_replicates=(1, 2, 3),
+        ),
+    ]
+
+    with pytest.raises(ValidationError, match=error_pattern):
+        validate_replicate_groups(samples, use_control=False, **{flag: True})
 
 
 # ---------------------------------------------------------------------------

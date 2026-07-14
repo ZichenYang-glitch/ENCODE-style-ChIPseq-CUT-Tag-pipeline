@@ -14,29 +14,7 @@ from threading import Event, Thread
 import pytest
 
 
-# Ignore legacy test_stage*.py files that have their own main()/__main__ guard;
-# they are executed via test_stage_shim.py instead. Files without an entry point
-# (e.g. test_stage8_smoke_profiles.py) remain normal pytest modules.
 _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
-_LEGACY_DIR = os.path.join(_TEST_DIR, "legacy")
-collect_ignore = []
-for _search_dir in (_TEST_DIR, _LEGACY_DIR):
-    if not os.path.isdir(_search_dir):
-        continue
-    for _f in os.listdir(_search_dir):
-        if (
-            _f.startswith("test_stage")
-            and _f.endswith(".py")
-            and _f != "test_stage_shim.py"
-        ):
-            _path = os.path.join(_search_dir, _f)
-            try:
-                with open(_path, encoding="utf-8") as _fh:
-                    _src = _fh.read()
-            except OSError:
-                continue
-            if "def main(" in _src or 'if __name__ == "__main__":' in _src:
-                collect_ignore.append(os.path.relpath(_path, _TEST_DIR))
 
 
 def pytest_addoption(parser):
@@ -362,6 +340,7 @@ def run_snakemake(snakemake_executable, snakefile):
     """
 
     def _run(config_path, extra_args=None, quiet=True):
+        config_path = Path(config_path).resolve()
         if extra_args:
             quiet = False
         cmd = [
@@ -376,7 +355,16 @@ def run_snakemake(snakemake_executable, snakefile):
             cmd.append("--quiet")
         if extra_args:
             cmd.extend(extra_args)
-        return subprocess.run(cmd, capture_output=True, text=True)
+        env = os.environ.copy()
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["XDG_CACHE_HOME"] = str(config_path.parent / ".cache")
+        return subprocess.run(
+            cmd,
+            cwd=config_path.parent,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
 
     return _run
 

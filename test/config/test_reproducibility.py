@@ -1,6 +1,7 @@
 """Direct-API characterization tests for reproducibility/IDR validation."""
 
 import re
+import warnings
 from contextlib import nullcontext
 
 import pytest
@@ -8,9 +9,7 @@ import pytest
 from encode_pipeline.config.validate import ValidationError, validate_config
 
 
-SAMPLES_HEADER = (
-    "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
-)
+SAMPLES_HEADER = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
 SAMPLES_ROW = "S1\tR1.fq\tR2.fq\tPE\tchipseq\tT\tnarrow\ths\tidx\n"
 
 
@@ -116,6 +115,19 @@ def test_consensus_numeric_fields_normalize_strings(tmp_path):
     }
 
 
+@pytest.mark.parametrize("raw", [1.0, "1"])
+def test_consensus_reciprocal_overlap_accepts_closed_upper_boundary(tmp_path, raw):
+    validated = _validate(
+        tmp_path,
+        reproducibility={
+            "enabled": True,
+            "consensus": {"reciprocal_overlap": raw},
+        },
+    )
+
+    assert validated["reproducibility"]["consensus"]["reciprocal_overlap"] == 1.0
+
+
 @pytest.mark.parametrize("raw", [True, 1, "1", "abc"])
 def test_consensus_min_replicates_rejects_invalid_values(tmp_path, raw):
     with pytest.raises(
@@ -216,7 +228,7 @@ def test_idr_unknown_key_rejected_when_idr_mode_enabled(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_stage5_requires_stage4b(tmp_path):
+def test_chipseq_narrow_idr_requires_replicate_analysis(tmp_path):
     with pytest.raises(ValidationError, match="stage5=true requires stage4b=true"):
         _validate(tmp_path, stage4b=False, stage5=True)
 
@@ -225,7 +237,10 @@ def test_stage5_requires_stage4b(tmp_path):
     "flag,pattern",
     [
         ("atac_narrow", "reproducibility.idr.atac_narrow=true requires stage4b=true"),
-        ("cuttag_narrow", "reproducibility.idr.cuttag_narrow=true requires stage4b=true"),
+        (
+            "cuttag_narrow",
+            "reproducibility.idr.cuttag_narrow=true requires stage4b=true",
+        ),
         (
             "chipseq_broad_experimental",
             "chipseq_broad_experimental=true or cuttag_broad_experimental=true",
@@ -264,7 +279,63 @@ def test_experimental_broad_idr_flags_emit_warning(tmp_path, flag):
     assert validated["reproducibility"]["idr"][flag] is True
 
 
-def test_stage5_with_explicit_chipseq_narrow_false_warns(tmp_path):
+@pytest.mark.parametrize(
+    "reproducibility",
+    [
+        {"enabled": True, "idr": {"atac_narrow": True}},
+        {
+            "enabled": True,
+            "idr": {
+                "chipseq_broad_experimental": False,
+                "cuttag_broad_experimental": False,
+            },
+        },
+        {
+            "enabled": False,
+            "idr": {
+                "chipseq_broad_experimental": True,
+                "cuttag_broad_experimental": True,
+            },
+        },
+    ],
+)
+def test_non_experimental_or_disabled_reproducibility_emits_no_warning(
+    tmp_path, reproducibility
+):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        _validate(tmp_path, reproducibility=reproducibility)
+
+
+def test_enabling_both_experimental_broad_idr_modes_emits_one_warning_each(tmp_path):
+    with pytest.warns(UserWarning) as caught:
+        validated = _validate(
+            tmp_path,
+            reproducibility={
+                "enabled": True,
+                "idr": {
+                    "chipseq_broad_experimental": True,
+                    "cuttag_broad_experimental": True,
+                },
+            },
+        )
+
+    messages = [str(item.message) for item in caught]
+    assert len(messages) == 2
+    assert (
+        sum("chipseq_broad_experimental=true" in message for message in messages) == 1
+    )
+    assert sum("cuttag_broad_experimental=true" in message for message in messages) == 1
+    assert validated["reproducibility"]["idr"] == {
+        "chipseq_narrow": None,
+        "atac_narrow": False,
+        "cuttag_narrow": False,
+        "chipseq_broad_experimental": True,
+        "cuttag_broad_experimental": True,
+    }
+
+
+def test_chipseq_narrow_idr_compatibility_switch_warns_on_conflict(tmp_path):
     with pytest.warns(UserWarning, match="Config contradiction"):
         validated = _validate(
             tmp_path,

@@ -155,17 +155,20 @@ rm -rf .snakemake/conda
 
 ## Tiny Real Execution
 
-The Stage 8b tiny real-execution harness intentionally uses the core
+The tiny scientific real-execution harness intentionally uses the core
 `chipseq` runtime instead of creating all rule-specific environments:
 
 ```bash
 micromamba create -n chipseq --file workflow/envs/chipseq.lock
 micromamba activate chipseq
-python3 test/test_stage8b_tiny_execution.py
+python3 -m pytest -m real_execution \
+  test/real_execution -v
 ```
 
-This test covers real preprocessing and signal generation on synthetic data.
-It does not run IDR, SEACR, or MultiQC.
+This tier covers focused samtools contracts plus real preprocessing and signal
+generation on synthetic data. It does not run IDR, SEACR, or MultiQC. The
+`chipseq` environment includes pytest so the lock is a self-contained test
+runner.
 
 ## CI Behavior
 
@@ -176,7 +179,7 @@ GitHub Actions uses three locked paths:
 - `lint`: uses `workflow/envs/ci-lint.lock` without installing the project or
   resolving tools from a live package index.
 - `real-execution`: manual `workflow_dispatch`, uses `workflow/envs/chipseq.lock`
-  for the tiny real-execution harness.
+  for the complete `test/real_execution` tier.
 
 Full rule-specific environments are primarily for real user runs with
 `--use-conda`.
