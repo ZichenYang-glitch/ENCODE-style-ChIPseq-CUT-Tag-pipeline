@@ -19,7 +19,9 @@ const routes: RouteObject[] = [
         path: 'workflows/:workflowId',
         element: <p>Workflow detail</p>,
       },
+      { path: 'runs', element: <p>Run history</p> },
       { path: 'runs/:runId', element: <p>Run detail</p> },
+      { path: '*', element: <p>Unknown route</p> },
     ],
   },
 ];
@@ -89,7 +91,19 @@ describe('AppShell navigation', () => {
     );
   });
 
-  it('keeps Workflows available on run detail without inventing run navigation', () => {
+  it('marks Runs current on history and run detail while keeping Workflows available', () => {
+    const { unmount } = renderWithRouter(routes, {
+      initialEntries: ['/runs'],
+    });
+    expect(screen.getByRole('link', { name: 'Runs' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByRole('link', { name: 'Workflows' })).not.toHaveAttribute(
+      'aria-current',
+    );
+    unmount();
+
     renderWithRouter(routes, {
       initialEntries: ['/runs/run-123'],
     });
@@ -104,6 +118,23 @@ describe('AppShell navigation', () => {
     expect(
       screen.queryByRole('link', { name: 'New analysis' }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Runs' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Runs' })).toHaveAttribute(
+      'href',
+      '/runs',
+    );
+    expect(screen.getByRole('link', { name: 'Runs' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('does not mark Runs current on unknown run-shaped routes', () => {
+    renderWithRouter(routes, {
+      initialEntries: ['/runs/run-123/unknown'],
+    });
+
+    expect(screen.getByRole('link', { name: 'Runs' })).not.toHaveAttribute(
+      'aria-current',
+    );
   });
 });

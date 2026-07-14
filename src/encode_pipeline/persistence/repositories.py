@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from threading import RLock
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -30,6 +30,7 @@ from encode_pipeline.platform.execution import (
     RunExecutionStopAcknowledgement,
 )
 from encode_pipeline.platform.results import Issue
+from encode_pipeline.platform.run_history import RunHistoryCursor, RunSummary
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
     RunEvent,
@@ -185,6 +186,66 @@ class SqlAlchemyRunRepository:
         with self._session_factory() as session:
             rows = session.scalars(select(RunRow).order_by(RunRow.id)).all()
             return tuple(_record_from_row(row) for row in rows)
+
+    def list_run_summaries(
+        self,
+        *,
+        after: RunHistoryCursor | None = None,
+        limit: int = 50,
+        workflow_id: str | None = None,
+        status: RunStatus | None = None,
+    ) -> tuple[RunSummary, ...]:
+        """Return a bounded summary-only keyset query from SQLite."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise ValueError("run summary limit must be a positive integer")
+        if workflow_id is not None and not isinstance(workflow_id, str):
+            raise ValueError("run summary workflow_id filter must be a string")
+        if status is not None and not isinstance(status, RunStatus):
+            raise ValueError("run summary status filter must be a RunStatus")
+        if after is not None and not isinstance(after, RunHistoryCursor):
+            raise ValueError("run summary cursor is invalid")
+        if after is not None and (
+            after.workflow_id != workflow_id or after.status is not status
+        ):
+            raise ValueError("run summary cursor filters do not match")
+
+        with self._session_factory() as session:
+            if after is not None:
+                boundary_row = session.execute(
+                    _run_summary_select().where(RunRow.run_id == after.run_id)
+                ).one_or_none()
+                if boundary_row is None:
+                    raise KeyError(after.run_id)
+                boundary = _summary_from_selected_row(boundary_row)
+                if boundary.created_at != after.created_at or not _summary_matches(
+                    boundary,
+                    workflow_id=workflow_id,
+                    status=status,
+                ):
+                    raise KeyError(after.run_id)
+
+            statement = _run_summary_select()
+            if workflow_id is not None:
+                statement = statement.where(RunRow.workflow_id == workflow_id)
+            if status is not None:
+                statement = statement.where(RunRow.status == status.value)
+            if after is not None:
+                statement = statement.where(
+                    or_(
+                        RunRow.created_at < after.created_at,
+                        and_(
+                            RunRow.created_at == after.created_at,
+                            RunRow.run_id < after.run_id,
+                        ),
+                    )
+                )
+            rows = session.execute(
+                statement.order_by(
+                    RunRow.created_at.desc(),
+                    RunRow.run_id.desc(),
+                ).limit(limit)
+            ).all()
+            return tuple(_summary_from_selected_row(row) for row in rows)
 
     def update_run(
         self,
@@ -1188,6 +1249,46 @@ def _record_from_row(row: RunRow) -> RunRecord:
         cancellation_reason=row.cancellation_reason,
         error=_issue_from_json(row.error),
         tags=row.tags,
+    )
+
+
+def _run_summary_select():
+    return select(
+        RunRow.run_id,
+        RunRow.workflow_id,
+        RunRow.status,
+        RunRow.created_at,
+        RunRow.updated_at,
+        RunRow.started_at,
+        RunRow.ended_at,
+        RunRow.current_stage,
+    )
+
+
+def _summary_from_selected_row(row: object) -> RunSummary:
+    mapping = getattr(row, "_mapping", None)
+    if mapping is None:
+        raise ValueError("persisted run summary row is invalid")
+    return RunSummary(
+        run_id=mapping["run_id"],
+        workflow_id=mapping["workflow_id"],
+        status=mapping["status"],
+        created_at=_as_utc(mapping["created_at"]),
+        updated_at=_as_utc(mapping["updated_at"]),
+        started_at=_optional_utc(mapping["started_at"]),
+        ended_at=_optional_utc(mapping["ended_at"]),
+        current_stage=mapping["current_stage"],
+    )
+
+
+def _summary_matches(
+    summary: RunSummary,
+    *,
+    workflow_id: str | None,
+    status: RunStatus | None,
+) -> bool:
+    return (workflow_id is None or summary.workflow_id == workflow_id) and (
+        status is None or summary.status is status
     )
 
 

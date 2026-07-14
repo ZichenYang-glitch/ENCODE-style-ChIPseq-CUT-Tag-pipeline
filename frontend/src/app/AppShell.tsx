@@ -1,4 +1,4 @@
-import { FilePenLine, ListTree, Workflow } from 'lucide-react';
+import { FilePenLine, History, ListTree, Workflow } from 'lucide-react';
 import { Link, matchPath, Outlet, useLocation } from 'react-router-dom';
 import { Button } from '../components/Button';
 
@@ -20,9 +20,15 @@ export function AppShell() {
     { path: '/workflows/:workflowId/new-run', end: true },
     pathname,
   );
+  const runHistoryRoute = matchPath({ path: '/runs', end: true }, pathname);
+  const runDetailRoute = matchPath(
+    { path: '/runs/:runId', end: true },
+    pathname,
+  );
   const workflowId = workflowRoute?.params.workflowId;
   const workflowsCurrent =
     workflowCatalogRoute !== null || workflowDetailRoute !== null;
+  const runsCurrent = runHistoryRoute !== null || runDetailRoute !== null;
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg)] text-[var(--color-text)]">
@@ -41,6 +47,19 @@ export function AppShell() {
             aria-label="Primary"
             className="flex min-w-0 flex-wrap items-center gap-2"
           >
+            <Button
+              asChild
+              className="gap-1.5"
+              variant={runsCurrent ? 'primary' : 'secondary'}
+            >
+              <Link
+                aria-current={runsCurrent ? 'page' : undefined}
+                to="/runs"
+              >
+                <History aria-hidden="true" size={16} />
+                Runs
+              </Link>
+            </Button>
             <Button
               asChild
               className="gap-1.5"

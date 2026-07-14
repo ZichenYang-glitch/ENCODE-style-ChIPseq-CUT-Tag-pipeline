@@ -8,8 +8,10 @@
 import type {
   ListRunEventsParams,
   ListRunLogsParams,
+  ListRunsParams,
   RunCreateRequest,
   RunEventsResponse,
+  RunHistoryResponse,
   RunLogsResponse,
   RunResponse
 } from '.././models';
@@ -38,6 +40,37 @@ export const createRun = async (workflowId: string,
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       runCreateRequest,)
+  }
+);}
+
+
+/**
+ * List canonical run summaries with strict keyset pagination.
+ * @summary List Runs
+ */
+export const getListRunsUrl = (params?: ListRunsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/runs?${stringifiedParams}` : `/api/v1/runs`
+}
+
+export const listRuns = async (params?: ListRunsParams, options?: RequestInit): Promise<RunHistoryResponse> => {
+
+  return fetcher<RunHistoryResponse>(getListRunsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 

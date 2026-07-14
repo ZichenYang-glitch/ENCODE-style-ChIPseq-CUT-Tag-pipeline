@@ -58,6 +58,13 @@ from encode_pipeline.platform.runs import (
     require_transition,
     validate_qc_identifier_token,
 )
+from encode_pipeline.platform.run_history import (
+    RunHistoryCursor,
+    RunHistoryPage,
+    RunSummary,
+    decode_run_history_cursor,
+    encode_run_history_cursor,
+)
 
 __all__ = [
     "ARTIFACT_EXTRACT_CAPABILITY",
@@ -91,6 +98,11 @@ __all__ = [
     "RunQcMetric",
     "RunRecord",
     "RunStatus",
+    "RunHistoryCursor",
+    "RunHistoryPage",
+    "RunSummary",
+    "decode_run_history_cursor",
+    "encode_run_history_cursor",
     "QcSourceArtifact",
     "QcSourceDocument",
     "QcSummaryExtractingAdapter",

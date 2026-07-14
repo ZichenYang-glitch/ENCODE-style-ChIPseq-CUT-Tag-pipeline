@@ -25,6 +25,28 @@ class Base(DeclarativeBase):
 
 class RunRow(Base):
     __tablename__ = "runs"
+    __table_args__ = (
+        Index("ix_runs_created_run_id", "created_at", "run_id"),
+        Index(
+            "ix_runs_workflow_created_run_id",
+            "workflow_id",
+            "created_at",
+            "run_id",
+        ),
+        Index(
+            "ix_runs_status_created_run_id",
+            "status",
+            "created_at",
+            "run_id",
+        ),
+        Index(
+            "ix_runs_workflow_status_created_run_id",
+            "workflow_id",
+            "status",
+            "created_at",
+            "run_id",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)

@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from encode_pipeline.api.models import (
     RunArtifactDownloadErrorResponse,
     RunArtifactsResponse,
+    RunHistoryResponse,
     RunQcMetricsResponse,
     RunResponse,
     ValidationResponse,
@@ -229,6 +230,29 @@ async def _handle_request_validation_error(
             status_code=400,
             content=body.model_dump(mode="json", exclude_none=True),
         )
+    if getattr(route, "operation_id", None) == "listRuns":
+        issue = Issue(
+            code="API_REQUEST_INVALID",
+            message="Run history query parameters are invalid.",
+            severity="error",
+            path="query",
+            source="api",
+            technical_message=None,
+            hint="Use supported workflow/status filters, a limit from 1 to 100, and a returned cursor.",
+            context={},
+        )
+        body = RunHistoryResponse(
+            ok=False,
+            runs=[],
+            next_cursor=None,
+            issues=[issue.to_dict()],
+        )
+        content = body.model_dump(mode="json", exclude_none=True)
+        content["next_cursor"] = None
+        return JSONResponse(
+            status_code=400,
+            content=content,
+        )
     if getattr(route, "operation_id", None) == "createRun":
         issue = _issue_from_request_validation_error(
             exc,
@@ -257,6 +281,29 @@ async def _handle_internal_server_error(
 ) -> JSONResponse:
     """Return 500 with the PR84 INTERNAL_SERVER_ERROR envelope."""
     route = request.scope.get("route")
+    if getattr(route, "operation_id", None) == "listRuns":
+        issue = Issue(
+            code="INTERNAL_SERVER_ERROR",
+            message="Run history is temporarily unavailable.",
+            severity="error",
+            path="runs",
+            source="runtime",
+            technical_message=None,
+            hint=None,
+            context={},
+        )
+        body = RunHistoryResponse(
+            ok=False,
+            runs=[],
+            next_cursor=None,
+            issues=[issue.to_dict()],
+        )
+        content = body.model_dump(mode="json", exclude_none=True)
+        content["next_cursor"] = None
+        return JSONResponse(
+            status_code=500,
+            content=content,
+        )
     if getattr(route, "operation_id", None) == "createRun":
         issue = Issue(
             code="INTERNAL_SERVER_ERROR",
