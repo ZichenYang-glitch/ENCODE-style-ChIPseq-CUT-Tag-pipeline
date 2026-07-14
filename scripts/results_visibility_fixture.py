@@ -194,6 +194,14 @@ def _build_config(
         raise ValueError("platform worker tiny config must be a mapping")
     config = copy.deepcopy(raw)
     config.pop("samples", None)
+    replicate_enabled = config.pop("stage4b", True)
+    chipseq_idr_enabled = config.pop("stage5", False)
+    if not isinstance(replicate_enabled, bool) or not isinstance(
+        chipseq_idr_enabled, bool
+    ):
+        raise ValueError("platform worker tiny switches must be booleans")
+    config["replicate_analysis"] = {"enabled": replicate_enabled}
+    config["chipseq_idr"] = {"enabled": chipseq_idr_enabled}
     config["outdir"] = "results"
     config["threads"] = threads
     return config

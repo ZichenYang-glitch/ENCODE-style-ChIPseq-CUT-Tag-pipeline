@@ -25,6 +25,9 @@ export function SchemaObjectForm({
         schema={schema}
         validator={rjsfValidator}
         formData={value}
+        experimental_defaultFormStateBehavior={{
+          emptyObjectFields: 'skipDefaults',
+        }}
         liveOmit={false}
         liveValidate="onBlur"
         omitExtraData={false}

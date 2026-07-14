@@ -14,6 +14,7 @@ import jsonschema
 import pytest
 import yaml
 
+import encode_pipeline.adapters.encode as encode_adapter_module
 from encode_pipeline.platform.adapters import (
     CommandSpec,
     DagPreview,
@@ -117,7 +118,7 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     schema = _adapter().schema()
     as_dict = schema.to_dict()
 
-    assert as_dict["schema_version"] == "1.0.0"
+    assert as_dict["schema_version"] == "1.1.0"
     assert as_dict["schema_dialect"] == JSON_SCHEMA_DIALECT
     assert as_dict["coverage"] == {
         "config": "partial",
@@ -136,6 +137,45 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     }
     assert "samples" not in as_dict["config_schema"].get("required", [])
     assert "samples" not in as_dict["config_schema"]["properties"]
+    config_properties = as_dict["config_schema"]["properties"]
+    assert "stage4b" not in config_properties
+    assert "stage5" not in config_properties
+    assert config_properties["replicate_analysis"] == {
+        "type": "object",
+        "title": "Replicate analysis",
+        "description": (
+            "Enable replicate-aware pooled outputs for experiments with "
+            "biological replicates."
+        ),
+        "default": {"enabled": True},
+        "properties": {
+            "enabled": {
+                "type": "boolean",
+                "title": "Replicate analysis enabled",
+                "default": True,
+            }
+        },
+        "required": ["enabled"],
+        "additionalProperties": False,
+    }
+    assert config_properties["chipseq_idr"] == {
+        "type": "object",
+        "title": "ChIP-seq IDR",
+        "description": (
+            "Enable narrow-peak ChIP-seq IDR for eligible experiments with "
+            "exactly two biological replicates."
+        ),
+        "default": {"enabled": False},
+        "properties": {
+            "enabled": {
+                "type": "boolean",
+                "title": "ChIP-seq IDR enabled",
+                "default": False,
+            }
+        },
+        "required": ["enabled"],
+        "additionalProperties": False,
+    }
     assert as_dict["config_schema"]["properties"]["outdir"] == {
         "type": "string",
         "const": "results",
@@ -165,8 +205,202 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     for name in ("config_schema", "sample_schema", "option_schema"):
         document = as_dict[name]
         assert document["$schema"] == JSON_SCHEMA_DIALECT
-        assert document["$id"].endswith("/1.0.0")
+        assert document["$id"].endswith("/1.1.0")
         jsonschema.Draft202012Validator.check_schema(document)
+
+
+@pytest.mark.parametrize(
+    ("replicate_enabled", "chipseq_idr_enabled"),
+    [(False, False), (False, True), (True, False), (True, True)],
+)
+def test_semantic_switches_translate_to_complete_engine_boolean_matrix(
+    replicate_enabled,
+    chipseq_idr_enabled,
+):
+    source = {
+        "threads": 2,
+        "replicate_analysis": {"enabled": replicate_enabled},
+        "chipseq_idr": {"enabled": chipseq_idr_enabled},
+    }
+
+    result = encode_adapter_module._translate_authoring_config(source)
+
+    assert result.is_success
+    assert result.value == {
+        "threads": 2,
+        "stage4b": replicate_enabled,
+        "stage5": chipseq_idr_enabled,
+    }
+    assert result.issues == ()
+    assert source == {
+        "threads": 2,
+        "replicate_analysis": {"enabled": replicate_enabled},
+        "chipseq_idr": {"enabled": chipseq_idr_enabled},
+    }
+
+
+@pytest.mark.parametrize("legacy", [True, "true", "TRUE", "True"])
+def test_equal_legacy_true_spellings_use_existing_boolean_compatibility(legacy):
+    result = encode_adapter_module._translate_authoring_config(
+        {"replicate_analysis": {"enabled": True}, "stage4b": legacy}
+    )
+
+    assert result.is_success
+    assert result.value == {"stage4b": True, "stage5": False}
+    assert [issue.code for issue in result.issues] == [
+        "ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED"
+    ]
+
+
+@pytest.mark.parametrize("legacy", [False, "false", "FALSE", "False"])
+def test_equal_legacy_false_spellings_use_existing_boolean_compatibility(legacy):
+    result = encode_adapter_module._translate_authoring_config(
+        {"chipseq_idr": {"enabled": False}, "stage5": legacy}
+    )
+
+    assert result.is_success
+    assert result.value == {"stage4b": True, "stage5": False}
+    assert [issue.code for issue in result.issues] == [
+        "ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("semantic_key", "value"),
+    [
+        ("replicate_analysis", None),
+        ("replicate_analysis", True),
+        ("replicate_analysis", {}),
+        ("replicate_analysis", {"enabled": "true"}),
+        ("replicate_analysis", {"enabled": None}),
+        ("replicate_analysis", {"enabled": True, "unknown": False}),
+        ("chipseq_idr", None),
+        ("chipseq_idr", {"enabled": "false"}),
+    ],
+)
+def test_malformed_semantic_switches_fail_closed(semantic_key, value):
+    result = encode_adapter_module._translate_authoring_config({semantic_key: value})
+
+    assert result.is_failure
+    assert result.errors[0].code == "ENCODE_CONFIG_SEMANTIC_INVALID"
+    assert result.errors[0].path == f"config.{semantic_key}"
+    assert "stage4b" not in str(result.errors[0].to_dict())
+    assert "stage5" not in str(result.errors[0].to_dict())
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"replicate_analysis": {"enabled": True}, "stage4b": False},
+        {"replicate_analysis": {"enabled": False}, "stage4b": "TRUE"},
+        {"chipseq_idr": {"enabled": True}, "stage5": "false"},
+        {"chipseq_idr": {"enabled": False}, "stage5": True},
+    ],
+)
+def test_conflicting_semantic_and_legacy_switches_fail_closed(config):
+    result = encode_adapter_module._translate_authoring_config(config)
+
+    assert result.is_failure
+    issue = result.errors[0]
+    assert issue.code == "ENCODE_CONFIG_SEMANTIC_CONFLICT"
+    assert issue.path in {
+        "config.replicate_analysis.enabled",
+        "config.chipseq_idr.enabled",
+    }
+    assert "stage4b" not in str(issue.to_dict())
+    assert "stage5" not in str(issue.to_dict())
+
+
+@pytest.mark.parametrize("legacy", [None, 0, 1, "yes", " true "])
+def test_invalid_legacy_value_is_not_misreported_as_semantic_conflict(
+    tmp_path,
+    legacy,
+):
+    result = _adapter().validate(
+        WorkflowInputs(
+            config={
+                "replicate_analysis": {"enabled": True},
+                "stage4b": legacy,
+            },
+            samples=[_inline_row(tmp_path)],
+        )
+    )
+
+    assert result.is_failure
+    assert result.errors[0].code == "ENCODE_CONFIG_INVALID"
+
+
+def test_equal_aliases_emit_one_redacted_warning_and_remain_valid(tmp_path):
+    result = _adapter().validate(
+        WorkflowInputs(
+            config={
+                "replicate_analysis": {"enabled": False},
+                "stage4b": "FALSE",
+                "chipseq_idr": {"enabled": False},
+                "stage5": False,
+            },
+            samples=[_inline_row(tmp_path)],
+        )
+    )
+
+    assert result.is_success
+    assert result.value["config"]["stage4b"] is False
+    assert result.value["config"]["stage5"] is False
+    assert [issue.code for issue in result.issues] == [
+        "ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED"
+    ]
+    warning = result.issues[0]
+    assert warning.severity.value == "warning"
+    assert warning.path == "config"
+    assert warning.technical_message is None
+    assert warning.context == {}
+    assert "stage4b" not in str(warning.to_dict())
+    assert "stage5" not in str(warning.to_dict())
+
+
+def test_legacy_only_switches_remain_supported_without_semantic_warning():
+    result = encode_adapter_module._translate_authoring_config(
+        {"stage4b": "false", "stage5": "true"}
+    )
+
+    assert result.is_success
+    assert result.value == {"stage4b": "false", "stage5": "true"}
+    assert result.issues == ()
+
+
+def test_chipseq_idr_remains_orthogonal_to_advanced_reproducibility_policy(
+    tmp_path,
+):
+    rows = []
+    for index in (1, 2):
+        row = _inline_row(tmp_path, f"S{index}")
+        row.update(
+            {
+                "experiment": "EXP1",
+                "biological_replicate": str(index),
+            }
+        )
+        rows.append(row)
+
+    with pytest.warns(UserWarning, match="Config contradiction"):
+        result = _adapter().validate(
+            WorkflowInputs(
+                config={
+                    "replicate_analysis": {"enabled": True},
+                    "chipseq_idr": {"enabled": True},
+                    "reproducibility": {
+                        "enabled": True,
+                        "idr": {"chipseq_narrow": False},
+                    },
+                },
+                samples=rows,
+            )
+        )
+
+    assert result.is_success
+    assert result.value["config"]["stage4b"] is True
+    assert result.value["config"]["stage5"] is True
+    assert result.value["config"]["reproducibility"]["idr"]["chipseq_narrow"] is False
 
 
 def test_schema_returns_fresh_instances_after_internal_mapping_mutation():

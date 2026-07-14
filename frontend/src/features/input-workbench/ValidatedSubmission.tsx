@@ -16,6 +16,7 @@ import type { InputDraftController } from './useInputDraft';
 interface SafeIssue {
   code: string;
   message: string;
+  severity?: 'error' | 'warning' | 'info';
   path?: string | null;
   hint?: string | null;
 }
@@ -44,6 +45,10 @@ function safeIssues(issues: IssueResponse[] | undefined): SafeIssue[] {
   return (issues ?? []).map((issue) => ({
     code: issue.code,
     message: issue.message,
+    severity:
+      issue.severity === 'warning' || issue.severity === 'info'
+        ? issue.severity
+        : 'error',
     path: issue.path,
     hint: issue.hint,
   }));
@@ -54,11 +59,15 @@ function requestIssues(error: unknown, fallback: SafeIssue): SafeIssue[] {
     return error.issues.map((issue) => ({
       code: issue.code,
       message: issue.message,
+      severity:
+        issue.severity === 'warning' || issue.severity === 'info'
+          ? issue.severity
+          : 'error',
       path: issue.path,
       hint: issue.hint,
     }));
   }
-  return [fallback];
+  return [{ ...fallback, severity: fallback.severity ?? 'error' }];
 }
 
 export function ValidatedSubmission({
@@ -220,6 +229,12 @@ export function ValidatedSubmission({
       timeStyle: 'short',
     }).format(new Date(activeSnapshot.expires_at));
   }, [activeSnapshot]);
+  const advisoryIssues = issues.filter(
+    (issue) => issue.severity === 'warning' || issue.severity === 'info',
+  );
+  const errorIssues = issues.filter(
+    (issue) => issue.severity !== 'warning' && issue.severity !== 'info',
+  );
 
   return (
     <section
@@ -303,13 +318,37 @@ export function ValidatedSubmission({
             </div>
           </div>
         )}
-        {issues.length > 0 && (
+        {advisoryIssues.length > 0 && (
+          <div
+            className="rounded border border-amber-200 bg-[var(--color-warning-bg)] px-3 py-2 text-sm text-[var(--color-warning)]"
+            role="status"
+            data-testid="validation-advisories"
+          >
+            <ul className="space-y-1">
+              {advisoryIssues.map((issue, index) => (
+                <li key={`${issue.code}:${issue.path ?? ''}:${index}`} className="min-w-0">
+                  <span className="font-mono text-xs">{issue.code}</span>{' '}
+                  <span className="break-words [overflow-wrap:anywhere]">{issue.message}</span>
+                  {issue.path && (
+                    <span className="ml-1 text-xs text-[var(--color-text-muted)]">
+                      ({issue.path})
+                    </span>
+                  )}
+                  {issue.hint && (
+                    <p className="mt-0.5 break-words text-xs">{issue.hint}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {errorIssues.length > 0 && (
           <div
             className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-[var(--color-error)]"
             role="alert"
           >
             <ul className="space-y-1">
-              {issues.map((issue, index) => (
+              {errorIssues.map((issue, index) => (
                 <li key={`${issue.code}:${issue.path ?? ''}:${index}`} className="min-w-0">
                   <span className="font-mono text-xs">{issue.code}</span>{' '}
                   <span className="break-words [overflow-wrap:anywhere]">{issue.message}</span>

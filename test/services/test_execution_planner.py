@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
 from encode_pipeline.platform.adapters import (
     DagPreview,
     WorkspacePlan,
@@ -224,6 +225,51 @@ def test_plan_workspace_returns_pending_plan_with_workspace_plan(run_service, tm
     assert plan.workflow_id == input_plan.workflow_id
     assert plan.dag_preview == input_plan.dag_preview
     assert plan.inputs_snapshot == input_plan.inputs_snapshot
+
+
+def test_workspace_planner_preserves_one_adapter_deprecation_warning(tmp_path):
+    adapter = EncodeStyleWorkflowAdapter()
+    row = {
+        "sample": "S1",
+        "fastq_1": str((tmp_path / "S1.R1.fastq.gz").resolve()),
+        "fastq_2": str((tmp_path / "S1.R2.fastq.gz").resolve()),
+        "layout": "PE",
+        "assay": "chipseq",
+        "target": "CTCF",
+        "peak_mode": "narrow",
+        "genome": "hs",
+        "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
+    }
+    plan = ExecutionPlan(
+        plan_id="plan-semantic-warning",
+        run_id="run-semantic-warning",
+        workflow_id=adapter.metadata.workflow_id,
+        status=PlanStatus.UNSUPPORTED,
+        inputs_snapshot=WorkflowInputs(
+            config={
+                "replicate_analysis": {"enabled": False},
+                "stage4b": False,
+                "chipseq_idr": {"enabled": False},
+                "stage5": "FALSE",
+            },
+            samples=[row],
+        ).to_dict(),
+    )
+
+    result = WorkspacePlanner(WorkflowRegistry([adapter])).plan_workspace(
+        plan,
+        base_dir=(tmp_path / "workspace").resolve(),
+    )
+
+    assert result.is_success
+    assert [issue.code for issue in result.issues] == [
+        "ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED",
+        "ENCODE_WORKSPACE_PLANNING_COMPLETE",
+    ]
+    assert [issue.code for issue in result.value.issues] == [
+        "ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED",
+        "ENCODE_WORKSPACE_PLANNING_COMPLETE",
+    ]
 
 
 def test_plan_workspace_does_not_create_directories_or_files(run_service, tmp_path):

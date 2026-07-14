@@ -12,11 +12,11 @@ import {
   isSampleColumnNameSafe,
 } from './sampleValidation';
 
-const SUPPORTED_SCHEMA_VERSION = '1.0.0';
+const SUPPORTED_SCHEMA_VERSIONS = new Set(['1.0.0', '1.1.0']);
 const SUPPORTED_SCHEMA_DIALECT =
   'https://json-schema.org/draft/2020-12/schema';
 
-const AUTHORING_LIMITS_1_0_0: WorkflowInputLimitsResponse = {
+const PLATFORM_AUTHORING_LIMITS: WorkflowInputLimitsResponse = {
   max_request_bytes: 2_097_152,
   max_sample_rows: 1_000,
   max_sample_columns: 64,
@@ -71,13 +71,13 @@ function hasMode(values: string[], expected: string): boolean {
 
 function hasSupportedLimits(limits: WorkflowInputLimitsResponse): boolean {
   return (
-    limits.max_request_bytes === AUTHORING_LIMITS_1_0_0.max_request_bytes &&
-    limits.max_sample_rows === AUTHORING_LIMITS_1_0_0.max_sample_rows &&
-    limits.max_sample_columns === AUTHORING_LIMITS_1_0_0.max_sample_columns &&
+    limits.max_request_bytes === PLATFORM_AUTHORING_LIMITS.max_request_bytes &&
+    limits.max_sample_rows === PLATFORM_AUTHORING_LIMITS.max_sample_rows &&
+    limits.max_sample_columns === PLATFORM_AUTHORING_LIMITS.max_sample_columns &&
     limits.max_sample_column_name_length ===
-      AUTHORING_LIMITS_1_0_0.max_sample_column_name_length &&
+      PLATFORM_AUTHORING_LIMITS.max_sample_column_name_length &&
     limits.max_sample_cell_length ===
-      AUTHORING_LIMITS_1_0_0.max_sample_cell_length
+      PLATFORM_AUTHORING_LIMITS.max_sample_cell_length
   );
 }
 
@@ -161,7 +161,7 @@ export function readWorkbenchSchema(
   contract: WorkflowSchemaResponse,
 ): WorkbenchSchemaResult {
   if (
-    contract.schema_version !== SUPPORTED_SCHEMA_VERSION ||
+    !SUPPORTED_SCHEMA_VERSIONS.has(contract.schema_version) ||
     contract.schema_dialect !== SUPPORTED_SCHEMA_DIALECT ||
     !hasMode(contract.authoring_modes.config, 'schema_form') ||
     !hasMode(contract.authoring_modes.config, 'yaml') ||

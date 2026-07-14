@@ -19,6 +19,7 @@ from encode_pipeline.artifacts import (
     artifacts_by_manifest_output_type,
     load_catalog,
 )
+from encode_pipeline.config.coercion import coerce_bool
 from encode_pipeline.platform.adapters import (
     ARTIFACT_EXTRACT_CAPABILITY,
     INPUT_AUTHORING_CAPABILITY,
@@ -183,6 +184,11 @@ _GENERIC_ADAPTER_MESSAGES = {
 
 _DEFAULT_ADAPTER_VALIDATION_MESSAGE = "Workflow input validation failed."
 
+_SEMANTIC_ENGINE_SWITCHES = (
+    ("replicate_analysis", "stage4b", True),
+    ("chipseq_idr", "stage5", False),
+)
+
 
 def _sanitize_issue(issue: Issue) -> Issue:
     """Return a path-free, strictly bounded copy of a validate() issue."""
@@ -199,6 +205,82 @@ def _sanitize_issue(issue: Issue) -> Issue:
         hint=None,
         context={},
     )
+
+
+def _translate_authoring_config(
+    config: Mapping[str, Any],
+) -> Result[dict[str, Any]]:
+    """Translate semantic authoring switches on a private config copy."""
+    translated = deepcopy(dict(config))
+    used_deprecated_alias = False
+
+    for semantic_key, engine_key, default in _SEMANTIC_ENGINE_SWITCHES:
+        if semantic_key not in translated:
+            translated.setdefault(engine_key, default)
+            continue
+
+        semantic_value = translated.pop(semantic_key)
+        if (
+            not isinstance(semantic_value, Mapping)
+            or set(semantic_value) != {"enabled"}
+            or not isinstance(semantic_value["enabled"], bool)
+        ):
+            return Result.failure(
+                [
+                    Issue(
+                        code="ENCODE_CONFIG_SEMANTIC_INVALID",
+                        message="Workflow semantic configuration is invalid.",
+                        severity="error",
+                        path=f"config.{semantic_key}",
+                        source="adapter",
+                    )
+                ]
+            )
+
+        enabled = semantic_value["enabled"]
+        if engine_key in translated:
+            try:
+                legacy_enabled = coerce_bool(
+                    translated[engine_key],
+                    f"config {engine_key}",
+                )
+            except ValueError:
+                # Preserve the existing scientific validator's public failure
+                # classification for malformed legacy-only values.
+                continue
+            if legacy_enabled != enabled:
+                return Result.failure(
+                    [
+                        Issue(
+                            code="ENCODE_CONFIG_SEMANTIC_CONFLICT",
+                            message=(
+                                "Semantic and deprecated compatibility "
+                                "configuration values conflict."
+                            ),
+                            severity="error",
+                            path=f"config.{semantic_key}.enabled",
+                            source="adapter",
+                        )
+                    ]
+                )
+            used_deprecated_alias = True
+        translated[engine_key] = enabled
+
+    issues = ()
+    if used_deprecated_alias:
+        issues = (
+            Issue(
+                code="ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED",
+                message=(
+                    "Deprecated compatibility fields duplicate the semantic "
+                    "workflow configuration and should be removed."
+                ),
+                severity="warning",
+                path="config",
+                source="adapter",
+            ),
+        )
+    return Result.success(translated, issues=issues)
 
 
 class EncodeStyleWorkflowAdapter:
@@ -258,7 +340,10 @@ class EncodeStyleWorkflowAdapter:
         if option_issue is not None:
             return Result.failure([option_issue])
         strict_inputs = bool(inputs.options.get("strict_inputs", False))
-        config = deepcopy(dict(inputs.config))
+        config_result = _translate_authoring_config(inputs.config)
+        if config_result.is_failure:
+            return Result.failure(config_result.issues)
+        config = config_result.value
         if isinstance(inputs.samples, list):
             result = _validate_inline_inputs(
                 config,
@@ -281,7 +366,7 @@ class EncodeStyleWorkflowAdapter:
         policy_issue = _enforce_external_input_policy(validated_config, samples)
         if policy_issue is not None:
             return Result.failure([policy_issue])
-        return result
+        return Result.success(result.value, issues=config_result.issues + result.issues)
 
     def preview_dag(self, inputs: WorkflowInputs) -> Result[DagPreview]:
         """Return unsupported until DAG preview is wired through the adapter."""
@@ -351,6 +436,7 @@ class EncodeStyleWorkflowAdapter:
         return Result.success(
             workspace_plan,
             issues=[
+                *validated.issues,
                 Issue(
                     code="ENCODE_WORKSPACE_PLANNING_COMPLETE",
                     message="Workspace plan created.",
@@ -358,7 +444,7 @@ class EncodeStyleWorkflowAdapter:
                     path="workspace_plan",
                     source="adapter",
                     context={"file_count": 2, "directory_count": 2},
-                )
+                ),
             ],
         )
 

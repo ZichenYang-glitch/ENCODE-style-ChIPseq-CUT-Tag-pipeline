@@ -60,7 +60,11 @@ async function createPlannedRun(
   await setWorkbenchConfig(
     page,
     options.proveBackendRejection
-      ? { ...config, stage4b: false, stage5: true }
+      ? {
+          ...config,
+          replicate_analysis: { enabled: false },
+          chipseq_idr: { enabled: true },
+        }
       : config,
   );
   await page.getByRole('tab', { name: 'Samples' }).click();
@@ -127,6 +131,11 @@ async function createPlannedRun(
     options: Record<string, unknown>;
   };
   expect(validatePayload.config).not.toHaveProperty('samples');
+  expect(validatePayload.config).toMatchObject({
+    replicate_analysis: { enabled: false },
+    chipseq_idr: { enabled: false },
+  });
+  expect(JSON.stringify(validatePayload.config)).not.toMatch(/stage4b|stage5/);
   expect(JSON.stringify(validatePayload.config)).not.toContain(
     runtime.samplesPath,
   );
@@ -403,6 +412,7 @@ test('real run exposes QC source artifact and exact download @desktop', async ({
 }, testInfo) => {
   test.setTimeout(180_000);
   const runtime = manifest();
+  expect(JSON.stringify(runtime.resultsConfig)).not.toMatch(/stage4b|stage5/);
   const runId = await executeToSucceeded(
     page,
     runtime.resultsConfig,

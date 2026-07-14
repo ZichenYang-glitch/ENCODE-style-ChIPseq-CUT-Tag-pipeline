@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
 from encode_pipeline.platform.adapters import (
     CommandSpec,
     DagPreview,
@@ -157,6 +158,61 @@ def test_successful_validation_persists_snapshot_with_warning_evidence() -> None
         result.value
     )
     assert provider.calls == 2
+
+
+def test_encode_snapshot_retains_submitted_semantic_config_without_engine_aliases(
+    tmp_path,
+) -> None:
+    adapter = EncodeStyleWorkflowAdapter()
+    registry = WorkflowRegistry([adapter])
+    repository = InMemoryRunRepository()
+    identity = WorkflowBuildIdentity(
+        workflow_id=adapter.metadata.workflow_id,
+        adapter_version=adapter.metadata.version,
+        scheme="sha256-tree-v1",
+        logical_entrypoint="workflow/Snakefile",
+        digest="c" * 64,
+        captured_at=NOW,
+    )
+    provider = FakeBuildProvider([Result.success(identity), Result.success(identity)])
+    service = ValidatedInputService(
+        registry=registry,
+        validation_service=ValidationService(registry),
+        build_identity_provider=provider,
+        repository=repository,
+        snapshot_id_factory=lambda: "vsnap_abcdef0123456789abcdef0123456789",
+        clock=lambda: NOW,
+    )
+    submitted_config = {
+        "replicate_analysis": {"enabled": False},
+        "chipseq_idr": {"enabled": False},
+    }
+    inputs = WorkflowInputs(
+        config=submitted_config,
+        samples=[
+            {
+                "sample": "S1",
+                "fastq_1": str((tmp_path / "S1.R1.fastq.gz").resolve()),
+                "fastq_2": str((tmp_path / "S1.R2.fastq.gz").resolve()),
+                "layout": "PE",
+                "assay": "chipseq",
+                "target": "CTCF",
+                "peak_mode": "narrow",
+                "genome": "hs",
+                "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
+            }
+        ],
+    )
+
+    result = service.validate(adapter.metadata.workflow_id, inputs)
+
+    assert result.is_success
+    assert result.value is not None
+    restored = result.value.to_workflow_inputs()
+    assert restored.config == submitted_config
+    assert "stage4b" not in restored.config
+    assert "stage5" not in restored.config
+    assert result.value.schema_version == "1.1.0"
 
 
 def test_schema_contract_is_read_inside_the_stable_build_capture_window() -> None:

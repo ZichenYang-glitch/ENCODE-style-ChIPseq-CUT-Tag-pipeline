@@ -17,7 +17,7 @@ from encode_pipeline.platform.adapters import (
 )
 
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 _SCHEMA_ID_ROOT = (
     "https://encode-pipeline.org/schemas/encode-style-chipseq-cuttag-atac-mnase"
 )
@@ -61,6 +61,29 @@ def _boolean_or_string_schema(*, default: bool) -> dict[str, object]:
             {"type": "string", "enum": ["true", "false"]},
         ],
         "default": default,
+    }
+
+
+def _semantic_switch_schema(
+    *,
+    title: str,
+    description: str,
+    default: bool,
+) -> dict[str, object]:
+    return {
+        "type": "object",
+        "title": title,
+        "description": description,
+        "default": {"enabled": default},
+        "properties": {
+            "enabled": {
+                "type": "boolean",
+                "title": f"{title} enabled",
+                "default": default,
+            }
+        },
+        "required": ["enabled"],
+        "additionalProperties": False,
     }
 
 
@@ -125,8 +148,22 @@ def _config_schema() -> dict[str, object]:
                 "default": False,
             },
             "multiqc": _boolean_or_string_schema(default=True),
-            "stage4b": _boolean_or_string_schema(default=True),
-            "stage5": _boolean_or_string_schema(default=False),
+            "replicate_analysis": _semantic_switch_schema(
+                title="Replicate analysis",
+                description=(
+                    "Enable replicate-aware pooled outputs for experiments with "
+                    "biological replicates."
+                ),
+                default=True,
+            ),
+            "chipseq_idr": _semantic_switch_schema(
+                title="ChIP-seq IDR",
+                description=(
+                    "Enable narrow-peak ChIP-seq IDR for eligible experiments "
+                    "with exactly two biological replicates."
+                ),
+                default=False,
+            ),
             "genome_resources": {
                 "type": "object",
                 "default": {},

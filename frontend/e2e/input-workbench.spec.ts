@@ -62,6 +62,44 @@ test('schema workbench preserves one draft across form YAML samples review and h
     page.getByRole('heading', { name: 'Input workbench' }),
   ).toBeVisible();
   await expect(page.getByText(/Draft only/)).toBeVisible();
+  await expect(page.getByText('Replicate analysis', { exact: true })).toBeVisible();
+  await expect(page.getByText('ChIP-seq IDR', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('checkbox', { name: 'Replicate analysis enabled' }),
+  ).toBeChecked();
+  await expect(
+    page.getByRole('checkbox', { name: 'ChIP-seq IDR enabled' }),
+  ).not.toBeChecked();
+  await expect(page.locator('body')).not.toContainText(/stage4b|stage5/);
+  await capture(
+    page,
+    testInfo,
+    'input-workbench-config-desktop-1440x900',
+    1440,
+    900,
+  );
+  await capture(
+    page,
+    testInfo,
+    'input-workbench-config-tablet-1024x768',
+    1024,
+    768,
+  );
+  await capture(
+    page,
+    testInfo,
+    'input-workbench-config-mobile-390x844',
+    390,
+    844,
+  );
+  await capture(
+    page,
+    testInfo,
+    'input-workbench-config-mobile-360x800',
+    360,
+    800,
+  );
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   const threadsForm = page.getByRole('spinbutton', { name: /threads/i });
   await threadsForm.fill(String(Number.MAX_SAFE_INTEGER + 1));
@@ -198,12 +236,29 @@ test('real workbench validates a server snapshot and creates one refresh-safe pl
   await page.getByRole('tab', { name: 'Review' }).click();
   await expect(page.getByText(/structurally ready for backend validation/i)).toBeVisible();
 
+  await expect(page.getByTestId('draft-review-json')).not.toContainText(
+    /stage4b|stage5/,
+  );
+  const validateRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      request.url().endsWith(`/api/v1/workflows/${runtime.workflowId}/validate`),
+  );
   const validateResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
       response.url().endsWith(`/api/v1/workflows/${runtime.workflowId}/validate`),
   );
   await page.getByRole('button', { name: 'Validate current inputs' }).click();
+  const validateRequest = await validateRequestPromise;
+  const validatePayload = validateRequest.postDataJSON() as {
+    config: Record<string, unknown>;
+  };
+  expect(validatePayload.config).toMatchObject({
+    replicate_analysis: { enabled: false },
+    chipseq_idr: { enabled: false },
+  });
+  expect(JSON.stringify(validatePayload.config)).not.toMatch(/stage4b|stage5/);
   const validateResponse = await validateResponsePromise;
   expect(validateResponse.status()).toBe(200);
   const validation = (await validateResponse.json()) as {

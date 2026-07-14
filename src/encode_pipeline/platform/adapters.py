@@ -133,8 +133,8 @@ class WorkflowInputModes:
 class WorkflowInputLimits:
     """Public projection of the platform-wide authoring ceilings.
 
-    Contract version 1.0.0 only permits the exact platform values because the
-    transport and domain boundaries enforce one uniform set of ceilings.
+    Supported authoring contracts permit only the exact platform values because
+    the transport and domain boundaries enforce one uniform set of ceilings.
     """
 
     max_request_bytes: int = MAX_AUTHORING_REQUEST_BYTES
