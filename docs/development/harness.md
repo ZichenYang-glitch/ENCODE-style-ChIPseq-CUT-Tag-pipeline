@@ -20,13 +20,13 @@ snakefmt --check workflow/
 `docs/operations/snakemake-lint-warnings.txt`. The test fails if new warnings
 appear; intentional changes require updating the baseline.
 
-## CI contract
+## Documentation contract
 
-`test/test_stage27c_ci_workflow.py` asserts that `.github/workflows/ci.yml`
-contains the expected fast-check commands. Run it with:
+The maintained documentation suite checks that relative links resolve after
+references or historical records are changed. Run it with:
 
 ```bash
-python3 test/test_stage27c_ci_workflow.py
+python3 -m pytest test/docs/test_internal_links.py -v
 ```
 
 ## Full pytest suite
@@ -72,7 +72,7 @@ Use focused verification while iterating:
 
 ```bash
 python3 test/check_snakemake_lint.py
-python3 test/test_stage27c_ci_workflow.py
+python3 -m pytest test/docs/test_internal_links.py -v
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest test/test_stage_shim.py -q -p no:cacheprovider
 ```
 

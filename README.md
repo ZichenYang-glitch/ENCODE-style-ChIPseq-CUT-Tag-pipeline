@@ -423,14 +423,19 @@ results/
   post-filter BAM and may be a symlink to the filtered BAM. It should
   not be assumed to be duplicate-removed in all modes.
 
-See [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) for the full roadmap and planned
+See [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) for known scientific and operational
 follow-ups.
 
 ## Developer Notes
 
-### Roadmap and contract docs
+### Architecture, roadmap, and contract docs
 
-The v0.2 roadmap is in [`ROADMAP_v0.2.md`](ROADMAP_v0.2.md).
+The maintained product roadmap is in
+[`docs/development/workflow-platform-agent-roadmap.md`](docs/development/workflow-platform-agent-roadmap.md),
+and the durable system boundaries are summarized in
+[`docs/architecture/platform-overview.md`](docs/architecture/platform-overview.md).
+[`ROADMAP_v0.2.md`](ROADMAP_v0.2.md) is a superseded scientific-release
+snapshot.
 The release checklist is in [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md).
 The output contract and manifest schema are in [`docs/output-contract.md`](docs/output-contract.md).
 Assay-specific behavioral contracts are in [`docs/assay-policy.md`](docs/assay-policy.md).
@@ -439,11 +444,12 @@ Public data validation plans are under [`docs/release-checks/`](docs/release-che
 [`stage27-public-data-validation-plan.md`](docs/release-checks/stage27-public-data-validation-plan.md),
 [`stage27b-metadata-ci-plan.md`](docs/release-checks/stage27b-metadata-ci-plan.md).
 
-### Specs and schemas
+### Schemas and maintained decisions
 
-Detailed design specs for each major feature live under
-[`docs/superpowers/specs/`](docs/superpowers/specs/). Config and sample sheet
-contracts are in [`workflow/schemas/`](workflow/schemas/).
+Config and sample sheet contracts are in
+[`workflow/schemas/`](workflow/schemas/). Detailed maintained architecture
+decisions are linked from the platform overview; completed implementation plans
+remain available through Git history.
 Path handling rules are documented in
 [`docs/developer/no-hardcoding.md`](docs/developer/no-hardcoding.md).
 
@@ -487,18 +493,16 @@ replicate-level outputs).
 ### Smoke-test profiles
 
 A suite of test profiles under `test/profiles/` covers major ChIP-seq and
-CUT&Tag dispatch paths (SE / PE / control_sample / control_bam / SEACR /
-Stage 5 IDR) via dry-run only. Stage-specific stress tests cover ATAC, TSS,
-MNase, artifact inventory, artifact model, MNase path contract, manifest
-artifact contract, and output contract dry-run stages. Run with:
+CUT&Tag dispatch paths (SE / PE / control sample / control BAM / SEACR / IDR)
+via dry-run only. Focused contracts cover ATAC, TSS, MNase, artifact inventory,
+manifest behavior, and output paths. Run with:
 
 ```bash
 SNAKEMAKE=/path/to/snakemake python3 test/test_stage8_smoke_profiles.py
 ```
 
 All temporary files stay under `/tmp` — nothing is written into the
-repository.  See `docs/superpowers/specs/2026-05-18-stage8a-test-profiles-smoke-design.md`
-for the full design. For troubleshooting and test execution details, see
+repository. For troubleshooting and test execution details, see
 [docs/quickstart.md](docs/quickstart.md).
 
 ### Tiny real execution
@@ -513,30 +517,25 @@ SNAKEMAKE=/path/to/snakemake python3 test/test_stage8b_tiny_execution.py
 
 All outputs land under `/tmp`. Exit code 0 = PASS, 1 = FAIL, 2 = SKIP.
 MACS3 is intentionally skipped (Stage 8a dry-run covers the DAG).
-See `docs/superpowers/specs/2026-05-18-stage8b-tiny-real-execution-design.md`
-for the full design.
+See [the real-execution harness](docs/development/real-execution-harness.md)
+for tier ownership and prerequisites.
 
 ### CI
 
 A GitHub Actions workflow runs on every PR and push to `main` / `stage*`.
-PR/push CI uses a lightweight `ci-fast` environment (python + pyyaml +
-snakemake only) and runs validation plus 9 Python test suites:
+PR/push CI uses the locked `ci-fast` environment and currently covers:
 
 - Validate default config + sample sheet
-- Run validation stress tests
-- Run Stage 8a dry-run smoke profiles (8 profiles)
+- Durable execution, persistence, API, and worker contracts
+- Config validation and dry-run smoke profiles
 - No-hardcoded-paths guard
-- Stage 22 BigWig stress tests
-- Stage 24 QC summary unit tests
-- Stage 25 manifest stress tests
-- Stage 27a public validation plan tests
-- Stage 27b metadata/CI plan tests
-- Stage 27c CI workflow tests
+- BigWig, QC summary, manifest, and coverage checks
+- OpenAPI/generated-client drift, frontend tests, typecheck, and build
+- Critical browser execution journeys
 
 A manual `workflow_dispatch` job runs the tiny real-execution harness
 using the core `chipseq` environment.  See `.github/workflows/ci.yml`
-and the `workflow/envs/ci-fast.lock` minimal environment.
-Design: `docs/superpowers/specs/2026-05-18-stage8c-github-actions-ci-design.md`
+and the `workflow/envs/ci-fast.lock` environment.
 
 For local environment layout, first-run behavior, and cleanup commands, see
 [docs/environments.md](docs/environments.md).
@@ -555,7 +554,7 @@ micromamba activate chipseq-runner
 
 ```bash
 python3 scripts/validate_samples.py --config config/config.yaml
-python3 test/test_validation_stress.py
+python3 -m pytest test/config/test_validation.py -v
 python3 test/test_stage8_smoke_profiles.py
 ```
 
@@ -583,29 +582,9 @@ limit cores and consider `--latency-wait` for NFS filesystems.
 
 ### Release checklist
 
-Before tagging a release, run these checks locally:
-
-```bash
-# 1. Validation
-python3 scripts/validate_samples.py --config config/config.yaml
-python3 test/test_validation_stress.py
-
-# 2. Default DAG check
-snakemake -s workflow/Snakefile --configfile config/config.yaml -n --quiet
-
-# 3. Dry-run smoke profiles (8 profiles, <30 s)
-python3 test/test_stage8_smoke_profiles.py
-
-# 4. Tiny real execution (preprocessing + signal, <60 s)
-python3 test/test_stage8b_tiny_execution.py
-
-# 5. Repo hygiene
-git status --short --untracked-files=all
-# Expect: no results/, .snakemake/, *.fq, *.fq.gz, *.bam, *.bai, *.bw
-
-# 6. CI status
-# Check GitHub Actions for green on main / current branch.
-```
+Before tagging a release, follow the maintained
+[`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). Tagging and publishing require
+explicit authorization.
 
 ## License
 

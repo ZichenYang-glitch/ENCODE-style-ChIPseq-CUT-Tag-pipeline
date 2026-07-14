@@ -1,77 +1,82 @@
 # Release Checklist
 
-Before tagging a release, run through these checks. All automated checks below assume the `chipseq-runner` conda env is active.
-The `chipseq` (full bioinformatics) env is required only for tiny real execution
-(workflow_dispatch check).
+Use this checklist before tagging a HelixWeave release. Run commands from the
+repository root in the documented locked environments. Release evidence belongs
+under `docs/release-checks/`; temporary outputs and data stay outside Git.
 
-## Automated Checks (chipseq-runner env)
+## Automated checks
+
+### Python and workflow contracts
 
 ```bash
-# 1. Validation (must pass)
 python3 scripts/validate_samples.py --config config/config.yaml
-python3 test/test_validation_stress.py
-
-# 2. Dry-run smoke profiles (8 profiles, <30 s)
-python3 test/test_stage8_smoke_profiles.py
-
-# 3. Hardcoded-paths guard
+encode-validate --config config/config.yaml
+python3 -m pytest test/config test/manifest test/test_dag_snapshots.py -v
+python3 -m pytest test/test_stage8_smoke_profiles.py -v
 python3 test/test_no_hardcoded_paths.py
-
-# 4. BigWig stress tests (Stage 22, 6 cases)
-python3 test/test_stage22_bigwig_stress.py
-
-# 5. QC summary unit tests (Stage 24, 9 cases)
-python3 test/test_stage24_qc_summary_unit.py
-
-# 6. Manifest stress tests (Stage 25, 14 cases)
-python3 test/test_stage25_manifest_stress.py
-
-# 7. Public validation plan tests (Stage 27a, 7 cases)
-python3 test/test_stage27_public_validation_plan.py
-
-# 8. Metadata CI plan tests (Stage 27b, 7 cases)
-python3 test/test_stage27b_metadata_ci_plan.py
-
-# 9. CI workflow tests (Stage 27c, 7 cases)
-python3 test/test_stage27c_ci_workflow.py
-
-# 10. Release readiness tests (Stage 28, 11 cases)
-python3 test/test_stage28_release_readiness.py
-
-# 11. Repo hygiene
-git status --short --untracked-files=all
-# Expect: no results/, .snakemake/, *.fq, *.fq.gz, *.bam, *.bai, *.bw
-
-# 12. CI status
-# Check GitHub Actions for green on main / current branch.
+python3 test/check_snakemake_lint.py
+snakefmt --check workflow/
 ```
 
-Optional: Run with `--strict-inputs` to validate FASTQ and Bowtie2 index file existence
-before a real-data run:
+The default config references example inputs, so an unrestricted default DAG
+dry-run may fail when those files are absent. Use the committed smoke profiles
+for deterministic no-data DAG validation.
+
+### Platform contracts
 
 ```bash
-python3 scripts/validate_samples.py --config config/config.yaml --strict-inputs
+python3 -m pytest test/platform test/services test/persistence test/api test/workers -v
 ```
 
-Note: Default-config dry-run (`snakemake -s workflow/Snakefile --configfile config/config.yaml -n --quiet`) is expected to fail when default FASTQs don't exist. This is documented expected behavior and is not a release-blocking check.
+Use the real-execution environment for Redis/RQ, cancellation, process-group,
+and tiny Snakemake gates. Do not treat a missing external tool as a successful
+release validation.
 
-Tiny real execution (`test_stage8b_tiny_execution.py`) requires the full `chipseq`
-bioinformatics environment. It is retained as a `workflow_dispatch` CI check and
-**expected to SKIP in `chipseq-runner`** when bioinformatics tools are absent.
+### Frontend and generated API client
 
-## Manual Checks
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run openapi:regenerate
+git diff --exit-code -- frontend/openapi.json frontend/src/api/generated/
+npm --prefix frontend test -- --run
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+npm --prefix frontend run test:e2e
+```
 
-- [ ] `README.md` install commands tested with a clean conda environment.
-- [ ] `config/config.yaml` and `config/samples.tsv` agree on column names and genome labels.
-- [ ] `ROADMAP_v0.2.md` scope table matches current implementation status.
-- [ ] `KNOWN_ISSUES.md` status markers are up to date.
-- [ ] `[v0.2.0-rc1]` section in `CHANGELOG.md` reflects rc1 changes; `[Unreleased]` is present (may contain post-rc1 entries during active development).
-- [ ] Design specs and implementation plans under `docs/superpowers/` are committed.
-- [ ] All cross-links in `README.md` and `docs/*.md` resolve correctly.
+### Repository quality
 
-## Pre-release Steps
+```bash
+python3 -m ruff check src scripts test
+python3 -m ruff format --check src scripts test
+python3 -m pytest test/docs/test_internal_links.py -v
+git diff --check
+git status --short --untracked-files=all
+```
 
-1. Update version string in `CITATION.cff` and `CHANGELOG.md`.
-2. Move `[Unreleased]` entries in `CHANGELOG.md` to a new dated section.
-3. Tag the release: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`.
-4. Push the tag: `git push origin vX.Y.Z`.
+Review untracked output rather than deleting it automatically. A release tree
+must not include results, `.snakemake`, FASTQ, BAM, BigWig, database, secret, or
+environment artifacts.
+
+## Manual checks
+
+- [ ] Current release notes and `CHANGELOG.md` describe the exact release diff.
+- [ ] `README.md`, configuration, sample sheet, and quickstart examples agree.
+- [ ] Scientific behavior changes have assay-specific validation evidence.
+- [ ] Public-data reports remain external-data references, not bundled data.
+- [ ] OpenAPI and the generated frontend client have zero drift.
+- [ ] Database migrations upgrade from the supported prior schema.
+- [ ] Required CI checks for the exact release commit are complete.
+- [ ] Known skips and xfails are explained and appropriate for the release.
+- [ ] No workspace paths, environment values, or private payloads appear in
+      public API responses or logs attached as release evidence.
+
+## Release action
+
+Tagging and publishing require explicit authorization. After approval:
+
+1. update version and release-note metadata;
+2. create the annotated tag on the verified commit;
+3. push the tag;
+4. publish the approved release artifacts; and
+5. record the final external verification links under `docs/release-checks/`.

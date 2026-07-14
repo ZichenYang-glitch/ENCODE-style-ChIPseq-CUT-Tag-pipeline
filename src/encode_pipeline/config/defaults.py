@@ -1,8 +1,7 @@
 """Pure constants, allowed-value sets, and static defaults for config validation.
 
 This module contains no control flow, no I/O, and no imports from
-encode_pipeline.config.validator. It is the first extraction target in the
-validator decomposition (see docs/development/config-validator-decomposition.md).
+encode_pipeline.config.validator.
 """
 
 import re
