@@ -125,7 +125,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           elapsed=$(( $(date +%s) - JOB_STARTED ))
-          if [ "$EVENT_NAME" = "pull_request" ]; then budget=240; else budget=1200; fi
+          if [ "$EVENT_NAME" = "pull_request" ]; then budget=300; else budget=1200; fi
           echo "### fast-checks timing" >> "$GITHUB_STEP_SUMMARY"
           echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
           echo "- Soft budget: ${budget}s (informational)" >> "$GITHUB_STEP_SUMMARY"

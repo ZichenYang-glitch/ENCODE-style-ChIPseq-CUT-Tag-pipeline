@@ -117,6 +117,7 @@ def test_fast_checks_is_the_only_deterministic_pytest_coverage_producer():
     consumer = _runs(jobs["coverage"])
 
     assert jobs["fast-checks"]["timeout-minutes"] == 25
+    assert "budget=300" in producer
     assert "budget=1200" in producer
     assert producer.count("python3 -m pytest test") == 1
     assert (
