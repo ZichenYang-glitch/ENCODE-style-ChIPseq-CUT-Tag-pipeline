@@ -20,8 +20,7 @@ def _sanitize_identifier(value: str) -> str:
     return _SANITIZE_RE.sub("_", value)
 
 
-def _parse_positive_int(value, *, default, name, sample, row,
-                        error_cls=ValueError):
+def _parse_positive_int(value, *, default, name, sample, row, error_cls=ValueError):
     """Parse an optional positive integer with a default.
 
     Blanks and missing values use *default*. Strictly rejects
@@ -71,31 +70,35 @@ def validate_and_build_sample(
     role = (row.get("role") or "treatment").strip().lower()
     ctrl_sample = (row.get("control_sample") or "").strip()
 
-    experiment = _sanitize_identifier(
-        (row.get("experiment") or "").strip() or sid
-    )
-    condition = _sanitize_identifier(
-        (row.get("condition") or "").strip() or tgt
-    )
+    experiment = _sanitize_identifier((row.get("experiment") or "").strip() or sid)
+    condition = _sanitize_identifier((row.get("condition") or "").strip() or tgt)
     replicate = _parse_positive_int(
-        row.get("replicate"), default=1, name="replicate",
-        sample=sid, row=row_index, error_cls=error_cls,
+        row.get("replicate"),
+        default=1,
+        name="replicate",
+        sample=sid,
+        row=row_index,
+        error_cls=error_cls,
     )
     bio_rep = _parse_positive_int(
-        row.get("biological_replicate"), default=replicate,
-        name="biological_replicate", sample=sid, row=row_index,
+        row.get("biological_replicate"),
+        default=replicate,
+        name="biological_replicate",
+        sample=sid,
+        row=row_index,
         error_cls=error_cls,
     )
     tech_rep = _parse_positive_int(
-        row.get("technical_replicate"), default=1,
-        name="technical_replicate", sample=sid, row=row_index,
+        row.get("technical_replicate"),
+        default=1,
+        name="technical_replicate",
+        sample=sid,
+        row=row_index,
         error_cls=error_cls,
     )
 
     if not sid:
-        raise error_cls(
-            f"Row {row_index} in sample sheet has empty 'sample'"
-        )
+        raise error_cls(f"Row {row_index} in sample sheet has empty 'sample'")
     if not _SAMPLE_ID_RE.match(sid):
         raise error_cls(
             f"Row {row_index}: sample ID {sid!r} contains invalid "
@@ -103,22 +106,14 @@ def validate_and_build_sample(
             f"period, hyphen."
         )
     if not fq1:
-        raise error_cls(
-            f"Sample {sid!r} has empty 'fastq_1'"
-        )
+        raise error_cls(f"Sample {sid!r} has empty 'fastq_1'")
     if lo not in defaults.LAYOUTS:
-        raise error_cls(
-            f"Sample {sid!r}: layout must be PE or SE, "
-            f"got {lo!r}"
-        )
+        raise error_cls(f"Sample {sid!r}: layout must be PE or SE, got {lo!r}")
     if lo == "PE" and not fq2:
-        raise error_cls(
-            f"Sample {sid!r}: PE layout requires 'fastq_2'"
-        )
+        raise error_cls(f"Sample {sid!r}: PE layout requires 'fastq_2'")
     if assay == "mnase" and lo != "PE":
         raise error_cls(
-            f"Sample {sid!r}: assay=mnase requires paired-end "
-            f"layout (PE), got {lo!r}"
+            f"Sample {sid!r}: assay=mnase requires paired-end layout (PE), got {lo!r}"
         )
     if assay not in defaults.ASSAYS:
         raise error_cls(
@@ -126,9 +121,7 @@ def validate_and_build_sample(
             f"atac, or mnase, got {assay!r}"
         )
     if not tgt:
-        raise error_cls(
-            f"Sample {sid!r} has empty 'target'"
-        )
+        raise error_cls(f"Sample {sid!r} has empty 'target'")
     if pmode not in defaults.PEAK_MODES:
         raise error_cls(
             f"Sample {sid!r}: peak_mode must be narrow, broad, "
@@ -141,8 +134,7 @@ def validate_and_build_sample(
         )
     if assay == "mnase" and pmode != "nucleosome":
         raise error_cls(
-            f"Sample {sid!r}: assay=mnase requires "
-            f"peak_mode=nucleosome, got {pmode!r}"
+            f"Sample {sid!r}: assay=mnase requires peak_mode=nucleosome, got {pmode!r}"
         )
     if assay != "mnase" and pmode == "nucleosome":
         raise error_cls(
@@ -150,13 +142,9 @@ def validate_and_build_sample(
             f"allowed for assay=mnase, got assay={assay!r}"
         )
     if not gnm:
-        raise error_cls(
-            f"Sample {sid!r} has empty 'genome'"
-        )
+        raise error_cls(f"Sample {sid!r} has empty 'genome'")
     if not bt2:
-        raise error_cls(
-            f"Sample {sid!r} has empty 'bowtie2_index'"
-        )
+        raise error_cls(f"Sample {sid!r} has empty 'bowtie2_index'")
     if not _SAMPLE_ID_RE.match(experiment):
         raise error_cls(
             f"Row {row_index}: sample {sid!r}: experiment {experiment!r} "
@@ -170,35 +158,23 @@ def validate_and_build_sample(
             f"Allowed: A-Z, a-z, 0-9, underscore, period, hyphen."
         )
     if not experiment:
-        raise error_cls(
-            f"Sample {sid!r} has empty 'experiment' after defaulting"
-        )
+        raise error_cls(f"Sample {sid!r} has empty 'experiment' after defaulting")
     if not condition:
-        raise error_cls(
-            f"Sample {sid!r} has empty 'condition' after defaulting"
-        )
+        raise error_cls(f"Sample {sid!r} has empty 'condition' after defaulting")
     if role not in defaults.ROLES:
         raise error_cls(
-            f"Sample {sid!r}: role must be treatment or control, "
-            f"got {role!r}"
+            f"Sample {sid!r}: role must be treatment or control, got {role!r}"
         )
 
     if use_control:
         if ctrl_sample == sid:
-            raise error_cls(
-                f"Sample {sid!r}: control_sample cannot reference "
-                f"itself"
-            )
+            raise error_cls(f"Sample {sid!r}: control_sample cannot reference itself")
         if ctrl_sample and ctrl_bam:
             raise error_cls(
-                f"Sample {sid!r}: cannot set both control_sample "
-                f"and control_bam"
+                f"Sample {sid!r}: cannot set both control_sample and control_bam"
             )
         if ctrl_bam and not os.path.isfile(ctrl_bam):
-            raise error_cls(
-                f"Sample {sid!r}: control_bam file not found: "
-                f"{ctrl_bam}"
-            )
+            raise error_cls(f"Sample {sid!r}: control_bam file not found: {ctrl_bam}")
 
     return {
         "id": sid,

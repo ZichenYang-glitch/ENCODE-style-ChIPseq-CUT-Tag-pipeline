@@ -70,10 +70,7 @@ def test_import_config_does_not_load_yaml_loader():
 
 
 def test_config_attribute_access_validate_config():
-    code = (
-        "import encode_pipeline.config as cfg\n"
-        "print(callable(cfg.validate_config))"
-    )
+    code = "import encode_pipeline.config as cfg\nprint(callable(cfg.validate_config))"
     proc = _run_subprocess(code)
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip() == "True"

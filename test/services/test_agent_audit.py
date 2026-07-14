@@ -1,4 +1,8 @@
-from encode_pipeline.services.agent_audit import AuditEvent, InMemoryAuditSink, NoOpAuditSink
+from encode_pipeline.services.agent_audit import (
+    AuditEvent,
+    InMemoryAuditSink,
+    NoOpAuditSink,
+)
 
 
 def test_records_event():

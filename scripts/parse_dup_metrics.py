@@ -36,24 +36,12 @@ _PICARD_FIELDS = {
         "secondary_or_supplementary_rds",
         "secondary_or_supplementary_reads",
     ),
-    "unmapped_reads": (
-        "unmapped_reads",
-    ),
-    "unpaired_read_duplicates": (
-        "unpaired_read_duplicates",
-    ),
-    "read_pair_duplicates": (
-        "read_pair_duplicates",
-    ),
-    "read_pair_optical_duplicates": (
-        "read_pair_optical_duplicates",
-    ),
-    "percent_duplication": (
-        "percent_duplication",
-    ),
-    "estimated_library_size": (
-        "estimated_library_size",
-    ),
+    "unmapped_reads": ("unmapped_reads",),
+    "unpaired_read_duplicates": ("unpaired_read_duplicates",),
+    "read_pair_duplicates": ("read_pair_duplicates",),
+    "read_pair_optical_duplicates": ("read_pair_optical_duplicates",),
+    "percent_duplication": ("percent_duplication",),
+    "estimated_library_size": ("estimated_library_size",),
 }
 
 _NA = "NA"
@@ -140,9 +128,7 @@ def _compute_derived(parsed: dict[str, str]) -> dict[str, str]:
     # total_reads_examined = unpaired + 2 * read_pairs
     if urp != _NA and rp != _NA:
         try:
-            result["total_reads_examined"] = str(
-                int(urp) + 2 * int(rp)
-            )
+            result["total_reads_examined"] = str(int(urp) + 2 * int(rp))
         except (ValueError, TypeError):
             result["total_reads_examined"] = _NA
     else:
@@ -151,9 +137,7 @@ def _compute_derived(parsed: dict[str, str]) -> dict[str, str]:
     # duplicate_reads_estimate = unpaired_dups + 2 * read_pair_dups
     if urd != _NA and rpd != _NA:
         try:
-            result["duplicate_reads_estimate"] = str(
-                int(urd) + 2 * int(rpd)
-            )
+            result["duplicate_reads_estimate"] = str(int(urd) + 2 * int(rpd))
         except (ValueError, TypeError):
             result["duplicate_reads_estimate"] = _NA
     else:

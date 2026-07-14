@@ -15,17 +15,17 @@ _BT2_STANDARD = defaults.BT2_STANDARD
 _BT2_LARGE = defaults.BT2_LARGE
 
 
-def _check_fastq_exists(path: str, sample_id: str, label: str,
-                        error_cls=ValidationError) -> None:
+def _check_fastq_exists(
+    path: str, sample_id: str, label: str, error_cls=ValidationError
+) -> None:
     """Raise *error_cls* if *path* does not exist as a regular file."""
     if not os.path.isfile(path):
-        raise error_cls(
-            f"Sample {sample_id!r}: {label} file not found: {path}"
-        )
+        raise error_cls(f"Sample {sample_id!r}: {label} file not found: {path}")
 
 
-def _check_bowtie2_index(prefix: str, sample_id: str,
-                         error_cls=ValidationError) -> None:
+def _check_bowtie2_index(
+    prefix: str, sample_id: str, error_cls=ValidationError
+) -> None:
     """Raise *error_cls* if neither complete .bt2 nor .bt2l index set exists."""
     standard_set = [f.format(prefix=prefix) for f in _BT2_STANDARD]
     large_set = [f.format(prefix=prefix) for f in _BT2_LARGE]
@@ -45,8 +45,9 @@ def _check_bowtie2_index(prefix: str, sample_id: str,
     )
 
 
-def validate_strict_inputs(samples: list, strict_inputs: bool,
-                           error_cls=ValidationError) -> None:
+def validate_strict_inputs(
+    samples: list, strict_inputs: bool, error_cls=ValidationError
+) -> None:
     """If *strict_inputs*, validate FASTQ and Bowtie2 index file existence."""
     if not strict_inputs:
         return
@@ -60,19 +61,13 @@ def validate_strict_inputs(samples: list, strict_inputs: bool,
         if fq1:
             _check_fastq_exists(fq1, sid, "fastq_1", error_cls=error_cls)
         else:
-            raise error_cls(
-                f"Sample {sid!r}: fastq_1 is empty"
-            )
+            raise error_cls(f"Sample {sid!r}: fastq_1 is empty")
         if layout == "PE":
             if fq2:
                 _check_fastq_exists(fq2, sid, "fastq_2", error_cls=error_cls)
             else:
-                raise error_cls(
-                    f"Sample {sid!r}: PE layout requires fastq_2"
-                )
+                raise error_cls(f"Sample {sid!r}: PE layout requires fastq_2")
         if bt2:
             _check_bowtie2_index(bt2, sid, error_cls=error_cls)
         else:
-            raise error_cls(
-                f"Sample {sid!r}: bowtie2_index is empty"
-            )
+            raise error_cls(f"Sample {sid!r}: bowtie2_index is empty")

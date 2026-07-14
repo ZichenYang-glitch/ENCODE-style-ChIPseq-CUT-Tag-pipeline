@@ -147,7 +147,9 @@ def test_workspace_materializer_refuses_symlink_target_directory(tmp_path):
     assert issue.path == "workspace_plan.directories[0]"
 
 
-def test_workspace_materializer_refuses_symlink_parent_directory_under_base_dir(tmp_path):
+def test_workspace_materializer_refuses_symlink_parent_directory_under_base_dir(
+    tmp_path,
+):
     from encode_pipeline.platform.adapters import WorkspacePlan
     from encode_pipeline.services.materialization import WorkspaceMaterializer
 
@@ -164,7 +166,9 @@ def test_workspace_materializer_refuses_symlink_parent_directory_under_base_dir(
     issue = result.issues[0]
     assert issue.code == "WORKSPACE_MATERIALIZATION_SYMLINK"
     assert issue.path == "workspace_plan.directories[0]"
-    assert issue.message == "Planned directory path has a symlinked parent under base_dir."
+    assert (
+        issue.message == "Planned directory path has a symlinked parent under base_dir."
+    )
 
 
 def test_workspace_materializer_path_policy_errors_use_safe_messages(tmp_path):
@@ -189,8 +193,13 @@ def test_workspace_materializer_path_policy_errors_use_safe_messages(tmp_path):
     )
     assert traversal_result.is_failure is True
     traversal_issue = traversal_result.issues[0]
-    assert traversal_issue.code == "WORKSPACE_MATERIALIZATION_PATH_POLICY_PATH_TRAVERSAL"
-    assert traversal_issue.message == "Planned path must not contain '.' or '..' components."
+    assert (
+        traversal_issue.code == "WORKSPACE_MATERIALIZATION_PATH_POLICY_PATH_TRAVERSAL"
+    )
+    assert (
+        traversal_issue.message
+        == "Planned path must not contain '.' or '..' components."
+    )
     assert "../escape" not in traversal_issue.message
 
     invalid_result = materializer.materialize(
@@ -384,7 +393,10 @@ def test_workspace_materializer_import_boundary() -> None:
 
 def test_workspace_materializer_refuses_plan_path_escape(tmp_path, monkeypatch):
     from encode_pipeline.platform.adapters import WorkspacePlan
-    from encode_pipeline.platform.planning import WorkspacePathEscapeError, WorkspacePathPolicy
+    from encode_pipeline.platform.planning import (
+        WorkspacePathEscapeError,
+        WorkspacePathPolicy,
+    )
     from encode_pipeline.services.materialization import WorkspaceMaterializer
 
     def fake_resolve(self, relative_path):

@@ -133,7 +133,9 @@ def test_execution_plan_issues_defaults_to_empty_tuple():
 
 
 def test_execution_plan_rejects_non_issue_issues():
-    with pytest.raises(ValueError, match="ExecutionPlan issues must contain only Issue entries"):
+    with pytest.raises(
+        ValueError, match="ExecutionPlan issues must contain only Issue entries"
+    ):
         ExecutionPlan(
             plan_id="plan-1",
             run_id="run-1",

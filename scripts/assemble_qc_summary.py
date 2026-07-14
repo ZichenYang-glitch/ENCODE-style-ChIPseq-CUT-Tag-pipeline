@@ -30,19 +30,43 @@ _NA = "NA"
 
 # Exact 37-column output order preserved from the legacy shell rule (lines 738-773).
 _QC_SUMMARY_COLUMNS = [
-    "sample", "assay", "target", "genome", "layout", "peak_mode",
-    "use_control", "control_type", "final_bam", "peaks",
-    "blacklist", "blacklist_filtered_bam", "blacklist_filtered_peaks",
-    "total_reads", "reads_in_peaks", "frip", "peak_count",
+    "sample",
+    "assay",
+    "target",
+    "genome",
+    "layout",
+    "peak_mode",
+    "use_control",
+    "control_type",
+    "final_bam",
+    "peaks",
+    "blacklist",
+    "blacklist_filtered_bam",
+    "blacklist_filtered_peaks",
+    "total_reads",
+    "reads_in_peaks",
+    "frip",
+    "peak_count",
     "blacklist_filtered_peak_count",
-    "metrics_source", "unpaired_reads_examined", "read_pairs_examined",
-    "secondary_or_supplementary_reads", "unmapped_reads",
-    "unpaired_read_duplicates", "read_pair_duplicates",
-    "read_pair_optical_duplicates", "percent_duplication",
-    "estimated_library_size", "total_reads_examined",
+    "metrics_source",
+    "unpaired_reads_examined",
+    "read_pairs_examined",
+    "secondary_or_supplementary_reads",
+    "unmapped_reads",
+    "unpaired_read_duplicates",
+    "read_pair_duplicates",
+    "read_pair_optical_duplicates",
+    "percent_duplication",
+    "estimated_library_size",
+    "total_reads_examined",
     "duplicate_reads_estimate",
-    "total_fragments", "distinct_fragments", "one_read_fragments",
-    "two_read_fragments", "nrf", "pbc1", "pbc2",
+    "total_fragments",
+    "distinct_fragments",
+    "one_read_fragments",
+    "two_read_fragments",
+    "nrf",
+    "pbc1",
+    "pbc2",
 ]
 
 
@@ -99,12 +123,8 @@ def main():
 
     # ---- Read component TSVs by header ----
 
-    peak_data = _read_tsv_columns(
-        args.peak_counts, "peaks", "blacklist_filtered_peaks"
-    )
-    frip_data = _read_tsv_columns(
-        args.frip, "total_reads", "reads_in_peaks", "frip"
-    )
+    peak_data = _read_tsv_columns(args.peak_counts, "peaks", "blacklist_filtered_peaks")
+    frip_data = _read_tsv_columns(args.frip, "total_reads", "reads_in_peaks", "frip")
     lc_data = _read_tsv_columns(
         args.library_complexity,
         "metrics_source",
@@ -191,9 +211,11 @@ def main():
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     with open(args.output, "w", newline="") as fh:
         writer = csv.DictWriter(
-            fh, fieldnames=_QC_SUMMARY_COLUMNS, delimiter="\t",
+            fh,
+            fieldnames=_QC_SUMMARY_COLUMNS,
+            delimiter="\t",
             lineterminator="\n",
-            extrasaction="ignore"
+            extrasaction="ignore",
         )
         writer.writeheader()
         writer.writerow(row)

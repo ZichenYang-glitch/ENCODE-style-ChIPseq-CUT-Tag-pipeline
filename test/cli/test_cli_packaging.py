@@ -59,10 +59,14 @@ def test_manifest_cli_has_no_sys_path_insert():
 def test_dag_cli_resolves_explicit_repo_root():
     result = subprocess.run(
         [
-            sys.executable, "-m", "encode_pipeline.cli.dag",
+            sys.executable,
+            "-m",
+            "encode_pipeline.cli.dag",
             "diff",
-            "--profile", "chipseq_se_noctrl",
-            "--repo-root", str(REPO_ROOT),
+            "--profile",
+            "chipseq_se_noctrl",
+            "--repo-root",
+            str(REPO_ROOT),
         ],
         cwd=tempfile.gettempdir(),
         capture_output=True,
@@ -76,9 +80,12 @@ def test_dag_cli_resolves_explicit_repo_root():
 def test_dag_cli_fails_without_repo_root_outside_repo():
     result = subprocess.run(
         [
-            sys.executable, "-m", "encode_pipeline.cli.dag",
+            sys.executable,
+            "-m",
+            "encode_pipeline.cli.dag",
             "diff",
-            "--profile", "chipseq_se_noctrl",
+            "--profile",
+            "chipseq_se_noctrl",
         ],
         cwd=tempfile.gettempdir(),
         capture_output=True,
@@ -90,13 +97,19 @@ def test_dag_cli_fails_without_repo_root_outside_repo():
 
 
 def test_dag_cli_resolves_env_repo_root():
-    env = {**os.environ, "ENCODE_PIPELINE_REPO_ROOT": str(REPO_ROOT),
-           "PYTHONDONTWRITEBYTECODE": "1"}
+    env = {
+        **os.environ,
+        "ENCODE_PIPELINE_REPO_ROOT": str(REPO_ROOT),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
     result = subprocess.run(
         [
-            sys.executable, "-m", "encode_pipeline.cli.dag",
+            sys.executable,
+            "-m",
+            "encode_pipeline.cli.dag",
             "diff",
-            "--profile", "chipseq_se_noctrl",
+            "--profile",
+            "chipseq_se_noctrl",
         ],
         cwd=tempfile.gettempdir(),
         capture_output=True,
@@ -115,8 +128,11 @@ def test_dag_cli_resolves_env_repo_root():
 def test_validate_cli_emits_single_structured_log_line():
     result = subprocess.run(
         [
-            sys.executable, "-m", "encode_pipeline.cli.validate",
-            "--config", str(REPO_ROOT / "config" / "config.yaml"),
+            sys.executable,
+            "-m",
+            "encode_pipeline.cli.validate",
+            "--config",
+            str(REPO_ROOT / "config" / "config.yaml"),
         ],
         capture_output=True,
         text=True,
@@ -124,7 +140,8 @@ def test_validate_cli_emits_single_structured_log_line():
     )
     assert result.returncode == 0, result.stderr
     log_lines = [
-        line for line in result.stderr.splitlines()
+        line
+        for line in result.stderr.splitlines()
         if line.startswith("[") and "encode-pipeline" in line
     ]
     assert len(log_lines) == 1, f"Expected 1 log line, got: {log_lines}"
@@ -142,18 +159,29 @@ def test_manifest_cli_matches_legacy_script(tmp_path):
     new_cli = tmp_path / "new.tsv"
 
     subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "make_manifest.py"),
-         "--config", str(REPO_ROOT / "config" / "config.yaml"),
-         "--output", str(legacy)],
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "make_manifest.py"),
+            "--config",
+            str(REPO_ROOT / "config" / "config.yaml"),
+            "--output",
+            str(legacy),
+        ],
         check=True,
         capture_output=True,
         text=True,
         env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
     )
     subprocess.run(
-        [sys.executable, "-m", "encode_pipeline.cli.manifest",
-         "--config", str(REPO_ROOT / "config" / "config.yaml"),
-         "--output", str(new_cli)],
+        [
+            sys.executable,
+            "-m",
+            "encode_pipeline.cli.manifest",
+            "--config",
+            str(REPO_ROOT / "config" / "config.yaml"),
+            "--output",
+            str(new_cli),
+        ],
         check=True,
         capture_output=True,
         text=True,

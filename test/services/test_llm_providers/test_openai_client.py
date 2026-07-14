@@ -44,7 +44,11 @@ class FakeCompletions:
         self.last_messages = messages
         self.last_tools = tools
         return FakeCompletionResponse(
-            choices=[FakeCompletionChoice(message=FakeCompletionMessage(content=self.response_content))]
+            choices=[
+                FakeCompletionChoice(
+                    message=FakeCompletionMessage(content=self.response_content)
+                )
+            ]
         )
 
 

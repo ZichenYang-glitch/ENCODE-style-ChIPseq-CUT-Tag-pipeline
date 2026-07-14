@@ -8,18 +8,14 @@ __all__ = ["validate_mnase_config"]
 def _parse_range_int(value, label, original, error_cls=ValueError):
     """Parse one range endpoint as an integer, rejecting bools and floats."""
     if isinstance(value, bool):
-        raise error_cls(
-            f"{label} elements must be integers, got {original!r}"
-        )
+        raise error_cls(f"{label} elements must be integers, got {original!r}")
     if isinstance(value, int):
         return value
     if isinstance(value, str):
         text = value.strip()
         if text.isdigit():
             return int(text)
-    raise error_cls(
-        f"{label} elements must be integers, got {original!r}"
-    )
+    raise error_cls(f"{label} elements must be integers, got {original!r}")
 
 
 def _validate_range_pair(r, label, error_cls=ValueError):
@@ -35,21 +31,16 @@ def _validate_range_pair(r, label, error_cls=ValueError):
         )
     if len(r) != 2:
         raise error_cls(
-            f"{label} must have exactly 2 elements "
-            f"(min, max), got {len(r)}"
+            f"{label} must have exactly 2 elements (min, max), got {len(r)}"
         )
     lo, hi = (
         _parse_range_int(r[0], label, r, error_cls=error_cls),
         _parse_range_int(r[1], label, r, error_cls=error_cls),
     )
     if lo <= 0 or hi <= 0:
-        raise error_cls(
-            f"{label} values must be positive, got [{lo}, {hi}]"
-        )
+        raise error_cls(f"{label} values must be positive, got [{lo}, {hi}]")
     if lo >= hi:
-        raise error_cls(
-            f"{label}: min must be < max, got [{lo}, {hi}]"
-        )
+        raise error_cls(f"{label}: min must be < max, got [{lo}, {hi}]")
 
 
 def validate_mnase_config(mnase: dict, error_cls=ValueError) -> dict:
@@ -61,22 +52,16 @@ def validate_mnase_config(mnase: dict, error_cls=ValueError) -> dict:
     Fragment range precedence: fragments.mono > mono_range > [140, 200].
     """
     if not isinstance(mnase, dict):
-        raise error_cls(
-            f"mnase must be a mapping, got {type(mnase).__name__}"
-        )
+        raise error_cls(f"mnase must be a mapping, got {type(mnase).__name__}")
 
     known = defaults.MNASE_TOP_KEYS
     for key in mnase:
         if key not in known:
-            raise error_cls(
-                f"mnase: unknown key {key!r}. Known: {sorted(known)}"
-            )
+            raise error_cls(f"mnase: unknown key {key!r}. Known: {sorted(known)}")
 
     # --- mono_range (Stage 39, deprecated in favor of fragments.mono) ---
 
-    mono_range = mnase.get(
-        "mono_range", defaults.MNASE_MONO_RANGE_DEFAULT
-    )
+    mono_range = mnase.get("mono_range", defaults.MNASE_MONO_RANGE_DEFAULT)
     _validate_range_pair(mono_range, "mnase.mono_range", error_cls=error_cls)
 
     # --- fragments (Stage 40) ---
@@ -84,8 +69,7 @@ def validate_mnase_config(mnase: dict, error_cls=ValueError) -> dict:
     fragments_raw = mnase.get("fragments", {})
     if not isinstance(fragments_raw, dict):
         raise error_cls(
-            f"mnase.fragments must be a mapping, "
-            f"got {type(fragments_raw).__name__}"
+            f"mnase.fragments must be a mapping, got {type(fragments_raw).__name__}"
         )
 
     fragments_known = defaults.MNASE_FRAGMENTS_KEYS
@@ -135,8 +119,7 @@ def validate_mnase_config(mnase: dict, error_cls=ValueError) -> dict:
     callers_raw = mnase.get("callers", {})
     if not isinstance(callers_raw, dict):
         raise error_cls(
-            f"mnase.callers must be a mapping, "
-            f"got {type(callers_raw).__name__}"
+            f"mnase.callers must be a mapping, got {type(callers_raw).__name__}"
         )
 
     callers_known = defaults.MNASE_CALLERS
@@ -144,14 +127,12 @@ def validate_mnase_config(mnase: dict, error_cls=ValueError) -> dict:
     for ck in callers_raw:
         if ck not in callers_known:
             raise error_cls(
-                f"mnase.callers: unknown key {ck!r}. "
-                f"Known: {sorted(callers_known)}"
+                f"mnase.callers: unknown key {ck!r}. Known: {sorted(callers_known)}"
             )
         val = callers_raw[ck]
         if not isinstance(val, bool):
             raise error_cls(
-                f"mnase.callers.{ck} must be boolean true or false, "
-                f"got {val!r}"
+                f"mnase.callers.{ck} must be boolean true or false, got {val!r}"
             )
         enabled = val
         if enabled:

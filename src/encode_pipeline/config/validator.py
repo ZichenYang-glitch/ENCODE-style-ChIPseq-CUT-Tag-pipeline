@@ -54,11 +54,13 @@ def __getattr__(name: str):
     if name == "load_and_validate_samples":
         if _load_and_validate_samples is None:
             from encode_pipeline.samples.load import load_and_validate_samples
+
             _load_and_validate_samples = load_and_validate_samples
         return _load_and_validate_samples
     if name == "validate_replicate_groups":
         if _validate_replicate_groups is None:
             from encode_pipeline.samples.replicates import validate_replicate_groups
+
             _validate_replicate_groups = validate_replicate_groups
         return _validate_replicate_groups
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -67,6 +69,7 @@ def __getattr__(name: str):
 # ---------------------------------------------------------------------------
 # Config validation
 # ---------------------------------------------------------------------------
+
 
 def _coerce_int(value, *, name: str, minimum: int) -> int:
     """Return a strictly parsed integer, rejecting bools and floats."""
@@ -89,13 +92,9 @@ def validate_config(config: dict) -> dict:
     # samples — required, path must exist
     samples_path = config.get("samples", "")
     if not samples_path:
-        raise ValidationError(
-            "config.yaml must set 'samples' to the TSV path."
-        )
+        raise ValidationError("config.yaml must set 'samples' to the TSV path.")
     if not os.path.isfile(samples_path):
-        raise ValidationError(
-            f"Sample sheet not found: {samples_path}"
-        )
+        raise ValidationError(f"Sample sheet not found: {samples_path}")
     validated["samples"] = samples_path
 
     # outdir — string, default "results"
@@ -129,8 +128,7 @@ def validate_config(config: dict) -> dict:
     remove_dup = str(config.get("remove_dup", "auto"))
     if remove_dup not in defaults.REMOVE_DUP_KEYWORDS:
         raise ValidationError(
-            f"config remove_dup must be auto, yes, or no, "
-            f"got {remove_dup!r}"
+            f"config remove_dup must be auto, yes, or no, got {remove_dup!r}"
         )
     validated["remove_dup"] = remove_dup
 
@@ -141,9 +139,7 @@ def validate_config(config: dict) -> dict:
     elif str(trim_raw).lower() in ("true", "false"):
         validated["trim"] = str(trim_raw).lower()
     else:
-        raise ValidationError(
-            f"config trim must be true or false, got {trim_raw!r}"
-        )
+        raise ValidationError(f"config trim must be true or false, got {trim_raw!r}")
 
     # extend_reads — "auto", "yes", "no", or positive integer string
     ext_raw = str(config.get("extend_reads", "auto"))
@@ -168,8 +164,7 @@ def validate_config(config: dict) -> dict:
             validated["use_control"] = False
         else:
             raise ValidationError(
-                f"config use_control must be true or false, "
-                f"got {use_raw!r}"
+                f"config use_control must be true or false, got {use_raw!r}"
             )
 
     # multiqc — boolean or string boolean, normalize to bool
@@ -179,9 +174,7 @@ def validate_config(config: dict) -> dict:
     elif str(mqc_raw).lower() in ("true", "false"):
         validated["multiqc"] = str(mqc_raw).lower() == "true"
     else:
-        raise ValidationError(
-            f"config multiqc must be true or false, got {mqc_raw!r}"
-        )
+        raise ValidationError(f"config multiqc must be true or false, got {mqc_raw!r}")
 
     # genome_resources — optional, validate if present
     validated["genome_resources"] = _validate_genome_resources(
@@ -232,52 +225,52 @@ def validate_config(config: dict) -> dict:
 
     # Stage 55: determine whether ATAC IDR is enabled from validated reproducibility
     repro = validated["reproducibility"]
-    atac_idr_enabled = (
-        repro.get("enabled", False)
-        and repro.get("idr", {}).get("atac_narrow", False)
+    atac_idr_enabled = repro.get("enabled", False) and repro.get("idr", {}).get(
+        "atac_narrow", False
     )
 
     # ATAC IDR requires stage4b (Stage 55)
     if atac_idr_enabled and not validated.get("stage4b", True):
         raise ValidationError(
-            "config: reproducibility.idr.atac_narrow=true requires "
-            "stage4b=true."
+            "config: reproducibility.idr.atac_narrow=true requires stage4b=true."
         )
 
     # Stage 64: determine whether CUT&Tag IDR is enabled
-    cuttag_idr_enabled = (
-        repro.get("enabled", False)
-        and repro.get("idr", {}).get("cuttag_narrow", False)
+    cuttag_idr_enabled = repro.get("enabled", False) and repro.get("idr", {}).get(
+        "cuttag_narrow", False
     )
 
     # CUT&Tag IDR requires stage4b (Stage 64)
     if cuttag_idr_enabled and not validated.get("stage4b", True):
         raise ValidationError(
-            "config: reproducibility.idr.cuttag_narrow=true requires "
-            "stage4b=true."
+            "config: reproducibility.idr.cuttag_narrow=true requires stage4b=true."
         )
 
     # Stage 65: determine whether broad IDR is enabled
-    broad_chipseq_idr_enabled = (
-        repro.get("enabled", False)
-        and repro.get("idr", {}).get("chipseq_broad_experimental", False)
-    )
-    broad_cuttag_idr_enabled = (
-        repro.get("enabled", False)
-        and repro.get("idr", {}).get("cuttag_broad_experimental", False)
+    broad_chipseq_idr_enabled = repro.get("enabled", False) and repro.get(
+        "idr", {}
+    ).get("chipseq_broad_experimental", False)
+    broad_cuttag_idr_enabled = repro.get("enabled", False) and repro.get("idr", {}).get(
+        "cuttag_broad_experimental", False
     )
 
     # Broad IDR requires stage4b (Stage 65)
-    if (broad_chipseq_idr_enabled or broad_cuttag_idr_enabled) \
-       and not validated.get("stage4b", True):
+    if (broad_chipseq_idr_enabled or broad_cuttag_idr_enabled) and not validated.get(
+        "stage4b", True
+    ):
         raise ValidationError(
             "config: reproducibility.idr.chipseq_broad_experimental=true "
             "or cuttag_broad_experimental=true requires stage4b=true."
         )
 
     # idr settings validated when stage5 or any IDR mode is enabled
-    if (validated["stage5"] or atac_idr_enabled or cuttag_idr_enabled
-        or broad_chipseq_idr_enabled or broad_cuttag_idr_enabled):
+    if (
+        validated["stage5"]
+        or atac_idr_enabled
+        or cuttag_idr_enabled
+        or broad_chipseq_idr_enabled
+        or broad_cuttag_idr_enabled
+    ):
         validated["idr"] = _validate_idr_settings(config.get("idr", {}))
     else:
         validated["idr"] = {"threshold": 0.05, "rank": "p.value", "seed": 42}
@@ -324,9 +317,7 @@ def _validate_qc_config(qc: dict) -> dict:
     return qc_validation.validate_qc_config(qc, error_cls=ValidationError)
 
 
-def validate_picard_reference_resources(
-    validated_config: dict, samples: list[dict]
-):
+def validate_picard_reference_resources(validated_config: dict, samples: list[dict]):
     """Validate reference_fasta when qc.picard_metrics is enabled.
 
     Scans treatment sample genomes and checks that each has a non-empty
@@ -418,9 +409,11 @@ def _validate_reproducibility(raw, validated_config):
 # CLI compatibility surface (lazy to avoid circular imports)
 # ---------------------------------------------------------------------------
 
+
 def main(argv=None):
     """Compatibility wrapper around ``encode_pipeline.cli._validator.main``."""
     from encode_pipeline.cli._validator import main as _main
+
     return _main(argv)
 
 

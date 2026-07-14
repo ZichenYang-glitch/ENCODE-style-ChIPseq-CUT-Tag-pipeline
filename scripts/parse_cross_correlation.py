@@ -101,7 +101,7 @@ def parse_cc_qc_file(filepath):
             # Map column names to indices
             col_map = {name.strip(): idx for idx, name in enumerate(fields)}
             # Data row is the next line (or we check subsequent lines)
-            for data_line in lines[i + 1:]:
+            for data_line in lines[i + 1 :]:
                 if data_line.startswith("#"):
                     continue
                 dfields = data_line.split("\t")
@@ -177,7 +177,7 @@ def sample_name_from_path(filepath):
     """
     basename = os.path.basename(filepath)
     if basename.endswith(".cc.qc"):
-        return basename[:-len(".cc.qc")]
+        return basename[: -len(".cc.qc")]
     # Fallback: strip the last two suffixes (e.g. .cc.qc from full path)
     name = basename
     while name.endswith(".qc") or name.endswith(".cc"):
@@ -190,11 +190,14 @@ def main():
         description="Parse phantompeakqualtools .cc.qc files into a project-level TSV"
     )
     parser.add_argument(
-        "--input", nargs="+", required=True,
+        "--input",
+        nargs="+",
+        required=True,
         help="One or more .cc.qc file paths",
     )
     parser.add_argument(
-        "--output", required=True,
+        "--output",
+        required=True,
         help="Output TSV path",
     )
     args = parser.parse_args()
@@ -204,22 +207,29 @@ def main():
         sample = sample_name_from_path(filepath)
         parsed = parse_cc_qc_file(filepath)
         flag = _quality_flag(parsed["nsc"], parsed["rsc"])
-        rows.append({
-            "sample": sample,
-            "cc_qc_file": os.path.basename(filepath),
-            "estimated_fragment_length": _fmt(parsed["estimated_fragment_length"]),
-            "phantom_peak": _fmt(parsed["phantom_peak"]),
-            "nsc": _fmt(parsed["nsc"]),
-            "rsc": _fmt(parsed["rsc"]),
-            "quality_flag": flag,
-        })
+        rows.append(
+            {
+                "sample": sample,
+                "cc_qc_file": os.path.basename(filepath),
+                "estimated_fragment_length": _fmt(parsed["estimated_fragment_length"]),
+                "phantom_peak": _fmt(parsed["phantom_peak"]),
+                "nsc": _fmt(parsed["nsc"]),
+                "rsc": _fmt(parsed["rsc"]),
+                "quality_flag": flag,
+            }
+        )
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
 
     with open(args.output, "w") as fh:
         header = [
-            "sample", "cc_qc_file", "estimated_fragment_length",
-            "phantom_peak", "nsc", "rsc", "quality_flag",
+            "sample",
+            "cc_qc_file",
+            "estimated_fragment_length",
+            "phantom_peak",
+            "nsc",
+            "rsc",
+            "quality_flag",
         ]
         fh.write("\t".join(header) + "\n")
         for row in rows:

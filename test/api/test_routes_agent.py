@@ -21,7 +21,9 @@ from api_test_client import ApiTestClient
 fastapi = pytest.importorskip("fastapi")
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
-DEFAULT_MOCK_RESPONSE = "This is a deterministic mock explanation from the workflow agent."
+DEFAULT_MOCK_RESPONSE = (
+    "This is a deterministic mock explanation from the workflow agent."
+)
 
 
 @pytest.fixture
@@ -40,12 +42,16 @@ def deterministic_client() -> Iterator[ApiTestClient]:
     workflow_info = WorkflowInfoService(registry=registry)
     validation_service = ValidationService(registry=registry)
     llm_client = MockLLMClient(response_text="Deterministic mock explanation.")
-    app.state.agent_service = AgentService(workflow_info, validation_service, llm_client)
+    app.state.agent_service = AgentService(
+        workflow_info, validation_service, llm_client
+    )
     with ApiTestClient(app) as tc:
         yield tc
 
 
-def test_agent_chat_returns_agent_response_for_known_workflow(client: ApiTestClient) -> None:
+def test_agent_chat_returns_agent_response_for_known_workflow(
+    client: ApiTestClient,
+) -> None:
     response = client.post(
         f"/api/v1/workflows/{WORKFLOW_ID}/agent/chat",
         json={"session_id": "sess-1", "message": "Explain the issues."},
@@ -60,7 +66,9 @@ def test_agent_chat_returns_agent_response_for_known_workflow(client: ApiTestCli
     assert "tool_calls" in data
 
 
-def test_agent_chat_message_is_deterministic(deterministic_client: ApiTestClient) -> None:
+def test_agent_chat_message_is_deterministic(
+    deterministic_client: ApiTestClient,
+) -> None:
     payload = {"session_id": "sess-2", "message": "Explain the issues."}
     first = deterministic_client.post(
         f"/api/v1/workflows/{WORKFLOW_ID}/agent/chat",
@@ -79,7 +87,9 @@ def test_agent_chat_message_is_deterministic(deterministic_client: ApiTestClient
     assert first_data["tool_calls"] == second_data["tool_calls"]
 
 
-def test_agent_chat_includes_read_only_explain_issues_tool_call(client: ApiTestClient) -> None:
+def test_agent_chat_includes_read_only_explain_issues_tool_call(
+    client: ApiTestClient,
+) -> None:
     response = client.post(
         f"/api/v1/workflows/{WORKFLOW_ID}/agent/chat",
         json={"message": "Explain the issues."},
@@ -145,7 +155,9 @@ def test_agent_route_uses_app_state_services(client: ApiTestClient) -> None:
     assert hasattr(app.state, "validation_service")
 
 
-def test_agent_route_registry_matches_validation_service_registry(client: ApiTestClient) -> None:
+def test_agent_route_registry_matches_validation_service_registry(
+    client: ApiTestClient,
+) -> None:
     """create_app should compose services from a single shared registry instance."""
     app = client.app
     agent_service = app.state.agent_service
@@ -216,7 +228,9 @@ def test_agent_route_does_not_import_forbidden_modules() -> None:
     violations = sorted(
         forbidden
         for forbidden in _FORBIDDEN_IMPORTS
-        if any(name == forbidden or name.startswith(forbidden + ".") for name in imported)
+        if any(
+            name == forbidden or name.startswith(forbidden + ".") for name in imported
+        )
     )
     assert not violations, f"agent route imports forbidden modules: {violations}"
 

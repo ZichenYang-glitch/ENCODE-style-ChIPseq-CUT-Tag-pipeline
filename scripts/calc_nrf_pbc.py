@@ -179,8 +179,7 @@ def _compute_metrics(fragments) -> dict[str, str]:
 def _detect_layout(bam_path: str) -> str:
     """Heuristic: stream at most 100 mapped reads to guess PE vs SE."""
     proc = subprocess.Popen(
-        ["samtools", "view", "-F", str(_FUNMAP | _FSECONDARY | _FSUPP),
-         bam_path],
+        ["samtools", "view", "-F", str(_FUNMAP | _FSECONDARY | _FSUPP), bam_path],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,

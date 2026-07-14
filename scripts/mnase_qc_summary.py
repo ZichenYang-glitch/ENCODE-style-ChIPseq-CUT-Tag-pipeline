@@ -5,6 +5,7 @@ Produces a single-row TSV with fragment stratification metadata,
 read counts, and config-derived parameters.  Read counts are obtained
 via ``samtools view -c``; missing/broken BAMs produce ``NA``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,7 +21,9 @@ def _count_reads(bam_path: str) -> str:
     try:
         cp = subprocess.run(
             ["samtools", "view", "-c", bam_path],
-            capture_output=True, text=True, timeout=300,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         if cp.returncode == 0:
             return cp.stdout.strip()
@@ -64,15 +67,29 @@ def main() -> None:
     args = p.parse_args()
 
     header = [
-        "sample", "assay", "peak_mode",
-        "sub_min", "sub_max", "mono_min", "mono_max", "di_min", "di_max",
-        "dyad_min", "dyad_max",
-        "sub_bam", "mono_bam", "di_bam",
-        "dyad_bigwig", "mono_bigwig",
+        "sample",
+        "assay",
+        "peak_mode",
+        "sub_min",
+        "sub_max",
+        "mono_min",
+        "mono_max",
+        "di_min",
+        "di_max",
+        "dyad_min",
+        "dyad_max",
+        "sub_bam",
+        "mono_bam",
+        "di_bam",
+        "dyad_bigwig",
+        "mono_bigwig",
         "insert_size_metrics",
-        "caller_danpos3_enabled", "caller_inps_enabled",
+        "caller_danpos3_enabled",
+        "caller_inps_enabled",
         "caller_sem_enabled",
-        "sub_reads", "mono_reads", "di_reads",
+        "sub_reads",
+        "mono_reads",
+        "di_reads",
     ]
 
     row = {
@@ -109,8 +126,7 @@ def main() -> None:
     if outdir:
         os.makedirs(outdir, exist_ok=True)
     with open(args.output, "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=header, delimiter="\t",
-                           lineterminator="\n")
+        w = csv.DictWriter(fh, fieldnames=header, delimiter="\t", lineterminator="\n")
         w.writeheader()
         w.writerow(row)
 

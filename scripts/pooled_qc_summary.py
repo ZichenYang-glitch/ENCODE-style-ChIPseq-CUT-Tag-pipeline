@@ -32,8 +32,7 @@ import sys
 def count_peaks(peaks_dir, peak_mode, experiment):
     """Count lines in the pooled peak file. Exits on missing file."""
     suffix = "broadPeak" if peak_mode == "broad" else "narrowPeak"
-    pk_file = os.path.join(
-        peaks_dir, f"{experiment}_pooled_peaks.{suffix}")
+    pk_file = os.path.join(peaks_dir, f"{experiment}_pooled_peaks.{suffix}")
     if not os.path.isfile(pk_file):
         print(f"ERROR: pooled peak file not found: {pk_file}", file=sys.stderr)
         sys.exit(1)
@@ -46,7 +45,8 @@ def count_peaks(peaks_dir, peak_mode, experiment):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Stage 6b pooled experiment QC summary writer")
+        description="Stage 6b pooled experiment QC summary writer"
+    )
     parser.add_argument("--experiment", required=True)
     parser.add_argument("--assay", required=True)
     parser.add_argument("--target", required=True)
@@ -65,17 +65,26 @@ def main():
 
     args = parser.parse_args()
 
-    pk_count = count_peaks(args.pooled_peaks_dir, args.peak_mode,
-                           args.experiment)
+    pk_count = count_peaks(args.pooled_peaks_dir, args.peak_mode, args.experiment)
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
 
     header = [
-        "experiment", "assay", "target", "inferred_histone_class",
-        "expected_peak_mode", "configured_peak_mode", "peak_mode_status",
-        "biological_replicates", "biological_replicate_labels",
-        "pooled_bam", "pooled_peaks", "pooled_peak_count",
-        "pooled_FE_bdg", "pooled_ppois_bdg", "signal_tracks_status",
+        "experiment",
+        "assay",
+        "target",
+        "inferred_histone_class",
+        "expected_peak_mode",
+        "configured_peak_mode",
+        "peak_mode_status",
+        "biological_replicates",
+        "biological_replicate_labels",
+        "pooled_bam",
+        "pooled_peaks",
+        "pooled_peak_count",
+        "pooled_FE_bdg",
+        "pooled_ppois_bdg",
+        "signal_tracks_status",
     ]
     data = [
         args.experiment,

@@ -105,7 +105,11 @@ def parse_config_minimal(path: str) -> dict:
             if section == "genome_resources" and indent == 4:
                 # Field within a genome entry
                 field = stripped.strip()
-                if ":" in field and current_genome is not None and current_entry is not None:
+                if (
+                    ":" in field
+                    and current_genome is not None
+                    and current_entry is not None
+                ):
                     k, v = field.split(":", 1)
                     current_entry[k.strip()] = parse_scalar(v)
                 continue
@@ -145,7 +149,11 @@ def parse_config_minimal(path: str) -> dict:
             if section == "tool_parameters" and indent == 4:
                 # Field within a tool block
                 field = stripped.strip()
-                if ":" in field and current_tool is not None and current_tool_entry is not None:
+                if (
+                    ":" in field
+                    and current_tool is not None
+                    and current_tool_entry is not None
+                ):
                     k, v = field.split(":", 1)
                     current_tool_entry[k.strip()] = parse_scalar(v)
                 continue

@@ -22,9 +22,9 @@ import sys
 
 _SAMTOOLS = os.environ.get("SAMTOOLS", "samtools")
 
-PE_INCLUDE_FLAGS = 0x1 | 0x2          # paired + properly paired
+PE_INCLUDE_FLAGS = 0x1 | 0x2  # paired + properly paired
 PE_EXCLUDE_FLAGS = 0x4 | 0x100 | 0x800  # unmapped, secondary, supplementary
-READ1_FLAG = 0x40                       # first in pair
+READ1_FLAG = 0x40  # first in pair
 
 
 def _compute_pe_stats(fragments):
@@ -99,9 +99,7 @@ def _se_row(sample_id):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="CUT&Tag fragment-size QC"
-    )
+    parser = argparse.ArgumentParser(description="CUT&Tag fragment-size QC")
     parser.add_argument("--sample", required=True)
     parser.add_argument("--bam", required=True)
     parser.add_argument("--layout", required=True)
@@ -118,8 +116,7 @@ def main():
         row = _se_row(args.sample)
     else:
         try:
-            subprocess.run([_SAMTOOLS, "--version"],
-                           capture_output=True, check=True)
+            subprocess.run([_SAMTOOLS, "--version"], capture_output=True, check=True)
         except (subprocess.CalledProcessError, FileNotFoundError):
             print("ERROR: samtools not found on PATH", file=sys.stderr)
             sys.exit(1)
@@ -164,12 +161,18 @@ def main():
         }
 
     header = [
-        "sample", "layout",
+        "sample",
+        "layout",
         "fragment_count",
-        "fragment_mean", "fragment_median", "fragment_mode",
-        "fragment_min", "fragment_max",
-        "fraction_lt_150", "fraction_150_300",
-        "fraction_300_500", "fraction_ge_500",
+        "fragment_mean",
+        "fragment_median",
+        "fragment_mode",
+        "fragment_min",
+        "fragment_max",
+        "fraction_lt_150",
+        "fraction_150_300",
+        "fraction_300_500",
+        "fraction_ge_500",
         "fraction_lt_120",
         "status",
     ]

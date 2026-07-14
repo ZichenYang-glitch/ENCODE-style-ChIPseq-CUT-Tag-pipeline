@@ -65,6 +65,7 @@ def _run_fresh_import(code: str):
 # Public surface
 # ---------------------------------------------------------------------------
 
+
 def test_validation_error_is_shared_singleton():
     from encode_pipeline.config.errors import ValidationError as errors_cls
     from encode_pipeline.config.validate import ValidationError as validate_cls
@@ -121,6 +122,7 @@ def test_validate_sample_row_public_helper():
 # Fresh subprocess imports (detects circular-import issues pytest can hide)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "code",
     [
@@ -146,6 +148,7 @@ def test_fresh_import_in_subprocess(code):
 # Forbidden import check
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("path", list(_samples_source_modules()), ids=lambda p: p.name)
 def test_samples_modules_do_not_import_config_validator_or_validate(path):
     bad = _forbidden_imports_in(path)
@@ -155,6 +158,7 @@ def test_samples_modules_do_not_import_config_validator_or_validate(path):
 # ---------------------------------------------------------------------------
 # Internal default exception class
 # ---------------------------------------------------------------------------
+
 
 def test_public_functions_default_to_validation_error():
     """Public functions in samples.* must default to ValidationError."""

@@ -11,22 +11,25 @@ def test_filters_snakemake_command():
     assert "snakemake_command" in result.matched_patterns
 
 
-@pytest.mark.parametrize("unsafe", [
-    "$ snakemake --cores 4",
-    "rm -rf /tmp/data",
-    "rm --force /important/data",
-    "python script.py --input x",
-    "python3 script.py --input x",
-    "Run: python3 script.py --input x",
-    "    python3 script.py",
-    "bash run.sh",
-    "Example: bash run.sh",
-    "sbatch job.sh",
-    "qsub job.sh",
-    "Please run this command.",
-    "execute this shell command now",
-    "delete this file",
-])
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        "$ snakemake --cores 4",
+        "rm -rf /tmp/data",
+        "rm --force /important/data",
+        "python script.py --input x",
+        "python3 script.py --input x",
+        "Run: python3 script.py --input x",
+        "    python3 script.py",
+        "bash run.sh",
+        "Example: bash run.sh",
+        "sbatch job.sh",
+        "qsub job.sh",
+        "Please run this command.",
+        "execute this shell command now",
+        "delete this file",
+    ],
+)
 def test_filters_unsafe_commands(unsafe: str):
     filter_ = OutputFilter()
     result = filter_.filter_text(unsafe)

@@ -19,8 +19,16 @@ from encode_pipeline.samples.load import load_and_validate_samples
 
 _NA = "NA"
 _MANIFEST_COLUMNS = [
-    "sample_id", "experiment_id", "assay", "target", "genome",
-    "output_type", "method", "path", "status", "qc_flag",
+    "sample_id",
+    "experiment_id",
+    "assay",
+    "target",
+    "genome",
+    "output_type",
+    "method",
+    "path",
+    "status",
+    "qc_flag",
 ]
 
 MANIFEST_COLUMNS = list(_MANIFEST_COLUMNS)
@@ -39,22 +47,34 @@ def _has_chrom_sizes(genome, genome_resources):
     return bool(entry.get("chrom_sizes", ""))
 
 
-def _add_row(rows, sample_id, experiment_id, assay, target, genome,
-             output_type, method, path, check_exists=True):
+def _add_row(
+    rows,
+    sample_id,
+    experiment_id,
+    assay,
+    target,
+    genome,
+    output_type,
+    method,
+    path,
+    check_exists=True,
+):
     """Append a manifest row dict."""
     status = _check_exists(path) if check_exists else "not_applicable"
-    rows.append({
-        "sample_id": sample_id or "",
-        "experiment_id": experiment_id or "",
-        "assay": assay or "",
-        "target": target or "",
-        "genome": genome or "",
-        "output_type": output_type,
-        "method": method,
-        "path": path,
-        "status": status,
-        "qc_flag": _NA,
-    })
+    rows.append(
+        {
+            "sample_id": sample_id or "",
+            "experiment_id": experiment_id or "",
+            "assay": assay or "",
+            "target": target or "",
+            "genome": genome or "",
+            "output_type": output_type,
+            "method": method,
+            "path": path,
+            "status": status,
+            "qc_flag": _NA,
+        }
+    )
 
 
 def _is_mnase(sample_dict):
@@ -73,99 +93,298 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
         is_mn = _is_mnase(s)
 
         # Always
-        _add_row(rows, sid, "", assay, target, genome,
-                 "final_bam", "bowtie2+samtools",
-                 _resolve_path(outdir, sid, "02_align", f"{sid}.final.bam"))
-        _add_row(rows, sid, "", assay, target, genome,
-                 "final_bai", "samtools index",
-                 _resolve_path(outdir, sid, "02_align", f"{sid}.final.bam.bai"))
-        _add_row(rows, sid, "", assay, target, genome,
-                 "cpm_bigwig", "bamCoverage",
-                 _resolve_path(outdir, sid, "03_bigwig", f"{sid}.CPM.bw"))
+        _add_row(
+            rows,
+            sid,
+            "",
+            assay,
+            target,
+            genome,
+            "final_bam",
+            "bowtie2+samtools",
+            _resolve_path(outdir, sid, "02_align", f"{sid}.final.bam"),
+        )
+        _add_row(
+            rows,
+            sid,
+            "",
+            assay,
+            target,
+            genome,
+            "final_bai",
+            "samtools index",
+            _resolve_path(outdir, sid, "02_align", f"{sid}.final.bam.bai"),
+        )
+        _add_row(
+            rows,
+            sid,
+            "",
+            assay,
+            target,
+            genome,
+            "cpm_bigwig",
+            "bamCoverage",
+            _resolve_path(outdir, sid, "03_bigwig", f"{sid}.CPM.bw"),
+        )
 
         # Peak-centric outputs — gated on non-MNase
         if not is_mn:
-            _add_row(rows, sid, "", assay, target, genome,
-                     "macs3_peak", "macs3_callpeak",
-                     _resolve_path(outdir, sid, "04_peaks", sid))
-            _add_row(rows, sid, "", assay, target, genome,
-                     "qc_summary", "assemble_qc_summary",
-                     _resolve_path(outdir, sid, "01_qc", f"{sid}.qc_summary.tsv"))
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "macs3_peak",
+                "macs3_callpeak",
+                _resolve_path(outdir, sid, "04_peaks", sid),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "qc_summary",
+                "assemble_qc_summary",
+                _resolve_path(outdir, sid, "01_qc", f"{sid}.qc_summary.tsv"),
+            )
         else:
-            _add_row(rows, sid, "", assay, target, genome,
-                     "macs3_peak", "macs3_callpeak",
-                     "", check_exists=False)
-            _add_row(rows, sid, "", assay, target, genome,
-                     "qc_summary", "assemble_qc_summary",
-                     "", check_exists=False)
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "macs3_peak",
+                "macs3_callpeak",
+                "",
+                check_exists=False,
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "qc_summary",
+                "assemble_qc_summary",
+                "",
+                check_exists=False,
+            )
 
         # Gated: signal_tracks (peak-centric only)
         if signal_tracks and not is_mn:
-            _add_row(rows, sid, "", assay, target, genome,
-                     "macs3_fe_bdg", "macs3_bdgcmp",
-                     _resolve_path(outdir, sid, "03_signal", f"{sid}.FE.bdg"))
-            _add_row(rows, sid, "", assay, target, genome,
-                     "macs3_ppois_bdg", "macs3_bdgcmp",
-                     _resolve_path(outdir, sid, "03_signal", f"{sid}.ppois.bdg"))
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "macs3_fe_bdg",
+                "macs3_bdgcmp",
+                _resolve_path(outdir, sid, "03_signal", f"{sid}.FE.bdg"),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "macs3_ppois_bdg",
+                "macs3_bdgcmp",
+                _resolve_path(outdir, sid, "03_signal", f"{sid}.ppois.bdg"),
+            )
         else:
-            _add_row(rows, sid, "", assay, target, genome,
-                     "macs3_fe_bdg", "macs3_bdgcmp", "", check_exists=False)
-            _add_row(rows, sid, "", assay, target, genome,
-                     "macs3_ppois_bdg", "macs3_bdgcmp", "", check_exists=False)
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "macs3_fe_bdg",
+                "macs3_bdgcmp",
+                "",
+                check_exists=False,
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "macs3_ppois_bdg",
+                "macs3_bdgcmp",
+                "",
+                check_exists=False,
+            )
 
         # Gated: chrom_sizes + signal_tracks (peak-centric only)
         if signal_tracks and not is_mn and _has_chrom_sizes(genome, genomic_resources):
-            _add_row(rows, sid, "", assay, target, genome,
-                     "macs3_fe_bw", "macs3_bdgcmp+bedGraphToBigWig",
-                     _resolve_path(outdir, sid, "03_signal", f"{sid}.FE.bw"))
-            _add_row(rows, sid, "", assay, target, genome,
-                     "macs3_ppois_bw", "macs3_bdgcmp+bedGraphToBigWig",
-                     _resolve_path(outdir, sid, "03_signal", f"{sid}.ppois.bw"))
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "macs3_fe_bw",
+                "macs3_bdgcmp+bedGraphToBigWig",
+                _resolve_path(outdir, sid, "03_signal", f"{sid}.FE.bw"),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "macs3_ppois_bw",
+                "macs3_bdgcmp+bedGraphToBigWig",
+                _resolve_path(outdir, sid, "03_signal", f"{sid}.ppois.bw"),
+            )
         else:
-            _add_row(rows, sid, "", assay, target, genome,
-                     "macs3_fe_bw", "macs3_bdgcmp+bedGraphToBigWig",
-                     "", check_exists=False)
-            _add_row(rows, sid, "", assay, target, genome,
-                     "macs3_ppois_bw", "macs3_bdgcmp+bedGraphToBigWig",
-                     "", check_exists=False)
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "macs3_fe_bw",
+                "macs3_bdgcmp+bedGraphToBigWig",
+                "",
+                check_exists=False,
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "macs3_ppois_bw",
+                "macs3_bdgcmp+bedGraphToBigWig",
+                "",
+                check_exists=False,
+            )
 
         # MNase-specific outputs (Stage 39-40)
         if is_mn:
             # Stage 39: mono BAM, dyad BW, mono occupancy BW
-            _add_row(rows, sid, "", assay, target, genome,
-                     "mnase_mono_bam", "alignmentSieve",
-                     _resolve_path(outdir, sid, "03_fragments", f"{sid}.mono.bam"))
-            _add_row(rows, sid, "", assay, target, genome,
-                     "mnase_mono_bai", "samtools index",
-                     _resolve_path(outdir, sid, "03_fragments", f"{sid}.mono.bam.bai"))
-            _add_row(rows, sid, "", assay, target, genome,
-                     "mnase_dyad_bigwig", "bamCoverage --MNase",
-                     _resolve_path(outdir, sid, "04_signal", f"{sid}.dyad.CPM.bw"))
-            _add_row(rows, sid, "", assay, target, genome,
-                     "mnase_mono_bigwig", "bamCoverage",
-                     _resolve_path(outdir, sid, "04_signal", f"{sid}.mono.CPM.bw"))
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "mnase_mono_bam",
+                "alignmentSieve",
+                _resolve_path(outdir, sid, "03_fragments", f"{sid}.mono.bam"),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "mnase_mono_bai",
+                "samtools index",
+                _resolve_path(outdir, sid, "03_fragments", f"{sid}.mono.bam.bai"),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "mnase_dyad_bigwig",
+                "bamCoverage --MNase",
+                _resolve_path(outdir, sid, "04_signal", f"{sid}.dyad.CPM.bw"),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "mnase_mono_bigwig",
+                "bamCoverage",
+                _resolve_path(outdir, sid, "04_signal", f"{sid}.mono.CPM.bw"),
+            )
             # Stage 40: sub-nucleosome BAM, di-nucleosome BAM, QC summary
-            _add_row(rows, sid, "", assay, target, genome,
-                     "mnase_sub_bam", "alignmentSieve",
-                     _resolve_path(outdir, sid, "03_fragments", f"{sid}.sub.bam"))
-            _add_row(rows, sid, "", assay, target, genome,
-                     "mnase_sub_bai", "samtools index",
-                     _resolve_path(outdir, sid, "03_fragments", f"{sid}.sub.bam.bai"))
-            _add_row(rows, sid, "", assay, target, genome,
-                     "mnase_di_bam", "alignmentSieve",
-                     _resolve_path(outdir, sid, "03_fragments", f"{sid}.di.bam"))
-            _add_row(rows, sid, "", assay, target, genome,
-                     "mnase_di_bai", "samtools index",
-                     _resolve_path(outdir, sid, "03_fragments", f"{sid}.di.bam.bai"))
-            _add_row(rows, sid, "", assay, target, genome,
-                     "mnase_qc_summary", "mnase_qc_summary.py",
-                     _resolve_path(outdir, sid, "01_qc", f"{sid}.mnase_qc_summary.tsv"))
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "mnase_sub_bam",
+                "alignmentSieve",
+                _resolve_path(outdir, sid, "03_fragments", f"{sid}.sub.bam"),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "mnase_sub_bai",
+                "samtools index",
+                _resolve_path(outdir, sid, "03_fragments", f"{sid}.sub.bam.bai"),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "mnase_di_bam",
+                "alignmentSieve",
+                _resolve_path(outdir, sid, "03_fragments", f"{sid}.di.bam"),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "mnase_di_bai",
+                "samtools index",
+                _resolve_path(outdir, sid, "03_fragments", f"{sid}.di.bam.bai"),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "mnase_qc_summary",
+                "mnase_qc_summary.py",
+                _resolve_path(outdir, sid, "01_qc", f"{sid}.mnase_qc_summary.tsv"),
+            )
 
     return rows
 
 
-def _build_experiment_rows(samples, outdir, signal_tracks, genomic_resources,
-                           stage4b):
+def _build_experiment_rows(samples, outdir, signal_tracks, genomic_resources, stage4b):
     """Per-experiment rows using validated sample dicts.
 
     Matches Snakefile Stage 4b gating:
@@ -200,101 +419,329 @@ def _build_experiment_rows(samples, outdir, signal_tracks, genomic_resources,
 
         # Pooled outputs only for multi-biorep experiments
         if is_multi:
-            _add_row(rows, "", exp, assay, target, genome,
-                     "pooled_final_bam", "samtools merge",
-                     _resolve_path(outdir, "experiments", exp, "02_align",
-                                   f"{exp}.pooled.final.bam"))
-            _add_row(rows, "", exp, assay, target, genome,
-                     "pooled_final_bai", "samtools index",
-                     _resolve_path(outdir, "experiments", exp, "02_align",
-                                   f"{exp}.pooled.final.bam.bai"))
+            _add_row(
+                rows,
+                "",
+                exp,
+                assay,
+                target,
+                genome,
+                "pooled_final_bam",
+                "samtools merge",
+                _resolve_path(
+                    outdir, "experiments", exp, "02_align", f"{exp}.pooled.final.bam"
+                ),
+            )
+            _add_row(
+                rows,
+                "",
+                exp,
+                assay,
+                target,
+                genome,
+                "pooled_final_bai",
+                "samtools index",
+                _resolve_path(
+                    outdir,
+                    "experiments",
+                    exp,
+                    "02_align",
+                    f"{exp}.pooled.final.bam.bai",
+                ),
+            )
 
             # Peak-centric pooled outputs — gated on non-MNase
             if not is_mn:
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_macs3_peak", "macs3_callpeak",
-                         _resolve_path(outdir, "experiments", exp, "04_peaks",
-                                       "pooled", f"{exp}_pooled_peaks"))
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_qc_summary", "pooled_qc_summary",
-                         _resolve_path(outdir, "experiments", exp, "01_qc",
-                                       f"{exp}.pooled_qc_summary.tsv"))
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_macs3_peak",
+                    "macs3_callpeak",
+                    _resolve_path(
+                        outdir,
+                        "experiments",
+                        exp,
+                        "04_peaks",
+                        "pooled",
+                        f"{exp}_pooled_peaks",
+                    ),
+                )
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_qc_summary",
+                    "pooled_qc_summary",
+                    _resolve_path(
+                        outdir,
+                        "experiments",
+                        exp,
+                        "01_qc",
+                        f"{exp}.pooled_qc_summary.tsv",
+                    ),
+                )
             else:
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_macs3_peak", "macs3_callpeak",
-                         "", check_exists=False)
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_qc_summary", "pooled_qc_summary",
-                         "", check_exists=False)
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_macs3_peak",
+                    "macs3_callpeak",
+                    "",
+                    check_exists=False,
+                )
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_qc_summary",
+                    "pooled_qc_summary",
+                    "",
+                    check_exists=False,
+                )
 
             # MNase-specific pooled outputs (Stage 39)
             if is_mn:
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_mnase_mono_bam", "alignmentSieve",
-                         _resolve_path(outdir, "experiments", exp,
-                                       "03_fragments", f"{exp}.pooled.mono.bam"))
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_mnase_mono_bai", "samtools index",
-                         _resolve_path(outdir, "experiments", exp,
-                                       "03_fragments", f"{exp}.pooled.mono.bam.bai"))
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_mnase_dyad_bigwig", "bamCoverage --MNase",
-                         _resolve_path(outdir, "experiments", exp,
-                                       "04_signal", f"{exp}.pooled.dyad.CPM.bw"))
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_mnase_mono_bigwig", "bamCoverage",
-                         _resolve_path(outdir, "experiments", exp,
-                                       "04_signal", f"{exp}.pooled.mono.CPM.bw"))
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_mnase_mono_bam",
+                    "alignmentSieve",
+                    _resolve_path(
+                        outdir,
+                        "experiments",
+                        exp,
+                        "03_fragments",
+                        f"{exp}.pooled.mono.bam",
+                    ),
+                )
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_mnase_mono_bai",
+                    "samtools index",
+                    _resolve_path(
+                        outdir,
+                        "experiments",
+                        exp,
+                        "03_fragments",
+                        f"{exp}.pooled.mono.bam.bai",
+                    ),
+                )
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_mnase_dyad_bigwig",
+                    "bamCoverage --MNase",
+                    _resolve_path(
+                        outdir,
+                        "experiments",
+                        exp,
+                        "04_signal",
+                        f"{exp}.pooled.dyad.CPM.bw",
+                    ),
+                )
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_mnase_mono_bigwig",
+                    "bamCoverage",
+                    _resolve_path(
+                        outdir,
+                        "experiments",
+                        exp,
+                        "04_signal",
+                        f"{exp}.pooled.mono.CPM.bw",
+                    ),
+                )
 
         # Biorep rows: match _biorep_expand_pairs()
         # - multi-biorep: all bioreps always included
         # - single-biorep: include only if that biorep has >=2 technical replicates
         for br in sorted(unique_bioreps):
-            n_techreps = sum(1 for s in all_samples
-                           if int(s.get("biological_replicate", 1)) == br)
+            n_techreps = sum(
+                1 for s in all_samples if int(s.get("biological_replicate", 1)) == br
+            )
             if is_multi or n_techreps >= 2:
-                _add_row(rows, "", exp, assay, target, genome,
-                         f"biorep{br}_final_bam", "samtools merge/symlink",
-                         _resolve_path(outdir, "experiments", exp, "02_align",
-                                       f"biorep{br}.final.bam"))
-                _add_row(rows, "", exp, assay, target, genome,
-                         f"biorep{br}_final_bai", "samtools index",
-                         _resolve_path(outdir, "experiments", exp, "02_align",
-                                       f"biorep{br}.final.bam.bai"))
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    f"biorep{br}_final_bam",
+                    "samtools merge/symlink",
+                    _resolve_path(
+                        outdir, "experiments", exp, "02_align", f"biorep{br}.final.bam"
+                    ),
+                )
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    f"biorep{br}_final_bai",
+                    "samtools index",
+                    _resolve_path(
+                        outdir,
+                        "experiments",
+                        exp,
+                        "02_align",
+                        f"biorep{br}.final.bam.bai",
+                    ),
+                )
 
         # Gated signal tracks for pooled (multi-biorep only, peak-centric only)
         if is_multi:
             if signal_tracks and not is_mn:
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_fe_bdg", "macs3_bdgcmp",
-                         _resolve_path(outdir, "experiments", exp, "03_signal",
-                                       f"{exp}.pooled.FE.bdg"))
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_ppois_bdg", "macs3_bdgcmp",
-                         _resolve_path(outdir, "experiments", exp, "03_signal",
-                                       f"{exp}.pooled.ppois.bdg"))
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_fe_bdg",
+                    "macs3_bdgcmp",
+                    _resolve_path(
+                        outdir, "experiments", exp, "03_signal", f"{exp}.pooled.FE.bdg"
+                    ),
+                )
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_ppois_bdg",
+                    "macs3_bdgcmp",
+                    _resolve_path(
+                        outdir,
+                        "experiments",
+                        exp,
+                        "03_signal",
+                        f"{exp}.pooled.ppois.bdg",
+                    ),
+                )
             else:
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_fe_bdg", "macs3_bdgcmp", "", check_exists=False)
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_ppois_bdg", "macs3_bdgcmp", "", check_exists=False)
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_fe_bdg",
+                    "macs3_bdgcmp",
+                    "",
+                    check_exists=False,
+                )
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_ppois_bdg",
+                    "macs3_bdgcmp",
+                    "",
+                    check_exists=False,
+                )
 
-            if signal_tracks and not is_mn and _has_chrom_sizes(genome, genomic_resources):
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_fe_bw", "macs3_bdgcmp+bedGraphToBigWig",
-                         _resolve_path(outdir, "experiments", exp, "03_signal",
-                                       f"{exp}.pooled.FE.bw"))
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_ppois_bw", "macs3_bdgcmp+bedGraphToBigWig",
-                         _resolve_path(outdir, "experiments", exp, "03_signal",
-                                       f"{exp}.pooled.ppois.bw"))
+            if (
+                signal_tracks
+                and not is_mn
+                and _has_chrom_sizes(genome, genomic_resources)
+            ):
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_fe_bw",
+                    "macs3_bdgcmp+bedGraphToBigWig",
+                    _resolve_path(
+                        outdir, "experiments", exp, "03_signal", f"{exp}.pooled.FE.bw"
+                    ),
+                )
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_ppois_bw",
+                    "macs3_bdgcmp+bedGraphToBigWig",
+                    _resolve_path(
+                        outdir,
+                        "experiments",
+                        exp,
+                        "03_signal",
+                        f"{exp}.pooled.ppois.bw",
+                    ),
+                )
             else:
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_fe_bw", "macs3_bdgcmp+bedGraphToBigWig",
-                         "", check_exists=False)
-                _add_row(rows, "", exp, assay, target, genome,
-                         "pooled_ppois_bw", "macs3_bdgcmp+bedGraphToBigWig",
-                         "", check_exists=False)
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_fe_bw",
+                    "macs3_bdgcmp+bedGraphToBigWig",
+                    "",
+                    check_exists=False,
+                )
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    assay,
+                    target,
+                    genome,
+                    "pooled_ppois_bw",
+                    "macs3_bdgcmp+bedGraphToBigWig",
+                    "",
+                    check_exists=False,
+                )
 
     return rows
 
@@ -332,18 +779,50 @@ def _build_idr_rows(samples, outdir, stage5):
         target = first.get("target", "")
         genome = first.get("genome", "")
 
-        _add_row(rows, "", exp, assay, target, genome,
-                 "idr_conservative", "idr",
-                 _resolve_path(outdir, "experiments", exp, "06_idr",
-                               "final", "conservative.narrowPeak"))
-        _add_row(rows, "", exp, assay, target, genome,
-                 "idr_optimal", "idr",
-                 _resolve_path(outdir, "experiments", exp, "06_idr",
-                               "final", "optimal.narrowPeak"))
-        _add_row(rows, "", exp, assay, target, genome,
-                 "idr_reproducibility_summary", "idr",
-                 _resolve_path(outdir, "experiments", exp, "06_idr",
-                               "final", "reproducibility_summary.tsv"))
+        _add_row(
+            rows,
+            "",
+            exp,
+            assay,
+            target,
+            genome,
+            "idr_conservative",
+            "idr",
+            _resolve_path(
+                outdir, "experiments", exp, "06_idr", "final", "conservative.narrowPeak"
+            ),
+        )
+        _add_row(
+            rows,
+            "",
+            exp,
+            assay,
+            target,
+            genome,
+            "idr_optimal",
+            "idr",
+            _resolve_path(
+                outdir, "experiments", exp, "06_idr", "final", "optimal.narrowPeak"
+            ),
+        )
+        _add_row(
+            rows,
+            "",
+            exp,
+            assay,
+            target,
+            genome,
+            "idr_reproducibility_summary",
+            "idr",
+            _resolve_path(
+                outdir,
+                "experiments",
+                exp,
+                "06_idr",
+                "final",
+                "reproducibility_summary.tsv",
+            ),
+        )
     return rows
 
 
@@ -356,25 +835,22 @@ def _compute_reproducibility_eligibility(config, treatment_samples):
     repro = config.get("reproducibility", {})
     repro_enabled = repro.get("enabled", False)
     consensus_cfg = repro.get("consensus", {})
-    consensus_enabled = (
-        repro_enabled and consensus_cfg.get("enabled", True)
-    )
+    consensus_enabled = repro_enabled and consensus_cfg.get("enabled", True)
     idr_cfg = repro.get("idr", {})
     stage4b = config.get("stage4b", True)
     cuttag_cfg = config.get("cuttag", {})
     seacr_cfg = cuttag_cfg.get("seacr", {})
     seacr_enabled = (
-        seacr_cfg.get("enabled", False)
-        if isinstance(seacr_cfg, dict) else False
+        seacr_cfg.get("enabled", False) if isinstance(seacr_cfg, dict) else False
     )
     seacr_mode = str(seacr_cfg.get("mode", "stringent"))
 
     atac_narrow_idr = repro_enabled and idr_cfg.get("atac_narrow", False)
     cuttag_narrow_idr = repro_enabled and idr_cfg.get("cuttag_narrow", False)
     chipseq_broad_idr = repro_enabled and idr_cfg.get(
-        "chipseq_broad_experimental", False)
-    cuttag_broad_idr = repro_enabled and idr_cfg.get(
-        "cuttag_broad_experimental", False)
+        "chipseq_broad_experimental", False
+    )
+    cuttag_broad_idr = repro_enabled and idr_cfg.get("cuttag_broad_experimental", False)
 
     # Group samples by experiment
     exp_samples = {}
@@ -403,8 +879,10 @@ def _compute_reproducibility_eligibility(config, treatment_samples):
 
         # Consensus eligibility (≥2 bioreps needed, stage4b downstream)
         if (assay, peak_mode) in [
-            ("chipseq", "narrow"), ("chipseq", "broad"),
-            ("cuttag", "narrow"), ("cuttag", "broad"),
+            ("chipseq", "narrow"),
+            ("chipseq", "broad"),
+            ("cuttag", "narrow"),
+            ("cuttag", "broad"),
             ("atac", "narrow"),
         ]:
             consensus_exps.setdefault((assay, peak_mode), []).append(exp)
@@ -463,8 +941,7 @@ def _build_reproducibility_rows(samples, config, outdir):
         return rows
 
     def _exp_meta(exp_id):
-        exp_samples = [s for s in treatment
-                       if s.get("experiment") == exp_id]
+        exp_samples = [s for s in treatment if s.get("experiment") == exp_id]
         if not exp_samples:
             return None
         first = exp_samples[0]
@@ -485,50 +962,120 @@ def _build_reproducibility_rows(samples, config, outdir):
                 stem = f"{outdir}/experiments/{exp}/06_reproducibility/consensus"
 
                 if assay == "chipseq" and peak_mode == "narrow":
-                    _add_row(rows, "", exp, meta["assay"], meta["target"],
-                             meta["genome"], "chipseq_macs3_narrow_consensus_peak",
-                             "compute_consensus.py",
-                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}")
-                    _add_row(rows, "", exp, meta["assay"], meta["target"],
-                             meta["genome"], "chipseq_macs3_narrow_consensus_summary",
-                             "compute_consensus.py",
-                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv")
+                    _add_row(
+                        rows,
+                        "",
+                        exp,
+                        meta["assay"],
+                        meta["target"],
+                        meta["genome"],
+                        "chipseq_macs3_narrow_consensus_peak",
+                        "compute_consensus.py",
+                        f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}",
+                    )
+                    _add_row(
+                        rows,
+                        "",
+                        exp,
+                        meta["assay"],
+                        meta["target"],
+                        meta["genome"],
+                        "chipseq_macs3_narrow_consensus_summary",
+                        "compute_consensus.py",
+                        f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv",
+                    )
                 elif assay == "chipseq" and peak_mode == "broad":
-                    _add_row(rows, "", exp, meta["assay"], meta["target"],
-                             meta["genome"], "chipseq_macs3_broad_consensus_peak",
-                             "compute_consensus.py",
-                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}")
-                    _add_row(rows, "", exp, meta["assay"], meta["target"],
-                             meta["genome"], "chipseq_macs3_broad_consensus_summary",
-                             "compute_consensus.py",
-                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv")
+                    _add_row(
+                        rows,
+                        "",
+                        exp,
+                        meta["assay"],
+                        meta["target"],
+                        meta["genome"],
+                        "chipseq_macs3_broad_consensus_peak",
+                        "compute_consensus.py",
+                        f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}",
+                    )
+                    _add_row(
+                        rows,
+                        "",
+                        exp,
+                        meta["assay"],
+                        meta["target"],
+                        meta["genome"],
+                        "chipseq_macs3_broad_consensus_summary",
+                        "compute_consensus.py",
+                        f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv",
+                    )
                 elif assay == "cuttag" and peak_mode == "narrow":
-                    _add_row(rows, "", exp, meta["assay"], meta["target"],
-                             meta["genome"], "cuttag_macs3_narrow_consensus_peak",
-                             "compute_consensus.py",
-                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}")
-                    _add_row(rows, "", exp, meta["assay"], meta["target"],
-                             meta["genome"], "cuttag_macs3_narrow_consensus_summary",
-                             "compute_consensus.py",
-                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv")
+                    _add_row(
+                        rows,
+                        "",
+                        exp,
+                        meta["assay"],
+                        meta["target"],
+                        meta["genome"],
+                        "cuttag_macs3_narrow_consensus_peak",
+                        "compute_consensus.py",
+                        f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}",
+                    )
+                    _add_row(
+                        rows,
+                        "",
+                        exp,
+                        meta["assay"],
+                        meta["target"],
+                        meta["genome"],
+                        "cuttag_macs3_narrow_consensus_summary",
+                        "compute_consensus.py",
+                        f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv",
+                    )
                 elif assay == "cuttag" and peak_mode == "broad":
-                    _add_row(rows, "", exp, meta["assay"], meta["target"],
-                             meta["genome"], "cuttag_macs3_broad_consensus_peak",
-                             "compute_consensus.py",
-                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}")
-                    _add_row(rows, "", exp, meta["assay"], meta["target"],
-                             meta["genome"], "cuttag_macs3_broad_consensus_summary",
-                             "compute_consensus.py",
-                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv")
+                    _add_row(
+                        rows,
+                        "",
+                        exp,
+                        meta["assay"],
+                        meta["target"],
+                        meta["genome"],
+                        "cuttag_macs3_broad_consensus_peak",
+                        "compute_consensus.py",
+                        f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}",
+                    )
+                    _add_row(
+                        rows,
+                        "",
+                        exp,
+                        meta["assay"],
+                        meta["target"],
+                        meta["genome"],
+                        "cuttag_macs3_broad_consensus_summary",
+                        "compute_consensus.py",
+                        f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv",
+                    )
                 elif assay == "atac" and peak_mode == "narrow":
-                    _add_row(rows, "", exp, meta["assay"], meta["target"],
-                             meta["genome"], "atac_macs3_narrow_consensus_peak",
-                             "compute_consensus.py",
-                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}")
-                    _add_row(rows, "", exp, meta["assay"], meta["target"],
-                             meta["genome"], "atac_macs3_narrow_consensus_summary",
-                             "compute_consensus.py",
-                             f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv")
+                    _add_row(
+                        rows,
+                        "",
+                        exp,
+                        meta["assay"],
+                        meta["target"],
+                        meta["genome"],
+                        "atac_macs3_narrow_consensus_peak",
+                        "compute_consensus.py",
+                        f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.{suffix}",
+                    )
+                    _add_row(
+                        rows,
+                        "",
+                        exp,
+                        meta["assay"],
+                        meta["target"],
+                        meta["genome"],
+                        "atac_macs3_narrow_consensus_summary",
+                        "compute_consensus.py",
+                        f"{stem}/{exp}.{assay}.macs3.{peak_mode}.consensus.summary.tsv",
+                    )
 
         # SEACR consensus
         if e["seacr_enabled"]:
@@ -538,14 +1085,28 @@ def _build_reproducibility_rows(samples, config, outdir):
                     continue
                 stem = f"{outdir}/experiments/{exp}/06_reproducibility/consensus"
                 mode = e["seacr_mode"]
-                _add_row(rows, "", exp, meta["assay"], meta["target"],
-                         meta["genome"], "cuttag_seacr_consensus_peak",
-                         "compute_consensus.py",
-                         f"{stem}/{exp}.cuttag.seacr.{mode}.consensus.bed")
-                _add_row(rows, "", exp, meta["assay"], meta["target"],
-                         meta["genome"], "cuttag_seacr_consensus_summary",
-                         "compute_consensus.py",
-                         f"{stem}/{exp}.cuttag.seacr.{mode}.consensus.summary.tsv")
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    meta["assay"],
+                    meta["target"],
+                    meta["genome"],
+                    "cuttag_seacr_consensus_peak",
+                    "compute_consensus.py",
+                    f"{stem}/{exp}.cuttag.seacr.{mode}.consensus.bed",
+                )
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    meta["assay"],
+                    meta["target"],
+                    meta["genome"],
+                    "cuttag_seacr_consensus_summary",
+                    "compute_consensus.py",
+                    f"{stem}/{exp}.cuttag.seacr.{mode}.consensus.summary.tsv",
+                )
 
     # IDR final peaks + summaries
     step = f"{outdir}/experiments"
@@ -556,12 +1117,28 @@ def _build_reproducibility_rows(samples, config, outdir):
             if meta is None:
                 continue
             stem = f"{step}/{exp}/06_reproducibility/final"
-            _add_row(rows, "", exp, meta["assay"], meta["target"],
-                     meta["genome"], "atac_macs3_narrow_idr_final_peak", "idr",
-                     f"{stem}/{exp}.atac.macs3.narrow.replicate_validated.idr.narrowPeak")
-            _add_row(rows, "", exp, meta["assay"], meta["target"],
-                     meta["genome"], "atac_macs3_narrow_idr_summary", "idr",
-                     f"{stem}/reproducibility_summary.tsv")
+            _add_row(
+                rows,
+                "",
+                exp,
+                meta["assay"],
+                meta["target"],
+                meta["genome"],
+                "atac_macs3_narrow_idr_final_peak",
+                "idr",
+                f"{stem}/{exp}.atac.macs3.narrow.replicate_validated.idr.narrowPeak",
+            )
+            _add_row(
+                rows,
+                "",
+                exp,
+                meta["assay"],
+                meta["target"],
+                meta["genome"],
+                "atac_macs3_narrow_idr_summary",
+                "idr",
+                f"{stem}/reproducibility_summary.tsv",
+            )
 
     if e["cuttag_narrow_idr"]:
         for exp in sorted(e["cuttag_idr_experiments"]):
@@ -569,12 +1146,28 @@ def _build_reproducibility_rows(samples, config, outdir):
             if meta is None:
                 continue
             stem = f"{step}/{exp}/06_reproducibility/final"
-            _add_row(rows, "", exp, meta["assay"], meta["target"],
-                     meta["genome"], "cuttag_macs3_narrow_idr_final_peak", "idr",
-                     f"{stem}/{exp}.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak")
-            _add_row(rows, "", exp, meta["assay"], meta["target"],
-                     meta["genome"], "cuttag_macs3_narrow_idr_summary", "idr",
-                     f"{stem}/reproducibility_summary.tsv")
+            _add_row(
+                rows,
+                "",
+                exp,
+                meta["assay"],
+                meta["target"],
+                meta["genome"],
+                "cuttag_macs3_narrow_idr_final_peak",
+                "idr",
+                f"{stem}/{exp}.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak",
+            )
+            _add_row(
+                rows,
+                "",
+                exp,
+                meta["assay"],
+                meta["target"],
+                meta["genome"],
+                "cuttag_macs3_narrow_idr_summary",
+                "idr",
+                f"{stem}/reproducibility_summary.tsv",
+            )
 
     if e["chipseq_broad_idr"]:
         for exp in sorted(e["chipseq_broad_idr_experiments"]):
@@ -582,12 +1175,28 @@ def _build_reproducibility_rows(samples, config, outdir):
             if meta is None:
                 continue
             stem = f"{step}/{exp}/06_reproducibility/final"
-            _add_row(rows, "", exp, meta["assay"], meta["target"],
-                     meta["genome"], "chipseq_macs3_broad_idr_final_peak", "idr",
-                     f"{stem}/{exp}.chipseq.macs3.broad.replicate_validated.idr.broadPeak")
-            _add_row(rows, "", exp, meta["assay"], meta["target"],
-                     meta["genome"], "chipseq_macs3_broad_idr_summary", "idr",
-                     f"{stem}/reproducibility_summary.tsv")
+            _add_row(
+                rows,
+                "",
+                exp,
+                meta["assay"],
+                meta["target"],
+                meta["genome"],
+                "chipseq_macs3_broad_idr_final_peak",
+                "idr",
+                f"{stem}/{exp}.chipseq.macs3.broad.replicate_validated.idr.broadPeak",
+            )
+            _add_row(
+                rows,
+                "",
+                exp,
+                meta["assay"],
+                meta["target"],
+                meta["genome"],
+                "chipseq_macs3_broad_idr_summary",
+                "idr",
+                f"{stem}/reproducibility_summary.tsv",
+            )
 
     if e["cuttag_broad_idr"]:
         for exp in sorted(e["cuttag_broad_idr_experiments"]):
@@ -595,12 +1204,28 @@ def _build_reproducibility_rows(samples, config, outdir):
             if meta is None:
                 continue
             stem = f"{step}/{exp}/06_reproducibility/final"
-            _add_row(rows, "", exp, meta["assay"], meta["target"],
-                     meta["genome"], "cuttag_macs3_broad_idr_final_peak", "idr",
-                     f"{stem}/{exp}.cuttag.macs3.broad.replicate_validated.idr.broadPeak")
-            _add_row(rows, "", exp, meta["assay"], meta["target"],
-                     meta["genome"], "cuttag_macs3_broad_idr_summary", "idr",
-                     f"{stem}/reproducibility_summary.tsv")
+            _add_row(
+                rows,
+                "",
+                exp,
+                meta["assay"],
+                meta["target"],
+                meta["genome"],
+                "cuttag_macs3_broad_idr_final_peak",
+                "idr",
+                f"{stem}/{exp}.cuttag.macs3.broad.replicate_validated.idr.broadPeak",
+            )
+            _add_row(
+                rows,
+                "",
+                exp,
+                meta["assay"],
+                meta["target"],
+                meta["genome"],
+                "cuttag_macs3_broad_idr_summary",
+                "idr",
+                f"{stem}/reproducibility_summary.tsv",
+            )
 
     # Consensus final peaks (modes where IDR is NOT enabled)
     if e["repro_enabled"] and e["consensus_enabled"]:
@@ -608,42 +1233,60 @@ def _build_reproducibility_rows(samples, config, outdir):
 
         # chipseq broad: consensus final when broad IDR not enabled
         if not e["chipseq_broad_idr"]:
-            for exp in sorted(e["consensus_experiments"].get(
-                    ("chipseq", "broad"), [])):
+            for exp in sorted(e["consensus_experiments"].get(("chipseq", "broad"), [])):
                 meta = _exp_meta(exp)
                 if meta is None:
                     continue
                 p = f"{stem}/{exp}/06_reproducibility/final"
-                _add_row(rows, "", exp, meta["assay"], meta["target"],
-                         meta["genome"], "chipseq_macs3_broad_consensus_final_peak",
-                         "cp",
-                         f"{p}/{exp}.chipseq.macs3.broad.replicate_validated.consensus.broadPeak")
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    meta["assay"],
+                    meta["target"],
+                    meta["genome"],
+                    "chipseq_macs3_broad_consensus_final_peak",
+                    "cp",
+                    f"{p}/{exp}.chipseq.macs3.broad.replicate_validated.consensus.broadPeak",
+                )
 
         # cuttag narrow: consensus final when cuttag narrow IDR not enabled
         if not e["cuttag_narrow_idr"]:
-            for exp in sorted(e["consensus_experiments"].get(
-                    ("cuttag", "narrow"), [])):
+            for exp in sorted(e["consensus_experiments"].get(("cuttag", "narrow"), [])):
                 meta = _exp_meta(exp)
                 if meta is None:
                     continue
                 p = f"{stem}/{exp}/06_reproducibility/final"
-                _add_row(rows, "", exp, meta["assay"], meta["target"],
-                         meta["genome"], "cuttag_macs3_narrow_consensus_final_peak",
-                         "cp",
-                         f"{p}/{exp}.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak")
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    meta["assay"],
+                    meta["target"],
+                    meta["genome"],
+                    "cuttag_macs3_narrow_consensus_final_peak",
+                    "cp",
+                    f"{p}/{exp}.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak",
+                )
 
         # cuttag broad: consensus final when broad IDR not enabled
         if not e["cuttag_broad_idr"]:
-            for exp in sorted(e["consensus_experiments"].get(
-                    ("cuttag", "broad"), [])):
+            for exp in sorted(e["consensus_experiments"].get(("cuttag", "broad"), [])):
                 meta = _exp_meta(exp)
                 if meta is None:
                     continue
                 p = f"{stem}/{exp}/06_reproducibility/final"
-                _add_row(rows, "", exp, meta["assay"], meta["target"],
-                         meta["genome"], "cuttag_macs3_broad_consensus_final_peak",
-                         "cp",
-                         f"{p}/{exp}.cuttag.macs3.broad.replicate_validated.consensus.broadPeak")
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    meta["assay"],
+                    meta["target"],
+                    meta["genome"],
+                    "cuttag_macs3_broad_consensus_final_peak",
+                    "cp",
+                    f"{p}/{exp}.cuttag.macs3.broad.replicate_validated.consensus.broadPeak",
+                )
 
         # SEACR consensus final
         if e["seacr_enabled"]:
@@ -653,10 +1296,17 @@ def _build_reproducibility_rows(samples, config, outdir):
                     continue
                 mode = e["seacr_mode"]
                 p = f"{stem}/{exp}/06_reproducibility/final"
-                _add_row(rows, "", exp, meta["assay"], meta["target"],
-                         meta["genome"], "cuttag_seacr_consensus_final_peak",
-                         "cp",
-                         f"{p}/{exp}.cuttag.seacr.{mode}.replicate_validated.consensus.bed")
+                _add_row(
+                    rows,
+                    "",
+                    exp,
+                    meta["assay"],
+                    meta["target"],
+                    meta["genome"],
+                    "cuttag_seacr_consensus_final_peak",
+                    "cp",
+                    f"{p}/{exp}.cuttag.seacr.{mode}.replicate_validated.consensus.bed",
+                )
 
     return rows
 
@@ -664,20 +1314,55 @@ def _build_reproducibility_rows(samples, config, outdir):
 def _build_project_rows(outdir, multiqc_enabled, has_peak_samples):
     rows = []
     if has_peak_samples:
-        _add_row(rows, "", "", "", "", "",
-                 "stage3_qc_summary", "aggregate_qc_summary",
-                 _resolve_path(outdir, "multiqc", "stage3_qc_summary.tsv"))
+        _add_row(
+            rows,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "stage3_qc_summary",
+            "aggregate_qc_summary",
+            _resolve_path(outdir, "multiqc", "stage3_qc_summary.tsv"),
+        )
     else:
-        _add_row(rows, "", "", "", "", "",
-                 "stage3_qc_summary", "aggregate_qc_summary",
-                 "", check_exists=False)
+        _add_row(
+            rows,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "stage3_qc_summary",
+            "aggregate_qc_summary",
+            "",
+            check_exists=False,
+        )
     if multiqc_enabled:
-        _add_row(rows, "", "", "", "", "",
-                 "multiqc_report", "multiqc",
-                 _resolve_path(outdir, "multiqc", "multiqc_report.html"))
+        _add_row(
+            rows,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "multiqc_report",
+            "multiqc",
+            _resolve_path(outdir, "multiqc", "multiqc_report.html"),
+        )
     else:
-        _add_row(rows, "", "", "", "", "",
-                 "multiqc_report", "multiqc", "", check_exists=False)
+        _add_row(
+            rows,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "multiqc_report",
+            "multiqc",
+            "",
+            check_exists=False,
+        )
     return rows
 
 
@@ -709,10 +1394,14 @@ def build_manifest_rows(config, samples_path=None):
     has_peak_samples = any(_is_mnase(s) is False for s in treatment_samples)
 
     rows = []
-    rows.extend(_build_sample_rows(
-        treatment_samples, outdir, signal_tracks, genomic_resources))
-    rows.extend(_build_experiment_rows(
-        treatment_samples, outdir, signal_tracks, genomic_resources, stage4b))
+    rows.extend(
+        _build_sample_rows(treatment_samples, outdir, signal_tracks, genomic_resources)
+    )
+    rows.extend(
+        _build_experiment_rows(
+            treatment_samples, outdir, signal_tracks, genomic_resources, stage4b
+        )
+    )
     rows.extend(_build_idr_rows(treatment_samples, outdir, stage5))
     rows.extend(_build_reproducibility_rows(treatment_samples, config, outdir))
     rows.extend(_build_project_rows(outdir, multiqc_enabled, has_peak_samples))
@@ -727,8 +1416,11 @@ def write_manifest_tsv(rows, output_path):
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     with open(output_path, "w", newline="") as fh:
         writer = csv.DictWriter(
-            fh, fieldnames=_MANIFEST_COLUMNS, delimiter="\t",
-            lineterminator="\n", extrasaction="ignore",
+            fh,
+            fieldnames=_MANIFEST_COLUMNS,
+            delimiter="\t",
+            lineterminator="\n",
+            extrasaction="ignore",
         )
         writer.writeheader()
         for row in rows:
@@ -744,13 +1436,21 @@ def main():
     parser = argparse.ArgumentParser(
         description="Generate minimal project-level result manifest (Stage 25)"
     )
-    parser.add_argument("--config", default=None,
-                        help="Path to config.yaml (standalone use)")
-    parser.add_argument("--config-json", default=None,
-                        help="JSON dump of validated config (from Snakemake)")
+    parser.add_argument(
+        "--config", default=None, help="Path to config.yaml (standalone use)"
+    )
+    parser.add_argument(
+        "--config-json",
+        default=None,
+        help="JSON dump of validated config (from Snakemake)",
+    )
     parser.add_argument("--output", required=True, help="Path to output TSV")
-    parser.add_argument("--strict", action="store_true", default=False,
-                        help="Exit non-zero if any row has status=missing")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        default=False,
+        help="Exit non-zero if any row has status=missing",
+    )
     args = parser.parse_args()
 
     # Load config — prefer JSON from Snakemake, fall back to YAML for standalone
@@ -768,14 +1468,17 @@ def main():
     write_manifest_tsv(rows, args.output)
 
     print(f"Manifest written: {args.output}")
-    print(f"  {len(rows)} rows: "
-          f"{len(rows) - missing_count - na_count} present, "
-          f"{missing_count} missing, "
-          f"{na_count} not_applicable")
+    print(
+        f"  {len(rows)} rows: "
+        f"{len(rows) - missing_count - na_count} present, "
+        f"{missing_count} missing, "
+        f"{na_count} not_applicable"
+    )
 
     if args.strict and missing_count > 0:
-        print(f"ERROR: --strict mode, {missing_count} missing output(s)",
-              file=sys.stderr)
+        print(
+            f"ERROR: --strict mode, {missing_count} missing output(s)", file=sys.stderr
+        )
         sys.exit(1)
 
 

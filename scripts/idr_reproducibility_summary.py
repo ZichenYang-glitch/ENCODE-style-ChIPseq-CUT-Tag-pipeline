@@ -59,31 +59,48 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Unified IDR reproducibility QC summary"
     )
-    parser.add_argument("--true-peaks", required=True,
-                        help="True-replicate IDR thresholded peak file")
-    parser.add_argument("--pooled-peaks", required=True,
-                        help="Pooled-pseudorep IDR thresholded peak file")
-    parser.add_argument("--self1-peaks", required=True,
-                        help="Self-pseudorep A IDR thresholded peak file")
-    parser.add_argument("--self2-peaks", required=True,
-                        help="Self-pseudorep B IDR thresholded peak file")
+    parser.add_argument(
+        "--true-peaks", required=True, help="True-replicate IDR thresholded peak file"
+    )
+    parser.add_argument(
+        "--pooled-peaks",
+        required=True,
+        help="Pooled-pseudorep IDR thresholded peak file",
+    )
+    parser.add_argument(
+        "--self1-peaks",
+        required=True,
+        help="Self-pseudorep A IDR thresholded peak file",
+    )
+    parser.add_argument(
+        "--self2-peaks",
+        required=True,
+        help="Self-pseudorep B IDR thresholded peak file",
+    )
     parser.add_argument("--experiment", required=True, help="Experiment ID")
     parser.add_argument("--assay", required=True, help="Assay type")
     parser.add_argument("--caller", required=True, help="Peak caller name")
-    parser.add_argument("--peak-mode", required=True,
-                        help="Peak mode (narrow/broad)")
-    parser.add_argument("--bio-rep-a", required=True,
-                        help="Biological replicate A label")
-    parser.add_argument("--bio-rep-b", required=True,
-                        help="Biological replicate B label")
-    parser.add_argument("--final-method", default="idr",
-                        help="Final method (default: idr)")
-    parser.add_argument("--final-output", default="",
-                        help="Path for final validated output")
-    parser.add_argument("--output-tsv", required=True,
-                        help="Path to write reproducibility summary TSV")
-    parser.add_argument("--output-peak", required=True,
-                        help="Path for final validated peak (copy of true-rep)")
+    parser.add_argument("--peak-mode", required=True, help="Peak mode (narrow/broad)")
+    parser.add_argument(
+        "--bio-rep-a", required=True, help="Biological replicate A label"
+    )
+    parser.add_argument(
+        "--bio-rep-b", required=True, help="Biological replicate B label"
+    )
+    parser.add_argument(
+        "--final-method", default="idr", help="Final method (default: idr)"
+    )
+    parser.add_argument(
+        "--final-output", default="", help="Path for final validated output"
+    )
+    parser.add_argument(
+        "--output-tsv", required=True, help="Path to write reproducibility summary TSV"
+    )
+    parser.add_argument(
+        "--output-peak",
+        required=True,
+        help="Path for final validated peak (copy of true-rep)",
+    )
     args = parser.parse_args(argv)
 
     Nt = count_peaks(args.true_peaks)
@@ -96,24 +113,44 @@ def main(argv=None):
 
     def _is_ok(r):
         return r not in ("NA", "inf") and float(r) < 2.0
+
     status = "pass" if _is_ok(rescue_ratio) and _is_ok(self_ratio) else "fail"
 
     shutil.copyfile(args.true_peaks, args.output_peak)
 
     header = [
-        "experiment", "assay", "peak_mode", "caller",
-        "bio_rep_a", "bio_rep_b",
-        "true_peaks_Nt", "pooled_peaks_Np",
-        "self1_peaks_N1", "self2_peaks_N2",
-        "rescue_ratio", "self_consistency_ratio",
-        "reproducibility_status", "final_method", "final_output",
+        "experiment",
+        "assay",
+        "peak_mode",
+        "caller",
+        "bio_rep_a",
+        "bio_rep_b",
+        "true_peaks_Nt",
+        "pooled_peaks_Np",
+        "self1_peaks_N1",
+        "self2_peaks_N2",
+        "rescue_ratio",
+        "self_consistency_ratio",
+        "reproducibility_status",
+        "final_method",
+        "final_output",
     ]
     row = [
-        args.experiment, args.assay, args.peak_mode, args.caller,
-        args.bio_rep_a, args.bio_rep_b,
-        str(Nt), str(Np), str(N1), str(N2),
-        rescue_ratio, self_ratio, status,
-        args.final_method, args.final_output,
+        args.experiment,
+        args.assay,
+        args.peak_mode,
+        args.caller,
+        args.bio_rep_a,
+        args.bio_rep_b,
+        str(Nt),
+        str(Np),
+        str(N1),
+        str(N2),
+        rescue_ratio,
+        self_ratio,
+        status,
+        args.final_method,
+        args.final_output,
     ]
 
     with open(args.output_tsv, "w") as fh:
@@ -124,9 +161,18 @@ def main(argv=None):
         "IDR reproducibility summary for %s (assay=%s peak_mode=%s): "
         "Nt=%d Np=%d N1=%d N2=%d "
         "rescue=%s self=%s status=%s"
-        % (args.experiment, args.assay, args.peak_mode,
-           Nt, Np, N1, N2,
-           rescue_ratio, self_ratio, status)
+        % (
+            args.experiment,
+            args.assay,
+            args.peak_mode,
+            Nt,
+            Np,
+            N1,
+            N2,
+            rescue_ratio,
+            self_ratio,
+            status,
+        )
     )
 
 

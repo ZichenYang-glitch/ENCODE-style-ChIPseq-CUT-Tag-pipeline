@@ -108,7 +108,9 @@ def test_agent_module_does_not_import_forbidden_top_level(module_name: str):
     source = _module_source_path(module_name).read_text(encoding="utf-8")
     imported = _collect_imported_top_levels(source)
     violations = sorted(imported & _FORBIDDEN_TOP_LEVEL)
-    assert not violations, f"{module_name} imports forbidden top-level modules: {violations}"
+    assert not violations, (
+        f"{module_name} imports forbidden top-level modules: {violations}"
+    )
 
 
 @pytest.mark.parametrize("module_name", _AGENT_MODULES)
@@ -119,19 +121,30 @@ def test_agent_module_does_not_import_forbidden_packages(module_name: str):
     violations = sorted(
         name
         for name in imported
-        if any(name == forbidden or name.startswith(forbidden + ".") for forbidden in _FORBIDDEN_TOP_LEVEL)
+        if any(
+            name == forbidden or name.startswith(forbidden + ".")
+            for forbidden in _FORBIDDEN_TOP_LEVEL
+        )
     )
     assert not violations, f"{module_name} imports forbidden packages: {violations}"
 
 
 @pytest.mark.parametrize("module_name", _AGENT_MODULES)
-def test_agent_module_does_not_import_adapters_or_validator_submodules(module_name: str):
+def test_agent_module_does_not_import_adapters_or_validator_submodules(
+    module_name: str,
+):
     """Explicit guard for encode_pipeline.adapters and encode_pipeline.config.validator."""
     source = _module_source_path(module_name).read_text(encoding="utf-8")
     imported = _collect_imported_dotted_names(source)
-    assert "encode_pipeline.adapters" not in imported, f"{module_name} imports encode_pipeline.adapters"
-    assert "encode_pipeline.config.validator" not in imported, f"{module_name} imports encode_pipeline.config.validator"
-    assert "encode_pipeline.samples" not in imported, f"{module_name} imports encode_pipeline.samples"
+    assert "encode_pipeline.adapters" not in imported, (
+        f"{module_name} imports encode_pipeline.adapters"
+    )
+    assert "encode_pipeline.config.validator" not in imported, (
+        f"{module_name} imports encode_pipeline.config.validator"
+    )
+    assert "encode_pipeline.samples" not in imported, (
+        f"{module_name} imports encode_pipeline.samples"
+    )
 
 
 @pytest.mark.parametrize("module_name", _AGENT_MODULES)

@@ -25,7 +25,9 @@ from encode_pipeline.services.llm_client import (
 )
 
 
-def _run(client: LLMClient, messages: list[LLMMessage], tools: list[ToolDefinition]) -> LLMResponse:
+def _run(
+    client: LLMClient, messages: list[LLMMessage], tools: list[ToolDefinition]
+) -> LLMResponse:
     return asyncio.run(client.complete(messages, tools))
 
 

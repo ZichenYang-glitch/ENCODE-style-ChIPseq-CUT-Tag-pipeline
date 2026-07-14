@@ -19,7 +19,9 @@ def targets_file(repo_root):
 
 def _expand(pattern, zip=False, **kwargs):
     """Lightweight reimplementation of Snakemake expand for target tests."""
-    builtins_zip = __builtins__["zip"] if isinstance(__builtins__, dict) else __builtins__.zip
+    builtins_zip = (
+        __builtins__["zip"] if isinstance(__builtins__, dict) else __builtins__.zip
+    )
 
     def _as_list(value):
         if isinstance(value, str):
@@ -159,16 +161,46 @@ def targets_namespace_idr_enabled(targets_file):
             "IDR_BIOREP_EXP_LIST": ["EXP1", "EXP1", "EXP2", "EXP2"],
             "IDR_BIOREP_LIST": ["1", "2", "1", "2"],
             "IDR_PR_PEAK_EXP": [
-                "EXP1", "EXP1", "EXP1", "EXP1", "EXP1", "EXP1",
-                "EXP2", "EXP2", "EXP2", "EXP2", "EXP2", "EXP2",
+                "EXP1",
+                "EXP1",
+                "EXP1",
+                "EXP1",
+                "EXP1",
+                "EXP1",
+                "EXP2",
+                "EXP2",
+                "EXP2",
+                "EXP2",
+                "EXP2",
+                "EXP2",
             ],
             "IDR_PR_PEAK_SRC": [
-                "biorep1", "biorep1", "biorep2", "biorep2", "pooled", "pooled",
-                "biorep1", "biorep1", "biorep2", "biorep2", "pooled", "pooled",
+                "biorep1",
+                "biorep1",
+                "biorep2",
+                "biorep2",
+                "pooled",
+                "pooled",
+                "biorep1",
+                "biorep1",
+                "biorep2",
+                "biorep2",
+                "pooled",
+                "pooled",
             ],
             "IDR_PR_PEAK_PR": [
-                "1", "2", "1", "2", "1", "2",
-                "1", "2", "1", "2", "1", "2",
+                "1",
+                "2",
+                "1",
+                "2",
+                "1",
+                "2",
+                "1",
+                "2",
+                "1",
+                "2",
+                "1",
+                "2",
             ],
             "IDR_SELF_EXP": ["EXP1", "EXP1", "EXP2", "EXP2"],
             "IDR_SELF_BR": ["1", "2", "1", "2"],
@@ -188,7 +220,12 @@ def targets_namespace_atac_idr_enabled(targets_file):
             "ATAC_IDR_BIOREP_LIST": ["1", "2"],
             "ATAC_IDR_PR_PEAK_EXP": ["ATAC1"] * 6,
             "ATAC_IDR_PR_PEAK_SRC": [
-                "biorep1", "biorep1", "biorep2", "biorep2", "pooled", "pooled",
+                "biorep1",
+                "biorep1",
+                "biorep2",
+                "biorep2",
+                "pooled",
+                "pooled",
             ],
             "ATAC_IDR_PR_PEAK_PR": ["1", "2", "1", "2", "1", "2"],
             "ATAC_IDR_SELF_EXP": ["ATAC1", "ATAC1"],
@@ -209,7 +246,12 @@ def targets_namespace_cuttag_idr_enabled(targets_file):
             "CUTTAG_IDR_BIOREP_LIST": ["1", "2"],
             "CUTTAG_IDR_PR_PEAK_EXP": ["CUT1"] * 6,
             "CUTTAG_IDR_PR_PEAK_SRC": [
-                "biorep1", "biorep1", "biorep2", "biorep2", "pooled", "pooled",
+                "biorep1",
+                "biorep1",
+                "biorep2",
+                "biorep2",
+                "pooled",
+                "pooled",
             ],
             "CUTTAG_IDR_PR_PEAK_PR": ["1", "2", "1", "2", "1", "2"],
             "CUTTAG_IDR_SELF_EXP": ["CUT1", "CUT1"],
@@ -234,8 +276,18 @@ def targets_namespace_broad_idr_enabled(targets_file):
             "BROAD_IDR_BIOREP_ASSAY": ["chipseq", "chipseq", "cuttag", "cuttag"],
             "BROAD_IDR_PR_PEAK_EXP": ["BROAD1"] * 6 + ["BROAD2"] * 6,
             "BROAD_IDR_PR_PEAK_SRC": [
-                "biorep1", "biorep1", "biorep2", "biorep2", "pooled", "pooled",
-                "biorep1", "biorep1", "biorep2", "biorep2", "pooled", "pooled",
+                "biorep1",
+                "biorep1",
+                "biorep2",
+                "biorep2",
+                "pooled",
+                "pooled",
+                "biorep1",
+                "biorep1",
+                "biorep2",
+                "biorep2",
+                "pooled",
+                "pooled",
             ],
             "BROAD_IDR_PR_PEAK_ASSAY": ["chipseq"] * 6 + ["cuttag"] * 6,
             "BROAD_IDR_PR_PEAK_PR": ["1", "2"] * 6,
@@ -300,9 +352,7 @@ def _legacy_idr_expected():
             f"{outdir}/experiments/{exp}/06_idr/final/conservative.narrowPeak"
         )
     for exp in ["EXP1", "EXP2"]:
-        expected.append(
-            f"{outdir}/experiments/{exp}/06_idr/final/optimal.narrowPeak"
-        )
+        expected.append(f"{outdir}/experiments/{exp}/06_idr/final/optimal.narrowPeak")
     return expected
 
 
@@ -317,7 +367,10 @@ def test_idr_targets_returns_expected_list(targets_namespace_idr_enabled):
 
 def test_idr_targets_key_markers(targets_namespace_idr_enabled):
     targets = set(targets_namespace_idr_enabled["_idr_targets"]())
-    assert "results/experiments/EXP1/04_peaks/idr/EXP1_biorep1_idr_peaks.narrowPeak" in targets
+    assert (
+        "results/experiments/EXP1/04_peaks/idr/EXP1_biorep1_idr_peaks.narrowPeak"
+        in targets
+    )
     assert "results/experiments/EXP1/06_idr/true_replicates/idr.txt" in targets
     assert "results/experiments/EXP1/06_idr/final/optimal.narrowPeak" in targets
 
@@ -343,8 +396,12 @@ def test_atac_idr_targets_returns_expected_list(targets_namespace_atac_idr_enabl
         f"true_replicates/ATAC1_atac_idr.thresholded.narrowPeak"
     )
     pr_pairs = [
-        ("biorep1", "1"), ("biorep1", "2"), ("biorep2", "1"),
-        ("biorep2", "2"), ("pooled", "1"), ("pooled", "2"),
+        ("biorep1", "1"),
+        ("biorep1", "2"),
+        ("biorep2", "1"),
+        ("biorep2", "2"),
+        ("pooled", "1"),
+        ("pooled", "2"),
     ]
     for src, pr in pr_pairs:
         expected.append(
@@ -403,8 +460,12 @@ def test_cuttag_idr_targets_returns_expected_list(targets_namespace_cuttag_idr_e
         f"true_replicates/CUT1_cuttag_idr.thresholded.narrowPeak"
     )
     pr_pairs = [
-        ("biorep1", "1"), ("biorep1", "2"), ("biorep2", "1"),
-        ("biorep2", "2"), ("pooled", "1"), ("pooled", "2"),
+        ("biorep1", "1"),
+        ("biorep1", "2"),
+        ("biorep2", "1"),
+        ("biorep2", "2"),
+        ("pooled", "1"),
+        ("pooled", "2"),
     ]
     for src, pr in pr_pairs:
         expected.append(

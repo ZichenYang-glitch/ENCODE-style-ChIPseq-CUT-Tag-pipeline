@@ -36,9 +36,7 @@ def load_and_validate_samples(
         biological_replicate, technical_replicate
     """
     if not os.path.isfile(sample_tsv):
-        raise ValidationError(
-            f"Sample sheet not found: {sample_tsv}"
-        )
+        raise ValidationError(f"Sample sheet not found: {sample_tsv}")
 
     samples: list[dict] = []
     seen_ids: set[str] = set()
@@ -51,9 +49,7 @@ def load_and_validate_samples(
         required = list(defaults.SAMPLE_REQUIRED_COLUMNS)
         for col in required:
             if col not in fieldnames:
-                raise ValidationError(
-                    f"Sample sheet missing required column: {col!r}"
-                )
+                raise ValidationError(f"Sample sheet missing required column: {col!r}")
 
         for i, row in enumerate(reader, start=2):
             sid = (row.get("sample") or "").strip()
@@ -62,9 +58,7 @@ def load_and_validate_samples(
             )
 
             if sid in seen_ids:
-                raise ValidationError(
-                    f"Duplicate sample ID in sample sheet: {sid!r}"
-                )
+                raise ValidationError(f"Duplicate sample ID in sample sheet: {sid!r}")
             seen_ids.add(sid)
             samples.append(sample)
 
@@ -89,7 +83,9 @@ def load_and_validate_samples(
 
     # --- Pass 3: replicate group validation (Stage 4b) ---
     replicates_validation.validate_replicate_groups(
-        samples, use_control, stage5_enabled,
+        samples,
+        use_control,
+        stage5_enabled,
         reproducibility_idr_atac_narrow=reproducibility_idr_atac_narrow,
         reproducibility_idr_cuttag_narrow=reproducibility_idr_cuttag_narrow,
         reproducibility_idr_chipseq_broad=reproducibility_idr_chipseq_broad,

@@ -65,7 +65,10 @@ class OpenAILLMClient:
         try:
             raw_response = await self._client.chat.completions.create(
                 model=self._model,
-                messages=[{"role": message.role, "content": message.content} for message in messages],
+                messages=[
+                    {"role": message.role, "content": message.content}
+                    for message in messages
+                ],
             )
         except Exception as exc:
             raise LLMProviderError(_redact(str(exc), self._api_key)) from exc

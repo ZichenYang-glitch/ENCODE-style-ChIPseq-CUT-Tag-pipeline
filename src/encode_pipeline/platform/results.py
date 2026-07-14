@@ -124,16 +124,14 @@ class Result(Generic[T]):
     def errors(self) -> tuple[Issue, ...]:
         """Return error-severity issues."""
         return tuple(
-            issue for issue in self.issues
-            if issue.severity is IssueSeverity.ERROR
+            issue for issue in self.issues if issue.severity is IssueSeverity.ERROR
         )
 
     @property
     def warnings(self) -> tuple[Issue, ...]:
         """Return warning-severity issues."""
         return tuple(
-            issue for issue in self.issues
-            if issue.severity is IssueSeverity.WARNING
+            issue for issue in self.issues if issue.severity is IssueSeverity.WARNING
         )
 
     def to_dict(

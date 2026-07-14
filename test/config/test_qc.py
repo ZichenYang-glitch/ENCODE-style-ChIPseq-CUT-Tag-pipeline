@@ -9,9 +9,7 @@ import pytest
 from encode_pipeline.config.validate import ValidationError, validate_config
 
 
-SAMPLES_HEADER = (
-    "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
-)
+SAMPLES_HEADER = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
 SAMPLES_ROW = "S1\tR1.fq\tR2.fq\tPE\tchipseq\tT\tnarrow\ths\tidx\n"
 
 
@@ -84,18 +82,14 @@ def test_qc_unknown_keys_are_silently_ignored(tmp_path):
         ("TRUE", True),
     ],
 )
-def test_qc_known_keys_accept_bool_and_string_booleans(
-    tmp_path, key, raw, expected
-):
+def test_qc_known_keys_accept_bool_and_string_booleans(tmp_path, key, raw, expected):
     validated = validate_config(_make_config(tmp_path, qc={key: raw}))
     assert validated["qc"][key] == expected
 
 
 @pytest.mark.parametrize("key", list(QC_DEFAULTS))
 def test_qc_known_keys_reject_invalid_strings(tmp_path, key):
-    with pytest.raises(
-        ValidationError, match=f"qc.{key} must be true or false"
-    ):
+    with pytest.raises(ValidationError, match=f"qc.{key} must be true or false"):
         validate_config(_make_config(tmp_path, qc={key: "maybe"}))
 
 
