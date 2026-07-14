@@ -116,6 +116,8 @@ def test_fast_checks_is_the_only_deterministic_pytest_coverage_producer():
     producer = _runs(jobs["fast-checks"])
     consumer = _runs(jobs["coverage"])
 
+    assert jobs["fast-checks"]["timeout-minutes"] == 25
+    assert "budget=1200" in producer
     assert producer.count("python3 -m pytest test") == 1
     assert (
         "not full_main and not platform_real_execution and not real_execution"
@@ -149,7 +151,7 @@ def test_coverage_artifact_and_ratchets_are_stable_and_nonduplicative():
 
     coverage_runs = _runs(jobs["coverage"])
     assert "--fail-under=80" in coverage_runs
-    assert "coverage report --fail-under=82" in coverage_runs
+    assert "coverage report --fail-under=83" in coverage_runs
     for floor in ("88.45", "87.28", "89.06", "82.37"):
         assert f"--fail-under={floor}" in coverage_runs
 
@@ -158,7 +160,7 @@ def test_coverage_artifact_and_ratchets_are_stable_and_nonduplicative():
         r"(?ms)^\[tool\.coverage\.report\]\n(.*?)(?=^\[|\Z)", config
     )
     assert coverage_report
-    assert re.search(r"(?m)^fail_under\s*=\s*82\s*$", coverage_report.group(1))
+    assert re.search(r"(?m)^fail_under\s*=\s*83\s*$", coverage_report.group(1))
 
 
 def test_all_pytest_tiers_enforce_zero_skip_junit_outcomes():

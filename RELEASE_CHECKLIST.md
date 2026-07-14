@@ -21,7 +21,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest test -ra -p no:cacheprovider \
   --cov-report=json:coverage.json
 python3 scripts/check_junit_outcomes.py pytest-report.xml \
   --label "release deterministic tier"
-python3 -m coverage report --fail-under=82
+python3 -m coverage report --fail-under=83
 python3 test/check_snakemake_lint.py
 snakefmt --check workflow/
 ```

@@ -531,7 +531,7 @@ reuses its coverage artifact for the 80% changed-lines gate. It also runs
 OpenAPI/generated-client drift, frontend tests/typecheck/build, critical
 browser journeys, lint, and environment lock checks. Pushes to `main`, manual
 dispatches, nightly schedules, and published releases run the complete
-deterministic Python suite and enforce the 82% repository coverage floor plus
+deterministic Python suite and enforce the 83% repository coverage floor plus
 the core-module floors.
 
 Real platform execution (Redis/RQ, SIGALRM, cancellation, tiny Snakemake),

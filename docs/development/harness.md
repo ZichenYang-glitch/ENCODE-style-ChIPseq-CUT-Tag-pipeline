@@ -10,7 +10,7 @@ opaque command.
 | Layer | Triggers | Selection and purpose |
 | --- | --- | --- |
 | PR fast | Pull requests | One pytest run for unit, contract, validator, and scientific DAG smoke tests; excludes `full_main`, `platform_real_execution`, and `real_execution`. Changed Python lines must be at least 80% covered. |
-| Full main | Push to `main`, `workflow_dispatch`, nightly schedule, published release | One complete deterministic pytest run, including `full_main`; excludes both real-execution markers. Enforces repository coverage at 82% and the core-module floors. |
+| Full main | Push to `main`, `workflow_dispatch`, nightly schedule, published release | One complete deterministic pytest run, including `full_main`; excludes both real-execution markers. Enforces repository coverage at 83% and the core-module floors. |
 | Platform real | `workflow_dispatch`, nightly schedule, published release | Real Redis/RQ, SIGALRM timeout, process-group cancellation, and tiny Snakemake execution under `platform_real_execution`. |
 | Scientific real | `workflow_dispatch`, nightly schedule, published release | Complete `test/real_execution` suite with real scientific tools under `real_execution`. |
 | Container smoke | `workflow_dispatch`, nightly schedule, published release | Builds the runner image and exercises the default container profile without publishing an image. |

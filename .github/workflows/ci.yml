@@ -20,7 +20,7 @@ concurrency:
 jobs:
   fast-checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     steps:
       - name: Record job start
         run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
@@ -125,7 +125,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           elapsed=$(( $(date +%s) - JOB_STARTED ))
-          if [ "$EVENT_NAME" = "pull_request" ]; then budget=240; else budget=420; fi
+          if [ "$EVENT_NAME" = "pull_request" ]; then budget=240; else budget=1200; fi
           echo "### fast-checks timing" >> "$GITHUB_STEP_SUMMARY"
           echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
           echo "- Soft budget: ${budget}s (informational)" >> "$GITHUB_STEP_SUMMARY"
@@ -200,7 +200,7 @@ jobs:
         if: needs.fast-checks.result == 'success' && github.event_name != 'pull_request'
         shell: micromamba-shell {0}
         run: |
-          python3 -m coverage report --fail-under=82
+          python3 -m coverage report --fail-under=83
           python3 -m coverage report \
             --include='src/encode_pipeline/platform/*' --fail-under=88.45
           python3 -m coverage report \

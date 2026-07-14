@@ -72,14 +72,14 @@ baseline was measured from the complete deterministic suite.
 
 | Area | Line | Branch | Combined | Enforced floor |
 | --- | ---: | ---: | ---: | ---: |
-| Repository | 84.6220% | 75.3822% | 82.3564% | 82% |
-| Platform | 91.29% | 80.28% | 88.45% | 88.45% |
-| Services | 89.57% | 80.39% | 87.28% | 87.28% |
-| Persistence | 92.96% | 72.69% | 89.07% | 89.06% |
-| Workers | 84.78% | 71.83% | 82.38% | 82.37% |
-| Adapters | 92.01% | 83.78% | 89.93% | report only |
-| API, CLI, config, samples | — | — | 93.2641% | report only |
-| Snakemake-facing scripts | — | — | 51.4464% | report only |
+| Repository | 85.4033% | 76.0526% | 83.1131% | 83% |
+| Platform | 91.2866% | 80.2817% | 88.4522% | 88.45% |
+| Services | 89.5655% | 80.3922% | 87.2808% | 87.28% |
+| Persistence | 92.9593% | 72.6852% | 89.0667% | 89.06% |
+| Workers | 84.7756% | 71.8310% | 82.3760% | 82.37% |
+| Adapters | 92.0091% | 83.7838% | 89.9317% | report only |
+| API, CLI, config, samples | 94.8276% | 88.6935% | 93.2892% | report only |
+| Snakemake-facing scripts | 58.1197% | 51.1401% | 56.4733% | report only |
 | Workflow compatibility library | 100.00% | n/a | 100.00% | report only |
 | Container definition tooling | 97.06% | 83.33% | 95.00% | report only |
 
@@ -127,7 +127,7 @@ the next full-main, dispatch, nightly, or release run.
 ## Ratchet rules
 
 - Never lower a global, core, or changed-lines floor merely to pass CI. The
-  current floors are repository 82%, changed lines 80%, platform 88.45%,
+  current floors are repository 83%, changed lines 80%, platform 88.45%,
   services 87.28%, persistence 89.06%, and workers 82.37%.
 - When substantive tests improve a measured area, raise its floor by 1–3
   percentage points without exceeding the verified result.
