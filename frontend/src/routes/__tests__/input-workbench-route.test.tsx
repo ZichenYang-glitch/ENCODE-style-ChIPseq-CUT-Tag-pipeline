@@ -57,7 +57,7 @@ function validatedSnapshotResponse() {
     snapshot: {
       snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
       workflow_id: WORKFLOW_ID,
-      schema_version: '1.0.0',
+      schema_version: '1.1.0',
       adapter_version: '0.3.0',
       payload_digest: 'a'.repeat(64),
       validated_at: '2026-07-14T00:00:00.000Z',
@@ -147,8 +147,108 @@ describe('schema input workbench route', () => {
     expect(screen.getByText(/Draft only/i)).toBeInTheDocument();
     expect(screen.getByText(/refresh clears this draft/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Start run/i })).not.toBeInTheDocument();
+    expect(screen.getByText('Replicate analysis')).toBeVisible();
+    expect(screen.getByText('ChIP-seq IDR')).toBeVisible();
+    expect(
+      screen.getByRole('checkbox', { name: 'Replicate analysis enabled' }),
+    ).toBeChecked();
+    expect(
+      screen.getByRole('checkbox', { name: 'ChIP-seq IDR enabled' }),
+    ).not.toBeChecked();
+    expect(document.body.textContent).not.toMatch(/stage4b|stage5/);
     await userEvent.setup().click(screen.getByRole('tab', { name: 'Review' }));
+    expect(screen.getByTestId('draft-review-json')).not.toHaveTextContent(
+      /stage4b|stage5/,
+    );
     expect(screen.getByRole('button', { name: 'Validate current inputs' })).toBeDisabled();
+  });
+
+  it('keeps a successful deprecated-alias warning non-terminal and create-ready', async () => {
+    const user = userEvent.setup();
+    generatedMocks.validateWorkflow.mockResolvedValue({
+      ...validatedSnapshotResponse(),
+      issues: [
+        {
+          code: 'ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED',
+          message: 'Deprecated compatibility fields should be removed.',
+          severity: 'warning',
+          path: 'config',
+        },
+      ],
+    });
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await authorValidDraft(user);
+
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+
+    expect(
+      await screen.findByText('ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED'),
+    ).toBeVisible();
+    expect(
+      screen.getByText('ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED').closest('[role="status"]'),
+    ).not.toBeNull();
+    expect(
+      screen.getByText('ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED').closest('[role="alert"]'),
+    ).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Create run from validated inputs' }),
+    ).toBeEnabled();
+  });
+
+  it('preserves opposite legacy switches through a Form edit, Review, and validate', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await user.click(screen.getByRole('button', { name: 'YAML mode' }));
+    const editor = screen.getByRole('textbox', { name: 'Advanced config YAML' });
+    await user.clear(editor);
+    await user.type(
+      editor,
+      'outdir: results\nthreads: 4\nstage4b: false\nstage5: true',
+    );
+    await user.click(screen.getByRole('button', { name: 'Form mode' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: /threads/i }), {
+      target: { value: '12' },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('draft-review-json')).toHaveTextContent(
+        '"threads": 12',
+      ),
+    );
+    await user.click(screen.getByRole('button', { name: 'YAML mode' }));
+    const updatedEditor = screen.getByRole('textbox', {
+      name: 'Advanced config YAML',
+    });
+    expect((updatedEditor as HTMLTextAreaElement).value).toContain('stage4b: false');
+    expect((updatedEditor as HTMLTextAreaElement).value).toContain('stage5: true');
+    expect((updatedEditor as HTMLTextAreaElement).value).toContain('threads: 12');
+    expect((updatedEditor as HTMLTextAreaElement).value).not.toMatch(
+      /replicate_analysis|chipseq_idr/,
+    );
+
+    await authorValidDraft(user);
+    expect(screen.getByTestId('draft-review-json')).toHaveTextContent('stage4b');
+    expect(screen.getByTestId('draft-review-json')).toHaveTextContent('stage5');
+    expect(screen.getByTestId('draft-review-json')).not.toHaveTextContent(
+      /replicate_analysis|chipseq_idr/,
+    );
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(generatedMocks.validateWorkflow).toHaveBeenCalledWith(
+      WORKFLOW_ID,
+      expect.objectContaining({
+        config: {
+          outdir: 'results',
+          threads: 12,
+          stage4b: false,
+          stage5: true,
+        },
+      }),
+    );
   });
 
   it('validates the exact draft, creates from only its snapshot, and navigates to the run', async () => {

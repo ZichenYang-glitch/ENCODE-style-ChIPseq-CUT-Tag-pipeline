@@ -61,6 +61,79 @@ def test_adapter_plan_workspace_returns_config_file(tmp_path):
     assert parsed["outdir"] == "results"
 
 
+def test_adapter_plan_workspace_translates_semantic_config_only_at_materialization(
+    tmp_path,
+):
+    import yaml
+
+    from encode_pipeline.config.validate import validate_config
+
+    samples_tsv = tmp_path / "samples.tsv"
+    samples_tsv.write_text(
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
+        "S1\t/abs/S1_1.fq.gz\t/abs/S1_2.fq.gz\tPE\tchipseq\tH3K27ac\tnarrow\ths\t/abs/bt2/GRCh38\n",
+        encoding="utf-8",
+    )
+    submitted_config = {
+        "replicate_analysis": {"enabled": False},
+        "chipseq_idr": {"enabled": False},
+        "threads": 1,
+        "genome_resources": {"hs": {"effective_genome_size": "hs"}},
+    }
+
+    result = EncodeStyleWorkflowAdapter().plan_workspace(
+        WorkflowInputs(
+            config=submitted_config,
+            samples=str(samples_tsv),
+            options={},
+        ),
+        str(tmp_path / "workspace"),
+    )
+
+    assert result.is_success
+    rendered = yaml.safe_load(dict(result.value.files)["config/config.yaml"])
+    assert rendered["stage4b"] is False
+    assert rendered["stage5"] is False
+    assert "replicate_analysis" not in rendered
+    assert "chipseq_idr" not in rendered
+    assert validate_config(rendered)["stage4b"] is False
+    assert validate_config(rendered)["stage5"] is False
+    assert submitted_config == {
+        "replicate_analysis": {"enabled": False},
+        "chipseq_idr": {"enabled": False},
+        "threads": 1,
+        "genome_resources": {"hs": {"effective_genome_size": "hs"}},
+    }
+
+
+def test_adapter_plan_workspace_preserves_one_deprecated_alias_warning(tmp_path):
+    samples_tsv = tmp_path / "samples.tsv"
+    samples_tsv.write_text(
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
+        "S1\t/abs/S1_1.fq.gz\t/abs/S1_2.fq.gz\tPE\tchipseq\tH3K27ac\tnarrow\ths\t/abs/bt2/GRCh38\n",
+        encoding="utf-8",
+    )
+
+    result = EncodeStyleWorkflowAdapter().plan_workspace(
+        WorkflowInputs(
+            config={
+                "replicate_analysis": {"enabled": False},
+                "stage4b": "false",
+                "chipseq_idr": {"enabled": False},
+                "stage5": False,
+            },
+            samples=str(samples_tsv),
+        ),
+        str(tmp_path / "workspace"),
+    )
+
+    assert result.is_success
+    assert [issue.code for issue in result.issues] == [
+        "ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED",
+        "ENCODE_WORKSPACE_PLANNING_COMPLETE",
+    ]
+
+
 def test_adapter_plan_workspace_round_trip_pe_control_replicate(tmp_path):
     import csv
     import io

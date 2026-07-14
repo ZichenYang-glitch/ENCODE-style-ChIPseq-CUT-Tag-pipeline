@@ -35,6 +35,12 @@ def test_fixture_contains_deterministic_project_and_four_inputs(tmp_path):
     assert [config["threads"] for config in configs] == [1, 2, 3, 4]
     assert {config["outdir"] for config in configs} == {"results"}
     assert all("samples" not in config for config in configs)
+    assert all(
+        config["replicate_analysis"] == {"enabled": False}
+        and config["chipseq_idr"] == {"enabled": False}
+        for config in configs
+    )
+    assert all("stage4b" not in config and "stage5" not in config for config in configs)
     assert inputs.samples_path.is_absolute()
     assert inputs.samples_path == project_root / "samples.tsv"
     with inputs.samples_path.open(encoding="utf-8", newline="") as handle:

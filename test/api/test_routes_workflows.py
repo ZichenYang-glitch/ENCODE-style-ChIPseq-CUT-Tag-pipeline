@@ -135,7 +135,7 @@ def test_get_schema_returns_versioned_renderable_contract(
     data = response.json()
     assert data["ok"] is True
     assert data["workflow_id"] == workflow_id
-    assert data["schema"]["schema_version"] == "1.0.0"
+    assert data["schema"]["schema_version"] == "1.1.0"
     assert data["schema"]["schema_dialect"] == (
         "https://json-schema.org/draft/2020-12/schema"
     )
@@ -185,7 +185,7 @@ def test_validate_success(
     assert data["workflow_id"] == workflow_id
     assert data["value"] is None
     assert data["snapshot"]["workflow_id"] == workflow_id
-    assert data["snapshot"]["schema_version"] == "1.0.0"
+    assert data["snapshot"]["schema_version"] == "1.1.0"
     assert len(data["snapshot"]["payload_digest"]) == 64
     assert data["issues"] == []
 
@@ -220,6 +220,54 @@ def test_validate_inline_rows_without_config_samples_is_successful(
     assert data["snapshot"]["snapshot_id"].startswith("vsnap_")
     assert data["issues"] == []
     assert tempfile.gettempdir() not in response.text
+
+
+def test_validate_equal_semantic_and_legacy_aliases_returns_one_safe_warning(
+    client: ApiTestClient,
+    tmp_path,
+) -> None:
+    workflow_id = "encode-style-chipseq-cuttag-atac-mnase"
+    row = {
+        "sample": "S1",
+        "fastq_1": str((tmp_path / "S1.R1.fastq.gz").resolve()),
+        "fastq_2": str((tmp_path / "S1.R2.fastq.gz").resolve()),
+        "layout": "PE",
+        "assay": "chipseq",
+        "target": "CTCF",
+        "peak_mode": "narrow",
+        "genome": "hs",
+        "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
+    }
+
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/validate",
+        json={
+            "config": {
+                "replicate_analysis": {"enabled": False},
+                "stage4b": "FALSE",
+                "chipseq_idr": {"enabled": False},
+                "stage5": False,
+            },
+            "samples": [row],
+            "options": {},
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["snapshot"] is not None
+    assert data["snapshot"]["schema_version"] == "1.1.0"
+    assert [issue["code"] for issue in data["issues"]] == [
+        "ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED"
+    ]
+    warning = data["issues"][0]
+    assert warning["severity"] == "warning"
+    assert warning["path"] == "config"
+    assert warning["technical_message"] is None
+    assert warning["context"] == {}
+    assert "stage4b" not in str(warning)
+    assert "stage5" not in str(warning)
 
 
 def test_validate_rejects_oversized_sample_cell_with_safe_400(

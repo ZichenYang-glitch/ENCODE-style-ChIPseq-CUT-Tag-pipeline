@@ -7,14 +7,19 @@ import {
 } from './schemaContract';
 
 describe('readWorkbenchSchema', () => {
-  it('accepts the PR135 contract and compiles all three Draft 2020-12 schemas', () => {
+  it('accepts the 1.1.0 contract and compiles all three Draft 2020-12 schemas', () => {
     const result = readWorkbenchSchema(createAuthoringSchemaFixture());
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
     const config = createDefaultObject(result.value.configSchema);
     const options = createDefaultObject(result.value.optionSchema);
-    expect(config).toMatchObject({ outdir: 'results', threads: 8 });
+    expect(config).toMatchObject({
+      outdir: 'results',
+      threads: 8,
+      replicate_analysis: { enabled: true },
+      chipseq_idr: { enabled: false },
+    });
     expect(options).toEqual({ strict_inputs: false });
     expect(
       rjsfValidator.isValid(result.value.configSchema, config, result.value.configSchema),
@@ -30,6 +35,9 @@ describe('readWorkbenchSchema', () => {
   });
 
   it.each([
+    ['previous schema version', (schema: ReturnType<typeof createAuthoringSchemaFixture>) => {
+      schema.schema_version = '1.0.0';
+    }],
     ['schema version', (schema: ReturnType<typeof createAuthoringSchemaFixture>) => {
       schema.schema_version = '2.0.0';
     }],
@@ -56,7 +64,7 @@ describe('readWorkbenchSchema', () => {
     ['max_sample_column_name_length', 128],
     ['max_sample_cell_length', 4_096],
   ] as const)(
-    'fails closed when 1.0.0 %s differs from the platform ceiling',
+    'fails closed when 1.1.0 %s differs from the platform ceiling',
     (field, ceiling) => {
       for (const value of [ceiling - 1, ceiling + 1]) {
         const schema = createAuthoringSchemaFixture();
