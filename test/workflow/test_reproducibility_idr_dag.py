@@ -163,11 +163,14 @@ def _dry_run(
     *,
     sample_rows,
     reproducibility,
+    idr=None,
     stage5=False,
 ):
     config = _base_config(tmp_path)
     config["stage5"] = stage5
     config["reproducibility"] = reproducibility
+    if idr is not None:
+        config["idr"] = idr
     _, config_path, _ = tmp_config(
         config=config,
         samples=_sample_sheet(tmp_path, sample_rows),
@@ -179,6 +182,42 @@ def _dry_run(
     output = result.stdout + result.stderr
     assert result.returncode == 0, output[-5000:]
     return output, _scheduled_rules(output)
+
+
+def test_custom_idr_threshold_rank_and_seed_reach_snakemake_shell_commands(
+    tmp_path,
+    tmp_config,
+    run_snakemake,
+):
+    output, rules = _dry_run(
+        tmp_path,
+        tmp_config,
+        run_snakemake,
+        sample_rows=[
+            ("S1", "atac", "narrow", "exp_atac", "1", "PE"),
+            ("S2", "atac", "narrow", "exp_atac", "2", "PE"),
+        ],
+        reproducibility={
+            "enabled": True,
+            "consensus": {"enabled": False},
+            "idr": {"atac_narrow": True},
+        },
+        idr={
+            "threshold": 0.0125,
+            "rank": "signal.value",
+            "seed": 777,
+        },
+    )
+
+    assert {
+        "idr_true_replicates_narrow",
+        "idr_split_pseudoreps_narrow",
+        "idr_self_pseudoreps_narrow",
+        "idr_pooled_pseudoreps_narrow",
+    } <= rules
+    assert "--idr-threshold 0.0125" in output
+    assert "--rank signal.value" in output
+    assert "--seed 777" in output
 
 
 @pytest.mark.parametrize(
