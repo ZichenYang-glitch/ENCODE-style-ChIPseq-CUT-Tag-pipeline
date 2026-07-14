@@ -82,6 +82,34 @@ describe('Router', () => {
     expect(screen.getByText(/Options schema/i)).toBeInTheDocument();
   });
 
+  it('places Author inputs before a default-closed developer schema disclosure', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}`],
+    });
+
+    const authorInputs = await screen.findByRole('link', {
+      name: 'Author inputs',
+    });
+    const disclosure = screen.getByTestId('developer-schema-details');
+
+    expect(authorInputs).toHaveAttribute(
+      'href',
+      `/workflows/${WORKFLOW_ID}/new-run`,
+    );
+    expect(
+      authorInputs.compareDocumentPosition(disclosure) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(disclosure).not.toHaveAttribute('open');
+
+    await user.click(screen.getByText('Developer schema'));
+    expect(disclosure).toHaveAttribute('open');
+    expect(screen.getByText('Config schema')).toBeInTheDocument();
+    expect(screen.getByText('Sample schema')).toBeInTheDocument();
+    expect(screen.getByText('Options schema')).toBeInTheDocument();
+  });
+
   it('navigates to workflow detail when a catalog item is selected', async () => {
     const user = userEvent.setup();
     const { router } = renderWithRouter(appRoutes, {
@@ -312,6 +340,8 @@ describe('Router', () => {
     expect(link).toBeInTheDocument();
     expect(link.tagName.toLowerCase()).toBe('a');
     expect(link.querySelector('button')).toBeNull();
-    expect(screen.getAllByRole('link').length).toBe(1);
+    expect(
+      screen.getAllByRole('link', { name: /Back to workflows/i }),
+    ).toHaveLength(1);
   });
 });

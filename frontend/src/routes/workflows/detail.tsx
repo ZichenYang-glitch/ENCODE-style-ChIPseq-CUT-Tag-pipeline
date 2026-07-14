@@ -15,7 +15,10 @@ import { AgentSidebar } from '../../features/agent-sidebar/AgentSidebar';
 import { IssuePanel } from '../../features/issues-panel/IssuePanel';
 import { RunProgressPanel } from '../../features/run-progress/RunProgressPanel';
 import { ValidationWorkspace } from '../../features/validation-workspace/ValidationWorkspace';
-import { WorkflowDetail } from '../../features/workflow-detail/WorkflowDetail';
+import {
+  DeveloperSchemaDetails,
+  WorkflowDetail,
+} from '../../features/workflow-detail/WorkflowDetail';
 
 interface WorkflowDetailPageProps {
   workflowId: string;
@@ -294,7 +297,6 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
               <WorkflowDetail
                 workflowId={workflow.metadata.workflow_id}
                 workflowName={workflow.metadata.name}
-                schemaHints={schemaHints}
               />
               <Button asChild variant="primary" className="gap-1.5">
                 <Link to={`/workflows/${workflow.metadata.workflow_id}/new-run`}>
@@ -302,6 +304,10 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
                   Author inputs
                 </Link>
               </Button>
+              <DeveloperSchemaDetails
+                workflowId={workflow.metadata.workflow_id}
+                schemaHints={schemaHints}
+              />
             </div>
           </Panel>
         )}
