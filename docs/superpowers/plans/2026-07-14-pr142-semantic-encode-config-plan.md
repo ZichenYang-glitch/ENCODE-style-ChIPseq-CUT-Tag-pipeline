@@ -47,9 +47,10 @@ skill. Keep one coding agent; reviewers are read-only.
 
 ### Task 3: Upgrade the schema-driven frontend contract
 
-- [ ] Add failing Vitest assertions that `1.1.0` is supported, `1.0.0` is
-      rejected by the authoring workbench, semantic defaults survive
-      Form/YAML/Review, and default visible/review content has no legacy keys.
+- [ ] Add failing Vitest assertions that `1.1.0` and a compatible non-ENCODE
+      `1.0.0` contract are supported, unknown versions are rejected, semantic
+      defaults survive Form/YAML/Review, and default visible/review content has
+      no legacy keys.
 - [ ] Add a `ValidatedSubmission` route test requiring a successful backend
       warning to retain its severity, show non-error status styling, and leave
       the snapshot/Create action usable.

@@ -66,12 +66,15 @@ legacy properties are absent from `properties`; top-level
 YAML and legacy compatibility.
 
 All three document IDs end in `/1.1.0`. Coverage, modes, and uniform input
-ceilings are unchanged. The workbench explicitly supports contract `1.1.0` and
-continues to reject unknown versions. Its default form, deterministic Review
-payload, controlled browser fixture, screenshots, and request assertions use
-only semantic fields. A user who deliberately imports legacy YAML may still
-see the exact keys they supplied in the transparent request preview; the
-product does not generate or label those fields.
+ceilings are unchanged. The generic workbench explicitly supports the already
+published `1.0.0` contract and the new `1.1.0` contract while continuing to
+reject unknown versions. This keeps an independent adapter's compatible
+`1.0.0` authoring schema usable instead of coupling every adapter revision to
+the ENCODE schema revision. Its default form, deterministic Review payload,
+controlled browser fixture, screenshots, and request assertions use only
+semantic fields. A user who deliberately imports legacy YAML may still see the
+exact keys they supplied in the transparent request preview; the product does
+not generate or label those fields.
 
 ## Adapter translation and issues
 

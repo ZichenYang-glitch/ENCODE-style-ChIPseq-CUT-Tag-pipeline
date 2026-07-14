@@ -34,13 +34,72 @@ describe('readWorkbenchSchema', () => {
     ).toBe(true);
   });
 
+  it('accepts a compatible non-ENCODE 1.0.0 adapter contract', () => {
+    const schema = createAuthoringSchemaFixture();
+    schema.schema_version = '1.0.0';
+    schema.coverage.config = 'complete';
+    schema.config_schema = {
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      $id: 'https://example.test/rnaseq/config/1.0.0',
+      type: 'object',
+      properties: {
+        quantifier: {
+          type: 'string',
+          enum: ['salmon', 'star'],
+          default: 'salmon',
+        },
+      },
+      additionalProperties: false,
+    };
+    schema.sample_schema = {
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      $id: 'https://example.test/rnaseq/samples/1.0.0',
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        required: ['sample', 'fastq_1'],
+        additionalProperties: false,
+        properties: {
+          sample: { type: 'string', minLength: 1 },
+          fastq_1: { type: 'string', minLength: 1 },
+          fastq_2: { type: 'string' },
+        },
+      },
+    };
+    schema.option_schema = {
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      $id: 'https://example.test/rnaseq/options/1.0.0',
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    };
+
+    const result = readWorkbenchSchema(schema);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(createDefaultObject(result.value.configSchema)).toEqual({
+      quantifier: 'salmon',
+    });
+    expect(result.value.sampleColumns.map((column) => column.key)).toEqual([
+      'sample',
+      'fastq_1',
+      'fastq_2',
+    ]);
+  });
+
+  it.each(['1.2.0', '2.0.0'])('fails closed for unknown schema version %s', (version) => {
+    const schema = createAuthoringSchemaFixture();
+    schema.schema_version = version;
+
+    expect(readWorkbenchSchema(schema)).toMatchObject({
+      ok: false,
+      code: 'AUTHORING_SCHEMA_UNSUPPORTED',
+    });
+  });
+
   it.each([
-    ['previous schema version', (schema: ReturnType<typeof createAuthoringSchemaFixture>) => {
-      schema.schema_version = '1.0.0';
-    }],
-    ['schema version', (schema: ReturnType<typeof createAuthoringSchemaFixture>) => {
-      schema.schema_version = '2.0.0';
-    }],
     ['schema dialect', (schema: ReturnType<typeof createAuthoringSchemaFixture>) => {
       Object.assign(schema, { schema_dialect: 'http://json-schema.org/draft-07/schema#' });
     }],
@@ -64,7 +123,7 @@ describe('readWorkbenchSchema', () => {
     ['max_sample_column_name_length', 128],
     ['max_sample_cell_length', 4_096],
   ] as const)(
-    'fails closed when 1.1.0 %s differs from the platform ceiling',
+    'fails closed when a supported contract %s differs from the platform ceiling',
     (field, ceiling) => {
       for (const value of [ceiling - 1, ceiling + 1]) {
         const schema = createAuthoringSchemaFixture();
