@@ -378,7 +378,18 @@ def test_doctor_mode_has_no_port_runtime_or_process_side_effects(
 
     assert calls == ["doctor"]
     assert not runtime_root.exists()
-    assert "Python: 3.12.13" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "HelixWeave environment check" in output
+    assert "Python: 3.12.13" in output
+
+
+def test_launcher_help_uses_product_brand_and_keeps_compatibility_flags():
+    help_text = build_parser().format_help()
+
+    assert "HelixWeave local stack" in help_text
+    assert "--doctor" in help_text
+    assert "--input-authoring-demo" in help_text
+    assert "--results-visibility-demo" in help_text
 
 
 def test_shared_environment_uses_one_absolute_lifecycle_configuration(tmp_path):

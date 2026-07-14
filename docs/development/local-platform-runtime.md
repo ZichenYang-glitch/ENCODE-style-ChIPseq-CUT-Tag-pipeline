@@ -1,6 +1,6 @@
-# Durable Local Platform Runtime
+# HelixWeave Local Runtime
 
-The local workflow-platform runtime stores canonical run lifecycle state in
+The HelixWeave local runtime stores canonical run lifecycle state in
 file-backed SQLite. Redis and RQ provide only an out-of-process scheduling
 boundary: queued payloads contain a stable run ID, while each worker reopens the
 database and rebuilds the registry and execution dependencies for that run.
@@ -12,7 +12,7 @@ is reported instead of being treated as a successful enqueue.
 
 ## Run locally
 
-### One-command demo stack
+### One-command HelixWeave stack
 
 Create the repository-local locked environment once. The environment lives
 under the ignored `.local/` directory and is never part of a commit:
@@ -30,8 +30,8 @@ server 7 or newer, Node.js 20 or newer, npm, and the locked frontend install.
 It exits before opening ports or creating runtime data. Failures name the
 missing prerequisite without printing environment variables or private paths.
 
-After the doctor succeeds, one foreground command starts the complete local
-stack:
+After the doctor succeeds, one foreground command starts the complete
+HelixWeave stack:
 
 ```bash
 python scripts/run_local_platform.py

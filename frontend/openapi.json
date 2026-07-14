@@ -1,8 +1,8 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Workflow Platform API",
-    "description": "Validation-first workflow platform API.",
+    "title": "HelixWeave API",
+    "description": "Reproducible omics workflows, from inputs to evidence.",
     "version": "0.3.0"
   },
   "paths": {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the durable local platform stack as one supervised foreground process."""
+"""Run the durable HelixWeave local stack as one supervised foreground process."""
 
 from __future__ import annotations
 
@@ -77,7 +77,10 @@ class ManagedProcess:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Start Redis, FastAPI, one RQ worker, and the React frontend."
+        description=(
+            "Start the HelixWeave local stack: Redis, FastAPI, one RQ worker, "
+            "and the React frontend."
+        )
     )
     parser.add_argument("--project-root", type=Path)
     parser.add_argument(
@@ -407,7 +410,7 @@ class PlatformSupervisor:
             self._start_services()
             self._wait_ready()
             print(
-                f"Platform ready: http://{self.config.frontend_host}:"
+                f"HelixWeave ready: http://{self.config.frontend_host}:"
                 f"{self.config.frontend_port}"
             )
             print(f"Runtime data: {self.config.runtime_root}")
@@ -760,16 +763,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             redis_url=args.redis_url,
         )
     except RuntimeError as error:
-        print(f"environment doctor failed: {error}", file=sys.stderr)
+        print(f"HelixWeave environment check failed: {error}", file=sys.stderr)
         return 1
     if args.doctor:
+        print("HelixWeave environment check")
         for check in environment_checks:
             print(f"{check.name}: {check.version}")
         return 0
     try:
         config = config_from_args(args)
     except (RuntimeError, ValueError, OSError) as error:
-        print(f"platform startup failed: {error}", file=sys.stderr)
+        print(f"HelixWeave startup failed: {error}", file=sys.stderr)
         return 1
     if not _port_available(config.api_host, config.api_port):
         raise SystemExit(f"API port {config.api_port} is already in use")
@@ -780,14 +784,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             prepare_runtime(args) if args.results_visibility_demo else (config, None)
         )
     except (RuntimeError, ValueError, OSError) as error:
-        print(f"platform startup failed: {error}", file=sys.stderr)
+        print(f"HelixWeave startup failed: {error}", file=sys.stderr)
         return 1
     if demo_inputs_path is not None:
-        print(f"Results demo inputs: {demo_inputs_path}")
+        print(f"HelixWeave demo inputs: {demo_inputs_path}")
     try:
         return PlatformSupervisor(config).run()
     except (RuntimeError, ValueError, OSError) as error:
-        print(f"platform startup failed: {error}", file=sys.stderr)
+        print(f"HelixWeave startup failed: {error}", file=sys.stderr)
         return 1
 
 

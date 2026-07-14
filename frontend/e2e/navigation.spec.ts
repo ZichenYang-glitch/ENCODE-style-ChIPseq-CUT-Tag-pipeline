@@ -35,7 +35,7 @@ async function capture(
 ) {
   await page.setViewportSize({ width, height });
   await expectNoHorizontalOverflow(page);
-  const screenshot = await page.screenshot({ fullPage: true });
+  const screenshot = await page.screenshot({ fullPage: false, scale: 'css' });
   const screenshotDirectory = process.env.ENCODE_PIPELINE_E2E_SCREENSHOT_DIR;
   if (screenshotDirectory) {
     mkdirSync(screenshotDirectory, { recursive: true });
@@ -50,6 +50,11 @@ test('global navigation exposes authoring before developer schemas on desktop @d
   const { workflowId } = manifest();
   await page.goto(`/workflows/${workflowId}`);
 
+  await expect(page).toHaveTitle('HelixWeave');
+  await expect(
+    page.getByRole('link', { name: 'HelixWeave' }),
+  ).toHaveAttribute('href', '/workflows');
+
   const primaryNavigation = page.getByRole('navigation', { name: 'Primary' });
   const workflowsLink = primaryNavigation.getByRole('link', {
     name: 'Workflows',
@@ -58,6 +63,11 @@ test('global navigation exposes authoring before developer schemas on desktop @d
   const newAnalysisLink = primaryNavigation.getByRole('link', {
     name: 'New analysis',
   });
+  await expect(primaryNavigation.getByRole('link')).toHaveText([
+    'Workflows',
+    'Runs',
+    'New analysis',
+  ]);
   await expect(workflowsLink).toHaveAttribute('aria-current', 'page');
   await expect(runsLink).not.toHaveAttribute('aria-current');
   await expect(runsLink).toHaveAttribute('href', '/runs');

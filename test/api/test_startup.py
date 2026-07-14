@@ -21,7 +21,8 @@ from encode_pipeline.workers.settings import (  # noqa: E402
 
 def test_create_app_builds_expected_app() -> None:
     app = create_app()
-    assert app.title == "Workflow Platform API"
+    assert app.title == "HelixWeave API"
+    assert app.description == "Reproducible omics workflows, from inputs to evidence."
 
 
 def _collect_route_paths(routes, prefix: str = "") -> set[str]:

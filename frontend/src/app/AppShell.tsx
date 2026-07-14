@@ -1,4 +1,4 @@
-import { FilePenLine, History, ListTree, Workflow } from 'lucide-react';
+import { Dna, FilePenLine, History, ListTree } from 'lucide-react';
 import { Link, matchPath, Outlet, useLocation } from 'react-router-dom';
 import { Button } from '../components/Button';
 
@@ -39,27 +39,14 @@ export function AppShell() {
               className="inline-flex items-center gap-2 rounded focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2"
               to="/workflows"
             >
-              <Workflow aria-hidden="true" size={18} />
-              Workflow Platform
+              <Dna aria-hidden="true" size={18} />
+              HelixWeave
             </Link>
           </h1>
           <nav
             aria-label="Primary"
             className="flex min-w-0 flex-wrap items-center gap-2"
           >
-            <Button
-              asChild
-              className="gap-1.5"
-              variant={runsCurrent ? 'primary' : 'secondary'}
-            >
-              <Link
-                aria-current={runsCurrent ? 'page' : undefined}
-                to="/runs"
-              >
-                <History aria-hidden="true" size={16} />
-                Runs
-              </Link>
-            </Button>
             <Button
               asChild
               className="gap-1.5"
@@ -71,6 +58,19 @@ export function AppShell() {
               >
                 <ListTree aria-hidden="true" size={16} />
                 Workflows
+              </Link>
+            </Button>
+            <Button
+              asChild
+              className="gap-1.5"
+              variant={runsCurrent ? 'primary' : 'secondary'}
+            >
+              <Link
+                aria-current={runsCurrent ? 'page' : undefined}
+                to="/runs"
+              >
+                <History aria-hidden="true" size={16} />
+                Runs
               </Link>
             </Button>
             {workflowId && (

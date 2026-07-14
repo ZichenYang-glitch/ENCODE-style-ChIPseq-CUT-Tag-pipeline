@@ -34,7 +34,7 @@ describe('AppShell navigation', () => {
     });
 
     await user.click(
-      screen.getByRole('link', { name: 'Workflow Platform' }),
+      screen.getByRole('link', { name: 'HelixWeave' }),
     );
 
     expect(router.state.location.pathname).toBe('/workflows');

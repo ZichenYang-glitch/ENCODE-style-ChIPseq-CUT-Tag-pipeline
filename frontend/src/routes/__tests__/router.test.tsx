@@ -285,7 +285,7 @@ describe('Router', () => {
     });
 
     expect(
-      await screen.findByRole('heading', { name: /Workflow Platform/i }),
+      await screen.findByRole('heading', { name: 'HelixWeave' }),
     ).toBeInTheDocument();
   });
 
