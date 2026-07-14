@@ -400,4 +400,8 @@ def test_export_ignores_invalid_environment_worker_settings(tmp_path):
 
     assert output.is_file()
     exported = json.loads(output.read_text(encoding="utf-8"))
-    assert exported["info"]["title"] == "Workflow Platform API"
+    assert exported["info"] == {
+        "title": "HelixWeave API",
+        "description": "Reproducible omics workflows, from inputs to evidence.",
+        "version": "0.3.0",
+    }

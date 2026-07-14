@@ -75,9 +75,9 @@ def create_app(
             persistence.close()
 
     app = FastAPI(
-        title="Workflow Platform API",
+        title="HelixWeave API",
         version="0.3.0",
-        description="Validation-first workflow platform API.",
+        description="Reproducible omics workflows, from inputs to evidence.",
         lifespan=lifespan,
     )
     app.add_middleware(

@@ -5,10 +5,10 @@ import { appRoutes } from './app/router';
 import { renderWithRouter } from './test/test-utils';
 
 describe('App shell', () => {
-  it('renders the workflow platform heading', async () => {
+  it('renders the HelixWeave heading', async () => {
     renderWithRouter(appRoutes, { initialEntries: ['/workflows'] });
     expect(
-      await screen.findByRole('heading', { name: /workflow platform/i }),
+      await screen.findByRole('heading', { name: 'HelixWeave' }),
     ).toBeInTheDocument();
   });
 

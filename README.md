@@ -1,10 +1,56 @@
-# ENCODE-style ChIP-seq, CUT&Tag, ATAC-seq, and MNase-seq Pipeline
+# HelixWeave
+
+**Reproducible omics workflows, from inputs to evidence.**
 
 [![Snakemake](https://img.shields.io/badge/Snakemake-%3E%3D8.0-brightgreen.svg?style=flat-square)](https://snakemake.github.io)
 [![Conda](https://img.shields.io/badge/conda-supported-blue.svg?style=flat-square)](https://docs.conda.io/en/latest/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 
 ## Overview
+
+HelixWeave is a workflow-neutral platform for local and small-team omics
+analysis. It provides schema-driven input authoring, validation, durable run
+tracking, execution, and evidence review without making the platform depend on
+one workflow's rules or file layout.
+
+This repository also ships HelixWeave's first scientific adapter: the existing
+ENCODE-style ChIP-seq, CUT&Tag, ATAC-seq, and MNase-seq Snakemake workflow.
+The adapter and workflow retain their established identities and scientific
+behavior while the surrounding product uses the HelixWeave brand.
+
+## Start the local platform
+
+After installing the locked local environment and frontend dependencies, check
+the toolchain and start the supervised stack:
+
+```bash
+python scripts/run_local_platform.py --doctor
+python scripts/run_local_platform.py
+```
+
+Open `http://127.0.0.1:5173`. For the deterministic input-to-results path, use
+`python scripts/run_local_platform.py --input-authoring-demo`. See
+[the local runtime guide](docs/development/local-platform-runtime.md) for setup,
+process ownership, storage, and cleanup details.
+
+## Brand and compatibility
+
+This migration changes the product display layer only. Stable scientific and
+runtime identities remain compatible.
+
+| Surface | Identity after this change | Compatibility status |
+| :--- | :--- | :--- |
+| Display brand | `HelixWeave` | Renamed in product UI, browser metadata, docs, and OpenAPI metadata. |
+| Repository slug | `ENCODE-style-ChIPseq-CUT-Tag-pipeline` | Unchanged; renaming the GitHub repository requires separate authorization. |
+| Python distribution | `encode-pipeline` | Unchanged. |
+| Python import namespace | `encode_pipeline` | Unchanged. |
+| CLI names | `encode-validate`, `encode-manifest`, `encode-dag`, `encode-worker` | Unchanged. |
+| API title and routes | `HelixWeave API`; `/api/v1` | Display metadata renamed; routes and payload contracts unchanged. |
+| Workflow and adapter identity | `encode-style-chipseq-cuttag-atac-mnase`; ENCODE-style adapter | Unchanged. |
+| Persistence identity | Existing SQLite tables, Alembic history, environment variables, Redis/RQ job identity, and artifact URIs | Unchanged. |
+| Frontend package | `helixweave-frontend` | Renamed only in the private, unpublished frontend workspace. |
+
+## Bundled ENCODE-style workflow
 
 A Snakemake-based pipeline suite for ChIP-seq, CUT&Tag, ATAC-seq, and MNase-seq
 data analysis. It handles single-sample preprocessing as well as
