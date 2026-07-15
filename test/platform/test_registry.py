@@ -140,6 +140,25 @@ def test_registry_rejects_qc_protocol_without_capability():
         WorkflowRegistry(adapters=[UndeclaredQcAdapter("fake")])
 
 
+def test_registry_rejects_bundle_import_capability_without_optional_protocol():
+    adapter = FakeAdapter("fake")
+    adapter.capabilities = WorkflowCapabilities(
+        supports=("validation", "input_bundle_import")
+    )
+
+    with pytest.raises(ValueError, match="input_bundle_import"):
+        WorkflowRegistry(adapters=[adapter])
+
+
+def test_registry_rejects_bundle_import_protocol_without_capability():
+    class UndeclaredBundleAdapter(FakeAdapter):
+        def import_input_bundle(self, bundle):
+            return Result.failure([])
+
+    with pytest.raises(ValueError, match="input_bundle_import"):
+        WorkflowRegistry(adapters=[UndeclaredBundleAdapter("fake")])
+
+
 def test_registry_does_not_expose_mutable_adapter_mapping():
     registry = WorkflowRegistry(adapters=[FakeAdapter("fake")])
 

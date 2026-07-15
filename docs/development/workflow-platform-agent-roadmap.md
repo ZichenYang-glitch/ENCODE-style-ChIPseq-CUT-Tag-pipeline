@@ -70,6 +70,9 @@ Define how HelixWeave consumes reviewed inputs from an Omics Intake Bundle
 without making the platform own upstream acquisition or silently trust
 external paths and metadata.
 
+The proposed service-only first slice and its trust limits are recorded in the
+[Bundle consumption boundary](../architecture/omics-intake-bundle-consumption.md).
+
 Expected work:
 
 - separate producer and consumer responsibilities;

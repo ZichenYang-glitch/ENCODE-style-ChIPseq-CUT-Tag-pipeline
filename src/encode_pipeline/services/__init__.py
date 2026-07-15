@@ -16,6 +16,7 @@ from encode_pipeline.services.defaults import (
 )
 from encode_pipeline.services.command_builder import CommandBuilder
 from encode_pipeline.services.local_run_driver import LocalRunDriver
+from encode_pipeline.services.input_bundle_imports import InputBundleImportService
 from encode_pipeline.services.local_execution import LocalExecutionService
 from encode_pipeline.services.process_runner import ProcessRunner
 from encode_pipeline.services.materialization import WorkspaceMaterializer
@@ -43,6 +44,7 @@ from encode_pipeline.services.workflow_info import WorkflowInfoService
 __all__ = [
     "CommandBuilder",
     "ExecutionPlanner",
+    "InputBundleImportService",
     "LocalRunDriver",
     "LocalExecutionService",
     "ProcessRunner",

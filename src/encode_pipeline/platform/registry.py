@@ -6,7 +6,9 @@ from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 
 from encode_pipeline.platform.adapters import (
+    INPUT_BUNDLE_IMPORT_CAPABILITY,
     QC_SUMMARY_EXTRACT_CAPABILITY,
+    InputBundleImportingAdapter,
     QcSummaryExtractingAdapter,
     WorkflowAdapter,
     WorkflowCapabilities,
@@ -41,6 +43,15 @@ class WorkflowRegistry:
             if declares_qc != implements_qc:
                 raise ValueError(
                     "WorkflowRegistry qc_summary_extract capability and "
+                    "protocol must agree"
+                )
+            declares_bundle_import = (
+                INPUT_BUNDLE_IMPORT_CAPABILITY in adapter.capabilities.supports
+            )
+            implements_bundle_import = isinstance(adapter, InputBundleImportingAdapter)
+            if declares_bundle_import != implements_bundle_import:
+                raise ValueError(
+                    "WorkflowRegistry input_bundle_import capability and "
                     "protocol must agree"
                 )
 

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 import re
 import tempfile
+from collections import Counter
 from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
@@ -23,6 +25,11 @@ from encode_pipeline.config.coercion import coerce_bool
 from encode_pipeline.platform.adapters import (
     ARTIFACT_EXTRACT_CAPABILITY,
     INPUT_AUTHORING_CAPABILITY,
+    INPUT_BUNDLE_IMPORT_CAPABILITY,
+    MAX_SAMPLE_CELL_LENGTH,
+    MAX_SAMPLE_COLUMN_NAME_LENGTH,
+    MAX_SAMPLE_COLUMNS,
+    MAX_SAMPLE_ROWS,
     QC_SUMMARY_EXTRACT_CAPABILITY,
     VALIDATION_CAPABILITY,
     WORKSPACE_PLAN_CAPABILITY,
@@ -37,10 +44,20 @@ from encode_pipeline.platform.adapters import (
     WorkflowSchema,
     WorkspacePlan,
 )
+from encode_pipeline.platform.input_bundles import (
+    InputBundleFileSetAlternatives,
+    InputBundleMapping,
+    WorkflowInputBundle,
+    validate_input_bundle_relative_path,
+)
 from encode_pipeline.platform.results import Issue, Result
 
 
 _WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
+_INPUT_BUNDLE_WORKFLOW_NAME = "encode-epigenomics"
+_INPUT_BUNDLE_RENDER_CONTRACT = "encode-render-v3"
+_MAX_INPUT_BUNDLE_YAML_DEPTH = 64
+_MAX_INPUT_BUNDLE_YAML_NODES = 50_000
 
 _WORKSPACE_SAMPLE_COLUMNS = (
     "sample",
@@ -302,6 +319,7 @@ class EncodeStyleWorkflowAdapter:
             VALIDATION_CAPABILITY,
             WORKSPACE_PLAN_CAPABILITY,
             INPUT_AUTHORING_CAPABILITY,
+            INPUT_BUNDLE_IMPORT_CAPABILITY,
             ARTIFACT_EXTRACT_CAPABILITY,
             QC_SUMMARY_EXTRACT_CAPABILITY,
         )
@@ -329,6 +347,25 @@ class EncodeStyleWorkflowAdapter:
         )
 
         return build_encode_authoring_schema()
+
+    def import_input_bundle(
+        self,
+        bundle: WorkflowInputBundle,
+    ) -> Result[InputBundleMapping]:
+        """Map one verified Omics Intake public Bundle into fresh authoring inputs."""
+        if not isinstance(bundle, WorkflowInputBundle):
+            return _input_bundle_failure("ENCODE_INPUT_BUNDLE_INVALID")
+        if bundle.workflow_name != _INPUT_BUNDLE_WORKFLOW_NAME:
+            return _input_bundle_failure("ENCODE_INPUT_BUNDLE_WORKFLOW_UNSUPPORTED")
+        if bundle.render_contract != _INPUT_BUNDLE_RENDER_CONTRACT:
+            return _input_bundle_failure("ENCODE_INPUT_BUNDLE_RENDER_UNSUPPORTED")
+        try:
+            mapping = _map_input_bundle(bundle)
+        except _EncodeInputBundleError as error:
+            return _input_bundle_failure(error.code)
+        except Exception:
+            return _input_bundle_failure("ENCODE_INPUT_BUNDLE_INVALID")
+        return Result.success(mapping)
 
     def validate(self, inputs: WorkflowInputs) -> Result[object]:
         """Validate inputs using current package behavior.
@@ -563,6 +600,294 @@ class EncodeStyleWorkflowAdapter:
             return Result.success(parse_encode_qc_sources(sources))
         except (TypeError, UnicodeError, ValueError):
             return _qc_summary_failure()
+
+
+_INPUT_BUNDLE_MESSAGES = {
+    "ENCODE_INPUT_BUNDLE_INVALID": ("The ENCODE input Bundle artifacts are invalid."),
+    "ENCODE_INPUT_BUNDLE_WORKFLOW_UNSUPPORTED": (
+        "The input Bundle targets a different workflow contract."
+    ),
+    "ENCODE_INPUT_BUNDLE_RENDER_UNSUPPORTED": (
+        "The input Bundle render contract is not supported."
+    ),
+    "ENCODE_INPUT_BUNDLE_PATH_UNSAFE": (
+        "The input Bundle contains a non-portable workflow path."
+    ),
+    "ENCODE_INPUT_BUNDLE_REFERENCE_UNVERIFIED": (
+        "A workflow data path lacks a verified Bundle file binding."
+    ),
+}
+
+
+class _EncodeInputBundleError(ValueError):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+class _InputBundleConfigLoader(yaml.SafeLoader):
+    """Bounded loader for the external, digest-verified render artifact."""
+
+    def __init__(self, stream: str) -> None:
+        super().__init__(stream)
+        self._bundle_depth = 0
+        self._bundle_nodes = 0
+
+    def compose_node(self, parent, index):
+        if self.check_event(yaml.AliasEvent):
+            raise yaml.YAMLError("input Bundle YAML aliases are not supported")
+        self._bundle_depth += 1
+        self._bundle_nodes += 1
+        if (
+            self._bundle_depth > _MAX_INPUT_BUNDLE_YAML_DEPTH
+            or self._bundle_nodes > _MAX_INPUT_BUNDLE_YAML_NODES
+        ):
+            raise yaml.YAMLError("input Bundle YAML exceeds structural limits")
+        try:
+            return super().compose_node(parent, index)
+        finally:
+            self._bundle_depth -= 1
+
+    def construct_mapping(self, node, deep=False):
+        self.flatten_mapping(node)
+        keys: set[str] = set()
+        for key_node, _value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if not isinstance(key, str) or key in keys:
+                raise yaml.YAMLError(
+                    "input Bundle YAML mapping keys must be unique strings"
+                )
+            keys.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
+def _map_input_bundle(bundle: WorkflowInputBundle) -> InputBundleMapping:
+    config = _decode_input_bundle_config(bundle)
+    sample_rows = _decode_input_bundle_samples(bundle)
+    required_files: set[str] = set()
+    required_file_sets: dict[str, InputBundleFileSetAlternatives] = {}
+    consumed_fastqs: Counter[str] = Counter()
+
+    for row in sample_rows:
+        role = row.get("role", "")
+        row["fastq_1"] = _map_verified_input_file(
+            bundle,
+            row.get("fastq_1", ""),
+            role=role,
+            read_number=1,
+            required_files=required_files,
+            consumed_fastqs=consumed_fastqs,
+        )
+        fastq_2 = row.get("fastq_2", "")
+        if fastq_2:
+            row["fastq_2"] = _map_verified_input_file(
+                bundle,
+                fastq_2,
+                role=role,
+                read_number=2,
+                required_files=required_files,
+                consumed_fastqs=consumed_fastqs,
+            )
+        bowtie2_index = row.get("bowtie2_index", "")
+        mapped_index, index_file_sets = _map_bowtie2_index(
+            bundle,
+            bowtie2_index,
+        )
+        row["bowtie2_index"] = mapped_index
+        index_prefix = _input_bundle_relative_path(bowtie2_index)
+        existing = required_file_sets.setdefault(index_prefix, index_file_sets)
+        if existing != index_file_sets:
+            raise _EncodeInputBundleError("ENCODE_INPUT_BUNDLE_INVALID")
+        control_bam = row.get("control_bam", "")
+        if control_bam:
+            row["control_bam"] = _map_project_file(
+                bundle,
+                control_bam,
+                required_files=required_files,
+            )
+        if row.get("genome") != bundle.genome:
+            raise _EncodeInputBundleError("ENCODE_INPUT_BUNDLE_INVALID")
+
+    bundle_fastqs = Counter(
+        item.relative_path
+        for item in bundle.files
+        if item.file_format in {"fastq", "fq"}
+    )
+    if consumed_fastqs != bundle_fastqs:
+        raise _EncodeInputBundleError("ENCODE_INPUT_BUNDLE_REFERENCE_UNVERIFIED")
+
+    genome_resources = config.get("genome_resources")
+    if isinstance(genome_resources, Mapping):
+        for resource in genome_resources.values():
+            if not isinstance(resource, dict):
+                continue
+            for field in ("chrom_sizes", "blacklist", "gtf", "reference_fasta"):
+                value = resource.get(field)
+                if value:
+                    resource[field] = _map_project_file(
+                        bundle,
+                        value,
+                        required_files=required_files,
+                    )
+
+    return InputBundleMapping(
+        inputs=WorkflowInputs(
+            config=config,
+            samples=sample_rows,
+            options={"strict_inputs": True},
+        ),
+        required_project_files=tuple(sorted(required_files)),
+        required_project_file_sets=tuple(
+            required_file_sets[prefix] for prefix in sorted(required_file_sets)
+        ),
+    )
+
+
+def _decode_input_bundle_config(bundle: WorkflowInputBundle) -> dict[str, Any]:
+    try:
+        content = bundle.artifact("workflow_config").content.decode("utf-8")
+        value = yaml.load(content, Loader=_InputBundleConfigLoader)
+    except (KeyError, UnicodeError, yaml.YAMLError) as error:
+        raise _EncodeInputBundleError("ENCODE_INPUT_BUNDLE_INVALID") from error
+    if not isinstance(value, dict) or not _is_json_safe(value):
+        raise _EncodeInputBundleError("ENCODE_INPUT_BUNDLE_INVALID")
+    if value.get("samples") != "./samples.encode.tsv":
+        raise _EncodeInputBundleError("ENCODE_INPUT_BUNDLE_INVALID")
+    if value.get("outdir") != "results":
+        raise _EncodeInputBundleError("ENCODE_INPUT_BUNDLE_INVALID")
+    config = deepcopy(value)
+    config.pop("samples")
+    config.pop("outdir")
+    return config
+
+
+def _decode_input_bundle_samples(
+    bundle: WorkflowInputBundle,
+) -> list[dict[str, str]]:
+    try:
+        content = bundle.artifact("sample_sheet").content.decode("utf-8")
+        reader = csv.DictReader(io.StringIO(content, newline=""), delimiter="\t")
+        if tuple(reader.fieldnames or ()) != _WORKSPACE_SAMPLE_COLUMNS:
+            raise ValueError("unexpected sample columns")
+        if len(reader.fieldnames or ()) > MAX_SAMPLE_COLUMNS or any(
+            len(name) > MAX_SAMPLE_COLUMN_NAME_LENGTH
+            for name in (reader.fieldnames or ())
+        ):
+            raise ValueError("sample columns exceed platform limits")
+        rows: list[dict[str, str]] = []
+        for row in reader:
+            if len(rows) >= MAX_SAMPLE_ROWS or None in row:
+                raise ValueError("sample rows exceed platform limits")
+            normalized: dict[str, str] = {}
+            for key, value in row.items():
+                if value is None or len(value) > MAX_SAMPLE_CELL_LENGTH:
+                    raise ValueError("sample cell exceeds platform limits")
+                if any(character in value for character in ("\x00", "\t", "\n", "\r")):
+                    raise ValueError("sample cell contains a control character")
+                normalized[key] = value
+            rows.append(normalized)
+    except (KeyError, UnicodeError, csv.Error, ValueError) as error:
+        raise _EncodeInputBundleError("ENCODE_INPUT_BUNDLE_INVALID") from error
+    if not rows:
+        raise _EncodeInputBundleError("ENCODE_INPUT_BUNDLE_INVALID")
+    return rows
+
+
+def _map_verified_input_file(
+    bundle: WorkflowInputBundle,
+    value: object,
+    *,
+    role: str,
+    read_number: int,
+    required_files: set[str],
+    consumed_fastqs: Counter[str],
+) -> str:
+    relative_path = _input_bundle_relative_path(value)
+    try:
+        binding = bundle.file_for_path(relative_path)
+    except (ValueError, KeyError) as error:
+        raise _EncodeInputBundleError(
+            "ENCODE_INPUT_BUNDLE_REFERENCE_UNVERIFIED"
+        ) from error
+    if (
+        binding is None
+        or binding.file_format not in {"fastq", "fq"}
+        or binding.role != role
+        or binding.read_number != read_number
+    ):
+        raise _EncodeInputBundleError("ENCODE_INPUT_BUNDLE_REFERENCE_UNVERIFIED")
+    required_files.add(relative_path)
+    consumed_fastqs[relative_path] += 1
+    return str(bundle.project_path(relative_path))
+
+
+def _map_project_file(
+    bundle: WorkflowInputBundle,
+    value: object,
+    *,
+    required_files: set[str],
+) -> str:
+    relative_path = _input_bundle_relative_path(value)
+    required_files.add(relative_path)
+    return str(bundle.project_path(relative_path))
+
+
+def _map_bowtie2_index(
+    bundle: WorkflowInputBundle,
+    value: object,
+) -> tuple[str, InputBundleFileSetAlternatives]:
+    from encode_pipeline.config.defaults import BT2_LARGE, BT2_STANDARD
+
+    prefix = _input_bundle_relative_path(value)
+    alternatives = tuple(
+        tuple(sorted(template.format(prefix=prefix) for template in templates))
+        for templates in (BT2_STANDARD, BT2_LARGE)
+    )
+    return (
+        str(bundle.project_path(prefix)),
+        InputBundleFileSetAlternatives(alternatives=alternatives),
+    )
+
+
+def _input_bundle_relative_path(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        raise _EncodeInputBundleError("ENCODE_INPUT_BUNDLE_PATH_UNSAFE")
+    try:
+        return validate_input_bundle_relative_path(value)
+    except ValueError as error:
+        raise _EncodeInputBundleError("ENCODE_INPUT_BUNDLE_PATH_UNSAFE") from error
+
+
+def _is_json_safe(value: object) -> bool:
+    if value is None or isinstance(value, (str, bool, int)):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, list):
+        return all(_is_json_safe(item) for item in value)
+    if isinstance(value, Mapping):
+        return all(
+            isinstance(key, str) and _is_json_safe(item) for key, item in value.items()
+        )
+    return False
+
+
+def _input_bundle_failure(code: str) -> Result[InputBundleMapping]:
+    return Result.failure(
+        [
+            Issue(
+                code=code,
+                message=_INPUT_BUNDLE_MESSAGES.get(
+                    code,
+                    _INPUT_BUNDLE_MESSAGES["ENCODE_INPUT_BUNDLE_INVALID"],
+                ),
+                severity="error",
+                path="bundle",
+                source="adapter",
+                context={},
+            )
+        ]
+    )
 
 
 def _write_inline_samples_tsv(

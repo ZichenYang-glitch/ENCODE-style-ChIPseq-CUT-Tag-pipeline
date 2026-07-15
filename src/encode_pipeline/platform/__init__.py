@@ -17,6 +17,8 @@ from encode_pipeline.platform.adapters import (
     MAX_SAMPLE_COLUMNS,
     MAX_SAMPLE_ROWS,
     INPUT_AUTHORING_CAPABILITY,
+    INPUT_BUNDLE_IMPORT_CAPABILITY,
+    InputBundleImportingAdapter,
     QC_SUMMARY_EXTRACT_CAPABILITY,
     QcSourceArtifact,
     QcSourceDocument,
@@ -34,6 +36,17 @@ from encode_pipeline.platform.adapters import (
     WORKFLOW_CAPABILITY_NAMES,
     WORKSPACE_PLAN_CAPABILITY,
     WorkspacePlan,
+)
+from encode_pipeline.platform.input_bundles import (
+    ImportedWorkflowInputs,
+    InputBundleArtifact,
+    InputBundleFile,
+    InputBundleFileSetAlternatives,
+    InputBundleFileObservation,
+    InputBundleIdentity,
+    InputBundleMapping,
+    WorkflowInputBundle,
+    validate_input_bundle_relative_path,
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import (
@@ -85,6 +98,15 @@ __all__ = [
     "MAX_SAMPLE_COLUMNS",
     "MAX_SAMPLE_ROWS",
     "INPUT_AUTHORING_CAPABILITY",
+    "INPUT_BUNDLE_IMPORT_CAPABILITY",
+    "ImportedWorkflowInputs",
+    "InputBundleArtifact",
+    "InputBundleFile",
+    "InputBundleFileSetAlternatives",
+    "InputBundleFileObservation",
+    "InputBundleIdentity",
+    "InputBundleImportingAdapter",
+    "InputBundleMapping",
     "QC_SUMMARY_EXTRACT_CAPABILITY",
     "Result",
     "RunArtifactRef",
@@ -112,6 +134,7 @@ __all__ = [
     "WorkflowCapabilities",
     "WorkflowInputLimits",
     "WorkflowInputModes",
+    "WorkflowInputBundle",
     "WorkflowInputs",
     "WorkflowMetadata",
     "WorkflowRegistry",
@@ -126,4 +149,5 @@ __all__ = [
     "can_transition",
     "require_transition",
     "validate_qc_identifier_token",
+    "validate_input_bundle_relative_path",
 ]

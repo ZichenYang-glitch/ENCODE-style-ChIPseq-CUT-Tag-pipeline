@@ -15,6 +15,10 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from encode_pipeline.platform.results import Result
 
 if TYPE_CHECKING:
+    from encode_pipeline.platform.input_bundles import (
+        InputBundleMapping,
+        WorkflowInputBundle,
+    )
     from encode_pipeline.platform.planning import ExecutionPlan
     from encode_pipeline.platform.runs import RunRecord
 
@@ -37,6 +41,7 @@ DAG_PREVIEW_CAPABILITY = "dag_preview"
 WORKSPACE_PLAN_CAPABILITY = "workspace_plan"
 COMMAND_CAPABILITY = "command"
 INPUT_AUTHORING_CAPABILITY = "input_authoring"
+INPUT_BUNDLE_IMPORT_CAPABILITY = "input_bundle_import"
 ARTIFACT_EXTRACT_CAPABILITY = "artifact_extract"
 QC_SUMMARY_EXTRACT_CAPABILITY = "qc_summary_extract"
 WORKFLOW_CAPABILITY_NAMES = frozenset(
@@ -46,6 +51,7 @@ WORKFLOW_CAPABILITY_NAMES = frozenset(
         WORKSPACE_PLAN_CAPABILITY,
         COMMAND_CAPABILITY,
         INPUT_AUTHORING_CAPABILITY,
+        INPUT_BUNDLE_IMPORT_CAPABILITY,
         ARTIFACT_EXTRACT_CAPABILITY,
         QC_SUMMARY_EXTRACT_CAPABILITY,
     }
@@ -610,6 +616,17 @@ class QcSummaryExtractingAdapter(Protocol):
         sources: tuple[QcSourceDocument, ...],
     ) -> Result[tuple[ExtractedQcMetricCandidate, ...]]:
         """Map platform-vetted source bytes to neutral QC candidates."""
+
+
+@runtime_checkable
+class InputBundleImportingAdapter(Protocol):
+    """Optional adapter contract for mapping one verified public input Bundle."""
+
+    def import_input_bundle(
+        self,
+        bundle: "WorkflowInputBundle",
+    ) -> "Result[InputBundleMapping]":
+        """Map verified public artifacts without mutating source or platform state."""
 
 
 @runtime_checkable
