@@ -8,6 +8,9 @@ import re
 import pytest
 
 
+pytestmark = pytest.mark.full_main
+
+
 SAMPLE_COLUMNS = (
     "sample",
     "fastq_1",

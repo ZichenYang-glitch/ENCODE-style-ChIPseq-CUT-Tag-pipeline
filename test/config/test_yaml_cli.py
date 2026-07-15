@@ -13,13 +13,13 @@ from pathlib import Path
 
 import pytest
 
-VALID_SAMPLES_HEADER = (
-    "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
-)
+VALID_SAMPLES_HEADER = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
 
 
 def _valid_samples(sid="S1"):
-    return VALID_SAMPLES_HEADER + f"{sid}\tR1.fq\tR2.fq\tPE\tchipseq\tT\tnarrow\ths\tidx\n"
+    return (
+        VALID_SAMPLES_HEADER + f"{sid}\tR1.fq\tR2.fq\tPE\tchipseq\tT\tnarrow\ths\tidx\n"
+    )
 
 
 def _write_text_config(tmp_path, text, samples_text=None):
@@ -45,9 +45,7 @@ def _make_minimal_config(tmp_path, config_text, samples_text=None):
         tmp_path, config_text, samples_text=samples_text
     )
     if config_text.strip() == "":
-        cfg_path.write_text(
-            f'samples: "{samples_path}"\n', encoding="utf-8"
-        )
+        cfg_path.write_text(f'samples: "{samples_path}"\n', encoding="utf-8")
     return cfg_path, samples_path
 
 
@@ -61,11 +59,7 @@ def test_parse_config_minimal_top_level_scalars(tmp_path):
 
     cfg_path, _ = _make_minimal_config(
         tmp_path,
-        'outdir: "results"\n'
-        "threads: 8\n"
-        "use_control: false\n"
-        "mapq: 30\n"
-        "pi: 3.14\n",
+        'outdir: "results"\nthreads: 8\nuse_control: false\nmapq: 30\npi: 3.14\n',
     )
     result = _parse_config_minimal(str(cfg_path))
     assert result == {
@@ -82,9 +76,7 @@ def test_parse_config_minimal_quoted_strings(tmp_path):
 
     cfg_path, _ = _make_minimal_config(
         tmp_path,
-        'single: \'quoted\'\n'
-        'double: "quoted"\n'
-        "unquoted: value\n",
+        "single: 'quoted'\ndouble: \"quoted\"\nunquoted: value\n",
     )
     result = _parse_config_minimal(str(cfg_path))
     assert result == {
@@ -99,11 +91,7 @@ def test_parse_config_minimal_ints_and_bools(tmp_path):
 
     cfg_path, _ = _make_minimal_config(
         tmp_path,
-        "a: 1\n"
-        "b: 0\n"
-        "flag_true: true\n"
-        "flag_false: false\n"
-        "flag_yes: yes\n",
+        "a: 1\nb: 0\nflag_true: true\nflag_false: false\nflag_yes: yes\n",
     )
     result = _parse_config_minimal(str(cfg_path))
     # Note: "yes" is not parsed as a boolean by the minimal parser.
@@ -124,7 +112,7 @@ def test_parse_config_minimal_genome_resources(tmp_path):
         "genome_resources:\n"
         "  hs:\n"
         "    effective_genome_size: hs\n"
-        "    chrom_sizes: \"\"\n"
+        '    chrom_sizes: ""\n'
         "  mm:\n"
         "    effective_genome_size: mm\n",
     )
@@ -147,9 +135,7 @@ def test_parse_config_minimal_qc_block(tmp_path):
 
     cfg_path, _ = _make_minimal_config(
         tmp_path,
-        "qc:\n"
-        "  blacklist_filter: true\n"
-        "  cross_correlation: false\n",
+        "qc:\n  blacklist_filter: true\n  cross_correlation: false\n",
     )
     result = _parse_config_minimal(str(cfg_path))
     assert result == {
@@ -165,10 +151,7 @@ def test_parse_config_minimal_tool_parameters(tmp_path):
 
     cfg_path, _ = _make_minimal_config(
         tmp_path,
-        "tool_parameters:\n"
-        "  macs3:\n"
-        "    qvalue: 0.01\n"
-        "    broad_cutoff: 0.1\n",
+        "tool_parameters:\n  macs3:\n    qvalue: 0.01\n    broad_cutoff: 0.1\n",
     )
     result = _parse_config_minimal(str(cfg_path))
     assert result == {
@@ -209,12 +192,7 @@ def test_parse_config_minimal_ignores_comments_and_blanks(tmp_path):
 
     cfg_path, _ = _make_minimal_config(
         tmp_path,
-        "\n"
-        "# comment\n"
-        "threads: 4\n"
-        "\n"
-        "  # indented comment\n"
-        "use_control: true\n",
+        "\n# comment\nthreads: 4\n\n  # indented comment\nuse_control: true\n",
     )
     result = _parse_config_minimal(str(cfg_path))
     assert result == {"threads": 4, "use_control": True}
@@ -230,9 +208,7 @@ def test_parse_config_minimal_unsupported_list_line(tmp_path):
 
     cfg_path, _ = _make_minimal_config(
         tmp_path,
-        "items:\n"
-        "  - a\n"
-        "  - b\n",
+        "items:\n  - a\n  - b\n",
     )
     result = _parse_config_minimal(str(cfg_path))
     assert result == {"items": ""}
@@ -244,9 +220,7 @@ def test_parse_config_minimal_nested_list_ignored_in_section(tmp_path):
 
     cfg_path, _ = _make_minimal_config(
         tmp_path,
-        "qc:\n"
-        "  blacklist_filter: true\n"
-        "  - ignored_item\n",
+        "qc:\n  blacklist_filter: true\n  - ignored_item\n",
     )
     result = _parse_config_minimal(str(cfg_path))
     assert result == {"qc": {"blacklist_filter": True}}
@@ -258,9 +232,7 @@ def test_parse_config_minimal_malformed_indent(tmp_path):
 
     cfg_path, _ = _make_minimal_config(
         tmp_path,
-        "threads: 4\n"
-        "    unexpected_indent: value\n"
-        "use_control: true\n",
+        "threads: 4\n    unexpected_indent: value\nuse_control: true\n",
     )
     result = _parse_config_minimal(str(cfg_path))
     # The indented line has no active section, so it is skipped.

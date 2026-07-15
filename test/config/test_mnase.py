@@ -9,9 +9,7 @@ import pytest
 from encode_pipeline.config.validate import ValidationError, validate_config
 
 
-SAMPLES_HEADER = (
-    "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
-)
+SAMPLES_HEADER = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
 SAMPLES_ROW = "M1\tR1.fq\tR2.fq\tPE\tmnase\tH3\tnucleosome\ths\tidx\n"
 
 
@@ -97,9 +95,7 @@ def test_mnase_mono_range_accepts_valid_inputs(tmp_path, raw):
         ("140,200", "non list/tuple"),
     ],
 )
-def test_mnase_mono_range_rejects_invalid_element_types(
-    tmp_path, raw, label
-):
+def test_mnase_mono_range_rejects_invalid_element_types(tmp_path, raw, label):
     if isinstance(raw, str):
         pattern = "mnase.mono_range must be a list of 2 positive ints"
     else:
@@ -126,9 +122,7 @@ def test_mnase_mono_range_rejects_non_positive_values(tmp_path, raw):
 
 @pytest.mark.parametrize("raw", [[200, 200], [200, 100]])
 def test_mnase_mono_range_rejects_min_not_less_than_max(tmp_path, raw):
-    with pytest.raises(
-        ValidationError, match="mnase.mono_range: min must be < max"
-    ):
+    with pytest.raises(ValidationError, match="mnase.mono_range: min must be < max"):
         validate_config(_make_config(tmp_path, mnase={"mono_range": raw}))
 
 
@@ -144,9 +138,7 @@ def test_mnase_fragments_empty_mapping_uses_defaults(tmp_path):
 
 @pytest.mark.parametrize("raw", ["yes", ["x"], True])
 def test_mnase_fragments_must_be_mapping(tmp_path, raw):
-    with pytest.raises(
-        ValidationError, match="mnase.fragments must be a mapping"
-    ):
+    with pytest.raises(ValidationError, match="mnase.fragments must be a mapping"):
         validate_config(_make_config(tmp_path, mnase={"fragments": raw}))
 
 
@@ -212,15 +204,9 @@ def test_mnase_fragments_sub_accepts_valid_inputs(tmp_path, raw):
         ([140], "exactly 2 elements"),
     ],
 )
-def test_mnase_fragments_sub_rejects_invalid_ranges(
-    tmp_path, raw, expected
-):
-    with pytest.raises(
-        ValidationError, match=f"mnase.fragments.sub.*{expected}"
-    ):
-        validate_config(
-            _make_config(tmp_path, mnase={"fragments": {"sub": raw}})
-        )
+def test_mnase_fragments_sub_rejects_invalid_ranges(tmp_path, raw, expected):
+    with pytest.raises(ValidationError, match=f"mnase.fragments.sub.*{expected}"):
+        validate_config(_make_config(tmp_path, mnase={"fragments": {"sub": raw}}))
 
 
 # ---------------------------------------------------------------------------
@@ -252,9 +238,7 @@ def test_mnase_dyad_range_accepts_valid_inputs(tmp_path, raw):
     ],
 )
 def test_mnase_dyad_range_rejects_invalid_ranges(tmp_path, raw, expected):
-    with pytest.raises(
-        ValidationError, match=f"mnase.dyad_range.*{expected}"
-    ):
+    with pytest.raises(ValidationError, match=f"mnase.dyad_range.*{expected}"):
         validate_config(_make_config(tmp_path, mnase={"dyad_range": raw}))
 
 
@@ -270,34 +254,24 @@ def test_mnase_callers_empty_mapping_expands_to_defaults(tmp_path):
 
 @pytest.mark.parametrize("raw", ["yes", ["x"], True])
 def test_mnase_callers_must_be_mapping(tmp_path, raw):
-    with pytest.raises(
-        ValidationError, match="mnase.callers must be a mapping"
-    ):
+    with pytest.raises(ValidationError, match="mnase.callers must be a mapping"):
         validate_config(_make_config(tmp_path, mnase={"callers": raw}))
 
 
 def test_mnase_callers_unknown_key_rejected(tmp_path):
     with pytest.raises(ValidationError, match="mnase.callers: unknown key"):
-        validate_config(
-            _make_config(tmp_path, mnase={"callers": {"unknown": False}})
-        )
+        validate_config(_make_config(tmp_path, mnase={"callers": {"unknown": False}}))
 
 
 def test_mnase_callers_string_value_rejected(tmp_path):
-    with pytest.raises(
-        ValidationError, match="mnase.callers.danpos3 must be boolean"
-    ):
-        validate_config(
-            _make_config(tmp_path, mnase={"callers": {"danpos3": "false"}})
-        )
+    with pytest.raises(ValidationError, match="mnase.callers.danpos3 must be boolean"):
+        validate_config(_make_config(tmp_path, mnase={"callers": {"danpos3": "false"}}))
 
 
 @pytest.mark.parametrize("caller", ["danpos3", "inps", "sem"])
 def test_mnase_callers_true_rejected_as_not_implemented(tmp_path, caller):
     with pytest.raises(ValidationError, match="caller execution is not implemented"):
-        validate_config(
-            _make_config(tmp_path, mnase={"callers": {caller: True}})
-        )
+        validate_config(_make_config(tmp_path, mnase={"callers": {caller: True}}))
 
 
 def test_mnase_callers_all_false_accepted(tmp_path):

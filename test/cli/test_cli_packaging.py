@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from encode_pipeline.cli import dag as dag_cli
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -56,18 +58,93 @@ def test_manifest_cli_has_no_sys_path_insert():
 # ---------------------------------------------------------------------------
 
 
+def _dag_cli_environment(**updates):
+    snakemake = dag_cli._find_snakemake()
+    assert snakemake is not None
+    environment = {
+        **os.environ,
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "SNAKEMAKE": snakemake,
+    }
+    environment.update(updates)
+    return environment
+
+
+def test_dag_snakemake_resolution_has_explicit_precedence_and_fallback(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("SNAKEMAKE", "/configured/snakemake")
+    monkeypatch.setattr(
+        dag_cli.shutil,
+        "which",
+        lambda _executable: pytest.fail("PATH lookup must follow SNAKEMAKE"),
+    )
+    assert dag_cli._find_snakemake() == "/configured/snakemake"
+
+    monkeypatch.delenv("SNAKEMAKE")
+    monkeypatch.setattr(dag_cli.shutil, "which", lambda _executable: "/path/snakemake")
+    assert dag_cli._find_snakemake() == "/path/snakemake"
+
+    home = tmp_path / "home"
+    candidate = home / "miniconda3" / "envs" / "chipseq" / "bin" / "snakemake"
+    candidate.parent.mkdir(parents=True)
+    candidate.touch()
+    candidate.chmod(0o755)
+    monkeypatch.setattr(dag_cli.shutil, "which", lambda _executable: None)
+    monkeypatch.setattr(dag_cli.Path, "home", classmethod(lambda _cls: home))
+
+    assert dag_cli._find_snakemake() == str(candidate)
+
+    candidate.unlink()
+    assert dag_cli._find_snakemake() is None
+
+
+def test_dag_dryrun_sets_default_xdg_cache_without_overriding_configuration(
+    tmp_path, monkeypatch
+):
+    config = tmp_path / "config.yaml"
+    snakefile = tmp_path / "Snakefile"
+    observed_environments = []
+
+    def run_snakemake(arguments, **kwargs):
+        observed_environments.append(kwargs["env"])
+        return subprocess.CompletedProcess(
+            arguments,
+            returncode=0,
+            stdout="rule all:\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(dag_cli, "_find_snakemake", lambda: "/tools/snakemake")
+    monkeypatch.setattr(dag_cli.subprocess, "run", run_snakemake)
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+
+    assert dag_cli._run_snakemake_dryrun(str(config), snakefile) == ["all"]
+
+    monkeypatch.setenv("XDG_CACHE_HOME", "/configured/cache")
+    assert dag_cli._run_snakemake_dryrun(str(config), snakefile) == ["all"]
+    assert [environment["XDG_CACHE_HOME"] for environment in observed_environments] == [
+        "/tmp/encode-pipeline-snakemake-cache",
+        "/configured/cache",
+    ]
+
+
 def test_dag_cli_resolves_explicit_repo_root():
     result = subprocess.run(
         [
-            sys.executable, "-m", "encode_pipeline.cli.dag",
+            sys.executable,
+            "-m",
+            "encode_pipeline.cli.dag",
             "diff",
-            "--profile", "chipseq_se_noctrl",
-            "--repo-root", str(REPO_ROOT),
+            "--profile",
+            "chipseq_se_noctrl",
+            "--repo-root",
+            str(REPO_ROOT),
         ],
         cwd=tempfile.gettempdir(),
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        env=_dag_cli_environment(),
     )
     assert result.returncode == 0, result.stderr
     assert "No differences for chipseq_se_noctrl" in result.stdout
@@ -76,27 +153,32 @@ def test_dag_cli_resolves_explicit_repo_root():
 def test_dag_cli_fails_without_repo_root_outside_repo():
     result = subprocess.run(
         [
-            sys.executable, "-m", "encode_pipeline.cli.dag",
+            sys.executable,
+            "-m",
+            "encode_pipeline.cli.dag",
             "diff",
-            "--profile", "chipseq_se_noctrl",
+            "--profile",
+            "chipseq_se_noctrl",
         ],
         cwd=tempfile.gettempdir(),
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        env=_dag_cli_environment(),
     )
     assert result.returncode == 2
     assert "Could not locate encode-pipeline repository root" in result.stderr
 
 
 def test_dag_cli_resolves_env_repo_root():
-    env = {**os.environ, "ENCODE_PIPELINE_REPO_ROOT": str(REPO_ROOT),
-           "PYTHONDONTWRITEBYTECODE": "1"}
+    env = _dag_cli_environment(ENCODE_PIPELINE_REPO_ROOT=str(REPO_ROOT))
     result = subprocess.run(
         [
-            sys.executable, "-m", "encode_pipeline.cli.dag",
+            sys.executable,
+            "-m",
+            "encode_pipeline.cli.dag",
             "diff",
-            "--profile", "chipseq_se_noctrl",
+            "--profile",
+            "chipseq_se_noctrl",
         ],
         cwd=tempfile.gettempdir(),
         capture_output=True,
@@ -115,8 +197,11 @@ def test_dag_cli_resolves_env_repo_root():
 def test_validate_cli_emits_single_structured_log_line():
     result = subprocess.run(
         [
-            sys.executable, "-m", "encode_pipeline.cli.validate",
-            "--config", str(REPO_ROOT / "config" / "config.yaml"),
+            sys.executable,
+            "-m",
+            "encode_pipeline.cli.validate",
+            "--config",
+            str(REPO_ROOT / "config" / "config.yaml"),
         ],
         capture_output=True,
         text=True,
@@ -124,7 +209,8 @@ def test_validate_cli_emits_single_structured_log_line():
     )
     assert result.returncode == 0, result.stderr
     log_lines = [
-        line for line in result.stderr.splitlines()
+        line
+        for line in result.stderr.splitlines()
         if line.startswith("[") and "encode-pipeline" in line
     ]
     assert len(log_lines) == 1, f"Expected 1 log line, got: {log_lines}"
@@ -142,18 +228,29 @@ def test_manifest_cli_matches_legacy_script(tmp_path):
     new_cli = tmp_path / "new.tsv"
 
     subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "make_manifest.py"),
-         "--config", str(REPO_ROOT / "config" / "config.yaml"),
-         "--output", str(legacy)],
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "make_manifest.py"),
+            "--config",
+            str(REPO_ROOT / "config" / "config.yaml"),
+            "--output",
+            str(legacy),
+        ],
         check=True,
         capture_output=True,
         text=True,
         env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
     )
     subprocess.run(
-        [sys.executable, "-m", "encode_pipeline.cli.manifest",
-         "--config", str(REPO_ROOT / "config" / "config.yaml"),
-         "--output", str(new_cli)],
+        [
+            sys.executable,
+            "-m",
+            "encode_pipeline.cli.manifest",
+            "--config",
+            str(REPO_ROOT / "config" / "config.yaml"),
+            "--output",
+            str(new_cli),
+        ],
         check=True,
         capture_output=True,
         text=True,

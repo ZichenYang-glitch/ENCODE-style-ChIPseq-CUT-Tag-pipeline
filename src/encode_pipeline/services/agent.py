@@ -9,9 +9,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any, cast
-from encode_pipeline.api.models import AgentRequest, AgentResponse, AgentToolCall, IssueResponse
+from encode_pipeline.api.models import (
+    AgentRequest,
+    AgentResponse,
+    AgentToolCall,
+    IssueResponse,
+)
 from encode_pipeline.platform.results import Issue, IssueSeverity, Result
-from encode_pipeline.services.agent_audit import AgentAuditSink, AuditEvent, InMemoryAuditSink
+from encode_pipeline.services.agent_audit import (
+    AgentAuditSink,
+    AuditEvent,
+    InMemoryAuditSink,
+)
 from encode_pipeline.services.agent_output_filter import OutputFilter
 from encode_pipeline.services.agent_redaction import RedactionPolicy
 from encode_pipeline.services.agent_tools import (
@@ -42,8 +51,12 @@ class AgentService:
         self._workflow_info = workflow_info
         self._validation_service = validation_service
         self._llm_client = llm_client
-        self._redaction_policy = redaction_policy if redaction_policy is not None else RedactionPolicy()
-        self._output_filter = output_filter if output_filter is not None else OutputFilter()
+        self._redaction_policy = (
+            redaction_policy if redaction_policy is not None else RedactionPolicy()
+        )
+        self._output_filter = (
+            output_filter if output_filter is not None else OutputFilter()
+        )
         self._audit_sink = audit_sink if audit_sink is not None else InMemoryAuditSink()
         if tool_registry is None:
             registry = ReadOnlyToolRegistry()
@@ -80,7 +93,9 @@ class AgentService:
 
         lookup = self._workflow_info.get_capabilities(workflow_id)
         if lookup.is_failure:
-            response = self._build_not_found_response(workflow_id, request, lookup.issues)
+            response = self._build_not_found_response(
+                workflow_id, request, lookup.issues
+            )
             response = self._redact_response(response)
             self._record_audit_event(
                 event_type="LLM_RESPONSE",
@@ -295,12 +310,22 @@ class AgentService:
 
     @staticmethod
     def _issue_codes(issue_dicts: list[dict[str, object]]) -> tuple[str, ...]:
-        return tuple(str(code) for code in (issue.get("code") for issue in issue_dicts) if code)
+        return tuple(
+            str(code) for code in (issue.get("code") for issue in issue_dicts) if code
+        )
 
     @staticmethod
     def _issue_sources(issue_dicts: list[dict[str, object]]) -> tuple[str, ...]:
-        return tuple(str(source) for source in (issue.get("source") for issue in issue_dicts) if source)
+        return tuple(
+            str(source)
+            for source in (issue.get("source") for issue in issue_dicts)
+            if source
+        )
 
     @staticmethod
     def _issue_severities(issue_dicts: list[dict[str, object]]) -> tuple[str, ...]:
-        return tuple(str(severity) for severity in (issue.get("severity") for issue in issue_dicts) if severity)
+        return tuple(
+            str(severity)
+            for severity in (issue.get("severity") for issue in issue_dicts)
+            if severity
+        )

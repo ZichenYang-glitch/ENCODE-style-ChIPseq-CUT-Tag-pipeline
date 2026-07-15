@@ -7,6 +7,7 @@ from typing import Optional
 @dataclass(frozen=True)
 class Artifact:
     """Immutable representation of one pipeline artifact entry."""
+
     id: str
     description: str
     scope: str
@@ -25,19 +26,41 @@ class Artifact:
 VALID_SCOPES = {"sample", "experiment", "project", "reference"}
 VALID_LEVELS = {"per_sample", "pooled_experiment", "project", "reference"}
 VALID_ASSAY_GATES = {
-    "all", "peak_centric", "mnase", "cuttag", "chipseq", "atac", "idr",
+    "all",
+    "peak_centric",
+    "mnase",
+    "cuttag",
+    "chipseq",
+    "atac",
+    "idr",
 }
 
 REQUIRED_FIELDS = {
-    "id", "description", "scope", "level", "assay_gate",
-    "path_template", "producing_rule", "tool",
-    "manifest_output_type", "pipeline_done", "rule_all",
-    "config_gate", "notes",
+    "id",
+    "description",
+    "scope",
+    "level",
+    "assay_gate",
+    "path_template",
+    "producing_rule",
+    "tool",
+    "manifest_output_type",
+    "pipeline_done",
+    "rule_all",
+    "config_gate",
+    "notes",
 }
 
 REQUIRED_STR_FIELDS = {
-    "id", "description", "scope", "level", "assay_gate",
-    "path_template", "producing_rule", "tool", "notes",
+    "id",
+    "description",
+    "scope",
+    "level",
+    "assay_gate",
+    "path_template",
+    "producing_rule",
+    "tool",
+    "notes",
 }
 
 
@@ -69,15 +92,16 @@ def validate_artifact(entry: dict) -> list[str]:
     for field in sorted(REQUIRED_STR_FIELDS):
         val = entry.get(field)
         if not isinstance(val, str):
-            errors.append(
-                f"id={eid}: {field} must be str, got {type(val).__name__}"
-            )
+            errors.append(f"id={eid}: {field} must be str, got {type(val).__name__}")
 
     if isinstance(entry.get("scope"), str) and entry["scope"] not in VALID_SCOPES:
         errors.append(f"id={eid}: invalid scope '{entry['scope']}'")
     if isinstance(entry.get("level"), str) and entry["level"] not in VALID_LEVELS:
         errors.append(f"id={eid}: invalid level '{entry['level']}'")
-    if isinstance(entry.get("assay_gate"), str) and entry["assay_gate"] not in VALID_ASSAY_GATES:
+    if (
+        isinstance(entry.get("assay_gate"), str)
+        and entry["assay_gate"] not in VALID_ASSAY_GATES
+    ):
         errors.append(f"id={eid}: invalid assay_gate '{entry['assay_gate']}'")
 
     pt = entry.get("path_template")
@@ -132,8 +156,15 @@ def artifacts_by_manifest_output_type(artifacts):
     return result
 
 
-def filter_artifacts(artifacts, *, assay_gate=None, scope=None,
-                     level=None, pipeline_done=None, rule_all=None):
+def filter_artifacts(
+    artifacts,
+    *,
+    assay_gate=None,
+    scope=None,
+    level=None,
+    pipeline_done=None,
+    rule_all=None,
+):
     """Filter artifacts by field values. None means no filter."""
     results = list(artifacts)
     if assay_gate is not None:

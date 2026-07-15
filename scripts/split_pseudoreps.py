@@ -39,17 +39,22 @@ def _count_reads(bam_path):
     """Return read count from a BAM file via samtools view -c."""
     result = subprocess.run(
         [_SAMTOOLS, "view", "-c", bam_path],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
-        print(f"ERROR: samtools view -c failed for {bam_path}: {result.stderr}",
-              file=sys.stderr)
+        print(
+            f"ERROR: samtools view -c failed for {bam_path}: {result.stderr}",
+            file=sys.stderr,
+        )
         sys.exit(1)
     try:
         return int(result.stdout.strip())
     except ValueError:
-        print(f"ERROR: samtools view -c returned non-integer: {result.stdout}",
-              file=sys.stderr)
+        print(
+            f"ERROR: samtools view -c returned non-integer: {result.stdout}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 
@@ -61,8 +66,9 @@ def main():
     parser.add_argument("--out1", required=True, help="Output pr1 BAM")
     parser.add_argument("--out2", required=True, help="Output pr2 BAM")
     parser.add_argument("--seed", type=int, required=True, help="Seed for hash")
-    parser.add_argument("--threads", type=int, default=4,
-                        help="Threads for samtools sort")
+    parser.add_argument(
+        "--threads", type=int, default=4, help="Threads for samtools sort"
+    )
     args = parser.parse_args()
 
     # Check samtools is callable
@@ -122,9 +128,11 @@ def main():
             sys.exit(1)
 
         subprocess.run(
-            [_SAMTOOLS, "index", "-@", str(args.threads), args.out1], check=True)
+            [_SAMTOOLS, "index", "-@", str(args.threads), args.out1], check=True
+        )
         subprocess.run(
-            [_SAMTOOLS, "index", "-@", str(args.threads), args.out2], check=True)
+            [_SAMTOOLS, "index", "-@", str(args.threads), args.out2], check=True
+        )
 
         n_input = _count_reads(args.input)
         n_pr1 = _count_reads(args.out1)
@@ -138,8 +146,10 @@ def main():
             )
             sys.exit(1)
 
-        print(f"Split complete: pr1={n_pr1}, pr2={n_pr2}, "
-              f"total={n_pr1 + n_pr2}, input={n_input}")
+        print(
+            f"Split complete: pr1={n_pr1}, pr2={n_pr2}, "
+            f"total={n_pr1 + n_pr2}, input={n_input}"
+        )
 
     finally:
         view_proc.wait()

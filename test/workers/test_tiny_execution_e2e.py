@@ -31,6 +31,9 @@ from encode_pipeline.workers.settings import (
 from .process_helpers import run_burst_worker
 
 
+pytestmark = pytest.mark.platform_real_execution
+
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PROFILE_ROOT = REPOSITORY_ROOT / "test" / "profiles" / "platform_worker_tiny"
 TEST_REDIS_URL_ENV = "ENCODE_PIPELINE_TEST_REDIS_URL"

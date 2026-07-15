@@ -12,7 +12,6 @@ Usage:
 
 import argparse
 import json
-import sys
 
 _VALIDATION_DATASETS = [
     {
@@ -79,9 +78,19 @@ _VALIDATION_DATASETS = [
 ]
 
 _MANIFEST_COLUMNS = [
-    "queue", "assay", "target", "accession", "source_url",
-    "genome", "layout", "peak_mode", "n_treatment_bioreps",
-    "n_control_samples", "stage5_idr", "seacr_enabled", "notes",
+    "queue",
+    "assay",
+    "target",
+    "accession",
+    "source_url",
+    "genome",
+    "layout",
+    "peak_mode",
+    "n_treatment_bioreps",
+    "n_control_samples",
+    "stage5_idr",
+    "seacr_enabled",
+    "notes",
 ]
 
 
@@ -107,8 +116,15 @@ def _print_json(datasets):
 
 
 _METADATA_CHECK_FIELDS = [
-    "assay", "target", "genome", "layout", "n_treatment_bioreps",
-    "n_control_samples", "has_control", "peak_mode", "stage5_idr",
+    "assay",
+    "target",
+    "genome",
+    "layout",
+    "n_treatment_bioreps",
+    "n_control_samples",
+    "has_control",
+    "peak_mode",
+    "stage5_idr",
 ]
 
 
@@ -116,9 +132,7 @@ def _print_report_stubs(datasets):
     """Print queue name, accession, and expected report stub path."""
     print("=== Public Data Execution Report Stubs ===\n")
     for ds in datasets:
-        stub_path = (
-            f"docs/release-checks/public-data-runs/{ds['queue']}.md"
-        )
+        stub_path = f"docs/release-checks/public-data-runs/{ds['queue']}.md"
         print(f"{ds['queue']:30s} {ds['accession']:15s}  {stub_path}")
     print()
     print("Template: docs/release-checks/public-data-execution-report-template.md")
@@ -129,8 +143,12 @@ def _print_metadata_checklist(datasets):
     """Print metadata fields to verify for each dataset (no network)."""
     print("=== Public Validation Dataset Metadata Checklist ===\n")
     print("Verify the following fields before downloading data.\n")
-    print("ENCODE datasets: check at https://www.encodeproject.org/experiments/<accession>/")
-    print("GEO datasets:    check at https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=<accession>\n")
+    print(
+        "ENCODE datasets: check at https://www.encodeproject.org/experiments/<accession>/"
+    )
+    print(
+        "GEO datasets:    check at https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=<accession>\n"
+    )
 
     for ds in datasets:
         print(f"--- {ds['queue']} ({ds['accession']}) ---")
@@ -147,14 +165,18 @@ def _print_metadata_checklist(datasets):
     print("- All metadata fields above must match the dataset's official record.")
     print("- If assay or target differ, the dataset is rejected for that queue.")
     print("- If replicate count differs, re-evaluate sample sheet structure.")
-    print("- If genome build differs from hg38, accept only if mm10 alternative is suitable.")
+    print(
+        "- If genome build differs from hg38, accept only if mm10 alternative is suitable."
+    )
     print("- If data is not publicly accessible or requires dbGaP login, reject.")
     print()
     print("=== Manual Verification Steps ===")
     print("1. Navigate to the source URL for each accession.")
     print("2. Confirm the organism, cell type/tissue, and treatment.")
     print("3. Confirm FASTQ or BAM availability (not just processed peaks/signals).")
-    print("4. Record the exact file URLs or GEO/SRA run accessions for downstream fetch.")
+    print(
+        "4. Record the exact file URLs or GEO/SRA run accessions for downstream fetch."
+    )
     print("5. Note library layout (PE/SE) and read length.")
     print()
     print("No network requests were made by this script.")
@@ -165,19 +187,27 @@ def main():
         description="Stage 27a: public data validation input inventory"
     )
     parser.add_argument(
-        "--json", action="store_true", default=False,
+        "--json",
+        action="store_true",
+        default=False,
         help="Output JSON instead of TSV",
     )
     parser.add_argument(
-        "--dry-run", action="store_true", default=False,
+        "--dry-run",
+        action="store_true",
+        default=False,
         help="Print planned actions without executing",
     )
     parser.add_argument(
-        "--check-metadata", action="store_true", default=False,
+        "--check-metadata",
+        action="store_true",
+        default=False,
         help="Print metadata fields to verify for each dataset (no network)",
     )
     parser.add_argument(
-        "--report-stubs", action="store_true", default=False,
+        "--report-stubs",
+        action="store_true",
+        default=False,
         help="Print queue names and expected report stub paths (no download)",
     )
     args = parser.parse_args()
@@ -194,8 +224,10 @@ def main():
         print("[dry-run] Would print validation dataset inventory")
         print(f"[dry-run] {len(_VALIDATION_DATASETS)} dataset(s) defined")
         for ds in _VALIDATION_DATASETS:
-            print(f"  {ds['queue']}: {ds['assay']} / {ds['target']} "
-                  f"({ds['accession']}) — {ds['notes']}")
+            print(
+                f"  {ds['queue']}: {ds['assay']} / {ds['target']} "
+                f"({ds['accession']}) — {ds['notes']}"
+            )
         print("[dry-run] No downloads performed")
         return
 

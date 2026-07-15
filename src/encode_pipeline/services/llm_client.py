@@ -36,14 +36,15 @@ class LLMClient(Protocol):
         self,
         messages: list[LLMMessage],
         tools: list[ToolDefinition],
-    ) -> LLMResponse:
-        ...
+    ) -> LLMResponse: ...
 
 
 class MockLLMClient:
     """Deterministic LLM client for tests and early integration."""
 
-    def __init__(self, response_text: str = "", tool_calls: list[ToolCall] | None = None):
+    def __init__(
+        self, response_text: str = "", tool_calls: list[ToolCall] | None = None
+    ):
         self._response_text = response_text
         self._tool_calls = tuple(tool_calls or ())
 

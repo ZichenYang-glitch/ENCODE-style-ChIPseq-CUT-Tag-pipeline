@@ -100,7 +100,10 @@ def test_idr_pseudorep_bai(idr_paths_namespace):
 
 def test_idr_biorep_bam_old_literal_match(idr_paths_namespace):
     """Ensure the helper returns the exact string previously inlined."""
-    assert idr_paths_namespace["idr_biorep_bam"]("EXP", 1) == "results/experiments/EXP/02_align/biorep1.final.bam"
+    assert (
+        idr_paths_namespace["idr_biorep_bam"]("EXP", 1)
+        == "results/experiments/EXP/02_align/biorep1.final.bam"
+    )
 
 
 def test_idr_inputs_match_legacy_inlined_paths(idr_paths_namespace):
@@ -111,8 +114,14 @@ def test_idr_inputs_match_legacy_inlined_paths(idr_paths_namespace):
     """
     exp = "EXP"
     br = 1
-    assert idr_paths_namespace["idr_biorep_bam"](exp, br) == f"results/experiments/{exp}/02_align/biorep{br}.final.bam"
-    assert idr_paths_namespace["idr_biorep_bai"](exp, br) == f"results/experiments/{exp}/02_align/biorep{br}.final.bam.bai"
+    assert (
+        idr_paths_namespace["idr_biorep_bam"](exp, br)
+        == f"results/experiments/{exp}/02_align/biorep{br}.final.bam"
+    )
+    assert (
+        idr_paths_namespace["idr_biorep_bai"](exp, br)
+        == f"results/experiments/{exp}/02_align/biorep{br}.final.bam.bai"
+    )
     assert (
         idr_paths_namespace["idr_pooled_treatment_bam"](exp)
         == f"results/experiments/{exp}/02_align/{exp}.pooled.final.bam"
@@ -158,14 +167,18 @@ def test_idr_split_input(idr_paths_namespace, source, expected):
 
 
 def test_idr_pseudorep_peaks_inputs(idr_paths_namespace):
-    assert idr_paths_namespace["idr_pseudorep_peaks_inputs"]("EXP1", "biorep2", "1") == [
+    assert idr_paths_namespace["idr_pseudorep_peaks_inputs"](
+        "EXP1", "biorep2", "1"
+    ) == [
         "results/experiments/EXP1/05_pseudorep/EXP1_biorep2.pr1.bam",
         "results/experiments/EXP1/05_pseudorep/EXP1_biorep2.pr1.bam.bai",
     ]
 
 
 def test_idr_pseudorep_peaks_inputs_with_prefix(idr_paths_namespace_with_control):
-    assert idr_paths_namespace_with_control["idr_pseudorep_peaks_inputs"]("EXP1", "pooled", "2", source_prefix="atac_") == [
+    assert idr_paths_namespace_with_control["idr_pseudorep_peaks_inputs"](
+        "EXP1", "pooled", "2", source_prefix="atac_"
+    ) == [
         "results/experiments/EXP1/05_pseudorep/EXP1_atac_pooled.pr2.bam",
         "results/experiments/EXP1/05_pseudorep/EXP1_atac_pooled.pr2.bam.bai",
         "results/experiments/EXP1/02_align/EXP1.pooled.control.final.bam",
@@ -182,15 +195,21 @@ def test_idr_pseudorep_peaks_inputs_with_prefix(idr_paths_namespace_with_control
         ("cuttag", "broad", ["--broad", "--broad-cutoff 0.1"]),
     ],
 )
-def test_idr_macs3_args_dispatch(idr_paths_namespace_chipseq_pe, assay, peak_mode, expected_subset):
+def test_idr_macs3_args_dispatch(
+    idr_paths_namespace_chipseq_pe, assay, peak_mode, expected_subset
+):
     args = idr_paths_namespace_chipseq_pe["idr_macs3_args"]("EXP1", assay, peak_mode)
     for fragment in expected_subset:
         assert fragment in args, f"{fragment!r} not in {args!r}"
 
 
 def test_idr_macs3_args_se_layout(idr_paths_namespace_chipseq_se):
-    assert "-f BAM" in idr_paths_namespace_chipseq_se["idr_macs3_args"]("EXP2", "chipseq", "narrow")
-    assert "-g mm" in idr_paths_namespace_chipseq_se["idr_macs3_args"]("EXP2", "chipseq", "narrow")
+    assert "-f BAM" in idr_paths_namespace_chipseq_se["idr_macs3_args"](
+        "EXP2", "chipseq", "narrow"
+    )
+    assert "-g mm" in idr_paths_namespace_chipseq_se["idr_macs3_args"](
+        "EXP2", "chipseq", "narrow"
+    )
 
 
 def test_idr_macs3_args_empty_experiment(idr_paths_namespace):
@@ -215,10 +234,10 @@ def test_idr_biorep_labels(idr_paths_namespace):
 def test_legacy_idr_biorep_peaks_inputs_match_inlined(idr_paths_namespace, exp, br):
     """Legacy idr.smk / idr_atac.smk / idr_cuttag.smk / idr_broad.smk inlined:
 
-        inputs = [
-            idr_biorep_bam(exp, br),
-            idr_biorep_bai(exp, br),
-        ]
+    inputs = [
+        idr_biorep_bam(exp, br),
+        idr_biorep_bai(exp, br),
+    ]
     """
     expected = [
         f"results/experiments/{exp}/02_align/biorep{br}.final.bam",
@@ -236,7 +255,10 @@ def test_legacy_idr_biorep_peaks_inputs_with_control_match_inlined(
         "results/experiments/EXP1/02_align/biorep2.final.bam.bai",
         "results/experiments/EXP1/02_align/EXP1.pooled.control.final.bam",
     ]
-    assert idr_paths_namespace_with_control["idr_biorep_peaks_inputs"]("EXP1", 2) == expected
+    assert (
+        idr_paths_namespace_with_control["idr_biorep_peaks_inputs"]("EXP1", 2)
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -332,12 +354,26 @@ def test_legacy_idr_pseudorep_peaks_inputs_with_control_match_inlined(
         (
             "atac",
             "narrow",
-            ["-f BAMPE", "-g hs", "-p 0.1", "--nomodel", "--shift -100", "--extsize 200"],
+            [
+                "-f BAMPE",
+                "-g hs",
+                "-p 0.1",
+                "--nomodel",
+                "--shift -100",
+                "--extsize 200",
+            ],
         ),
         (
             "cuttag",
             "narrow",
-            ["-f BAMPE", "-g hs", "-p 0.1", "--nomodel", "--shift -100", "--extsize 200"],
+            [
+                "-f BAMPE",
+                "-g hs",
+                "-p 0.1",
+                "--nomodel",
+                "--shift -100",
+                "--extsize 200",
+            ],
         ),
         (
             "chipseq",
@@ -414,9 +450,10 @@ def test_legacy_idr_biorep_labels_match_inlined(idr_paths_namespace):
     ],
 )
 def test_idr_repro_peak_input(idr_paths_namespace, index, assay, peak_suffix, expected):
-    assert idr_paths_namespace["idr_repro_peak_input"](
-        "EXP1", index, assay, peak_suffix
-    ) == expected
+    assert (
+        idr_paths_namespace["idr_repro_peak_input"]("EXP1", index, assay, peak_suffix)
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -496,9 +533,10 @@ def test_legacy_idr_repro_peak_input_match_private_helpers(idr_paths_namespace):
     ],
 )
 def test_idr_self_thresh_path(idr_paths_namespace, index, assay, peak_suffix, expected):
-    assert idr_paths_namespace["idr_self_thresh_path"](
-        "EXP1", index, assay, peak_suffix
-    ) == expected
+    assert (
+        idr_paths_namespace["idr_self_thresh_path"]("EXP1", index, assay, peak_suffix)
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -606,9 +644,10 @@ def test_legacy_idr_self_thresh_path_match_private_helpers(idr_paths_namespace):
     ],
 )
 def test_idr_pooled_peak_input(idr_paths_namespace, pr, assay, peak_suffix, expected):
-    assert idr_paths_namespace["idr_pooled_peak_input"](
-        "EXP1", pr, assay, peak_suffix
-    ) == expected
+    assert (
+        idr_paths_namespace["idr_pooled_peak_input"]("EXP1", pr, assay, peak_suffix)
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -708,9 +747,10 @@ def test_legacy_idr_pooled_peak_input_match_private_helpers(idr_paths_namespace)
     ],
 )
 def test_idr_pooled_thresh_path(idr_paths_namespace, assay, peak_suffix, expected):
-    assert idr_paths_namespace["idr_pooled_thresh_path"](
-        "EXP1", assay, peak_suffix
-    ) == expected
+    assert (
+        idr_paths_namespace["idr_pooled_thresh_path"]("EXP1", assay, peak_suffix)
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -730,9 +770,7 @@ def test_idr_pooled_thresh_path_invalid_combo(idr_paths_namespace, assay, peak_s
 def test_legacy_idr_pooled_thresh_path_match_inlined(idr_paths_namespace):
     """Legacy summary rule input.pool_thresh literals."""
     exp = "EXP1"
-    assert idr_paths_namespace["idr_pooled_thresh_path"](
-        exp, "atac", "narrowPeak"
-    ) == (
+    assert idr_paths_namespace["idr_pooled_thresh_path"](exp, "atac", "narrowPeak") == (
         f"results/experiments/{exp}/06_reproducibility/idr/"
         f"pooled_pseudoreplicates/{exp}_atac_idr.thresholded.narrowPeak"
     )

@@ -3,22 +3,47 @@ name: Lint
 "on":
   pull_request:
   push:
-    branches: [main, "stage*"]
+    branches: [main]
   workflow_dispatch:
-  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
+      - name: Record job start
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Confirm exact checkout
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          actual_sha=$(git rev-parse HEAD)
+          test "$actual_sha" = "$EXPECTED_SHA"
+          pr_head_sha=${PR_HEAD_SHA:-n/a}
+          pr_base_sha=${PR_BASE_SHA:-n/a}
+          echo "event=$EVENT_NAME tier=lint tested-sha=$actual_sha pr-head-sha=$pr_head_sha pr-base-sha=$pr_base_sha"
+          echo "### CI identity" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Event: \`$EVENT_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tier: \`lint\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tested SHA: \`$actual_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR head SHA: \`$pr_head_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR base SHA: \`$pr_base_sha\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup micromamba
         uses: mamba-org/setup-micromamba@v3
@@ -28,10 +53,34 @@ jobs:
           cache-environment: true
           cache-environment-key: ci-lint-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-lint.lock') }}
 
+      - name: Ruff check
+        shell: micromamba-shell {0}
+        run: python3 -m ruff check src scripts test containers workflow/lib
+
+      - name: Ruff format check
+        shell: micromamba-shell {0}
+        run: python3 -m ruff format --check src scripts test containers workflow/lib
+
+      - name: Parse GitHub workflow YAML
+        shell: micromamba-shell {0}
+        run: >-
+          python3 -c "from pathlib import Path; import yaml;
+          files=sorted(Path('.github/workflows').glob('*.yml'));
+          assert files; [yaml.safe_load(path.read_text()) for path in files];
+          print(f'Parsed {len(files)} workflow files')"
+
       - name: snakefmt check
         shell: micromamba-shell {0}
         run: snakefmt --check workflow/
 
-      - name: snakemake lint baseline
+      - name: Snakemake lint baseline
         shell: micromamba-shell {0}
         run: python3 test/check_snakemake_lint.py
+
+      - name: Report lint wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_STARTED ))
+          echo "### lint timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Soft budget: 60s (informational)" >> "$GITHUB_STEP_SUMMARY"

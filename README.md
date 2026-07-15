@@ -518,27 +518,30 @@ SNAKEMAKE=/path/to/snakemake python3 -m pytest -m real_execution \
 ```
 
 All outputs land under pytest-managed temporary directories. Missing external
-tools are reported as an explicit skip. MACS3 is intentionally omitted because
-the dry-run profiles cover its DAG.
+tools are reported as an explicit skip for an opt-in local run and as a
+failure in the fail-closed CI tier. MACS3 is intentionally omitted because the
+dry-run profiles cover its DAG.
 See [the real-execution harness](docs/development/real-execution-harness.md)
 for tier ownership and prerequisites.
 
 ### CI
 
-A GitHub Actions workflow runs on every PR and push to `main` / `stage*`.
-PR/push CI uses the locked `ci-fast` environment and currently covers:
+Every PR runs one fast Python unit/contract/validator/DAG-smoke selection, then
+reuses its coverage artifact for the 80% changed-lines gate. It also runs
+OpenAPI/generated-client drift, frontend tests/typecheck/build, critical
+browser journeys, lint, and environment lock checks. Pushes to `main`, manual
+dispatches, nightly schedules, and published releases run the complete
+deterministic Python suite and enforce the 83% repository coverage floor plus
+the core-module floors.
 
-- Validate default config + sample sheet
-- Durable execution, persistence, API, and worker contracts
-- Config validation and dry-run smoke profiles
-- No-hardcoded-paths guard
-- BigWig, QC summary, manifest, complete Python coverage, and changed-lines checks
-- OpenAPI/generated-client drift, frontend tests, typecheck, and build
-- Critical browser execution journeys
-
-A manual `workflow_dispatch` job runs the tiny real-execution harness
-using the core `chipseq` environment.  See `.github/workflows/ci.yml`
-and the `workflow/envs/ci-fast.lock` environment.
+Real platform execution (Redis/RQ, SIGALRM, cancellation, tiny Snakemake),
+scientific real tools, and the runner-container smoke are separate
+fail-closed jobs for manual dispatch, nightly, and release events. They are
+not recommended required PR contexts. The recommended stable required checks
+are `fast-checks`, `frontend`, `browser-e2e`, `lint`, `lock-check`, and
+`coverage`; configuring repository settings remains a separate maintainer
+action. See [the development harness](docs/development/harness.md),
+`.github/workflows/ci.yml`, and `workflow/envs/ci-fast.lock`.
 
 For local environment layout, first-run behavior, and cleanup commands, see
 [docs/environments.md](docs/environments.md).

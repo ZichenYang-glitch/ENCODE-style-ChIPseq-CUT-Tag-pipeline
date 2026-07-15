@@ -15,10 +15,14 @@ import shutil
 import tempfile
 import subprocess
 
+import pytest
+
 # --- Tool resolution --------------------------------------------------------
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(_REPO, "test"))
 from _tool_resolver import resolve_tool  # noqa: E402
+
+pytestmark = pytest.mark.full_main
 
 SNAKEMAKE = resolve_tool("snakemake", "SNAKEMAKE")
 

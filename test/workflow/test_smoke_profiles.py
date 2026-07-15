@@ -93,13 +93,12 @@ def test_quiet_dryrun(profile, profiles_dir, snakefile):
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-@pytest.mark.parametrize("profile", SMOKE_PROFILES)
-def test_scheduling_rules(profile, profiles_dir, snakefile):
+@pytest.mark.parametrize(
+    ("profile", "expected_rules"),
+    sorted(SCHEDULING_CHECKS.items()),
+)
+def test_scheduling_rules(profile, expected_rules, profiles_dir, snakefile):
     """Verify expected rules are scheduled for profiles with scheduling checks."""
-    expected_rules = SCHEDULING_CHECKS.get(profile)
-    if not expected_rules:
-        pytest.skip(f"No scheduling checks configured for {profile}")
-
     from conftest import prepare_profile_workdir
 
     profile_dir = os.path.join(profiles_dir, profile)

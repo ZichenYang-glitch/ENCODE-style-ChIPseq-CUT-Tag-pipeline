@@ -26,7 +26,6 @@ def _biological_replicates(rows):
 
 def _validate_treatment_consistency(exp, rows, error_cls):
     """Check that treatment rows in one experiment agree on key fields."""
-    first = rows[0]
     for field in ("assay", "target", "condition", "genome", "peak_mode", "layout"):
         values = {r[field] for r in rows}
         if len(values) > 1:
@@ -87,12 +86,16 @@ def _validate_control_consistency(exp, rows, all_samples, error_cls):
                 )
 
 
-def validate_replicate_groups(samples, use_control, stage5_enabled=False,
-                              reproducibility_idr_atac_narrow=False,
-                              reproducibility_idr_cuttag_narrow=False,
-                              reproducibility_idr_chipseq_broad=False,
-                              reproducibility_idr_cuttag_broad=False,
-                              error_cls=ValidationError):
+def validate_replicate_groups(
+    samples,
+    use_control,
+    stage5_enabled=False,
+    reproducibility_idr_atac_narrow=False,
+    reproducibility_idr_cuttag_narrow=False,
+    reproducibility_idr_chipseq_broad=False,
+    reproducibility_idr_cuttag_broad=False,
+    error_cls=ValidationError,
+):
     """Pass 3: cross-replicate validation for Stage 4b replicate-aware outputs.
 
     Raises *error_cls* on:
@@ -130,10 +133,10 @@ def validate_replicate_groups(samples, use_control, stage5_enabled=False,
             first = rows[0]
 
             if first["assay"] != "chipseq":
-                continue       # skip non-chipseq silently
+                continue  # skip non-chipseq silently
 
             if first["peak_mode"] != "narrow":
-                continue       # skip chipseq broad
+                continue  # skip chipseq broad
 
             bio_reps = _biological_replicates(rows)
             if len(bio_reps) != 2:
@@ -146,8 +149,7 @@ def validate_replicate_groups(samples, use_control, stage5_enabled=False,
 
         if not chipseq_narrow_exps:
             raise error_cls(
-                "stage5=true but no eligible ChIP-seq narrow experiments "
-                "were found."
+                "stage5=true but no eligible ChIP-seq narrow experiments were found."
             )
 
     # --- reproducibility.idr.atac_narrow eligibility (Stage 55) ---
@@ -158,9 +160,9 @@ def validate_replicate_groups(samples, use_control, stage5_enabled=False,
                 continue
             first = rows[0]
             if first["assay"] != "atac":
-                continue       # skip non-ATAC silently
+                continue  # skip non-ATAC silently
             if first["peak_mode"] != "narrow":
-                continue       # ATAC broad — no IDR
+                continue  # ATAC broad — no IDR
             bio_reps = _biological_replicates(rows)
             if len(bio_reps) != 2:
                 raise error_cls(
@@ -186,10 +188,10 @@ def validate_replicate_groups(samples, use_control, stage5_enabled=False,
             first = rows[0]
 
             if first["assay"] != "cuttag":
-                continue       # skip non-CUT&Tag silently
+                continue  # skip non-CUT&Tag silently
 
             if first["peak_mode"] != "narrow":
-                continue       # skip CUT&Tag broad
+                continue  # skip CUT&Tag broad
 
             bio_reps = _biological_replicates(rows)
             if len(bio_reps) != 2:
@@ -216,10 +218,10 @@ def validate_replicate_groups(samples, use_control, stage5_enabled=False,
             first = rows[0]
 
             if first["assay"] != "chipseq":
-                continue       # skip non-chipseq silently
+                continue  # skip non-chipseq silently
 
             if first["peak_mode"] != "broad":
-                continue       # skip chipseq narrow
+                continue  # skip chipseq narrow
 
             bio_reps = _biological_replicates(rows)
             if len(bio_reps) != 2:
@@ -247,10 +249,10 @@ def validate_replicate_groups(samples, use_control, stage5_enabled=False,
             first = rows[0]
 
             if first["assay"] != "cuttag":
-                continue       # skip non-CUT&Tag silently
+                continue  # skip non-CUT&Tag silently
 
             if first["peak_mode"] != "broad":
-                continue       # skip CUT&Tag narrow
+                continue  # skip CUT&Tag narrow
 
             bio_reps = _biological_replicates(rows)
             if len(bio_reps) != 2:

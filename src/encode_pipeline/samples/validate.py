@@ -23,8 +23,14 @@ def validate_sample_row(row: dict, *, use_control: bool = False) -> SampleRecord
     future CLI usage, not for hot-path Snakefile parsing.
     """
     required = [
-        "sample", "fastq_1", "layout", "assay",
-        "target", "peak_mode", "genome", "bowtie2_index",
+        "sample",
+        "fastq_1",
+        "layout",
+        "assay",
+        "target",
+        "peak_mode",
+        "genome",
+        "bowtie2_index",
     ]
     header = list(row.keys())
     for col in required:

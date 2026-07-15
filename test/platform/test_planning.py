@@ -1,12 +1,20 @@
 """Tests for execution planning platform primitives."""
 
-from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
-from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
+from encode_pipeline.platform.planning import (
+    ExecutionPlan,
+    PlanStatus,
+    WorkspaceBaseDirRelativeError,
+    WorkspacePathAbsoluteError,
+    WorkspacePathInvalidError,
+    WorkspacePathPolicy,
+    WorkspacePathTraversalError,
+)
 
 
 def test_plan_status_values():
@@ -125,7 +133,9 @@ def test_execution_plan_issues_defaults_to_empty_tuple():
 
 
 def test_execution_plan_rejects_non_issue_issues():
-    with pytest.raises(ValueError, match="ExecutionPlan issues must contain only Issue entries"):
+    with pytest.raises(
+        ValueError, match="ExecutionPlan issues must contain only Issue entries"
+    ):
         ExecutionPlan(
             plan_id="plan-1",
             run_id="run-1",
@@ -135,17 +145,6 @@ def test_execution_plan_rejects_non_issue_issues():
             created_at=datetime.now(timezone.utc),
             issues=("not-an-issue",),
         )
-
-
-from pathlib import Path
-
-from encode_pipeline.platform.planning import (
-    WorkspaceBaseDirRelativeError,
-    WorkspacePathAbsoluteError,
-    WorkspacePathPolicy,
-    WorkspacePathTraversalError,
-    WorkspacePathInvalidError,
-)
 
 
 def test_workspace_path_policy_accepts_valid_relative_paths(tmp_path):

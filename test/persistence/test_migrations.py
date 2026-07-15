@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import inspect, text
 
 from encode_pipeline.persistence import create_database_engine
@@ -9,6 +10,9 @@ from encode_pipeline.persistence.migrations import (
     downgrade_database,
     upgrade_database,
 )
+
+
+pytestmark = pytest.mark.full_main
 
 
 EXPECTED_TABLES = {

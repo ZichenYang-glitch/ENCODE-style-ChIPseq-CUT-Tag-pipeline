@@ -421,7 +421,8 @@ completion, and persisted Snakemake log markers. Run it with:
 
 ```bash
 ENCODE_PIPELINE_TEST_REDIS_URL=redis://localhost:6379/0 \
-  PYTHONPATH=src python -m pytest test/workers/test_tiny_execution_e2e.py -v
+  PYTHONPATH=src python -m pytest -m platform_real_execution \
+  test/workers/test_tiny_execution_e2e.py -v
 ```
 
 `test/workers/test_cancellation_e2e.py` creates a deterministic, long-running
@@ -430,15 +431,18 @@ Redis, real Snakemake executable, file-backed SQLite, and independent
 `DurableWorker` boundary. The test records the Snakemake/helper/child PIDs and
 shared RQ horse process group, requests cancellation through HTTP, then proves
 that the group is gone, no completion marker exists, logs remain persisted,
-SQLite is `cancelled`, and RQ reports `STOPPED` in its failed-job registry. Both
-tests run in the pull-request `fast-checks` job, where Redis and Snakemake are
-required rather than optional.
+SQLite is `cancelled`, and RQ reports `STOPPED` in its failed-job registry.
+Together with `test/workers/test_redis_process_integration.py`, these tests are
+marked `platform_real_execution`. They run in the non-required
+`platform-real-execution` job on manual dispatch, nightly schedule, and
+published release—not in pull-request `fast-checks`.
 
-Ordinary local full-suite runs skip the real-process tests when the dedicated
-Redis test URL is absent. Once that URL enables the cancellation gate,
-`snakemake` and POSIX process groups are mandatory and a missing prerequisite is
-a test failure. Real scientific data execution remains covered by the existing
-Snakemake profiles and execution harness.
+Ordinary local deterministic-suite runs exclude the platform-real marker. An
+explicit local platform-real run may skip when the dedicated Redis test URL is
+absent. CI always supplies that URL and Redis service; once enabled,
+`snakemake` and POSIX process groups are mandatory, and the JUnit gate rejects
+any skip or xfail. Real scientific data execution remains covered by the
+separate Snakemake profiles and scientific execution harness.
 
 The required browser E2E uses the same controlled results project as the demo,
 but an invocation-owned temporary database, workspace, queue, and service

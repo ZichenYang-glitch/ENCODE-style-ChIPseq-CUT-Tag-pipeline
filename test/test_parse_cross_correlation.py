@@ -9,7 +9,7 @@ import subprocess
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_REPO, "scripts"))
-from parse_cross_correlation import (
+from parse_cross_correlation import (  # noqa: E402
     parse_cc_qc_file,
     sample_name_from_path,
     _quality_flag,
@@ -24,6 +24,7 @@ def _write_file(path, lines):
 
 
 # --- _try_float ----------------------------------------------------------
+
 
 def test_try_float_valid():
     assert _try_float("1.05") == 1.05
@@ -41,6 +42,7 @@ def test_try_float_invalid():
 
 
 # --- _quality_flag -------------------------------------------------------
+
 
 def test_quality_flag_ok():
     assert _quality_flag(1.1, 1.0) == "ok"
@@ -66,6 +68,7 @@ def test_quality_flag_parse_failed():
 
 # --- sample_name_from_path -----------------------------------------------
 
+
 def test_sample_name_standard():
     assert sample_name_from_path("/path/to/s1.cc.qc") == "s1"
 
@@ -83,16 +86,20 @@ def test_sample_name_no_suffix_fallback():
 
 # --- parse_cc_qc_file ----------------------------------------------------
 
+
 def test_parse_standard_header_format():
     """Tab-separated header + data format (standard run_spp.R -out)."""
     td = tempfile.mkdtemp(prefix="cc_parse_")
     try:
         fp = os.path.join(td, "s1.cc.qc")
-        _write_file(fp, [
-            "Filename\tnumReads\testFragLen\tcorr_estFragLen\tPhantomPeak\t"
-            "corr_phantomPeak\targmin_corr\tmin_corr\tNSC\tRSC\tQualityTag",
-            "s1.bam\t10000000\t175\t0.85\t225\t0.60\t7\t0.55\t1.12\t1.45\t-1",
-        ])
+        _write_file(
+            fp,
+            [
+                "Filename\tnumReads\testFragLen\tcorr_estFragLen\tPhantomPeak\t"
+                "corr_phantomPeak\targmin_corr\tmin_corr\tNSC\tRSC\tQualityTag",
+                "s1.bam\t10000000\t175\t0.85\t225\t0.60\t7\t0.55\t1.12\t1.45\t-1",
+            ],
+        )
         result = parse_cc_qc_file(fp)
         assert result["estimated_fragment_length"] == 175
         assert result["phantom_peak"] == 225
@@ -108,9 +115,12 @@ def test_parse_headerless_encode_format():
     td = tempfile.mkdtemp(prefix="cc_parse_")
     try:
         fp = os.path.join(td, "s1.cc.qc")
-        _write_file(fp, [
-            "s1.tagAlign\t10000000\t175\t0.85\t225\t0.60\t7\t0.55\t1.12\t1.45\t-1",
-        ])
+        _write_file(
+            fp,
+            [
+                "s1.tagAlign\t10000000\t175\t0.85\t225\t0.60\t7\t0.55\t1.12\t1.45\t-1",
+            ],
+        )
         result = parse_cc_qc_file(fp)
         assert result["estimated_fragment_length"] == 175
         assert result["phantom_peak"] == 225
@@ -126,13 +136,16 @@ def test_parse_comment_header_format():
     td = tempfile.mkdtemp(prefix="cc_parse_")
     try:
         fp = os.path.join(td, "s2.cc.qc")
-        _write_file(fp, [
-            "# Filename: s2.bam",
-            "# cross-correlation peak = 200",
-            "# phantom peak = 250",
-            "# NSC = 2.30",
-            "# RSC = 1.80",
-        ])
+        _write_file(
+            fp,
+            [
+                "# Filename: s2.bam",
+                "# cross-correlation peak = 200",
+                "# phantom peak = 250",
+                "# NSC = 2.30",
+                "# RSC = 1.80",
+            ],
+        )
         result = parse_cc_qc_file(fp)
         assert result["estimated_fragment_length"] == 200
         assert result["phantom_peak"] == 250
@@ -147,10 +160,13 @@ def test_parse_malformed_returns_none():
     td = tempfile.mkdtemp(prefix="cc_parse_")
     try:
         fp = os.path.join(td, "bad.cc.qc")
-        _write_file(fp, [
-            "garbage line with no structure",
-            "also bad",
-        ])
+        _write_file(
+            fp,
+            [
+                "garbage line with no structure",
+                "also bad",
+            ],
+        )
         result = parse_cc_qc_file(fp)
         assert result["nsc"] is None
         assert result["rsc"] is None
@@ -184,9 +200,12 @@ def test_parse_header_with_columns_only():
     td = tempfile.mkdtemp(prefix="cc_parse_")
     try:
         fp = os.path.join(td, "header_only.cc.qc")
-        _write_file(fp, [
-            "Filename\tnumReads\testFragLen\tNSC\tRSC\tPhantomPeak\tQualityTag",
-        ])
+        _write_file(
+            fp,
+            [
+                "Filename\tnumReads\testFragLen\tNSC\tRSC\tPhantomPeak\tQualityTag",
+            ],
+        )
         result = parse_cc_qc_file(fp)
         assert result["nsc"] is None
         assert result["rsc"] is None
@@ -199,10 +218,13 @@ def test_parse_partial_data():
     td = tempfile.mkdtemp(prefix="cc_parse_")
     try:
         fp = os.path.join(td, "partial.cc.qc")
-        _write_file(fp, [
-            "Filename\tNSC\tRSC",
-            "s1.bam\t1.08\t1.33",
-        ])
+        _write_file(
+            fp,
+            [
+                "Filename\tNSC\tRSC",
+                "s1.bam\t1.08\t1.33",
+            ],
+        )
         result = parse_cc_qc_file(fp)
         assert result["nsc"] == 1.08
         assert result["rsc"] == 1.33
@@ -218,19 +240,25 @@ def test_quality_flag_integration():
     try:
         # Good sample
         fp_good = os.path.join(td, "good.cc.qc")
-        _write_file(fp_good, [
-            "Filename\tnumReads\testFragLen\tNSC\tRSC\tPhantomPeak\tQualityTag",
-            "good.bam\t10000000\t175\t1.12\t1.45\t225\t-1",
-        ])
+        _write_file(
+            fp_good,
+            [
+                "Filename\tnumReads\testFragLen\tNSC\tRSC\tPhantomPeak\tQualityTag",
+                "good.bam\t10000000\t175\t1.12\t1.45\t225\t-1",
+            ],
+        )
         parsed = parse_cc_qc_file(fp_good)
         assert _quality_flag(parsed["nsc"], parsed["rsc"]) == "ok"
 
         # Low NSC
         fp_low = os.path.join(td, "low_nsc.cc.qc")
-        _write_file(fp_low, [
-            "Filename\tnumReads\testFragLen\tNSC\tRSC\tPhantomPeak\tQualityTag",
-            "low.bam\t10000000\t175\t1.02\t1.20\t225\t-1",
-        ])
+        _write_file(
+            fp_low,
+            [
+                "Filename\tnumReads\testFragLen\tNSC\tRSC\tPhantomPeak\tQualityTag",
+                "low.bam\t10000000\t175\t1.02\t1.20\t225\t-1",
+            ],
+        )
         parsed = parse_cc_qc_file(fp_low)
         assert _quality_flag(parsed["nsc"], parsed["rsc"]) == "low_nsc"
 
@@ -251,9 +279,12 @@ def test_cli_writes_basename_for_cc_qc_file():
         os.makedirs(nested)
         fp = os.path.join(nested, "s1.cc.qc")
         out = os.path.join(td, "summary.tsv")
-        _write_file(fp, [
-            "s1.tagAlign\t10000000\t175\t0.85\t225\t0.60\t7\t0.55\t1.12\t1.45\t-1",
-        ])
+        _write_file(
+            fp,
+            [
+                "s1.tagAlign\t10000000\t175\t0.85\t225\t0.60\t7\t0.55\t1.12\t1.45\t-1",
+            ],
+        )
 
         script = os.path.join(_REPO, "scripts", "parse_cross_correlation.py")
         result = subprocess.run(

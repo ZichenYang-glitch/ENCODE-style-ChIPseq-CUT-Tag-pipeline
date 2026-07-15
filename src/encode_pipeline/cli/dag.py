@@ -153,9 +153,7 @@ def _run_snakemake_dryrun(config_path, snakefile):
         env={**env, "PYTHONDONTWRITEBYTECODE": "1"},
     )
     if result.returncode != 0:
-        raise RuntimeError(
-            f"snakemake -n failed:\n{result.stdout}\n{result.stderr}"
-        )
+        raise RuntimeError(f"snakemake -n failed:\n{result.stdout}\n{result.stderr}")
     return _extract_rule_names(result.stdout, result.stderr)
 
 
@@ -192,7 +190,9 @@ def _cmd_snapshot(args):
 
 def _cmd_diff(args):
     rules = _snapshot(args.profile, args.repo_root)
-    snapshot_path = args.repo_root / "test" / "fixtures" / "dag_snapshots" / f"{args.profile}.txt"
+    snapshot_path = (
+        args.repo_root / "test" / "fixtures" / "dag_snapshots" / f"{args.profile}.txt"
+    )
     if not snapshot_path.exists():
         raise FileNotFoundError(f"Snapshot missing: {snapshot_path}")
     expected = _read_snapshot(snapshot_path)
@@ -216,11 +216,15 @@ def main(argv=None):
     snap = sub.add_parser("snapshot", help="Generate a DAG rule snapshot")
     snap.add_argument("--profile", required=True, help="Smoke-test profile name")
     snap.add_argument("--output", default=None, help="Output file (default: stdout)")
-    snap.add_argument("--repo-root", default=None, help="Path to pipeline repository root")
+    snap.add_argument(
+        "--repo-root", default=None, help="Path to pipeline repository root"
+    )
 
     diff = sub.add_parser("diff", help="Diff current DAG against stored snapshot")
     diff.add_argument("--profile", required=True, help="Smoke-test profile name")
-    diff.add_argument("--repo-root", default=None, help="Path to pipeline repository root")
+    diff.add_argument(
+        "--repo-root", default=None, help="Path to pipeline repository root"
+    )
 
     args = parser.parse_args(argv)
 

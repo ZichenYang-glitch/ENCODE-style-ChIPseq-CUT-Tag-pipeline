@@ -15,7 +15,12 @@ import os
 import subprocess
 import sys
 
+import pytest
+
 from _tool_resolver import resolve_tool
+
+
+pytestmark = pytest.mark.full_main
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

@@ -9,9 +9,7 @@ import pytest
 from encode_pipeline.config.validate import ValidationError, validate_config
 
 
-SAMPLES_HEADER = (
-    "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
-)
+SAMPLES_HEADER = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
 SAMPLES_ROW = "S1\tR1.fq\tR2.fq\tPE\tcuttag\tT\tnarrow\ths\tidx\n"
 
 
@@ -71,9 +69,7 @@ def test_cuttag_unknown_top_level_key_rejected(tmp_path):
 
 def test_cuttag_unknown_seacr_key_rejected(tmp_path):
     with pytest.raises(ValidationError, match="cuttag.seacr: unknown key"):
-        validate_config(
-            _make_config(tmp_path, cuttag={"seacr": {"unknown_key": True}})
-        )
+        validate_config(_make_config(tmp_path, cuttag={"seacr": {"unknown_key": True}}))
 
 
 # ---------------------------------------------------------------------------
@@ -93,9 +89,7 @@ def test_cuttag_peak_caller_accepts_macs3(tmp_path):
 
 @pytest.mark.parametrize("raw", ["seacr", "macs2", ""])
 def test_cuttag_peak_caller_rejects_non_macs3(tmp_path, raw):
-    with pytest.raises(
-        ValidationError, match="cuttag.peak_caller must be 'macs3'"
-    ):
+    with pytest.raises(ValidationError, match="cuttag.peak_caller must be 'macs3'"):
         validate_config(_make_config(tmp_path, cuttag={"peak_caller": raw}))
 
 
@@ -131,9 +125,7 @@ def test_cuttag_seacr_must_be_mapping(tmp_path, raw):
         ("FALSE", False),
     ],
 )
-def test_cuttag_seacr_enabled_accepts_bool_and_string_booleans(
-    tmp_path, raw, expected
-):
+def test_cuttag_seacr_enabled_accepts_bool_and_string_booleans(tmp_path, raw, expected):
     validated = validate_config(
         _make_config(tmp_path, cuttag={"seacr": {"enabled": raw}})
     )
@@ -144,9 +136,7 @@ def test_cuttag_seacr_enabled_rejects_invalid_strings(tmp_path):
     with pytest.raises(
         ValidationError, match="cuttag.seacr.enabled must be true or false"
     ):
-        validate_config(
-            _make_config(tmp_path, cuttag={"seacr": {"enabled": "maybe"}})
-        )
+        validate_config(_make_config(tmp_path, cuttag={"seacr": {"enabled": "maybe"}}))
 
 
 # ---------------------------------------------------------------------------
@@ -156,9 +146,7 @@ def test_cuttag_seacr_enabled_rejects_invalid_strings(tmp_path):
 
 @pytest.mark.parametrize("raw", ["stringent", "relaxed"])
 def test_cuttag_seacr_mode_accepts_allowed_values(tmp_path, raw):
-    validated = validate_config(
-        _make_config(tmp_path, cuttag={"seacr": {"mode": raw}})
-    )
+    validated = validate_config(_make_config(tmp_path, cuttag={"seacr": {"mode": raw}}))
     assert validated["cuttag"]["seacr"]["mode"] == raw
 
 
@@ -168,9 +156,7 @@ def test_cuttag_seacr_mode_rejects_invalid_values(tmp_path, raw):
         ValidationError,
         match="cuttag.seacr.mode must be 'stringent' or 'relaxed'",
     ):
-        validate_config(
-            _make_config(tmp_path, cuttag={"seacr": {"mode": raw}})
-        )
+        validate_config(_make_config(tmp_path, cuttag={"seacr": {"mode": raw}}))
 
 
 # ---------------------------------------------------------------------------
@@ -219,9 +205,7 @@ def test_cuttag_seacr_threshold_rejects_out_of_range_values(tmp_path, raw):
     with pytest.raises(
         ValidationError, match="cuttag.seacr.threshold must be in \\(0, 1\\)"
     ):
-        validate_config(
-            _make_config(tmp_path, cuttag={"seacr": {"threshold": raw}})
-        )
+        validate_config(_make_config(tmp_path, cuttag={"seacr": {"threshold": raw}}))
 
 
 @pytest.mark.parametrize("raw", [True, False, "abc", None])
@@ -230,9 +214,7 @@ def test_cuttag_seacr_threshold_rejects_non_numeric_values(tmp_path, raw):
         ValidationError,
         match="cuttag.seacr.threshold must be a float in \\(0, 1\\)",
     ):
-        validate_config(
-            _make_config(tmp_path, cuttag={"seacr": {"threshold": raw}})
-        )
+        validate_config(_make_config(tmp_path, cuttag={"seacr": {"threshold": raw}}))
 
 
 # ---------------------------------------------------------------------------

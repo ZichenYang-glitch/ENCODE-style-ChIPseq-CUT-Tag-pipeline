@@ -4,7 +4,12 @@ import os
 import shutil
 import subprocess
 
+import pytest
+
 from conftest import prepare_profile_workdir
+
+
+pytestmark = pytest.mark.full_main
 
 
 MNASE_COMPLETION_RULES = {

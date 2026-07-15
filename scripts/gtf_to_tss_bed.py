@@ -40,11 +40,7 @@ def _bed_record(fields, index):
 
     tss0 = start_i - 1 if strand == "+" else end_i - 1
     attrs = parse_gtf_attributes(attrs_text)
-    name = (
-        attrs.get("transcript_id")
-        or attrs.get("gene_id")
-        or f"{feature}_{index}"
-    )
+    name = attrs.get("transcript_id") or attrs.get("gene_id") or f"{feature}_{index}"
     return (chrom, tss0, tss0 + 1, name, "0", strand)
 
 
@@ -78,9 +74,7 @@ def write_bed(records, output_path):
     """Write BED6 records."""
     with open(output_path, "w") as out:
         for chrom, start, end, name, score, strand in records:
-            out.write(
-                f"{chrom}\t{start}\t{end}\t{name}\t{score}\t{strand}\n"
-            )
+            out.write(f"{chrom}\t{start}\t{end}\t{name}\t{score}\t{strand}\n")
 
 
 def main(argv=None):
@@ -93,8 +87,10 @@ def main(argv=None):
 
     records = collect_tss_records(args.gtf)
     if not records:
-        print(f"ERROR: no transcript or gene TSS records found in {args.gtf}",
-              file=sys.stderr)
+        print(
+            f"ERROR: no transcript or gene TSS records found in {args.gtf}",
+            file=sys.stderr,
+        )
         return 1
     write_bed(records, args.output)
     return 0

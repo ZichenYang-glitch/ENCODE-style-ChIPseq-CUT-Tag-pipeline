@@ -5,15 +5,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 
-SENSITIVE_KEYS: frozenset[str] = frozenset({
-    "password",
-    "token",
-    "secret",
-    "api_key",
-    "access_key",
-    "private_key",
-    "credential",
-})
+SENSITIVE_KEYS: frozenset[str] = frozenset(
+    {
+        "password",
+        "token",
+        "secret",
+        "api_key",
+        "access_key",
+        "private_key",
+        "credential",
+    }
+)
 
 _PATH_TERMINATOR = r"(?:\s+(?=\w+(?:[.,;:!?](?=\s|[()\[\]{}\"\'\`<>]|$)|\s|[()\[\]{}\"\'\`<>]|$))|\s+(?=[()\[\]{}\"\'\`<>])|(?=[()\[\]{}\"\'\`<>])|[.,;:!?]\s|[.,;:!?]$|$)"
 
@@ -105,7 +107,9 @@ class RedactionPolicy:
             absolute_paths_redacted=total_paths,
         )
 
-    def _redact(self, value: object, ctx: _RedactionContext, depth: int) -> RedactionResult:
+    def _redact(
+        self, value: object, ctx: _RedactionContext, depth: int
+    ) -> RedactionResult:
         if depth > _MAX_DEPTH:
             return RedactionResult(value="<MAX_DEPTH_REACHED>")
         if isinstance(value, str):

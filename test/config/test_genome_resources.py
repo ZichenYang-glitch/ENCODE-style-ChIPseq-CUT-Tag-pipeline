@@ -10,9 +10,7 @@ from encode_pipeline.config.validate import (
 )
 
 
-SAMPLES_HEADER = (
-    "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
-)
+SAMPLES_HEADER = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
 SAMPLES_ROW = "S1\tR1.fq\tR2.fq\tPE\tchipseq\tT\tnarrow\ths\tidx\n"
 
 
@@ -94,14 +92,18 @@ def test_effective_genome_size_is_required(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("field", ["chrom_sizes", "blacklist", "gtf", "reference_fasta"])
+@pytest.mark.parametrize(
+    "field", ["chrom_sizes", "blacklist", "gtf", "reference_fasta"]
+)
 def test_optional_genome_resource_path_fields_allow_empty_strings(tmp_path, field):
     resources = {"hs": {"effective_genome_size": "hs", field: ""}}
     validated = validate_config(_make_config(tmp_path, genome_resources=resources))
     assert validated["genome_resources"]["hs"][field] == ""
 
 
-@pytest.mark.parametrize("field", ["chrom_sizes", "blacklist", "gtf", "reference_fasta"])
+@pytest.mark.parametrize(
+    "field", ["chrom_sizes", "blacklist", "gtf", "reference_fasta"]
+)
 def test_optional_genome_resource_path_fields_require_existing_files(tmp_path, field):
     missing = tmp_path / f"missing-{field}.txt"
     resources = {"hs": {"effective_genome_size": "hs", field: str(missing)}}
@@ -112,7 +114,9 @@ def test_optional_genome_resource_path_fields_require_existing_files(tmp_path, f
         validate_config(_make_config(tmp_path, genome_resources=resources))
 
 
-@pytest.mark.parametrize("field", ["chrom_sizes", "blacklist", "gtf", "reference_fasta"])
+@pytest.mark.parametrize(
+    "field", ["chrom_sizes", "blacklist", "gtf", "reference_fasta"]
+)
 def test_optional_genome_resource_path_fields_accept_existing_files(tmp_path, field):
     resource_path = tmp_path / f"{field}.txt"
     resource_path.write_text("placeholder\n", encoding="utf-8")

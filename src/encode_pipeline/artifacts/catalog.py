@@ -9,7 +9,12 @@ from encode_pipeline.artifacts.models import (
 )
 
 
-_CATALOG_PATH = Path(__file__).resolve().parents[3] / "docs" / "architecture" / "artifact-inventory.yaml"
+_CATALOG_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "docs"
+    / "architecture"
+    / "artifact-inventory.yaml"
+)
 
 
 def _default_catalog_path() -> str:
@@ -28,7 +33,9 @@ def load_catalog(path: Optional[str] = None) -> list[Artifact]:
     return load_artifacts(path)
 
 
-def describe(output_type: str, catalog: Optional[list[Artifact]] = None) -> Optional[Artifact]:
+def describe(
+    output_type: str, catalog: Optional[list[Artifact]] = None
+) -> Optional[Artifact]:
     """Return the ``Artifact`` whose ``manifest_output_type`` equals ``output_type``.
 
     Returns ``None`` if no match is found. If ``catalog`` is omitted, the
@@ -42,7 +49,9 @@ def describe(output_type: str, catalog: Optional[list[Artifact]] = None) -> Opti
     return None
 
 
-def expected_for_assay(assay: str, catalog: Optional[list[Artifact]] = None) -> list[Artifact]:
+def expected_for_assay(
+    assay: str, catalog: Optional[list[Artifact]] = None
+) -> list[Artifact]:
     """Return artifacts expected for a given assay.
 
     Matching rules:

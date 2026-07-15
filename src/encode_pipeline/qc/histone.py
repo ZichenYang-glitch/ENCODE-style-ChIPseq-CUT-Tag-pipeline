@@ -11,21 +11,35 @@ Usage:
 
 # Target groups (uppercase, de-punctuated for matching)
 BROAD_LIKE = {
-    "H3K27ME3", "H3K36ME3", "H3K9ME3",
-    "H3K79ME2", "H3K79ME3",
-    "H4K20ME1", "H4K20ME3",
+    "H3K27ME3",
+    "H3K36ME3",
+    "H3K9ME3",
+    "H3K79ME2",
+    "H3K79ME3",
+    "H4K20ME1",
+    "H4K20ME3",
 }
 
 NARROW_LIKE = {
     "H3K4ME3",
-    "H3K9AC", "H3K14AC", "H3K18AC", "H3K23AC", "H3K56AC",
-    "H4K5AC", "H4K8AC", "H4K12AC", "H4K16AC",
+    "H3K9AC",
+    "H3K14AC",
+    "H3K18AC",
+    "H3K23AC",
+    "H3K56AC",
+    "H4K5AC",
+    "H4K8AC",
+    "H4K12AC",
+    "H4K16AC",
     # H2A.Z variants
-    "H2AZ", "H2AFZ",
+    "H2AZ",
+    "H2AFZ",
 }
 
 CONTEXT_DEPENDENT = {
-    "H3K27AC", "H3K4ME1", "H3K4ME2",
+    "H3K27AC",
+    "H3K4ME1",
+    "H3K4ME2",
 }
 
 

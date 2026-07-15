@@ -46,12 +46,14 @@ class WorkflowInfoService:
         try:
             return Result.success(self._registry.get(workflow_id))
         except KeyError:
-            return Result.failure([
-                Issue(
-                    code="WORKFLOW_NOT_FOUND",
-                    message="Workflow was not found.",
-                    source="workflow_info",
-                    path="workflow_id",
-                    context={"workflow_id": workflow_id},
-                )
-            ])
+            return Result.failure(
+                [
+                    Issue(
+                        code="WORKFLOW_NOT_FOUND",
+                        message="Workflow was not found.",
+                        source="workflow_info",
+                        path="workflow_id",
+                        context={"workflow_id": workflow_id},
+                    )
+                ]
+            )

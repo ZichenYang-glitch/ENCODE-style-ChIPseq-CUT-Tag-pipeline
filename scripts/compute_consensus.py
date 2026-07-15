@@ -50,56 +50,73 @@ def parse_args(argv=None):
         description="Compute replicate-validated consensus peaks (Stage 54)"
     )
     parser.add_argument(
-        "--peaks", nargs="+", required=True,
+        "--peaks",
+        nargs="+",
+        required=True,
         help="Per-biorep peak files",
     )
     parser.add_argument(
-        "--bioreps", nargs="+", required=True,
+        "--bioreps",
+        nargs="+",
+        required=True,
         help="Biological replicate labels (one per --peaks file)",
     )
     parser.add_argument(
-        "--format", required=True,
+        "--format",
+        required=True,
         choices=sorted(VALID_FORMATS),
         help="Peak file format",
     )
     parser.add_argument(
-        "--min-replicates", type=int, default=2,
+        "--min-replicates",
+        type=int,
+        default=2,
         help="Minimum supporting biological replicates (default: 2)",
     )
     parser.add_argument(
-        "--reciprocal-overlap", type=float, default=0.5,
+        "--reciprocal-overlap",
+        type=float,
+        default=0.5,
         help="Reciprocal overlap threshold in (0, 1] (default: 0.5)",
     )
     parser.add_argument(
-        "--output", required=True,
+        "--output",
+        required=True,
         help="Output consensus peak file path",
     )
     parser.add_argument(
-        "--summary", required=True,
+        "--summary",
+        required=True,
         help="Output summary TSV path",
     )
     parser.add_argument(
-        "--experiment", required=True,
+        "--experiment",
+        required=True,
         help="Experiment identifier",
     )
     parser.add_argument(
-        "--assay", required=True,
+        "--assay",
+        required=True,
         help="Assay type (e.g. chipseq, cuttag, atac)",
     )
     parser.add_argument(
-        "--caller", required=True,
+        "--caller",
+        required=True,
         help="Peak caller (e.g. macs3, seacr)",
     )
     parser.add_argument(
-        "--peak-mode", required=True,
+        "--peak-mode",
+        required=True,
         help="Peak mode (e.g. narrow, broad, stringent)",
     )
     parser.add_argument(
-        "--final-method", default="",
+        "--final-method",
+        default="",
         help="Primary final reproducibility method for this mode",
     )
     parser.add_argument(
-        "--final-output", default="",
+        "--final-output",
+        default="",
         help="Path to primary final validated peak file",
     )
     return parser.parse_args(argv)
@@ -118,13 +135,9 @@ def validate_inputs(args):
     n_bioreps = len(args.bioreps)
 
     if n_peaks < 2:
-        errors.append(
-            "at least two peak files / biological replicates are required"
-        )
+        errors.append("at least two peak files / biological replicates are required")
     if n_peaks != n_bioreps:
-        errors.append(
-            f"{n_peaks} peak file(s) but {n_bioreps} biorep label(s)"
-        )
+        errors.append(f"{n_peaks} peak file(s) but {n_bioreps} biorep label(s)")
 
     seen_bioreps = set()
     for label in args.bioreps:
@@ -142,8 +155,7 @@ def validate_inputs(args):
 
     if not (0 < args.reciprocal_overlap <= 1):
         errors.append(
-            f"reciprocal-overlap must be in (0, 1], "
-            f"got {args.reciprocal_overlap}"
+            f"reciprocal-overlap must be in (0, 1], got {args.reciprocal_overlap}"
         )
 
     for path in args.peaks:
@@ -207,8 +219,7 @@ def _parse_peak_line(fields, fmt, path, line_no):
     if fmt == "narrowPeak":
         if len(fields) < NARROWPEAK_COLS:
             raise ValueError(
-                f"expected {NARROWPEAK_COLS} narrowPeak columns, "
-                f"got {len(fields)}"
+                f"expected {NARROWPEAK_COLS} narrowPeak columns, got {len(fields)}"
             )
         chrom = fields[0]
         start = _parse_coord(fields[1], "start")
@@ -220,21 +231,25 @@ def _parse_peak_line(fields, fmt, path, line_no):
         pvalue = fields[7] if len(fields) > 7 else "-1"
         qvalue = fields[8] if len(fields) > 8 else "-1"
         peak_val = _parse_int_or_none(fields[9])
-        return chrom, start, end, {
-            "name": fields[3] if len(fields) > 3 else ".",
-            "score": score,
-            "strand": strand_val,
-            "signalValue": signal_value,
-            "pValue": pvalue,
-            "qValue": qvalue,
-            "peak": peak_val,
-        }
+        return (
+            chrom,
+            start,
+            end,
+            {
+                "name": fields[3] if len(fields) > 3 else ".",
+                "score": score,
+                "strand": strand_val,
+                "signalValue": signal_value,
+                "pValue": pvalue,
+                "qValue": qvalue,
+                "peak": peak_val,
+            },
+        )
 
     elif fmt == "broadPeak":
         if len(fields) < BROADPEAK_COLS:
             raise ValueError(
-                f"expected {BROADPEAK_COLS} broadPeak columns, "
-                f"got {len(fields)}"
+                f"expected {BROADPEAK_COLS} broadPeak columns, got {len(fields)}"
             )
         chrom = fields[0]
         start = _parse_coord(fields[1], "start")
@@ -245,20 +260,24 @@ def _parse_peak_line(fields, fmt, path, line_no):
         signal_value = _parse_float_safe(fields[6], "signalValue")
         pvalue = fields[7] if len(fields) > 7 else "-1"
         qvalue = fields[8] if len(fields) > 8 else "-1"
-        return chrom, start, end, {
-            "name": fields[3] if len(fields) > 3 else ".",
-            "score": score,
-            "strand": strand_val,
-            "signalValue": signal_value,
-            "pValue": pvalue,
-            "qValue": qvalue,
-        }
+        return (
+            chrom,
+            start,
+            end,
+            {
+                "name": fields[3] if len(fields) > 3 else ".",
+                "score": score,
+                "strand": strand_val,
+                "signalValue": signal_value,
+                "pValue": pvalue,
+                "qValue": qvalue,
+            },
+        )
 
     elif fmt == "bed":
         if len(fields) < BED_MIN_COLS:
             raise ValueError(
-                f"expected at least {BED_MIN_COLS} BED columns, "
-                f"got {len(fields)}"
+                f"expected at least {BED_MIN_COLS} BED columns, got {len(fields)}"
             )
         chrom = fields[0]
         start = _parse_coord(fields[1], "start")
@@ -267,15 +286,20 @@ def _parse_peak_line(fields, fmt, path, line_no):
         name = fields[3] if len(fields) > 3 else "."
         score = _parse_int_safe(fields[4], "score") if len(fields) > 4 else 0
         strand_val = fields[5] if len(fields) > 5 else "."
-        signal_value = _parse_float_safe(
-            fields[6], "signalValue"
-        ) if len(fields) > 6 else 0.0
-        return chrom, start, end, {
-            "name": name,
-            "score": score,
-            "strand": strand_val,
-            "signalValue": signal_value,
-        }
+        signal_value = (
+            _parse_float_safe(fields[6], "signalValue") if len(fields) > 6 else 0.0
+        )
+        return (
+            chrom,
+            start,
+            end,
+            {
+                "name": name,
+                "score": score,
+                "strand": strand_val,
+                "signalValue": signal_value,
+            },
+        )
 
     else:
         raise ValueError(f"unknown format: {fmt}")
@@ -295,9 +319,7 @@ def _parse_coord(value, name):
 def _check_interval(start, end):
     """Raise ValueError if end <= start."""
     if end <= start:
-        raise ValueError(
-            f"end ({end}) must be greater than start ({start})"
-        )
+        raise ValueError(f"end ({end}) must be greater than start ({start})")
 
 
 def _parse_int_safe(value, name):
@@ -361,8 +383,10 @@ def build_overlap_graph(peaks, reciprocal_overlap):
                 continue
 
             # Reciprocal overlap check
-            if (overlap / len_a >= reciprocal_overlap and
-                    overlap / len_b >= reciprocal_overlap):
+            if (
+                overlap / len_a >= reciprocal_overlap
+                and overlap / len_b >= reciprocal_overlap
+            ):
                 graph[idx_a].add(idx_b)
                 graph[idx_b].add(idx_a)
 
@@ -434,6 +458,7 @@ def compute_consensus_peaks(retained_components, peaks, n_bioreps, fmt):
 
     Returns list of tab-separated strings.
     """
+
     # Sort components by consensus coordinates, then deterministic source order.
     def component_key(item):
         comp_nodes, _, bioreps = item
@@ -506,35 +531,69 @@ def _build_consensus_row(comp_nodes, peaks, support_count, n_bioreps, name, fmt)
         elif sv == max_signal and best_signal_peak is not None:
             # Tie-break: smallest (chrom, start, end), then biorep, then index
             old_start, old_end, old_biorep, _, old_idx = best_signal_peak
-            if (start < old_start or
-                    (start == old_start and end < old_end) or
-                    (start == old_start and end == old_end and biorep < old_biorep) or
-                    (start == old_start and end == old_end and biorep == old_biorep
-                     and node_idx < old_idx)):
+            if (
+                start < old_start
+                or (start == old_start and end < old_end)
+                or (start == old_start and end == old_end and biorep < old_biorep)
+                or (
+                    start == old_start
+                    and end == old_end
+                    and biorep == old_biorep
+                    and node_idx < old_idx
+                )
+            ):
                 best_signal_peak = (start, end, biorep, fields, node_idx)
 
-    signal_value_str = str(max_signal) if max_signal != int(max_signal) else str(int(max_signal))
+    signal_value_str = (
+        str(max_signal) if max_signal != int(max_signal) else str(int(max_signal))
+    )
 
     if chrom is None:
         chrom = "."
 
     if fmt == "narrowPeak":
         summit = _derive_summit(best_signal_peak, min_start, max_end)
-        return "\t".join([
-            str(chrom), str(int(min_start)), str(int(max_end)), str(name), str(score),
-            str(strand), str(signal_value_str), "-1", "-1", str(summit),
-        ])
+        return "\t".join(
+            [
+                str(chrom),
+                str(int(min_start)),
+                str(int(max_end)),
+                str(name),
+                str(score),
+                str(strand),
+                str(signal_value_str),
+                "-1",
+                "-1",
+                str(summit),
+            ]
+        )
 
     elif fmt == "broadPeak":
-        return "\t".join([
-            str(chrom), str(int(min_start)), str(int(max_end)), str(name), str(score),
-            str(strand), str(signal_value_str), "-1", "-1",
-        ])
+        return "\t".join(
+            [
+                str(chrom),
+                str(int(min_start)),
+                str(int(max_end)),
+                str(name),
+                str(score),
+                str(strand),
+                str(signal_value_str),
+                "-1",
+                "-1",
+            ]
+        )
 
     elif fmt == "bed":
-        return "\t".join([
-            str(chrom), str(int(min_start)), str(int(max_end)), str(name), str(score), str(strand),
-        ])
+        return "\t".join(
+            [
+                str(chrom),
+                str(int(min_start)),
+                str(int(max_end)),
+                str(name),
+                str(score),
+                str(strand),
+            ]
+        )
 
     return ""
 
@@ -589,10 +648,19 @@ def write_summary_tsv(
     consensus_peak_count = len(retained_components)
 
     header = [
-        "experiment", "assay", "peak_mode", "caller", "n_bioreps",
-        "min_replicates", "reciprocal_overlap", "consensus_peak_count",
-        "support_distribution", "biorep_labels", "source_peak_files",
-        "final_method", "final_output",
+        "experiment",
+        "assay",
+        "peak_mode",
+        "caller",
+        "n_bioreps",
+        "min_replicates",
+        "reciprocal_overlap",
+        "consensus_peak_count",
+        "support_distribution",
+        "biorep_labels",
+        "source_peak_files",
+        "final_method",
+        "final_output",
     ]
 
     biorep_labels_str = ",".join(sorted(args.bioreps))
@@ -600,11 +668,19 @@ def write_summary_tsv(
     support_dist_json = json.dumps(support_distribution)
 
     row = [
-        args.experiment, args.assay, args.peak_mode, args.caller,
-        str(n_bioreps), str(args.min_replicates),
-        str(args.reciprocal_overlap), str(consensus_peak_count),
-        support_dist_json, biorep_labels_str, source_peak_files_json,
-        args.final_method, args.final_output,
+        args.experiment,
+        args.assay,
+        args.peak_mode,
+        args.caller,
+        str(n_bioreps),
+        str(args.min_replicates),
+        str(args.reciprocal_overlap),
+        str(consensus_peak_count),
+        support_dist_json,
+        biorep_labels_str,
+        source_peak_files_json,
+        args.final_method,
+        args.final_output,
     ]
 
     with open(path, "w") as fh:

@@ -20,7 +20,6 @@ Usage:
 
 import argparse
 import shutil
-import sys
 
 
 def count_peaks(path):
@@ -43,9 +42,7 @@ def compute_ratio(numerator, denominator):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Stage 5b reproducibility summary"
-    )
+    parser = argparse.ArgumentParser(description="Stage 5b reproducibility summary")
     parser.add_argument("--true-peaks", required=True)
     parser.add_argument("--pooled-peaks", required=True)
     parser.add_argument("--self1-peaks", required=True)
@@ -89,30 +86,42 @@ def main():
 
     # Write summary TSV
     with open(args.output_tsv, "w") as fh:
-        fh.write("\t".join([
-            "experiment",
-            "true_peaks(Nt)",
-            "pooled_peaks(Np)",
-            "self1_peaks(N1)",
-            "self2_peaks(N2)",
-            "rescue_ratio",
-            "self_consistency_ratio",
-            "reproducibility_status",
-        ]) + "\n")
-        fh.write("\t".join([
-            args.experiment,
-            str(Nt),
-            str(Np),
-            str(N1),
-            str(N2),
-            rescue_ratio,
-            self_ratio,
-            status,
-        ]) + "\n")
+        fh.write(
+            "\t".join(
+                [
+                    "experiment",
+                    "true_peaks(Nt)",
+                    "pooled_peaks(Np)",
+                    "self1_peaks(N1)",
+                    "self2_peaks(N2)",
+                    "rescue_ratio",
+                    "self_consistency_ratio",
+                    "reproducibility_status",
+                ]
+            )
+            + "\n"
+        )
+        fh.write(
+            "\t".join(
+                [
+                    args.experiment,
+                    str(Nt),
+                    str(Np),
+                    str(N1),
+                    str(N2),
+                    rescue_ratio,
+                    self_ratio,
+                    status,
+                ]
+            )
+            + "\n"
+        )
 
-    print(f"Summary: exp={args.experiment} Nt={Nt} Np={Np} "
-          f"N1={N1} N2={N2} "
-          f"rescue={rescue_ratio} self={self_ratio} status={status}")
+    print(
+        f"Summary: exp={args.experiment} Nt={Nt} Np={Np} "
+        f"N1={N1} N2={N2} "
+        f"rescue={rescue_ratio} self={self_ratio} status={status}"
+    )
 
 
 if __name__ == "__main__":

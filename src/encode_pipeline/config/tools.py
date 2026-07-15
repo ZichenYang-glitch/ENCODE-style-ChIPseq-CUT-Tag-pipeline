@@ -11,14 +11,11 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
         return {}
 
     if isinstance(tool_params, bool):
-        raise error_cls(
-            "tool_parameters must be a mapping, got boolean"
-        )
+        raise error_cls("tool_parameters must be a mapping, got boolean")
 
     if not isinstance(tool_params, dict):
         raise error_cls(
-            f"tool_parameters must be a mapping, "
-            f"got {type(tool_params).__name__}"
+            f"tool_parameters must be a mapping, got {type(tool_params).__name__}"
         )
 
     known_tools = defaults.TOOL_PARAMETERS_TOOLS
@@ -31,15 +28,13 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
         if val in ("true", "false"):
             return val == "true"
         raise error_cls(
-            f"tool_parameters.{tool}.{key} must be true or false, "
-            f"got {raw!r}"
+            f"tool_parameters.{tool}.{key} must be true or false, got {raw!r}"
         )
 
     def _normalize_int(tool, key, raw, minimum=0):
         if isinstance(raw, bool):
             raise error_cls(
-                f"tool_parameters.{tool}.{key} must be an integer, "
-                f"got {raw!r}"
+                f"tool_parameters.{tool}.{key} must be an integer, got {raw!r}"
             )
         if isinstance(raw, int):
             parsed = raw
@@ -48,27 +43,23 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
                 return ""
             if not raw.strip().isdigit():
                 raise error_cls(
-                    f"tool_parameters.{tool}.{key} must be an integer, "
-                    f"got {raw!r}"
+                    f"tool_parameters.{tool}.{key} must be an integer, got {raw!r}"
                 )
             parsed = int(raw.strip())
         else:
             raise error_cls(
-                f"tool_parameters.{tool}.{key} must be an integer, "
-                f"got {raw!r}"
+                f"tool_parameters.{tool}.{key} must be an integer, got {raw!r}"
             )
         if parsed < minimum:
             raise error_cls(
-                f"tool_parameters.{tool}.{key} must be non-negative, "
-                f"got {parsed}"
+                f"tool_parameters.{tool}.{key} must be non-negative, got {parsed}"
             )
         return parsed
 
     def _normalize_positive_float(tool, key, raw):
         if isinstance(raw, bool):
             raise error_cls(
-                f"tool_parameters.{tool}.{key} must be a number > 0, "
-                f"got {raw!r}"
+                f"tool_parameters.{tool}.{key} must be a number > 0, got {raw!r}"
             )
         if isinstance(raw, (int, float)):
             val = float(raw)
@@ -77,19 +68,14 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
                 val = float(raw.strip())
             except (ValueError, TypeError):
                 raise error_cls(
-                    f"tool_parameters.{tool}.{key} must be a number > 0, "
-                    f"got {raw!r}"
+                    f"tool_parameters.{tool}.{key} must be a number > 0, got {raw!r}"
                 )
         else:
             raise error_cls(
-                f"tool_parameters.{tool}.{key} must be a number > 0, "
-                f"got {raw!r}"
+                f"tool_parameters.{tool}.{key} must be a number > 0, got {raw!r}"
             )
         if val <= 0:
-            raise error_cls(
-                f"tool_parameters.{tool}.{key} must be positive, "
-                f"got {val}"
-            )
+            raise error_cls(f"tool_parameters.{tool}.{key} must be positive, got {val}")
         return val
 
     def _normalize_filter_flags(key, raw):
@@ -104,8 +90,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
         if isinstance(raw, int):
             if raw <= 0:
                 raise error_cls(
-                    f"tool_parameters.samtools_filter.{key} must be "
-                    f"positive, got {raw}"
+                    f"tool_parameters.samtools_filter.{key} must be positive, got {raw}"
                 )
             return raw
         if isinstance(raw, str):
@@ -156,8 +141,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
         block = tool_params.get(tool, {})
         if not isinstance(block, dict):
             raise error_cls(
-                f"tool_parameters.{tool} must be a mapping, "
-                f"got {type(block).__name__}"
+                f"tool_parameters.{tool} must be a mapping, got {type(block).__name__}"
             )
 
         for key in block:
@@ -172,9 +156,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
         if tool == "fastqc":
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
-                raise error_cls(
-                    f"tool_parameters.fastqc.extra_args must be a string"
-                )
+                raise error_cls("tool_parameters.fastqc.extra_args must be a string")
             norm["extra_args"] = extra
 
         elif tool == "trim_galore":
@@ -186,20 +168,18 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
                 raise error_cls(
-                    f"tool_parameters.trim_galore.extra_args must be a string"
+                    "tool_parameters.trim_galore.extra_args must be a string"
                 )
             norm["extra_args"] = extra
 
         elif tool == "bowtie2":
             mode = block.get("mode", "")
             if mode != "" and not isinstance(mode, str):
-                raise error_cls(
-                    f"tool_parameters.bowtie2.mode must be a string"
-                )
+                raise error_cls("tool_parameters.bowtie2.mode must be a string")
             if mode not in defaults.BOWTIE2_MODES:
                 raise error_cls(
                     f"tool_parameters.bowtie2.mode must be one of: "
-                    f"very-fast, fast, sensitive, very-sensitive, "
+                    "very-fast, fast, sensitive, very-sensitive, "
                     f"or empty. Got {mode!r}"
                 )
             norm["mode"] = mode
@@ -214,9 +194,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             )
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
-                raise error_cls(
-                    f"tool_parameters.bowtie2.extra_args must be a string"
-                )
+                raise error_cls("tool_parameters.bowtie2.extra_args must be a string")
             norm["extra_args"] = extra
 
         elif tool == "samtools_filter":
@@ -226,7 +204,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
                 raise error_cls(
-                    f"tool_parameters.samtools_filter.extra_args must be a string"
+                    "tool_parameters.samtools_filter.extra_args must be a string"
                 )
             norm["extra_args"] = extra
 
@@ -239,7 +217,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
                 raise error_cls(
-                    f"tool_parameters.picard_markduplicates.extra_args must be a string"
+                    "tool_parameters.picard_markduplicates.extra_args must be a string"
                 )
             norm["extra_args"] = extra
 
@@ -247,7 +225,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             norm_using = block.get("normalize_using", "CPM")
             if not isinstance(norm_using, str):
                 raise error_cls(
-                    f"tool_parameters.bamcoverage.normalize_using must be a string"
+                    "tool_parameters.bamcoverage.normalize_using must be a string"
                 )
             allowed_norm = defaults.BAMCOVERAGE_NORMALIZE_USING
             if norm_using not in allowed_norm:
@@ -263,7 +241,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
                 raise error_cls(
-                    f"tool_parameters.bamcoverage.extra_args must be a string"
+                    "tool_parameters.bamcoverage.extra_args must be a string"
                 )
             norm["extra_args"] = extra
 
@@ -276,23 +254,17 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             )
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
-                raise error_cls(
-                    f"tool_parameters.macs3.extra_args must be a string"
-                )
+                raise error_cls("tool_parameters.macs3.extra_args must be a string")
             norm["extra_args"] = extra
 
         elif tool == "multiqc":
             title = block.get("title", "")
             if not isinstance(title, str):
-                raise error_cls(
-                    f"tool_parameters.multiqc.title must be a string"
-                )
+                raise error_cls("tool_parameters.multiqc.title must be a string")
             norm["title"] = title
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
-                raise error_cls(
-                    f"tool_parameters.multiqc.extra_args must be a string"
-                )
+                raise error_cls("tool_parameters.multiqc.extra_args must be a string")
             norm["extra_args"] = extra
 
         elif tool == "idr_macs3":
@@ -301,9 +273,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             )
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
-                raise error_cls(
-                    f"tool_parameters.idr_macs3.extra_args must be a string"
-                )
+                raise error_cls("tool_parameters.idr_macs3.extra_args must be a string")
             norm["extra_args"] = extra
 
         normalized[tool] = norm

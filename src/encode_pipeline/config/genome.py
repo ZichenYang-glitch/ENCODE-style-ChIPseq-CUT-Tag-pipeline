@@ -35,8 +35,7 @@ def validate_genome_resources(resources: dict, error_cls=ValueError) -> dict:
     """Validate the genome_resources config block."""
     if not isinstance(resources, dict):
         raise error_cls(
-            f"genome_resources must be a mapping, "
-            f"got {type(resources).__name__}"
+            f"genome_resources must be a mapping, got {type(resources).__name__}"
         )
 
     for genome, entry in resources.items():
@@ -49,8 +48,7 @@ def validate_genome_resources(resources: dict, error_cls=ValueError) -> dict:
         egs = entry.get("effective_genome_size")
         if egs is None or egs == "":
             raise error_cls(
-                f"genome_resources.{genome}: "
-                f"effective_genome_size is required"
+                f"genome_resources.{genome}: effective_genome_size is required"
             )
 
         validate_effective_genome_size(genome, egs, error_cls=error_cls)
@@ -59,8 +57,7 @@ def validate_genome_resources(resources: dict, error_cls=ValueError) -> dict:
             path = entry.get(field, "")
             if path and not os.path.isfile(path):
                 raise error_cls(
-                    f"genome_resources.{genome}.{field}: "
-                    f"file not found: {path}"
+                    f"genome_resources.{genome}.{field}: file not found: {path}"
                 )
 
     return resources
@@ -76,9 +73,7 @@ def validate_picard_reference_resources(
     if not qc.get("picard_metrics", False):
         return
     genome_resources = validated_config.get("genome_resources", {})
-    treatment_genomes = {
-        s["genome"] for s in samples if s["role"] == "treatment"
-    }
+    treatment_genomes = {s["genome"] for s in samples if s["role"] == "treatment"}
     missing = []
     for genome in sorted(treatment_genomes):
         ref = genome_resources.get(genome, {}).get("reference_fasta", "")
@@ -103,9 +98,7 @@ def validate_tss_annotation_resources(
     if not qc.get("tss_enrichment", False):
         return
     genome_resources = validated_config.get("genome_resources", {})
-    treatment_genomes = {
-        s["genome"] for s in samples if s["role"] == "treatment"
-    }
+    treatment_genomes = {s["genome"] for s in samples if s["role"] == "treatment"}
     missing = []
     for genome in sorted(treatment_genomes):
         gtf = genome_resources.get(genome, {}).get("gtf", "")

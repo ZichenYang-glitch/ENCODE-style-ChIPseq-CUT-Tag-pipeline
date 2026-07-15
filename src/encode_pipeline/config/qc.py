@@ -31,9 +31,7 @@ def validate_qc_config(qc: dict, error_cls=ValueError) -> dict:
     Unknown keys are silently ignored.
     """
     if not isinstance(qc, dict):
-        raise error_cls(
-            f"qc must be a mapping, got {type(qc).__name__}"
-        )
+        raise error_cls(f"qc must be a mapping, got {type(qc).__name__}")
 
     return {
         key: coerce_bool(

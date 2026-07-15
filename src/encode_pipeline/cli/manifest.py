@@ -39,7 +39,9 @@ def main(argv=None):
     parser.add_argument("--config", help="Path to config.yaml")
     parser.add_argument("--config-json", help="JSON dump of validated config")
     parser.add_argument("--output", "-o", help="Output TSV path (default: stdout)")
-    parser.add_argument("--strict", action="store_true", help="Fail if any row is missing")
+    parser.add_argument(
+        "--strict", action="store_true", help="Fail if any row is missing"
+    )
     parser.add_argument("--outdir", help="Override config outdir")
     args = parser.parse_args(argv)
 
@@ -66,8 +68,10 @@ def main(argv=None):
             f"{na_count} not_applicable"
         )
         if args.strict and missing_count > 0:
-            print(f"ERROR: --strict mode, {missing_count} missing output(s)",
-                  file=sys.stderr)
+            print(
+                f"ERROR: --strict mode, {missing_count} missing output(s)",
+                file=sys.stderr,
+            )
             return 1
         return 0
 
