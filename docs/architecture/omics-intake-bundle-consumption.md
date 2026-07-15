@@ -16,16 +16,25 @@ The first slice is a service-only, read-only inspection boundary for exactly:
 | Bundle schema | `0.2` |
 | Schema ID | `urn:omics-intake:schema:intake-bundle:0.2` |
 | Schema SHA-256 | `6dcda336c9f0ba763383ddd58bec280946f8970af8bd730eb758fab5e3a8dd71` |
-| Audited producer commit | `2459b5800e705263350e0a1380f0e3a0ee377e13` |
+| Omics Intake release | [`v0.2.0`](https://github.com/ZichenYang-glitch/omics-intake/releases/tag/v0.2.0) |
+| Annotated tag object | `140a454d1313b19b322a825a1feebbb1494297c7` |
+| Pinned release commit | `32680c12465f543214ed7e0173c639e0d40c7113` |
+| Release tree | `48aba2f48fa88fc37dab19c10f0ce70f2641add2` |
 | Public workflow name | `encode-epigenomics` |
 | Render contract | `encode-render-v3` |
 | HelixWeave adapter | `encode-style-chipseq-cuttag-atac-mnase` |
 
-Bundle 0.2 is commit-pinned integration evidence, not released-artifact
-compatibility. A live check of the authoritative Omics Intake remote on
-2026-07-15 found no `v0.2.0` tag; the schema is present on `master` but is
-still listed under its unreleased changes. HelixWeave therefore rejects every
-other version rather than guessing compatibility.
+HelixWeave consumes the Bundle 0.2 public contract formally released with
+Omics Intake `v0.2.0`. A release audit on 2026-07-15 resolved the annotated tag
+object above to the pinned commit and tree, and verified that the released
+schema bytes exactly match the packaged schema digest. Source provenance is
+fixed to that immutable commit; runtime acceptance remains offline and pinned
+to the schema version, ID, and digest rather than trusting or resolving a tag.
+HelixWeave rejects every other Bundle version rather than guessing
+compatibility.
+
+The annotated tag is unsigned. Its object identity records release evidence;
+it is not a publisher signature or proof of authenticity.
 
 ## Ownership
 

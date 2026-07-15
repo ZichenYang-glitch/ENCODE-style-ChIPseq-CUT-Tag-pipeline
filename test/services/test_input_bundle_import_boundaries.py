@@ -40,11 +40,17 @@ def _dotted_name(node: ast.expr) -> str:
     return ""
 
 
-def test_boundary_modules_do_not_import_producer_or_execution_internals() -> None:
+def test_boundary_modules_avoid_producer_network_and_execution_imports() -> None:
     forbidden = {
+        "aiohttp",
+        "http",
+        "httpx",
         "omics_intake",
+        "requests",
+        "socket",
         "subprocess",
         "snakemake",
+        "urllib",
         "encode_pipeline.adapters",
         "encode_pipeline.config",
         "encode_pipeline.samples",

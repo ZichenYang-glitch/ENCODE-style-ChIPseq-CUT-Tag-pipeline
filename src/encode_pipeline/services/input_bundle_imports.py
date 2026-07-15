@@ -42,7 +42,12 @@ OMICS_INTAKE_BUNDLE_CONTRACT_ID = "urn:omics-intake:schema:intake-bundle:0.2"
 OMICS_INTAKE_BUNDLE_SCHEMA_SHA256 = (
     "6dcda336c9f0ba763383ddd58bec280946f8970af8bd730eb758fab5e3a8dd71"
 )
-OMICS_INTAKE_BUNDLE_UPSTREAM_COMMIT = "2459b5800e705263350e0a1380f0e3a0ee377e13"
+# The release label and annotated tag object are audit provenance only. Runtime
+# acceptance remains offline and pinned to the contract version and schema digest.
+OMICS_INTAKE_BUNDLE_RELEASE_TAG = "v0.2.0"
+OMICS_INTAKE_BUNDLE_RELEASE_TAG_OBJECT = "140a454d1313b19b322a825a1feebbb1494297c7"
+OMICS_INTAKE_BUNDLE_RELEASE_COMMIT = "32680c12465f543214ed7e0173c639e0d40c7113"
+OMICS_INTAKE_BUNDLE_RELEASE_TREE = "48aba2f48fa88fc37dab19c10f0ce70f2641add2"
 
 _SCHEMA_PACKAGE = "encode_pipeline.contracts.omics_intake"
 _SCHEMA_RESOURCE = "intake-bundle-0.2.schema.json"

@@ -104,6 +104,27 @@ def _bowtie2_source_paths(result) -> tuple[str, ...]:
     )
 
 
+def test_formal_v020_release_provenance_is_pinned() -> None:
+    assert input_bundle_module.OMICS_INTAKE_BUNDLE_RELEASE_TAG == "v0.2.0"
+    assert (
+        input_bundle_module.OMICS_INTAKE_BUNDLE_RELEASE_TAG_OBJECT
+        == "140a454d1313b19b322a825a1feebbb1494297c7"
+    )
+    assert (
+        input_bundle_module.OMICS_INTAKE_BUNDLE_RELEASE_COMMIT
+        == "32680c12465f543214ed7e0173c639e0d40c7113"
+    )
+    assert (
+        input_bundle_module.OMICS_INTAKE_BUNDLE_RELEASE_TREE
+        == "48aba2f48fa88fc37dab19c10f0ce70f2641add2"
+    )
+    assert input_bundle_module.OMICS_INTAKE_BUNDLE_CONTRACT_VERSION == "0.2"
+    assert (
+        input_bundle_module.OMICS_INTAKE_BUNDLE_SCHEMA_SHA256
+        == "6dcda336c9f0ba763383ddd58bec280946f8970af8bd730eb758fab5e3a8dd71"
+    )
+
+
 def test_runnable_bundle_maps_to_fresh_validated_inputs_without_source_writes(
     tmp_path,
 ) -> None:
@@ -122,6 +143,7 @@ def test_runnable_bundle_maps_to_fresh_validated_inputs_without_source_writes(
     assert first.value.inputs.to_dict() == second.value.inputs.to_dict()
     assert first.value.identity.contract_version == "0.2"
     assert first.value.identity.producer_name == "omics-intake"
+    assert first.value.identity.producer_version == "0.2.0"
     assert first.value.workflow_id == WORKFLOW_ID
     assert normalized.value.workflow_id == WORKFLOW_ID
     assert first.value.inputs.options == {"strict_inputs": True}
