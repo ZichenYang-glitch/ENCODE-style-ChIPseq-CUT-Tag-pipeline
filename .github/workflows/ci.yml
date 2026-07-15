@@ -39,7 +39,9 @@ jobs:
 
       - name: Install encode-pipeline package
         shell: micromamba-shell {0}
-        run: pip install -e ".[api,dev]"
+        run: |
+          python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
+          python3 -m pip check
 
       - name: OpenAPI contract drift gate
         shell: micromamba-shell {0}
@@ -103,15 +105,75 @@ jobs:
         shell: micromamba-shell {0}
         run: python3 -m pytest test/manifest/test_make_manifest.py -v
 
-      - name: Coverage gate
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup micromamba
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/ci-fast.lock
+          environment-name: ci-fast
+          cache-environment: true
+          cache-environment-key: coverage-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.lock') }}
+
+      - name: Install HelixWeave test dependencies
         shell: micromamba-shell {0}
         run: |
-          python3 -m pytest \
-            test/config/test_validation.py \
-            test/manifest/test_make_manifest.py \
-            test/test_stage8_smoke_profiles.py \
-            test/api/test_routes_workflows.py \
-            --cov=src/encode_pipeline --cov=scripts --cov-report=term
+          python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
+          python3 -m pip check
+
+      - name: Complete Python unit and contract coverage
+        shell: micromamba-shell {0}
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 -m pytest test -ra -p no:cacheprovider \
+            --cov --cov-config=pyproject.toml --cov-context=test \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-report=json:coverage.json
+
+      - name: Coverage area baselines
+        shell: micromamba-shell {0}
+        run: |
+          python3 -m coverage report \
+            --include='src/encode_pipeline/platform/*' --fail-under=88.45
+          python3 -m coverage report \
+            --include='src/encode_pipeline/services/*' --fail-under=87.28
+          python3 -m coverage report \
+            --include='src/encode_pipeline/persistence/*' --fail-under=89.06
+          python3 -m coverage report \
+            --include='src/encode_pipeline/workers/*' --fail-under=82.37
+          python3 -m coverage report --include='src/encode_pipeline/adapters/*' --fail-under=0
+          python3 -m coverage report \
+            --include='src/encode_pipeline/api/*,src/encode_pipeline/cli/*,src/encode_pipeline/config/*,src/encode_pipeline/samples/*' \
+            --fail-under=0
+          python3 -m coverage report --include='scripts/*' --fail-under=0
+          python3 -m coverage report --include='workflow/lib/*' --fail-under=0
+          python3 -m coverage report --include='containers/*' --fail-under=0
+
+      - name: Changed Python line coverage
+        if: github.event_name == 'pull_request'
+        shell: micromamba-shell {0}
+        run: >-
+          diff-cover coverage.xml
+          --compare-branch='${{ github.event.pull_request.base.sha }}'
+          --fail-under=80
+
+      - name: Upload Python coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage-${{ github.sha }}
+          path: |
+            coverage.xml
+            coverage.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Maintenance documentation and public validation contracts
         shell: micromamba-shell {0}
@@ -180,7 +242,9 @@ jobs:
 
       - name: Install platform package
         shell: micromamba-shell {0}
-        run: pip install -e ".[api,dev]"
+        run: |
+          python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
+          python3 -m pip check
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

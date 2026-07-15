@@ -5,7 +5,30 @@ channels:
   - nodefaults
 dependencies:
   - python >=3.10,<3.13
+  - pip
+  - setuptools >=61
+  - wheel
+  - packaging <26
   - pyyaml
+  - alembic >=1.13,<2
+  - fastapi
+  - uvicorn
+  - httptools
+  - python-dotenv
+  - uvloop
+  - watchfiles
+  - websockets
+  - httpx
+  - redis-py >=7,<9
+  - rq >=2.10,<2.11
+  - sqlalchemy >=2,<3
   - pytest
-  - pytest-cov
+  - pytest-cov >=7,<8
+  - coverage >=7.10.6,<8
+  - diff-cover >=9,<10
+  - ruff ==0.15.21
+  - mypy
+  - jsonschema >=4.23,<5
+  - fakeredis >=2.36,<3
+  - lupa
   - snakemake-minimal >=8.0,<9

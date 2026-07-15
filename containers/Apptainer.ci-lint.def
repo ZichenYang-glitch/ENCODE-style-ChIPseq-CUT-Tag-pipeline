@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/ci-lint.lock /opt/pipeline/workflow/envs/ci-lint.lock
+
+%post
+    conda create -n ci-lint --file /opt/pipeline/workflow/envs/ci-lint.lock -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/ci-lint/bin:$PATH

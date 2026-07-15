@@ -19,7 +19,9 @@ under the ignored `.local/` directory and is never part of a commit:
 
 ```bash
 micromamba create -p .local/envs/ci-fast --file workflow/envs/ci-fast.lock
-./.local/envs/ci-fast/bin/python -m pip install -e ".[api,dev]"
+./.local/envs/ci-fast/bin/python -m pip install --no-index --no-deps \
+  --no-build-isolation -e ".[api]"
+./.local/envs/ci-fast/bin/python -m pip check
 npm --prefix frontend ci
 export PATH="$PWD/.local/envs/ci-fast/bin:$PATH"
 python scripts/run_local_platform.py --doctor

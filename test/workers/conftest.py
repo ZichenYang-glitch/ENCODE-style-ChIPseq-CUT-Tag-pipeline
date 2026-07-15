@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import fakeredis
+import pytest
 import yaml
 
 from encode_pipeline.persistence.runtime import open_run_persistence
@@ -23,6 +25,25 @@ from encode_pipeline.workers.settings import WorkerSettings
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 PROFILE_ROOT = Path(__file__).resolve().parents[1] / "profiles" / "platform_worker_tiny"
+
+
+@pytest.fixture(autouse=True)
+def _fakeredis_client_list_includes_real_redis_addresses(monkeypatch):
+    """Supply the CLIENT LIST fields that real Redis guarantees to RQ."""
+    client_list = fakeredis.FakeRedis.client_list
+
+    def client_list_with_addresses(connection, *args, **kwargs):
+        clients = client_list(connection, *args, **kwargs)
+        for client in clients:
+            client.setdefault("addr", "127.0.0.1:0")
+            client.setdefault("laddr", "127.0.0.1:6379")
+        return clients
+
+    monkeypatch.setattr(
+        fakeredis.FakeRedis,
+        "client_list",
+        client_list_with_addresses,
+    )
 
 
 def worker_settings(tmp_path: Path, queue_name: str = "worker-tests") -> WorkerSettings:

@@ -564,6 +564,34 @@ def test_dispatch_mark_is_idempotent_after_status_changes(repository):
     assert retried == dispatched
 
 
+def test_dispatch_mark_rejects_status_change_before_first_dispatch(repository):
+    record = _record("run-1")
+    repository.create_run(record, _created_event())
+    assignment = repository.ensure_execution_assignment(
+        _assignment(record.run_id, "job-1"),
+        expected_status=RunStatus.CREATED,
+    )
+    repository.update_run(
+        replace(record, status=RunStatus.VALIDATING),
+        expected_status=RunStatus.CREATED,
+        event=RunEventDraft(
+            event_type="status_changed",
+            message="Run advanced.",
+            status=RunStatus.VALIDATING,
+        ),
+    )
+
+    with pytest.raises(ConcurrentRunUpdateError, match="no longer dispatchable"):
+        repository.mark_execution_dispatched(
+            record.run_id,
+            job_id=assignment.job_id,
+            dispatched_at=datetime.now(timezone.utc),
+            allowed_statuses=frozenset({RunStatus.CREATED}),
+        )
+
+    assert repository.get_execution_assignment(record.run_id) == assignment
+
+
 def test_queue_dispatched_run_is_atomic_and_idempotent(repository):
     planned = replace(_record("run-1"), status=RunStatus.PLANNED)
     repository.create_run(planned, _created_event())

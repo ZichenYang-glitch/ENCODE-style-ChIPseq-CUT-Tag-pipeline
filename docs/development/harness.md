@@ -31,11 +31,16 @@ python3 -m pytest test/docs/test_internal_links.py -v
 
 ## Full pytest suite
 
-Run the full test suite the same way CI does:
+Run the full test suite without instrumentation for a quick behavioral check:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider
 ```
+
+The dedicated CI coverage job measures the complete suite once, including
+branches and supported Python subprocesses. See the
+[Python coverage policy](coverage-policy.md) for the reproducible report and
+ratchet commands.
 
 ## DAG snapshots and smoke profiles
 

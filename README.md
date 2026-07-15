@@ -529,7 +529,7 @@ PR/push CI uses the locked `ci-fast` environment and currently covers:
 - Durable execution, persistence, API, and worker contracts
 - Config validation and dry-run smoke profiles
 - No-hardcoded-paths guard
-- BigWig, QC summary, manifest, and coverage checks
+- BigWig, QC summary, manifest, complete Python coverage, and changed-lines checks
 - OpenAPI/generated-client drift, frontend tests, typecheck, and build
 - Critical browser execution journeys
 
