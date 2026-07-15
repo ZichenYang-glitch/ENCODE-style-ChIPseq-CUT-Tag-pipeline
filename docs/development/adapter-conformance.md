@@ -78,9 +78,11 @@ for this repository's bundled ENCODE Snakemake source. The tested conformance
 seam does not imply that an arbitrary external package can enter the durable
 worker without a later, explicit source/command composition design.
 
-Dynamic discovery remains deferred until a second adapter and its deployment
-boundary are approved. Bulk RNA-seq is the current research candidate, not a
-committed adapter or delivery date. If external discovery is later selected,
-use Python standard `importlib.metadata.entry_points` with an explicit
-deployment allowlist and deterministic duplicate/version and load-failure
-policy; do not add a custom module scanner.
+Dynamic discovery remains deferred. The contract-only `bulk-rnaseq` adapter is
+the selected second-adapter direction, but it is intentionally absent from the
+default registry until its runtime, artifact, acceptance, and product gates are
+complete; see the [selection decision](../architecture/bulk-rnaseq-adapter-decision.md).
+If external discovery is later selected, use Python standard
+`importlib.metadata.entry_points` with an explicit deployment allowlist and
+deterministic duplicate/version and load-failure policy; do not add a custom
+module scanner.
