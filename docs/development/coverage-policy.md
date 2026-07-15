@@ -71,6 +71,19 @@ and branches unless a column says otherwise. The post-retirement baseline below
 was measured by the complete deterministic suite after making ambient runner
 inputs explicit in the affected behavior tests.
 
+The post-maintenance verification inventory is the authoritative count for the
+current repository state:
+
+| Gate | Current baseline |
+| --- | ---: |
+| All Python tests collected | 2,535 |
+| PR-fast Python selection | 2,413 |
+| Deterministic full-main Python selection | 2,523 |
+| Platform real-execution tests | 4 |
+| Scientific real-execution tests | 8 |
+| Frontend Vitest tests | 292 |
+| Playwright browser tests | 8 |
+
 | Area | Line | Branch | Combined | Enforced floor |
 | --- | ---: | ---: | ---: | ---: |
 | Repository | 85.4375% | 76.1842% | 83.1711% | 83% |
@@ -131,8 +144,8 @@ the next full-main, dispatch, nightly, or release run.
 ## Ratchet rules
 
 - Never lower a global, core, or changed-lines floor merely to pass CI. The
-  current floors are repository 83%, changed lines 80%, platform 88.45%,
-  services 87.28%, persistence 89.06%, and workers 82.37%.
+  enforced floors are recorded in the measured-baseline table above; changed
+  executable Python lines remain subject to the 80% gate.
 - When substantive tests improve a measured area, raise its floor by 1–3
   percentage points without exceeding the verified result.
 - The original medium-term repository target was 60–70%; this complete

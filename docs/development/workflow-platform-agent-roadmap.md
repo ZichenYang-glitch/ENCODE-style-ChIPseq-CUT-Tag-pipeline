@@ -1,125 +1,140 @@
 # HelixWeave Product Roadmap
 
-This is the maintained product roadmap for HelixWeave. It records current
-boundaries, the next product phases, and their exit criteria. Implementation
-history belongs in Git history and release evidence, not in this document.
+This is the maintained product roadmap for HelixWeave. It records the current
+boundary, delivered platform baseline, and ordered product priorities. It does
+not promise release dates. Implementation history belongs in Git history and
+release evidence rather than this document.
 
 ## Current product boundary
 
 HelixWeave is a workflow-neutral platform for reproducible omics analysis on a
 local workstation or within a small trusted team. It owns input authoring,
-validation, durable run state, execution coordination, artifacts, QC, and the
-browser experience around those concepts.
+validation, durable run state, local execution coordination, artifacts, QC, and
+the browser experience around those concepts.
 
 The bundled ENCODE-style ChIP-seq, CUT&Tag, ATAC-seq, and MNase-seq Snakemake
-workflow is the first scientific adapter. Workflow-specific schemas, assay
-policy, commands, output paths, artifact extraction, and scientific behavior
-remain adapter or workflow responsibilities.
+workflow is the first and currently only scientific adapter. Workflow-specific
+schemas, assay policy, commands, output paths, artifact extraction, and
+scientific behavior remain adapter or workflow responsibilities.
 
 The platform is not a hosted multi-tenant service. SQLite and the local
 filesystem are deliberate canonical stores; Redis/RQ provides an execution
-boundary rather than independent lifecycle truth.
+handoff rather than independent lifecycle truth.
 
-## Delivered capability
+## Delivered platform baseline
 
 The current product supports:
 
 - discovery of registered workflows and adapter-owned capabilities;
-- schema-driven config and sample authoring with advanced text modes;
+- schema-driven config, sample, and option authoring with advanced text modes;
 - structured validation issues without exposing adapter-private payloads;
 - immutable, server-validated input snapshots for submitted runs;
-- durable lifecycle, event, log, cancellation, and recovery state;
+- durable lifecycle, event, log, cancellation, and restart-recovery state;
 - Redis/RQ execution of planned Snakemake commands outside HTTP handlers;
 - truthful process-group cancellation and terminal-state acknowledgement;
+- filterable run history with stable deep links;
 - adapter-owned artifact and QC extraction after successful execution;
 - safe artifact listing and download without arbitrary path access;
-- workflow, run, artifact, and QC views in the browser;
-- a deterministic local input-to-results demonstration path; and
+- workflow, run, activity, artifact, and QC views in the browser;
+- a deterministic local input-to-results demonstration path;
+- a read-only Agent boundary for schema and issue explanation; and
 - reusable adapter conformance tests with a minimal test adapter.
 
-Detailed architecture is maintained in
-[`docs/architecture/platform-overview.md`](../architecture/platform-overview.md).
-Scientific contracts remain in the assay, configuration, sample, output, QC,
-and reproducibility references under `docs/`.
+Detailed ownership and safety rules are maintained in the
+[architecture overview](../architecture/platform-overview.md). Scientific
+contracts remain in the assay, configuration, sample, output, QC, and
+reproducibility references under `docs/`.
 
-## Phase 1: Maintenance and quality baseline — current
+## Completed: maintenance and quality baseline
 
-The current phase makes existing assurance measurable and maintainable before
-new product scope is added. It changes documentation and test infrastructure,
-not workflow behavior or public contracts.
+The maintenance baseline is complete. Historical process plans and
+stage-numbered test scaffolding were retired or migrated into maintained
+behavior contracts. CI now has distinct PR-fast, full-main, platform-real,
+scientific-real, container, frontend, browser, lint, lock, and coverage
+responsibilities without a second deterministic pytest producer.
 
-### Outcomes
+The resulting gate preserved scientific workflow outputs, public API routes,
+persistence identity, CLI names, and visible runtime behavior. Current test
+inventory, measured coverage, and enforced floors have one authoritative home
+in the [quality baseline](coverage-policy.md); tier ownership and timing live in
+the [development harness](harness.md).
 
-- Separate maintained references from historical implementation process.
-- Measure complete automated Python coverage, including branch coverage and
-  mature subprocess collection where supported.
-- Retire or migrate every legacy stage test while preserving its useful
-  behavior in named pytest, integration, or real-execution gates.
-- Establish PR-fast, full-main, and real-execution CI tiers.
-- Enforce global and changed-lines coverage ratchets from measured baselines.
-- Preserve scientific, lifecycle, migration, path-safety, API, generated-client,
-  browser, and real-execution guarantees.
+## Current delivery priorities
 
-### Exit criteria
+The order below expresses the current decision and delivery sequence. Each
+priority still requires scoped review; none carries an implied release date.
 
-- Maintained documentation has no dependency on historical process plans.
-- The active roadmap and architecture overview describe current truth.
-- Coverage reports are reproducible locally and in CI from one configuration.
-- Every legacy test classification has a final, evidenced action.
-- CI tiers have distinct responsibilities without duplicate suite execution.
-- A complete integration gate passes on the final stacked change set.
-- Scientific workflow outputs, public API routes, persistence identity, CLI
-  names, and visible product behavior remain unchanged.
+### 1. Omics Intake Bundle → HelixWeave consumption boundary
 
-## Phase 2: Second-adapter proof
+Define how HelixWeave consumes reviewed inputs from an Omics Intake Bundle
+without making the platform own upstream acquisition or silently trust
+external paths and metadata.
 
-After the maintenance baseline is merged, the next adapter phase will prove
-that HelixWeave is genuinely workflow-neutral. Adapter selection and delivery
-require a separate decision; this phase does not start as part of maintenance.
+Expected work:
 
-### Outcomes
+- separate producer and consumer responsibilities;
+- define a versioned, fail-closed handoff with explicit identity and provenance;
+- map accepted bundle data into adapter-owned authoring and validation inputs;
+- preserve immutable snapshot, redaction, and workspace-containment rules; and
+- prove rejection behavior for incomplete, ambiguous, or unsafe bundles.
 
-- Select one bounded workflow whose owners can provide stable schemas,
-  validation, workspace planning, commands, and artifact/QC extraction.
-- Integrate it through the existing adapter and registry contracts.
-- Keep platform services, API routes, persistence, and frontend screens free of
-  adapter-private field names, rule names, and output paths.
-- Demonstrate both adapters through the same authoring-to-evidence journey.
-- Document capability differences without pretending unsupported features
-  exist.
+Exit evidence:
 
-### Exit criteria
+- a focused boundary decision is reviewed before runtime integration;
+- deterministic fixtures prove both accepted and rejected handoffs; and
+- workflow-neutral services do not acquire adapter-private or intake-private
+  field dependencies.
 
-- The new adapter passes the reusable conformance suite.
-- Existing ENCODE-style behavior and compatibility gates remain green.
-- Generic API and frontend code need no workflow-specific branching.
-- One deterministic small-data execution produces indexed artifacts and QC.
-- Operators can distinguish adapter capabilities before submitting a run.
+### 2. Second-adapter research and implementation
 
-## Phase 3: Read-only Agent assistance
+Research a bounded second adapter against the existing registry, authoring,
+execution, artifact, and QC contracts. Bulk RNA-seq is the current candidate,
+not an approved product commitment or delivery date.
 
-Agent work follows the second-adapter proof so assistance is designed against
-platform contracts rather than one workflow's internals. The Agent remains
-advisory and read-only.
+Expected work:
 
-### Outcomes
+- evaluate candidate ownership, maintained engines, schemas, validation,
+  workspace planning, commands, artifacts, and QC semantics;
+- record an explicit adapter selection decision before implementation;
+- keep generic API and frontend code free of workflow-specific branches; and
+- extend deployment/source composition deliberately rather than claiming
+  arbitrary zero-configuration plugin loading.
 
-- Explain schemas, validation issues, run state, logs, artifacts, and QC from
-  structured platform data.
-- Keep generated explanations separate from recorded provenance.
-- Apply redaction and path-safety rules before context reaches a model.
-- Expose capability limits clearly and fail closed when context is incomplete.
-- Evaluate explanations across more than one adapter.
+Exit evidence if a candidate is approved:
 
-### Exit criteria
+- the adapter passes the reusable conformance suite;
+- the existing ENCODE adapter remains unchanged and green;
+- one deterministic small-data run produces indexed artifacts and QC; and
+- operators can compare adapter capabilities before creating a run.
 
-- Agent routes depend on services and public models, not adapter internals.
-- No Agent operation can submit, start, cancel, mutate, or delete a run.
-- Responses do not expose secrets, private payloads, environment values, or
-  workspace paths.
-- Evaluation fixtures cover validation, failure diagnosis, and QC explanation
-  for each supported adapter.
-- Users can identify the evidence behind an explanation and its uncertainty.
+### 3. Product experience and deployment convergence
+
+Consolidate the current local product path after its input, execution, and
+result surfaces are in place.
+
+Expected work:
+
+- reduce setup and navigation friction from workflow choice to evidence;
+- make local prerequisites, diagnostics, storage, recovery, and cleanup clear;
+- tighten empty, loading, failure, and long-running states across desktop and
+  mobile views; and
+- align packaging and operator documentation around the supported workstation
+  and small trusted-team deployment.
+
+Exit evidence:
+
+- a fresh locked install can complete the deterministic product journey;
+- operator-owned state and process cleanup are explicit and testable; and
+- usability changes preserve accessibility, public contracts, and adapter
+  boundaries.
+
+## Agent direction
+
+The current Agent surface is already advisory and read-only. It may explain
+schemas and validation issues through platform services, but it cannot submit,
+start, cancel, mutate, or delete runs. Further Agent expansion should follow
+the consumption-boundary and multi-adapter evidence rather than encode the
+first workflow's private vocabulary.
 
 ## Explicit non-goals
 
@@ -129,15 +144,17 @@ The maintained roadmap does not currently authorize:
 - Kubernetes, HPC scheduler integration, or microservice decomposition;
 - PostgreSQL, object storage, or remote workspace semantics;
 - Agent write actions or automatic workflow submission;
+- arbitrary workflow loading without an approved adapter/deployment contract;
 - changes to the Python distribution, import namespace, CLI names, repository
   slug, workflow identity, or artifact URI scheme;
 - a frontend rewrite, server-side rendering, or a second frontend repository;
-- scientific changes hidden inside platform maintenance; or
-- adding a second adapter before the maintenance exit criteria are met.
+- scientific changes hidden inside platform or documentation work.
 
 ## Roadmap discipline
 
 New work should advance one product outcome and name its exit evidence. Durable
-architecture or public-contract changes may require a focused decision record;
-ordinary implementation detail does not. Completed checklists, temporary test
-counts, commit identifiers, and branch sequencing stay out of this roadmap.
+architecture, persistence, public-contract, worker, or cross-repository changes
+may require a focused decision record. Completed checklists, commit identifiers,
+and branch sequencing stay in Git history. Current test counts and coverage
+floors stay in the [quality baseline](coverage-policy.md) so README, roadmap,
+and operational docs do not drift independently.

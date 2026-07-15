@@ -74,13 +74,13 @@ atomic persistence. Conformance never bypasses those runtime checks.
 ## Current deployment limit
 
 The local `CommandBuilder` and `WorkflowBuildIdentityProvider` remain composed
-for this repository's bundled ENCODE Snakemake source. The adapter command
-method is tested, but PR139 does not claim that an arbitrary external package
-can enter the durable worker without a later, explicit source/command
-composition design.
+for this repository's bundled ENCODE Snakemake source. The tested conformance
+seam does not imply that an arbitrary external package can enter the durable
+worker without a later, explicit source/command composition design.
 
-Dynamic discovery is therefore deferred until the first real external RNA-seq
-adapter. At that point use Python standard `importlib.metadata.entry_points`
-with an explicit deployment allowlist and deterministic duplicate/version and
-load-failure policy. Do not add a custom module scanner. Hi-TrAC/TracPre2 is the
-next real adapter after RNA-seq.
+Dynamic discovery remains deferred until a second adapter and its deployment
+boundary are approved. Bulk RNA-seq is the current research candidate, not a
+committed adapter or delivery date. If external discovery is later selected,
+use Python standard `importlib.metadata.entry_points` with an explicit
+deployment allowlist and deterministic duplicate/version and load-failure
+policy; do not add a custom module scanner.

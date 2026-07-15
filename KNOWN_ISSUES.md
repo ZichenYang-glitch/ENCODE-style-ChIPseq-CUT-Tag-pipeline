@@ -78,21 +78,21 @@ See [container usage](docs/container-usage.md),
 See the [architecture overview](docs/architecture/platform-overview.md) for
 the durable ownership and safety boundaries.
 
-## Maintenance baseline
+## Quality and delivery scope
 
-The current maintenance goal is replacing historical test/process scaffolding
-with measurable coverage and explicit CI tiers. The complete default Python
-suite now establishes the coverage baseline, and historical stage-numbered
-test scaffolding has been retired into named pytest behavior contracts. Until
-the final CI-tier change is merged:
+The maintenance and quality baseline is complete. Deterministic tests now have
+distinct PR-fast and full-main selections, coverage consumes the single pytest
+producer's evidence, and platform, scientific, and container real-execution
+jobs run independently on manual dispatch, nightly schedules, and releases.
+The measured test inventory and enforced coverage floors are maintained in the
+[quality baseline](docs/development/coverage-policy.md).
 
-- fast and coverage jobs still contain overlapping test invocations;
-- wall-time budgets are not yet reported consistently; and
-- conditionally selected real execution is not suitable as a required check.
-
-These are quality-infrastructure limitations, not claims that scientific or
-runtime behavior is untested. The maintenance exit gate must prove that
-retirement and renaming preserve behavior and coverage.
+Real-execution jobs are intentionally not required pull-request checks. A
+high-risk branch needs an explicit workflow dispatch when those environments
+are relevant. CI timing budgets are review signals rather than pass/fail
+thresholds, and configuring branch-protection contexts remains a maintainer
+operation outside repository content. See the
+[development harness](docs/development/harness.md) for the current tier model.
 
 ## Reporting a new issue
 

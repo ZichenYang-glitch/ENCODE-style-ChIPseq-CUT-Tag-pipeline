@@ -1,8 +1,8 @@
 # Configuration Reference
 
-`config/config.yaml` controls workflow behavior, resource paths, and
-feature gating. For the minimal config needed to start, see the
-[README](../README.md#configuration).
+`config/config.yaml` controls workflow behavior, resource paths, and feature
+gating. This page is the maintained configuration reference; the
+[scientific quick start](quickstart.md) provides the shortest setup path.
 
 ## Core keys
 
@@ -91,10 +91,10 @@ qc:
   signal_tracks: true
   summary: true
   cuttag_fragment_size: true
-  cross_correlation: false       # Stage 12 — opt-in
-  preseq_complexity: false       # Stage 12 — opt-in
-  picard_metrics: false          # Stage 12 — opt-in
-  tss_enrichment: false          # Stage 18 — opt-in; requires GTF
+  cross_correlation: false       # opt-in
+  preseq_complexity: false       # opt-in
+  picard_metrics: false          # opt-in
+  tss_enrichment: false          # opt-in; requires GTF
 ```
 
 | Switch | Default | Effect |
@@ -111,7 +111,7 @@ qc:
 | `picard_metrics` | `false` | Run Picard CollectMultipleMetrics per treatment sample. Produces alignment summary, insert size, and quality distribution metrics. Requires `genome_resources.<genome>.reference_fasta` with a matching samtools FASTA index (`.fai`) and Picard sequence dictionary (`.dict`) next to the FASTA (e.g. `GRCm39.dict` for `GRCm39.fa`). Uses `VALIDATION_STRINGENCY=LENIENT` because real PE BAMs after MAPQ/flag filtering can trigger mate-field validation warnings (e.g. `INVALID_FLAG_MATE_UNMAPPED`) that would fail the default STRICT mode.
 | `tss_enrichment` | `false` | Run deepTools TSS profile QC per treatment sample. Requires `genome_resources.<genome>.gtf`. Produces `results/reference/<genome>.tss.bed`, `<sample>.tss_matrix.gz`, `<sample>.tss_profile.tsv`, and `<sample>.tss_profile.pdf`. |
 
-The original Stage 3 QC switches default to `true`. Heavier optional modules
+The lightweight core QC switches default to `true`. Heavier optional modules
 (`cross_correlation`, `preseq_complexity`, `picard_metrics`,
 `tss_enrichment`) default to `false`. Set individual switches explicitly for
 production runs.
@@ -121,9 +121,9 @@ production runs.
 ```yaml
 mnase:
   fragments:
-    sub: [1, 139]          # alignmentSieve min/max for sub-nucleosome BAM (Stage 40)
+    sub: [1, 139]          # alignmentSieve min/max for sub-nucleosome BAM
     mono: [140, 200]       # alignmentSieve min/max for mono-nucleosome BAM
-    di: [300, 400]         # alignmentSieve min/max for di-nucleosome BAM (Stage 40)
+    di: [300, 400]         # alignmentSieve min/max for di-nucleosome BAM
   dyad_range: [130, 200]   # bamCoverage --MNase min/max fragment length
   callers:
     danpos3: false         # reserved; setting true raises validation error
@@ -162,7 +162,7 @@ idr:
   `--use-conda`, keeping IDR's older Python dependency constraints out of the
   core environment.
 
-### IDR gating summary
+### Legacy `stage5` IDR gating summary
 
 | Condition | Required |
 | :--- | :--- |
@@ -171,7 +171,10 @@ idr:
 | `peak_mode` | `narrow` only |
 | Biological replicates | Exactly 2 treatment bioreps per experiment |
 
-CUT&Tag IDR and 3+ replicate IDR are not yet supported.
+This legacy path does not support CUT&Tag or 3+ replicate IDR. The separate
+`reproducibility` block provides opt-in CUT&Tag narrow IDR and the maintained
+consensus policies described in the
+[reproducibility policy](reproducibility-policy.md).
 
 ## CUT&Tag SEACR
 

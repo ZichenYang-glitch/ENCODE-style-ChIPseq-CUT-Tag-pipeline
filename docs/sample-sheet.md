@@ -1,10 +1,9 @@
 # Sample Sheet Reference
 
 The sample sheet (`config/samples.tsv`) defines which samples to process and how.
-It is a tab-separated file with one row per sample.
-
-For the minimum required columns and a compact example, see the
-[README](../README.md#sample-sheet).
+It is a tab-separated file with one row per sample. This page is the maintained
+reference for its required columns, optional metadata, and examples; the
+[README](../README.md) provides the product-level entry point.
 
 ## Required columns
 
@@ -133,7 +132,7 @@ MNase-seq is **PE-only** — SE samples are rejected during validation. MNase
 requires `peak_mode: nucleosome`. MNase samples skip MACS3 peak calling and
 instead produce sub/mono/di-nucleosome BAMs, dyad BigWig, mono occupancy
 BigWig, and per-sample MNase QC summary outputs. Nucleosome calling
-(DANPOS3/iNPS/SEM) is deferred to v0.3.
+(DANPOS3/iNPS/SEM) is not implemented.
 
 ## Common pitfalls
 
