@@ -113,6 +113,15 @@ jobs:
             test/api/test_routes_workflows.py \
             --cov=src/encode_pipeline --cov=scripts --cov-report=term
 
+      - name: Maintenance documentation and public validation contracts
+        shell: micromamba-shell {0}
+        run: >-
+          python3 -m pytest
+          test/docs/test_internal_links.py
+          test/scripts/test_prepare_public_validation_inputs.py
+          test/containers/test_runner_assets.py
+          -v
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

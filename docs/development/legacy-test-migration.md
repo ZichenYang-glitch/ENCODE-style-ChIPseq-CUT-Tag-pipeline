@@ -15,9 +15,12 @@ summarizes that mapping; if the two drift, trust the Python mapping.
 | `migrate-to-pytest` | 19 |
 | **Remaining classified legacy scripts** | **40** |
 
-The documentation reset retired all 10 `obsolete-plan-doc` scripts. They
-validated historical plans, checklists, or reports rather than product or
-scientific behavior and are no longer part of the classification.
+The documentation reset retired all 10 `obsolete-plan-doc` scripts. Durable
+documentation links, public-validation input behavior, and runner-container
+asset and smoke-script contracts moved to native pytest under `test/docs/`,
+`test/scripts/`, and `test/containers/`; plan/report phrase checks and custom
+pass/fail counters were removed. These scripts are no longer part of the
+classification.
 
 `test_stage8_smoke_profiles.py` is a pytest-native module and is not part of
 the legacy classification.
