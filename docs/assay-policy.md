@@ -1,7 +1,7 @@
 # Assay Policy
 
-This document defines the v0.2 behavioral contract for each supported assay.
-It describes actual implemented behavior — no aspirational features.
+This document defines the current behavioral contract for each supported
+assay. It describes implemented behavior, not aspirational features.
 
 ## ChIP-seq
 
@@ -41,9 +41,13 @@ It describes actual implemented behavior — no aspirational features.
 
 Supported via `use_control: true` with either `control_sample` (FASTQ row) or `control_bam` (external BAM path). Control samples go through full preprocessing but skip peak calling.
 
-### IDR eligibility
+### Reproducibility
 
-Only for ChIP-seq, `peak_mode: narrow`, exactly 2 treatment biological replicates per experiment. See [`docs/idr-contract.md`](idr-contract.md).
+The legacy `stage5` path supports ChIP-seq narrow IDR with exactly two
+treatment biological replicates. The separate `reproducibility` block provides
+replicate consensus and experimental opt-in broad IDR under the maintained
+[reproducibility policy](reproducibility-policy.md). See the
+[legacy IDR contract](idr-contract.md) for `stage5` details.
 
 ---
 
@@ -78,9 +82,13 @@ MACS3 peaks are still produced as the canonical peak set.
 
 Enabled by default (`qc.cuttag_fragment_size: true`). Applies only to samples with `assay: cuttag`. Produces `results/<sample>/01_qc/<sample>.cuttag_fragment_size.tsv`.
 
-### IDR
+### Reproducibility
 
-Not supported in v0.2. CUT&Tag IDR is deferred to a future release.
+Replicate consensus is available when `reproducibility` is enabled. MACS3
+narrow IDR is a supported opt-in for exactly two biological replicates; broad
+IDR is experimental and opt-in. SEACR remains consensus-only. See the
+[reproducibility policy](reproducibility-policy.md) for eligibility and final
+output selection.
 
 ---
 
@@ -113,12 +121,14 @@ ATAC-seq always removes duplicates in `auto` mode (no broad-peak exception).
 | `no` | No extension | No extension |
 | `<int>` | `--extendReads <int>` | `--extendReads <int>` |
 
-### Not implemented in v0.2
+### Reproducibility and current limits
+
+Replicate consensus and opt-in narrow IDR are implemented under the
+[`reproducibility` policy](reproducibility-policy.md).
 
 - ATAC-specific footprinting
 - Nucleosome positioning
 - Broad peak mode
-- ATAC IDR
 
 ---
 
@@ -149,7 +159,7 @@ ATAC-seq always removes duplicates in `auto` mode (no broad-peak exception).
 - Per-sample `qc_summary.tsv` (37 columns) is assembled by `scripts/assemble_qc_summary.py`.
 - Project-level `stage3_qc_summary.tsv` is aggregated by `scripts/aggregate_qc_summary.py`.
 - `result_manifest.tsv` records core output existence with 10-column TSV, using `validate_samples` for DAG-consistent gating.
-- MNase samples do not produce `qc_summary.tsv` (no peaks); instead they produce `mnase_qc_summary.tsv` (Stage 40).
+- MNase samples do not produce `qc_summary.tsv` (no peaks); instead they produce `mnase_qc_summary.tsv`.
 
 ---
 
@@ -212,16 +222,17 @@ stratification metadata, read counts, and caller configuration status.
 For MNase experiments with >=2 biological replicates, pooled outputs are produced:
 `<e>.pooled.mono.bam`, `<e>.pooled.dyad.CPM.bw`, `<e>.pooled.mono.CPM.bw`.
 
-Pooled BAMs reuse the existing Stage 4b replicate merge logic (assay-agnostic).
+Pooled BAMs reuse the existing `stage4b` replicate merge logic
+(assay-agnostic).
 
 ### Controls
 
 Supported for preprocessing (control samples produce `final.bam` and CPM BigWig).
-MNase downstream rules do not use controls for differential analysis in v0.2.
+MNase downstream rules do not use controls for differential analysis.
 
 ### IDR
 
-Not supported in v0.2.
+Not supported.
 
 ### Config
 
@@ -242,9 +253,9 @@ The `mnase` block is optional. If absent, all defaults apply.
 `fragments.mono` takes precedence over top-level `mono_range`.
 `dyad_range` defaults to `[130, 200]` (deepTools `--MNase` default).
 `callers` surface is reserved; setting any caller to `true` raises a
-validation error (execution deferred to a future release).
+validation error because caller execution is not implemented.
 
-### Not implemented in v0.2 (deferred beyond Stage 40)
+### Not implemented
 
 - DANPOS3 nucleosome calling
 - iNPS high-resolution nucleosome detection

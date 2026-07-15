@@ -1,7 +1,9 @@
 # Reproducibility Policy: Replicate-Validated Peak Outputs
 
-**Version:** Stage 65 (2026-06-23)
-**Status:** Policy document — implemented through Stage 65
+**Status:** Current implemented policy
+
+The retained `stage4b` and `stage5` names below are public configuration keys,
+not delivery phases.
 
 ## 1. Purpose
 
@@ -13,7 +15,7 @@ ChIP-seq / CUT&Tag / ATAC-seq pipeline. It establishes:
 - Which reproducibility methods apply to which assay/caller/mode combinations
 - Output path conventions
 - Configuration surface
-- How reproducibility interacts with existing Stage 5 ChIP-seq narrow IDR
+- How reproducibility interacts with the existing `stage5` ChIP-seq narrow IDR
 
 ## 2. Key Concepts
 
@@ -64,31 +66,30 @@ irreproducible discovery rate.
 - **Not planned for IDR:** SEACR (BED format score scheme not directly
   compatible with IDR rank assumptions) and MNase.
 
-### 2.4 Legacy Stage 5 IDR
+### 2.4 Legacy `stage5` IDR
 
 The existing `stage5: true` configuration enables ChIP-seq narrow IDR with
 exactly 2 biological replicates. This behavior and its output paths are
 preserved exactly as-is. No new configuration may disable, rename, or move
-Stage 5 outputs.
+the `stage5` output paths.
 
-The `reproducibility` block defined in Stage 53 is an **orthogonal** new
-layer. `stage5` controls legacy IDR; `reproducibility` controls consensus and
-future expanded IDR modes.
+The `reproducibility` block is an **orthogonal** layer. `stage5` controls the
+legacy IDR path; `reproducibility` controls consensus and expanded IDR modes.
 
 ## 3. Reproducibility Strategy Matrix
 
 | # | Assay | Peak mode | Caller | Primary reproducibility | Secondary / report | Notes |
 |---|-------|-----------|--------|------------------------|-------------------|-------|
-| 1 | chipseq | narrow | MACS3 | IDR (legacy `stage5`) | Consensus | Legacy Stage 5 IDR unchanged |
+| 1 | chipseq | narrow | MACS3 | IDR (legacy `stage5`) | Consensus | Legacy `stage5` behavior unchanged |
 | 2 | chipseq | broad | MACS3 | IDR when experimental flag enabled; consensus otherwise | Consensus fallback/report | Experimental opt-in only |
 | 3 | cuttag | narrow | MACS3 | Consensus | IDR opt-in (supported) | IDR final when explicitly enabled; consensus otherwise |
 | 4 | cuttag | broad | MACS3 | IDR when experimental flag enabled; consensus otherwise | Consensus fallback/report | Experimental opt-in only |
-| 5 | cuttag | — | SEACR | Consensus | No IDR planned | SEACR IDR out of scope unless future stage defines justified rank scheme |
+| 5 | cuttag | — | SEACR | Consensus | No IDR planned | SEACR IDR is outside the current policy |
 | 6 | atac | narrow | MACS3 | IDR (when enabled) | Consensus | ATAC narrow IDR uses same narrowPeak IDR machinery |
 
 ## 4. Output Paths
 
-### 4.1 New Reproducibility Namespace
+### 4.1 Reproducibility namespace
 
 ```
 results/experiments/<exp>/06_reproducibility/
@@ -96,7 +97,10 @@ results/experiments/<exp>/06_reproducibility/
     <exp>.<assay>.<caller>.<peak_mode>.consensus.<suffix>
     <exp>.<assay>.<caller>.<peak_mode>.consensus.summary.tsv
   idr/
-    ... future non-legacy IDR outputs ...
+    idr_peaks/...
+    true_replicates/...
+    self_pseudoreplicates/...
+    pooled_pseudoreplicates/...
   final/
     <exp>.<assay>.<caller>.<peak_mode>.replicate_validated.<method>.<suffix>
     reproducibility_summary.tsv
@@ -196,7 +200,7 @@ outputs:
 
 ## 5. Config Reference
 
-### 5.1 `reproducibility` Block (New in Stage 53)
+### 5.1 `reproducibility` block
 
 ```yaml
 reproducibility:
@@ -226,7 +230,7 @@ reproducibility:
 
 **Invariant:** `stage5: true` always keeps existing ChIP-seq narrow IDR
 behavior. No `reproducibility` setting may break, disable, rename, or move
-existing Stage 5 outputs.
+existing `stage5` outputs.
 
 ### 5.3 Validation Rules
 
@@ -243,32 +247,32 @@ When `reproducibility.enabled: true`:
 | `idr.cuttag_broad_experimental` | bool | false |
 
 - If `idr.chipseq_narrow: false` while `stage5: true`: emit config
-  contradiction warning, but legacy Stage 5 still runs.
-- If `*_experimental: true`: emit informational warning that consensus remains
-  primary for these modes.
+  contradiction warning, but legacy `stage5` still runs.
+- If `*_experimental: true`: the validator emits an informational experimental
+  warning. Its claim that consensus remains primary is stale; the current DAG
+  and manifest select the eligible IDR artifact as final, as described above.
+  The wording mismatch is tracked in [Known Issues](../KNOWN_ISSUES.md#scientific-scope).
 - If `reproducibility.enabled: false`: all sub-keys are ignored for DAG
   purposes with no validation errors.
 
-## 6. Non-goals (Stage 53-58)
+## 6. Current non-goals
 
-1. No Artifact runtime adoption (Stage 51 paused).
-2. No MNase reproducibility. Nucleosome calling has different semantics.
-3. No breaking, renaming, or moving existing output paths.
-4. No default broad-IDR. Broad IDR remains experimental and requires explicit opt-in.
-   SEACR IDR is not planned in this roadmap unless a future stage defines a
-   justified rank scheme.
-5. No labeling pooled peaks as replicate-validated.
-6. No 3+ biorep IDR. Multi-replicate IDR requires separate pairwise-IDR or
+1. No MNase reproducibility. Nucleosome calling has different semantics.
+2. No breaking, renaming, or moving existing output paths.
+3. No default broad IDR. Broad IDR remains experimental and requires explicit
+   opt-in. SEACR IDR is outside the current policy.
+4. No labeling pooled peaks as replicate-validated.
+5. No 3+ biorep IDR. Multi-replicate IDR requires separate pairwise-IDR or
    replicate-selection policy design.
-7. No replacing `stage5` with `reproducibility`.
+6. No replacing `stage5` with `reproducibility`.
 
-## 7. Stage Roadmap
+## 7. Implementation status
 
-| Stage | Scope | Key deliverables |
-|-------|-------|-----------------|
-| 53 | Policy + config semantics | This document; optional `validate_config` additions; doc/template tests |
-| 54 | Consensus engine | `scripts/compute_consensus.py`; summary writer; unit tests; NO DAG integration |
-| 55 | ATAC narrow IDR | Generalize IDR rules for ATAC; DAG integration for enabled modes |
-| 56 | CUT&Tag narrow IDR (opt-in) | Policy layer on ATAC IDR path; experimental warnings |
-| 65 | Broad experimental IDR runtime | Experimental opt-in broad IDR; IDR final only when explicit and eligible; consensus fallback/report; SEACR consensus-only |
-| 58 | Manifest / contract / report integration | Manifest entries; output contract updates; MultiQC; regression sweep |
+| Capability | Current state |
+| --- | --- |
+| ChIP-seq narrow IDR | Implemented through the legacy `stage5` path. |
+| Replicate consensus | Implemented for eligible ChIP-seq, CUT&Tag, ATAC-seq, and SEACR outputs. |
+| ATAC-seq narrow IDR | Implemented when explicitly enabled. |
+| CUT&Tag narrow IDR | Implemented as an opt-in policy. |
+| ChIP-seq and CUT&Tag broad IDR | Implemented as experimental opt-ins; consensus remains available. |
+| Manifest and reporting | Integrated with the maintained output contract and QC summaries. |

@@ -9,7 +9,7 @@ running your first analysis. For a compact overview, see the
 ```bash
 git clone https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline.git
 cd ENCODE-style-ChIPseq-CUT-Tag-pipeline
-micromamba create -f workflow/envs/runner.yml
+micromamba create -n chipseq-runner --file workflow/envs/runner.lock
 micromamba activate chipseq-runner
 ```
 
@@ -63,12 +63,6 @@ python3 scripts/validate_samples.py --config config/config.yaml
 A non-zero exit code means something is wrong — fix the reported issues
 before proceeding.
 
-Then check the DAG with a dry-run:
-
-```bash
-snakemake -s workflow/Snakefile --configfile config/config.yaml -n --use-conda
-```
-
 ## 5. Dry-run
 
 The dry-run resolves the full DAG and reports which rules would run:
@@ -92,7 +86,6 @@ snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use
 ```
 
 - **`--cores N`:** use N local CPU cores. Replace `N` with your available core count.
-- **`--jobs`:** use with `--cluster` for distributed execution (cluster/cloud).
 - **`--rerun-incomplete`:** re-run jobs that produced incomplete output files.
 - **`--latency-wait N`:** wait N seconds for NFS filesystem sync; useful on shared
   storage.
@@ -100,14 +93,17 @@ snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use
 ## Smoke and test execution
 
 The repository ships with four bundled test selections that use contracts or
-synthetic data (no real FASTQs needed):
+synthetic data (no real FASTQs needed). Pytest selections require a development
+test environment rather than the minimal `chipseq-runner`, and the real tiers
+add the prerequisites shown below. See the
+[development harness](development/harness.md) before running them.
 
 ```bash
 # Config and sample validation contracts
 python3 -m pytest test/config/test_validation.py \
   test/samples/test_load_and_validate_samples.py -v
 
-# Dry-run smoke profiles — 8 dispatch paths, <30 seconds
+# Dry-run smoke profiles for the maintained assay paths
 # Requires snakemake on PATH.
 python3 -m pytest test/workflow/test_smoke_profiles.py -v
 
@@ -134,15 +130,13 @@ profiles cover the peak-calling DAG).
 
 ## Troubleshooting
 
-### Slow conda/micromamba solve
+### Slow micromamba install
 
-Prefer micromamba for environment creation. If plain `conda env create` hangs
-on "Solving environment," try:
+The committed runner lock avoids a fresh dependency solve. Prefer the exact
+locked command from the install step:
 
 ```bash
-# Use the libmamba solver (faster)
-conda install -n base conda-libmamba-solver
-conda env create -f workflow/envs/runner.yml --experimental-solver=libmamba
+micromamba create -n chipseq-runner --file workflow/envs/runner.lock
 ```
 
 The environment files use `nodefaults` so local `defaults` channels are not
@@ -155,7 +149,7 @@ rule environments so the first install stays small.
 - Verify snakemake is installed: `which snakemake`
 - If the environment was created but snakemake is missing, remove and recreate
   it with `micromamba env remove -n chipseq-runner` followed by
-  `micromamba create -f workflow/envs/runner.yml`.
+  `micromamba create -n chipseq-runner --file workflow/envs/runner.lock`.
 
 ### FASTQ path not found
 
