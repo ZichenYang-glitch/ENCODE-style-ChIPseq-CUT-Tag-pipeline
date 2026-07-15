@@ -71,10 +71,10 @@ numbered item names the specific file(s) to modify and what to change.
 
 ### 9. Smoke / dry-run tests
 
-- [ ] `test/test_stage8_smoke_profiles.py`: If the output is tied to a specific
+- [ ] `test/workflow/test_smoke_profiles.py`: If the output is tied to a specific
   assay or config, add or update a test profile.
-- [ ] `test/test_stage39_mnase_stress.py` (or equivalent stage test): Add
-  assertions that the new rule name appears in dry-run job output.
+- [ ] Add behavior-focused assertions under `test/workflow/` that the new rule
+  name appears in dry-run job output.
 - [ ] Verify that `pipeline.done` direct-target dry-run schedules the new rule.
 
 ### 10. Negative tests for assay gating
@@ -82,8 +82,8 @@ numbered item names the specific file(s) to modify and what to change.
 - [ ] Add assertions that the new output is NOT scheduled for assays where it
   should not apply (e.g., peak-centric outputs must not appear in MNase
   dry-run output).
-- [ ] `test/test_validation_stress.py`: Add config rejection cases for invalid
-  values of any new config keys.
+- [ ] Add config and sample rejection cases under `test/config/` or
+  `test/samples/` for invalid values of any new keys.
 
 ### 11. Documentation
 

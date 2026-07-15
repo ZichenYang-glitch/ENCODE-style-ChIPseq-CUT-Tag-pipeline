@@ -44,7 +44,6 @@ def _iter_runtime_files():
     suffixes = {".py", ".sh", ".smk", ".yaml", ".yml", ".tsv"}
     skip = {
         Path("test/test_no_hardcoded_paths.py"),
-        Path("test/test_stage43_artifact_inventory.py"),
     }
     for root in RUNTIME_ROOTS:
         base = REPO_ROOT / root

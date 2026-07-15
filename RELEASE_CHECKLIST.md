@@ -12,7 +12,7 @@ under `docs/release-checks/`; temporary outputs and data stay outside Git.
 python3 scripts/validate_samples.py --config config/config.yaml
 encode-validate --config config/config.yaml
 python3 -m pytest test/config test/manifest test/test_dag_snapshots.py -v
-python3 -m pytest test/test_stage8_smoke_profiles.py -v
+python3 -m pytest test/workflow/test_smoke_profiles.py -v
 python3 test/test_no_hardcoded_paths.py
 python3 test/check_snakemake_lint.py
 snakefmt --check workflow/

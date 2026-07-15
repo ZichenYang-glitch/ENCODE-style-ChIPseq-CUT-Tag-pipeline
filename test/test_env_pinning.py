@@ -1,8 +1,4 @@
-"""Conda environment pinning contract tests.
-
-Preserve the legacy Stage 59 intent: every top-level core CLI tool dependency
-in `workflow/envs/*.yml` must have a version constraint.
-"""
+"""Require version constraints for core tools in each Conda environment."""
 
 from pathlib import Path
 
@@ -44,7 +40,7 @@ def _extract_package_name(dep_text):
 
 def _has_version_constraint(dep_text):
     pkg = _extract_package_name(dep_text)
-    rest = dep_text[len(pkg):].strip()
+    rest = dep_text[len(pkg) :].strip()
     if not rest:
         return False
     return any(c in VERSION_CONSTRAINT_CHARS for c in rest)

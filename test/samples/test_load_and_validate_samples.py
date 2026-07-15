@@ -1,9 +1,4 @@
-"""Direct-API characterization tests for sample sheet loading.
-
-These tests pin the current behavior of ``load_and_validate_samples`` so that
-PR69 can safely extract sample loading / row validation helpers without
-changing behavior.
-"""
+"""Direct behavior tests for sample-sheet loading and row validation."""
 
 import pytest
 
@@ -156,7 +151,9 @@ def test_missing_required_column_rejected(tmp_path, missing_col):
     row_values = {c: COLUMN_DEFAULTS[c] for c in columns}
     row = "\t".join(str(row_values[c]) for c in columns)
     _write_tsv(samples_path, header + "\n" + row + "\n")
-    with pytest.raises(ValidationError, match=f"missing required column: {missing_col!r}"):
+    with pytest.raises(
+        ValidationError, match=f"missing required column: {missing_col!r}"
+    ):
         load_and_validate_samples(str(samples_path))
 
 
@@ -221,14 +218,18 @@ def test_invalid_layout_rejected(tmp_path):
 def test_invalid_assay_rejected(tmp_path):
     samples_path = tmp_path / "samples.tsv"
     _make_tsv(samples_path, overrides={"assay": "rnaseq"})
-    with pytest.raises(ValidationError, match="assay must be chipseq, cuttag, atac, or mnase"):
+    with pytest.raises(
+        ValidationError, match="assay must be chipseq, cuttag, atac, or mnase"
+    ):
         load_and_validate_samples(str(samples_path))
 
 
 def test_invalid_peak_mode_rejected(tmp_path):
     samples_path = tmp_path / "samples.tsv"
     _make_tsv(samples_path, overrides={"peak_mode": "mixed"})
-    with pytest.raises(ValidationError, match="peak_mode must be narrow, broad, or nucleosome"):
+    with pytest.raises(
+        ValidationError, match="peak_mode must be narrow, broad, or nucleosome"
+    ):
         load_and_validate_samples(str(samples_path))
 
 
@@ -263,7 +264,12 @@ def test_mnase_se_rejected(tmp_path):
     samples_path = tmp_path / "samples.tsv"
     _make_tsv(
         samples_path,
-        overrides={"assay": "mnase", "peak_mode": "nucleosome", "layout": "SE", "fastq_2": ""},
+        overrides={
+            "assay": "mnase",
+            "peak_mode": "nucleosome",
+            "layout": "SE",
+            "fastq_2": "",
+        },
     )
     with pytest.raises(ValidationError, match="assay=mnase requires paired-end layout"):
         load_and_validate_samples(str(samples_path))
@@ -275,7 +281,9 @@ def test_mnase_narrow_peak_mode_rejected(tmp_path):
         samples_path,
         overrides={"assay": "mnase", "peak_mode": "narrow"},
     )
-    with pytest.raises(ValidationError, match="assay=mnase requires peak_mode=nucleosome"):
+    with pytest.raises(
+        ValidationError, match="assay=mnase requires peak_mode=nucleosome"
+    ):
         load_and_validate_samples(str(samples_path))
 
 
@@ -283,9 +291,16 @@ def test_atac_broad_rejected(tmp_path):
     samples_path = tmp_path / "samples.tsv"
     _make_tsv(
         samples_path,
-        overrides={"assay": "atac", "peak_mode": "broad", "fastq_2": "", "layout": "SE"},
+        overrides={
+            "assay": "atac",
+            "peak_mode": "broad",
+            "fastq_2": "",
+            "layout": "SE",
+        },
     )
-    with pytest.raises(ValidationError, match="assay=atac currently supports peak_mode=narrow only"):
+    with pytest.raises(
+        ValidationError, match="assay=atac currently supports peak_mode=narrow only"
+    ):
         load_and_validate_samples(str(samples_path))
 
 
@@ -295,7 +310,9 @@ def test_chipseq_nucleosome_rejected(tmp_path):
         samples_path,
         overrides={"peak_mode": "nucleosome"},
     )
-    with pytest.raises(ValidationError, match="peak_mode=nucleosome is only allowed for assay=mnase"):
+    with pytest.raises(
+        ValidationError, match="peak_mode=nucleosome is only allowed for assay=mnase"
+    ):
         load_and_validate_samples(str(samples_path))
 
 
@@ -393,7 +410,9 @@ def test_use_control_true_mutually_exclusive_controls_rejected(tmp_path):
         "Ctrl1\tR1.fq\tSE\tchipseq\tT\tnarrow\ths\tidx\tcontrol\t\t\n"
     )
     _write_tsv(samples_path, header + rows)
-    with pytest.raises(ValidationError, match="cannot set both control_sample and control_bam"):
+    with pytest.raises(
+        ValidationError, match="cannot set both control_sample and control_bam"
+    ):
         load_and_validate_samples(str(samples_path), use_control=True)
 
 
@@ -445,7 +464,7 @@ def test_use_control_true_valid_control_bam_passes(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Strict inputs (Stage 30)
+# Strict input files and index formats
 # ---------------------------------------------------------------------------
 
 
@@ -477,7 +496,11 @@ def test_strict_inputs_complete_bt2_set_accepted(tmp_path):
         (tmp_path / (prefix.name + ext)).write_text("")
     _make_tsv(
         samples_path,
-        overrides={"fastq_1": str(fq1), "fastq_2": str(fq2), "bowtie2_index": str(prefix)},
+        overrides={
+            "fastq_1": str(fq1),
+            "fastq_2": str(fq2),
+            "bowtie2_index": str(prefix),
+        },
     )
     samples = load_and_validate_samples(str(samples_path), strict_inputs=True)
     assert len(samples) == 1
@@ -500,3 +523,74 @@ def test_strict_inputs_missing_bt2_set_rejected(tmp_path):
     )
     with pytest.raises(ValidationError, match="Bowtie2 index not found"):
         load_and_validate_samples(str(samples_path), strict_inputs=True)
+
+
+def test_strict_inputs_complete_bt2l_set_accepted(tmp_path):
+    samples_path = tmp_path / "samples.tsv"
+    fq1 = tmp_path / "R1.fq"
+    fq2 = tmp_path / "R2.fq"
+    fq1.write_text("")
+    fq2.write_text("")
+    prefix = tmp_path / "idx"
+    for ext in (
+        ".1.bt2l",
+        ".2.bt2l",
+        ".3.bt2l",
+        ".4.bt2l",
+        ".rev.1.bt2l",
+        ".rev.2.bt2l",
+    ):
+        (tmp_path / (prefix.name + ext)).write_text("")
+    _make_tsv(
+        samples_path,
+        overrides={
+            "fastq_1": str(fq1),
+            "fastq_2": str(fq2),
+            "bowtie2_index": str(prefix),
+        },
+    )
+
+    samples = load_and_validate_samples(str(samples_path), strict_inputs=True)
+
+    assert samples[0]["bt2_idx"] == str(prefix)
+
+
+def test_non_strict_inputs_accept_placeholder_paths(tmp_path):
+    samples_path = tmp_path / "samples.tsv"
+    _make_tsv(samples_path)
+
+    samples = load_and_validate_samples(str(samples_path), strict_inputs=False)
+
+    assert samples[0]["fq1"] == "R1.fq"
+    assert samples[0]["bt2_idx"] == "idx"
+
+
+def test_strict_inputs_accept_gzipped_fastq_names(tmp_path):
+    samples_path = tmp_path / "samples.tsv"
+    fq1 = tmp_path / "R1.fq.gz"
+    fq2 = tmp_path / "R2.fq.gz"
+    fq1.write_text("")
+    fq2.write_text("")
+    prefix = tmp_path / "idx"
+    for ext in (
+        ".1.bt2",
+        ".2.bt2",
+        ".3.bt2",
+        ".4.bt2",
+        ".rev.1.bt2",
+        ".rev.2.bt2",
+    ):
+        (tmp_path / (prefix.name + ext)).write_text("")
+    _make_tsv(
+        samples_path,
+        overrides={
+            "fastq_1": str(fq1),
+            "fastq_2": str(fq2),
+            "bowtie2_index": str(prefix),
+        },
+    )
+
+    samples = load_and_validate_samples(str(samples_path), strict_inputs=True)
+
+    assert samples[0]["fq1"] == str(fq1)
+    assert samples[0]["fq2"] == str(fq2)

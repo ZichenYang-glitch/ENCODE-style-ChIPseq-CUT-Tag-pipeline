@@ -12,7 +12,6 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import scripts.make_manifest as make_manifest_script
-from encode_pipeline.manifest import make as make_manifest
 
 from dataclasses import FrozenInstanceError
 
@@ -57,8 +56,7 @@ def _extract_manifest_output_types(manifest_path):
 
         class AddRowVisitor(ast.NodeVisitor):
             def visit_Call(self, node):
-                if (isinstance(node.func, ast.Name)
-                        and node.func.id == "_add_row"):
+                if isinstance(node.func, ast.Name) and node.func.id == "_add_row":
                     if len(node.args) >= 7:
                         val = self._extract_string(node.args[6])
                         if val:
@@ -190,6 +188,7 @@ def test_inventory_entries_are_valid_artifacts():
 
     # Re-load raw YAML to exercise validate_artifact on every raw entry
     import yaml
+
     with open(INVENTORY_PATH) as fh:
         data = yaml.safe_load(fh)
     for entry in data["artifacts"]:
@@ -214,9 +213,17 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
     catalog_mots = {a.manifest_output_type for a in catalog if a.manifest_output_type}
 
     columns_full = [
-        "sample", "fastq_1", "fastq_2", "layout", "assay",
-        "target", "peak_mode", "genome", "bowtie2_index",
-        "experiment", "biological_replicate",
+        "sample",
+        "fastq_1",
+        "fastq_2",
+        "layout",
+        "assay",
+        "target",
+        "peak_mode",
+        "genome",
+        "bowtie2_index",
+        "experiment",
+        "biological_replicate",
     ]
 
     all_types = set()
@@ -224,9 +231,24 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
     # 1. chipseq narrow default (single sample)
     all_types |= _run_manifest(
         {},
-        "\t".join(columns_full) + "\n"
-        + "\t".join(["S1", "R1.fq", "R2.fq", "PE", "chipseq",
-                     "CTCF", "narrow", "hs", "/idx", "EXP1", "1"]) + "\n",
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "S1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "chipseq",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n",
         tmp_config,
         chrom_sizes=True,
     )
@@ -238,11 +260,40 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
             "idr": {"seed": 42, "threshold": 0.05, "rank": "p.value"},
             "qc": {"signal_tracks": True, "summary": True},
         },
-        "\t".join(columns_full) + "\n"
-        + "\t".join(["S1", "R1.fq", "R2.fq", "PE", "chipseq",
-                     "CTCF", "narrow", "hs", "/idx", "EXP1", "1"]) + "\n"
-        + "\t".join(["S2", "R3.fq", "R4.fq", "PE", "chipseq",
-                     "CTCF", "narrow", "hs", "/idx", "EXP1", "2"]) + "\n",
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "S1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "chipseq",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "S2",
+                "R3.fq",
+                "R4.fq",
+                "PE",
+                "chipseq",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "2",
+            ]
+        )
+        + "\n",
         tmp_config,
         chrom_sizes=True,
     )
@@ -255,11 +306,40 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
                 "consensus": {"enabled": True},
             },
         },
-        "\t".join(columns_full) + "\n"
-        + "\t".join(["S1", "R1.fq", "R2.fq", "PE", "chipseq",
-                     "CTCF", "narrow", "hs", "/idx", "EXP1", "1"]) + "\n"
-        + "\t".join(["S2", "R3.fq", "R4.fq", "PE", "chipseq",
-                     "CTCF", "narrow", "hs", "/idx", "EXP1", "2"]) + "\n",
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "S1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "chipseq",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "S2",
+                "R3.fq",
+                "R4.fq",
+                "PE",
+                "chipseq",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "2",
+            ]
+        )
+        + "\n",
         tmp_config,
     )
 
@@ -272,11 +352,40 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
                 "idr": {"chipseq_broad_experimental": False},
             },
         },
-        "\t".join(columns_full) + "\n"
-        + "\t".join(["S1", "R1.fq", "R2.fq", "PE", "chipseq",
-                     "H3K27me3", "broad", "hs", "/idx", "EXP1", "1"]) + "\n"
-        + "\t".join(["S2", "R3.fq", "R4.fq", "PE", "chipseq",
-                     "H3K27me3", "broad", "hs", "/idx", "EXP1", "2"]) + "\n",
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "S1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "chipseq",
+                "H3K27me3",
+                "broad",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "S2",
+                "R3.fq",
+                "R4.fq",
+                "PE",
+                "chipseq",
+                "H3K27me3",
+                "broad",
+                "hs",
+                "/idx",
+                "EXP1",
+                "2",
+            ]
+        )
+        + "\n",
         tmp_config,
     )
 
@@ -289,11 +398,40 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
                 "idr": {"chipseq_broad_experimental": True},
             },
         },
-        "\t".join(columns_full) + "\n"
-        + "\t".join(["S1", "R1.fq", "R2.fq", "PE", "chipseq",
-                     "H3K27me3", "broad", "hs", "/idx", "EXP1", "1"]) + "\n"
-        + "\t".join(["S2", "R3.fq", "R4.fq", "PE", "chipseq",
-                     "H3K27me3", "broad", "hs", "/idx", "EXP1", "2"]) + "\n",
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "S1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "chipseq",
+                "H3K27me3",
+                "broad",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "S2",
+                "R3.fq",
+                "R4.fq",
+                "PE",
+                "chipseq",
+                "H3K27me3",
+                "broad",
+                "hs",
+                "/idx",
+                "EXP1",
+                "2",
+            ]
+        )
+        + "\n",
         tmp_config,
     )
 
@@ -306,11 +444,40 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
                 "idr": {"cuttag_narrow": False},
             },
         },
-        "\t".join(columns_full) + "\n"
-        + "\t".join(["S1", "R1.fq", "R2.fq", "PE", "cuttag",
-                     "H3K4me3", "narrow", "hs", "/idx", "EXP1", "1"]) + "\n"
-        + "\t".join(["S2", "R3.fq", "R4.fq", "PE", "cuttag",
-                     "H3K4me3", "narrow", "hs", "/idx", "EXP1", "2"]) + "\n",
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "S1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "cuttag",
+                "H3K4me3",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "S2",
+                "R3.fq",
+                "R4.fq",
+                "PE",
+                "cuttag",
+                "H3K4me3",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "2",
+            ]
+        )
+        + "\n",
         tmp_config,
     )
 
@@ -323,11 +490,40 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
                 "idr": {"cuttag_narrow": True},
             },
         },
-        "\t".join(columns_full) + "\n"
-        + "\t".join(["S1", "R1.fq", "R2.fq", "PE", "cuttag",
-                     "H3K4me3", "narrow", "hs", "/idx", "EXP1", "1"]) + "\n"
-        + "\t".join(["S2", "R3.fq", "R4.fq", "PE", "cuttag",
-                     "H3K4me3", "narrow", "hs", "/idx", "EXP1", "2"]) + "\n",
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "S1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "cuttag",
+                "H3K4me3",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "S2",
+                "R3.fq",
+                "R4.fq",
+                "PE",
+                "cuttag",
+                "H3K4me3",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "2",
+            ]
+        )
+        + "\n",
         tmp_config,
     )
 
@@ -340,11 +536,40 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
                 "idr": {"cuttag_broad_experimental": False},
             },
         },
-        "\t".join(columns_full) + "\n"
-        + "\t".join(["S1", "R1.fq", "R2.fq", "PE", "cuttag",
-                     "H3K27me3", "broad", "hs", "/idx", "EXP1", "1"]) + "\n"
-        + "\t".join(["S2", "R3.fq", "R4.fq", "PE", "cuttag",
-                     "H3K27me3", "broad", "hs", "/idx", "EXP1", "2"]) + "\n",
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "S1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "cuttag",
+                "H3K27me3",
+                "broad",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "S2",
+                "R3.fq",
+                "R4.fq",
+                "PE",
+                "cuttag",
+                "H3K27me3",
+                "broad",
+                "hs",
+                "/idx",
+                "EXP1",
+                "2",
+            ]
+        )
+        + "\n",
         tmp_config,
     )
 
@@ -357,11 +582,40 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
                 "idr": {"cuttag_broad_experimental": True},
             },
         },
-        "\t".join(columns_full) + "\n"
-        + "\t".join(["S1", "R1.fq", "R2.fq", "PE", "cuttag",
-                     "H3K27me3", "broad", "hs", "/idx", "EXP1", "1"]) + "\n"
-        + "\t".join(["S2", "R3.fq", "R4.fq", "PE", "cuttag",
-                     "H3K27me3", "broad", "hs", "/idx", "EXP1", "2"]) + "\n",
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "S1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "cuttag",
+                "H3K27me3",
+                "broad",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "S2",
+                "R3.fq",
+                "R4.fq",
+                "PE",
+                "cuttag",
+                "H3K27me3",
+                "broad",
+                "hs",
+                "/idx",
+                "EXP1",
+                "2",
+            ]
+        )
+        + "\n",
         tmp_config,
     )
 
@@ -374,11 +628,40 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
             },
             "cuttag": {"seacr": {"enabled": True, "mode": "stringent"}},
         },
-        "\t".join(columns_full) + "\n"
-        + "\t".join(["S1", "R1.fq", "R2.fq", "PE", "cuttag",
-                     "H3K4me3", "narrow", "hs", "/idx", "EXP1", "1"]) + "\n"
-        + "\t".join(["S2", "R3.fq", "R4.fq", "PE", "cuttag",
-                     "H3K4me3", "narrow", "hs", "/idx", "EXP1", "2"]) + "\n",
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "S1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "cuttag",
+                "H3K4me3",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "S2",
+                "R3.fq",
+                "R4.fq",
+                "PE",
+                "cuttag",
+                "H3K4me3",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "2",
+            ]
+        )
+        + "\n",
         tmp_config,
     )
 
@@ -391,22 +674,80 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
                 "idr": {"atac_narrow": True},
             },
         },
-        "\t".join(columns_full) + "\n"
-        + "\t".join(["S1", "R1.fq", "R2.fq", "PE", "atac",
-                     "CTCF", "narrow", "hs", "/idx", "EXP1", "1"]) + "\n"
-        + "\t".join(["S2", "R3.fq", "R4.fq", "PE", "atac",
-                     "CTCF", "narrow", "hs", "/idx", "EXP1", "2"]) + "\n",
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "S1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "atac",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "S2",
+                "R3.fq",
+                "R4.fq",
+                "PE",
+                "atac",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "2",
+            ]
+        )
+        + "\n",
         tmp_config,
     )
 
     # 11. MNase (2 bioreps)
     all_types |= _run_manifest(
         {},
-        "\t".join(columns_full) + "\n"
-        + "\t".join(["M1", "R1.fq", "R2.fq", "PE", "mnase",
-                     "H3", "nucleosome", "hs", "/idx", "EXP1", "1"]) + "\n"
-        + "\t".join(["M2", "R3.fq", "R4.fq", "PE", "mnase",
-                     "H3", "nucleosome", "hs", "/idx", "EXP1", "2"]) + "\n",
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "M1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "mnase",
+                "H3",
+                "nucleosome",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "M2",
+                "R3.fq",
+                "R4.fq",
+                "PE",
+                "mnase",
+                "H3",
+                "nucleosome",
+                "hs",
+                "/idx",
+                "EXP1",
+                "2",
+            ]
+        )
+        + "\n",
         tmp_config,
     )
 
@@ -436,6 +777,79 @@ def test_inventory_paths_are_relative_and_not_workstation_paths():
     assert not bad, f"Absolute workstation paths found: {bad}"
 
 
+def test_inventory_entries_name_their_producing_rule():
+    catalog = load_catalog(str(INVENTORY_PATH))
+    missing = [
+        artifact.id for artifact in catalog if not artifact.producing_rule.strip()
+    ]
+
+    assert not missing, f"Artifacts with an empty producing_rule: {missing}"
+
+
+def test_unified_idr_artifacts_name_their_executable_producers():
+    expected_rules = {
+        "atac_macs3_narrow_idr_final_peak": "idr_summary_atac_narrow",
+        "atac_macs3_narrow_idr_summary": "idr_summary_atac_narrow",
+        "cuttag_macs3_narrow_idr_final_peak": "idr_summary_cuttag_narrow",
+        "cuttag_macs3_narrow_idr_summary": "idr_summary_cuttag_narrow",
+        "chipseq_macs3_broad_idr_final_peak": "idr_summary_chipseq_broad",
+        "chipseq_macs3_broad_idr_summary": "idr_summary_chipseq_broad",
+        "cuttag_macs3_broad_idr_final_peak": "idr_summary_cuttag_broad",
+        "cuttag_macs3_broad_idr_summary": "idr_summary_cuttag_broad",
+    }
+    catalog = artifacts_by_id(load_catalog(str(INVENTORY_PATH)))
+    workflow_text = (
+        REPO_ROOT / "workflow" / "rules" / "idr_reproducibility.smk"
+    ).read_text(encoding="utf-8")
+
+    for artifact_id, rule_name in expected_rules.items():
+        artifact = catalog[artifact_id]
+        assert artifact.producing_rule == rule_name
+        assert artifact.tool == "idr_reproducibility_summary.py"
+
+        rule_match = re.search(
+            rf"^rule {re.escape(rule_name)}:\n(?P<body>.*?)(?=^rule |\Z)",
+            workflow_text,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        assert rule_match, f"Workflow rule {rule_name!r} does not exist"
+        rule_body = rule_match.group("body")
+        assert "python3 scripts/idr_reproducibility_summary.py" in rule_body
+
+        output_match = re.search(
+            r"^    output:\n(?P<body>.*?)(?=^    [a-z_]+:)",
+            rule_body,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        assert output_match, f"Workflow rule {rule_name!r} has no output block"
+        normalized_outputs = re.sub(
+            r"[\s\"']", "", re.sub(r"\bf(?=[\"'])", "", output_match.group("body"))
+        )
+        documented_path = artifact.path_template.replace(
+            "results/", "{OUTDIR}/", 1
+        ).replace("<experiment>", "{{experiment}}")
+        assert documented_path in normalized_outputs
+
+
+def test_pooled_peak_artifacts_are_not_replicate_validated_outputs():
+    catalog = load_catalog(str(INVENTORY_PATH))
+    pooled_peaks = [
+        artifact
+        for artifact in catalog
+        if artifact.level == "pooled_experiment"
+        and "/04_peaks/pooled/" in artifact.path_template
+    ]
+
+    assert pooled_peaks, "Catalog must identify its pooled aggregate peak artifacts"
+    assert all(
+        "/06_reproducibility/" not in artifact.path_template
+        for artifact in pooled_peaks
+    )
+    assert all(
+        "replicate_validated" not in artifact.path_template for artifact in pooled_peaks
+    )
+
+
 def test_inventory_notes_do_not_use_future_keyword_placeholders():
     """No artifact notes mention placeholder future-feature keywords."""
     catalog = load_catalog(str(INVENTORY_PATH))
@@ -456,7 +870,7 @@ def test_inventory_notes_do_not_use_future_keyword_placeholders():
 
 
 def test_artifact_model_helpers():
-    """Basic invariants for Artifact helpers from the legacy Stage 45 test."""
+    """Protect the basic invariants of the Artifact query helpers."""
     catalog = load_catalog(str(INVENTORY_PATH))
 
     by_id = artifacts_by_id(catalog)

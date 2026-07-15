@@ -45,23 +45,8 @@ ratchet commands.
 ## DAG snapshots and smoke profiles
 
 - `test/test_dag_snapshots.py` validates DAG target snapshots.
-- `test/test_stage8_smoke_profiles.py` smoke-tests profile execution without
+- `test/workflow/test_smoke_profiles.py` smoke-tests profile execution without
   running heavy computation.
-
-## Legacy stage shim
-
-`test/test_stage_shim.py` provides a pytest-compatible wrapper for legacy
-`test_stage*.py` scripts. Some legacy scripts are quarantined because they are
-slow, depend on real data, or reference outputs that no longer exist.
-
-The shim uses an allowlist/quarantine classification:
-
-- **Allowlisted** scripts are imported and run as normal pytest tests.
-- **Quarantined** scripts are skipped by default and only run when explicitly
-  requested.
-
-This lets CI keep fast, reliable tests while preserving the legacy scripts for
-manual archaeology.
 
 ## Lock-check behavior
 
@@ -78,7 +63,7 @@ Use focused verification while iterating:
 ```bash
 python3 test/check_snakemake_lint.py
 python3 -m pytest test/docs/test_internal_links.py -v
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest test/test_stage_shim.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest test/workflow/test_smoke_profiles.py -q -p no:cacheprovider
 ```
 
 Run the full suite before marking a PR ready:

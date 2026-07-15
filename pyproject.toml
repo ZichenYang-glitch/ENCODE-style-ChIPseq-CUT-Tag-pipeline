@@ -51,7 +51,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["test"]
 python_files = ["test_*.py"]
-addopts = "--strict-markers -v"
+addopts = ["--strict-markers", "-v", "-m", "not real_execution"]
+markers = [
+    "real_execution: requires external workflow or bioinformatics executables and is excluded from the default suite",
+]
 
 [tool.coverage.run]
 source = ["src/encode_pipeline", "scripts", "workflow/lib", "containers"]

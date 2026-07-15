@@ -116,10 +116,10 @@ The earlier `project_id` field from the draft schema was removed before implemen
 
 | output_type | method | rule | path | status |
 | :--- | :--- | :--- | :--- | :--- |
-| `cuttag_macs3_narrow_idr_final_peak` | cuttag_idr_summary.py | cuttag_idr_summary | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak` | implemented |
-| `atac_macs3_narrow_idr_final_peak` | atac_idr_summary.py | atac_idr_summary | `results/experiments/<exp>/06_reproducibility/final/<exp>.atac.macs3.narrow.replicate_validated.idr.narrowPeak` | implemented |
-| `chipseq_macs3_broad_idr_final_peak` | broad_idr_summary.py | broad_idr_chipseq_summary | `results/experiments/<exp>/06_reproducibility/final/<exp>.chipseq.macs3.broad.replicate_validated.idr.broadPeak` | implemented |
-| `cuttag_macs3_broad_idr_final_peak` | broad_idr_summary.py | broad_idr_cuttag_summary | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.broad.replicate_validated.idr.broadPeak` | implemented |
+| `cuttag_macs3_narrow_idr_final_peak` | idr_reproducibility_summary.py | idr_summary_cuttag_narrow | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak` | implemented |
+| `atac_macs3_narrow_idr_final_peak` | idr_reproducibility_summary.py | idr_summary_atac_narrow | `results/experiments/<exp>/06_reproducibility/final/<exp>.atac.macs3.narrow.replicate_validated.idr.narrowPeak` | implemented |
+| `chipseq_macs3_broad_idr_final_peak` | idr_reproducibility_summary.py | idr_summary_chipseq_broad | `results/experiments/<exp>/06_reproducibility/final/<exp>.chipseq.macs3.broad.replicate_validated.idr.broadPeak` | implemented |
+| `cuttag_macs3_broad_idr_final_peak` | idr_reproducibility_summary.py | idr_summary_cuttag_broad | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.broad.replicate_validated.idr.broadPeak` | implemented |
 
 #### Consensus final outputs (primary when no IDR)
 
@@ -134,10 +134,10 @@ The earlier `project_id` field from the draft schema was removed before implemen
 
 | output_type | method | rule | path | status |
 | :--- | :--- | :--- | :--- | :--- |
-| `atac_macs3_narrow_idr_summary` | atac_idr_summary.py | atac_idr_summary | `results/experiments/<exp>/06_reproducibility/final/reproducibility_summary.tsv` | implemented |
-| `cuttag_macs3_narrow_idr_summary` | cuttag_idr_summary.py | cuttag_idr_summary | `results/experiments/<exp>/06_reproducibility/final/reproducibility_summary.tsv` | implemented |
-| `chipseq_macs3_broad_idr_summary` | broad_idr_summary.py | broad_idr_chipseq_summary | `results/experiments/<exp>/06_reproducibility/final/reproducibility_summary.tsv` | implemented |
-| `cuttag_macs3_broad_idr_summary` | broad_idr_summary.py | broad_idr_cuttag_summary | `results/experiments/<exp>/06_reproducibility/final/reproducibility_summary.tsv` | implemented |
+| `atac_macs3_narrow_idr_summary` | idr_reproducibility_summary.py | idr_summary_atac_narrow | `results/experiments/<exp>/06_reproducibility/final/reproducibility_summary.tsv` | implemented |
+| `cuttag_macs3_narrow_idr_summary` | idr_reproducibility_summary.py | idr_summary_cuttag_narrow | `results/experiments/<exp>/06_reproducibility/final/reproducibility_summary.tsv` | implemented |
+| `chipseq_macs3_broad_idr_summary` | idr_reproducibility_summary.py | idr_summary_chipseq_broad | `results/experiments/<exp>/06_reproducibility/final/reproducibility_summary.tsv` | implemented |
+| `cuttag_macs3_broad_idr_summary` | idr_reproducibility_summary.py | idr_summary_cuttag_broad | `results/experiments/<exp>/06_reproducibility/final/reproducibility_summary.tsv` | implemented |
 
 ### Project-level outputs
 

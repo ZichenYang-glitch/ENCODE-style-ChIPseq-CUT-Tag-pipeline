@@ -20,21 +20,45 @@ import sys
 _NA = "NA"
 
 # Must match assemble_qc_summary.py exactly.
-# A test in test_stage24_qc_summary_unit.py catches drift.
+# test/scripts/test_qc_summary.py catches drift.
 _QC_SUMMARY_COLUMNS = [
-    "sample", "assay", "target", "genome", "layout", "peak_mode",
-    "use_control", "control_type", "final_bam", "peaks",
-    "blacklist", "blacklist_filtered_bam", "blacklist_filtered_peaks",
-    "total_reads", "reads_in_peaks", "frip", "peak_count",
+    "sample",
+    "assay",
+    "target",
+    "genome",
+    "layout",
+    "peak_mode",
+    "use_control",
+    "control_type",
+    "final_bam",
+    "peaks",
+    "blacklist",
+    "blacklist_filtered_bam",
+    "blacklist_filtered_peaks",
+    "total_reads",
+    "reads_in_peaks",
+    "frip",
+    "peak_count",
     "blacklist_filtered_peak_count",
-    "metrics_source", "unpaired_reads_examined", "read_pairs_examined",
-    "secondary_or_supplementary_reads", "unmapped_reads",
-    "unpaired_read_duplicates", "read_pair_duplicates",
-    "read_pair_optical_duplicates", "percent_duplication",
-    "estimated_library_size", "total_reads_examined",
+    "metrics_source",
+    "unpaired_reads_examined",
+    "read_pairs_examined",
+    "secondary_or_supplementary_reads",
+    "unmapped_reads",
+    "unpaired_read_duplicates",
+    "read_pair_duplicates",
+    "read_pair_optical_duplicates",
+    "percent_duplication",
+    "estimated_library_size",
+    "total_reads_examined",
     "duplicate_reads_estimate",
-    "total_fragments", "distinct_fragments", "one_read_fragments",
-    "two_read_fragments", "nrf", "pbc1", "pbc2",
+    "total_fragments",
+    "distinct_fragments",
+    "one_read_fragments",
+    "two_read_fragments",
+    "nrf",
+    "pbc1",
+    "pbc2",
 ]
 
 _QCOL = {c: i for i, c in enumerate(_QC_SUMMARY_COLUMNS)}
@@ -67,8 +91,10 @@ def _check_header_and_yield_rows(filepath):
         print(f"  Got      {len(header)} columns", file=sys.stderr)
         for i, (exp, got) in enumerate(zip(_QC_SUMMARY_COLUMNS, header)):
             if exp != got:
-                print(f"  First diff at column {i}: expected {exp!r}, got {got!r}",
-                      file=sys.stderr)
+                print(
+                    f"  First diff at column {i}: expected {exp!r}, got {got!r}",
+                    file=sys.stderr,
+                )
                 break
         sys.exit(1)
 

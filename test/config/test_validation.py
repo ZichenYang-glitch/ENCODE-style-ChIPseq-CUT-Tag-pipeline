@@ -1,19 +1,15 @@
-"""Pytest-based validation tests for config/sample sheets.
-
-This replaces test/test_validation_stress.py with native pytest assertions
-and shared conftest.py fixtures.
-"""
+"""Native validation tests for config and sample sheets."""
 
 import pytest
 
 
-VALID_SAMPLES_HEADER = (
-    "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
-)
+VALID_SAMPLES_HEADER = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
 
 
 def _valid_samples(sid="S1"):
-    return VALID_SAMPLES_HEADER + f"{sid}\tR1.fq\tR2.fq\tPE\tchipseq\tT\tnarrow\ths\tidx\n"
+    return (
+        VALID_SAMPLES_HEADER + f"{sid}\tR1.fq\tR2.fq\tPE\tchipseq\tT\tnarrow\ths\tidx\n"
+    )
 
 
 def _base_config():
@@ -140,7 +136,9 @@ def test_invalid_assay_rejected(make_validation_case, run_validator):
     _, config_path, _ = make_validation_case(samples=samples)
     result = run_validator(config_path)
     assert result.returncode != 0
-    assert "assay must be chipseq, cuttag, atac, or mnase" in (result.stdout + result.stderr)
+    assert "assay must be chipseq, cuttag, atac, or mnase" in (
+        result.stdout + result.stderr
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +146,9 @@ def test_invalid_assay_rejected(make_validation_case, run_validator):
 # ---------------------------------------------------------------------------
 
 
-def test_control_referencing_missing_sample_rejected(make_validation_case, run_validator):
+def test_control_referencing_missing_sample_rejected(
+    make_validation_case, run_validator
+):
     header = (
         "sample\tfastq_1\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\t"
         "role\tcontrol_sample\n"
@@ -198,7 +198,9 @@ def test_mutually_exclusive_controls_rejected(make_validation_case, run_validato
     )
     result = run_validator(config_path)
     assert result.returncode != 0
-    assert "cannot set both control_sample and control_bam" in (result.stdout + result.stderr)
+    assert "cannot set both control_sample and control_bam" in (
+        result.stdout + result.stderr
+    )
 
 
 def test_missing_control_bam_rejected(make_validation_case, run_validator):
@@ -206,7 +208,10 @@ def test_missing_control_bam_rejected(make_validation_case, run_validator):
         "sample\tfastq_1\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\t"
         "role\tcontrol_bam\n"
     )
-    samples = header + "S1\tR1\tSE\tchipseq\tT\tnarrow\ths\tidx\ttreatment\t/does/not/exist.bam\n"
+    samples = (
+        header
+        + "S1\tR1\tSE\tchipseq\tT\tnarrow\ths\tidx\ttreatment\t/does/not/exist.bam\n"
+    )
     _, config_path, _ = make_validation_case(
         config={"use_control": True},
         samples=samples,
@@ -222,7 +227,10 @@ def test_missing_control_bam_rejected(make_validation_case, run_validator):
 
 
 def _mnase_samples(layout="PE", peak_mode="nucleosome", sid="M1"):
-    return VALID_SAMPLES_HEADER + f"{sid}\tR1.fq\tR2.fq\t{layout}\tmnase\tH3\t{peak_mode}\ths\tidx\n"
+    return (
+        VALID_SAMPLES_HEADER
+        + f"{sid}\tR1.fq\tR2.fq\t{layout}\tmnase\tH3\t{peak_mode}\ths\tidx\n"
+    )
 
 
 def test_mnase_pe_nucleosome_valid(make_validation_case, run_validator):
@@ -246,11 +254,15 @@ def test_mnase_narrow_peak_mode_rejected(make_validation_case, run_validator):
 
 
 def test_chipseq_nucleosome_rejected(make_validation_case, run_validator):
-    samples = VALID_SAMPLES_HEADER + "S1\tR1.fq\tR2.fq\tPE\tchipseq\tT\tnucleosome\ths\tidx\n"
+    samples = (
+        VALID_SAMPLES_HEADER + "S1\tR1.fq\tR2.fq\tPE\tchipseq\tT\tnucleosome\ths\tidx\n"
+    )
     _, config_path, _ = make_validation_case(samples=samples)
     result = run_validator(config_path)
     assert result.returncode != 0
-    assert "peak_mode=nucleosome is only allowed for assay=mnase" in (result.stdout + result.stderr)
+    assert "peak_mode=nucleosome is only allowed for assay=mnase" in (
+        result.stdout + result.stderr
+    )
 
 
 @pytest.mark.parametrize(
@@ -260,7 +272,9 @@ def test_chipseq_nucleosome_rejected(make_validation_case, run_validator):
         ([140], "exactly 2 elements"),
     ],
 )
-def test_mnase_mono_range_invalid(make_validation_case, run_validator, mono_range, expected_error):
+def test_mnase_mono_range_invalid(
+    make_validation_case, run_validator, mono_range, expected_error
+):
     _, config_path, _ = make_validation_case(
         config={"mnase": {"mono_range": mono_range}},
         samples=_mnase_samples(),
@@ -280,7 +294,7 @@ def test_mnase_mono_range_valid(make_validation_case, run_validator):
 
 
 # ---------------------------------------------------------------------------
-# MNase Stage 40 validation
+# MNase fragment and caller validation
 # ---------------------------------------------------------------------------
 
 
@@ -322,7 +336,9 @@ def test_mnase_fragments_mono_overrides_mono_range(make_validation_case, run_val
         ({"mono": [0, 200]}, "values must be positive"),
     ],
 )
-def test_mnase_fragments_invalid(make_validation_case, run_validator, fragments, expected_error):
+def test_mnase_fragments_invalid(
+    make_validation_case, run_validator, fragments, expected_error
+):
     _, config_path, _ = make_validation_case(
         config={"mnase": {"fragments": fragments}},
         samples=_mnase_samples(),
@@ -340,7 +356,9 @@ def test_mnase_fragments_invalid(make_validation_case, run_validator, fragments,
         ([130.5, 200], "must be integers"),
     ],
 )
-def test_mnase_dyad_range_invalid(make_validation_case, run_validator, dyad_range, expected_error):
+def test_mnase_dyad_range_invalid(
+    make_validation_case, run_validator, dyad_range, expected_error
+):
     _, config_path, _ = make_validation_case(
         config={"mnase": {"dyad_range": dyad_range}},
         samples=_mnase_samples(),
@@ -372,7 +390,9 @@ def test_mnase_dyad_range_defaults_ok(make_validation_case, run_validator):
     "sub_value",
     [True, "true"],
 )
-def test_mnase_fragments_sub_bool_rejected(make_validation_case, run_validator, sub_value):
+def test_mnase_fragments_sub_bool_rejected(
+    make_validation_case, run_validator, sub_value
+):
     _, config_path, _ = make_validation_case(
         config={"mnase": {"fragments": {"sub": [sub_value, 139]}}},
         samples=_mnase_samples(),
@@ -392,7 +412,9 @@ def test_mnase_fragments_sub_bool_rejected(make_validation_case, run_validator, 
         ({"unknown": False}, "unknown key"),
     ],
 )
-def test_mnase_callers_invalid(make_validation_case, run_validator, callers, expected_error):
+def test_mnase_callers_invalid(
+    make_validation_case, run_validator, callers, expected_error
+):
     _, config_path, _ = make_validation_case(
         config={"mnase": {"callers": callers}},
         samples=_mnase_samples(),
