@@ -9,6 +9,7 @@ from encode_pipeline.services.local_run_driver import LocalRunDriver
 from encode_pipeline.services.local_execution import LocalExecutionService
 from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
 from encode_pipeline.services.preflight import LocalPreflightService
+from encode_pipeline.services.process_runner import ProcessRunner
 from encode_pipeline.services.qc_summary_indexing import QcSummaryIndexingService
 from encode_pipeline.workers.runtime import open_worker_runtime
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
@@ -71,6 +72,72 @@ def test_open_worker_runtime_aligns_command_and_identity_project_roots(tmp_path)
         assert runtime.build_identity_provider is provider
         assert runtime.command_builder._project_root == project_root
         assert runtime.local_run_driver._command_builder is runtime.command_builder
+
+
+def test_open_worker_runtime_accepts_only_deployment_owned_registry_and_runner(
+    tmp_path,
+):
+    from encode_pipeline.services.defaults import create_default_workflow_registry
+
+    configured = worker_settings(tmp_path)
+    registry = create_default_workflow_registry()
+    runner = ProcessRunner(
+        allowed_executables=("/opt/helixweave/nextflow",),
+        timeout_seconds=17,
+    )
+
+    with open_worker_runtime(
+        configured,
+        registry=registry,
+        process_runner=runner,
+    ) as runtime:
+        assert runtime.registry is registry
+        assert runtime.local_run_driver._process_runner is runner
+
+
+def test_open_worker_runtime_uses_provider_registry_and_rejects_mismatch(tmp_path):
+    from encode_pipeline.services.workflow_builds import (
+        WorkflowBuildIdentityProvider,
+    )
+    from encode_pipeline.platform.registry import WorkflowRegistry
+
+    configured = worker_settings(tmp_path)
+    selected = WorkflowRegistry()
+    provider = WorkflowBuildIdentityProvider(
+        selected,
+        project_root=Path(__file__).resolve().parents[2],
+    )
+
+    with open_worker_runtime(
+        configured,
+        build_identity_provider=provider,
+    ) as runtime:
+        assert runtime.registry is selected
+        assert runtime.build_identity_provider is provider
+
+    mismatched = WorkflowRegistry()
+    try:
+        open_worker_runtime(
+            configured,
+            registry=mismatched,
+            build_identity_provider=provider,
+        )
+    except ValueError as exc:
+        assert str(exc) == "registry must be the build_identity_provider registry"
+    else:  # pragma: no cover - protects the identity/execution binding invariant
+        raise AssertionError("mismatched registry/provider unexpectedly accepted")
+
+
+def test_open_worker_runtime_rejects_invalid_composition_overrides(tmp_path):
+    configured = worker_settings(tmp_path)
+
+    for kwargs in ({"registry": object()}, {"process_runner": object()}):
+        try:
+            open_worker_runtime(configured, **kwargs)
+        except ValueError:
+            pass
+        else:  # pragma: no cover - guards the deployment-owned seam
+            raise AssertionError("invalid worker composition unexpectedly succeeded")
 
 
 def test_open_worker_runtime_closes_persistence_if_composition_fails(

@@ -150,7 +150,12 @@ def verify_adapter_conformance(case: AdapterConformanceCase) -> None:
     _verify_validation(adapter, supports, case)
     workspace_plan = _verify_workspace(adapter, supports, case)
     _verify_dag(adapter, supports, case.valid_inputs)
-    _verify_command(adapter, supports, workspace_plan)
+    _verify_command(
+        adapter,
+        supports,
+        workspace_plan,
+        case.planning_workspace,
+    )
     _verify_artifacts(adapter, supports, case)
     _verify_qc(adapter, supports, case)
 
@@ -232,9 +237,13 @@ def _verify_command(
     adapter: WorkflowAdapter,
     supports: tuple[str, ...],
     plan: WorkspacePlan,
+    workspace: Path,
 ) -> None:
     supported = COMMAND_CAPABILITY in supports
-    result = _result("capability.command", lambda: adapter.build_command(plan))
+    result = _result(
+        "capability.command",
+        lambda: adapter.build_command(plan, workspace),
+    )
     if not supported:
         _require_failure(result, "capability.command")
         return

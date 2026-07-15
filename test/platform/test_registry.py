@@ -50,7 +50,11 @@ class FakeAdapter:
     ) -> Result[WorkspacePlan]:
         return Result.success(WorkspacePlan(directories=[str(workspace)]))
 
-    def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
+    def build_command(
+        self,
+        plan: WorkspacePlan,
+        workspace: str | Path,
+    ) -> Result[CommandSpec]:
         return Result.success(CommandSpec(argv=["run-workflow"]))
 
     def extract_artifacts(self, inputs, workspace):

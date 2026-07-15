@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0.0",
+  "network_policy": {
+    "pipeline_fetch": false,
+    "plugin_fetch": false,
+    "container_pull": false,
+    "wave": false,
+    "tower": false
+  },
+  "execution_policy": {
+    "nxf_offline": true,
+    "docker_pull": "never",
+    "docker_network": "none",
+    "required_docker_run_options": [
+      "--pull=never",
+      "--network=none"
+    ]
+  },
+  "source": {
+    "project": "nf-core/rnaseq",
+    "release": "3.26.0",
+    "commit": "e7ca46272c8f9d5ceee3f71759f4ba551d3217a4",
+    "default_relative_path": "source/nf-core-rnaseq-e7ca46272c8f9d5ceee3f71759f4ba551d3217a4",
+    "manifest": "source-manifest-3.26.0.json",
+    "manifest_sha256": "dc75d105ad26b381197268ef67c44da3107b694e788a3c693237924a86ead774",
+    "file_count": 829,
+    "tree_sha256": "4f779bd8934d41896fbf137ff31158b02daacd7efbb40ed8cee55b9c8f757722"
+  },
+  "nextflow": {
+    "version": "25.04.3",
+    "build": "5949",
+    "default_relative_path": "nextflow/nextflow-25.04.3-dist",
+    "size_bytes": 31307907,
+    "sha256": "53c232cdd8a9419d2c205dc7c6c4dd2646182c997300e6439a453099e28aa21a"
+  },
+  "plugins": [
+    {
+      "id": "nf-schema",
+      "version": "2.5.1",
+      "requires_nextflow": ">=25.04.0",
+      "default_archive_relative_path": "plugins/nf-schema-2.5.1.zip",
+      "archive_size_bytes": 478526,
+      "archive_sha256": "f3833d0c29a51dc5e3759e00a6af87fcb1e989c94d1c1e7995d06e3f7090c461",
+      "archive_sha512": "82c9c17a9f77319386e670e7b52cf79b067320001f083ccdfec77dada9fd53499506200fd10b493cf8f6fc0420f42e2314481c353ca14b3a92f354bf07ad5c13",
+      "default_meta_relative_path": "plugins/nf-schema-2.5.1-meta.json",
+      "meta_size_bytes": 354,
+      "meta_sha256": "acf2f2deb1a71940e5d27255508b3a31aca221638544b67edf81790235c491b5",
+      "default_tree_relative_path": "plugins/nf-schema-2.5.1",
+      "tree_file_count": 106,
+      "tree_sha256": "88a1431899931b9f1d208087e9b88d9aa52df0e1e447c19fa155d8c7d41b2c78"
+    }
+  ],
+  "containers": {
+    "availability_lock_schema": "container-availability-lock-1.0.0.schema.json",
+    "availability_lock_schema_sha256": "1774c6dfbdefbb8d03ca99a76ad88e893a07bc913d2534855911353d210fa636",
+    "inventory": "container-inventory-3.26.0.json",
+    "inventory_sha256": "3cae9f36c2b872958dd82b2233cc178aa53fe7ab6111f7bdb0346f8e2bbbe9cf",
+    "inventory_entries_sha256": "684ad35e9b3af3c0b825f6976a9568e34ad13ba62e1e1a0e316853c263f51365",
+    "required_process_count": 56,
+    "process_audit": "container-process-audit-3.26.0.json",
+    "process_audit_sha256": "45a2cabd6ec74de359f8d53faa2ca9423ac97cdd89cfa04e2c79c005418fd1c2",
+    "process_audit_processes_sha256": "4acefb6a517a805845bc034943108ec8e40a6db9e62026b17c62b27a020cd71c",
+    "process_universe_count": 78,
+    "excluded_process_count": 22,
+    "config_container_assignment_count": 78,
+    "config_container_assignments_sha256": "3cf6992db452554a0e93296a811cfdc6d8d7977ffc298f9fbc26fbce35b384d6",
+    "default_config_container_assignment_count": 1,
+    "default_config_container_assignments_sha256": "c407972e3fd7a293da2a1ebee45e0614ec6684a1140e58c5db41a57e08873c34",
+    "reserved_default_deny_label": "helixweave_verified_container_v1",
+    "asset_format": "docker-archive+distribution-manifest",
+    "identity_policy": "exact supported process set; complete included/excluded process audit; all pinned config container assignments audited and every default-loaded alias assignment explicitly overridden; raw distribution manifest sha256 equals OCI digest; manifest config digest binds the Docker archive config and every rootfs diff_id binds one layer.tar; runtime executes the verified config image ID and verifies the daemon RootFS diff IDs",
+    "blobs_vendored_in_git": false,
+    "runtime_pull_allowed": false
+  }
+}

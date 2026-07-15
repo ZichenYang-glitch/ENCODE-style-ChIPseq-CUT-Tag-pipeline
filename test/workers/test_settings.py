@@ -15,6 +15,8 @@ from encode_pipeline.workers.settings import (
     DEFAULT_QUEUE_NAME,
     DEFAULT_REDIS_URL,
     JOB_TIMEOUT_SECONDS_ENV,
+    MANAGED_DOCKER_EXECUTABLE_ENV,
+    MANAGED_DOCKER_SOCKET_ENV,
     QUEUE_NAME_ENV,
     REDIS_API_READ_TIMEOUT_SECONDS_ENV,
     REDIS_CONNECT_TIMEOUT_SECONDS_ENV,
@@ -64,6 +66,8 @@ def test_load_worker_settings_uses_local_defaults(tmp_path, monkeypatch):
     assert configured.queue_name == DEFAULT_QUEUE_NAME
     assert configured.workspace_root == tmp_path / ".encode-pipeline" / "workspaces"
     assert configured.job_timeout_seconds == DEFAULT_JOB_TIMEOUT_SECONDS
+    assert configured.managed_docker_executable is None
+    assert configured.managed_docker_socket == Path("/var/run/docker.sock")
     assert (
         configured.redis_connect_timeout_seconds
         == DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS
@@ -82,6 +86,38 @@ def test_worker_settings_requires_absolute_workspace(tmp_path):
             queue_name=DEFAULT_QUEUE_NAME,
             workspace_root=Path("relative/workspaces"),
         )
+
+
+def test_load_worker_settings_reads_server_owned_local_docker_paths(tmp_path):
+    executable = tmp_path / "bin/docker"
+    socket_path = tmp_path / "run/docker.sock"
+
+    configured = load_worker_settings(
+        {
+            MANAGED_DOCKER_EXECUTABLE_ENV: str(executable),
+            MANAGED_DOCKER_SOCKET_ENV: str(socket_path),
+        }
+    )
+
+    assert configured.managed_docker_executable == executable
+    assert configured.managed_docker_socket == socket_path
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ("managed_docker_executable", "managed_docker_socket"),
+)
+def test_worker_settings_rejects_relative_managed_docker_paths(tmp_path, field_name):
+    values = {
+        "database_url": f"sqlite:///{tmp_path / 'platform.db'}",
+        "redis_url": DEFAULT_REDIS_URL,
+        "queue_name": DEFAULT_QUEUE_NAME,
+        "workspace_root": tmp_path / "workspaces",
+        field_name: Path("relative/docker"),
+    }
+
+    with pytest.raises(ValueError, match=field_name):
+        WorkerSettings(**values)
 
 
 @pytest.mark.parametrize(

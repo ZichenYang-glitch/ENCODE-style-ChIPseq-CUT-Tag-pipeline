@@ -113,7 +113,9 @@ def _index_schema(*, title: str) -> dict[str, object]:
             "identity_sha256": {
                 "type": "string",
                 "pattern": _SHA256_PATTERN,
-                "description": "SHA-256 identity of the immutable index manifest.",
+                "description": (
+                    "SHA-256 identity of the exact immutable index manifest bytes."
+                ),
             },
         },
         "required": ["path", "identity_sha256"],

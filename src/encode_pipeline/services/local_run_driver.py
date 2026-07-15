@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import os
 from pathlib import Path
+import stat
 from typing import TYPE_CHECKING
 
 from encode_pipeline.platform.adapters import CommandSpec
@@ -13,6 +15,7 @@ from encode_pipeline.platform.planning import (
     WorkspacePathPolicy,
 )
 from encode_pipeline.platform.results import Issue, Result
+from encode_pipeline.services.process_runner import redact_bounded_literals
 
 if TYPE_CHECKING:
     from encode_pipeline.platform.planning import ExecutionPlan
@@ -22,14 +25,18 @@ if TYPE_CHECKING:
     from encode_pipeline.services.runs import RunService
 
 
+MANAGED_LOG_MAX_BYTES = 10_000_000
+
+
 class LocalRunDriver:
     """Fail-closed local execution driver with pre-execution orchestration.
 
     Validates the plan/run association, then for PENDING plans with a
     workspace_plan: derives a per-run workspace directory, materializes
-    workspace files, builds the CommandSpec, executes a Snakemake dry-run,
-    and returns the PLANNED ExecutionPlan on success. A PLANNED plan is run
-    without dry-run flags while stdout and stderr are persisted incrementally.
+    workspace files, builds the CommandSpec, executes its optional preflight
+    command, and returns the PLANNED ExecutionPlan on success. A PLANNED plan
+    is run without preflight flags while stdout and stderr are persisted
+    incrementally.
 
     Does not transition run status.
     """
@@ -70,9 +77,9 @@ class LocalRunDriver:
         """Validate plan, materialize workspace, build command, and dry-run.
 
         For PENDING plans with a workspace_plan, materializes the workspace,
-        builds the CommandSpec, executes a Snakemake dry-run, and returns the
-        PLANNED ExecutionPlan on success. PLANNED plans execute through the
-        controlled ProcessRunner boundary.
+        builds the CommandSpec, executes its optional preflight command, and
+        returns the PLANNED ExecutionPlan on success. PLANNED plans execute
+        through the controlled ProcessRunner boundary.
         """
         record = self._run_service.get_run(run_id)
 
@@ -241,7 +248,7 @@ class LocalRunDriver:
             },
         )
 
-        # Dry-run flag conflict check
+        # Main commands must never smuggle legacy dry-run flags into execution.
         original_argv = planned_plan.command_spec.argv
         if any(arg in ("-n", "--dry-run") for arg in original_argv):
             issue = Issue(
@@ -253,11 +260,16 @@ class LocalRunDriver:
             )
             return self._refuse(issue, planned_plan, run_id)
 
-        # Build dry-run CommandSpec
+        preflight_argv = planned_plan.command_spec.preflight_argv
+        if preflight_argv is None:
+            return planned_plan
+
+        # Build the exact adapter/legacy-declared preflight CommandSpec.
         dry_run_spec = CommandSpec(
-            argv=original_argv + ("-n",),
+            argv=preflight_argv,
             cwd=planned_plan.command_spec.cwd,
             env=planned_plan.command_spec.env,
+            redaction_values=planned_plan.command_spec.redaction_values,
         )
 
         # Execute dry-run via ProcessRunner
@@ -266,32 +278,65 @@ class LocalRunDriver:
         if dry_run_result.is_success:
             self._append_dry_run_logs(run_id, dry_run_result.value)
 
+        managed_result = self._ingest_managed_logs(
+            run_id=run_id,
+            workspace_dir=workspace_dir,
+            managed_logs=planned_plan.command_spec.preflight_managed_logs,
+            redaction_values=planned_plan.command_spec.redaction_values,
+            phase="preflight",
+        )
+        if managed_result.is_failure:
+            self._record_preflight_failed(
+                run_id,
+                kind=planned_plan.command_spec.preflight_kind,
+                failure="managed_log",
+                context={
+                    "reason_code": "LOCAL_RUN_MANAGED_LOG_FAILED",
+                    "issue_count": len(managed_result.issues),
+                },
+            )
+            return self._refuse(
+                managed_result.issues[0],
+                planned_plan,
+                run_id,
+                additional_issues=managed_result.issues[1:],
+            )
+
         if dry_run_result.is_success and dry_run_result.value.exit_code == 0:
-            self._run_service.add_event(
-                run_id=run_id,
-                event_type="dry_run_completed",
-                message="Snakemake dry-run completed successfully.",
-                status=None,
-                context={"exit_code": 0},
+            self._record_preflight_completed(
+                run_id,
+                kind=planned_plan.command_spec.preflight_kind,
             )
             return planned_plan
 
         if dry_run_result.is_success:  # exit_code != 0
-            self._run_service.add_event(
-                run_id=run_id,
-                event_type="dry_run_failed",
-                message="Snakemake dry-run failed with a non-zero exit code.",
-                status=None,
+            kind = planned_plan.command_spec.preflight_kind
+            self._record_preflight_failed(
+                run_id,
+                kind=kind,
+                failure="nonzero",
                 context={
-                    "reason_code": "LOCAL_RUN_DRY_RUN_FAILED",
+                    "reason_code": (
+                        "LOCAL_RUN_DRY_RUN_FAILED"
+                        if kind == "dry_run"
+                        else "LOCAL_RUN_PREFLIGHT_FAILED"
+                    ),
                     "exit_code": dry_run_result.value.exit_code,
                     "issue_count": len(dry_run_result.issues),
                 },
             )
             return self._refuse(
                 Issue(
-                    code="LOCAL_RUN_DRY_RUN_FAILED",
-                    message="Snakemake dry-run failed.",
+                    code=(
+                        "LOCAL_RUN_DRY_RUN_FAILED"
+                        if kind == "dry_run"
+                        else "LOCAL_RUN_PREFLIGHT_FAILED"
+                    ),
+                    message=(
+                        "Snakemake dry-run failed."
+                        if kind == "dry_run"
+                        else "Workflow configuration preflight failed."
+                    ),
                     severity="error",
                     path="command_spec",
                     source="local_run_driver",
@@ -305,11 +350,11 @@ class LocalRunDriver:
         first_issue_code = (
             dry_run_result.issues[0].code if dry_run_result.issues else "UNKNOWN"
         )
-        self._run_service.add_event(
-            run_id=run_id,
-            event_type="dry_run_failed",
-            message="Snakemake dry-run could not be executed.",
-            status=None,
+        kind = planned_plan.command_spec.preflight_kind
+        self._record_preflight_failed(
+            run_id,
+            kind=kind,
+            failure="process",
             context={
                 "reason_code": "LOCAL_RUN_PROCESS_FAILED",
                 "process_issue_code": first_issue_code,
@@ -319,7 +364,11 @@ class LocalRunDriver:
         return self._refuse(
             Issue(
                 code="LOCAL_RUN_PROCESS_FAILED",
-                message="ProcessRunner failed to execute the dry-run command.",
+                message=(
+                    "ProcessRunner failed to execute the dry-run command."
+                    if kind == "dry_run"
+                    else "ProcessRunner failed to execute the preflight command."
+                ),
                 severity="error",
                 path="command_spec",
                 source="local_run_driver",
@@ -342,6 +391,90 @@ class LocalRunDriver:
                 run_id, "stderr", process_result.stderr.splitlines()
             )
 
+    def _record_preflight_completed(self, run_id: str, *, kind: str) -> None:
+        if kind == "dry_run":
+            event_type = "dry_run_completed"
+            message = "Snakemake dry-run completed successfully."
+        else:
+            event_type = "preflight_completed"
+            message = "Workflow configuration preflight completed successfully."
+        self._run_service.add_event(
+            run_id=run_id,
+            event_type=event_type,
+            message=message,
+            status=None,
+            context={"exit_code": 0},
+        )
+
+    def _record_preflight_failed(
+        self,
+        run_id: str,
+        *,
+        kind: str,
+        failure: str,
+        context: dict[str, object],
+    ) -> None:
+        if kind == "dry_run":
+            event_type = "dry_run_failed"
+            messages = {
+                "nonzero": "Snakemake dry-run failed with a non-zero exit code.",
+                "process": "Snakemake dry-run could not be executed.",
+                "managed_log": "Snakemake dry-run log could not be persisted.",
+            }
+        else:
+            event_type = "preflight_failed"
+            messages = {
+                "nonzero": (
+                    "Workflow configuration preflight failed with a non-zero exit code."
+                ),
+                "process": "Workflow configuration preflight could not be executed.",
+                "managed_log": (
+                    "Workflow configuration preflight log could not be persisted."
+                ),
+            }
+        self._run_service.add_event(
+            run_id=run_id,
+            event_type=event_type,
+            message=messages[failure],
+            status=None,
+            context=context,
+        )
+
+    def _ingest_managed_logs(
+        self,
+        *,
+        run_id: str,
+        workspace_dir: Path,
+        managed_logs: tuple[tuple[str, str], ...],
+        redaction_values: tuple[str, ...],
+        phase: str,
+    ) -> Result[None]:
+        """Sanitize managed regular files in place and persist their lines."""
+        for stream_name, path_value in managed_logs:
+            try:
+                sanitized = _sanitize_managed_log(
+                    workspace_dir=workspace_dir,
+                    path_value=path_value,
+                    redaction_values=redaction_values,
+                )
+                lines = tuple(sanitized.splitlines())
+                if lines:
+                    self._run_service.append_log(run_id, stream_name, lines)
+            except Exception:
+                return Result.failure(
+                    [
+                        Issue(
+                            code="LOCAL_RUN_MANAGED_LOG_FAILED",
+                            message="A managed workflow log could not be persisted.",
+                            severity="error",
+                            path="command_spec.managed_logs",
+                            source="local_run_driver",
+                            context={"phase": phase},
+                        )
+                    ]
+                )
+        return Result.success(None)
+
     def _execute(
         self,
         run_id: str,
@@ -362,6 +495,15 @@ class LocalRunDriver:
             output_callback=persist_chunk,
         )
         self._persist_execution_warnings(run_id, process_result.issues)
+        managed_result = self._ingest_managed_logs(
+            run_id=run_id,
+            workspace_dir=self.derive_workspace_dir(run_id),
+            managed_logs=plan.command_spec.execution_managed_logs,
+            redaction_values=plan.command_spec.redaction_values,
+            phase="execution",
+        )
+        if managed_result.is_failure:
+            return Result.failure([*managed_result.issues, *process_result.issues])
         if process_result.is_failure:
             reason_code = (
                 process_result.issues[0].code
@@ -426,3 +568,150 @@ class LocalRunDriver:
                 context={"reason_code": process_issue.code},
                 issue=process_issue,
             )
+
+
+def _sanitize_managed_log(
+    *,
+    workspace_dir: Path,
+    path_value: str,
+    redaction_values: tuple[str, ...],
+) -> str:
+    """Read and rewrite one bounded workspace log through no-follow descriptors."""
+    required_flags = ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK")
+    if not all(hasattr(os, name) for name in required_flags):
+        raise OSError("required no-follow flags are unavailable")
+    if not isinstance(workspace_dir, Path) or not workspace_dir.is_absolute():
+        raise ValueError("workspace is invalid")
+    path = Path(path_value)
+    try:
+        relative = path.relative_to(workspace_dir)
+    except ValueError as exc:
+        raise ValueError("managed log escaped workspace") from exc
+    if not relative.parts or any(part in {"", ".", ".."} for part in relative.parts):
+        raise ValueError("managed log path is invalid")
+
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    file_flags = os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+    descriptors: list[int] = []
+    try:
+        root_fd = os.open(workspace_dir, directory_flags)
+        descriptors.append(root_fd)
+        root_info = os.fstat(root_fd)
+        if not stat.S_ISDIR(root_info.st_mode):
+            raise OSError("workspace is not a directory")
+
+        parent_fd = root_fd
+        for component in relative.parts[:-1]:
+            listed = os.stat(component, dir_fd=parent_fd, follow_symlinks=False)
+            child_fd = os.open(component, directory_flags, dir_fd=parent_fd)
+            descriptors.append(child_fd)
+            opened = os.fstat(child_fd)
+            if (
+                not stat.S_ISDIR(listed.st_mode)
+                or not stat.S_ISDIR(opened.st_mode)
+                or _inode_identity(listed) != _inode_identity(opened)
+            ):
+                raise OSError("managed log directory changed")
+            parent_fd = child_fd
+
+        name = relative.parts[-1]
+        listed = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if not _bounded_regular_log(listed):
+            raise OSError("managed log is not a bounded regular file")
+        log_fd = os.open(name, file_flags, dir_fd=parent_fd)
+        descriptors.append(log_fd)
+        before = os.fstat(log_fd)
+        if not _bounded_regular_log(before) or _stable_file_observation(
+            listed
+        ) != _stable_file_observation(before):
+            raise OSError("managed log changed while opening")
+
+        content = _read_bounded(log_fd)
+        after_read = os.fstat(log_fd)
+        listed_after_read = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if _stable_file_observation(before) != _stable_file_observation(
+            after_read
+        ) or _stable_file_observation(after_read) != _stable_file_observation(
+            listed_after_read
+        ):
+            raise OSError("managed log changed while reading")
+
+        sanitized = redact_bounded_literals(
+            content.decode("utf-8", errors="replace"),
+            redaction_values,
+        )
+        sanitized_bytes = sanitized.encode("utf-8")
+        if len(sanitized_bytes) > MANAGED_LOG_MAX_BYTES:
+            raise OSError("redacted managed log exceeds the bound")
+
+        os.ftruncate(log_fd, 0)
+        os.lseek(log_fd, 0, os.SEEK_SET)
+        _write_all(log_fd, sanitized_bytes)
+        os.ftruncate(log_fd, len(sanitized_bytes))
+        os.fsync(log_fd)
+
+        final = os.fstat(log_fd)
+        listed_final = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(final.st_mode)
+            or final.st_nlink != 1
+            or final.st_size != len(sanitized_bytes)
+            or _inode_identity(final) != _inode_identity(listed_final)
+        ):
+            raise OSError("managed log changed while rewriting")
+        return sanitized
+    finally:
+        for descriptor in reversed(descriptors):
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+def _bounded_regular_log(info: os.stat_result) -> bool:
+    return (
+        stat.S_ISREG(info.st_mode)
+        and info.st_nlink == 1
+        and 0 <= info.st_size <= MANAGED_LOG_MAX_BYTES
+    )
+
+
+def _inode_identity(info: os.stat_result) -> tuple[int, int]:
+    return info.st_dev, info.st_ino
+
+
+def _stable_file_observation(info: os.stat_result) -> tuple[int, ...]:
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_nlink,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
+
+
+def _read_bounded(descriptor: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = os.read(
+            descriptor,
+            min(64 * 1024, MANAGED_LOG_MAX_BYTES - total + 1),
+        )
+        if not chunk:
+            return b"".join(chunks)
+        total += len(chunk)
+        if total > MANAGED_LOG_MAX_BYTES:
+            raise OSError("managed log exceeds the bound")
+        chunks.append(chunk)
+
+
+def _write_all(descriptor: int, content: bytes) -> None:
+    offset = 0
+    while offset < len(content):
+        written = os.write(descriptor, content[offset:])
+        if written <= 0:
+            raise OSError("managed log rewrite made no progress")
+        offset += written

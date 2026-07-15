@@ -25,6 +25,7 @@ from encode_pipeline.platform.adapters import (
     QcSummaryExtractingAdapter,
     WorkflowAdapter,
     WorkflowAuthoringModes,
+    WorkflowBuildIdentityProvidingAdapter,
     WorkflowCapabilities,
     WorkflowInputLimits,
     WorkflowInputModes,
@@ -47,6 +48,11 @@ from encode_pipeline.platform.input_bundles import (
     InputBundleMapping,
     WorkflowInputBundle,
     validate_input_bundle_relative_path,
+)
+from encode_pipeline.platform.managed_containers import (
+    MANAGED_CONTAINER_SCOPE_LABEL,
+    managed_container_endpoint_identity,
+    managed_container_scope,
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import (
@@ -97,6 +103,7 @@ __all__ = [
     "MAX_SAMPLE_COLUMN_NAME_LENGTH",
     "MAX_SAMPLE_COLUMNS",
     "MAX_SAMPLE_ROWS",
+    "MANAGED_CONTAINER_SCOPE_LABEL",
     "INPUT_AUTHORING_CAPABILITY",
     "INPUT_BUNDLE_IMPORT_CAPABILITY",
     "ImportedWorkflowInputs",
@@ -125,12 +132,15 @@ __all__ = [
     "RunSummary",
     "decode_run_history_cursor",
     "encode_run_history_cursor",
+    "managed_container_scope",
+    "managed_container_endpoint_identity",
     "QcSourceArtifact",
     "QcSourceDocument",
     "QcSummaryExtractingAdapter",
     "WorkflowAdapter",
     "WorkflowAuthoringModes",
     "WorkflowBuildIdentity",
+    "WorkflowBuildIdentityProvidingAdapter",
     "WorkflowCapabilities",
     "WorkflowInputLimits",
     "WorkflowInputModes",

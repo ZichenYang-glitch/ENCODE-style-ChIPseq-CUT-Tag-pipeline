@@ -1,17 +1,34 @@
 """Tests for the ProcessRunner subprocess boundary."""
 
 import ast
+import ctypes
 import json
+import os
 import sys
 import time
+import tracemalloc
 from pathlib import Path
 
 import pytest
 
 import encode_pipeline.services.process_runner as process_runner_module
 from encode_pipeline.platform.adapters import CommandSpec
-from encode_pipeline.services.process_runner import ProcessRunner
+from encode_pipeline.platform.managed_containers import (
+    managed_container_endpoint_identity,
+)
+from encode_pipeline.platform.results import Issue, Result
+from encode_pipeline.services.managed_containers import ManagedContainerCleaner
+from encode_pipeline.services.process_runner import (
+    ProcessRunner,
+    ProcessRunnerCleanupError,
+)
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
+
+
+_MANAGED_ENDPOINT_IDENTITY = managed_container_endpoint_identity(
+    Path("/server/bin/docker"),
+    Path("/server/run/docker.sock"),
+)
 
 
 def _make_runner(**kwargs):
@@ -21,6 +38,44 @@ def _make_runner(**kwargs):
     defaults = {"allowed_executables": (exe, name)}
     defaults.update(kwargs)
     return ProcessRunner(**defaults)
+
+
+class _RecordingContainerCleaner(ManagedContainerCleaner):
+    def __init__(self, *, fail: bool = False, endpoint_changed: bool = False):
+        object.__setattr__(self, "calls", [])
+        object.__setattr__(self, "fail", fail)
+        object.__setattr__(self, "endpoint_changed", endpoint_changed)
+        object.__setattr__(self, "executable", Path("/server/bin/docker"))
+        object.__setattr__(self, "unix_socket", Path("/server/run/docker.sock"))
+
+    def verify_endpoint(self):
+        if self.endpoint_changed:
+            return Result.failure(
+                [
+                    Issue(
+                        code="MANAGED_CONTAINER_ENDPOINT_CHANGED",
+                        message="Managed container endpoint changed.",
+                        path="execution.cleanup",
+                        source="managed_container_cleaner",
+                    )
+                ]
+            )
+        return Result.success(None)
+
+    def cleanup(self, scope):
+        self.calls.append(scope)
+        if self.fail:
+            return Result.failure(
+                [
+                    Issue(
+                        code="MANAGED_CONTAINER_CLEANUP_FAILED",
+                        message="Managed workflow containers could not be cleaned up.",
+                        path="execution.cleanup",
+                        source="managed_container_cleaner",
+                    )
+                ]
+            )
+        return Result.success(None)
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +241,7 @@ def test_process_runner_respects_cwd(tmp_path):
     )
     result = runner.run(spec)
     assert result.is_success is True
-    assert result.value.stdout.strip() == str(tmp_path)
+    assert result.value.stdout.strip() == "[REDACTED]"
 
 
 def test_process_runner_passes_env_overrides(monkeypatch):
@@ -271,6 +326,7 @@ def test_process_runner_rejects_protected_command_environment():
     "protected_name",
     (
         "DATABASE_URL",
+        "DOCKER_HOST",
         "MY_REDIS_URL",
         "MY_SECRET_FILE",
         "SERVICE_PRIVATE_KEY_PATH",
@@ -314,14 +370,14 @@ def test_process_runner_timeout_terminates_direct_child(monkeypatch):
     terminated = []
     original_terminate = ProcessRunner._terminate
 
-    def track_termination(process):
+    def track_termination(self, process):
         terminated.append(process)
-        original_terminate(process)
+        return original_terminate(self, process)
 
     monkeypatch.setattr(
         ProcessRunner,
         "_terminate",
-        staticmethod(track_termination),
+        track_termination,
     )
     runner = _make_runner(timeout_seconds=0.1)
 
@@ -333,6 +389,37 @@ def test_process_runner_timeout_terminates_direct_child(monkeypatch):
     assert result.issues[0].code == "PROCESS_RUNNER_TIMEOUT"
     assert len(terminated) == 1
     assert terminated[0].poll() is not None
+
+
+def test_process_runner_timeout_reaps_a_real_descendant_tree(tmp_path):
+    pid_file = tmp_path / "grandchild.pid"
+    grandchild = "import time; time.sleep(30)"
+    parent = (
+        "import pathlib, subprocess, sys, time; "
+        f"child=subprocess.Popen([sys.executable, '-c', {grandchild!r}]); "
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(child.pid)); "
+        "time.sleep(30)"
+    )
+
+    result = _make_runner(timeout_seconds=0.2).run(
+        CommandSpec(argv=(sys.executable, "-c", parent))
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "PROCESS_RUNNER_TIMEOUT"
+    grandchild_pid = int(pid_file.read_text())
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        try:
+            state = Path(f"/proc/{grandchild_pid}/stat").read_text().split()[2]
+        except (FileNotFoundError, ProcessLookupError):
+            break
+        if state == "Z":
+            break
+        time.sleep(0.02)
+    else:
+        os.kill(grandchild_pid, 0)
+        pytest.fail("timed-out workflow descendant remained alive")
 
 
 def test_process_runner_timeout_reports_output_truncation():
@@ -353,7 +440,7 @@ def test_process_runner_timeout_reports_output_truncation():
         "PROCESS_RUNNER_TIMEOUT",
         "PROCESS_RUNNER_OUTPUT_LIMIT_EXCEEDED",
     ]
-    assert chunks == ["xxxxxxxx"]
+    assert chunks == ["[REDACTED]"]
 
 
 def test_process_runner_timeout_drains_bytes_already_buffered_at_kill(monkeypatch):
@@ -530,6 +617,33 @@ def test_streamed_output_is_bounded_by_capture_limit():
     )
 
 
+def test_process_runner_redacts_unicode_private_prefix_at_byte_limit():
+    private_reference = "/private/参考/genome.fa"
+    visible_prefix = "visible:"
+    private_bytes = private_reference.encode("utf-8")
+    first_multibyte = private_bytes.index("参".encode("utf-8"))
+    limit = len(visible_prefix.encode("utf-8")) + first_multibyte + 1
+    streamed: list[str] = []
+    script = (
+        "import sys; "
+        f"sys.stdout.buffer.write({(visible_prefix + private_reference).encode()!r})"
+    )
+
+    result = _make_runner(max_output_bytes=limit).run(
+        CommandSpec(
+            argv=(sys.executable, "-c", script),
+            redaction_values=(private_reference,),
+        ),
+        output_callback=lambda _stream, lines: streamed.extend(lines),
+    )
+
+    assert result.is_success
+    assert result.value.stdout.endswith("[REDACTED]")
+    assert "".join(streamed) == result.value.stdout
+    assert "/private/" not in result.value.stdout
+    assert "/private/" not in "".join(streamed)
+
+
 def test_streaming_preserves_utf8_split_across_pipe_reads():
     runner = _make_runner()
     chunks: list[str] = []
@@ -629,14 +743,14 @@ def test_base_exception_unwind_terminates_direct_child(monkeypatch):
     terminated = []
     original_terminate = ProcessRunner._terminate
 
-    def track_termination(process):
+    def track_termination(self, process):
         terminated.append(process)
-        original_terminate(process)
+        return original_terminate(self, process)
 
     monkeypatch.setattr(
         ProcessRunner,
         "_terminate",
-        staticmethod(track_termination),
+        track_termination,
     )
 
     def abort_callback(_stream, _lines):
@@ -687,6 +801,562 @@ def test_process_runner_issues_contain_no_filesystem_paths(tmp_path):
     for issue in result.issues:
         assert cwd_str not in issue.message
         assert cwd_str not in str(issue.context or {})
+
+
+def test_process_runner_redacts_adapter_private_values_from_capture_and_streams():
+    private_reference = "/private/references/genome.fa"
+    streamed: list[str] = []
+    script = (
+        "import sys; "
+        f"print({private_reference!r}); "
+        f"sys.stderr.write({(private_reference + '/index')!r} + '\\n')"
+    )
+
+    result = _make_runner().run(
+        CommandSpec(
+            argv=(sys.executable, "-c", script),
+            redaction_values=(private_reference,),
+        ),
+        output_callback=lambda _stream, lines: streamed.extend(lines),
+    )
+
+    assert result.is_success
+    assert private_reference not in result.value.stdout
+    assert private_reference not in result.value.stderr
+    assert private_reference not in "\n".join(streamed)
+    assert "[REDACTED]" in result.value.stdout
+    assert "[REDACTED]/index" in result.value.stderr
+
+
+def test_process_runner_redacts_private_prefix_at_output_limit():
+    private_reference = "/private/references/genome.fa"
+    visible_prefix = "visible:"
+    accepted = visible_prefix + private_reference[:-1]
+    streamed: list[str] = []
+    script = f"print({(visible_prefix + private_reference)!r}, end='')"
+
+    result = _make_runner(max_output_bytes=len(accepted)).run(
+        CommandSpec(
+            argv=(sys.executable, "-c", script),
+            redaction_values=(private_reference,),
+        ),
+        output_callback=lambda _stream, lines: streamed.extend(lines),
+    )
+
+    assert result.is_success
+    assert result.value.stdout.endswith("[REDACTED]")
+    assert "".join(streamed) == result.value.stdout
+    assert private_reference[:-1] not in result.value.stdout
+    assert private_reference[:-1] not in "".join(streamed)
+    assert any(
+        issue.code == "PROCESS_RUNNER_OUTPUT_LIMIT_EXCEEDED" for issue in result.issues
+    )
+
+
+@pytest.mark.parametrize("trailer", (b"\n", b""), ids=("newline", "eof"))
+def test_process_runner_redacts_secret_split_at_stream_chunk_boundary(trailer):
+    secret = "private-boundary-token"
+    split = 7
+    streamed: list[str] = []
+    script = (
+        "import os, time; "
+        f"secret = {secret.encode()!r}; "
+        f"os.write(1, b'x' * ({64 * 1024} - {split}) + secret[:{split}]); "
+        "time.sleep(0.05); "
+        f"os.write(1, secret[{split}:] + {trailer!r})"
+    )
+
+    result = _make_runner().run(
+        CommandSpec(
+            argv=(sys.executable, "-c", script),
+            redaction_values=(secret,),
+        ),
+        output_callback=lambda _stream, lines: streamed.extend(lines),
+    )
+
+    assert result.is_success
+    rendered_stream = "".join(streamed)
+    assert secret not in rendered_stream
+    assert secret not in result.value.stdout
+    assert rendered_stream == "x" * (64 * 1024 - split) + "[REDACTED]"
+    assert result.value.stdout.rstrip("\n") == rendered_stream
+
+
+def test_streaming_redactor_masks_overlapping_private_values_across_chunks():
+    private_values = ("bdb", "bb", "a")
+    chunks = (
+        "cccababbacb",
+        "abbaab",
+        "bcdd",
+        "bbdbb",
+        "dbdc",
+        "dbad",
+        "cbd",
+        "c",
+        "bbdaaa",
+    )
+    redactor = process_runner_module._StreamingRedactor(
+        process_runner_module._BoundedLiteralMatcher(private_values)
+    )
+
+    rendered = "".join(redactor.feed(chunk) for chunk in chunks)
+    rendered += redactor.finish()
+
+    assert all(private not in rendered for private in private_values)
+
+
+def test_process_runner_redacts_more_than_256_literals_across_stream_boundary():
+    private_values = tuple(
+        f"/private/run/sample-{index:04d}/reads.fastq.gz" for index in range(2_205)
+    )
+    secret = private_values[-1]
+    split = 11
+    streamed: list[str] = []
+    script = (
+        "import os, time; "
+        f"secret = {secret.encode()!r}; "
+        f"os.write(1, b'x' * ({64 * 1024} - {split}) + secret[:{split}]); "
+        "time.sleep(0.05); "
+        f"os.write(1, secret[{split}:] + b'\\n')"
+    )
+
+    result = _make_runner().run(
+        CommandSpec(
+            argv=(sys.executable, "-c", script),
+            redaction_values=private_values,
+        ),
+        output_callback=lambda _stream, lines: streamed.extend(lines),
+    )
+
+    assert result.is_success
+    rendered_stream = "".join(streamed)
+    assert secret not in rendered_stream
+    assert secret not in result.value.stdout
+    assert rendered_stream == "x" * (64 * 1024 - split) + "[REDACTED]"
+    assert result.value.stdout.rstrip("\n") == rendered_stream
+
+
+def test_process_runner_rejects_one_oversized_redaction_literal_before_launch(
+    tmp_path,
+):
+    marker = tmp_path / "started"
+    oversized = "x" * (process_runner_module._MAX_STREAM_REDACTION_PATTERN_LENGTH + 1)
+
+    result = _make_runner().run(
+        CommandSpec(
+            argv=(sys.executable, "-c", f"open({str(marker)!r}, 'w').close()"),
+            redaction_values=(oversized,),
+        )
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "PROCESS_RUNNER_REDACTION_BOUND_EXCEEDED"
+    assert not marker.exists()
+
+
+def test_process_runner_rejects_oversized_total_redaction_contract_before_launch(
+    tmp_path,
+):
+    marker = tmp_path / "started"
+    literal_length = process_runner_module._MAX_STREAM_REDACTION_PATTERN_LENGTH
+    count = (
+        process_runner_module._MAX_STREAM_REDACTION_TOTAL_CHARACTERS // literal_length
+    )
+    private_values = tuple(
+        f"{index:08x}" + "x" * (literal_length - 8) for index in range(count + 1)
+    )
+
+    result = _make_runner().run(
+        CommandSpec(
+            argv=(sys.executable, "-c", f"open({str(marker)!r}, 'w').close()"),
+            redaction_values=private_values,
+        )
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "PROCESS_RUNNER_REDACTION_BOUND_EXCEEDED"
+    assert not marker.exists()
+
+
+def test_process_runner_accepts_near_maximum_redaction_contract_with_bounded_heap():
+    literal_length = process_runner_module._MAX_STREAM_REDACTION_PATTERN_LENGTH
+    reserve_for_runner_values = 16_384
+    count = (
+        process_runner_module._MAX_STREAM_REDACTION_TOTAL_CHARACTERS
+        - reserve_for_runner_values
+    ) // literal_length
+    private_values = tuple(
+        f"{index:08x}" + "x" * (literal_length - 8) for index in range(count)
+    )
+    secret = private_values[-1]
+
+    tracemalloc.start()
+    try:
+        result = _make_runner().run(
+            CommandSpec(
+                argv=(sys.executable, "-c", f"print({secret!r})"),
+                redaction_values=private_values,
+            )
+        )
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert sum(map(len, private_values)) > 15 * 1024 * 1024
+    assert result.is_success
+    assert result.value.stdout == "[REDACTED]\n"
+    assert peak < process_runner_module._MAX_STREAM_REDACTION_TOTAL_CHARACTERS
+
+
+def test_process_runner_fails_closed_on_adversarial_redaction_candidate_density():
+    literal_length = process_runner_module._MAX_STREAM_REDACTION_PATTERN_LENGTH
+    private_values = tuple(
+        "a" * 100 + f"{index:08x}" + "a" * (literal_length - 108)
+        for index in range(300)
+    )
+    streamed: list[str] = []
+
+    result = _make_runner().run(
+        CommandSpec(
+            argv=(sys.executable, "-c", f"print({'a' * literal_length!r})"),
+            redaction_values=private_values,
+        ),
+        output_callback=lambda _stream, lines: streamed.extend(lines),
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "PROCESS_RUNNER_REDACTION_WORK_EXCEEDED"
+    assert streamed == []
+
+
+def test_process_runner_does_not_call_docker_without_declared_scope():
+    cleaner = _RecordingContainerCleaner()
+
+    result = _make_runner(managed_container_cleaner=cleaner).run(
+        CommandSpec(argv=(sys.executable, "-c", "pass"))
+    )
+
+    assert result.is_success
+    assert cleaner.calls == []
+
+
+def test_process_runner_injects_only_server_owned_local_docker_boundary(monkeypatch):
+    monkeypatch.setenv("DOCKER_HOST", "tcp://remote.example:2375")
+    cleaner = _RecordingContainerCleaner()
+    scope = "0" * 64
+    script = (
+        "import os; "
+        "host = os.environ.get('DOCKER_HOST'); "
+        "path = os.environ.get('PATH', '').split(os.pathsep)[0]; "
+        "assert host == 'unix:///server/run/docker.sock'; "
+        "assert path == '/server/bin'; "
+        "print(host); print(path)"
+    )
+
+    result = _make_runner(managed_container_cleaner=cleaner).run(
+        CommandSpec(
+            argv=(sys.executable, "-c", script),
+            managed_container_scope=scope,
+            managed_container_endpoint_identity=_MANAGED_ENDPOINT_IDENTITY,
+        )
+    )
+
+    assert result.is_success
+    assert result.value.stdout.splitlines() == ["[REDACTED]", "[REDACTED]"]
+    assert "/server" not in result.value.stdout
+    assert "remote.example" not in result.value.stdout
+    assert cleaner.calls == [scope]
+
+
+def test_process_runner_refuses_managed_scope_without_cleaner(tmp_path):
+    marker = tmp_path / "started"
+
+    result = _make_runner().run(
+        CommandSpec(
+            argv=(sys.executable, "-c", f"open({str(marker)!r}, 'w').close()"),
+            managed_container_scope="a" * 64,
+            managed_container_endpoint_identity=_MANAGED_ENDPOINT_IDENTITY,
+        )
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "PROCESS_RUNNER_CONTAINER_CLEANER_UNAVAILABLE"
+    assert not marker.exists()
+
+
+def test_process_runner_refuses_mismatched_managed_container_endpoint(tmp_path):
+    cleaner = _RecordingContainerCleaner()
+    marker = tmp_path / "started"
+    mismatched_identity = "0" * 64
+    assert mismatched_identity != cleaner.endpoint_identity
+
+    result = _make_runner(managed_container_cleaner=cleaner).run(
+        CommandSpec(
+            argv=(sys.executable, "-c", f"open({str(marker)!r}, 'w').close()"),
+            managed_container_scope="a" * 64,
+            managed_container_endpoint_identity=mismatched_identity,
+        )
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "PROCESS_RUNNER_CONTAINER_ENDPOINT_MISMATCH"
+    assert not marker.exists()
+    assert cleaner.calls == []
+    rendered = str(result.issues[0].to_dict())
+    assert mismatched_identity not in rendered
+    assert "/server" not in rendered
+
+
+def test_process_runner_rechecks_managed_endpoint_before_launch(tmp_path):
+    cleaner = _RecordingContainerCleaner(endpoint_changed=True)
+    marker = tmp_path / "started"
+
+    result = _make_runner(managed_container_cleaner=cleaner).run(
+        CommandSpec(
+            argv=(sys.executable, "-c", f"open({str(marker)!r}, 'w').close()"),
+            managed_container_scope="a" * 64,
+            managed_container_endpoint_identity=_MANAGED_ENDPOINT_IDENTITY,
+        )
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "PROCESS_RUNNER_CONTAINER_ENDPOINT_CHANGED"
+    assert not marker.exists()
+    assert cleaner.calls == ["a" * 64]
+    assert "/server" not in str(result.issues[0].to_dict())
+
+
+def test_process_runner_timeout_cleans_declared_container_scope():
+    cleaner = _RecordingContainerCleaner()
+    scope = "b" * 64
+
+    result = _make_runner(
+        timeout_seconds=0.1,
+        managed_container_cleaner=cleaner,
+    ).run(
+        CommandSpec(
+            argv=(sys.executable, "-c", "import time; time.sleep(10)"),
+            managed_container_scope=scope,
+            managed_container_endpoint_identity=_MANAGED_ENDPOINT_IDENTITY,
+        )
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "PROCESS_RUNNER_TIMEOUT"
+    assert cleaner.calls == [scope]
+
+
+def test_process_runner_callback_failure_cleans_declared_container_scope():
+    cleaner = _RecordingContainerCleaner()
+    scope = "c" * 64
+
+    result = _make_runner(managed_container_cleaner=cleaner).run(
+        CommandSpec(
+            argv=(sys.executable, "-c", "print('ready', flush=True)"),
+            managed_container_scope=scope,
+            managed_container_endpoint_identity=_MANAGED_ENDPOINT_IDENTITY,
+        ),
+        output_callback=lambda _stream, _lines: (_ for _ in ()).throw(
+            RuntimeError("private callback failure")
+        ),
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "PROCESS_RUNNER_OUTPUT_CALLBACK_FAILED"
+    assert cleaner.calls == [scope]
+    assert "private callback failure" not in str(result.issues[0].to_dict())
+
+
+def test_process_runner_base_exception_cleans_and_preserves_control_flow():
+    class AbortExecution(BaseException):
+        pass
+
+    cleaner = _RecordingContainerCleaner()
+    scope = "d" * 64
+
+    with pytest.raises(AbortExecution):
+        _make_runner(managed_container_cleaner=cleaner).run(
+            CommandSpec(
+                argv=(
+                    sys.executable,
+                    "-c",
+                    "import time; print('ready', flush=True); time.sleep(10)",
+                ),
+                managed_container_scope=scope,
+                managed_container_endpoint_identity=_MANAGED_ENDPOINT_IDENTITY,
+            ),
+            output_callback=lambda _stream, _lines: (_ for _ in ()).throw(
+                AbortExecution()
+            ),
+        )
+
+    assert cleaner.calls == [scope]
+
+
+def test_process_runner_base_exception_cleanup_failure_is_fail_closed():
+    class AbortExecution(BaseException):
+        pass
+
+    cleaner = _RecordingContainerCleaner(fail=True)
+
+    with pytest.raises(ProcessRunnerCleanupError):
+        _make_runner(managed_container_cleaner=cleaner).run(
+            CommandSpec(
+                argv=(
+                    sys.executable,
+                    "-c",
+                    "import time; print('ready', flush=True); time.sleep(10)",
+                ),
+                managed_container_scope="e" * 64,
+                managed_container_endpoint_identity=_MANAGED_ENDPOINT_IDENTITY,
+            ),
+            output_callback=lambda _stream, _lines: (_ for _ in ()).throw(
+                AbortExecution()
+            ),
+        )
+
+
+def test_container_cleanup_failure_is_primary_after_nonzero_exit():
+    cleaner = _RecordingContainerCleaner(fail=True)
+
+    result = _make_runner(managed_container_cleaner=cleaner).run(
+        CommandSpec(
+            argv=(sys.executable, "-c", "raise SystemExit(3)"),
+            managed_container_scope="1" * 64,
+            managed_container_endpoint_identity=_MANAGED_ENDPOINT_IDENTITY,
+        )
+    )
+
+    assert result.is_failure
+    assert [issue.code for issue in result.issues] == [
+        "MANAGED_CONTAINER_CLEANUP_FAILED",
+        "PROCESS_RUNNER_NONZERO_EXIT",
+    ]
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc gate")
+def test_timeout_reaps_descendant_forked_late_from_term_handler(tmp_path):
+    cleaner = _RecordingContainerCleaner()
+    child_pid_path = tmp_path / "late-child.pid"
+    script = f"""
+import os
+from pathlib import Path
+import signal
+import time
+
+child_pid_path = Path({str(child_pid_path)!r})
+forked = False
+
+def terminate(_signum, _frame):
+    global forked
+    if forked:
+        return
+    forked = True
+    pid = os.fork()
+    if pid == 0:
+        os.setsid()
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        os.close(1)
+        os.close(2)
+        while True:
+            time.sleep(1)
+    child_pid_path.write_text(str(pid), encoding="utf-8")
+
+signal.signal(signal.SIGTERM, terminate)
+print("ready", flush=True)
+while True:
+    time.sleep(1)
+"""
+
+    result = _make_runner(
+        timeout_seconds=0.15,
+        managed_container_cleaner=cleaner,
+    ).run(
+        CommandSpec(
+            argv=(sys.executable, "-c", script),
+            managed_container_scope="f" * 64,
+            managed_container_endpoint_identity=_MANAGED_ENDPOINT_IDENTITY,
+        )
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "PROCESS_RUNNER_TIMEOUT"
+    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
+    assert cleaner.calls == ["f" * 64]
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc gate")
+def test_bind_failure_after_fast_root_exit_reaps_adopted_setsid_child(
+    tmp_path,
+    monkeypatch,
+):
+    cleaner = _RecordingContainerCleaner()
+    child_pid_path = tmp_path / "adopted-child.pid"
+    script = f"""
+import os
+from pathlib import Path
+import time
+
+pid = os.fork()
+if pid == 0:
+    os.setsid()
+    os.close(1)
+    os.close(2)
+    while True:
+        time.sleep(1)
+Path({str(child_pid_path)!r}).write_text(str(pid), encoding="utf-8")
+os._exit(0)
+"""
+
+    def fail_bind_after_root_exit(self, root_pid):
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if child_pid_path.exists() and not Path(f"/proc/{root_pid}").exists():
+                break
+            time.sleep(0.01)
+        raise process_runner_module._SubreaperUnavailable(
+            "simulated fast-root bind failure"
+        )
+
+    monkeypatch.setattr(
+        process_runner_module._LinuxSubreaper,
+        "bind",
+        fail_bind_after_root_exit,
+    )
+
+    result = _make_runner(managed_container_cleaner=cleaner).run(
+        CommandSpec(
+            argv=(sys.executable, "-c", script),
+            managed_container_scope="9" * 64,
+            managed_container_endpoint_identity=_MANAGED_ENDPOINT_IDENTITY,
+        )
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "PROCESS_RUNNER_SUBREAPER_UNAVAILABLE"
+    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
+    assert cleaner.calls == ["9" * 64]
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux prctl gate")
+def test_process_runner_restores_host_subreaper_state():
+    libc = ctypes.CDLL(None, use_errno=True)
+
+    def current_state():
+        value = ctypes.c_int()
+        assert libc.prctl(37, ctypes.byref(value), 0, 0, 0) == 0
+        return value.value
+
+    before = current_state()
+
+    result = _make_runner().run(CommandSpec(argv=(sys.executable, "-c", "pass")))
+
+    assert result.is_success
+    assert current_state() == before
 
 
 # ---------------------------------------------------------------------------

@@ -722,6 +722,7 @@ def test_unsupported_methods_return_failure_without_side_effects(tmp_path):
             directories=[str(workspace)],
             files=[("config.yaml", b"samples: samples.tsv\n")],
         ),
+        workspace.resolve(),
     )
 
     # plan_workspace is implemented; with invalid inputs it fails validation

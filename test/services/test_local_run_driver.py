@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 import sys
 
@@ -21,7 +22,10 @@ from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.services.command_builder import CommandBuilder
-from encode_pipeline.services.local_run_driver import LocalRunDriver
+from encode_pipeline.services.local_run_driver import (
+    MANAGED_LOG_MAX_BYTES,
+    LocalRunDriver,
+)
 from encode_pipeline.services.materialization import WorkspaceMaterializer
 from encode_pipeline.services.process_runner import ProcessResult, ProcessRunner
 from encode_pipeline.services.runs import RunService
@@ -51,7 +55,11 @@ class FakeAdapter:
     ) -> Result[WorkspacePlan]:
         return Result.success(WorkspacePlan())
 
-    def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
+    def build_command(
+        self,
+        plan: WorkspacePlan,
+        workspace: str | Path,
+    ) -> Result[CommandSpec]:
         return Result.success(CommandSpec(argv=("run-workflow",)))
 
     def extract_artifacts(self, inputs, workspace):
@@ -245,6 +253,419 @@ class _FakeProcessRunner(ProcessRunner):
             ),
             issues=self._issues,
         )
+
+
+class _RecordingProcessRunner(ProcessRunner):
+    def __init__(self):
+        super().__init__(allowed_executables=("pinned-engine",))
+        self.specs: list[CommandSpec] = []
+
+    def run(self, spec, *, output_callback=None):
+        self.specs.append(spec)
+        return Result.success(ProcessResult(exit_code=0, stdout="", stderr=""))
+
+
+class _DeclaredCommandAdapter(FakeAdapter):
+    metadata = WorkflowMetadata(
+        workflow_id="declared-command",
+        name="Declared command",
+        version="1.0.0",
+        engines=("opaque-engine",),
+    )
+    capabilities = WorkflowCapabilities(supports=("validation", "command"))
+
+    def __init__(self, *, preflight: bool) -> None:
+        self._preflight = preflight
+
+    def build_command(
+        self,
+        plan: WorkspacePlan,
+        workspace: str | Path,
+    ) -> Result[CommandSpec]:
+        return Result.success(
+            CommandSpec(
+                argv=("pinned-engine", "run"),
+                cwd=str(workspace),
+                preflight_argv=(
+                    ("pinned-engine", "validate") if self._preflight else None
+                ),
+                redaction_values=(str(workspace),),
+            )
+        )
+
+
+class _ManagedLogAdapter(FakeAdapter):
+    metadata = WorkflowMetadata(
+        workflow_id="managed-log-command",
+        name="Managed log command",
+        version="1.0.0",
+        engines=("opaque-engine",),
+    )
+    capabilities = WorkflowCapabilities(supports=("validation", "command"))
+
+    def __init__(self, redaction_values: tuple[str, ...] = ()) -> None:
+        self._redaction_values = redaction_values
+
+    def build_command(
+        self,
+        plan: WorkspacePlan,
+        workspace: str | Path,
+    ) -> Result[CommandSpec]:
+        workspace = Path(workspace)
+        return Result.success(
+            CommandSpec(
+                argv=("pinned-engine", "run"),
+                cwd=str(workspace),
+                preflight_argv=("pinned-engine", "validate"),
+                preflight_kind="configuration",
+                preflight_managed_logs=(
+                    (
+                        "engine_preflight",
+                        str(workspace / "logs/preflight.log"),
+                    ),
+                ),
+                execution_managed_logs=(
+                    ("engine", str(workspace / "logs/engine.log")),
+                ),
+                redaction_values=(
+                    str(workspace),
+                    "private",
+                    "private-token",
+                    *self._redaction_values,
+                ),
+            )
+        )
+
+
+class _ManagedLogProcessRunner(ProcessRunner):
+    def __init__(self, writer, *, preflight_exit_code: int = 0):
+        super().__init__(allowed_executables=("pinned-engine",))
+        self._writer = writer
+        self._preflight_exit_code = preflight_exit_code
+
+    def run(self, spec, *, output_callback=None):
+        phase = "preflight" if "validate" in spec.argv else "execution"
+        self._writer(phase)
+        exit_code = self._preflight_exit_code if phase == "preflight" else 0
+        return Result.success(ProcessResult(exit_code=exit_code, stdout="", stderr=""))
+
+
+def _managed_log_driver(
+    tmp_path: Path,
+    runner: ProcessRunner,
+    *,
+    redaction_values: tuple[str, ...] = (),
+):
+    adapter = _ManagedLogAdapter(redaction_values)
+    registry = WorkflowRegistry([adapter])
+    service = RunService(registry, id_factory=lambda: "run-1")
+    service.create_run(adapter.metadata.workflow_id, WorkflowInputs(config={}))
+    workspace_root = tmp_path / "workspaces"
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=CommandBuilder(registry),
+        workspace_root=workspace_root,
+        process_runner=runner,
+    )
+    plan = _make_pending_plan_with_workspace(
+        workflow_id=adapter.metadata.workflow_id,
+        workspace_plan=WorkspacePlan(directories=("logs",)),
+    )
+    return service, driver, plan, workspace_root / "run-1"
+
+
+def test_prepare_executes_exact_declared_preflight_and_preserves_redactions(tmp_path):
+    adapter = _DeclaredCommandAdapter(preflight=True)
+    registry = WorkflowRegistry([adapter])
+    service = RunService(registry, id_factory=lambda: "run-1")
+    service.create_run(adapter.metadata.workflow_id, WorkflowInputs(config={}))
+    runner = _RecordingProcessRunner()
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=CommandBuilder(registry),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=runner,
+    )
+    plan = _make_pending_plan_with_workspace(
+        workflow_id=adapter.metadata.workflow_id,
+        workspace_plan=WorkspacePlan(directories=("logs",)),
+    )
+
+    result = driver.run("run-1", plan)
+
+    workspace = tmp_path / "workspaces" / "run-1"
+    assert result.is_success
+    assert [spec.argv for spec in runner.specs] == [("pinned-engine", "validate")]
+    assert runner.specs[0].cwd == str(workspace)
+    assert runner.specs[0].preflight_argv is None
+    assert runner.specs[0].redaction_values == (str(workspace),)
+
+
+def test_prepare_skips_process_when_command_has_no_preflight(tmp_path):
+    adapter = _DeclaredCommandAdapter(preflight=False)
+    registry = WorkflowRegistry([adapter])
+    service = RunService(registry, id_factory=lambda: "run-1")
+    service.create_run(adapter.metadata.workflow_id, WorkflowInputs(config={}))
+    runner = _RecordingProcessRunner()
+    driver = LocalRunDriver(
+        run_service=service,
+        materializer=_make_materializer(),
+        command_builder=CommandBuilder(registry),
+        workspace_root=tmp_path / "workspaces",
+        process_runner=runner,
+    )
+    plan = _make_pending_plan_with_workspace(
+        workflow_id=adapter.metadata.workflow_id,
+        workspace_plan=WorkspacePlan(directories=("logs",)),
+    )
+
+    result = driver.run("run-1", plan)
+
+    assert result.is_success
+    assert result.value.status is PlanStatus.PLANNED
+    assert runner.specs == []
+    assert "dry_run_completed" not in {
+        event.event_type for event in service.list_events("run-1")
+    }
+
+
+def test_managed_logs_are_redacted_rewritten_and_separated_by_phase(tmp_path):
+    workspace = tmp_path / "workspaces/run-1"
+
+    def write_log(phase):
+        path = (
+            workspace / f"logs/{'preflight' if phase == 'preflight' else 'engine'}.log"
+        )
+        path.write_text(f"{phase}: private-token at {workspace}\n", encoding="utf-8")
+
+    service, driver, plan, _workspace = _managed_log_driver(
+        tmp_path,
+        _ManagedLogProcessRunner(write_log),
+    )
+
+    prepared = driver.run("run-1", plan)
+
+    assert prepared.is_success
+    assert service.list_logs("run-1", "engine_preflight")[0].lines == (
+        "preflight: [REDACTED] at [REDACTED]",
+    )
+    assert service.list_logs("run-1", "engine") == ()
+    assert (workspace / "logs/preflight.log").read_text(encoding="utf-8") == (
+        "preflight: [REDACTED] at [REDACTED]\n"
+    )
+    events = service.list_events("run-1")
+    completed = [event for event in events if event.event_type == "preflight_completed"]
+    assert len(completed) == 1
+    assert completed[0].message == (
+        "Workflow configuration preflight completed successfully."
+    )
+    assert "dry_run_completed" not in {event.event_type for event in events}
+
+    executed = driver.run("run-1", prepared.value)
+
+    assert executed.is_success
+    assert service.list_logs("run-1", "engine")[0].lines == (
+        "execution: [REDACTED] at [REDACTED]",
+    )
+    assert (workspace / "logs/engine.log").read_text(encoding="utf-8") == (
+        "execution: [REDACTED] at [REDACTED]\n"
+    )
+
+
+def test_managed_log_accepts_near_maximum_bounded_redaction_contract(tmp_path):
+    import encode_pipeline.services.process_runner as process_runner_module
+
+    workspace = tmp_path / "workspaces/run-1"
+    literal_length = process_runner_module._MAX_STREAM_REDACTION_PATTERN_LENGTH
+    reserve_for_driver_values = 16_384
+    count = (
+        process_runner_module._MAX_STREAM_REDACTION_TOTAL_CHARACTERS
+        - reserve_for_driver_values
+    ) // literal_length
+    private_values = tuple(
+        f"{index:08x}" + "x" * (literal_length - 8) for index in range(count)
+    )
+    secret = private_values[-1]
+
+    def write_log(phase):
+        assert phase == "preflight"
+        (workspace / "logs/preflight.log").write_text(
+            f"{secret}\n",
+            encoding="utf-8",
+        )
+
+    service, driver, plan, _workspace = _managed_log_driver(
+        tmp_path,
+        _ManagedLogProcessRunner(write_log),
+        redaction_values=private_values,
+    )
+
+    result = driver.run("run-1", plan)
+
+    assert sum(map(len, private_values)) > 15 * 1024 * 1024
+    assert result.is_success
+    assert service.list_logs("run-1", "engine_preflight")[0].lines == ("[REDACTED]",)
+    assert (workspace / "logs/preflight.log").read_text(encoding="utf-8") == (
+        "[REDACTED]\n"
+    )
+
+
+def test_managed_log_fails_closed_on_adversarial_redaction_candidate_density(
+    tmp_path,
+):
+    import encode_pipeline.services.process_runner as process_runner_module
+
+    workspace = tmp_path / "workspaces/run-1"
+    literal_length = process_runner_module._MAX_STREAM_REDACTION_PATTERN_LENGTH
+    private_values = tuple(
+        "a" * 100 + f"{index:08x}" + "a" * (literal_length - 108)
+        for index in range(300)
+    )
+    original = ("a" * literal_length) + "\n"
+
+    def write_log(phase):
+        assert phase == "preflight"
+        (workspace / "logs/preflight.log").write_text(original, encoding="utf-8")
+
+    service, driver, plan, _workspace = _managed_log_driver(
+        tmp_path,
+        _ManagedLogProcessRunner(write_log),
+        redaction_values=private_values,
+    )
+
+    result = driver.run("run-1", plan)
+
+    assert result.is_failure
+    assert result.issues[0].code == "LOCAL_RUN_MANAGED_LOG_FAILED"
+    assert result.issues[0].context == {"phase": "preflight"}
+    assert service.list_logs("run-1", "engine_preflight") == ()
+    assert (workspace / "logs/preflight.log").read_text(encoding="utf-8") == original
+
+
+def test_configuration_preflight_nonzero_uses_generic_event(tmp_path):
+    workspace = tmp_path / "workspaces/run-1"
+
+    def write_log(phase):
+        assert phase == "preflight"
+        (workspace / "logs/preflight.log").write_text("invalid\n", encoding="utf-8")
+
+    service, driver, plan, _workspace = _managed_log_driver(
+        tmp_path,
+        _ManagedLogProcessRunner(write_log, preflight_exit_code=2),
+    )
+
+    result = driver.run("run-1", plan)
+
+    assert result.is_failure
+    assert result.issues[0].code == "LOCAL_RUN_PREFLIGHT_FAILED"
+    failed = [
+        event
+        for event in service.list_events("run-1")
+        if event.event_type == "preflight_failed"
+    ]
+    assert len(failed) == 1
+    assert failed[0].message == (
+        "Workflow configuration preflight failed with a non-zero exit code."
+    )
+    assert "dry_run_failed" not in {
+        event.event_type for event in service.list_events("run-1")
+    }
+
+
+@pytest.mark.parametrize("fault", ("missing", "symlink", "fifo", "oversize"))
+def test_preflight_managed_log_faults_fail_closed_without_path_leak(tmp_path, fault):
+    workspace = tmp_path / "workspaces/run-1"
+    target = workspace / "logs/target.log"
+
+    def write_log(phase):
+        assert phase == "preflight"
+        path = workspace / "logs/preflight.log"
+        if fault == "missing":
+            return
+        if fault == "symlink":
+            target.write_text("private-token\n", encoding="utf-8")
+            path.symlink_to(target)
+            return
+        if fault == "fifo":
+            os.mkfifo(path)
+            return
+        path.write_bytes(b"x" * (MANAGED_LOG_MAX_BYTES + 1))
+
+    service, driver, plan, _workspace = _managed_log_driver(
+        tmp_path,
+        _ManagedLogProcessRunner(write_log),
+    )
+
+    result = driver.run("run-1", plan)
+
+    assert result.is_failure
+    assert result.issues[0].code == "LOCAL_RUN_MANAGED_LOG_FAILED"
+    rendered = str(result.issues[0].to_dict())
+    assert str(workspace) not in rendered
+    assert "preflight.log" not in rendered
+    assert result.issues[0].context == {"phase": "preflight"}
+    assert service.list_logs("run-1", "engine_preflight") == ()
+    assert any(
+        event.event_type == "preflight_failed" for event in service.list_events("run-1")
+    )
+    if fault == "symlink":
+        assert target.read_text(encoding="utf-8") == "private-token\n"
+
+
+def test_managed_log_rewrite_failure_is_fail_closed(tmp_path, monkeypatch):
+    import encode_pipeline.services.local_run_driver as driver_module
+
+    workspace = tmp_path / "workspaces/run-1"
+
+    def write_log(phase):
+        assert phase == "preflight"
+        (workspace / "logs/preflight.log").write_text(
+            "private-token\n",
+            encoding="utf-8",
+        )
+
+    service, driver, plan, _workspace = _managed_log_driver(
+        tmp_path,
+        _ManagedLogProcessRunner(write_log),
+    )
+
+    def fail_write(_descriptor, _content):
+        raise OSError("simulated managed-log write failure")
+
+    monkeypatch.setattr(driver_module.os, "write", fail_write)
+
+    result = driver.run("run-1", plan)
+
+    assert result.is_failure
+    assert result.issues[0].code == "LOCAL_RUN_MANAGED_LOG_FAILED"
+    assert result.issues[0].context == {"phase": "preflight"}
+    assert service.list_logs("run-1", "engine_preflight") == ()
+    assert "simulated" not in str(result.issues[0].to_dict())
+    assert (workspace / "logs/preflight.log").read_bytes() == b""
+
+
+def test_execution_managed_log_missing_fails_in_execution_phase(tmp_path):
+    workspace = tmp_path / "workspaces/run-1"
+
+    def write_preflight_only(phase):
+        if phase == "preflight":
+            (workspace / "logs/preflight.log").write_text("ready\n", encoding="utf-8")
+
+    _service, driver, plan, _workspace = _managed_log_driver(
+        tmp_path,
+        _ManagedLogProcessRunner(write_preflight_only),
+    )
+    prepared = driver.run("run-1", plan)
+    assert prepared.is_success
+
+    result = driver.run("run-1", prepared.value)
+
+    assert result.is_failure
+    assert result.issues[0].code == "LOCAL_RUN_MANAGED_LOG_FAILED"
+    assert result.issues[0].context == {"phase": "execution"}
+    assert str(workspace) not in str(result.issues[0].to_dict())
 
 
 def test_constructor_defaults_process_runner_to_process_runner_instance():

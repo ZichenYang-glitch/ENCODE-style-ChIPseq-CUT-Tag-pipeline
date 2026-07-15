@@ -7,10 +7,14 @@ from rq.timeouts import JobTimeoutException
 
 from encode_pipeline.persistence.runtime import open_run_persistence
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.managed_containers import managed_container_scope
+from encode_pipeline.platform.planning import WorkspacePathError, WorkspacePathPolicy
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
 from encode_pipeline.services.runs import RunService
+from encode_pipeline.services.managed_containers import ManagedContainerCleaner
+from encode_pipeline.services.process_runner import ProcessRunnerCleanupError
 from encode_pipeline.workers.runtime import open_worker_runtime
 from encode_pipeline.workers.settings import load_worker_settings
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
@@ -45,6 +49,10 @@ def run_execution_job(run_id: str) -> None:
                     run_id,
                 )
             except WorkerHardTimeout:
+                if not _cleanup_runtime_managed_containers(runtime, run_id):
+                    raise ProcessRunnerCleanupError(
+                        "Workflow cleanup could not be confirmed."
+                    ) from None
                 _record_unexpected_failure_safely(
                     runtime.run_service,
                     run_id,
@@ -65,6 +73,10 @@ def run_execution_job(run_id: str) -> None:
             try:
                 _execute_claimed_run(runtime, run_id)
             except WorkerHardTimeout:
+                if not _cleanup_runtime_managed_containers(runtime, run_id):
+                    raise ProcessRunnerCleanupError(
+                        "Workflow cleanup could not be confirmed."
+                    ) from None
                 _record_unexpected_failure_safely(
                     runtime.run_service,
                     run_id,
@@ -340,6 +352,69 @@ def _require_identity(label: str, actual: object, expected: object) -> None:
         )
 
 
+def _cleanup_runtime_managed_containers(runtime, run_id: str) -> bool:
+    cleaner = runtime.managed_container_cleaner
+    if cleaner is None:
+        return True
+    try:
+        workspace = runtime.local_run_driver.derive_workspace_dir(run_id)
+        result = cleaner.cleanup(managed_container_scope(workspace))
+    except (OSError, ValueError, WorkspacePathError):
+        return _record_cleanup_failure_safely(runtime.run_service, run_id)
+    if result.is_failure:
+        return _record_cleanup_failure_safely(runtime.run_service, run_id)
+    return True
+
+
+def _cleanup_settings_managed_containers(
+    settings,
+    run_id: str,
+    run_service,
+) -> bool:
+    executable = settings.managed_docker_executable
+    if executable is None:
+        return True
+    try:
+        workspace = WorkspacePathPolicy(base_dir=settings.workspace_root).resolve(
+            run_id
+        )
+        cleaner = ManagedContainerCleaner(
+            executable=executable,
+            unix_socket=settings.managed_docker_socket,
+        )
+        result = cleaner.cleanup(managed_container_scope(workspace))
+    except (OSError, ValueError, WorkspacePathError):
+        return _record_cleanup_failure_safely(run_service, run_id)
+    if result.is_failure:
+        return _record_cleanup_failure_safely(run_service, run_id)
+    return True
+
+
+def _record_cleanup_failure_safely(run_service, run_id: str) -> bool:
+    """Keep lifecycle non-terminal and persist only a public-safe diagnostic."""
+    try:
+        run_service.add_event(
+            run_id=run_id,
+            event_type="execution_cleanup_failed",
+            message="Managed workflow cleanup could not be confirmed.",
+            status=None,
+            stage="execution",
+            context={"reason_code": "MANAGED_CONTAINER_CLEANUP_FAILED"},
+            issue=Issue(
+                code="MANAGED_CONTAINER_CLEANUP_FAILED",
+                message="Managed workflow cleanup could not be confirmed.",
+                severity="error",
+                path="execution.cleanup",
+                source="worker",
+            ),
+        )
+    except WorkerHardTimeout:
+        raise
+    except Exception:
+        pass
+    return False
+
+
 def handle_work_horse_killed(job, _retpid, _ret_val, _rusage) -> None:
     """Persist an unexpected RQ work-horse death without trusting Redis state."""
     try:
@@ -364,6 +439,8 @@ def handle_work_horse_killed(job, _retpid, _ret_val, _rusage) -> None:
                 or assignment.backend != "rq"
                 or assignment.queue_name != runtime.settings.queue_name
             ):
+                return
+            if not _cleanup_runtime_managed_containers(runtime, run_id):
                 return
             runtime.run_service.mark_execution_dispatched(
                 run_id,
@@ -427,6 +504,12 @@ def handle_execution_stopped(job, _connection) -> None:
             or assignment.job_id != job_id
             or assignment.backend != "rq"
             or assignment.queue_name != queue_name
+        ):
+            return
+        if not _cleanup_settings_managed_containers(
+            settings,
+            run_id,
+            run_service,
         ):
             return
         run_service.acknowledge_execution_stop(

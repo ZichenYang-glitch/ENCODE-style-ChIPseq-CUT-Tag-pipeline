@@ -22,12 +22,15 @@ REDIS_API_READ_TIMEOUT_SECONDS_ENV = "ENCODE_PIPELINE_REDIS_API_READ_TIMEOUT_SEC
 QUEUE_NAME_ENV = "ENCODE_PIPELINE_QUEUE_NAME"
 WORKSPACE_ROOT_ENV = "ENCODE_PIPELINE_WORKSPACE_ROOT"
 JOB_TIMEOUT_SECONDS_ENV = "ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS"
+MANAGED_DOCKER_EXECUTABLE_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE"
+MANAGED_DOCKER_SOCKET_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
 
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS = 2.0
 DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS = 5.0
 DEFAULT_QUEUE_NAME = "encode-pipeline"
 DEFAULT_JOB_TIMEOUT_SECONDS = 604_800
+DEFAULT_MANAGED_DOCKER_SOCKET = Path("/var/run/docker.sock")
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,11 @@ class WorkerSettings:
     job_timeout_seconds: int = DEFAULT_JOB_TIMEOUT_SECONDS
     redis_connect_timeout_seconds: float = DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS
     redis_api_read_timeout_seconds: float = DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS
+    managed_docker_executable: Path | None = field(default=None, repr=False)
+    managed_docker_socket: Path = field(
+        default=DEFAULT_MANAGED_DOCKER_SOCKET,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         database_url = resolve_database_url(self.database_url)
@@ -68,11 +76,27 @@ class WorkerSettings:
         workspace_root = self.workspace_root.expanduser()
         if not workspace_root.is_absolute():
             raise ValueError("workspace_root must be an absolute path")
+        managed_docker_executable = self.managed_docker_executable
+        if managed_docker_executable is not None:
+            managed_docker_executable = _absolute_path(
+                managed_docker_executable,
+                "managed_docker_executable",
+            )
+        managed_docker_socket = _absolute_path(
+            self.managed_docker_socket,
+            "managed_docker_socket",
+        )
 
         object.__setattr__(self, "database_url", database_url)
         object.__setattr__(self, "redis_url", redis_url)
         object.__setattr__(self, "queue_name", queue_name)
         object.__setattr__(self, "workspace_root", workspace_root)
+        object.__setattr__(
+            self,
+            "managed_docker_executable",
+            managed_docker_executable,
+        )
+        object.__setattr__(self, "managed_docker_socket", managed_docker_socket)
         object.__setattr__(self, "job_timeout_seconds", job_timeout_seconds)
         object.__setattr__(
             self,
@@ -128,6 +152,17 @@ def load_worker_settings(
             ),
             "redis_api_read_timeout_seconds",
         ),
+        managed_docker_executable=(
+            None
+            if source.get(MANAGED_DOCKER_EXECUTABLE_ENV) is None
+            else Path(source[MANAGED_DOCKER_EXECUTABLE_ENV])
+        ),
+        managed_docker_socket=Path(
+            source.get(
+                MANAGED_DOCKER_SOCKET_ENV,
+                str(DEFAULT_MANAGED_DOCKER_SOCKET),
+            )
+        ),
     )
 
 
@@ -159,3 +194,17 @@ def _positive_float(value: object, field_name: str) -> float:
     if normalized <= 0 or not math.isfinite(normalized):
         raise ValueError(f"{field_name} must be a positive finite number")
     return normalized
+
+
+def _absolute_path(value: object, field_name: str) -> Path:
+    if not isinstance(value, Path):
+        raise ValueError(f"{field_name} must be a pathlib.Path")
+    expanded = value.expanduser()
+    rendered = str(expanded)
+    if (
+        not expanded.is_absolute()
+        or rendered != str(Path(rendered))
+        or any(character in rendered for character in ("\x00", "\n", "\r"))
+    ):
+        raise ValueError(f"{field_name} must be a canonical absolute path")
+    return expanded

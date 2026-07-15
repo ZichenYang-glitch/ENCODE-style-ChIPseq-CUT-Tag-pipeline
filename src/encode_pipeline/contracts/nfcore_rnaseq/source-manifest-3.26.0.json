@@ -1,0 +1,4987 @@
+{
+  "schema_version": "1.0.0",
+  "project": "nf-core/rnaseq",
+  "release": "3.26.0",
+  "commit": "e7ca46272c8f9d5ceee3f71759f4ba551d3217a4",
+  "source_archive_sha256": "33ea91c1c31ac5d1c4bbee6e4d4a1afed5bae8256d72b86ae2a6c58bc2f39e0b",
+  "file_count": 829,
+  "total_size_bytes": 13237648,
+  "tree_digest_algorithm": "sha256 of UTF-8 canonical JSON for files (sorted keys; compact separators)",
+  "tree_sha256": "4f779bd8934d41896fbf137ff31158b02daacd7efbb40ed8cee55b9c8f757722",
+  "files": [
+    {
+      "path": ".devcontainer/devcontainer.json",
+      "size_bytes": 553,
+      "sha256": "7a781461a1d7dad5d218039f7b35b5855c360fa5b36a39774bdb7084bf6df4fa",
+      "executable": false
+    },
+    {
+      "path": ".devcontainer/setup.sh",
+      "size_bytes": 418,
+      "sha256": "13d3609d6d1f01058ac543bf379549f0b0d8e0b9a4a287b30779d1c823656323",
+      "executable": true
+    },
+    {
+      "path": ".gitattributes",
+      "size_bytes": 154,
+      "sha256": "c789806a02f29774b9f8ee7a9ac019ed28cdce9d80a9284726b46c1a24e2c211",
+      "executable": false
+    },
+    {
+      "path": ".github/.dockstore.yml",
+      "size_bytes": 153,
+      "sha256": "e3ed84c1c2cdc7923e42b11bdc659c0b1e348324146d01830e564da8ce5f717a",
+      "executable": false
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/bug_report.yml",
+      "size_bytes": 1800,
+      "sha256": "3431485e4eb3a956174fc6d7838b818c42772adaaec98a4fca1b956bde671c06",
+      "executable": false
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/config.yml",
+      "size_bytes": 259,
+      "sha256": "da424386551a5306757b1f5dc79ec94e45ef3d36a8b608b7d881add922cad2ec",
+      "executable": false
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/feature_request.yml",
+      "size_bytes": 405,
+      "sha256": "a47cc3f6b34f9f931fcdaaccf1a93da32a1a73cd0e5ef6f9471f6b969281680a",
+      "executable": false
+    },
+    {
+      "path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "size_bytes": 1448,
+      "sha256": "1a74889758a5f6e9d0ba9f5e2bb26337d324652ed82fde3b19ff272227295779",
+      "executable": false
+    },
+    {
+      "path": ".github/actions/get-shards/action.yml",
+      "size_bytes": 2432,
+      "sha256": "bde449777823fdf54093974f0f9b1e91fbd33d97f4cd37743c94f862b5aa08f5",
+      "executable": false
+    },
+    {
+      "path": ".github/actions/nf-test/action.yml",
+      "size_bytes": 4422,
+      "sha256": "345fe505f7ce6359ae4984fec5719b64dc05aaf86c2b723d745cddd63e9bdb0c",
+      "executable": false
+    },
+    {
+      "path": ".github/actions/nf-test/license_message.py",
+      "size_bytes": 3955,
+      "sha256": "b9ab4747c983c2d373dccc02f551b498877d70c8a215d0736e9fc23b6bcfda32",
+      "executable": false
+    },
+    {
+      "path": ".github/include.yaml",
+      "size_bytes": 163,
+      "sha256": "482e543d4cf0b91dfcb4547271c770c880f22fc70eac144d3c19d19ed1f8829a",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/awsfulltest.yml",
+      "size_bytes": 3024,
+      "sha256": "89bdd113352e008ae6f1e76256aefd3d96b18f80368570340b848f6139f22556",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/awstest.yml",
+      "size_bytes": 1219,
+      "sha256": "d786b6ae80269761284ed04db012d1aa18d08c98be9643d9c4232280de0d607f",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/branch.yml",
+      "size_bytes": 2454,
+      "sha256": "412887bf485f44d1bfdb6f0b5effdf3d1322e67b1e126e75c84b261418a7e994",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/clean-up.yml",
+      "size_bytes": 1177,
+      "sha256": "e41ff4edebd9d6f377203be1f9e3eac4d80603b49de2ee2bbc6305d62d024d9b",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/cloud_tests_full.yml",
+      "size_bytes": 3826,
+      "sha256": "6eeb5d227bf29b84f4d37620e5dea8ee1239a9fef4fb513126ab84dbe568203d",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/cloud_tests_small.yml",
+      "size_bytes": 3071,
+      "sha256": "7f68241820a64494038dbaa79781822ddc66d9c1f818f91b203366175883cb16",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/download_pipeline.yml",
+      "size_bytes": 5990,
+      "sha256": "020cb24b58932859fd9b57871bfe9753377ac4c53b6fc216b5df0c7435225d0c",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/fix_linting.yml",
+      "size_bytes": 3350,
+      "sha256": "27e067cdc89a9c67efee914314ff6c1ba1af4067a5b396b977064895a5d11853",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/linting.yml",
+      "size_bytes": 2821,
+      "sha256": "e22f764787a0896e9f0dc99d42deec2633273db7605562cc014624b3c53975d0",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/linting_comment.yml",
+      "size_bytes": 935,
+      "sha256": "62d7de40b2ed3989922d2b04831fd8046a46e18d8d5dfcb9deff586ad64c3300",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/nextflow-lint.yml",
+      "size_bytes": 356,
+      "sha256": "3428968ee29d3e6ef380d3781411aa5f5c1d6c8d24a90ebedb7542aa43a75757",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/nf-test-arm.yml",
+      "size_bytes": 5219,
+      "sha256": "08e3ffc7700580f5ae185ac1b1da2d928b9c489d7c4f894a63961c293c5315b0",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/nf-test-gpu.yml",
+      "size_bytes": 3652,
+      "sha256": "457e4b8b237031b2d8ac7c3fce78f3ec1b889c669ab7cc24476e697d3f4b4585",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/nf-test.yml",
+      "size_bytes": 5767,
+      "sha256": "54e5cf464662d6132500f1adabbbf5e0bc3db2cf1bf236daae6c9a8497d8e1d0",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/release-announcements.yml",
+      "size_bytes": 2058,
+      "sha256": "1ceab84b547f3eff3c5ba72a820149d0f4df20d30694972aec70c54d2411c948",
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/template-version-comment.yml",
+      "size_bytes": 1862,
+      "sha256": "baee403ce21fd7de03c33a478b30f754df2f63c975a6955839f1c6e40c0a6157",
+      "executable": false
+    },
+    {
+      "path": ".gitignore",
+      "size_bytes": 122,
+      "sha256": "9b5d02e9ba3cb1a7f037b4cec90e28c8803c292a5998b2468b9a21c1cee58468",
+      "executable": false
+    },
+    {
+      "path": ".nf-core.yml",
+      "size_bytes": 1220,
+      "sha256": "71f486a0f6b080349eebfb90dfc1d6f436d1e3708846db601e6d7c05e286a10d",
+      "executable": false
+    },
+    {
+      "path": ".pre-commit-config.yaml",
+      "size_bytes": 933,
+      "sha256": "59043a2db36e25f54ccb789d8068beeed11a26068c57f9cddec958cdc853c2e1",
+      "executable": false
+    },
+    {
+      "path": ".prettierignore",
+      "size_bytes": 163,
+      "sha256": "c350972d84684f88b188386068400b50318a9751151dca215dd350b1b86a5986",
+      "executable": false
+    },
+    {
+      "path": ".prettierrc.yml",
+      "size_bytes": 120,
+      "sha256": "fef7704ceb2e95b565d31287910d153ea0ec93aee930eab9855d7953ca89bc45",
+      "executable": false
+    },
+    {
+      "path": ".vscode/settings.json",
+      "size_bytes": 58,
+      "sha256": "dbbfea20764ff9f2e17e96bd2186cf7c40adb457610ee28ed366b8bab1c296c0",
+      "executable": false
+    },
+    {
+      "path": "CHANGELOG.md",
+      "size_bytes": 131826,
+      "sha256": "3b10407ed3b17d1d406afe785e42fc3f15627f80a26e67d576a9c96f10437a14",
+      "executable": false
+    },
+    {
+      "path": "CITATIONS.md",
+      "size_bytes": 12584,
+      "sha256": "5b1ac5d99c3bd43f4fed8bdc81101cb83d5cf49a7198a4ac90d52fb55438e350",
+      "executable": false
+    },
+    {
+      "path": "CODE_OF_CONDUCT.md",
+      "size_bytes": 13562,
+      "sha256": "b474915a37b8510c1a640e27fa57404e6b2f02a611ede77466b4bce34324f7a6",
+      "executable": false
+    },
+    {
+      "path": "LICENSE",
+      "size_bytes": 1075,
+      "sha256": "49147db9f580fc819494d436920fd8db97589e67989d8a82d5d18a4deb8d49f9",
+      "executable": false
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 13048,
+      "sha256": "524935917cc3c1b5ca442b545be2ae10f9a4aba1e310fe7ff0cfd86cd9439da1",
+      "executable": false
+    },
+    {
+      "path": "assets/email_template.html",
+      "size_bytes": 3031,
+      "sha256": "4c35ddc1fc02a7246905022b857ec5438241a368df55078975f3afae0b92ecce",
+      "executable": false
+    },
+    {
+      "path": "assets/email_template.txt",
+      "size_bytes": 1130,
+      "sha256": "81a9355f75da6a206e1aa97b04bf3c6caddb41759cb7d2e6ef12d4aaef628742",
+      "executable": false
+    },
+    {
+      "path": "assets/metro_map.mmd",
+      "size_bytes": 6869,
+      "sha256": "15c722cce7f0c22029f0976bc9652c54ee272ce60c44fc22b7bef0df5f64adaa",
+      "executable": false
+    },
+    {
+      "path": "assets/nf-core-rnaseq_logo_light.png",
+      "size_bytes": 72157,
+      "sha256": "82afd1523136340385087c47a8c4a96a224ce0fddbdf6191f4204ef2ddeede9b",
+      "executable": false
+    },
+    {
+      "path": "assets/samplesheet.csv",
+      "size_bytes": 735,
+      "sha256": "080353010d81002a1254a45644681df9e7585ce6e206d0b3e7014f27fa318423",
+      "executable": false
+    },
+    {
+      "path": "assets/schema_input.json",
+      "size_bytes": 3218,
+      "sha256": "013b669b1a3d38709f548a2548350ecdabb3f2ba578f2b7de843105e2ce87a7d",
+      "executable": false
+    },
+    {
+      "path": "assets/sendmail_template.txt",
+      "size_bytes": 1155,
+      "sha256": "2f5a35acb464c502d57f6bfe9e8b6f099c32b8c491f8ef4e9ef5d38140d930f0",
+      "executable": false
+    },
+    {
+      "path": "bin/deseq2_qc.r",
+      "size_bytes": 11862,
+      "sha256": "5976b735cc528b47d3e7bab2c29e859c62bba450d0f8b0742975911862680c5d",
+      "executable": true
+    },
+    {
+      "path": "bin/fastq_dir_to_samplesheet.py",
+      "size_bytes": 6246,
+      "sha256": "11408b30ee4f1a8720f2bafdfed679dcd9cda13820bd8f608fba5227be48e791",
+      "executable": true
+    },
+    {
+      "path": "bin/mqc_features_stat.py",
+      "size_bytes": 2869,
+      "sha256": "fd417fef562019a14335a8c7b850912c54e6ebd34cb8c2f7e52e22d667f8d190",
+      "executable": true
+    },
+    {
+      "path": "conf/arm.config",
+      "size_bytes": 28475,
+      "sha256": "8907dba0b83be70d946a466f70a58361761999b3032c981dbfa2696464e5bafe",
+      "executable": false
+    },
+    {
+      "path": "conf/base.config",
+      "size_bytes": 2610,
+      "sha256": "25f47ea3f51d229264e9b67248467dd59f5be2dc7b04b2200b1ed3cfc8dfe03b",
+      "executable": false
+    },
+    {
+      "path": "conf/igenomes.config",
+      "size_bytes": 36834,
+      "sha256": "71d520efad002d5202c1e0b73b8db543c97e0622384b1367569de90be055faea",
+      "executable": false
+    },
+    {
+      "path": "conf/igenomes_ignored.config",
+      "size_bytes": 401,
+      "sha256": "4eaa67a2d5906c50a45c225b7c022b24f18bce862fa5a4cb6b42341ed46b16bd",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/align_bowtie2.config",
+      "size_bytes": 2612,
+      "sha256": "e854309c28dd8bcc231059f45d4223cbdf3dd839533c5d5aff40a9dc3e53a57b",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/align_hisat2.config",
+      "size_bytes": 1627,
+      "sha256": "156bb9d5dd119d98abd07eba19784fc746d241a8c31f17879d12811bcf4931af",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/align_star.config",
+      "size_bytes": 7500,
+      "sha256": "23276136a2b40bec32f3a6e2ec066595a7d10583ebc39d664bb439015ce94308",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/alignment.config",
+      "size_bytes": 1191,
+      "sha256": "c2aff4814add012c8ce297cb9b7f6ce78db0b7a1bc02a9256c16c1ebe9cb2439",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/bbsplit.config",
+      "size_bytes": 661,
+      "sha256": "869294eec1e00787d0425b2e9dd4d171676dbf181ca0d5f0cab3f8ad0aceee0f",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/bigwig.config",
+      "size_bytes": 1976,
+      "sha256": "7a28ab554a0a50294d2e3724cc89dd437ec5a7f07878fc5f0e7801dba942eb41",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/bracken.config",
+      "size_bytes": 278,
+      "sha256": "9870540765fa90fad548e896a513b8dafcab33dcd788f98a02b5849440dc2ecb",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/cat_fastq.config",
+      "size_bytes": 354,
+      "sha256": "5b05a5722da9085e92bf9b22fd7ec7f736a0aaafa0fe3c48eae7b42d40eed405",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/deseq2_qc.config",
+      "size_bytes": 586,
+      "sha256": "9b4f6315ee07a6f0bab703e3860914f9f3e2925d26efa22d28f8b8f757ddcf06",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/dupradar.config",
+      "size_bytes": 1202,
+      "sha256": "b979d4eb19ec89540033f31f268ad76301053c526594a272cf7ed91f5b2bb304",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/fastp.config",
+      "size_bytes": 2579,
+      "sha256": "55b0f7c5c7067649735a63282314ccc25777b3d8546a31b3f4c597605d105a5f",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/featurecounts.config",
+      "size_bytes": 760,
+      "sha256": "cd2f70a786aa0c5e4a26e4cbf7342f044fe483324a231dc9011445db5cb7b880",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/kraken2.config",
+      "size_bytes": 474,
+      "sha256": "8f2a3ff783a12285b2fd16840dbd34e7b97c05c8df3c3319a30631a5cbd4fcb9",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/markduplicates.config",
+      "size_bytes": 1490,
+      "sha256": "e11f12010feb6b0f3ec40deb3bc36145b737250bd12b3365e93539e93a9e7cc2",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/multiqc.config",
+      "size_bytes": 705,
+      "sha256": "032abe09cd75e331f0672d6b9027bd25a5c7426921e4e8371cd61c37efe71079",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/multiqc_custom_biotype.config",
+      "size_bytes": 326,
+      "sha256": "42a49d22ace0bf31773791099393293c7777cbeef56edc1af20a7b714d1db91c",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/prepare_genome.config",
+      "size_bytes": 7348,
+      "sha256": "b6df34cfe9c2526f0a47fc544ec56749e7893f66b1fe0869f23201abcaad8402",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/preseq.config",
+      "size_bytes": 564,
+      "sha256": "34c75df8a7179a027f214f02ccf7abbebfe02b84419858a2e6e93fb7de1ca92b",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/qc_trim_filter.config",
+      "size_bytes": 5463,
+      "sha256": "e39fd32ea1866a44313a7ad8c113ccab81ee35acd2f95d5fb5e701a8c11bd513",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/qualimap.config",
+      "size_bytes": 433,
+      "sha256": "96d296bc4bb715c0b2a83d79ec461dbd120096e67e8d5cc63541834b9099dd0d",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/quantify_bam_salmon.config",
+      "size_bytes": 7298,
+      "sha256": "81820a68f5a3368e0375051a12f17fcad3f18c90cf11d188db58b8a1e85e7fb9",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/quantify_pseudo_alignment.config",
+      "size_bytes": 2727,
+      "sha256": "1c54d53abec8a7bc890e30b1de47fb94f4248701a2f4d41f08e5eb24a683a877",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/quantify_rsem.config",
+      "size_bytes": 2036,
+      "sha256": "0418f0182f1754982a485b72997bfdbd9c0be916676851b893c9ec73de471f30",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/rseqc.config",
+      "size_bytes": 4281,
+      "sha256": "045f1f26d7ca9d82fa5309a0e5e75ca68ba8045d087771ddcba099cd66601253",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/rustqc.config",
+      "size_bytes": 4115,
+      "sha256": "7951e2793cb9738d2c5631388e4d38617c9cacec87428f52a1bfecd8092965e9",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/sortmerna.config",
+      "size_bytes": 651,
+      "sha256": "1311041decc674a9eb64cffdb3b679d09e265e8f25a63faf09bc9d129eace53b",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/strandedness.config",
+      "size_bytes": 404,
+      "sha256": "c28cc937389cfd8bae92c49ae6e52425f62b1f10a9f695a00e53ffd708556431",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/stringtie.config",
+      "size_bytes": 1238,
+      "sha256": "69712ff39b3e7e9d0c3c34d3f0b8279d6ffdbd287f7ea7155059aa617f0cdc66",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/sylph.config",
+      "size_bytes": 510,
+      "sha256": "d2adc5c92b22b84586b0d635f21e0fbe7b977fa8b1c445e49342305427b312c5",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/sylphtax.config",
+      "size_bytes": 233,
+      "sha256": "7d2d9237b8604713e02cad746d0bc023812d1a7119731085f98b8089709f6145",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/trimgalore.config",
+      "size_bytes": 3125,
+      "sha256": "2f18e32a4f867c554e198e2260a71082b9ce4ee1015fa251b0b5b41782136a96",
+      "executable": false
+    },
+    {
+      "path": "conf/modules/umi_dedup.config",
+      "size_bytes": 4462,
+      "sha256": "6e0a36ff885fe053cdfee7a2fbe66f2a0811763c07c671a3697dd494e4719626",
+      "executable": false
+    },
+    {
+      "path": "conf/prokaryotic.config",
+      "size_bytes": 1970,
+      "sha256": "96f778cb9666753278a557e17ca755d9d0d8ada1cfb5f861c1b9bddddbbf070c",
+      "executable": false
+    },
+    {
+      "path": "conf/rapid_quant.config",
+      "size_bytes": 1309,
+      "sha256": "029a673b00ec7f95645ac578a3aa072e13d56b2f5769bfe509aad01b4a2939ef",
+      "executable": false
+    },
+    {
+      "path": "conf/test.config",
+      "size_bytes": 2949,
+      "sha256": "d301e3fef63eff53d7dbf58727d472c234e0515da925a95a344404575845c1a4",
+      "executable": false
+    },
+    {
+      "path": "conf/test_full.config",
+      "size_bytes": 926,
+      "sha256": "3bfb0200280166108cd4aae7313d48dfa1585b8c83924d048c4cba8cad500697",
+      "executable": false
+    },
+    {
+      "path": "conf/test_prokaryotic.config",
+      "size_bytes": 2098,
+      "sha256": "5ba62b9e425dc876af3334e1a78eeefc0c88b26b681fc81dd75f14e3122d939a",
+      "executable": false
+    },
+    {
+      "path": "docs/CONTRIBUTING.md",
+      "size_bytes": 15215,
+      "sha256": "21dced1e00d0adc36a6540b5bb87ea5199f78d4f82cab9d1131b28f858ff78cb",
+      "executable": false
+    },
+    {
+      "path": "docs/README.md",
+      "size_bytes": 508,
+      "sha256": "50de3bbb9c9dfbea8692b4010c741536b60324f9e76ab6ee86c62cdd93e07f19",
+      "executable": false
+    },
+    {
+      "path": "docs/dev/metro_map.md",
+      "size_bytes": 1334,
+      "sha256": "5481b361fbb474b4061dbe77d2377e481ba8eee8b77b3fb64a28c901f50cac08",
+      "executable": false
+    },
+    {
+      "path": "docs/images/bracken-top-n-plot.png",
+      "size_bytes": 55992,
+      "sha256": "12ad025d6d41b87413cf06a46a39615cb60e75c5ce997148048b6ff3e1aed378",
+      "executable": false
+    },
+    {
+      "path": "docs/images/deseq2_qc_plots.png",
+      "size_bytes": 122929,
+      "sha256": "348146080b4165a71b7850ec271b042588be90cd076e47b89155da7ea3643cfb",
+      "executable": true
+    },
+    {
+      "path": "docs/images/dupradar_example_plot.png",
+      "size_bytes": 247174,
+      "sha256": "d68fb0c010eabe821b7d075763b1e27f35b49a6a85328c387378487a04ca41c9",
+      "executable": false
+    },
+    {
+      "path": "docs/images/mqc_alignment_check.png",
+      "size_bytes": 28146,
+      "sha256": "8efd4f8b3af69b0fd8cba226a45ad153c3aedc440e4811d936076a5118ba1a3a",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_cutadapt_trimmed.png",
+      "size_bytes": 30142,
+      "sha256": "37881772b54455dbb8b23dc9be4d7c55e852146d2cb54c9ace36c8f478ca0f47",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_deseq2_clustering.png",
+      "size_bytes": 33632,
+      "sha256": "8d00a24bbff497753ea0960f757149f095ecad71a675f11f205cb7ff6f29e8d8",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_deseq2_pca.png",
+      "size_bytes": 26252,
+      "sha256": "07ae96622787ff3706f0685dcb325254993d7a6fdae40bfabf0d6ef45692e387",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_dupradar.png",
+      "size_bytes": 53425,
+      "sha256": "5d198f3f569b43b266e098d5358f837f06eaf2bb52d72391714e999618593ec3",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_fastp_plot.png",
+      "size_bytes": 18563,
+      "sha256": "f17abeca83cf9fd51a3c67eade25aba01fae02b88baf32104f69864d8fa9711e",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_fastqc_adapter.png",
+      "size_bytes": 23458,
+      "sha256": "9d04ecb92597a6b34935369264f40d2a1564f4a62e76b27dd473b412de044950",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_fastqc_counts.png",
+      "size_bytes": 33918,
+      "sha256": "e35824e0c258dca524c170cbebd31cd9939824221359866889ba38cffa775c1a",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_fastqc_quality.png",
+      "size_bytes": 55769,
+      "sha256": "a1ce2da23e64516aff2acfd34bc505778ca39cdce8c07cd1447ed806bdeb36de",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_featurecounts_biotype.png",
+      "size_bytes": 48011,
+      "sha256": "ed2a69ff7fbf74a954014cb884391aec4f024e7db4ff872bd4d061c1c0292d07",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_hisat2.png",
+      "size_bytes": 28000,
+      "sha256": "15089ad33d7db5c1f06b55f016abc23eebbb8423dfbca78080be49529def0206",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_picard_markduplicates.png",
+      "size_bytes": 28517,
+      "sha256": "55c7feb4a7a18a2bc5a36336b122b8544f7b6edc77b8e423ade2c564a50603e1",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_preseq_plot.png",
+      "size_bytes": 53270,
+      "sha256": "8c8e6ae174fcf0923d1c359ffda0c68c8110ccf0be0f94144e3bee1f0e58fabc",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_qualimap_coverage.png",
+      "size_bytes": 97373,
+      "sha256": "b03f37d10a7b750bdc104007122eb31c9aaaeb0cda899f4884f05fbca495aed6",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_qualimap_features.png",
+      "size_bytes": 28086,
+      "sha256": "9721c6058954411fbefc6abc1de448091962a1906a91e906c0218e3832306e41",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_rsem_mapped.png",
+      "size_bytes": 31672,
+      "sha256": "44c78e11be7f2c7b8ec30d7eb7d34c098a84071edc7edc6638683716592a65c6",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_rsem_multimapped.png",
+      "size_bytes": 31239,
+      "sha256": "ea923c2d33ebff81f382d689d5248417056fdae4a330521d3c4368ac2fd48565",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_rseqc_inferexperiment.png",
+      "size_bytes": 27924,
+      "sha256": "087839b72d9620c60889701a410148653554d66c5c12bd9e7852c0b6d647e79b",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_rseqc_innerdistance.png",
+      "size_bytes": 94149,
+      "sha256": "ab2d8c096e7ad0807d55a91fed4d94c459fffa67598e3b1037449baa86abf708",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_rseqc_junctionannotation.png",
+      "size_bytes": 28345,
+      "sha256": "2d3a647194f6d65bbd29d365a7db67cc38c9dfbfc2c6f09583b787f660c75f53",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_rseqc_junctionsaturation.png",
+      "size_bytes": 65611,
+      "sha256": "f8c4563a65dd7896317d182d0a681ada756b07e38b1da13cfdfa0617a234e2b7",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_rseqc_readdistribution.png",
+      "size_bytes": 35988,
+      "sha256": "15ea1def1036b6d54abe711273899561cd60889b08d085125e983ec23446c80c",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_rseqc_readduplication.png",
+      "size_bytes": 64287,
+      "sha256": "9f9fe2e472203659f9d22c5b097f8eb6984e7361fb3a06ab6f344bc54cbe52c2",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_salmon.png",
+      "size_bytes": 68884,
+      "sha256": "dea31591c646ee488888f5ca2c795b558c9a2b762da65060eeb8985c7a08f943",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_samtools_idxstats.png",
+      "size_bytes": 165428,
+      "sha256": "5d24deb8ecc66410b4a191a0978eaa2a803670319bd2145c2c66d0e7c440e546",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_samtools_mapped.png",
+      "size_bytes": 26108,
+      "sha256": "0ad5a10743ec3c9120e91e92e794d7ffcffe2266b1f6aceda4c678c0c2571594",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_sortmerna.png",
+      "size_bytes": 37618,
+      "sha256": "10ab3363fb94b5a4029cbce29b7e5eac06fb45649a24c1d5bb2c64324727cc9b",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_star.png",
+      "size_bytes": 29742,
+      "sha256": "a63289f89ed61e886b51576804d5cdffb47946d5ec72e7762757f4dca9f54daa",
+      "executable": true
+    },
+    {
+      "path": "docs/images/mqc_strand_check.png",
+      "size_bytes": 185870,
+      "sha256": "ab9d5ba9c9e4859efba51d4146c3f94084e88d102a1dc8cd630bd15a70c44343",
+      "executable": false
+    },
+    {
+      "path": "docs/images/mqc_strand_check_columns.png",
+      "size_bytes": 168497,
+      "sha256": "c4ccf6c9f46d56ba0e53aba0e2aa2cfc2ea6fc4cb0087a04cf550f117e7b743e",
+      "executable": false
+    },
+    {
+      "path": "docs/images/nf-core-rnaseq_logo_dark.png",
+      "size_bytes": 26293,
+      "sha256": "40b4deae89890f9a4f22f224e8ab9f2a635bc8f37bdbf2727f5492a00f6ae9c8",
+      "executable": false
+    },
+    {
+      "path": "docs/images/nf-core-rnaseq_logo_light.png",
+      "size_bytes": 22665,
+      "sha256": "674edef79b51e9d52e55d2100dbf1d310447927102ada06b25022eb02b2d971c",
+      "executable": false
+    },
+    {
+      "path": "docs/images/nf-core-rnaseq_metro_map_grey.png",
+      "size_bytes": 261589,
+      "sha256": "05bc5a6078a34613d52ddae1ddda20028af7be61d24975ac015d88b4536433ee",
+      "executable": false
+    },
+    {
+      "path": "docs/images/nf-core-rnaseq_metro_map_grey.svg",
+      "size_bytes": 90962,
+      "sha256": "26eec70f624c4b373ef17ed242e99e0aa7100ebd3a833e51f760ae8b9572635c",
+      "executable": false
+    },
+    {
+      "path": "docs/images/nf-core-rnaseq_metro_map_grey_animated.svg",
+      "size_bytes": 153334,
+      "sha256": "8228d8e12f4dd18df438c4741f85fa4f4ce7ccbfe1ffe5625665126e7a90b361",
+      "executable": false
+    },
+    {
+      "path": "docs/images/nfcore-rnaseq_logo.ai",
+      "size_bytes": 1639789,
+      "sha256": "8048973a9c3d1cfbba887936ac74b4ed10802aa2e987c96f035aa836f30476fb",
+      "executable": false
+    },
+    {
+      "path": "docs/images/sylphtax-top-n-plot.png",
+      "size_bytes": 75002,
+      "sha256": "5f11504b34fe08dd5aaf3899d976be99097cb792d21f25b0027a72d049b7374d",
+      "executable": false
+    },
+    {
+      "path": "docs/output.md",
+      "size_bytes": 83334,
+      "sha256": "b48d6d97c7c8dc6aad434c1e11d6afd15b7db02aa2374a0732c08c81013b6c65",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/de_rstudio.md",
+      "size_bytes": 25441,
+      "sha256": "1791626575906dba8cae2927e2902f724d4589aa20486f4ee266747be12b8a77",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/DESeq_function.png",
+      "size_bytes": 14389,
+      "sha256": "398d023fd3ffcc4073e95204b04c94506c1e434d00bc5a3c90362def6615f8c9",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/Excalidraw_RNAseq.png",
+      "size_bytes": 771817,
+      "sha256": "b29d59f058dd97c3bf0e6210400ea6fec3441569ead8264930a4677a86834f80",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/MA_plot.png",
+      "size_bytes": 14091,
+      "sha256": "3af8eb1e7329f2868ad6d59675ffb57883fa2a8313e91863e82b633ba2ccac66",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/RNA_seq_scheme_tutorial.png",
+      "size_bytes": 424447,
+      "sha256": "24301267416d0bf461d45970779a268220657988b7899567953c1867161250d0",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/count_distribution.png",
+      "size_bytes": 18987,
+      "sha256": "bd5c813b67f264dff937cc17b9cc563e6e50871fe7edc4713b24aa16d09920a7",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/dds_comparison.png",
+      "size_bytes": 137676,
+      "sha256": "b7b10a7392aa740cd1f6a29ea1b68b8ca917e6848378d8568a7a21e105b08b47",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/dispersion_estimates.png",
+      "size_bytes": 57171,
+      "sha256": "beec37c1b0bc1a4b90e7b389863b86d88ca04cba6fe04f3263b0e770959b5ff0",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/enrichment_plot.png",
+      "size_bytes": 49785,
+      "sha256": "feb22be86b3ef320f582ae7458d1195937652e472e95743cda5b93cad3508b44",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/heatmap_de_genes.png",
+      "size_bytes": 33336,
+      "sha256": "e98a9a333eadbb43c9ff26ff45467c9d846e99bba343d6e90dd9ba0e09d075d8",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/hierarchical_clustering.png",
+      "size_bytes": 28751,
+      "sha256": "d4226e57091162ad60e3bbd5f7948c994bb29688b76b30fe3a62d91e536858a7",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/nf-core-rnaseq_metro_map_grey.png",
+      "size_bytes": 261589,
+      "sha256": "05bc5a6078a34613d52ddae1ddda20028af7be61d24975ac015d88b4536433ee",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/overdispersion.png",
+      "size_bytes": 35441,
+      "sha256": "553a1be82f77d02447e9265d3a3f258d029af2d800b1dcf870c25a7339d6c89a",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/pca_plot.png",
+      "size_bytes": 50362,
+      "sha256": "b09b070198abc24560854544be87a1bec1bd61d549b4b69d25c1ddf6c0123e28",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/plotCounts.png",
+      "size_bytes": 19316,
+      "sha256": "157a2995ab333bb9fe5944879700256a87c5b14b2535b8bd7b265c9d392d5087",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/project_R.png",
+      "size_bytes": 159756,
+      "sha256": "c70d5868fc0c01a56030f19736337c81fa35c5144ad3e383ffcf21b0d89d05e3",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/volcanoplot.png",
+      "size_bytes": 24035,
+      "sha256": "8076a8766bab284c92d8c1564050d3a5603ef4c766a0d5825a703ed49ee472d6",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/img/workdir_RStudio.png",
+      "size_bytes": 84275,
+      "sha256": "d0257a4a0939a6a258257e1b9c3c55bb3e2f3836d97ac87dd3d0430469e32f9c",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/interpretation.md",
+      "size_bytes": 7969,
+      "sha256": "39d50bac69f47dbd3743f3e7e8e86586d6edb552cdbce629ac5962c0a6419cde",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/introduction.md",
+      "size_bytes": 2654,
+      "sha256": "b8357833d7e8881bad16c5665cd5ff798a1886cd17aba39eaa6bc714219ad203",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/rnaseq.md",
+      "size_bytes": 9034,
+      "sha256": "c60e3426693a43610f56699f6786923958b8265e7140116ff40acbdf377f77b7",
+      "executable": false
+    },
+    {
+      "path": "docs/usage/differential_expression_analysis/theory.md",
+      "size_bytes": 20338,
+      "sha256": "7a162fecfa8f7468845d4bf3c6d932914fc4c9efb4c8d8bf5b7ee7484b2b8919",
+      "executable": false
+    },
+    {
+      "path": "docs/usage.md",
+      "size_bytes": 83940,
+      "sha256": "ba0fa41db62516cf9f4d774f0e51c803928a907454551bd8b03d0dbad1fdb2a6",
+      "executable": false
+    },
+    {
+      "path": "main.nf",
+      "size_bytes": 7217,
+      "sha256": "5d4d7652f5726c2f387e5ce0aae4eca212972bc09b63d70e284bfa9e3d41112d",
+      "executable": true
+    },
+    {
+      "path": "modules/local/deseq2_qc/environment.yml",
+      "size_bytes": 403,
+      "sha256": "5bb26c0d599f659b9b6df85734343141cdfba7f680a309475630b8904cab909a",
+      "executable": false
+    },
+    {
+      "path": "modules/local/deseq2_qc/main.nf",
+      "size_bytes": 3351,
+      "sha256": "c15c8e62694e29294402c62970124c73ccb7d8ec5dc0dbd0ae8ecabb5a8224aa",
+      "executable": false
+    },
+    {
+      "path": "modules/local/deseq2_qc/tests/main.nf.test",
+      "size_bytes": 1831,
+      "sha256": "29b8ef02c92a9e78e21a62697ce7e190343c6deacfc0276dcc7da76f657312a6",
+      "executable": false
+    },
+    {
+      "path": "modules/local/deseq2_qc/tests/main.nf.test.snap",
+      "size_bytes": 4670,
+      "sha256": "007aa73313bf4a07452a2fc0e7d3cf0d79fd8988b988b1b4c793185e32961cd7",
+      "executable": false
+    },
+    {
+      "path": "modules/local/preprocess_transcripts_fasta_gencode/environment.yml",
+      "size_bytes": 78,
+      "sha256": "f9a889127e1d49fb1a5757e607afdb7878dd78fc9590e2fece226ee3e964cab0",
+      "executable": false
+    },
+    {
+      "path": "modules/local/preprocess_transcripts_fasta_gencode/main.nf",
+      "size_bytes": 995,
+      "sha256": "4c4c3b4831a7aae87717e6d580ad85b31d33613102d1031b70387b23b2f7a01a",
+      "executable": false
+    },
+    {
+      "path": "modules/local/preprocess_transcripts_fasta_gencode/tests/main.nf.test",
+      "size_bytes": 1610,
+      "sha256": "49d0241beb3f28cd57e149fa5c4bc71451a5f601894e559b62b594c3fa477dfb",
+      "executable": false
+    },
+    {
+      "path": "modules/local/preprocess_transcripts_fasta_gencode/tests/main.nf.test.snap",
+      "size_bytes": 1405,
+      "sha256": "c6afafe1a6f9746a2426174d39ac47dee1afd0a9104d8ad9fd5bd5a538a2c8df",
+      "executable": false
+    },
+    {
+      "path": "modules/local/star_genomeparams_upgrade/environment.yml",
+      "size_bytes": 206,
+      "sha256": "3f15b00283980bf9c8a25bd63ab3b364f7fc537e4a566c40758e90a1b0dd2a0b",
+      "executable": false
+    },
+    {
+      "path": "modules/local/star_genomeparams_upgrade/main.nf",
+      "size_bytes": 1972,
+      "sha256": "7a25e165ef2f0367482c9ea0113145423b31ec097edd8f957e449d2876fe5a51",
+      "executable": false
+    },
+    {
+      "path": "modules/local/star_genomeparams_upgrade/meta.yml",
+      "size_bytes": 2930,
+      "sha256": "1c10c73a5fc7cac52bbfe6fb22ce22f1ccbe829418d71009e1e3d03797be34a7",
+      "executable": false
+    },
+    {
+      "path": "modules/local/star_genomeparams_upgrade/tests/main.nf.test",
+      "size_bytes": 4940,
+      "sha256": "525e6296b02230f73bc3b7cf54cb0aba711e857650926311265314d9b4750822",
+      "executable": false
+    },
+    {
+      "path": "modules/local/star_genomeparams_upgrade/tests/main.nf.test.snap",
+      "size_bytes": 4809,
+      "sha256": "ce467f63fc857e6fd89c2d95ca20e237b63bdaf2d183297524260061b397e0e5",
+      "executable": false
+    },
+    {
+      "path": "modules/local/star_genomeparams_upgrade/tests/nextflow.legacy_index.config",
+      "size_bytes": 1034,
+      "sha256": "0ed456223d0f4bccde620dc5f35f2572b93afd03fa8a1a7f9c11cecceb95c9af",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bbmap/bbsplit/environment.yml",
+      "size_bytes": 217,
+      "sha256": "6ccff879b06122d6ea3b70239ea8ac1e96775cd829629cfb2b2d4a33a0ce0b3e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bbmap/bbsplit/main.nf",
+      "size_bytes": 5713,
+      "sha256": "243a4050a67ff29215968e644c4cefb0704abe841d3d9a2e1d8f08c16d9b55a7",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bbmap/bbsplit/meta.yml",
+      "size_bytes": 3939,
+      "sha256": "169318e5ffe5cc50ee0f1db72f1f12b24a4002871c99ecfc40b8a3df4e20ca46",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bbmap/bbsplit/tests/main.nf.test",
+      "size_bytes": 5454,
+      "sha256": "dcfa78e0965d7807758997607b6b2e5c427fb2fe91486baecb720f55e6bdf1b1",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bbmap/bbsplit/tests/main.nf.test.snap",
+      "size_bytes": 1503,
+      "sha256": "235be3ed2ea303aac6d619822a68040124a2608ed0086228756df6a101cee5ec",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bedtools/genomecov/environment.yml",
+      "size_bytes": 208,
+      "sha256": "6c882f3d70943c20995e14d00787760c68e5edcc2cec8a7de0a80f45840598f5",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bedtools/genomecov/main.nf",
+      "size_bytes": 2068,
+      "sha256": "fb5bc2a0390fb557dd2e903086f5358d2174e9dde05f724550f876a08638a472",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bedtools/genomecov/meta.yml",
+      "size_bytes": 2899,
+      "sha256": "e5c500d6ec5351342773717824bbd1f16990f05947f934e41265fed3851fe891",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bedtools/genomecov/tests/main.nf.test",
+      "size_bytes": 4781,
+      "sha256": "87c2a91474925ce92957cd5259dad36db077069ea0efffc7242772223767be44",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bedtools/genomecov/tests/main.nf.test.snap",
+      "size_bytes": 7168,
+      "sha256": "3da5285c75fb39ad8b723c1ddd4dd5be83be1582a620fb06254aaf6f12aec306",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bedtools/genomecov/tests/nextflow.config",
+      "size_bytes": 102,
+      "sha256": "866c93a32b1a6214181b027fba5532d9fa496a9454e29865bdcdc9b61df6a779",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/align/environment.yml",
+      "size_bytes": 454,
+      "sha256": "51a55391040db57008629fa2e33fa15490e606d94df96ddf4efe84dadd42534d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/align/main.nf",
+      "size_bytes": 4379,
+      "sha256": "a6cc49811830d9854c9d37568c206e96a73977824f215ca50c3cd114bca91ca2",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/align/meta.yml",
+      "size_bytes": 5759,
+      "sha256": "2a47d9f1bea692e903ba6187ba28a87997b85e9cf017023e94acd48b592cac8f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/align/tests/cram_crai.config",
+      "size_bytes": 102,
+      "sha256": "0981a0c425dacba914348896692925b449c361950a01b9fddeb7553dd2a90964",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/align/tests/large_index.config",
+      "size_bytes": 83,
+      "sha256": "54596efc710de72f789568aabce19c4067f31f7204cf90a2390f3cf4ea3993f4",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/align/tests/main.nf.test",
+      "size_bytes": 21522,
+      "sha256": "03ad9486553f7347be4e60a5e785b1fe426d814467bec4e6d8b3a612e69cdf5e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/align/tests/main.nf.test.snap",
+      "size_bytes": 18670,
+      "sha256": "fcb6e5d8d03432aab3b5b1ba49248be0dee369c40391b0459f23782da9923541",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/align/tests/sam.config",
+      "size_bytes": 87,
+      "sha256": "cf2568dbac9abd64c8276e680ac3899baac8d15484f13f25e6ca39114d9e2b68",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/align/tests/sam2.config",
+      "size_bytes": 77,
+      "sha256": "bcabb0fb77e2661b720674d59f821e766a926a1885b651befb358b06c18f6b58",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/build/environment.yml",
+      "size_bytes": 454,
+      "sha256": "51a55391040db57008629fa2e33fa15490e606d94df96ddf4efe84dadd42534d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/build/main.nf",
+      "size_bytes": 1097,
+      "sha256": "fd27e728640770ff4cd808e8d3da785477d994875e7951433cc9e493f759744c",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/build/meta.yml",
+      "size_bytes": 1960,
+      "sha256": "aebd6a66998ffffe1de2f85fea50a43381b119e3e1c093406556fbb5a0bd7acc",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/build/tests/main.nf.test",
+      "size_bytes": 848,
+      "sha256": "85fb3483162ca930497567b06694cb1b5f42692ebf5e9135406190d8b307ee28",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bowtie2/build/tests/main.nf.test.snap",
+      "size_bytes": 1119,
+      "sha256": "15fd5ae858ea2b15bfd42ee2f5e34801ede72f29ec9f88ffcea8d56e4046b739",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bracken/bracken/environment.yml",
+      "size_bytes": 204,
+      "sha256": "ebe8d90408d80a55fe3428fa7e24dcb0b06b2826a4759028999a7f0893410ad6",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bracken/bracken/main.nf",
+      "size_bytes": 1492,
+      "sha256": "c974d2965c6cd503ffdf7f42e688584600c8b5c9b7290e163b2351bd67993528",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bracken/bracken/meta.yml",
+      "size_bytes": 2790,
+      "sha256": "117720de2889c4be8340bfe87c7d218902b15976f23b45655f8d3f74cfa93ece",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bracken/bracken/tests/genus_test.config",
+      "size_bytes": 89,
+      "sha256": "ac61ca4158a49c4f1c4fd7eade5cbf1ff904e3e4d168536a8a4c4d89ad8cd993",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bracken/bracken/tests/main.nf.test",
+      "size_bytes": 4792,
+      "sha256": "544fa60b02c57a6eef6d5289ef6fed126e71129141d717e6a69cdeaa8d4bf4a0",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bracken/bracken/tests/main.nf.test.snap",
+      "size_bytes": 7483,
+      "sha256": "90d00796a454256e0ad60eb064603c2e8a59b9e0b9f4e39b583d512395614a54",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/bracken/bracken/tests/nextflow.config",
+      "size_bytes": 89,
+      "sha256": "0c634e1575ab8e27dce4e5ce1af06b2cd56b069699d1e6810556216d761a5405",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/cat/fastq/environment.yml",
+      "size_bytes": 342,
+      "sha256": "744c448dd17c4da5cfd257c470309e2de7e6d1adcbbb74c9f7fbc0ae4db6a452",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/cat/fastq/main.nf",
+      "size_bytes": 2587,
+      "sha256": "0c4ee26db08e2836831c51486a22aeb179b0ef44f9b67cf9c684924c2fbbfd1d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/cat/fastq/meta.yml",
+      "size_bytes": 2084,
+      "sha256": "62024119370f9fa8df124f410d16f0519f87c012957c47ed4c9c3a990f14e154",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/cat/fastq/tests/main.nf.test",
+      "size_bytes": 13083,
+      "sha256": "027f9a07ea74f9f4440d5e0f4f57ea1ce299559b491a7ff9da2db12bbeacf886",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/cat/fastq/tests/main.nf.test.snap",
+      "size_bytes": 17972,
+      "sha256": "f3625ee2598a55bf19d30b90e5cfc5c911dc52fedf79dd1e6f17fddcdc1a6866",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/catadditionalfasta/environment.yml",
+      "size_bytes": 209,
+      "sha256": "f8e2cee06819b92d62584f32c7564be6c4ef441f6eabd427a462cd473b509e89",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/catadditionalfasta/main.nf",
+      "size_bytes": 1073,
+      "sha256": "c276a8d213220adb19e259871f9fad643e73248efd285d6dd035b5b495809e37",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/catadditionalfasta/meta.yml",
+      "size_bytes": 2283,
+      "sha256": "e00a3c911dff49c0ceff196e9a4e60841f20ecc581414e8c983e9336727465a4",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/catadditionalfasta/templates/fasta2gtf.py",
+      "size_bytes": 4269,
+      "sha256": "d748bdce514465f0e6e73ed5aa40ce563fd2419ec4b68ae3dbf45269286bb853",
+      "executable": true
+    },
+    {
+      "path": "modules/nf-core/custom/catadditionalfasta/tests/main.nf.test",
+      "size_bytes": 2406,
+      "sha256": "8cece8319710efaea735ae93bd05b14e8ebbd616d7caf90a7e113e526030a59f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/catadditionalfasta/tests/main.nf.test.snap",
+      "size_bytes": 1916,
+      "sha256": "bb9264b73d7681e7a86db47578b22353a4db5a61cd85b2fe2e2812cca6a0f40f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/gtffilter/environment.yml",
+      "size_bytes": 208,
+      "sha256": "fbe9b4b71e263892779b4ca1150d5ff104a41acc551d014f7c2f9841ec5848ad",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/gtffilter/main.nf",
+      "size_bytes": 1100,
+      "sha256": "06426ef774d2ffbfb6e8224df657a65093363f435533f02ecae90bd983bd020c",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/gtffilter/meta.yml",
+      "size_bytes": 1793,
+      "sha256": "bebee8c519ebeae8a8b9c38348e91a2baca09f6199b9d2d053d93f06302d6de4",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/gtffilter/templates/gtffilter.py",
+      "size_bytes": 4977,
+      "sha256": "bb1b72beca0940ed056d2364d8a0b3332caeff0a60ed9d541f64aef08d7a4113",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/gtffilter/tests/main.nf.test",
+      "size_bytes": 4716,
+      "sha256": "096670fcdaa2357c22e48f8a3aab682c0a4106d31d5f688462e41a65e4297c91",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/gtffilter/tests/main.nf.test.snap",
+      "size_bytes": 5957,
+      "sha256": "15cf01c9808c5e4cbca0694819d335745ad7793cd8164b8f397e95042e72e806",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/gtffilter/tests/nextflow.config",
+      "size_bytes": 101,
+      "sha256": "549577594c0e55130a534ef294c42ebe30c584ac2fab757beffc4b7e857b9eaa",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/multiqccustombiotype/environment.yml",
+      "size_bytes": 85,
+      "sha256": "70cbf3b87324a6e5273ef8b3836d99f466759ba991b026d15a9be03851bf3cfa",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/multiqccustombiotype/main.nf",
+      "size_bytes": 1083,
+      "sha256": "653905145f9bf255fb028e1027768d62e66098a786815cbb8b06befaede092d0",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/multiqccustombiotype/meta.yml",
+      "size_bytes": 2408,
+      "sha256": "8769cfda6a52c3e3767269e2a42adab6ccfd11b0be24015cdd1a93a40b3f30c3",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/multiqccustombiotype/templates/mqc_features_stat.py",
+      "size_bytes": 5199,
+      "sha256": "903408c5ffa1fecb294a1bd3648b55dd4b69bd789caf015e199c643cc33ae10c",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/multiqccustombiotype/tests/main.nf.test",
+      "size_bytes": 5428,
+      "sha256": "0de1e0b3a36586cd7ed86ee135b93cec2f1bc9048efc67e424f98bcaca0b6541",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/multiqccustombiotype/tests/main.nf.test.snap",
+      "size_bytes": 3175,
+      "sha256": "a8ad61f13025693a7820b4d52ed4d4d22d2038ebb384f50a89ef064e687e17e9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/multiqccustombiotype/tests/nextflow.config",
+      "size_bytes": 102,
+      "sha256": "ce5b4a476ed176d6107f93c3c274af898b08b5e2b4d52abac1323495dda24ab8",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/rsemmergecounts/environment.yml",
+      "size_bytes": 203,
+      "sha256": "272bc073a233f4418b844a208b95b35c134d816fbe038270c7d6baa10a1a9b2b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/rsemmergecounts/main.nf",
+      "size_bytes": 3717,
+      "sha256": "2df1b4db23c54955d91104a76c52158f5a835cb9d5280c08e3a9b642e86b5632",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/rsemmergecounts/meta.yml",
+      "size_bytes": 4638,
+      "sha256": "2e193a1cad348188f3d36a11571b0d5e9f582293fd86aecc6bc2bde2770ff5cb",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/rsemmergecounts/tests/main.nf.test",
+      "size_bytes": 3010,
+      "sha256": "c4180c05afa9800b5b9407343721be586469201243abaf6cab3487dea760b74f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/rsemmergecounts/tests/main.nf.test.snap",
+      "size_bytes": 5988,
+      "sha256": "7e24013933839370d901276adb366e24e08e1f6417eea22de77c88a26b5f47bd",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/tx2gene/environment.yml",
+      "size_bytes": 196,
+      "sha256": "62cdf0b40ef0fa5e4ebd570b15d75dafc2a5ec300a19aa5791cc7a141b7a7c81",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/tx2gene/main.nf",
+      "size_bytes": 941,
+      "sha256": "02f39a77a9f2a0ac7acc2e8b9146c51c40dd47b692165d35454218d6dc7751da",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/tx2gene/meta.yml",
+      "size_bytes": 2359,
+      "sha256": "b400fd2e14efff16e9c21fe743111712f14f813a77dece471195c0559f8f3f3e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/tx2gene/templates/tx2gene.py",
+      "size_bytes": 8246,
+      "sha256": "724bd2920981600208898cd9d22f1cab4ff95949e3cad6ba3c96cd9ab732f290",
+      "executable": true
+    },
+    {
+      "path": "modules/nf-core/custom/tx2gene/tests/main.nf.test",
+      "size_bytes": 5551,
+      "sha256": "384380e68b4674edb49b909be2e4d99920f13970576ba14e1b2aa0fcd4b1f7d3",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/custom/tx2gene/tests/main.nf.test.snap",
+      "size_bytes": 4100,
+      "sha256": "065cf55bc21f969ebd50c1bc2809adef65286b00d04e7a6c5c1de36c2812b4d8",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/dupradar/environment.yml",
+      "size_bytes": 221,
+      "sha256": "7b00c76e48a5652a3a58fe3a8ef2793b094ef2e84627022bbb38d4e36dd63fff",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/dupradar/main.nf",
+      "size_bytes": 1769,
+      "sha256": "743e422cfa9ea33a2190ecd1716c51c091e081a2eb5380a7af10e90fced4ff72",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/dupradar/meta.yml",
+      "size_bytes": 4297,
+      "sha256": "155002c9a3d513a602dc749a979b9abed57e87e09a1b54b6235eab58f5af3e00",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/dupradar/templates/dupradar.r",
+      "size_bytes": 6586,
+      "sha256": "983bcf7632af081c48989d4a3bcc2eea33514aea7ab47faa105c3c307981c0d5",
+      "executable": true
+    },
+    {
+      "path": "modules/nf-core/dupradar/tests/main.nf.test",
+      "size_bytes": 4436,
+      "sha256": "d4461989b33c46f474783f694385635554c0c8c2626a44197069e9c1ac36bc55",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/dupradar/tests/main.nf.test.snap",
+      "size_bytes": 15011,
+      "sha256": "02d5ae93fa328a8448f88c929c4e978dab6ea02bf42c7e9806d02786f05247de",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/dupradar/tests/nextflow.config",
+      "size_bytes": 89,
+      "sha256": "1e8662dcc3f18558c24e4a7e51831658155c044764c00f94bbef78dd817bd2c5",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ea-utils/gtf2bed/environment.yml",
+      "size_bytes": 207,
+      "sha256": "d1e711d5895af834bd1203bb1f5fc787caa63f22b6e9616bbb6b047074483063",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ea-utils/gtf2bed/main.nf",
+      "size_bytes": 914,
+      "sha256": "63d31058ec235ab14bd81f75baa12882b48c3f9163aa8bc8a67b6340e8f2ca84",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ea-utils/gtf2bed/meta.yml",
+      "size_bytes": 1964,
+      "sha256": "fca3c0635236497c1c455edd50ae74ac2889fcb64c216f8eb0f2def47d4e64de",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ea-utils/gtf2bed/templates/gtf2bed.pl",
+      "size_bytes": 4719,
+      "sha256": "53fc357873c17927bfdb53da0429f09788279c8b66d6c16800215d481eee33ab",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ea-utils/gtf2bed/tests/main.nf.test",
+      "size_bytes": 1864,
+      "sha256": "5fdcc19dd553f09494de9f3d8e1330025f4b389b2ab10bc12731d05e4553b9ef",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ea-utils/gtf2bed/tests/main.nf.test.snap",
+      "size_bytes": 2969,
+      "sha256": "f5f95a7c7cbbfae2778e85eccb489860d8d58508a9e99106bbafcd9c7f08c1a4",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ea-utils/gtf2bed/tests/nextflow.config",
+      "size_bytes": 76,
+      "sha256": "4adcb552b8731ab8378829152c6549f49b1ee59066d4729ff61a3e0beef24702",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fastp/environment.yml",
+      "size_bytes": 258,
+      "sha256": "53260974908a247f7638f10eb8c25bd5549632fe0f25a34ff9116f37ae552766",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fastp/main.nf",
+      "size_bytes": 4710,
+      "sha256": "439c8da395cb8750ee9a5e7debab11888718a5b85ed6d8e92404bd85c2337c06",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fastp/meta.yml",
+      "size_bytes": 4901,
+      "sha256": "eaf56538ce60145fe0390f56e5611d0af3d4ab7b02345861a6910efe8039724e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fastp/tests/main.nf.test",
+      "size_bytes": 23407,
+      "sha256": "f58c96d53a916e8e9e3ae0f3cad588d96c5549273f50c83aa3edd486966dadee",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fastp/tests/main.nf.test.snap",
+      "size_bytes": 41924,
+      "sha256": "b77fe93c7065e79190f859a30c8ce4c58a3d07592991aa8e64e78d2a7b3b860e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fastp/tests/nextflow.interleaved.config",
+      "size_bytes": 84,
+      "sha256": "c404691631d2604f86e8ab1f69904b88de51fd37f90ec99ce356f6e732809814",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fastp/tests/nextflow.save_failed.config",
+      "size_bytes": 67,
+      "sha256": "c5e5bbc34e2bc7204b0af9b68651e679bbd959ac01b0098b1282627fa53f1515",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fastqc/environment.yml",
+      "size_bytes": 206,
+      "sha256": "97b011d57e671a1ed2fbf71f3ffe686197f145bced8cbf7954c97bc510492aad",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fastqc/main.nf",
+      "size_bytes": 2406,
+      "sha256": "42f35fb87d284a0e43f98121b37beda8ea99657a89a4170e671588339e0c7b92",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fastqc/meta.yml",
+      "size_bytes": 3682,
+      "sha256": "5bb6c1958817e93687214866fe808c40624cb09291d3e1fe77192280b4d6dbf1",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fastqc/tests/main.nf.test",
+      "size_bytes": 12023,
+      "sha256": "5dd1e8bef1168b6122fadf1a1fec28ba4d569e2ddda7cf683ba258dd181e9654",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fastqc/tests/main.nf.test.snap",
+      "size_bytes": 13825,
+      "sha256": "ed268bcda7834a44b88d1a8ea8211e0effa5ce7408e81805f28dd052467997a7",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/lint/environment.yml",
+      "size_bytes": 300,
+      "sha256": "6369814dc299593e54d704cbcab65820e1f155bb2786533910b1612ef13090fa",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/lint/main.nf",
+      "size_bytes": 961,
+      "sha256": "1d18721fcfcd850d1cddb225a1955e853e7fe1b5523f48aa0b644ac8ea5d09a5",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/lint/meta.yml",
+      "size_bytes": 1751,
+      "sha256": "c52fe11297e6436169584687228ca74aeb19dd02bcd97ca3d1364da5e371f42d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/lint/tests/main.nf.test",
+      "size_bytes": 3097,
+      "sha256": "adb6ca59ce1ae111616db51a9b2647e5310eadbc3eb740c0baf22740ebc0b2b3",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/lint/tests/main.nf.test.snap",
+      "size_bytes": 359,
+      "sha256": "5fd7e87349ee8bf04189cf28c9a201f2a87476ca49d79a903fe5d741fce28538",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/subsample/environment.yml",
+      "size_bytes": 300,
+      "sha256": "6369814dc299593e54d704cbcab65820e1f155bb2786533910b1612ef13090fa",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/subsample/main.nf",
+      "size_bytes": 1978,
+      "sha256": "d9b7d55aa8956cbe302d912b1a20d5fa3997d3f3db99be683aedb11345a90cf8",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/subsample/meta.yml",
+      "size_bytes": 2042,
+      "sha256": "ddbca0c3ef5bfed9cf144bf203f9ddfd918a8712b22b3b5ff062ca7e0e741161",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/subsample/tests/main.nf.test",
+      "size_bytes": 6387,
+      "sha256": "5221b8d19b9b86146539e0368dbd36220a5f89fc1c331142339b16e23c596917",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/subsample/tests/main.nf.test.snap",
+      "size_bytes": 10001,
+      "sha256": "f04fd0ab04ef58fb3dcf906039a5e1e1ef6535d3b94e2bdd0c82b9f5e6cfa6df",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/subsample/tests/nextflow.config",
+      "size_bytes": 95,
+      "sha256": "6d879a350a21b85ae10ff91caa274fed982218d234fe984016ed945cacad3faa",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/subsample/tests/nextflow_no_args.config",
+      "size_bytes": 71,
+      "sha256": "cdbda3e79ca462d1f4bbd9a3f2dd5f3710e53605546321da477da1bd87b70465",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/subsample/tests/nextflow_probability.config",
+      "size_bytes": 84,
+      "sha256": "2bcdfff2ebea1df14e301f2e360ebccaa7980f8a22445a23f207743b38b63753",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/fq/subsample/tests/nextflow_record_count.config",
+      "size_bytes": 83,
+      "sha256": "cd0a52037dac85c692c9f06553450db86641ee3bf9e4bd712bab3b9767c0b0c8",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gffread/environment.yml",
+      "size_bytes": 207,
+      "sha256": "2f1b89accc998b6086af1c2052d335bc30169582b9369ab13cd2dd0d4a8dbd0b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gffread/main.nf",
+      "size_bytes": 2466,
+      "sha256": "34424be079a950cc2c93066dea0a94b245622edb57639bcf93ec9950eecfb3e1",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gffread/meta.yml",
+      "size_bytes": 3256,
+      "sha256": "e689e0260433a86e385eccd816cff7f84b926e64f00768125591d40e59d1574e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gffread/tests/main.nf.test",
+      "size_bytes": 7106,
+      "sha256": "0f0fd8a1e9124c2b78251be17b5087502c45d8b41c3441c46fa18e4fe74a4bbe",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gffread/tests/main.nf.test.snap",
+      "size_bytes": 11115,
+      "sha256": "a359bf7836e2d55f49ea40f9ba0e8b58936a5aa96acea1c654be67e579e2bf0a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gffread/tests/nextflow-bed.config",
+      "size_bytes": 69,
+      "sha256": "f99418a19aa3f6e0e5931932dbc6e21d38a74c4594568ee44ab503c396f17e2d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gffread/tests/nextflow-fasta.config",
+      "size_bytes": 69,
+      "sha256": "2a190d8c69917861dc75e5a5e4e72424ed6330918414b9c77e72d72e9f527afc",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gffread/tests/nextflow-gff3.config",
+      "size_bytes": 64,
+      "sha256": "4345126fc3369011b7507a71aa04e3be010c9fe40076bcbc85feec4cedd96e40",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gffread/tests/nextflow.config",
+      "size_bytes": 66,
+      "sha256": "da3bfd5230571b3b53b4a0604d98eb152b847fc4f26c3f68bf72cd48942fbdab",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gunzip/environment.yml",
+      "size_bytes": 342,
+      "sha256": "744c448dd17c4da5cfd257c470309e2de7e6d1adcbbb74c9f7fbc0ae4db6a452",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gunzip/main.nf",
+      "size_bytes": 1580,
+      "sha256": "49c5a1082337b8a84904335fe06506f79c88cf16bad93fae1447977b87888db2",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gunzip/meta.yml",
+      "size_bytes": 1896,
+      "sha256": "216b014df4f884b6b2adf7ac36792f5618942a86b03575fcf2ee8d463204c03a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gunzip/tests/main.nf.test",
+      "size_bytes": 2844,
+      "sha256": "351975c8a2b172e542d899ea18da498b3d136b7312ceda1e7597338e433787be",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gunzip/tests/main.nf.test.snap",
+      "size_bytes": 4602,
+      "sha256": "256cefcd9de5a1d34affd7eec9e98c96c82cc46ae695e75a079fac8f7433f001",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/gunzip/tests/nextflow.config",
+      "size_bytes": 83,
+      "sha256": "7791f1be3d45d2b4315ebefcb690d73b78e2c10395331d1fdf94350b0476eb78",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/align/environment.yml",
+      "size_bytes": 233,
+      "sha256": "22dc629a36975aef05a6348ea97a41fb26cde31f2e064af12262893a3ebd59f9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/align/main.nf",
+      "size_bytes": 3464,
+      "sha256": "efc05e7b017001572d7371ffce02b67f8f71f5378f86ae470ccef6326b4639c6",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/align/meta.yml",
+      "size_bytes": 4050,
+      "sha256": "f2fdecb7b394652566bcfbafa6e136dc81aa1ba102538b0afa29b029975234b7",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/align/tests/main.nf.test",
+      "size_bytes": 14346,
+      "sha256": "fc3442c249d5e1d2d77e5cc675afabb8c7080a02f1c1de6f8882904976b2f503",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/align/tests/main.nf.test.snap",
+      "size_bytes": 15187,
+      "sha256": "99106d4a610015ff6711d4c3492409e8ecb197a23092b5ab40d75828db1cc1fe",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/build/environment.yml",
+      "size_bytes": 233,
+      "sha256": "22dc629a36975aef05a6348ea97a41fb26cde31f2e064af12262893a3ebd59f9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/build/main.nf",
+      "size_bytes": 2343,
+      "sha256": "9e3e3ce23aec6d5867e6309ef2a20cf9df81f7bc04c098c0c7c940abcc7de81e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/build/meta.yml",
+      "size_bytes": 2500,
+      "sha256": "06808c49b689e331aeea060231ec9eaff6401befb9f734a0c0be558436540df7",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/build/tests/main.nf.test",
+      "size_bytes": 3262,
+      "sha256": "c3a3711a46ae2d5abdefce8841761a9955e6e0e0689d72475094c7e5879ef333",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/build/tests/main.nf.test.snap",
+      "size_bytes": 1278,
+      "sha256": "c6fa164b47eb2a59661a6b7e1dfb45636dd6ebb7484a6c72148e434c7424d537",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/extractsplicesites/environment.yml",
+      "size_bytes": 233,
+      "sha256": "22dc629a36975aef05a6348ea97a41fb26cde31f2e064af12262893a3ebd59f9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/extractsplicesites/main.nf",
+      "size_bytes": 1038,
+      "sha256": "43037fdf7c659352c5e2e9def472bbb08bee69f6c45a4f3aefd70d7340dc783b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/extractsplicesites/meta.yml",
+      "size_bytes": 2032,
+      "sha256": "ad3528eed4f988ee7616706df5e18f5280ca9b9d574e9a15ccd77533a9057b50",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/extractsplicesites/tests/main.nf.test",
+      "size_bytes": 1568,
+      "sha256": "2a631629c1d18be21342007522e9a75d5c1210ce0e546d0c50072e8600a670c8",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/hisat2/extractsplicesites/tests/main.nf.test.snap",
+      "size_bytes": 1671,
+      "sha256": "3765b652620319b0a76cbea369825fa7ea57ae76308f56895a939ed11b56b3b0",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kallisto/index/environment.yml",
+      "size_bytes": 208,
+      "sha256": "e2ad175410482493db063c82fb9526c074c798fc67d48e61cd550aa06bc44ff9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kallisto/index/main.nf",
+      "size_bytes": 884,
+      "sha256": "b0cca23de847bee768c6e3a17376980d7287abcb07d634c5863cfd444a6221d3",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kallisto/index/meta.yml",
+      "size_bytes": 1896,
+      "sha256": "446892bac4eaf0fd1acd37852335d7e705908658669f481a3f491519562132f6",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kallisto/index/tests/main.nf.test",
+      "size_bytes": 1609,
+      "sha256": "59aec070ccd7d90f4c25788629cbed8f150fb2e30822c87a3fd96ed80b67b17a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kallisto/index/tests/main.nf.test.snap",
+      "size_bytes": 1158,
+      "sha256": "aa0ee31e3bce1f77e8f79543befba895da62391ca542829470dc351e0f09e80e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kallisto/quant/environment.yml",
+      "size_bytes": 208,
+      "sha256": "e2ad175410482493db063c82fb9526c074c798fc67d48e61cd550aa06bc44ff9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kallisto/quant/main.nf",
+      "size_bytes": 2480,
+      "sha256": "99b3996fb18c0d167338f772cc8afbd4a0b8732c95012eb4ec2f2e03fc43c444",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kallisto/quant/meta.yml",
+      "size_bytes": 3791,
+      "sha256": "4fe15ad9df9e8a2918ba91ef7804a97bc78b6d0ed8321423e8028bb675532716",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kallisto/quant/tests/main.nf.test",
+      "size_bytes": 6004,
+      "sha256": "7fe60a4d9ab9942fc59b57968db9b59c3dc0d0b67184a7b17a1880ede14ac4af",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kallisto/quant/tests/main.nf.test.snap",
+      "size_bytes": 4064,
+      "sha256": "30fc3b1001d88f3089f6bd14491fd609d07452cd37210f0bded9d404181d3a33",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kraken2/kraken2/environment.yml",
+      "size_bytes": 237,
+      "sha256": "7d05397d98019517a168db1d0fd08c190ba5afb157cbf32af8f2c44a62c6a596",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kraken2/kraken2/main.nf",
+      "size_bytes": 3065,
+      "sha256": "19852b54b60e5c2b5a2379bf0dc2c196e76409e1f3cc927929bc92297a516c0d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kraken2/kraken2/meta.yml",
+      "size_bytes": 4458,
+      "sha256": "1c745c1808ae83b70b868ec4efb83ba82400289a7657128cf1b955bd54b02cb7",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kraken2/kraken2/tests/main.nf.test",
+      "size_bytes": 6953,
+      "sha256": "9dc4e74d10c6edac746b4803acb3f8a6f501c0a18db3755e3a3c16efcdeb6b49",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/kraken2/kraken2/tests/main.nf.test.snap",
+      "size_bytes": 5654,
+      "sha256": "94ebccd7fda8fb4d40a4a04943c4c2375adbc348b3538b01c91d97920ee3d778",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/multiqc/environment.yml",
+      "size_bytes": 205,
+      "sha256": "6a5ff4e30b7a155bfcffa331c3a0f129f2ee8c84d230dbf06bd8ef7eb6c66b0b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/multiqc/main.nf",
+      "size_bytes": 1995,
+      "sha256": "128398f37a6ff9e5cafe33f5b05cfd580a1bc3c62d05bcaaee5eebc9d9afbc51",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/multiqc/meta.yml",
+      "size_bytes": 4492,
+      "sha256": "4925965308ca724e22ce6437d3ac1afa6afaf26d8fa95f5aaaaa832b5cb65f30",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/multiqc/tests/custom_prefix.config",
+      "size_bytes": 81,
+      "sha256": "78ffb539c8d6227a87aa5ae0877bc14ce563801b08ef1f09a420584e5db8ea0b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/multiqc/tests/main.nf.test",
+      "size_bytes": 4846,
+      "sha256": "9c6974b48b1f6e83dac40c65b4d7a907dcfe20b6efc3ac8a050d97a60ccf299b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/multiqc/tests/main.nf.test.snap",
+      "size_bytes": 3486,
+      "sha256": "e5862e92122d7cfb6cb3bb33e5b94abb9170fa2bf25fc1d3bfc7557ce150c69b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/multiqc/tests/nextflow.config",
+      "size_bytes": 94,
+      "sha256": "517c44c0df0121a0eb2397b8ca810a258240e708afa794eaa1421c328500c172",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/parabricks/rnafq2bam/main.nf",
+      "size_bytes": 5377,
+      "sha256": "231d896e2ab0e7a474e42493c13ca209ab19c8d20df8a8cf7903cb3429894321",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/parabricks/rnafq2bam/meta.yml",
+      "size_bytes": 9583,
+      "sha256": "b1ece36fb188a82057f4e3ab4ae670f75fe1e9b66f9aa91190d4c0b83e2c85e3",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/parabricks/rnafq2bam/tests/main.nf.test",
+      "size_bytes": 6148,
+      "sha256": "e4e6a93c8b2814609fa6f270c7127e20df635cdef2f42d4d67710763ac955a3e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/parabricks/rnafq2bam/tests/main.nf.test.snap",
+      "size_bytes": 26836,
+      "sha256": "953c033cb3115c5eb6be7dca408edf8dd2b249a25c806ad543c602d30266e78f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/parabricks/rnafq2bam/tests/nextflow.config",
+      "size_bytes": 785,
+      "sha256": "653d616d76939a4ec85c398f8d678235062abf39b783e61d027dc12ecf3fc13b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/picard/markduplicates/environment.yml",
+      "size_bytes": 260,
+      "sha256": "08c1056314db8cbc1a8b5763ed50b2a977e23a017e1c8d2be8557042f9d03e66",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/picard/markduplicates/main.nf",
+      "size_bytes": 2293,
+      "sha256": "759546f9a3cdd5f5f27a2267d4e1ff86d07465939f8188495626882c0e10c7bd",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/picard/markduplicates/meta.yml",
+      "size_bytes": 3551,
+      "sha256": "1d27319a684f29f9eeffca16a29088bc743a74ead881de9afc2e9f10827eb2b4",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/picard/markduplicates/tests/main.nf.test",
+      "size_bytes": 5392,
+      "sha256": "50a06929b9b9f265e0e1956ff895bfde7a21a9c25a4df9856bd2dc2c20cb1e30",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/picard/markduplicates/tests/main.nf.test.snap",
+      "size_bytes": 10350,
+      "sha256": "6f02519b0ab5807776d5cbf739d6d38806f37a305cd553b8042695b85224c807",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/picard/markduplicates/tests/nextflow.config",
+      "size_bytes": 148,
+      "sha256": "81850842555b7d610fb280aed79d00040fd4c806ccec77376dcd1995564733d2",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/preseq/lcextrap/environment.yml",
+      "size_bytes": 205,
+      "sha256": "02351348a0c64c3db9810c5665afda6e0acb8a6bce69f1b25a912e0198b7f773",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/preseq/lcextrap/main.nf",
+      "size_bytes": 1327,
+      "sha256": "50309ab543cd1e20673a6d10113b79e5ea0bb41866fcfe82e270a8c2d1356f35",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/preseq/lcextrap/meta.yml",
+      "size_bytes": 2348,
+      "sha256": "c314ecdf49caaa8350af2e8bd964b3204f224d9079eb74d51af5661b0108c297",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/preseq/lcextrap/tests/main.nf.test",
+      "size_bytes": 2886,
+      "sha256": "c1645c1531dc4fff718ebc5ff42b24fbea5755997762171cec6dc946f1eda621",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/preseq/lcextrap/tests/main.nf.test.snap",
+      "size_bytes": 5321,
+      "sha256": "79960beb770e925c78596216246471163384b57259706e72b31aaa63b0b73b81",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/qualimap/rnaseq/environment.yml",
+      "size_bytes": 205,
+      "sha256": "94cbb766ea77e5ebf96dbbb4e3b8a27a76564979aa31b0642181b17993574528",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/qualimap/rnaseq/main.nf",
+      "size_bytes": 1549,
+      "sha256": "925e72fbb66890db75f5775455f3c70e65b4673eccb9105aa956fc1568fa4d7a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/qualimap/rnaseq/meta.yml",
+      "size_bytes": 2286,
+      "sha256": "0fab8b29c97638b2a0a7e53542e0f06f73bf91994394981fa63bc1a949eeb1da",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/qualimap/rnaseq/tests/main.nf.test",
+      "size_bytes": 2133,
+      "sha256": "b910b438a6a8e20e5c3c4f80b5420dbe22a72fda7ea7c62027303e5ecd0d1e17",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/qualimap/rnaseq/tests/main.nf.test.snap",
+      "size_bytes": 1844,
+      "sha256": "6518d210e0f86c20cbe6d5a2d70bf4ed3f4093db337f83e8285630c516cfc870",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ribodetector/environment.gpu.yml",
+      "size_bytes": 287,
+      "sha256": "d9cb3dbd492697ecd3cbf30de8b5cc135f19ce1248b36877fc93d203fe5c44ab",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ribodetector/environment.yml",
+      "size_bytes": 213,
+      "sha256": "a2d006ab17c6545f93d31f15eae822a25e75a3ec71536d93c9153c4ffdb5c6b3",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ribodetector/main.nf",
+      "size_bytes": 2077,
+      "sha256": "81f36c7924a03cd624fd9704295f4fd34639dd86d0814d01ce1baf11f693dffa",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ribodetector/meta.yml",
+      "size_bytes": 3884,
+      "sha256": "bc9ad156a2cf28dd36042f4c24e1d521da316337c93e967957678abba730e9af",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ribodetector/tests/main.gpu.nf.test",
+      "size_bytes": 2758,
+      "sha256": "f7a5c7d8c12eb0677e6e857224f460a55fe9ede22313339e3b7d75d511b875bb",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ribodetector/tests/main.gpu.nf.test.snap",
+      "size_bytes": 358575,
+      "sha256": "4e9359a678e5cbfaa65d6c21008f5edc842cf9349aec51b6c19b0e8239bf146f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ribodetector/tests/main.nf.test",
+      "size_bytes": 2652,
+      "sha256": "0b22d5477bcd14206615f4392dd9fc7c0c8b4199c6fa4093fed659136993881a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ribodetector/tests/main.nf.test.snap",
+      "size_bytes": 358607,
+      "sha256": "d7f2a4a3c0f30b19a0ee57a296617587946ad0a748da821f7e30f5c43c3a5f33",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ribodetector/tests/nextflow.gpu.config",
+      "size_bytes": 73,
+      "sha256": "55f5f955649a7b4cd5a391ca1e1c3e6f9f3242da17e31b130d55e55ed146af1c",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/calculateexpression/environment.yml",
+      "size_bytes": 203,
+      "sha256": "dc3b29bfab22bb700b05c1b7e1540ab10440dab2e01f2f1c95919879dc14ddcc",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/calculateexpression/main.nf",
+      "size_bytes": 3285,
+      "sha256": "6f76baefcb48ff28e44d7515d43732e888a9023c871840b9fdb793cce7db7e2b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/calculateexpression/meta.yml",
+      "size_bytes": 4916,
+      "sha256": "fa403420a6569c2481d8a2e3ff8cb53b6b4d0853a131ae925301885670609ef8",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/calculateexpression/rsem-calculateexpression.diff",
+      "size_bytes": 1552,
+      "sha256": "b01d49dca3f744d86b24319d429b064bff2912daeee729ed18d2fa10e09bbf20",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/calculateexpression/tests/alignment.config",
+      "size_bytes": 119,
+      "sha256": "6de8ae5ef6f699232eedd5fb816cbe8a367c6f119758ecf402b340b52f4b818a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/calculateexpression/tests/main.nf.test",
+      "size_bytes": 5393,
+      "sha256": "03c9b090bd8369884123cd327073cf4864200874644ec1cb516a2d1d5e61a9f3",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/calculateexpression/tests/main.nf.test.snap",
+      "size_bytes": 4059,
+      "sha256": "2696ed2569f5aa8c9a851fc5ea63796c8e711dad0ad2e715367d03e2ec6ec4e7",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/calculateexpression/tests/nextflow.config",
+      "size_bytes": 293,
+      "sha256": "53c299eec674d5415b54994ec41fde494202d3903e669250eb272216340610aa",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/preparereference/environment.yml",
+      "size_bytes": 203,
+      "sha256": "dc3b29bfab22bb700b05c1b7e1540ab10440dab2e01f2f1c95919879dc14ddcc",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/preparereference/main.nf",
+      "size_bytes": 1970,
+      "sha256": "34d4e58cd468cff3d74643b06ba71ac2ffb05b42ac12d4f545bddbc806f3e39f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/preparereference/meta.yml",
+      "size_bytes": 2574,
+      "sha256": "2d2c5cd640978bd33aaf237af74a134c991ddcd2579a0a08ceacf56e1119319c",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/preparereference/rsem-preparereference.diff",
+      "size_bytes": 1206,
+      "sha256": "88e7ecb6ecbc953918cd4f48f4ee94e71b53d08329495b58aa2eb5b63277db62",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/preparereference/tests/main.nf.test",
+      "size_bytes": 1722,
+      "sha256": "f8210a2599461faf7eb96ddf6b2a070378d6adbfd82c93c219b15bc597d6876a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rsem/preparereference/tests/main.nf.test.snap",
+      "size_bytes": 3482,
+      "sha256": "1b98ccca67b7fffc5498e3a675f3e087ead7d5d80af1ee531825112ac2aaf0ae",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/bamstat/environment.yml",
+      "size_bytes": 232,
+      "sha256": "dadd500f3e1b02b9c779fd170d32f78246e02c70a7f849686ee6edc70d7ad611",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/bamstat/main.nf",
+      "size_bytes": 1080,
+      "sha256": "5c23a499790f4b3c00a93c8e9ed01c2f9150d6f85262ac90c206538013f45b50",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/bamstat/meta.yml",
+      "size_bytes": 2075,
+      "sha256": "e43e1e72a4647b0bb41b9354991d692c672552621ccdeb14709ae10128c80cdd",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/bamstat/tests/main.nf.test",
+      "size_bytes": 1676,
+      "sha256": "20b6c823345d647dc1eb8582fc2627bc23a6c20867fb0e0de51b3a331b8d9357",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/bamstat/tests/main.nf.test.snap",
+      "size_bytes": 2345,
+      "sha256": "8cae2804aa6c8ce494592d7757c1cc04b851bbede715b7e1e3ef658840578681",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/bamstat/tests/nextflow.config",
+      "size_bytes": 119,
+      "sha256": "6de8ae5ef6f699232eedd5fb816cbe8a367c6f119758ecf402b340b52f4b818a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/inferexperiment/environment.yml",
+      "size_bytes": 232,
+      "sha256": "dadd500f3e1b02b9c779fd170d32f78246e02c70a7f849686ee6edc70d7ad611",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/inferexperiment/main.nf",
+      "size_bytes": 1169,
+      "sha256": "8d0c046a0e53ad50b617e97a5cc143cb68f2fe6ab41b62e01fd7fc9c1a95d93f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/inferexperiment/meta.yml",
+      "size_bytes": 2285,
+      "sha256": "df95114d70b1a505ec4cb15236f8638a2edc20ffbf46ac5c1fbe3c73425dced2",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/inferexperiment/tests/main.nf.test",
+      "size_bytes": 1871,
+      "sha256": "a6a7e3b85f93b7b4a299ba532955ad98e8d44de7a3d58cdea9ad89cc87ad5705",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/inferexperiment/tests/main.nf.test.snap",
+      "size_bytes": 2425,
+      "sha256": "902ab23ebdbd2725ddd9236bfbe0abca86b96f4efd7f1490a05ab2ff0adda04d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/inferexperiment/tests/nextflow.config",
+      "size_bytes": 119,
+      "sha256": "6de8ae5ef6f699232eedd5fb816cbe8a367c6f119758ecf402b340b52f4b818a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/innerdistance/environment.yml",
+      "size_bytes": 232,
+      "sha256": "dadd500f3e1b02b9c779fd170d32f78246e02c70a7f849686ee6edc70d7ad611",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/innerdistance/main.nf",
+      "size_bytes": 1892,
+      "sha256": "7450e476b2bd4def87904e202e131c8cc675c9ded4860ec55720f799711165cc",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/innerdistance/meta.yml",
+      "size_bytes": 3626,
+      "sha256": "7dd5f586ee01de19f636818da09ce890705975a9f514a2e93accccf899c6d4cb",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/innerdistance/tests/main.nf.test",
+      "size_bytes": 2311,
+      "sha256": "06d930bf453f4ab037e247fd0ceae7561977f6016aec84ea3b4dbeb2a2d3c2fc",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/innerdistance/tests/main.nf.test.snap",
+      "size_bytes": 5138,
+      "sha256": "8dba109bfca335e9dadacf7fc902edec5a0d42149f6baf6b376b49db8f8d5a62",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/junctionannotation/environment.yml",
+      "size_bytes": 232,
+      "sha256": "dadd500f3e1b02b9c779fd170d32f78246e02c70a7f849686ee6edc70d7ad611",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/junctionannotation/main.nf",
+      "size_bytes": 1856,
+      "sha256": "f57155f55e03aab0f190abba61d261769f3d77a0a0ff6d564ea2d95d5541cf1f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/junctionannotation/meta.yml",
+      "size_bytes": 4114,
+      "sha256": "7fda816e25fc979d44edbfa3f0f2b00dc56bf7cb8f9bccd351428918c968a097",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/junctionannotation/tests/main.nf.test",
+      "size_bytes": 2636,
+      "sha256": "7c7ffbe07fcdecc1121569cfadf5056c572807d48e439afaa72e8dfa0cd4d8b3",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/junctionannotation/tests/main.nf.test.snap",
+      "size_bytes": 6124,
+      "sha256": "1c877bcf7b1c1ec79cf00a70c10e0ddbe59af78ee407b915dc58553730a07bea",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/junctionsaturation/environment.yml",
+      "size_bytes": 232,
+      "sha256": "dadd500f3e1b02b9c779fd170d32f78246e02c70a7f849686ee6edc70d7ad611",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/junctionsaturation/main.nf",
+      "size_bytes": 1245,
+      "sha256": "201058d403ecc070d4cce2f0f5e78b8df397a7199d1b6a924968e063d900d78e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/junctionsaturation/meta.yml",
+      "size_bytes": 2551,
+      "sha256": "9c0229a68efc62908c2f95acf00cd69a9dd43d64af999b2b0f4820db041ce03b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/junctionsaturation/tests/main.nf.test",
+      "size_bytes": 2175,
+      "sha256": "aa3583aa21154d505ed4bec6b55023686361e16efadb67346c3abb1f9b038acd",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/junctionsaturation/tests/main.nf.test.snap",
+      "size_bytes": 2702,
+      "sha256": "0afdf888864ebe0b1592352d62940b5af7db30f76eedea022d38f9249928d42c",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/readdistribution/environment.yml",
+      "size_bytes": 232,
+      "sha256": "dadd500f3e1b02b9c779fd170d32f78246e02c70a7f849686ee6edc70d7ad611",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/readdistribution/main.nf",
+      "size_bytes": 1176,
+      "sha256": "32204564e10d4bfa37ade41f2492881951b0955fdeeff9b0d22b7f55378cf13a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/readdistribution/meta.yml",
+      "size_bytes": 2328,
+      "sha256": "bf355a1319091021398073cfa6f1cada2696afbf41e4de37146f2410ee2e588e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/readdistribution/tests/main.nf.test",
+      "size_bytes": 1996,
+      "sha256": "67b2b7f7e06ac054d4a57ad91ff10b5b44494ceaa629ff21174231fad70979e5",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/readdistribution/tests/main.nf.test.snap",
+      "size_bytes": 2617,
+      "sha256": "bf573874c1a3710d64bdc556bc24991e121d2ed358481b60ca2b481af251687f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/readduplication/environment.yml",
+      "size_bytes": 232,
+      "sha256": "dadd500f3e1b02b9c779fd170d32f78246e02c70a7f849686ee6edc70d7ad611",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/readduplication/main.nf",
+      "size_bytes": 1394,
+      "sha256": "b2366602b5d1856d8b92dafa664709ba6c36b75c7a216f3860a67624ef08f982",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/readduplication/meta.yml",
+      "size_bytes": 3339,
+      "sha256": "5463613a02d57549facd0e0785f200e4ff365706fb1f8d9e2dbcb73db36ae38c",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/readduplication/tests/main.nf.test",
+      "size_bytes": 1935,
+      "sha256": "f6ad87ecc433a5a1b9121f0ecd4da30cf79091c2bf9ef6e70dead503ef36ec64",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/readduplication/tests/main.nf.test.snap",
+      "size_bytes": 4435,
+      "sha256": "c4b657b907fe39df6ced585e431ed96fc53b919dec5d7eba2d53530229d2b327",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/tin/environment.yml",
+      "size_bytes": 232,
+      "sha256": "dadd500f3e1b02b9c779fd170d32f78246e02c70a7f849686ee6edc70d7ad611",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/tin/main.nf",
+      "size_bytes": 1227,
+      "sha256": "a2651ac40d1482388cba06b36fa63bf91a8198a7605d6b87a0ce7ebeb55b258f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/tin/meta.yml",
+      "size_bytes": 2497,
+      "sha256": "25d9999f74c9264456f17c5caa65a7a404c5e3ee4d7f16a5c26d4e2684dde3cc",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/tin/tests/main.nf.test",
+      "size_bytes": 1955,
+      "sha256": "bd391240c7aaccfb57081452c99415fb46ce19c83d6471300e2b0f13e3d764b9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rseqc/tin/tests/main.nf.test.snap",
+      "size_bytes": 3749,
+      "sha256": "a9c93a310a00926257760e394938c4d293a962194923a62b6b4ac6714634472f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rustqc/environment.yml",
+      "size_bytes": 205,
+      "sha256": "296afe76b5c39a1da270d3aef60d817f5fa9744b43609bd033993d397b8aa94e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rustqc/main.nf",
+      "size_bytes": 3893,
+      "sha256": "9627c8a58d1c0eab504d04a799dff2f15bff8d5adc2bc8037ea2aa3f2198043c",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rustqc/meta.yml",
+      "size_bytes": 5279,
+      "sha256": "88c328cd96c87dd0bcda35437456c2624bf97c4d4443d7e4affd2b761e45f805",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rustqc/tests/main.nf.test",
+      "size_bytes": 4515,
+      "sha256": "fb534f7993cceda0969436567be74cd6440e0651d7945e54ebc1be434d7ca65f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rustqc/tests/main.nf.test.snap",
+      "size_bytes": 16495,
+      "sha256": "696fbf3c5c622de6e3047e098d63304f2a49b46c7d653581833bded3295b4d3d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/rustqc/tests/nextflow.config",
+      "size_bytes": 100,
+      "sha256": "565cdab290f07668cb861837e208b0d03933ed27103cf33a5ae563ed20bf9f1c",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/salmon/index/environment.yml",
+      "size_bytes": 206,
+      "sha256": "2655257dac33ed6036c23a1c32dc16d1bf39887e06e369dbadd7aa807c210af6",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/salmon/index/main.nf",
+      "size_bytes": 1951,
+      "sha256": "b3a8e2fe4d8811364f917f79418f3e934eb164d87229e911c199b3d2da6a3620",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/salmon/index/meta.yml",
+      "size_bytes": 1620,
+      "sha256": "9889a72db09b0d90f4b1d21e8a43da6101b35ff82169c1a3bd2abb8e8c615f05",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/salmon/index/tests/main.nf.test",
+      "size_bytes": 2919,
+      "sha256": "8a957c4f0ac397804c6816e63c2f794f2a17980f12deb52135c43018b8e23a4b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/salmon/index/tests/main.nf.test.snap",
+      "size_bytes": 2075,
+      "sha256": "937f11d0e135036befa1ba099ad3ca9242c9544c3ab03aa9722a7588b267c0ee",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/salmon/quant/environment.yml",
+      "size_bytes": 206,
+      "sha256": "2655257dac33ed6036c23a1c32dc16d1bf39887e06e369dbadd7aa807c210af6",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/salmon/quant/main.nf",
+      "size_bytes": 3011,
+      "sha256": "0bccc867cefa756675de5ed3a7f8cdc312082844806282dc93c01910933c9cf3",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/salmon/quant/meta.yml",
+      "size_bytes": 3426,
+      "sha256": "bfd2d5be9ba5ed644e2fafb4f2bb46eb0f78b3dd6e1b843f57e2f0e20a2c91f1",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/salmon/quant/tests/main.nf.test",
+      "size_bytes": 12946,
+      "sha256": "9772b43dbb4773616c6e3e427067b1025ef1681245ff9f45699b06e08ec66030",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/salmon/quant/tests/main.nf.test.snap",
+      "size_bytes": 5872,
+      "sha256": "aca5c32fa3414077f73ed90f38e68fbad6576a33c559f258528b173238ececdd",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/salmon/quant/tests/nextflow.config",
+      "size_bytes": 91,
+      "sha256": "eba22757010d452b2ed3ef5a7198a40d442abe15d7ae153ea799dd7819341743",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/faidx/environment.yml",
+      "size_bytes": 348,
+      "sha256": "5e26f8c4d4699836d2bce8171b85c3345030f426a52f02f1951e5c5eec4caaef",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/faidx/main.nf",
+      "size_bytes": 1615,
+      "sha256": "1c8a56a9e2a187a7b44092be2a5137c3d120d0c6d4945bccbe23bc47ec40eae4",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/faidx/meta.yml",
+      "size_bytes": 3244,
+      "sha256": "3eccdb9370d86bd7cb83075c10bffe1f1357e97359349d97e8e973948032b12a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/faidx/tests/main.nf.test",
+      "size_bytes": 6475,
+      "sha256": "137885436424bdc90321d9cb470474f1fa181137ffdc8374b5e177624027bae9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/faidx/tests/main.nf.test.snap",
+      "size_bytes": 9697,
+      "sha256": "599f1d803d3bc0586b42071a2e9894b6fefc7e10fda6560560212ed29917a7c4",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/faidx/tests/nextflow.config",
+      "size_bytes": 88,
+      "sha256": "1839f085291ddd875a4c59760ae8137349902b258c71854777e8390077db383b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/fastq/environment.yml",
+      "size_bytes": 348,
+      "sha256": "5e26f8c4d4699836d2bce8171b85c3345030f426a52f02f1951e5c5eec4caaef",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/fastq/main.nf",
+      "size_bytes": 2195,
+      "sha256": "465c72f44a38b8b47392546aaf2cd8ad104036d86ef8eebcc1e2fbc67788eb00",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/fastq/meta.yml",
+      "size_bytes": 3592,
+      "sha256": "da2f6aa4e5d88289d2a2824129bb59c8dcdc3a0008110f14d1a619bce1b80768",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/fastq/tests/main.nf.test",
+      "size_bytes": 4247,
+      "sha256": "4634d1eea213fa21ff8d9f649edde92f13dba5b626d520cd9640a1accb45f48f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/fastq/tests/main.nf.test.snap",
+      "size_bytes": 7282,
+      "sha256": "a65503297fe3d27b492f87e9797d19a4da57bb6ee6427abe906d113ed615f192",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/flagstat/environment.yml",
+      "size_bytes": 348,
+      "sha256": "5e26f8c4d4699836d2bce8171b85c3345030f426a52f02f1951e5c5eec4caaef",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/flagstat/main.nf",
+      "size_bytes": 1514,
+      "sha256": "a3551b6416a84e50e3757eea0960459e5ea879ebc72496a48fc29331253b014d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/flagstat/meta.yml",
+      "size_bytes": 2205,
+      "sha256": "c6c1a793ac7ffbc6f7e871c61e5022b3d4d32acac2950c121e4e6d371f5825a5",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/flagstat/tests/main.nf.test",
+      "size_bytes": 1656,
+      "sha256": "bf8ce9d3277626c0f54dd62619754eabe04dccfd7b63b3e2be530aae7b07321e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/flagstat/tests/main.nf.test.snap",
+      "size_bytes": 2527,
+      "sha256": "bf6de49b71770a4109e1a12cecab6dca4869f44f6642d583f5eaf028565862e4",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/idxstats/environment.yml",
+      "size_bytes": 348,
+      "sha256": "5e26f8c4d4699836d2bce8171b85c3345030f426a52f02f1951e5c5eec4caaef",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/idxstats/main.nf",
+      "size_bytes": 1187,
+      "sha256": "b0d25c5ef6624c740001284ce143225d1db48a1d76f66280a8a68e9a51350f70",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/idxstats/meta.yml",
+      "size_bytes": 2205,
+      "sha256": "e0f995e9b910a7be8e9f592c13508d4a6893fac97ee713c048a68d733dc55160",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/idxstats/tests/main.nf.test",
+      "size_bytes": 1915,
+      "sha256": "700e79e76e8c92f0c84377c23b231de7421951347c36c6aff806f4976b9759bd",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/idxstats/tests/main.nf.test.snap",
+      "size_bytes": 1419,
+      "sha256": "87445698c5dc13a7cfc9f911ac15877e24865ce186fa4f00a7d765bff4f74d67",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/index/environment.yml",
+      "size_bytes": 348,
+      "sha256": "5e26f8c4d4699836d2bce8171b85c3345030f426a52f02f1951e5c5eec4caaef",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/index/main.nf",
+      "size_bytes": 1144,
+      "sha256": "e98d9c52823ce199e4e0bc249892c63e6aff10c5982fcdb27c353f4ab1cbf782",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/index/meta.yml",
+      "size_bytes": 1982,
+      "sha256": "bf389602b6cab11c8e63f5d7bdad6f3fb7c7975a79e9a493d6a81d6314bf3bcf",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/index/tests/csi.nextflow.config",
+      "size_bytes": 74,
+      "sha256": "bda1cd2f8037558182fd4f19cc99ba7b1874c35b7bcb3e096f9dc7731dc53770",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/index/tests/main.nf.test",
+      "size_bytes": 4547,
+      "sha256": "f46dab0b4efc78504399a8137b4c38d077b4c50f205c9232c7211991fe54efb9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/index/tests/main.nf.test.snap",
+      "size_bytes": 4133,
+      "sha256": "99c10cd1b76e1086d011f8b2cf7ad305066caeb0ad4a7381520bfc6e3951f1ad",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/sort/environment.yml",
+      "size_bytes": 348,
+      "sha256": "5e26f8c4d4699836d2bce8171b85c3345030f426a52f02f1951e5c5eec4caaef",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/sort/main.nf",
+      "size_bytes": 3318,
+      "sha256": "f725301cf4a1d8451bcaa99cffdcd6f9617b61e64fd04952d82bb00bac4049a3",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/sort/meta.yml",
+      "size_bytes": 3585,
+      "sha256": "a3f8f683e426adbd8e615a1171092adf38fbf00a6aca2caf0c3797517ff26e62",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/sort/tests/main.nf.test",
+      "size_bytes": 15444,
+      "sha256": "68c162d4bf7b98621d81bc318e0cc3d1bea3f75f90406a73f27a3f1bb52a1cec",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/sort/tests/main.nf.test.snap",
+      "size_bytes": 8700,
+      "sha256": "c6cb2a37e57baded9849c39b6c08461cdf9f656e7f65c657db7d2aa79abf9397",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/sort/tests/nextflow.config",
+      "size_bytes": 94,
+      "sha256": "8c55dd427ea2a841ee932a0ada7ea8a043782325231cf02eb2bb68498fc95590",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/sort/tests/nextflow_cram.config",
+      "size_bytes": 149,
+      "sha256": "e6366ab3aba1452b696db2a762833f77a940e7ff61ed2b73f48df4bec59fa79c",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/sort/tests/nextflow_sam.config",
+      "size_bytes": 134,
+      "sha256": "5a65b884310fb6abd7cc5d060ebdc782b9fd888ea77ce94b93b740702fb1b8ba",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/stats/environment.yml",
+      "size_bytes": 348,
+      "sha256": "5e26f8c4d4699836d2bce8171b85c3345030f426a52f02f1951e5c5eec4caaef",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/stats/main.nf",
+      "size_bytes": 1255,
+      "sha256": "f58c5ddfe6d99b3f13e3f1c8361b5cae52758e79b117daa78ebffefa06ceee80",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/stats/meta.yml",
+      "size_bytes": 2680,
+      "sha256": "5517b9ed6ee69c8506556faec363b473371fa2173973d7979254074e38c4e966",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/stats/tests/main.nf.test",
+      "size_bytes": 4024,
+      "sha256": "6b2519bece3327d3a3c05c3ac827f6537a4c975e8cc97c48c2c67ed6e59ad026",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/stats/tests/main.nf.test.snap",
+      "size_bytes": 4992,
+      "sha256": "40a6f5cb21eeeac0564f9ee0045306ed2db9faaafd21cd1ef725140afe01aed6",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/view/environment.yml",
+      "size_bytes": 348,
+      "sha256": "5e26f8c4d4699836d2bce8171b85c3345030f426a52f02f1951e5c5eec4caaef",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/view/main.nf",
+      "size_bytes": 4463,
+      "sha256": "c7cf8c5306d8d2e632bd52161a33b2ecd8288c70b6139db1792a30bf6528b059",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/view/meta.yml",
+      "size_bytes": 6017,
+      "sha256": "bc167d8371e3b96f0bc4f2cf678bca9df947ddd49d5bf6f3a1a0f3d231a0f96a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/view/tests/main.nf.test",
+      "size_bytes": 14938,
+      "sha256": "18ac7738ceaf4aa8f9c6cab7dcd6b7046cf409ca7b547396bb9e6abb4a99f280",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/view/tests/main.nf.test.snap",
+      "size_bytes": 26199,
+      "sha256": "d2eec2b3952e6eb197acb800f1a03f0f8ecf72678b1983882f0ce34769fc830d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/samtools/view/tests/nextflow.config",
+      "size_bytes": 92,
+      "sha256": "2d264dc2353524d76fbd130031745a5b06e9304b8e77492a8a1cde70ea517db5",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/rsemcalculateexpression/environment.yml",
+      "size_bytes": 236,
+      "sha256": "72a466f97f0ee1a513930ed91d52e526e6f133bdeeb8bd84c93f25ba45d1bcc7",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/rsemcalculateexpression/main.nf",
+      "size_bytes": 4077,
+      "sha256": "5561138c2729620e4944eb71eed2ab605c55eded61d76f8ba312d09813e1e914",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/rsemcalculateexpression/meta.yml",
+      "size_bytes": 5600,
+      "sha256": "f9b88788142a295823f955ceca444ae585e784ce679af68846f8666b491745fe",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/rsemcalculateexpression/tests/main.nf.test",
+      "size_bytes": 5464,
+      "sha256": "8fc4ec8cc74dbce1bdd2486cc35efdfd20028f518a741653cdea50e0b9ae47a1",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/rsemcalculateexpression/tests/main.nf.test.snap",
+      "size_bytes": 4808,
+      "sha256": "4f8b485d8ca87a5417dce8028d045d3f22648353587d41f050ef3f2e7dd3c847",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/rsemcalculateexpression/tests/nextflow.config",
+      "size_bytes": 890,
+      "sha256": "3bab85c4ef777ae80d4a4a03b8b9a5e5a90cf56badae6b8dc68ec80696dde60f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/rsempreparereference/environment.yml",
+      "size_bytes": 236,
+      "sha256": "72a466f97f0ee1a513930ed91d52e526e6f133bdeeb8bd84c93f25ba45d1bcc7",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/rsempreparereference/main.nf",
+      "size_bytes": 2670,
+      "sha256": "22baf91ceffa045429c377a8d1ddffb16972d2d06d2579d18db2cb2509f011da",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/rsempreparereference/meta.yml",
+      "size_bytes": 3328,
+      "sha256": "533f35830f2520268d3792ebb6ca57c90f31816ec02ec6fe9e8362547201c7ea",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/rsempreparereference/tests/main.nf.test",
+      "size_bytes": 1614,
+      "sha256": "feda93e02099c0d131001d34347960d0508d913a1b235ef9b09abf0c921db254",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/rsempreparereference/tests/main.nf.test.snap",
+      "size_bytes": 3807,
+      "sha256": "e821e06ad4c23bfb82bdeaf55fc42782b1c5f548e387af4e02b73d02bfeac502",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/rsempreparereference/tests/nextflow.config",
+      "size_bytes": 686,
+      "sha256": "d20a5cbb6d7c3e760cc51bd240d1fc3640b01c7658dde6b9d6b315e7518b7467",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/staralign/environment.yml",
+      "size_bytes": 211,
+      "sha256": "74949cfb772a887f6ccad087dc184687d9bb50d707ab704eb7d7d7ef6db21653",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/staralign/main.nf",
+      "size_bytes": 5039,
+      "sha256": "e075ae35fe7a8d3b232bf943d760b847bbc58843ecf18d54fa158c5a05c088ff",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/staralign/meta.yml",
+      "size_bytes": 8976,
+      "sha256": "4ccada5f49363666228d863c777f3693fd5e33b5625b7900907bd09e4ca2041d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/staralign/tests/main.nf.test",
+      "size_bytes": 22595,
+      "sha256": "65586f1d51e974dbdc72c336b10cef928b9bfca5784d9a28bf5146cf70b5e9da",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/staralign/tests/main.nf.test.snap",
+      "size_bytes": 72368,
+      "sha256": "afde628173e63e9b04e754887573a58e004e3b8470068ad64c92bcb836bab369",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/staralign/tests/nextflow.arriba.config",
+      "size_bytes": 1279,
+      "sha256": "41667e10bd15432bc4e49822f2b9b038ead6822ca7a62f17d875840172b72362",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/staralign/tests/nextflow.config",
+      "size_bytes": 959,
+      "sha256": "5c531f4307cb3138da3787c68db9baea3c69034f08b872cf010b73826883ab1c",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sentieon/staralign/tests/nextflow.starfusion.config",
+      "size_bytes": 1433,
+      "sha256": "a68306f033da9c098d02a3108ab69dfd2c84e5706e8b3e08d5cf8c5853eec1a5",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/seqkit/replace/environment.yml",
+      "size_bytes": 205,
+      "sha256": "ca64b3c44f4d9d2d44c2c96790a3ffcf2303d42cd7c1d34f72bd91d883266d2d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/seqkit/replace/main.nf",
+      "size_bytes": 1575,
+      "sha256": "3ec6ecf1cd16e898bdfb26b0c2d604d397c25184ef45dc5534697526241b0462",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/seqkit/replace/meta.yml",
+      "size_bytes": 2077,
+      "sha256": "ba28cf7244b97024783e5e8df2c5cc86fa259c913bee5860ccaf7978f0a44820",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/seqkit/replace/tests/main.nf.test",
+      "size_bytes": 2512,
+      "sha256": "131e79619d59bce27daf2a4b9bbf9f45b39af503bed53febd7a3d49d8f7423be",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/seqkit/replace/tests/main.nf.test.snap",
+      "size_bytes": 4692,
+      "sha256": "73a5b89a5d15e1e96e91f00933697db696abe65ce3b5b5201fd9a9c1d010e200",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/seqkit/replace/tests/replace.config",
+      "size_bytes": 93,
+      "sha256": "427ee80c3f9d4fb7e0e152fcb742b73a9c7374d735992fd7b10e078570be780e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/seqkit/replace/tests/uncomp.config",
+      "size_bytes": 137,
+      "sha256": "1e2adb931508f613d0a64ded08c9dc94cea11d8494f3b7b2780bc48044625fd3",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/seqkit/stats/environment.yml",
+      "size_bytes": 205,
+      "sha256": "ca64b3c44f4d9d2d44c2c96790a3ffcf2303d42cd7c1d34f72bd91d883266d2d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/seqkit/stats/main.nf",
+      "size_bytes": 992,
+      "sha256": "673838b3f483a829961b86f6dab14edcd40cb8481f4be2acdf6501e5b82f922e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/seqkit/stats/meta.yml",
+      "size_bytes": 2092,
+      "sha256": "19cde788902ef3c8a1e28e130158b247a9e069c3dd94116165a9e9f9a5c1b4f9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/seqkit/stats/tests/main.nf.test",
+      "size_bytes": 3474,
+      "sha256": "6074016df74355d411de93bc80533737e3f97029f1f86a313e63b9da7f25e339",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/seqkit/stats/tests/main.nf.test.snap",
+      "size_bytes": 7440,
+      "sha256": "7f9a2deb2bc89bac4fd981fe72889488d1330b96d386e3d0b1647069b6d13369",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sortmerna/environment.yml",
+      "size_bytes": 211,
+      "sha256": "be2013d932337bd6a07ae8dccb3e6a326c5066a76ec3af0d0ea87473e48e5713",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sortmerna/main.nf",
+      "size_bytes": 3286,
+      "sha256": "9bb8548d99dc3ed2080e825447ea30146b0cfb5ed5e367731d5b0e01c6dbe75d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sortmerna/meta.yml",
+      "size_bytes": 3855,
+      "sha256": "78814bba921c3394a3634859d163f3347618fff551df1b935b495a8e9f3fb8fe",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sortmerna/tests/indexing_only.config",
+      "size_bytes": 78,
+      "sha256": "4bcfda9a33c45b2584b01e7fee75ef95cded2f00e597303ef4a918f7796c7591",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sortmerna/tests/main.nf.test",
+      "size_bytes": 12809,
+      "sha256": "35cc58434149d246382011c2a7714ec0c359d5b6b6f8a134aee8a65cd0c7d08e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sortmerna/tests/main.nf.test.snap",
+      "size_bytes": 9599,
+      "sha256": "25c7e3ecfd5f19d254416236128e3ea8949f99046be821672f2b44b849ab5d7f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sortmerna/tests/premade_index.config",
+      "size_bytes": 150,
+      "sha256": "7e20181c12a9a11dc373e1fd4b3e8b7c5237c1b4d0679b8973fd8d1faff12fc9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/star/align/environment.yml",
+      "size_bytes": 288,
+      "sha256": "e862d3131e774d8b39afeab0f2ee2fa3b8e5e6be2b47c1000d9fa0d573a715c5",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/star/align/main.nf",
+      "size_bytes": 4722,
+      "sha256": "1406e3f3c75052b754d26342e48671acbbb404e544f44fe353b446f143c18696",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/star/align/meta.yml",
+      "size_bytes": 9377,
+      "sha256": "a16a6172f66c5bb8e4356136dd0e3efdf404a7bd5126f6e38d2f47381f4c5584",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/star/align/tests/main.nf.test",
+      "size_bytes": 22657,
+      "sha256": "d1212b2c62c8710833f12ec819a33e02a7a21f44c55a80e7e6cb609bb7e9c96f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/star/align/tests/main.nf.test.snap",
+      "size_bytes": 74992,
+      "sha256": "d569c9fef72aad9f55df431f26d6d4ac8b0d0955f6e54742b35494840c472632",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/star/align/tests/nextflow.arriba.config",
+      "size_bytes": 584,
+      "sha256": "3ead237d0a938ae988f6195236afd0c1c4c53b07a1a0e3e249f07abb616aa589",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/star/align/tests/nextflow.config",
+      "size_bytes": 264,
+      "sha256": "2a91f709b9bb632f2e608b0870ffee467f1c8c0200d9b08aab829647677531cd",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/star/align/tests/nextflow.starfusion.config",
+      "size_bytes": 738,
+      "sha256": "6f1e8a910ae4988abae824d4131acca7b30b11f6172a40c014ad0303d53d3fdd",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/star/genomegenerate/environment.yml",
+      "size_bytes": 288,
+      "sha256": "e862d3131e774d8b39afeab0f2ee2fa3b8e5e6be2b47c1000d9fa0d573a715c5",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/star/genomegenerate/main.nf",
+      "size_bytes": 3143,
+      "sha256": "d33ad4935cea0c662a25111485535f2e798763038326a3483b5f0b884f72ece4",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/star/genomegenerate/meta.yml",
+      "size_bytes": 3454,
+      "sha256": "1818981b05ecd3c188acf0bf21e9576a245dcadae109585e77804d5cb0e5f7a9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/star/genomegenerate/tests/main.nf.test",
+      "size_bytes": 3320,
+      "sha256": "764b7b7dc1257090f8efc6deb261b46c56bb0660db397e2a4af7de8dd1ed77fa",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/star/genomegenerate/tests/main.nf.test.snap",
+      "size_bytes": 10059,
+      "sha256": "a0c68868715010e8aedacc366c57259de501ce67fef9e33f94793b1ee6d51a72",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/stringtie/merge/environment.yml",
+      "size_bytes": 208,
+      "sha256": "c202f842aac9c9f7f4d82f109358f874d2c564587acbc882d183bbca7aaea90e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/stringtie/merge/main.nf",
+      "size_bytes": 1178,
+      "sha256": "7decf78f15bf48243a7250fc4da35172d28250ee6a0620fc6509e08425536771",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/stringtie/merge/meta.yml",
+      "size_bytes": 2425,
+      "sha256": "ef9b44d0336092b0e435e2d212a8f0efb48bd1eb765032fd92b42f7ee16d7aec",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/stringtie/merge/tests/main.nf.test",
+      "size_bytes": 2027,
+      "sha256": "323f3bb5bbf051407caba750e8ca515c34a0e7a73eb0627f2c63ab5dff75f55f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/stringtie/merge/tests/main.nf.test.snap",
+      "size_bytes": 1582,
+      "sha256": "87044fac3a69a2853e10b087efe503970abb72b25b5e4737dd4bb8d9ce7976b6",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/stringtie/stringtie/environment.yml",
+      "size_bytes": 208,
+      "sha256": "c649a78e8d133026016738b6b0d13b75f6a9e91e3a875446cdd012421d222ffa",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/stringtie/stringtie/main.nf",
+      "size_bytes": 1882,
+      "sha256": "70707557afc681f98b718e9cb7529a5f2afd552007c971a6aa35eba619c5b91a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/stringtie/stringtie/meta.yml",
+      "size_bytes": 2874,
+      "sha256": "e0ab0d4f6e7feb3d90437ea0d98a15e20f8b66382729cadbaba8bc623c6627a4",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/stringtie/stringtie/tests/main.nf.test",
+      "size_bytes": 6764,
+      "sha256": "e3c9596efa99c12aee470b8736da71e0449c7ab7da574b201d68a2a1523a07de",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/stringtie/stringtie/tests/main.nf.test.snap",
+      "size_bytes": 18542,
+      "sha256": "6bba9fb9d684b557426f27a92cab5178bb86683c2d6f974f7e0bce265ec1d071",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/stringtie/stringtie/tests/nextflow.config",
+      "size_bytes": 78,
+      "sha256": "af1a0cabf5a04d6bb1c474eda8a9cc206b389926bebf48d9be512653e0a24ef4",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/subread/featurecounts/environment.yml",
+      "size_bytes": 206,
+      "sha256": "b2093cd4f222436a4aeb69ab8b4d9bd4bc32d9291a4ca2650976a2f250dc5094",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/subread/featurecounts/main.nf",
+      "size_bytes": 1494,
+      "sha256": "99d46ed3ba2661298e9a484d4ebd02412293194870d4f2079e4abdd746eff254",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/subread/featurecounts/meta.yml",
+      "size_bytes": 2691,
+      "sha256": "752f6a7441be180bb11fc1be129c347f43bc03b35d420f7c3ede9466ea3d3637",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/subread/featurecounts/tests/main.nf.test",
+      "size_bytes": 5088,
+      "sha256": "d26c0c4d744cbd56927c0e4cdf145410213fdf795f6e3e837db8ba960cb10663",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/subread/featurecounts/tests/main.nf.test.snap",
+      "size_bytes": 9920,
+      "sha256": "f360e5421b006a932e56cb301fdf1ae82fd72a905487b62cace074362479893d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/subread/featurecounts/tests/nextflow.config",
+      "size_bytes": 192,
+      "sha256": "b4fa5b7b4c20e7fedf57df697a6d3594502ea24b008d31ebad974104df8f0e6b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/summarizedexperiment/summarizedexperiment/environment.yml",
+      "size_bytes": 233,
+      "sha256": "4ffe7c75b6d6a4993fd0832d788100ea03c122bee3f55de5527fa752585b70d1",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/summarizedexperiment/summarizedexperiment/main.nf",
+      "size_bytes": 1231,
+      "sha256": "d29d0c962dbc0822a5b8d728b37135772a6c41d7825be632b130a19a3cf230f3",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/summarizedexperiment/summarizedexperiment/meta.yml",
+      "size_bytes": 3573,
+      "sha256": "6475422472d5ffcfd4b81e247c84e454b429887385775fadb7adf9adb6a1f3b1",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/summarizedexperiment/summarizedexperiment/templates/summarizedexperiment.r",
+      "size_bytes": 7923,
+      "sha256": "78c1ce0cedee54e6a51d3b50e2572196910b7909f7c5bec15376e6675d8b9020",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/summarizedexperiment/summarizedexperiment/tests/main.nf.test",
+      "size_bytes": 10117,
+      "sha256": "b479b74b32abc5c157310a2336cdc96ef00003140fba6d50b65d3044967feb46",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/summarizedexperiment/summarizedexperiment/tests/main.nf.test.snap",
+      "size_bytes": 5963,
+      "sha256": "9a12961339cb84f878a8bf013aca5e6473b410b9b3ccb82ee45f498c5dc6a02c",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/summarizedexperiment/summarizedexperiment/tests/multi_matrix.config",
+      "size_bytes": 130,
+      "sha256": "f0aa293fdfec4cc1b7d66e9cf46a724488d08237eda3de82c2bc5d89f99d04dd",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/summarizedexperiment/summarizedexperiment/tests/single_matrix.config",
+      "size_bytes": 120,
+      "sha256": "be30c739132c7611401606ac15a62fca8edfd1ad3fbe89cc1b6db080274fafc6",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/summarizedexperiment/summarizedexperiment/tests/unify.config",
+      "size_bytes": 159,
+      "sha256": "ed8f75ebc8488445289c67632d8c07541e2a4bd7ecf82d61b62f49eaf485bb15",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sylph/profile/environment.yml",
+      "size_bytes": 204,
+      "sha256": "f003ad23160dff41a594ad60e6cc7b062268a8775d7a1f09c6277c52320fe3c5",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sylph/profile/main.nf",
+      "size_bytes": 1086,
+      "sha256": "8db1072fabdcb55bfcfb9a00a48dda94704aef76061e9a1fe31510fc916f5861",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sylph/profile/meta.yml",
+      "size_bytes": 2371,
+      "sha256": "54e0bc2986a17e0ba04fee7ba9dab9ef4bf1b329af42392368e9662fe91a3ca2",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sylph/profile/tests/main.nf.test",
+      "size_bytes": 2812,
+      "sha256": "e9472cf22182920d18ad4ffdbefff32a515d8bd2d43131a6d41f59dd5e4d83e8",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sylph/profile/tests/main.nf.test.snap",
+      "size_bytes": 2635,
+      "sha256": "171fce23525015177930242470f0229adf8665e20d42031394a35f04432ec7f9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sylphtax/taxprof/environment.yml",
+      "size_bytes": 210,
+      "sha256": "b15fd5f298ab107e70d4444f35289183d3a56a1b182a84c9decd76bae4c0c249",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sylphtax/taxprof/main.nf",
+      "size_bytes": 1115,
+      "sha256": "d9abd7d54b1b6bd58599ef6cfee7732ce1fc499a8ec031c76471100fcde3ad13",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sylphtax/taxprof/meta.yml",
+      "size_bytes": 2342,
+      "sha256": "b886367ed883af0773fabf4e67a38a35f442d87e0992065965bf51a33ce5054b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sylphtax/taxprof/tests/main.nf.test",
+      "size_bytes": 2864,
+      "sha256": "fd96761718a382b3121cc29461447fbeb11010294fc5262f5193c4a752b482ed",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/sylphtax/taxprof/tests/main.nf.test.snap",
+      "size_bytes": 1447,
+      "sha256": "d2b9f19ff3f9734e63448dfd4e53acca26ec5807c37467236a32eb761901389d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/trimgalore/environment.yml",
+      "size_bytes": 210,
+      "sha256": "19b1a0a231b3c7812c0423a5fea53f01883c19bd25fb2dd759a31435696599dc",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/trimgalore/main.nf",
+      "size_bytes": 3368,
+      "sha256": "f3b551ea103f9fe669f1c1fafe87b635a6f42b238f1919d7bc9af3feac36f45a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/trimgalore/meta.yml",
+      "size_bytes": 4324,
+      "sha256": "ce81d73c95b18af9655e1ef0796cb083a1e95bf793e6403c03ca093a6c164252",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/trimgalore/tests/main.nf.test",
+      "size_bytes": 5031,
+      "sha256": "a0dc0e46d81841dc3e50413c4c66cff69ce45add08a94161c67fb2646ba42347",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/trimgalore/tests/main.nf.test.snap",
+      "size_bytes": 5472,
+      "sha256": "0d912e513c892b572c376fd17ea19c6a859ffcf721090811c01eef23b890cf5f",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/trimgalore/tests/nextflow.config",
+      "size_bytes": 83,
+      "sha256": "39802eb7c4d94b70e0cf256d7a5ed6a33b34ea835ddd3c5d4b5648832efd2a40",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/tximeta/tximport/environment.yml",
+      "size_bytes": 220,
+      "sha256": "35748e4b411f56550109105ea60dd3132d658b5773bfc97804ae5355c061b426",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/tximeta/tximport/main.nf",
+      "size_bytes": 2069,
+      "sha256": "931bdd39896b5a1b184e7c69d8586f225e616061023748c099f6d13e37d97966",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/tximeta/tximport/meta.yml",
+      "size_bytes": 7200,
+      "sha256": "42ec5632007a3cba89723f15b2692f385fb5ef206297d72af7a683527334f5a2",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/tximeta/tximport/templates/tximport.r",
+      "size_bytes": 14093,
+      "sha256": "caf5d0c8d4ad04543e5ae1f2e66a4e6d87170370fec9ceb05f3968dc9d7758bc",
+      "executable": true
+    },
+    {
+      "path": "modules/nf-core/tximeta/tximport/tests/main.nf.test",
+      "size_bytes": 18258,
+      "sha256": "fcfd026a8a624ae03d3869d6a6b5c952c97796e9df5332816e631c16014f86c3",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/tximeta/tximport/tests/main.nf.test.snap",
+      "size_bytes": 28033,
+      "sha256": "01d1af4d21face5428cdbc717a13ed89c9715edd50d514ad5a1da541e2b62558",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/tximeta/tximport/tests/nextflow.config",
+      "size_bytes": 103,
+      "sha256": "0f9815555c135e8e6ba400c76e98b549c4f839867e597c8b6f565cb2c10a3df4",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ucsc/bedclip/environment.yml",
+      "size_bytes": 209,
+      "sha256": "1f2c80cf55708c5b2d2c49a21cc43008d5ea3968c6b16c51a8195ceda8edbe8a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ucsc/bedclip/main.nf",
+      "size_bytes": 1247,
+      "sha256": "e4b7be6161c00358936ba580b2b407570471c07be5c037c24105141137b0d01b",
+      "executable": true
+    },
+    {
+      "path": "modules/nf-core/ucsc/bedclip/meta.yml",
+      "size_bytes": 1781,
+      "sha256": "9d280c95b6c3b37c71b30f92c288331d811eeb9df91f83d10b88c1a385427bfb",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ucsc/bedclip/tests/main.nf.test",
+      "size_bytes": 1686,
+      "sha256": "0ec06ec91fbd122a12b14774a210792afd09480884f3184b35da8dd6e672a740",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ucsc/bedclip/tests/main.nf.test.snap",
+      "size_bytes": 2507,
+      "sha256": "398f4e4a67263d5ec33b5134f03bf5fca4abcc013d93229e19da78c78678041b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ucsc/bedclip/tests/nextflow.config",
+      "size_bytes": 92,
+      "sha256": "9a385ef970c76c0a31ef64bbb920d0d4ea12715f1b509e73d7dd9d35e8aaf952",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ucsc/bedgraphtobigwig/environment.yml",
+      "size_bytes": 218,
+      "sha256": "46e66caac327ad2a3d8090fb23da6847cd5ffda1bdf49f1a02b684d3c13eee98",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ucsc/bedgraphtobigwig/main.nf",
+      "size_bytes": 1275,
+      "sha256": "f37e6a87e43c6c2473e31f3758a525e95d26beeaa61694b0b6f1aa24314d806b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ucsc/bedgraphtobigwig/meta.yml",
+      "size_bytes": 1870,
+      "sha256": "010f1f9be9f815dae9813913e8f8745656a927bb63d64e488ac2846232e83523",
+      "executable": true
+    },
+    {
+      "path": "modules/nf-core/ucsc/bedgraphtobigwig/tests/main.nf.test",
+      "size_bytes": 1599,
+      "sha256": "a7454c35c4391574ae8b72175c954df49df04a39154b10ea3ce04389d8a1bb2e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/ucsc/bedgraphtobigwig/tests/main.nf.test.snap",
+      "size_bytes": 2323,
+      "sha256": "60594d032aef39eedd14ddc4083535b9851bd859513d8b226d812140b251d684",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umicollapse/environment.yml",
+      "size_bytes": 210,
+      "sha256": "38d8fa9cc89431bf97dd66b6b0040fe2e5c15a6219147a56dac2251eb1ef93b8",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umicollapse/main.nf",
+      "size_bytes": 2929,
+      "sha256": "c5a2d7ba9d90e4176b4eba92923314e85340df5730c9671f6f53648ea0aed473",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umicollapse/meta.yml",
+      "size_bytes": 3188,
+      "sha256": "c9fa1d68607f2eb91a395a76b8b167bb98c7aac35f9c7e24e7ebe82b6e3aaa00",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umicollapse/tests/main.nf.test",
+      "size_bytes": 5787,
+      "sha256": "bbe509db21fd45a46a9dabc5db37bffc6459cb05d8e58b92b0f0321c5b6b05a9",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umicollapse/tests/main.nf.test.snap",
+      "size_bytes": 3906,
+      "sha256": "6aa3c45aa934a916a94e4c36887427e5c1287e8bab57886f555c17bce9d07bbc",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umicollapse/tests/nextflow.config",
+      "size_bytes": 90,
+      "sha256": "13d7a514f1bc55697a6f21a60dec58b9cc9263887c5bde9e6aca934c7e49dced",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/dedup/environment.yml",
+      "size_bytes": 543,
+      "sha256": "d12afff026e287ab20a0eef6e20a056d7dc260375418fecfe349b062ca7cfc44",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/dedup/main.nf",
+      "size_bytes": 2095,
+      "sha256": "62e0d44ff50faaa4ab7bf37ac35892df35117d69117c2ccfc8760bdd77aafbcf",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/dedup/meta.yml",
+      "size_bytes": 3862,
+      "sha256": "f841a6747b978a4d16431112919273a4c95c28fa05e40ef39ded06220ef202ec",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/dedup/tests/main.nf.test",
+      "size_bytes": 6082,
+      "sha256": "1b65e4f1d942243e5ddc438a0e840da562ef75074ce8eddb40c85bd8600a6d0b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/dedup/tests/main.nf.test.snap",
+      "size_bytes": 3764,
+      "sha256": "9020412a1a576c0f4236ffd587bc7ebbe301c9e28864d204c6576f7ea969893c",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/dedup/tests/nextflow.config",
+      "size_bytes": 93,
+      "sha256": "dff574bec2981b443f53fada52919cacb10edcca97183f6c8e641e8d29b52f38",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/extract/environment.yml",
+      "size_bytes": 543,
+      "sha256": "d12afff026e287ab20a0eef6e20a056d7dc260375418fecfe349b062ca7cfc44",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/extract/main.nf",
+      "size_bytes": 1943,
+      "sha256": "d9f53d130d258854b0df6359e898a7055e605dabd2a8b689b12f3fbc397747b8",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/extract/meta.yml",
+      "size_bytes": 2371,
+      "sha256": "8ff4069af4d9d3137841e28c974a0aeaddef4b1450955a9c0b8453d06530e5e7",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/extract/tests/main.nf.test",
+      "size_bytes": 3394,
+      "sha256": "9b6107605060117e7397e28436144ba27786385c0cc7f41ec72cb0147850767e",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/extract/tests/main.nf.test.snap",
+      "size_bytes": 5834,
+      "sha256": "67e71fd021d2f294aeded26b019c42999007fce717c607c1119188d03c04a3fd",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/extract/tests/nextflow.config",
+      "size_bytes": 200,
+      "sha256": "5731da72472467b2828350f9f82fdf340e84cae173a05fc287b0d4e81e06c98d",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/prepareforrsem/environment.yml",
+      "size_bytes": 543,
+      "sha256": "d12afff026e287ab20a0eef6e20a056d7dc260375418fecfe349b062ca7cfc44",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/prepareforrsem/main.nf",
+      "size_bytes": 1321,
+      "sha256": "f6fc00068207546f0cea639b550b107f6456e14c4b99bb742118002861736fa0",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/prepareforrsem/meta.yml",
+      "size_bytes": 2400,
+      "sha256": "902d68fe6df7c29fb963462224dd49d1ee51caa1bccfe79f94ade5319e101900",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/prepareforrsem/tests/main.nf.test",
+      "size_bytes": 1926,
+      "sha256": "322597c26948587a6603b5efd1eb04662aa695ef4b9405989ed4f88fd53f9c89",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/umitools/prepareforrsem/tests/main.nf.test.snap",
+      "size_bytes": 1441,
+      "sha256": "bc3a70e22e166f709a658a77f092d17588a02774ec113aee20f11ea8ff76ec90",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/untar/environment.yml",
+      "size_bytes": 342,
+      "sha256": "744c448dd17c4da5cfd257c470309e2de7e6d1adcbbb74c9f7fbc0ae4db6a452",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/untar/main.nf",
+      "size_bytes": 2414,
+      "sha256": "8f3b1fd6ac7a4ea63d64e4f4a79abe5e438363d723507cce6b7f732d50cb1bac",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/untar/meta.yml",
+      "size_bytes": 2068,
+      "sha256": "cd10d878b40b8639a1c24be839d3667c035a97107ff3da80aeb184080a83ba2a",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/untar/tests/main.nf.test",
+      "size_bytes": 2487,
+      "sha256": "8e11f9994269d433e6d83f5650238c4605f7c646f58f8eae2b6595047093064b",
+      "executable": false
+    },
+    {
+      "path": "modules/nf-core/untar/tests/main.nf.test.snap",
+      "size_bytes": 3042,
+      "sha256": "4a4942fbe3128f7def766f3e28abfb3463ab12c5c6f411a0a2d93dbd253581ca",
+      "executable": false
+    },
+    {
+      "path": "modules.json",
+      "size_bytes": 26232,
+      "sha256": "622b018f5f114a5f45b15fcbd902bce3e66e48e765b3e53ae1c40bd3acdaa2b1",
+      "executable": false
+    },
+    {
+      "path": "nextflow.config",
+      "size_bytes": 19500,
+      "sha256": "80c0abf26d9b9f963cec1abdca016082987beacffc75b8370d1e2c5804290972",
+      "executable": false
+    },
+    {
+      "path": "nextflow_schema.json",
+      "size_bytes": 60620,
+      "sha256": "8f2f84a25c0aec65a18234cf01acdd74f2385e8dfac8417e4bad23a70bfb4388",
+      "executable": false
+    },
+    {
+      "path": "nf-test.config",
+      "size_bytes": 1814,
+      "sha256": "3dc7b812b9af464958fa80744c1abd0ee8dd87bc4a97885e6a6f1fb6e5d7bcc7",
+      "executable": false
+    },
+    {
+      "path": "ro-crate-metadata.json",
+      "size_bytes": 23983,
+      "sha256": "c57b390a926bbebbd37da0e0932e346f8f3ea47d5fe3491c6d9ba27825289aa8",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_bowtie2/main.nf",
+      "size_bytes": 2657,
+      "sha256": "45ab139460db2e2cdd38eddfb200b4b30316652c9da27a2ffe536fb5c14bf335",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/main.nf",
+      "size_bytes": 4075,
+      "sha256": "2c69865ae919c475823aa8149bea58805e73f6e7871548e956612dc6ca56f1ff",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/main.extra_args.nf.test",
+      "size_bytes": 3529,
+      "sha256": "cae8bab84d6f1b75dc1ea4e4177022e80fb1a38de0b73162d270c5e0e407f9d1",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/main.extra_args.nf.test.snap",
+      "size_bytes": 1565,
+      "sha256": "9a8ddfb992405250e6ac7dc0eaa4aad1780b7caec6ae1bb512f9ca693c83911b",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/main.function.nf.test",
+      "size_bytes": 1316,
+      "sha256": "c82cbd1b01bc90eb89d304de7e12ca3ff7482cc030cd64fa1a950d765b394d5f",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/main.nf.test",
+      "size_bytes": 10653,
+      "sha256": "ea2eb51551e2c976bc09e7e34e3ec9e5bf6e68058a77369db081273641d440be",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/main.nf.test.snap",
+      "size_bytes": 7456,
+      "sha256": "d3a0f150aec265b16f59c8f78f087e25f94903b5aac02ae837e9470b42372c73",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/main.parabricks.nf.test",
+      "size_bytes": 6001,
+      "sha256": "f071148ccbca9ceff17e0bcbb90f983e5f06f90aea7214da40016ea564b7a6e9",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/main.parabricks.nf.test.snap",
+      "size_bytes": 5334,
+      "sha256": "5eedc1126dc62c7e080b92acd74258e01ced44ca4f5ba150db5bb0e0e3e235a0",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/main.rg.nf.test",
+      "size_bytes": 6537,
+      "sha256": "5c2de05c937ee0314e09ed7b450b0e0d1b871672e9646a5eddcfe14fb09a47f4",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/main.sentieon.nf.test",
+      "size_bytes": 6795,
+      "sha256": "3ddd776669c302c91cb83ec8f93344e6ee60f1a690dcbf1f597c8d222bb62c2e",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/main.sentieon.nf.test.snap",
+      "size_bytes": 5666,
+      "sha256": "2b5dc68de3703400dec1693d94e02ebf91293bc8000a450bfd92460c09f6f8cb",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/nextflow.config",
+      "size_bytes": 272,
+      "sha256": "f4068247812a480af5d203e9821328b80eea7bed40bcbc33c880026e77947179",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/nextflow.extra_args.config",
+      "size_bytes": 892,
+      "sha256": "eee1c994c21eba09b2ffb14727f1f1e003bbe690bec3e0fa374535cb56c77042",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/nextflow.rg.config",
+      "size_bytes": 830,
+      "sha256": "f3d1e53f4da58debd5f78b331f3747dae89962dd90c9f123648b514b823471d9",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/nextflow.upgraded_legacy.config",
+      "size_bytes": 1200,
+      "sha256": "6702b000dde0a68eeccb63970eb3f3ad2242db162f32a7ec520f6d17884ab4eb",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/parabricks.config",
+      "size_bytes": 299,
+      "sha256": "90e7078dafae582f7517576ee43b224c5d3050fd5317b3c0b7b6cc1e76ef5efc",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/align_star/tests/sentieon.config",
+      "size_bytes": 498,
+      "sha256": "81420e45653f7989187e2229b18fe87961e7b293a0cc703797304a20005cb014",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/multiqc_rnaseq/main.nf",
+      "size_bytes": 19937,
+      "sha256": "e9a3ba3e2823c726d01421f6b3f30a5479d3d289e59573c1a6f541c09d42df34",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/multiqc_rnaseq/tests/main.function.nf.test",
+      "size_bytes": 19525,
+      "sha256": "fd7c8acb24a772b66c2366b952388b2e8ba92b6279110c345ea20314fe26af46",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/multiqc_rnaseq/tests/main.function.nf.test.snap",
+      "size_bytes": 6854,
+      "sha256": "069e02b2abd7129b998180dec04a34f71824a834f4d75b1803921a6548b6978b",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/prepare_genome/main.nf",
+      "size_bytes": 25954,
+      "sha256": "e565b2e67e460cc353361b927067db81ae14169307003a261fa27e6900c9645f",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/prepare_genome/tests/main.nf.test",
+      "size_bytes": 183671,
+      "sha256": "e33446b8a08df5bd4cc033588ab43edd0ea119cf0c084554045ed00f403e4b75",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/prepare_genome/tests/main.nf.test.snap",
+      "size_bytes": 62459,
+      "sha256": "812db40bee1f135be649d1e4475c8ed74c4f87cc98d75155177689e2da3c73e9",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/prepare_genome/tests/main.parabricks.nf.test",
+      "size_bytes": 6798,
+      "sha256": "cc97b1f59cbf798399527f5fc50202570b0ff9142e525befc56f963ecd47f7f9",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/prepare_genome/tests/main.parabricks.nf.test.snap",
+      "size_bytes": 2353,
+      "sha256": "329221ee1d2402bdb720423e5e577dc30e865ac5c86fca3c19191ebe9c7cecc8",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/prepare_genome/tests/nextflow.config",
+      "size_bytes": 423,
+      "sha256": "222dc369f4e9384573ded26f2251819d9a6cea6fe75f7cbe2d592a7257e70273",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/prepare_genome/tests/skip_transcript_filter.config",
+      "size_bytes": 49,
+      "sha256": "25c7bd2ed71c1286eb0a118d74cf18405c6266fbd2595a00a335cb03ec528f0c",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/utils_nfcore_rnaseq_pipeline/main.nf",
+      "size_bytes": 40564,
+      "sha256": "be526f98b031ca3167cc0c87aa401cd2b7e47eaae709c00e4bd6b46787b04942",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/utils_nfcore_rnaseq_pipeline/tests/main.function.nf.test",
+      "size_bytes": 10718,
+      "sha256": "fc3917b53dee149fbf12d7e82546105508e4bb550ce1ed83e96bec6d4cdd03ee",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/utils_nfcore_rnaseq_pipeline/tests/main.function.nf.test.snap",
+      "size_bytes": 6031,
+      "sha256": "f6d442d4095bb2bdea1d30a0e0cd31e835a0ff55c6a92b441ef217d0164f8fcc",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/utils_nfcore_rnaseq_pipeline/tests/main.pipeline_completion.workflow.nf.test",
+      "size_bytes": 1455,
+      "sha256": "a4fb41fbaf324fe523c7cd3d07a674eb080ce1d1237e68752264b0610962fc50",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/local/utils_nfcore_rnaseq_pipeline/tests/main.pipeline_initialisation.workflow.nf.test",
+      "size_bytes": 2884,
+      "sha256": "a67f3b236f5d2a7f1af11a36425104a3b813e7ce31e9b8898c59c376dace2e78",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_stats_samtools_umicollapse/main.nf",
+      "size_bytes": 1369,
+      "sha256": "3398932af154c4606ec42b16167f7d67d8b291b1ee02d1a87b3d0c4abbad25e8",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_stats_samtools_umicollapse/meta.yml",
+      "size_bytes": 1627,
+      "sha256": "39a1758d9ede7c838a89e197ad3e67b5f27111d1f9ce6e7c27438530d605e250",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_stats_samtools_umicollapse/tests/main.nf.test",
+      "size_bytes": 2172,
+      "sha256": "7f71982a29439814fa1b0860391169dd9ea0944444339aff628b857780621d24",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_stats_samtools_umicollapse/tests/main.nf.test.snap",
+      "size_bytes": 1681,
+      "sha256": "2a2a968c79c4a3566685dd4c84d23dab4dcfaf184298b6c05a58f630aa17e86c",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_stats_samtools_umicollapse/tests/paired-end-umis.config",
+      "size_bytes": 91,
+      "sha256": "ab64211077efaede2b4b1d925c58248ab1a1bdf235dc46295cdff8245c5449bf",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_stats_samtools_umitools/main.nf",
+      "size_bytes": 2541,
+      "sha256": "9714b50187be651d2df1cd4cc04ef9f80bd441dbb3fc3867eb5ef5c7a78a6b7e",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_stats_samtools_umitools/meta.yml",
+      "size_bytes": 2077,
+      "sha256": "2c06383a5d58176a1b9f61cac0eb075a81024765e1a55782b2e6371a6672fd4e",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_stats_samtools_umitools/tests/main.nf.test",
+      "size_bytes": 3781,
+      "sha256": "240002cf91847db337423bacf155689ca0ba7753c2a9fff3335fdc53ac701031",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_stats_samtools_umitools/tests/main.nf.test.snap",
+      "size_bytes": 6910,
+      "sha256": "02dde280b55d2654c93ae697939d365db344929c7068960fb0c0e1ffb2312ade",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_stats_samtools_umitools/tests/nextflow.config",
+      "size_bytes": 139,
+      "sha256": "81551a72c3e95131c0b039a72407e30533151684d19db4b8570962be10c69c93",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_umi/main.nf",
+      "size_bytes": 8404,
+      "sha256": "465ea0756863c685d53f9f97b87c28a15ad3c6c259cedc00cafcae4a1912bc5a",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_umi/meta.yml",
+      "size_bytes": 7036,
+      "sha256": "96201d1d75141e9b7f98bb8b71c5c88b59edf7f129b59e3d47c09ea1a168127f",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_umi/tests/main.nf.test",
+      "size_bytes": 4883,
+      "sha256": "11c0d3cde407b3c720968a678088babc4dbe6a0c4b9b9e515e7f28e43f8fddb9",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_umi/tests/main.nf.test.snap",
+      "size_bytes": 2799,
+      "sha256": "70b8c2cc0cc5bb756ea0d7e6b4cb3e1285059f5738ea531b330446dd7555e3e9",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_dedup_umi/tests/nextflow.config",
+      "size_bytes": 1420,
+      "sha256": "6211aca38347a80c2021514c60bfb651af9cf9a9dadadc75e4720203fd3ba3c1",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_markduplicates_picard/main.nf",
+      "size_bytes": 1982,
+      "sha256": "d89511a55ff5a9eae89881472f55175c44aa96dd8f494eb21ad054a02a0de92c",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_markduplicates_picard/meta.yml",
+      "size_bytes": 2037,
+      "sha256": "70fde01dd52c37362343d2e2bf43fad287e90b501e6ccbbde1fd9f89a6382c48",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_markduplicates_picard/tests/main.nf.test",
+      "size_bytes": 5533,
+      "sha256": "68f0b6c0153a0047c60e9f48427dec7d03ebe0cb8b0c12fc73353128e760ed14",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_markduplicates_picard/tests/main.nf.test.snap",
+      "size_bytes": 11008,
+      "sha256": "0b663cf618cb74c8c53340dc58759905d2d7b52a5338f8a276c578164f5bb359",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_markduplicates_picard/tests/nextflow.config",
+      "size_bytes": 99,
+      "sha256": "e43340a17c063ea47f47be58da0aef4727689bdbd1a701edd9316e1bb6c4782c",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_qc_rnaseq/main.nf",
+      "size_bytes": 9185,
+      "sha256": "a71e752fefa4147aebc559e104cd006966658227ab86d53f8d9d4ab473b43948",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_qc_rnaseq/meta.yml",
+      "size_bytes": 4308,
+      "sha256": "829a6b14c943a1f28b0ba87a13da53ab2b1e0293a8369cb8932a64a2e1472514",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_qc_rnaseq/tests/main.nf.test",
+      "size_bytes": 13230,
+      "sha256": "201f10df5999c0ce45081697116941b77b061fbf0a70237dea4dadb09c5e45cc",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_qc_rnaseq/tests/main.nf.test.snap",
+      "size_bytes": 9720,
+      "sha256": "9cd4d652fb1375a00a3a237c8f3e1641c06cfc0f79988d2ccc8bf13acc7ce6a1",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_qc_rnaseq/tests/nextflow.config",
+      "size_bytes": 692,
+      "sha256": "4a7946c77ea96977b97c72672754c77dda1acb148c7a28004b6268313aff3482",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_rseqc/main.nf",
+      "size_bytes": 7324,
+      "sha256": "76f841df70e70f10b3f6acd2a55d7702d702598446e93660708510a7ff718999",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_rseqc/meta.yml",
+      "size_bytes": 4749,
+      "sha256": "4487f9685fdfe89cb4292dd6621125fa24a9add1b8b1086a77da521bfc1fe9f0",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_rseqc/tests/main.nf.test",
+      "size_bytes": 6551,
+      "sha256": "81f0020a9ce9cb8dec3951ea43ed5f0d71b8efa5b84f3565e3c8f46113c434d2",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_rseqc/tests/main.nf.test.snap",
+      "size_bytes": 28109,
+      "sha256": "ca9c0879cc88319dcc99591730259d1fbdd87b73ace06aade3b3635113e9dee4",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_sort_stats_samtools/main.nf",
+      "size_bytes": 1135,
+      "sha256": "ab7e934299332d40c67b90c8646d1f3eb446d36f2f27844eb84cbf4074d0e30f",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_sort_stats_samtools/meta.yml",
+      "size_bytes": 1786,
+      "sha256": "3b029148e63725e9211d2fefa0cb99113bcfdaf635ec019f1d10c8ef349e811b",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_sort_stats_samtools/tests/main.nf.test",
+      "size_bytes": 4811,
+      "sha256": "ba7a75fb70b4c6d613a2133d528933d2385d93d6824fffd6b3ae8776bef1db52",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_sort_stats_samtools/tests/main.nf.test.snap",
+      "size_bytes": 8716,
+      "sha256": "2246ed6115b3e9d5414caa66af1057dc2450157e1534ead1d4dd0902cad758f2",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_stats_samtools/main.nf",
+      "size_bytes": 858,
+      "sha256": "ea73f9ab71c88ae03b2e2edb9e98736d0533f3ff2a1604eb28ef5aecb3e44c5a",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_stats_samtools/meta.yml",
+      "size_bytes": 1191,
+      "sha256": "96e3e7149381f99a68afb5c68a81705d9c53313628149faa2975258dd4f31fd5",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_stats_samtools/tests/main.nf.test",
+      "size_bytes": 7351,
+      "sha256": "9b4baef3b233152bd9a667bf677cddb63510ca871a9284ef3995ffc470235a6a",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_stats_samtools/tests/main.nf.test.snap",
+      "size_bytes": 9389,
+      "sha256": "7e1c93b60eda2fb3d70abf79abff5bf7ac79f6136f1b61b1c61989e1551a0fda",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_stringtie_merge/main.nf",
+      "size_bytes": 790,
+      "sha256": "0912a17e9ca40ec206a82d805ef3d08e02b0f3b42c958c84f202f85a0b5e11f6",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_stringtie_merge/meta.yml",
+      "size_bytes": 1306,
+      "sha256": "65fb9a2b393cb667880a0a9ebf29051eb5a89e46c3765049304cb62abad7f9b6",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_stringtie_merge/tests/main.nf.test",
+      "size_bytes": 1564,
+      "sha256": "379606597e9bd24fcd515a8469cbb1f9f7ba86bea541bec8496af96b486479e6",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bam_stringtie_merge/tests/main.nf.test.snap",
+      "size_bytes": 558,
+      "sha256": "8b61221774deb98715c15dac1f0f0508681803d68624341880c89e8efd9bfe60",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bedgraph_bedclip_bedgraphtobigwig/main.nf",
+      "size_bytes": 754,
+      "sha256": "826d114d6de741704a0507089e93b2426976c12119e7a2c861f8c372855112d1",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bedgraph_bedclip_bedgraphtobigwig/meta.yml",
+      "size_bytes": 1013,
+      "sha256": "f2d2a06bb97d1e55d4bdf0838360f7bd54d3def3885a8fc492a82e132958df46",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bedgraph_bedclip_bedgraphtobigwig/tests/main.nf.test",
+      "size_bytes": 1894,
+      "sha256": "b4cdbaa2b3d59d2c11b56479eec4b157552cf61fe785ab350a9b4bfcac49adff",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bedgraph_bedclip_bedgraphtobigwig/tests/main.nf.test.snap",
+      "size_bytes": 3002,
+      "sha256": "02e59659235a4a525bba248a03b58cfcf652f845a07e596981a28caba95cf0f4",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/bedgraph_bedclip_bedgraphtobigwig/tests/nextflow.config",
+      "size_bytes": 198,
+      "sha256": "e22a7636f0958cbeeed0569803ec8d70290c2e0b2ab74d1f1f7ff8c8322eddbb",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_align_hisat2/main.nf",
+      "size_bytes": 1368,
+      "sha256": "bb69d17c2d164d633946e0ee0a1c760e9ad0ce106af9e7c39a705bcd8abe2a40",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_align_hisat2/meta.yml",
+      "size_bytes": 2445,
+      "sha256": "b3ca6f1d888976274924eec3fadbb6db3e088abc1a86fb3f3765daa4fc9c232b",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_align_hisat2/tests/main.nf.test",
+      "size_bytes": 8530,
+      "sha256": "3230a2ab4780d6e98902bdad27b93ba1bcd87817c126a9d79439701c9acaa9e9",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_align_hisat2/tests/main.nf.test.snap",
+      "size_bytes": 12394,
+      "sha256": "e2be65f72b4cc4044d4991b0423c337d3a4d246b758411e6c202bb187adbe551",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_align_hisat2/tests/nextflow.config",
+      "size_bytes": 93,
+      "sha256": "44ec362d3cbe7171593a7120077ef9bce8cf93fa4ba1022eea1a869e6109b42c",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_fastqc_umitools_fastp/main.nf",
+      "size_bytes": 5703,
+      "sha256": "242c6c9a35fafa3d2e96399badf94a0fed83be157c5743524bf15a73b80889fa",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_fastqc_umitools_fastp/meta.yml",
+      "size_bytes": 3389,
+      "sha256": "ed87893be4804bde905a92a03d264256fa1eec57b8cfc77c91ab4ca61fd30ea0",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_fastqc_umitools_fastp/tests/main.nf.test",
+      "size_bytes": 35833,
+      "sha256": "c0ebe79bc454eab2a139d41eb498ce02b5c52733b55649b4be8d101eb5878fd8",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_fastqc_umitools_fastp/tests/main.nf.test.snap",
+      "size_bytes": 70483,
+      "sha256": "462d3f1e2d91f430fd80734ab4591a3f59c488e2943d477d3b701ad2bac403a2",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_fastqc_umitools_fastp/tests/nextflow.config",
+      "size_bytes": 322,
+      "sha256": "f563c28be6dc2dffa08938001379238f634d780e33063144b1dc4d0fd67a630f",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_fastqc_umitools_trimgalore/main.nf",
+      "size_bytes": 4454,
+      "sha256": "ea950cd99cd4146d01d7c274eb28279d615eaf61d9a04c456c962ebe54b4857d",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_fastqc_umitools_trimgalore/meta.yml",
+      "size_bytes": 2679,
+      "sha256": "3d88a7e4b98ffac04b3fe49d00dd503694158109f3eada9ec42f39bea0e5affb",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_fastqc_umitools_trimgalore/tests/main.nf.test",
+      "size_bytes": 10600,
+      "sha256": "557222ba1858dda2f9ac4366dfeedd156ee0815a20cd061d42584d0a14fc1d25",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_fastqc_umitools_trimgalore/tests/main.nf.test.snap",
+      "size_bytes": 16689,
+      "sha256": "741ad31062e73da5eb821de2d94fec11becc50624783b93f5e6154ba872867db",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_fastqc_umitools_trimgalore/tests/nextflow-hardtrim.config",
+      "size_bytes": 405,
+      "sha256": "d2c9ce1d9685312e9695329e892462ad579af01c2a39c06c601392c1f00b2b67",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_fastqc_umitools_trimgalore/tests/nextflow.config",
+      "size_bytes": 92,
+      "sha256": "e502c092364c22ef746cda7866de20b0786c213c612479ba33afa49c0fd2fec3",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_qc_trim_filter_setstrandedness/main.nf",
+      "size_bytes": 19179,
+      "sha256": "4e5c90c74494598862288f9e32ad52cb3349dc046510f57ee22bf23c21c2e95a",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_qc_trim_filter_setstrandedness/meta.yml",
+      "size_bytes": 8220,
+      "sha256": "803525d4e00d2956e931b8f866eed11e7218084a60f80c349d7148d05f93e66d",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_qc_trim_filter_setstrandedness/tests/main.function.nf.test",
+      "size_bytes": 2944,
+      "sha256": "572aaf9439177971f33f68420f03182fe277526785ecf3a3f0598ac2d96c5f13",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_qc_trim_filter_setstrandedness/tests/main.function.nf.test.snap",
+      "size_bytes": 1372,
+      "sha256": "be4453571e230aa0ea6628bece4812bcfe70b8e6364db156f8303ae63e61656c",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_qc_trim_filter_setstrandedness/tests/main.nf.test",
+      "size_bytes": 30902,
+      "sha256": "1c21f7ab0c01d834e0376d2c98f6bb69aed405bed961bc58de6b24f5a4b30d43",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_qc_trim_filter_setstrandedness/tests/main.nf.test.snap",
+      "size_bytes": 3877,
+      "sha256": "fec829a348fc1ad1db25d8dabc15963ea862aabacb1912395211c65af5635cc8",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_qc_trim_filter_setstrandedness/tests/nextflow.config",
+      "size_bytes": 1908,
+      "sha256": "e7c4e89957682a34cdc67ee5c424ac5fa5e89b8b2a07a05492bfe9ee6d40a8a2",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_qc_trim_filter_setstrandedness/tests/nextflow_salmon_fail.config",
+      "size_bytes": 376,
+      "sha256": "498940ca61ef41df85766fe2f52ae43410ba64a8f09bac5fb8dbb8a598bc6c34",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_remove_rrna/main.nf",
+      "size_bytes": 9391,
+      "sha256": "2475e52929332eb0b3033ee6d7052f8cbd1267123e54dde34f779c7d4ebf1368",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_remove_rrna/meta.yml",
+      "size_bytes": 3248,
+      "sha256": "e813a8b510a3ba8eaced998afb4c2af4b43b6bc1448d8f97278eea01f5c6b2e4",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_remove_rrna/tests/main.nf.test",
+      "size_bytes": 18095,
+      "sha256": "eb0ba0dd32e12931b80a8d5832febcf99c7b7c121fb9d54ee23b92ab088602c3",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_remove_rrna/tests/main.nf.test.snap",
+      "size_bytes": 1570,
+      "sha256": "748d6b00bb8545b1651d7f76521ca86d3cb5df4194b4962d2cb56deb3285ae0b",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_remove_rrna/tests/nextflow.config",
+      "size_bytes": 1207,
+      "sha256": "38a26f327c213ef3021d05f2bfd63c425a3a3848a6fb38afeeb7ea88d29bb708",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_subsample_fq_salmon/main.nf",
+      "size_bytes": 1722,
+      "sha256": "4aaee9b989c7e696857c3ee7e2bb8e5429b8b7cd8fd4b65b0891ba630d67b92b",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_subsample_fq_salmon/meta.yml",
+      "size_bytes": 1873,
+      "sha256": "eb3d4732630521403e9a032c4ca859ce82cbaf06dd31b4189122356eb21f5c22",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_subsample_fq_salmon/tests/main.nf.test",
+      "size_bytes": 4923,
+      "sha256": "55341dc2deec84dc2ba38912607e1f8567a8627fc5bafe1b65d9823c8ebe9014",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_subsample_fq_salmon/tests/main.nf.test.snap",
+      "size_bytes": 7099,
+      "sha256": "5e83ee4a000e6caef0f93d7615a0f27d5c3437148c1bf6dde6979d0f434016bc",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/fastq_subsample_fq_salmon/tests/nextflow.config",
+      "size_bytes": 210,
+      "sha256": "b537af6ef1c165bd4f1538dcd11cf34b5eae7dc41bc8f4e8d9bb10de9678cd86",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quant_tximport_summarizedexperiment/main.nf",
+      "size_bytes": 5287,
+      "sha256": "ecd9b08c9a02483a6adac6116dc201ffc3122a5fd1bfdb659b7f2c25960da2b3",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quant_tximport_summarizedexperiment/meta.yml",
+      "size_bytes": 4499,
+      "sha256": "d1b48d3786a8ba873f9e44dd4457b58ecc045323fcb4774abcd35bca9e505361",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quant_tximport_summarizedexperiment/nextflow.config",
+      "size_bytes": 705,
+      "sha256": "205dbeedddb46f8695413ec72f3dc6748a5a2b7ae7954b4532782a2b22613325",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quant_tximport_summarizedexperiment/tests/main.nf.test",
+      "size_bytes": 10834,
+      "sha256": "3cb6b35e1c66547eee8e934b7a2185205bd04f365d69fb929141090a9feca9e9",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quant_tximport_summarizedexperiment/tests/main.nf.test.snap",
+      "size_bytes": 29786,
+      "sha256": "f749e29c96b2bf896504466a8768a396358cea9208eb564af63e7443ce52b0e8",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quant_tximport_summarizedexperiment/tests/nextflow.config",
+      "size_bytes": 656,
+      "sha256": "596e8370896b66dee4cc3ded494edfa93f089c36f34224cae79abe828f0615fd",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quantify_pseudo_alignment/main.nf",
+      "size_bytes": 4308,
+      "sha256": "ce037b48e0215ad3ca5e130c413e917f29973ee41c6592f158e6f6e410912bf3",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quantify_pseudo_alignment/meta.yml",
+      "size_bytes": 5280,
+      "sha256": "1381c51416657717a961519c9f2fce60455814abb620e16efed8b2b9260aa02a",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quantify_pseudo_alignment/nextflow.config",
+      "size_bytes": 328,
+      "sha256": "15c51855a513d6795e85076b1266dc09961719a4ddae87c163b14e011d1cee28",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quantify_pseudo_alignment/tests/main.nf.test",
+      "size_bytes": 10197,
+      "sha256": "4ec9a44a4dd2ea6245edad64debbdce1e2fe83c73378fb519f2c6781d6eb5e9e",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quantify_pseudo_alignment/tests/main.nf.test.snap",
+      "size_bytes": 20821,
+      "sha256": "f20df3206bf55b61afb8506f8c44c072a11abc9fea1078ad2c269a21db997279",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quantify_pseudo_alignment/tests/nextflow.config",
+      "size_bytes": 760,
+      "sha256": "af07c3f74cd0cd777bc23275a66a7262eebf68f725b13779a5359a098d064b9e",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quantify_rsem/main.nf",
+      "size_bytes": 6073,
+      "sha256": "c4a3928922de349b9c62b2202e0e49fe8bcb63fbe1c67d9014982094721bccb1",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quantify_rsem/meta.yml",
+      "size_bytes": 5811,
+      "sha256": "8451203094b169a2c185677468dd351b1fce98382c541d969d88eccb413f8bb5",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quantify_rsem/nextflow.config",
+      "size_bytes": 341,
+      "sha256": "0bd621b06b6344073b2fa0c27a7c5eedecd68e297de30464062c59d9f601f7f8",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quantify_rsem/tests/main.nf.test",
+      "size_bytes": 9451,
+      "sha256": "12ed9e3f81e87bff0c79354ad287c0add8ff1f51753dea3dae63fbf78faf46d3",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quantify_rsem/tests/main.nf.test.snap",
+      "size_bytes": 31544,
+      "sha256": "95cd8945b86c7207b9c10ab7c5acfc8da086feb0fa608709c79fb1b6a648ac30",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quantify_rsem/tests/nextflow.config",
+      "size_bytes": 795,
+      "sha256": "f67f83f0bbb8be6cab9a6772819950d33f262633e40f7afab2a25cbec9189cef",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/quantify_rsem/tests/nextflow_fastq.config",
+      "size_bytes": 987,
+      "sha256": "b80f7f61218a40845c633ae3caf4137234d26547c198f0ca4b4395521af42450",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nextflow_pipeline/main.nf",
+      "size_bytes": 4044,
+      "sha256": "a9d87d5b81cca9c189afbc4d1e682fbe6612a43e645371a8878963f94db41c69",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nextflow_pipeline/meta.yml",
+      "size_bytes": 1042,
+      "sha256": "5e50eeb6625bb90b2f19066274a52f1ca66f3878d5c53da3ea9ad34254f2514d",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nextflow_pipeline/tests/main.function.nf.test",
+      "size_bytes": 1145,
+      "sha256": "de05e33304faa3792428b4a5877bd319621a5cd7e5e510ff0a7a08d224014da6",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nextflow_pipeline/tests/main.function.nf.test.snap",
+      "size_bytes": 468,
+      "sha256": "3dc8e87825735e7faf8a0a38896da57fb5debfa776a5dcd6066c456e7787d6dd",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nextflow_pipeline/tests/main.workflow.nf.test",
+      "size_bytes": 2675,
+      "sha256": "aecaac4d0d61ddda7671f6f27cc54956d1c927e1b12cc4ab0497e8a1b4537825",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nextflow_pipeline/tests/nextflow.config",
+      "size_bytes": 304,
+      "sha256": "4f1be1fd7e9bfc09966ae7a48a893ca8619b200a690b6ae3f8c403b6f32fcf5f",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nfcore_pipeline/main.nf",
+      "size_bytes": 14952,
+      "sha256": "ccc3a5f841f3eac3f00ad0e570d90533581e9b8b16c6266f36de97d3c34f6898",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nfcore_pipeline/meta.yml",
+      "size_bytes": 606,
+      "sha256": "b1316cb30340d9df482e26a26befd589dae1e5ddb607d6737d3ebe8040eac46f",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nfcore_pipeline/tests/main.function.nf.test",
+      "size_bytes": 3115,
+      "sha256": "92e869723f52cc6542c4a258d0aa553c00bc91c0434c3af6ce1e7a58c467ac66",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nfcore_pipeline/tests/main.function.nf.test.snap",
+      "size_bytes": 4309,
+      "sha256": "934377955fbe058aeee6778e8e60a13ab2d12cacf0c2483df37167eb87bbef48",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nfcore_pipeline/tests/main.nf.test",
+      "size_bytes": 687,
+      "sha256": "b83f9d9bd0d922bf27707c5f9d4da1803f59ab00f1929bfaf47afa6ff885b9b3",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nfcore_pipeline/tests/main.nf.test.snap",
+      "size_bytes": 395,
+      "sha256": "4975d6bc0d7851e1cefbfed7dd42849b7682f4cddb1e4dabe3fe19f858a4fedb",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nfcore_pipeline/tests/nextflow.config",
+      "size_bytes": 305,
+      "sha256": "a1dfed22bf2cdc2b830219b62ee0f3b1602136e2f9469e275fa1d1c16bb68bfd",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nfschema_plugin/main.nf",
+      "size_bytes": 2746,
+      "sha256": "125f86789095f28ff201b1b18195308b9173d1c8afe9d7e9b06851142707a996",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nfschema_plugin/meta.yml",
+      "size_bytes": 1227,
+      "sha256": "f5b363f4b0709f18e6726f36714834b30d724c5cb7c105f7c5e111b72e2fd9cd",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nfschema_plugin/tests/main.nf.test",
+      "size_bytes": 4247,
+      "sha256": "ac881f479154e7f0f95514b4cc77f9bf2f2f1845b84f3c3f803fc7af17a06ba1",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nfschema_plugin/tests/nextflow.config",
+      "size_bytes": 188,
+      "sha256": "49d8feed46ac131b58d7923b71ebf815da2eb523693d68aa553ab9dfeb3a0349",
+      "executable": false
+    },
+    {
+      "path": "subworkflows/nf-core/utils_nfschema_plugin/tests/nextflow_schema.json",
+      "size_bytes": 4268,
+      "sha256": "94f9c689183eba6c79276c1da99f3e3ddc4fe5c59b14278c9dc7482a537b5dc8",
+      "executable": false
+    },
+    {
+      "path": "tests/.nftignore",
+      "size_bytes": 13652,
+      "sha256": "0b56b9405f34e6dd65ac148adc1032aa84c19715ed04a281ae355bccb454d5ef",
+      "executable": false
+    },
+    {
+      "path": "tests/.nftignore_rustqc",
+      "size_bytes": 13497,
+      "sha256": "4e212ec9b91240a701f7b640e4f7bd1bb370e61d4ec4ad1fe929adf0b1ea9c00",
+      "executable": false
+    },
+    {
+      "path": "tests/bam_input.nf.test",
+      "size_bytes": 4038,
+      "sha256": "8bb24dd47f22df8bde16f2f1ea526eba84287cb06931e81213b9ab89f92c9309",
+      "executable": false
+    },
+    {
+      "path": "tests/bam_input.nf.test.snap",
+      "size_bytes": 136848,
+      "sha256": "ce50d863b6fa2c95bb53d74c38789c3febda93fc45c6cf6b811072721febb35b",
+      "executable": false
+    },
+    {
+      "path": "tests/contaminant_screening_input.nf.test",
+      "size_bytes": 8640,
+      "sha256": "6cbac612f9d1720ffa16a3edd4c4367e65e406d40e579e19a5f3eb89eccea672",
+      "executable": false
+    },
+    {
+      "path": "tests/contaminant_screening_input.nf.test.snap",
+      "size_bytes": 222975,
+      "sha256": "6c7f694d54341fc4810bc43acb4bedbdebf6b771e881b4da851e0283b345e24b",
+      "executable": false
+    },
+    {
+      "path": "tests/default.nf.test",
+      "size_bytes": 3643,
+      "sha256": "db8c727c6f27be7bb1d344e9cb5d2b60581c0a95df410665a7fe9a031a61a833",
+      "executable": false
+    },
+    {
+      "path": "tests/default.nf.test.snap",
+      "size_bytes": 116254,
+      "sha256": "b796c8cbca383c6b472b938a979ee16d438750e0c971037a8e08b1d6d06f2532",
+      "executable": false
+    },
+    {
+      "path": "tests/featurecounts_group_type.nf.test",
+      "size_bytes": 4198,
+      "sha256": "52da759a86a764a87160838cd7eef332a6c1e95f4b6c2fcec3f7c6740f0c6c67",
+      "executable": false
+    },
+    {
+      "path": "tests/featurecounts_group_type.nf.test.snap",
+      "size_bytes": 49706,
+      "sha256": "b4a52aea28bff9dd2b17ef5c7eeebf8193d00e76165b69b220e7914812a5368a",
+      "executable": false
+    },
+    {
+      "path": "tests/gpu_ribodetector.nf.test",
+      "size_bytes": 4706,
+      "sha256": "01d2a45b8c4078e26a41df139b8cb5c76b5f9f81bd9d3cb79d9655debddf4707",
+      "executable": false
+    },
+    {
+      "path": "tests/gpu_ribodetector.nf.test.snap",
+      "size_bytes": 8404,
+      "sha256": "4614df7c0d9c24ca43b4fba6c657cb14ef4cba9eb5397377276260ff74d36f4a",
+      "executable": false
+    },
+    {
+      "path": "tests/hisat2.nf.test",
+      "size_bytes": 4437,
+      "sha256": "b60bebb49ad1dff9d28d2aa6dfc16efb4304bbf40f9d15f2f9dd37813353d905",
+      "executable": false
+    },
+    {
+      "path": "tests/hisat2.nf.test.snap",
+      "size_bytes": 90052,
+      "sha256": "62a50382a0e4b8845a458ccaa8c0d80be3033c7a01ecb18b19c844b4e005c655",
+      "executable": false
+    },
+    {
+      "path": "tests/kallisto.nf.test",
+      "size_bytes": 4645,
+      "sha256": "5d3ba66a28012cb26a882e567aa2c62d4c9b43319041db9a53d561b0e669c613",
+      "executable": false
+    },
+    {
+      "path": "tests/kallisto.nf.test.snap",
+      "size_bytes": 21713,
+      "sha256": "6c6978fc404268f6500d3a9e978b261a473ac7fd48ed189d2170676afeec7f3c",
+      "executable": false
+    },
+    {
+      "path": "tests/nextflow.config",
+      "size_bytes": 1413,
+      "sha256": "aad95692751c25b876c0c9511b9b267ce418ca8a5c3be4dbf777c558518daa94",
+      "executable": false
+    },
+    {
+      "path": "tests/nofasta.nf.test",
+      "size_bytes": 2156,
+      "sha256": "87c8e02993e2767f31dd27202949a16c3a3e570060bc43d08445a25480c68d83",
+      "executable": false
+    },
+    {
+      "path": "tests/nofasta.nf.test.snap",
+      "size_bytes": 29277,
+      "sha256": "7e1d735c1a3159e92f23769b7ba81eba5f69bfbe0bfab9f329f9bf861cd5655b",
+      "executable": false
+    },
+    {
+      "path": "tests/parabricks_default.nf.test",
+      "size_bytes": 8556,
+      "sha256": "7323223bf6299a899d5433e9f8d2003418ffe18ba015d95debb8e084c3864363",
+      "executable": false
+    },
+    {
+      "path": "tests/parabricks_default.nf.test.snap",
+      "size_bytes": 103623,
+      "sha256": "9f8ac25790ab20d48c82d0f3fd084cc8e1bf4f008d4686974eecf9a4c482b9da",
+      "executable": false
+    },
+    {
+      "path": "tests/prokaryotic.nf.test",
+      "size_bytes": 11055,
+      "sha256": "62d5bfa704f6f59284e23d480dc41b1d5ec073f3e6412258e09f062c8c25ae96",
+      "executable": false
+    },
+    {
+      "path": "tests/prokaryotic.nf.test.snap",
+      "size_bytes": 86183,
+      "sha256": "b6081afdd500731cb20a284f7e26fe4936e0b7ad0235ddb4bb55e1f34a601041",
+      "executable": false
+    },
+    {
+      "path": "tests/remove_ribo_rna.nf.test",
+      "size_bytes": 8380,
+      "sha256": "34f7a230532d6ccc777f6540b4223931201b0b1adc86e5d055d35e20bd5c4f7d",
+      "executable": false
+    },
+    {
+      "path": "tests/remove_ribo_rna.nf.test.snap",
+      "size_bytes": 105596,
+      "sha256": "7391ab5bac7ad1a81d671258edb66634a4b6d482169662e8870cccef1fbc194f",
+      "executable": false
+    },
+    {
+      "path": "tests/rustqc.nf.test",
+      "size_bytes": 3704,
+      "sha256": "c8160888629c878c5a334770476aef96b98069a0e7af4e8284abfedf842dbb74",
+      "executable": false
+    },
+    {
+      "path": "tests/rustqc.nf.test.snap",
+      "size_bytes": 121076,
+      "sha256": "69bebab6ad79cfd693b4e63c7d5f030fa0fe49feade2cdb97e5c27a6e71698d0",
+      "executable": false
+    },
+    {
+      "path": "tests/salmon.nf.test",
+      "size_bytes": 7791,
+      "sha256": "b9a0720c98290b9dd7fad5e55ab177dd184869c98f5de834d1ce8baded79dab8",
+      "executable": false
+    },
+    {
+      "path": "tests/salmon.nf.test.snap",
+      "size_bytes": 183935,
+      "sha256": "84598560b6a6f39d185a9cfd96867d04f40268765b2e9208785199ea0b972dbf",
+      "executable": false
+    },
+    {
+      "path": "tests/sentieon.config",
+      "size_bytes": 559,
+      "sha256": "848b6b51ca11d4fb58a62dce7cd31140036a48b03507b9d1b84348704aa8c99a",
+      "executable": false
+    },
+    {
+      "path": "tests/sentieon_default.nf.test",
+      "size_bytes": 4051,
+      "sha256": "b51b3abdd6ebedf64c59e3a0c6723d457c7261ca5a92759497af670f601fd526",
+      "executable": false
+    },
+    {
+      "path": "tests/sentieon_default.nf.test.snap",
+      "size_bytes": 106442,
+      "sha256": "8e8281d43c5059cbcb0ee3e71b9b65a6f44c38784e55172078db9ffef7495c7b",
+      "executable": false
+    },
+    {
+      "path": "tests/skip_qc.nf.test",
+      "size_bytes": 3784,
+      "sha256": "ff4915f62a9ef5eb7bfce5af6e3ee30f46bb306acd74b7af600ea1e5c4c15b6f",
+      "executable": false
+    },
+    {
+      "path": "tests/skip_qc.nf.test.snap",
+      "size_bytes": 53488,
+      "sha256": "cb8dd33ccd68f1bdef314fc024bfe906ed72392c62da06eb85464608e981602a",
+      "executable": false
+    },
+    {
+      "path": "tests/skip_trimming.nf.test",
+      "size_bytes": 2067,
+      "sha256": "35a908d5cb79373c5b96b8564ddf0256b40e8e3a84301834a4372f709b7c135f",
+      "executable": false
+    },
+    {
+      "path": "tests/skip_trimming.nf.test.snap",
+      "size_bytes": 203832,
+      "sha256": "598c7988f7fa25105996e84d8da1dc612112adc315d121751e394cbbc4d5a753",
+      "executable": false
+    },
+    {
+      "path": "tests/star_rsem.nf.test",
+      "size_bytes": 4011,
+      "sha256": "6dbe85ad5dc81112752e86642e18726e4679f0051206e03e8bb91c14a968f59c",
+      "executable": false
+    },
+    {
+      "path": "tests/star_rsem.nf.test.snap",
+      "size_bytes": 103176,
+      "sha256": "16a31cb0829da7735ad1d4840fe6088be44dbf64f58d73a17c89aac99fbd1205",
+      "executable": false
+    },
+    {
+      "path": "tests/umi.nf.test",
+      "size_bytes": 9831,
+      "sha256": "ed2396d185569cc1ae9d814a73e8aaf30cecc2b060fff9c47d1d8657c3d98bd8",
+      "executable": false
+    },
+    {
+      "path": "tests/umi.nf.test.snap",
+      "size_bytes": 282951,
+      "sha256": "de0dfa955e4a114114de87d6977e6a980786862a68d1a8d9875bbc10b009650f",
+      "executable": false
+    },
+    {
+      "path": "tests/uncompressed_fastq.nf.test",
+      "size_bytes": 2231,
+      "sha256": "bdc2ae1475267240f852ee8442c5e6ab894d9b4cd7dccf92783b12108e452991",
+      "executable": false
+    },
+    {
+      "path": "tests/uncompressed_fastq.nf.test.snap",
+      "size_bytes": 104464,
+      "sha256": "5f2a7e816954e14efe70f5ccbdc8bedd7f71caa06c681c2825a5f54be8c84864",
+      "executable": false
+    },
+    {
+      "path": "tower.yml",
+      "size_bytes": 3014,
+      "sha256": "6749130a267651491b59216319d4e6e916aefa34442fc494872bdd380893d84b",
+      "executable": false
+    },
+    {
+      "path": "workflows/rnaseq/assets/multiqc/biotypes_header.txt",
+      "size_bytes": 439,
+      "sha256": "5c361c5e487f7cf6775e9f187e77749c43927547bd91736acd34f3d766525d2d",
+      "executable": false
+    },
+    {
+      "path": "workflows/rnaseq/assets/multiqc/deseq2_clustering_header.txt",
+      "size_bytes": 761,
+      "sha256": "dd5d05a9790562b364108b5393615d0e9f2e830b9d4f7aafc2aabedb5b4433f7",
+      "executable": false
+    },
+    {
+      "path": "workflows/rnaseq/assets/multiqc/deseq2_pca_header.txt",
+      "size_bytes": 674,
+      "sha256": "f84c0452c1549b55b80866beac0a9e63bfacb6d875d393891e1e8e847fbd70ee",
+      "executable": false
+    },
+    {
+      "path": "workflows/rnaseq/assets/multiqc/methods_description_template.yml",
+      "size_bytes": 3263,
+      "sha256": "0132c7e62365008212809be66b56fbd329609b7dd75cecd495ebfb68a9150e2b",
+      "executable": false
+    },
+    {
+      "path": "workflows/rnaseq/assets/multiqc/multiqc_config.yml",
+      "size_bytes": 8940,
+      "sha256": "d859d137f2aa7800f7e12a84dec6658b1f558197e08f3041d05cd69fa6aa0b7e",
+      "executable": false
+    },
+    {
+      "path": "workflows/rnaseq/assets/multiqc/sample_status_header.txt",
+      "size_bytes": 167,
+      "sha256": "8d58ff93e0d008fcc0360f8dbc5d31d9421cf790f6f93b21fa389e509697ff95",
+      "executable": false
+    },
+    {
+      "path": "workflows/rnaseq/assets/multiqc/strand_check_composition.yaml",
+      "size_bytes": 720,
+      "sha256": "6ebb61bb56432c2a07f778d9f08066e5c0a96d7f36a87c4133e8a35c1ebda374",
+      "executable": false
+    },
+    {
+      "path": "workflows/rnaseq/assets/multiqc/strand_check_summary.yaml",
+      "size_bytes": 5492,
+      "sha256": "45203c79fa3578d8d18833bdf9e19878988404643179af35ff6333939bfc9a01",
+      "executable": false
+    },
+    {
+      "path": "workflows/rnaseq/assets/rrna-db-defaults.txt",
+      "size_bytes": 90,
+      "sha256": "2ad503a89ef3830734e8d6414873189c6215bb25d057d45f11002582a326ebe9",
+      "executable": false
+    },
+    {
+      "path": "workflows/rnaseq/main.nf",
+      "size_bytes": 41775,
+      "sha256": "dbfc6f0eaf9079c96b4dfcaea674eb5885c7f1f495a9b22bf5c95887e2385f6a",
+      "executable": true
+    }
+  ]
+}

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 
+from encode_pipeline.platform.adapters import WorkflowBuildIdentityProvidingAdapter
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
@@ -42,6 +43,11 @@ class WorkflowBuildIdentityProvider:
         """Return the local source root used to read controlled files."""
         return self._project_root
 
+    @property
+    def registry(self) -> WorkflowRegistry:
+        """Return the exact registry whose adapters provide build identities."""
+        return self._registry
+
     def capture(self, workflow_id: str) -> Result[WorkflowBuildIdentity]:
         """Return the current build identity without leaking local paths."""
         try:
@@ -58,6 +64,9 @@ class WorkflowBuildIdentityProvider:
                     )
                 ]
             )
+
+        if isinstance(adapter, WorkflowBuildIdentityProvidingAdapter):
+            return self._capture_adapter_identity(adapter)
 
         try:
             manifest = self._source_manifest()
@@ -86,6 +95,28 @@ class WorkflowBuildIdentityProvider:
                     )
                 ]
             )
+        return Result.success(identity)
+
+    @staticmethod
+    def _capture_adapter_identity(
+        adapter: WorkflowBuildIdentityProvidingAdapter,
+    ) -> Result[WorkflowBuildIdentity]:
+        """Accept only a matching identity while hiding adapter internals."""
+        try:
+            adapter_result = adapter.capture_build_identity()
+            if not isinstance(adapter_result, Result) or adapter_result.is_failure:
+                return _source_unavailable()
+            identity = adapter_result.value
+            if not isinstance(identity, WorkflowBuildIdentity):
+                return _source_unavailable()
+            metadata = adapter.metadata
+            if (
+                identity.workflow_id != metadata.workflow_id
+                or identity.adapter_version != metadata.version
+            ):
+                return _source_unavailable()
+        except Exception:
+            return _source_unavailable()
         return Result.success(identity)
 
     def _source_manifest(self) -> tuple[tuple[str, bytes], ...]:
@@ -193,3 +224,17 @@ class WorkflowBuildIdentityProvider:
 def _update_framed(digest, value: bytes) -> None:
     digest.update(len(value).to_bytes(8, byteorder="big", signed=False))
     digest.update(value)
+
+
+def _source_unavailable() -> Result[WorkflowBuildIdentity]:
+    return Result.failure(
+        [
+            Issue(
+                code="WORKFLOW_BUILD_SOURCE_UNAVAILABLE",
+                message="Controlled workflow source could not be fingerprinted.",
+                severity="error",
+                path="workflow",
+                source="workflow_build_identity",
+            )
+        ]
+    )

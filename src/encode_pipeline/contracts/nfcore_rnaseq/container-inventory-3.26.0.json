@@ -1,0 +1,348 @@
+{
+  "schema_version": "1.0.0",
+  "project": "nf-core/rnaseq",
+  "release": "3.26.0",
+  "commit": "e7ca46272c8f9d5ceee3f71759f4ba551d3217a4",
+  "support_surface": "HelixWeave 1.0.0 STAR+Salmon, Trim Galore/fastp, UMI-tools, SortMeRNA/Bowtie2 rRNA removal, declared QC and output controls",
+  "derivation": "Nextflow 25.04.3 offline inspect plus pinned module declarations; unsupported HISAT2, RSEM, Kallisto, RiboDetector, GPU, HPC/cloud, contaminant screening, Sentieon, Parabricks, and RustQC are excluded",
+  "process_count": 56,
+  "entries_sha256": "684ad35e9b3af3c0b825f6976a9568e34ad13ba62e1e1a0e316853c263f51365",
+  "entries": [
+    {
+      "process": "BEDTOOLS_GENOMECOV",
+      "image_coordinate": "community.wave.seqera.io/library/bedtools_coreutils:a623c13f66d5262b",
+      "source_file": "modules/nf-core/bedtools/genomecov/main.nf",
+      "source_file_sha256": "fb5bc2a0390fb557dd2e903086f5358d2174e9dde05f724550f876a08638a472"
+    },
+    {
+      "process": "BOWTIE2_ALIGN",
+      "image_coordinate": "community.wave.seqera.io/library/bowtie2_htslib_samtools_pigz:edeb13799090a2a6",
+      "source_file": "modules/nf-core/bowtie2/align/main.nf",
+      "source_file_sha256": "a6cc49811830d9854c9d37568c206e96a73977824f215ca50c3cd114bca91ca2"
+    },
+    {
+      "process": "BOWTIE2_BUILD",
+      "image_coordinate": "community.wave.seqera.io/library/bowtie2_htslib_samtools_pigz:edeb13799090a2a6",
+      "source_file": "modules/nf-core/bowtie2/build/main.nf",
+      "source_file_sha256": "fd27e728640770ff4cd808e8d3da785477d994875e7951433cc9e493f759744c"
+    },
+    {
+      "process": "CAT_FASTQ",
+      "image_coordinate": "community.wave.seqera.io/library/coreutils_grep_gzip_lbzip2_pruned:838ba80435a629f8",
+      "source_file": "modules/nf-core/cat/fastq/main.nf",
+      "source_file_sha256": "0c4ee26db08e2836831c51486a22aeb179b0ef44f9b67cf9c684924c2fbbfd1d"
+    },
+    {
+      "process": "CUSTOM_GTFFILTER",
+      "image_coordinate": "quay.io/biocontainers/python:3.9--1",
+      "source_file": "modules/nf-core/custom/gtffilter/main.nf",
+      "source_file_sha256": "06426ef774d2ffbfb6e8224df657a65093363f435533f02ecae90bd983bd020c"
+    },
+    {
+      "process": "CUSTOM_MULTIQCCUSTOMBIOTYPE",
+      "image_coordinate": "quay.io/biocontainers/python:3.12.12",
+      "source_file": "modules/nf-core/custom/multiqccustombiotype/main.nf",
+      "source_file_sha256": "653905145f9bf255fb028e1027768d62e66098a786815cbb8b06befaede092d0"
+    },
+    {
+      "process": "CUSTOM_TX2GENE",
+      "image_coordinate": "quay.io/biocontainers/python:3.10.4",
+      "source_file": "modules/nf-core/custom/tx2gene/main.nf",
+      "source_file_sha256": "02f39a77a9f2a0ac7acc2e8b9146c51c40dd47b692165d35454218d6dc7751da"
+    },
+    {
+      "process": "DESEQ2_QC",
+      "image_coordinate": "community.wave.seqera.io/library/r-base_r-optparse_r-ggplot2_r-rcolorbrewer_pruned:9e75394d0bc21987",
+      "source_file": "modules/local/deseq2_qc/main.nf",
+      "source_file_sha256": "c15c8e62694e29294402c62970124c73ccb7d8ec5dc0dbd0ae8ecabb5a8224aa"
+    },
+    {
+      "process": "DUPRADAR",
+      "image_coordinate": "community.wave.seqera.io/library/bioconductor-dupradar:1.38.0--831da16eb40a64ab",
+      "source_file": "modules/nf-core/dupradar/main.nf",
+      "source_file_sha256": "743e422cfa9ea33a2190ecd1716c51c091e081a2eb5380a7af10e90fced4ff72"
+    },
+    {
+      "process": "EAUTILS_GTF2BED",
+      "image_coordinate": "quay.io/biocontainers/perl:5.26.2",
+      "source_file": "modules/nf-core/ea-utils/gtf2bed/main.nf",
+      "source_file_sha256": "63d31058ec235ab14bd81f75baa12882b48c3f9163aa8bc8a67b6340e8f2ca84"
+    },
+    {
+      "process": "FASTP",
+      "image_coordinate": "community.wave.seqera.io/library/fastp:1.0.1--c8b87fe62dcc103c",
+      "source_file": "modules/nf-core/fastp/main.nf",
+      "source_file_sha256": "439c8da395cb8750ee9a5e7debab11888718a5b85ed6d8e92404bd85c2337c06"
+    },
+    {
+      "process": "FASTQC",
+      "image_coordinate": "quay.io/biocontainers/fastqc:0.12.1--hdfd78af_0",
+      "source_file": "modules/nf-core/fastqc/main.nf",
+      "source_file_sha256": "42f35fb87d284a0e43f98121b37beda8ea99657a89a4170e671588339e0c7b92"
+    },
+    {
+      "process": "FQ_LINT",
+      "image_coordinate": "quay.io/biocontainers/fq:0.12.0--h9ee0642_0",
+      "source_file": "modules/nf-core/fq/lint/main.nf",
+      "source_file_sha256": "1d18721fcfcd850d1cddb225a1955e853e7fe1b5523f48aa0b644ac8ea5d09a5"
+    },
+    {
+      "process": "FQ_SUBSAMPLE",
+      "image_coordinate": "quay.io/biocontainers/fq:0.12.0--h9ee0642_0",
+      "source_file": "modules/nf-core/fq/subsample/main.nf",
+      "source_file_sha256": "d9b7d55aa8956cbe302d912b1a20d5fa3997d3f3db99be683aedb11345a90cf8"
+    },
+    {
+      "process": "GFFREAD",
+      "image_coordinate": "quay.io/biocontainers/gffread:0.12.7--hdcf5f25_4",
+      "source_file": "modules/nf-core/gffread/main.nf",
+      "source_file_sha256": "34424be079a950cc2c93066dea0a94b245622edb57639bcf93ec9950eecfb3e1"
+    },
+    {
+      "process": "GUNZIP",
+      "image_coordinate": "community.wave.seqera.io/library/coreutils_grep_gzip_lbzip2_pruned:838ba80435a629f8",
+      "source_file": "modules/nf-core/gunzip/main.nf",
+      "source_file_sha256": "49c5a1082337b8a84904335fe06506f79c88cf16bad93fae1447977b87888db2"
+    },
+    {
+      "process": "MULTIQC",
+      "image_coordinate": "community.wave.seqera.io/library/multiqc:1.33--ee7739d47738383b",
+      "source_file": "modules/nf-core/multiqc/main.nf",
+      "source_file_sha256": "128398f37a6ff9e5cafe33f5b05cfd580a1bc3c62d05bcaaee5eebc9d9afbc51"
+    },
+    {
+      "process": "PICARD_MARKDUPLICATES",
+      "image_coordinate": "community.wave.seqera.io/library/picard:3.4.0--e9963040df0a9bf6",
+      "source_file": "modules/nf-core/picard/markduplicates/main.nf",
+      "source_file_sha256": "759546f9a3cdd5f5f27a2267d4e1ff86d07465939f8188495626882c0e10c7bd"
+    },
+    {
+      "process": "PREPROCESS_TRANSCRIPTS_FASTA_GENCODE",
+      "image_coordinate": "quay.io/nf-core/ubuntu:20.04",
+      "source_file": "modules/local/preprocess_transcripts_fasta_gencode/main.nf",
+      "source_file_sha256": "4c4c3b4831a7aae87717e6d580ad85b31d33613102d1031b70387b23b2f7a01a"
+    },
+    {
+      "process": "PRESEQ_LCEXTRAP",
+      "image_coordinate": "quay.io/biocontainers/preseq:3.2.0--hdcf5f25_6",
+      "source_file": "modules/nf-core/preseq/lcextrap/main.nf",
+      "source_file_sha256": "50309ab543cd1e20673a6d10113b79e5ea0bb41866fcfe82e270a8c2d1356f35"
+    },
+    {
+      "process": "QUALIMAP_RNASEQ",
+      "image_coordinate": "quay.io/biocontainers/qualimap:2.3--hdfd78af_0",
+      "source_file": "modules/nf-core/qualimap/rnaseq/main.nf",
+      "source_file_sha256": "925e72fbb66890db75f5775455f3c70e65b4673eccb9105aa956fc1568fa4d7a"
+    },
+    {
+      "process": "RSEQC_BAMSTAT",
+      "image_coordinate": "community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15",
+      "source_file": "modules/nf-core/rseqc/bamstat/main.nf",
+      "source_file_sha256": "5c23a499790f4b3c00a93c8e9ed01c2f9150d6f85262ac90c206538013f45b50"
+    },
+    {
+      "process": "RSEQC_INFEREXPERIMENT",
+      "image_coordinate": "community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15",
+      "source_file": "modules/nf-core/rseqc/inferexperiment/main.nf",
+      "source_file_sha256": "8d0c046a0e53ad50b617e97a5cc143cb68f2fe6ab41b62e01fd7fc9c1a95d93f"
+    },
+    {
+      "process": "RSEQC_INNERDISTANCE",
+      "image_coordinate": "community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15",
+      "source_file": "modules/nf-core/rseqc/innerdistance/main.nf",
+      "source_file_sha256": "7450e476b2bd4def87904e202e131c8cc675c9ded4860ec55720f799711165cc"
+    },
+    {
+      "process": "RSEQC_JUNCTIONANNOTATION",
+      "image_coordinate": "community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15",
+      "source_file": "modules/nf-core/rseqc/junctionannotation/main.nf",
+      "source_file_sha256": "f57155f55e03aab0f190abba61d261769f3d77a0a0ff6d564ea2d95d5541cf1f"
+    },
+    {
+      "process": "RSEQC_JUNCTIONSATURATION",
+      "image_coordinate": "community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15",
+      "source_file": "modules/nf-core/rseqc/junctionsaturation/main.nf",
+      "source_file_sha256": "201058d403ecc070d4cce2f0f5e78b8df397a7199d1b6a924968e063d900d78e"
+    },
+    {
+      "process": "RSEQC_READDISTRIBUTION",
+      "image_coordinate": "community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15",
+      "source_file": "modules/nf-core/rseqc/readdistribution/main.nf",
+      "source_file_sha256": "32204564e10d4bfa37ade41f2492881951b0955fdeeff9b0d22b7f55378cf13a"
+    },
+    {
+      "process": "RSEQC_READDUPLICATION",
+      "image_coordinate": "community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15",
+      "source_file": "modules/nf-core/rseqc/readduplication/main.nf",
+      "source_file_sha256": "b2366602b5d1856d8b92dafa664709ba6c36b75c7a216f3860a67624ef08f982"
+    },
+    {
+      "process": "RSEQC_TIN",
+      "image_coordinate": "community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15",
+      "source_file": "modules/nf-core/rseqc/tin/main.nf",
+      "source_file_sha256": "a2651ac40d1482388cba06b36fa63bf91a8198a7605d6b87a0ce7ebeb55b258f"
+    },
+    {
+      "process": "SALMON_INDEX",
+      "image_coordinate": "quay.io/biocontainers/salmon:1.10.3--h6dccd9a_2",
+      "source_file": "modules/nf-core/salmon/index/main.nf",
+      "source_file_sha256": "b3a8e2fe4d8811364f917f79418f3e934eb164d87229e911c199b3d2da6a3620"
+    },
+    {
+      "process": "SALMON_QUANT",
+      "image_coordinate": "quay.io/biocontainers/salmon:1.10.3--h6dccd9a_2",
+      "source_file": "modules/nf-core/salmon/quant/main.nf",
+      "source_file_sha256": "0bccc867cefa756675de5ed3a7f8cdc312082844806282dc93c01910933c9cf3"
+    },
+    {
+      "process": "SAMTOOLS_FAIDX",
+      "image_coordinate": "community.wave.seqera.io/library/htslib_samtools:1.23.1--5b6bb4ede7e612e5",
+      "source_file": "modules/nf-core/samtools/faidx/main.nf",
+      "source_file_sha256": "1c8a56a9e2a187a7b44092be2a5137c3d120d0c6d4945bccbe23bc47ec40eae4"
+    },
+    {
+      "process": "SAMTOOLS_FASTQ",
+      "image_coordinate": "community.wave.seqera.io/library/htslib_samtools:1.23.1--5b6bb4ede7e612e5",
+      "source_file": "modules/nf-core/samtools/fastq/main.nf",
+      "source_file_sha256": "465c72f44a38b8b47392546aaf2cd8ad104036d86ef8eebcc1e2fbc67788eb00"
+    },
+    {
+      "process": "SAMTOOLS_FLAGSTAT",
+      "image_coordinate": "community.wave.seqera.io/library/htslib_samtools:1.23.1--5b6bb4ede7e612e5",
+      "source_file": "modules/nf-core/samtools/flagstat/main.nf",
+      "source_file_sha256": "a3551b6416a84e50e3757eea0960459e5ea879ebc72496a48fc29331253b014d"
+    },
+    {
+      "process": "SAMTOOLS_IDXSTATS",
+      "image_coordinate": "community.wave.seqera.io/library/htslib_samtools:1.23.1--5b6bb4ede7e612e5",
+      "source_file": "modules/nf-core/samtools/idxstats/main.nf",
+      "source_file_sha256": "b0d25c5ef6624c740001284ce143225d1db48a1d76f66280a8a68e9a51350f70"
+    },
+    {
+      "process": "SAMTOOLS_INDEX",
+      "image_coordinate": "community.wave.seqera.io/library/htslib_samtools:1.23.1--5b6bb4ede7e612e5",
+      "source_file": "modules/nf-core/samtools/index/main.nf",
+      "source_file_sha256": "e98d9c52823ce199e4e0bc249892c63e6aff10c5982fcdb27c353f4ab1cbf782"
+    },
+    {
+      "process": "SAMTOOLS_SORT",
+      "image_coordinate": "community.wave.seqera.io/library/htslib_samtools:1.23.1--5b6bb4ede7e612e5",
+      "source_file": "modules/nf-core/samtools/sort/main.nf",
+      "source_file_sha256": "f725301cf4a1d8451bcaa99cffdcd6f9617b61e64fd04952d82bb00bac4049a3"
+    },
+    {
+      "process": "SAMTOOLS_STATS",
+      "image_coordinate": "community.wave.seqera.io/library/htslib_samtools:1.23.1--5b6bb4ede7e612e5",
+      "source_file": "modules/nf-core/samtools/stats/main.nf",
+      "source_file_sha256": "f58c5ddfe6d99b3f13e3f1c8361b5cae52758e79b117daa78ebffefa06ceee80"
+    },
+    {
+      "process": "SAMTOOLS_VIEW",
+      "image_coordinate": "community.wave.seqera.io/library/htslib_samtools:1.23.1--5b6bb4ede7e612e5",
+      "source_file": "modules/nf-core/samtools/view/main.nf",
+      "source_file_sha256": "c7cf8c5306d8d2e632bd52161a33b2ecd8288c70b6139db1792a30bf6528b059"
+    },
+    {
+      "process": "SEQKIT_REPLACE",
+      "image_coordinate": "quay.io/biocontainers/seqkit:2.9.0--h9ee0642_0",
+      "source_file": "modules/nf-core/seqkit/replace/main.nf",
+      "source_file_sha256": "3ec6ecf1cd16e898bdfb26b0c2d604d397c25184ef45dc5534697526241b0462"
+    },
+    {
+      "process": "SORTMERNA",
+      "image_coordinate": "community.wave.seqera.io/library/sortmerna:4.3.7--b730cad73fc42b8e",
+      "source_file": "modules/nf-core/sortmerna/main.nf",
+      "source_file_sha256": "9bb8548d99dc3ed2080e825447ea30146b0cfb5ed5e367731d5b0e01c6dbe75d"
+    },
+    {
+      "process": "STAR_ALIGN",
+      "image_coordinate": "community.wave.seqera.io/library/htslib_samtools_star_gawk:ae438e9a604351a4",
+      "source_file": "modules/nf-core/star/align/main.nf",
+      "source_file_sha256": "1406e3f3c75052b754d26342e48671acbbb404e544f44fe353b446f143c18696"
+    },
+    {
+      "process": "STAR_GENOMEGENERATE",
+      "image_coordinate": "community.wave.seqera.io/library/htslib_samtools_star_gawk:ae438e9a604351a4",
+      "source_file": "modules/nf-core/star/genomegenerate/main.nf",
+      "source_file_sha256": "d33ad4935cea0c662a25111485535f2e798763038326a3483b5f0b884f72ece4"
+    },
+    {
+      "process": "STAR_GENOMEPARAMS_UPGRADE",
+      "image_coordinate": "community.wave.seqera.io/library/gawk:5.3.1--e09efb5dfc4b8156",
+      "source_file": "modules/local/star_genomeparams_upgrade/main.nf",
+      "source_file_sha256": "7a25e165ef2f0367482c9ea0113145423b31ec097edd8f957e449d2876fe5a51"
+    },
+    {
+      "process": "STRINGTIE_MERGE",
+      "image_coordinate": "quay.io/biocontainers/stringtie:2.2.1--hecb563c_2",
+      "source_file": "modules/nf-core/stringtie/merge/main.nf",
+      "source_file_sha256": "7decf78f15bf48243a7250fc4da35172d28250ee6a0620fc6509e08425536771"
+    },
+    {
+      "process": "STRINGTIE_STRINGTIE",
+      "image_coordinate": "quay.io/biocontainers/stringtie:2.2.3--h43eeafb_0",
+      "source_file": "modules/nf-core/stringtie/stringtie/main.nf",
+      "source_file_sha256": "70707557afc681f98b718e9cb7529a5f2afd552007c971a6aa35eba619c5b91a"
+    },
+    {
+      "process": "SUBREAD_FEATURECOUNTS",
+      "image_coordinate": "quay.io/biocontainers/subread:2.0.6--he4a0461_2",
+      "source_file": "modules/nf-core/subread/featurecounts/main.nf",
+      "source_file_sha256": "99d46ed3ba2661298e9a484d4ebd02412293194870d4f2079e4abdd746eff254"
+    },
+    {
+      "process": "SUMMARIZEDEXPERIMENT_SUMMARIZEDEXPERIMENT",
+      "image_coordinate": "quay.io/biocontainers/bioconductor-summarizedexperiment:1.32.0--r43hdfd78af_0",
+      "source_file": "modules/nf-core/summarizedexperiment/summarizedexperiment/main.nf",
+      "source_file_sha256": "d29d0c962dbc0822a5b8d728b37135772a6c41d7825be632b130a19a3cf230f3"
+    },
+    {
+      "process": "TRIMGALORE",
+      "image_coordinate": "community.wave.seqera.io/library/trim-galore:2.1.0--27e6376b8f6c1872",
+      "source_file": "modules/nf-core/trimgalore/main.nf",
+      "source_file_sha256": "f3b551ea103f9fe669f1c1fafe87b635a6f42b238f1919d7bc9af3feac36f45a"
+    },
+    {
+      "process": "TXIMETA_TXIMPORT",
+      "image_coordinate": "quay.io/biocontainers/bioconductor-tximeta:1.20.1--r43hdfd78af_0",
+      "source_file": "modules/nf-core/tximeta/tximport/main.nf",
+      "source_file_sha256": "931bdd39896b5a1b184e7c69d8586f225e616061023748c099f6d13e37d97966"
+    },
+    {
+      "process": "UCSC_BEDCLIP",
+      "image_coordinate": "quay.io/biocontainers/ucsc-bedclip:377--h0b8a92a_2",
+      "source_file": "modules/nf-core/ucsc/bedclip/main.nf",
+      "source_file_sha256": "e4b7be6161c00358936ba580b2b407570471c07be5c037c24105141137b0d01b"
+    },
+    {
+      "process": "UCSC_BEDGRAPHTOBIGWIG",
+      "image_coordinate": "quay.io/biocontainers/ucsc-bedgraphtobigwig:469--h9b8f530_0",
+      "source_file": "modules/nf-core/ucsc/bedgraphtobigwig/main.nf",
+      "source_file_sha256": "f37e6a87e43c6c2473e31f3758a525e95d26beeaa61694b0b6f1aa24314d806b"
+    },
+    {
+      "process": "UMITOOLS_DEDUP",
+      "image_coordinate": "community.wave.seqera.io/library/umi_tools_future_matplotlib_numpy_pruned:1ee668bafc8c9f81",
+      "source_file": "modules/nf-core/umitools/dedup/main.nf",
+      "source_file_sha256": "62e0d44ff50faaa4ab7bf37ac35892df35117d69117c2ccfc8760bdd77aafbcf"
+    },
+    {
+      "process": "UMITOOLS_EXTRACT",
+      "image_coordinate": "community.wave.seqera.io/library/umi_tools_future_matplotlib_numpy_pruned:1ee668bafc8c9f81",
+      "source_file": "modules/nf-core/umitools/extract/main.nf",
+      "source_file_sha256": "d9f53d130d258854b0df6359e898a7055e605dabd2a8b689b12f3fbc397747b8"
+    },
+    {
+      "process": "UMITOOLS_PREPAREFORRSEM",
+      "image_coordinate": "community.wave.seqera.io/library/umi_tools_future_matplotlib_numpy_pruned:1ee668bafc8c9f81",
+      "source_file": "modules/nf-core/umitools/prepareforrsem/main.nf",
+      "source_file_sha256": "f6fc00068207546f0cea639b550b107f6456e14c4b99bb742118002861736fa0"
+    },
+    {
+      "process": "UNTAR",
+      "image_coordinate": "community.wave.seqera.io/library/coreutils_grep_gzip_lbzip2_pruned:838ba80435a629f8",
+      "source_file": "modules/nf-core/untar/main.nf",
+      "source_file_sha256": "8f3b1fd6ac7a4ea63d64e4f4a79abe5e438363d723507cce6b7f732d50cb1bac"
+    }
+  ]
+}

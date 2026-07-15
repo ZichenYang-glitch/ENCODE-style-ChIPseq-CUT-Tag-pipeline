@@ -7,7 +7,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
-from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.adapters import (
+    CommandSpec,
+    DagPreview,
+    WorkflowCapabilities,
+    WorkflowInputs,
+    WorkflowMetadata,
+    WorkflowSchema,
+    WorkspacePlan,
+)
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Result
@@ -67,6 +75,43 @@ class _FakeProcessRunner(ProcessRunner):
                 stderr=self._stderr,
             )
         )
+
+
+class _ConfigurationPreflightAdapter:
+    metadata = WorkflowMetadata(
+        workflow_id="configuration-preflight",
+        name="Configuration preflight",
+        version="1.0.0",
+        engines=("opaque-engine",),
+    )
+    capabilities = WorkflowCapabilities(
+        supports=("validation", "workspace_plan", "command", "input_authoring")
+    )
+
+    def schema(self):
+        return WorkflowSchema()
+
+    def validate(self, inputs):
+        return Result.success({})
+
+    def preview_dag(self, inputs):
+        return Result.success(DagPreview())
+
+    def plan_workspace(self, inputs, workspace):
+        return Result.success(WorkspacePlan(directories=("logs",)))
+
+    def build_command(self, plan, workspace):
+        return Result.success(
+            CommandSpec(
+                argv=("pinned-engine", "run"),
+                cwd=str(workspace),
+                preflight_argv=("pinned-engine", "config"),
+                preflight_kind="configuration",
+            )
+        )
+
+    def extract_artifacts(self, inputs, workspace):
+        return Result.success(())
 
 
 class _CallbackProcessRunner(ProcessRunner):
@@ -153,10 +198,48 @@ def test_preflight_transitions_run_to_planned(tmp_path):
     assert completed[0].context["new_status"] == RunStatus.PLANNED.value
     assert completed[0].context["workflow_build_scheme"] == "sha256-tree-v1"
     assert len(completed[0].context["workflow_build_digest"]) == 64
+    assert completed[0].message == "Local preflight completed; dry-run succeeded."
+    assert completed[0].context["reason_code"] == "PREFLIGHT_COMPLETED"
+    assert "preflight_kind" not in completed[0].context
     assert events[-1] == completed[0]
     identity = service._run_service.get_workflow_build_identity(record.run_id)
     assert identity is not None
     assert identity.digest == completed[0].context["workflow_build_digest"]
+
+
+def test_configuration_preflight_uses_engine_neutral_completion_message(tmp_path):
+    adapter = _ConfigurationPreflightAdapter()
+    registry = WorkflowRegistry([adapter])
+    service = _make_service(tmp_path, registry=registry)
+    record = service._run_service.create_run(
+        adapter.metadata.workflow_id,
+        WorkflowInputs(config={}),
+    )
+
+    result = service.preflight(record.run_id)
+
+    assert result.is_success
+    completed = [
+        event
+        for event in service._run_service.list_events(record.run_id)
+        if event.event_type == "preflight_completed"
+    ]
+    assert len(completed) == 2
+    command_event = next(event for event in completed if event.status is None)
+    lifecycle_event = next(
+        event for event in completed if event.status is RunStatus.PLANNED
+    )
+    assert command_event.message == (
+        "Workflow configuration preflight completed successfully."
+    )
+    assert lifecycle_event.message == (
+        "Local workflow configuration preflight completed successfully."
+    )
+    assert lifecycle_event.context["preflight_kind"] == "configuration"
+    assert lifecycle_event.context["reason_code"] == (
+        "PREFLIGHT_CONFIGURATION_COMPLETED"
+    )
+    assert all("dry-run" not in event.message for event in completed)
 
 
 def test_preflight_refuses_duplicate_trigger(tmp_path):

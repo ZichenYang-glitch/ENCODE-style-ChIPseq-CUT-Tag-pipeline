@@ -9,6 +9,33 @@ import pytest
 _WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 
 
+class _CommandAdapter:
+    def __init__(self, callback):
+        from encode_pipeline.platform.adapters import (
+            WorkflowCapabilities,
+            WorkflowMetadata,
+        )
+
+        self.metadata = WorkflowMetadata(
+            workflow_id="delegated-command",
+            name="Delegated command",
+            version="1.0.0",
+            engines=("opaque-engine",),
+        )
+        self.capabilities = WorkflowCapabilities(supports=("command",))
+        self._callback = callback
+
+    def schema(self): ...
+    def validate(self, inputs): ...
+    def preview_dag(self, inputs): ...
+    def plan_workspace(self, inputs, workspace): ...
+
+    def build_command(self, plan, workspace):
+        return self._callback(plan, workspace)
+
+    def extract_artifacts(self, inputs, workspace): ...
+
+
 def _make_pending_plan(
     *,
     workflow_id: str = _WORKFLOW_ID,
@@ -267,6 +294,283 @@ def test_command_builder_command_spec_has_expected_argv(tmp_path):
     assert snakefile_path.is_file()
     assert snakefile_path.name == "Snakefile"
     assert "workflow" in snakefile_path.parts
+
+
+def test_command_builder_legacy_command_declares_exact_dry_run_preflight(tmp_path):
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    result = CommandBuilder(registry=_make_registry()).build_command(
+        _make_pending_plan(),
+        tmp_path.resolve(),
+    )
+
+    assert result.is_success
+    command = result.value.command_spec
+    assert command is not None
+    assert command.preflight_argv == command.argv + ("-n",)
+
+
+def test_command_builder_delegates_command_capability_with_absolute_workspace(
+    tmp_path,
+):
+    from encode_pipeline.platform.adapters import CommandSpec
+    from encode_pipeline.platform.registry import WorkflowRegistry
+    from encode_pipeline.platform.results import Result
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    observed = {}
+
+    def build(workspace_plan, workspace):
+        observed["plan"] = workspace_plan
+        observed["workspace"] = workspace
+        launch_dir = workspace / "engine" / "launch"
+        return Result.success(
+            CommandSpec(
+                argv=("pinned-engine", "run"),
+                cwd=str(launch_dir),
+                preflight_argv=("pinned-engine", "config"),
+            )
+        )
+
+    adapter = _CommandAdapter(build)
+    plan = _make_pending_plan(
+        workflow_id=adapter.metadata.workflow_id,
+        workspace_plan_files=(),
+    )
+    workspace = tmp_path.resolve()
+
+    result = CommandBuilder(registry=WorkflowRegistry([adapter])).build_command(
+        plan,
+        workspace,
+    )
+
+    assert result.is_success
+    assert observed == {"plan": plan.workspace_plan, "workspace": workspace}
+    assert result.value.command_spec == CommandSpec(
+        argv=("pinned-engine", "run"),
+        cwd=str(workspace / "engine" / "launch"),
+        preflight_argv=("pinned-engine", "config"),
+    )
+
+
+def test_command_builder_accepts_managed_logs_inside_workspace(tmp_path):
+    from encode_pipeline.platform.adapters import CommandSpec
+    from encode_pipeline.platform.registry import WorkflowRegistry
+    from encode_pipeline.platform.results import Result
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    def build(_plan, workspace):
+        return Result.success(
+            CommandSpec(
+                argv=("pinned-engine", "run"),
+                cwd=str(workspace / "engine" / "launch"),
+                preflight_argv=("pinned-engine", "config"),
+                preflight_kind="configuration",
+                preflight_managed_logs=(
+                    ("engine_preflight", str(workspace / "logs/preflight.log")),
+                ),
+                execution_managed_logs=(
+                    ("engine", str(workspace / "logs/engine.log")),
+                ),
+            )
+        )
+
+    adapter = _CommandAdapter(build)
+    result = CommandBuilder(registry=WorkflowRegistry([adapter])).build_command(
+        _make_pending_plan(
+            workflow_id=adapter.metadata.workflow_id,
+            workspace_plan_files=(),
+        ),
+        tmp_path.resolve(),
+    )
+
+    assert result.is_success
+    assert result.value.command_spec.preflight_kind == "configuration"
+
+
+@pytest.mark.parametrize("case", ("outside", "planned-file", "workspace-root"))
+def test_command_builder_rejects_unsafe_managed_log_path(tmp_path, case):
+    from encode_pipeline.platform.adapters import CommandSpec
+    from encode_pipeline.platform.registry import WorkflowRegistry
+    from encode_pipeline.platform.results import Result
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    workspace = tmp_path.resolve()
+    paths = {
+        "outside": str(workspace.parent / "outside.log"),
+        "planned-file": str(workspace / "config/planned.json"),
+        "workspace-root": str(workspace),
+    }
+    adapter = _CommandAdapter(
+        lambda _plan, _workspace: Result.success(
+            CommandSpec(
+                argv=("pinned-engine", "run"),
+                cwd=str(workspace / "engine/launch"),
+                execution_managed_logs=(("engine", paths[case]),),
+            )
+        )
+    )
+    result = CommandBuilder(registry=WorkflowRegistry([adapter])).build_command(
+        _make_pending_plan(
+            workflow_id=adapter.metadata.workflow_id,
+            workspace_plan_files=(("config/planned.json", b"{}"),),
+        ),
+        workspace,
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "COMMAND_BUILD_ADAPTER_FAILED"
+    assert paths[case] not in str(result.issues[0].to_dict())
+
+
+def test_command_builder_sanitizes_adapter_failure(tmp_path):
+    from encode_pipeline.platform.registry import WorkflowRegistry
+    from encode_pipeline.platform.results import Issue, Result
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    secret = str(tmp_path / "private" / "source")
+    adapter = _CommandAdapter(
+        lambda _plan, _workspace: Result.failure(
+            [
+                Issue(
+                    code="PRIVATE_FAILURE",
+                    message=secret,
+                    technical_message=secret,
+                )
+            ]
+        )
+    )
+    result = CommandBuilder(registry=WorkflowRegistry([adapter])).build_command(
+        _make_pending_plan(
+            workflow_id=adapter.metadata.workflow_id,
+            workspace_plan_files=(),
+        ),
+        tmp_path.resolve(),
+    )
+
+    assert result.is_failure
+    assert [issue.code for issue in result.issues] == ["COMMAND_BUILD_ADAPTER_FAILED"]
+    assert secret not in str(result.issues[0].to_dict())
+
+
+def test_command_builder_sanitizes_adapter_exception(tmp_path):
+    from encode_pipeline.platform.registry import WorkflowRegistry
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    secret = str(tmp_path / "private" / "source")
+
+    def raise_private(_plan, _workspace):
+        raise RuntimeError(secret)
+
+    adapter = _CommandAdapter(raise_private)
+    result = CommandBuilder(registry=WorkflowRegistry([adapter])).build_command(
+        _make_pending_plan(
+            workflow_id=adapter.metadata.workflow_id,
+            workspace_plan_files=(),
+        ),
+        tmp_path.resolve(),
+    )
+
+    assert result.is_failure
+    assert [issue.code for issue in result.issues] == ["COMMAND_BUILD_ADAPTER_FAILED"]
+    assert secret not in str(result.issues[0].to_dict())
+
+
+def test_command_builder_rejects_adapter_cwd_outside_workspace(tmp_path):
+    from encode_pipeline.platform.adapters import CommandSpec
+    from encode_pipeline.platform.registry import WorkflowRegistry
+    from encode_pipeline.platform.results import Result
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    adapter = _CommandAdapter(
+        lambda _plan, _workspace: Result.success(
+            CommandSpec(argv=("pinned-engine", "run"), cwd="/outside")
+        )
+    )
+    result = CommandBuilder(registry=WorkflowRegistry([adapter])).build_command(
+        _make_pending_plan(
+            workflow_id=adapter.metadata.workflow_id,
+            workspace_plan_files=(),
+        ),
+        tmp_path.resolve(),
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "COMMAND_BUILD_ADAPTER_FAILED"
+
+
+@pytest.mark.parametrize("matches", (True, False))
+def test_command_builder_requires_platform_derived_container_scope(tmp_path, matches):
+    from encode_pipeline.platform.adapters import CommandSpec
+    from encode_pipeline.platform.managed_containers import managed_container_scope
+    from encode_pipeline.platform.registry import WorkflowRegistry
+    from encode_pipeline.platform.results import Result
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    workspace = tmp_path.resolve()
+    scope = managed_container_scope(workspace) if matches else "f" * 64
+    adapter = _CommandAdapter(
+        lambda _plan, selected_workspace: Result.success(
+            CommandSpec(
+                argv=("pinned-engine", "run"),
+                cwd=str(selected_workspace),
+                managed_container_scope=scope,
+                managed_container_endpoint_identity="0" * 64,
+            )
+        )
+    )
+
+    result = CommandBuilder(registry=WorkflowRegistry([adapter])).build_command(
+        _make_pending_plan(
+            workflow_id=adapter.metadata.workflow_id,
+            workspace_plan_files=(),
+        ),
+        workspace,
+    )
+
+    assert result.is_success is matches
+    if matches:
+        assert result.value.command_spec.managed_container_scope == scope
+    else:
+        assert result.issues[0].code == "COMMAND_BUILD_ADAPTER_FAILED"
+        assert scope not in str(result.issues[0].to_dict())
+
+
+@pytest.mark.parametrize(
+    "case",
+    ("missing-cwd", "different-preflight-executable"),
+)
+def test_command_builder_rejects_incomplete_adapter_launch_boundary(
+    tmp_path,
+    case,
+):
+    from encode_pipeline.platform.adapters import CommandSpec
+    from encode_pipeline.platform.registry import WorkflowRegistry
+    from encode_pipeline.platform.results import Result
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    def build(_plan, workspace):
+        if case == "missing-cwd":
+            command_spec = CommandSpec(argv=("pinned-engine", "run"))
+        else:
+            command_spec = CommandSpec(
+                argv=("pinned-engine", "run"),
+                cwd=str(workspace),
+                preflight_argv=("other-engine", "validate"),
+            )
+        return Result.success(command_spec)
+
+    adapter = _CommandAdapter(build)
+    result = CommandBuilder(registry=WorkflowRegistry([adapter])).build_command(
+        _make_pending_plan(
+            workflow_id=adapter.metadata.workflow_id,
+            workspace_plan_files=(),
+        ),
+        tmp_path.resolve(),
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "COMMAND_BUILD_ADAPTER_FAILED"
 
 
 def test_command_builder_preserves_inputs_and_workspace(tmp_path):

@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://helixweave.local/contracts/nfcore-rnaseq/container-availability-lock-1.0.0.schema.json",
+  "title": "HelixWeave nf-core/rnaseq offline Docker availability lock",
+  "description": "Operator-provisioned raw distribution manifests and Docker archives with a verified manifest-to-config-to-layer closure. The lock never authorizes a registry pull and no image blob is distributed in Git.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "pipeline",
+    "asset_format",
+    "network_policy",
+    "execution_policy",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "pipeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project",
+        "release",
+        "commit",
+        "source_tree_sha256",
+        "container_inventory_sha256"
+      ],
+      "properties": {
+        "project": {
+          "const": "nf-core/rnaseq"
+        },
+        "release": {
+          "const": "3.26.0"
+        },
+        "commit": {
+          "const": "e7ca46272c8f9d5ceee3f71759f4ba551d3217a4"
+        },
+        "source_tree_sha256": {
+          "const": "4f779bd8934d41896fbf137ff31158b02daacd7efbb40ed8cee55b9c8f757722"
+        },
+        "container_inventory_sha256": {
+          "const": "684ad35e9b3af3c0b825f6976a9568e34ad13ba62e1e1a0e316853c263f51365"
+        }
+      }
+    },
+    "asset_format": {
+      "const": "docker-archive+distribution-manifest"
+    },
+    "network_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["container_pull", "wave", "tower"],
+      "properties": {
+        "container_pull": {
+          "const": false
+        },
+        "wave": {
+          "const": false
+        },
+        "tower": {
+          "const": false
+        }
+      }
+    },
+    "execution_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nxf_offline", "docker_pull", "docker_network"],
+      "properties": {
+        "nxf_offline": {
+          "const": true
+        },
+        "docker_pull": {
+          "const": "never"
+        },
+        "docker_network": {
+          "const": "none"
+        }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/containerEntry"
+      }
+    }
+  },
+  "$defs": {
+    "containerEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "process",
+        "image",
+        "oci_digest",
+        "distribution_manifest_asset",
+        "distribution_manifest_size_bytes",
+        "local_asset",
+        "size_bytes",
+        "sha256"
+      ],
+      "properties": {
+        "process": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*(?::[A-Z][A-Z0-9_]*)*$"
+        },
+        "image": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[a-f0-9]{64}$"
+        },
+        "oci_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "distribution_manifest_asset": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)[^\\u0000-\\u001f]+$"
+        },
+        "distribution_manifest_size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16777216
+        },
+        "local_asset": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)[^\\u0000-\\u001f]+$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 107374182400
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}
