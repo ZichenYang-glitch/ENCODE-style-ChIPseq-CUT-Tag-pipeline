@@ -11,13 +11,13 @@ do not leak into the fast pytest suite by default.
 | `workflow-dispatch-real-execution` | Manual `workflow_dispatch` in GitHub Actions | `workflow/envs/chipseq.lock` | End-to-end tiny real execution with actual tools. Currently runs `test/test_stage8b_tiny_execution.py`. |
 | `local-container-smoke` | Local developer, optional CI artifact | Docker / Apptainer / SingularityCE runner image + `profiles/default` | Lightweight container smoke tests, dry-runs, and environment sanity checks that need a real container runtime but not full compute. |
 | `manual-hpc-smoke` | Site-specific HPC scheduler | `profiles/hpc` | Larger stress tests, multi-node profiles, and manual integration checks that require HPC resources. |
-| `legacy-quarantined` | None by default | N/A | Legacy `test_stage*.py` scripts classified as `obsolete-plan-doc`, `delete-candidate`, or not yet migrated; tracked in `test/test_stage_shim.py`. |
+| `legacy-quarantined` | None by default | N/A | Legacy `test_stage*.py` scripts awaiting migration or retirement; tracked in `test/test_stage_shim.py`. |
 
 ## Legacy category mapping
 
 - `real-execution-only` → `workflow-dispatch-real-execution`
 - `manual-integration` → `local-container-smoke` or `manual-hpc-smoke` until individually migrated or retired
-- `migrate-to-pytest`, `delete-candidate`, `obsolete-plan-doc` → remain outside this harness
+- `migrate-to-pytest`, `delete-candidate` → remain outside this harness
 
 ## Concrete entry points
 

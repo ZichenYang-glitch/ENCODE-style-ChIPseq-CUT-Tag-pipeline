@@ -1,6 +1,11 @@
-# v0.2 Roadmap
+# v0.2 Roadmap — Superseded Snapshot
 
-This roadmap defines the scope and sequence for the **v0.2 release** of the ENCODE-style ChIP-seq / CUT&Tag / ATAC-seq pipeline. The corrected implementation strategy is documented in [`deep-research-report.md`](deep-research-report.md).
+> This file preserves the delivered v0.2 scientific scope as release history.
+> It is not the active product roadmap. See the maintained
+> [HelixWeave product roadmap](docs/development/workflow-platform-agent-roadmap.md).
+
+This snapshot defines the scope and sequence used for the v0.2 release of the
+ENCODE-style ChIP-seq / CUT&Tag / ATAC-seq pipeline.
 
 ## v0.2 Scope
 

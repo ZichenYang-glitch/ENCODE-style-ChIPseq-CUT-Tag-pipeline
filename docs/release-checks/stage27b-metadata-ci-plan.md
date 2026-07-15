@@ -1,7 +1,14 @@
 # Stage 27b: Public Metadata Verification + CI/CD Plan
 
 **Date:** 2026-05-24
-**Status:** completed (Stage 27b designed; Tier 1 wired in Stage 27c)
+**Status:** historical release-planning evidence
+
+> This document records the CI layout and test inventory used for the
+> 2026-05-24 release checkpoint. It is not the current CI definition. The
+> stage-numbered Stage 27 test modules listed below were later retired during
+> the maintenance baseline; current offline behavior coverage for the public
+> validation inventory lives in
+> `test/scripts/test_prepare_public_validation_inputs.py`.
 
 ## Metadata Verification
 
@@ -46,13 +53,14 @@ Use `scripts/prepare_public_validation_inputs.py --check-metadata` to print the 
 
 ## CI/CD Tiers
 
-### Tier 1: Fast PR checks (every push/PR) — **Wired (Stage 27c)**
+### Historical Tier 1 snapshot (Stage 27c)
 
 **Trigger:** `push`, `pull_request` to `main`, `stage*`
 
-**Wired in** `.github/workflows/ci.yml`:
+The following commands were wired into `.github/workflows/ci.yml` at that
+release checkpoint:
 
-**Runs in CI (`.github/workflows/ci.yml`):**
+**Historical command inventory:**
 - `python3 scripts/validate_samples.py --config config/config.yaml`
 - `python3 test/test_validation_stress.py` (15 tests)
 - `python3 test/test_no_hardcoded_paths.py`

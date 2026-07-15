@@ -28,9 +28,7 @@ Migration policy:
 """
 
 import importlib
-import os
 import runpy
-import sys
 from pathlib import Path
 
 import pytest
@@ -50,7 +48,6 @@ _APPROVED_CATEGORIES: frozenset[str] = frozenset(
         "delete-candidate",
         "manual-integration",
         "real-execution-only",
-        "obsolete-plan-doc",
         "keep-quarantined-for-now",
     }
 )
@@ -58,57 +55,6 @@ _APPROVED_CATEGORIES: frozenset[str] = frozenset(
 # Structured classification of every legacy-style test_stage*.py script.
 # This is the single source of truth; QUARANTINED is derived from it.
 LEGACY_STAGE_CLASSIFICATION: dict[str, dict[str, str]] = {
-    # CI / planning meta-structure; not real pipeline behavior tests.
-    "test_stage27_public_validation_plan.py": {
-        "category": "obsolete-plan-doc",
-        "rationale": "validates planning docs, not pipeline behavior",
-        "next_action": "delete when planning docs are archived or refreshed",
-    },
-    "test_stage27b_metadata_ci_plan.py": {
-        "category": "obsolete-plan-doc",
-        "rationale": "validates planning docs, not pipeline behavior",
-        "next_action": "delete when planning docs are archived or refreshed",
-    },
-    "test_stage27c_ci_workflow.py": {
-        "category": "obsolete-plan-doc",
-        "rationale": "validates CI workflow structure; references removed stress tests",
-        "next_action": "migrate useful assertions to native pytest CI contract or delete",
-    },
-    "test_stage28_release_readiness.py": {
-        "category": "obsolete-plan-doc",
-        "rationale": "release checklist meta-test",
-        "next_action": "delete; release readiness is a manual process",
-    },
-    "test_stage32_public_report_scaffold.py": {
-        "category": "obsolete-plan-doc",
-        "rationale": "public report scaffold meta-test",
-        "next_action": "delete when public report template is retired",
-    },
-    "test_stage33_containerization_plan.py": {
-        "category": "obsolete-plan-doc",
-        "rationale": "containerization plan meta-test; flags existing .sif artifact",
-        "next_action": "delete; container support is now implemented",
-    },
-    "test_stage34_runner_container_files.py": {
-        "category": "obsolete-plan-doc",
-        "rationale": "container file list meta-test",
-        "next_action": "delete; runner container files are now implemented",
-    },
-    "test_stage35_docker_smoke_report.py": {
-        "category": "obsolete-plan-doc",
-        "rationale": "container smoke report meta-test",
-        "next_action": "delete; container smoke reports are superseded by CI",
-    },
-    "test_stage36_singularity_smoke_report.py": {
-        "category": "obsolete-plan-doc",
-        "rationale": "container smoke report meta-test",
-        "next_action": "delete; container smoke reports are superseded by CI",
-    },
-    "test_stage37_container_ux.py": {
-        "category": "obsolete-plan-doc",
-        "rationale": "container UX meta-test",
-        "next_action": "delete; container UX is now implemented",
-    },
     # Stress tests that may fail or mutate state in fast test environments.
     "test_stage12_stress.py": {
         "category": "manual-integration",

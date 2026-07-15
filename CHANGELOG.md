@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   release hardening and scientific features (Stage 51).
 - Documentation and release-readiness sweep (Stage 52): updated README,
   CHANGELOG, KNOWN_ISSUES, configuration.md, assay-policy.md, output-contract.md,
-  and artifact-roadmap.md for post-Stage-51 consistency.
+  and durable architecture references for post-Stage-51 consistency.
 - Test suites: artifact inventory (Stage 43), artifact model (Stage 45), MNase
   path contract (Stage 47), manifest artifact contract (Stage 49), output contract
   dry-run (Stage 50).

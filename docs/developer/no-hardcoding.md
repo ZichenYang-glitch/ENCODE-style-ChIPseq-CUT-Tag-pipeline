@@ -34,5 +34,5 @@ The guard checks:
 - no rule-level use of the legacy monolithic `chipseq.yml`;
 - every workflow env file includes `nodefaults`.
 
-Historical design notes under `docs/superpowers/` are not treated as runtime
+Historical implementation plans live in Git history and are not runtime
 contracts.

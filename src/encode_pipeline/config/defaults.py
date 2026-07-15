@@ -1,8 +1,7 @@
 """Pure constants, allowed-value sets, and static defaults for config validation.
 
 This module contains no control flow, no I/O, and no imports from
-encode_pipeline.config.validator. It is the first extraction target in the
-validator decomposition (see docs/development/config-validator-decomposition.md).
+encode_pipeline.config.validator.
 """
 
 import re
@@ -76,23 +75,29 @@ REPRODUCIBILITY_IDR_KEYS = frozenset(
     }
 )
 
-TOOL_PARAMETERS_TOOLS = frozenset({
-    "fastqc",
-    "trim_galore",
-    "bowtie2",
-    "samtools_filter",
-    "picard_markduplicates",
-    "bamcoverage",
-    "macs3",
-    "multiqc",
-    "idr_macs3",
-})
+TOOL_PARAMETERS_TOOLS = frozenset(
+    {
+        "fastqc",
+        "trim_galore",
+        "bowtie2",
+        "samtools_filter",
+        "picard_markduplicates",
+        "bamcoverage",
+        "macs3",
+        "multiqc",
+        "idr_macs3",
+    }
+)
 TOOL_PARAMETERS_KEYS = {
     "fastqc": frozenset({"extra_args"}),
     "trim_galore": frozenset({"quality", "length", "stringency", "extra_args"}),
-    "bowtie2": frozenset({"mode", "dovetail", "no_mixed", "no_discordant", "extra_args"}),
+    "bowtie2": frozenset(
+        {"mode", "dovetail", "no_mixed", "no_discordant", "extra_args"}
+    ),
     "samtools_filter": frozenset({"filter_flags", "extra_args"}),
-    "picard_markduplicates": frozenset({"optical_duplicate_pixel_distance", "extra_args"}),
+    "picard_markduplicates": frozenset(
+        {"optical_duplicate_pixel_distance", "extra_args"}
+    ),
     "bamcoverage": frozenset({"normalize_using", "smooth_length", "extra_args"}),
     "macs3": frozenset({"qvalue", "broad_cutoff", "extra_args"}),
     "multiqc": frozenset({"title", "extra_args"}),

@@ -113,17 +113,14 @@ jobs:
             test/api/test_routes_workflows.py \
             --cov=src/encode_pipeline --cov=scripts --cov-report=term
 
-      - name: Stage 27a public validation plan tests
+      - name: Maintenance documentation and public validation contracts
         shell: micromamba-shell {0}
-        run: python3 test/test_stage27_public_validation_plan.py
-
-      - name: Stage 27b metadata CI plan tests
-        shell: micromamba-shell {0}
-        run: python3 test/test_stage27b_metadata_ci_plan.py
-
-      - name: Stage 27c CI workflow tests
-        shell: micromamba-shell {0}
-        run: python3 test/test_stage27c_ci_workflow.py
+        run: >-
+          python3 -m pytest
+          test/docs/test_internal_links.py
+          test/scripts/test_prepare_public_validation_inputs.py
+          test/containers/test_runner_assets.py
+          -v
 
   frontend:
     runs-on: ubuntu-latest

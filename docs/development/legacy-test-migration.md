@@ -9,12 +9,18 @@ summarizes that mapping; if the two drift, trust the Python mapping.
 
 | Category | Count |
 |---|---|
-| `obsolete-plan-doc` | 10 |
 | `manual-integration` | 14 |
 | `delete-candidate` | 6 |
 | `real-execution-only` | 1 |
 | `migrate-to-pytest` | 19 |
-| **Total classified legacy scripts** | **50** |
+| **Remaining classified legacy scripts** | **40** |
+
+The documentation reset retired all 10 `obsolete-plan-doc` scripts. Durable
+documentation links, public-validation input behavior, and runner-container
+asset and smoke-script contracts moved to native pytest under `test/docs/`,
+`test/scripts/`, and `test/containers/`; plan/report phrase checks and custom
+pass/fail counters were removed. These scripts are no longer part of the
+classification.
 
 `test_stage8_smoke_profiles.py` is a pytest-native module and is not part of
 the legacy classification.
@@ -28,25 +34,10 @@ the script should be converted into native pytest tests.
 environment not available in fast CI.
 - **`real-execution-only`**: Belongs in a real-execution or container-smoke
 harness rather than the fast test suite.
-- **`obsolete-plan-doc`**: Validates planning or checklist documents that are
-no longer active.
 - **`keep-quarantined-for-now`**: Not yet ready for action; needs further
 review.
 
 ## Scripts by category
-
-### `obsolete-plan-doc` (10)
-
-- `test_stage27_public_validation_plan.py`
-- `test_stage27b_metadata_ci_plan.py`
-- `test_stage27c_ci_workflow.py`
-- `test_stage28_release_readiness.py`
-- `test_stage32_public_report_scaffold.py`
-- `test_stage33_containerization_plan.py`
-- `test_stage34_runner_container_files.py`
-- `test_stage35_docker_smoke_report.py`
-- `test_stage36_singularity_smoke_report.py`
-- `test_stage37_container_ux.py`
 
 ### `manual-integration` (14)
 
@@ -137,6 +128,7 @@ using the same rules below.
 
 ## Status
 
-PR48 introduced the structured classification. PR49 completed Batch 1 by
-migrating shell safety, env pinning, and artifact model/inventory contracts to
-native pytest and deleting the corresponding legacy scripts.
+The structured classification remains temporary migration machinery. The
+documentation reset removed all plan-document tests; the maintenance baseline
+must give every remaining entry a final action and then delete this guide and
+the shim.
