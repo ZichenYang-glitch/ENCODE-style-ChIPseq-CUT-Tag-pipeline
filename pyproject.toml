@@ -8,6 +8,7 @@ version = "0.3.0"
 description = "ENCODE-style ChIP-seq / CUT&Tag / ATAC-seq / MNase-seq Snakemake pipeline library"
 requires-python = ">=3.10"
 dependencies = [
+    "jsonschema>=4.23,<5",
     "pyyaml",
 ]
 
@@ -31,7 +32,6 @@ dev = [
     "pytest-cov>=7,<8",
     "ruff==0.15.21",
     "mypy",
-    "jsonschema>=4.23,<5",
     "fakeredis[lua]>=2.36,<3",
     "snakefmt",
 ]
@@ -47,6 +47,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "encode_pipeline.persistence" = ["alembic/script.py.mako"]
+"encode_pipeline.contracts.omics_intake" = ["*.schema.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

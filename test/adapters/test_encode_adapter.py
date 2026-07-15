@@ -101,6 +101,7 @@ def test_metadata_and_capabilities_match_minimal_contract():
         "validation",
         "workspace_plan",
         "input_authoring",
+        "input_bundle_import",
         "artifact_extract",
         "qc_summary_extract",
     )

@@ -46,6 +46,11 @@ See [Adapter conformance](../development/adapter-conformance.md) for the
 executable adapter boundary and [assay policy](../assay-policy.md) for bundled
 workflow behavior.
 
+External reviewed inputs cross a separate, versioned trust boundary. The
+[Omics Intake Bundle consumption decision](omics-intake-bundle-consumption.md)
+defines the initial read-only, public-contract-only integration and its
+provenance limits.
+
 ## Canonical state and execution
 
 SQLite is the canonical store for run identity, lifecycle, events, logs, and

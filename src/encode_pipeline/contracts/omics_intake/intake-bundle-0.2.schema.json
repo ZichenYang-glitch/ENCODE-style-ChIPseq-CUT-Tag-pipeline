@@ -1,0 +1,1549 @@
+{
+  "$defs": {
+    "BundleArtifactReference": {
+      "additionalProperties": false,
+      "properties": {
+        "media_type": {
+          "enum": [
+            "application/json",
+            "text/tab-separated-values",
+            "text/yaml"
+          ],
+          "title": "Media Type",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$",
+          "title": "Path",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "canonical_project",
+            "sample_sheet",
+            "workflow_config"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "role",
+        "path",
+        "media_type",
+        "size_bytes",
+        "sha256"
+      ],
+      "title": "BundleArtifactReference",
+      "type": "object"
+    },
+    "BundleCanonicalProject": {
+      "additionalProperties": false,
+      "description": "Canonical identity field emitted by Bundle schema 0.2.",
+      "properties": {
+        "identity": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Identity",
+          "type": "string"
+        },
+        "record": {
+          "$ref": "#/$defs/BundleArtifactReference"
+        },
+        "source_schema_version": {
+          "const": "0.2",
+          "title": "Source Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_schema_version",
+        "identity",
+        "record"
+      ],
+      "title": "BundleCanonicalProject",
+      "type": "object"
+    },
+    "BundleChecksumEvidence": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "algorithm": {
+                "enum": [
+                  "md5",
+                  "sha256"
+                ]
+              },
+              "digest": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "algorithm",
+              "digest"
+            ]
+          },
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unavailable"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "algorithm": {
+                "type": "null"
+              },
+              "digest": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "algorithm": {
+                "const": "md5"
+              }
+            },
+            "required": [
+              "algorithm"
+            ]
+          },
+          "then": {
+            "properties": {
+              "digest": {
+                "pattern": "^[0-9a-f]{32}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "algorithm": {
+                "const": "sha256"
+              }
+            },
+            "required": [
+              "algorithm"
+            ]
+          },
+          "then": {
+            "properties": {
+              "digest": {
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "algorithm": {
+          "anyOf": [
+            {
+              "enum": [
+                "md5",
+                "sha256"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Algorithm"
+        },
+        "digest": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Digest"
+        },
+        "status": {
+          "enum": [
+            "unavailable",
+            "declared",
+            "verified"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "algorithm",
+        "digest"
+      ],
+      "title": "BundleChecksumEvidence",
+      "type": "object"
+    },
+    "BundleFileReference": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "project"
+              }
+            },
+            "required": [
+              "scope"
+            ]
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "external"
+              }
+            },
+            "required": [
+              "scope"
+            ]
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "planned"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "pattern": "^downloads/[A-Za-z0-9_][A-Za-z0-9._-]*(?:/[A-Za-z0-9_][A-Za-z0-9._-]*)*$",
+                "type": "string"
+              },
+              "scope": {
+                "const": "project"
+              }
+            },
+            "required": [
+              "scope",
+              "path"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "unbound"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "checksum": {
+          "$ref": "#/$defs/BundleChecksumEvidence"
+        },
+        "file_format": {
+          "enum": [
+            "fastq",
+            "fq",
+            "bam",
+            "cram",
+            "other"
+          ],
+          "title": "File Format",
+          "type": "string"
+        },
+        "file_id": {
+          "pattern": "^[a-z][a-z0-9_-]*:[A-Za-z0-9_.:-]+$",
+          "title": "File Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "planned",
+            "local",
+            "unbound"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path"
+        },
+        "read_number": {
+          "anyOf": [
+            {
+              "enum": [
+                1,
+                2
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Read Number"
+        },
+        "role": {
+          "enum": [
+            "treatment",
+            "control"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "project",
+            "external"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Size Bytes"
+        }
+      },
+      "required": [
+        "file_id",
+        "kind",
+        "scope",
+        "path",
+        "file_format",
+        "role",
+        "read_number",
+        "size_bytes",
+        "checksum"
+      ],
+      "title": "BundleFileReference",
+      "type": "object"
+    },
+    "BundleIssueSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[A-Z][A-Z0-9_]+$",
+          "title": "Code",
+          "type": "string"
+        },
+        "count": {
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "owner_kind": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Owner Kind"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        }
+      },
+      "required": [
+        "severity",
+        "code",
+        "owner_kind",
+        "count"
+      ],
+      "title": "BundleIssueSummary",
+      "type": "object"
+    },
+    "BundleProducer": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "const": "omics-intake",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 5,
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[A-Za-z0-9._-]*)$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "BundleProducer",
+      "type": "object"
+    },
+    "BundleReadiness": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "export_status": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "export_status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "validator_status": {
+                "const": "passed"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "execution_status": {
+                "const": "runnable"
+              }
+            },
+            "required": [
+              "execution_status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "export_status": {
+                "const": "ready"
+              },
+              "strict_validator_status": {
+                "const": "passed"
+              },
+              "unresolved_requirements": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "execution_status": {
+          "$ref": "#/$defs/ExecutionStatus"
+        },
+        "export_status": {
+          "$ref": "#/$defs/ExportStatus"
+        },
+        "source_basis_fingerprint": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Source Basis Fingerprint",
+          "type": "string"
+        },
+        "strict_validator_status": {
+          "$ref": "#/$defs/StrictValidatorStatus"
+        },
+        "unresolved_requirements": {
+          "items": {
+            "pattern": "^[A-Z][A-Z0-9_]+$",
+            "type": "string"
+          },
+          "title": "Unresolved Requirements",
+          "type": "array"
+        },
+        "validator_status": {
+          "$ref": "#/$defs/ValidatorStatus"
+        }
+      },
+      "required": [
+        "export_status",
+        "execution_status",
+        "validator_status",
+        "strict_validator_status",
+        "unresolved_requirements",
+        "source_basis_fingerprint"
+      ],
+      "title": "BundleReadiness",
+      "type": "object"
+    },
+    "BundleValidationSummary": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "completed_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "identity_state": {
+                "enum": [
+                  "recorded",
+                  "unavailable",
+                  "redacted"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "unavailable",
+                  "timeout",
+                  "not_applicable"
+                ]
+              },
+              "recorded": {
+                "const": true
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "freshness": {
+                "const": "not_run"
+              }
+            },
+            "required": [
+              "freshness"
+            ]
+          },
+          "then": {
+            "properties": {
+              "artifact_fingerprint": {
+                "type": "null"
+              },
+              "completed_at": {
+                "type": "null"
+              },
+              "identity_fingerprint": {
+                "type": "null"
+              },
+              "identity_state": {
+                "const": "not_recorded"
+              },
+              "invoked": {
+                "const": false
+              },
+              "outcome": {
+                "type": "null"
+              },
+              "reason_code": {
+                "type": "null"
+              },
+              "recorded": {
+                "const": false
+              },
+              "return_code": {
+                "type": "null"
+              },
+              "strict_inputs_fingerprint": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "freshness": {
+                "const": "passed"
+              }
+            },
+            "required": [
+              "freshness"
+            ]
+          },
+          "then": {
+            "properties": {
+              "artifact_fingerprint": {
+                "type": "string"
+              },
+              "identity_fingerprint": {
+                "type": "string"
+              },
+              "identity_state": {
+                "const": "recorded"
+              },
+              "invoked": {
+                "const": true
+              },
+              "outcome": {
+                "const": "passed"
+              },
+              "recorded": {
+                "const": true
+              },
+              "return_code": {
+                "enum": [
+                  null,
+                  0
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          },
+          "then": {
+            "properties": {
+              "artifact_fingerprint": {
+                "type": "string"
+              },
+              "invoked": {
+                "const": true
+              },
+              "return_code": {
+                "enum": [
+                  null,
+                  0
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "invoked": {
+                "const": false
+              }
+            },
+            "required": [
+              "invoked"
+            ]
+          },
+          "then": {
+            "properties": {
+              "return_code": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "freshness": {
+                "const": "not_applicable"
+              }
+            },
+            "required": [
+              "freshness"
+            ]
+          },
+          "then": {
+            "properties": {
+              "invoked": {
+                "const": false
+              },
+              "outcome": {
+                "const": "not_applicable"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "non_strict"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "freshness": {
+                "enum": [
+                  "not_run",
+                  "passed",
+                  "failed",
+                  "stale"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "strict"
+              },
+              "outcome": {
+                "const": "passed"
+              }
+            },
+            "required": [
+              "mode",
+              "outcome"
+            ]
+          },
+          "then": {
+            "properties": {
+              "strict_inputs_fingerprint": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "else": {
+            "properties": {
+              "identity_fingerprint": {
+                "type": "null"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "identity_state": {
+                "const": "recorded"
+              }
+            },
+            "required": [
+              "identity_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "identity_fingerprint": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "artifact_fingerprint": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Artifact Fingerprint"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed At"
+        },
+        "freshness": {
+          "enum": [
+            "not_run",
+            "passed",
+            "failed",
+            "stale",
+            "not_applicable"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "identity_fingerprint": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Identity Fingerprint"
+        },
+        "identity_state": {
+          "enum": [
+            "not_recorded",
+            "recorded",
+            "unavailable",
+            "redacted"
+          ],
+          "title": "Identity State",
+          "type": "string"
+        },
+        "invoked": {
+          "title": "Invoked",
+          "type": "boolean"
+        },
+        "mode": {
+          "$ref": "#/$defs/ValidationMode"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValidationOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z][A-Z0-9_]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason Code"
+        },
+        "recorded": {
+          "title": "Recorded",
+          "type": "boolean"
+        },
+        "return_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Return Code"
+        },
+        "strict_inputs_fingerprint": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Strict Inputs Fingerprint"
+        }
+      },
+      "required": [
+        "mode",
+        "freshness",
+        "recorded",
+        "invoked",
+        "outcome",
+        "reason_code",
+        "return_code",
+        "completed_at",
+        "identity_state",
+        "identity_fingerprint",
+        "artifact_fingerprint",
+        "strict_inputs_fingerprint"
+      ],
+      "title": "BundleValidationSummary",
+      "type": "object"
+    },
+    "BundleWorkflowIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "genome": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Genome",
+          "type": "string"
+        },
+        "name": {
+          "const": "encode-epigenomics",
+          "title": "Name",
+          "type": "string"
+        },
+        "render_contract": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Render Contract",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "genome",
+        "render_contract"
+      ],
+      "title": "BundleWorkflowIdentity",
+      "type": "object"
+    },
+    "ExecutionStatus": {
+      "enum": [
+        "not_ready",
+        "runnable"
+      ],
+      "title": "ExecutionStatus",
+      "type": "string"
+    },
+    "ExportStatus": {
+      "enum": [
+        "draft",
+        "ready"
+      ],
+      "title": "ExportStatus",
+      "type": "string"
+    },
+    "Severity": {
+      "enum": [
+        "info",
+        "warning",
+        "error",
+        "needs_review"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "StrictValidatorStatus": {
+      "enum": [
+        "not_run",
+        "passed",
+        "failed",
+        "stale",
+        "not_applicable"
+      ],
+      "title": "StrictValidatorStatus",
+      "type": "string"
+    },
+    "ValidationMode": {
+      "enum": [
+        "non_strict",
+        "strict"
+      ],
+      "title": "ValidationMode",
+      "type": "string"
+    },
+    "ValidationOutcome": {
+      "enum": [
+        "passed",
+        "failed",
+        "unavailable",
+        "timeout",
+        "not_applicable"
+      ],
+      "title": "ValidationOutcome",
+      "type": "string"
+    },
+    "ValidatorStatus": {
+      "enum": [
+        "not_run",
+        "passed",
+        "failed",
+        "stale"
+      ],
+      "title": "ValidatorStatus",
+      "type": "string"
+    }
+  },
+  "$id": "urn:omics-intake:schema:intake-bundle:0.2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "properties": {
+        "canonical_project": {
+          "properties": {
+            "record": {
+              "properties": {
+                "media_type": {
+                  "const": "application/json"
+                },
+                "path": {
+                  "const": "intake.json"
+                },
+                "role": {
+                  "const": "canonical_project"
+                }
+              },
+              "required": [
+                "role",
+                "path",
+                "media_type"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "artifacts": {
+          "contains": {
+            "properties": {
+              "media_type": {
+                "const": "text/tab-separated-values"
+              },
+              "path": {
+                "const": "samples.encode.tsv"
+              },
+              "role": {
+                "const": "sample_sheet"
+              }
+            },
+            "required": [
+              "role",
+              "path",
+              "media_type"
+            ]
+          },
+          "maxContains": 1,
+          "minContains": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "artifacts": {
+          "contains": {
+            "properties": {
+              "media_type": {
+                "const": "text/yaml"
+              },
+              "path": {
+                "const": "config.encode.yaml"
+              },
+              "role": {
+                "const": "workflow_config"
+              }
+            },
+            "required": [
+              "role",
+              "path",
+              "media_type"
+            ]
+          },
+          "maxContains": 1,
+          "minContains": 1
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "readiness": {
+            "properties": {
+              "validator_status": {
+                "const": "not_run"
+              }
+            },
+            "required": [
+              "validator_status"
+            ]
+          }
+        },
+        "required": [
+          "readiness"
+        ]
+      },
+      "then": {
+        "properties": {
+          "validations": {
+            "contains": {
+              "properties": {
+                "freshness": {
+                  "const": "not_run"
+                },
+                "mode": {
+                  "const": "non_strict"
+                }
+              },
+              "required": [
+                "mode",
+                "freshness"
+              ]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "readiness": {
+            "properties": {
+              "validator_status": {
+                "const": "passed"
+              }
+            },
+            "required": [
+              "validator_status"
+            ]
+          }
+        },
+        "required": [
+          "readiness"
+        ]
+      },
+      "then": {
+        "properties": {
+          "validations": {
+            "contains": {
+              "properties": {
+                "freshness": {
+                  "const": "passed"
+                },
+                "mode": {
+                  "const": "non_strict"
+                }
+              },
+              "required": [
+                "mode",
+                "freshness"
+              ]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "readiness": {
+            "properties": {
+              "validator_status": {
+                "const": "failed"
+              }
+            },
+            "required": [
+              "validator_status"
+            ]
+          }
+        },
+        "required": [
+          "readiness"
+        ]
+      },
+      "then": {
+        "properties": {
+          "validations": {
+            "contains": {
+              "properties": {
+                "freshness": {
+                  "const": "failed"
+                },
+                "mode": {
+                  "const": "non_strict"
+                }
+              },
+              "required": [
+                "mode",
+                "freshness"
+              ]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "readiness": {
+            "properties": {
+              "validator_status": {
+                "const": "stale"
+              }
+            },
+            "required": [
+              "validator_status"
+            ]
+          }
+        },
+        "required": [
+          "readiness"
+        ]
+      },
+      "then": {
+        "properties": {
+          "validations": {
+            "contains": {
+              "properties": {
+                "freshness": {
+                  "const": "stale"
+                },
+                "mode": {
+                  "const": "non_strict"
+                }
+              },
+              "required": [
+                "mode",
+                "freshness"
+              ]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "readiness": {
+            "properties": {
+              "strict_validator_status": {
+                "const": "not_run"
+              }
+            },
+            "required": [
+              "strict_validator_status"
+            ]
+          }
+        },
+        "required": [
+          "readiness"
+        ]
+      },
+      "then": {
+        "properties": {
+          "validations": {
+            "contains": {
+              "properties": {
+                "freshness": {
+                  "const": "not_run"
+                },
+                "mode": {
+                  "const": "strict"
+                }
+              },
+              "required": [
+                "mode",
+                "freshness"
+              ]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "readiness": {
+            "properties": {
+              "strict_validator_status": {
+                "const": "passed"
+              }
+            },
+            "required": [
+              "strict_validator_status"
+            ]
+          }
+        },
+        "required": [
+          "readiness"
+        ]
+      },
+      "then": {
+        "properties": {
+          "validations": {
+            "contains": {
+              "properties": {
+                "freshness": {
+                  "const": "passed"
+                },
+                "mode": {
+                  "const": "strict"
+                }
+              },
+              "required": [
+                "mode",
+                "freshness"
+              ]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "readiness": {
+            "properties": {
+              "strict_validator_status": {
+                "const": "failed"
+              }
+            },
+            "required": [
+              "strict_validator_status"
+            ]
+          }
+        },
+        "required": [
+          "readiness"
+        ]
+      },
+      "then": {
+        "properties": {
+          "validations": {
+            "contains": {
+              "properties": {
+                "freshness": {
+                  "const": "failed"
+                },
+                "mode": {
+                  "const": "strict"
+                }
+              },
+              "required": [
+                "mode",
+                "freshness"
+              ]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "readiness": {
+            "properties": {
+              "strict_validator_status": {
+                "const": "stale"
+              }
+            },
+            "required": [
+              "strict_validator_status"
+            ]
+          }
+        },
+        "required": [
+          "readiness"
+        ]
+      },
+      "then": {
+        "properties": {
+          "validations": {
+            "contains": {
+              "properties": {
+                "freshness": {
+                  "const": "stale"
+                },
+                "mode": {
+                  "const": "strict"
+                }
+              },
+              "required": [
+                "mode",
+                "freshness"
+              ]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "readiness": {
+            "properties": {
+              "strict_validator_status": {
+                "const": "not_applicable"
+              }
+            },
+            "required": [
+              "strict_validator_status"
+            ]
+          }
+        },
+        "required": [
+          "readiness"
+        ]
+      },
+      "then": {
+        "properties": {
+          "validations": {
+            "contains": {
+              "properties": {
+                "freshness": {
+                  "const": "not_applicable"
+                },
+                "mode": {
+                  "const": "strict"
+                }
+              },
+              "required": [
+                "mode",
+                "freshness"
+              ]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    }
+  ],
+  "description": "Current Bundle schema 0.2 producer and loader contract.",
+  "properties": {
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/BundleArtifactReference"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "bundle_schema_version": {
+      "const": "0.2",
+      "title": "Bundle Schema Version",
+      "type": "string"
+    },
+    "canonical_project": {
+      "$ref": "#/$defs/BundleCanonicalProject"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/BundleFileReference"
+      },
+      "title": "Files",
+      "type": "array"
+    },
+    "issues": {
+      "items": {
+        "$ref": "#/$defs/BundleIssueSummary"
+      },
+      "title": "Issues",
+      "type": "array"
+    },
+    "producer": {
+      "$ref": "#/$defs/BundleProducer"
+    },
+    "readiness": {
+      "$ref": "#/$defs/BundleReadiness"
+    },
+    "validations": {
+      "items": {
+        "$ref": "#/$defs/BundleValidationSummary"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "title": "Validations",
+      "type": "array"
+    },
+    "workflow": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BundleWorkflowIdentity"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "bundle_schema_version",
+    "producer",
+    "workflow",
+    "canonical_project",
+    "artifacts",
+    "files",
+    "readiness",
+    "validations",
+    "issues"
+  ],
+  "title": "IntakeBundle",
+  "type": "object"
+}
