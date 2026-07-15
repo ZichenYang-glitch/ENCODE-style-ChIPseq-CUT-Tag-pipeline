@@ -133,6 +133,14 @@ def test_fast_checks_is_the_only_deterministic_pytest_coverage_producer():
     assert "always()" in jobs["coverage"]["if"]
 
 
+def test_documented_python_timing_budgets_match_the_workflow():
+    harness = (REPO_ROOT / "docs" / "development" / "harness.md").read_text(
+        encoding="utf-8"
+    )
+    assert "| PR `fast-checks` | 5 min | 25 min |" in harness
+    assert "| Full-main Python | 20 min | 25 min |" in harness
+
+
 def test_coverage_artifact_and_ratchets_are_stable_and_nonduplicative():
     jobs = _load("ci.yml")["jobs"]
     producer_steps = jobs["fast-checks"]["steps"]

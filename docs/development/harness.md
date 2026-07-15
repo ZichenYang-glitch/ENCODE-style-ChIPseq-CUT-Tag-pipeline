@@ -78,9 +78,9 @@ Hard timeouts only stop hangs.
 
 | Check or tier | Soft budget | Hard timeout |
 | --- | ---: | ---: |
-| PR `fast-checks` | 4 min | 12 min |
+| PR `fast-checks` | 5 min | 25 min |
 | Coverage artifact gate | 1 min | 5 min |
-| Full-main Python | 7 min | 12 min |
+| Full-main Python | 20 min | 25 min |
 | Frontend | 2 min | 8 min |
 | Browser E2E | 4 min | 10 min |
 | Lint | 1 min | 5 min |

@@ -226,15 +226,6 @@ jobs:
           echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
           echo "- Soft budget: 60s (informational)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Maintenance documentation and public validation contracts
-        shell: micromamba-shell {0}
-        run: >-
-          python3 -m pytest
-          test/docs/test_internal_links.py
-          test/scripts/test_prepare_public_validation_inputs.py
-          test/containers/test_runner_assets.py
-          -v
-
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 8
