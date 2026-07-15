@@ -36,6 +36,7 @@ _SHA256_PATTERN = "^[0-9a-f]{64}$"
 
 ANALYSIS_DEFAULTS = {"alignment": "star", "quantification": "salmon"}
 TRIMMING_DEFAULTS = {"enabled": True, "tool": "trimgalore"}
+RIBOSOMAL_RNA_REMOVAL_DEFAULTS = {"enabled": False}
 QC_DEFAULTS = {
     "enabled": True,
     "fastqc": True,
@@ -116,6 +117,58 @@ def _index_schema(*, title: str) -> dict[str, object]:
             },
         },
         "required": ["path", "identity_sha256"],
+        "additionalProperties": False,
+    }
+
+
+def _ribosomal_rna_removal_schema() -> dict[str, object]:
+    return {
+        "type": "object",
+        "default": RIBOSOMAL_RNA_REMOVAL_DEFAULTS,
+        "description": (
+            "Optional reference-based ribosomal RNA removal. Database and index "
+            "resources carry immutable identities; submitted paths are not probed "
+            "during contract validation."
+        ),
+        "properties": {
+            "enabled": {"type": "boolean", "default": False},
+            "tool": {
+                "type": "string",
+                "enum": ["sortmerna", "bowtie2"],
+            },
+            "save_filtered_reads": {"type": "boolean", "default": False},
+            "database_manifest": {
+                "type": "object",
+                "title": "rRNA database manifest",
+                "description": (
+                    "Adapter-owned reference to the manifest consumed by the "
+                    "selected removal tool."
+                ),
+                "properties": {
+                    "path": _path_schema(title="rRNA database manifest path"),
+                    "identity_sha256": {
+                        "type": "string",
+                        "pattern": _SHA256_PATTERN,
+                        "description": (
+                            "SHA-256 identity of the exact database manifest bytes."
+                        ),
+                    },
+                },
+                "required": ["path", "identity_sha256"],
+                "additionalProperties": False,
+            },
+            "sortmerna_index": _index_schema(title="SortMeRNA index"),
+        },
+        "required": ["enabled"],
+        "allOf": [
+            {
+                "if": {
+                    "required": ["enabled"],
+                    "properties": {"enabled": {"const": True}},
+                },
+                "then": {"required": ["tool", "database_manifest"]},
+            }
+        ],
         "additionalProperties": False,
     }
 
@@ -214,6 +267,7 @@ def _config_schema() -> dict[str, object]:
                 "required": ["enabled", "tool"],
                 "additionalProperties": False,
             },
+            "ribosomal_rna_removal": _ribosomal_rna_removal_schema(),
             "umi": _umi_schema(),
             "qc": _qc_schema(),
             "outputs": _outputs_schema(),

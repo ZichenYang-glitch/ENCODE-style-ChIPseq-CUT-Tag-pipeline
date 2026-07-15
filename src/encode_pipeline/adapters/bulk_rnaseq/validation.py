@@ -14,6 +14,7 @@ from encode_pipeline.adapters.bulk_rnaseq.authoring import (
     ANALYSIS_DEFAULTS,
     OUTPUT_DEFAULTS,
     QC_DEFAULTS,
+    RIBOSOMAL_RNA_REMOVAL_DEFAULTS,
     SCHEMA_VERSION,
     TRIMMING_DEFAULTS,
     build_bulk_rnaseq_authoring_schema,
@@ -169,6 +170,36 @@ def _validate_standard_semantics(
                 "BULK_RNASEQ_UMI_LAYOUT_CONFLICT",
                 "config.standard.umi",
             )
+
+    ribosomal_rna_removal = standard.get(
+        "ribosomal_rna_removal",
+        RIBOSOMAL_RNA_REMOVAL_DEFAULTS,
+    )
+    ribosomal_rna_enabled = ribosomal_rna_removal["enabled"]
+    if not ribosomal_rna_enabled and set(ribosomal_rna_removal) != {"enabled"}:
+        return _issue(
+            "BULK_RNASEQ_RRNA_CONFLICT",
+            "config.standard.ribosomal_rna_removal",
+        )
+    if (
+        ribosomal_rna_enabled
+        and ribosomal_rna_removal["tool"] != "sortmerna"
+        and "sortmerna_index" in ribosomal_rna_removal
+    ):
+        return _issue(
+            "BULK_RNASEQ_RRNA_CONFLICT",
+            "config.standard.ribosomal_rna_removal.sortmerna_index",
+        )
+    if (
+        ribosomal_rna_enabled
+        and ribosomal_rna_removal["tool"] == "bowtie2"
+        and ribosomal_rna_removal.get("save_filtered_reads", False)
+        and any(row["layout"] != "SE" for row in samples)
+    ):
+        return _issue(
+            "BULK_RNASEQ_RRNA_CONFLICT",
+            "config.standard.ribosomal_rna_removal.save_filtered_reads",
+        )
 
     qc = standard.get("qc", {})
     if qc.get("enabled") is False and any(
@@ -372,6 +403,10 @@ def _normalize_inputs(
     outputs = {**OUTPUT_DEFAULTS, **standard.get("outputs", {})}
     reference = standard["reference"]
     umi = standard.get("umi", {"enabled": False})
+    ribosomal_rna_removal = standard.get(
+        "ribosomal_rna_removal",
+        RIBOSOMAL_RNA_REMOVAL_DEFAULTS,
+    )
 
     params: dict[str, object] = {
         "aligner": f"{analysis['alignment']}_{analysis['quantification']}",
@@ -379,8 +414,10 @@ def _normalize_inputs(
         "gencode": reference.get("annotation_style", "ensembl") == "gencode",
         "gtf": reference["gtf"],
         "igenomes_ignore": True,
+        "remove_ribo_rna": ribosomal_rna_removal["enabled"],
         "save_align_intermeds": outputs["alignment_intermediates"],
         "save_merged_fastq": outputs["merged_fastq"],
+        "save_non_ribo_reads": ribosomal_rna_removal.get("save_filtered_reads", False),
         "save_reference": outputs["reference_files"],
         "save_trimmed": outputs["trimmed_reads"],
         "save_umi_intermeds": outputs["umi_intermediates"],
@@ -412,6 +449,13 @@ def _normalize_inputs(
         params["star_index"] = reference["star_index"]["path"]
     if "salmon_index" in reference:
         params["salmon_index"] = reference["salmon_index"]["path"]
+    if ribosomal_rna_removal["enabled"]:
+        params["ribo_removal_tool"] = ribosomal_rna_removal["tool"]
+        params["ribo_database_manifest"] = ribosomal_rna_removal["database_manifest"][
+            "path"
+        ]
+        if "sortmerna_index" in ribosomal_rna_removal:
+            params["sortmerna_index"] = ribosomal_rna_removal["sortmerna_index"]["path"]
     if umi["enabled"]:
         params.update(_normalize_umi(umi))
     params.update(advanced)
@@ -458,6 +502,24 @@ def _normalize_inputs(
             **(
                 {"salmon_index_sha256": reference["salmon_index"]["identity_sha256"]}
                 if "salmon_index" in reference
+                else {}
+            ),
+            **(
+                {
+                    "ribo_database_manifest_sha256": ribosomal_rna_removal[
+                        "database_manifest"
+                    ]["identity_sha256"]
+                }
+                if ribosomal_rna_removal["enabled"]
+                else {}
+            ),
+            **(
+                {
+                    "sortmerna_index_sha256": ribosomal_rna_removal["sortmerna_index"][
+                        "identity_sha256"
+                    ]
+                }
+                if "sortmerna_index" in ribosomal_rna_removal
                 else {}
             ),
         },

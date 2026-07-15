@@ -83,6 +83,29 @@ def _reference(*, indexes: bool = False) -> dict[str, object]:
     return value
 
 
+def _ribosomal_rna_removal(
+    *,
+    tool: str = "sortmerna",
+    save_filtered_reads: bool = False,
+    sortmerna_index: bool = False,
+) -> dict[str, object]:
+    value: dict[str, object] = {
+        "enabled": True,
+        "tool": tool,
+        "save_filtered_reads": save_filtered_reads,
+        "database_manifest": {
+            "path": "/refs/rrna/database-manifest.txt",
+            "identity_sha256": "e" * 64,
+        },
+    }
+    if sortmerna_index:
+        value["sortmerna_index"] = {
+            "path": "/refs/rrna/sortmerna-index",
+            "identity_sha256": "f" * 64,
+        }
+    return value
+
+
 def _config(**standard_updates: object) -> dict[str, object]:
     standard = {"reference": _reference(), **standard_updates}
     return {"standard": standard}
@@ -198,12 +221,30 @@ def test_public_schema_closes_all_surfaces_and_does_not_seed_advanced_defaults()
     samples = document["sample_schema"]
     options = document["option_schema"]
     advanced = config["properties"]["advanced"]
+    ribosomal_rna_removal = config["properties"]["standard"]["properties"][
+        "ribosomal_rna_removal"
+    ]
 
     assert config["additionalProperties"] is False
     assert config["properties"]["standard"]["additionalProperties"] is False
     assert advanced["additionalProperties"] is False
     assert set(advanced["properties"]) == set(ADVANCED_NATIVE_PARAMETERS)
     assert all("default" not in value for value in advanced["properties"].values())
+    assert ribosomal_rna_removal["additionalProperties"] is False
+    assert ribosomal_rna_removal["default"] == {"enabled": False}
+    assert ribosomal_rna_removal["properties"]["tool"]["enum"] == [
+        "sortmerna",
+        "bowtie2",
+    ]
+    assert "default" not in ribosomal_rna_removal["properties"]["tool"]
+    assert (
+        ribosomal_rna_removal["properties"]["database_manifest"]["additionalProperties"]
+        is False
+    )
+    assert (
+        ribosomal_rna_removal["properties"]["sortmerna_index"]["additionalProperties"]
+        is False
+    )
     assert samples["items"]["additionalProperties"] is False
     assert all(
         property_schema.get("type") == "string"
@@ -294,6 +335,11 @@ def test_valid_se_and_pe_inputs_normalize_to_star_salmon(layout: str):
     }
     assert result.value["nfcore_params"]["aligner"] == "star_salmon"
     assert result.value["nfcore_params"]["igenomes_ignore"] is True
+    assert result.value["nfcore_params"]["remove_ribo_rna"] is False
+    assert result.value["nfcore_params"]["save_non_ribo_reads"] is False
+    assert "ribo_removal_tool" not in result.value["nfcore_params"]
+    assert "ribo_database_manifest" not in result.value["nfcore_params"]
+    assert "sortmerna_index" not in result.value["nfcore_params"]
     assert result.value["nfcore_params"]["skip_alignment"] is False
     assert result.value["nfcore_params"]["skip_quantification_merge"] is False
     assert set(result.value["nfcore_params"]).issubset(PARAMETER_IMPACT_BY_NATIVE_NAME)
@@ -337,6 +383,10 @@ def test_salmon_index_is_rejected_when_no_sample_needs_auto_strand_inference():
 def test_validation_and_serialization_are_deterministic_and_do_not_mutate_inputs():
     source_config = _config(
         trimming={"enabled": True, "tool": "fastp"},
+        ribosomal_rna_removal=_ribosomal_rna_removal(
+            save_filtered_reads=True,
+            sortmerna_index=True,
+        ),
         outputs={"bigwig": True, "stringtie": False},
     )
     source_samples = [_sample()]
@@ -361,6 +411,8 @@ def test_validation_does_not_probe_user_paths(monkeypatch: pytest.MonkeyPatch):
     forbidden = {
         "/refs/GRCh38.fa",
         "/refs/gencode.gtf",
+        "/refs/rrna/database-manifest.txt",
+        "/refs/rrna/sortmerna-index",
         "/data/S1.lib1.L001.R1.fastq.gz",
         "/data/S1.lib1.L001.R2.fastq.gz",
     }
@@ -377,7 +429,215 @@ def test_validation_does_not_probe_user_paths(monkeypatch: pytest.MonkeyPatch):
 
         monkeypatch.setattr(Path, method_name, guarded)
 
-    assert BulkRnaSeqWorkflowAdapter().validate(_inputs()).is_success
+    config = _config(ribosomal_rna_removal=_ribosomal_rna_removal(sortmerna_index=True))
+    assert BulkRnaSeqWorkflowAdapter().validate(_inputs(config=config)).is_success
+
+
+def test_sortmerna_removal_normalizes_typed_manifest_index_and_output_selection():
+    config = _config(
+        ribosomal_rna_removal=_ribosomal_rna_removal(
+            save_filtered_reads=True,
+            sortmerna_index=True,
+        )
+    )
+
+    result = BulkRnaSeqWorkflowAdapter().validate(_inputs(config=config))
+
+    assert result.is_success
+    params = result.value["nfcore_params"]
+    assert params["remove_ribo_rna"] is True
+    assert params["ribo_removal_tool"] == "sortmerna"
+    assert params["save_non_ribo_reads"] is True
+    assert params["ribo_database_manifest"] == "/refs/rrna/database-manifest.txt"
+    assert params["sortmerna_index"] == "/refs/rrna/sortmerna-index"
+    assert (
+        result.value["reference_identity"]["ribo_database_manifest_sha256"] == "e" * 64
+    )
+    assert result.value["reference_identity"]["sortmerna_index_sha256"] == "f" * 64
+    impacts = {
+        item["native_parameter"]: item["impact"]
+        for item in result.value["parameter_impacts"]
+    }
+    assert impacts["remove_ribo_rna"] == "route_namespace"
+    assert impacts["ribo_removal_tool"] == "route_namespace"
+    assert impacts["ribo_database_manifest"] == "content_only"
+    assert impacts["sortmerna_index"] == "route_namespace"
+    assert impacts["save_non_ribo_reads"] == "additive_artifacts"
+
+
+def test_bowtie2_removal_requires_manifest_and_does_not_emit_sortmerna_index():
+    config = _config(ribosomal_rna_removal=_ribosomal_rna_removal(tool="bowtie2"))
+
+    result = BulkRnaSeqWorkflowAdapter().validate(_inputs(config=config))
+
+    assert result.is_success
+    params = result.value["nfcore_params"]
+    assert params["remove_ribo_rna"] is True
+    assert params["ribo_removal_tool"] == "bowtie2"
+    assert params["ribo_database_manifest"] == "/refs/rrna/database-manifest.txt"
+    assert params["save_non_ribo_reads"] is False
+    assert "sortmerna_index" not in params
+    assert (
+        result.value["reference_identity"]["ribo_database_manifest_sha256"] == "e" * 64
+    )
+    assert "sortmerna_index_sha256" not in result.value["reference_identity"]
+
+
+def test_bowtie2_can_save_filtered_reads_for_single_end_samples():
+    config = _config(
+        ribosomal_rna_removal=_ribosomal_rna_removal(
+            tool="bowtie2",
+            save_filtered_reads=True,
+        )
+    )
+
+    result = BulkRnaSeqWorkflowAdapter().validate(
+        _inputs(config=config, samples=[_sample(layout="SE")])
+    )
+
+    assert result.is_success
+    assert result.value["nfcore_params"]["save_non_ribo_reads"] is True
+
+
+@pytest.mark.parametrize(
+    "samples",
+    [
+        [_sample(layout="PE")],
+        [
+            _sample(sample="S1", layout="SE"),
+            _sample(sample="S2", layout="PE"),
+        ],
+    ],
+)
+def test_bowtie2_filtered_read_output_is_rejected_for_pe_or_mixed_layouts(samples):
+    config = _config(
+        ribosomal_rna_removal=_ribosomal_rna_removal(
+            tool="bowtie2",
+            save_filtered_reads=True,
+        )
+    )
+
+    assert _error_code(_inputs(config=config, samples=samples)) == (
+        "BULK_RNASEQ_RRNA_CONFLICT"
+    )
+
+
+@pytest.mark.parametrize("save_filtered_reads", [False, True])
+def test_filtered_read_output_selection_maps_without_changing_tool_semantics(
+    save_filtered_reads: bool,
+):
+    config = _config(
+        ribosomal_rna_removal=_ribosomal_rna_removal(
+            save_filtered_reads=save_filtered_reads
+        )
+    )
+
+    result = BulkRnaSeqWorkflowAdapter().validate(_inputs(config=config))
+
+    assert result.is_success
+    assert result.value["nfcore_params"]["save_non_ribo_reads"] is (save_filtered_reads)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"tool": "sortmerna"},
+        {"save_filtered_reads": False},
+        {"save_filtered_reads": True},
+        {
+            "database_manifest": {
+                "path": "/refs/rrna/database-manifest.txt",
+                "identity_sha256": "e" * 64,
+            }
+        },
+        {
+            "sortmerna_index": {
+                "path": "/refs/rrna/sortmerna-index",
+                "identity_sha256": "f" * 64,
+            }
+        },
+    ],
+)
+def test_disabled_ribosomal_rna_removal_rejects_all_extra_configuration(extra):
+    config = _config(ribosomal_rna_removal={"enabled": False, **extra})
+
+    assert _error_code(_inputs(config=config)) == "BULK_RNASEQ_RRNA_CONFLICT"
+
+
+@pytest.mark.parametrize("tool", ["sortmerna", "bowtie2"])
+def test_enabled_ribosomal_rna_removal_requires_database_manifest(tool: str):
+    config = _config(
+        ribosomal_rna_removal={
+            "enabled": True,
+            "tool": tool,
+            "save_filtered_reads": False,
+        }
+    )
+
+    assert _error_code(_inputs(config=config)) == "BULK_RNASEQ_STANDARD_INVALID"
+
+
+def test_sortmerna_index_is_rejected_for_bowtie2():
+    config = _config(
+        ribosomal_rna_removal=_ribosomal_rna_removal(
+            tool="bowtie2",
+            sortmerna_index=True,
+        )
+    )
+
+    assert _error_code(_inputs(config=config)) == "BULK_RNASEQ_RRNA_CONFLICT"
+
+
+@pytest.mark.parametrize(
+    "ribosomal_rna_removal",
+    [
+        {"enabled": "true"},
+        {"enabled": 1},
+        {
+            **_ribosomal_rna_removal(),
+            "save_filtered_reads": "true",
+        },
+        {
+            **_ribosomal_rna_removal(),
+            "tool": True,
+        },
+        {
+            "enabled": True,
+            "tool": "sortmerna",
+            "database_manifest": {
+                "path": "/refs/rrna/database-manifest.txt",
+            },
+        },
+        {
+            **_ribosomal_rna_removal(),
+            "database_manifest": {
+                "path": "https://example.invalid/rrna-manifest.txt",
+                "identity_sha256": "e" * 64,
+            },
+        },
+        {
+            **_ribosomal_rna_removal(),
+            "sortmerna_index": {
+                "path": "/refs/rrna/sortmerna-index",
+                "identity_sha256": True,
+            },
+        },
+        {
+            **_ribosomal_rna_removal(),
+            "unexpected": True,
+        },
+        {
+            **_ribosomal_rna_removal(),
+            "tool": "ribodetector",
+        },
+    ],
+)
+def test_ribosomal_rna_schema_rejects_string_bools_unknown_fields_and_tools(
+    ribosomal_rna_removal,
+):
+    config = _config(ribosomal_rna_removal=ribosomal_rna_removal)
+
+    assert _error_code(_inputs(config=config)) == "BULK_RNASEQ_STANDARD_INVALID"
 
 
 def test_valid_advanced_allowlist_is_exactly_validated_and_classified():
@@ -436,7 +696,32 @@ def test_valid_advanced_allowlist_is_exactly_validated_and_classified():
         ("wave", True, "BULK_RNASEQ_PLATFORM_PARAMETER_FORBIDDEN"),
         ("raw_config", "process {}", "BULK_RNASEQ_PLATFORM_PARAMETER_FORBIDDEN"),
         ("extra_star_align_args", "--runMode x", "BULK_RNASEQ_RAW_ARGUMENT_FORBIDDEN"),
-        ("remove_ribo_rna", True, "BULK_RNASEQ_ADVANCED_UNSUPPORTED"),
+        ("remove_ribo_rna", True, "BULK_RNASEQ_PARAMETER_SURFACE_CONFLICT"),
+        (
+            "ribo_removal_tool",
+            "sortmerna",
+            "BULK_RNASEQ_PARAMETER_SURFACE_CONFLICT",
+        ),
+        (
+            "save_non_ribo_reads",
+            True,
+            "BULK_RNASEQ_PARAMETER_SURFACE_CONFLICT",
+        ),
+        (
+            "ribo_database_manifest",
+            "/refs/rrna/database-manifest.txt",
+            "BULK_RNASEQ_PARAMETER_SURFACE_CONFLICT",
+        ),
+        (
+            "sortmerna_index",
+            "/refs/rrna/sortmerna-index",
+            "BULK_RNASEQ_PARAMETER_SURFACE_CONFLICT",
+        ),
+        (
+            "use_gpu_ribodetector",
+            True,
+            "BULK_RNASEQ_PLATFORM_PARAMETER_FORBIDDEN",
+        ),
         ("not_an_upstream_parameter", True, "BULK_RNASEQ_ADVANCED_UNKNOWN"),
     ],
 )
