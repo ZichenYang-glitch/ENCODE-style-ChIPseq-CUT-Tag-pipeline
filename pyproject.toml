@@ -48,6 +48,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 "encode_pipeline.persistence" = ["alembic/script.py.mako"]
 "encode_pipeline.contracts.omics_intake" = ["*.schema.json"]
+"encode_pipeline.contracts.nfcore_rnaseq" = ["*.json", "*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

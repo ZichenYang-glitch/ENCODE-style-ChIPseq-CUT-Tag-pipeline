@@ -1,0 +1,35 @@
+{
+  "project": "nf-core/rnaseq",
+  "release": "3.26.0",
+  "release_name": "nf-core/rnaseq v3.26.0 - Chromium Cuttlefish",
+  "release_url": "https://github.com/nf-core/rnaseq/releases/tag/3.26.0",
+  "published_at": "2026-05-07T15:29:56Z",
+  "draft": false,
+  "prerelease": false,
+  "commit": "e7ca46272c8f9d5ceee3f71759f4ba551d3217a4",
+  "tag_type": "lightweight",
+  "license": "MIT",
+  "files": [
+    {
+      "path": "nextflow_schema.json",
+      "vendored_as": "nextflow-schema-3.26.0.json",
+      "source": "https://raw.githubusercontent.com/nf-core/rnaseq/e7ca46272c8f9d5ceee3f71759f4ba551d3217a4/nextflow_schema.json",
+      "size_bytes": 60620,
+      "sha256": "8f2f84a25c0aec65a18234cf01acdd74f2385e8dfac8417e4bad23a70bfb4388"
+    },
+    {
+      "path": "assets/schema_input.json",
+      "vendored_as": "samplesheet-schema-3.26.0.json",
+      "source": "https://raw.githubusercontent.com/nf-core/rnaseq/e7ca46272c8f9d5ceee3f71759f4ba551d3217a4/assets/schema_input.json",
+      "size_bytes": 3218,
+      "sha256": "013b669b1a3d38709f548a2548350ecdabb3f2ba578f2b7de843105e2ce87a7d"
+    },
+    {
+      "path": "LICENSE",
+      "vendored_as": "LICENSE-3.26.0.txt",
+      "source": "https://raw.githubusercontent.com/nf-core/rnaseq/e7ca46272c8f9d5ceee3f71759f4ba551d3217a4/LICENSE",
+      "size_bytes": 1075,
+      "sha256": "49147db9f580fc819494d436920fd8db97589e67989d8a82d5d18a4deb8d49f9"
+    }
+  ]
+}
