@@ -485,7 +485,11 @@ class EncodeStyleWorkflowAdapter:
             ],
         )
 
-    def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
+    def build_command(
+        self,
+        plan: WorkspacePlan,
+        workspace: str | Path,
+    ) -> Result[CommandSpec]:
         """Return unsupported until command construction is designed."""
         return _unsupported_method("build_command")
 

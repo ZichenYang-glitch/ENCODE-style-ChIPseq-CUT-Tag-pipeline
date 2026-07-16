@@ -501,9 +501,141 @@ def test_command_spec_stores_argv_as_tuple_rejects_empty_argv_and_copies_env():
         "argv": ["snakemake", "-n"],
         "cwd": "/workspace/run-1",
         "env": {"SNAKEMAKE_PROFILE": "local"},
+        "preflight_argv": None,
+        "preflight_kind": "dry_run",
+        "preflight_managed_log_count": 0,
+        "execution_managed_log_count": 0,
+        "redaction_count": 0,
+        "managed_container_cleanup": False,
     }
     with pytest.raises(ValueError):
         CommandSpec(argv=[])
+
+
+def test_command_spec_managed_container_scope_is_typed_and_not_serialized():
+    command = CommandSpec(
+        argv=("workflow-engine", "run"),
+        managed_container_scope="a" * 64,
+        managed_container_endpoint_identity="b" * 64,
+    )
+
+    assert command.managed_container_scope == "a" * 64
+    assert command.managed_container_endpoint_identity == "b" * 64
+    rendered = command.to_dict()
+    assert rendered["managed_container_cleanup"] is True
+    assert "a" * 64 not in str(rendered)
+    assert "b" * 64 not in str(rendered)
+
+    for invalid in ("", "A" * 64, "a" * 63, "../scope", True):
+        with pytest.raises(ValueError, match="managed_container_scope"):
+            CommandSpec(
+                argv=("workflow-engine", "run"),
+                managed_container_scope=invalid,
+                managed_container_endpoint_identity="b" * 64,
+            )
+
+    for invalid in ("", "B" * 64, "b" * 63, "../endpoint", True):
+        with pytest.raises(ValueError, match="managed_container_endpoint_identity"):
+            CommandSpec(
+                argv=("workflow-engine", "run"),
+                managed_container_scope="a" * 64,
+                managed_container_endpoint_identity=invalid,
+            )
+
+    with pytest.raises(ValueError, match="must be paired"):
+        CommandSpec(
+            argv=("workflow-engine", "run"),
+            managed_container_scope="a" * 64,
+        )
+    with pytest.raises(ValueError, match="must be paired"):
+        CommandSpec(
+            argv=("workflow-engine", "run"),
+            managed_container_endpoint_identity="b" * 64,
+        )
+
+
+def test_command_spec_normalizes_preflight_and_hides_redaction_values():
+    redactions = ["/private/workspace", "reference-token"]
+    command = CommandSpec(
+        argv=["/private/workspace/workflow", "run", "reference-token"],
+        cwd="/private/workspace/launch",
+        env={"WORK_DIR": "/private/workspace/work"},
+        preflight_argv=["/private/workspace/workflow", "validate"],
+        redaction_values=redactions,
+    )
+
+    redactions.append("late-mutation")
+
+    assert command.preflight_argv == (
+        "/private/workspace/workflow",
+        "validate",
+    )
+    assert command.redaction_values == ("/private/workspace", "reference-token")
+    serialized = command.to_dict()
+    assert serialized["argv"] == ["[REDACTED]/workflow", "run", "[REDACTED]"]
+    assert serialized["cwd"] == "[REDACTED]/launch"
+    assert serialized["env"] == {"WORK_DIR": "[REDACTED]/work"}
+    assert serialized["preflight_argv"] == ["[REDACTED]/workflow", "validate"]
+    assert serialized["redaction_count"] == 2
+    assert "/private/workspace" not in str(serialized)
+    with pytest.raises(ValueError, match="preflight_argv must be non-empty"):
+        CommandSpec(argv=("workflow",), preflight_argv=())
+    with pytest.raises(ValueError, match="redaction_values entries must be non-empty"):
+        CommandSpec(argv=("workflow",), redaction_values=("",))
+
+
+def test_command_spec_normalizes_managed_logs_without_serializing_paths():
+    command = CommandSpec(
+        argv=("workflow", "run"),
+        cwd="/workspace/launch",
+        preflight_argv=("workflow", "config"),
+        preflight_kind="configuration",
+        preflight_managed_logs=[["engine_preflight", "/workspace/logs/preflight.log"]],
+        execution_managed_logs=[("engine", "/workspace/logs/engine.log")],
+    )
+
+    assert command.preflight_managed_logs == (
+        ("engine_preflight", "/workspace/logs/preflight.log"),
+    )
+    assert command.execution_managed_logs == (("engine", "/workspace/logs/engine.log"),)
+    serialized = command.to_dict()
+    assert serialized["preflight_kind"] == "configuration"
+    assert serialized["preflight_managed_log_count"] == 1
+    assert serialized["execution_managed_log_count"] == 1
+    assert "/workspace/logs" not in str(serialized)
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"preflight_kind": "unknown"}, "preflight_kind"),
+        (
+            {"preflight_managed_logs": (("engine", "/workspace/logs/preflight.log"),)},
+            "require preflight_argv",
+        ),
+        (
+            {"execution_managed_logs": (("Engine", "/workspace/logs/engine.log"),)},
+            "stable lowercase tokens",
+        ),
+        (
+            {"execution_managed_logs": (("engine", "logs/engine.log"),)},
+            "bounded absolute paths",
+        ),
+        (
+            {
+                "preflight_argv": ("workflow", "config"),
+                "preflight_managed_logs": (
+                    ("preflight", "/workspace/logs/shared.log"),
+                ),
+                "execution_managed_logs": (("engine", "/workspace/logs/shared.log"),),
+            },
+            "managed log paths must be unique",
+        ),
+    ],
+)
+def test_command_spec_rejects_invalid_managed_log_contract(updates, message):
+    with pytest.raises(ValueError, match=message):
+        CommandSpec(argv=("workflow", "run"), **updates)
 
 
 def test_workspace_plan_stores_tuples_and_does_not_touch_filesystem(tmp_path):
@@ -547,7 +679,11 @@ def test_fake_adapter_satisfies_protocol_without_inheritance():
         ) -> Result[WorkspacePlan]:
             return Result.success(WorkspacePlan(directories=[str(workspace)]))
 
-        def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
+        def build_command(
+            self,
+            plan: WorkspacePlan,
+            workspace: str | Path,
+        ) -> Result[CommandSpec]:
             return Result.success(CommandSpec(argv=["run-workflow"]))
 
         def extract_artifacts(self, inputs, workspace):
@@ -568,7 +704,10 @@ def test_fake_adapter_satisfies_protocol_without_inheritance():
     assert adapter.validate(inputs).value == {"validated": {"samples": "samples.tsv"}}
     assert isinstance(adapter.preview_dag(inputs).value, DagPreview)
     assert isinstance(adapter.plan_workspace(inputs, "/workspace").value, WorkspacePlan)
-    assert isinstance(adapter.build_command(WorkspacePlan()).value, CommandSpec)
+    assert isinstance(
+        adapter.build_command(WorkspacePlan(), "/workspace").value,
+        CommandSpec,
+    )
     assert (
         adapter.extract_artifacts(inputs, "/workspace").value[0].output_type
         == "summary"
@@ -595,6 +734,7 @@ def test_platform_exports_adapter_contract_primitives():
             MAX_SAMPLE_ROWS,
             WorkflowAdapter,
             WorkflowAuthoringModes,
+            WorkflowBuildIdentityProvidingAdapter,
             WorkflowCapabilities,
             WorkflowInputLimits,
             WorkflowInputModes,
@@ -622,6 +762,7 @@ def test_platform_exports_adapter_contract_primitives():
             MAX_SAMPLE_ROWS,
             WorkflowAdapter,
             WorkflowAuthoringModes,
+            WorkflowBuildIdentityProvidingAdapter,
             WorkflowCapabilities,
             WorkflowInputLimits,
             WorkflowInputModes,

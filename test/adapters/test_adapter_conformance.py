@@ -176,11 +176,18 @@ class MinimalConformantAdapter:
             )
         )
 
-    def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
+    def build_command(
+        self,
+        plan: WorkspacePlan,
+        workspace: str | Path,
+    ) -> Result[CommandSpec]:
         if self._command_fails:
             return _unsupported("build_command")
         return Result.success(
-            CommandSpec(argv=("minimal-workflow", "run", "config/inputs.json"))
+            CommandSpec(
+                argv=("minimal-workflow", "run", "config/inputs.json"),
+                cwd=str(workspace),
+            )
         )
 
     def extract_artifacts(

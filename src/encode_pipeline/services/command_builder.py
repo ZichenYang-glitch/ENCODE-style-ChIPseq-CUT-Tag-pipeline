@@ -7,7 +7,13 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
-from encode_pipeline.platform.adapters import CommandSpec, WorkspacePlan
+from encode_pipeline.platform.adapters import (
+    COMMAND_CAPABILITY,
+    CommandSpec,
+    WorkflowAdapter,
+    WorkspacePlan,
+)
+from encode_pipeline.platform.managed_containers import managed_container_scope
 from encode_pipeline.platform.planning import (
     ExecutionPlan,
     PlanStatus,
@@ -118,6 +124,13 @@ class CommandBuilder:
                 ]
             )
 
+        if COMMAND_CAPABILITY in adapter.capabilities.supports:
+            return self._build_adapter_command(
+                adapter=adapter,
+                plan=plan,
+                base_dir=base_dir,
+            )
+
         if "snakemake" not in adapter.metadata.engines:
             return Result.failure(
                 [
@@ -154,23 +167,121 @@ class CommandBuilder:
             return cores_result
         cores = cores_result
 
+        argv = (
+            "snakemake",
+            "--snakefile",
+            str(snakefile),
+            "--directory",
+            str(base_dir),
+            "--configfile",
+            str(config_path),
+            "--cores",
+            str(cores),
+        )
         command_spec = CommandSpec(
-            argv=(
-                "snakemake",
-                "--snakefile",
-                str(snakefile),
-                "--directory",
-                str(base_dir),
-                "--configfile",
-                str(config_path),
-                "--cores",
-                str(cores),
-            ),
+            argv=argv,
             cwd=None,
             env={},
+            preflight_argv=argv + ("-n",),
         )
 
-        new_plan = ExecutionPlan(
+        return Result.success(self._planned_plan(plan, command_spec))
+
+    def _build_adapter_command(
+        self,
+        *,
+        adapter: WorkflowAdapter,
+        plan: ExecutionPlan,
+        base_dir: Path,
+    ) -> Result[ExecutionPlan]:
+        """Delegate command construction without exposing adapter failures."""
+        assert plan.workspace_plan is not None
+        try:
+            adapter_result = adapter.build_command(plan.workspace_plan, base_dir)
+        except Exception:
+            return self._adapter_failure()
+
+        if not isinstance(adapter_result, Result) or adapter_result.is_failure:
+            return self._adapter_failure()
+        command_spec = adapter_result.value
+        if not isinstance(command_spec, CommandSpec):
+            return self._adapter_failure()
+        if not self._command_workspace_is_safe(
+            command_spec,
+            base_dir,
+            plan.workspace_plan,
+        ):
+            return self._adapter_failure()
+        return Result.success(self._planned_plan(plan, command_spec))
+
+    @staticmethod
+    def _command_workspace_is_safe(
+        command_spec: CommandSpec,
+        base_dir: Path,
+        workspace_plan: WorkspacePlan,
+    ) -> bool:
+        """Require adapter-selected runtime paths to remain in the workspace."""
+        if command_spec.cwd is None:
+            return False
+        if (
+            command_spec.preflight_argv is not None
+            and command_spec.preflight_argv[0] != command_spec.argv[0]
+        ):
+            return False
+        cwd = Path(command_spec.cwd)
+        if not cwd.is_absolute() or any(part in {".", ".."} for part in cwd.parts):
+            return False
+        try:
+            cwd.relative_to(base_dir)
+        except ValueError:
+            return False
+        if (
+            command_spec.managed_container_scope is not None
+            and command_spec.managed_container_scope
+            != managed_container_scope(base_dir)
+        ):
+            return False
+        planned_files = {
+            str(base_dir / relative_path)
+            for relative_path, _contents in workspace_plan.files
+        }
+        managed_paths = tuple(
+            path
+            for _stream_name, path in (
+                *command_spec.preflight_managed_logs,
+                *command_spec.execution_managed_logs,
+            )
+        )
+        for path_value in managed_paths:
+            path = Path(path_value)
+            try:
+                relative = path.relative_to(base_dir)
+            except ValueError:
+                return False
+            if not relative.parts or str(path) in planned_files:
+                return False
+        return True
+
+    @staticmethod
+    def _adapter_failure() -> Result[ExecutionPlan]:
+        return Result.failure(
+            [
+                Issue(
+                    code="COMMAND_BUILD_ADAPTER_FAILED",
+                    message="Workflow command could not be built.",
+                    severity="error",
+                    path="command_spec",
+                    source="command_builder",
+                )
+            ]
+        )
+
+    @staticmethod
+    def _planned_plan(
+        plan: ExecutionPlan,
+        command_spec: CommandSpec,
+    ) -> ExecutionPlan:
+        return ExecutionPlan(
             plan_id=str(uuid4()),
             run_id=plan.run_id,
             workflow_id=plan.workflow_id,
@@ -191,8 +302,6 @@ class CommandBuilder:
                 ),
             ),
         )
-
-        return Result.success(new_plan)
 
     def _resolve_config_path(
         self,

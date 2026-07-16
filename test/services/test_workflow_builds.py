@@ -2,14 +2,62 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 
+from encode_pipeline.platform.adapters import (
+    CommandSpec,
+    WorkflowCapabilities,
+    WorkflowMetadata,
+)
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
+from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.services.defaults import create_default_workflow_registry
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
+
+
+class _IdentityAdapter:
+    metadata = WorkflowMetadata(
+        workflow_id="identity-adapter",
+        name="Identity adapter",
+        version="2.0.0",
+        engines=("opaque-engine",),
+    )
+    capabilities = WorkflowCapabilities(supports=("validation",))
+
+    def __init__(self, callback):
+        self._callback = callback
+
+    def schema(self): ...
+    def validate(self, inputs): ...
+    def preview_dag(self, inputs): ...
+    def plan_workspace(self, inputs, workspace): ...
+
+    def build_command(self, plan, workspace):
+        return Result.success(CommandSpec(argv=("unused",)))
+
+    def extract_artifacts(self, inputs, workspace): ...
+
+    def capture_build_identity(self):
+        return self._callback()
+
+
+def _adapter_identity(**overrides) -> WorkflowBuildIdentity:
+    values = {
+        "workflow_id": "identity-adapter",
+        "adapter_version": "2.0.0",
+        "scheme": "adapter-lock-v1",
+        "logical_entrypoint": "main.nf",
+        "digest": "a" * 64,
+        "captured_at": datetime.now(timezone.utc),
+    }
+    values.update(overrides)
+    return WorkflowBuildIdentity(**values)
 
 
 def _project(root: Path, *, marker: str = "same") -> Path:
@@ -38,6 +86,86 @@ def _capture(root: Path):
         create_default_workflow_registry(),
         project_root=root,
     ).capture(WORKFLOW_ID)
+
+
+def test_build_identity_delegates_to_adapter_without_reading_project_root(tmp_path):
+    identity = _adapter_identity()
+    adapter = _IdentityAdapter(lambda: Result.success(identity))
+    provider = WorkflowBuildIdentityProvider(
+        WorkflowRegistry([adapter]),
+        project_root=(tmp_path / "absent").resolve(),
+    )
+
+    result = provider.capture(adapter.metadata.workflow_id)
+
+    assert result.is_success
+    assert result.value is identity
+
+
+def test_build_identity_rejects_mismatched_adapter_identity(tmp_path):
+    adapter = _IdentityAdapter(
+        lambda: Result.success(_adapter_identity(workflow_id="different"))
+    )
+    result = WorkflowBuildIdentityProvider(
+        WorkflowRegistry([adapter]),
+        project_root=tmp_path.resolve(),
+    ).capture(adapter.metadata.workflow_id)
+
+    assert result.is_failure
+    assert result.issues[0].code == "WORKFLOW_BUILD_SOURCE_UNAVAILABLE"
+
+
+def test_build_identity_sanitizes_adapter_failure(tmp_path):
+    secret = str(tmp_path / "private" / "asset-lock")
+    adapter = _IdentityAdapter(
+        lambda: Result.failure(
+            [
+                Issue(
+                    code="PRIVATE_IDENTITY_FAILURE",
+                    message=secret,
+                    technical_message=secret,
+                )
+            ]
+        )
+    )
+    result = WorkflowBuildIdentityProvider(
+        WorkflowRegistry([adapter]),
+        project_root=tmp_path.resolve(),
+    ).capture(adapter.metadata.workflow_id)
+
+    assert result.is_failure
+    assert [issue.code for issue in result.issues] == [
+        "WORKFLOW_BUILD_SOURCE_UNAVAILABLE"
+    ]
+    assert secret not in str(result.issues[0].to_dict())
+
+
+def test_build_identity_sanitizes_adapter_exception(tmp_path):
+    secret = str(tmp_path / "private" / "asset-lock")
+
+    def fail():
+        raise RuntimeError(secret)
+
+    adapter = _IdentityAdapter(fail)
+    result = WorkflowBuildIdentityProvider(
+        WorkflowRegistry([adapter]),
+        project_root=tmp_path.resolve(),
+    ).capture(adapter.metadata.workflow_id)
+
+    assert result.is_failure
+    assert [issue.code for issue in result.issues] == [
+        "WORKFLOW_BUILD_SOURCE_UNAVAILABLE"
+    ]
+    assert secret not in str(result.issues[0].to_dict())
+
+
+def test_encode_build_digest_remains_byte_for_byte_compatible(tmp_path):
+    result = _capture(_project(tmp_path / "project"))
+
+    assert result.is_success
+    assert result.value.digest == (
+        "e51ab94092d85f50baf11ec67056b034b98c05e101fcf0c9c30bd0d3bfdcbd07"
+    )
 
 
 def test_build_digest_is_stable_across_absolute_roots_and_mtimes(tmp_path):

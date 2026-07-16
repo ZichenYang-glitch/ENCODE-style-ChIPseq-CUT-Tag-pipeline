@@ -184,16 +184,30 @@ class LocalPreflightService:
             if current.status is RunStatus.CANCELLED:
                 return self._cancelled_result()
 
+            preflight_kind = final_plan.command_spec.preflight_kind
+            if preflight_kind == "dry_run":
+                completion_message = "Local preflight completed; dry-run succeeded."
+                completion_context = {
+                    "plan_status": final_plan.status.value,
+                    "has_command_spec": final_plan.command_spec is not None,
+                    "reason_code": "PREFLIGHT_COMPLETED",
+                }
+            else:
+                completion_message = (
+                    "Local workflow configuration preflight completed successfully."
+                )
+                completion_context = {
+                    "plan_status": final_plan.status.value,
+                    "has_command_spec": final_plan.command_spec is not None,
+                    "preflight_kind": "configuration",
+                    "reason_code": "PREFLIGHT_CONFIGURATION_COMPLETED",
+                }
             updated = self._run_service.complete_preflight(
                 run_id,
                 build_after.value,
                 stage="preflight",
-                message="Local preflight completed; dry-run succeeded.",
-                context={
-                    "plan_status": final_plan.status.value,
-                    "has_command_spec": final_plan.command_spec is not None,
-                    "reason_code": "PREFLIGHT_COMPLETED",
-                },
+                message=completion_message,
+                context=completion_context,
             )
             return Result.success(updated)
         except Exception:

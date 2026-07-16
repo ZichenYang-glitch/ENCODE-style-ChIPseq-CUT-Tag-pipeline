@@ -976,6 +976,40 @@ def test_work_horse_death_is_mapped_to_durable_failure(tmp_path, monkeypatch):
     assert persisted_assignment.dispatched_at is not None
 
 
+def test_work_horse_cleanup_failure_does_not_fabricate_terminal_failure(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "killed-cleanup-failure",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+    calls = []
+
+    def cleanup(_runtime, run_id):
+        calls.append(run_id)
+        return False
+
+    monkeypatch.setattr(worker_jobs, "_cleanup_runtime_managed_containers", cleanup)
+
+    handle_work_horse_killed(
+        _execution_job(assignment),
+        123,
+        9,
+        object(),
+    )
+
+    record, _events, persisted = _read_run(configured, assignment.run_id)
+    assert calls == [assignment.run_id]
+    assert record.status is RunStatus.PLANNED
+    assert record.error is None
+    assert persisted == assignment
+
+
 def test_stopped_callback_acknowledges_user_intent_after_horse_exit(
     tmp_path,
     monkeypatch,
@@ -1010,6 +1044,38 @@ def test_stopped_callback_acknowledges_user_intent_after_horse_exit(
     )
     assert repeated_events == events
     assert repeated_assignment == persisted
+
+
+def test_stopped_cleanup_failure_leaves_cancellation_unacknowledged(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "cancel-cleanup-failure",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+    claimed = _prepare_running_assignment(configured, assignment, request_cancel=True)
+    calls = []
+
+    def cleanup(_settings, run_id, _run_service):
+        calls.append(run_id)
+        return False
+
+    monkeypatch.setattr(worker_jobs, "_cleanup_settings_managed_containers", cleanup)
+
+    handle_execution_stopped(_execution_job(claimed), fakeredis.FakeRedis())
+
+    record, _events, persisted = _read_run(configured, assignment.run_id)
+    assert calls == [assignment.run_id]
+    assert record.status is RunStatus.RUNNING
+    assert record.ended_at is None
+    assert persisted is not None
+    assert persisted.cancellation_requested_at is not None
+    assert persisted.cancellation_acknowledged_at is None
 
 
 def test_stopped_callback_without_user_intent_fails_truthfully(

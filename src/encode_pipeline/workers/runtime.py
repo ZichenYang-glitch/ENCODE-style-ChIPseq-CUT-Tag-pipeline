@@ -12,6 +12,7 @@ from encode_pipeline.services.command_builder import CommandBuilder
 from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
 from encode_pipeline.services.local_execution import LocalExecutionService
 from encode_pipeline.services.local_run_driver import LocalRunDriver
+from encode_pipeline.services.managed_containers import ManagedContainerCleaner
 from encode_pipeline.services.materialization import WorkspaceMaterializer
 from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 from encode_pipeline.services.preflight import LocalPreflightService
@@ -41,6 +42,7 @@ class WorkerRuntime:
     artifact_extraction_service: ArtifactExtractionService
     qc_summary_indexing_service: QcSummaryIndexingService
     preflight_service: LocalPreflightService
+    managed_container_cleaner: ManagedContainerCleaner | None
 
     def close(self) -> None:
         """Release database resources owned by this job-local runtime."""
@@ -62,9 +64,16 @@ def open_worker_runtime(
     settings: WorkerSettings | None = None,
     *,
     project_root: Path | None = None,
+    registry: WorkflowRegistry | None = None,
     build_identity_provider: WorkflowBuildIdentityProvider | None = None,
+    process_runner: ProcessRunner | None = None,
 ) -> WorkerRuntime:
-    """Reopen SQLite and reconstruct all adapter/execution dependencies."""
+    """Reopen SQLite and reconstruct all adapter/execution dependencies.
+
+    The optional registry and runner are deployment-owned composition seams.
+    Normal worker startup continues to use the ENCODE-only default registry;
+    workflow inputs can never select either dependency.
+    """
     from encode_pipeline.services.defaults import (
         create_default_command_builder,
         create_default_artifact_extraction_service,
@@ -85,24 +94,35 @@ def open_worker_runtime(
 
     persistence = open_run_persistence(resolved_settings.database_url)
     try:
-        source_hint = (
-            build_identity_provider.project_root
-            if build_identity_provider is not None
-            else project_root
-        )
-        registry = create_default_workflow_registry(project_root=source_hint)
-        if build_identity_provider is None:
-            build_identity_provider = create_default_workflow_build_identity_provider(
-                registry=registry,
-                project_root=project_root,
-            )
-        elif not isinstance(
+        if build_identity_provider is not None and not isinstance(
             build_identity_provider,
             WorkflowBuildIdentityProvider,
         ):
             raise ValueError(
                 "build_identity_provider must be a WorkflowBuildIdentityProvider"
             )
+        source_hint = (
+            build_identity_provider.project_root
+            if build_identity_provider is not None
+            else project_root
+        )
+        if registry is None:
+            registry = (
+                build_identity_provider.registry
+                if build_identity_provider is not None
+                else create_default_workflow_registry(project_root=source_hint)
+            )
+        elif not isinstance(registry, WorkflowRegistry):
+            raise ValueError("registry must be a WorkflowRegistry instance or None")
+        if process_runner is not None and not isinstance(process_runner, ProcessRunner):
+            raise ValueError("process_runner must be a ProcessRunner instance or None")
+        if build_identity_provider is None:
+            build_identity_provider = create_default_workflow_build_identity_provider(
+                registry=registry,
+                project_root=project_root,
+            )
+        elif build_identity_provider.registry is not registry:
+            raise ValueError("registry must be the build_identity_provider registry")
         elif (
             project_root is not None
             and build_identity_provider.project_root != project_root
@@ -122,14 +142,27 @@ def open_worker_runtime(
             registry=registry,
             project_root=source_project_root,
         )
+        managed_container_cleaner = (
+            None
+            if resolved_settings.managed_docker_executable is None
+            else ManagedContainerCleaner(
+                executable=resolved_settings.managed_docker_executable,
+                unix_socket=resolved_settings.managed_docker_socket,
+            )
+        )
         local_run_driver = create_default_local_run_driver(
             run_service,
             workspace_root=resolved_settings.workspace_root,
             materializer=materializer,
             command_builder=command_builder,
-            process_runner=ProcessRunner(
-                timeout_seconds=resolved_settings.job_timeout_seconds,
-                passthrough_exceptions=(WorkerHardTimeout,),
+            process_runner=(
+                process_runner
+                if process_runner is not None
+                else ProcessRunner(
+                    timeout_seconds=resolved_settings.job_timeout_seconds,
+                    passthrough_exceptions=(WorkerHardTimeout,),
+                    managed_container_cleaner=managed_container_cleaner,
+                )
             ),
         )
         local_execution_service = create_default_local_execution_service(
@@ -173,6 +206,7 @@ def open_worker_runtime(
             artifact_extraction_service=artifact_extraction_service,
             qc_summary_indexing_service=qc_summary_indexing_service,
             preflight_service=preflight_service,
+            managed_container_cleaner=managed_container_cleaner,
         )
     except BaseException:
         persistence.close()

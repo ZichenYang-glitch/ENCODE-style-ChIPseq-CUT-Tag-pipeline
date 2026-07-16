@@ -19,6 +19,7 @@ if TYPE_CHECKING:
         InputBundleMapping,
         WorkflowInputBundle,
     )
+    from encode_pipeline.platform.builds import WorkflowBuildIdentity
     from encode_pipeline.platform.planning import ExecutionPlan
     from encode_pipeline.platform.runs import RunRecord
 
@@ -35,6 +36,7 @@ MAX_SAMPLE_CELL_LENGTH = 4_096
 _SCHEMA_VERSION_PATTERN = re.compile(r"^[1-9]\d*\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$")
 _MODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _SCHEMA_COVERAGE_VALUES = frozenset({"partial", "complete"})
+_PREFLIGHT_KINDS = frozenset({"dry_run", "configuration"})
 
 VALIDATION_CAPABILITY = "validation"
 DAG_PREVIEW_CAPABILITY = "dag_preview"
@@ -550,6 +552,13 @@ class CommandSpec:
     argv: tuple[str, ...]
     cwd: str | None = None
     env: Mapping[str, str] = field(default_factory=dict)
+    preflight_argv: tuple[str, ...] | None = None
+    preflight_kind: str = "dry_run"
+    preflight_managed_logs: tuple[tuple[str, str], ...] = ()
+    execution_managed_logs: tuple[tuple[str, str], ...] = ()
+    redaction_values: tuple[str, ...] = ()
+    managed_container_scope: str | None = None
+    managed_container_endpoint_identity: str | None = None
 
     def __post_init__(self) -> None:
         argv = _normalize_string_tuple(self.argv, "argv")
@@ -557,16 +566,104 @@ class CommandSpec:
             raise ValueError("CommandSpec argv must be non-empty")
         if self.cwd is not None and not isinstance(self.cwd, str):
             raise ValueError("CommandSpec cwd must be a string or None")
+        preflight_argv = self.preflight_argv
+        if preflight_argv is not None:
+            preflight_argv = _normalize_string_tuple(
+                preflight_argv,
+                "preflight_argv",
+            )
+            if not preflight_argv:
+                raise ValueError("CommandSpec preflight_argv must be non-empty")
+        preflight_kind = self.preflight_kind
+        if (
+            not isinstance(preflight_kind, str)
+            or preflight_kind not in _PREFLIGHT_KINDS
+        ):
+            raise ValueError("CommandSpec preflight_kind is invalid")
+        preflight_managed_logs = _normalize_managed_logs(
+            self.preflight_managed_logs,
+            "preflight_managed_logs",
+        )
+        execution_managed_logs = _normalize_managed_logs(
+            self.execution_managed_logs,
+            "execution_managed_logs",
+        )
+        if preflight_argv is None and (
+            preflight_kind != "dry_run" or preflight_managed_logs
+        ):
+            raise ValueError("CommandSpec preflight settings require preflight_argv")
+        managed_paths = tuple(
+            path
+            for _stream_name, path in (
+                *preflight_managed_logs,
+                *execution_managed_logs,
+            )
+        )
+        if len(managed_paths) != len(set(managed_paths)):
+            raise ValueError("CommandSpec managed log paths must be unique")
         object.__setattr__(self, "argv", argv)
         object.__setattr__(self, "env", _copy_string_mapping(self.env, "env"))
+        object.__setattr__(self, "preflight_argv", preflight_argv)
+        object.__setattr__(self, "preflight_kind", preflight_kind)
+        object.__setattr__(self, "preflight_managed_logs", preflight_managed_logs)
+        object.__setattr__(self, "execution_managed_logs", execution_managed_logs)
+        object.__setattr__(
+            self,
+            "redaction_values",
+            _normalize_string_tuple(self.redaction_values, "redaction_values"),
+        )
+        managed_container_scope = self.managed_container_scope
+        if managed_container_scope is not None and (
+            not isinstance(managed_container_scope, str)
+            or re.fullmatch(r"[0-9a-f]{64}", managed_container_scope) is None
+        ):
+            raise ValueError("CommandSpec managed_container_scope is invalid")
+        object.__setattr__(
+            self,
+            "managed_container_scope",
+            managed_container_scope,
+        )
+        endpoint_identity = self.managed_container_endpoint_identity
+        if endpoint_identity is not None and (
+            not isinstance(endpoint_identity, str)
+            or re.fullmatch(r"[0-9a-f]{64}", endpoint_identity) is None
+        ):
+            raise ValueError(
+                "CommandSpec managed_container_endpoint_identity is invalid"
+            )
+        if (managed_container_scope is None) != (endpoint_identity is None):
+            raise ValueError(
+                "CommandSpec managed container scope and endpoint identity must be paired"
+            )
+        object.__setattr__(
+            self,
+            "managed_container_endpoint_identity",
+            endpoint_identity,
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-ready representation."""
+        """Return a JSON-ready representation with adapter-declared values redacted."""
+        redact = self._redact
         return {
-            "argv": list(self.argv),
-            "cwd": self.cwd,
-            "env": dict(self.env),
+            "argv": [redact(value) for value in self.argv],
+            "cwd": None if self.cwd is None else redact(self.cwd),
+            "env": {key: redact(value) for key, value in self.env.items()},
+            "preflight_argv": (
+                None
+                if self.preflight_argv is None
+                else [redact(value) for value in self.preflight_argv]
+            ),
+            "preflight_kind": self.preflight_kind,
+            "preflight_managed_log_count": len(self.preflight_managed_logs),
+            "execution_managed_log_count": len(self.execution_managed_logs),
+            "redaction_count": len(self.redaction_values),
+            "managed_container_cleanup": self.managed_container_scope is not None,
         }
+
+    def _redact(self, value: str) -> str:
+        for private in sorted(self.redaction_values, key=len, reverse=True):
+            value = value.replace(private, "[REDACTED]")
+        return value
 
 
 @runtime_checkable
@@ -592,8 +689,12 @@ class WorkflowAdapter(Protocol):
     ) -> Result[WorkspacePlan]:
         """Plan workspace directories and files without writing them."""
 
-    def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
-        """Build an engine-neutral command description without executing it."""
+    def build_command(
+        self,
+        plan: WorkspacePlan,
+        workspace: str | Path,
+    ) -> Result[CommandSpec]:
+        """Build a command for an absolute workspace without executing it."""
 
     def extract_artifacts(
         self,
@@ -616,6 +717,14 @@ class QcSummaryExtractingAdapter(Protocol):
         sources: tuple[QcSourceDocument, ...],
     ) -> Result[tuple[ExtractedQcMetricCandidate, ...]]:
         """Map platform-vetted source bytes to neutral QC candidates."""
+
+
+@runtime_checkable
+class WorkflowBuildIdentityProvidingAdapter(Protocol):
+    """Optional adapter contract for immutable workflow build identities."""
+
+    def capture_build_identity(self) -> "Result[WorkflowBuildIdentity]":
+        """Return the immutable source/runtime identity selected by the adapter."""
 
 
 @runtime_checkable
@@ -737,6 +846,53 @@ def _copy_string_mapping(mapping: Mapping[str, str], name: str) -> dict[str, str
         if not isinstance(key, str) or not isinstance(value, str):
             raise ValueError(f"{name} keys and values must be strings")
     return copied
+
+
+def _normalize_managed_logs(
+    values: Iterable[tuple[str, str]],
+    name: str,
+) -> tuple[tuple[str, str], ...]:
+    if isinstance(values, (str, bytes, Mapping)):
+        raise ValueError(f"{name} must be an iterable of stream/path pairs")
+    try:
+        entries = tuple(values)
+    except TypeError as exc:
+        raise ValueError(f"{name} must be an iterable of stream/path pairs") from exc
+
+    normalized: list[tuple[str, str]] = []
+    stream_names: set[str] = set()
+    paths: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, (tuple, list)) or len(entry) != 2:
+            raise ValueError(f"{name} entries must be stream/path pairs")
+        stream_name, path_value = entry
+        if (
+            not isinstance(stream_name, str)
+            or _MODE_PATTERN.fullmatch(stream_name) is None
+        ):
+            raise ValueError(f"{name} stream names must be stable lowercase tokens")
+        if (
+            not isinstance(path_value, str)
+            or not path_value
+            or len(path_value) > 4096
+            or any(character in path_value for character in ("\x00", "\n", "\r"))
+        ):
+            raise ValueError(f"{name} paths must be bounded absolute paths")
+        path = Path(path_value)
+        if (
+            not path.is_absolute()
+            or str(path) != path_value
+            or any(part in {"", ".", ".."} for part in path.parts[1:])
+        ):
+            raise ValueError(f"{name} paths must be bounded absolute paths")
+        if stream_name in stream_names:
+            raise ValueError(f"{name} stream names must be unique")
+        if path_value in paths:
+            raise ValueError(f"{name} paths must be unique")
+        stream_names.add(stream_name)
+        paths.add(path_value)
+        normalized.append((stream_name, path_value))
+    return tuple(normalized)
 
 
 def _copy_samples(samples: SamplePayload) -> SamplePayload:
