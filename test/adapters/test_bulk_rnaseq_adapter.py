@@ -132,12 +132,16 @@ def _sample(
         "library": library,
         "lane": lane,
         "layout": layout,
-        "fastq_1": f"/data/{sample}.{library}.{lane}.R1.fastq.gz",
+        "fastq_1": (
+            f"/data/{sample}_1.{library}.{lane}.fastq.gz"
+            if layout == "PE"
+            else f"/data/{sample}.{library}.{lane}.fastq.gz"
+        ),
         "strandedness": strandedness,
         "platform": "ILLUMINA",
     }
     if layout == "PE":
-        row["fastq_2"] = f"/data/{sample}.{library}.{lane}.R2.fastq.gz"
+        row["fastq_2"] = f"/data/{sample}_2.{library}.{lane}.fastq.gz"
     return row
 
 
@@ -381,7 +385,7 @@ def test_valid_se_and_pe_inputs_normalize_to_star_salmon(layout: str):
     assert result.value["nfcore_params"]["skip_alignment"] is False
     assert result.value["nfcore_params"]["skip_quantification_merge"] is False
     assert set(result.value["nfcore_params"]).issubset(PARAMETER_IMPACT_BY_NATIVE_NAME)
-    expected_fastq_2 = "" if layout == "SE" else "/data/S1.lib1.L001.R2.fastq.gz"
+    expected_fastq_2 = "" if layout == "SE" else "/data/S1_2.lib1.L001.fastq.gz"
     assert result.value["samples"][0]["fastq_2"] == expected_fastq_2
 
 
@@ -451,8 +455,8 @@ def test_validation_does_not_probe_user_paths(monkeypatch: pytest.MonkeyPatch):
         "/refs/gencode.gtf",
         "/refs/rrna/database-manifest.txt",
         "/refs/rrna/sortmerna-index",
-        "/data/S1.lib1.L001.R1.fastq.gz",
-        "/data/S1.lib1.L001.R2.fastq.gz",
+        "/data/S1_1.lib1.L001.fastq.gz",
+        "/data/S1_2.lib1.L001.fastq.gz",
     }
     originals = {
         name: getattr(Path, name) for name in ("exists", "is_file", "stat", "open")
@@ -858,7 +862,7 @@ def test_standard_unknown_fields_bad_digests_and_bool_integer_confusion_fail(mut
                 _sample(sample="S1"),
                 {
                     **_sample(sample="S2"),
-                    "fastq_1": "/data/S1.lib1.L001.R1.fastq.gz",
+                    "fastq_1": "/data/S1_1.lib1.L001.fastq.gz",
                 },
             ],
             "BULK_RNASEQ_FASTQ_DUPLICATE",
@@ -873,7 +877,7 @@ def test_layout_is_explicit_and_not_inferred_from_fastq_names():
     pe_missing_r2 = _sample(layout="PE")
     pe_missing_r2.pop("fastq_2")
     se_with_r2 = _sample(layout="SE")
-    se_with_r2["fastq_2"] = "/data/S1.lib1.L001.R2.fastq.gz"
+    se_with_r2["fastq_2"] = "/data/S1_2.lib1.L001.fastq.gz"
     no_layout = _sample()
     no_layout.pop("layout")
 
@@ -1142,8 +1146,7 @@ def test_sample_ids_reserve_every_pinned_multiqc_cleanup_literal(token: str):
 def test_multiqc_identity_collision_is_rejected_but_safe_underscores_remain_valid():
     assert len(MULTIQC_SAMPLE_CLEAN_TOKENS) == 159
     assert len(set(MULTIQC_SAMPLE_CLEAN_TOKENS)) == 159
-    safe = _sample()
-    safe["sample"] = "tumor_batch_1"
+    safe = _sample(sample="tumor_batch_1")
     assert BulkRnaSeqWorkflowAdapter().validate(_inputs(samples=[safe])).is_success
 
     collision = _sample(sample="tumor_trimmed")
@@ -1154,6 +1157,356 @@ def test_multiqc_identity_collision_is_rejected_but_safe_underscores_remain_vali
         _error_code(WorkflowInputs(config=_config(), samples="/tmp/samples.csv"))
         == "BULK_RNASEQ_SAMPLES_INVALID"
     )
+
+
+@pytest.mark.parametrize("mate", (1, 2))
+def test_multiqc_derived_mate_identity_conflicts_fail_closed_independent_of_order(
+    mate: int,
+):
+    conflicting_single = _sample(sample=f"A_{mate}", layout="SE")
+    conflicting_single["fastq_1"] = f"/data/source-A_{mate}.fastq.gz"
+    rows = [
+        _sample(sample="A", layout="PE"),
+        conflicting_single,
+    ]
+
+    first = BulkRnaSeqWorkflowAdapter().validate(_inputs(samples=rows))
+    reversed_result = BulkRnaSeqWorkflowAdapter().validate(
+        _inputs(samples=list(reversed(rows)))
+    )
+
+    assert first.is_failure
+    assert first.to_dict() == reversed_result.to_dict()
+    assert first.errors[0].code == ("BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT")
+    assert first.errors[0].path == "samples"
+    assert first.errors[0].context == {
+        "identity_space": "multiqc-1.33",
+        "reason_code": "derived_sample_identity_not_unique",
+    }
+
+
+def test_multiqc_identity_graph_deduplicates_lanes_but_not_biological_samples():
+    repeated_lanes = [
+        _sample(sample="A", library="lib1", lane="L001", layout="PE"),
+        _sample(sample="A", library="lib1", lane="L002", layout="PE"),
+    ]
+
+    assert (
+        BulkRnaSeqWorkflowAdapter().validate(_inputs(samples=repeated_lanes)).is_success
+    )
+    conflicting_single = _sample(sample="A_1", layout="SE")
+    conflicting_single["fastq_1"] = "/data/source-A_1.fastq.gz"
+    assert (
+        _error_code(
+            _inputs(
+                samples=[
+                    *repeated_lanes,
+                    conflicting_single,
+                ]
+            )
+        )
+        == "BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT"
+    )
+
+
+def test_umi_discard_uses_effective_se_layout_without_escaping_authored_pe_aliases():
+    umi = {
+        "enabled": True,
+        "mode": "read_sequence",
+        "deduplication_tool": "umitools",
+        "extraction_method": "string",
+        "barcode_pattern": "NNNN",
+        "discard_read": 2,
+    }
+    conflicting = [
+        _sample(sample="A", layout="PE"),
+        _sample(sample="A_1", layout="PE"),
+    ]
+
+    assert (
+        _error_code(_inputs(config=_config(umi=umi), samples=conflicting))
+        == "BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT"
+    )
+
+    safe = BulkRnaSeqWorkflowAdapter().validate(
+        _inputs(
+            config=_config(umi=umi),
+            samples=[
+                _sample(sample="A", layout="PE"),
+                _sample(sample="B", layout="PE"),
+            ],
+        )
+    )
+    assert safe.is_success
+    assert [row["sample"] for row in safe.value["samples"]] == ["A", "B"]
+    assert safe.value["nfcore_params"]["umi_discard_read"] == 2
+
+
+def test_multiqc_identity_check_is_route_specific_and_allows_similar_safe_names():
+    similar = [
+        _sample(sample="A", layout="PE"),
+        _sample(sample="A_3", layout="SE"),
+        _sample(sample="A-1", layout="SE"),
+    ]
+    assert BulkRnaSeqWorkflowAdapter().validate(_inputs(samples=similar)).is_success
+
+    multiqc_disabled = _config(qc={"enabled": True, "multiqc": False})
+    conflicting_single = _sample(sample="A_1", layout="SE")
+    conflicting_single["fastq_1"] = "/data/source-A_1.fastq.gz"
+    collision = [
+        _sample(sample="A", layout="PE"),
+        conflicting_single,
+    ]
+    assert (
+        BulkRnaSeqWorkflowAdapter()
+        .validate(_inputs(config=multiqc_disabled, samples=collision))
+        .is_success
+    )
+
+
+def test_multiqc_fastq_simplename_replacement_cannot_rename_another_sample():
+    paired = _sample(sample="A", layout="PE")
+    paired["fastq_1"] = "/data/source_R1.fastq.gz"
+    paired["fastq_2"] = "/data/source_R2.fastq.gz"
+
+    assert (
+        _error_code(
+            _inputs(
+                samples=[
+                    paired,
+                    _sample(sample="source_R1", layout="SE"),
+                ]
+            )
+        )
+        == "BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT"
+    )
+
+
+@pytest.mark.parametrize(
+    "reverse_rows",
+    (False, True),
+)
+def test_multiqc_no_replacement_read2_identity_cannot_claim_another_sample(
+    reverse_rows: bool,
+):
+    paired = _sample(sample="A", layout="PE")
+    paired["fastq_1"] = "/data/A.fastq.gz"
+    paired["fastq_2"] = "/data/B.fastq.gz"
+    rows = [paired, _sample(sample="B", layout="SE")]
+    if reverse_rows:
+        rows.reverse()
+
+    assert _error_code(_inputs(samples=rows)) == (
+        "BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT"
+    )
+
+
+@pytest.mark.parametrize("read2_identity", ("A", "A_1"))
+def test_multiqc_no_replacement_read2_cannot_collapse_canonical_or_read1_role(
+    read2_identity: str,
+):
+    paired = _sample(sample="A", layout="PE")
+    paired["fastq_1"] = "/data/read1/A.fastq.gz"
+    paired["fastq_2"] = f"/data/read2/{read2_identity}.fastq.gz"
+
+    assert _error_code(_inputs(samples=[paired])) == (
+        "BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT"
+    )
+
+
+def test_multiqc_no_replacement_read2_accepts_its_exact_mate_alias():
+    paired = _sample(sample="A", layout="PE")
+    paired["fastq_1"] = "/data/read1/A.fastq.gz"
+    paired["fastq_2"] = "/data/read2/A_2.fastq.gz"
+
+    assert BulkRnaSeqWorkflowAdapter().validate(_inputs(samples=[paired])).is_success
+
+
+@pytest.mark.parametrize("replacement_layout", ("SE", "PE"))
+@pytest.mark.parametrize("reverse_rows", (False, True))
+@pytest.mark.parametrize("repeated_lane", (False, True))
+def test_multiqc_unmapped_source_key_cannot_be_claimed_by_global_replacement(
+    replacement_layout: str,
+    reverse_rows: bool,
+    repeated_lane: bool,
+):
+    unmapped = _sample(sample="A", layout="PE", lane="L001")
+    unmapped["fastq_1"] = "/data/A.fastq.gz"
+    unmapped["fastq_2"] = "/data/X.fastq.gz"
+    rows = [unmapped]
+    if repeated_lane:
+        repeated = _sample(sample="A", layout="PE", lane="L002")
+        repeated["fastq_1"] = "/data/lane2/A.fastq.gz"
+        repeated["fastq_2"] = "/data/lane2/X.fastq.gz"
+        rows.append(repeated)
+    replacement = _sample(sample="B", layout=replacement_layout)
+    replacement["fastq_1"] = "/other/X.fastq.gz"
+    if replacement_layout == "PE":
+        replacement["fastq_2"] = "/other/Y.fastq.gz"
+    rows.append(replacement)
+    if reverse_rows:
+        rows.reverse()
+
+    assert _error_code(_inputs(samples=rows)) == (
+        "BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT"
+    )
+
+
+@pytest.mark.parametrize("reverse_rows", (False, True))
+def test_multiqc_cleaning_before_exact_replacement_cannot_change_owner(
+    reverse_rows: bool,
+):
+    paired = _sample(sample="A", layout="PE")
+    paired["fastq_1"] = "/data/B_raw.fastq.gz"
+    paired["fastq_2"] = "/data/source_R2.fastq.gz"
+    rows = [paired, _sample(sample="B", layout="SE")]
+    if reverse_rows:
+        rows.reverse()
+
+    assert _error_code(_inputs(samples=rows)) == (
+        "BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT"
+    )
+
+
+@pytest.mark.parametrize(
+    "source_identity",
+    ("A_raw", "A_trimmed", "A_f_rawastqc"),
+)
+def test_multiqc_cleaned_se_source_is_valid_when_final_identity_is_canonical(
+    source_identity: str,
+):
+    single = _sample(sample="A", layout="SE")
+    single["fastq_1"] = f"/data/{source_identity}.fastq.gz"
+
+    result = BulkRnaSeqWorkflowAdapter().validate(_inputs(samples=[single]))
+
+    assert result.is_success
+    assert result.value["samples"][0]["sample"] == "A"
+
+
+@pytest.mark.parametrize(
+    "cleaned_sample",
+    ("A_", "A-", "A_summary", "runs_A"),
+)
+def test_multiqc_fn_clean_trim_cannot_collapse_canonical_sample_identity(
+    cleaned_sample: str,
+):
+    rows = [
+        _sample(sample="A", layout="SE"),
+        _sample(sample=cleaned_sample, layout="SE"),
+    ]
+
+    assert _error_code(_inputs(samples=rows)) == (
+        "BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT"
+    )
+
+
+def test_multiqc_fn_clean_trim_restriction_is_route_specific_and_keeps_internal_tokens():
+    internal = [
+        _sample(sample="A_B", layout="SE"),
+        _sample(sample="A-B", layout="SE"),
+    ]
+    assert BulkRnaSeqWorkflowAdapter().validate(_inputs(samples=internal)).is_success
+
+    multiqc_disabled = _config(qc={"enabled": True, "multiqc": False})
+    trailing = [_sample(sample="A_", layout="SE")]
+    assert (
+        BulkRnaSeqWorkflowAdapter()
+        .validate(_inputs(config=multiqc_disabled, samples=trailing))
+        .is_success
+    )
+
+
+@pytest.mark.parametrize(
+    ("fastq_1", "fastq_2"),
+    (
+        ("/data/A_2.fastq.gz", "/data/source_R2.fastq.gz"),
+        ("/data/source_R1.fastq.gz", "/data/A.fastq.gz"),
+    ),
+)
+def test_multiqc_fastq_simplename_cannot_reassign_a_mate_role(
+    fastq_1: str,
+    fastq_2: str,
+):
+    paired = _sample(sample="A", layout="PE")
+    paired["fastq_1"] = fastq_1
+    paired["fastq_2"] = fastq_2
+
+    assert _error_code(_inputs(samples=[paired])) == (
+        "BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT"
+    )
+
+
+def test_multiqc_fastq_simplename_cannot_map_both_mates_from_one_exact_key():
+    paired = _sample(sample="A", layout="PE")
+    paired["fastq_1"] = "/data/read1/lane.fastq.gz"
+    paired["fastq_2"] = "/data/read2/lane.fastq.gz"
+
+    assert _error_code(_inputs(samples=[paired])) == (
+        "BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT"
+    )
+
+
+@pytest.mark.parametrize(
+    "sample_id",
+    ("bamS1", "SbamX", "S1bam", "bamboo", "bambam"),
+)
+def test_rseqc_tin_rejects_lowercase_bam_sample_identity_before_execution(
+    sample_id: str,
+):
+    config = _config(qc={"enabled": True, "rseqc": True})
+    config["advanced"] = {"rseqc_modules": "tin"}
+
+    result = BulkRnaSeqWorkflowAdapter().validate(
+        _inputs(config=config, samples=[_sample(sample=sample_id)])
+    )
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_RSEQC_TIN_SAMPLE_ID_UNSUPPORTED"
+    assert result.errors[0].path == "samples"
+    assert result.errors[0].context == {
+        "module": "tin",
+        "reason_code": "upstream_filename_rewrite",
+        "tool": "rseqc",
+        "tool_version": "5.0.4",
+    }
+
+
+@pytest.mark.parametrize("sample_id", ("BAMboo", "Bamboo", "baMboo", "bAmboo"))
+def test_rseqc_tin_lowercase_bam_check_is_case_sensitive_and_never_rewrites_ids(
+    sample_id: str,
+):
+    config = _config(qc={"enabled": True, "rseqc": True})
+    config["advanced"] = {"rseqc_modules": "tin"}
+
+    result = BulkRnaSeqWorkflowAdapter().validate(
+        _inputs(config=config, samples=[_sample(sample=sample_id)])
+    )
+
+    assert result.is_success
+    assert result.value["samples"][0]["sample"] == sample_id
+
+
+@pytest.mark.parametrize(
+    "advanced",
+    (
+        {},
+        {"rseqc_modules": "bam_stat"},
+        {"rseqc_modules": "tin", "bam_csi_index": True},
+    ),
+)
+def test_rseqc_tin_sample_identity_restriction_only_applies_to_effective_route(
+    advanced: dict[str, object],
+):
+    config = _config(qc={"enabled": True, "rseqc": True})
+    config["advanced"] = advanced
+
+    result = BulkRnaSeqWorkflowAdapter().validate(
+        _inputs(config=config, samples=[_sample(sample="bamboo")])
+    )
+
+    assert result.is_success
+    assert result.value["samples"][0]["sample"] == "bamboo"
 
 
 @pytest.mark.parametrize(

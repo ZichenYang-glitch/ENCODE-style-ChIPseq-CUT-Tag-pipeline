@@ -124,7 +124,7 @@ def _inputs(
             b'chr1\ttest\texon\t1\t4\t.\t+\t.\tgene_id "g1";\n',
         ),
     }
-    fastq_1 = root / "inputs/sample.R1.fastq.gz"
+    fastq_1 = root / "inputs/S1_1.fastq.gz"
     _write(fastq_1, b"tiny-r1")
     sample = {
         "sample": "S1",
@@ -136,7 +136,7 @@ def _inputs(
         "platform": "ILLUMINA",
     }
     if layout == "PE":
-        fastq_2 = root / "inputs/sample.R2.fastq.gz"
+        fastq_2 = root / "inputs/S1_2.fastq.gz"
         _write(fastq_2, b"tiny-r2")
         sample["fastq_2"] = str(fastq_2)
     return WorkflowInputs(

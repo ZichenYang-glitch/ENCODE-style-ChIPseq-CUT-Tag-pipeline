@@ -69,7 +69,8 @@ def _inputs(
     standard = {"reference": reference, **(standard_updates or {})}
     samples = []
     for index, layout in enumerate(layouts, start=1):
-        fastq_1 = tmp_path / f"inputs/S{index}.R1.fastq.gz"
+        read1_name = f"S{index}_1" if layout == "PE" else f"S{index}"
+        fastq_1 = tmp_path / f"inputs/{read1_name}.fastq.gz"
         row = {
             "sample": f"S{index}",
             "library": "lib1",
@@ -81,7 +82,7 @@ def _inputs(
         }
         _write(fastq_1, f"R1-{index}".encode())
         if layout == "PE":
-            fastq_2 = tmp_path / f"inputs/S{index}.R2.fastq.gz"
+            fastq_2 = tmp_path / f"inputs/S{index}_2.fastq.gz"
             _write(fastq_2, f"R2-{index}".encode())
             row["fastq_2"] = str(fastq_2)
         samples.append(row)
@@ -247,6 +248,32 @@ def test_build_plan_and_command_share_the_binding_admission(
     assert all(item is binding.runtime_admission for item in observed)
 
 
+def test_multiqc_identity_conflict_fails_before_runtime_admission(
+    tmp_path: Path,
+    composed_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    binding, _ = composed_runtime
+    inputs = _inputs(tmp_path, layouts=("PE", "SE"))
+    inputs.samples[0]["sample"] = "A"
+    inputs.samples[1]["sample"] = "A_1"
+
+    def acquire(_binding: BulkRnaSeqExecutionBinding):
+        pytest.fail("runtime admission must not run for invalid sample identities")
+
+    monkeypatch.setattr(execution_module, "_acquire_runtime_assets", acquire)
+
+    result = BulkRnaSeqWorkflowAdapter(execution=binding).plan_workspace(
+        inputs,
+        (tmp_path / "workspace").resolve(),
+    )
+
+    assert result.is_failure
+    assert [issue.code for issue in result.issues] == [
+        "BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT"
+    ]
+
+
 def test_composed_adapter_passes_reusable_conformance(tmp_path: Path, composed_runtime):
     binding, _ = composed_runtime
     valid = _inputs(tmp_path)
@@ -393,12 +420,17 @@ def test_workspace_serializes_single_layout_with_per_row_platform(
     result = adapter.plan_workspace(inputs, workspace)
 
     assert result.is_success
-    fastq_2 = f"{tmp_path}/inputs/S1.R2.fastq.gz" if layout == "PE" else ""
+    fastq_1 = (
+        f"{tmp_path}/inputs/S1_1.fastq.gz"
+        if layout == "PE"
+        else f"{tmp_path}/inputs/S1.fastq.gz"
+    )
+    fastq_2 = f"{tmp_path}/inputs/S1_2.fastq.gz" if layout == "PE" else ""
     _assert_samplesheet_and_params(
         result.value,
         workspace,
         [
-            f"S1,{tmp_path}/inputs/S1.R1.fastq.gz,{fastq_2},auto,ILLUMINA",
+            f"S1,{fastq_1},{fastq_2},auto,ILLUMINA",
         ],
     )
 
@@ -410,8 +442,8 @@ def test_workspace_serializes_repeated_lanes_with_per_row_platform(
     inputs = _inputs(tmp_path)
     second_lane = dict(inputs.samples[0])
     second_lane["lane"] = "L002"
-    second_lane["fastq_1"] = str(tmp_path / "inputs/S1.lib1.L002.R1.fastq.gz")
-    second_lane["fastq_2"] = str(tmp_path / "inputs/S1.lib1.L002.R2.fastq.gz")
+    second_lane["fastq_1"] = str(tmp_path / "inputs/S1_1.lib1.L002.fastq.gz")
+    second_lane["fastq_2"] = str(tmp_path / "inputs/S1_2.lib1.L002.fastq.gz")
     _write(Path(second_lane["fastq_1"]), b"R1-lane-2")
     _write(Path(second_lane["fastq_2"]), b"R2-lane-2")
     inputs.samples.append(second_lane)
@@ -427,12 +459,12 @@ def test_workspace_serializes_repeated_lanes_with_per_row_platform(
         workspace,
         [
             (
-                f"S1,{tmp_path}/inputs/S1.R1.fastq.gz,"
-                f"{tmp_path}/inputs/S1.R2.fastq.gz,auto,ILLUMINA"
+                f"S1,{tmp_path}/inputs/S1_1.fastq.gz,"
+                f"{tmp_path}/inputs/S1_2.fastq.gz,auto,ILLUMINA"
             ),
             (
-                f"S1,{tmp_path}/inputs/S1.lib1.L002.R1.fastq.gz,"
-                f"{tmp_path}/inputs/S1.lib1.L002.R2.fastq.gz,auto,ILLUMINA"
+                f"S1,{tmp_path}/inputs/S1_1.lib1.L002.fastq.gz,"
+                f"{tmp_path}/inputs/S1_2.lib1.L002.fastq.gz,auto,ILLUMINA"
             ),
         ],
     )
@@ -456,10 +488,10 @@ def test_workspace_serializes_mixed_layout_deterministically(
         first.value,
         workspace,
         [
-            f"S1,{tmp_path}/inputs/S1.R1.fastq.gz,,auto,ILLUMINA",
+            f"S1,{tmp_path}/inputs/S1.fastq.gz,,auto,ILLUMINA",
             (
-                f"S2,{tmp_path}/inputs/S2.R1.fastq.gz,"
-                f"{tmp_path}/inputs/S2.R2.fastq.gz,auto,ILLUMINA"
+                f"S2,{tmp_path}/inputs/S2_1.fastq.gz,"
+                f"{tmp_path}/inputs/S2_2.fastq.gz,auto,ILLUMINA"
             ),
         ],
     )

@@ -20,6 +20,16 @@ EXECUTION_IMPLEMENTATION_MANIFEST_FILE = "execution-implementation-manifest-1.0.
 EXECUTION_IMPLEMENTATION_SCHEMA_VERSION = "1.0.0"
 EXECUTION_IMPLEMENTATION_SCHEME = "sha256-framed-execution-implementation-v1"
 
+EXECUTION_MIGRATION_REVISION_PATHS = (
+    "src/encode_pipeline/persistence/alembic/versions/20260711_01_run_persistence.py",
+    "src/encode_pipeline/persistence/alembic/versions/20260711_02_run_execution_assignments.py",
+    "src/encode_pipeline/persistence/alembic/versions/20260712_03_run_workflow_build_identities.py",
+    "src/encode_pipeline/persistence/alembic/versions/20260712_04_run_cancellation_intent.py",
+    "src/encode_pipeline/persistence/alembic/versions/20260712_05_run_qc_metrics.py",
+    "src/encode_pipeline/persistence/alembic/versions/20260714_06_validated_input_snapshots.py",
+    "src/encode_pipeline/persistence/alembic/versions/20260714_07_run_history_indexes.py",
+)
+
 # This is an exact allowlist, not a recursive glob. A new execution dependency
 # is added deliberately and requires regenerating the committed manifest.
 EXECUTION_IMPLEMENTATION_PATHS = (
@@ -46,6 +56,13 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/platform/results.py",
     "src/encode_pipeline/platform/runs.py",
     "src/encode_pipeline/contracts/nfcore_rnaseq/results-contract-3.26.0.json",
+    "src/encode_pipeline/persistence/runtime.py",
+    "src/encode_pipeline/persistence/database.py",
+    "src/encode_pipeline/persistence/migrations.py",
+    "src/encode_pipeline/persistence/models.py",
+    "src/encode_pipeline/persistence/repositories.py",
+    "src/encode_pipeline/persistence/alembic/env.py",
+    *EXECUTION_MIGRATION_REVISION_PATHS,
     "src/encode_pipeline/services/artifact_extraction.py",
     "src/encode_pipeline/services/command_builder.py",
     "src/encode_pipeline/services/defaults.py",
@@ -118,6 +135,7 @@ def verify_execution_implementation(
         root = (
             resources.files("encode_pipeline") if package_root is None else package_root
         )
+        _verify_migration_revision_set(root)
         files: list[ExecutionImplementationFile] = []
         for item in manifest["files"]:
             observed = _read_package_file(root, item["path"])
@@ -155,6 +173,10 @@ def build_execution_implementation_manifest(project_root: Path) -> dict[str, Any
 
     if not isinstance(project_root, Path) or not project_root.is_absolute():
         raise ValueError("project_root must be an absolute Path")
+    try:
+        _verify_migration_revision_set(project_root / "src/encode_pipeline")
+    except _ImplementationFailure as error:
+        raise ValueError("production migration revision set is invalid") from error
     files: list[dict[str, Any]] = []
     for logical_path in EXECUTION_IMPLEMENTATION_PATHS:
         result = safe_regular_file_bytes(
@@ -222,6 +244,48 @@ def _read_contract_manifest() -> bytes:
         EXECUTION_IMPLEMENTATION_MANIFEST_FILE
     )
     return _read_traversable(resource, maximum_bytes=_MAXIMUM_MANIFEST_BYTES)
+
+
+def _verify_migration_revision_set(root: object) -> None:
+    resource = root
+    for part in ("persistence", "alembic", "versions"):
+        if isinstance(resource, Path):
+            resource = resource / part
+        else:
+            joinpath = getattr(resource, "joinpath", None)
+            if not callable(joinpath):
+                raise _ImplementationFailure
+            resource = joinpath(part)
+
+    expected = {PurePosixPath(path).name for path in EXECUTION_MIGRATION_REVISION_PATHS}
+    if isinstance(resource, Path):
+        if resource.is_symlink() or not resource.is_dir():
+            raise _ImplementationFailure
+        entries = tuple(resource.iterdir())
+    else:
+        is_dir = getattr(resource, "is_dir", None)
+        iterdir = getattr(resource, "iterdir", None)
+        if not callable(is_dir) or not is_dir() or not callable(iterdir):
+            raise _ImplementationFailure
+        entries = tuple(iterdir())
+
+    observed: set[str] = set()
+    for entry in entries:
+        name = getattr(entry, "name", None)
+        if (
+            not isinstance(name, str)
+            or not name.endswith(".py")
+            or name == "__init__.py"
+        ):
+            continue
+        is_file = getattr(entry, "is_file", None)
+        if not callable(is_file) or not is_file():
+            raise _ImplementationFailure
+        if isinstance(entry, Path) and entry.is_symlink():
+            raise _ImplementationFailure
+        observed.add(name)
+    if observed != expected:
+        raise _ImplementationFailure
 
 
 def _read_package_file(root: object, logical_path: str) -> bytes:

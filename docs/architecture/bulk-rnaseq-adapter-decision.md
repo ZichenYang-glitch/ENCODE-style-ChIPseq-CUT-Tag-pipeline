@@ -275,7 +275,7 @@ declares `artifact_extract` and `qc_summary_extract` only in addition to the
 verified workspace and command capabilities; the contract-only adapter and the
 default registry remain unchanged. Its versioned results contract is fixed to
 nf-core/rnaseq 3.26.0 STAR+Salmon and has SHA-256
-`62876bd05cff7a4d934faef9ea1808934758ad6ee0e7f828e146228291c2965b`.
+`2e2a64389b66a6fcfb59d83281562b8973bbf3846542a4f20ddaa3bda3e0fe9f`.
 
 Artifact discovery derives a finite list of exact paths from normalized sample
 identities and output-shaping parameters. It does not recursively glob the
@@ -308,7 +308,23 @@ pinned MultiQC defaults and nf-core config that could rewrite an authored
 sample ID. Validation rejects those IDs before execution rather than guessing a
 cleaned name or permitting two biological samples to collapse into one report
 identity. The exact upstream config digests and 159-literal policy are part of
-the versioned result contract.
+the versioned result contract. In addition, canonical validation builds a
+run-global owner map for canonical IDs, the pinned authored-PE `_1`/`_2`
+`table_sample_merge` aliases, actual post-UMI downstream aliases, and exact
+FASTQ `simpleName` replacements. Conflicting owners fail with one stable,
+value-free issue before workspace planning. Ownership includes both canonical
+sample and mate role, so a basename cannot silently reassign R1 to R2. Repeated
+lanes claim the same owner and are valid. The graph mirrors MultiQC 1.33's
+fixed order: prepended nf-core `extra_fn_clean_exts`, default `fn_clean_exts`,
+`fn_clean_trim`, then global exact name replacement. It resolves every observed
+FASTQ identity through the same global replacement table before checking final
+sample-and-mate ownership. It therefore rejects canonical IDs changed by trim
+tokens, replacement keys invalidated by cleaning, duplicate PE source keys,
+cross-sample replacement/no-op collisions, and the R2 role collapse created
+when upstream suppresses both replacements after an R1 no-op. This
+route-specific graph is not applied when MultiQC is disabled.
+The machine-data extractor repeats the Cutadapt row-owner check so a bypassed
+or stale validation snapshot cannot cause dictionary overwrite.
 
 This reservation is a deliberate pre-release correctness amendment to the
 authoring schema labeled 1.0.0 in PR #150. The workflow has never been in the
@@ -332,7 +348,22 @@ runtime-produced sanitized derivative is required for that value.
 RSeQC transcript integrity numbers retain their upstream 0–100 score semantics;
 the workflow-neutral QC unit vocabulary therefore adds `score` rather than
 mislabeling TIN as a fraction or ratio. The RNA-seq adapter, not the platform,
-owns the TIN-specific range check.
+owns the TIN-specific range check. RSeQC 5.0.4 `tin.py` also applies a
+case-sensitive global `basename.replace("bam", "")`, while the pinned nf-core
+wrapper expects the unmodified BAM basename. When the effective module set
+contains TIN, sample IDs containing lowercase `bam` are therefore rejected
+before workspace planning; IDs are never rewritten. CSI indexing removes TIN
+upstream and does not activate this restriction.
+
+The RSeQC inner-distance contract follows the fixed module's output labels:
+`<sample>.inner_distance.txt` is per-read-pair distance detail and is published
+as `bulk_rnaseq.rseqc.inner_distance.distance`; it is not a summary.
+`<sample>.inner_distance_mean.txt` contains the mean, median, and standard
+deviation summary and remains the `.mean` artifact. Salmon 1.10.3 writes
+`num_processed` and `num_mapped` from its observed-fragment and mapped-fragment
+counters. Public metric keys therefore use `processed_fragments` and
+`mapped_fragments`, and `mapping_fraction` is explicitly fragment-based. One PE
+fragment is one read pair; one SE fragment is one single read.
 
 Discovery and indexing each reopen path components and reject observable
 replacement, but they are not one atomic directory snapshot. The existing
@@ -342,7 +373,13 @@ and platform persistence remain explicit deployment risks.
 Execution composition identity includes the adapter variant: `runtime-v1` for
 the execution-only adapter and `results-v1` for the result-capable adapter.
 Consequently their build, workspace, cache, and resume identities cannot be
-interchanged even when they share the same pinned runtime assets.
+interchanged even when they share the same pinned runtime assets. The controlled
+implementation manifest also binds the production SQLite composition,
+SQLAlchemy repository/models, Alembic environment, and the complete current
+upgrade-to-head revision set. An added unlisted revision or a change to atomic
+artifact replacement/QC invalidation makes the old manifest fail closed and
+changes the results build identity; binding only the in-memory repository is
+insufficient.
 
 ## Delivery boundary and consequences
 

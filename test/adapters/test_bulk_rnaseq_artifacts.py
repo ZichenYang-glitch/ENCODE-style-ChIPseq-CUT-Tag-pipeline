@@ -63,20 +63,28 @@ def _inputs(
             "library": "lib1",
             "lane": "L001",
             "layout": layout,
-            "fastq_1": f"/inputs/{sample}.L001.R1.fastq.gz",
+            "fastq_1": (
+                f"/inputs/{sample}_1.L001.fastq.gz"
+                if layout == "PE"
+                else f"/inputs/{sample}.L001.fastq.gz"
+            ),
             "strandedness": "unstranded",
             "platform": "ILLUMINA",
         }
         if layout == "PE":
-            row["fastq_2"] = f"/inputs/{sample}.L001.R2.fastq.gz"
+            row["fastq_2"] = f"/inputs/{sample}_2.L001.fastq.gz"
         rows.append(row)
         if repeated_lane and index == 1:
             repeated = dict(row)
             repeated["library"] = "lib2"
             repeated["lane"] = "L002"
-            repeated["fastq_1"] = f"/inputs/{sample}.L002.R1.fastq.gz"
+            repeated["fastq_1"] = (
+                f"/inputs/{sample}_1.L002.fastq.gz"
+                if layout == "PE"
+                else f"/inputs/{sample}.L002.fastq.gz"
+            )
             if layout == "PE":
-                repeated["fastq_2"] = f"/inputs/{sample}.L002.R2.fastq.gz"
+                repeated["fastq_2"] = f"/inputs/{sample}_2.L002.fastq.gz"
             rows.append(repeated)
     return WorkflowInputs(
         config={"standard": standard, "advanced": advanced or {}},
@@ -300,8 +308,8 @@ def test_default_star_salmon_profile_builds_a_closed_catalog_before_io(
                 "library": "lib1",
                 "lane": "L001",
                 "layout": "PE",
-                "fastq_1": "/inputs/S1.R1.fastq.gz",
-                "fastq_2": "/inputs/S1.R2.fastq.gz",
+                "fastq_1": "/inputs/S1_1.fastq.gz",
+                "fastq_2": "/inputs/S1_2.fastq.gz",
                 "strandedness": "auto",
                 "platform": "ILLUMINA",
             }
@@ -617,6 +625,48 @@ def test_star_salmon_featurecounts_rseqc_and_picard_sources_are_bound(tmp_path: 
     assert "bulk_rnaseq.picard.duplication_metrics" not in types
     for module in ("bam_stat", "infer_experiment", "read_distribution", "tin_summary"):
         assert f"bulk_rnaseq.rseqc.{module}" in types
+
+
+def test_rseqc_inner_distance_uses_fixed_distance_and_mean_output_semantics(
+    tmp_path: Path,
+):
+    qc = {
+        "enabled": True,
+        "fastqc": False,
+        "multiqc": False,
+        "rseqc": True,
+        "qualimap": False,
+        "dupradar": False,
+        "biotype": False,
+        "deseq2_pca": False,
+        "preseq": False,
+        "mark_duplicates": False,
+    }
+    inputs = _inputs(
+        layouts=("PE",),
+        qc=qc,
+        advanced={"rseqc_modules": "inner_distance"},
+    )
+    _write_core(tmp_path, ("S1",))
+    # Fixed nf-core/rnaseq 3.26.0 RSEQC_INNERDISTANCE emits these exact names:
+    # main.nf labels them distance, freq, and mean respectively.
+    for suffix in ("", "_freq", "_mean"):
+        _write(
+            tmp_path,
+            f"star_salmon/rseqc/inner_distance/txt/S1.inner_distance{suffix}.txt",
+        )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_success
+    by_type = {candidate.output_type: candidate for candidate in result.value}
+    assert "bulk_rnaseq.rseqc.inner_distance.summary" not in by_type
+    assert by_type["bulk_rnaseq.rseqc.inner_distance.distance"].relative_path == (
+        "results/star_salmon/rseqc/inner_distance/txt/S1.inner_distance.txt"
+    )
+    assert by_type["bulk_rnaseq.rseqc.inner_distance.mean"].relative_path == (
+        "results/star_salmon/rseqc/inner_distance/txt/S1.inner_distance_mean.txt"
+    )
 
 
 def test_csi_profile_omits_fixed_incompatible_rseqc_modules(tmp_path: Path):

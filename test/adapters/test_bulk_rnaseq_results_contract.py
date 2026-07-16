@@ -63,10 +63,49 @@ def test_results_contract_records_fixed_route_and_explicit_exclusions():
         in contract["explicit_profile_policy"]["trimgalore_metrics"]
     )
     assert "159" in contract["explicit_profile_policy"]["multiqc_sample_identity"]
+    assert (
+        contract["explicit_profile_policy"]["rseqc_tin_sample_identity"]
+        == "effective TIN rejects case-sensitive lowercase bam in sample IDs before workspace planning; authored IDs are never rewritten"
+    )
+    inner_distance = contract["artifact_semantics"]["rseqc_inner_distance"]
+    assert inner_distance["distance"]["output_type"] == (
+        "bulk_rnaseq.rseqc.inner_distance.distance"
+    )
+    assert inner_distance["distance"]["semantic"] == "per_read_pair_detail"
+    assert inner_distance["mean"]["path"] == (
+        "star_salmon/rseqc/inner_distance/txt/<sample>.inner_distance_mean.txt"
+    )
+    assert inner_distance["mean"]["semantic"] == (
+        "mean_median_standard_deviation_summary"
+    )
+    salmon = contract["metric_semantics"]["salmon_meta_info"]
+    assert salmon["num_processed"]["metric_key"] == "salmon.processed_fragments"
+    assert salmon["num_processed"]["display_name"] == "Salmon processed fragments"
+    assert salmon["num_processed"]["unit"] == "count"
+    assert salmon["num_mapped"]["metric_key"] == "salmon.mapped_fragments"
+    assert salmon["num_mapped"]["display_name"] == "Salmon mapped fragments"
+    assert salmon["mapping_fraction"] == {
+        "metric_key": "salmon.mapping_fraction",
+        "display_name": "Salmon mapped fragment fraction",
+        "semantic": "mapped_fragments_divided_by_processed_fragments",
+        "unit": "fraction",
+    }
+    assert salmon["paired_end_fragment"] == "one_read_pair"
+    assert salmon["single_end_fragment"] == "one_single_read"
+    assert contract["upstream_behavior_evidence"]["rseqc_tin"]["version"] == "5.0.4"
     assert contract["multiqc_sample_identity_sources"] == {
+        "multiqc_version": "1.33",
+        "multiqc_package_sha256": (
+            "06e2b82fd9bfa458a79d8da869cb7d88260f624c03297120a70446a49ce852ed"
+        ),
         "multiqc_config_defaults_sha256": (
             "037598900d99fb4a5a32aeea2afffa4702fb2b4c309a05819fd5b1c655ca55de"
         ),
+        "filename_cleaning_order": (
+            "prepended_extra_fn_clean_exts_then_default_fn_clean_exts_then_"
+            "fn_clean_trim_then_global_exact_name_replacement"
+        ),
+        "fn_clean_trim_count": 26,
         "nfcore_multiqc_config_path": (
             "workflows/rnaseq/assets/multiqc/multiqc_config.yml"
         ),

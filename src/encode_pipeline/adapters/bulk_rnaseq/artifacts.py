@@ -1179,7 +1179,7 @@ def _add_rseqc_specs(
             )
         elif module == "inner_distance":
             add(
-                "bulk_rnaseq.rseqc.inner_distance.summary",
+                "bulk_rnaseq.rseqc.inner_distance.distance",
                 f"{_ALIGNER}/rseqc/inner_distance/txt/{sample}.inner_distance.txt",
                 "text/plain",
                 sample=sample,

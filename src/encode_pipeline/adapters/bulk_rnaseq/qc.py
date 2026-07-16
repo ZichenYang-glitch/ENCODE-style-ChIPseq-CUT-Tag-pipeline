@@ -920,7 +920,10 @@ def _parse_multiqc_cutadapt(
         roles = ("single",) if downstream_layout == "SE" else ("read1", "read2")
         for index, role in enumerate(roles, start=1):
             row_name = sample_id if role == "single" else f"{sample_id}_{index}"
-            expected_rows[row_name] = (sample_id, role)
+            owner = (sample_id, role)
+            previous = expected_rows.setdefault(row_name, owner)
+            if previous != owner:
+                raise _QcError("source_contract_invalid")
     if len(rows) != len(expected_rows) + 1:
         raise _QcError("source_contract_invalid")
 
@@ -1279,16 +1282,16 @@ def _parse_salmon(
     source_id = document.source.artifact_id
     return [
         _metric(
-            "salmon.processed_records",
-            "Salmon processed alignment records",
+            "salmon.processed_fragments",
+            "Salmon processed fragments",
             Decimal(processed),
             "count",
             sample_id,
             source_id,
         ),
         _metric(
-            "salmon.mapped_records",
-            "Salmon mapped alignment records",
+            "salmon.mapped_fragments",
+            "Salmon mapped fragments",
             Decimal(mapped),
             "count",
             sample_id,
@@ -1296,7 +1299,7 @@ def _parse_salmon(
         ),
         _metric(
             "salmon.mapping_fraction",
-            "Salmon transcript quantification mapping fraction",
+            "Salmon mapped fragment fraction",
             percent,
             "fraction",
             sample_id,

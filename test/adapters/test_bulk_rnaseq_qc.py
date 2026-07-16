@@ -35,12 +35,16 @@ def _sample(
         "library": "lib1",
         "lane": "L001",
         "layout": layout,
-        "fastq_1": f"/data/{sample}.R1.fastq.gz",
+        "fastq_1": (
+            f"/data/{sample}_1.fastq.gz"
+            if layout == "PE"
+            else f"/data/{sample}.fastq.gz"
+        ),
         "strandedness": strandedness,
         "platform": "ILLUMINA",
     }
     if layout == "PE":
-        row["fastq_2"] = f"/data/{sample}.R2.fastq.gz"
+        row["fastq_2"] = f"/data/{sample}_2.fastq.gz"
     return row
 
 
@@ -696,6 +700,29 @@ def test_multiqc_cutadapt_pe_has_explicit_pre_filter_semantics():
     assert "trimming.read1.retained_reads" not in metrics
 
 
+def test_multiqc_cutadapt_defensively_rejects_duplicate_derived_row_owners():
+    document = _source(
+        "bulk_rnaseq.multiqc.cutadapt",
+        b"Sample\tcutadapt_version\tr_processed\tr_with_adapters\tr_written\t"
+        b"bp_processed\tquality_trimmed\tbp_written\tpercent_trimmed\n"
+        b"A_1\t4.0\t600\t60\t600\t60000\t1000\t54000\t10.0\n"
+        b"A_2\t4.0\t600\t120\t600\t60000\t2000\t48000\t20.0\n",
+        suffix="tsv",
+    )
+    samples = {
+        "A": {"layout": "PE", "strandedness": "forward"},
+        "A_1": {"layout": "SE", "strandedness": "forward"},
+        "A_2": {"layout": "SE", "strandedness": "forward"},
+    }
+
+    with pytest.raises(qc_module._QcError, match="source_contract_invalid"):
+        qc_module._parse_multiqc_cutadapt(
+            document,
+            samples,
+            params={"with_umi": False},
+        )
+
+
 @pytest.mark.parametrize(
     "rows",
     (
@@ -782,6 +809,28 @@ def test_star_and_salmon_semantics_are_distinct_and_exact_decimal():
         metrics["star.uniquely_mapped_fraction"].display_name
         != metrics["salmon.mapping_fraction"].display_name
     )
+
+
+@pytest.mark.parametrize("layout", ("SE", "PE"))
+def test_salmon_meta_info_counts_fragments_not_records_reads_or_alignments(
+    layout: str,
+):
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(samples=[_sample("S1", layout=layout)]),
+        tuple(_core_sources()),
+    )
+
+    metrics = _metric_map(result)
+    assert str(metrics["salmon.processed_fragments"].value) == "1000"
+    assert str(metrics["salmon.mapped_fragments"].value) == "752"
+    assert str(metrics["salmon.mapping_fraction"].value) == "0.7525"
+    assert "salmon.processed_records" not in metrics
+    assert "salmon.mapped_records" not in metrics
+    for key in ("salmon.processed_fragments", "salmon.mapped_fragments"):
+        display_name = metrics[key].display_name.lower()
+        assert "fragment" in display_name
+        assert not {"record", "alignment", "read"}.intersection(display_name.split())
+    assert "fragment" in metrics["salmon.mapping_fraction"].display_name.lower()
 
 
 def test_numeric_leading_authoring_sample_identity_is_valid_for_qc():

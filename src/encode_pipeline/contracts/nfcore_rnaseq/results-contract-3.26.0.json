@@ -57,6 +57,68 @@
     {"prefix": "featurecounts", "units": ["count", "fraction"], "scope": "sample"},
     {"prefix": "rseqc", "units": ["count", "fraction", "ratio", "score"], "scope": "sample"}
   ],
+  "artifact_semantics": {
+    "rseqc_inner_distance": {
+      "distance": {
+        "output_type": "bulk_rnaseq.rseqc.inner_distance.distance",
+        "path": "star_salmon/rseqc/inner_distance/txt/<sample>.inner_distance.txt",
+        "semantic": "per_read_pair_detail"
+      },
+      "frequency": {
+        "output_type": "bulk_rnaseq.rseqc.inner_distance.freq",
+        "path": "star_salmon/rseqc/inner_distance/txt/<sample>.inner_distance_freq.txt",
+        "semantic": "insert_size_frequency"
+      },
+      "mean": {
+        "output_type": "bulk_rnaseq.rseqc.inner_distance.mean",
+        "path": "star_salmon/rseqc/inner_distance/txt/<sample>.inner_distance_mean.txt",
+        "semantic": "mean_median_standard_deviation_summary"
+      }
+    }
+  },
+  "metric_semantics": {
+    "salmon_meta_info": {
+      "num_processed": {
+        "metric_key": "salmon.processed_fragments",
+        "display_name": "Salmon processed fragments",
+        "semantic": "observed_fragments",
+        "unit": "count"
+      },
+      "num_mapped": {
+        "metric_key": "salmon.mapped_fragments",
+        "display_name": "Salmon mapped fragments",
+        "semantic": "mapped_fragments",
+        "unit": "count"
+      },
+      "mapping_fraction": {
+        "metric_key": "salmon.mapping_fraction",
+        "display_name": "Salmon mapped fragment fraction",
+        "semantic": "mapped_fragments_divided_by_processed_fragments",
+        "unit": "fraction"
+      },
+      "paired_end_fragment": "one_read_pair",
+      "single_end_fragment": "one_single_read"
+    }
+  },
+  "upstream_behavior_evidence": {
+    "rseqc_inner_distance": {
+      "version": "5.0.4",
+      "nfcore_module_path": "modules/nf-core/rseqc/innerdistance/main.nf",
+      "nfcore_module_size": 1892,
+      "nfcore_module_sha256": "7450e476b2bd4def87904e202e131c8cc675c9ded4860ec55720f799711165cc"
+    },
+    "rseqc_tin": {
+      "version": "5.0.4",
+      "behavior": "tin.py applies a case-sensitive global basename.replace('bam', '') while the pinned nf-core wrapper expects bam.baseName outputs",
+      "package_sha256": "2efb38bf459257693abfc952b0557be862a780240e8a49f3a4f90362b6645ca6"
+    },
+    "salmon_meta_info": {
+      "version": "1.10.3",
+      "behavior": "num_processed and num_mapped are emitted from numObservedFragments and numMappedFragments",
+      "audited_source_path": "src/GZipWriter.cpp",
+      "audited_source_sha256": "7880e0b8c8f5313eeb7486f21d08b9cefe279ec2447d602a94ec6a0497f64d5a"
+    }
+  },
   "public_exclusions": [
     {"path": "multiqc/star_salmon/multiqc_report.html", "reason": "MultiQC 1.33 embeds analysis-file paths unless a future pinned runtime gate proves a privacy override"},
     {"path": "multiqc/star_salmon/multiqc_report_data/multiqc_data.json", "reason": "contains command and absolute path fields"},
@@ -94,10 +156,15 @@
     "sample_threshold_filtering": "fixed_multiqc_status_tables define filtered samples; equality with min_trimmed_reads remains execution-passing; without MultiQC an ambiguous missing threshold-sensitive output fails with sample_status_unavailable",
     "umi_discard_read_layout": "a discarded mate makes the post-extraction route single-end while raw FastQC and saved UMI-extracted reads retain the authored paired layout",
     "rseqc_csi": "inner_distance, read_distribution, and tin are removed exactly as defineQcTools does for bam_csi_index",
-    "multiqc_sample_identity": "sample identifiers containing any of the 159 identifier-alphabet literals cleaned by MultiQC 1.33 defaults or the pinned nf-core config are reserved and rejected before execution"
+    "multiqc_sample_identity": "sample identifiers containing any of the 159 identifier-alphabet literals cleaned by MultiQC 1.33 defaults or the pinned nf-core config are reserved; when MultiQC is enabled, canonical IDs, authored-PE aliases, effective downstream aliases, and FASTQ simpleNames after prepended extra_fn_clean_exts, default fn_clean_exts, fn_clean_trim, and global exact replacement must have one sample-and-mate-role owner before execution",
+    "rseqc_tin_sample_identity": "effective TIN rejects case-sensitive lowercase bam in sample IDs before workspace planning; authored IDs are never rewritten"
   },
   "multiqc_sample_identity_sources": {
+    "multiqc_version": "1.33",
+    "multiqc_package_sha256": "06e2b82fd9bfa458a79d8da869cb7d88260f624c03297120a70446a49ce852ed",
     "multiqc_config_defaults_sha256": "037598900d99fb4a5a32aeea2afffa4702fb2b4c309a05819fd5b1c655ca55de",
+    "filename_cleaning_order": "prepended_extra_fn_clean_exts_then_default_fn_clean_exts_then_fn_clean_trim_then_global_exact_name_replacement",
+    "fn_clean_trim_count": 26,
     "nfcore_multiqc_config_path": "workflows/rnaseq/assets/multiqc/multiqc_config.yml",
     "nfcore_multiqc_config_size": 8940,
     "nfcore_multiqc_config_sha256": "d859d137f2aa7800f7e12a84dec6658b1f558197e08f3041d05cd69fa6aa0b7e"

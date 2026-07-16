@@ -10,9 +10,9 @@ from typing import Any, Mapping
 
 
 RESULTS_CONTRACT_FILE = "results-contract-3.26.0.json"
-RESULTS_CONTRACT_SIZE = 7_400
+RESULTS_CONTRACT_SIZE = 10_586
 RESULTS_CONTRACT_SHA256 = (
-    "62876bd05cff7a4d934faef9ea1808934758ad6ee0e7f828e146228291c2965b"
+    "2e2a64389b66a6fcfb59d83281562b8973bbf3846542a4f20ddaa3bda3e0fe9f"
 )
 _CONTRACT_PACKAGE = "encode_pipeline.contracts.nfcore_rnaseq"
 _DEFAULT_RSEQC_MODULES = (
