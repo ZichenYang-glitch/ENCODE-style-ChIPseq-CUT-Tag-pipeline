@@ -633,7 +633,7 @@ class QcMetricResponse(BaseModel):
         pattern=r"^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?$",
         max_length=40,
     )
-    unit: Literal["count", "fraction", "ratio"]
+    unit: Literal["count", "fraction", "ratio", "score"]
     scope: Literal["run", "sample", "experiment"]
     sample_id: str | None = Field(max_length=255)
     experiment_id: str | None = Field(max_length=255)

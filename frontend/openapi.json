@@ -1892,7 +1892,8 @@
             "enum": [
               "count",
               "fraction",
-              "ratio"
+              "ratio",
+              "score"
             ],
             "title": "Unit"
           },

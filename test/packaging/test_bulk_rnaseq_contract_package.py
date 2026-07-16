@@ -48,6 +48,10 @@ RUNTIME_EXPECTED = {
         5_340,
         "5196c09a97b15ca8b51497234c13a0a13521f3b1819db69fcf4891aafc3a59c1",
     ),
+    "results-contract-3.26.0.json": (
+        7_400,
+        "62876bd05cff7a4d934faef9ea1808934758ad6ee0e7f828e146228291c2965b",
+    ),
 }
 EXPECTED = {**UPSTREAM_EXPECTED, **RUNTIME_EXPECTED}
 

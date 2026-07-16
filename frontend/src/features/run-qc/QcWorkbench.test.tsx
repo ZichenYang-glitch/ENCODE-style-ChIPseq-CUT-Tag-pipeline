@@ -237,4 +237,29 @@ describe('QcWorkbench pagination and recovery', () => {
     expect(await screen.findByText('QC metrics could not be loaded')).toBeInTheDocument();
     expect(screen.queryByText('Mapped reads')).not.toBeInTheDocument();
   });
+
+  it('accepts the workflow-neutral score unit and rejects unknown units', async () => {
+    const scoreMetric = {
+      ...metric(METRIC_A, 'TIN mean score'),
+      value: '72.125',
+      unit: 'score' as const,
+    };
+    listQcMetricsMock.mockResolvedValueOnce(page([scoreMetric]));
+    const accepted = renderWorkbench();
+    expect(await screen.findAllByText('TIN mean score')).not.toHaveLength(0);
+    expect(screen.getAllByText('score').length).toBeGreaterThan(0);
+    accepted.unmount();
+
+    listQcMetricsMock.mockResolvedValueOnce(
+      page([
+        {
+          ...metric(METRIC_B, 'Unknown unit'),
+          unit: 'percent',
+        } as unknown as QcMetricResponse,
+      ]),
+    );
+    renderWorkbench();
+    expect(await screen.findByText('QC metrics could not be loaded')).toBeInTheDocument();
+    expect(screen.queryByText('Unknown unit')).not.toBeInTheDocument();
+  });
 });

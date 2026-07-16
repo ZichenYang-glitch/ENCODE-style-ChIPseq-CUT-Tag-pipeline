@@ -13,6 +13,7 @@ from encode_pipeline.platform.adapters import (
     CommandSpec,
     DagPreview,
     ExtractedQcMetricCandidate,
+    MAX_SAMPLE_ROWS,
     WorkflowCapabilities,
     WorkflowInputs,
     WorkflowMetadata,
@@ -228,6 +229,35 @@ def test_index_builds_deterministic_metrics_and_is_idempotent(tmp_path):
     ) == 1
 
 
+def test_source_count_limit_covers_the_platform_authoring_row_bound():
+    import encode_pipeline.services.qc_summary_indexing as module
+
+    assert module._MAX_SOURCE_FILES >= MAX_SAMPLE_ROWS * 14 + 4
+    assert module._MAX_QC_METRICS >= MAX_SAMPLE_ROWS * 100
+
+
+def test_index_accepts_and_persists_a_workflow_neutral_score_unit(tmp_path):
+    candidate = _candidate(
+        metric_key="rseqc.tin.mean_score",
+        display_name="RSeQC mean transcript integrity number",
+        value=Decimal("72.125"),
+        unit="score",
+    )
+    adapter = QcAdapter((candidate,))
+    artifact = _artifact()
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path, adapter, artifacts=(artifact,)
+    )
+    (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+
+    result = service.index("run-1", artifacts)
+
+    assert result.is_success
+    assert result.value[0].unit == "score"
+    assert result.value[0].value == Decimal("72.125")
+    assert run_service.list_qc_metrics("run-1") == result.value
+
+
 def test_digit_leading_canonical_run_id_indexes_qc(tmp_path):
     run_id = "1f72c3d4-0000-4000-8000-000000000000"
     adapter = QcAdapter((_candidate(),))
@@ -370,7 +400,7 @@ def test_source_size_must_match_persisted_artifact_metadata(tmp_path, size_bytes
 
 @pytest.mark.parametrize(
     "size_bytes",
-    (True, "8", -1, 1024 * 1024 + 1),
+    (True, "8", -1, 16 * 1024 * 1024 + 1),
 )
 def test_source_size_metadata_must_be_a_bounded_nonnegative_integer(
     tmp_path,
@@ -390,6 +420,174 @@ def test_source_size_metadata_must_be_a_bounded_nonnegative_integer(
     assert result.is_failure
     assert adapter.calls == 0
     assert run_service.list_qc_metrics("run-1") == ()
+
+
+def test_fastqc_sized_machine_readable_source_is_supported(tmp_path):
+    content = b"x" * (2 * 1024 * 1024)
+    adapter = QcAdapter()
+    artifact = _artifact(size_bytes=len(content))
+    service, _run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(artifact,),
+    )
+    (workspace / "results/summary.tsv").write_bytes(content)
+
+    result = service.index("run-1", artifacts)
+
+    assert result.is_success
+    assert adapter.calls == 1
+    assert adapter.documents[0].content == content
+
+
+def test_qc_source_file_count_is_bounded_before_reading(tmp_path, monkeypatch):
+    import encode_pipeline.services.qc_summary_indexing as module
+
+    monkeypatch.setattr(module, "_MAX_SOURCE_FILES", 1)
+    first = _artifact(
+        artifact_id="artifact-1",
+        relative_path="results/one.tsv",
+        size_bytes=3,
+    )
+    second = _artifact(
+        artifact_id="artifact-2",
+        relative_path="results/two.tsv",
+        size_bytes=3,
+    )
+    adapter = QcAdapter()
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(second, first),
+    )
+    (workspace / "results/one.tsv").write_bytes(b"one")
+    (workspace / "results/two.tsv").write_bytes(b"two")
+
+    result = service.index("run-1", tuple(reversed(artifacts)))
+
+    assert result.is_failure
+    assert adapter.calls == 0
+    assert run_service.list_events("run-1")[-1].context == {
+        "reason_code": "QC_INDEXING_SOURCE_VALIDATION_FAILED"
+    }
+
+
+def test_qc_source_total_bytes_are_bounded_before_reading(tmp_path, monkeypatch):
+    import encode_pipeline.services.qc_summary_indexing as module
+
+    monkeypatch.setattr(module, "_MAX_TOTAL_SOURCE_BYTES", 5)
+    first = _artifact(
+        artifact_id="artifact-1",
+        relative_path="results/one.tsv",
+        size_bytes=3,
+    )
+    second = _artifact(
+        artifact_id="artifact-2",
+        relative_path="results/two.tsv",
+        size_bytes=3,
+    )
+    adapter = QcAdapter()
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(first, second),
+    )
+    (workspace / "results/one.tsv").write_bytes(b"one")
+    (workspace / "results/two.tsv").write_bytes(b"two")
+
+    result = service.index("run-1", artifacts)
+
+    assert result.is_failure
+    assert adapter.calls == 0
+    assert run_service.list_qc_metrics("run-1") == ()
+
+
+def test_multiple_qc_sources_are_delivered_in_deterministic_order(tmp_path):
+    first = _artifact(
+        artifact_id="artifact-a",
+        relative_path="results/a.tsv",
+        size_bytes=1,
+    )
+    second = _artifact(
+        artifact_id="artifact-b",
+        relative_path="results/b.tsv",
+        size_bytes=1,
+    )
+    adapter = QcAdapter()
+    service, _run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(second, first),
+    )
+    (workspace / "results/a.tsv").write_bytes(b"a")
+    (workspace / "results/b.tsv").write_bytes(b"b")
+
+    first_result = service.index("run-1", artifacts)
+    first_documents = adapter.documents
+    second_result = service.index("run-1", tuple(reversed(artifacts)))
+
+    assert first_result.is_success and second_result.is_success
+    assert first_documents == adapter.documents
+    assert [document.source.artifact_id for document in adapter.documents] == [
+        "artifact-a",
+        "artifact-b",
+    ]
+
+
+def test_qc_source_path_component_count_is_bounded(tmp_path, monkeypatch):
+    import encode_pipeline.services.qc_summary_indexing as module
+
+    monkeypatch.setattr(module, "_MAX_SOURCE_PATH_COMPONENTS", 2)
+    artifact = _artifact(
+        relative_path="results/nested/summary.tsv",
+        size_bytes=1,
+    )
+    adapter = QcAdapter()
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(artifact,),
+    )
+    target = workspace / "results/nested/summary.tsv"
+    target.parent.mkdir()
+    target.write_bytes(b"x")
+
+    result = service.index("run-1", artifacts)
+
+    assert result.is_failure
+    assert adapter.calls == 0
+    assert run_service.list_qc_metrics("run-1") == ()
+
+
+def test_qc_metric_candidate_count_is_bounded_before_persistence(
+    tmp_path,
+    monkeypatch,
+):
+    import encode_pipeline.services.qc_summary_indexing as module
+
+    monkeypatch.setattr(module, "_MAX_QC_METRICS", 1)
+    adapter = QcAdapter(
+        (
+            _candidate(),
+            _candidate(metric_key="peaks.nsc"),
+        )
+    )
+    artifact = _artifact()
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(artifact,),
+    )
+    (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+
+    result = service.index("run-1", artifacts)
+
+    assert result.is_failure
+    assert adapter.calls == 1
+    assert run_service.list_qc_metrics("run-1") == ()
+    assert run_service.list_events("run-1")[-1].context == {
+        "reason_code": "QC_INDEXING_VALIDATION_FAILED"
+    }
 
 
 def test_size_mismatch_preserves_previous_complete_qc_index(tmp_path):
@@ -450,6 +648,47 @@ def test_source_change_during_read_fails_before_adapter(tmp_path, monkeypatch):
     assert changed is True
     assert adapter.calls == 0
     assert run_service.list_qc_metrics("run-1") == ()
+
+
+def test_source_entry_replacement_during_read_fails_before_adapter(
+    tmp_path,
+    monkeypatch,
+):
+    import encode_pipeline.services.qc_summary_indexing as module
+
+    adapter = QcAdapter((_candidate(),))
+    artifact = _artifact()
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(artifact,),
+    )
+    source = workspace / "results/summary.tsv"
+    source.write_bytes(b"safe-qc\n")
+    displaced = workspace / "results/displaced.tsv"
+    real_read = module.os.read
+    replaced = False
+
+    def replacing_read(descriptor, size):
+        nonlocal replaced
+        content = real_read(descriptor, size)
+        if content and not replaced:
+            replaced = True
+            source.rename(displaced)
+            source.write_bytes(b"other-qc")
+        return content
+
+    monkeypatch.setattr(module.os, "read", replacing_read)
+
+    result = service.index("run-1", artifacts)
+
+    assert result.is_failure
+    assert replaced is True
+    assert adapter.calls == 0
+    assert run_service.list_qc_metrics("run-1") == ()
+    event = run_service.list_events("run-1")[-1]
+    assert event.context == {"reason_code": "QC_INDEXING_SOURCE_VALIDATION_FAILED"}
+    assert str(workspace) not in str(event.to_dict())
 
 
 @pytest.mark.parametrize(

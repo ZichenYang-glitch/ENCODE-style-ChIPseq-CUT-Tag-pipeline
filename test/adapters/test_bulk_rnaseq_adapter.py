@@ -11,9 +11,17 @@ import jsonschema
 import pytest
 
 from encode_pipeline import __version__
-from encode_pipeline.adapters.bulk_rnaseq import BulkRnaSeqWorkflowAdapter
+from encode_pipeline.adapters.bulk_rnaseq import (
+    BulkRnaSeqExecutionBinding,
+    BulkRnaSeqResultsWorkflowAdapter,
+    BulkRnaSeqWorkflowAdapter,
+    RuntimeAssetBinding,
+)
 from encode_pipeline.adapters.bulk_rnaseq.adapter import WORKFLOW_ID
-from encode_pipeline.adapters.bulk_rnaseq.authoring import SCHEMA_VERSION
+from encode_pipeline.adapters.bulk_rnaseq.authoring import (
+    MULTIQC_SAMPLE_CLEAN_TOKENS,
+    SCHEMA_VERSION,
+)
 from encode_pipeline.adapters.bulk_rnaseq.upstream import (
     ADVANCED_NATIVE_PARAMETERS,
     FIXED_PRODUCT_NATIVE_PARAMETERS,
@@ -162,6 +170,36 @@ def test_adapter_identity_and_capabilities_are_truthful():
     assert adapter.metadata.engines == ("nextflow",)
     assert adapter.metadata.version == __version__
     assert adapter.capabilities.supports == ("validation", "input_authoring")
+
+
+def test_results_capabilities_require_explicit_runtime_composition(tmp_path: Path):
+    binding = BulkRnaSeqExecutionBinding(
+        assets=RuntimeAssetBinding(root=(tmp_path / "runtime").resolve())
+    )
+    adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
+
+    assert isinstance(adapter, WorkflowAdapter)
+    assert isinstance(adapter, QcSummaryExtractingAdapter)
+    assert adapter.capabilities.supports == (
+        "validation",
+        "input_authoring",
+        "workspace_plan",
+        "command",
+        "artifact_extract",
+        "qc_summary_extract",
+    )
+    assert BulkRnaSeqWorkflowAdapter(execution=binding).capabilities.supports == (
+        "validation",
+        "input_authoring",
+        "workspace_plan",
+        "command",
+    )
+    assert not create_default_workflow_registry().has("bulk-rnaseq")
+
+
+def test_results_adapter_rejects_missing_runtime_binding():
+    with pytest.raises(ValueError, match="BulkRnaSeqExecutionBinding"):
+        BulkRnaSeqResultsWorkflowAdapter(execution=None)  # type: ignore[arg-type]
 
 
 def test_adapter_passes_reusable_conformance_suite(tmp_path: Path):
@@ -1090,6 +1128,27 @@ def test_advanced_context_conflicts_fail_closed(
 def test_options_and_server_path_samples_are_not_accepted():
     assert _error_code(_inputs(options={"strict": True})) == (
         "BULK_RNASEQ_OPTIONS_INVALID"
+    )
+
+
+@pytest.mark.parametrize("token", MULTIQC_SAMPLE_CLEAN_TOKENS)
+def test_sample_ids_reserve_every_pinned_multiqc_cleanup_literal(token: str):
+    row = _sample()
+    row["sample"] = f"S{token}X"
+
+    assert _error_code(_inputs(samples=[row])) == "BULK_RNASEQ_SAMPLES_INVALID"
+
+
+def test_multiqc_identity_collision_is_rejected_but_safe_underscores_remain_valid():
+    assert len(MULTIQC_SAMPLE_CLEAN_TOKENS) == 159
+    assert len(set(MULTIQC_SAMPLE_CLEAN_TOKENS)) == 159
+    safe = _sample()
+    safe["sample"] = "tumor_batch_1"
+    assert BulkRnaSeqWorkflowAdapter().validate(_inputs(samples=[safe])).is_success
+
+    collision = _sample(sample="tumor_trimmed")
+    assert _error_code(_inputs(samples=[_sample(sample="tumor"), collision])) == (
+        "BULK_RNASEQ_SAMPLES_INVALID"
     )
     assert (
         _error_code(WorkflowInputs(config=_config(), samples="/tmp/samples.csv"))

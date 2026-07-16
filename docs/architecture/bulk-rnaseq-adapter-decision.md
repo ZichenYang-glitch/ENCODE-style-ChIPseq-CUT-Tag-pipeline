@@ -1,7 +1,8 @@
 # Bulk RNA-seq Offline Execution Boundary
 
 Status: Accepted for phased implementation. PR #151 enables only an explicitly
-runtime-composed adapter; product exposure remains deferred.
+runtime-composed adapter and PR #152 adds its closed result contract; product
+exposure remains deferred.
 
 ## Context and decision
 
@@ -267,6 +268,82 @@ both mates are unmapped. It does not publish the final paired filtered FASTQ for
 reads for Bowtie2 single-end runs only and rejects that request for paired or
 mixed layouts. RiboDetector and GPU RiboDetector remain outside schema 1.0.0.
 
+## Result boundary
+
+PR #152 adds a separate, explicitly runtime-composed results adapter. It
+declares `artifact_extract` and `qc_summary_extract` only in addition to the
+verified workspace and command capabilities; the contract-only adapter and the
+default registry remain unchanged. Its versioned results contract is fixed to
+nf-core/rnaseq 3.26.0 STAR+Salmon and has SHA-256
+`62876bd05cff7a4d934faef9ea1808934758ad6ee0e7f828e146228291c2965b`.
+
+Artifact discovery derives a finite list of exact paths from normalized sample
+identities and output-shaping parameters. It does not recursively glob the
+results tree. It checks the fixed STAR+Salmon namespaces for foreign sample
+identities, reads the two bounded MultiQC sample-threshold tables when present,
+and treats every other required-path absence as failure. `save_reference` and
+StringTie remain fail-closed until their complete trees have manifests.
+Qualimap, dupRadar, DESeq2 QC plots, preseq, generated scripts, opaque R
+objects, raw tool logs, and files known to contain commands or private paths
+are explicit public exclusions rather than dynamically discovered artifacts.
+MultiQC 1.33 HTML is also excluded because its default report embeds analysis
+file paths; publication requires a future pinned privacy-override canary.
+Nextflow execution reports and logs remain platform-private outside the
+results root; moving them would not make their commands, work paths, and engine
+state suitable public artifacts.
+
+The workflow-neutral artifact and QC services enforce descriptor-relative
+no-follow reads, regular-file and component checks, stable identity reopens, a
+1 TiB per-artifact ceiling, and finite candidate/source/metric ceilings derived
+to cover the platform's 1,000-row authoring bound. The bulk result contract
+records their exact values, including 16 MiB per QC source and 256 MiB total.
+Persisted artifact identity, size, produced time, and metric produced time
+remain platform concerns. The bulk adapter supplies stable output types, media
+types, sample/run scope, assay, and deterministic ordering. The authoring
+contract has no experiment identity, so it is not invented in result metadata.
+
+MultiQC 1.33 filename cleaning is not injective over the original 1.0.0 sample
+identifier alphabet. The adapter therefore reserves every literal from the
+pinned MultiQC defaults and nf-core config that could rewrite an authored
+sample ID. Validation rejects those IDs before execution rather than guessing a
+cleaned name or permitting two biological samples to collapse into one report
+identity. The exact upstream config digests and 159-literal policy are part of
+the versioned result contract.
+
+This reservation is a deliberate pre-release correctness amendment to the
+authoring schema labeled 1.0.0 in PR #150. The workflow has never been in the
+default registry or product API, so no user-visible 1.0.0 input contract has
+been released. The amendment is made before exposure; after product release,
+an accepted-set change requires a new schema version and compatibility policy.
+
+QC uses a closed source and metric catalog: FastQC 0.12.1 ZIP data, fastp 1.0.1
+JSON, sanitized MultiQC 1.33 Cutadapt and Picard tables, STAR final summaries,
+Salmon metadata, featureCounts summaries, and selected RSeQC 5.0.4 native
+tables. MultiQC HTML is neither published nor parsed. Percentages are converted directly to
+`Decimal` fractions, unknown or duplicate semantic coordinates fail, and
+missing optional tools never produce synthetic zeroes. Trimmed FastQC `Total
+Sequences` provides an exact final retained-read count; paired mates must
+agree. MultiQC Cutadapt integer fields provide exact input and
+post-adapter/quality base counts before later length/pair filtering. FastQC
+abbreviates `Total Bases`, while the pinned Trim Galore module does not publish
+its exact JSON and its raw report contains command-line fields, so PR #152 does
+not mislabel either source as an exact final retained-base metric. A future
+runtime-produced sanitized derivative is required for that value.
+RSeQC transcript integrity numbers retain their upstream 0–100 score semantics;
+the workflow-neutral QC unit vocabulary therefore adds `score` rather than
+mislabeling TIN as a fraction or ratio. The RNA-seq adapter, not the platform,
+owns the TIN-specific range check.
+
+Discovery and indexing each reopen path components and reject observable
+replacement, but they are not one atomic directory snapshot. The existing
+input-path TOCTOU and the result replacement interval between adapter discovery
+and platform persistence remain explicit deployment risks.
+
+Execution composition identity includes the adapter variant: `runtime-v1` for
+the execution-only adapter and `results-v1` for the result-capable adapter.
+Consequently their build, workspace, cache, and resume identities cannot be
+interchanged even when they share the same pinned runtime assets.
+
 ## Delivery boundary and consequences
 
 The runtime-composed adapter may truthfully declare workspace and command
@@ -274,11 +351,11 @@ capabilities after its assets are verified. The default adapter instance remains
 contract-only, and `bulk-rnaseq` is not added to the default registry, API, or
 frontend in PR #151. No real STAR+Salmon scientific acceptance is claimed.
 
-Artifact discovery and machine-readable QC extraction remain PR #152; HTML
-scraping will not define their core contract. Tiny `rapid_quant` qualification
-and the full local STAR+Salmon acceptance gate remain PR #153; `rapid_quant` is
-not the default product analysis. Default registry and product UI exposure
-remain PR #154.
+PR #152 supplies deterministic artifact discovery and machine-readable QC
+extraction without HTML scraping, but does not claim scientific execution
+acceptance. Tiny `rapid_quant` qualification and the full local STAR+Salmon
+acceptance gate remain PR #153; `rapid_quant` is not the default product
+analysis. Default registry and product UI exposure remain PR #154.
 
 Official upstream coordinates:
 [nf-core/rnaseq 3.26.0](https://github.com/nf-core/rnaseq/releases/tag/3.26.0),

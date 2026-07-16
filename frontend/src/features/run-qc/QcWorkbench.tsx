@@ -21,7 +21,7 @@ import {
 const QC_PAGE_SIZE = 50;
 const DECIMAL_TEXT_PATTERN = /^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?$/;
 const METRIC_KEY_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$/;
-const ALLOWED_UNITS = new Set(['count', 'fraction', 'ratio']);
+const ALLOWED_UNITS = new Set(['count', 'fraction', 'ratio', 'score']);
 const ALLOWED_SCOPES = new Set(['run', 'sample', 'experiment']);
 const ALLOWED_FLAGS = new Set(['pass', 'warning', 'fail']);
 

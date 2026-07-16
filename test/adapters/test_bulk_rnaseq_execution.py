@@ -11,6 +11,7 @@ import pytest
 import encode_pipeline.adapters.bulk_rnaseq.execution as execution_module
 from encode_pipeline.adapters.bulk_rnaseq import (
     BulkRnaSeqExecutionBinding,
+    BulkRnaSeqResultsWorkflowAdapter,
     BulkRnaSeqWorkflowAdapter,
     RuntimeAssetBinding,
 )
@@ -22,7 +23,12 @@ from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
     VerifiedContainerAsset,
     VerifiedRuntimeAssets,
 )
-from encode_pipeline.platform.adapters import WorkflowInputs, WorkspacePlan
+from encode_pipeline.platform.adapters import (
+    QcSourceArtifact,
+    QcSourceDocument,
+    WorkflowInputs,
+    WorkspacePlan,
+)
 from encode_pipeline.platform.managed_containers import (
     managed_container_endpoint_identity,
     managed_container_scope,
@@ -256,6 +262,123 @@ def test_composed_adapter_passes_reusable_conformance(tmp_path: Path, composed_r
             artifact_workspace=(tmp_path / "artifacts").resolve(),
         )
     )
+
+
+def test_results_adapter_passes_artifact_and_qc_conformance(
+    tmp_path: Path,
+    composed_runtime,
+):
+    binding, _ = composed_runtime
+    standard_updates = {
+        "trimming": {"enabled": False, "tool": "trimgalore"},
+        "qc": {"enabled": False},
+        "outputs": {"bigwig": False},
+    }
+    valid = _inputs(tmp_path, standard_updates=standard_updates)
+    invalid = _inputs(tmp_path / "invalid", standard_updates=standard_updates)
+    invalid.config["standard"]["reference"]["fasta_sha256"] = "bad"
+    artifact_workspace = (tmp_path / "artifacts").resolve()
+    artifacts = (
+        "pipeline_info/nf_core_rnaseq_software_mqc_versions.yml",
+        "star_salmon/S1.sorted.bam",
+        "star_salmon/S1.sorted.bam.bai",
+        "star_salmon/log/S1.Log.final.out",
+        "star_salmon/log/S1.SJ.out.tab",
+        "star_salmon/S1/quant.sf",
+        "star_salmon/S1/quant.genes.sf",
+        "star_salmon/S1/aux_info/meta_info.json",
+        "star_salmon/salmon.merged.gene_counts.tsv",
+        "star_salmon/salmon.merged.gene_counts_length_scaled.tsv",
+        "star_salmon/salmon.merged.gene_counts_scaled.tsv",
+        "star_salmon/salmon.merged.gene_lengths.tsv",
+        "star_salmon/salmon.merged.gene_tpm.tsv",
+        "star_salmon/salmon.merged.transcript_counts.tsv",
+        "star_salmon/salmon.merged.transcript_lengths.tsv",
+        "star_salmon/salmon.merged.transcript_tpm.tsv",
+        "star_salmon/salmon.merged.tx2gene.tsv",
+        "star_salmon/salmon.merged.tx2gene_augmented.tsv",
+    )
+    for relative_path in artifacts:
+        _write(artifact_workspace / "results" / relative_path, b"fixture")
+    star_content = b"""\
+Number of input reads | 1000
+Uniquely mapped reads number | 800
+Uniquely mapped reads % | 80.00%
+Number of reads mapped to multiple loci | 100
+% of reads mapped to multiple loci | 10.00%
+% of reads mapped to too many loci | 2.00%
+% of reads unmapped: too many mismatches | 1.00%
+% of reads unmapped: too short | 6.00%
+% of reads unmapped: other | 1.00%
+"""
+    salmon_content = json.dumps(
+        {
+            "salmon_version": "1.10.3",
+            "mapping_type": "alignment",
+            "num_libraries": 1,
+            "num_processed": 1000,
+            "num_mapped": 800,
+            "percent_mapped": 80,
+        },
+        separators=(",", ":"),
+    ).encode()
+    source_metadata = {"scope": "sample", "sample_id": "S1", "assay": "bulk-rnaseq"}
+    qc_sources = (
+        QcSourceDocument(
+            source=QcSourceArtifact(
+                artifact_id="artifact-star",
+                output_type="bulk_rnaseq.star.log_final",
+                relative_path="results/star_salmon/log/S1.Log.final.out",
+                metadata=source_metadata,
+            ),
+            content=star_content,
+        ),
+        QcSourceDocument(
+            source=QcSourceArtifact(
+                artifact_id="artifact-salmon",
+                output_type="bulk_rnaseq.salmon.meta_info",
+                relative_path="results/star_salmon/S1/aux_info/meta_info.json",
+                metadata=source_metadata,
+            ),
+            content=salmon_content,
+        ),
+    )
+
+    verify_adapter_conformance(
+        AdapterConformanceCase(
+            adapter=BulkRnaSeqResultsWorkflowAdapter(execution=binding),
+            valid_inputs=valid,
+            invalid_inputs=invalid,
+            planning_workspace=(tmp_path / "workspace").resolve(),
+            artifact_workspace=artifact_workspace,
+            qc_sources=qc_sources,
+        )
+    )
+
+
+def test_results_composition_is_bound_into_build_and_workspace_identity(
+    tmp_path: Path,
+    composed_runtime,
+):
+    binding, _ = composed_runtime
+    runtime_adapter = BulkRnaSeqWorkflowAdapter(execution=binding)
+    results_adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
+
+    runtime_build = runtime_adapter.capture_build_identity()
+    results_build = results_adapter.capture_build_identity()
+
+    assert runtime_build.is_success
+    assert results_build.is_success
+    assert runtime_build.value.digest != results_build.value.digest
+
+    workspace = (tmp_path / "workspace").resolve()
+    results_plan = results_adapter.plan_workspace(_inputs(tmp_path), workspace)
+    assert results_plan.is_success
+    assert results_adapter.build_command(results_plan.value, workspace).is_success
+
+    mismatched = runtime_adapter.build_command(results_plan.value, workspace)
+    assert mismatched.is_failure
+    assert mismatched.errors[0].code == "BULK_RNASEQ_COMMAND_IDENTITY_MISMATCH"
 
 
 @pytest.mark.parametrize("layout", ["SE", "PE"])

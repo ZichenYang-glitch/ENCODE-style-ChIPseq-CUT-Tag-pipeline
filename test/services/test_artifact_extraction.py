@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +10,7 @@ from encode_pipeline.platform.adapters import (
     CommandSpec,
     DagPreview,
     ExtractedArtifactCandidate,
+    MAX_SAMPLE_ROWS,
     WorkflowCapabilities,
     WorkflowInputs,
     WorkflowMetadata,
@@ -128,6 +130,12 @@ def test_extract_builds_deterministic_opaque_refs_and_is_idempotent(tmp_path):
     assert [event.event_type for event in run_service.list_events("run-1")].count(
         "artifacts_indexed"
     ) == 1
+
+
+def test_candidate_limit_covers_the_platform_authoring_row_bound():
+    import encode_pipeline.services.artifact_extraction as module
+
+    assert module._MAX_ARTIFACT_CANDIDATES >= MAX_SAMPLE_ROWS * 128
 
 
 @pytest.mark.parametrize(
@@ -326,6 +334,173 @@ def test_fifo_is_rejected_without_reading_contents(tmp_path):
     os.mkfifo(fifo)
 
     assert service.extract("run-1").is_failure
+    assert run_service.list_artifacts("run-1") == ()
+
+
+def test_candidate_collection_is_bounded_before_any_path_is_indexed(
+    tmp_path,
+    monkeypatch,
+):
+    import encode_pipeline.services.artifact_extraction as module
+
+    monkeypatch.setattr(module, "_MAX_ARTIFACT_CANDIDATES", 1)
+    adapter = ArtifactAdapter(
+        (
+            ExtractedArtifactCandidate(
+                output_type="one",
+                relative_path="results/one.txt",
+            ),
+            ExtractedArtifactCandidate(
+                output_type="two",
+                relative_path="results/two.txt",
+            ),
+        )
+    )
+    service, run_service, workspace, _provider = _service(tmp_path, adapter)
+    (workspace / "results/one.txt").write_text("one", encoding="utf-8")
+
+    result = service.extract("run-1")
+
+    assert result.is_failure
+    assert run_service.list_artifacts("run-1") == ()
+    assert run_service.list_events("run-1")[-1].context == {
+        "reason_code": "ARTIFACT_EXTRACTION_VALIDATION_FAILED"
+    }
+
+
+def test_artifact_path_component_count_is_bounded(tmp_path, monkeypatch):
+    import encode_pipeline.services.artifact_extraction as module
+
+    monkeypatch.setattr(module, "_MAX_ARTIFACT_PATH_COMPONENTS", 2)
+    candidate = ExtractedArtifactCandidate(
+        output_type="nested",
+        relative_path="results/nested/output.txt",
+    )
+    adapter = ArtifactAdapter((candidate,))
+    service, run_service, workspace, _provider = _service(tmp_path, adapter)
+    target = workspace / "results/nested/output.txt"
+    target.parent.mkdir()
+    target.write_text("output", encoding="utf-8")
+
+    result = service.extract("run-1")
+
+    assert result.is_failure
+    assert run_service.list_artifacts("run-1") == ()
+
+
+def test_single_artifact_size_is_bounded_without_reading_contents(
+    tmp_path,
+    monkeypatch,
+):
+    import encode_pipeline.services.artifact_extraction as module
+
+    monkeypatch.setattr(module, "_MAX_ARTIFACT_BYTES", 4)
+    candidate = ExtractedArtifactCandidate(
+        output_type="oversized",
+        relative_path="results/output.bin",
+    )
+    adapter = ArtifactAdapter((candidate,))
+    service, run_service, workspace, _provider = _service(tmp_path, adapter)
+    (workspace / "results/output.bin").write_bytes(b"12345")
+
+    result = service.extract("run-1")
+
+    assert result.is_failure
+    assert run_service.list_artifacts("run-1") == ()
+
+
+def test_descriptor_reopen_detects_artifact_entry_replacement(
+    tmp_path,
+    monkeypatch,
+):
+    import encode_pipeline.services.artifact_extraction as module
+
+    candidate = ExtractedArtifactCandidate(
+        output_type="summary",
+        relative_path="results/summary.tsv",
+    )
+    adapter = ArtifactAdapter((candidate,))
+    service, run_service, workspace, _provider = _service(tmp_path, adapter)
+    source = workspace / "results/summary.tsv"
+    source.write_bytes(b"first")
+    displaced = workspace / "results/displaced.tsv"
+    real_open = module.os.open
+    final_open_count = 0
+
+    def replacing_open(path, flags, *args, **kwargs):
+        nonlocal final_open_count
+        descriptor = real_open(path, flags, *args, **kwargs)
+        if path == "summary.tsv":
+            final_open_count += 1
+            if final_open_count == 1:
+                source.rename(displaced)
+                source.write_bytes(b"other")
+        return descriptor
+
+    monkeypatch.setattr(module.os, "open", replacing_open)
+
+    result = service.extract("run-1")
+
+    assert result.is_failure
+    assert final_open_count >= 2
+    assert run_service.list_artifacts("run-1") == ()
+    event = run_service.list_events("run-1")[-1]
+    assert event.context == {"reason_code": "ARTIFACT_EXTRACTION_VALIDATION_FAILED"}
+    assert str(workspace) not in str(event.to_dict())
+
+
+def test_symlinked_results_component_is_rejected(tmp_path):
+    candidate = ExtractedArtifactCandidate(
+        output_type="summary",
+        relative_path="results/summary.tsv",
+    )
+    adapter = ArtifactAdapter((candidate,))
+    service, run_service, workspace, _provider = _service(tmp_path, adapter)
+    outside = tmp_path / "outside-results"
+    outside.mkdir()
+    (outside / "summary.tsv").write_bytes(b"outside")
+    (workspace / "results").rmdir()
+    (workspace / "results").symlink_to(outside, target_is_directory=True)
+
+    result = service.extract("run-1")
+
+    assert result.is_failure
+    assert run_service.list_artifacts("run-1") == ()
+
+
+def test_device_mode_artifact_descriptor_is_rejected(tmp_path, monkeypatch):
+    import encode_pipeline.services.artifact_extraction as module
+
+    candidate = ExtractedArtifactCandidate(
+        output_type="device",
+        relative_path="results/output.dat",
+    )
+    adapter = ArtifactAdapter((candidate,))
+    service, run_service, workspace, _provider = _service(tmp_path, adapter)
+    (workspace / "results/output.dat").write_bytes(b"safe")
+    real_open = module.os.open
+    real_fstat = module.os.fstat
+    final_descriptor = None
+
+    def tracking_open(path, flags, *args, **kwargs):
+        nonlocal final_descriptor
+        descriptor = real_open(path, flags, *args, **kwargs)
+        if path == "output.dat" and final_descriptor is None:
+            final_descriptor = descriptor
+        return descriptor
+
+    def device_fstat(descriptor):
+        if descriptor == final_descriptor:
+            return SimpleNamespace(st_mode=module.stat.S_IFCHR, st_size=0)
+        return real_fstat(descriptor)
+
+    monkeypatch.setattr(module.os, "open", tracking_open)
+    monkeypatch.setattr(module.os, "fstat", device_fstat)
+
+    result = service.extract("run-1")
+
+    assert result.is_failure
+    assert final_descriptor is not None
     assert run_service.list_artifacts("run-1") == ()
 
 

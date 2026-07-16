@@ -123,6 +123,7 @@ def _metric(
     experiment_id: str | None = "EXP1",
     assay: str | None = "chipseq",
     qc_flag: str | None = None,
+    unit: str = "count",
 ) -> RunQcMetric:
     return RunQcMetric(
         metric_id=build_qc_metric_id(
@@ -135,7 +136,7 @@ def _metric(
         metric_key=metric_key,
         display_name=metric_key.replace(".", " ").title(),
         value=value,
-        unit="count",
+        unit=unit,
         scope=scope,
         sample_id=sample_id,
         experiment_id=experiment_id,
@@ -264,6 +265,23 @@ def test_qc_metric_projection_preserves_nullable_fields(client):
         }
     ]
     assert "run_id" not in response.json()["qc_metrics"][0]
+
+
+def test_qc_metric_projection_preserves_a_workflow_neutral_score_unit(client):
+    run_id = _create_succeeded_run(client)
+    metric = _metric(
+        run_id,
+        "rseqc.tin.mean_score",
+        value=Decimal("72.125"),
+        unit="score",
+    )
+    _record_metrics(client, run_id, (metric,))
+
+    response = client.get(f"/api/v1/runs/{run_id}/qc-metrics")
+
+    assert response.status_code == 200
+    assert response.json()["qc_metrics"][0]["unit"] == "score"
+    assert response.json()["qc_metrics"][0]["value"] == "72.125"
 
 
 def test_unknown_run_returns_stable_redacted_404(client):

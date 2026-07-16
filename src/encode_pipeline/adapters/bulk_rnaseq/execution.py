@@ -137,6 +137,7 @@ def plan_bulk_rnaseq_workspace(
     *,
     binding: BulkRnaSeqExecutionBinding,
     adapter_version: str,
+    adapter_variant: str,
 ) -> Result[WorkspacePlan]:
     """Verify resources and return deterministic, server-owned workspace bytes."""
     validation = validate_bulk_rnaseq_inputs(inputs)
@@ -168,6 +169,7 @@ def plan_bulk_rnaseq_workspace(
     build_identity_sha256 = _runtime_build_digest(
         assets_result.value,
         adapter_version=adapter_version,
+        adapter_variant=adapter_variant,
         implementation=implementation,
     )
     workspace_identity_sha256 = managed_container_scope(workspace_path)
@@ -251,6 +253,7 @@ def build_bulk_rnaseq_command(
     *,
     binding: BulkRnaSeqExecutionBinding,
     adapter_version: str,
+    adapter_variant: str,
 ) -> Result[CommandSpec]:
     """Build fixed shell-free Nextflow argv from one adapter-owned plan."""
     if not isinstance(plan, WorkspacePlan):
@@ -282,6 +285,7 @@ def build_bulk_rnaseq_command(
     expected_build = _runtime_build_digest(
         assets,
         adapter_version=adapter_version,
+        adapter_variant=adapter_variant,
         implementation=implementation,
     )
     if (
@@ -424,6 +428,7 @@ def capture_bulk_rnaseq_build_identity(
     *,
     binding: BulkRnaSeqExecutionBinding,
     adapter_version: str,
+    adapter_variant: str,
 ) -> Result[WorkflowBuildIdentity]:
     """Capture source, engine, plugin, container and adapter contract identity."""
     implementation_result = verify_execution_implementation()
@@ -441,6 +446,7 @@ def capture_bulk_rnaseq_build_identity(
             digest=_runtime_build_digest(
                 assets_result.value,
                 adapter_version=adapter_version,
+                adapter_variant=adapter_variant,
                 implementation=implementation_result.value,
             ),
             captured_at=datetime.now(timezone.utc),
@@ -741,15 +747,23 @@ def _runtime_build_digest(
     assets: VerifiedRuntimeAssets,
     *,
     adapter_version: str,
+    adapter_variant: str,
     implementation: VerifiedExecutionImplementation,
 ) -> str:
     if not isinstance(adapter_version, str) or not adapter_version.strip():
         raise ValueError("adapter_version must be non-empty")
+    if (
+        not isinstance(adapter_variant, str)
+        or re.fullmatch(r"[a-z][a-z0-9-]{0,63}", adapter_variant) is None
+    ):
+        raise ValueError("adapter_variant is invalid")
     digest = hashlib.sha256()
     for value in (
         BUILD_IDENTITY_SCHEME.encode(),
         b"adapter-version",
         adapter_version.strip().encode(),
+        b"adapter-variant",
+        adapter_variant.encode(),
         b"execution-implementation-manifest",
         bytes.fromhex(implementation.manifest_sha256),
         b"execution-implementation-aggregate",

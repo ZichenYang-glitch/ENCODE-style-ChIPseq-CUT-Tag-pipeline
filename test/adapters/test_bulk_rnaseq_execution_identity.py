@@ -139,20 +139,39 @@ def test_adapter_version_manifest_and_code_identity_each_change_build_digest(
     original_digest = execution_module._runtime_build_digest(
         _assets(),
         adapter_version="1.0.0",
+        adapter_variant="runtime-v1",
         implementation=original.value,
     )
     changed_version_digest = execution_module._runtime_build_digest(
         _assets(),
         adapter_version="1.0.1",
+        adapter_variant="runtime-v1",
         implementation=original.value,
     )
     changed_code_digest = execution_module._runtime_build_digest(
         _assets(),
         adapter_version="1.0.0",
+        adapter_variant="runtime-v1",
         implementation=changed.value,
     )
+    changed_variant_digest = execution_module._runtime_build_digest(
+        _assets(),
+        adapter_version="1.0.0",
+        adapter_variant="results-v1",
+        implementation=original.value,
+    )
 
-    assert len({original_digest, changed_version_digest, changed_code_digest}) == 3
+    assert (
+        len(
+            {
+                original_digest,
+                changed_version_digest,
+                changed_code_digest,
+                changed_variant_digest,
+            }
+        )
+        == 4
+    )
 
 
 def test_capture_fails_before_assets_when_implementation_is_invalid(

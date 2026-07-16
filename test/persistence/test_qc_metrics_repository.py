@@ -98,6 +98,7 @@ def _metric(
     experiment_id="EXP1",
     run_id="run-1",
     source_artifact_id="artifact-1",
+    unit="count",
 ):
     return RunQcMetric(
         metric_id=build_qc_metric_id(
@@ -110,7 +111,7 @@ def _metric(
         metric_key=metric_key,
         display_name="Total reads",
         value=value,
-        unit="count",
+        unit=unit,
         scope=scope,
         sample_id=sample_id,
         experiment_id=experiment_id,
@@ -187,6 +188,26 @@ def test_repositories_page_qc_metrics_in_stable_run_scoped_id_order(repository):
             "run-1",
             after=build_qc_metric_id("library.pbc1", "sample", "S1", "EXP1"),
         )
+
+
+def test_repositories_round_trip_a_workflow_neutral_score_unit(repository):
+    artifacts = (_artifact("artifact-1"),)
+    _prepare(repository, artifacts)
+    metric = _metric(
+        "rseqc.tin.mean_score",
+        value=Decimal("72.125"),
+        unit="score",
+    )
+
+    repository.replace_qc_metrics(
+        "run-1",
+        (metric,),
+        expected_artifacts=artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+        event=_event("qc_metrics_indexed", context={"metric_count": 1}),
+    )
+
+    assert repository.list_qc_metrics("run-1") == (metric,)
 
 
 def test_repositories_validate_a_qc_cursor_row_before_skipping_it(repository):
