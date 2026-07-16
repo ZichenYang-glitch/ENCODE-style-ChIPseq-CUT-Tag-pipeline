@@ -45,8 +45,8 @@ RUNTIME_EXPECTED = {
         "1774c6dfbdefbb8d03ca99a76ad88e893a07bc913d2534855911353d210fa636",
     ),
     "runtime-identity-3.26.0.json": (
-        3_745,
-        "61209ee930b7df7819e8a63e58a87f5fed12477deff3451a77981af1dd4aad8b",
+        5_340,
+        "5196c09a97b15ca8b51497234c13a0a13521f3b1819db69fcf4891aafc3a59c1",
     ),
 }
 EXPECTED = {**UPSTREAM_EXPECTED, **RUNTIME_EXPECTED}

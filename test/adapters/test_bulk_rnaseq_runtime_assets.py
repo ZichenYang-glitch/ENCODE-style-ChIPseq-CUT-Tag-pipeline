@@ -32,6 +32,14 @@ from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
     CONTAINER_PROCESS_UNIVERSE_COUNT,
     CONTAINER_RESERVED_DEFAULT_DENY_LABEL,
     DOCKER_REQUIRED_RUN_OPTIONS,
+    JAVA_EXECUTABLE_SHA256,
+    JDK_ARCHITECTURE,
+    JDK_ARCHIVE_SHA256,
+    JDK_RUNTIME_VERSION,
+    JDK_TREE_FILE_COUNT,
+    JDK_TREE_SHA256,
+    JDK_VENDOR,
+    JDK_VERSION,
     NEXTFLOW_OFFLINE_ENV,
     NFCORE_RNASEQ_COMMIT,
     NF_SCHEMA_ARCHIVE_SHA256,
@@ -41,6 +49,7 @@ from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
     SOURCE_FILE_COUNT,
     SOURCE_TREE_SHA256,
     RuntimeAssetBinding,
+    RuntimeAssetAdmission,
     _RuntimeAssetContract,
     _load_runtime_contract,
     _validate_embedded_contracts,
@@ -57,6 +66,9 @@ class _Fixture:
     root: Path
     source: Path
     nextflow: Path
+    jdk_archive: Path
+    jdk_tree: Path
+    java_executable: Path
     plugin_tree: Path
     container_lock: Path
     container_asset: Path
@@ -250,6 +262,31 @@ def _tiny_assets(tmp_path: Path) -> _Fixture:
     nextflow.write_bytes(nextflow_content)
     nextflow.chmod(0o755)
 
+    jdk_archive_content = b"synthetic Corretto archive"
+    jdk_archive = root / "jdk/amazon-corretto-21.0.7.6.1-linux-x64.tar.gz"
+    jdk_archive.parent.mkdir(parents=True)
+    jdk_archive.write_bytes(jdk_archive_content)
+    jdk_tree = root / "jdk/amazon-corretto-21.0.7.6.1-linux-x64"
+    jdk_files = {
+        "ASSEMBLY_EXCEPTION": b"synthetic classpath exception\n",
+        "LICENSE": b"synthetic GPLv2 license\n",
+        "bin/java": b"#!/bin/sh\necho synthetic java >&2\n",
+    }
+    for relative, content in jdk_files.items():
+        path = jdk_tree / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        path.chmod(0o755 if relative == "bin/java" else 0o644)
+    jdk_entries = [
+        {
+            "path": relative,
+            "size_bytes": len(content),
+            "sha256": _sha256(content),
+            "executable": relative == "bin/java",
+        }
+        for relative, content in sorted(jdk_files.items())
+    ]
+
     plugin_file = b"synthetic plugin bytecode"
     archive_buffer = io.BytesIO()
     with zipfile.ZipFile(archive_buffer, "w") as package:
@@ -352,8 +389,24 @@ def _tiny_assets(tmp_path: Path) -> _Fixture:
     pipeline["container_inventory_sha256"]["const"] = inventory_sha256
     identity = {
         "nextflow": {
+            "build": "5949",
             "size_bytes": len(nextflow_content),
             "sha256": _sha256(nextflow_content),
+        },
+        "jdk": {
+            "archive_size_bytes": len(jdk_archive_content),
+            "archive_sha256": _sha256(jdk_archive_content),
+            "tree_file_count": len(jdk_entries),
+            "tree_size_bytes": sum(len(content) for content in jdk_files.values()),
+            "tree_sha256": _canonical_sha256(jdk_entries),
+            "java_relative_path": "bin/java",
+            "java_size_bytes": len(jdk_files["bin/java"]),
+            "java_sha256": _sha256(jdk_files["bin/java"]),
+            "license_file": "LICENSE",
+            "license_file_sha256": _sha256(jdk_files["LICENSE"]),
+            "assembly_exception_file": "ASSEMBLY_EXCEPTION",
+            "assembly_exception_file_sha256": _sha256(jdk_files["ASSEMBLY_EXCEPTION"]),
+            "java_version_output_sha256": _sha256(b"synthetic java version\n"),
         },
         "plugins": [
             {
@@ -400,6 +453,9 @@ def _tiny_assets(tmp_path: Path) -> _Fixture:
         root=root,
         source=source,
         nextflow=nextflow,
+        jdk_archive=jdk_archive,
+        jdk_tree=jdk_tree,
+        java_executable=jdk_tree / "bin/java",
         plugin_tree=plugin_tree,
         container_lock=container_lock,
         container_asset=container_asset,
@@ -409,6 +465,29 @@ def _tiny_assets(tmp_path: Path) -> _Fixture:
         docker_probe=exact_docker_probe,
         lock_payload=lock_payload,
     )
+
+
+def _add_process_sharing_container_coordinate(fixture: _Fixture) -> None:
+    inventory_entries = fixture.contract.container_inventory["entries"]
+    assert isinstance(inventory_entries, list)
+    shared_inventory = deepcopy(inventory_entries[0])
+    shared_inventory["process"] = "ZZZ_ALIGN"
+    inventory_entries.append(shared_inventory)
+    inventory_sha256 = _canonical_sha256(inventory_entries)
+    fixture.contract.container_inventory["entries_sha256"] = inventory_sha256
+    pipeline_schema = fixture.contract.container_schema["properties"]["pipeline"][
+        "properties"
+    ]
+    pipeline_schema["container_inventory_sha256"]["const"] = inventory_sha256
+    pipeline_lock = fixture.lock_payload["pipeline"]
+    assert isinstance(pipeline_lock, dict)
+    pipeline_lock["container_inventory_sha256"] = inventory_sha256
+    lock_entries = fixture.lock_payload["entries"]
+    assert isinstance(lock_entries, list)
+    shared_lock = deepcopy(lock_entries[0])
+    shared_lock["process"] = "ZZZ_ALIGN"
+    lock_entries.append(shared_lock)
+    _write_json(fixture.container_lock, fixture.lock_payload)
 
 
 def test_committed_runtime_contracts_are_immutable_and_offline() -> None:
@@ -429,6 +508,24 @@ def test_committed_runtime_contracts_are_immutable_and_offline() -> None:
         "size_bytes": 31_307_907,
         "sha256": NEXTFLOW_SHA256,
     }
+    jdk = contract.identity["jdk"]
+    assert jdk["vendor"] == JDK_VENDOR == "Amazon Corretto"
+    assert jdk["version"] == JDK_VERSION == "21.0.7.6.1"
+    assert jdk["runtime_version"] == JDK_RUNTIME_VERSION == "21.0.7+6-LTS"
+    assert jdk["operating_system"] == "linux"
+    assert jdk["architecture"] == JDK_ARCHITECTURE == "x64"
+    assert jdk["archive_size_bytes"] == 208_603_382
+    assert jdk["archive_sha256"] == JDK_ARCHIVE_SHA256
+    assert jdk["archive_url"].startswith(
+        "https://github.com/corretto/corretto-21/releases/download/21.0.7.6.1/"
+    )
+    assert jdk["tree_file_count"] == JDK_TREE_FILE_COUNT == 457
+    assert jdk["tree_size_bytes"] == 362_486_940
+    assert jdk["tree_sha256"] == JDK_TREE_SHA256
+    assert jdk["java_size_bytes"] == 12_944
+    assert jdk["java_sha256"] == JAVA_EXECUTABLE_SHA256
+    assert jdk["license"] == "GPL-2.0-only WITH Classpath-exception-2.0"
+    assert jdk["license_url"].endswith("/blob/21.0.7.6.1/LICENSE")
     plugin = contract.identity["plugins"][0]
     assert plugin["version"] == NF_SCHEMA_VERSION
     assert plugin["archive_sha256"] == NF_SCHEMA_ARCHIVE_SHA256
@@ -527,6 +624,35 @@ def test_committed_runtime_contracts_are_immutable_and_offline() -> None:
     assert NEXTFLOW_OFFLINE_ENV == {"NXF_OFFLINE": "true"}
 
 
+def test_committed_contract_records_real_scale_admission_cost() -> None:
+    contract = _load_runtime_contract()
+    unique_images = {
+        entry["image_coordinate"] for entry in contract.container_inventory["entries"]
+    }
+    plugin_files = contract.identity["plugins"][0]["tree_file_count"]
+
+    assert SOURCE_FILE_COUNT == 829
+    assert JDK_TREE_FILE_COUNT == 457
+    assert plugin_files == 106
+    assert len(unique_images) == 34
+    # One heavyweight admission performs these top-level content passes:
+    # source files, Nextflow, JDK archive/tree, plugin archive/meta/tree,
+    # container lock, and one manifest/hash/closure pass per unique OCI asset.
+    maximum_top_level_content_passes = (
+        SOURCE_FILE_COUNT
+        + 1
+        + 1
+        + JDK_TREE_FILE_COUNT
+        + 2
+        + plugin_files
+        + 1
+        + len(unique_images) * 3
+    )
+    assert maximum_top_level_content_passes == 1_499
+    assert 4 * len(unique_images) == 136  # old preflight archive hash passes
+    assert 3 * len(unique_images) == 102  # old worker archive hash passes
+
+
 def test_embedded_contract_rejects_tampered_default_config_container_alias() -> None:
     contract = _load_runtime_contract()
     process_audit = deepcopy(contract.container_process_audit)
@@ -538,6 +664,33 @@ def test_embedded_contract_rejects_tampered_default_config_container_alias() -> 
             contract.source_manifest,
             contract.container_inventory,
             process_audit,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("vendor", "host-openjdk"),
+        ("version", "21.0.8"),
+        ("architecture", "aarch64"),
+        ("java_sha256", "0" * 64),
+        ("java_version_output_sha256", "0" * 64),
+    ],
+)
+def test_embedded_contract_rejects_changed_jdk_identity(
+    field: str,
+    value: str,
+) -> None:
+    contract = _load_runtime_contract()
+    identity = deepcopy(contract.identity)
+    identity["jdk"][field] = value
+
+    with pytest.raises(ValueError, match="JDK identity"):
+        _validate_embedded_contracts(
+            identity,
+            contract.source_manifest,
+            contract.container_inventory,
+            contract.container_process_audit,
         )
 
 
@@ -571,6 +724,444 @@ def test_tiny_closed_asset_set_verifies_deterministically(tmp_path: Path) -> Non
     ).ready
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    ["missing", "archive", "extra", "symlink", "fifo", "java_mode"],
+)
+def test_jdk_archive_tree_and_java_identity_fail_closed(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    if mutation == "missing":
+        fixture.jdk_archive.unlink()
+    elif mutation == "archive":
+        fixture.jdk_archive.write_bytes(b"replaced archive")
+    elif mutation == "extra":
+        fixture.jdk_tree.joinpath("unexpected").write_bytes(b"extra")
+    elif mutation == "symlink":
+        fixture.java_executable.unlink()
+        fixture.java_executable.symlink_to("/bin/false")
+    elif mutation == "fifo":
+        fixture.java_executable.unlink()
+        os.mkfifo(fixture.java_executable)
+    else:
+        fixture.java_executable.chmod(0o644)
+
+    result = verify_runtime_assets(
+        fixture.binding,
+        _contract=fixture.contract,
+        _docker_probe=fixture.docker_probe,
+    )
+
+    assert result.is_failure
+    assert any(issue.context == {"component": "jdk"} for issue in result.issues)
+
+
+def test_runtime_version_probe_is_mandatory_when_composed(tmp_path: Path) -> None:
+    fixture = _tiny_assets(tmp_path)
+    calls = 0
+
+    def reject_version(
+        _binding: RuntimeAssetBinding,
+        _identity: object,
+        _containers: object,
+    ) -> None:
+        nonlocal calls
+        calls += 1
+        raise runtime_assets_module._AssetFault("jdk", "version")
+
+    result = verify_runtime_assets(
+        fixture.binding,
+        _contract=fixture.contract,
+        _docker_probe=fixture.docker_probe,
+        _runtime_probe=reject_version,
+    )
+
+    assert result.is_failure
+    assert calls == 1
+    assert result.issues[0].code == "BULK_RNASEQ_RUNTIME_ASSET_VERSION"
+    assert result.issues[0].context == {"component": "jdk"}
+
+
+def test_runtime_canary_uses_exact_jdk_and_hard_config_with_poison_sources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    verified = verify_runtime_assets(
+        fixture.binding,
+        _contract=fixture.contract,
+        _docker_probe=fixture.docker_probe,
+    ).value
+    assert verified is not None
+    calls: list[dict[str, object]] = []
+
+    def run(argv, **kwargs):
+        argv_tuple = tuple(argv)
+        record: dict[str, object] = {"argv": argv_tuple, **kwargs}
+        if "-C" in argv_tuple:
+            config_path = Path(argv_tuple[argv_tuple.index("-C") + 1])
+            record["hard_config"] = config_path.read_text(encoding="utf-8")
+            record["launch_poison"] = (
+                Path(kwargs["cwd"])
+                .joinpath("nextflow.config")
+                .read_text(encoding="utf-8")
+            )
+            environment = kwargs["env"]
+            record["home_poison"] = (
+                Path(environment["NXF_HOME"])
+                .joinpath("config")
+                .read_text(encoding="utf-8")
+            )
+            output = "\n".join(
+                (
+                    "params.helixweave_runtime_admission_marker = 'hard-config-only'",
+                    "process.executor = 'local'",
+                    "docker.enabled = true",
+                    "docker.registry = ''",
+                    "wave.enabled = false",
+                    "tower.enabled = false",
+                    "fusion.enabled = false",
+                    "manifest.name = 'nf-core/rnaseq'",
+                    "manifest.version = '3.26.0'",
+                    "manifest.nextflowVersion = '!>=25.04.3'",
+                    "plugins = ['nf-schema@2.5.1']",
+                    "shifter.enabled = false",
+                    fixture.config_digest,
+                )
+            ).encode()
+        elif argv_tuple[-1] == "-version" and argv_tuple[0].endswith("bin/java"):
+            output = b"synthetic java version\n"
+        else:
+            output = b"version 25.04.3 build 5949\n"
+        calls.append(record)
+        return SimpleNamespace(returncode=0, stdout=output)
+
+    monkeypatch.setattr(runtime_assets_module.subprocess, "run", run)
+
+    runtime_assets_module._verify_runtime_canary(
+        fixture.binding,
+        fixture.contract.identity,
+        verified.containers,
+    )
+
+    assert len(calls) == 3
+    java_call, version_call, config_call = calls
+    java_home = fixture.jdk_tree
+    assert java_call["argv"] == (str(fixture.java_executable), "-version")
+    assert version_call["argv"] == (str(fixture.nextflow), "-version")
+    argv = config_call["argv"]
+    assert argv.count("-C") == 1
+    assert "-c" not in argv
+    assert argv.index("-C") < argv.index("config")
+    hard_config = config_call["hard_config"]
+    assert hard_config.count("includeConfig ") == 1
+    assert hard_config.splitlines()[0] == (
+        f"includeConfig '{fixture.source}/nextflow.config'"
+    )
+    assert "helixweave_launch_poison" in config_call["launch_poison"]
+    assert "helixweave_home_poison" in config_call["home_poison"]
+    environment = config_call["env"]
+    assert environment["JAVA_HOME"] == str(java_home)
+    assert environment["NXF_JAVA_HOME"] == str(java_home)
+    assert environment["JAVA_CMD"] == str(fixture.java_executable)
+    assert environment["PATH"] == f"{java_home / 'bin'}:/usr/bin:/bin"
+    assert environment["LD_LIBRARY_PATH"] == ""
+    assert "JAVA_TOOL_OPTIONS" not in environment
+    assert "JDK_JAVA_OPTIONS" not in environment
+    assert "_JAVA_OPTIONS" not in environment
+    assert config_call["shell"] is False
+
+
+def test_admission_hashes_heavy_assets_once_and_reuses_verified_object(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    heavy_calls = 0
+    docker_calls = 0
+    original_verify = runtime_assets_module.verify_runtime_assets
+
+    def counted_verify(*args, **kwargs):
+        nonlocal heavy_calls
+        heavy_calls += 1
+        return original_verify(*args, **kwargs)
+
+    def counted_docker(
+        binding: RuntimeAssetBinding,
+        images: tuple[str, ...],
+    ) -> bytes:
+        nonlocal docker_calls
+        docker_calls += 1
+        return fixture.docker_probe(binding, images)
+
+    monkeypatch.setattr(runtime_assets_module, "verify_runtime_assets", counted_verify)
+    admission = RuntimeAssetAdmission(
+        fixture.binding,
+        _contract=fixture.contract,
+        _docker_probe=counted_docker,
+        _runtime_probe=lambda *_args: None,
+    )
+
+    first = admission.acquire()
+    hash_calls = 0
+    original_hash = runtime_assets_module._hash_regular_entry
+
+    def counted_hash(*args, **kwargs):
+        nonlocal hash_calls
+        hash_calls += 1
+        return original_hash(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_assets_module, "_hash_regular_entry", counted_hash)
+    second = admission.acquire()
+    third = admission.acquire()
+
+    assert first.is_success and second.is_success and third.is_success
+    assert first.value is second.value is third.value
+    assert heavy_calls == 1
+    assert docker_calls == 3
+    assert hash_calls == 0
+
+
+def test_admission_metadata_change_invalidates_and_readmits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    heavy_calls = 0
+    original_verify = runtime_assets_module.verify_runtime_assets
+
+    def counted_verify(*args, **kwargs):
+        nonlocal heavy_calls
+        heavy_calls += 1
+        return original_verify(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_assets_module, "verify_runtime_assets", counted_verify)
+    admission = RuntimeAssetAdmission(
+        fixture.binding,
+        _contract=fixture.contract,
+        _docker_probe=fixture.docker_probe,
+        _runtime_probe=lambda *_args: None,
+    )
+
+    first = admission.acquire()
+    current = fixture.nextflow.stat()
+    os.utime(
+        fixture.nextflow,
+        ns=(current.st_atime_ns, current.st_mtime_ns + 1_000_000),
+    )
+    second = admission.acquire()
+
+    assert first.is_success and second.is_success
+    assert first.value is not second.value
+    assert heavy_calls == 2
+
+
+def test_admission_never_uses_stale_evidence_after_asset_tamper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    heavy_calls = 0
+    original_verify = runtime_assets_module.verify_runtime_assets
+
+    def counted_verify(*args, **kwargs):
+        nonlocal heavy_calls
+        heavy_calls += 1
+        return original_verify(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_assets_module, "verify_runtime_assets", counted_verify)
+    admission = RuntimeAssetAdmission(
+        fixture.binding,
+        _contract=fixture.contract,
+        _docker_probe=fixture.docker_probe,
+        _runtime_probe=lambda *_args: None,
+    )
+    assert admission.acquire().is_success
+    content = bytearray(fixture.container_asset.read_bytes())
+    content[-1] ^= 1
+    fixture.container_asset.write_bytes(content)
+    changed_stat = fixture.container_asset.stat()
+    os.utime(
+        fixture.container_asset,
+        ns=(changed_stat.st_atime_ns, changed_stat.st_mtime_ns + 1_000_000),
+    )
+
+    changed = admission.acquire()
+
+    assert changed.is_failure
+    assert changed.value is None
+    assert heavy_calls == 2
+
+
+def test_admission_same_size_replacement_and_pid_change_force_readmission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    heavy_calls = 0
+    original_verify = runtime_assets_module.verify_runtime_assets
+
+    def counted_verify(*args, **kwargs):
+        nonlocal heavy_calls
+        heavy_calls += 1
+        return original_verify(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_assets_module, "verify_runtime_assets", counted_verify)
+    admission = RuntimeAssetAdmission(
+        fixture.binding,
+        _contract=fixture.contract,
+        _docker_probe=fixture.docker_probe,
+        _runtime_probe=lambda *_args: None,
+    )
+    assert admission.acquire().is_success
+    replacement = fixture.nextflow.with_name("replacement")
+    replacement.write_bytes(fixture.nextflow.read_bytes())
+    replacement.chmod(0o755)
+    replacement.replace(fixture.nextflow)
+    assert admission.acquire().is_success
+    initial_pid = os.getpid()
+    monkeypatch.setattr(runtime_assets_module.os, "getpid", lambda: initial_pid + 1)
+    assert admission.acquire().is_success
+
+    assert heavy_calls == 3
+
+
+def test_admission_rechecks_docker_liveness_without_rehashing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    heavy_calls = 0
+    docker_calls = 0
+    original_verify = runtime_assets_module.verify_runtime_assets
+
+    def counted_verify(*args, **kwargs):
+        nonlocal heavy_calls
+        heavy_calls += 1
+        return original_verify(*args, **kwargs)
+
+    def changing_docker(
+        binding: RuntimeAssetBinding,
+        images: tuple[str, ...],
+    ) -> bytes:
+        nonlocal docker_calls
+        docker_calls += 1
+        if docker_calls == 1:
+            return fixture.docker_probe(binding, images)
+        return b"[]"
+
+    monkeypatch.setattr(runtime_assets_module, "verify_runtime_assets", counted_verify)
+    admission = RuntimeAssetAdmission(
+        fixture.binding,
+        _contract=fixture.contract,
+        _docker_probe=changing_docker,
+        _runtime_probe=lambda *_args: None,
+    )
+
+    assert admission.acquire().is_success
+    second = admission.acquire()
+
+    assert second.is_failure
+    assert heavy_calls == 1
+    assert docker_calls == 2
+    assert second.issues[0].context == {"component": "docker"}
+
+
+def test_docker_endpoint_inode_change_invalidates_admission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    docker = tmp_path / "server-tools/docker"
+    docker.parent.mkdir()
+    docker.write_bytes(b"synthetic docker client")
+    docker.chmod(0o755)
+    socket_path = tmp_path / "server-run/docker.sock"
+    socket_path.parent.mkdir()
+    binding = RuntimeAssetBinding(
+        root=fixture.root,
+        docker_executable=docker,
+        docker_socket=socket_path,
+    )
+    heavy_calls = 0
+    original_verify = runtime_assets_module.verify_runtime_assets
+
+    def counted_verify(*args, **kwargs):
+        nonlocal heavy_calls
+        heavy_calls += 1
+        return original_verify(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_assets_module, "verify_runtime_assets", counted_verify)
+    monkeypatch.setattr(
+        runtime_assets_module,
+        "_verify_docker_availability",
+        lambda *_args, **_kwargs: None,
+    )
+    real_lstat = runtime_assets_module.os.lstat
+    endpoint_inode = 12
+
+    def lstat(path):
+        if Path(path) == socket_path:
+            return SimpleNamespace(
+                st_dev=11,
+                st_ino=endpoint_inode,
+                st_mode=stat.S_IFSOCK | 0o660,
+                st_nlink=1,
+                st_uid=os.geteuid(),
+                st_gid=os.getegid(),
+                st_size=0,
+                st_mtime_ns=1,
+                st_ctime_ns=1,
+            )
+        return real_lstat(path)
+
+    monkeypatch.setattr(runtime_assets_module.os, "lstat", lstat)
+    admission = RuntimeAssetAdmission(
+        binding,
+        _contract=fixture.contract,
+        _runtime_probe=lambda *_args: None,
+    )
+    assert admission.acquire().is_success
+    endpoint_inode = 13
+    assert admission.acquire().is_success
+
+    assert heavy_calls == 2
+
+
+def test_fresh_worker_admission_does_not_trust_another_process_object(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    heavy_calls = 0
+    original_verify = runtime_assets_module.verify_runtime_assets
+
+    def counted_verify(*args, **kwargs):
+        nonlocal heavy_calls
+        heavy_calls += 1
+        return original_verify(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_assets_module, "verify_runtime_assets", counted_verify)
+    first = RuntimeAssetAdmission(
+        fixture.binding,
+        _contract=fixture.contract,
+        _docker_probe=fixture.docker_probe,
+        _runtime_probe=lambda *_args: None,
+    )
+    worker = RuntimeAssetAdmission(
+        fixture.binding,
+        _contract=fixture.contract,
+        _docker_probe=fixture.docker_probe,
+        _runtime_probe=lambda *_args: None,
+    )
+
+    assert first.acquire().is_success
+    assert worker.acquire().is_success
+    assert heavy_calls == 2
+
+
 @pytest.mark.parametrize("case", ["missing", "extra"])
 def test_container_process_set_is_exact(
     tmp_path: Path,
@@ -597,6 +1188,68 @@ def test_container_process_set_is_exact(
     assert {issue.code for issue in result.issues} == {
         "BULK_RNASEQ_RUNTIME_ASSET_PROCESS_SET"
     }
+
+
+def test_shared_image_coordinate_verifies_one_canonical_archive_closure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    _add_process_sharing_container_coordinate(fixture)
+    archive_calls = 0
+    original = runtime_assets_module._verify_docker_archive
+
+    def counted(*args, **kwargs):
+        nonlocal archive_calls
+        archive_calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_assets_module, "_verify_docker_archive", counted)
+
+    result = verify_runtime_assets(
+        fixture.binding,
+        _contract=fixture.contract,
+        _docker_probe=fixture.docker_probe,
+    )
+
+    assert result.is_success
+    assert tuple(item.process for item in result.value.containers) == (
+        "STAR_ALIGN",
+        "ZZZ_ALIGN",
+    )
+    assert archive_calls == 1
+
+
+@pytest.mark.parametrize("divergence", ["digest", "archive_path", "manifest_path"])
+def test_shared_image_coordinate_rejects_divergent_operator_closure(
+    tmp_path: Path,
+    divergence: str,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    _add_process_sharing_container_coordinate(fixture)
+    entries = fixture.lock_payload["entries"]
+    assert isinstance(entries, list)
+    shared = next(entry for entry in entries if entry["process"] == "ZZZ_ALIGN")
+    if divergence == "digest":
+        shared["oci_digest"] = "sha256:" + "0" * 64
+        coordinate = fixture.contract.container_inventory["entries"][0][
+            "image_coordinate"
+        ]
+        shared["image"] = f"{coordinate}@{shared['oci_digest']}"
+    elif divergence == "archive_path":
+        shared["local_asset"] = "star-copy.tar"
+    else:
+        shared["distribution_manifest_asset"] = "star-copy.manifest.json"
+    _write_json(fixture.container_lock, fixture.lock_payload)
+
+    result = verify_runtime_assets(
+        fixture.binding,
+        _contract=fixture.contract,
+        _docker_probe=fixture.docker_probe,
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "BULK_RNASEQ_RUNTIME_ASSET_IDENTITY"
 
 
 def test_container_image_coordinate_and_digest_are_both_fixed(tmp_path: Path) -> None:
@@ -921,6 +1574,11 @@ def test_production_docker_probe_is_one_fixed_local_inspect_without_shell_or_fet
                 st_ino=12,
                 st_mode=stat.S_IFSOCK | 0o660,
                 st_nlink=1,
+                st_uid=os.geteuid(),
+                st_gid=os.getegid(),
+                st_size=0,
+                st_mtime_ns=1,
+                st_ctime_ns=1,
             )
         return real_lstat(path)
 
@@ -1011,6 +1669,11 @@ def test_doctor_rejects_a_group_or_world_writable_docker_cli(
                 st_ino=12,
                 st_mode=stat.S_IFSOCK | 0o660,
                 st_nlink=1,
+                st_uid=os.geteuid(),
+                st_gid=os.getegid(),
+                st_size=0,
+                st_mtime_ns=1,
+                st_ctime_ns=1,
             )
         return real_lstat(path)
 
@@ -1078,6 +1741,11 @@ def test_doctor_rechecks_docker_endpoint_identity_after_inspect(
                 st_ino=11 + socket_reads,
                 st_mode=stat.S_IFSOCK | 0o660,
                 st_nlink=1,
+                st_uid=os.geteuid(),
+                st_gid=os.getegid(),
+                st_size=0,
+                st_mtime_ns=1,
+                st_ctime_ns=1,
             )
         return real_lstat(path)
 
@@ -1210,6 +1878,29 @@ def test_binding_rejects_paths_outside_asset_root(
 ) -> None:
     with pytest.raises(ValueError, match="relative path is invalid"):
         RuntimeAssetBinding(root=tmp_path, container_lock=relative_path)
+
+
+@pytest.mark.parametrize("suffix", ["quoted'root", "dollar$root", "back\\slash", "a:b"])
+def test_binding_rejects_runtime_roots_unsafe_for_hard_config_or_path(
+    tmp_path: Path,
+    suffix: str,
+) -> None:
+    with pytest.raises(ValueError, match="safe canonical path"):
+        RuntimeAssetBinding(root=(tmp_path / suffix).resolve())
+
+
+@pytest.mark.parametrize("source_tree", ["source/quoted'tree", "source/dollar$tree"])
+def test_binding_rejects_source_path_unsafe_for_fixed_config(
+    tmp_path: Path,
+    source_tree: str,
+) -> None:
+    with pytest.raises(ValueError, match="fixed configuration"):
+        RuntimeAssetBinding(root=tmp_path.resolve(), source_tree=source_tree)
+
+
+def test_binding_rejects_jdk_path_with_path_separator(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="controlled PATH"):
+        RuntimeAssetBinding(root=tmp_path.resolve(), jdk_tree="jdk/corretto:host")
 
 
 @pytest.mark.parametrize("field", ["docker_executable", "docker_socket"])

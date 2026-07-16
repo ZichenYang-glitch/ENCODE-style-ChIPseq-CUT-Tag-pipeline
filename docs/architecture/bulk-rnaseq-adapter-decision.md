@@ -52,11 +52,21 @@ digest-mismatched asset fails closed with a path-redacted doctor result.
   launcher lookup.
 - Nextflow is fixed to the official 25.04.3 distribution, build 5949, SHA-256
   `53c232cdd8a9419d2c205dc7c6c4dd2646182c997300e6439a453099e28aa21a`.
-  The JDK remains a server-owned deployment prerequisite rather than a
-  vendored scientific asset; a real version/configuration canary and every
-  run's configuration preflight prove compatibility. Its patch identity is
-  not currently part of the scientific build digest and remains an operator
-  reproducibility constraint.
+  Its JVM is the operator-staged Amazon Corretto 21.0.7.6.1 Linux x64 release
+  (runtime `21.0.7+6-LTS`, GPL-2.0 with Classpath Exception). The release
+  matches the Corretto 21 family used by the official Nextflow 25.04.3
+  container baseline while turning that moving family into an exact asset.
+  The release
+  archive is fixed by size and SHA-256
+  `8bb627728d147e7507b2e38a5ef872549e895da50c2685d435c0d4c15ba95eb4`;
+  the 457-file expanded tree is
+  `a910f21c80d8d1fcc24ded6a5759b9f5ddd9c64643f0d683df3ef243a35a8ae8`
+  and `bin/java` is
+  `d4c2eea1b5fd0e16bcdf080dc2d162dcd58f3d1d87faa17fc66e0fc473272b9c`.
+  No JDK binary is committed to Git. Admission verifies the
+  archive, closed no-symlink tree, executable, exact `java -version`, exact
+  Nextflow version/build, and configuration canary. JDK archive/tree/java
+  identities are part of runtime, build, and cache identity.
 - The only pipeline plugin is `nf-schema` 2.5.1. Its official archive, metadata,
   and extracted local tree are independently hashed. `NXF_PLUGINS_DIR` points
   only to that verified local installation and `NXF_OFFLINE=true`; plugin
@@ -93,16 +103,46 @@ digest-mismatched asset fails closed with a path-redacted doctor result.
   never authorizes a load or pull.
 
 The adapter build identity frames the adapter version, source manifest/tree,
-Nextflow distribution, plugin archive/tree, container inventory and
-availability lock, and the fixed upstream schemas. Changing any coordinate
-produces a different durable build identity.
+Nextflow distribution, JDK archive/tree/executable, plugin archive/tree,
+container inventory and availability lock, and the fixed upstream schemas.
+Changing any coordinate produces a different durable build identity.
+
+Heavyweight admission is separated from run-time liveness. A process-local
+`RuntimeAssetAdmission` performs the full source, Nextflow, JDK, plugin, OCI
+archive/layer, and canary verification once, records a descriptor-relative
+metadata witness (`dev`, inode, mode, link count, size, mtime, and ctime), and
+reuses one immutable verified object across build capture, planning, command
+construction, and doctor calls. A cache hit reads no source/plugin/JDK/archive
+payload bytes: it compares bounded metadata before and after an exact Docker
+config/rootfs availability check. Any witness or Docker endpoint change drops
+the evidence and triggers a complete new admission; a Docker liveness failure
+never falls back to stale evidence. PID changes also discard the cache, and a
+worker constructs a fresh admission from the raw operator binding rather than
+receiving or deserializing a verified object.
+
+The production contract contains 829 source files, 457 JDK files, 106 plugin
+tree files, and 34 unique OCI images for 56 supported processes. One admission
+therefore has at most 1,499 top-level content passes, including at most 34
+whole-archive hashes and 34 archive/config/layer closure parses. Every process
+that shares an upstream image coordinate must name the same OCI digest,
+canonical archive, and distribution-manifest closure; a divergent operator
+lock fails before the second closure is read. Before this split, the four
+preflight calls and three worker calls would each repeat those image passes:
+136 plus 102 archive hashes and the same number of closure parses. The bounded
+API/preflight process and a fresh worker now each perform one admission (34 +
+34), while subsequent calls perform only metadata observations and Docker
+liveness checks. Tiny archive tests validate behavior; these production counts
+are asserted independently from the committed manifests.
 
 ## Workspace and command boundary
 
 Workspace planning first verifies FASTQ, FASTA, GTF, optional reference index,
 and rRNA resources without modifying them. It then deterministically emits:
 
-- a sorted nf-core samplesheet and canonical params JSON;
+- a sorted official five-column nf-core samplesheet
+  (`sample,fastq_1,fastq_2,strandedness,seq_platform`) with normalized
+  per-row `ILLUMINA`, and canonical params JSON with no conflicting global
+  `seq_platform`;
 - a platform-owned Nextflow config with the local executor, exact container
   selectors, a default-deny container selector, explicit audited alias-level
   overrides, report paths, and no-network Docker policy;
@@ -113,10 +153,26 @@ and rRNA resources without modifying them. It then deterministically emits:
 The command uses fixed argv with `shell=False`: the pinned local Nextflow binary
 runs the pinned local source path with the generated config and params file,
 the Docker profile, `-offline`, the server-owned work directory, and a bounded
-identity-derived run name. The launch directory is inside the run workspace.
-An explicit command-owned `nextflow config` invocation is the preflight; the
-platform no longer invents engine-specific dry-run flags. Users cannot add
-tokens or override paths, profile, executor, reports, plugins, or containers.
+identity-derived run name. Main execution and preflight each have exactly one
+hard `-C` configuration entry and no soft `-c`. The generated file first
+`includeConfig`s the verified source tree's manifest-bound `nextflow.config`,
+then applies all platform overrides. Nextflow therefore ignores
+`launchDir/nextflow.config`, `$NXF_HOME/config`, and every other implicit config
+source. A real pinned canary places conflicting marker/executor settings in
+both implicit locations and proves they are absent while the Docker profile,
+nf-schema plugin, container selector, and fixed nf-core manifest still parse.
+The launch directory is inside the run workspace. An explicit command-owned
+`nextflow config` invocation is the preflight; the platform no longer invents
+engine-specific dry-run flags. Users cannot add tokens or override paths,
+profile, executor, reports, plugins, or containers.
+
+`JAVA_HOME`, `NXF_JAVA_HOME`, and `JAVA_CMD` point to the verified Corretto
+tree; `PATH` contains only its `bin` plus fixed system directories before the
+process runner adds its fixed Docker CLI directory. `LD_LIBRARY_PATH` and every
+inherited Conda/Mamba coordinate are cleared. Java option variables are not in
+the process runner's inheritance allowlist. Runtime/JDK paths are redaction
+values. The host Conda environment, `JAVA_HOME`, or Java option variables
+cannot select or modify the JVM.
 The runtime asset doctor and the process runner are bound to the same canonical
 Docker executable and local socket identity; a mismatched server composition
 fails before launch. Source and runtime assets are operator-owned; submitted
@@ -230,3 +286,7 @@ Official upstream coordinates:
 [parameter schema](https://github.com/nf-core/rnaseq/blob/e7ca46272c8f9d5ceee3f71759f4ba551d3217a4/nextflow_schema.json),
 [license](https://github.com/nf-core/rnaseq/blob/e7ca46272c8f9d5ceee3f71759f4ba551d3217a4/LICENSE), and
 [Nextflow 25.04.3](https://github.com/nextflow-io/nextflow/releases/tag/v25.04.3).
+The pinned JVM is the official
+[Amazon Corretto 21.0.7.6.1 release](https://github.com/corretto/corretto-21/releases/tag/21.0.7.6.1),
+including its release-bound
+[GPLv2 license and Classpath Exception](https://github.com/corretto/corretto-21/blob/21.0.7.6.1/LICENSE).

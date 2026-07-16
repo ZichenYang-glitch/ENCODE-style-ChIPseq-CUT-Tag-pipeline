@@ -40,10 +40,9 @@ from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
     NF_SCHEMA_VERSION,
     SOURCE_MANIFEST_SHA256,
     RuntimeAssetBinding,
+    RuntimeAssetAdmission,
     RuntimeAssetDoctorReport,
     VerifiedRuntimeAssets,
-    doctor_runtime_assets,
-    verify_runtime_assets,
 )
 from encode_pipeline.adapters.bulk_rnaseq.upstream import (
     NFCORE_RNASEQ_COMMIT,
@@ -94,6 +93,11 @@ class BulkRnaSeqExecutionBinding:
     container_gid: int = field(default_factory=os.getgid)
     resume_enabled: bool = False
     resource_policy: ResourceClosurePolicy = DEFAULT_RESOURCE_CLOSURE_POLICY
+    runtime_admission: RuntimeAssetAdmission = field(
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         if not isinstance(self.assets, RuntimeAssetBinding):
@@ -108,6 +112,11 @@ class BulkRnaSeqExecutionBinding:
             )
         if not isinstance(self.resource_policy, ResourceClosurePolicy):
             raise ValueError("resource_policy must be a ResourceClosurePolicy")
+        object.__setattr__(
+            self,
+            "runtime_admission",
+            RuntimeAssetAdmission(self.assets),
+        )
 
 
 @dataclass(frozen=True)
@@ -141,7 +150,7 @@ def plan_bulk_rnaseq_workspace(
     implementation_result = verify_execution_implementation()
     if implementation_result.is_failure:
         return Result.failure(implementation_result.issues)
-    assets_result = verify_runtime_assets(binding.assets)
+    assets_result = _acquire_runtime_assets(binding)
     if assets_result.is_failure:
         return _failure("BULK_RNASEQ_RUNTIME_UNAVAILABLE", "runtime")
     normalized = validation.value
@@ -265,7 +274,7 @@ def build_bulk_rnaseq_command(
     implementation_result = verify_execution_implementation()
     if implementation_result.is_failure:
         return Result.failure(implementation_result.issues)
-    assets_result = verify_runtime_assets(binding.assets)
+    assets_result = _acquire_runtime_assets(binding)
     if assets_result.is_failure:
         return _failure("BULK_RNASEQ_RUNTIME_UNAVAILABLE", "runtime")
     assets = assets_result.value
@@ -324,7 +333,7 @@ def build_bulk_rnaseq_command(
         executable,
         "-log",
         str(log_path),
-        "-c",
+        "-C",
         str(config_path),
         "run",
         str(source_path),
@@ -342,7 +351,7 @@ def build_bulk_rnaseq_command(
         executable,
         "-log",
         str(preflight_log),
-        "-c",
+        "-C",
         str(config_path),
         "config",
         str(source_path),
@@ -350,20 +359,41 @@ def build_bulk_rnaseq_command(
         "docker",
     )
     env = {
+        "CLASSPATH": "",
+        "CONDA_DEFAULT_ENV": "",
+        "CONDA_EXE": "",
+        "CONDA_PREFIX": "",
+        "CONDA_PYTHON_EXE": "",
+        "CONDA_SHLVL": "0",
         "HOME": str(workspace_path / "engine/home"),
+        "JAVA_CMD": str(assets.java_executable),
+        "JAVA_HOME": str(assets.jdk_tree),
+        "LD_LIBRARY_PATH": "",
+        "MAMBA_EXE": "",
+        "MAMBA_ROOT_PREFIX": "",
         "NXF_ANSI_LOG": "false",
         "NXF_CACHE_DIR": str(workspace_path / "engine/cache"),
         "NXF_DISABLE_CHECK_LATEST": "true",
         "NXF_HOME": str(workspace_path / "engine/nxf-home"),
+        "NXF_JAVA_HOME": str(assets.jdk_tree),
         "NXF_OFFLINE": "true",
+        "NXF_OPTS": "",
         "NXF_PLUGINS_DIR": str(assets.plugin_root),
         "NXF_TEMP": str(workspace_path / "engine/tmp"),
+        "PATH": f"{assets.jdk_tree / 'bin'}:/usr/bin:/bin",
+        "_CE_CONDA": "",
+        "_CE_M": "",
+        "_CONDA_EXE": "",
+        "_CONDA_ROOT": "",
     }
     redactions = {
         str(workspace_path),
         str(assets.root),
         str(assets.source_tree),
         str(assets.nextflow_executable),
+        str(assets.jdk_archive),
+        str(assets.jdk_tree),
+        str(assets.java_executable),
         str(assets.plugin_tree),
         str(binding.assets.docker_executable),
         str(binding.assets.docker_socket),
@@ -399,7 +429,7 @@ def capture_bulk_rnaseq_build_identity(
     implementation_result = verify_execution_implementation()
     if implementation_result.is_failure:
         return Result.failure(implementation_result.issues)
-    assets_result = verify_runtime_assets(binding.assets)
+    assets_result = _acquire_runtime_assets(binding)
     if assets_result.is_failure:
         return _failure("BULK_RNASEQ_RUNTIME_UNAVAILABLE", "runtime")
     try:
@@ -423,11 +453,17 @@ def capture_bulk_rnaseq_build_identity(
 def doctor_bulk_rnaseq_runtime(binding: BulkRnaSeqExecutionBinding):
     """Return the redacted runtime-asset doctor report."""
     implementation = verify_execution_implementation()
-    assets = doctor_runtime_assets(binding.assets)
+    assets = binding.runtime_admission.doctor()
     return RuntimeAssetDoctorReport(
         ready=implementation.is_success and assets.ready,
         issues=(*implementation.issues, *assets.issues),
     )
+
+
+def _acquire_runtime_assets(
+    binding: BulkRnaSeqExecutionBinding,
+) -> Result[VerifiedRuntimeAssets]:
+    return binding.runtime_admission.acquire()
 
 
 def _verify_input_closure(
@@ -544,7 +580,6 @@ def _runtime_params(
             "input": str(workspace / "config/samplesheet.csv"),
             "monochrome_logs": True,
             "outdir": str(workspace / "results"),
-            "seq_platform": "illumina",
             "trace_report_suffix": "helixweave",
             "validate_params": True,
         }
@@ -562,13 +597,19 @@ def _runtime_params(
 def _samplesheet_bytes(samples: list[Mapping[str, str]]) -> bytes:
     output = io.StringIO(newline="")
     writer = csv.writer(output, lineterminator="\n")
-    writer.writerow(("sample", "fastq_1", "fastq_2", "strandedness"))
+    writer.writerow(("sample", "fastq_1", "fastq_2", "strandedness", "seq_platform"))
     for row in sorted(
         samples,
         key=lambda item: (item["sample"], item["library"], item["lane"]),
     ):
         writer.writerow(
-            (row["sample"], row["fastq_1"], row["fastq_2"], row["strandedness"])
+            (
+                row["sample"],
+                row["fastq_1"],
+                row["fastq_2"],
+                row["strandedness"],
+                row["seq_platform"],
+            )
         )
     return output.getvalue().encode()
 
@@ -588,6 +629,10 @@ def _platform_config_bytes(
     )
     lines = [
         "// Generated by HelixWeave; user configuration is never included.",
+        (
+            "includeConfig "
+            f"{_groovy_string(str(assets.source_tree / 'nextflow.config'))}"
+        ),
         "process.executor = 'local'",
         "docker.enabled = true",
         "docker.registry = ''",
@@ -719,6 +764,9 @@ def _runtime_build_digest(
         SOURCE_MANIFEST_SHA256,
         NEXTFLOW_VERSION,
         assets.nextflow_sha256,
+        assets.jdk_archive_sha256,
+        assets.jdk_tree_sha256,
+        assets.java_executable_sha256,
         NF_SCHEMA_VERSION,
         assets.plugin_archive_sha256,
         assets.plugin_tree_sha256,
@@ -896,11 +944,17 @@ def _planned_resource_paths(plan: WorkspacePlan) -> set[str]:
             strict=True,
         )
     )
-    if not rows or rows[0] != ["sample", "fastq_1", "fastq_2", "strandedness"]:
+    if not rows or rows[0] != [
+        "sample",
+        "fastq_1",
+        "fastq_2",
+        "strandedness",
+        "seq_platform",
+    ]:
         raise ValueError("planned samplesheet header is invalid")
     paths: set[str] = set()
     for row in rows[1:]:
-        if len(row) != 4:
+        if len(row) != 5 or row[4] != "ILLUMINA":
             raise ValueError("planned samplesheet row is invalid")
         for value in row[1:3]:
             if value:

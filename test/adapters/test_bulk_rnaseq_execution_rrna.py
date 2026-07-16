@@ -159,6 +159,9 @@ def execution_binding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         root=root,
         source_tree=root / "source/rnaseq",
         nextflow_executable=root / "nextflow/nextflow-25.04.3-dist",
+        jdk_archive=root / "jdk/corretto.tar.gz",
+        jdk_tree=root / "jdk/corretto",
+        java_executable=root / "jdk/corretto/bin/java",
         plugin_root=root / "plugins",
         plugin_archive=root / "plugins/nf-schema-2.5.1.zip",
         plugin_meta=root / "plugins/nf-schema-2.5.1-meta.json",
@@ -184,6 +187,9 @@ def execution_binding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         source_tree_sha256="1" * 64,
         runtime_identity_sha256="2" * 64,
         nextflow_sha256="3" * 64,
+        jdk_archive_sha256="a" * 64,
+        jdk_tree_sha256="b" * 64,
+        java_executable_sha256="c" * 64,
         plugin_archive_sha256="4" * 64,
         plugin_tree_sha256="5" * 64,
         container_inventory_sha256="6" * 64,
@@ -191,7 +197,7 @@ def execution_binding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.setattr(
         execution_module,
-        "verify_runtime_assets",
+        "_acquire_runtime_assets",
         lambda _binding: Result.success(verified),
     )
     return binding

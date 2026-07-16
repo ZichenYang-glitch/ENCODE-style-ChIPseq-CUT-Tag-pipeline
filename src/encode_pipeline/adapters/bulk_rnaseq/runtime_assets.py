@@ -1,10 +1,11 @@
 """Immutable, offline-first runtime assets for pinned nf-core/rnaseq.
 
 The platform does not download, unpack, or repair any asset at run time. An
-operator stages the exact source tree, Nextflow distribution, plugin archive
-and expanded plugin tree, plus raw distribution manifests and content-addressed
-Docker archives. This module verifies that closed set, then checks exact images
-in one server-owned local Docker daemon. It never pulls or loads an image.
+operator stages the exact source tree, Nextflow distribution, JDK archive/tree,
+plugin archive and expanded plugin tree, plus raw distribution manifests and
+content-addressed Docker archives. This module admits that closed set once per
+trust process, then uses metadata and exact local-Docker liveness checks. It
+never pulls or loads an image.
 """
 
 from __future__ import annotations
@@ -21,6 +22,8 @@ import selectors
 import stat
 import subprocess
 import tarfile
+import tempfile
+import threading
 import time
 from typing import Any
 import zipfile
@@ -39,7 +42,7 @@ SOURCE_FILE_COUNT = 829
 
 RUNTIME_IDENTITY_FILE = "runtime-identity-3.26.0.json"
 RUNTIME_IDENTITY_SHA256 = (
-    "61209ee930b7df7819e8a63e58a87f5fed12477deff3451a77981af1dd4aad8b"
+    "5196c09a97b15ca8b51497234c13a0a13521f3b1819db69fcf4891aafc3a59c1"
 )
 CONTAINER_LOCK_SCHEMA_FILE = "container-availability-lock-1.0.0.schema.json"
 CONTAINER_LOCK_SCHEMA_SHA256 = (
@@ -76,6 +79,19 @@ CONTAINER_RESERVED_DEFAULT_DENY_LABEL = "helixweave_verified_container_v1"
 NFCORE_RNASEQ_COMMIT = "e7ca46272c8f9d5ceee3f71759f4ba551d3217a4"
 NEXTFLOW_VERSION = "25.04.3"
 NEXTFLOW_SHA256 = "53c232cdd8a9419d2c205dc7c6c4dd2646182c997300e6439a453099e28aa21a"
+JDK_VENDOR = "Amazon Corretto"
+JDK_VERSION = "21.0.7.6.1"
+JDK_RUNTIME_VERSION = "21.0.7+6-LTS"
+JDK_ARCHITECTURE = "x64"
+JDK_ARCHIVE_SHA256 = "8bb627728d147e7507b2e38a5ef872549e895da50c2685d435c0d4c15ba95eb4"
+JDK_TREE_SHA256 = "a910f21c80d8d1fcc24ded6a5759b9f5ddd9c64643f0d683df3ef243a35a8ae8"
+JDK_TREE_FILE_COUNT = 457
+JAVA_EXECUTABLE_SHA256 = (
+    "d4c2eea1b5fd0e16bcdf080dc2d162dcd58f3d1d87faa17fc66e0fc473272b9c"
+)
+JAVA_VERSION_OUTPUT_SHA256 = (
+    "2744133c4f331372bf4228910c95cc5bf1f07be87d1b1f752478846cca1b540d"
+)
 NF_SCHEMA_VERSION = "2.5.1"
 NF_SCHEMA_ARCHIVE_SHA256 = (
     "f3833d0c29a51dc5e3759e00a6af87fcb1e989c94d1c1e7995d06e3f7090c461"
@@ -89,6 +105,9 @@ DOCKER_REQUIRED_RUN_OPTIONS = ("--pull=never", "--network=none")
 _CONTRACT_PACKAGE = "encode_pipeline.contracts.nfcore_rnaseq"
 _MAX_CONTRACT_BYTES = 2 * 1024 * 1024
 _MAX_SOURCE_FILE_BYTES = 128 * 1024 * 1024
+_MAX_JDK_ARCHIVE_BYTES = 256 * 1024 * 1024
+_MAX_JDK_FILE_BYTES = 256 * 1024 * 1024
+_MAX_JDK_TREE_BYTES = 512 * 1024 * 1024
 _MAX_CONTAINER_LOCK_BYTES = 2 * 1024 * 1024
 _MAX_CONTAINER_ARCHIVE_BYTES = 100 * 1024 * 1024 * 1024
 _MAX_DISTRIBUTION_MANIFEST_BYTES = 16 * 1024 * 1024
@@ -96,6 +115,9 @@ _MAX_IMAGE_CONFIG_BYTES = 16 * 1024 * 1024
 _MAX_DOCKER_ARCHIVE_ENTRIES = 65_536
 _MAX_DOCKER_INSPECT_BYTES = 8 * 1024 * 1024
 _DOCKER_INSPECT_TIMEOUT_SECONDS = 15.0
+_RUNTIME_CANARY_TIMEOUT_SECONDS = 30.0
+_MAX_RUNTIME_CANARY_BYTES = 4 * 1024 * 1024
+_MAX_RUNTIME_WITNESS_ENTRIES = 50_000
 _READ_CHUNK_BYTES = 1024 * 1024
 _DOCKER_MANIFEST_MEDIA_TYPES = frozenset(
     {
@@ -112,6 +134,8 @@ class RuntimeAssetBinding:
     root: Path
     source_tree: str = "source/nf-core-rnaseq-e7ca46272c8f9d5ceee3f71759f4ba551d3217a4"
     nextflow_executable: str = "nextflow/nextflow-25.04.3-dist"
+    jdk_archive: str = "jdk/amazon-corretto-21.0.7.6.1-linux-x64.tar.gz"
+    jdk_tree: str = "jdk/amazon-corretto-21.0.7.6.1-linux-x64"
     plugin_archive: str = "plugins/nf-schema-2.5.1.zip"
     plugin_meta: str = "plugins/nf-schema-2.5.1-meta.json"
     plugin_tree: str = "plugins/nf-schema-2.5.1"
@@ -124,10 +148,18 @@ class RuntimeAssetBinding:
         root = Path(self.root)
         if not root.is_absolute():
             raise ValueError("Runtime asset root must be absolute")
+        rendered_root = str(root)
+        if any(part == ".." for part in root.parts) or any(
+            character in rendered_root
+            for character in ("\x00", "\n", "\r", "'", "\\", "$", ":")
+        ):
+            raise ValueError("Runtime asset root must be a safe canonical path")
         object.__setattr__(self, "root", root)
         for name in (
             "source_tree",
             "nextflow_executable",
+            "jdk_archive",
+            "jdk_tree",
             "plugin_archive",
             "plugin_meta",
             "plugin_tree",
@@ -135,6 +167,10 @@ class RuntimeAssetBinding:
             "container_root",
         ):
             _validate_relative_path(getattr(self, name))
+        if any(character in self.source_tree for character in ("'", "$")):
+            raise ValueError("source_tree cannot be embedded in fixed configuration")
+        if ":" in self.jdk_tree:
+            raise ValueError("jdk_tree cannot be embedded in the controlled PATH")
         for name in ("docker_executable", "docker_socket"):
             value = getattr(self, name)
             if not isinstance(value, Path) or not value.is_absolute():
@@ -176,6 +212,9 @@ class VerifiedRuntimeAssets:
     root: Path
     source_tree: Path
     nextflow_executable: Path
+    jdk_archive: Path
+    jdk_tree: Path
+    java_executable: Path
     plugin_root: Path
     plugin_archive: Path
     plugin_meta: Path
@@ -185,6 +224,9 @@ class VerifiedRuntimeAssets:
     source_tree_sha256: str
     runtime_identity_sha256: str
     nextflow_sha256: str
+    jdk_archive_sha256: str
+    jdk_tree_sha256: str
+    java_executable_sha256: str
     plugin_archive_sha256: str
     plugin_tree_sha256: str
     container_inventory_sha256: str
@@ -198,6 +240,131 @@ class RuntimeAssetDoctorReport:
 
     ready: bool
     issues: tuple[Issue, ...]
+
+
+@dataclass(frozen=True)
+class _RuntimeAssetWitness:
+    entries: tuple[tuple[str, tuple[int, ...]], ...]
+    docker_endpoint: tuple[tuple[int, ...], tuple[int, ...]] | None
+
+
+class RuntimeAssetAdmission:
+    """Process-local admission cache with metadata and Docker liveness gates.
+
+    The verified object is deliberately neither durable nor serializable. A
+    worker process constructs a fresh admission from the operator binding; a
+    fork/PID change also discards inherited evidence before it can be reused.
+    """
+
+    def __init__(
+        self,
+        binding: RuntimeAssetBinding,
+        *,
+        _contract: _RuntimeAssetContract | None = None,
+        _docker_probe: Callable[[RuntimeAssetBinding, tuple[str, ...]], bytes]
+        | None = None,
+        _runtime_probe: Callable[
+            [
+                RuntimeAssetBinding,
+                Mapping[str, Any],
+                tuple[VerifiedContainerAsset, ...],
+            ],
+            None,
+        ]
+        | None = None,
+    ) -> None:
+        if not isinstance(binding, RuntimeAssetBinding):
+            raise ValueError("binding must be a RuntimeAssetBinding")
+        self.binding = binding
+        self._contract = _contract
+        self._docker_probe = _docker_probe
+        self._runtime_probe = _runtime_probe
+        self._pid = os.getpid()
+        self._lock = threading.RLock()
+        self._verified: VerifiedRuntimeAssets | None = None
+        self._witness: _RuntimeAssetWitness | None = None
+
+    def acquire(self) -> Result[VerifiedRuntimeAssets]:
+        """Return current evidence, re-admitting after any metadata change."""
+
+        current_pid = os.getpid()
+        if current_pid != self._pid:
+            # A lock inherited across fork may be owned by a vanished thread.
+            self._pid = current_pid
+            self._lock = threading.RLock()
+            self._verified = None
+            self._witness = None
+        with self._lock:
+            if self._verified is None or self._witness is None:
+                return self._admit_locked()
+            try:
+                before = _capture_runtime_witness(
+                    self.binding,
+                    include_docker_endpoint=self._docker_probe is None,
+                )
+            except _AssetFault as fault:
+                self._verified = None
+                self._witness = None
+                return Result.failure((_issue(fault.component, fault.reason),))
+            if before != self._witness:
+                self._verified = None
+                self._witness = None
+                return self._admit_locked()
+            try:
+                _verify_docker_availability(
+                    self.binding,
+                    self._verified.containers,
+                    probe=self._docker_probe,
+                )
+                after = _capture_runtime_witness(
+                    self.binding,
+                    include_docker_endpoint=self._docker_probe is None,
+                )
+            except _AssetFault as fault:
+                return Result.failure((_issue(fault.component, fault.reason),))
+            if after != before:
+                self._verified = None
+                self._witness = None
+                return self._admit_locked()
+            return Result.success(self._verified)
+
+    def doctor(self) -> RuntimeAssetDoctorReport:
+        """Return a redacted readiness report using the same admission."""
+
+        result = self.acquire()
+        return RuntimeAssetDoctorReport(ready=result.is_success, issues=result.issues)
+
+    def _admit_locked(self) -> Result[VerifiedRuntimeAssets]:
+        try:
+            before = _capture_runtime_witness(
+                self.binding,
+                include_docker_endpoint=self._docker_probe is None,
+            )
+        except _AssetFault as fault:
+            return Result.failure((_issue(fault.component, fault.reason),))
+        result = verify_runtime_assets(
+            self.binding,
+            _contract=self._contract,
+            _docker_probe=self._docker_probe,
+            _runtime_probe=self._runtime_probe,
+        )
+        if result.is_failure:
+            return result
+        if result.value is None:
+            return Result.failure((_issue("runtime", "invalid"),))
+        verified = result.value
+        try:
+            after = _capture_runtime_witness(
+                self.binding,
+                include_docker_endpoint=self._docker_probe is None,
+            )
+        except _AssetFault as fault:
+            return Result.failure((_issue(fault.component, fault.reason),))
+        if before != after:
+            return Result.failure((_issue("runtime", "race"),))
+        self._verified = verified
+        self._witness = after
+        return Result.success(verified)
 
 
 class _AssetFault(Exception):
@@ -223,6 +390,11 @@ def verify_runtime_assets(
     *,
     _contract: _RuntimeAssetContract | None = None,
     _docker_probe: Callable[[RuntimeAssetBinding, tuple[str, ...]], bytes]
+    | None = None,
+    _runtime_probe: Callable[
+        [RuntimeAssetBinding, Mapping[str, Any], tuple[VerifiedContainerAsset, ...]],
+        None,
+    ]
     | None = None,
 ) -> Result[VerifiedRuntimeAssets]:
     """Verify every required runtime asset without fetching or repairing it."""
@@ -258,6 +430,7 @@ def verify_runtime_assets(
 
     issues: list[Issue] = []
     source_tree_sha256: str | None = None
+    jdk_tree_sha256: str | None = None
     plugin_tree_sha256: str | None = None
     container_lock_sha256: str | None = None
     containers: tuple[VerifiedContainerAsset, ...] = ()
@@ -274,6 +447,11 @@ def verify_runtime_assets(
 
         try:
             _verify_nextflow(root_fd, binding.nextflow_executable, identity)
+        except _AssetFault as fault:
+            issues.append(_issue(fault.component, fault.reason))
+
+        try:
+            jdk_tree_sha256 = _verify_jdk(root_fd, binding, identity)
         except _AssetFault as fault:
             issues.append(_issue(fault.component, fault.reason))
 
@@ -302,6 +480,7 @@ def verify_runtime_assets(
         return Result.failure(issues)
     if (
         source_tree_sha256 is None
+        or jdk_tree_sha256 is None
         or plugin_tree_sha256 is None
         or container_lock_sha256 is None
     ):
@@ -315,30 +494,44 @@ def verify_runtime_assets(
     except _AssetFault as fault:
         return Result.failure((_issue(fault.component, fault.reason),))
 
-    return Result.success(
-        VerifiedRuntimeAssets(
-            root=binding.root,
-            source_tree=binding.root / binding.source_tree,
-            nextflow_executable=binding.root / binding.nextflow_executable,
-            plugin_root=(binding.root / binding.plugin_tree).parent,
-            plugin_archive=binding.root / binding.plugin_archive,
-            plugin_meta=binding.root / binding.plugin_meta,
-            plugin_tree=binding.root / binding.plugin_tree,
-            container_lock=binding.root / binding.container_lock,
-            containers=containers,
-            source_tree_sha256=source_tree_sha256,
-            runtime_identity_sha256=RUNTIME_IDENTITY_SHA256,
-            nextflow_sha256=identity["nextflow"]["sha256"],
-            plugin_archive_sha256=identity["plugins"][0]["archive_sha256"],
-            plugin_tree_sha256=plugin_tree_sha256,
-            container_inventory_sha256=_canonical_sha256(
-                container_inventory["entries"],
-                include_executable=False,
-            ),
-            container_lock_sha256=container_lock_sha256,
-            container_process_audit_sha256=CONTAINER_PROCESS_AUDIT_SHA256,
-        )
+    verified = VerifiedRuntimeAssets(
+        root=binding.root,
+        source_tree=binding.root / binding.source_tree,
+        nextflow_executable=binding.root / binding.nextflow_executable,
+        jdk_archive=binding.root / binding.jdk_archive,
+        jdk_tree=binding.root / binding.jdk_tree,
+        java_executable=binding.root / binding.jdk_tree / "bin/java",
+        plugin_root=(binding.root / binding.plugin_tree).parent,
+        plugin_archive=binding.root / binding.plugin_archive,
+        plugin_meta=binding.root / binding.plugin_meta,
+        plugin_tree=binding.root / binding.plugin_tree,
+        container_lock=binding.root / binding.container_lock,
+        containers=containers,
+        source_tree_sha256=source_tree_sha256,
+        runtime_identity_sha256=RUNTIME_IDENTITY_SHA256,
+        nextflow_sha256=identity["nextflow"]["sha256"],
+        jdk_archive_sha256=identity["jdk"]["archive_sha256"],
+        jdk_tree_sha256=jdk_tree_sha256,
+        java_executable_sha256=identity["jdk"]["java_sha256"],
+        plugin_archive_sha256=identity["plugins"][0]["archive_sha256"],
+        plugin_tree_sha256=plugin_tree_sha256,
+        container_inventory_sha256=_canonical_sha256(
+            container_inventory["entries"],
+            include_executable=False,
+        ),
+        container_lock_sha256=container_lock_sha256,
+        container_process_audit_sha256=CONTAINER_PROCESS_AUDIT_SHA256,
     )
+    try:
+        if _runtime_probe is not None:
+            _runtime_probe(binding, identity, containers)
+        elif _contract is None:
+            _verify_runtime_canary(binding, identity, containers)
+    except _AssetFault as fault:
+        return Result.failure((_issue(fault.component, fault.reason),))
+    except (OSError, UnicodeError, ValueError):
+        return Result.failure((_issue("runtime", "unavailable"),))
+    return Result.success(verified)
 
 
 def doctor_runtime_assets(
@@ -422,9 +615,14 @@ def _validate_embedded_contracts(
         raise ValueError("embedded contract must be an object")
     source = identity.get("source")
     nextflow = identity.get("nextflow")
+    jdk = identity.get("jdk")
     plugins = identity.get("plugins")
     network = identity.get("network_policy")
-    if not isinstance(source, Mapping) or not isinstance(nextflow, Mapping):
+    if (
+        not isinstance(source, Mapping)
+        or not isinstance(nextflow, Mapping)
+        or not isinstance(jdk, Mapping)
+    ):
         raise ValueError("embedded identity is incomplete")
     if not isinstance(plugins, list) or len(plugins) != 1:
         raise ValueError("embedded plugin identity is incomplete")
@@ -442,6 +640,22 @@ def _validate_embedded_contracts(
         raise ValueError("Nextflow version is invalid")
     if nextflow.get("sha256") != NEXTFLOW_SHA256:
         raise ValueError("Nextflow identity is invalid")
+    if (
+        jdk.get("vendor") != JDK_VENDOR
+        or jdk.get("distribution") != "amazon-corretto"
+        or jdk.get("version") != JDK_VERSION
+        or jdk.get("runtime_version") != JDK_RUNTIME_VERSION
+        or jdk.get("operating_system") != "linux"
+        or jdk.get("architecture") != JDK_ARCHITECTURE
+        or jdk.get("archive_sha256") != JDK_ARCHIVE_SHA256
+        or jdk.get("tree_sha256") != JDK_TREE_SHA256
+        or jdk.get("tree_file_count") != JDK_TREE_FILE_COUNT
+        or jdk.get("java_sha256") != JAVA_EXECUTABLE_SHA256
+        or jdk.get("java_version_output_sha256") != JAVA_VERSION_OUTPUT_SHA256
+        or jdk.get("java_relative_path") != "bin/java"
+        or jdk.get("license") != "GPL-2.0-only WITH Classpath-exception-2.0"
+    ):
+        raise ValueError("JDK identity is invalid")
     plugin = plugins[0]
     if not isinstance(plugin, Mapping):
         raise ValueError("plugin identity is invalid")
@@ -796,6 +1010,78 @@ def _verify_nextflow(
     _verify_file_at(root_fd, relative_path, expected, "nextflow")
 
 
+def _verify_jdk(
+    root_fd: int,
+    binding: RuntimeAssetBinding,
+    identity: Mapping[str, Any],
+) -> str:
+    jdk = identity.get("jdk")
+    if not isinstance(jdk, Mapping):
+        raise _AssetFault("jdk", "contract")
+    archive_size = jdk.get("archive_size_bytes")
+    tree_file_count = jdk.get("tree_file_count")
+    tree_size = jdk.get("tree_size_bytes")
+    if (
+        isinstance(archive_size, bool)
+        or not isinstance(archive_size, int)
+        or archive_size <= 0
+        or archive_size > _MAX_JDK_ARCHIVE_BYTES
+        or not _valid_sha256(jdk.get("archive_sha256"))
+        or isinstance(tree_file_count, bool)
+        or not isinstance(tree_file_count, int)
+        or tree_file_count <= 0
+        or tree_file_count > 1_024
+        or isinstance(tree_size, bool)
+        or not isinstance(tree_size, int)
+        or tree_size <= 0
+        or tree_size > _MAX_JDK_TREE_BYTES
+        or not _valid_sha256(jdk.get("tree_sha256"))
+    ):
+        raise _AssetFault("jdk", "contract")
+    _verify_file_at(
+        root_fd,
+        binding.jdk_archive,
+        _ExpectedFile(archive_size, jdk["archive_sha256"]),
+        "jdk",
+        max_bytes=_MAX_JDK_ARCHIVE_BYTES,
+    )
+    tree_fd = _open_directory_at(root_fd, binding.jdk_tree, "jdk")
+    try:
+        verified = _verify_observed_tree(
+            tree_fd,
+            component="jdk",
+            maximum_files=tree_file_count,
+            maximum_file_bytes=_MAX_JDK_FILE_BYTES,
+            maximum_total_bytes=_MAX_JDK_TREE_BYTES,
+        )
+    finally:
+        os.close(tree_fd)
+    if (
+        len(verified) != tree_file_count
+        or sum(int(item["size_bytes"]) for item in verified) != tree_size
+    ):
+        raise _AssetFault("jdk", "file_set")
+    digest = _canonical_sha256(verified)
+    if digest != jdk.get("tree_sha256"):
+        raise _AssetFault("jdk", "identity")
+    by_path = {str(item["path"]): item for item in verified}
+    java = by_path.get(jdk.get("java_relative_path"))
+    license_file = by_path.get(jdk.get("license_file"))
+    assembly_exception = by_path.get(jdk.get("assembly_exception_file"))
+    if (
+        not isinstance(java, Mapping)
+        or java.get("size_bytes") != jdk.get("java_size_bytes")
+        or java.get("sha256") != jdk.get("java_sha256")
+        or java.get("executable") is not True
+        or not isinstance(license_file, Mapping)
+        or license_file.get("sha256") != jdk.get("license_file_sha256")
+        or not isinstance(assembly_exception, Mapping)
+        or assembly_exception.get("sha256") != jdk.get("assembly_exception_file_sha256")
+    ):
+        raise _AssetFault("jdk", "identity")
+    return digest
+
+
 def _verify_plugin(
     root_fd: int,
     binding: RuntimeAssetBinding,
@@ -889,6 +1175,7 @@ def _verify_container_lock(
         tuple[str, int, str, str, int, str],
         _ContainerArchiveClosure,
     ] = {}
+    coordinate_closures: dict[str, tuple[str, int, str, str, int, str]] = {}
     for entry in sorted(entries, key=lambda value: value["process"]):
         coordinate = expected_by_process[entry["process"]]["image_coordinate"]
         if entry["image"] != f"{coordinate}@{entry['oci_digest']}":
@@ -914,6 +1201,12 @@ def _verify_container_lock(
             entry["distribution_manifest_size_bytes"],
             entry["oci_digest"],
         )
+        expected_coordinate_closure = coordinate_closures.setdefault(
+            coordinate,
+            cache_key,
+        )
+        if expected_coordinate_closure != cache_key:
+            raise _AssetFault("containers", "identity")
         closure = closure_cache.get(cache_key)
         if closure is None:
             distribution = _verify_distribution_manifest(
@@ -1228,6 +1521,191 @@ def _hash_open_descriptor(
     return digest.hexdigest()
 
 
+def _verify_runtime_canary(
+    binding: RuntimeAssetBinding,
+    identity: Mapping[str, Any],
+    containers: tuple[VerifiedContainerAsset, ...],
+) -> None:
+    """Execute the exact JDK/Nextflow pair under one hard-config boundary."""
+
+    jdk = identity.get("jdk")
+    nextflow = identity.get("nextflow")
+    if not isinstance(jdk, Mapping) or not isinstance(nextflow, Mapping):
+        raise _AssetFault("runtime", "contract")
+    expected_java_output = jdk.get("java_version_output_sha256")
+    build = nextflow.get("build")
+    if not _valid_sha256(expected_java_output) or not isinstance(build, str):
+        raise _AssetFault("runtime", "contract")
+    java_home = binding.root / binding.jdk_tree
+    java_executable = java_home / "bin/java"
+    nextflow_executable = binding.root / binding.nextflow_executable
+    source_tree = binding.root / binding.source_tree
+    plugin_root = (binding.root / binding.plugin_tree).parent
+    if not containers:
+        raise _AssetFault("nextflow", "contract")
+    selector = sorted(containers, key=lambda item: item.process)[0]
+    if not _valid_process_name(selector.process) or not _valid_digest(
+        selector.runtime_image
+    ):
+        raise _AssetFault("nextflow", "contract")
+
+    with tempfile.TemporaryDirectory(
+        prefix="helixweave-rnaseq-canary-",
+        dir="/tmp",
+    ) as temporary:
+        root = Path(temporary)
+        launch = root / "launch"
+        nxf_home = root / "nxf-home"
+        home = root / "home"
+        temp = root / "tmp"
+        for directory in (launch, nxf_home, home, temp):
+            directory.mkdir(mode=0o700)
+        hard_config = root / "platform.nextflow.config"
+        hard_config.write_text(
+            "\n".join(
+                (
+                    f"includeConfig {_groovy_literal(str(source_tree / 'nextflow.config'))}",
+                    "params.helixweave_runtime_admission_marker = 'hard-config-only'",
+                    "process.executor = 'local'",
+                    "docker.enabled = true",
+                    "docker.registry = ''",
+                    "wave.enabled = false",
+                    "tower.enabled = false",
+                    "fusion.enabled = false",
+                    "process {",
+                    f"    withName: {_groovy_literal(selector.process)} {{",
+                    f"        container = {_groovy_literal(selector.runtime_image)}",
+                    "    }",
+                    "}",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+        (launch / "nextflow.config").write_text(
+            "params.helixweave_launch_poison = 'launch-config-loaded'\n"
+            "process.executor = 'slurm'\n"
+            "docker.enabled = false\n",
+            encoding="utf-8",
+        )
+        (nxf_home / "config").write_text(
+            "params.helixweave_home_poison = 'home-config-loaded'\n"
+            "process.executor = 'awsbatch'\n"
+            "docker.enabled = false\n",
+            encoding="utf-8",
+        )
+        environment = {
+            "CLASSPATH": "",
+            "HOME": str(home),
+            "JAVA_CMD": str(java_executable),
+            "JAVA_HOME": str(java_home),
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "LD_LIBRARY_PATH": "",
+            "NXF_ANSI_LOG": "false",
+            "NXF_DISABLE_CHECK_LATEST": "true",
+            "NXF_HOME": str(nxf_home),
+            "NXF_JAVA_HOME": str(java_home),
+            "NXF_OFFLINE": "true",
+            "NXF_OPTS": "",
+            "NXF_PLUGINS_DIR": str(plugin_root),
+            "NXF_TEMP": str(temp),
+            "PATH": f"{java_home / 'bin'}:/usr/bin:/bin",
+        }
+        java_output = _run_runtime_probe(
+            (str(java_executable), "-version"),
+            cwd=launch,
+            environment=environment,
+            component="jdk",
+        )
+        if hashlib.sha256(java_output).hexdigest() != expected_java_output:
+            raise _AssetFault("jdk", "version")
+        version_output = _run_runtime_probe(
+            (str(nextflow_executable), "-version"),
+            cwd=launch,
+            environment=environment,
+            component="nextflow",
+        ).decode("utf-8", errors="strict")
+        if (
+            f"version {NEXTFLOW_VERSION} build {build}" not in version_output
+            or "launch-config-loaded" in version_output
+            or "home-config-loaded" in version_output
+        ):
+            raise _AssetFault("nextflow", "version")
+        config_output = _run_runtime_probe(
+            (
+                str(nextflow_executable),
+                "-C",
+                str(hard_config),
+                "config",
+                str(source_tree),
+                "-profile",
+                "docker",
+                "-flat",
+            ),
+            cwd=launch,
+            environment=environment,
+            component="nextflow",
+        ).decode("utf-8", errors="strict")
+        required_fragments = (
+            "params.helixweave_runtime_admission_marker = 'hard-config-only'",
+            "process.executor = 'local'",
+            "docker.enabled = true",
+            "docker.registry = ''",
+            "wave.enabled = false",
+            "tower.enabled = false",
+            "fusion.enabled = false",
+            "manifest.name = 'nf-core/rnaseq'",
+            "manifest.version = '3.26.0'",
+            "manifest.nextflowVersion = '!>=25.04.3'",
+            "plugins = ['nf-schema@2.5.1']",
+            "shifter.enabled = false",
+            selector.runtime_image,
+        )
+        if any(fragment not in config_output for fragment in required_fragments) or any(
+            fragment in config_output
+            for fragment in (
+                "helixweave_launch_poison",
+                "launch-config-loaded",
+                "helixweave_home_poison",
+                "home-config-loaded",
+            )
+        ):
+            raise _AssetFault("nextflow", "configuration")
+
+
+def _run_runtime_probe(
+    argv: tuple[str, ...],
+    *,
+    cwd: Path,
+    environment: Mapping[str, str],
+    component: str,
+) -> bytes:
+    try:
+        completed = subprocess.run(
+            argv,
+            cwd=cwd,
+            env=dict(environment),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=_RUNTIME_CANARY_TIMEOUT_SECONDS,
+            check=False,
+            shell=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise _AssetFault(component, "unavailable") from exc
+    if completed.returncode != 0 or len(completed.stdout) > _MAX_RUNTIME_CANARY_BYTES:
+        raise _AssetFault(component, "unavailable")
+    return completed.stdout
+
+
+def _groovy_literal(value: str) -> str:
+    if any(character in value for character in ("'", "\\", "\n", "\r", "$")):
+        raise _AssetFault("runtime", "contract")
+    return f"'{value}'"
+
+
 def _verify_docker_availability(
     binding: RuntimeAssetBinding,
     containers: tuple[VerifiedContainerAsset, ...],
@@ -1406,15 +1884,77 @@ def _verify_local_docker_endpoint(
     ):
         raise _AssetFault("docker", "file_type")
     return (
-        (
-            executable.st_dev,
-            executable.st_ino,
-            executable.st_mode,
-            executable.st_size,
-            executable.st_mtime_ns,
-            executable.st_ctime_ns,
-        ),
-        (socket_info.st_dev, socket_info.st_ino, socket_info.st_mode),
+        _metadata_identity(executable),
+        _metadata_identity(socket_info),
+    )
+
+
+def _capture_runtime_witness(
+    binding: RuntimeAssetBinding,
+    *,
+    include_docker_endpoint: bool,
+) -> _RuntimeAssetWitness:
+    """Capture bounded descriptor-relative metadata without reading payloads."""
+
+    root_fd = _open_root(binding.root)
+    entries: list[tuple[str, tuple[int, ...]]] = []
+
+    def walk(directory_fd: int, prefix: str) -> None:
+        before = os.fstat(directory_fd)
+        relative_directory = prefix or "."
+        entries.append((relative_directory, _metadata_identity(before)))
+        if len(entries) > _MAX_RUNTIME_WITNESS_ENTRIES:
+            raise _AssetFault("runtime", "bounds")
+        try:
+            names = sorted(os.listdir(directory_fd))
+        except OSError as exc:
+            raise _AssetFault("runtime", "unreadable") from exc
+        for name in names:
+            relative = f"{prefix}/{name}" if prefix else name
+            try:
+                info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            except OSError as exc:
+                raise _AssetFault("runtime", "race") from exc
+            if stat.S_ISDIR(info.st_mode):
+                child_fd = _open_single_directory(directory_fd, name, "runtime")
+                try:
+                    walk(child_fd, relative)
+                    final_child = os.fstat(child_fd)
+                finally:
+                    os.close(child_fd)
+                if _metadata_identity(info) != _metadata_identity(final_child):
+                    raise _AssetFault("runtime", "race")
+            elif stat.S_ISREG(info.st_mode):
+                entries.append((relative, _metadata_identity(info)))
+                if len(entries) > _MAX_RUNTIME_WITNESS_ENTRIES:
+                    raise _AssetFault("runtime", "bounds")
+            else:
+                raise _AssetFault("runtime", "file_type")
+        after = os.fstat(directory_fd)
+        if _metadata_identity(before) != _metadata_identity(after):
+            raise _AssetFault("runtime", "race")
+
+    try:
+        walk(root_fd, "")
+    finally:
+        os.close(root_fd)
+    endpoint = (
+        _verify_local_docker_endpoint(binding) if include_docker_endpoint else None
+    )
+    return _RuntimeAssetWitness(entries=tuple(entries), docker_endpoint=endpoint)
+
+
+def _metadata_identity(info: os.stat_result) -> tuple[int, ...]:
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_nlink,
+        info.st_uid,
+        info.st_gid,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
     )
 
 
@@ -1499,6 +2039,69 @@ def _verify_exact_tree(
     walk(tree_fd, "")
     if found != set(expected):
         raise _AssetFault(component, "file_set")
+    return sorted(verified, key=lambda entry: str(entry["path"]))
+
+
+def _verify_observed_tree(
+    tree_fd: int,
+    *,
+    component: str,
+    maximum_files: int,
+    maximum_file_bytes: int,
+    maximum_total_bytes: int,
+) -> list[dict[str, object]]:
+    """Hash one bounded closed tree whose canonical digest is the contract."""
+
+    verified: list[dict[str, object]] = []
+    total_bytes = 0
+
+    def walk(directory_fd: int, prefix: str) -> None:
+        nonlocal total_bytes
+        try:
+            names = sorted(os.listdir(directory_fd))
+        except OSError as exc:
+            raise _AssetFault(component, "unreadable") from exc
+        if not names:
+            raise _AssetFault(component, "file_set")
+        for name in names:
+            relative = f"{prefix}/{name}" if prefix else name
+            try:
+                info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            except OSError as exc:
+                raise _AssetFault(component, "race") from exc
+            if stat.S_ISDIR(info.st_mode):
+                child_fd = _open_single_directory(directory_fd, name, component)
+                try:
+                    walk(child_fd, relative)
+                finally:
+                    os.close(child_fd)
+                continue
+            if not stat.S_ISREG(info.st_mode):
+                raise _AssetFault(component, "file_type")
+            if (
+                len(verified) >= maximum_files
+                or info.st_size < 0
+                or info.st_size > maximum_file_bytes
+                or total_bytes + info.st_size > maximum_total_bytes
+            ):
+                raise _AssetFault(component, "bounds")
+            digest, final_info = _hash_regular_entry(
+                directory_fd,
+                name,
+                component,
+                max_bytes=max(maximum_file_bytes, 1),
+            )
+            total_bytes += final_info.st_size
+            verified.append(
+                {
+                    "path": relative,
+                    "size_bytes": final_info.st_size,
+                    "sha256": digest,
+                    "executable": bool(final_info.st_mode & 0o111),
+                }
+            )
+
+    walk(tree_fd, "")
     return sorted(verified, key=lambda entry: str(entry["path"]))
 
 
