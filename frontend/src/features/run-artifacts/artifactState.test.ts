@@ -41,6 +41,7 @@ function artifact(id: string): ArtifactReferenceResponse {
     uri: `run://runs/run-1/artifacts/${id}`,
     mime_type: 'text/tab-separated-values',
     produced_at: '2026-07-12T12:00:00Z',
+    revision: `artifactrev-${'a'.repeat(64)}`,
     relative_path: `results/${id}.tsv`,
     output_type: id,
     size_bytes: 1024,

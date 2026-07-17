@@ -13,10 +13,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import errno
+from hashlib import sha256
 import os
 from pathlib import Path, PurePosixPath
 import stat
-import re
 from typing import Any
 
 from encode_pipeline.adapters.bulk_rnaseq.upstream import (
@@ -24,9 +24,19 @@ from encode_pipeline.adapters.bulk_rnaseq.upstream import (
     NFCORE_RNASEQ_RELEASE,
 )
 from encode_pipeline.adapters.bulk_rnaseq.results_contract import (
+    artifact_family_for_output_type,
     effective_downstream_layout,
     effective_rseqc_modules,
     load_bulk_rnaseq_results_contract,
+)
+from encode_pipeline.adapters.bulk_rnaseq.status_evidence import (
+    StatusEvidenceError,
+    parse_cutadapt_processed_reads,
+    parse_fastp_retained_reads,
+    parse_fastqc_total_sequences,
+    parse_star_uniquely_mapped_percent,
+    parse_status_table,
+    reconcile_sample_status,
 )
 from encode_pipeline.adapters.bulk_rnaseq.validation import (
     validate_bulk_rnaseq_inputs,
@@ -46,6 +56,10 @@ _MAX_ARTIFACT_CANDIDATES = MAX_SAMPLE_ROWS * 128 + 128
 _MAX_PATH_COMPONENTS = 20
 _MAX_STATUS_TABLE_BYTES = MAX_SAMPLE_ROWS * (128 + 1 + 64 + 1) + 128
 _MAX_AUDITED_NAMESPACE_ENTRIES = MAX_SAMPLE_ROWS * 128 + 128
+_MAX_STATUS_EVIDENCE_BYTES = 16 * 1024 * 1024
+_MAX_STATUS_EVIDENCE_TOTAL_BYTES = 256 * 1024 * 1024
+_MAX_MULTIQC_TABLE_BYTES = 16 * 1024 * 1024
+_MAX_MULTIQC_TABLE_TOTAL_BYTES = 64 * 1024 * 1024
 _DEFAULT_MIN_TRIMMED_READS = Decimal("10000")
 _DEFAULT_MIN_MAPPED_PERCENT = Decimal("5")
 
@@ -96,6 +110,123 @@ _STAR_SAMPLE_FILE_SUFFIXES = (
 )
 _STAR_LOG_SAMPLE_SUFFIXES = (".Log.final.out", ".SJ.out.tab")
 
+# Every entry is an explicitly audited, single-level fixed output namespace.
+# The suffixes describe sample-bearing upstream names, including private files
+# whose sample ownership still must not escape the validated run identity set.
+_AUDITED_SAMPLE_NAMESPACE_SUFFIXES: Mapping[str, tuple[str, ...]] = {
+    "star_salmon/bigwig": (".forward.bigWig", ".reverse.bigWig", ".bigWig"),
+    "star_salmon/featurecounts": (
+        ".featureCounts.tsv.summary",
+        ".featureCounts.tsv",
+        ".biotype_counts_mqc.tsv",
+        ".biotype_counts_rrna_mqc.tsv",
+    ),
+    "star_salmon/samtools_stats": (
+        ".sorted.bam.flagstat",
+        ".sorted.bam.idxstats",
+        ".sorted.bam.stats",
+        ".markdup.sorted.bam.flagstat",
+        ".markdup.sorted.bam.idxstats",
+        ".markdup.sorted.bam.stats",
+        ".umi_dedup.sorted.bam.flagstat",
+        ".umi_dedup.sorted.bam.idxstats",
+        ".umi_dedup.sorted.bam.stats",
+    ),
+    "star_salmon/umitools": (
+        ".umi_dedup.sorted_edit_distance.tsv",
+        ".umi_dedup.sorted_per_umi.tsv",
+        ".umi_dedup.sorted_per_umi_per_position.tsv",
+        ".umi_dedup.transcriptome.sorted_edit_distance.tsv",
+        ".umi_dedup.transcriptome.sorted_per_umi.tsv",
+        ".umi_dedup.transcriptome.sorted_per_umi_per_position.tsv",
+    ),
+    "star_salmon/unmapped": (
+        ".unmapped_1.fastq.gz",
+        ".unmapped_2.fastq.gz",
+    ),
+    "star_salmon/rseqc/bam_stat": (".bam_stat.txt",),
+    "star_salmon/rseqc/infer_experiment": (".infer_experiment.txt",),
+    "star_salmon/rseqc/read_distribution": (".read_distribution.txt",),
+    "star_salmon/rseqc/tin": (".summary.txt", ".tin.xls"),
+    "star_salmon/rseqc/inner_distance/txt": (
+        ".inner_distance.txt",
+        ".inner_distance_freq.txt",
+        ".inner_distance_mean.txt",
+    ),
+    "star_salmon/rseqc/junction_annotation/bed": (
+        ".junction.bed",
+        ".junction.Interact.bed",
+    ),
+    "star_salmon/rseqc/junction_annotation/xls": (".junction.xls",),
+    "star_salmon/rseqc/junction_saturation/pdf": (".junctionSaturation_plot.pdf",),
+    "star_salmon/rseqc/read_duplication/xls": (
+        ".pos.DupRate.xls",
+        ".seq.DupRate.xls",
+    ),
+    "fastqc/raw": (
+        "_raw_fastqc.html",
+        "_raw_fastqc.zip",
+        "_raw_1_fastqc.html",
+        "_raw_1_fastqc.zip",
+        "_raw_2_fastqc.html",
+        "_raw_2_fastqc.zip",
+    ),
+    "fastqc/trim": (
+        "_trimmed_fastqc.html",
+        "_trimmed_fastqc.zip",
+        "_trimmed_1_fastqc.html",
+        "_trimmed_1_fastqc.zip",
+        "_trimmed_2_fastqc.html",
+        "_trimmed_2_fastqc.zip",
+        "_trimmed_trimmed_fastqc.html",
+        "_trimmed_trimmed_fastqc.zip",
+        "_trimmed_1_val_1_fastqc.html",
+        "_trimmed_1_val_1_fastqc.zip",
+        "_trimmed_2_val_2_fastqc.html",
+        "_trimmed_2_val_2_fastqc.zip",
+    ),
+    "fastqc/filtered": (
+        "_filtered_fastqc.html",
+        "_filtered_fastqc.zip",
+        "_filtered_1_fastqc.html",
+        "_filtered_1_fastqc.zip",
+        "_filtered_2_fastqc.html",
+        "_filtered_2_fastqc.zip",
+    ),
+    "fastp": (
+        ".fastp.json",
+        ".fastp.html",
+        ".fastp.fastq.gz",
+        "_R1.fastp.fastq.gz",
+        "_R2.fastp.fastq.gz",
+    ),
+    "trimgalore": (
+        "_trimmed.fastq.gz_trimming_report.txt",
+        "_trimmed_1.fastq.gz_trimming_report.txt",
+        "_trimmed_2.fastq.gz_trimming_report.txt",
+        "_trimmed_trimmed.fq.gz",
+        "_trimmed_1_val_1.fq.gz",
+        "_trimmed_2_val_2.fq.gz",
+    ),
+    "fastq": (".merged.fastq.gz", "_1.merged.fastq.gz", "_2.merged.fastq.gz"),
+    "umitools": (
+        ".umi_extract.fastq.gz",
+        "_1.umi_extract.fastq.gz",
+        "_2.umi_extract.fastq.gz",
+        ".umi_extract.log",
+    ),
+    "sortmerna": (
+        ".non_rRNA.fastq.gz",
+        "_1.non_rRNA.fastq.gz",
+        "_2.non_rRNA.fastq.gz",
+        ".sortmerna.log",
+    ),
+    "bowtie2_rrna": (
+        ".bowtie2_rrna.unmapped.fastq.gz",
+        ".bowtie2_rrna.bowtie2.log",
+    ),
+}
+
 
 @dataclass(frozen=True)
 class _ArtifactSpec:
@@ -127,6 +258,10 @@ class _SampleStatusUnavailable(ValueError):
 
 
 class _UnknownSampleError(ValueError):
+    pass
+
+
+class _MultiqcTableError(ValueError):
     pass
 
 
@@ -182,8 +317,16 @@ def discover_bulk_rnaseq_artifacts(
 
     candidates: list[ExtractedArtifactCandidate] = []
     try:
-        _reject_unknown_star_salmon_samples(results_descriptor, samples)
-        trimmed_failed, mapped_failed, status_specs = _read_sample_status_tables(
+        namespace_snapshot = _reject_unknown_star_salmon_samples(
+            results_descriptor,
+            samples,
+        )
+        (
+            trimmed_failed,
+            mapped_failed,
+            status_specs,
+            status_snapshot,
+        ) = _read_sample_status_tables(
             results_descriptor,
             params,
             samples,
@@ -195,6 +338,15 @@ def discover_bulk_rnaseq_artifacts(
             mapped_failed=mapped_failed,
         )
         specs.extend(status_specs)
+        _validate_specs(specs)
+        multiqc_snapshot = _audit_published_multiqc_tables(
+            results_descriptor,
+            specs,
+            params=params,
+            samples=samples,
+            trimmed_failed=trimmed_failed,
+            mapped_failed=mapped_failed,
+        )
         if len(specs) + len(auto_bigwig) * 3 > _MAX_ARTIFACT_CANDIDATES:
             raise _ArtifactLimitError
         for spec in specs:
@@ -218,6 +370,21 @@ def discover_bulk_rnaseq_artifacts(
             candidates.extend(
                 _discover_auto_bigwig(results_descriptor, sample, metadata)
             )
+        _revalidate_sample_namespaces(
+            results_descriptor,
+            samples,
+            namespace_snapshot,
+        )
+        _revalidate_sample_status_tables(results_descriptor, status_snapshot)
+        _revalidate_published_multiqc_tables(
+            results_descriptor,
+            specs,
+            params=params,
+            samples=samples,
+            trimmed_failed=trimmed_failed,
+            mapped_failed=mapped_failed,
+            expected=multiqc_snapshot,
+        )
     except FileNotFoundError:
         return _failure(
             "BULK_RNASEQ_ARTIFACT_REQUIRED_MISSING",
@@ -247,6 +414,11 @@ def discover_bulk_rnaseq_artifacts(
         return _failure(
             "BULK_RNASEQ_ARTIFACT_UNKNOWN_SAMPLE",
             "unknown_sample_output",
+        )
+    except _MultiqcTableError:
+        return _failure(
+            "BULK_RNASEQ_ARTIFACT_MULTIQC_TABLE_INVALID",
+            "multiqc_sample_ownership_invalid",
         )
     except (OSError, _UnsafePathError, TypeError, ValueError):
         return _failure(
@@ -351,8 +523,11 @@ def _normalized_samples(value: object) -> tuple[Mapping[str, object], ...]:
 def _reject_unknown_star_salmon_samples(
     results_descriptor: int,
     samples: tuple[Mapping[str, object], ...],
-) -> None:
-    """Reject sample-bearing files outside the validated sample identity set."""
+) -> tuple[
+    tuple[str, tuple[int, ...] | None, tuple[tuple[str, tuple[int, ...]], ...]],
+    ...,
+]:
+    """Audit every fixed sample-bearing namespace without recursive globbing."""
     known_samples = frozenset(str(row["sample"]) for row in samples)
     known_route_files = frozenset(
         f"{sample}{suffix}"
@@ -364,48 +539,432 @@ def _reject_unknown_star_salmon_samples(
         for sample in known_samples
         for suffix in _STAR_LOG_SAMPLE_SUFFIXES
     )
+    audited_entries = [0]
+    snapshots: list[
+        tuple[str, tuple[int, ...] | None, tuple[tuple[str, tuple[int, ...]], ...]]
+    ] = []
     route_descriptor = _open_optional_directory(results_descriptor, _ALIGNER)
-    if route_descriptor is None:
-        return
-    try:
-        with os.scandir(route_descriptor) as entries:
-            for count, entry in enumerate(entries, start=1):
-                if count > _MAX_AUDITED_NAMESPACE_ENTRIES:
-                    raise _ArtifactLimitError
-                name = entry.name
-                if entry.is_dir(follow_symlinks=False):
-                    if (
-                        name not in known_samples
-                        and name not in _STAR_SALMON_FIXED_DIRECTORIES
-                    ):
+    if route_descriptor is not None:
+        try:
+            route_entries: list[tuple[str, tuple[int, ...]]] = []
+            with os.scandir(route_descriptor) as entries:
+                for entry in entries:
+                    _count_audited_entry(audited_entries)
+                    name = entry.name
+                    info = _audited_entry_info(route_descriptor, name)
+                    route_entries.append((name, _identity(info)))
+                    if stat.S_ISDIR(info.st_mode):
+                        if (
+                            name not in known_samples
+                            and name not in _STAR_SALMON_FIXED_DIRECTORIES
+                        ):
+                            raise _UnknownSampleError
+                        continue
+                    if name in known_samples or name in _STAR_SALMON_FIXED_DIRECTORIES:
+                        raise _UnsafePathError
+                    if name in known_route_files:
+                        if not stat.S_ISREG(info.st_mode):
+                            raise _UnsafePathError
+                        continue
+                    sample = _sample_from_star_route_filename(name)
+                    if sample is None:
+                        continue
+                    if not stat.S_ISREG(info.st_mode):
+                        raise _UnsafePathError
+                    if name not in known_route_files or sample not in known_samples:
                         raise _UnknownSampleError
-                    continue
-                if name in known_route_files:
-                    continue
-                sample = _sample_from_star_route_filename(name)
-                if sample is not None and sample not in known_samples:
-                    raise _UnknownSampleError
-    finally:
-        os.close(route_descriptor)
+            snapshots.append(
+                (
+                    _ALIGNER,
+                    _identity(os.fstat(route_descriptor)),
+                    tuple(sorted(route_entries)),
+                )
+            )
+        finally:
+            os.close(route_descriptor)
+    else:
+        snapshots.append((_ALIGNER, None, ()))
 
     log_descriptor = _open_optional_directory(
         results_descriptor,
         f"{_ALIGNER}/log",
     )
     if log_descriptor is None:
-        return
+        snapshots.append((f"{_ALIGNER}/log", None, ()))
+    else:
+        try:
+            log_entries: list[tuple[str, tuple[int, ...]]] = []
+            with os.scandir(log_descriptor) as entries:
+                for entry in entries:
+                    _count_audited_entry(audited_entries)
+                    info = _audited_entry_info(log_descriptor, entry.name)
+                    log_entries.append((entry.name, _identity(info)))
+                    sample = _sample_from_suffix(entry.name, _STAR_LOG_SAMPLE_SUFFIXES)
+                    if sample is None:
+                        continue
+                    if not stat.S_ISREG(info.st_mode):
+                        raise _UnsafePathError
+                    if entry.name not in known_log_files or sample not in known_samples:
+                        raise _UnknownSampleError
+            snapshots.append(
+                (
+                    f"{_ALIGNER}/log",
+                    _identity(os.fstat(log_descriptor)),
+                    tuple(sorted(log_entries)),
+                )
+            )
+        finally:
+            os.close(log_descriptor)
+
+    for relative_path, suffixes in _AUDITED_SAMPLE_NAMESPACE_SUFFIXES.items():
+        snapshots.append(
+            _audit_sample_namespace(
+                results_descriptor,
+                relative_path,
+                suffixes,
+                known_samples,
+                audited_entries,
+            )
+        )
+    return tuple(snapshots)
+
+
+def _revalidate_sample_namespaces(
+    results_descriptor: int,
+    samples: tuple[Mapping[str, object], ...],
+    expected: tuple[
+        tuple[str, tuple[int, ...] | None, tuple[tuple[str, tuple[int, ...]], ...]],
+        ...,
+    ],
+) -> None:
     try:
-        with os.scandir(log_descriptor) as entries:
-            for count, entry in enumerate(entries, start=1):
-                if count > _MAX_AUDITED_NAMESPACE_ENTRIES:
-                    raise _ArtifactLimitError
-                if entry.name in known_log_files:
+        observed = _reject_unknown_star_salmon_samples(results_descriptor, samples)
+    except (
+        OSError,
+        _ArtifactLimitError,
+        _ArtifactRaceError,
+        _UnknownSampleError,
+        _UnsafePathError,
+    ) as exc:
+        raise _ArtifactRaceError from exc
+    if observed != expected:
+        raise _ArtifactRaceError
+
+
+def _audit_published_multiqc_tables(
+    results_descriptor: int,
+    specs: list[_ArtifactSpec],
+    *,
+    params: Mapping[str, object],
+    samples: tuple[Mapping[str, object], ...],
+    trimmed_failed: frozenset[str],
+    mapped_failed: frozenset[str],
+) -> tuple[tuple[str, str | None], ...]:
+    """Bind every published sample-bearing MultiQC table to known owners."""
+    sample_ids = frozenset(str(row["sample"]) for row in samples)
+    analysis_samples = sample_ids - trimmed_failed
+    post_mapping_samples = analysis_samples - mapped_failed
+    total_bytes = 0
+    snapshots: list[tuple[str, str | None]] = []
+    for spec in sorted(specs, key=lambda item: item.relative_path):
+        if not spec.output_type.startswith(
+            "bulk_rnaseq.multiqc."
+        ) or spec.output_type in {
+            "bulk_rnaseq.multiqc.fail_trimmed_samples",
+            "bulk_rnaseq.multiqc.fail_mapped_samples",
+        }:
+            continue
+        policy = _multiqc_row_policy(
+            spec.output_type,
+            params=params,
+            samples=samples,
+            sample_ids=sample_ids,
+            analysis_samples=analysis_samples,
+            post_mapping_samples=post_mapping_samples,
+        )
+        content = _read_optional_bounded_file(
+            results_descriptor,
+            spec.relative_path,
+            max_bytes=_MAX_MULTIQC_TABLE_BYTES,
+        )
+        if content is None:
+            snapshots.append((spec.relative_path, None))
+            continue
+        total_bytes += len(content)
+        if total_bytes > _MAX_MULTIQC_TABLE_TOTAL_BYTES:
+            raise _ArtifactLimitError
+        _validate_multiqc_sample_rows(content, policy)
+        snapshots.append((spec.relative_path, sha256(content).hexdigest()))
+    return tuple(snapshots)
+
+
+def _revalidate_published_multiqc_tables(
+    results_descriptor: int,
+    specs: list[_ArtifactSpec],
+    *,
+    params: Mapping[str, object],
+    samples: tuple[Mapping[str, object], ...],
+    trimmed_failed: frozenset[str],
+    mapped_failed: frozenset[str],
+    expected: tuple[tuple[str, str | None], ...],
+) -> None:
+    try:
+        observed = _audit_published_multiqc_tables(
+            results_descriptor,
+            specs,
+            params=params,
+            samples=samples,
+            trimmed_failed=trimmed_failed,
+            mapped_failed=mapped_failed,
+        )
+    except (
+        OSError,
+        _ArtifactLimitError,
+        _ArtifactRaceError,
+        _MultiqcTableError,
+        _UnknownSampleError,
+        _UnsafePathError,
+    ) as exc:
+        raise _ArtifactRaceError from exc
+    if observed != expected:
+        raise _ArtifactRaceError
+
+
+@dataclass(frozen=True)
+class _MultiqcRowPolicy:
+    owners: Mapping[str, str]
+    exact_rows: frozenset[str] | None
+    required_owners: frozenset[str]
+
+
+def _multiqc_row_policy(
+    output_type: str,
+    *,
+    params: Mapping[str, object],
+    samples: tuple[Mapping[str, object], ...],
+    sample_ids: frozenset[str],
+    analysis_samples: frozenset[str],
+    post_mapping_samples: frozenset[str],
+) -> _MultiqcRowPolicy:
+    canonical = {sample: sample for sample in sorted(sample_ids)}
+    authored = _multiqc_layout_owners(samples, sample_ids, params=None)
+    effective_all = _multiqc_layout_owners(samples, sample_ids, params=params)
+    effective_analysis = _multiqc_layout_owners(
+        samples,
+        analysis_samples,
+        params=params,
+    )
+    policies: dict[str, Mapping[str, str]] = {
+        "bulk_rnaseq.multiqc.star": {
+            sample: sample for sample in sorted(analysis_samples)
+        },
+        "bulk_rnaseq.multiqc.salmon": {
+            sample: sample for sample in sorted(analysis_samples)
+        },
+        "bulk_rnaseq.multiqc.cutadapt": effective_all,
+        "bulk_rnaseq.multiqc.fastp": canonical,
+        "bulk_rnaseq.multiqc.fastqc.raw": authored,
+        "bulk_rnaseq.multiqc.fastqc.trimmed": (
+            effective_all
+            if params.get("trimmer") == "trimgalore"
+            else effective_analysis
+        ),
+        "bulk_rnaseq.multiqc.fastqc.filtered": effective_analysis,
+        "bulk_rnaseq.multiqc.picard_dups": {
+            sample: sample for sample in sorted(post_mapping_samples)
+        },
+        "bulk_rnaseq.multiqc.featurecounts_biotype": {
+            sample: sample for sample in sorted(post_mapping_samples)
+        },
+        "bulk_rnaseq.multiqc.rseqc.bam_stat": {
+            sample: sample for sample in sorted(post_mapping_samples)
+        },
+        "bulk_rnaseq.multiqc.rseqc.infer_experiment": {
+            sample: sample for sample in sorted(post_mapping_samples)
+        },
+        "bulk_rnaseq.multiqc.rseqc.read_distribution": {
+            sample: sample for sample in sorted(post_mapping_samples)
+        },
+        "bulk_rnaseq.multiqc.rseqc.tin": {
+            sample: sample for sample in sorted(post_mapping_samples)
+        },
+    }
+    if output_type == "bulk_rnaseq.multiqc.general_stats":
+        owners = _general_stats_owners(samples, sample_ids, params=params)
+        return _MultiqcRowPolicy(
+            owners=owners,
+            exact_rows=frozenset(owners),
+            required_owners=frozenset(),
+        )
+    selected_owners = policies.get(output_type)
+    if selected_owners is None:
+        raise _MultiqcTableError
+    return _MultiqcRowPolicy(
+        owners=selected_owners,
+        exact_rows=frozenset(selected_owners),
+        required_owners=frozenset(),
+    )
+
+
+def _general_stats_owners(
+    samples: tuple[Mapping[str, object], ...],
+    included: frozenset[str],
+    *,
+    params: Mapping[str, object],
+) -> dict[str, str]:
+    """Return exact MultiQC 1.33 grouped row identities for General Stats."""
+    owners = {sample: sample for sample in sorted(included)}
+    for row in samples:
+        sample = str(row["sample"])
+        if sample not in included or str(row["layout"]) != "PE":
+            continue
+        raw_fastqc_mates = params.get("skip_fastqc") is False
+        trimgalore_mates = (
+            params.get("skip_trimming") is False
+            and params.get("trimmer") == "trimgalore"
+            and effective_downstream_layout("PE", params) == "PE"
+        )
+        if not (raw_fastqc_mates or trimgalore_mates):
+            continue
+        for label in ("Read 1", "Read 2"):
+            identity = f"{sample} {label}"
+            previous = owners.setdefault(identity, sample)
+            if previous != sample:
+                raise _MultiqcTableError
+    return owners
+
+
+def _multiqc_layout_owners(
+    samples: tuple[Mapping[str, object], ...],
+    included: frozenset[str],
+    *,
+    params: Mapping[str, object] | None,
+) -> dict[str, str]:
+    owners: dict[str, str] = {}
+    for row in samples:
+        sample = str(row["sample"])
+        if sample not in included:
+            continue
+        layout = str(row["layout"])
+        if params is not None:
+            layout = effective_downstream_layout(layout, params)
+        identities = (sample,) if layout == "SE" else (f"{sample}_1", f"{sample}_2")
+        for identity in identities:
+            previous = owners.setdefault(identity, sample)
+            if previous != sample:
+                raise _MultiqcTableError
+    return owners
+
+
+def _merge_multiqc_owners(target: dict[str, str], additions: Mapping[str, str]) -> None:
+    for identity, owner in additions.items():
+        previous = target.setdefault(identity, owner)
+        if previous != owner:
+            raise _MultiqcTableError
+
+
+def _validate_multiqc_sample_rows(
+    content: bytes,
+    policy: _MultiqcRowPolicy,
+) -> None:
+    try:
+        text = content.decode("utf-8", errors="strict")
+    except UnicodeError as exc:
+        raise _MultiqcTableError from exc
+    if not text or "\x00" in text or "\r" in text or text.startswith("\ufeff"):
+        raise _MultiqcTableError
+    lines = text.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    if not lines or any(not line for line in lines):
+        raise _MultiqcTableError
+    header = lines[0].split("\t")
+    if len(header) < 2 or header[0] != "Sample" or any(not value for value in header):
+        raise _MultiqcTableError
+    data_rows = len(lines) - 1
+    if data_rows > MAX_SAMPLE_ROWS * 3:
+        raise _ArtifactLimitError
+    observed: set[str] = set()
+    observed_owners: set[str] = set()
+    for line in lines[1:]:
+        fields = line.split("\t")
+        identity = fields[0] if fields else ""
+        if (
+            len(fields) != len(header)
+            or not identity
+            or len(identity) > 135
+            or identity in observed
+        ):
+            raise _MultiqcTableError
+        owner = policy.owners.get(identity)
+        if owner is None:
+            raise _UnknownSampleError
+        observed.add(identity)
+        observed_owners.add(owner)
+    if policy.exact_rows is not None and observed != policy.exact_rows:
+        raise _MultiqcTableError
+    if policy.required_owners and observed_owners != policy.required_owners:
+        raise _MultiqcTableError
+
+
+def _audit_sample_namespace(
+    results_descriptor: int,
+    relative_path: str,
+    suffixes: tuple[str, ...],
+    known_samples: frozenset[str],
+    audited_entries: list[int],
+) -> tuple[str, tuple[int, ...] | None, tuple[tuple[str, tuple[int, ...]], ...]]:
+    known_owners: dict[str, str] = {}
+    for sample in sorted(known_samples):
+        for suffix in suffixes:
+            name = f"{sample}{suffix}"
+            previous = known_owners.setdefault(name, sample)
+            if previous != sample:
+                raise _UnknownSampleError
+    descriptor = _open_optional_directory(results_descriptor, relative_path)
+    if descriptor is None:
+        return relative_path, None, ()
+    try:
+        namespace_entries: list[tuple[str, tuple[int, ...]]] = []
+        with os.scandir(descriptor) as entries:
+            for entry in entries:
+                _count_audited_entry(audited_entries)
+                info = _audited_entry_info(descriptor, entry.name)
+                namespace_entries.append((entry.name, _identity(info)))
+                sample_id = _sample_from_suffix(entry.name, suffixes)
+                if sample_id is None:
                     continue
-                sample = _sample_from_suffix(entry.name, _STAR_LOG_SAMPLE_SUFFIXES)
-                if sample is not None and sample not in known_samples:
+                if not stat.S_ISREG(info.st_mode):
+                    raise _UnsafePathError
+                if entry.name not in known_owners:
                     raise _UnknownSampleError
+        return (
+            relative_path,
+            _identity(os.fstat(descriptor)),
+            tuple(sorted(namespace_entries)),
+        )
     finally:
-        os.close(log_descriptor)
+        os.close(descriptor)
+
+
+def _audited_entry_info(directory_descriptor: int, name: str) -> os.stat_result:
+    flags = os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC
+    try:
+        descriptor = os.open(name, flags, dir_fd=directory_descriptor)
+    except OSError as exc:
+        if exc.errno == errno.ENOENT:
+            raise _ArtifactRaceError from exc
+        raise _UnsafePathError from exc
+    try:
+        return os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _count_audited_entry(count: list[int]) -> None:
+    count[0] += 1
+    if count[0] > _MAX_AUDITED_NAMESPACE_ENTRIES:
+        raise _ArtifactLimitError
 
 
 def _sample_from_star_route_filename(filename: str) -> str | None:
@@ -450,49 +1009,125 @@ def _read_sample_status_tables(
     results_descriptor: int,
     params: Mapping[str, object],
     samples: tuple[Mapping[str, object], ...],
-) -> tuple[frozenset[str], frozenset[str], list[_ArtifactSpec]]:
-    if params.get("skip_multiqc") is not False:
-        return frozenset(), frozenset(), []
-    known_samples = frozenset(str(row["sample"]) for row in samples)
+) -> tuple[
+    frozenset[str],
+    frozenset[str],
+    list[_ArtifactSpec],
+    tuple[tuple[str, str | None, int], ...],
+]:
     root = f"multiqc/{_ALIGNER}/multiqc_report_data"
-    definitions = (
-        (
-            "trimmed",
-            f"{root}/multiqc_fail_trimmed_samples_table.txt",
-            "Sample\tReads after trimming",
-            "bulk_rnaseq.multiqc.fail_trimmed_samples",
-            _decimal_param(
+    trim_path = f"{root}/multiqc_fail_trimmed_samples_table.txt"
+    mapped_path = f"{root}/multiqc_fail_mapped_samples_table.txt"
+    snapshot: list[tuple[str, str | None, int]] = []
+    total_bytes = [0]
+    trim_content = _read_status_evidence(
+        results_descriptor,
+        trim_path,
+        snapshot,
+        total_bytes,
+        max_bytes=_MAX_STATUS_TABLE_BYTES,
+    )
+    mapped_content = _read_status_evidence(
+        results_descriptor,
+        mapped_path,
+        snapshot,
+        total_bytes,
+        max_bytes=_MAX_STATUS_TABLE_BYTES,
+    )
+    if params.get("skip_multiqc") is not False:
+        if trim_content is not None or mapped_content is not None:
+            raise _StatusTableError
+        return frozenset(), frozenset(), [], tuple(snapshot)
+    known_samples = frozenset(str(row["sample"]) for row in samples)
+    if params.get("skip_trimming") is True and trim_content is not None:
+        raise _StatusTableError
+    try:
+        trim_table = parse_status_table(
+            trim_content,
+            kind="trimmed",
+            expected_header="Sample\tReads after trimming",
+            known_samples=known_samples,
+        )
+        mapped_table = parse_status_table(
+            mapped_content,
+            kind="mapped",
+            expected_header="Sample\tSTAR uniquely mapped reads (%)",
+            known_samples=known_samples,
+        )
+    except StatusEvidenceError as exc:
+        raise _StatusTableError from exc
+
+    retained_evidence = _retained_read_evidence(
+        results_descriptor,
+        params,
+        samples,
+        snapshot,
+        total_bytes,
+    )
+    trimgalore_input_evidence: Mapping[str, Decimal] = {}
+    if params.get("skip_trimming") is False and params.get("trimmer") == "trimgalore":
+        cutadapt_content = _read_status_evidence(
+            results_descriptor,
+            f"{root}/multiqc_cutadapt.txt",
+            snapshot,
+            total_bytes,
+            max_bytes=_MAX_STATUS_EVIDENCE_BYTES,
+        )
+        if cutadapt_content is not None:
+            try:
+                trimgalore_input_evidence = parse_cutadapt_processed_reads(
+                    cutadapt_content,
+                    expected_row_owners=_cutadapt_row_owners(samples, params),
+                )
+            except StatusEvidenceError as exc:
+                raise _StatusTableError from exc
+    mapped_evidence: dict[str, Decimal] = {}
+    for row in samples:
+        sample = str(row["sample"])
+        content = _read_status_evidence(
+            results_descriptor,
+            f"{_ALIGNER}/log/{sample}.Log.final.out",
+            snapshot,
+            total_bytes,
+            max_bytes=_MAX_STATUS_EVIDENCE_BYTES,
+        )
+        if content is None:
+            continue
+        try:
+            mapped_evidence[sample] = parse_star_uniquely_mapped_percent(content)
+        except StatusEvidenceError as exc:
+            raise _StatusTableError from exc
+    try:
+        status = reconcile_sample_status(
+            known_samples=known_samples,
+            trimming_enabled=params.get("skip_trimming") is False,
+            trimming_tool=str(params.get("trimmer")),
+            trim_threshold=_decimal_param(
                 params,
                 "min_trimmed_reads",
                 _DEFAULT_MIN_TRIMMED_READS,
             ),
-        ),
-        (
-            "mapped",
-            f"{root}/multiqc_fail_mapped_samples_table.txt",
-            "Sample\tSTAR uniquely mapped reads (%)",
-            "bulk_rnaseq.multiqc.fail_mapped_samples",
-            _decimal_param(
+            mapped_threshold=_decimal_param(
                 params,
                 "min_mapped_reads",
                 _DEFAULT_MIN_MAPPED_PERCENT,
             ),
-        ),
-    )
-    failures: dict[str, frozenset[str]] = {}
-    specs: list[_ArtifactSpec] = []
-    for kind, path, header, output_type, threshold in definitions:
-        content = _read_optional_bounded_file(results_descriptor, path)
-        if content is None:
-            failures[kind] = frozenset()
-            continue
-        failures[kind] = _parse_status_table(
-            content,
-            kind=kind,
-            expected_header=header,
-            known_samples=known_samples,
-            threshold=threshold,
+            trim_table=trim_table,
+            mapped_table=mapped_table,
+            retained_read_evidence=retained_evidence,
+            trimgalore_input_read_evidence=trimgalore_input_evidence,
+            uniquely_mapped_percent_evidence=mapped_evidence,
         )
+    except StatusEvidenceError as exc:
+        raise _StatusTableError from exc
+
+    specs: list[_ArtifactSpec] = []
+    for table, path, output_type in (
+        (trim_table, trim_path, "bulk_rnaseq.multiqc.fail_trimmed_samples"),
+        (mapped_table, mapped_path, "bulk_rnaseq.multiqc.fail_mapped_samples"),
+    ):
+        if not table.present:
+            continue
         specs.append(
             _ArtifactSpec(
                 output_type=output_type,
@@ -501,69 +1136,177 @@ def _read_sample_status_tables(
                 metadata=_experiment_metadata(),
             )
         )
-    if failures["trimmed"] & failures["mapped"]:
-        raise _StatusTableError
-    return failures["trimmed"], failures["mapped"], specs
+    return status.trimmed_failed, status.mapped_failed, specs, tuple(snapshot)
 
 
-def _parse_status_table(
-    content: bytes,
-    *,
-    kind: str,
-    expected_header: str,
-    known_samples: frozenset[str],
-    threshold: Decimal,
-) -> frozenset[str]:
+def _revalidate_sample_status_tables(
+    results_descriptor: int,
+    expected: tuple[tuple[str, str | None, int], ...],
+) -> None:
     try:
-        text = content.decode("utf-8", errors="strict")
-    except UnicodeError as exc:
-        raise _StatusTableError from exc
-    if not text or "\x00" in text or "\r" in text or text.startswith("\ufeff"):
-        raise _StatusTableError
-    lines = text.split("\n")
-    if lines[-1] == "":
-        lines.pop()
-    if (
-        not lines
-        or lines[0] != expected_header
-        or len(lines) > len(known_samples) + 1
-        or any(not line for line in lines)
-    ):
-        raise _StatusTableError
-    failed: set[str] = set()
-    observed: set[str] = set()
-    for line in lines[1:]:
-        fields = line.split("\t")
-        if len(fields) != 2:
-            raise _StatusTableError
-        sample, raw_value = fields
-        if (
-            sample not in known_samples
-            or sample in observed
-            or not raw_value
-            or len(raw_value) > 64
-        ):
-            raise _StatusTableError
-        observed.add(sample)
-        try:
-            if re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", raw_value) is None:
+        observed_entries: list[tuple[str, str | None, int]] = []
+        total_bytes = 0
+        for path, _digest, max_bytes in expected:
+            content = _read_optional_bounded_file(
+                results_descriptor,
+                path,
+                max_bytes=max_bytes,
+            )
+            if content is not None:
+                total_bytes += len(content)
+                if total_bytes > _MAX_STATUS_EVIDENCE_TOTAL_BYTES:
+                    raise _ArtifactLimitError
+            observed_entries.append(
+                (
+                    path,
+                    None if content is None else sha256(content).hexdigest(),
+                    max_bytes,
+                )
+            )
+    except (
+        OSError,
+        _ArtifactLimitError,
+        _ArtifactRaceError,
+        _UnsafePathError,
+    ) as exc:
+        raise _ArtifactRaceError from exc
+    if tuple(observed_entries) != expected:
+        raise _ArtifactRaceError
+
+
+def _read_status_evidence(
+    results_descriptor: int,
+    path: str,
+    snapshot: list[tuple[str, str | None, int]],
+    total_bytes: list[int],
+    *,
+    max_bytes: int,
+) -> bytes | None:
+    content = _read_optional_bounded_file(
+        results_descriptor,
+        path,
+        max_bytes=max_bytes,
+    )
+    if content is not None:
+        total_bytes[0] += len(content)
+        if total_bytes[0] > _MAX_STATUS_EVIDENCE_TOTAL_BYTES:
+            raise _ArtifactLimitError
+    snapshot.append(
+        (
+            path,
+            None if content is None else sha256(content).hexdigest(),
+            max_bytes,
+        )
+    )
+    return content
+
+
+def _cutadapt_row_owners(
+    samples: tuple[Mapping[str, object], ...],
+    params: Mapping[str, object],
+) -> Mapping[str, str]:
+    owners: dict[str, str] = {}
+    for row in samples:
+        sample = str(row["sample"])
+        layout = effective_downstream_layout(str(row["layout"]), params)
+        row_names = (sample,) if layout == "SE" else (f"{sample}_1", f"{sample}_2")
+        for row_name in row_names:
+            previous = owners.setdefault(row_name, sample)
+            if previous != sample:
                 raise _StatusTableError
-            value = Decimal(raw_value)
-        except InvalidOperation as exc:
-            raise _StatusTableError from exc
-        if not value.is_finite() or value < 0:
+    return owners
+
+
+def _retained_read_evidence(
+    results_descriptor: int,
+    params: Mapping[str, object],
+    samples: tuple[Mapping[str, object], ...],
+    snapshot: list[tuple[str, str | None, int]],
+    total_bytes: list[int],
+) -> dict[str, Decimal]:
+    if params.get("skip_trimming") is True:
+        return {}
+    evidence: dict[str, Decimal] = {}
+    for row in samples:
+        sample = str(row["sample"])
+        if params.get("trimmer") == "fastp":
+            content = _read_status_evidence(
+                results_descriptor,
+                f"fastp/{sample}.fastp.json",
+                snapshot,
+                total_bytes,
+                max_bytes=_MAX_STATUS_EVIDENCE_BYTES,
+            )
+            if content is None:
+                continue
+            try:
+                evidence[sample] = parse_fastp_retained_reads(content)
+            except StatusEvidenceError as exc:
+                raise _StatusTableError from exc
+        elif params.get("trimmer") == "trimgalore":
+            if params.get("skip_fastqc") is True:
+                continue
+            layout = effective_downstream_layout(str(row["layout"]), params)
+            roles = ("single",) if layout == "SE" else ("read1", "read2")
+            counts: list[Decimal] = []
+            for role in roles:
+                root, filename, path = _trimmed_fastqc_identity(
+                    sample,
+                    role,
+                    trimmer="trimgalore",
+                )
+                content = _read_status_evidence(
+                    results_descriptor,
+                    path,
+                    snapshot,
+                    total_bytes,
+                    max_bytes=_MAX_STATUS_EVIDENCE_BYTES,
+                )
+                if content is None:
+                    counts = []
+                    break
+                try:
+                    counts.append(
+                        parse_fastqc_total_sequences(
+                            content,
+                            expected_root=root,
+                            expected_filename=filename,
+                        )
+                    )
+                except StatusEvidenceError as exc:
+                    raise _StatusTableError from exc
+            if counts:
+                if len(set(counts)) != 1:
+                    raise _StatusTableError
+                evidence[sample] = counts[0]
+        else:
             raise _StatusTableError
-        if kind == "trimmed" and value != value.to_integral_value():
-            raise _StatusTableError
-        if kind == "mapped" and value > 100:
-            raise _StatusTableError
-        if kind == "trimmed" and value > threshold:
-            raise _StatusTableError
-        if kind == "mapped" and value >= threshold:
-            raise _StatusTableError
-        if kind != "trimmed" or value < threshold:
-            failed.add(sample)
-    return frozenset(failed)
+    return evidence
+
+
+def _trimmed_fastqc_identity(
+    sample: str,
+    role: str,
+    *,
+    trimmer: str,
+) -> tuple[str, str, str]:
+    role_number = {"single": "", "read1": "_1", "read2": "_2"}.get(role)
+    if role_number is None:
+        raise _StatusTableError
+    if trimmer == "fastp":
+        basename = f"{sample}_trimmed{role_number}"
+        extension = "fastq.gz"
+    elif trimmer == "trimgalore":
+        if role == "single":
+            basename = f"{sample}_trimmed_trimmed"
+        else:
+            number = role_number.removeprefix("_")
+            basename = f"{sample}_trimmed_{number}_val_{number}"
+        extension = "fq.gz"
+    else:
+        raise _StatusTableError
+    root = f"{basename}_fastqc"
+    return root, f"{basename}.{extension}", f"fastqc/trim/{root}.zip"
 
 
 def _decimal_param(
@@ -1178,13 +1921,13 @@ def _add_rseqc_specs(
                 sample=sample,
             )
         elif module == "inner_distance":
-            add(
-                "bulk_rnaseq.rseqc.inner_distance.distance",
-                f"{_ALIGNER}/rseqc/inner_distance/txt/{sample}.inner_distance.txt",
-                "text/plain",
-                sample=sample,
-            )
             if layout == "PE":
+                add(
+                    "bulk_rnaseq.rseqc.inner_distance.distance",
+                    f"{_ALIGNER}/rseqc/inner_distance/txt/{sample}.inner_distance.txt",
+                    "text/plain",
+                    sample=sample,
+                )
                 for suffix in ("freq", "mean"):
                     add(
                         f"bulk_rnaseq.rseqc.inner_distance.{suffix}",
@@ -1371,7 +2114,7 @@ def _discover_auto_bigwig(
 
 
 def _validate_specs(specs: list[_ArtifactSpec]) -> None:
-    seen: set[tuple[str, str]] = set()
+    seen_paths: set[str] = set()
     for spec in specs:
         path = PurePosixPath(spec.relative_path)
         if (
@@ -1380,10 +2123,11 @@ def _validate_specs(specs: list[_ArtifactSpec]) -> None:
             or path.is_absolute()
             or len(path.parts) > _MAX_PATH_COMPONENTS
             or any(part in {"", ".", ".."} for part in path.parts)
-            or (spec.output_type, spec.relative_path) in seen
+            or spec.relative_path in seen_paths
         ):
             raise ValueError("invalid artifact specification")
-        seen.add((spec.output_type, spec.relative_path))
+        artifact_family_for_output_type(spec.output_type)
+        seen_paths.add(spec.relative_path)
 
 
 def _candidate(spec: _ArtifactSpec) -> ExtractedArtifactCandidate:
@@ -1474,7 +2218,12 @@ def _verified_regular_file(results_descriptor: int, relative_path: str) -> bool:
 def _read_optional_bounded_file(
     results_descriptor: int,
     relative_path: str,
+    *,
+    max_bytes: int | None = None,
 ) -> bytes | None:
+    limit = _MAX_STATUS_TABLE_BYTES if max_bytes is None else max_bytes
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+        raise _ArtifactLimitError
     try:
         descriptor, first = _open_relative_for_read(
             results_descriptor,
@@ -1486,7 +2235,7 @@ def _read_optional_bounded_file(
         file_info = first[-1]
         if not stat.S_ISREG(file_info.st_mode):
             raise _UnsafePathError
-        if file_info.st_size < 0 or file_info.st_size > _MAX_STATUS_TABLE_BYTES:
+        if file_info.st_size < 0 or file_info.st_size > limit:
             raise _ArtifactLimitError
         chunks: list[bytes] = []
         remaining = file_info.st_size + 1

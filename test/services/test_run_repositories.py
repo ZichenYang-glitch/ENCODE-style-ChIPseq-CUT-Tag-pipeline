@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from hashlib import sha256
 
 import pytest
 
@@ -70,12 +71,26 @@ def test_in_memory_replace_artifacts_is_atomic_and_idempotent():
         status=RunStatus.SUCCEEDED,
         context={"artifact_count": 1},
     )
+    attempt_id = "resultattempt-" + "a" * 64
+    repository.begin_artifact_result_attempt(
+        "run-1",
+        attempt_id=attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+    )
 
     first = repository.replace_artifacts(
-        "run-1", artifacts, expected_status=RunStatus.SUCCEEDED, event=draft
+        "run-1",
+        artifacts,
+        attempt_id=attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+        event=draft,
     )
     second = repository.replace_artifacts(
-        "run-1", artifacts, expected_status=RunStatus.SUCCEEDED, event=draft
+        "run-1",
+        artifacts,
+        attempt_id=attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+        event=draft,
     )
 
     assert first is not None
@@ -94,6 +109,7 @@ def test_in_memory_replace_artifacts_rejects_non_succeeded_without_mutation():
         repository.replace_artifacts(
             "run-1",
             (_artifact("run-1", "artifact-1"),),
+            attempt_id="resultattempt-" + "a" * 64,
             expected_status=RunStatus.SUCCEEDED,
             event=RunEventDraft(
                 event_type="artifacts_indexed",
@@ -106,15 +122,19 @@ def test_in_memory_replace_artifacts_rejects_non_succeeded_without_mutation():
 
 def test_in_memory_artifact_queries_are_sorted_paginated_and_run_scoped():
     repository = InMemoryRunRepository()
-    repository.create_run(_record(), _created_event())
-    repository.create_run(replace(_record(), run_id="run-2"), _created_event())
+    succeeded = replace(
+        _record(),
+        status=RunStatus.SUCCEEDED,
+        ended_at=datetime.now(timezone.utc),
+    )
+    repository.create_run(succeeded, _created_event())
+    repository.create_run(replace(succeeded, run_id="run-2"), _created_event())
     artifact_z = _artifact("run-1", "artifact-z")
     artifact_a = _artifact("run-1", "artifact-a")
     artifact_m = _artifact("run-1", "artifact-m")
     other = _artifact("run-2", "artifact-other")
-    for artifact in (artifact_z, artifact_a, artifact_m):
-        repository.record_artifact("run-1", artifact)
-    repository.record_artifact("run-2", other)
+    _replace_artifacts(repository, "run-1", (artifact_z, artifact_a, artifact_m))
+    _replace_artifacts(repository, "run-2", (other,))
 
     assert repository.list_artifacts("run-1") == (
         artifact_a,
@@ -387,7 +407,32 @@ def _artifact(run_id: str, artifact_id: str) -> RunArtifactRef:
         uri=f"run://runs/{run_id}/artifacts/{artifact_id}",
         mime_type="text/plain",
         produced_at=datetime.now(timezone.utc),
+        revision="artifactrev-" + sha256(artifact_id.encode()).hexdigest(),
         metadata={},
+    )
+
+
+def _replace_artifacts(
+    repository: InMemoryRunRepository,
+    run_id: str,
+    artifacts: tuple[RunArtifactRef, ...],
+) -> None:
+    attempt_id = "resultattempt-" + sha256(f"artifacts:{run_id}".encode()).hexdigest()
+    repository.begin_artifact_result_attempt(
+        run_id,
+        attempt_id=attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+    )
+    repository.replace_artifacts(
+        run_id,
+        artifacts,
+        attempt_id=attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+        event=RunEventDraft(
+            event_type="artifacts_indexed",
+            message="Workflow artifacts indexed.",
+            status=RunStatus.SUCCEEDED,
+        ),
     )
 
 

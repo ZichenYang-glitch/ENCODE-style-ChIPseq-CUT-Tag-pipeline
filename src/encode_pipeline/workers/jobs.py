@@ -11,6 +11,7 @@ from encode_pipeline.platform.managed_containers import managed_container_scope
 from encode_pipeline.platform.planning import WorkspacePathError, WorkspacePathPolicy
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.runs import RunStatus
+from encode_pipeline.platform.result_generations import new_result_attempt_id
 from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.managed_containers import ManagedContainerCleaner
@@ -220,50 +221,64 @@ def _fail_workflow_build_identity(
 def _execute_claimed_run(runtime, run_id: str) -> None:
     execution_result = runtime.local_execution_service.execute(run_id)
     if execution_result.is_success:
+        artifact_attempt_id = new_result_attempt_id()
         try:
-            artifact_result = runtime.artifact_extraction_service.extract(run_id)
+            artifact_result = runtime.artifact_extraction_service.extract(
+                run_id,
+                attempt_id=artifact_attempt_id,
+            )
         except WorkerHardTimeout:
             try:
-                runtime.artifact_extraction_service.record_unexpected_failure(run_id)
-            except (Exception, WorkerHardTimeout):
-                pass
-            try:
-                runtime.qc_summary_indexing_service.record_artifact_source_failure(
-                    run_id
+                runtime.artifact_extraction_service.record_unexpected_failure(
+                    run_id,
+                    attempt_id=artifact_attempt_id,
                 )
             except (Exception, WorkerHardTimeout):
                 pass
             return
         except Exception:
             try:
-                runtime.artifact_extraction_service.record_unexpected_failure(run_id)
-            except (Exception, WorkerHardTimeout):
-                pass
-            try:
-                runtime.qc_summary_indexing_service.record_artifact_source_failure(
-                    run_id
+                runtime.artifact_extraction_service.record_unexpected_failure(
+                    run_id,
+                    attempt_id=artifact_attempt_id,
                 )
             except (Exception, WorkerHardTimeout):
                 pass
             return
         if artifact_result.is_failure:
-            try:
-                runtime.qc_summary_indexing_service.record_artifact_source_failure(
-                    run_id
-                )
-            except (Exception, WorkerHardTimeout):
-                pass
             return
         try:
-            runtime.qc_summary_indexing_service.index(run_id, artifact_result.value)
+            artifact_generation = runtime.run_service.get_result_state(
+                run_id
+            ).artifact_generation
+        except (Exception, WorkerHardTimeout):
+            return
+        if artifact_generation is None:
+            return
+        qc_attempt_id = new_result_attempt_id()
+        try:
+            runtime.qc_summary_indexing_service.index(
+                run_id,
+                artifact_result.value,
+                attempt_id=qc_attempt_id,
+                expected_artifact_generation=artifact_generation,
+            )
         except WorkerHardTimeout:
             try:
-                runtime.qc_summary_indexing_service.record_unexpected_failure(run_id)
+                runtime.qc_summary_indexing_service.record_unexpected_failure(
+                    run_id,
+                    attempt_id=qc_attempt_id,
+                    expected_artifact_generation=artifact_generation,
+                )
             except (Exception, WorkerHardTimeout):
                 pass
         except Exception:
             try:
-                runtime.qc_summary_indexing_service.record_unexpected_failure(run_id)
+                runtime.qc_summary_indexing_service.record_unexpected_failure(
+                    run_id,
+                    attempt_id=qc_attempt_id,
+                    expected_artifact_generation=artifact_generation,
+                )
             except (Exception, WorkerHardTimeout):
                 pass
         return

@@ -16,10 +16,17 @@ from encode_pipeline.platform.adapters import (
     ARTIFACT_EXTRACT_CAPABILITY,
     ExtractedArtifactCandidate,
     MAX_SAMPLE_ROWS,
+    QC_SUMMARY_EXTRACT_CAPABILITY,
+    QcSummaryExtractingAdapter,
     SamplePayload,
+    WorkflowAdapter,
     WorkflowInputs,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.result_generations import (
+    build_artifact_content_revision,
+    build_artifact_descriptor_revision,
+)
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunArtifactRef, RunStatus
 from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
@@ -37,6 +44,8 @@ _SAFE_MIME_TYPE = re.compile(
 _MAX_ARTIFACT_CANDIDATES = MAX_SAMPLE_ROWS * 128 + 128
 _MAX_ARTIFACT_PATH_COMPONENTS = 32
 _MAX_ARTIFACT_BYTES = 1024**4
+_MAX_QC_REVISION_SOURCE_BYTES = 16 * 1024 * 1024
+_MAX_TOTAL_QC_REVISION_BYTES = 256 * 1024 * 1024
 
 
 class ArtifactExtractionService:
@@ -67,7 +76,19 @@ class ArtifactExtractionService:
         self._build_identity_provider = build_identity_provider
         self._workspace_root = workspace_root
 
-    def extract(self, run_id: str) -> Result[tuple[RunArtifactRef, ...]]:
+    def begin_attempt(self, run_id: str) -> str:
+        """Begin and return one caller-owned artifact indexing attempt."""
+        state = self._run_service.begin_artifact_result_attempt(run_id)
+        if state.artifact_attempt_id is None:
+            raise ValueError("artifact attempt identity is unavailable")
+        return state.artifact_attempt_id
+
+    def extract(
+        self,
+        run_id: str,
+        *,
+        attempt_id: str | None = None,
+    ) -> Result[tuple[RunArtifactRef, ...]]:
         """Index one canonical SUCCEEDED run without changing its lifecycle."""
         try:
             record = self._run_service.get_run(run_id)
@@ -77,34 +98,95 @@ class ArtifactExtractionService:
             return self._result_failure("ARTIFACT_EXTRACTION_RUN_NOT_SUCCEEDED")
 
         try:
+            if attempt_id is None:
+                attempt_id = self.begin_attempt(run_id)
+            else:
+                self._run_service.begin_artifact_result_attempt(
+                    run_id,
+                    attempt_id=attempt_id,
+                )
             adapter = self._registry.get(record.workflow_id)
             if ARTIFACT_EXTRACT_CAPABILITY not in adapter.capabilities.supports:
-                return self._fail(run_id, "ARTIFACT_EXTRACTION_UNSUPPORTED")
+                return self._fail(
+                    run_id,
+                    "ARTIFACT_EXTRACTION_UNSUPPORTED",
+                    attempt_id,
+                )
             if not self._build_matches(record.run_id, record.workflow_id):
-                return self._fail(run_id, "ARTIFACT_EXTRACTION_BUILD_MISMATCH")
+                return self._fail(
+                    run_id,
+                    "ARTIFACT_EXTRACTION_BUILD_MISMATCH",
+                    attempt_id,
+                )
+            qc_source_types = self._qc_source_types(adapter)
             inputs = self._reconstruct_inputs(record.inputs)
             workspace = self._workspace_for_run(run_id)
             candidates_result = adapter.extract_artifacts(inputs, workspace)
             if candidates_result.is_failure:
-                return self._fail(run_id, "ARTIFACT_EXTRACTION_ADAPTER_FAILED")
+                return self._fail(
+                    run_id,
+                    "ARTIFACT_EXTRACTION_ADAPTER_FAILED",
+                    attempt_id,
+                )
             references = self._build_references(
                 record.run_id,
                 record.ended_at,
                 workspace,
                 candidates_result.value,
+                qc_source_types=qc_source_types,
             )
-            self._run_service.replace_artifacts(run_id, references)
+            self._run_service.replace_artifacts(
+                run_id,
+                references,
+                attempt_id=attempt_id,
+            )
             return Result.success(references)
         except ConcurrentRunUpdateError:
-            return self._fail(run_id, "ARTIFACT_EXTRACTION_STATE_CHANGED")
+            return self._fail(
+                run_id,
+                "ARTIFACT_EXTRACTION_STATE_CHANGED",
+                attempt_id,
+            )
         except (KeyError, OSError, TypeError, ValueError):
-            return self._fail(run_id, "ARTIFACT_EXTRACTION_VALIDATION_FAILED")
+            return self._fail(
+                run_id,
+                "ARTIFACT_EXTRACTION_VALIDATION_FAILED",
+                attempt_id,
+            )
         except Exception:
-            return self._fail(run_id, "ARTIFACT_EXTRACTION_UNEXPECTED_ERROR")
+            return self._fail(
+                run_id,
+                "ARTIFACT_EXTRACTION_UNEXPECTED_ERROR",
+                attempt_id,
+            )
 
-    def record_unexpected_failure(self, run_id: str) -> None:
+    def record_unexpected_failure(self, run_id: str, *, attempt_id: str) -> None:
         """Best-effort safe event for a worker-side defensive catch."""
-        self._record_failure_event(run_id, "ARTIFACT_EXTRACTION_UNEXPECTED_ERROR")
+        self._record_failure_event(
+            run_id,
+            "ARTIFACT_EXTRACTION_UNEXPECTED_ERROR",
+            attempt_id,
+        )
+
+    @staticmethod
+    def _qc_source_types(adapter: WorkflowAdapter) -> frozenset[str]:
+        if QC_SUMMARY_EXTRACT_CAPABILITY not in adapter.capabilities.supports:
+            return frozenset()
+        if not isinstance(adapter, QcSummaryExtractingAdapter):
+            raise ValueError("QC adapter contract is incomplete")
+        values = adapter.qc_source_output_types()
+        if not isinstance(values, tuple):
+            raise ValueError("QC source output types must be a tuple")
+        result: set[str] = set()
+        for value in values:
+            if (
+                not isinstance(value, str)
+                or _SAFE_OUTPUT_TYPE.fullmatch(value) is None
+                or value in result
+            ):
+                raise ValueError("QC source output type is invalid")
+            result.add(value)
+        return frozenset(result)
 
     def _build_matches(self, run_id: str, workflow_id: str) -> bool:
         persisted = self._run_service.get_workflow_build_identity(run_id)
@@ -159,6 +241,8 @@ class ArtifactExtractionService:
         ended_at,
         workspace: Path,
         candidates,
+        *,
+        qc_source_types: frozenset[str],
     ) -> tuple[RunArtifactRef, ...]:
         if ended_at is None:
             raise ValueError("succeeded run has no ended_at")
@@ -175,6 +259,7 @@ class ArtifactExtractionService:
         references: list[RunArtifactRef] = []
         seen_paths: set[str] = set()
         seen_ids: set[str] = set()
+        total_qc_source_bytes = 0
         for candidate in candidates:
             if not isinstance(candidate, ExtractedArtifactCandidate):
                 raise ValueError("adapter candidate type is invalid")
@@ -182,10 +267,17 @@ class ArtifactExtractionService:
             if relative_path in seen_paths:
                 raise ValueError("duplicate artifact path")
             seen_paths.add(relative_path)
-            target, size_bytes = self._safe_regular_file(
+            content_bound = candidate.output_type in qc_source_types
+            target, size_bytes, revision = self._safe_regular_file(
                 workspace,
                 relative_path,
+                output_type=candidate.output_type,
+                content_bound=content_bound,
             )
+            if content_bound:
+                total_qc_source_bytes += size_bytes
+                if total_qc_source_bytes > _MAX_TOTAL_QC_REVISION_BYTES:
+                    raise ValueError("QC source files exceed the total byte limit")
             artifact_id = self._artifact_id(candidate.output_type, relative_path)
             if artifact_id in seen_ids:
                 raise ValueError("duplicate artifact identity")
@@ -218,6 +310,7 @@ class ArtifactExtractionService:
                     ),
                     mime_type=mime_type,
                     produced_at=ended_at,
+                    revision=revision,
                     metadata=metadata,
                 )
             )
@@ -259,12 +352,25 @@ class ArtifactExtractionService:
     def _safe_regular_file(
         workspace: Path,
         relative_path: str,
-    ) -> tuple[Path, int]:
-        required_flags = ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC", "O_PATH")
+        *,
+        output_type: str,
+        content_bound: bool,
+    ) -> tuple[Path, int, str]:
+        required_flags = (
+            "O_DIRECTORY",
+            "O_NOFOLLOW",
+            "O_CLOEXEC",
+            "O_NONBLOCK",
+            "O_PATH",
+        )
         if any(not hasattr(os, name) for name in required_flags):
             raise OSError("safe descriptor flags are unavailable")
         directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-        final_flags = os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC
+        final_flags = (
+            os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC
+            if content_bound
+            else os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC
+        )
         components = (*workspace.parts[1:], *PurePosixPath(relative_path).parts)
         if not components:
             raise ValueError("artifact path is empty")
@@ -308,6 +414,27 @@ class ArtifactExtractionService:
                 or file_info.st_size > _MAX_ARTIFACT_BYTES
             ):
                 raise ValueError("artifact is not a bounded regular file")
+            if content_bound and file_info.st_size > _MAX_QC_REVISION_SOURCE_BYTES:
+                raise ValueError("QC source artifact exceeds its content bound")
+            content: bytes | None = None
+            if content_bound:
+                descriptor = first_descriptors[-1]
+                chunks: list[bytes] = []
+                remaining = file_info.st_size + 1
+                while remaining:
+                    chunk = os.read(descriptor, min(65536, remaining))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                content = b"".join(chunks)
+                after_read = os.fstat(descriptor)
+                if (
+                    len(content) != file_info.st_size
+                    or ArtifactExtractionService._descriptor_identity(after_read)
+                    != ArtifactExtractionService._descriptor_identity(file_info)
+                ):
+                    raise ValueError("artifact changed while its revision was read")
             reopened_descriptors, reopened_infos = open_chain()
             if tuple(
                 ArtifactExtractionService._descriptor_identity(info)
@@ -317,7 +444,25 @@ class ArtifactExtractionService:
                 for info in reopened_infos
             ):
                 raise ValueError("artifact path changed while it was inspected")
-            return workspace / relative_path, file_info.st_size
+            if content is not None:
+                revision = build_artifact_content_revision(
+                    output_type=output_type,
+                    relative_path=relative_path,
+                    content=content,
+                )
+            else:
+                descriptor_identity = ":".join(
+                    str(value)
+                    for value in ArtifactExtractionService._descriptor_identity(
+                        file_info
+                    )
+                )
+                revision = build_artifact_descriptor_revision(
+                    output_type=output_type,
+                    relative_path=relative_path,
+                    descriptor_identity=descriptor_identity,
+                )
+            return workspace / relative_path, file_info.st_size, revision
         finally:
             for descriptor in reversed((*first_descriptors, *reopened_descriptors)):
                 try:
@@ -386,22 +531,30 @@ class ArtifactExtractionService:
                 raise ValueError("artifact metadata value is invalid")
         return result
 
-    def _fail(self, run_id: str, reason_code: str):
-        self._record_failure_event(run_id, reason_code)
+    def _fail(
+        self,
+        run_id: str,
+        reason_code: str,
+        attempt_id: str | None,
+    ):
+        if attempt_id is not None:
+            self._record_failure_event(run_id, reason_code, attempt_id)
         return self._result_failure(reason_code)
 
-    def _record_failure_event(self, run_id: str, reason_code: str) -> None:
+    def _record_failure_event(
+        self,
+        run_id: str,
+        reason_code: str,
+        attempt_id: str,
+    ) -> None:
         try:
             current = self._run_service.get_run(run_id)
             if current.status is not RunStatus.SUCCEEDED:
                 return
-            self._run_service.add_event(
+            self._run_service.record_artifact_failure(
                 run_id,
-                "artifact_extraction_failed",
-                "Workflow artifacts could not be indexed.",
-                status=RunStatus.SUCCEEDED,
-                stage="artifact_extraction",
-                context={"reason_code": reason_code},
+                attempt_id=attempt_id,
+                reason_code=reason_code,
             )
         except Exception:
             return

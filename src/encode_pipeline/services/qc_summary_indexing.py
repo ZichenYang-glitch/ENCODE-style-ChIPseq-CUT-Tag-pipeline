@@ -21,6 +21,9 @@ from encode_pipeline.platform.adapters import (
     WorkflowInputs,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.result_generations import (
+    build_artifact_content_revision,
+)
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
@@ -86,6 +89,9 @@ class QcSummaryIndexingService:
         self,
         run_id: str,
         artifacts: tuple[RunArtifactRef, ...],
+        *,
+        attempt_id: str | None = None,
+        expected_artifact_generation: str | None = None,
     ) -> Result[tuple[RunQcMetric, ...]]:
         """Index one SUCCEEDED run without changing its terminal lifecycle."""
         try:
@@ -96,14 +102,42 @@ class QcSummaryIndexingService:
             return self._result_failure("QC_INDEXING_RUN_NOT_SUCCEEDED")
 
         try:
+            if (attempt_id is None) != (expected_artifact_generation is None):
+                raise ValueError("QC attempt identity and generation must be paired")
+            if attempt_id is None:
+                attempt_id, expected_artifact_generation = self.begin_attempt(
+                    run_id,
+                    artifacts,
+                )
+            else:
+                assert expected_artifact_generation is not None
+                self._run_service.begin_qc_result_attempt(
+                    run_id,
+                    expected_artifact_generation=expected_artifact_generation,
+                    expected_artifacts=self._validated_artifact_generation(
+                        run_id,
+                        artifacts,
+                    ),
+                    attempt_id=attempt_id,
+                )
             adapter = self._registry.get(record.workflow_id)
             if (
                 QC_SUMMARY_EXTRACT_CAPABILITY not in adapter.capabilities.supports
                 or not isinstance(adapter, QcSummaryExtractingAdapter)
             ):
-                return self._fail(run_id, "QC_INDEXING_UNSUPPORTED")
+                return self._fail(
+                    run_id,
+                    "QC_INDEXING_UNSUPPORTED",
+                    attempt_id,
+                    expected_artifact_generation,
+                )
             if not self._build_matches(record.run_id, record.workflow_id):
-                return self._fail(run_id, "QC_INDEXING_BUILD_MISMATCH")
+                return self._fail(
+                    run_id,
+                    "QC_INDEXING_BUILD_MISMATCH",
+                    attempt_id,
+                    expected_artifact_generation,
+                )
             expected_artifacts = self._validated_artifact_generation(run_id, artifacts)
             if expected_artifacts != tuple(
                 sorted(
@@ -114,6 +148,8 @@ class QcSummaryIndexingService:
                 return self._fail(
                     run_id,
                     "QC_INDEXING_ARTIFACT_GENERATION_MISMATCH",
+                    attempt_id,
+                    expected_artifact_generation,
                 )
             source_types = self._validated_source_types(
                 adapter.qc_source_output_types()
@@ -129,11 +165,18 @@ class QcSummaryIndexingService:
                 return self._fail(
                     run_id,
                     "QC_INDEXING_SOURCE_VALIDATION_FAILED",
+                    attempt_id,
+                    expected_artifact_generation,
                 )
             inputs = self._reconstruct_inputs(record.inputs)
             candidate_result = adapter.extract_qc_metrics(inputs, documents)
             if candidate_result.is_failure:
-                return self._fail(run_id, "QC_INDEXING_ADAPTER_FAILED")
+                return self._fail(
+                    run_id,
+                    "QC_INDEXING_ADAPTER_FAILED",
+                    attempt_id,
+                    expected_artifact_generation,
+                )
             metrics = self._build_metrics(
                 run_id,
                 record.ended_at,
@@ -143,23 +186,74 @@ class QcSummaryIndexingService:
             self._run_service.replace_qc_metrics(
                 run_id,
                 metrics,
+                attempt_id=attempt_id,
+                expected_artifact_generation=expected_artifact_generation,
                 expected_artifacts=expected_artifacts,
             )
             return Result.success(metrics)
         except ConcurrentRunUpdateError:
-            return self._fail(run_id, "QC_INDEXING_STATE_CHANGED")
+            return self._fail(
+                run_id,
+                "QC_INDEXING_STATE_CHANGED",
+                attempt_id,
+                expected_artifact_generation,
+            )
         except (KeyError, OSError, TypeError, ValueError):
-            return self._fail(run_id, "QC_INDEXING_VALIDATION_FAILED")
+            return self._fail(
+                run_id,
+                "QC_INDEXING_VALIDATION_FAILED",
+                attempt_id,
+                expected_artifact_generation,
+            )
         except Exception:
-            return self._fail(run_id, "QC_INDEXING_UNEXPECTED_ERROR")
+            return self._fail(
+                run_id,
+                "QC_INDEXING_UNEXPECTED_ERROR",
+                attempt_id,
+                expected_artifact_generation,
+            )
 
-    def record_unexpected_failure(self, run_id: str) -> None:
+    def begin_attempt(
+        self,
+        run_id: str,
+        artifacts: tuple[RunArtifactRef, ...],
+    ) -> tuple[str, str]:
+        """Begin one QC attempt bound to the current complete artifact generation."""
+        expected_artifacts = self._validated_artifact_generation(run_id, artifacts)
+        if expected_artifacts != tuple(
+            sorted(
+                self._run_service.list_artifacts(run_id),
+                key=lambda item: item.artifact_id,
+            )
+        ):
+            raise ConcurrentRunUpdateError("artifact generation changed")
+        state = self._run_service.get_result_state(run_id)
+        generation = state.artifact_generation
+        if generation is None:
+            raise ConcurrentRunUpdateError("artifact generation is unavailable")
+        state = self._run_service.begin_qc_result_attempt(
+            run_id,
+            expected_artifact_generation=generation,
+            expected_artifacts=expected_artifacts,
+        )
+        if state.qc_attempt_id is None:
+            raise ValueError("QC attempt identity is unavailable")
+        return state.qc_attempt_id, generation
+
+    def record_unexpected_failure(
+        self,
+        run_id: str,
+        *,
+        attempt_id: str,
+        expected_artifact_generation: str,
+    ) -> None:
         """Record a best-effort public-safe worker defensive failure."""
-        self._record_failure_event(run_id, "QC_INDEXING_UNEXPECTED_ERROR")
-
-    def record_artifact_source_failure(self, run_id: str) -> None:
-        """Record that a complete artifact generation was unavailable."""
-        self._record_failure_event(run_id, "QC_INDEXING_ARTIFACTS_UNAVAILABLE")
+        self._record_failure_event(
+            run_id,
+            "QC_INDEXING_UNEXPECTED_ERROR",
+            attempt_id,
+            expected_artifact_generation,
+        )
 
     def _build_matches(self, run_id: str, workflow_id: str) -> bool:
         persisted = self._run_service.get_workflow_build_identity(run_id)
@@ -274,6 +368,15 @@ class QcSummaryIndexingService:
                 relative_path,
                 expected_size,
             )
+            expected_revision = build_artifact_content_revision(
+                output_type=output_type,
+                relative_path=relative_path,
+                content=content,
+            )
+            if artifact.revision != expected_revision:
+                raise ValueError(
+                    "QC source content does not match its artifact revision"
+                )
             documents.append(
                 QcSourceDocument(
                     source=QcSourceArtifact(
@@ -583,16 +686,32 @@ class QcSummaryIndexingService:
         self,
         run_id: str,
         reason_code: str,
+        attempt_id: str | None,
+        expected_artifact_generation: str | None,
     ) -> Result[tuple[RunQcMetric, ...]]:
-        self._record_failure_event(run_id, reason_code)
+        if attempt_id is not None and expected_artifact_generation is not None:
+            self._record_failure_event(
+                run_id,
+                reason_code,
+                attempt_id,
+                expected_artifact_generation,
+            )
         return self._result_failure(reason_code)
 
-    def _record_failure_event(self, run_id: str, reason_code: str) -> None:
+    def _record_failure_event(
+        self,
+        run_id: str,
+        reason_code: str,
+        attempt_id: str,
+        expected_artifact_generation: str,
+    ) -> None:
         try:
             if self._run_service.get_run(run_id).status is RunStatus.SUCCEEDED:
                 self._run_service.record_qc_metrics_failure(
                     run_id,
                     reason_code=reason_code,
+                    attempt_id=attempt_id,
+                    expected_artifact_generation=expected_artifact_generation,
                 )
         except Exception:
             return

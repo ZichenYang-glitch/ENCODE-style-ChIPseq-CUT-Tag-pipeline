@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,13 +18,35 @@ vi.mock('../../api/generated/qc-metrics/qc-metrics', () => ({
 const listQcMetricsMock = vi.mocked(listRunQcMetrics);
 const METRIC_A = `qcmetric-${'a'.repeat(64)}`;
 const METRIC_B = `qcmetric-${'b'.repeat(64)}`;
+const GENERATION_A = `qcgen-${'a'.repeat(64)}`;
+const GENERATION_B = `qcgen-${'b'.repeat(64)}`;
+const CURSOR_A = `qccur_${'a'.repeat(64)}`;
 
-function metric(metricId: string, name: string): QcMetricResponse {
+type GenerationBoundQcMetricsResponse = RunQcMetricsResponse & {
+  qc_generation: string;
+};
+type GenerationBoundIndexedOutcome = Extract<
+  ComponentProps<typeof QcWorkbench>['outcome'],
+  { kind: 'indexed' }
+> & { generation: string };
+
+function indexedOutcome(
+  count = 1,
+  generation = GENERATION_A,
+): GenerationBoundIndexedOutcome {
+  return { kind: 'indexed', count, generation };
+}
+
+function metric(
+  metricId: string,
+  name: string,
+  value = '9007199254740993.125',
+): QcMetricResponse {
   return {
     metric_id: metricId,
     metric_key: `alignment.${name.toLowerCase().replace(/ /g, '_')}`,
     display_name: name,
-    value: '9007199254740993.125',
+    value,
     unit: 'count',
     scope: 'sample',
     sample_id: 'sample-1',
@@ -39,10 +61,12 @@ function metric(metricId: string, name: string): QcMetricResponse {
 function page(
   metrics: QcMetricResponse[],
   nextCursor: string | null = null,
-): RunQcMetricsResponse {
+  generation = GENERATION_A,
+): GenerationBoundQcMetricsResponse {
   return {
     ok: true,
     run_id: 'run-1',
+    qc_generation: generation,
     qc_metrics: metrics,
     next_cursor: nextCursor,
     issues: [],
@@ -58,7 +82,7 @@ function renderWorkbench(
   const props: ComponentProps<typeof QcWorkbench> = {
     runId: 'run-1',
     runStatus: 'succeeded',
-    outcome: { kind: 'indexed', count: 1 },
+    outcome: indexedOutcome(),
     onOpenSourceArtifact: vi.fn(),
     onRefreshStatus: vi.fn(),
     ...overrides,
@@ -127,13 +151,13 @@ describe('QcWorkbench honest states', () => {
 
   it('claims empty only after indexed zero and a successful empty page', async () => {
     listQcMetricsMock.mockResolvedValue(page([]));
-    renderWorkbench({ outcome: { kind: 'indexed', count: 0 } });
+    renderWorkbench({ outcome: indexedOutcome(0) });
     expect(await screen.findByText('No indexed QC metrics')).toBeInTheDocument();
   });
 
   it('does not treat a nonzero indexed count with an empty page as empty', async () => {
     listQcMetricsMock.mockResolvedValue(page([]));
-    renderWorkbench({ outcome: { kind: 'indexed', count: 1 } });
+    renderWorkbench({ outcome: indexedOutcome(1) });
     expect(await screen.findByText('QC metric index is not ready')).toBeInTheDocument();
     expect(screen.queryByText('No indexed QC metrics')).not.toBeInTheDocument();
   });
@@ -143,19 +167,21 @@ describe('QcWorkbench pagination and recovery', () => {
   it('loads explicit pages of 50 and stops a repeated cursor visibly', async () => {
     const user = userEvent.setup();
     listQcMetricsMock
-      .mockResolvedValueOnce(page([metric(METRIC_A, 'Mapped reads')], METRIC_A))
-      .mockResolvedValueOnce(page([metric(METRIC_B, 'Duplicate reads')], METRIC_A));
-    renderWorkbench({ outcome: { kind: 'indexed', count: 2 } });
+      .mockResolvedValueOnce(page([metric(METRIC_A, 'Mapped reads')], CURSOR_A))
+      .mockResolvedValueOnce(page([metric(METRIC_B, 'Duplicate reads')], CURSOR_A));
+    renderWorkbench({ outcome: indexedOutcome(2) });
 
     expect(await screen.findAllByText('Mapped reads')).not.toHaveLength(0);
     await user.click(screen.getByRole('button', { name: 'Load more QC metrics' }));
     expect(await screen.findAllByText('Duplicate reads')).not.toHaveLength(0);
     expect(listQcMetricsMock).toHaveBeenNthCalledWith(1, 'run-1', {
       after: undefined,
+      generation: GENERATION_A,
       limit: 50,
     });
     expect(listQcMetricsMock).toHaveBeenNthCalledWith(2, 'run-1', {
-      after: METRIC_A,
+      after: CURSOR_A,
+      generation: GENERATION_A,
       limit: 50,
     });
     expect(
@@ -172,11 +198,11 @@ describe('QcWorkbench pagination and recovery', () => {
       'Cursor unavailable.',
     );
     listQcMetricsMock
-      .mockResolvedValueOnce(page([metric(METRIC_A, 'Mapped reads')], METRIC_A))
+      .mockResolvedValueOnce(page([metric(METRIC_A, 'Mapped reads')], CURSOR_A))
       .mockRejectedValueOnce(cursorError)
       .mockRejectedValueOnce(cursorError)
       .mockResolvedValueOnce(page([metric(METRIC_B, 'Current mapped reads')]));
-    renderWorkbench({ outcome: { kind: 'indexed', count: 1 } });
+    renderWorkbench({ outcome: indexedOutcome(1) });
 
     await screen.findAllByText('Mapped reads');
     await user.click(screen.getByRole('button', { name: 'Load more QC metrics' }));
@@ -189,8 +215,130 @@ describe('QcWorkbench pagination and recovery', () => {
     expect(await screen.findAllByText('Current mapped reads')).not.toHaveLength(0);
     expect(listQcMetricsMock).toHaveBeenLastCalledWith('run-1', {
       after: undefined,
+      generation: GENERATION_A,
       limit: 50,
     });
+  });
+
+  it('keys the metric query by the accepted QC generation', async () => {
+    listQcMetricsMock.mockResolvedValue(page([metric(METRIC_A, 'Mapped reads')]));
+    const { queryClient } = renderWorkbench({
+      outcome: indexedOutcome(1, GENERATION_A),
+    });
+
+    expect(await screen.findAllByText('Mapped reads')).not.toHaveLength(0);
+    expect(
+      queryClient.getQueryCache().find({
+        queryKey: ['run-qc-metrics', 'run-1', GENERATION_A],
+        exact: true,
+      }),
+    ).toBeDefined();
+    expect(
+      queryClient.getQueryCache().find({
+        queryKey: ['run-qc-metrics', 'run-1'],
+        exact: true,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('clears equal-count cached pages when the generation changes with the same metric ID', async () => {
+    listQcMetricsMock
+      .mockResolvedValueOnce(
+        page(
+          [metric(METRIC_A, 'Mapped fragments', '101.125')],
+          null,
+          GENERATION_A,
+        ),
+      )
+      .mockResolvedValueOnce(
+        page(
+          [metric(METRIC_A, 'Mapped fragments', '202.25')],
+          null,
+          GENERATION_B,
+        ),
+      );
+    const rendered = renderWorkbench({
+      outcome: indexedOutcome(1, GENERATION_A),
+    });
+    expect(await screen.findAllByText('101.125')).not.toHaveLength(0);
+
+    const nextProps = {
+      ...rendered.props,
+      outcome: indexedOutcome(1, GENERATION_B),
+    };
+    rendered.rerender(
+      <QueryClientProvider client={rendered.queryClient}>
+        <QcWorkbench {...nextProps} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.queryAllByText('101.125')).toHaveLength(0));
+    expect(await screen.findAllByText('202.25')).not.toHaveLength(0);
+    expect(
+      rendered.queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ['run-qc-metrics', 'run-1'] })
+        .map((query) => query.queryKey),
+    ).toEqual([['run-qc-metrics', 'run-1', GENERATION_B]]);
+  });
+
+  it('clears cached generation pages when the outcome is invalidated', async () => {
+    listQcMetricsMock.mockResolvedValue(
+      page([metric(METRIC_A, 'Mapped fragments')]),
+    );
+    const rendered = renderWorkbench({
+      outcome: indexedOutcome(1, GENERATION_A),
+    });
+    expect(await screen.findAllByText('Mapped fragments')).not.toHaveLength(0);
+
+    rendered.rerender(
+      <QueryClientProvider client={rendered.queryClient}>
+        <QcWorkbench {...rendered.props} outcome={{ kind: 'pending' }} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('Indexing QC metrics')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        rendered.queryClient.getQueryCache().findAll({
+          queryKey: ['run-qc-metrics', 'run-1'],
+        }),
+      ).toHaveLength(0),
+    );
+  });
+
+  it('fails closed when a successful response belongs to a different generation', async () => {
+    listQcMetricsMock.mockResolvedValue(
+      page([metric(METRIC_A, 'Wrong generation metric')], null, GENERATION_B),
+    );
+    renderWorkbench({ outcome: indexedOutcome(1, GENERATION_A) });
+
+    expect(await screen.findByText('QC metrics could not be loaded')).toBeInTheDocument();
+    expect(screen.queryAllByText('Wrong generation metric')).toHaveLength(0);
+  });
+
+  it('clears cached pages and refreshes status after a generation-changed response', async () => {
+    const user = userEvent.setup();
+    const onRefreshStatus = vi.fn();
+    const changed = new ApiError(
+      409,
+      'RUN_QC_METRIC_GENERATION_CHANGED',
+      'QC metric generation changed.',
+    );
+    listQcMetricsMock
+      .mockResolvedValueOnce(page([metric(METRIC_A, 'Stale metric')], CURSOR_A))
+      .mockRejectedValueOnce(changed)
+      .mockRejectedValueOnce(changed);
+    renderWorkbench({
+      outcome: indexedOutcome(2, GENERATION_A),
+      onRefreshStatus,
+    });
+
+    expect(await screen.findAllByText('Stale metric')).not.toHaveLength(0);
+    await user.click(screen.getByRole('button', { name: 'Load more QC metrics' }));
+
+    await waitFor(() => expect(onRefreshStatus).toHaveBeenCalledTimes(1));
+    expect(screen.queryAllByText('Stale metric')).toHaveLength(0);
   });
 
   it('retries an initial redacted transport failure', async () => {

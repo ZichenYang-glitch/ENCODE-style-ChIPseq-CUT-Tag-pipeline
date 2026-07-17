@@ -27,6 +27,7 @@ const artifact: ArtifactReferenceResponse = {
   uri: 'run://runs/run-1/artifacts/artifact-a',
   mime_type: 'text/tab-separated-values',
   produced_at: '2026-07-12T12:01:00Z',
+  revision: `artifactrev-${'a'.repeat(64)}`,
   relative_path: 'results/multiqc/result_manifest.tsv',
   output_type: 'result_manifest',
   size_bytes: 42,

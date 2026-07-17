@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+from fnmatch import fnmatchcase
+from io import BytesIO
 from pathlib import Path
+import json
 import os
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 
 import encode_pipeline.adapters.bulk_rnaseq.artifacts as artifact_module
+import encode_pipeline.adapters.bulk_rnaseq.status_evidence as status_evidence_module
 from encode_pipeline.adapters.bulk_rnaseq.artifacts import (
     discover_bulk_rnaseq_artifacts,
+)
+from encode_pipeline.adapters.bulk_rnaseq.results_contract import (
+    load_bulk_rnaseq_results_contract,
 )
 from encode_pipeline.platform.adapters import MAX_SAMPLE_ROWS, WorkflowInputs
 
@@ -26,6 +34,45 @@ _MERGED = (
     "tx2gene",
     "tx2gene_augmented",
 )
+
+_STAR_LOG = b"""\
+Started job on | Jul 17 00:00:00
+Started mapping on | Jul 17 00:00:01
+Finished on | Jul 17 00:00:02
+Mapping speed, Million of reads per hour | 1800.00
+Number of input reads | 1000
+Average input read length | 100
+UNIQUE READS:
+Uniquely mapped reads number | 800
+Uniquely mapped reads % | 80.00%
+Average mapped length | 99.00
+Number of splices: Total | 100
+Number of splices: Annotated (sjdb) | 90
+Number of splices: GT/AG | 80
+Number of splices: GC/AG | 10
+Number of splices: AT/AC | 5
+Number of splices: Non-canonical | 5
+Mismatch rate per base, % | 0.10%
+Deletion rate per base | 0.01%
+Deletion average length | 1.00
+Insertion rate per base | 0.01%
+Insertion average length | 1.00
+MULTI-MAPPING READS:
+Number of reads mapped to multiple loci | 100
+% of reads mapped to multiple loci | 10.00%
+Number of reads mapped to too many loci | 20
+% of reads mapped to too many loci | 2.00%
+UNMAPPED READS:
+Number of reads unmapped: too many mismatches | 10
+% of reads unmapped: too many mismatches | 1.00%
+Number of reads unmapped: too short | 60
+% of reads unmapped: too short | 6.00%
+Number of reads unmapped: other | 10
+% of reads unmapped: other | 1.00%
+CHIMERIC READS:
+Number of chimeric reads | 0
+% of chimeric reads | 0.00%
+"""
 
 
 def _inputs(
@@ -114,9 +161,63 @@ def _write_core(
             f"star_salmon/{sample}/quant.genes.sf",
             f"star_salmon/{sample}/aux_info/meta_info.json",
         ):
-            _write(workspace, relative)
+            _write(
+                workspace,
+                relative,
+                _STAR_LOG if relative.endswith(".Log.final.out") else b"x",
+            )
     for suffix in _MERGED:
         _write(workspace, f"star_salmon/salmon.merged.{suffix}.tsv")
+
+
+def _write_fastp_evidence(workspace: Path, sample: str, retained: int) -> None:
+    _write(
+        workspace,
+        f"fastp/{sample}.fastp.json",
+        json.dumps(
+            {
+                "fastp_version": "1.0.1",
+                "summary": {
+                    "before_filtering": {
+                        "total_reads": retained + 100,
+                        "total_bases": 1000000,
+                    },
+                    "after_filtering": {
+                        "total_reads": retained,
+                        "total_bases": 900000,
+                    },
+                },
+                "filtering_result": {"passed_filter_reads": retained},
+            }
+        ).encode(),
+    )
+
+
+def _fastqc_evidence_zip(root: str, filename: str, retained: int) -> bytes:
+    data = (
+        "\n".join(
+            (
+                "##FastQC\t0.12.1",
+                ">>Basic Statistics\tpass",
+                "#Measure\tValue",
+                f"Filename\t{filename}",
+                f"Total Sequences\t{retained}",
+                "%GC\t42",
+                ">>END_MODULE",
+                "",
+            )
+        )
+    ).encode()
+    target = BytesIO()
+    with ZipFile(target, "w", ZIP_DEFLATED) as archive:
+        archive.writestr(f"{root}/fastqc_data.txt", data)
+    return target.getvalue()
+
+
+def _multiqc_stub(*identities: str) -> bytes:
+    return (
+        "Sample\tmetric\n" + "".join(f"{identity}\t1\n" for identity in identities)
+    ).encode()
 
 
 def _types(result) -> set[str]:
@@ -137,6 +238,54 @@ def _multiqc_only() -> dict[str, object]:
         "preseq": False,
         "mark_duplicates": False,
     }
+
+
+def _valid_fastp_payload() -> dict[str, object]:
+    return {
+        "fastp_version": "1.0.1",
+        "summary": {
+            "before_filtering": {"total_reads": 100, "total_bases": 10000},
+            "after_filtering": {"total_reads": 90, "total_bases": 9000},
+        },
+        "filtering_result": {"passed_filter_reads": 90},
+    }
+
+
+@pytest.mark.parametrize(
+    "content",
+    (
+        b'{"fastp_version":"wrong","fastp_version":"1.0.1",'
+        b'"summary":{"before_filtering":{"total_reads":100,"total_bases":10000},'
+        b'"after_filtering":{"total_reads":90,"total_bases":9000}},'
+        b'"filtering_result":{"passed_filter_reads":90}}',
+        json.dumps({**_valid_fastp_payload(), "junk": "x" * 8193}).encode(),
+        json.dumps(
+            {**_valid_fastp_payload(), "junk": [[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]},
+        ).encode(),
+        json.dumps(
+            {**_valid_fastp_payload(), "junk": [0] * 50_001},
+            separators=(",", ":"),
+        ).encode(),
+    ),
+    ids=("duplicate-key", "overlong-string", "over-depth", "over-node-limit"),
+)
+def test_fastp_shared_parser_preserves_strict_json_limits(content: bytes):
+    with pytest.raises(status_evidence_module.StatusEvidenceError):
+        status_evidence_module.parse_fastp_summary(content)
+
+
+def test_cutadapt_shared_parser_bounds_numeric_fields_before_conversion():
+    header = (
+        b"Sample\tcutadapt_version\tr_processed\tr_with_adapters\tr_written\t"
+        b"bp_processed\tquality_trimmed\tbp_written\tpercent_trimmed\n"
+    )
+    content = header + b"S1\t4.0\t" + b"9" * 5000 + b"\t0\t1\t1\t0\t1\t0\n"
+
+    with pytest.raises(status_evidence_module.StatusEvidenceError):
+        status_evidence_module.parse_cutadapt_processed_reads(
+            content,
+            expected_row_owners={"S1": "S1"},
+        )
 
 
 @pytest.mark.parametrize(
@@ -251,6 +400,160 @@ def test_unknown_sample_in_an_audited_namespace_fails_closed(
     assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_UNKNOWN_SAMPLE"
     assert result.errors[0].context == {"reason": "unknown_sample_output"}
     assert relative_path not in repr(result.errors[0].to_dict())
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "star_salmon/bigwig/UNKNOWN.bigWig",
+        "star_salmon/featurecounts/UNKNOWN.featureCounts.tsv.summary",
+        "star_salmon/samtools_stats/UNKNOWN.sorted.bam.flagstat",
+        "star_salmon/umitools/UNKNOWN.umi_dedup.sorted_edit_distance.tsv",
+        "star_salmon/unmapped/UNKNOWN.unmapped_1.fastq.gz",
+        "star_salmon/rseqc/tin/UNKNOWN.summary.txt",
+        "fastqc/raw/UNKNOWN_raw_fastqc.zip",
+        "fastp/UNKNOWN.fastp.json",
+        "trimgalore/UNKNOWN_trimmed.fastq.gz_trimming_report.txt",
+        "fastq/UNKNOWN.merged.fastq.gz",
+        "umitools/UNKNOWN.umi_extract.fastq.gz",
+        "sortmerna/UNKNOWN.non_rRNA.fastq.gz",
+        "bowtie2_rrna/UNKNOWN.bowtie2_rrna.unmapped.fastq.gz",
+    ),
+)
+def test_unknown_sample_in_every_fixed_nested_namespace_fails_closed(
+    tmp_path: Path,
+    relative_path: str,
+):
+    inputs = _inputs()
+    _write_core(tmp_path, ("S1",))
+    _write(tmp_path, relative_path)
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_UNKNOWN_SAMPLE"
+    assert result.errors[0].context == {"reason": "unknown_sample_output"}
+
+
+def test_recognized_nested_sample_entry_must_be_a_regular_file(tmp_path: Path):
+    inputs = _inputs()
+    _write_core(tmp_path, ("S1",))
+    fifo = tmp_path / "results/star_salmon/bigwig/UNKNOWN.bigWig"
+    fifo.parent.mkdir(parents=True)
+    os.mkfifo(fifo)
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_PATH_UNSAFE"
+
+
+@pytest.mark.parametrize("kind", ("directory", "fifo", "symlink"))
+def test_private_recognized_nested_entry_must_remain_a_regular_file(
+    tmp_path: Path,
+    kind: str,
+):
+    inputs = _inputs()
+    _write_core(tmp_path, ("S1",))
+    path = tmp_path / "results/star_salmon/featurecounts/S1.featureCounts.tsv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if kind == "directory":
+        path.mkdir()
+    elif kind == "fifo":
+        os.mkfifo(path)
+    else:
+        target = path.with_name("private-target.txt")
+        target.write_bytes(b"private")
+        path.symlink_to(target.name)
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_PATH_UNSAFE"
+
+
+def test_foreign_sample_added_after_namespace_audit_is_a_stable_race_failure(
+    tmp_path: Path,
+    monkeypatch,
+):
+    inputs = _inputs()
+    _write_core(tmp_path, ("S1",))
+    original = artifact_module._verified_regular_file
+    injected = False
+
+    def inject_foreign_sample(results_descriptor: int, relative_path: str) -> bool:
+        nonlocal injected
+        if not injected:
+            injected = True
+            _write(tmp_path, "star_salmon/bigwig/UNKNOWN.bigWig")
+        return original(results_descriptor, relative_path)
+
+    monkeypatch.setattr(
+        artifact_module,
+        "_verified_regular_file",
+        inject_foreign_sample,
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_RACE_DETECTED"
+    assert result.errors[0].context == {"reason": "artifact_identity_changed"}
+
+
+def test_private_audited_entry_replacement_after_scan_is_a_race_failure(
+    tmp_path: Path,
+    monkeypatch,
+):
+    inputs = _inputs()
+    _write_core(tmp_path, ("S1",))
+    private = _write(
+        tmp_path,
+        "star_salmon/featurecounts/S1.featureCounts.tsv",
+        b"first",
+    )
+    original = artifact_module._verified_regular_file
+    replaced = False
+
+    def replace_private_entry(results_descriptor: int, relative_path: str) -> bool:
+        nonlocal replaced
+        if not replaced:
+            replaced = True
+            private.unlink()
+            private.write_bytes(b"replacement")
+        return original(results_descriptor, relative_path)
+
+    monkeypatch.setattr(
+        artifact_module,
+        "_verified_regular_file",
+        replace_private_entry,
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_RACE_DETECTED"
+
+
+def test_artifact_specs_reject_cross_type_relative_path_collision():
+    metadata = {"scope": "sample", "sample_id": "A", "assay": "bulk-rnaseq"}
+    specs = [
+        artifact_module._ArtifactSpec(
+            output_type="bulk_rnaseq.star.bigwig.forward",
+            relative_path="star_salmon/bigwig/A.forward.bigWig",
+            mime_type="application/octet-stream",
+            metadata=metadata,
+        ),
+        artifact_module._ArtifactSpec(
+            output_type="bulk_rnaseq.star.bigwig.combined",
+            relative_path="star_salmon/bigwig/A.forward.bigWig",
+            mime_type="application/octet-stream",
+            metadata={**metadata, "sample_id": "A.forward"},
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="invalid artifact specification"):
+        artifact_module._validate_specs(specs)
 
 
 def test_dotted_sample_identity_is_matched_before_audited_suffixes(
@@ -379,6 +682,118 @@ def test_default_catalog_excludes_private_or_unadmitted_qc_namespaces():
     assert "bulk_rnaseq.trim.fastp.log" not in types
 
 
+def test_declared_artifact_families_are_reachable_and_partition_expected_specs():
+    qc = {
+        "enabled": True,
+        "fastqc": True,
+        "multiqc": True,
+        "rseqc": True,
+        "qualimap": False,
+        "dupradar": False,
+        "biotype": True,
+        "deseq2_pca": False,
+        "preseq": False,
+        "mark_duplicates": False,
+    }
+    comprehensive = _inputs(
+        layouts=("PE",),
+        trimming={"enabled": True, "tool": "trimgalore"},
+        qc=qc,
+        outputs={
+            "alignment_intermediates": True,
+            "bigwig": True,
+            "merged_fastq": True,
+            "trimmed_reads": True,
+            "umi_intermediates": True,
+            "unaligned_reads": True,
+        },
+        rrna={
+            "enabled": True,
+            "tool": "sortmerna",
+            "save_filtered_reads": True,
+            "database_manifest": {
+                "path": "/inputs/rrna.txt",
+                "identity_sha256": "3" * 64,
+            },
+        },
+        umi={
+            "enabled": True,
+            "mode": "read_sequence",
+            "deduplication_tool": "umitools",
+            "extraction_method": "string",
+            "barcode_pattern": "NNNN",
+            "barcode_pattern_2": "NNNN",
+            "emit_dedup_stats": True,
+        },
+        advanced={
+            "rseqc_modules": (
+                "bam_stat,inner_distance,infer_experiment,junction_annotation,"
+                "junction_saturation,read_distribution,read_duplication,tin"
+            )
+        },
+    )
+    comprehensive.samples[0]["strandedness"] = "forward"
+    fastp = _inputs(
+        trimming={"enabled": True, "tool": "fastp"},
+        outputs={"trimmed_reads": True},
+        qc={
+            "enabled": True,
+            "fastqc": False,
+            "multiqc": True,
+            "rseqc": False,
+            "qualimap": False,
+            "dupradar": False,
+            "biotype": False,
+            "deseq2_pca": False,
+            "preseq": False,
+            "mark_duplicates": True,
+        },
+    )
+
+    observed: set[str] = set()
+    observed_multiqc_tables: set[str] = set()
+    for profile in (comprehensive, fastp):
+        validated = artifact_module.validate_bulk_rnaseq_inputs(profile)
+        assert validated.is_success
+        normalized = validated.value
+        specs, auto_bigwig = artifact_module._expected_specs(
+            normalized["nfcore_params"],
+            artifact_module._normalized_samples(normalized["samples"]),
+            trimmed_failed=frozenset(),
+            mapped_failed=frozenset(),
+        )
+        assert not auto_bigwig
+        observed.update(spec.output_type for spec in specs)
+        observed_multiqc_tables.update(
+            Path(spec.relative_path).name
+            for spec in specs
+            if spec.output_type.startswith("bulk_rnaseq.multiqc.")
+        )
+
+    contract = load_bulk_rnaseq_results_contract()
+    membership = contract["artifact_family_output_types"]
+    assert set(membership) == set(contract["artifact_families"])
+    assert observed_multiqc_tables == set(contract["audited_published_multiqc_tables"])
+    for output_type in observed:
+        owners = {
+            family
+            for family, patterns in membership.items()
+            if any(fnmatchcase(output_type, pattern) for pattern in patterns)
+        }
+        assert len(owners) == 1, (output_type, owners)
+    for family, patterns in membership.items():
+        assert any(
+            fnmatchcase(output_type, pattern)
+            for output_type in observed
+            for pattern in patterns
+        ), family
+        for pattern in patterns:
+            assert any(fnmatchcase(output_type, pattern) for output_type in observed), (
+                family,
+                pattern,
+            )
+
+
 def test_reversing_sample_and_lane_order_does_not_change_candidates(tmp_path: Path):
     forward = _inputs(layouts=("PE", "SE"), repeated_lane=True)
     reversed_inputs = WorkflowInputs(
@@ -417,10 +832,22 @@ def test_fastqc_trimgalore_and_machine_multiqc_types_are_exact(tmp_path: Path):
         _write(tmp_path, f"fastqc/raw/S1_raw_{number}_fastqc.html")
         _write(tmp_path, f"fastqc/raw/S1_raw_{number}_fastqc.zip")
         _write(tmp_path, f"fastqc/trim/S1_trimmed_{trimmed}_fastqc.html")
-        _write(tmp_path, f"fastqc/trim/S1_trimmed_{trimmed}_fastqc.zip")
+        root = f"S1_trimmed_{trimmed}_fastqc"
+        _write(
+            tmp_path,
+            f"fastqc/trim/{root}.zip",
+            _fastqc_evidence_zip(
+                root,
+                f"S1_trimmed_{trimmed}.fq.gz",
+                20000,
+            ),
+        )
         _write(
             tmp_path,
             f"trimgalore/S1_trimmed_{number}.fastq.gz_trimming_report.txt",
+            b"20100 sequences processed in total\n"
+            b"Sequences removed because they became shorter than the length "
+            b"cutoff of 20 bp: 100\n"
             b"Command line parameters: --paired /private/input.fastq.gz\n",
         )
     _write(
@@ -436,7 +863,33 @@ def test_fastqc_trimgalore_and_machine_multiqc_types_are_exact(tmp_path: Path):
         "multiqc_star.txt",
         "multiqc_salmon.txt",
     ):
-        _write(tmp_path, f"multiqc/star_salmon/multiqc_report_data/{name}")
+        identities = (
+            ("S1_1", "S1_2")
+            if name
+            in {
+                "multiqc_cutadapt.txt",
+                "multiqc_fastqc_fastqc_raw.txt",
+                "multiqc_fastqc_fastqc_trimmed.txt",
+            }
+            else (
+                ("S1", "S1 Read 1", "S1 Read 2")
+                if name == "multiqc_general_stats.txt"
+                else ("S1",)
+            )
+        )
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub(*identities),
+        )
+    _write(
+        tmp_path,
+        "multiqc/star_salmon/multiqc_report_data/multiqc_cutadapt.txt",
+        b"Sample\tcutadapt_version\tr_processed\tr_with_adapters\tr_written\t"
+        b"bp_processed\tquality_trimmed\tbp_written\tpercent_trimmed\n"
+        b"S1_1\t4.0\t20100\t0\t20100\t2010000\t0\t2010000\t0\n"
+        b"S1_2\t4.0\t20100\t0\t20100\t2010000\t0\t2010000\t0\n",
+    )
 
     result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
     types = _types(result)
@@ -471,7 +924,11 @@ def test_disabled_multiqc_modules_are_not_cataloged_when_stale_files_exist(
         "multiqc_rseqc_tin.txt",
     }
     for name in sorted(required | disabled):
-        _write(tmp_path, f"multiqc/star_salmon/multiqc_report_data/{name}")
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub("S1") if name in required else b"stale",
+        )
     _write(tmp_path, "multiqc/star_salmon/multiqc_report.html")
 
     result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
@@ -487,6 +944,338 @@ def test_disabled_multiqc_modules_are_not_cataloged_when_stale_files_exist(
         "bulk_rnaseq.multiqc.salmon",
         "bulk_rnaseq.multiqc.star",
     }
+
+
+@pytest.mark.parametrize(
+    ("output_type", "trimmer"),
+    (
+        ("bulk_rnaseq.multiqc.general_stats", "trimgalore"),
+        ("bulk_rnaseq.multiqc.star", "trimgalore"),
+        ("bulk_rnaseq.multiqc.salmon", "trimgalore"),
+        ("bulk_rnaseq.multiqc.cutadapt", "trimgalore"),
+        ("bulk_rnaseq.multiqc.fastp", "fastp"),
+        ("bulk_rnaseq.multiqc.fastqc.raw", "trimgalore"),
+        ("bulk_rnaseq.multiqc.fastqc.trimmed", "trimgalore"),
+        ("bulk_rnaseq.multiqc.fastqc.trimmed", "fastp"),
+        ("bulk_rnaseq.multiqc.fastqc.filtered", "trimgalore"),
+        ("bulk_rnaseq.multiqc.picard_dups", "trimgalore"),
+        ("bulk_rnaseq.multiqc.featurecounts_biotype", "trimgalore"),
+        ("bulk_rnaseq.multiqc.rseqc.bam_stat", "trimgalore"),
+        ("bulk_rnaseq.multiqc.rseqc.infer_experiment", "trimgalore"),
+        ("bulk_rnaseq.multiqc.rseqc.read_distribution", "trimgalore"),
+        ("bulk_rnaseq.multiqc.rseqc.tin", "trimgalore"),
+    ),
+)
+def test_every_published_multiqc_table_policy_rejects_a_foreign_row(
+    output_type: str,
+    trimmer: str,
+):
+    samples = ({"sample": "S1", "layout": "PE", "strandedness": "unstranded"},)
+    params = {
+        "skip_fastqc": False,
+        "skip_trimming": False,
+        "trimmer": trimmer,
+        "remove_ribo_rna": False,
+    }
+    policy = artifact_module._multiqc_row_policy(
+        output_type,
+        params=params,
+        samples=samples,
+        sample_ids=frozenset({"S1"}),
+        analysis_samples=frozenset({"S1"}),
+        post_mapping_samples=frozenset({"S1"}),
+    )
+
+    with pytest.raises(artifact_module._UnknownSampleError):
+        artifact_module._validate_multiqc_sample_rows(
+            _multiqc_stub("UNKNOWN"),
+            policy,
+        )
+
+
+def test_multiqc_table_duplicate_and_malformed_rows_fail_closed():
+    policy = artifact_module._MultiqcRowPolicy(
+        owners={"S1": "S1"},
+        exact_rows=frozenset({"S1"}),
+        required_owners=frozenset(),
+    )
+
+    for content in (
+        b"Sample\tmetric\nS1\t1\nS1\t2\n",
+        b"wrong\tmetric\nS1\t1\n",
+        b"Sample\tmetric\nS1\n",
+        b"Sample\tmetric\textra\nS1\t1\n",
+        b"Sample\tmetric\nS1\t1\textra\n",
+    ):
+        with pytest.raises(artifact_module._MultiqcTableError):
+            artifact_module._validate_multiqc_sample_rows(content, policy)
+
+
+@pytest.mark.parametrize(
+    ("layout", "params", "expected"),
+    (
+        (
+            "SE",
+            {
+                "skip_fastqc": False,
+                "skip_trimming": False,
+                "trimmer": "trimgalore",
+                "remove_ribo_rna": False,
+            },
+            frozenset({"S"}),
+        ),
+        (
+            "PE",
+            {
+                "skip_fastqc": True,
+                "skip_trimming": True,
+                "trimmer": "trimgalore",
+                "remove_ribo_rna": False,
+            },
+            frozenset({"S"}),
+        ),
+        (
+            "PE",
+            {
+                "skip_fastqc": False,
+                "skip_trimming": True,
+                "trimmer": "fastp",
+                "remove_ribo_rna": False,
+            },
+            frozenset({"S", "S Read 1", "S Read 2"}),
+        ),
+        (
+            "PE",
+            {
+                "skip_fastqc": True,
+                "skip_trimming": False,
+                "trimmer": "trimgalore",
+                "remove_ribo_rna": False,
+            },
+            frozenset({"S", "S Read 1", "S Read 2"}),
+        ),
+        (
+            "PE",
+            {
+                "skip_fastqc": True,
+                "skip_trimming": False,
+                "trimmer": "trimgalore",
+                "remove_ribo_rna": False,
+                "with_umi": True,
+                "skip_umi_extract": False,
+                "umi_discard_read": 2,
+            },
+            frozenset({"S"}),
+        ),
+        (
+            "PE",
+            {
+                "skip_fastqc": False,
+                "skip_trimming": False,
+                "trimmer": "trimgalore",
+                "remove_ribo_rna": False,
+                "with_umi": True,
+                "skip_umi_extract": False,
+                "umi_discard_read": 1,
+            },
+            frozenset({"S", "S Read 1", "S Read 2"}),
+        ),
+    ),
+)
+def test_general_stats_uses_exact_fixed_multiqc_grouped_identities(
+    layout: str,
+    params: dict[str, object],
+    expected: frozenset[str],
+):
+    samples = ({"sample": "S", "layout": layout, "strandedness": "unstranded"},)
+    policy = artifact_module._multiqc_row_policy(
+        "bulk_rnaseq.multiqc.general_stats",
+        params=params,
+        samples=samples,
+        sample_ids=frozenset({"S"}),
+        analysis_samples=frozenset({"S"}),
+        post_mapping_samples=frozenset({"S"}),
+    )
+
+    assert policy.exact_rows == expected
+    artifact_module._validate_multiqc_sample_rows(
+        _multiqc_stub(*sorted(expected)),
+        policy,
+    )
+    for invalid in (
+        frozenset({"S", "S_1", "S_2"}),
+        expected - {"S Read 2"},
+    ):
+        if invalid == expected:
+            continue
+        with pytest.raises(
+            (artifact_module._MultiqcTableError, artifact_module._UnknownSampleError)
+        ):
+            artifact_module._validate_multiqc_sample_rows(
+                _multiqc_stub(*sorted(invalid)),
+                policy,
+            )
+
+
+def test_general_stats_accepts_1000_paired_samples_and_rejects_3001_rows():
+    sample_ids = frozenset(f"S{index:04d}" for index in range(MAX_SAMPLE_ROWS))
+    samples = tuple(
+        {"sample": sample, "layout": "PE", "strandedness": "unstranded"}
+        for sample in reversed(sorted(sample_ids))
+    )
+    params = {
+        "skip_fastqc": False,
+        "skip_trimming": False,
+        "trimmer": "trimgalore",
+        "remove_ribo_rna": False,
+    }
+    policy = artifact_module._multiqc_row_policy(
+        "bulk_rnaseq.multiqc.general_stats",
+        params=params,
+        samples=samples,
+        sample_ids=sample_ids,
+        analysis_samples=sample_ids,
+        post_mapping_samples=sample_ids,
+    )
+    expected = tuple(sorted(policy.exact_rows or ()))
+
+    assert len(expected) == MAX_SAMPLE_ROWS * 3
+    artifact_module._validate_multiqc_sample_rows(_multiqc_stub(*expected), policy)
+    with pytest.raises(artifact_module._ArtifactLimitError):
+        artifact_module._validate_multiqc_sample_rows(
+            _multiqc_stub(*expected, "S0000 Read 3"),
+            policy,
+        )
+
+
+def test_general_stats_accepts_maximum_length_paired_sample_identity():
+    sample = "S" * 128
+    params = {
+        "skip_fastqc": False,
+        "skip_trimming": True,
+        "trimmer": "fastp",
+        "remove_ribo_rna": False,
+    }
+    samples = ({"sample": sample, "layout": "PE", "strandedness": "unstranded"},)
+    policy = artifact_module._multiqc_row_policy(
+        "bulk_rnaseq.multiqc.general_stats",
+        params=params,
+        samples=samples,
+        sample_ids=frozenset({sample}),
+        analysis_samples=frozenset({sample}),
+        post_mapping_samples=frozenset({sample}),
+    )
+
+    artifact_module._validate_multiqc_sample_rows(
+        _multiqc_stub(*sorted(policy.exact_rows or ())),
+        policy,
+    )
+
+
+def test_general_stats_mixed_layout_is_exact_and_status_independent():
+    rows = (
+        {"sample": "PAIR", "layout": "PE", "strandedness": "unstranded"},
+        {"sample": "SINGLE", "layout": "SE", "strandedness": "unstranded"},
+        # Repeated lanes normalize to the same biological owner and must not
+        # create a second MultiQC identity.
+        {"sample": "PAIR", "layout": "PE", "strandedness": "unstranded"},
+    )
+    params = {
+        "skip_fastqc": False,
+        "skip_trimming": False,
+        "trimmer": "trimgalore",
+        "remove_ribo_rna": False,
+    }
+    expected = frozenset({"PAIR", "PAIR Read 1", "PAIR Read 2", "SINGLE"})
+
+    policies = tuple(
+        artifact_module._multiqc_row_policy(
+            "bulk_rnaseq.multiqc.general_stats",
+            params=params,
+            samples=ordered,
+            sample_ids=frozenset({"PAIR", "SINGLE"}),
+            # Simulate one trim failure and one later mapping failure: neither
+            # threshold can remove the pre-threshold General Stats identities.
+            analysis_samples=frozenset({"SINGLE"}),
+            post_mapping_samples=frozenset(),
+        )
+        for ordered in (rows, tuple(reversed(rows)))
+    )
+
+    assert all(policy.exact_rows == expected for policy in policies)
+    assert policies[0] == policies[1]
+    artifact_module._validate_multiqc_sample_rows(
+        _multiqc_stub(*reversed(sorted(expected))),
+        policies[0],
+    )
+
+
+def test_multiqc_foreign_row_and_post_audit_replacement_are_fail_closed(
+    tmp_path: Path,
+    monkeypatch,
+):
+    inputs = _inputs(qc=_multiqc_only())
+    _write_core(tmp_path, ("S1",))
+    root = "multiqc/star_salmon/multiqc_report_data"
+    for name in ("multiqc_general_stats.txt", "multiqc_star.txt", "multiqc_salmon.txt"):
+        _write(tmp_path, f"{root}/{name}", _multiqc_stub("S1"))
+    star = tmp_path / "results" / root / "multiqc_star.txt"
+
+    star.write_bytes(_multiqc_stub("X1"))
+    foreign = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+    assert foreign.is_failure
+    assert foreign.errors[0].code == "BULK_RNASEQ_ARTIFACT_UNKNOWN_SAMPLE"
+
+    star.write_bytes(_multiqc_stub("S1"))
+    original = artifact_module._verified_regular_file
+    replaced = False
+
+    def replace_after_audit(results_descriptor: int, relative_path: str) -> bool:
+        nonlocal replaced
+        if not replaced:
+            replaced = True
+            star.write_bytes(_multiqc_stub("X1"))
+        return original(results_descriptor, relative_path)
+
+    monkeypatch.setattr(
+        artifact_module,
+        "_verified_regular_file",
+        replace_after_audit,
+    )
+    raced = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+    assert raced.is_failure
+    assert raced.errors[0].code == "BULK_RNASEQ_ARTIFACT_RACE_DETECTED"
+
+
+@pytest.mark.parametrize("kind", ("directory", "fifo", "symlink"))
+def test_published_multiqc_table_must_be_a_regular_nofollow_file(
+    tmp_path: Path,
+    kind: str,
+):
+    inputs = _inputs(qc=_multiqc_only())
+    _write_core(tmp_path, ("S1",))
+    root = tmp_path / "results/multiqc/star_salmon/multiqc_report_data"
+    for name in ("multiqc_general_stats.txt", "multiqc_star.txt", "multiqc_salmon.txt"):
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub("S1"),
+        )
+    target = root / "multiqc_star.txt"
+    target.unlink()
+    if kind == "directory":
+        target.mkdir()
+    elif kind == "fifo":
+        os.mkfifo(target)
+    else:
+        private = root / "private.tsv"
+        private.write_bytes(_multiqc_stub("S1"))
+        target.symlink_to(private.name)
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_PATH_UNSAFE"
 
 
 def test_fastp_and_saved_reads_follow_normalized_toggles(tmp_path: Path):
@@ -607,7 +1396,11 @@ def test_star_salmon_featurecounts_rseqc_and_picard_sources_are_bound(tmp_path: 
         "multiqc_rseqc_infer_experiment.txt",
         "multiqc_rseqc_read_distribution.txt",
     ):
-        _write(tmp_path, f"multiqc/star_salmon/multiqc_report_data/{name}")
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub("S1"),
+        )
 
     result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
     types = _types(result)
@@ -666,6 +1459,38 @@ def test_rseqc_inner_distance_uses_fixed_distance_and_mean_output_semantics(
     )
     assert by_type["bulk_rnaseq.rseqc.inner_distance.mean"].relative_path == (
         "results/star_salmon/rseqc/inner_distance/txt/S1.inner_distance_mean.txt"
+    )
+
+
+def test_rseqc_inner_distance_single_end_placeholder_is_not_public(
+    tmp_path: Path,
+):
+    qc = {
+        "enabled": True,
+        "fastqc": False,
+        "multiqc": False,
+        "rseqc": True,
+        "qualimap": False,
+        "dupradar": False,
+        "biotype": False,
+        "deseq2_pca": False,
+        "preseq": False,
+        "mark_duplicates": False,
+    }
+    inputs = _inputs(qc=qc, advanced={"rseqc_modules": "inner_distance"})
+    _write_core(tmp_path, ("S1",))
+    _write(
+        tmp_path,
+        "star_salmon/rseqc/inner_distance/txt/S1.inner_distance.txt",
+        b"inner_distance.py doesn't support single-end data\n",
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_success
+    assert not any(
+        candidate.output_type.startswith("bulk_rnaseq.rseqc.inner_distance.")
+        for candidate in result.value
     )
 
 
@@ -973,23 +1798,32 @@ def test_trimmed_failure_table_proves_a_legal_missing_analysis_sample(
 ):
     inputs = _inputs(
         layouts=("SE", "SE"),
-        trimming={"enabled": True, "tool": "trimgalore"},
+        trimming={"enabled": True, "tool": "fastp"},
         qc=_multiqc_only(),
     )
     _write_core(tmp_path, ("S2",))
-    for sample in ("S1", "S2"):
-        _write(
-            tmp_path,
-            f"trimgalore/{sample}_trimmed.fastq.gz_trimming_report.txt",
-        )
+    _write_fastp_evidence(tmp_path, "S1", 9999)
+    _write_fastp_evidence(tmp_path, "S2", 20000)
     _write(tmp_path, "multiqc/star_salmon/multiqc_report.html")
     for name in (
         "multiqc_general_stats.txt",
-        "multiqc_cutadapt.txt",
+        "multiqc_fastp.txt",
         "multiqc_star.txt",
         "multiqc_salmon.txt",
     ):
-        _write(tmp_path, f"multiqc/star_salmon/multiqc_report_data/{name}")
+        rows = (
+            ("S2",)
+            if name in {"multiqc_star.txt", "multiqc_salmon.txt"}
+            else (
+                "S1",
+                "S2",
+            )
+        )
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub(*rows),
+        )
     _write(
         tmp_path,
         "multiqc/star_salmon/multiqc_report_data/multiqc_fail_trimmed_samples_table.txt",
@@ -1010,14 +1844,18 @@ def test_all_trimmed_failures_do_not_require_star_salmon_or_merged_matrices(
     tmp_path: Path,
 ):
     inputs = _inputs(
-        trimming={"enabled": True, "tool": "trimgalore"},
+        trimming={"enabled": True, "tool": "fastp"},
         qc=_multiqc_only(),
     )
     _write(tmp_path, "pipeline_info/nf_core_rnaseq_software_mqc_versions.yml")
-    _write(tmp_path, "trimgalore/S1_trimmed.fastq.gz_trimming_report.txt")
+    _write_fastp_evidence(tmp_path, "S1", 9999)
     _write(tmp_path, "multiqc/star_salmon/multiqc_report.html")
-    for name in ("multiqc_general_stats.txt", "multiqc_cutadapt.txt"):
-        _write(tmp_path, f"multiqc/star_salmon/multiqc_report_data/{name}")
+    for name in ("multiqc_general_stats.txt", "multiqc_fastp.txt"):
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub("S1"),
+        )
     _write(
         tmp_path,
         "multiqc/star_salmon/multiqc_report_data/multiqc_fail_trimmed_samples_table.txt",
@@ -1032,18 +1870,213 @@ def test_all_trimmed_failures_do_not_require_star_salmon_or_merged_matrices(
     )
 
 
+@pytest.mark.parametrize("cutadapt_reads_written", (20000, 9999))
+def test_trimgalore_pe_failure_uses_only_valid_cutadapt_evidence(
+    tmp_path: Path,
+    cutadapt_reads_written: int,
+):
+    qc = {**_multiqc_only(), "fastqc": True}
+    inputs = _inputs(
+        layouts=("PE",),
+        trimming={"enabled": True, "tool": "trimgalore"},
+        qc=qc,
+    )
+    _write(tmp_path, "pipeline_info/nf_core_rnaseq_software_mqc_versions.yml")
+    for number, trimmed in (("1", "1_val_1"), ("2", "2_val_2")):
+        _write(tmp_path, f"fastqc/raw/S1_raw_{number}_fastqc.html")
+        _write(tmp_path, f"fastqc/raw/S1_raw_{number}_fastqc.zip")
+        root = f"S1_trimmed_{trimmed}_fastqc"
+        _write(tmp_path, f"fastqc/trim/{root}.html")
+        _write(
+            tmp_path,
+            f"fastqc/trim/{root}.zip",
+            _fastqc_evidence_zip(root, f"S1_trimmed_{trimmed}.fq.gz", 9999),
+        )
+    for name, identities in (
+        ("multiqc_general_stats.txt", ("S1", "S1 Read 1", "S1 Read 2")),
+        ("multiqc_cutadapt.txt", ("S1_1", "S1_2")),
+        ("multiqc_fastqc_fastqc_raw.txt", ("S1_1", "S1_2")),
+        ("multiqc_fastqc_fastqc_trimmed.txt", ("S1_1", "S1_2")),
+    ):
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub(*identities),
+        )
+    _write(
+        tmp_path,
+        "multiqc/star_salmon/multiqc_report_data/multiqc_cutadapt.txt",
+        b"Sample\tcutadapt_version\tr_processed\tr_with_adapters\tr_written\t"
+        b"bp_processed\tquality_trimmed\tbp_written\tpercent_trimmed\n"
+        + (
+            f"S1_1\t4.0\t20000\t0\t{cutadapt_reads_written}\t"
+            "2000000\t0\t999900\t50.005\n"
+            f"S1_2\t4.0\t20000\t0\t{cutadapt_reads_written}\t"
+            "2000000\t0\t999900\t50.005\n"
+        ).encode(),
+    )
+    _write(
+        tmp_path,
+        "multiqc/star_salmon/multiqc_report_data/"
+        "multiqc_fail_trimmed_samples_table.txt",
+        b"Sample\tReads after trimming\nS1\t9999\n",
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    if cutadapt_reads_written != 20000:
+        assert result.is_failure
+        assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_STATUS_INVALID"
+        return
+    assert result.is_success
+    assert "bulk_rnaseq.multiqc.fail_trimmed_samples" in _types(result)
+    assert not any(
+        item.output_type.startswith(("bulk_rnaseq.star.", "bulk_rnaseq.salmon."))
+        for item in result.value
+    )
+
+
+def test_cutadapt_same_length_replacement_after_reconciliation_is_a_race(
+    tmp_path: Path,
+    monkeypatch,
+):
+    inputs = _inputs(
+        layouts=("PE",),
+        trimming={"enabled": True, "tool": "trimgalore"},
+        qc={**_multiqc_only(), "fastqc": True},
+    )
+    _write(tmp_path, "pipeline_info/nf_core_rnaseq_software_mqc_versions.yml")
+    for number, trimmed in (("1", "1_val_1"), ("2", "2_val_2")):
+        _write(tmp_path, f"fastqc/raw/S1_raw_{number}_fastqc.html")
+        _write(tmp_path, f"fastqc/raw/S1_raw_{number}_fastqc.zip")
+        root = f"S1_trimmed_{trimmed}_fastqc"
+        _write(tmp_path, f"fastqc/trim/{root}.html")
+        _write(
+            tmp_path,
+            f"fastqc/trim/{root}.zip",
+            _fastqc_evidence_zip(root, f"S1_trimmed_{trimmed}.fq.gz", 9999),
+        )
+    for name, identities in (
+        ("multiqc_general_stats.txt", ("S1", "S1 Read 1", "S1 Read 2")),
+        ("multiqc_fastqc_fastqc_raw.txt", ("S1_1", "S1_2")),
+        ("multiqc_fastqc_fastqc_trimmed.txt", ("S1_1", "S1_2")),
+    ):
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub(*identities),
+        )
+    cutadapt = _write(
+        tmp_path,
+        "multiqc/star_salmon/multiqc_report_data/multiqc_cutadapt.txt",
+        b"Sample\tcutadapt_version\tr_processed\tr_with_adapters\tr_written\t"
+        b"bp_processed\tquality_trimmed\tbp_written\tpercent_trimmed\n"
+        b"S1_1\t4.0\t20000\t0\t20000\t2000000\t0\t999900\t50.005\n"
+        b"S1_2\t4.0\t20000\t0\t20000\t2000000\t0\t999900\t50.005\n",
+    )
+    _write(
+        tmp_path,
+        "multiqc/star_salmon/multiqc_report_data/"
+        "multiqc_fail_trimmed_samples_table.txt",
+        b"Sample\tReads after trimming\nS1\t9999\n",
+    )
+    expected_specs = artifact_module._expected_specs
+    replaced = False
+
+    def replace_after_reconciliation(*args, **kwargs):
+        nonlocal replaced
+        result = expected_specs(*args, **kwargs)
+        if not replaced:
+            replaced = True
+            original = cutadapt.read_bytes()
+            cutadapt.write_bytes(original.replace(b"\t0\t20000\t", b"\t1\t20000\t"))
+            assert cutadapt.stat().st_size == len(original)
+        return result
+
+    monkeypatch.setattr(
+        artifact_module,
+        "_expected_specs",
+        replace_after_reconciliation,
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_RACE_DETECTED"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("passed_filter_reads", 10000),
+        ("before_total_reads", 9998),
+        ("after_total_bases", 1000001),
+    ),
+)
+def test_fastp_status_evidence_rejects_impossible_fixed_report(
+    tmp_path: Path,
+    field: str,
+    value: int,
+):
+    inputs = _inputs(
+        trimming={"enabled": True, "tool": "fastp"},
+        qc=_multiqc_only(),
+    )
+    _write(tmp_path, "pipeline_info/nf_core_rnaseq_software_mqc_versions.yml")
+    _write_fastp_evidence(tmp_path, "S1", 9999)
+    report = tmp_path / "results/fastp/S1.fastp.json"
+    payload = json.loads(report.read_text())
+    if field == "passed_filter_reads":
+        payload["filtering_result"]["passed_filter_reads"] = value
+    elif field == "before_total_reads":
+        payload["summary"]["before_filtering"]["total_reads"] = value
+    else:
+        payload["summary"]["after_filtering"]["total_bases"] = value
+    report.write_text(json.dumps(payload))
+    for name in ("multiqc_general_stats.txt", "multiqc_fastp.txt"):
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub("S1"),
+        )
+    _write(
+        tmp_path,
+        "multiqc/star_salmon/multiqc_report_data/"
+        "multiqc_fail_trimmed_samples_table.txt",
+        b"Sample\tReads after trimming\nS1\t9999\n",
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_STATUS_INVALID"
+
+
 def test_mapped_failure_table_keeps_star_salmon_but_not_post_mapping_outputs(
     tmp_path: Path,
 ):
-    inputs = _inputs(layouts=("SE", "SE"), qc=_multiqc_only())
+    inputs = _inputs(
+        layouts=("SE", "SE"),
+        qc=_multiqc_only(),
+        advanced={"min_mapped_reads": 90},
+    )
     _write_core(tmp_path, ("S1", "S2"))
     _write(tmp_path, "multiqc/star_salmon/multiqc_report.html")
-    for name in ("multiqc_general_stats.txt", "multiqc_star.txt", "multiqc_salmon.txt"):
-        _write(tmp_path, f"multiqc/star_salmon/multiqc_report_data/{name}")
+    for name in (
+        "multiqc_general_stats.txt",
+        "multiqc_star.txt",
+        "multiqc_salmon.txt",
+        "multiqc_fastp.txt",
+    ):
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub("S1", "S2") if name != "multiqc_fastp.txt" else b"stale",
+        )
     _write(
         tmp_path,
         "multiqc/star_salmon/multiqc_report_data/multiqc_fail_mapped_samples_table.txt",
-        b"Sample\tSTAR uniquely mapped reads (%)\nS1\t4.99\n",
+        b"Sample\tSTAR uniquely mapped reads (%)\nS1\t80.00\nS2\t80.00\n",
     )
 
     result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
@@ -1070,10 +2103,42 @@ def test_mapped_failure_table_keeps_star_salmon_but_not_post_mapping_outputs(
     assert "bulk_rnaseq.multiqc.fail_mapped_samples" in _types(result)
 
 
+@pytest.mark.parametrize(
+    "star_log",
+    [
+        b"Uniquely mapped reads % | 80.00%\n",
+        _STAR_LOG.replace(
+            b"Number of reads unmapped: other | 10",
+            b"Number of reads unmapped: other | 11",
+        ),
+    ],
+    ids=("truncated", "impossible-count-partition"),
+)
+def test_mapped_status_requires_complete_consistent_star_log(
+    tmp_path: Path,
+    star_log: bytes,
+):
+    inputs = _inputs(qc=_multiqc_only(), advanced={"min_mapped_reads": 90})
+    _write_core(tmp_path, ("S1",))
+    _write(tmp_path, "star_salmon/log/S1.Log.final.out", star_log)
+    _write(
+        tmp_path,
+        "multiqc/star_salmon/multiqc_report_data/multiqc_fail_mapped_samples_table.txt",
+        b"Sample\tSTAR uniquely mapped reads (%)\nS1\t80.00\n",
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_STATUS_INVALID"
+    assert result.errors[0].context == {"reason": "sample_status_invalid"}
+
+
 def test_mapped_failure_keeps_published_umi_and_pre_umi_bams(tmp_path: Path):
     inputs = _inputs(
         qc=_multiqc_only(),
         outputs={"umi_intermediates": True},
+        advanced={"min_mapped_reads": 90},
         umi={
             "enabled": True,
             "mode": "read_name",
@@ -1092,12 +2157,21 @@ def test_mapped_failure_keeps_published_umi_and_pre_umi_bams(tmp_path: Path):
         "star_salmon/S1.umi_dedup.transcriptome.sorted.bam.bai",
     ):
         _write(tmp_path, relative)
-    for name in ("multiqc_general_stats.txt", "multiqc_star.txt", "multiqc_salmon.txt"):
-        _write(tmp_path, f"multiqc/star_salmon/multiqc_report_data/{name}")
+    for name in (
+        "multiqc_general_stats.txt",
+        "multiqc_star.txt",
+        "multiqc_salmon.txt",
+        "multiqc_fastp.txt",
+    ):
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub("S1") if name != "multiqc_fastp.txt" else b"stale",
+        )
     _write(
         tmp_path,
         "multiqc/star_salmon/multiqc_report_data/multiqc_fail_mapped_samples_table.txt",
-        b"Sample\tSTAR uniquely mapped reads (%)\nS1\t4.99\n",
+        b"Sample\tSTAR uniquely mapped reads (%)\nS1\t80.00\n",
     )
 
     types = _types(discover_bulk_rnaseq_artifacts(inputs, tmp_path))
@@ -1111,10 +2185,23 @@ def test_mapped_failure_keeps_published_umi_and_pre_umi_bams(tmp_path: Path):
 def test_exact_trim_threshold_row_does_not_hide_existing_analysis_outputs(
     tmp_path: Path,
 ):
-    inputs = _inputs(qc=_multiqc_only())
+    inputs = _inputs(
+        trimming={"enabled": True, "tool": "fastp"},
+        qc=_multiqc_only(),
+    )
     _write_core(tmp_path, ("S1",))
-    for name in ("multiqc_general_stats.txt", "multiqc_star.txt", "multiqc_salmon.txt"):
-        _write(tmp_path, f"multiqc/star_salmon/multiqc_report_data/{name}")
+    _write_fastp_evidence(tmp_path, "S1", 10000)
+    for name in (
+        "multiqc_general_stats.txt",
+        "multiqc_star.txt",
+        "multiqc_salmon.txt",
+        "multiqc_fastp.txt",
+    ):
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub("S1"),
+        )
     _write(
         tmp_path,
         "multiqc/star_salmon/multiqc_report_data/multiqc_fail_trimmed_samples_table.txt",
@@ -1125,6 +2212,42 @@ def test_exact_trim_threshold_row_does_not_hide_existing_analysis_outputs(
 
     assert result.is_success
     assert "bulk_rnaseq.star.bam" in _types(result)
+
+
+def test_trimming_disabled_rejects_stale_failure_table(tmp_path: Path):
+    inputs = _inputs(qc=_multiqc_only())
+    _write(tmp_path, "pipeline_info/nf_core_rnaseq_software_mqc_versions.yml")
+    _write(tmp_path, "multiqc/star_salmon/multiqc_report.html")
+    _write(
+        tmp_path,
+        "multiqc/star_salmon/multiqc_report_data/multiqc_general_stats.txt",
+    )
+    _write(
+        tmp_path,
+        "multiqc/star_salmon/multiqc_report_data/multiqc_fail_trimmed_samples_table.txt",
+        b"Sample\tReads after trimming\nS1\t9999\n",
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_STATUS_INVALID"
+
+
+def test_trimming_and_multiqc_disabled_reject_stale_failure_table(tmp_path: Path):
+    inputs = _inputs()
+    _write(
+        tmp_path,
+        "multiqc/star_salmon/multiqc_report_data/"
+        "multiqc_fail_trimmed_samples_table.txt",
+        b"Sample\tReads after trimming\nS1\t9999\n",
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_STATUS_INVALID"
+    assert result.errors[0].context == {"reason": "sample_status_invalid"}
 
 
 def test_trim_status_above_configured_threshold_fails_closed(tmp_path: Path):
@@ -1155,7 +2278,7 @@ def test_fastp_low_trim_sample_does_not_require_post_filter_fastqc(
         qc=qc,
     )
     _write(tmp_path, "pipeline_info/nf_core_rnaseq_software_mqc_versions.yml")
-    _write(tmp_path, "fastp/S1.fastp.json")
+    _write_fastp_evidence(tmp_path, "S1", 9999)
     _write(tmp_path, "fastqc/raw/S1_raw_fastqc.html")
     _write(tmp_path, "fastqc/raw/S1_raw_fastqc.zip")
     for name in (
@@ -1163,7 +2286,11 @@ def test_fastp_low_trim_sample_does_not_require_post_filter_fastqc(
         "multiqc_fastp.txt",
         "multiqc_fastqc_fastqc_raw.txt",
     ):
-        _write(tmp_path, f"multiqc/star_salmon/multiqc_report_data/{name}")
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub("S1"),
+        )
     _write(
         tmp_path,
         "multiqc/star_salmon/multiqc_report_data/multiqc_fail_trimmed_samples_table.txt",
@@ -1268,13 +2395,63 @@ def test_status_table_symlink_size_limit_and_replacement_are_fail_closed(
     assert raced.errors[0].code == "BULK_RNASEQ_ARTIFACT_RACE_DETECTED"
 
 
+def test_status_table_same_length_replacement_after_reconciliation_is_a_race(
+    tmp_path: Path,
+    monkeypatch,
+):
+    inputs = _inputs(
+        trimming={"enabled": True, "tool": "fastp"},
+        qc=_multiqc_only(),
+    )
+    _write(tmp_path, "pipeline_info/nf_core_rnaseq_software_mqc_versions.yml")
+    _write_fastp_evidence(tmp_path, "S1", 9999)
+    for name in ("multiqc_general_stats.txt", "multiqc_fastp.txt"):
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub("S1"),
+        )
+    status = _write(
+        tmp_path,
+        "multiqc/star_salmon/multiqc_report_data/"
+        "multiqc_fail_trimmed_samples_table.txt",
+        b"Sample\tReads after trimming\nS1\t9999\n",
+    )
+    expected_specs = artifact_module._expected_specs
+    replaced = False
+
+    def replace_after_reconciliation(*args, **kwargs):
+        nonlocal replaced
+        result = expected_specs(*args, **kwargs)
+        if not replaced:
+            replaced = True
+            status.write_bytes(b"Sample\tReads after trimming\nS1\t9998\n")
+        return result
+
+    monkeypatch.setattr(
+        artifact_module,
+        "_expected_specs",
+        replace_after_reconciliation,
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_RACE_DETECTED"
+    assert result.errors[0].context == {"reason": "artifact_identity_changed"}
+
+
 def test_missing_core_output_without_a_failure_table_still_fails(tmp_path: Path):
     inputs = _inputs(qc=_multiqc_only())
     _write_core(tmp_path, ("S1",))
     (tmp_path / "results/star_salmon/S1/quant.sf").unlink()
     _write(tmp_path, "multiqc/star_salmon/multiqc_report.html")
     for name in ("multiqc_general_stats.txt", "multiqc_star.txt", "multiqc_salmon.txt"):
-        _write(tmp_path, f"multiqc/star_salmon/multiqc_report_data/{name}")
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub("S1"),
+        )
 
     result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
     assert result.is_failure

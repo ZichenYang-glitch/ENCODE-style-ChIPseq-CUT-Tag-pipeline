@@ -5,6 +5,7 @@
  * Reproducible omics workflows, from inputs to evidence.
  * OpenAPI spec version: 0.3.0
  */
+import type { RunQcMetricsResponseQcGeneration } from './runQcMetricsResponseQcGeneration';
 import type { QcMetricResponse } from './qcMetricResponse';
 import type { RunQcMetricsResponseNextCursor } from './runQcMetricsResponseNextCursor';
 import type { IssueResponse } from './issueResponse';
@@ -15,6 +16,7 @@ import type { IssueResponse } from './issueResponse';
 export interface RunQcMetricsResponse {
   ok: boolean;
   run_id: string;
+  qc_generation: RunQcMetricsResponseQcGeneration;
   qc_metrics?: QcMetricResponse[];
   next_cursor?: RunQcMetricsResponseNextCursor;
   issues?: IssueResponse[];

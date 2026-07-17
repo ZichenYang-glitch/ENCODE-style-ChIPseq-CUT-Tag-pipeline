@@ -18,7 +18,7 @@ from encode_pipeline.api.main import _handle_internal_server_error
 from encode_pipeline.api.routes.artifacts import download_run_artifact
 from encode_pipeline.api.routes import artifacts as artifact_routes
 from encode_pipeline.platform.adapters import WorkflowInputs
-from encode_pipeline.platform.runs import RunArtifactRef
+from encode_pipeline.platform.runs import RunArtifactRef, RunStatus
 from encode_pipeline.platform.results import Issue, Result
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -27,6 +27,7 @@ from api_test_client import ApiTestClient
 
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
+ARTIFACT_REVISION = f"artifactrev-{'0' * 64}"
 
 
 @pytest.fixture
@@ -40,10 +41,20 @@ def client(tmp_path: Path) -> Iterator[ApiTestClient]:
 
 
 def _create_run(client: ApiTestClient) -> str:
-    return client.app.state.run_service.create_run(
+    service = client.app.state.run_service
+    run_id = service.create_run(
         WORKFLOW_ID,
         WorkflowInputs(config={}),
     ).run_id
+    for status in (
+        RunStatus.VALIDATING,
+        RunStatus.PLANNED,
+        RunStatus.QUEUED,
+        RunStatus.RUNNING,
+        RunStatus.SUCCEEDED,
+    ):
+        service.transition_run(run_id, status)
+    return run_id
 
 
 def _record_download(
@@ -68,6 +79,7 @@ def _record_download(
         uri=f"run://runs/{run_id}/artifacts/{artifact_id}",
         mime_type=mime_type,
         produced_at=datetime.now(timezone.utc),
+        revision=ARTIFACT_REVISION,
         metadata={
             "relative_path": relative_path,
             "output_type": "result_manifest",
@@ -76,7 +88,8 @@ def _record_download(
             "scope": "project",
         },
     )
-    client.app.state.run_service.record_artifact(run_id, artifact)
+    service = client.app.state.run_service
+    service.replace_artifacts(run_id, (*service.list_artifacts(run_id), artifact))
     return artifact
 
 
@@ -125,6 +138,7 @@ def test_unknown_and_cross_run_artifact_share_same_redacted_404(client):
     first_run = _create_run(client)
     second_run = _create_run(client)
     artifact = _record_download(client, first_run, "artifact-private", b"secret")
+    _record_download(client, second_run, "artifact-present", b"present")
 
     missing = _invoke(client, second_run, "artifact-missing")
     cross_run = _invoke(client, second_run, artifact.artifact_id)

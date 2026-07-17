@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from encode_pipeline.platform.adapters import WorkflowInputs
-from encode_pipeline.platform.runs import RunArtifactRef
+from encode_pipeline.platform.runs import RunArtifactRef, RunStatus
 from encode_pipeline.services import artifact_downloads
 from encode_pipeline.services.artifact_downloads import (
     ArtifactDownloadService,
@@ -26,6 +26,7 @@ from encode_pipeline.services.runs import RunService
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 CHUNK_SIZE = 64 * 1024
 WINDOWS_SEPARATOR = chr(92)
+ARTIFACT_REVISION = f"artifactrev-{'0' * 64}"
 
 
 def _runtime(tmp_path: Path, *run_ids: str):
@@ -37,6 +38,14 @@ def _runtime(tmp_path: Path, *run_ids: str):
     for _run_id in run_ids or ("run-1",):
         record = run_service.create_run(WORKFLOW_ID, WorkflowInputs(config={}))
         assert record.run_id == _run_id
+        for status in (
+            RunStatus.VALIDATING,
+            RunStatus.PLANNED,
+            RunStatus.QUEUED,
+            RunStatus.RUNNING,
+            RunStatus.SUCCEEDED,
+        ):
+            run_service.transition_run(_run_id, status)
     workspace_root = tmp_path / "workspaces"
     workspace_root.mkdir(parents=True)
     service = ArtifactDownloadService(
@@ -65,6 +74,7 @@ def _artifact(
         uri=uri or f"run://runs/{run_id}/artifacts/{artifact_id}",
         mime_type=mime_type,
         produced_at=datetime.now(timezone.utc),
+        revision=ARTIFACT_REVISION,
         metadata={
             "relative_path": relative_path,
             "output_type": "summary",
@@ -81,7 +91,10 @@ def _write(workspace_root: Path, run_id: str, relative_path: str, content: bytes
 
 
 def _record(run_service: RunService, artifact: RunArtifactRef) -> None:
-    run_service.record_artifact(artifact.run_id, artifact)
+    run_service.replace_artifacts(
+        artifact.run_id,
+        (*run_service.list_artifacts(artifact.run_id), artifact),
+    )
 
 
 def _failure_code(result) -> str:
@@ -143,6 +156,7 @@ def test_prepare_is_run_scoped_and_never_opens_cross_run_artifact(
 ):
     service, run_service, workspace_root = _runtime(tmp_path, "run-1", "run-2")
     other = _artifact("run-2", artifact_id="artifact-other")
+    _record(run_service, _artifact("run-1", artifact_id="artifact-present"))
     _record(run_service, other)
     _write(workspace_root, "run-2", "results/file.bin", b"private")
     original_open = os.open

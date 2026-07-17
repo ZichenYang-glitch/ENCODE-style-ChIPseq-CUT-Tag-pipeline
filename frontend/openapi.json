@@ -1133,13 +1133,32 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "^qcmetric-[0-9a-f]{64}$"
+                  "maxLength": 1024,
+                  "pattern": "^qccur_[A-Za-z0-9_-]{1,1018}$"
                 },
                 {
                   "type": "null"
                 }
               ],
               "title": "After"
+            }
+          },
+          {
+            "name": "generation",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 70,
+                  "pattern": "^qcgen-[0-9a-f]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Generation"
             }
           },
           {
@@ -1195,6 +1214,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunQcMetricsResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "500": {
             "content": {
@@ -1681,6 +1710,12 @@
             "format": "date-time",
             "title": "Produced At"
           },
+          "revision": {
+            "type": "string",
+            "maxLength": 76,
+            "pattern": "^artifactrev-[0-9a-f]{64}$",
+            "title": "Revision"
+          },
           "relative_path": {
             "type": "string",
             "title": "Relative Path"
@@ -1705,6 +1740,7 @@
           "name",
           "uri",
           "produced_at",
+          "revision",
           "relative_path",
           "output_type",
           "size_bytes",
@@ -2392,6 +2428,19 @@
             "type": "string",
             "title": "Run Id"
           },
+          "qc_generation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 70,
+                "pattern": "^qcgen-[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qc Generation"
+          },
           "qc_metrics": {
             "items": {
               "$ref": "#/components/schemas/QcMetricResponse"
@@ -2402,7 +2451,8 @@
           "next_cursor": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 1024
               },
               {
                 "type": "null"
@@ -2421,7 +2471,8 @@
         "type": "object",
         "required": [
           "ok",
-          "run_id"
+          "run_id",
+          "qc_generation"
         ],
         "title": "RunQcMetricsResponse",
         "description": "Envelope for GET /api/v1/runs/{run_id}/qc-metrics."

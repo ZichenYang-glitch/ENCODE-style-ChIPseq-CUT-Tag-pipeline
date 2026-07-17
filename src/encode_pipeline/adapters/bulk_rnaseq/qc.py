@@ -21,6 +21,19 @@ from encode_pipeline.adapters.bulk_rnaseq.results_contract import (
     effective_rseqc_modules,
     load_bulk_rnaseq_results_contract,
 )
+from encode_pipeline.adapters.bulk_rnaseq.status_evidence import (
+    StatusEvidenceContractError,
+    StatusEvidenceError,
+    parse_cutadapt_processed_reads,
+    parse_cutadapt_rows,
+    parse_fastp_retained_reads,
+    parse_fastp_summary,
+    parse_fastqc_total_sequences,
+    parse_star_log_final,
+    parse_star_uniquely_mapped_percent,
+    parse_status_table,
+    reconcile_sample_status,
+)
 from encode_pipeline.platform.adapters import (
     ExtractedQcMetricCandidate,
     MAX_SAMPLE_ROWS,
@@ -32,7 +45,6 @@ from encode_pipeline.platform.results import Issue, Result
 
 _ASSAY = "bulk-rnaseq"
 _FASTQC_VERSION = "0.12.1"
-_FASTP_VERSION = "1.0.1"
 _SALMON_VERSION = "1.10.3"
 _MAX_SOURCE_FILES = MAX_SAMPLE_ROWS * 16 + 16
 _MAX_SOURCE_BYTES = 16 * 1024 * 1024
@@ -160,10 +172,24 @@ def _extract_bulk_rnaseq_qc_metrics(
         samples = _sample_contract(normalized)
         params = _parameter_contract(normalized)
         documents = _validate_sources(sources, samples)
+        cutadapt_metrics: list[ExtractedQcMetricCandidate] = []
+        trimgalore_input_evidence: Mapping[str, Decimal] = {}
+        cutadapt_document = documents.get(("bulk_rnaseq.multiqc.cutadapt", ""))
+        if cutadapt_document is not None:
+            trimgalore_input_evidence = parse_cutadapt_processed_reads(
+                cutadapt_document.content,
+                expected_row_owners=_cutadapt_row_owners(samples, params),
+            )
+            cutadapt_metrics = _parse_multiqc_cutadapt(
+                cutadapt_document,
+                samples,
+                params=params,
+            )
         trimmed_failed, mapped_failed = _sample_status(
             documents,
-            set(samples),
+            samples,
             params=params,
+            trimgalore_input_evidence=trimgalore_input_evidence,
         )
         expected = _expected_sources(
             samples,
@@ -191,9 +217,7 @@ def _extract_bulk_rnaseq_qc_metrics(
             if output_type.startswith("bulk_rnaseq.fastqc."):
                 metrics.extend(_parse_fastqc(document, sample_id, params=params))
             elif output_type == "bulk_rnaseq.multiqc.cutadapt":
-                metrics.extend(
-                    _parse_multiqc_cutadapt(document, samples, params=params)
-                )
+                metrics.extend(cutadapt_metrics)
             elif output_type == "bulk_rnaseq.trim.fastp.json":
                 metrics.extend(_parse_fastp(document, sample_id))
             elif output_type == "bulk_rnaseq.star.log_final":
@@ -483,56 +507,136 @@ def _expected_sources(
 
 def _sample_status(
     documents: Mapping[tuple[str, str], QcSourceDocument],
-    samples: set[str],
+    samples: Mapping[str, Mapping[str, str]],
     *,
     params: Mapping[str, object],
+    trimgalore_input_evidence: Mapping[str, Decimal],
 ) -> tuple[frozenset[str], frozenset[str]]:
-    status_types = (
-        (
-            "bulk_rnaseq.multiqc.fail_trimmed_samples",
-            ["Sample", "Reads after trimming"],
-            "count",
-        ),
-        (
-            "bulk_rnaseq.multiqc.fail_mapped_samples",
-            ["Sample", "STAR uniquely mapped reads (%)"],
-            "percent",
-        ),
-    )
-    failed: list[frozenset[str]] = []
-    for output_type, header, value_kind in status_types:
-        document = documents.get((output_type, ""))
-        if document is None:
-            failed.append(frozenset())
-            continue
-        if _bool_param(params, "skip_multiqc"):
+    known_samples = frozenset(samples)
+    trim_document = documents.get(("bulk_rnaseq.multiqc.fail_trimmed_samples", ""))
+    mapped_document = documents.get(("bulk_rnaseq.multiqc.fail_mapped_samples", ""))
+    if _bool_param(params, "skip_multiqc"):
+        if trim_document is not None or mapped_document is not None:
             raise _QcError("source_contract_invalid")
-        rows = _tsv_rows(document.content)
-        if len(rows) < 2 or rows[0] != header:
-            raise _QcError("source_content_invalid")
-        selected: set[str] = set()
-        observed: set[str] = set()
-        for row in rows[1:]:
-            if len(row) != 2 or row[0] not in samples or row[0] in observed:
-                raise _QcError("source_contract_invalid")
-            observed.add(row[0])
-            if value_kind == "count":
-                count_value = _nonnegative_integral_decimal(row[1])
-                count_threshold = _min_trimmed_reads(params)
-                if count_value > count_threshold:
-                    raise _QcError("source_contract_invalid")
-                if count_value == count_threshold:
-                    continue
-            else:
-                mapped_fraction = _percent(row[1])
-                mapped_threshold = _min_mapped_fraction(params)
-                if mapped_fraction >= mapped_threshold:
-                    raise _QcError("source_contract_invalid")
-            selected.add(row[0])
-        failed.append(frozenset(selected))
-    if failed[0].intersection(failed[1]):
+        return frozenset(), frozenset()
+    if _bool_param(params, "skip_trimming") and trim_document is not None:
         raise _QcError("source_contract_invalid")
-    return failed[0], failed[1]
+    try:
+        trim_table = parse_status_table(
+            None if trim_document is None else trim_document.content,
+            kind="trimmed",
+            expected_header="Sample\tReads after trimming",
+            known_samples=known_samples,
+        )
+        mapped_table = parse_status_table(
+            None if mapped_document is None else mapped_document.content,
+            kind="mapped",
+            expected_header="Sample\tSTAR uniquely mapped reads (%)",
+            known_samples=known_samples,
+        )
+    except StatusEvidenceContractError as exc:
+        raise _QcError("source_contract_invalid") from exc
+    except StatusEvidenceError as exc:
+        raise _QcError("source_content_invalid") from exc
+
+    trim_threshold = Decimal(_min_trimmed_reads(params))
+    mapped_threshold = _min_mapped_percent(params)
+    retained_evidence: dict[str, Decimal] = {}
+    if not _bool_param(params, "skip_trimming"):
+        for sample_id, sample in samples.items():
+            if params.get("trimmer") == "fastp":
+                document = documents.get(("bulk_rnaseq.trim.fastp.json", sample_id))
+                if document is not None:
+                    try:
+                        retained_evidence[sample_id] = parse_fastp_retained_reads(
+                            document.content
+                        )
+                    except StatusEvidenceError as exc:
+                        raise _QcError("source_content_invalid") from exc
+            elif params.get("trimmer") == "trimgalore" and not _bool_param(
+                params, "skip_fastqc"
+            ):
+                downstream_layout = effective_downstream_layout(
+                    sample["layout"], params
+                )
+                roles = ("single",) if downstream_layout == "SE" else ("read1", "read2")
+                counts: list[Decimal] = []
+                for role in roles:
+                    document = documents.get(
+                        (f"bulk_rnaseq.fastqc.trimmed.{role}.zip", sample_id)
+                    )
+                    if document is None:
+                        counts = []
+                        break
+                    root, filename, _path = _fastqc_identity(
+                        sample_id,
+                        "trimmed",
+                        role,
+                        params=params,
+                    )
+                    try:
+                        counts.append(
+                            parse_fastqc_total_sequences(
+                                document.content,
+                                expected_root=root,
+                                expected_filename=filename,
+                            )
+                        )
+                    except StatusEvidenceError as exc:
+                        raise _QcError("source_content_invalid") from exc
+                if counts:
+                    if len(set(counts)) != 1:
+                        raise _QcError("source_content_invalid")
+                    retained_evidence[sample_id] = counts[0]
+            elif params.get("trimmer") not in {"fastp", "trimgalore"}:
+                raise _QcError("source_contract_invalid")
+
+    mapped_evidence: dict[str, Decimal] = {}
+    for sample_id in samples:
+        document = documents.get(("bulk_rnaseq.star.log_final", sample_id))
+        if document is None:
+            continue
+        try:
+            mapped_evidence[sample_id] = parse_star_uniquely_mapped_percent(
+                document.content
+            )
+        except StatusEvidenceError as exc:
+            raise _QcError("source_content_invalid") from exc
+    try:
+        status = reconcile_sample_status(
+            known_samples=known_samples,
+            trimming_enabled=not _bool_param(params, "skip_trimming"),
+            trimming_tool=str(params.get("trimmer")),
+            trim_threshold=trim_threshold,
+            mapped_threshold=mapped_threshold,
+            trim_table=trim_table,
+            mapped_table=mapped_table,
+            retained_read_evidence=retained_evidence,
+            trimgalore_input_read_evidence=trimgalore_input_evidence,
+            uniquely_mapped_percent_evidence=mapped_evidence,
+        )
+    except StatusEvidenceContractError as exc:
+        raise _QcError("source_contract_invalid") from exc
+    except StatusEvidenceError as exc:
+        raise _QcError("source_content_invalid") from exc
+    return status.trimmed_failed, status.mapped_failed
+
+
+def _cutadapt_row_owners(
+    samples: Mapping[str, Mapping[str, str]],
+    params: Mapping[str, object],
+) -> Mapping[str, str]:
+    owners: dict[str, str] = {}
+    for sample_id, sample in samples.items():
+        layout = effective_downstream_layout(sample["layout"], params)
+        row_names = (
+            (sample_id,) if layout == "SE" else (f"{sample_id}_1", f"{sample_id}_2")
+        )
+        for row_name in row_names:
+            previous = owners.setdefault(row_name, sample_id)
+            if previous != sample_id:
+                raise _QcError("source_contract_invalid")
+    return owners
 
 
 def _bool_param(params: Mapping[str, object], name: str) -> bool:
@@ -550,10 +654,15 @@ def _min_trimmed_reads(params: Mapping[str, object]) -> int:
 
 
 def _min_mapped_fraction(params: Mapping[str, object]) -> Decimal:
+    value = _min_mapped_percent(params)
+    return _fraction(value / Decimal(100))
+
+
+def _min_mapped_percent(params: Mapping[str, object]) -> Decimal:
     value = _decimal(params.get("min_mapped_reads", 5))
     if value < 0 or value > 100:
         raise _QcError("source_contract_invalid")
-    return _fraction(value / Decimal(100))
+    return value
 
 
 def _parse_fastqc(
@@ -900,20 +1009,6 @@ def _parse_multiqc_cutadapt(
     *,
     params: Mapping[str, object],
 ) -> list[ExtractedQcMetricCandidate]:
-    rows = _tsv_rows(document.content)
-    header = [
-        "Sample",
-        "cutadapt_version",
-        "r_processed",
-        "r_with_adapters",
-        "r_written",
-        "bp_processed",
-        "quality_trimmed",
-        "bp_written",
-        "percent_trimmed",
-    ]
-    if rows[:1] != [header]:
-        raise _QcError("source_content_invalid")
     expected_rows: dict[str, tuple[str, str]] = {}
     for sample_id, sample in samples.items():
         downstream_layout = effective_downstream_layout(sample["layout"], params)
@@ -924,48 +1019,25 @@ def _parse_multiqc_cutadapt(
             previous = expected_rows.setdefault(row_name, owner)
             if previous != owner:
                 raise _QcError("source_contract_invalid")
-    if len(rows) != len(expected_rows) + 1:
-        raise _QcError("source_contract_invalid")
+    try:
+        rows = parse_cutadapt_rows(
+            document.content,
+            expected_row_owners={
+                row_name: owner[0] for row_name, owner in expected_rows.items()
+            },
+        )
+    except StatusEvidenceError as exc:
+        raise _QcError("source_content_invalid") from exc
 
     metrics: list[ExtractedQcMetricCandidate] = []
-    observed: set[str] = set()
     processed_by_sample: dict[str, list[int]] = {}
-    for row in rows[1:]:
-        if len(row) != len(header) or row[0] not in expected_rows or row[0] in observed:
-            raise _QcError("source_contract_invalid")
-        observed.add(row[0])
-        sample_id, role = expected_rows[row[0]]
-        if row[1] != "4.0":
-            raise _QcError("source_content_invalid")
-        reads_processed = _nonnegative_int(row[2])
-        reads_with_adapters = _nonnegative_int(row[3])
-        reads_written = _nonnegative_int(row[4])
-        bases_processed = _nonnegative_int(row[5])
-        quality_trimmed_bases = _nonnegative_int(row[6])
-        bases_written = _nonnegative_int(row[7])
-        reported_percent_trimmed = _decimal(row[8])
-        if (
-            reads_processed <= 0
-            or bases_processed <= 0
-            or reads_with_adapters > reads_processed
-            or reads_written != reads_processed
-            or quality_trimmed_bases > bases_processed
-            or bases_written > bases_processed
-            or quality_trimmed_bases > bases_processed - bases_written
-        ):
-            raise _QcError("metric_value_invalid")
-        exact_percent_trimmed = (
-            Decimal(bases_processed - bases_written)
-            / Decimal(bases_processed)
-            * Decimal(100)
-        )
-        if (
-            reported_percent_trimmed < 0
-            or reported_percent_trimmed > 100
-            or abs(reported_percent_trimmed - exact_percent_trimmed)
-            > Decimal("0.000000001")
-        ):
-            raise _QcError("source_content_invalid")
+    for row in rows:
+        sample_id, role = expected_rows[row.row_identity]
+        reads_processed = row.reads_processed
+        reads_with_adapters = row.reads_with_adapters
+        bases_processed = row.bases_processed
+        quality_trimmed_bases = row.quality_trimmed_bases
+        bases_written = row.bases_written
         processed_by_sample.setdefault(sample_id, []).append(reads_processed)
         source_id = document.source.artifact_id
         prefix = f"trimming.{role}"
@@ -1030,8 +1102,6 @@ def _parse_multiqc_cutadapt(
                 ),
             )
         )
-    if observed != set(expected_rows):
-        raise _QcError("source_contract_invalid")
     for sample_id, counts in processed_by_sample.items():
         if effective_downstream_layout(
             samples[sample_id]["layout"], params
@@ -1044,35 +1114,16 @@ def _parse_fastp(
     document: QcSourceDocument,
     sample_id: str,
 ) -> list[ExtractedQcMetricCandidate]:
-    payload = _strict_json(document.content)
-    if (
-        not isinstance(payload, Mapping)
-        or payload.get("fastp_version") != _FASTP_VERSION
-    ):
-        raise _QcError("source_content_invalid")
-    summary = payload.get("summary")
-    if not isinstance(summary, Mapping):
-        raise _QcError("source_content_invalid")
-    before = summary.get("before_filtering")
-    after = summary.get("after_filtering")
-    filtering = payload.get("filtering_result")
-    if (
-        not isinstance(before, Mapping)
-        or not isinstance(after, Mapping)
-        or not isinstance(filtering, Mapping)
-    ):
-        raise _QcError("source_content_invalid")
+    try:
+        evidence = parse_fastp_summary(document.content)
+    except StatusEvidenceError as exc:
+        raise _QcError("source_content_invalid") from exc
     values = {
-        "input_reads": _nonnegative_int(before.get("total_reads")),
-        "retained_reads": _nonnegative_int(after.get("total_reads")),
-        "input_bases": _nonnegative_int(before.get("total_bases")),
-        "retained_bases": _nonnegative_int(after.get("total_bases")),
+        "input_reads": evidence.input_reads,
+        "retained_reads": evidence.retained_reads,
+        "input_bases": evidence.input_bases,
+        "retained_bases": evidence.retained_bases,
     }
-    if (
-        _nonnegative_int(filtering.get("passed_filter_reads"))
-        != values["retained_reads"]
-    ):
-        raise _QcError("source_content_invalid")
     return _trimming_metrics(
         sample_id,
         document.source.artifact_id,
@@ -1157,84 +1208,96 @@ def _parse_star(
     document: QcSourceDocument,
     sample_id: str,
 ) -> list[ExtractedQcMetricCandidate]:
-    values = _pipe_summary(document.content)
-    required = {
-        "Number of input reads",
-        "Uniquely mapped reads number",
-        "Uniquely mapped reads %",
-        "Number of reads mapped to multiple loci",
-        "% of reads mapped to multiple loci",
-        "% of reads mapped to too many loci",
-        "% of reads unmapped: too many mismatches",
-        "% of reads unmapped: too short",
-        "% of reads unmapped: other",
+    try:
+        evidence = parse_star_log_final(document.content)
+    except StatusEvidenceError as exc:
+        raise _QcError("source_content_invalid") from exc
+    input_reads = evidence.input_templates
+    counts = {
+        "unique": evidence.uniquely_mapped_templates,
+        "multi": evidence.accepted_multimapped_templates,
+        "too_many": evidence.too_many_loci_templates,
+        "too_many_mismatches": evidence.unmapped_too_many_mismatches_templates,
+        "too_short": evidence.unmapped_too_short_templates,
+        "other": evidence.unmapped_other_templates,
     }
-    if not required.issubset(values):
-        raise _QcError("source_content_invalid")
-    input_reads = _nonnegative_int(values["Number of input reads"])
-    unique_count = _nonnegative_int(values["Uniquely mapped reads number"])
-    multi_count = _nonnegative_int(values["Number of reads mapped to multiple loci"])
-    unique = _percent_token(values["Uniquely mapped reads %"])
-    multi = _percent_token(values["% of reads mapped to multiple loci"])
-    components = {
-        "too_many_loci": _percent_token(values["% of reads mapped to too many loci"]),
-        "mismatches": _percent_token(
-            values["% of reads unmapped: too many mismatches"]
-        ),
-        "too_short": _percent_token(values["% of reads unmapped: too short"]),
-        "other": _percent_token(values["% of reads unmapped: other"]),
+    exact_fractions = {
+        name: _divide(count, input_reads) for name, count in counts.items()
     }
-    if input_reads <= 0 or unique_count > input_reads or multi_count > input_reads:
-        raise _QcError("metric_value_invalid")
-    unmapped = Decimal(1) - unique - multi
-    if unmapped < 0 or unmapped > 1:
-        raise _QcError("metric_value_invalid")
-    if abs(_divide(unique_count, input_reads) - unique) > Decimal("0.0002"):
-        raise _QcError("source_content_invalid")
-    if abs(_divide(multi_count, input_reads) - multi) > Decimal("0.0002"):
-        raise _QcError("source_content_invalid")
-    if abs(sum(components.values(), Decimal(0)) - unmapped) > Decimal("0.0002"):
-        raise _QcError("source_content_invalid")
+    unique = exact_fractions["unique"]
+    multi = exact_fractions["multi"]
+    too_many = exact_fractions["too_many"]
+    unmapped_components = {
+        name: exact_fractions[name]
+        for name in ("too_many_mismatches", "too_short", "other")
+    }
+    pure_unmapped = _divide(
+        counts["too_many_mismatches"] + counts["too_short"] + counts["other"],
+        input_reads,
+    )
+    unaccepted = _divide(
+        counts["too_many"]
+        + counts["too_many_mismatches"]
+        + counts["too_short"]
+        + counts["other"],
+        input_reads,
+    )
     source_id = document.source.artifact_id
     metrics = [
         _metric(
-            "star.input_reads",
-            "STAR input reads",
+            "star.input_templates",
+            "STAR input templates",
             Decimal(input_reads),
             "count",
             sample_id,
             source_id,
         ),
         _metric(
-            "star.uniquely_mapped_fraction",
-            "STAR uniquely mapped read fraction",
+            "star.uniquely_mapped_template_fraction",
+            "STAR uniquely mapped template fraction",
             unique,
             "fraction",
             sample_id,
             source_id,
         ),
         _metric(
-            "star.multimapped_fraction",
-            "STAR accepted multimapped read fraction",
+            "star.accepted_multimapped_template_fraction",
+            "STAR accepted multimapped template fraction",
             multi,
             "fraction",
             sample_id,
             source_id,
         ),
         _metric(
-            "star.unmapped_fraction",
-            "STAR unmapped read fraction",
-            unmapped,
+            "star.too_many_loci_template_fraction",
+            "STAR too-many-loci template fraction",
+            too_many,
+            "fraction",
+            sample_id,
+            source_id,
+        ),
+        _metric(
+            "star.pure_unmapped_template_fraction",
+            "STAR pure-unmapped template fraction",
+            pure_unmapped,
+            "fraction",
+            sample_id,
+            source_id,
+        ),
+        _metric(
+            "star.unaccepted_template_fraction",
+            "STAR unaccepted (too-many-loci or unmapped) template fraction",
+            unaccepted,
             "fraction",
             sample_id,
             source_id,
         ),
     ]
-    for name, value in components.items():
+    for name, value in unmapped_components.items():
         metrics.append(
             _metric(
-                f"star.unmapped_{name}_fraction",
-                f"STAR unmapped {name.replace('_', ' ')} fraction",
+                f"star.unmapped_{name}_template_fraction",
+                f"STAR unmapped {name.replace('_', ' ')} template fraction",
                 value,
                 "fraction",
                 sample_id,
@@ -1242,22 +1305,6 @@ def _parse_star(
             )
         )
     return metrics
-
-
-def _pipe_summary(content: bytes) -> dict[str, str]:
-    text = _decode_text(content)
-    result: dict[str, str] = {}
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        fields = line.split("|")
-        if len(fields) != 2:
-            raise _QcError("source_content_invalid")
-        key, value = (field.strip() for field in fields)
-        if not key or not value or key in result:
-            raise _QcError("source_content_invalid")
-        result[key] = value
-    return result
 
 
 def _parse_salmon(
@@ -1277,7 +1324,8 @@ def _parse_salmon(
     percent = _percent(payload.get("percent_mapped"))
     if processed <= 0 or mapped > processed:
         raise _QcError("metric_value_invalid")
-    if abs(_divide(mapped, processed) - percent) > Decimal("0.001"):
+    exact_mapping_fraction = _divide(mapped, processed)
+    if abs(exact_mapping_fraction - percent) > _RATIO_QUANTUM:
         raise _QcError("source_content_invalid")
     source_id = document.source.artifact_id
     return [
@@ -1300,7 +1348,7 @@ def _parse_salmon(
         _metric(
             "salmon.mapping_fraction",
             "Salmon mapped fragment fraction",
-            percent,
+            exact_mapping_fraction,
             "fraction",
             sample_id,
             source_id,
@@ -1334,24 +1382,24 @@ def _parse_featurecounts(
     source_id = document.source.artifact_id
     return [
         _metric(
-            "featurecounts.assigned_alignments",
-            "featureCounts assigned alignments",
+            "featurecounts.assigned_reads",
+            "featureCounts assigned reads",
             Decimal(counts["Assigned"]),
             "count",
             sample_id,
             source_id,
         ),
         _metric(
-            "featurecounts.total_alignments",
-            "featureCounts classified alignments",
+            "featurecounts.classified_reads",
+            "featureCounts classified reads",
             Decimal(total),
             "count",
             sample_id,
             source_id,
         ),
         _metric(
-            "featurecounts.assigned_fraction",
-            "featureCounts assigned alignment fraction",
+            "featurecounts.assigned_read_fraction",
+            "featureCounts assigned read fraction",
             _divide(counts["Assigned"], total),
             "fraction",
             sample_id,
@@ -1855,10 +1903,10 @@ def _parse_rseqc_tin(
         raise _QcError("source_content_invalid")
     if rows[1][0] != _final_bam_name(sample_id, params):
         raise _QcError("source_content_invalid")
-    mean = _nonnegative_decimal(rows[1][1])
-    median = _nonnegative_decimal(rows[1][2])
-    standard_deviation = _nonnegative_decimal(rows[1][3])
-    if mean > 100 or median > 100 or standard_deviation > 100:
+    mean = _canonical_decimal(_nonnegative_decimal(rows[1][1]))
+    median = _canonical_decimal(_nonnegative_decimal(rows[1][2]))
+    standard_deviation = _canonical_decimal(_nonnegative_decimal(rows[1][3]))
+    if mean > 100 or median > 100 or standard_deviation > 50:
         raise _QcError("metric_value_invalid")
     source_id = document.source.artifact_id
     return [
@@ -2009,12 +2057,6 @@ def _decode_text(content: bytes) -> str:
     ):
         raise _QcError("source_content_invalid")
     return text
-
-
-def _percent_token(value: str) -> Decimal:
-    if not value.endswith("%"):
-        raise _QcError("source_content_invalid")
-    return _percent(value[:-1])
 
 
 def _percent(value: object) -> Decimal:

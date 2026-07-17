@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import inspect, text
 
-from encode_pipeline.persistence import create_database_engine
+from encode_pipeline.persistence import (
+    SqlAlchemyRunRepository,
+    create_database_engine,
+    create_session_factory,
+)
 from encode_pipeline.persistence.migrations import (
     downgrade_database,
     upgrade_database,
@@ -22,6 +26,8 @@ EXPECTED_TABLES = {
     "run_execution_assignments",
     "run_logs",
     "run_qc_metrics",
+    "run_result_attempts",
+    "run_result_states",
     "run_workflow_build_identities",
     "runs",
     "validated_input_snapshots",
@@ -38,7 +44,7 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
     assert set(inspector.get_table_names()) == EXPECTED_TABLES
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260714_07"
+            "20260717_08"
         )
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert connection.scalar(text("PRAGMA journal_mode")) == "wal"
@@ -113,6 +119,42 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
         "ck_run_qc_metrics_scope",
         "ck_run_qc_metrics_scope_identifiers",
         "ck_run_qc_metrics_value_text_length",
+    }
+    assert inspector.get_pk_constraint("run_result_states")["constrained_columns"] == [
+        "run_id"
+    ]
+    assert inspector.get_foreign_keys("run_result_states")[0]["options"] == {
+        "ondelete": "CASCADE"
+    }
+    assert {
+        constraint["name"]
+        for constraint in inspector.get_check_constraints("run_result_states")
+    } == {
+        "ck_run_result_states_artifact_attempt",
+        "ck_run_result_states_artifact_binding",
+        "ck_run_result_states_artifact_outcome",
+        "ck_run_result_states_artifact_reason",
+        "ck_run_result_states_nonnegative_revisions",
+        "ck_run_result_states_qc_attempt",
+        "ck_run_result_states_qc_binding",
+        "ck_run_result_states_qc_outcome",
+        "ck_run_result_states_qc_reason",
+    }
+    assert inspector.get_pk_constraint("run_result_attempts")[
+        "constrained_columns"
+    ] == ["attempt_id"]
+    assert inspector.get_foreign_keys("run_result_attempts")[0]["options"] == {
+        "ondelete": "CASCADE"
+    }
+    assert {
+        constraint["name"]
+        for constraint in inspector.get_check_constraints("run_result_attempts")
+    } == {"ck_run_result_attempts_binding"}
+    assert {
+        index["name"] for index in inspector.get_indexes("run_result_attempts")
+    } == {"ix_run_result_attempts_run_id"}
+    assert {column["name"] for column in inspector.get_columns("run_artifacts")} >= {
+        "revision"
     }
     engine.dispose()
 
@@ -387,7 +429,7 @@ def test_qc_metric_migration_upgrades_current_main_without_changing_existing_row
             == 0
         )
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260714_07"
+            "20260717_08"
         )
     upgraded.dispose()
 
@@ -441,7 +483,7 @@ def test_validated_snapshot_migration_upgrades_current_main_without_changing_run
             == 0
         )
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260714_07"
+            "20260717_08"
         )
     upgraded.dispose()
 
@@ -486,7 +528,7 @@ def test_run_history_index_migration_preserves_rows_and_supports_all_query_shape
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT count(*) FROM runs")) == 1
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260714_07"
+            "20260717_08"
         )
         plans = {
             "ix_runs_created_run_id": (
@@ -532,3 +574,86 @@ def test_run_history_index_migration_preserves_rows_and_supports_all_query_shape
     downgraded.dispose()
 
     upgrade_database(database_url)
+
+
+def test_result_generation_migration_keeps_legacy_results_explicitly_unbound(
+    tmp_path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'legacy-results.db'}"
+    upgrade_database(database_url, "20260714_07")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runs "
+                "(run_id, workflow_id, inputs, status, created_at, updated_at, "
+                "started_at, ended_at, current_stage, cancellation_reason, error, tags) "
+                "VALUES ('legacy-run', 'workflow', '{}', 'succeeded', :now, :now, "
+                ":now, :now, 'execution', NULL, NULL, '{}')"
+            ),
+            {"now": "2026-07-17 00:00:00"},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO run_artifacts "
+                "(artifact_id, run_id, artifact_type, name, uri, mime_type, "
+                "produced_at, artifact_metadata) VALUES "
+                "('artifact-1', 'legacy-run', 'file', 'summary.tsv', "
+                "'run://runs/legacy-run/artifacts/artifact-1', 'text/plain', :now, "
+                '\'{"output_type":"qc_summary"}\')'
+            ),
+            {"now": "2026-07-17 00:00:00"},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO run_qc_metrics "
+                "(metric_id, run_id, metric_key, display_name, value_text, unit, "
+                "scope, sample_id, experiment_id, assay, qc_flag, "
+                "source_artifact_id, produced_at) VALUES "
+                "(:metric_id, 'legacy-run', 'sequencing.total_reads', "
+                "'Total reads', '10', 'count', 'sample', 'S1', NULL, 'rnaseq', "
+                "NULL, 'artifact-1', :now)"
+            ),
+            {
+                "metric_id": "qcmetric-" + "a" * 64,
+                "now": "2026-07-17 00:00:00",
+            },
+        )
+    engine.dispose()
+
+    upgrade_database(database_url)
+    upgraded = create_database_engine(database_url)
+    with upgraded.connect() as connection:
+        state = (
+            connection.execute(
+                text(
+                    "SELECT artifact_revision, artifact_generation, qc_revision, "
+                    "qc_generation FROM run_result_states WHERE run_id='legacy-run'"
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert dict(state) == {
+            "artifact_revision": 0,
+            "artifact_generation": None,
+            "qc_revision": 0,
+            "qc_generation": None,
+        }
+        assert connection.scalar(text("SELECT count(*) FROM run_result_attempts")) == 0
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT revision FROM run_artifacts "
+                    "WHERE run_id='legacy-run' AND artifact_id='artifact-1'"
+                )
+            )
+            is None
+        )
+
+    repository = SqlAlchemyRunRepository(create_session_factory(upgraded))
+    with pytest.raises(ValueError, match="generation is unbound"):
+        repository.list_artifacts("legacy-run")
+    with pytest.raises(ValueError, match="generation is unbound"):
+        repository.list_qc_metrics("legacy-run")
+    upgraded.dispose()

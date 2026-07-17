@@ -10,11 +10,12 @@ import pytest
 
 from encode_pipeline.api.main import create_app
 from encode_pipeline.platform.adapters import WorkflowInputs
-from encode_pipeline.platform.runs import RunArtifactRef
+from encode_pipeline.platform.runs import RunArtifactRef, RunStatus
 from api_test_client import ApiTestClient
 
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
+ARTIFACT_REVISION = f"artifactrev-{'a' * 64}"
 
 
 @pytest.fixture
@@ -28,10 +29,20 @@ def client(tmp_path) -> Iterator[ApiTestClient]:
 
 
 def _create_run(client: ApiTestClient) -> str:
-    return client.app.state.run_service.create_run(
+    service = client.app.state.run_service
+    run_id = service.create_run(
         WORKFLOW_ID,
         WorkflowInputs(config={}),
     ).run_id
+    for status in (
+        RunStatus.VALIDATING,
+        RunStatus.PLANNED,
+        RunStatus.QUEUED,
+        RunStatus.RUNNING,
+        RunStatus.SUCCEEDED,
+    ):
+        service.transition_run(run_id, status)
+    return run_id
 
 
 def _artifact(
@@ -49,6 +60,7 @@ def _artifact(
         uri=f"run://runs/{run_id}/artifacts/{artifact_id}",
         mime_type="text/plain",
         produced_at=datetime.now(timezone.utc),
+        revision=ARTIFACT_REVISION,
         metadata=metadata
         or {
             "relative_path": relative_path,
@@ -61,7 +73,11 @@ def _artifact(
 
 
 def _record(client: ApiTestClient, artifact: RunArtifactRef) -> None:
-    client.app.state.run_service.record_artifact(artifact.run_id, artifact)
+    service = client.app.state.run_service
+    service.replace_artifacts(
+        artifact.run_id,
+        (*service.list_artifacts(artifact.run_id), artifact),
+    )
 
 
 def test_list_existing_run_without_artifacts_returns_empty_page(client):
@@ -131,6 +147,7 @@ def test_detail_returns_strict_public_projection(client):
         "uri": f"run://runs/{run_id}/artifacts/artifact-summary",
         "mime_type": "text/plain",
         "produced_at": artifact.produced_at.isoformat().replace("+00:00", "Z"),
+        "revision": ARTIFACT_REVISION,
         "relative_path": "results/artifact-summary.txt",
         "output_type": "summary",
         "size_bytes": 7,

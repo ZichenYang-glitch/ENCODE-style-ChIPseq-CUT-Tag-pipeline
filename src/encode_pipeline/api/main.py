@@ -222,13 +222,16 @@ async def _handle_request_validation_error(
         body = RunQcMetricsResponse(
             ok=False,
             run_id=run_id,
+            qc_generation=None,
             qc_metrics=[],
             next_cursor=None,
             issues=[issue.to_dict()],
         )
+        content = body.model_dump(mode="json", exclude_none=True)
+        content["qc_generation"] = None
         return JSONResponse(
             status_code=400,
-            content=body.model_dump(mode="json", exclude_none=True),
+            content=content,
         )
     if getattr(route, "operation_id", None) == "listRuns":
         issue = Issue(
@@ -304,6 +307,28 @@ async def _handle_internal_server_error(
             status_code=500,
             content=content,
         )
+    if getattr(route, "operation_id", None) == "listRunQcMetrics":
+        issue = Issue(
+            code="INTERNAL_SERVER_ERROR",
+            message="Run QC metrics are temporarily unavailable.",
+            severity="error",
+            path="qc_metrics",
+            source="runtime",
+            technical_message=None,
+            hint=None,
+            context={},
+        )
+        body = RunQcMetricsResponse(
+            ok=False,
+            run_id=request.path_params.get("run_id", ""),
+            qc_generation=None,
+            qc_metrics=[],
+            next_cursor=None,
+            issues=[issue.to_dict()],
+        )
+        content = body.model_dump(mode="json", exclude_none=True)
+        content["qc_generation"] = None
+        return JSONResponse(status_code=500, content=content)
     if getattr(route, "operation_id", None) == "createRun":
         issue = Issue(
             code="INTERNAL_SERVER_ERROR",

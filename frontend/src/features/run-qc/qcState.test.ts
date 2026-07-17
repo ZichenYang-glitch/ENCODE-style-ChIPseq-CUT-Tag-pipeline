@@ -15,6 +15,13 @@ import {
 
 const METRIC_A = `qcmetric-${'a'.repeat(64)}`;
 const METRIC_B = `qcmetric-${'b'.repeat(64)}`;
+const GENERATION_A = `qcgen-${'a'.repeat(64)}`;
+const GENERATION_B = `qcgen-${'b'.repeat(64)}`;
+const CURSOR_A = `qccur_${'a'.repeat(64)}`;
+
+type GenerationBoundQcMetricsResponse = RunQcMetricsResponse & {
+  qc_generation: string;
+};
 
 function event(
   sequence: number,
@@ -55,10 +62,12 @@ function metric(metricId: string): QcMetricResponse {
 function page(
   metrics: QcMetricResponse[],
   nextCursor: string | null = null,
-): RunQcMetricsResponse {
+  generation = GENERATION_A,
+): GenerationBoundQcMetricsResponse {
   return {
     ok: true,
     run_id: 'run-1',
+    qc_generation: generation,
     qc_metrics: metrics,
     next_cursor: nextCursor,
     issues: [],
@@ -72,21 +81,30 @@ describe('qcIndexingOutcome', () => {
         event(1, 'qc_metrics_indexing_failed', {
           reason_code: 'QC_SUMMARY_ADAPTER_FAILED',
         }),
-        event(3, 'qc_metrics_indexed', { metric_count: 2 }),
+        event(3, 'qc_metrics_indexed', {
+          metric_count: 2,
+          qc_generation: GENERATION_A,
+        }),
         event(2, 'qc_metrics_invalidated'),
       ]),
-    ).toEqual({ kind: 'indexed', count: 2 });
+    ).toEqual({ kind: 'indexed', count: 2, generation: GENERATION_A });
 
     expect(
       qcIndexingOutcome([
-        event(1, 'qc_metrics_indexed', { metric_count: 2 }),
+        event(1, 'qc_metrics_indexed', {
+          metric_count: 2,
+          qc_generation: GENERATION_A,
+        }),
         event(2, 'qc_metrics_invalidated'),
       ]),
     ).toEqual({ kind: 'pending' });
 
     expect(
       qcIndexingOutcome([
-        event(1, 'qc_metrics_indexed', { metric_count: 2 }),
+        event(1, 'qc_metrics_indexed', {
+          metric_count: 2,
+          qc_generation: GENERATION_A,
+        }),
         event(2, 'qc_metrics_indexing_failed', {
           reason_code: 'QC_SUMMARY_SOURCE_CHANGED',
         }),
@@ -101,7 +119,10 @@ describe('qcIndexingOutcome', () => {
     expect(qcIndexingOutcome([], false)).toEqual({ kind: 'pending' });
     expect(qcIndexingOutcome([], true)).toEqual({ kind: 'unconfirmed' });
     for (const visibleOutcome of [
-      event(1, 'qc_metrics_indexed', { metric_count: 0 }),
+      event(1, 'qc_metrics_indexed', {
+        metric_count: 0,
+        qc_generation: GENERATION_A,
+      }),
       event(1, 'qc_metrics_indexing_failed', {
         reason_code: 'QC_SUMMARY_SOURCE_CHANGED',
       }),
@@ -112,7 +133,12 @@ describe('qcIndexingOutcome', () => {
       });
     }
     expect(
-      qcIndexingOutcome([event(1, 'qc_metrics_indexed', { metric_count: -1 })]),
+      qcIndexingOutcome([
+        event(1, 'qc_metrics_indexed', {
+          metric_count: -1,
+          qc_generation: GENERATION_A,
+        }),
+      ]),
     ).toEqual({ kind: 'unconfirmed' });
     expect(
       qcIndexingOutcome([
@@ -121,6 +147,42 @@ describe('qcIndexingOutcome', () => {
         }),
       ]),
     ).toEqual({ kind: 'failed', reasonCode: null });
+  });
+
+  it('requires a public-safe generation on every indexed outcome', () => {
+    for (const qcGeneration of [
+      undefined,
+      '',
+      '/private/qc-generation',
+      `qcgen-${'A'.repeat(64)}`,
+      `qcgen-${'a'.repeat(63)}`,
+    ]) {
+      expect(
+        qcIndexingOutcome([
+          event(1, 'qc_metrics_indexed', {
+            metric_count: 1,
+            ...(qcGeneration === undefined
+              ? {}
+              : { qc_generation: qcGeneration }),
+          }),
+        ]),
+      ).toEqual({ kind: 'unconfirmed' });
+    }
+  });
+
+  it('distinguishes equal-count indexed outcomes by generation', () => {
+    expect(
+      qcIndexingOutcome([
+        event(1, 'qc_metrics_indexed', {
+          metric_count: 1,
+          qc_generation: GENERATION_A,
+        }),
+        event(2, 'qc_metrics_indexed', {
+          metric_count: 1,
+          qc_generation: GENERATION_B,
+        }),
+      ]),
+    ).toEqual({ kind: 'indexed', count: 1, generation: GENERATION_B });
   });
 });
 
@@ -132,25 +194,34 @@ describe('QC keyset helpers', () => {
     expect(isValidQcMetricId(null)).toBe(false);
   });
 
-  it('deduplicates metrics without changing first-seen order', () => {
-    expect(
+  it('rejects duplicate metric identities across pages instead of hiding them', () => {
+    expect(() =>
       flattenQcMetricPages([
         page([metric(METRIC_A)]),
         page([metric(METRIC_A), metric(METRIC_B)]),
-      ]).map((item) => item.metric_id),
-    ).toEqual([METRIC_A, METRIC_B]);
+      ]),
+    ).toThrow(/duplicate|pagination|generation/i);
+  });
+
+  it('rejects pages from different QC generations', () => {
+    expect(() =>
+      flattenQcMetricPages([
+        page([metric(METRIC_A)], null, GENERATION_A),
+        page([metric(METRIC_B)], null, GENERATION_B),
+      ]),
+    ).toThrow(/generation/i);
   });
 
   it('continues only with a new valid cursor', () => {
-    const first = page([metric(METRIC_A)], METRIC_A);
-    expect(safeNextQcCursor(first, [first], [undefined])).toBe(METRIC_A);
+    const first = page([metric(METRIC_A)], CURSOR_A);
+    expect(safeNextQcCursor(first, [first], [undefined])).toBe(CURSOR_A);
 
-    const repeated = page([metric(METRIC_B)], METRIC_A);
+    const repeated = page([metric(METRIC_B)], CURSOR_A);
     expect(
-      safeNextQcCursor(repeated, [first, repeated], [undefined, METRIC_A]),
+      safeNextQcCursor(repeated, [first, repeated], [undefined, CURSOR_A]),
     ).toBeUndefined();
     expect(
-      qcPaginationAnomaly([first, repeated], [undefined, METRIC_A]),
+      qcPaginationAnomaly([first, repeated], [undefined, CURSOR_A]),
     ).toBe(true);
 
     const invalid = page([metric(METRIC_A)], '../cursor');

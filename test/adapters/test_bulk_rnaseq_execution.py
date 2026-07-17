@@ -328,15 +328,42 @@ def test_results_adapter_passes_artifact_and_qc_conformance(
     for relative_path in artifacts:
         _write(artifact_workspace / "results" / relative_path, b"fixture")
     star_content = b"""\
+Started job on | Jul 17 00:00:00
+Started mapping on | Jul 17 00:00:01
+Finished on | Jul 17 00:00:02
+Mapping speed, Million of reads per hour | 1800.00
 Number of input reads | 1000
+Average input read length | 100
+UNIQUE READS:
 Uniquely mapped reads number | 800
 Uniquely mapped reads % | 80.00%
+Average mapped length | 99.00
+Number of splices: Total | 100
+Number of splices: Annotated (sjdb) | 90
+Number of splices: GT/AG | 80
+Number of splices: GC/AG | 10
+Number of splices: AT/AC | 5
+Number of splices: Non-canonical | 5
+Mismatch rate per base, % | 0.10%
+Deletion rate per base | 0.01%
+Deletion average length | 1.00
+Insertion rate per base | 0.01%
+Insertion average length | 1.00
+MULTI-MAPPING READS:
 Number of reads mapped to multiple loci | 100
 % of reads mapped to multiple loci | 10.00%
+Number of reads mapped to too many loci | 20
 % of reads mapped to too many loci | 2.00%
+UNMAPPED READS:
+Number of reads unmapped: too many mismatches | 10
 % of reads unmapped: too many mismatches | 1.00%
+Number of reads unmapped: too short | 60
 % of reads unmapped: too short | 6.00%
+Number of reads unmapped: other | 10
 % of reads unmapped: other | 1.00%
+CHIMERIC READS:
+Number of chimeric reads | 0
+% of chimeric reads | 0.00%
 """
     salmon_content = json.dumps(
         {

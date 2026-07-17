@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from hashlib import sha256
 import re
+from types import MappingProxyType
 from typing import Any, Mapping
 
+from encode_pipeline.platform.result_generations import validate_artifact_revision
 from encode_pipeline.platform.results import Issue
 
 
@@ -141,6 +143,42 @@ def _copy_string_mapping(mapping: Mapping[str, str], name: str) -> dict[str, str
     return copied
 
 
+def _freeze_artifact_metadata(
+    mapping: Mapping[str, object],
+) -> Mapping[str, object]:
+    """Return a transitively immutable JSON-shaped artifact metadata snapshot."""
+    if not isinstance(mapping, Mapping):
+        raise ValueError("metadata must be a mapping")
+
+    def freeze(value: object, *, depth: int) -> object:
+        if depth > 32:
+            raise ValueError("artifact metadata is nested too deeply")
+        if value is None or isinstance(value, (str, bool, int, float)):
+            return value
+        if isinstance(value, Mapping):
+            frozen: dict[str, object] = {}
+            for key, item in value.items():
+                if not isinstance(key, str):
+                    raise ValueError("artifact metadata keys must be strings")
+                frozen[key] = freeze(item, depth=depth + 1)
+            return MappingProxyType(frozen)
+        if isinstance(value, (list, tuple)):
+            return tuple(freeze(item, depth=depth + 1) for item in value)
+        raise ValueError("artifact metadata must contain only JSON-shaped values")
+
+    result = freeze(mapping, depth=0)
+    assert isinstance(result, Mapping)
+    return result
+
+
+def _thaw_artifact_metadata(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _thaw_artifact_metadata(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_artifact_metadata(item) for item in value]
+    return value
+
+
 @dataclass(frozen=True)
 class RunEvent:
     """Immutable record of a run lifecycle event."""
@@ -237,10 +275,13 @@ class RunArtifactRef:
     uri: str
     mime_type: str | None
     produced_at: datetime
+    revision: str
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "metadata", _copy_mapping(self.metadata, "metadata"))
+        validate_artifact_revision(self.revision)
+        object.__setattr__(self, "produced_at", _utc_datetime(self.produced_at))
+        object.__setattr__(self, "metadata", _freeze_artifact_metadata(self.metadata))
 
     def to_dict(self) -> dict[str, Any]:
         """Return a dict representation with fresh copies of mutable fields."""
@@ -252,7 +293,8 @@ class RunArtifactRef:
             "uri": self.uri,
             "mime_type": self.mime_type,
             "produced_at": self.produced_at,
-            "metadata": deepcopy(dict(self.metadata)),
+            "revision": self.revision,
+            "metadata": _thaw_artifact_metadata(self.metadata),
         }
 
 
@@ -319,6 +361,7 @@ class RunQcMetric:
     def __post_init__(self) -> None:
         if not isinstance(self.value, Decimal):
             raise ValueError("value must be a Decimal")
+        object.__setattr__(self, "produced_at", _utc_datetime(self.produced_at))
 
     def to_dict(self) -> dict[str, Any]:
         """Return the explicit durable QC fields without an open metadata bag."""
@@ -337,3 +380,13 @@ class RunQcMetric:
             "source_artifact_id": self.source_artifact_id,
             "produced_at": self.produced_at,
         }
+
+
+def _utc_datetime(value: object) -> datetime:
+    if (
+        not isinstance(value, datetime)
+        or value.tzinfo is None
+        or value.utcoffset() is None
+    ):
+        raise ValueError("produced_at must be timezone-aware")
+    return value.astimezone(timezone.utc)

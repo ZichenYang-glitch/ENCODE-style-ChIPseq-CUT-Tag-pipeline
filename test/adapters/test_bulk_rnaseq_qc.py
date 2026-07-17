@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from decimal import localcontext
+from decimal import Decimal, localcontext
 from io import BytesIO
 import json
 from pathlib import PurePosixPath
@@ -142,19 +142,84 @@ def _source(
 
 def _star_log() -> bytes:
     return b"""\
+Started job on | Jul 17 00:00:00
+Started mapping on | Jul 17 00:00:01
+Finished on | Jul 17 00:00:02
+Mapping speed, Million of reads per hour | 1800.00
 Number of input reads | 1000
+Average input read length | 100
+UNIQUE READS:
 Uniquely mapped reads number | 800
 Uniquely mapped reads % | 80.00%
+Average mapped length | 99.00
+Number of splices: Total | 100
+Number of splices: Annotated (sjdb) | 90
+Number of splices: GT/AG | 80
+Number of splices: GC/AG | 10
+Number of splices: AT/AC | 5
+Number of splices: Non-canonical | 5
+Mismatch rate per base, % | 0.10%
+Deletion rate per base | 0.01%
+Deletion average length | 1.00
+Insertion rate per base | 0.01%
+Insertion average length | 1.00
+MULTI-MAPPING READS:
 Number of reads mapped to multiple loci | 100
 % of reads mapped to multiple loci | 10.00%
+Number of reads mapped to too many loci | 20
 % of reads mapped to too many loci | 2.00%
+UNMAPPED READS:
+Number of reads unmapped: too many mismatches | 10
 % of reads unmapped: too many mismatches | 1.00%
+Number of reads unmapped: too short | 60
 % of reads unmapped: too short | 6.00%
+Number of reads unmapped: other | 10
 % of reads unmapped: other | 1.00%
+CHIMERIC READS:
+Number of chimeric reads | 0
+% of chimeric reads | 0.00%
 """
 
 
-def _salmon_meta(*, percent: object = 75.25) -> bytes:
+def _star_log_five_percent_unique() -> bytes:
+    return (
+        _star_log()
+        .replace(
+            b"Uniquely mapped reads number | 800",
+            b"Uniquely mapped reads number | 50",
+        )
+        .replace(
+            b"Uniquely mapped reads % | 80.00%",
+            b"Uniquely mapped reads % | 5.00%",
+        )
+        .replace(
+            b"Number of reads unmapped: too many mismatches | 10",
+            b"Number of reads unmapped: too many mismatches | 100",
+        )
+        .replace(
+            b"% of reads unmapped: too many mismatches | 1.00%",
+            b"% of reads unmapped: too many mismatches | 10.00%",
+        )
+        .replace(
+            b"Number of reads unmapped: too short | 60",
+            b"Number of reads unmapped: too short | 700",
+        )
+        .replace(
+            b"% of reads unmapped: too short | 6.00%",
+            b"% of reads unmapped: too short | 70.00%",
+        )
+        .replace(
+            b"Number of reads unmapped: other | 10",
+            b"Number of reads unmapped: other | 30",
+        )
+        .replace(
+            b"% of reads unmapped: other | 1.00%",
+            b"% of reads unmapped: other | 3.00%",
+        )
+    )
+
+
+def _salmon_meta(*, percent: object = 75.2) -> bytes:
     return json.dumps(
         {
             "salmon_version": "1.10.3",
@@ -178,6 +243,30 @@ def _core_sources(sample: str = "S1") -> list[QcSourceDocument]:
             suffix="json",
         ),
     ]
+
+
+def _fastp_source(sample: str, retained: int) -> QcSourceDocument:
+    return _source(
+        "bulk_rnaseq.trim.fastp.json",
+        json.dumps(
+            {
+                "fastp_version": "1.0.1",
+                "summary": {
+                    "before_filtering": {
+                        "total_reads": retained + 100,
+                        "total_bases": 1000000,
+                    },
+                    "after_filtering": {
+                        "total_reads": retained,
+                        "total_bases": 900000,
+                    },
+                },
+                "filtering_result": {"passed_filter_reads": retained},
+            }
+        ).encode(),
+        sample=sample,
+        suffix="json",
+    )
 
 
 def _featurecounts_summary(
@@ -797,18 +886,107 @@ def test_fastp_mixed_layout_metrics_are_not_double_counted():
     assert str(by_sample[("S2", "trimming.read_retained_fraction")].value) == "0.75"
 
 
-def test_star_and_salmon_semantics_are_distinct_and_exact_decimal():
-    result = extract_bulk_rnaseq_qc_metrics(_inputs(), tuple(_core_sources()))
+@pytest.mark.parametrize("layout", ("SE", "PE"))
+def test_star_and_salmon_semantics_are_distinct_and_exact_decimal(layout: str):
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(samples=[_sample("S1", layout=layout)]),
+        tuple(_core_sources()),
+    )
 
     metrics = _metric_map(result)
-    assert str(metrics["star.uniquely_mapped_fraction"].value) == "0.8"
-    assert str(metrics["star.multimapped_fraction"].value) == "0.1"
-    assert str(metrics["star.unmapped_fraction"].value) == "0.1"
-    assert str(metrics["salmon.mapping_fraction"].value) == "0.7525"
+    assert str(metrics["star.input_templates"].value) == "1000"
+    assert str(metrics["star.uniquely_mapped_template_fraction"].value) == "0.8"
+    assert str(metrics["star.accepted_multimapped_template_fraction"].value) == "0.1"
+    assert str(metrics["star.too_many_loci_template_fraction"].value) == "0.02"
+    assert str(metrics["star.pure_unmapped_template_fraction"].value) == "0.08"
+    assert str(metrics["star.unaccepted_template_fraction"].value) == "0.1"
     assert (
-        metrics["star.uniquely_mapped_fraction"].display_name
+        str(metrics["star.unmapped_too_many_mismatches_template_fraction"].value)
+        == "0.01"
+    )
+    assert str(metrics["salmon.mapping_fraction"].value) == "0.752"
+    assert (
+        metrics["star.uniquely_mapped_template_fraction"].display_name
         != metrics["salmon.mapping_fraction"].display_name
     )
+    for metric in metrics.values():
+        if metric.metric_key.startswith("star."):
+            assert "template" in metric.metric_key
+            assert "read" not in metric.display_name.lower().split()
+
+
+@pytest.mark.parametrize("layout", ("SE", "PE"))
+def test_star_rounded_percentages_use_the_exact_template_count_partition(
+    layout: str,
+):
+    star = _source(
+        "bulk_rnaseq.star.log_final",
+        _star_log()
+        .replace(b"Number of input reads | 1000", b"Number of input reads | 6")
+        .replace(
+            b"Uniquely mapped reads number | 800",
+            b"Uniquely mapped reads number | 0",
+        )
+        .replace(
+            b"Uniquely mapped reads % | 80.00%", b"Uniquely mapped reads % | 0.00%"
+        )
+        .replace(
+            b"Number of reads mapped to multiple loci | 100",
+            b"Number of reads mapped to multiple loci | 0",
+        )
+        .replace(
+            b"% of reads mapped to multiple loci | 10.00%",
+            b"% of reads mapped to multiple loci | 0.00%",
+        )
+        .replace(
+            b"Number of reads mapped to too many loci | 20",
+            b"Number of reads mapped to too many loci | 1",
+        )
+        .replace(
+            b"% of reads mapped to too many loci | 2.00%",
+            b"% of reads mapped to too many loci | 16.67%",
+        )
+        .replace(
+            b"Number of reads unmapped: too many mismatches | 10",
+            b"Number of reads unmapped: too many mismatches | 1",
+        )
+        .replace(
+            b"% of reads unmapped: too many mismatches | 1.00%",
+            b"% of reads unmapped: too many mismatches | 16.67%",
+        )
+        .replace(
+            b"Number of reads unmapped: too short | 60",
+            b"Number of reads unmapped: too short | 1",
+        )
+        .replace(
+            b"% of reads unmapped: too short | 6.00%",
+            b"% of reads unmapped: too short | 16.67%",
+        )
+        .replace(
+            b"Number of reads unmapped: other | 10",
+            b"Number of reads unmapped: other | 3",
+        )
+        .replace(
+            b"% of reads unmapped: other | 1.00%",
+            b"% of reads unmapped: other | 50.00%",
+        ),
+        sample="S1",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(samples=[_sample("S1", layout=layout)]),
+        (star, _core_sources()[1]),
+    )
+
+    metrics = _metric_map(result)
+    assert metrics["star.input_templates"].value == 6
+    assert metrics["star.too_many_loci_template_fraction"].value == Decimal(
+        "0.166666666667"
+    )
+    assert metrics["star.pure_unmapped_template_fraction"].value == Decimal(
+        "0.833333333333"
+    )
+    assert metrics["star.unaccepted_template_fraction"].value == Decimal(1)
 
 
 @pytest.mark.parametrize("layout", ("SE", "PE"))
@@ -823,7 +1001,7 @@ def test_salmon_meta_info_counts_fragments_not_records_reads_or_alignments(
     metrics = _metric_map(result)
     assert str(metrics["salmon.processed_fragments"].value) == "1000"
     assert str(metrics["salmon.mapped_fragments"].value) == "752"
-    assert str(metrics["salmon.mapping_fraction"].value) == "0.7525"
+    assert str(metrics["salmon.mapping_fraction"].value) == "0.752"
     assert "salmon.processed_records" not in metrics
     assert "salmon.mapped_records" not in metrics
     for key in ("salmon.processed_fragments", "salmon.mapped_fragments"):
@@ -831,6 +1009,50 @@ def test_salmon_meta_info_counts_fragments_not_records_reads_or_alignments(
         assert "fragment" in display_name
         assert not {"record", "alignment", "read"}.intersection(display_name.split())
     assert "fragment" in metrics["salmon.mapping_fraction"].display_name.lower()
+
+
+def test_salmon_rejects_a_percent_that_disagrees_with_fragment_counters():
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(),
+        (
+            _core_sources()[0],
+            _source(
+                "bulk_rnaseq.salmon.meta_info",
+                _salmon_meta(percent=75.25),
+                sample="S1",
+                suffix="json",
+            ),
+        ),
+    )
+
+    assert result.is_failure
+    assert result.errors[0].context == {"reason_code": "source_content_invalid"}
+
+
+def test_salmon_accepts_only_the_public_decimal_quantization_envelope():
+    source = _source(
+        "bulk_rnaseq.salmon.meta_info",
+        json.dumps(
+            {
+                "salmon_version": "1.10.3",
+                "mapping_type": "alignment",
+                "num_libraries": 1,
+                "num_processed": 9191,
+                "num_mapped": 4595,
+                "percent_mapped": 49.99455989555,
+            },
+            separators=(",", ":"),
+        ).encode(),
+        sample="S1",
+        suffix="json",
+    )
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(),
+        (_core_sources()[0], source),
+    )
+
+    metrics = _metric_map(result)
+    assert metrics["salmon.mapping_fraction"].value == Decimal("0.499945598955")
 
 
 def test_numeric_leading_authoring_sample_identity_is_valid_for_qc():
@@ -872,6 +1094,7 @@ def test_decimal_exponent_bomb_fails_before_formatting():
 def test_fixed_multiqc_status_tables_define_legitimate_filtered_samples():
     inputs = _inputs(
         samples=[_sample("S1"), _sample("S2")],
+        trimming={"enabled": True, "tool": "fastp"},
         qc={"multiqc": True},
     )
     trim_status = _source(
@@ -882,11 +1105,98 @@ def test_fixed_multiqc_status_tables_define_legitimate_filtered_samples():
 
     result = extract_bulk_rnaseq_qc_metrics(
         inputs,
-        tuple([*_core_sources("S1"), trim_status]),
+        tuple(
+            [
+                *_core_sources("S1"),
+                _fastp_source("S1", 20000),
+                _fastp_source("S2", 9999),
+                trim_status,
+            ]
+        ),
     )
 
     assert result.is_success
-    assert {metric.sample_id for metric in result.value} == {"S1"}
+    assert {metric.sample_id for metric in result.value} == {"S1", "S2"}
+    assert all(
+        metric.metric_key.startswith("trimming.")
+        for metric in result.value
+        if metric.sample_id == "S2"
+    )
+
+
+def test_trimming_disabled_rejects_stale_trim_status_table():
+    status = _source(
+        "bulk_rnaseq.multiqc.fail_trimmed_samples",
+        b"Sample\tReads after trimming\nS1\t9999\n",
+        suffix="tsv",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(qc={"multiqc": True}),
+        (status,),
+    )
+
+    assert result.is_failure
+    assert result.errors[0].context == {"reason_code": "source_contract_invalid"}
+
+
+def test_fastp_trim_status_must_equal_native_retained_read_evidence():
+    inputs = _inputs(
+        trimming={"enabled": True, "tool": "fastp"},
+        qc={"multiqc": True},
+    )
+    fastp = _fastp_source("S1", 9999)
+    status = _source(
+        "bulk_rnaseq.multiqc.fail_trimmed_samples",
+        b"Sample\tReads after trimming\nS1\t9998\n",
+        suffix="tsv",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(inputs, (fastp, status))
+
+    assert result.is_failure
+    assert result.errors[0].context == {"reason_code": "source_content_invalid"}
+
+
+def test_star_mapped_status_must_equal_log_final_percent():
+    status = _source(
+        "bulk_rnaseq.multiqc.fail_mapped_samples",
+        b"Sample\tSTAR uniquely mapped reads (%)\nS1\t4.99\n",
+        suffix="tsv",
+    )
+    star = _source(
+        "bulk_rnaseq.star.log_final",
+        _star_log_five_percent_unique(),
+        sample="S1",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(qc={"multiqc": True}),
+        (star, _core_sources()[1], status),
+    )
+
+    assert result.is_failure
+    assert result.errors[0].context == {"reason_code": "source_content_invalid"}
+
+
+def test_mapped_status_membership_uses_the_fixed_binary32_threshold():
+    star = _source(
+        "bulk_rnaseq.star.log_final",
+        _star_log_five_percent_unique(),
+        sample="S1",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(
+            qc={"multiqc": True},
+            advanced={"min_mapped_reads": 5.0000001},
+        ),
+        (star, _core_sources()[1]),
+    )
+
+    metrics = _metric_map(result)
+    assert "star.uniquely_mapped_template_fraction" in metrics
+    assert "salmon.mapping_fraction" in metrics
 
 
 def test_exact_trim_threshold_status_row_preserves_existing_analysis_metrics():
@@ -897,12 +1207,81 @@ def test_exact_trim_threshold_status_row_preserves_existing_analysis_metrics():
     )
 
     result = extract_bulk_rnaseq_qc_metrics(
-        _inputs(qc={"multiqc": True}),
-        tuple([*_core_sources(), status]),
+        _inputs(
+            trimming={"enabled": True, "tool": "fastp"},
+            qc={"multiqc": True},
+        ),
+        tuple([*_core_sources(), _fastp_source("S1", 10000), status]),
     )
 
     metrics = _metric_map(result)
-    assert "star.input_reads" in metrics
+    assert "star.input_templates" in metrics
+    assert "salmon.mapping_fraction" in metrics
+
+
+def test_trimgalore_status_reconciles_the_fixed_binary32_count_route():
+    raw = _source(
+        "bulk_rnaseq.fastqc.raw.single.zip",
+        _fastqc_zip(total_sequences="577177982"),
+        sample="S1",
+        suffix="zip",
+    )
+    trimmed = _source(
+        "bulk_rnaseq.fastqc.trimmed.single.zip",
+        _fastqc_zip(
+            total_sequences="53335086",
+            root="S1_trimmed_trimmed_fastqc",
+            filename="S1_trimmed_trimmed.fq.gz",
+        ),
+        sample="S1",
+        suffix="zip",
+    )
+    status = _source(
+        "bulk_rnaseq.multiqc.fail_trimmed_samples",
+        b"Sample\tReads after trimming\nS1\t53335104.0\n",
+        suffix="tsv",
+    )
+    cutadapt = _source(
+        "bulk_rnaseq.multiqc.cutadapt",
+        b"Sample\tcutadapt_version\tr_processed\tr_with_adapters\tr_written\t"
+        b"bp_processed\tquality_trimmed\tbp_written\tpercent_trimmed\n"
+        b"S1\t4.0\t577177982\t0\t577177982\t57717798200\t0\t"
+        b"57717798200\t0\n",
+        suffix="tsv",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(
+            trimming={"enabled": True, "tool": "trimgalore"},
+            qc={"fastqc": True, "multiqc": True},
+            advanced={"min_trimmed_reads": 53_335_104},
+        ),
+        tuple([*_core_sources(), raw, trimmed, status, cutadapt]),
+    )
+
+    metrics = _metric_map(result)
+    assert "star.input_templates" in metrics
+    assert "salmon.mapping_fraction" in metrics
+
+
+def test_fastp_status_membership_uses_float_threshold_but_filter_uses_long():
+    status = _source(
+        "bulk_rnaseq.multiqc.fail_trimmed_samples",
+        b"Sample\tReads after trimming\nS1\t16777220.0\n",
+        suffix="tsv",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(
+            trimming={"enabled": True, "tool": "fastp"},
+            qc={"multiqc": True},
+            advanced={"min_trimmed_reads": 16_777_219},
+        ),
+        tuple([*_core_sources(), _fastp_source("S1", 16_777_220), status]),
+    )
+
+    metrics = _metric_map(result)
+    assert "star.input_templates" in metrics
     assert "salmon.mapping_fraction" in metrics
 
 
@@ -910,10 +1289,11 @@ def test_mapped_status_keeps_star_salmon_but_omits_downstream_qc():
     inputs = _inputs(
         samples=[_sample("S1"), _sample("S2")],
         qc={"multiqc": True},
+        advanced={"min_mapped_reads": 90},
     )
     mapped_status = _source(
         "bulk_rnaseq.multiqc.fail_mapped_samples",
-        b"Sample\tSTAR uniquely mapped reads (%)\nS2\t4.5\n",
+        b"Sample\tSTAR uniquely mapped reads (%)\nS1\t80.00\nS2\t80.00\n",
         suffix="tsv",
     )
     sources = tuple([*_core_sources("S1"), *_core_sources("S2"), mapped_status])
@@ -949,10 +1329,38 @@ def test_status_table_must_prove_the_configured_filter_threshold(
     content: bytes,
 ):
     status = _source(output_type, content, suffix="tsv")
+    sources: tuple[QcSourceDocument, ...] = (status,)
+    qc: dict[str, object] = {"multiqc": True}
+    if "min_trimmed_reads" in advanced:
+        qc["fastqc"] = True
+        raw = _source(
+            "bulk_rnaseq.fastqc.raw.single.zip",
+            _fastqc_zip(total_sequences="101"),
+            sample="S1",
+            suffix="zip",
+        )
+        trimmed = _source(
+            "bulk_rnaseq.fastqc.trimmed.single.zip",
+            _fastqc_zip(
+                total_sequences="101",
+                root="S1_trimmed_trimmed_fastqc",
+                filename="S1_trimmed_trimmed.fq.gz",
+            ),
+            sample="S1",
+            suffix="zip",
+        )
+        cutadapt = _source(
+            "bulk_rnaseq.multiqc.cutadapt",
+            b"Sample\tcutadapt_version\tr_processed\tr_with_adapters\tr_written\t"
+            b"bp_processed\tquality_trimmed\tbp_written\tpercent_trimmed\n"
+            b"S1\t4.0\t101\t0\t101\t10100\t0\t10100\t0\n",
+            suffix="tsv",
+        )
+        sources = (status, raw, trimmed, cutadapt)
 
     result = extract_bulk_rnaseq_qc_metrics(
         _inputs(
-            qc={"multiqc": True},
+            qc=qc,
             advanced=advanced,
             trimming=(
                 {"enabled": True, "tool": "trimgalore"}
@@ -960,7 +1368,7 @@ def test_status_table_must_prove_the_configured_filter_threshold(
                 else None
             ),
         ),
-        (status,),
+        sources,
     )
 
     assert result.is_failure
@@ -1075,7 +1483,13 @@ def test_featurecounts_picard_and_rseqc_use_closed_machine_sources():
 
     metrics = _metric_map(extract_bulk_rnaseq_qc_metrics(inputs, tuple(sources)))
 
-    assert str(metrics["featurecounts.assigned_fraction"].value) == "0.75"
+    assert str(metrics["featurecounts.assigned_read_fraction"].value) == "0.75"
+    assert str(metrics["featurecounts.assigned_reads"].value) == "750"
+    assert str(metrics["featurecounts.classified_reads"].value) == "1000"
+    assert not any(
+        token in metrics["featurecounts.assigned_reads"].display_name.lower()
+        for token in ("alignment", "fragment", "pair")
+    )
     assert str(metrics["picard.duplication_fraction"].value) == "0.1"
     assert str(metrics["picard.estimated_library_size"].value) == "7000"
     assert str(metrics["rseqc.bam_stat.unique_fraction"].value) == "0.6"
@@ -1093,6 +1507,39 @@ def test_featurecounts_picard_and_rseqc_use_closed_machine_sources():
         metrics["rseqc.tin.mean_score"].source_artifact_id
         == "artifact-bulk_rnaseq-rseqc-tin_summary-S1"
     )
+
+
+@pytest.mark.parametrize("layout", ("SE", "PE"))
+def test_featurecounts_fixed_route_counts_individual_reads_for_both_layouts(
+    layout: str,
+):
+    source = _source(
+        "bulk_rnaseq.featurecounts.summary",
+        _featurecounts_summary(),
+        sample="S1",
+    )
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(
+            samples=[_sample("S1", layout=layout)],
+            qc={"biotype": True},
+        ),
+        tuple([*_core_sources(), source]),
+    )
+
+    metrics = _metric_map(result)
+    expected = {
+        "featurecounts.assigned_reads": (Decimal("750"), "count"),
+        "featurecounts.classified_reads": (Decimal("1000"), "count"),
+        "featurecounts.assigned_read_fraction": (Decimal("0.75"), "fraction"),
+    }
+    for key, (value, unit) in expected.items():
+        metric = metrics[key]
+        assert metric.value == value
+        assert metric.unit == unit
+        assert not any(
+            token in metric.display_name.lower()
+            for token in ("alignment", "fragment", "pair")
+        )
 
 
 def test_picard_duplication_reconciles_counts_with_six_decimal_serialization():
@@ -1164,6 +1611,9 @@ def test_csi_profile_omits_fixed_incompatible_rseqc_qc_sources():
         b"Bam_file\tTIN(mean)\tTIN(median)\tTIN(stdev)\nS1.sorted.bam\t101\t1\t1\n",
         b"Bam_file\tTIN(mean)\tTIN(median)\tTIN(stdev)\nS1.sorted.bam\t1\t-1\t1\n",
         b"Bam_file\tTIN(mean)\tTIN(median)\tTIN(stdev)\nS1.sorted.bam\t1\t1\t101\n",
+        b"Bam_file\tTIN(mean)\tTIN(median)\tTIN(stdev)\nS1.sorted.bam\t50\t50\t50.0001\n",
+        b"Bam_file\tTIN(mean)\tTIN(median)\tTIN(stdev)\n"
+        b"S1.sorted.bam\t50\t50\t50.000000000001\n",
         b"Bam_file\tTIN(mean)\tTIN(median)\tTIN(stdev)\nS1.sorted.bam\tNaN\t1\t1\n",
     ),
 )
@@ -1185,6 +1635,42 @@ def test_rseqc_tin_uses_exact_fixed_grammar_and_score_bounds(content: bytes):
         "source_content_invalid",
         "metric_value_invalid",
     }
+
+
+def test_rseqc_tin_population_standard_deviation_allows_exact_global_bound():
+    source = _source(
+        "bulk_rnaseq.rseqc.tin_summary",
+        b"Bam_file\tTIN(mean)\tTIN(median)\tTIN(stdev)\nS1.sorted.bam\t50\t50\t50\n",
+        sample="S1",
+        relative_path="results/star_salmon/rseqc/tin/S1.summary.txt",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(qc={"rseqc": True}, advanced={"rseqc_modules": "tin"}),
+        tuple([*_core_sources(), source]),
+    )
+
+    assert result.is_success
+
+
+def test_rseqc_tin_clamps_only_the_fixed_binary64_rounding_envelope():
+    source = _source(
+        "bulk_rnaseq.rseqc.tin_summary",
+        b"Bam_file\tTIN(mean)\tTIN(median)\tTIN(stdev)\n"
+        b"S1.sorted.bam\t100.00000000000011\t100.00000000000011\t"
+        b"50.00000000000006\n",
+        sample="S1",
+        relative_path="results/star_salmon/rseqc/tin/S1.summary.txt",
+    )
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(qc={"rseqc": True}, advanced={"rseqc_modules": "tin"}),
+        tuple([*_core_sources(), source]),
+    )
+
+    metrics = _metric_map(result)
+    assert metrics["rseqc.tin.mean_score"].value == Decimal(100)
+    assert metrics["rseqc.tin.median_score"].value == Decimal(100)
+    assert metrics["rseqc.tin.standard_deviation"].value == Decimal(50)
 
 
 def test_rseqc_se_bam_stat_accepts_fixed_zero_paired_fields():

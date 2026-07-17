@@ -85,6 +85,7 @@ export * from './runLogsResponse';
 export * from './runLogsResponseNextCursor';
 export * from './runQcMetricsResponse';
 export * from './runQcMetricsResponseNextCursor';
+export * from './runQcMetricsResponseQcGeneration';
 export * from './runRecordResponse';
 export * from './runRecordResponseCancellationReason';
 export * from './runRecordResponseCurrentStage';

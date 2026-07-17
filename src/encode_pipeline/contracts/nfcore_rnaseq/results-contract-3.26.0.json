@@ -19,21 +19,43 @@
     "trimgalore": "2.1.0"
   },
   "artifact_families": [
+    "pipeline_software_versions",
     "fastqc_html_zip",
     "trimming_machine_reports",
     "saved_trimmed_reads",
+    "saved_merged_reads",
     "saved_rrna_filtered_reads",
     "star_final_summary_and_junctions",
     "final_and_enabled_intermediate_bam_indexes",
+    "star_unaligned_reads",
+    "samtools_machine_summaries",
+    "umi_intermediates_and_statistics",
     "combined_and_strand_specific_bigwig",
     "salmon_sample_quantification",
     "salmon_merged_expression_matrices",
     "featurecounts_biotype_qc",
     "enabled_rseqc_machine_summaries",
-    "multiqc_allowlisted_module_tsv",
-    "multiqc_trimmed_and_mapped_sample_status_tsv",
-    "pipeline_software_versions"
+    "multiqc_allowlisted_machine_tables"
   ],
+  "artifact_family_output_types": {
+    "pipeline_software_versions": ["bulk_rnaseq.pipeline.*"],
+    "fastqc_html_zip": ["bulk_rnaseq.fastqc.*"],
+    "trimming_machine_reports": ["bulk_rnaseq.trim.fastp.json"],
+    "saved_trimmed_reads": ["bulk_rnaseq.trim.fastp.filtered.*", "bulk_rnaseq.trim.trimgalore.filtered.*"],
+    "saved_merged_reads": ["bulk_rnaseq.fastq.merged.*"],
+    "saved_rrna_filtered_reads": ["bulk_rnaseq.rrna.*"],
+    "star_final_summary_and_junctions": ["bulk_rnaseq.star.log_final", "bulk_rnaseq.star.splice_junctions"],
+    "final_and_enabled_intermediate_bam_indexes": ["bulk_rnaseq.star.bam*", "bulk_rnaseq.star.sorted_intermediate_bam*", "bulk_rnaseq.star.transcriptome_sorted_intermediate_bam*", "bulk_rnaseq.star.aligned_genome_bam", "bulk_rnaseq.star.aligned_transcriptome_bam"],
+    "star_unaligned_reads": ["bulk_rnaseq.star.unaligned.*"],
+    "samtools_machine_summaries": ["bulk_rnaseq.samtools.*"],
+    "umi_intermediates_and_statistics": ["bulk_rnaseq.umi.*"],
+    "combined_and_strand_specific_bigwig": ["bulk_rnaseq.star.bigwig.*"],
+    "salmon_sample_quantification": ["bulk_rnaseq.salmon.quant_transcript", "bulk_rnaseq.salmon.quant_gene", "bulk_rnaseq.salmon.meta_info"],
+    "salmon_merged_expression_matrices": ["bulk_rnaseq.salmon.merged.*"],
+    "featurecounts_biotype_qc": ["bulk_rnaseq.featurecounts.*"],
+    "enabled_rseqc_machine_summaries": ["bulk_rnaseq.rseqc.*"],
+    "multiqc_allowlisted_machine_tables": ["bulk_rnaseq.multiqc.*"]
+  },
   "qc_source_families": [
     "fastqc_zip",
     "fastp_json",
@@ -62,7 +84,8 @@
       "distance": {
         "output_type": "bulk_rnaseq.rseqc.inner_distance.distance",
         "path": "star_salmon/rseqc/inner_distance/txt/<sample>.inner_distance.txt",
-        "semantic": "per_read_pair_detail"
+        "semantic": "per_read_pair_detail",
+        "layout": "paired_end_only"
       },
       "frequency": {
         "output_type": "bulk_rnaseq.rseqc.inner_distance.freq",
@@ -73,11 +96,44 @@
         "output_type": "bulk_rnaseq.rseqc.inner_distance.mean",
         "path": "star_salmon/rseqc/inner_distance/txt/<sample>.inner_distance_mean.txt",
         "semantic": "mean_median_standard_deviation_summary"
+      },
+      "single_end": {
+        "path": "star_salmon/rseqc/inner_distance/txt/<sample>.inner_distance.txt",
+        "semantic": "fixed_upstream_unsupported_placeholder",
+        "public_policy": "excluded_but_namespace_owner_audited"
       }
     }
   },
   "metric_semantics": {
+    "star_log_final": {
+      "single_end_template": "one_single_read",
+      "paired_end_template": "one_read_pair",
+      "count_partition": "unique_plus_accepted_multimapped_plus_too_many_loci_plus_three_pure_unmapped_categories_equals_input_templates",
+      "pure_unmapped_components": ["too_many_mismatches", "too_short", "other"],
+      "reported_percent_validation": "each fixed two-decimal STAR percentage must agree with its exact count fraction within 0.00005 fraction; public fractions derive from counts",
+      "metrics": {
+        "input_templates": {"metric_key": "star.input_templates", "display_name": "STAR input templates", "unit": "count"},
+        "uniquely_mapped_fraction": {"metric_key": "star.uniquely_mapped_template_fraction", "display_name": "STAR uniquely mapped template fraction", "unit": "fraction"},
+        "accepted_multimapped_fraction": {"metric_key": "star.accepted_multimapped_template_fraction", "display_name": "STAR accepted multimapped template fraction", "unit": "fraction"},
+        "too_many_loci_fraction": {"metric_key": "star.too_many_loci_template_fraction", "display_name": "STAR too-many-loci template fraction", "unit": "fraction"},
+        "pure_unmapped_fraction": {"metric_key": "star.pure_unmapped_template_fraction", "display_name": "STAR pure-unmapped template fraction", "unit": "fraction"},
+        "unaccepted_fraction": {"metric_key": "star.unaccepted_template_fraction", "display_name": "STAR unaccepted (too-many-loci or unmapped) template fraction", "unit": "fraction"}
+      }
+    },
+    "featurecounts_summary": {
+      "version": "2.0.6",
+      "count_unit": "read",
+      "paired_end_semantic": "-p declares paired-end input; absence of --countReadPairs preserves individual-read counting",
+      "metrics": {
+        "assigned_reads": {"metric_key": "featurecounts.assigned_reads", "display_name": "featureCounts assigned reads", "unit": "count"},
+        "classified_reads": {"metric_key": "featurecounts.classified_reads", "display_name": "featureCounts classified reads", "unit": "count"},
+        "assigned_read_fraction": {"metric_key": "featurecounts.assigned_read_fraction", "display_name": "featureCounts assigned read fraction", "unit": "fraction"}
+      }
+    },
     "salmon_meta_info": {
+      "counter_source": "numObservedFragments_and_numMappedFragments",
+      "mapping_fraction_derivation": "exact_num_mapped_divided_by_num_processed_then_public_decimal_quantization",
+      "reported_percent_validation_tolerance_fraction": "0.000000000001",
       "num_processed": {
         "metric_key": "salmon.processed_fragments",
         "display_name": "Salmon processed fragments",
@@ -101,6 +157,19 @@
     }
   },
   "upstream_behavior_evidence": {
+    "sample_status_filtering": {
+      "nfcore_workflow_main": {"path": "workflows/rnaseq/main.nf", "size": 41775, "sha256": "dbfc6f0eaf9079c96b4dfcaea674eb5885c7f1f495a9b22bf5c95887e2385f6a"},
+      "nfcore_multiqc_subworkflow": {"path": "subworkflows/local/multiqc_rnaseq/main.nf", "size": 19937, "sha256": "e9a3ba3e2823c726d01421f6b3f30a5479d3d289e59573c1a6f541c09d42df34"},
+      "nfcore_star_subworkflow": {"path": "subworkflows/local/align_star/main.nf", "size": 4075, "sha256": "2c69865ae919c475823aa8149bea58805e73f6e7871548e956612dc6ca56f1ff"},
+      "nfcore_fastp_subworkflow": {"path": "subworkflows/nf-core/fastq_fastqc_umitools_fastp/main.nf", "size": 5703, "sha256": "242c6c9a35fafa3d2e96399badf94a0fed83be157c5743524bf15a73b80889fa"},
+      "nfcore_trimgalore_subworkflow": {"path": "subworkflows/nf-core/fastq_fastqc_umitools_trimgalore/main.nf", "size": 4454, "sha256": "ea950cd99cd4146d01d7c274eb28279d615eaf61d9a04c456c962ebe54b4857d"},
+      "nfcore_trimgalore_module": {"path": "modules/nf-core/trimgalore/main.nf", "size": 3368, "sha256": "f3b551ea103f9fe669f1c1fafe87b635a6f42b238f1919d7bc9af3feac36f45a"},
+      "nfcore_trimgalore_config": {"path": "conf/modules/trimgalore.config", "size": 3125, "sha256": "2f18e32a4f867c554e198e2260a71082b9ce4ee1015fa251b0b5b41782136a96"},
+      "trimgalore_trimmer_source": {"version": "2.1.0", "path": "src/trimmer.rs", "size": 31379, "sha256": "e3ade3241472134a650d90fe97a959b76375fddd9855883aa411ad9d99aaf845"},
+      "trimgalore_report_source": {"version": "2.1.0", "path": "src/report.rs", "size": 60206, "sha256": "671dbd515c3129032b3b5f27e4fbe5bd2d6b1dd2a027f824bcb3ee959255b824"},
+      "cutadapt_percent_tolerance": {"value": "0.000000001", "unit": "percentage_points", "comparison": "absolute_reported_minus_exact_base_ratio"},
+      "behavior": "fastp status admits only fixed 1.0.1 reports whose bounded duplicate-free JSON has consistent before/after reads and bases and passed_filter_reads equal to after_filtering.total_reads; Trim Galore status reconstructs the upstream binary32 Float(total)-Float(removed) route from equal retained FastQC mate counts and fully validated fixed Cutadapt 4.0 rows; STAR status requires the complete validated Log.final.out before its printed unique percent is admitted; every status/native-evidence path and absence is SHA-snapshotted at reconciliation and revalidated after candidate collection"
+    },
     "rseqc_inner_distance": {
       "version": "5.0.4",
       "nfcore_module_path": "modules/nf-core/rseqc/innerdistance/main.nf",
@@ -110,13 +179,50 @@
     "rseqc_tin": {
       "version": "5.0.4",
       "behavior": "tin.py applies a case-sensitive global basename.replace('bam', '') while the pinned nf-core wrapper expects bam.baseName outputs",
-      "package_sha256": "2efb38bf459257693abfc952b0557be862a780240e8a49f3a4f90362b6645ca6"
+      "wheel_sha256": "2efb38bf459257693abfc952b0557be862a780240e8a49f3a4f90362b6645ca6",
+      "source_distribution_sha256": "b7f3996f3de0b0b0a09eec949281a8f3e665a20827fcb3cbbd7546b94574a088",
+      "nfcore_module_path": "modules/nf-core/rseqc/tin/main.nf",
+      "nfcore_module_size": 1227,
+      "nfcore_module_sha256": "a2651ac40d1482388cba06b36fa63bf91a8198a7605d6b87a0ce7ebeb55b258f",
+      "sdist_source": {"path": "scripts/tin.py", "size": 11563, "sha256": "f2225494b2ea71461f969b6934ce9bdb8a813894c909e5989151c91db0f5e40b"},
+      "wheel_script": {"path": "RSeQC-5.0.4.data/scripts/tin.py", "size": 11550, "sha256": "fe8514d74a5a9b467105823ed2792b91818c37de68ddd4eaae68edb712dc2fa6"},
+      "script_semantic_difference": "sdist and wheel scripts differ only in their shebang",
+      "standard_deviation": "numpy.std population standard deviation with default ddof=0 over TIN values theoretically bounded from 0 through 100; enforce mean/median <= 100 and stdev <= 50 after the public 12-decimal canonicalization envelope",
+      "stdev_max": 50
+    },
+    "star_log_final": {
+      "version": "2.7.11b",
+      "behavior": "Log.final.out separates mapped-to-too-many-loci from its three unmapped categories and counts one paired-end template per read pair",
+      "stats_source": {"path": "source/Stats.cpp", "size": 8945, "sha256": "8120977869f2360d1486f3f5f3e52e6032f53ce255e569ac86026047fa12f92f"},
+      "read_alignment_source": {"path": "source/ReadAlign_oneRead.cpp", "size": 4534, "sha256": "76aa9321c3cf63cc45acd8c16d0b841faec1b9b0aac3e78bbdea865867da9538"}
+    },
+    "featurecounts_summary": {
+      "version": "2.0.6",
+      "nfcore_module_path": "modules/nf-core/subread/featurecounts/main.nf",
+      "nfcore_module_size": 1494,
+      "nfcore_module_sha256": "99d46ed3ba2661298e9a484d4ebd02412293194870d4f2079e4abdd746eff254",
+      "nfcore_config_path": "conf/modules/featurecounts.config",
+      "nfcore_config_size": 760,
+      "nfcore_config_sha256": "cd2f70a786aa0c5e4a26e4cbf7342f044fe483324a231dc9011445db5cb7b880",
+      "subread_source_path": "src/readSummary.c",
+      "subread_source_size": 409409,
+      "subread_source_sha256": "470ffb8e1acbd6255a4ca09ec0f4ce587e3a6071f441ccd6c884ead238dff938",
+      "behavior": "the pinned module supplies -p for paired-end input without --countReadPairs, so summary values count individual reads"
     },
     "salmon_meta_info": {
       "version": "1.10.3",
       "behavior": "num_processed and num_mapped are emitted from numObservedFragments and numMappedFragments",
       "audited_source_path": "src/GZipWriter.cpp",
-      "audited_source_sha256": "7880e0b8c8f5313eeb7486f21d08b9cefe279ec2447d602a94ec6a0497f64d5a"
+      "audited_source_size": 75485,
+      "audited_source_sha256": "7880e0b8c8f5313eeb7486f21d08b9cefe279ec2447d602a94ec6a0497f64d5a",
+      "counter_source_path": "include/AlignmentLibrary.hpp",
+      "counter_source_size": 24440,
+      "counter_source_sha256": "de8ffc555de5856d8b0afb079841bc616a5babd7d220bcaef679c825df016129"
+    },
+    "rseqc_csi_policy": {
+      "nfcore_utility_path": "subworkflows/local/utils_nfcore_rnaseq_pipeline/main.nf",
+      "nfcore_utility_size": 40564,
+      "nfcore_utility_sha256": "be526f98b031ca3167cc0c87aa401cd2b7e47eaae709c00e4bd6b46787b04942"
     }
   },
   "public_exclusions": [
@@ -152,8 +258,8 @@
     "dupradar": "excluded_non_core_plot_family",
     "deseq2_qc": "excluded_qc_visualization_not_differential_expression",
     "preseq": "excluded_non_core_optional_plot_family",
-    "trimgalore_metrics": "trimmed_fastqc_total_sequences_is_exact_final_retained_reads; multiqc_cutadapt_integer_fields_describe_pre_length_filter_bases; exact_final_retained_bases_require_a_future_sanitized_derivative",
-    "sample_threshold_filtering": "fixed_multiqc_status_tables define filtered samples; equality with min_trimmed_reads remains execution-passing; without MultiQC an ambiguous missing threshold-sensitive output fails with sample_status_unavailable",
+    "trimgalore_metrics": "trimmed_fastqc_total_sequences_is_exact_final_retained_reads; fixed MultiQC Cutadapt rows have exact 9-column shape, Cutadapt 4.0 identity, bounded integer fields, r_written equal to r_processed because the product forbids discard-untrimmed, count/base range invariants, and percent_trimmed agreement within 0.000000001 percentage points; exact final retained bases require a future sanitized derivative",
+    "sample_threshold_filtering": "fixed MultiQC status rows never independently shrink the output matrix: fastp 1.0.1 JSON is duplicate-key rejecting and bounded by the shared JSON limits, and its passed_filter_reads must equal after_filtering.total_reads while retained reads/bases cannot exceed before_filtering; Trim Galore rows must reproduce Float(input)-Float(removed) from fully validated Cutadapt rows and equal retained FastQC mate counts; mapping rows require the complete fixed STAR Log.final.out grammar, six-way count partition, count-percent agreement, and exact printed unique percent; a trim equality row remains execution-passing, only a strict trim count below threshold shrinks analysis outputs, and disabled routes, missing evidence, stale tables, contradictory rows, or observable evidence replacement fail closed",
     "umi_discard_read_layout": "a discarded mate makes the post-extraction route single-end while raw FastQC and saved UMI-extracted reads retain the authored paired layout",
     "rseqc_csi": "inner_distance, read_distribution, and tin are removed exactly as defineQcTools does for bam_csi_index",
     "multiqc_sample_identity": "sample identifiers containing any of the 159 identifier-alphabet literals cleaned by MultiQC 1.33 defaults or the pinned nf-core config are reserved; when MultiQC is enabled, canonical IDs, authored-PE aliases, effective downstream aliases, and FASTQ simpleNames after prepended extra_fn_clean_exts, default fn_clean_exts, fn_clean_trim, and global exact replacement must have one sample-and-mate-role owner before execution",
@@ -167,12 +273,49 @@
     "fn_clean_trim_count": 26,
     "nfcore_multiqc_config_path": "workflows/rnaseq/assets/multiqc/multiqc_config.yml",
     "nfcore_multiqc_config_size": 8940,
-    "nfcore_multiqc_config_sha256": "d859d137f2aa7800f7e12a84dec6658b1f558197e08f3041d05cd69fa6aa0b7e"
+    "nfcore_multiqc_config_sha256": "d859d137f2aa7800f7e12a84dec6658b1f558197e08f3041d05cd69fa6aa0b7e",
+    "nfcore_multiqc_subworkflow_path": "subworkflows/local/multiqc_rnaseq/main.nf",
+    "nfcore_multiqc_subworkflow_size": 19937,
+    "nfcore_multiqc_subworkflow_sha256": "e9a3ba3e2823c726d01421f6b3f30a5479d3d289e59573c1a6f541c09d42df34",
+    "multiqc_base_module_path": "multiqc/base_module.py",
+    "multiqc_base_module_size": 59366,
+    "multiqc_base_module_sha256": "abc1fa1b848e8513e3e2ab4affcea4e6b4eec034ec2f5b30b5a4c1aa5f3073e4",
+    "multiqc_table_object_path": "multiqc/plots/table_object.py",
+    "multiqc_table_object_size": 60417,
+    "multiqc_table_object_sha256": "8d152780a1d761cf5409e74bce62b2add16e16648fe9f42258697f60813752a3",
+    "multiqc_report_path": "multiqc/report.py",
+    "multiqc_report_size": 48562,
+    "multiqc_report_sha256": "7d30a943b4611b2eebc14422f3c11aeb3a4fba83783bf665ca91ad7d6da3c046",
+    "general_stats_grouping": "exact per-sample union of canonical S and, only on fixed paired routes with authored raw FastQC or paired Trim Galore evidence, grouped S Read 1 and S Read 2 rows; threshold failures do not remove pre-threshold identities"
+  },
+  "published_multiqc_table_audit": {
+    "root": "multiqc/star_salmon/multiqc_report_data",
+    "format": "strict_utf8_tsv_with_exact_Sample_first_header_exact_column_count_and_unique_rows",
+    "ownership_policies": {
+      "general_stats": "exact per-sample union of canonical S plus paired grouped rows S Read 1 and S Read 2 when authored raw FastQC is enabled or paired Trim Galore evidence exists before threshold filtering",
+      "star_salmon": "exact canonical analysis-pass samples",
+      "cutadapt": "exact effective-downstream identities for every sample",
+      "fastp": "exact canonical identities for every sample",
+      "fastqc_raw": "exact authored-layout identities for every sample",
+      "fastqc_trimmed_trimgalore": "exact effective-downstream identities for every sample",
+      "fastqc_trimmed_fastp": "exact effective-downstream identities for analysis-pass samples",
+      "fastqc_filtered": "exact effective-downstream identities for analysis-pass samples",
+      "picard_featurecounts_rseqc": "exact canonical post-mapping-pass samples"
+    },
+    "status_tables": "separately parsed and reconciled against bounded native evidence; never admitted by the generic row audit; both status tables and every native evidence path including absence are content-SHA snapshotted at reconciliation",
+    "revalidation": "content_sha256_snapshot_at_reconciliation_and_complete_descriptor_relative_reread_after_candidate_collection; any status or evidence replacement changes the result to a stable race failure"
   },
   "bounded_limits": {
     "artifact_candidates": 128128,
     "audited_namespace_entries": 128128,
     "sample_status_table_bytes": 194128,
+    "published_multiqc_table_data_rows": 3000,
+    "published_multiqc_table_bytes_each": 16777216,
+    "published_multiqc_table_bytes_total": 67108864,
+    "sample_status_evidence_bytes_each": 16777216,
+    "sample_status_evidence_bytes_total": 268435456,
+    "sample_status_evidence_line_characters": 8192,
+    "sample_status_numeric_characters": 64,
     "qc_source_files": 16016,
     "qc_source_bytes_each": 16777216,
     "qc_source_bytes_total": 268435456,
@@ -186,7 +329,50 @@
     "metric_sort": ["metric_key", "scope", "sample_id", "experiment_id", "source_artifact_id"],
     "numeric_type": "decimal",
     "percentage_conversion": "decimal_percent_divided_by_100",
-    "unknown_output_policy": "ignore outside audited namespaces; reject foreign sample identity inside audited namespaces",
+    "unknown_output_policy": "audit fixed sample-bearing namespaces with explicit bounded single-level scans and audit every published MultiQC machine table with descriptor-relative bounded content ownership checks; reject foreign identities, ownership collisions, duplicate rows, malformed content, recognized non-regular entries, and observable replacement; ignore unrecognized names and outputs outside the enumerated namespaces",
     "missing_required_policy": "fail_closed"
-  }
+  },
+  "audited_sample_namespaces": [
+    "star_salmon",
+    "star_salmon/log",
+    "star_salmon/bigwig",
+    "star_salmon/featurecounts",
+    "star_salmon/samtools_stats",
+    "star_salmon/umitools",
+    "star_salmon/unmapped",
+    "star_salmon/rseqc/bam_stat",
+    "star_salmon/rseqc/infer_experiment",
+    "star_salmon/rseqc/read_distribution",
+    "star_salmon/rseqc/tin",
+    "star_salmon/rseqc/inner_distance/txt",
+    "star_salmon/rseqc/junction_annotation/bed",
+    "star_salmon/rseqc/junction_annotation/xls",
+    "star_salmon/rseqc/junction_saturation/pdf",
+    "star_salmon/rseqc/read_duplication/xls",
+    "fastqc/raw",
+    "fastqc/trim",
+    "fastqc/filtered",
+    "fastp",
+    "trimgalore",
+    "fastq",
+    "umitools",
+    "sortmerna",
+    "bowtie2_rrna"
+  ],
+  "audited_published_multiqc_tables": [
+    "multiqc_general_stats.txt",
+    "multiqc_star.txt",
+    "multiqc_salmon.txt",
+    "multiqc_cutadapt.txt",
+    "multiqc_fastp.txt",
+    "multiqc_fastqc_fastqc_raw.txt",
+    "multiqc_fastqc_fastqc_trimmed.txt",
+    "multiqc_fastqc_fastqc_filtered.txt",
+    "multiqc_picard_dups.txt",
+    "multiqc_featurecounts_biotype_plot.txt",
+    "multiqc_rseqc_bam_stat.txt",
+    "multiqc_rseqc_infer_experiment.txt",
+    "multiqc_rseqc_read_distribution.txt",
+    "multiqc_rseqc_tin.txt"
+  ]
 }

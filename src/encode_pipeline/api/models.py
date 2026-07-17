@@ -495,6 +495,7 @@ class ArtifactReferenceResponse(BaseModel):
     uri: str = Field(min_length=1, max_length=2048)
     mime_type: str | None = Field(default=None, max_length=255)
     produced_at: datetime
+    revision: str = Field(pattern=r"^artifactrev-[0-9a-f]{64}$", max_length=76)
     relative_path: str
     output_type: str
     size_bytes: int
@@ -520,6 +521,7 @@ class ArtifactReferenceResponse(BaseModel):
             uri=artifact.uri,
             mime_type=artifact.mime_type,
             produced_at=artifact.produced_at,
+            revision=artifact.revision,
             relative_path=persisted.relative_path,
             output_type=persisted.output_type,
             size_bytes=persisted.size_bytes,
@@ -717,8 +719,12 @@ class RunQcMetricsResponse(BaseModel):
 
     ok: bool
     run_id: str
+    qc_generation: str | None = Field(
+        pattern=r"^qcgen-[0-9a-f]{64}$",
+        max_length=70,
+    )
     qc_metrics: list[QcMetricResponse] = Field(default_factory=list)
-    next_cursor: str | None = None
+    next_cursor: str | None = Field(default=None, max_length=1024)
     issues: list[IssueResponse] = Field(default_factory=list)
 
 

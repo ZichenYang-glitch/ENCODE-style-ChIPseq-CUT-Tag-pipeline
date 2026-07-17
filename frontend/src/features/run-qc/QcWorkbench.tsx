@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, RotateCcw } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type {
   QcMetricResponse,
   RunQcMetricsResponse,
@@ -12,6 +12,7 @@ import { isValidArtifactId } from '../run-artifacts/artifactState';
 import { QcMetricList } from './QcMetricList';
 import {
   flattenQcMetricPages,
+  isValidQcGeneration,
   isValidQcMetricId,
   qcPaginationAnomaly,
   safeNextQcCursor,
@@ -33,8 +34,11 @@ interface QcWorkbenchProps {
   onRefreshStatus: () => void;
 }
 
-export function qcMetricListQueryKey(runId: string) {
-  return ['run-qc-metrics', runId] as const;
+export function qcMetricListQueryKey(
+  runId: string,
+  generation: string | null,
+) {
+  return ['run-qc-metrics', runId, generation] as const;
 }
 
 function isOptionalSafeText(value: unknown): value is string | null {
@@ -83,10 +87,14 @@ function isValidMetric(value: unknown): value is QcMetricResponse {
 function validateListResponse(
   response: RunQcMetricsResponse,
   runId: string,
+  generation: string,
 ): RunQcMetricsResponse {
+  const responseGeneration = response.qc_generation;
   if (
     response.ok !== true ||
     response.run_id !== runId ||
+    !isValidQcGeneration(responseGeneration) ||
+    responseGeneration !== generation ||
     !Array.isArray(response.qc_metrics) ||
     response.qc_metrics.some((metric) => !isValidMetric(metric))
   ) {
@@ -101,6 +109,13 @@ function isCursorNotFound(error: unknown): boolean {
   );
 }
 
+function isGenerationChanged(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.code === 'RUN_QC_METRIC_GENERATION_CHANGED'
+  );
+}
+
 export function QcWorkbench({
   runId,
   runStatus,
@@ -110,24 +125,51 @@ export function QcWorkbench({
 }: QcWorkbenchProps) {
   const queryClient = useQueryClient();
   const indexed = runStatus === 'succeeded' && outcome.kind === 'indexed';
-  const queryKey = qcMetricListQueryKey(runId);
+  const generation = outcome.kind === 'indexed' ? outcome.generation : null;
+  const queryKey = qcMetricListQueryKey(runId, generation);
   const listQuery = useInfiniteQuery({
     queryKey,
     enabled: indexed,
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
-      validateListResponse(
-        await listRunQcMetrics(runId, {
-          after: pageParam,
-          limit: QC_PAGE_SIZE,
-        }),
+    queryFn: async ({ pageParam }) => {
+      if (!generation) throw new Error('QC generation is unavailable');
+      const parameters = {
+        after: pageParam,
+        generation,
+        limit: QC_PAGE_SIZE,
+      };
+      return validateListResponse(
+        await listRunQcMetrics(runId, parameters),
         runId,
-      ),
+        generation,
+      );
+    },
     getNextPageParam: (lastPage, allPages, _lastPageParam, allPageParams) =>
       safeNextQcCursor(lastPage, allPages, allPageParams),
     retry: 1,
     retryDelay: 100,
   });
+  const generationChangeHandled = useRef<string | null>(null);
+  const generationChanged = isGenerationChanged(listQuery.error);
+
+  useEffect(() => {
+    if (!generation) {
+      queryClient.removeQueries({ queryKey: ['run-qc-metrics', runId] });
+      return;
+    }
+    queryClient.removeQueries({
+      queryKey: ['run-qc-metrics', runId],
+      predicate: (query) => query.queryKey[2] !== generation,
+    });
+  }, [generation, queryClient, runId]);
+
+  useEffect(() => {
+    if (!generationChanged || !generation) return;
+    if (generationChangeHandled.current === generation) return;
+    generationChangeHandled.current = generation;
+    queryClient.removeQueries({ queryKey, exact: true });
+    onRefreshStatus();
+  }, [generation, generationChanged, onRefreshStatus, queryClient, queryKey]);
 
   if (runStatus !== 'succeeded') {
     return (
@@ -168,13 +210,20 @@ export function QcWorkbench({
     );
   }
 
-  const pages = listQuery.data?.pages ?? [];
-  const pageParams = listQuery.data?.pageParams ?? [];
-  const metrics = flattenQcMetricPages(pages);
+  const pages = generationChanged ? [] : (listQuery.data?.pages ?? []);
+  const pageParams = generationChanged ? [] : (listQuery.data?.pageParams ?? []);
+  let metrics: QcMetricResponse[] = [];
+  let pageIntegrityFailed = false;
+  try {
+    metrics = flattenQcMetricPages(pages);
+  } catch {
+    pageIntegrityFailed = true;
+  }
   const hasCachedMetrics = metrics.length > 0;
   const cursorAnomaly = qcPaginationAnomaly(pages, pageParams);
   const cursorWasReplaced = isCursorNotFound(listQuery.error);
-  const cursorRecoveryNeeded = cursorAnomaly || cursorWasReplaced;
+  const cursorRecoveryNeeded =
+    cursorAnomaly || cursorWasReplaced || pageIntegrityFailed;
   const queryFailed = listQuery.error !== null;
 
   function reloadFromFirstPage() {

@@ -50,6 +50,7 @@ PRODUCTION_PERSISTENCE_PATHS = frozenset(
         "src/encode_pipeline/persistence/alembic/versions/20260712_05_run_qc_metrics.py",
         "src/encode_pipeline/persistence/alembic/versions/20260714_06_validated_input_snapshots.py",
         "src/encode_pipeline/persistence/alembic/versions/20260714_07_run_history_indexes.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260717_08_run_result_generations.py",
     }
 )
 

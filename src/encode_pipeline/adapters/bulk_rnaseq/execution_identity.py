@@ -28,6 +28,7 @@ EXECUTION_MIGRATION_REVISION_PATHS = (
     "src/encode_pipeline/persistence/alembic/versions/20260712_05_run_qc_metrics.py",
     "src/encode_pipeline/persistence/alembic/versions/20260714_06_validated_input_snapshots.py",
     "src/encode_pipeline/persistence/alembic/versions/20260714_07_run_history_indexes.py",
+    "src/encode_pipeline/persistence/alembic/versions/20260717_08_run_result_generations.py",
 )
 
 # This is an exact allowlist, not a recursive glob. A new execution dependency
@@ -43,6 +44,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/adapters/bulk_rnaseq/resource_closure.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/results_contract.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/runtime_assets.py",
+    "src/encode_pipeline/adapters/bulk_rnaseq/status_evidence.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/qc.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/upstream.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/validation.py",
@@ -53,6 +55,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/platform/managed_containers.py",
     "src/encode_pipeline/platform/planning.py",
     "src/encode_pipeline/platform/registry.py",
+    "src/encode_pipeline/platform/result_generations.py",
     "src/encode_pipeline/platform/results.py",
     "src/encode_pipeline/platform/runs.py",
     "src/encode_pipeline/contracts/nfcore_rnaseq/results-contract-3.26.0.json",
