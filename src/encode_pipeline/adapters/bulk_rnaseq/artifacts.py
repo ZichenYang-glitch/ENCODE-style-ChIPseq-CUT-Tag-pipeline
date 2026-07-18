@@ -28,6 +28,7 @@ from encode_pipeline.adapters.bulk_rnaseq.results_contract import (
     effective_downstream_layout,
     effective_rseqc_modules,
     load_bulk_rnaseq_results_contract,
+    trimmed_fastqc_enabled,
 )
 from encode_pipeline.adapters.bulk_rnaseq.status_evidence import (
     StatusEvidenceError,
@@ -1244,8 +1245,6 @@ def _retained_read_evidence(
             except StatusEvidenceError as exc:
                 raise _StatusTableError from exc
         elif params.get("trimmer") == "trimgalore":
-            if params.get("skip_fastqc") is True:
-                continue
             layout = effective_downstream_layout(str(row["layout"]), params)
             roles = ("single",) if layout == "SE" else ("read1", "read2")
             counts: list[Decimal] = []
@@ -1485,16 +1484,16 @@ def _expected_specs(
 
         if params.get("skip_fastqc") is False:
             _add_fastqc_specs(add, sample, roles, stage="raw")
-            if params.get("skip_trimming") is False:
-                _add_fastqc_specs(
-                    add,
-                    sample,
-                    downstream_roles,
-                    stage="trimmed",
-                    trimmer=str(params.get("trimmer")),
-                )
             if params.get("remove_ribo_rna") is True:
                 _add_fastqc_specs(add, sample, downstream_roles, stage="filtered")
+        if trimmed_fastqc_enabled(params):
+            _add_fastqc_specs(
+                add,
+                sample,
+                downstream_roles,
+                stage="trimmed",
+                trimmer=str(params.get("trimmer")),
+            )
 
         if params.get("skip_trimming") is False:
             _add_trimming_specs(add, params, sample, downstream_layout)
@@ -2021,8 +2020,7 @@ def _add_multiqc_specs(
         (
             "multiqc_fastqc_fastqc_trimmed.txt",
             "bulk_rnaseq.multiqc.fastqc.trimmed",
-            params.get("skip_fastqc") is False
-            and params.get("skip_trimming") is False
+            trimmed_fastqc_enabled(params)
             and (params.get("trimmer") == "trimgalore" or analysis_present),
             True,
         ),

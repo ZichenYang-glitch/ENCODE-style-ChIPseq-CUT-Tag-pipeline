@@ -283,6 +283,77 @@ def test_same_length_artifact_revision_replacement_advances_generation_and_inval
     assert repository.list_qc_metrics("run-1") == ()
 
 
+def test_artifact_page_read_is_generation_bound_when_ids_and_count_are_reused(
+    repository,
+):
+    first = (
+        _artifact("artifact-a", revision_seed="generation-a"),
+        _artifact("artifact-b", revision_seed="generation-a"),
+    )
+    _prepare(repository, first)
+    generation_a = repository.get_result_state("run-1").artifact_generation
+    assert generation_a is not None
+    observed_generation, page = repository.list_artifacts_page(
+        "run-1",
+        expected_generation=generation_a,
+        limit=1,
+    )
+    assert observed_generation == generation_a
+    assert tuple(item.artifact_id for item in page) == ("artifact-a",)
+
+    second = (
+        _artifact("artifact-a", revision_seed="generation-b"),
+        _artifact("artifact-b", revision_seed="generation-b"),
+    )
+    attempt_id = _begin_artifact_attempt(repository)
+    repository.replace_artifacts(
+        "run-1",
+        second,
+        attempt_id=attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+        event=_event("artifacts_indexed"),
+    )
+
+    with pytest.raises(ResultGenerationChangedError):
+        repository.list_artifacts_page(
+            "run-1",
+            expected_generation=generation_a,
+            after="artifact-a",
+            limit=1,
+        )
+
+
+def test_artifact_detail_checks_generation_before_deleted_row(repository):
+    first = (_artifact("artifact-a", revision_seed="generation-a"),)
+    _prepare(repository, first)
+    generation_a = repository.get_result_state("run-1").artifact_generation
+    assert generation_a is not None
+
+    attempt_id = _begin_artifact_attempt(repository)
+    repository.replace_artifacts(
+        "run-1",
+        (),
+        attempt_id=attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+        event=_event("artifacts_indexed"),
+    )
+    generation_b = repository.get_result_state("run-1").artifact_generation
+    assert generation_b is not None and generation_b != generation_a
+
+    with pytest.raises(ResultGenerationChangedError):
+        repository.get_artifact_at_generation(
+            "run-1",
+            "artifact-a",
+            expected_generation=generation_a,
+        )
+    with pytest.raises(KeyError):
+        repository.get_artifact_at_generation(
+            "run-1",
+            "artifact-a",
+            expected_generation=generation_b,
+        )
+
+
 def test_result_timestamps_are_utc_canonical_and_match_persisted_generations(
     repository,
 ):
@@ -1265,6 +1336,101 @@ def test_sqlalchemy_generation_bound_page_read_is_atomic_during_replacement(
         )
         assert final_generation != original_generation
         assert final_metrics == replacement
+    finally:
+        sqlalchemy_event.remove(
+            reader_engine,
+            "after_cursor_execute",
+            pause_after_state_select,
+        )
+        reader_engine.dispose()
+        writer_engine.dispose()
+
+
+def test_sqlalchemy_artifact_generation_bound_page_read_is_atomic_during_replacement(
+    tmp_path,
+):
+    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
+    upgrade_database(database_url)
+    setup_engine = create_database_engine(database_url)
+    setup = SqlAlchemyRunRepository(create_session_factory(setup_engine))
+    original = (
+        _artifact("artifact-a", revision_seed="generation-a"),
+        _artifact("artifact-b", revision_seed="generation-a"),
+    )
+    _prepare(setup, original)
+    original_generation = setup.get_result_state("run-1").artifact_generation
+    assert original_generation is not None
+    setup_engine.dispose()
+
+    reader_engine = create_database_engine(database_url)
+    writer_engine = create_database_engine(database_url)
+    reader = SqlAlchemyRunRepository(create_session_factory(reader_engine))
+    writer = SqlAlchemyRunRepository(create_session_factory(writer_engine))
+    replacement = (
+        _artifact("artifact-a", revision_seed="generation-b"),
+        _artifact("artifact-b", revision_seed="generation-b"),
+    )
+    writer_attempt = _begin_artifact_attempt(writer)
+    state_selected = Event()
+    replacement_committed = Event()
+
+    def pause_after_state_select(
+        _connection,
+        _cursor,
+        statement,
+        _parameters,
+        _context,
+        _executemany,
+    ):
+        if "FROM run_result_states" not in statement or state_selected.is_set():
+            return
+        state_selected.set()
+        assert replacement_committed.wait(timeout=5)
+
+    sqlalchemy_event.listen(
+        reader_engine,
+        "after_cursor_execute",
+        pause_after_state_select,
+    )
+
+    def read_second_page():
+        return reader.list_artifacts_page(
+            "run-1",
+            expected_generation=original_generation,
+            after="artifact-a",
+            limit=1,
+        )
+
+    def replace_generation():
+        assert state_selected.wait(timeout=5)
+        try:
+            writer.replace_artifacts(
+                "run-1",
+                replacement,
+                attempt_id=writer_attempt,
+                expected_status=RunStatus.SUCCEEDED,
+                event=_event("artifacts_indexed", context={"artifact_count": 2}),
+            )
+        finally:
+            replacement_committed.set()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            read_future = pool.submit(read_second_page)
+            replace_future = pool.submit(replace_generation)
+            page = read_future.result(timeout=10)
+            replace_future.result(timeout=10)
+
+        assert page == (
+            original_generation,
+            (original[1],),
+        )
+        final_generation, final_artifacts = reader.list_artifacts_page(
+            "run-1",
+            expected_generation=None,
+        )
+        assert final_generation != original_generation
+        assert final_artifacts == replacement
     finally:
         sqlalchemy_event.remove(
             reader_engine,

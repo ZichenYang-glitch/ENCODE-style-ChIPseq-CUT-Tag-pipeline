@@ -275,7 +275,7 @@ declares `artifact_extract` and `qc_summary_extract` only in addition to the
 verified workspace and command capabilities; the contract-only adapter and the
 default registry remain unchanged. Its versioned results contract is fixed to
 nf-core/rnaseq 3.26.0 STAR+Salmon and has SHA-256
-`aafb85253adf797e37f14ea02097cd9f9112a3b45e72ab0f6c4b2f22b0bde190`.
+`a099f495de027a385580cf14e2316b7e96ea6d67b971af02f3180cbf751e859f`.
 
 Artifact discovery derives a finite list of exact paths from normalized sample
 identities and output-shaping parameters. It does not recursively glob the
@@ -329,6 +329,21 @@ artifact replacement. The bulk adapter supplies stable output types, media
 types, sample/run scope, assay, and deterministic ordering. The authoring
 contract has no experiment identity, so it is not invented in result metadata.
 
+Artifact list and detail responses expose that public-safe generation. List
+cursors are canonical opaque values bound to run, generation, and artifact-ID
+position; the repository validates the expected generation in the same
+consistent read as the page or detail and returns a stable conflict before a
+cross-generation result can be composed. Frontend list/detail caches and
+download actions use the generation as authority and discard the complete old
+cache family when it changes. A download additionally requires the exact
+revision shown in the selected detail. Before response headers, the service
+safely opens the descriptor-relative no-follow path and reconciles its opaque
+path identity plus either the bounded content SHA-256 revision or the complete
+large-file descriptor revision. Bounded content is snapshotted only after the
+checks pass. Large streams recheck the descriptor chain around each read and
+never yield a chunk observed across a detectable mutation; a race terminates
+the stream with no replacement bytes admitted under the old generation.
+
 MultiQC 1.33 filename cleaning is not injective over the original 1.0.0 sample
 identifier alphabet. The adapter therefore reserves every literal from the
 pinned MultiQC defaults and nf-core config that could rewrite an authored
@@ -368,7 +383,19 @@ JSON, sanitized MultiQC 1.33 Cutadapt and Picard tables, STAR final summaries,
 Salmon metadata, featureCounts summaries, and selected RSeQC 5.0.4 native
 tables. MultiQC HTML is neither published nor parsed. Percentages are converted directly to
 `Decimal` fractions, unknown or duplicate semantic coordinates fail, and
-missing optional tools never produce synthetic zeroes. Trimmed FastQC `Total
+missing optional tools never produce synthetic zeroes. In the fixed 3.26.0
+preprocessing graph, `skip_fastqc` gates the separate raw FastQC process and
+the later filtered FastQC process. It does not disable Trim Galore's bundled
+post-trim FastQC: the pinned module config always supplies `--fastqc_args`, and
+the Trim Galore process publishes its HTML/ZIP outputs for both SE and PE.
+The evidence closure fixes upstream Trim Galore tag `v2.1.0` at commit
+`3f6be57a7da52b0b91a2641c6121bff6e34eb6a4` and records the exact CLI and
+SE/PE dispatch source identities proving that `--fastqc_args` activates the
+bundled FastQC route.
+Accordingly, `qc.fastqc=false` removes raw/filtered FastQC artifacts but the
+post-trim evidence remains required whenever Trim Galore trimming is enabled;
+low-yield samples keep that evidence even when later analysis outputs are
+filtered. Trimmed FastQC `Total
 Sequences` provides an exact final retained-read count; paired mates must
 agree. MultiQC Cutadapt integer fields provide exact input and
 post-adapter/quality base counts before later length/pair filtering. FastQC

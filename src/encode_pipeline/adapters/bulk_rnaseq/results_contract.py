@@ -10,9 +10,9 @@ from typing import Any, Mapping
 
 
 RESULTS_CONTRACT_FILE = "results-contract-3.26.0.json"
-RESULTS_CONTRACT_SIZE = 25_486
+RESULTS_CONTRACT_SIZE = 26_889
 RESULTS_CONTRACT_SHA256 = (
-    "aafb85253adf797e37f14ea02097cd9f9112a3b45e72ab0f6c4b2f22b0bde190"
+    "a099f495de027a385580cf14e2316b7e96ea6d67b971af02f3180cbf751e859f"
 )
 _CONTRACT_PACKAGE = "encode_pipeline.contracts.nfcore_rnaseq"
 _DEFAULT_RSEQC_MODULES = (
@@ -81,6 +81,17 @@ def effective_downstream_layout(
     ):
         return "SE"
     return original_layout
+
+
+def trimmed_fastqc_enabled(params: Mapping[str, object]) -> bool:
+    """Return whether the pinned route emits post-trim FastQC outputs."""
+    if params.get("skip_trimming") is True:
+        return False
+    if params.get("trimmer") == "trimgalore":
+        # nf-core/rnaseq 3.26.0 always supplies Trim Galore ``--fastqc_args``;
+        # ``skip_fastqc`` only controls the separate raw/filtered FASTQC route.
+        return True
+    return params.get("trimmer") == "fastp" and params.get("skip_fastqc") is False
 
 
 def effective_rseqc_modules(params: Mapping[str, object]) -> tuple[str, ...]:

@@ -13,6 +13,10 @@ import {
   safeNextArtifactCursor,
 } from './artifactState';
 
+const GENERATION_A = `artifactgen-${'a'.repeat(64)}`;
+const CURSOR_A = `artifactcur_${'a'.repeat(64)}`;
+const CURSOR_B = `artifactcur_${'b'.repeat(64)}`;
+
 function event(
   sequence: number,
   eventType: string,
@@ -56,6 +60,7 @@ function page(
   return {
     ok: true,
     run_id: 'run-1',
+    artifact_generation: GENERATION_A,
     artifacts: values,
     next_cursor: nextCursor,
     issues: [],
@@ -63,15 +68,49 @@ function page(
 }
 
 describe('artifactExtractionOutcome', () => {
+  it('treats every truncated event prefix as unconfirmed', () => {
+    expect(
+      artifactExtractionOutcome(
+        [
+          event(7, 'artifacts_indexed', {
+            artifact_count: 1,
+            artifact_generation: GENERATION_A,
+          }),
+        ],
+        true,
+      ),
+    ).toEqual({ kind: 'unconfirmed' });
+    expect(
+      artifactExtractionOutcome(
+        [event(8, 'artifact_extraction_failed', { reason_code: 'OLD_FAILURE' })],
+        true,
+      ),
+    ).toEqual({ kind: 'unconfirmed' });
+  });
+
+  it('binds an indexed outcome to its public artifact generation', () => {
+    expect(
+      artifactExtractionOutcome([
+        event(4, 'artifacts_indexed', {
+          artifact_count: 2,
+          artifact_generation: GENERATION_A,
+        }),
+      ]),
+    ).toEqual({ kind: 'indexed', count: 2, generation: GENERATION_A });
+  });
+
   it('uses the latest extraction outcome and validates indexed counts', () => {
     expect(artifactExtractionOutcome([])).toEqual({ kind: 'pending' });
     expect(artifactExtractionOutcome([], true)).toEqual({ kind: 'unconfirmed' });
     expect(
       artifactExtractionOutcome([
         event(3, 'artifact_extraction_failed', { reason_code: 'OLD_FAILURE' }),
-        event(4, 'artifacts_indexed', { artifact_count: 2 }),
+        event(4, 'artifacts_indexed', {
+          artifact_count: 2,
+          artifact_generation: GENERATION_A,
+        }),
       ]),
-    ).toEqual({ kind: 'indexed', count: 2 });
+    ).toEqual({ kind: 'indexed', count: 2, generation: GENERATION_A });
     expect(
       artifactExtractionOutcome([
         event(5, 'artifacts_indexed', { artifact_count: 2 }),
@@ -104,21 +143,20 @@ describe('artifactExtractionOutcome', () => {
 });
 
 describe('artifact pagination helpers', () => {
-  it('deduplicates artifacts across pages without changing first-seen order', () => {
+  it('rejects duplicate artifacts across pages instead of hiding pagination drift', () => {
     expect(
-      flattenArtifactPages([
-        page([artifact('artifact-a'), artifact('artifact-b')], 'artifact-b'),
-        page([artifact('artifact-b'), artifact('artifact-c')]),
-      ]).map((item) => item.artifact_id),
-    ).toEqual(['artifact-a', 'artifact-b', 'artifact-c']);
+      () =>
+        flattenArtifactPages([
+          page([artifact('artifact-a'), artifact('artifact-b')], CURSOR_A),
+          page([artifact('artifact-b'), artifact('artifact-c')]),
+        ]),
+    ).toThrow('duplicate artifact in paginated result');
   });
 
   it('stops empty, malformed, current, or already-seen cursors', () => {
-    const first = page([artifact('artifact-a')], 'artifact-a');
-    expect(safeNextArtifactCursor(first, [first], [undefined])).toBe('artifact-a');
-    expect(
-      safeNextArtifactCursor(first, [first], ['artifact-a']),
-    ).toBeUndefined();
+    const first = page([artifact('artifact-a')], CURSOR_A);
+    expect(safeNextArtifactCursor(first, [first], [undefined])).toBe(CURSOR_A);
+    expect(safeNextArtifactCursor(first, [first], [CURSOR_A])).toBeUndefined();
     expect(
       safeNextArtifactCursor(page([artifact('artifact-a')], ''), [first], [undefined]),
     ).toBeUndefined();
@@ -129,21 +167,21 @@ describe('artifact pagination helpers', () => {
         [undefined],
       ),
     ).toBeUndefined();
-    const repeated = page([artifact('artifact-c')], 'artifact-a');
+    const repeated = page([artifact('artifact-c')], CURSOR_A);
     expect(
       safeNextArtifactCursor(
         repeated,
         [first, repeated],
-        [undefined, 'artifact-a'],
+        [undefined, CURSOR_A],
       ),
     ).toBeUndefined();
     expect(
       safeNextArtifactCursor(
-        page([artifact('artifact-b')], 'artifact-b'),
+        page([artifact('artifact-b')], CURSOR_B),
         [first],
         [undefined],
       ),
-    ).toBe('artifact-b');
+    ).toBe(CURSOR_B);
   });
 });
 

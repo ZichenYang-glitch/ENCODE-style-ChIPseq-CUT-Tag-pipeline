@@ -1157,6 +1157,32 @@ describe('RunProgressPanel', () => {
     });
   });
 
+  it('contains a rejected manual status refresh and exposes only the safe query issue', async () => {
+    const baseClient = createMockRunClient();
+    await baseClient.createRun(WORKFLOW_ID, {
+      snapshot_id: validatedSnapshot.snapshot_id,
+    });
+    const originalGetRun = baseClient.getRun;
+    const runClient: RunApiClient = {
+      ...baseClient,
+      getRun: vi
+        .fn()
+        .mockImplementationOnce(() => originalGetRun('run-1'))
+        .mockRejectedValueOnce(new Error('/private/status endpoint')),
+    };
+    const user = userEvent.setup();
+
+    renderPanel({ runId: 'run-1', runClient });
+    expect(await screen.findByTestId('run-status-badge')).toHaveTextContent('created');
+    await user.click(screen.getByRole('button', { name: 'Refresh run progress' }));
+
+    expect(
+      await screen.findByText(/Run progress could not be loaded\. Try again\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('/private/status endpoint')).not.toBeInTheDocument();
+    expect(runClient.getRun).toHaveBeenCalledTimes(2);
+  });
+
   it('refetches canonical terminal state after a start conflict envelope', async () => {
     const baseClient = createMockRunClient();
     await baseClient.createRun(WORKFLOW_ID, {

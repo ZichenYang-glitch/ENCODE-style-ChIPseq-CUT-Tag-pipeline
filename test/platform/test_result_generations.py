@@ -9,12 +9,15 @@ from decimal import Decimal
 import pytest
 
 from encode_pipeline.platform.result_generations import (
+    ArtifactCursor,
     QcMetricCursor,
     RunResultState,
     build_artifact_content_revision,
     build_artifact_generation,
     build_qc_generation,
+    decode_artifact_cursor,
     decode_qc_metric_cursor,
+    encode_artifact_cursor,
     encode_qc_metric_cursor,
     new_result_attempt_id,
 )
@@ -154,6 +157,58 @@ def test_qc_cursor_round_trip_is_canonical_and_generation_bound():
             encoded,
             run_id="run-1",
             qc_generation="qcgen-" + "c" * 64,
+        )
+
+
+def test_artifact_cursor_round_trip_is_canonical_and_generation_bound():
+    generation = "artifactgen-" + "a" * 64
+    cursor = ArtifactCursor(
+        run_id="run-1",
+        artifact_generation=generation,
+        after_artifact_id="artifact-summary",
+    )
+
+    encoded = encode_artifact_cursor(cursor)
+
+    assert encoded.startswith("artifactcur_")
+    assert (
+        decode_artifact_cursor(
+            encoded,
+            run_id="run-1",
+            artifact_generation=generation,
+        )
+        == cursor
+    )
+    assert "/private" not in encoded
+    with pytest.raises(ValueError):
+        decode_artifact_cursor(
+            encoded,
+            run_id="run-2",
+            artifact_generation=generation,
+        )
+    with pytest.raises(ValueError):
+        decode_artifact_cursor(
+            encoded,
+            run_id="run-1",
+            artifact_generation="artifactgen-" + "c" * 64,
+        )
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "artifact-summary",
+        "artifactcur_",
+        "artifactcur_../private",
+        "artifactcur_" + "a" * 1025,
+    ),
+)
+def test_artifact_cursor_rejects_legacy_malformed_and_oversized_values(value):
+    with pytest.raises(ValueError):
+        decode_artifact_cursor(
+            value,
+            run_id="run-1",
+            artifact_generation="artifactgen-" + "a" * 64,
         )
 
 

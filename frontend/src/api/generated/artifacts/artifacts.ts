@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.3.0
  */
 import type {
+  DownloadRunArtifactParams,
+  GetRunArtifactParams,
   ListRunArtifactsParams,
   RunArtifactDetailResponse,
   RunArtifactsResponse
@@ -52,18 +54,27 @@ export const listRunArtifacts = async (runId: string,
  * @summary Get Run Artifact
  */
 export const getGetRunArtifactUrl = (runId: string,
-    artifactId: string,) => {
+    artifactId: string,
+    params: GetRunArtifactParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/v1/runs/${runId}/artifacts/${artifactId}`
+  return stringifiedParams.length > 0 ? `/api/v1/runs/${runId}/artifacts/${artifactId}?${stringifiedParams}` : `/api/v1/runs/${runId}/artifacts/${artifactId}`
 }
 
 export const getRunArtifact = async (runId: string,
-    artifactId: string, options?: RequestInit): Promise<RunArtifactDetailResponse> => {
+    artifactId: string,
+    params: GetRunArtifactParams, options?: RequestInit): Promise<RunArtifactDetailResponse> => {
 
-  return fetcher<RunArtifactDetailResponse>(getGetRunArtifactUrl(runId,artifactId),
+  return fetcher<RunArtifactDetailResponse>(getGetRunArtifactUrl(runId,artifactId,params),
   {
     ...options,
     method: 'GET'
@@ -78,18 +89,27 @@ export const getRunArtifact = async (runId: string,
  * @summary Download Run Artifact
  */
 export const getDownloadRunArtifactUrl = (runId: string,
-    artifactId: string,) => {
+    artifactId: string,
+    params: DownloadRunArtifactParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/v1/runs/${runId}/artifacts/${artifactId}/download`
+  return stringifiedParams.length > 0 ? `/api/v1/runs/${runId}/artifacts/${artifactId}/download?${stringifiedParams}` : `/api/v1/runs/${runId}/artifacts/${artifactId}/download`
 }
 
 export const downloadRunArtifact = async (runId: string,
-    artifactId: string, options?: RequestInit): Promise<Blob> => {
+    artifactId: string,
+    params: DownloadRunArtifactParams, options?: RequestInit): Promise<Blob> => {
 
-  return blobFetcher<Blob>(getDownloadRunArtifactUrl(runId,artifactId),
+  return blobFetcher<Blob>(getDownloadRunArtifactUrl(runId,artifactId,params),
   {
     ...options,
     method: 'GET'

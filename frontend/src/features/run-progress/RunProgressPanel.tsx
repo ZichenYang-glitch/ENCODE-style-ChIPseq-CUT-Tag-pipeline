@@ -534,10 +534,13 @@ export function RunProgressPanel({
     }
   }
 
-  function handleRefresh() {
+  async function handleRefresh(): Promise<void> {
     clearActionIssues();
     resumePolling();
-    void runQuery.refetch();
+    const result = await runQuery.refetch();
+    if (result.isError) {
+      throw new Error('canonical run status refresh failed');
+    }
   }
 
   const queryIssues = snapshot?.issues ?? [];
@@ -656,7 +659,7 @@ export function RunProgressPanel({
             )}
             <Button
               variant="secondary"
-              onClick={handleRefresh}
+              onClick={() => void handleRefresh().catch(() => undefined)}
               disabled={runQuery.isFetching || executionActionPending}
               aria-label="Refresh run progress"
               data-testid="refresh-run-button"

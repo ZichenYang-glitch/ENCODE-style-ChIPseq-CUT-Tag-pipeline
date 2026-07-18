@@ -341,6 +341,61 @@ describe('QcWorkbench pagination and recovery', () => {
     expect(screen.queryAllByText('Stale metric')).toHaveLength(0);
   });
 
+  it('retries canonical status after the first 409 refresh fails and resumes only on the new generation', async () => {
+    const user = userEvent.setup();
+    const changed = new ApiError(
+      409,
+      'RUN_QC_METRIC_GENERATION_CHANGED',
+      'QC metric generation changed.',
+    );
+    listQcMetricsMock
+      .mockResolvedValueOnce(page([metric(METRIC_A, 'Stale metric')], CURSOR_A))
+      .mockRejectedValueOnce(changed)
+      .mockResolvedValueOnce(
+        page([metric(METRIC_A, 'Current metric', '202')], null, GENERATION_B),
+      );
+    let rendered: ReturnType<typeof renderWorkbench>;
+    const onRefreshStatus = vi
+      .fn<[], Promise<void>>()
+      .mockRejectedValueOnce(new Error('/private/status'))
+      .mockImplementationOnce(async () => {
+        rendered.rerender(
+          <QueryClientProvider client={rendered.queryClient}>
+            <QcWorkbench
+              {...rendered.props}
+              outcome={indexedOutcome(1, GENERATION_B)}
+            />
+          </QueryClientProvider>,
+        );
+      });
+    rendered = renderWorkbench({
+      outcome: indexedOutcome(2, GENERATION_A),
+      onRefreshStatus,
+    });
+
+    expect(await screen.findAllByText('Stale metric')).not.toHaveLength(0);
+    await user.click(screen.getByRole('button', { name: 'Load more QC metrics' }));
+    expect(
+      await screen.findByRole('button', { name: 'Refresh QC status' }),
+    ).toBeInTheDocument();
+    expect(onRefreshStatus).toHaveBeenCalledTimes(1);
+    expect(
+      listQcMetricsMock.mock.calls.filter(
+        ([, parameters]) => parameters?.generation === GENERATION_A,
+      ),
+    ).toHaveLength(2);
+
+    await user.click(screen.getByRole('button', { name: 'Refresh QC status' }));
+    expect(onRefreshStatus).toHaveBeenCalledTimes(2);
+    expect(await screen.findAllByText('Current metric')).not.toHaveLength(0);
+    expect(screen.queryAllByText('Stale metric')).toHaveLength(0);
+    expect(listQcMetricsMock).toHaveBeenLastCalledWith('run-1', {
+      after: undefined,
+      generation: GENERATION_B,
+      limit: 50,
+    });
+  });
+
   it('retries an initial redacted transport failure', async () => {
     const user = userEvent.setup();
     listQcMetricsMock

@@ -243,7 +243,24 @@ class RunRepository(Protocol):
         limit: int | None = None,
     ) -> tuple[RunArtifactRef, ...]: ...
 
+    def list_artifacts_page(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str | None,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str | None, tuple[RunArtifactRef, ...]]: ...
+
     def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef: ...
+
+    def get_artifact_at_generation(
+        self,
+        run_id: str,
+        artifact_id: str,
+        *,
+        expected_generation: str | None,
+    ) -> tuple[str, RunArtifactRef]: ...
 
     def replace_qc_metrics(
         self,
@@ -888,11 +905,33 @@ class InMemoryRunRepository:
         after: str | None = None,
         limit: int | None = None,
     ) -> tuple[RunArtifactRef, ...]:
+        _, artifacts = self.list_artifacts_page(
+            run_id,
+            expected_generation=None,
+            after=after,
+            limit=limit,
+        )
+        return artifacts
+
+    def list_artifacts_page(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str | None,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str | None, tuple[RunArtifactRef, ...]]:
+        if expected_generation is not None:
+            validate_artifact_generation(expected_generation)
         with self._lock:
             self._runs[run_id]
-            if self._artifacts[run_id] and (
-                self._result_states[run_id].artifact_generation is None
+            state = self._result_states[run_id]
+            if (
+                expected_generation is not None
+                and state.artifact_generation != expected_generation
             ):
+                raise ResultGenerationChangedError("artifact generation changed")
+            if self._artifacts[run_id] and state.artifact_generation is None:
                 raise ValueError("artifact generation is unbound")
             artifacts = tuple(
                 sorted(
@@ -905,20 +944,47 @@ class InMemoryRunRepository:
                 if after is None
                 else self._index_after(artifacts, after, "artifact_id") + 1
             )
+            if limit is not None and limit <= 0:
+                raise ValueError("limit must be positive")
             return (
-                artifacts[start:] if limit is None else artifacts[start : start + limit]
+                state.artifact_generation,
+                artifacts[start:]
+                if limit is None
+                else artifacts[start : start + limit],
             )
 
     def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef:
+        _, artifact = self.get_artifact_at_generation(
+            run_id,
+            artifact_id,
+            expected_generation=None,
+        )
+        return artifact
+
+    def get_artifact_at_generation(
+        self,
+        run_id: str,
+        artifact_id: str,
+        *,
+        expected_generation: str | None,
+    ) -> tuple[str, RunArtifactRef]:
+        if expected_generation is not None:
+            validate_artifact_generation(expected_generation)
         with self._lock:
             self._runs[run_id]
+            state = self._result_states[run_id]
+            if (
+                expected_generation is not None
+                and state.artifact_generation != expected_generation
+            ):
+                raise ResultGenerationChangedError("artifact generation changed")
             try:
                 artifact = self._artifacts[run_id][artifact_id]
             except KeyError:
                 raise KeyError((run_id, artifact_id)) from None
-            if self._result_states[run_id].artifact_generation is None:
+            if state.artifact_generation is None:
                 raise ValueError("artifact generation is unbound")
-            return artifact
+            return state.artifact_generation, artifact
 
     def replace_qc_metrics(
         self,

@@ -69,7 +69,10 @@ function succeededRunClient(): RunApiClient {
           status: 'succeeded',
           stage: 'artifact_extraction',
           message: 'Artifacts indexed.',
-          context: { artifact_count: 1 },
+          context: {
+            artifact_count: 1,
+            artifact_generation: `artifactgen-${'a'.repeat(64)}`,
+          },
           issue: null,
         },
       ],
@@ -93,6 +96,7 @@ beforeEach(() => {
   listArtifactsMock.mockResolvedValue({
     ok: true,
     run_id: 'run-1',
+    artifact_generation: `artifactgen-${'a'.repeat(64)}`,
     artifacts: [artifact],
     next_cursor: null,
     issues: [],
@@ -100,6 +104,7 @@ beforeEach(() => {
   getArtifactMock.mockResolvedValue({
     ok: true,
     run_id: 'run-1',
+    artifact_generation: `artifactgen-${'a'.repeat(64)}`,
     artifact,
     issues: [],
   });
@@ -156,7 +161,9 @@ describe('run artifact browser route state', () => {
       'aria-selected',
       'true',
     );
-    expect(getArtifactMock).toHaveBeenCalledWith('run-1', 'artifact-a');
+    expect(getArtifactMock).toHaveBeenCalledWith('run-1', 'artifact-a', {
+      generation: `artifactgen-${'a'.repeat(64)}`,
+    });
   });
 
   it('rejects an unsafe decoded artifact deep link before the generated call', async () => {

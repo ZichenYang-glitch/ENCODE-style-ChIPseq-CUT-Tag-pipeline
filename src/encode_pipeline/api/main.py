@@ -12,6 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from encode_pipeline.api.models import (
+    RunArtifactDetailResponse,
     RunArtifactDownloadErrorResponse,
     RunArtifactsResponse,
     RunHistoryResponse,
@@ -199,13 +200,16 @@ async def _handle_request_validation_error(
         body = RunArtifactsResponse(
             ok=False,
             run_id=run_id,
+            artifact_generation=None,
             artifacts=[],
             next_cursor=None,
             issues=[issue.to_dict()],
         )
+        content = body.model_dump(mode="json", exclude_none=True)
+        content["artifact_generation"] = None
         return JSONResponse(
             status_code=400,
-            content=body.model_dump(mode="json", exclude_none=True),
+            content=content,
         )
     if getattr(route, "operation_id", None) == "listRunQcMetrics":
         run_id = request.path_params.get("run_id", "")
@@ -233,6 +237,43 @@ async def _handle_request_validation_error(
             status_code=400,
             content=content,
         )
+    if getattr(route, "operation_id", None) == "getRunArtifact":
+        run_id = request.path_params.get("run_id", "")
+        issue = Issue(
+            code="API_REQUEST_INVALID",
+            message="Artifact detail query parameters are invalid.",
+            severity="error",
+            path="query",
+            source="api",
+            technical_message=None,
+            hint="Use an artifact generation returned by the artifact list endpoint.",
+            context={},
+        )
+        body = RunArtifactDetailResponse(
+            ok=False,
+            run_id=run_id,
+            artifact_generation=None,
+            artifact=None,
+            issues=[issue.to_dict()],
+        )
+        return JSONResponse(status_code=400, content=body.model_dump(mode="json"))
+    if getattr(route, "operation_id", None) == "downloadRunArtifact":
+        issue = Issue(
+            code="API_REQUEST_INVALID",
+            message="Artifact download query parameters are invalid.",
+            severity="error",
+            path="query",
+            source="api",
+            technical_message=None,
+            hint="Use the generation and revision shown by the artifact detail endpoint.",
+            context={},
+        )
+        body = RunArtifactDownloadErrorResponse(
+            run_id=request.path_params.get("run_id", ""),
+            artifact_id=request.path_params.get("artifact_id", ""),
+            issues=[issue.to_dict()],
+        )
+        return JSONResponse(status_code=400, content=body.model_dump(mode="json"))
     if getattr(route, "operation_id", None) == "listRuns":
         issue = Issue(
             code="API_REQUEST_INVALID",
@@ -328,6 +369,45 @@ async def _handle_internal_server_error(
         )
         content = body.model_dump(mode="json", exclude_none=True)
         content["qc_generation"] = None
+        return JSONResponse(status_code=500, content=content)
+    if getattr(route, "operation_id", None) in {
+        "listRunArtifacts",
+        "getRunArtifact",
+    }:
+        operation_id = getattr(route, "operation_id", None)
+        issue = Issue(
+            code="INTERNAL_SERVER_ERROR",
+            message="Run artifacts are temporarily unavailable.",
+            severity="error",
+            path="artifacts" if operation_id == "listRunArtifacts" else "artifact_id",
+            source="runtime",
+            technical_message=None,
+            hint=None,
+            context={},
+        )
+        if operation_id == "listRunArtifacts":
+            body = RunArtifactsResponse(
+                ok=False,
+                run_id=request.path_params.get("run_id", ""),
+                artifact_generation=None,
+                artifacts=[],
+                next_cursor=None,
+                issues=[issue.to_dict()],
+            )
+        else:
+            body = RunArtifactDetailResponse(
+                ok=False,
+                run_id=request.path_params.get("run_id", ""),
+                artifact_generation=None,
+                artifact=None,
+                issues=[issue.to_dict()],
+            )
+        content = body.model_dump(mode="json", exclude_none=True)
+        content["artifact_generation"] = None
+        if operation_id == "listRunArtifacts":
+            content["artifacts"] = []
+        else:
+            content["artifact"] = None
         return JSONResponse(status_code=500, content=content)
     if getattr(route, "operation_id", None) == "createRun":
         issue = Issue(

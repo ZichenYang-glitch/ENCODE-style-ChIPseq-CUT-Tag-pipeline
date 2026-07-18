@@ -1,6 +1,11 @@
-import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   ArtifactReferenceResponse,
   RunArtifactDetailResponse,
@@ -12,10 +17,13 @@ import {
   listRunArtifacts,
 } from '../../api/generated/artifacts/artifacts';
 import { Button } from '../../components/Button';
+import { ApiError } from '../../api/fetcher';
 import { ArtifactInspector } from './ArtifactInspector';
 import { ArtifactList } from './ArtifactList';
 import {
   flattenArtifactPages,
+  isValidArtifactCursor,
+  isValidArtifactGeneration,
   isValidArtifactId,
   safeNextArtifactCursor,
   type ArtifactExtractionOutcome,
@@ -33,30 +41,37 @@ interface ArtifactBrowserProps {
   outcome: ArtifactExtractionOutcome;
   selectedArtifactId: string | null;
   onSelectArtifact: (artifactId: string) => void;
-  onRefreshStatus: () => void;
+  onRefreshStatus: () => void | Promise<void>;
 }
 
-export function artifactListQueryKey(runId: string) {
-  return ['run-artifacts', runId] as const;
+export function artifactListQueryKey(runId: string, generation: string | null) {
+  return ['run-artifacts', runId, generation] as const;
 }
 
-export function artifactDetailQueryKey(runId: string, artifactId: string | null) {
-  return ['run-artifact', runId, artifactId] as const;
+export function artifactDetailQueryKey(
+  runId: string,
+  generation: string | null,
+  artifactId: string | null,
+) {
+  return ['run-artifact', runId, generation, artifactId] as const;
 }
 
 function validateListResponse(
   response: RunArtifactsResponse,
   runId: string,
+  generation: string,
 ): RunArtifactsResponse {
   if (
     response.ok !== true ||
     response.run_id !== runId ||
+    !isValidArtifactGeneration(response.artifact_generation) ||
+    response.artifact_generation !== generation ||
     !Array.isArray(response.artifacts) ||
     response.artifacts.some(
       (artifact) =>
         artifact.run_id !== runId || !isValidArtifactId(artifact.artifact_id),
     ) ||
-    (response.next_cursor != null && !isValidArtifactId(response.next_cursor))
+    (response.next_cursor != null && !isValidArtifactCursor(response.next_cursor))
   ) {
     throw new Error('invalid artifact list response');
   }
@@ -67,11 +82,14 @@ function validateDetailResponse(
   response: RunArtifactDetailResponse,
   runId: string,
   artifactId: string,
+  generation: string,
 ): ArtifactReferenceResponse {
   const artifact = response.artifact;
   if (
     response.ok !== true ||
     response.run_id !== runId ||
+    !isValidArtifactGeneration(response.artifact_generation) ||
+    response.artifact_generation !== generation ||
     !artifact ||
     artifact.run_id !== runId ||
     artifact.artifact_id !== artifactId
@@ -79,6 +97,13 @@ function validateDetailResponse(
     throw new Error('invalid artifact detail response');
   }
   return artifact;
+}
+
+function isArtifactGenerationChanged(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.code === 'RUN_ARTIFACT_GENERATION_CHANGED'
+  );
 }
 
 export function ArtifactBrowser({
@@ -89,43 +114,77 @@ export function ArtifactBrowser({
   onSelectArtifact,
   onRefreshStatus,
 }: ArtifactBrowserProps) {
+  const queryClient = useQueryClient();
   const indexed = runStatus === 'succeeded' && outcome.kind === 'indexed';
+  const generation = outcome.kind === 'indexed' ? outcome.generation : null;
+  const [staleGeneration, setStaleGeneration] = useState<string | null>(null);
+  const staleRunId = useRef<string | null>(null);
+  const [statusRefreshFailed, setStatusRefreshFailed] = useState(false);
+  const automaticRefreshGeneration = useRef<string | null>(null);
+  const generationIsStale =
+    generation !== null &&
+    staleRunId.current === runId &&
+    generation === staleGeneration;
   const validSelection = isValidArtifactId(selectedArtifactId);
+  const listQueryKey = artifactListQueryKey(runId, generation);
+  const detailQueryKey = artifactDetailQueryKey(
+    runId,
+    generation,
+    selectedArtifactId,
+  );
 
   const listQuery = useInfiniteQuery({
-    queryKey: artifactListQueryKey(runId),
-    enabled: indexed,
+    queryKey: listQueryKey,
+    enabled: indexed && !generationIsStale,
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
-      validateListResponse(
+    queryFn: async ({ pageParam }) => {
+      if (!generation) throw new Error('artifact generation is unavailable');
+      return validateListResponse(
         await listRunArtifacts(runId, {
           after: pageParam,
+          generation,
           limit: ARTIFACT_PAGE_SIZE,
         }),
         runId,
-      ),
+        generation,
+      );
+    },
     getNextPageParam: (lastPage, allPages, _lastPageParam, allPageParams) =>
       safeNextArtifactCursor(lastPage, allPages, allPageParams),
-    retry: 1,
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && error.status === 409) && failureCount < 1,
     retryDelay: 100,
   });
 
   const detailQuery = useQuery({
-    queryKey: artifactDetailQueryKey(runId, selectedArtifactId),
-    enabled: indexed && validSelection,
-    queryFn: async () =>
-      validateDetailResponse(
-        await getRunArtifact(runId, selectedArtifactId!),
+    queryKey: detailQueryKey,
+    enabled: indexed && validSelection && !generationIsStale,
+    queryFn: async () => {
+      if (!generation) throw new Error('artifact generation is unavailable');
+      return validateDetailResponse(
+        await getRunArtifact(runId, selectedArtifactId!, { generation }),
         runId,
         selectedArtifactId!,
-      ),
-    retry: 1,
+        generation,
+      );
+    },
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && error.status === 409) && failureCount < 1,
     retryDelay: 100,
   });
 
   const downloadMutation = useMutation({
-    mutationFn: async (artifact: ArtifactReferenceResponse) => {
-      const blob = await downloadRunArtifact(runId, artifact.artifact_id);
+    mutationFn: async ({
+      artifact,
+      viewedGeneration,
+    }: {
+      artifact: ArtifactReferenceResponse;
+      viewedGeneration: string;
+    }) => {
+      const blob = await downloadRunArtifact(runId, artifact.artifact_id, {
+        generation: viewedGeneration,
+        revision: artifact.revision,
+      });
       saveArtifactBlob(
         blob,
         safeArtifactDownloadFilename(artifact.name, artifact.artifact_id),
@@ -133,6 +192,69 @@ export function ArtifactBrowser({
       return artifact.artifact_id;
     },
   });
+  const resetDownload = downloadMutation.reset;
+
+  useEffect(() => {
+    queryClient.removeQueries({
+      queryKey: ['run-artifacts', runId],
+      predicate: (query) => query.queryKey[2] !== generation,
+    });
+    queryClient.removeQueries({
+      queryKey: ['run-artifact', runId],
+      predicate: (query) => query.queryKey[2] !== generation,
+    });
+    resetDownload();
+    const staleBelongsToAnotherRun =
+      staleGeneration !== null && staleRunId.current !== runId;
+    const newerGenerationArrived =
+      staleGeneration !== null &&
+      generation !== null &&
+      staleGeneration !== generation;
+    if (staleBelongsToAnotherRun || newerGenerationArrived) {
+      setStaleGeneration(null);
+      staleRunId.current = null;
+      setStatusRefreshFailed(false);
+      automaticRefreshGeneration.current = null;
+    }
+  }, [generation, queryClient, resetDownload, runId, staleGeneration]);
+
+  const generationChanged =
+    isArtifactGenerationChanged(listQuery.error) ||
+    isArtifactGenerationChanged(detailQuery.error);
+
+  useEffect(() => {
+    if (!generationChanged || !generation) return;
+    if (automaticRefreshGeneration.current === generation) return;
+    automaticRefreshGeneration.current = generation;
+    staleRunId.current = runId;
+    setStaleGeneration(generation);
+    setStatusRefreshFailed(false);
+    void Promise.resolve()
+      .then(onRefreshStatus)
+      .catch(() => setStatusRefreshFailed(true));
+  }, [generation, generationChanged, onRefreshStatus, runId]);
+
+  useEffect(() => {
+    if (!generationIsStale) return;
+    queryClient.removeQueries({
+      queryKey: ['run-artifacts', runId, generation],
+      exact: true,
+    });
+    queryClient.removeQueries({
+      queryKey: ['run-artifact', runId, generation],
+      predicate: (query) => query.queryKey[2] === generation,
+    });
+    resetDownload();
+  }, [generation, generationIsStale, queryClient, resetDownload, runId]);
+
+  async function retryCanonicalStatus(): Promise<void> {
+    setStatusRefreshFailed(false);
+    try {
+      await onRefreshStatus();
+    } catch {
+      setStatusRefreshFailed(true);
+    }
+  }
 
   if (runStatus !== 'succeeded') {
     return (
@@ -171,15 +293,35 @@ export function ArtifactBrowser({
     );
   }
 
+  if (generationIsStale) {
+    return (
+      <ArtifactStatus title="Artifact generation changed" tone="error">
+        Cached artifact pages and details were discarded. Refresh canonical run status before loading the replacement generation.
+        {statusRefreshFailed && (
+          <span className="mt-1 block">
+            The status refresh did not complete. It is safe to retry.
+          </span>
+        )}
+        <StatusRefreshButton onClick={retryCanonicalStatus} />
+      </ArtifactStatus>
+    );
+  }
+
   const pages = listQuery.data?.pages ?? [];
-  const artifacts = flattenArtifactPages(pages);
+  let artifacts: ArtifactReferenceResponse[] = [];
+  let pageIntegrityFailed = false;
+  try {
+    artifacts = flattenArtifactPages(pages);
+  } catch {
+    pageIntegrityFailed = true;
+  }
   const hasCachedArtifacts = artifacts.length > 0;
 
   if (listQuery.isPending) {
     return <ArtifactListSkeleton />;
   }
 
-  if (listQuery.isError && !hasCachedArtifacts) {
+  if ((listQuery.isError || pageIntegrityFailed) && !hasCachedArtifacts) {
     return (
       <ArtifactStatus title="Artifacts could not be loaded" tone="error">
         The persisted artifact index is temporarily unavailable. Existing run state was not changed.
@@ -248,13 +390,22 @@ export function ArtifactBrowser({
           isError={detailQuery.isError}
           invalidSelection={selectedArtifactId !== null && !validSelection}
           onRetry={() => void detailQuery.refetch()}
-          onDownload={(artifact) => downloadMutation.mutate(artifact)}
+          onDownload={(artifact) => {
+            if (generation) {
+              downloadMutation.mutate({
+                artifact,
+                viewedGeneration: generation,
+              });
+            }
+          }}
           isDownloading={
             downloadMutation.isPending &&
-            downloadMutation.variables?.artifact_id === detailQuery.data?.artifact_id
+            downloadMutation.variables?.artifact.artifact_id ===
+            detailQuery.data?.artifact_id
           }
           downloadStatus={
-            downloadMutation.variables?.artifact_id !== detailQuery.data?.artifact_id
+            downloadMutation.variables?.artifact.artifact_id !==
+            detailQuery.data?.artifact_id
               ? 'idle'
               : downloadMutation.isError
                 ? 'error'
@@ -300,9 +451,17 @@ function ArtifactStatus({
   );
 }
 
-function StatusRefreshButton({ onClick }: { onClick: () => void }) {
+function StatusRefreshButton({
+  onClick,
+}: {
+  onClick: () => void | Promise<void>;
+}) {
   return (
-    <Button className="mt-3" variant="secondary" onClick={onClick}>
+    <Button
+      className="mt-3"
+      variant="secondary"
+      onClick={() => void onClick()}
+    >
       <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden="true" />
       Refresh status
     </Button>

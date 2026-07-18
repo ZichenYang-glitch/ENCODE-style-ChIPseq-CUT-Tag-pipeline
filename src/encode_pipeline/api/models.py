@@ -559,6 +559,9 @@ class RunArtifactsResponse(BaseModel):
 
     ok: bool
     run_id: str
+    artifact_generation: str | None = Field(
+        pattern=r"^artifactgen-[0-9a-f]{64}$", max_length=76
+    )
     artifacts: list[ArtifactReferenceResponse] = Field(default_factory=list)
     next_cursor: str | None = None
     issues: list[IssueResponse] = Field(default_factory=list)
@@ -569,6 +572,9 @@ class RunArtifactDetailResponse(BaseModel):
 
     ok: bool
     run_id: str
+    artifact_generation: str | None = Field(
+        pattern=r"^artifactgen-[0-9a-f]{64}$", max_length=76
+    )
     artifact: ArtifactReferenceResponse | None = None
     issues: list[IssueResponse] = Field(default_factory=list)
 

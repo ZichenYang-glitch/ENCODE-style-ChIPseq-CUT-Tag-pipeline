@@ -499,6 +499,200 @@ def test_trimmed_fastqc_provides_exact_retained_read_counts_for_pe():
     assert "trimming.read1.retained_bases" not in metrics
 
 
+@pytest.mark.parametrize(
+    ("layout", "roles"),
+    (("SE", ("single",)), ("PE", ("read1", "read2"))),
+)
+def test_trimgalore_bundled_fastqc_metrics_do_not_require_raw_fastqc(
+    layout: str,
+    roles: tuple[str, ...],
+):
+    inputs = _inputs(
+        samples=[_sample("S1", layout=layout)],
+        trimming={"enabled": True, "tool": "trimgalore"},
+        qc={"fastqc": False},
+    )
+    sources = [*_core_sources()]
+    for role in roles:
+        index = {"single": "", "read1": "1", "read2": "2"}[role]
+        basename = (
+            "S1_trimmed_trimmed"
+            if role == "single"
+            else f"S1_trimmed_{index}_val_{index}"
+        )
+        sources.append(
+            _source(
+                f"bulk_rnaseq.fastqc.trimmed.{role}.zip",
+                _fastqc_zip(
+                    total_sequences="800",
+                    root=f"{basename}_fastqc",
+                    filename=f"{basename}.fq.gz",
+                ),
+                sample="S1",
+                suffix="zip",
+            )
+        )
+
+    metrics = _metric_map(extract_bulk_rnaseq_qc_metrics(inputs, tuple(sources)))
+
+    for role in roles:
+        assert str(metrics[f"trimming.{role}.retained_reads"].value) == "800"
+    assert not any(key.startswith("fastqc.raw.") for key in metrics)
+
+
+@pytest.mark.parametrize(
+    ("layout", "roles"),
+    (("SE", ("single",)), ("PE", ("read1", "read2"))),
+)
+def test_trimgalore_low_yield_status_uses_bundled_fastqc_when_raw_fastqc_is_disabled(
+    layout: str,
+    roles: tuple[str, ...],
+):
+    inputs = _inputs(
+        samples=[_sample("S1", layout=layout)],
+        trimming={"enabled": True, "tool": "trimgalore"},
+        qc={"fastqc": False, "multiqc": True},
+    )
+    trimmed = []
+    for role in roles:
+        index = {"single": "", "read1": "1", "read2": "2"}[role]
+        basename = (
+            "S1_trimmed_trimmed"
+            if role == "single"
+            else f"S1_trimmed_{index}_val_{index}"
+        )
+        trimmed.append(
+            _source(
+                f"bulk_rnaseq.fastqc.trimmed.{role}.zip",
+                _fastqc_zip(
+                    total_sequences="9999",
+                    root=f"{basename}_fastqc",
+                    filename=f"{basename}.fq.gz",
+                ),
+                sample="S1",
+                suffix="zip",
+            )
+        )
+    status = _source(
+        "bulk_rnaseq.multiqc.fail_trimmed_samples",
+        b"Sample\tReads after trimming\nS1\t9999\n",
+        suffix="tsv",
+    )
+    cutadapt = _source(
+        "bulk_rnaseq.multiqc.cutadapt",
+        b"Sample\tcutadapt_version\tr_processed\tr_with_adapters\tr_written\t"
+        b"bp_processed\tquality_trimmed\tbp_written\tpercent_trimmed\n"
+        + (
+            b"S1\t4.0\t20000\t0\t20000\t2000000\t0\t999900\t50.005\n"
+            if layout == "SE"
+            else b"S1_1\t4.0\t20000\t0\t20000\t2000000\t0\t999900\t50.005\n"
+            b"S1_2\t4.0\t20000\t0\t20000\t2000000\t0\t999900\t50.005\n"
+        ),
+        suffix="tsv",
+    )
+
+    metrics = _metric_map(
+        extract_bulk_rnaseq_qc_metrics(inputs, (*trimmed, status, cutadapt))
+    )
+
+    for role in roles:
+        assert str(metrics[f"trimming.{role}.retained_reads"].value) == "9999"
+    assert "star.input_templates" not in metrics
+    assert "salmon.mapping_fraction" not in metrics
+
+
+@pytest.mark.parametrize("mutation", ("missing_mate", "corrupt_zip", "mate_mismatch"))
+def test_trimgalore_fastqc_false_pe_invalid_bundled_qc_evidence_fails_closed(
+    mutation: str,
+):
+    inputs = _inputs(
+        samples=[_sample("S1", layout="PE")],
+        trimming={"enabled": True, "tool": "trimgalore"},
+        qc={"fastqc": False, "multiqc": True},
+    )
+    trimmed = []
+    for role, count in (
+        ("read1", "9999"),
+        ("read2", "9998" if mutation == "mate_mismatch" else "9999"),
+    ):
+        if role == "read2" and mutation == "missing_mate":
+            continue
+        index = "1" if role == "read1" else "2"
+        basename = f"S1_trimmed_{index}_val_{index}"
+        content = (
+            b"not-a-zip"
+            if role == "read2" and mutation == "corrupt_zip"
+            else _fastqc_zip(
+                total_sequences=count,
+                root=f"{basename}_fastqc",
+                filename=f"{basename}.fq.gz",
+            )
+        )
+        trimmed.append(
+            _source(
+                f"bulk_rnaseq.fastqc.trimmed.{role}.zip",
+                content,
+                sample="S1",
+                suffix="zip",
+            )
+        )
+    status = _source(
+        "bulk_rnaseq.multiqc.fail_trimmed_samples",
+        b"Sample\tReads after trimming\nS1\t9999\n",
+        suffix="tsv",
+    )
+    cutadapt = _source(
+        "bulk_rnaseq.multiqc.cutadapt",
+        b"Sample\tcutadapt_version\tr_processed\tr_with_adapters\tr_written\t"
+        b"bp_processed\tquality_trimmed\tbp_written\tpercent_trimmed\n"
+        b"S1_1\t4.0\t20000\t0\t20000\t2000000\t0\t999900\t50.005\n"
+        b"S1_2\t4.0\t20000\t0\t20000\t2000000\t0\t999900\t50.005\n",
+        suffix="tsv",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(
+        inputs,
+        (*trimmed, status, cutadapt),
+    )
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_QC_INVALID"
+    assert result.errors[0].context == {"reason_code": "source_content_invalid"}
+
+
+def test_pe_umi_discard_fastqc_false_uses_single_downstream_trimmed_evidence():
+    inputs = _inputs(
+        samples=[_sample("S1", layout="PE")],
+        trimming={"enabled": True, "tool": "trimgalore"},
+        qc={"fastqc": False},
+        umi={
+            "enabled": True,
+            "mode": "read_sequence",
+            "deduplication_tool": "umitools",
+            "extraction_method": "string",
+            "barcode_pattern": "NNNN",
+            "discard_read": 2,
+        },
+    )
+    trimmed = _source(
+        "bulk_rnaseq.fastqc.trimmed.single.zip",
+        _fastqc_zip(
+            total_sequences="800",
+            root="S1_trimmed_trimmed_fastqc",
+            filename="S1_trimmed_trimmed.fq.gz",
+        ),
+        sample="S1",
+        suffix="zip",
+    )
+
+    metrics = _metric_map(
+        extract_bulk_rnaseq_qc_metrics(inputs, (*_core_sources(), trimmed))
+    )
+
+    assert str(metrics["trimming.single.retained_reads"].value) == "800"
+    assert not any(key.startswith("trimming.read") for key in metrics)
+
+
 def test_trimmed_fastqc_rejects_mismatched_pe_retained_read_counts():
     inputs = _inputs(
         samples=[_sample("S1", layout="PE")],
@@ -760,24 +954,39 @@ def test_multiqc_cutadapt_pe_has_explicit_pre_filter_semantics():
         "bulk_rnaseq.multiqc.cutadapt",
         b"Sample\tcutadapt_version\tr_processed\tr_with_adapters\tr_written\t"
         b"bp_processed\tquality_trimmed\tbp_written\tpercent_trimmed\n"
-        b"S1_1\t4.0\t600\t60\t600\t60000\t1000\t54000\t10.0\n"
-        b"S1_2\t4.0\t600\t120\t600\t60000\t2000\t48000\t20.0\n",
+        b"S1_1\t4.0\t20000\t2000\t20000\t2000000\t1000\t1800000\t10.0\n"
+        b"S1_2\t4.0\t20000\t4000\t20000\t2000000\t2000\t1600000\t20.0\n",
         suffix="tsv",
     )
-    sources = tuple([*_core_sources(), cutadapt])
+    trimmed_sources = []
+    for role, index in (("read1", "1"), ("read2", "2")):
+        basename = f"S1_trimmed_{index}_val_{index}"
+        trimmed_sources.append(
+            _source(
+                f"bulk_rnaseq.fastqc.trimmed.{role}.zip",
+                _fastqc_zip(
+                    total_sequences="20000",
+                    root=f"{basename}_fastqc",
+                    filename=f"{basename}.fq.gz",
+                ),
+                sample="S1",
+                suffix="zip",
+            )
+        )
+    sources = tuple([*_core_sources(), cutadapt, *trimmed_sources])
 
     first = extract_bulk_rnaseq_qc_metrics(inputs, sources)
     second = extract_bulk_rnaseq_qc_metrics(inputs, tuple(reversed(sources)))
 
     assert first == second
     metrics = _metric_map(first)
-    assert str(metrics["trimming.read1.input_reads"].value) == "600"
+    assert str(metrics["trimming.read1.input_reads"].value) == "20000"
     assert str(metrics["trimming.read1.adapter_affected_fraction"].value) == "0.1"
-    assert str(metrics["trimming.read1.post_adapter_quality_bases"].value) == "54000"
+    assert str(metrics["trimming.read1.post_adapter_quality_bases"].value) == "1800000"
     assert (
         str(metrics["trimming.read1.post_adapter_quality_base_fraction"].value) == "0.9"
     )
-    assert str(metrics["trimming.read2.input_bases"].value) == "60000"
+    assert str(metrics["trimming.read2.input_bases"].value) == "2000000"
     assert str(metrics["trimming.read2.quality_trimmed_bases"].value) == "2000"
     assert (
         str(metrics["trimming.read2.post_adapter_quality_base_fraction"].value) == "0.8"
@@ -786,7 +995,8 @@ def test_multiqc_cutadapt_pe_has_explicit_pre_filter_semantics():
         metrics["trimming.read1.input_reads"].source_artifact_id
         == cutadapt.source.artifact_id
     )
-    assert "trimming.read1.retained_reads" not in metrics
+    assert str(metrics["trimming.read1.retained_reads"].value) == "20000"
+    assert str(metrics["trimming.read2.retained_reads"].value) == "20000"
 
 
 def test_multiqc_cutadapt_defensively_rejects_duplicate_derived_row_owners():

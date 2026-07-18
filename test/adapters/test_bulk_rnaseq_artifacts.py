@@ -220,6 +220,102 @@ def _multiqc_stub(*identities: str) -> bytes:
     ).encode()
 
 
+def _write_trimgalore_fastqc_false_route(
+    workspace: Path,
+    *,
+    downstream_layout: str,
+    retained: int,
+    high_yield: bool,
+    umi_discard: bool = False,
+) -> None:
+    """Write the fixed 3.26.0 Trim Galore route without separate FastQC."""
+    _write(workspace, "pipeline_info/nf_core_rnaseq_software_mqc_versions.yml")
+    if downstream_layout == "SE":
+        roots = (("single", "S1_trimmed_trimmed", "S1"),)
+        multiqc_identities = ("S1",)
+        general_identities = ("S1",)
+    else:
+        roots = (
+            ("read1", "S1_trimmed_1_val_1", "S1_1"),
+            ("read2", "S1_trimmed_2_val_2", "S1_2"),
+        )
+        multiqc_identities = ("S1_1", "S1_2")
+        general_identities = ("S1", "S1 Read 1", "S1 Read 2")
+    for _role, basename, _identity in roots:
+        root = f"{basename}_fastqc"
+        _write(workspace, f"fastqc/trim/{root}.html")
+        _write(
+            workspace,
+            f"fastqc/trim/{root}.zip",
+            _fastqc_evidence_zip(root, f"{basename}.fq.gz", retained),
+        )
+    _write(workspace, "multiqc/star_salmon/multiqc_report.html")
+    _write(
+        workspace,
+        "multiqc/star_salmon/multiqc_report_data/multiqc_general_stats.txt",
+        _multiqc_stub(*general_identities),
+    )
+    _write(
+        workspace,
+        "multiqc/star_salmon/multiqc_report_data/multiqc_fastqc_fastqc_trimmed.txt",
+        _multiqc_stub(*multiqc_identities),
+    )
+    cutadapt_rows = "".join(
+        f"{identity}\t4.0\t20000\t0\t20000\t2000000\t0\t999900\t50.005\n"
+        for identity in multiqc_identities
+    )
+    _write(
+        workspace,
+        "multiqc/star_salmon/multiqc_report_data/multiqc_cutadapt.txt",
+        b"Sample\tcutadapt_version\tr_processed\tr_with_adapters\tr_written\t"
+        b"bp_processed\tquality_trimmed\tbp_written\tpercent_trimmed\n"
+        + cutadapt_rows.encode(),
+    )
+    if not high_yield:
+        _write(
+            workspace,
+            "multiqc/star_salmon/multiqc_report_data/"
+            "multiqc_fail_trimmed_samples_table.txt",
+            f"Sample\tReads after trimming\nS1\t{retained}\n".encode(),
+        )
+        return
+    if umi_discard:
+        for relative in (
+            "star_salmon/S1.sorted.bam",
+            "star_salmon/S1.sorted.bam.bai",
+            "star_salmon/S1.transcriptome.sorted.bam",
+            "star_salmon/S1.transcriptome.sorted.bam.bai",
+            "star_salmon/log/S1.Log.final.out",
+            "star_salmon/log/S1.SJ.out.tab",
+            "star_salmon/S1/quant.sf",
+            "star_salmon/S1/quant.genes.sf",
+            "star_salmon/S1/aux_info/meta_info.json",
+            "star_salmon/samtools_stats/S1.umi_dedup.sorted.bam.flagstat",
+            "star_salmon/samtools_stats/S1.umi_dedup.sorted.bam.idxstats",
+        ):
+            _write(
+                workspace,
+                relative,
+                _STAR_LOG if relative.endswith(".Log.final.out") else b"x",
+            )
+        for suffix in _MERGED:
+            _write(workspace, f"star_salmon/salmon.merged.{suffix}.tsv")
+    else:
+        _write_core(workspace, ("S1",))
+        _write(workspace, "star_salmon/samtools_stats/S1.sorted.bam.flagstat")
+        _write(workspace, "star_salmon/samtools_stats/S1.sorted.bam.idxstats")
+    _write(
+        workspace,
+        "multiqc/star_salmon/multiqc_report_data/multiqc_star.txt",
+        _multiqc_stub("S1"),
+    )
+    _write(
+        workspace,
+        "multiqc/star_salmon/multiqc_report_data/multiqc_salmon.txt",
+        _multiqc_stub("S1"),
+    )
+
+
 def _types(result) -> set[str]:
     assert result.is_success, [issue.to_dict() for issue in result.issues]
     return {candidate.output_type for candidate in result.value}
@@ -680,6 +776,177 @@ def test_default_catalog_excludes_private_or_unadmitted_qc_namespaces():
     assert "bulk_rnaseq.star.log" not in types
     assert "bulk_rnaseq.salmon.log" not in types
     assert "bulk_rnaseq.trim.fastp.log" not in types
+
+
+@pytest.mark.parametrize(
+    ("layout", "umi", "expected_roles"),
+    (
+        ("SE", None, {"single"}),
+        ("PE", None, {"read1", "read2"}),
+        (
+            "PE",
+            {
+                "enabled": True,
+                "mode": "read_sequence",
+                "deduplication_tool": "umitools",
+                "extraction_method": "string",
+                "barcode_pattern": "NNNN",
+                "discard_read": 2,
+            },
+            {"single"},
+        ),
+    ),
+)
+def test_trimgalore_bundled_fastqc_is_independent_of_raw_fastqc_toggle(
+    layout: str,
+    umi: dict[str, object] | None,
+    expected_roles: set[str],
+):
+    inputs = _inputs(
+        layouts=(layout,),
+        trimming={"enabled": True, "tool": "trimgalore"},
+        qc={"enabled": True, "fastqc": False, "multiqc": True},
+        umi=umi,
+    )
+    validated = artifact_module.validate_bulk_rnaseq_inputs(inputs)
+    assert validated.is_success
+    normalized = validated.value
+
+    specs, _auto = artifact_module._expected_specs(
+        normalized["nfcore_params"],
+        artifact_module._normalized_samples(normalized["samples"]),
+        trimmed_failed=frozenset(),
+        mapped_failed=frozenset(),
+    )
+    types = {spec.output_type for spec in specs}
+
+    assert {
+        f"bulk_rnaseq.fastqc.trimmed.{role}.html" for role in expected_roles
+    }.issubset(types)
+    assert {
+        f"bulk_rnaseq.fastqc.trimmed.{role}.zip" for role in expected_roles
+    }.issubset(types)
+    assert "bulk_rnaseq.multiqc.fastqc.trimmed" in types
+    assert not any(".fastqc.raw." in value for value in types)
+
+
+@pytest.mark.parametrize(
+    ("layout", "umi", "downstream_layout", "expected_roles"),
+    (
+        ("SE", None, "SE", {"single"}),
+        ("PE", None, "PE", {"read1", "read2"}),
+        (
+            "PE",
+            {
+                "enabled": True,
+                "mode": "read_sequence",
+                "deduplication_tool": "umitools",
+                "extraction_method": "string",
+                "barcode_pattern": "NNNN",
+                "discard_read": 2,
+            },
+            "SE",
+            {"single"},
+        ),
+    ),
+)
+def test_trimgalore_fastqc_false_high_yield_full_discovery(
+    tmp_path: Path,
+    layout: str,
+    umi: dict[str, object] | None,
+    downstream_layout: str,
+    expected_roles: set[str],
+):
+    inputs = _inputs(
+        layouts=(layout,),
+        trimming={"enabled": True, "tool": "trimgalore"},
+        qc={**_multiqc_only(), "fastqc": False},
+        umi=umi,
+    )
+    _write_trimgalore_fastqc_false_route(
+        tmp_path,
+        downstream_layout=downstream_layout,
+        retained=20000,
+        high_yield=True,
+        umi_discard=umi is not None,
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_success, [issue.to_dict() for issue in result.issues]
+    types = _types(result)
+    assert {
+        f"bulk_rnaseq.fastqc.trimmed.{role}.zip" for role in expected_roles
+    }.issubset(types)
+    assert "bulk_rnaseq.star.log_final" in types
+    assert "bulk_rnaseq.salmon.meta_info" in types
+    assert not any(".fastqc.raw." in value for value in types)
+
+
+@pytest.mark.parametrize("layout", ("SE", "PE"))
+def test_trimgalore_fastqc_false_low_yield_full_discovery(
+    tmp_path: Path,
+    layout: str,
+):
+    inputs = _inputs(
+        layouts=(layout,),
+        trimming={"enabled": True, "tool": "trimgalore"},
+        qc={**_multiqc_only(), "fastqc": False},
+    )
+    _write_trimgalore_fastqc_false_route(
+        tmp_path,
+        downstream_layout=layout,
+        retained=9999,
+        high_yield=False,
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_success, [issue.to_dict() for issue in result.issues]
+    types = _types(result)
+    assert "bulk_rnaseq.multiqc.fail_trimmed_samples" in types
+    assert not any(
+        value.startswith(("bulk_rnaseq.star.", "bulk_rnaseq.salmon."))
+        for value in types
+    )
+    assert not any(".fastqc.raw." in value for value in types)
+
+
+@pytest.mark.parametrize("mutation", ("missing_mate", "corrupt_zip", "mate_mismatch"))
+def test_trimgalore_fastqc_false_pe_invalid_bundled_evidence_fails_closed(
+    tmp_path: Path,
+    mutation: str,
+):
+    inputs = _inputs(
+        layouts=("PE",),
+        trimming={"enabled": True, "tool": "trimgalore"},
+        qc={**_multiqc_only(), "fastqc": False},
+    )
+    _write_trimgalore_fastqc_false_route(
+        tmp_path,
+        downstream_layout="PE",
+        retained=9999,
+        high_yield=False,
+    )
+    read2 = tmp_path / "results/fastqc/trim/S1_trimmed_2_val_2_fastqc.zip"
+    if mutation == "missing_mate":
+        read2.unlink()
+    elif mutation == "corrupt_zip":
+        read2.write_bytes(b"not-a-zip")
+    else:
+        read2.write_bytes(
+            _fastqc_evidence_zip(
+                "S1_trimmed_2_val_2_fastqc",
+                "S1_trimmed_2_val_2.fq.gz",
+                9998,
+            )
+        )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_ARTIFACT_STATUS_INVALID"
+    assert result.errors[0].context == {"reason": "sample_status_invalid"}
 
 
 def test_declared_artifact_families_are_reachable_and_partition_expected_specs():
@@ -1665,6 +1932,18 @@ def test_umi_and_enabled_optional_outputs_have_exact_pinned_names(tmp_path: Path
     )
     inputs.samples[0]["strandedness"] = "forward"
     _write_core(tmp_path, ("S1",), csi=True)
+    for trimmed in ("1_val_1", "2_val_2"):
+        root = f"S1_trimmed_{trimmed}_fastqc"
+        _write(tmp_path, f"fastqc/trim/{root}.html")
+        _write(
+            tmp_path,
+            f"fastqc/trim/{root}.zip",
+            _fastqc_evidence_zip(
+                root,
+                f"S1_trimmed_{trimmed}.fq.gz",
+                20000,
+            ),
+        )
     for relative in (
         "trimgalore/S1_trimmed_1_val_1.fq.gz",
         "trimgalore/S1_trimmed_2_val_2.fq.gz",
@@ -1933,6 +2212,59 @@ def test_trimgalore_pe_failure_uses_only_valid_cutadapt_evidence(
     assert not any(
         item.output_type.startswith(("bulk_rnaseq.star.", "bulk_rnaseq.salmon."))
         for item in result.value
+    )
+
+
+def test_trimgalore_low_yield_remains_discoverable_when_raw_fastqc_is_disabled(
+    tmp_path: Path,
+):
+    inputs = _inputs(
+        trimming={"enabled": True, "tool": "trimgalore"},
+        qc={**_multiqc_only(), "fastqc": False},
+    )
+    _write(tmp_path, "pipeline_info/nf_core_rnaseq_software_mqc_versions.yml")
+    root = "S1_trimmed_trimmed_fastqc"
+    _write(tmp_path, f"fastqc/trim/{root}.html")
+    _write(
+        tmp_path,
+        f"fastqc/trim/{root}.zip",
+        _fastqc_evidence_zip(root, "S1_trimmed_trimmed.fq.gz", 9999),
+    )
+    _write(tmp_path, "multiqc/star_salmon/multiqc_report.html")
+    for name, identities in (
+        ("multiqc_general_stats.txt", ("S1",)),
+        ("multiqc_fastqc_fastqc_trimmed.txt", ("S1",)),
+    ):
+        _write(
+            tmp_path,
+            f"multiqc/star_salmon/multiqc_report_data/{name}",
+            _multiqc_stub(*identities),
+        )
+    _write(
+        tmp_path,
+        "multiqc/star_salmon/multiqc_report_data/multiqc_cutadapt.txt",
+        b"Sample\tcutadapt_version\tr_processed\tr_with_adapters\tr_written\t"
+        b"bp_processed\tquality_trimmed\tbp_written\tpercent_trimmed\n"
+        b"S1\t4.0\t20000\t0\t20000\t2000000\t0\t999900\t50.005\n",
+    )
+    _write(
+        tmp_path,
+        "multiqc/star_salmon/multiqc_report_data/"
+        "multiqc_fail_trimmed_samples_table.txt",
+        b"Sample\tReads after trimming\nS1\t9999\n",
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_success
+    types = _types(result)
+    assert "bulk_rnaseq.fastqc.trimmed.single.html" in types
+    assert "bulk_rnaseq.fastqc.trimmed.single.zip" in types
+    assert "bulk_rnaseq.multiqc.fastqc.trimmed" in types
+    assert not any(".fastqc.raw." in value for value in types)
+    assert not any(
+        value.startswith(("bulk_rnaseq.star.", "bulk_rnaseq.salmon."))
+        for value in types
     )
 
 

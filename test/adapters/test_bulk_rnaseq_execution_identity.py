@@ -53,6 +53,15 @@ PRODUCTION_PERSISTENCE_PATHS = frozenset(
         "src/encode_pipeline/persistence/alembic/versions/20260717_08_run_result_generations.py",
     }
 )
+PRODUCTION_RESULT_DELIVERY_PATHS = frozenset(
+    {
+        "src/encode_pipeline/platform/result_generations.py",
+        "src/encode_pipeline/services/artifact_downloads.py",
+        "src/encode_pipeline/services/artifact_extraction.py",
+        "src/encode_pipeline/services/run_repositories.py",
+        "src/encode_pipeline/services/runs.py",
+    }
+)
 
 
 def _assets() -> VerifiedRuntimeAssets:
@@ -235,6 +244,38 @@ def test_production_sqlite_replacement_is_bound_and_changes_results_build_identi
         implementation=changed.value,
     )
     assert changed_digest != original_digest
+
+
+def test_production_artifact_delivery_is_bound_and_stale_manifest_fails_closed(
+    tmp_path: Path,
+):
+    assert PRODUCTION_RESULT_DELIVERY_PATHS.issubset(EXECUTION_IMPLEMENTATION_PATHS)
+    original_bytes = MANIFEST_PATH.read_bytes()
+    original = verify_execution_implementation(manifest_bytes=original_bytes)
+    assert original.is_success
+
+    project = tmp_path / "changed-artifact-delivery"
+    package_root = _copy_controlled_implementation(project)
+    download_service = package_root / "services/artifact_downloads.py"
+    download_service.write_bytes(
+        download_service.read_bytes()
+        + b"\n# intentional artifact revision closure identity change\n"
+    )
+
+    stale = verify_execution_implementation(
+        manifest_bytes=original_bytes,
+        package_root=package_root,
+    )
+    assert stale.is_failure
+    assert stale.errors[0].code == "BULK_RNASEQ_EXECUTION_IMPLEMENTATION_INVALID"
+
+    changed_manifest = build_execution_implementation_manifest(project)
+    changed = verify_execution_implementation(
+        manifest_bytes=canonical_execution_manifest_bytes(changed_manifest),
+        package_root=package_root,
+    )
+    assert changed.is_success
+    assert changed.value.aggregate_sha256 != original.value.aggregate_sha256
 
 
 def test_unlisted_production_migration_revision_fails_closed(

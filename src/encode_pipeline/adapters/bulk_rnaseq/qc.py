@@ -20,6 +20,7 @@ from encode_pipeline.adapters.bulk_rnaseq.results_contract import (
     effective_downstream_layout,
     effective_rseqc_modules,
     load_bulk_rnaseq_results_contract,
+    trimmed_fastqc_enabled,
 )
 from encode_pipeline.adapters.bulk_rnaseq.status_evidence import (
     StatusEvidenceContractError,
@@ -456,11 +457,12 @@ def _expected_sources(
         if not skip_fastqc:
             for role in raw_roles:
                 expected.add((f"bulk_rnaseq.fastqc.raw.{role}.zip", sample))
+        if trimmed_fastqc_enabled(params):
             for role in downstream_roles:
-                if not skip_trimming and not (
-                    params.get("trimmer") == "fastp" and sample in trimmed_failed
-                ):
+                if not (params.get("trimmer") == "fastp" and sample in trimmed_failed):
                     expected.add((f"bulk_rnaseq.fastqc.trimmed.{role}.zip", sample))
+        if not skip_fastqc:
+            for role in downstream_roles:
                 if remove_ribo and sample not in trimmed_failed:
                     expected.add((f"bulk_rnaseq.fastqc.filtered.{role}.zip", sample))
         if not skip_trimming:
@@ -553,9 +555,7 @@ def _sample_status(
                         )
                     except StatusEvidenceError as exc:
                         raise _QcError("source_content_invalid") from exc
-            elif params.get("trimmer") == "trimgalore" and not _bool_param(
-                params, "skip_fastqc"
-            ):
+            elif params.get("trimmer") == "trimgalore":
                 downstream_layout = effective_downstream_layout(
                     sample["layout"], params
                 )
@@ -885,7 +885,7 @@ def _validate_trimmed_fastqc_counts(
     *,
     trimmed_failed: frozenset[str],
 ) -> None:
-    if _bool_param(params, "skip_trimming") or _bool_param(params, "skip_fastqc"):
+    if not trimmed_fastqc_enabled(params):
         return
     values = {
         (metric.sample_id, metric.metric_key): metric.value

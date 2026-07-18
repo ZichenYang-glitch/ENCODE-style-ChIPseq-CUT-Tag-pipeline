@@ -67,6 +67,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/persistence/alembic/env.py",
     *EXECUTION_MIGRATION_REVISION_PATHS,
     "src/encode_pipeline/services/artifact_extraction.py",
+    "src/encode_pipeline/services/artifact_downloads.py",
     "src/encode_pipeline/services/command_builder.py",
     "src/encode_pipeline/services/defaults.py",
     "src/encode_pipeline/services/local_execution.py",

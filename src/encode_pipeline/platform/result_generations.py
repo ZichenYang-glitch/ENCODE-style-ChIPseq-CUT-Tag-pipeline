@@ -16,17 +16,25 @@ if TYPE_CHECKING:
 
 
 ARTIFACT_REVISION_PREFIX = "artifactrev-"
+ARTIFACT_PATH_IDENTITY_PREFIX = "artifactpath-"
+ARTIFACT_PATH_IDENTITY_METADATA_KEY = "_platform_path_identity"
+BOUNDED_ARTIFACT_CONTENT_REVISION_MAX_BYTES = 16 * 1024 * 1024
 ARTIFACT_GENERATION_PREFIX = "artifactgen-"
 QC_GENERATION_PREFIX = "qcgen-"
 RESULT_ATTEMPT_PREFIX = "resultattempt-"
+ARTIFACT_CURSOR_PREFIX = "artifactcur_"
 QC_CURSOR_PREFIX = "qccur_"
-QC_CURSOR_MAX_LENGTH = 1024
+RESULT_CURSOR_MAX_LENGTH = 1024
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _CURSOR_BODY = re.compile(r"^[A-Za-z0-9_-]+$")
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+_ARTIFACT_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _METRIC_ID = re.compile(r"^qcmetric-[0-9a-f]{64}$")
-_CURSOR_KEYS = frozenset({"v", "run_id", "qc_generation", "after_metric_id"})
+_ARTIFACT_CURSOR_KEYS = frozenset(
+    {"v", "run_id", "artifact_generation", "after_artifact_id"}
+)
+_QC_CURSOR_KEYS = frozenset({"v", "run_id", "qc_generation", "after_metric_id"})
 
 
 def new_result_attempt_id() -> str:
@@ -44,6 +52,36 @@ def validate_artifact_revision(value: str) -> str:
     return _validate_prefixed_digest(
         value, ARTIFACT_REVISION_PREFIX, "artifact revision"
     )
+
+
+def validate_artifact_path_identity(value: str) -> str:
+    """Validate and return one disclosure-safe path descriptor identity."""
+    return _validate_prefixed_digest(
+        value, ARTIFACT_PATH_IDENTITY_PREFIX, "artifact path identity"
+    )
+
+
+def build_artifact_path_identity(
+    *,
+    parent_identities: Iterable[tuple[int, int, int]],
+    file_identity: tuple[int, int, int, int, int, int, int, int, int],
+) -> str:
+    """Hash one descriptor-relative path chain without exposing host details."""
+    parents = tuple(parent_identities)
+    if not parents:
+        raise ValueError("artifact path identity requires a parent chain")
+    if any(not _valid_descriptor_tuple(value, 3) for value in parents):
+        raise ValueError("artifact parent descriptor identity is invalid")
+    if not _valid_descriptor_tuple(file_identity, 9):
+        raise ValueError("artifact file descriptor identity is invalid")
+    digest = _digest_json(
+        {
+            "file": file_identity,
+            "parents": parents,
+            "scheme": "descriptor-relative-path-sha256-v1",
+        }
+    )
+    return f"{ARTIFACT_PATH_IDENTITY_PREFIX}{digest}"
 
 
 def validate_artifact_generation(value: str) -> str:
@@ -296,6 +334,66 @@ class QcMetricCursor:
             raise ValueError("QC cursor metric ID is invalid")
 
 
+@dataclass(frozen=True)
+class ArtifactCursor:
+    """One artifact keyset boundary bound to its run and generation."""
+
+    run_id: str
+    artifact_generation: str
+    after_artifact_id: str
+
+    def __post_init__(self) -> None:
+        _validate_run_id(self.run_id)
+        validate_artifact_generation(self.artifact_generation)
+        if (
+            not isinstance(self.after_artifact_id, str)
+            or _ARTIFACT_ID.fullmatch(self.after_artifact_id) is None
+        ):
+            raise ValueError("artifact cursor artifact ID is invalid")
+
+
+def encode_artifact_cursor(cursor: ArtifactCursor) -> str:
+    """Encode a canonical public artifact cursor; it is not a credential."""
+    if not isinstance(cursor, ArtifactCursor):
+        raise ValueError("artifact cursor is invalid")
+    payload = {
+        "after_artifact_id": cursor.after_artifact_id,
+        "artifact_generation": cursor.artifact_generation,
+        "run_id": cursor.run_id,
+        "v": 1,
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    body = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    encoded = f"{ARTIFACT_CURSOR_PREFIX}{body}"
+    if len(encoded) > RESULT_CURSOR_MAX_LENGTH:
+        raise ValueError("artifact cursor exceeds its public bound")
+    return encoded
+
+
+def decode_artifact_cursor(
+    value: str, *, run_id: str, artifact_generation: str
+) -> ArtifactCursor:
+    """Strictly decode and bind one artifact cursor to current result state."""
+    _validate_run_id(run_id)
+    validate_artifact_generation(artifact_generation)
+    payload = _decode_cursor_payload(
+        value,
+        prefix=ARTIFACT_CURSOR_PREFIX,
+        keys=_ARTIFACT_CURSOR_KEYS,
+        name="artifact",
+    )
+    cursor = ArtifactCursor(
+        run_id=payload["run_id"],
+        artifact_generation=payload["artifact_generation"],
+        after_artifact_id=payload["after_artifact_id"],
+    )
+    if encode_artifact_cursor(cursor) != value:
+        raise ValueError("artifact cursor is not canonical")
+    if cursor.run_id != run_id or cursor.artifact_generation != artifact_generation:
+        raise ValueError("artifact cursor generation does not match")
+    return cursor
+
+
 def encode_qc_metric_cursor(cursor: QcMetricCursor) -> str:
     """Encode a canonical public QC cursor; it is not an auth credential."""
     if not isinstance(cursor, QcMetricCursor):
@@ -309,7 +407,7 @@ def encode_qc_metric_cursor(cursor: QcMetricCursor) -> str:
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     body = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
     encoded = f"{QC_CURSOR_PREFIX}{body}"
-    if len(encoded) > QC_CURSOR_MAX_LENGTH:
+    if len(encoded) > RESULT_CURSOR_MAX_LENGTH:
         raise ValueError("QC cursor exceeds its public bound")
     return encoded
 
@@ -323,7 +421,7 @@ def decode_qc_metric_cursor(
     if (
         not isinstance(value, str)
         or len(value) <= len(QC_CURSOR_PREFIX)
-        or len(value) > QC_CURSOR_MAX_LENGTH
+        or len(value) > RESULT_CURSOR_MAX_LENGTH
         or not value.startswith(QC_CURSOR_PREFIX)
     ):
         raise ValueError("QC cursor is invalid")
@@ -337,7 +435,7 @@ def decode_qc_metric_cursor(
         payload = json.loads(raw.decode("utf-8"))
     except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("QC cursor is invalid") from exc
-    if not isinstance(payload, dict) or set(payload) != _CURSOR_KEYS:
+    if not isinstance(payload, dict) or set(payload) != _QC_CURSOR_KEYS:
         raise ValueError("QC cursor payload is invalid")
     if payload["v"] != 1 or isinstance(payload["v"], bool):
         raise ValueError("QC cursor version is invalid")
@@ -353,6 +451,37 @@ def decode_qc_metric_cursor(
     return cursor
 
 
+def _decode_cursor_payload(
+    value: str,
+    *,
+    prefix: str,
+    keys: frozenset[str],
+    name: str,
+) -> dict[str, Any]:
+    if (
+        not isinstance(value, str)
+        or len(value) <= len(prefix)
+        or len(value) > RESULT_CURSOR_MAX_LENGTH
+        or not value.startswith(prefix)
+    ):
+        raise ValueError(f"{name} cursor is invalid")
+    body = value[len(prefix) :]
+    if _CURSOR_BODY.fullmatch(body) is None:
+        raise ValueError(f"{name} cursor is invalid")
+    try:
+        raw = base64.b64decode(
+            body + "=" * (-len(body) % 4), altchars=b"-_", validate=True
+        )
+        payload = json.loads(raw.decode("utf-8"))
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{name} cursor is invalid") from exc
+    if not isinstance(payload, dict) or set(payload) != keys:
+        raise ValueError(f"{name} cursor payload is invalid")
+    if payload["v"] != 1 or isinstance(payload["v"], bool):
+        raise ValueError(f"{name} cursor version is invalid")
+    return payload
+
+
 def _validate_prefixed_digest(value: str, prefix: str, name: str) -> str:
     if (
         not isinstance(value, str)
@@ -361,6 +490,17 @@ def _validate_prefixed_digest(value: str, prefix: str, name: str) -> str:
     ):
         raise ValueError(f"{name} is invalid")
     return value
+
+
+def _valid_descriptor_tuple(value: object, length: int) -> bool:
+    return (
+        isinstance(value, tuple)
+        and len(value) == length
+        and all(
+            isinstance(item, int) and not isinstance(item, bool) and item >= 0
+            for item in value
+        )
+    )
 
 
 def _validate_run_id(value: str) -> None:

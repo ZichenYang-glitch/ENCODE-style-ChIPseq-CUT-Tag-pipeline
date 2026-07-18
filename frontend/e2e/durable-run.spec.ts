@@ -485,8 +485,34 @@ test('real run exposes QC source artifact and exact download @desktop', async ({
 
   const artifactId = new URL(page.url()).searchParams.get('artifact');
   expect(artifactId).toBeTruthy();
-  const rangeResponse = await page.request.get(
+  const artifactListResponse = await page.request.get(
+    `/api/v1/runs/${runId}/artifacts?limit=50`,
+  );
+  expect(artifactListResponse.status()).toBe(200);
+  const artifactListBody = (await artifactListResponse.json()) as {
+    artifact_generation: string;
+  };
+  const artifactGeneration = artifactListBody.artifact_generation;
+  expect(artifactGeneration).toMatch(/^artifactgen-[0-9a-f]{64}$/);
+  const artifactDetailResponse = await page.request.get(
+    `/api/v1/runs/${runId}/artifacts/${artifactId}?generation=${encodeURIComponent(artifactGeneration)}`,
+  );
+  expect(artifactDetailResponse.status()).toBe(200);
+  const artifactDetailBody = (await artifactDetailResponse.json()) as {
+    artifact: { revision: string };
+  };
+  const artifactRevision = artifactDetailBody.artifact.revision;
+  expect(artifactRevision).toMatch(/^artifactrev-[0-9a-f]{64}$/);
+  const missingAuthorityResponse = await page.request.get(
     `/api/v1/runs/${runId}/artifacts/${artifactId}/download`,
+  );
+  expect(missingAuthorityResponse.status()).toBe(400);
+  const staleAuthorityResponse = await page.request.get(
+    `/api/v1/runs/${runId}/artifacts/${artifactId}/download?generation=${encodeURIComponent(`artifactgen-${'f'.repeat(64)}`)}&revision=${encodeURIComponent(artifactRevision)}`,
+  );
+  expect(staleAuthorityResponse.status()).toBe(409);
+  const rangeResponse = await page.request.get(
+    `/api/v1/runs/${runId}/artifacts/${artifactId}/download?generation=${encodeURIComponent(artifactGeneration)}&revision=${encodeURIComponent(artifactRevision)}`,
     { headers: { Range: 'bytes=0-3' } },
   );
   expect(rangeResponse.status()).toBe(200);

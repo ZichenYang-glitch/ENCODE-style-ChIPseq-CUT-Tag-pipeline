@@ -24,8 +24,11 @@ from encode_pipeline.platform.adapters import (
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.result_generations import (
+    ARTIFACT_PATH_IDENTITY_METADATA_KEY,
+    BOUNDED_ARTIFACT_CONTENT_REVISION_MAX_BYTES,
     build_artifact_content_revision,
     build_artifact_descriptor_revision,
+    build_artifact_path_identity,
 )
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunArtifactRef, RunStatus
@@ -34,7 +37,14 @@ from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 
 
-_RESERVED_METADATA = frozenset({"relative_path", "output_type", "size_bytes"})
+_RESERVED_METADATA = frozenset(
+    {
+        "relative_path",
+        "output_type",
+        "size_bytes",
+        ARTIFACT_PATH_IDENTITY_METADATA_KEY,
+    }
+)
 _SAFE_METADATA_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 _SAFE_OUTPUT_TYPE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _SAFE_MIME_TYPE = re.compile(
@@ -44,7 +54,6 @@ _SAFE_MIME_TYPE = re.compile(
 _MAX_ARTIFACT_CANDIDATES = MAX_SAMPLE_ROWS * 128 + 128
 _MAX_ARTIFACT_PATH_COMPONENTS = 32
 _MAX_ARTIFACT_BYTES = 1024**4
-_MAX_QC_REVISION_SOURCE_BYTES = 16 * 1024 * 1024
 _MAX_TOTAL_QC_REVISION_BYTES = 256 * 1024 * 1024
 
 
@@ -268,7 +277,7 @@ class ArtifactExtractionService:
                 raise ValueError("duplicate artifact path")
             seen_paths.add(relative_path)
             content_bound = candidate.output_type in qc_source_types
-            target, size_bytes, revision = self._safe_regular_file(
+            target, size_bytes, revision, path_identity = self._safe_regular_file(
                 workspace,
                 relative_path,
                 output_type=candidate.output_type,
@@ -291,6 +300,7 @@ class ArtifactExtractionService:
                     "relative_path": relative_path,
                     "output_type": candidate.output_type,
                     "size_bytes": size_bytes,
+                    ARTIFACT_PATH_IDENTITY_METADATA_KEY: path_identity,
                 }
             )
             mime_type = candidate.mime_type
@@ -355,7 +365,7 @@ class ArtifactExtractionService:
         *,
         output_type: str,
         content_bound: bool,
-    ) -> tuple[Path, int, str]:
+    ) -> tuple[Path, int, str, str]:
         required_flags = (
             "O_DIRECTORY",
             "O_NOFOLLOW",
@@ -414,7 +424,10 @@ class ArtifactExtractionService:
                 or file_info.st_size > _MAX_ARTIFACT_BYTES
             ):
                 raise ValueError("artifact is not a bounded regular file")
-            if content_bound and file_info.st_size > _MAX_QC_REVISION_SOURCE_BYTES:
+            if (
+                content_bound
+                and file_info.st_size > BOUNDED_ARTIFACT_CONTENT_REVISION_MAX_BYTES
+            ):
                 raise ValueError("QC source artifact exceeds its content bound")
             content: bytes | None = None
             if content_bound:
@@ -462,7 +475,19 @@ class ArtifactExtractionService:
                     relative_path=relative_path,
                     descriptor_identity=descriptor_identity,
                 )
-            return workspace / relative_path, file_info.st_size, revision
+            path_identity = build_artifact_path_identity(
+                parent_identities=tuple(
+                    (info.st_dev, info.st_ino, info.st_mode)
+                    for info in first_infos[:-1]
+                ),
+                file_identity=ArtifactExtractionService._descriptor_identity(file_info),
+            )
+            return (
+                workspace / relative_path,
+                file_info.st_size,
+                revision,
+                path_identity,
+            )
         finally:
             for descriptor in reversed((*first_descriptors, *reopened_descriptors)):
                 try:
@@ -471,7 +496,9 @@ class ArtifactExtractionService:
                     pass
 
     @staticmethod
-    def _descriptor_identity(info: os.stat_result) -> tuple[int, ...]:
+    def _descriptor_identity(
+        info: os.stat_result,
+    ) -> tuple[int, int, int, int, int, int, int, int, int]:
         return (
             info.st_dev,
             info.st_ino,

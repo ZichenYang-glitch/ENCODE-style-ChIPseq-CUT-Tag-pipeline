@@ -49,8 +49,8 @@ RUNTIME_EXPECTED = {
         "5196c09a97b15ca8b51497234c13a0a13521f3b1819db69fcf4891aafc3a59c1",
     ),
     "results-contract-3.26.0.json": (
-        25_486,
-        "aafb85253adf797e37f14ea02097cd9f9112a3b45e72ab0f6c4b2f22b0bde190",
+        26_889,
+        "a099f495de027a385580cf14e2316b7e96ea6d67b971af02f3180cbf751e859f",
     ),
 }
 EXPECTED = {**UPSTREAM_EXPECTED, **RUNTIME_EXPECTED}

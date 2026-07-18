@@ -64,6 +64,11 @@ def test_results_contract_records_fixed_route_and_explicit_exclusions():
         "future sanitized derivative"
         in contract["explicit_profile_policy"]["trimgalore_metrics"]
     )
+    assert contract["explicit_profile_policy"]["fastqc_route_semantics"] == (
+        "raw and post-filter FastQC follow skip_fastqc; Trim Galore bundled "
+        "post-trim FastQC is required whenever trimming is enabled with "
+        "trimmer=trimgalore, including skip_fastqc=true"
+    )
     assert "159" in contract["explicit_profile_policy"]["multiqc_sample_identity"]
     assert (
         contract["explicit_profile_policy"]["rseqc_tin_sample_identity"]
@@ -166,6 +171,40 @@ def test_results_contract_records_fixed_route_and_explicit_exclusions():
         "unit": "percentage_points",
         "comparison": "absolute_reported_minus_exact_base_ratio",
     }
+    status_evidence = contract["upstream_behavior_evidence"]["sample_status_filtering"]
+    assert status_evidence["trimgalore_release"] == {
+        "repository": "FelixKrueger/TrimGalore",
+        "tag": "v2.1.0",
+        "commit": "3f6be57a7da52b0b91a2641c6121bff6e34eb6a4",
+    }
+    assert status_evidence["trimgalore_cli_source"] == {
+        "version": "2.1.0",
+        "path": "src/cli.rs",
+        "size": 33457,
+        "sha256": "79281a22da1a8f77de4af7a7330038fb6c4b13c2304116dd938282d836523bc2",
+        "semantic": "--fastqc_args is an optional CLI value documented to imply --fastqc",
+    }
+    assert status_evidence["trimgalore_main_source"] == {
+        "version": "2.1.0",
+        "path": "src/main.rs",
+        "size": 36062,
+        "sha256": "a1699d5e85581e94b89b88f6bc2f0df9f9774834a0a89e9ffe0e577cafd45513",
+        "semantic": (
+            "both single-end and paired-end routes run bundled FastQC when "
+            "fastqc_args is present"
+        ),
+    }
+    assert status_evidence["nfcore_preprocessing_subworkflow"] == {
+        "path": ("subworkflows/nf-core/fastq_qc_trim_filter_setstrandedness/main.nf"),
+        "size": 19179,
+        "sha256": ("4e5c90c74494598862288f9e32ad52cb3349dc046510f57ee22bf23c21c2e95a"),
+    }
+    assert status_evidence["fastqc_route_semantics"] == (
+        "skip_fastqc gates the separate raw FASTQC process and later filtered "
+        "FASTQC process; when trimming is enabled with Trim Galore, the pinned "
+        "module config always supplies --fastqc_args and the Trim Galore process "
+        "publishes its bundled post-trim HTML/ZIP independently of skip_fastqc"
+    )
     assert contract["multiqc_sample_identity_sources"] == {
         "multiqc_version": "1.33",
         "multiqc_package_sha256": (

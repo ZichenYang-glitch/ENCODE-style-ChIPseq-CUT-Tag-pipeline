@@ -94,7 +94,10 @@ function succeededRunClient(): RunApiClient {
           status: 'succeeded',
           stage: 'artifact_extraction',
           message: 'Artifacts indexed.',
-          context: { artifact_count: 1 },
+          context: {
+            artifact_count: 1,
+            artifact_generation: `artifactgen-${'a'.repeat(64)}`,
+          },
           issue: null,
         },
         {
@@ -139,6 +142,7 @@ beforeEach(() => {
   listArtifactsMock.mockResolvedValue({
     ok: true,
     run_id: 'run-1',
+    artifact_generation: `artifactgen-${'a'.repeat(64)}`,
     artifacts: [sourceArtifact],
     next_cursor: null,
     issues: [],
@@ -146,6 +150,7 @@ beforeEach(() => {
   getArtifactMock.mockResolvedValue({
     ok: true,
     run_id: 'run-1',
+    artifact_generation: `artifactgen-${'a'.repeat(64)}`,
     artifact: sourceArtifact,
     issues: [],
   });

@@ -269,6 +269,54 @@ def test_artifact_operations_do_not_publish_unreachable_422_responses(tmp_path):
         assert "4XX" in responses
 
 
+def test_artifact_generation_cursor_detail_and_download_are_publicly_bound(
+    tmp_path,
+):
+    schema = _isolated_app_schema(tmp_path, "artifact-generation-contract")
+    paths = schema["paths"]
+    list_operation = paths["/api/v1/runs/{run_id}/artifacts"]["get"]
+    detail_operation = paths["/api/v1/runs/{run_id}/artifacts/{artifact_id}"]["get"]
+    download_operation = paths[
+        "/api/v1/runs/{run_id}/artifacts/{artifact_id}/download"
+    ]["get"]
+
+    list_parameters = {
+        parameter["name"]: parameter for parameter in list_operation["parameters"]
+    }
+    detail_parameters = {
+        parameter["name"]: parameter for parameter in detail_operation["parameters"]
+    }
+    download_parameters = {
+        parameter["name"]: parameter for parameter in download_operation["parameters"]
+    }
+
+    assert list_parameters["after"]["required"] is False
+    assert list_parameters["generation"]["required"] is False
+    assert list_parameters["after"]["schema"]["anyOf"][0]["pattern"].startswith(
+        "^artifactcur_"
+    )
+    assert detail_parameters["generation"]["required"] is True
+    assert download_parameters["generation"]["required"] is True
+    assert download_parameters["revision"]["required"] is True
+    assert "409" in list_operation["responses"]
+    assert "409" in detail_operation["responses"]
+    assert list_operation["responses"]["409"]["content"]["application/json"][
+        "schema"
+    ] == {"$ref": "#/components/schemas/RunArtifactsResponse"}
+    assert detail_operation["responses"]["409"]["content"]["application/json"][
+        "schema"
+    ] == {"$ref": "#/components/schemas/RunArtifactDetailResponse"}
+
+    list_schema = schema["components"]["schemas"]["RunArtifactsResponse"]
+    detail_schema = schema["components"]["schemas"]["RunArtifactDetailResponse"]
+    assert "artifact_generation" in list_schema["required"]
+    assert "artifact_generation" in detail_schema["required"]
+    assert (
+        list_schema["properties"]["artifact_generation"]["anyOf"][0]["pattern"]
+        == "^artifactgen-[0-9a-f]{64}$"
+    )
+
+
 def test_artifact_download_contract_is_binary_and_has_bounded_error_envelopes(
     tmp_path,
 ):

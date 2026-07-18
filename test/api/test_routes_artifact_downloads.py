@@ -9,6 +9,7 @@ import ast
 import inspect
 import json
 from pathlib import Path
+from pathlib import PurePosixPath
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +19,11 @@ from encode_pipeline.api.main import _handle_internal_server_error
 from encode_pipeline.api.routes.artifacts import download_run_artifact
 from encode_pipeline.api.routes import artifacts as artifact_routes
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.result_generations import (
+    ARTIFACT_PATH_IDENTITY_METADATA_KEY,
+    build_artifact_content_revision,
+    build_artifact_path_identity,
+)
 from encode_pipeline.platform.runs import RunArtifactRef, RunStatus
 from encode_pipeline.platform.results import Issue, Result
 from fastapi import Request
@@ -71,6 +77,32 @@ def _record_download(
     source = client.app.state.workspace_root / run_id / relative_path
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_bytes(content)
+    components = (
+        *(client.app.state.workspace_root / run_id).parts[1:],
+        *PurePosixPath(relative_path).parts,
+    )
+    current = Path("/")
+    infos = []
+    for component in components:
+        current /= component
+        infos.append(current.stat())
+    file_info = infos[-1]
+    path_identity = build_artifact_path_identity(
+        parent_identities=tuple(
+            (info.st_dev, info.st_ino, info.st_mode) for info in infos[:-1]
+        ),
+        file_identity=(
+            file_info.st_dev,
+            file_info.st_ino,
+            file_info.st_mode,
+            file_info.st_nlink,
+            file_info.st_uid,
+            file_info.st_gid,
+            file_info.st_size,
+            file_info.st_mtime_ns,
+            file_info.st_ctime_ns,
+        ),
+    )
     artifact = RunArtifactRef(
         artifact_id=artifact_id,
         run_id=run_id,
@@ -79,17 +111,27 @@ def _record_download(
         uri=f"run://runs/{run_id}/artifacts/{artifact_id}",
         mime_type=mime_type,
         produced_at=datetime.now(timezone.utc),
-        revision=ARTIFACT_REVISION,
+        revision=build_artifact_content_revision(
+            output_type="result_manifest",
+            relative_path=relative_path,
+            content=content,
+        ),
         metadata={
             "relative_path": relative_path,
             "output_type": "result_manifest",
             "size_bytes": len(content) if metadata_size is None else metadata_size,
             "catalog_id": "result_manifest",
             "scope": "project",
+            ARTIFACT_PATH_IDENTITY_METADATA_KEY: path_identity,
         },
     )
     service = client.app.state.run_service
-    service.replace_artifacts(run_id, (*service.list_artifacts(run_id), artifact))
+    existing = tuple(
+        item
+        for item in service.list_artifacts(run_id)
+        if item.artifact_id != artifact_id
+    )
+    service.replace_artifacts(run_id, (*existing, artifact))
     return artifact
 
 
@@ -98,10 +140,23 @@ def _download_url(run_id: str, artifact_id: str) -> str:
 
 
 def _invoke(client: ApiTestClient, run_id: str, artifact_id: str):
+    generation = "artifactgen-" + "a" * 64
+    revision = ARTIFACT_REVISION
+    try:
+        state = client.app.state.run_service.get_result_state(run_id)
+        if state.artifact_generation is not None:
+            generation = state.artifact_generation
+        revision = client.app.state.run_service.get_artifact(
+            run_id, artifact_id
+        ).revision
+    except KeyError:
+        pass
     return download_run_artifact(
         run_id,
         artifact_id,
-        client.app.state.artifact_download_service,
+        generation=generation,
+        revision=revision,
+        download_service=client.app.state.artifact_download_service,
     )
 
 
@@ -132,6 +187,130 @@ def test_download_streams_exact_persisted_bytes_with_controlled_headers(client):
     assert client.app.state.run_service.list_events(run_id) == events_before
     assert response.background is not None
     response.background.func()
+
+
+def test_download_requires_and_honors_the_viewed_generation_and_revision(client):
+    run_id = _create_run(client)
+    content = b"generation-bound download"
+    artifact = _record_download(client, run_id, "artifact-bound", content)
+    generation = client.app.state.run_service.get_result_state(
+        run_id
+    ).artifact_generation
+    assert generation is not None
+
+    missing = client.get(_download_url(run_id, artifact.artifact_id))
+    current = _invoke(client, run_id, artifact.artifact_id)
+
+    assert missing.status_code == 400
+    assert missing.json()["issues"][0]["code"] == "API_REQUEST_INVALID"
+    assert current.status_code == 200
+    assert isinstance(current, StreamingResponse)
+    current.background.func()
+
+
+@pytest.mark.parametrize("mutation", ("same-length", "inode"))
+def test_download_rejects_file_revision_or_path_replacement_before_headers(
+    client,
+    mutation,
+):
+    run_id = _create_run(client)
+    artifact = _record_download(client, run_id, "artifact-stale", b"indexed")
+    generation = client.app.state.run_service.get_result_state(
+        run_id
+    ).artifact_generation
+    assert generation is not None
+    source = (
+        client.app.state.workspace_root
+        / run_id
+        / str(artifact.metadata["relative_path"])
+    )
+    if mutation == "same-length":
+        source.write_bytes(b"changed")
+    else:
+        replacement = source.with_name("replacement.tsv")
+        replacement.write_bytes(b"indexed")
+        replacement.replace(source)
+
+    response = client.get(
+        _download_url(run_id, artifact.artifact_id),
+        params={"generation": generation, "revision": artifact.revision},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["issues"][0]["code"] == ("RUN_ARTIFACT_DOWNLOAD_CONFLICT")
+    assert set(response.json()["issues"][0]["context"]) == {"reason_code"}
+    assert str(client.app.state.workspace_root) not in response.text
+
+
+def test_download_returns_redacted_409_when_source_changes_during_final_guard(
+    client,
+    monkeypatch,
+):
+    run_id = _create_run(client)
+    artifact = _record_download(client, run_id, "artifact-final-guard", b"indexed")
+    source = (
+        client.app.state.workspace_root
+        / run_id
+        / str(artifact.metadata["relative_path"])
+    )
+    run_service = client.app.state.run_service
+    original_get = run_service.get_artifact_at_generation
+    calls = 0
+
+    def replace_during_final_guard(*args, **kwargs):
+        nonlocal calls
+        result = original_get(*args, **kwargs)
+        calls += 1
+        if calls == 2:
+            replacement = source.with_name("replacement.tsv")
+            replacement.write_bytes(b"changed")
+            replacement.replace(source)
+        return result
+
+    monkeypatch.setattr(
+        run_service,
+        "get_artifact_at_generation",
+        replace_during_final_guard,
+    )
+
+    response = _invoke(client, run_id, artifact.artifact_id)
+
+    assert response.status_code == 409
+    assert response.headers.get("content-length") != str(len(b"indexed"))
+    body = _json(response)
+    assert body["issues"][0]["code"] == "RUN_ARTIFACT_DOWNLOAD_CONFLICT"
+    assert body["issues"][0]["context"] == {
+        "reason_code": "ARTIFACT_DOWNLOAD_SOURCE_CHANGED"
+    }
+    assert str(client.app.state.workspace_root) not in response.body.decode()
+
+
+def test_download_rejects_an_old_detail_after_same_id_generation_replacement(client):
+    run_id = _create_run(client)
+    first = _record_download(client, run_id, "artifact-reused", b"version-a")
+    generation_a = client.app.state.run_service.get_result_state(
+        run_id
+    ).artifact_generation
+    assert generation_a is not None
+    second = _record_download(client, run_id, "artifact-reused", b"version-b")
+    generation_b = client.app.state.run_service.get_result_state(
+        run_id
+    ).artifact_generation
+    assert generation_b is not None and generation_b != generation_a
+
+    stale = client.get(
+        _download_url(run_id, first.artifact_id),
+        params={"generation": generation_a, "revision": first.revision},
+    )
+    current = _invoke(client, run_id, second.artifact_id)
+
+    assert stale.status_code == 409
+    assert stale.json()["issues"][0]["context"] == {
+        "reason_code": "ARTIFACT_DOWNLOAD_GENERATION_CHANGED"
+    }
+    assert current.status_code == 200
+    assert isinstance(current, StreamingResponse)
+    current.background.func()
 
 
 def test_unknown_and_cross_run_artifact_share_same_redacted_404(client):
@@ -203,9 +382,14 @@ def test_corrupt_persisted_metadata_returns_redacted_500(client, monkeypatch):
     )
     monkeypatch.setattr(
         client.app.state.run_service,
-        "get_artifact",
-        lambda requested_run_id, requested_artifact_id: (
-            corrupted
+        "get_artifact_at_generation",
+        lambda requested_run_id, requested_artifact_id, **_kwargs: (
+            (
+                client.app.state.run_service.get_result_state(
+                    run_id
+                ).artifact_generation,
+                corrupted,
+            )
             if (requested_run_id, requested_artifact_id)
             == (run_id, artifact.artifact_id)
             else (_ for _ in ()).throw(KeyError(requested_artifact_id))
@@ -274,8 +458,15 @@ def test_download_survives_sqlite_repository_reopen(tmp_path: Path):
     second_app = create_app(database_url=database_url, workspace_root=workspace_root)
     try:
         with ApiTestClient(second_app) as second_client:
+            generation = second_client.app.state.run_service.get_result_state(
+                run_id
+            ).artifact_generation
+            assert generation is not None
             result = second_client.app.state.artifact_download_service.prepare(
-                run_id, artifact.artifact_id
+                run_id,
+                artifact.artifact_id,
+                expected_generation=generation,
+                expected_revision=artifact.revision,
             )
         assert result.is_success
         assert result.value is not None
@@ -343,12 +534,17 @@ def test_route_closes_prepared_plan_when_response_construction_raises(
     run_id = _create_run(client)
     artifact = _record_download(client, run_id, "artifact-response", b"content")
     prepared = client.app.state.artifact_download_service.prepare(
-        run_id, artifact.artifact_id
+        run_id,
+        artifact.artifact_id,
+        expected_generation=client.app.state.run_service.get_result_state(
+            run_id
+        ).artifact_generation,
+        expected_revision=artifact.revision,
     )
     plan = prepared.value
 
     class PreparedService:
-        def prepare(self, _run_id, _artifact_id):
+        def prepare(self, _run_id, _artifact_id, **_kwargs):
             return prepared
 
     def fail_response(*_args, **_kwargs):
@@ -357,7 +553,15 @@ def test_route_closes_prepared_plan_when_response_construction_raises(
     monkeypatch.setattr(artifact_routes, "_ArtifactStreamingResponse", fail_response)
 
     with pytest.raises(MemoryError):
-        download_run_artifact(run_id, artifact.artifact_id, PreparedService())
+        download_run_artifact(
+            run_id,
+            artifact.artifact_id,
+            generation=client.app.state.run_service.get_result_state(
+                run_id
+            ).artifact_generation,
+            revision=artifact.revision,
+            download_service=PreparedService(),
+        )
     assert plan.closed is True
 
 
@@ -365,7 +569,7 @@ def test_download_error_projects_only_allowlisted_context(client):
     run_id = _create_run(client)
 
     class MaliciousService:
-        def prepare(self, _run_id, _artifact_id):
+        def prepare(self, _run_id, _artifact_id, **_kwargs):
             return Result.failure(
                 [
                     Issue(
@@ -386,7 +590,9 @@ def test_download_error_projects_only_allowlisted_context(client):
     response = download_run_artifact(
         run_id,
         "artifact-malicious",
-        MaliciousService(),
+        generation="artifactgen-" + "a" * 64,
+        revision=ARTIFACT_REVISION,
+        download_service=MaliciousService(),
     )
 
     assert response.status_code == 409

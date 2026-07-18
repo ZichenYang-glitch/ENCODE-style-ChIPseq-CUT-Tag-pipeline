@@ -758,9 +758,33 @@ class SqlAlchemyRunRepository:
         after: str | None = None,
         limit: int | None = None,
     ) -> tuple[RunArtifactRef, ...]:
+        _, artifacts = self.list_artifacts_page(
+            run_id,
+            expected_generation=None,
+            after=after,
+            limit=limit,
+        )
+        return artifacts
+
+    def list_artifacts_page(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str | None,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str | None, tuple[RunArtifactRef, ...]]:
+        if expected_generation is not None:
+            validate_artifact_generation(expected_generation)
         with self._session_factory() as session:
+            _begin_consistent_read(session)
             self._require_run(session, run_id)
             state = _result_state_from_row(self._require_result_state(session, run_id))
+            if (
+                expected_generation is not None
+                and state.artifact_generation != expected_generation
+            ):
+                raise ResultGenerationChangedError("artifact generation changed")
             has_rows = session.scalar(
                 select(func.count())
                 .select_from(RunArtifactRow)
@@ -792,12 +816,36 @@ class SqlAlchemyRunRepository:
             if limit is not None:
                 statement = statement.limit(limit)
             rows = session.scalars(statement).all()
-            return tuple(_artifact_from_row(row) for row in rows)
+            return state.artifact_generation, tuple(
+                _artifact_from_row(row) for row in rows
+            )
 
     def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef:
+        _, artifact = self.get_artifact_at_generation(
+            run_id,
+            artifact_id,
+            expected_generation=None,
+        )
+        return artifact
+
+    def get_artifact_at_generation(
+        self,
+        run_id: str,
+        artifact_id: str,
+        *,
+        expected_generation: str | None,
+    ) -> tuple[str, RunArtifactRef]:
+        if expected_generation is not None:
+            validate_artifact_generation(expected_generation)
         with self._session_factory() as session:
+            _begin_consistent_read(session)
             self._require_run(session, run_id)
             state = _result_state_from_row(self._require_result_state(session, run_id))
+            if (
+                expected_generation is not None
+                and state.artifact_generation != expected_generation
+            ):
+                raise ResultGenerationChangedError("artifact generation changed")
             row = session.scalar(
                 select(RunArtifactRow).where(
                     RunArtifactRow.run_id == run_id,
@@ -808,7 +856,7 @@ class SqlAlchemyRunRepository:
                 raise KeyError((run_id, artifact_id))
             if state.artifact_generation is None:
                 raise ValueError("artifact generation is unbound")
-            return _artifact_from_row(row)
+            return state.artifact_generation, _artifact_from_row(row)
 
     def replace_qc_metrics(
         self,

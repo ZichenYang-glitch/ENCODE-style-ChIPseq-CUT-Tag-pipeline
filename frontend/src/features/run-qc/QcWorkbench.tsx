@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, RotateCcw } from 'lucide-react';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   QcMetricResponse,
   RunQcMetricsResponse,
@@ -31,7 +31,7 @@ interface QcWorkbenchProps {
   runStatus: string;
   outcome: QcIndexingOutcome;
   onOpenSourceArtifact: (artifactId: string) => void;
-  onRefreshStatus: () => void;
+  onRefreshStatus: () => void | Promise<void>;
 }
 
 export function qcMetricListQueryKey(
@@ -126,10 +126,15 @@ export function QcWorkbench({
   const queryClient = useQueryClient();
   const indexed = runStatus === 'succeeded' && outcome.kind === 'indexed';
   const generation = outcome.kind === 'indexed' ? outcome.generation : null;
+  const [staleGeneration, setStaleGeneration] = useState<string | null>(null);
+  const [statusRefreshFailed, setStatusRefreshFailed] = useState(false);
+  const automaticRefreshGeneration = useRef<string | null>(null);
+  const generationIsStale =
+    generation !== null && generation === staleGeneration;
   const queryKey = qcMetricListQueryKey(runId, generation);
   const listQuery = useInfiniteQuery({
     queryKey,
-    enabled: indexed,
+    enabled: indexed && !generationIsStale,
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       if (!generation) throw new Error('QC generation is unavailable');
@@ -146,10 +151,10 @@ export function QcWorkbench({
     },
     getNextPageParam: (lastPage, allPages, _lastPageParam, allPageParams) =>
       safeNextQcCursor(lastPage, allPages, allPageParams),
-    retry: 1,
+    retry: (failureCount, error) =>
+      !isGenerationChanged(error) && failureCount < 1,
     retryDelay: 100,
   });
-  const generationChangeHandled = useRef<string | null>(null);
   const generationChanged = isGenerationChanged(listQuery.error);
 
   useEffect(() => {
@@ -161,15 +166,40 @@ export function QcWorkbench({
       queryKey: ['run-qc-metrics', runId],
       predicate: (query) => query.queryKey[2] !== generation,
     });
-  }, [generation, queryClient, runId]);
+    if (staleGeneration !== null && staleGeneration !== generation) {
+      setStaleGeneration(null);
+      setStatusRefreshFailed(false);
+      automaticRefreshGeneration.current = null;
+    }
+  }, [generation, queryClient, runId, staleGeneration]);
 
   useEffect(() => {
     if (!generationChanged || !generation) return;
-    if (generationChangeHandled.current === generation) return;
-    generationChangeHandled.current = generation;
-    queryClient.removeQueries({ queryKey, exact: true });
-    onRefreshStatus();
-  }, [generation, generationChanged, onRefreshStatus, queryClient, queryKey]);
+    if (automaticRefreshGeneration.current === generation) return;
+    automaticRefreshGeneration.current = generation;
+    setStaleGeneration(generation);
+    setStatusRefreshFailed(false);
+    void Promise.resolve()
+      .then(onRefreshStatus)
+      .catch(() => setStatusRefreshFailed(true));
+  }, [generation, generationChanged, onRefreshStatus]);
+
+  useEffect(() => {
+    if (!generationIsStale) return;
+    queryClient.removeQueries({
+      queryKey: ['run-qc-metrics', runId, generation],
+      exact: true,
+    });
+  }, [generation, generationIsStale, queryClient, runId]);
+
+  async function retryCanonicalStatus(): Promise<void> {
+    setStatusRefreshFailed(false);
+    try {
+      await onRefreshStatus();
+    } catch {
+      setStatusRefreshFailed(true);
+    }
+  }
 
   if (runStatus !== 'succeeded') {
     return (
@@ -206,6 +236,20 @@ export function QcWorkbench({
           </span>
         )}
         <StatusRefreshButton onClick={onRefreshStatus} />
+      </QcStatus>
+    );
+  }
+
+  if (generationIsStale) {
+    return (
+      <QcStatus title="QC metric generation changed" tone="error">
+        Cached QC pages were discarded. Refresh canonical run status before loading the replacement generation.
+        {statusRefreshFailed && (
+          <span className="mt-1 block">
+            The status refresh did not complete. It is safe to retry.
+          </span>
+        )}
+        <StatusRefreshButton onClick={retryCanonicalStatus} />
       </QcStatus>
     );
   }
@@ -368,12 +412,16 @@ function QcStatus({
   );
 }
 
-function StatusRefreshButton({ onClick }: { onClick: () => void }) {
+function StatusRefreshButton({
+  onClick,
+}: {
+  onClick: () => void | Promise<void>;
+}) {
   return (
     <Button
       className="mt-3"
       variant="secondary"
-      onClick={onClick}
+      onClick={() => void onClick()}
       aria-label="Refresh QC status"
     >
       <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden="true" />

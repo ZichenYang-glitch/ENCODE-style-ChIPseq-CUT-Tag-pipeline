@@ -1042,10 +1042,44 @@ class RunService:
                 limit=limit,
             )
 
+    def list_artifacts_page(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str | None,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str | None, tuple[RunArtifactRef, ...]]:
+        """Atomically read one artifact page and its exact generation."""
+        with self._lock:
+            if limit is not None and limit <= 0:
+                raise ValueError("limit must be positive")
+            return self._repository.list_artifacts_page(
+                run_id,
+                expected_generation=expected_generation,
+                after=after,
+                limit=limit,
+            )
+
     def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef:
         """Return one artifact scoped to its canonical run."""
         with self._lock:
             return self._repository.get_artifact(run_id, artifact_id)
+
+    def get_artifact_at_generation(
+        self,
+        run_id: str,
+        artifact_id: str,
+        *,
+        expected_generation: str | None,
+    ) -> tuple[str, RunArtifactRef]:
+        """Atomically read one artifact under an optional generation guard."""
+        with self._lock:
+            return self._repository.get_artifact_at_generation(
+                run_id,
+                artifact_id,
+                expected_generation=expected_generation,
+            )
 
     def replace_qc_metrics(
         self,

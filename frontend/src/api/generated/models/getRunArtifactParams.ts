@@ -6,12 +6,10 @@
  * OpenAPI spec version: 0.3.0
  */
 
-export type ListRunArtifactsParams = {
-after?: string | null;
-generation?: string | null;
+export type GetRunArtifactParams = {
 /**
- * @minimum 1
- * @maximum 100
+ * @maxLength 76
+ * @pattern ^artifactgen-[0-9a-f]{64}$
  */
-limit?: number;
+generation: string;
 };
