@@ -288,6 +288,35 @@ def _core_sources(sample: str = "S1") -> list[QcSourceDocument]:
     ]
 
 
+def test_star_qc_accepts_zero_second_infinite_mapping_speed():
+    star_log = (
+        _star_log()
+        .replace(
+            b"Finished on | Jul 17 00:00:02",
+            b"Finished on | Jul 17 00:00:01",
+        )
+        .replace(
+            b"Mapping speed, Million of reads per hour | 1800.00",
+            b"Mapping speed, Million of reads per hour | inf",
+        )
+    )
+    result = extract_bulk_rnaseq_qc_metrics(
+        _inputs(),
+        (
+            _source("bulk_rnaseq.star.log_final", star_log, sample="S1"),
+            _source(
+                "bulk_rnaseq.salmon.meta_info",
+                _salmon_meta(),
+                sample="S1",
+                suffix="json",
+            ),
+        ),
+    )
+
+    assert result.is_success, [issue.to_dict() for issue in result.issues]
+    assert str(_metric_map(result)["star.input_templates"].value) == "1000"
+
+
 def _fastp_source(sample: str, retained: int) -> QcSourceDocument:
     return _source(
         "bulk_rnaseq.trim.fastp.json",
@@ -350,7 +379,7 @@ def _fastqc_zip(
     adapter_fraction: str = "2.50",
     total_sequences: str = "1000",
     root: str = "S1_raw_fastqc",
-    filename: str = "S1_raw.fastq.gz",
+    filename: str = "S1_raw.gz",
     extra_members: dict[str, bytes] | None = None,
 ) -> bytes:
     summary = "\n".join(
@@ -444,6 +473,26 @@ def test_fastqc_zip_extracts_decimal_metrics_flags_and_source_binding():
     assert metrics["fastqc.raw.single.per_sequence_quality_pass"].qc_flag == "warning"
 
 
+def test_raw_fastqc_accepts_pinned_nfcore_staged_gz_filename():
+    inputs = _inputs(qc={"fastqc": True})
+    fastqc = _source(
+        "bulk_rnaseq.fastqc.raw.single.zip",
+        _fastqc_zip(
+            filename="S1_raw.gz",
+            extra_members={"S1_raw_fastqc/Images/per_base_quality.svg": b"<svg/>"},
+        ),
+        sample="S1",
+        suffix="zip",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(
+        inputs,
+        tuple([*_core_sources(), fastqc]),
+    )
+
+    assert result.is_success, [issue.to_dict() for issue in result.issues]
+
+
 @pytest.mark.parametrize(
     ("content", "relative_path"),
     (
@@ -527,7 +576,7 @@ def test_trimmed_fastqc_provides_exact_retained_read_counts_for_pe():
                     _fastqc_zip(
                         total_sequences=count,
                         root=f"{basename}_fastqc",
-                        filename=f"{basename}.{'fastq.gz' if stage == 'raw' else 'fq.gz'}",
+                        filename=f"{basename}.{'gz' if stage == 'raw' else 'fq.gz'}",
                     ),
                     sample="S1",
                     suffix="zip",
@@ -759,7 +808,7 @@ def test_trimmed_fastqc_rejects_mismatched_pe_retained_read_counts():
                 _fastqc_zip(
                     total_sequences=count,
                     root=f"{basename}_fastqc",
-                    filename=f"{basename}.{'fastq.gz' if stage == 'raw' else 'fq.gz'}",
+                    filename=f"{basename}.{'gz' if stage == 'raw' else 'fq.gz'}",
                 ),
                 sample="S1",
                 suffix="zip",
@@ -799,7 +848,7 @@ def test_pe_umi_discard_read_uses_single_end_downstream_qc_grammar():
                 f"bulk_rnaseq.fastqc.raw.{role}.zip",
                 _fastqc_zip(
                     root=f"{basename}_fastqc",
-                    filename=f"{basename}.fastq.gz",
+                    filename=f"{basename}.gz",
                 ),
                 sample="S1",
                 suffix="zip",
@@ -926,7 +975,7 @@ def test_fastp_and_trimmed_fastqc_retained_reads_reconcile_exactly(
                 f"bulk_rnaseq.fastqc.raw.{role}.zip",
                 _fastqc_zip(
                     root=f"{basename}_fastqc",
-                    filename=f"{basename}.fastq.gz",
+                    filename=f"{basename}.gz",
                 ),
                 sample="S1",
                 suffix="zip",

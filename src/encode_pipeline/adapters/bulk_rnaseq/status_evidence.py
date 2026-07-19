@@ -491,16 +491,23 @@ def parse_fastqc_total_sequences(
             total_size = 0
             for info in infos:
                 path = PurePosixPath(info.filename)
+                normalized_name = path.as_posix()
+                canonical_name = (
+                    f"{normalized_name}/" if info.is_dir() else normalized_name
+                )
                 if (
-                    info.filename in names
-                    or path.as_posix() != info.filename
+                    not info.filename
+                    or "\\" in info.filename
+                    or normalized_name in names
+                    or canonical_name != info.filename
                     or path.is_absolute()
                     or any(part in {"", ".", ".."} for part in path.parts)
                     or info.file_size < 0
                     or info.file_size > _MAX_ZIP_ENTRY_BYTES
+                    or (info.is_dir() and info.file_size != 0)
                 ):
                     raise StatusEvidenceError
-                names.add(info.filename)
+                names.add(normalized_name)
                 total_size += info.file_size
                 if total_size > _MAX_ZIP_TOTAL_BYTES:
                     raise StatusEvidenceError
@@ -583,7 +590,11 @@ def parse_star_log_final(content: bytes) -> StarLogFinalEvidence:
 
     for key in ("Started job on", "Started mapping on", "Finished on"):
         _validate_star_timestamp(values[key])
-    _star_nonnegative_decimal(values["Mapping speed, Million of reads per hour"])
+    _validate_star_mapping_speed(
+        values["Mapping speed, Million of reads per hour"],
+        started_mapping_on=values["Started mapping on"],
+        finished_on=values["Finished on"],
+    )
     average_input_length = _star_nonnegative_decimal(
         values["Average input read length"]
     )
@@ -718,6 +729,21 @@ def _star_nonnegative_decimal(raw: str) -> Decimal:
     if not value.is_finite() or value < 0 or value > Decimal(_MAX_STAR_TEMPLATE_COUNT):
         raise StatusEvidenceError
     return value
+
+
+def _validate_star_mapping_speed(
+    raw: str,
+    *,
+    started_mapping_on: str,
+    finished_on: str,
+) -> None:
+    # Pinned STAR 2.7.11b emits this exact sentinel when a tiny mapping begins
+    # and finishes within the same one-second timestamp resolution.
+    if raw == "inf":
+        if started_mapping_on != finished_on:
+            raise StatusEvidenceError
+        return
+    _star_nonnegative_decimal(raw)
 
 
 def _validate_star_timestamp(raw: str) -> None:

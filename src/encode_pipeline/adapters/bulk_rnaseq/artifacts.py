@@ -1996,7 +1996,12 @@ def _add_multiqc_specs(
             "multiqc_salmon.txt",
             "bulk_rnaseq.multiqc.salmon",
             analysis_present,
-            True,
+            # The pinned STAR+Salmon BAM-quantification route publishes each
+            # sample's Salmon meta_info.json but does not place the module's
+            # private *_meta_info.json copy on MultiQC's input channel. Keep
+            # the table in the closed audit catalog when it is emitted; the
+            # per-sample Salmon metadata and quantifications stay required.
+            False,
         ),
         (
             "multiqc_cutadapt.txt",

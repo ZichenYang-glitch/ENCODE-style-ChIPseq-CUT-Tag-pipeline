@@ -75,6 +75,53 @@ Number of chimeric reads | 0
 """
 
 
+def _zero_second_star_log() -> bytes:
+    return _STAR_LOG.replace(
+        b"Finished on | Jul 17 00:00:02",
+        b"Finished on | Jul 17 00:00:01",
+    ).replace(
+        b"Mapping speed, Million of reads per hour | 1800.00",
+        b"Mapping speed, Million of reads per hour | inf",
+    )
+
+
+def test_star_status_accepts_pinned_zero_second_infinite_mapping_speed():
+    assert (
+        str(
+            status_evidence_module.parse_star_uniquely_mapped_percent(
+                _zero_second_star_log()
+            )
+        )
+        == "80.00"
+    )
+
+
+def test_star_status_rejects_infinite_mapping_speed_for_nonzero_duration():
+    with pytest.raises(status_evidence_module.StatusEvidenceError):
+        status_evidence_module.parse_star_uniquely_mapped_percent(
+            _STAR_LOG.replace(
+                b"Mapping speed, Million of reads per hour | 1800.00",
+                b"Mapping speed, Million of reads per hour | inf",
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_speed",
+    (b"Inf", b"+inf", b"Infinity", b"NaN", b"-inf"),
+)
+def test_star_status_rejects_other_nonfinite_zero_second_mapping_speeds(
+    invalid_speed: bytes,
+):
+    with pytest.raises(status_evidence_module.StatusEvidenceError):
+        status_evidence_module.parse_star_uniquely_mapped_percent(
+            _zero_second_star_log().replace(
+                b"Mapping speed, Million of reads per hour | inf",
+                b"Mapping speed, Million of reads per hour | " + invalid_speed,
+            )
+        )
+
+
 def _inputs(
     *,
     layouts: tuple[str, ...] = ("SE",),
@@ -193,7 +240,13 @@ def _write_fastp_evidence(workspace: Path, sample: str, retained: int) -> None:
     )
 
 
-def _fastqc_evidence_zip(root: str, filename: str, retained: int) -> bytes:
+def _fastqc_evidence_zip(
+    root: str,
+    filename: str,
+    retained: int,
+    *,
+    include_directory_entries: bool = False,
+) -> bytes:
     data = (
         "\n".join(
             (
@@ -210,6 +263,10 @@ def _fastqc_evidence_zip(root: str, filename: str, retained: int) -> bytes:
     ).encode()
     target = BytesIO()
     with ZipFile(target, "w", ZIP_DEFLATED) as archive:
+        if include_directory_entries:
+            archive.writestr(f"{root}/", b"")
+            archive.writestr(f"{root}/Icons/", b"")
+            archive.writestr(f"{root}/Images/", b"")
         archive.writestr(f"{root}/fastqc_data.txt", data)
     return target.getvalue()
 
@@ -381,6 +438,26 @@ def test_cutadapt_shared_parser_bounds_numeric_fields_before_conversion():
         status_evidence_module.parse_cutadapt_processed_reads(
             content,
             expected_row_owners={"S1": "S1"},
+        )
+
+
+def test_status_fastqc_zip_rejects_nonempty_directory_entry():
+    root = "S1_trimmed_trimmed_fastqc"
+    target = BytesIO(
+        _fastqc_evidence_zip(
+            root,
+            "S1_trimmed_trimmed.fq.gz",
+            20000,
+        )
+    )
+    with ZipFile(target, "a", ZIP_DEFLATED) as archive:
+        archive.writestr(f"{root}/", b"not-a-directory-record")
+
+    with pytest.raises(status_evidence_module.StatusEvidenceError):
+        status_evidence_module.parse_fastqc_total_sequences(
+            target.getvalue(),
+            expected_root=root,
+            expected_filename="S1_trimmed_trimmed.fq.gz",
         )
 
 
@@ -885,6 +962,37 @@ def test_trimgalore_fastqc_false_high_yield_full_discovery(
     assert not any(".fastqc.raw." in value for value in types)
 
 
+def test_trimgalore_status_accepts_standard_fastqc_directory_entries(
+    tmp_path: Path,
+):
+    inputs = _inputs(
+        trimming={"enabled": True, "tool": "trimgalore"},
+        qc={**_multiqc_only(), "fastqc": False},
+    )
+    _write_trimgalore_fastqc_false_route(
+        tmp_path,
+        downstream_layout="SE",
+        retained=20000,
+        high_yield=True,
+    )
+    root = "S1_trimmed_trimmed_fastqc"
+    _write(
+        tmp_path,
+        f"fastqc/trim/{root}.zip",
+        _fastqc_evidence_zip(
+            root,
+            "S1_trimmed_trimmed.fq.gz",
+            20000,
+            include_directory_entries=True,
+        ),
+    )
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_success, [issue.to_dict() for issue in result.issues]
+    assert "bulk_rnaseq.fastqc.trimmed.single.zip" in _types(result)
+
+
 @pytest.mark.parametrize("layout", ("SE", "PE"))
 def test_trimgalore_fastqc_false_low_yield_full_discovery(
     tmp_path: Path,
@@ -1178,7 +1286,7 @@ def test_disabled_multiqc_modules_are_not_cataloged_when_stale_files_exist(
 ):
     inputs = _inputs(qc=_multiqc_only())
     _write_core(tmp_path, ("S1",))
-    required = {"multiqc_general_stats.txt", "multiqc_star.txt", "multiqc_salmon.txt"}
+    enabled = {"multiqc_general_stats.txt", "multiqc_star.txt", "multiqc_salmon.txt"}
     disabled = {
         "multiqc_cutadapt.txt",
         "multiqc_fastp.txt",
@@ -1192,11 +1300,11 @@ def test_disabled_multiqc_modules_are_not_cataloged_when_stale_files_exist(
         "multiqc_rseqc_read_distribution.txt",
         "multiqc_rseqc_tin.txt",
     }
-    for name in sorted(required | disabled):
+    for name in sorted(enabled | disabled):
         _write(
             tmp_path,
             f"multiqc/star_salmon/multiqc_report_data/{name}",
-            _multiqc_stub("S1") if name in required else b"stale",
+            _multiqc_stub("S1") if name in enabled else b"stale",
         )
     _write(tmp_path, "multiqc/star_salmon/multiqc_report.html")
 
@@ -1213,6 +1321,41 @@ def test_disabled_multiqc_modules_are_not_cataloged_when_stale_files_exist(
         "bulk_rnaseq.multiqc.salmon",
         "bulk_rnaseq.multiqc.star",
     }
+
+
+def test_star_salmon_accepts_absent_optional_multiqc_salmon_table(
+    tmp_path: Path,
+):
+    inputs = _inputs(qc=_multiqc_only())
+    _write_core(tmp_path, ("S1",))
+    root = "multiqc/star_salmon/multiqc_report_data"
+    _write(tmp_path, f"{root}/multiqc_general_stats.txt", _multiqc_stub("S1"))
+    _write(tmp_path, f"{root}/multiqc_star.txt", _multiqc_stub("S1"))
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_success, [issue.to_dict() for issue in result.issues]
+    types = _types(result)
+    assert "bulk_rnaseq.multiqc.salmon" not in types
+    assert "bulk_rnaseq.salmon.meta_info" in types
+    assert "bulk_rnaseq.salmon.quant_transcript" in types
+    assert "bulk_rnaseq.salmon.quant_gene" in types
+
+
+def test_star_salmon_accepts_zero_second_infinite_mapping_speed(
+    tmp_path: Path,
+):
+    inputs = _inputs(qc=_multiqc_only())
+    _write_core(tmp_path, ("S1",))
+    _write(tmp_path, "star_salmon/log/S1.Log.final.out", _zero_second_star_log())
+    root = "multiqc/star_salmon/multiqc_report_data"
+    _write(tmp_path, f"{root}/multiqc_general_stats.txt", _multiqc_stub("S1"))
+    _write(tmp_path, f"{root}/multiqc_star.txt", _multiqc_stub("S1"))
+
+    result = discover_bulk_rnaseq_artifacts(inputs, tmp_path)
+
+    assert result.is_success, [issue.to_dict() for issue in result.issues]
+    assert "bulk_rnaseq.star.log_final" in _types(result)
 
 
 @pytest.mark.parametrize(
