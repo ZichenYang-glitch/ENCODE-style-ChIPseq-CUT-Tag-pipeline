@@ -1609,6 +1609,16 @@ def _require_full_fixture_routes(inputs: Mapping[str, object]) -> None:
 
     config = inputs["config"]
     assert isinstance(config, dict)
+    advanced = config.get("advanced")
+    if (
+        not isinstance(advanced, dict)
+        or set(advanced) != {"min_mapped_reads", "min_trimmed_reads"}
+        or type(advanced.get("min_mapped_reads")) is not int
+        or type(advanced.get("min_trimmed_reads")) is not int
+        or advanced["min_mapped_reads"] != 0
+        or advanced["min_trimmed_reads"] != 1
+    ):
+        raise AssertionError("fixture must bind the tiny execution thresholds")
     standard = config.get("standard")
     if not isinstance(standard, dict):
         raise AssertionError("fixture standard configuration is required")

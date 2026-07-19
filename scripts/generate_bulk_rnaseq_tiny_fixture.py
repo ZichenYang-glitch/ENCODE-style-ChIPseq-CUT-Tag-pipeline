@@ -1110,6 +1110,10 @@ def _acceptance_document(
         },
         "workflow_inputs": {
             "config": {
+                "advanced": {
+                    "min_mapped_reads": 0,
+                    "min_trimmed_reads": 1,
+                },
                 "standard": {
                     "reference": dict(reference),
                     "analysis": {
@@ -1154,7 +1158,7 @@ def _acceptance_document(
                         "merged_fastq": False,
                         "umi_intermediates": False,
                     },
-                }
+                },
             },
             "samples": samples,
             "options": {},

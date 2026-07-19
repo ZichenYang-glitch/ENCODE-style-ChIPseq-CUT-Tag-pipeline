@@ -331,6 +331,10 @@ def test_finalize_writes_and_verifies_production_sidecars_and_harness_manifest(
     workflow_inputs = json.loads(finalized.acceptance_manifest.read_bytes())[
         "workflow_inputs"
     ]
+    assert workflow_inputs["config"]["advanced"] == {
+        "min_mapped_reads": 0,
+        "min_trimmed_reads": 1,
+    }
     reference = workflow_inputs["config"]["standard"]["reference"]
     reference_result = verify_reference_closure(
         reference,

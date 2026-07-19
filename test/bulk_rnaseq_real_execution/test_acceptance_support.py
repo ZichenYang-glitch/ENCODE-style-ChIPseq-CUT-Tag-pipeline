@@ -160,6 +160,10 @@ def _fixture_document(fixture_root: Path) -> dict[str, object]:
         },
         "workflow_inputs": {
             "config": {
+                "advanced": {
+                    "min_mapped_reads": 0,
+                    "min_trimmed_reads": 1,
+                },
                 "standard": {
                     "reference": {
                         "reference_id": "tiny-reference",
@@ -195,7 +199,7 @@ def _fixture_document(fixture_root: Path) -> dict[str, object]:
                             "identity_sha256": _HEX_F,
                         },
                     },
-                }
+                },
             },
             "samples": [
                 repeated_pe,
@@ -642,6 +646,27 @@ def test_fixture_manifest_rejects_a_tampered_fastqc_oracle(tmp_path: Path) -> No
     manifest.write_text(json.dumps(document), encoding="utf-8")
 
     with pytest.raises(AssertionError, match="fixed source"):
+        load_acceptance_fixture(manifest)
+
+
+@pytest.mark.parametrize(
+    "advanced",
+    (
+        {},
+        {"min_mapped_reads": 0, "min_trimmed_reads": 10_000},
+        {"min_mapped_reads": 0, "min_trimmed_reads": True},
+    ),
+)
+def test_fixture_manifest_requires_exact_tiny_execution_thresholds(
+    tmp_path: Path,
+    advanced: dict[str, object],
+) -> None:
+    manifest = tmp_path / "fixture.json"
+    document = _fixture_document(tmp_path)
+    document["workflow_inputs"]["config"]["advanced"] = advanced
+    manifest.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="tiny execution thresholds"):
         load_acceptance_fixture(manifest)
 
 
