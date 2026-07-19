@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SchemaResponse } from '../../api/generated/models';
 import { ApiError } from '../../api/fetcher';
 import { appRoutes } from '../../app/router';
@@ -12,6 +12,10 @@ const generatedMocks = vi.hoisted(() => ({
   getWorkflowSchema: vi.fn(),
   validateWorkflow: vi.fn(),
 }));
+
+beforeAll(async () => {
+  await import('../workflows/new-run');
+});
 
 vi.mock('../../api/generated/workflows/workflows', () => ({
   getWorkflowSchema: generatedMocks.getWorkflowSchema,

@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RunHistoryResponse, RunSummaryResponse } from '../../api/generated/models';
 import { listRuns } from '../../api/generated/runs/runs';
 import { ApiError } from '../../api/fetcher';
@@ -13,6 +13,10 @@ vi.mock('../../api/generated/runs/runs', async (importOriginal) => {
 });
 
 const listRunsMock = vi.mocked(listRuns);
+
+beforeAll(async () => {
+  await import('./index');
+});
 
 function run(
   runId: string,
