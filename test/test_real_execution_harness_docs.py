@@ -66,6 +66,7 @@ def test_ci_defines_complete_real_execution_tiers():
     assert {
         "platform-real-execution",
         "real-execution",
+        "bulk-rnaseq-real-execution",
         "container-smoke",
     } <= jobs.keys()
 
@@ -85,6 +86,13 @@ def test_ci_defines_complete_real_execution_tiers():
     container_text = _run_text(jobs["container-smoke"])
     assert "containers/Dockerfile.runner" in container_text
     assert "scripts/smoke_container_runner.sh" in container_text
+
+    bulk = jobs["bulk-rnaseq-real-execution"]
+    bulk_text = _run_text(bulk)
+    assert "bulk_rnaseq_real_execution" in bulk_text
+    assert "test/bulk_rnaseq_real_execution" in bulk_text
+    assert "stage_bulk_rnaseq_runtime_assets.py" in bulk_text
+    assert "--phase verify" in bulk_text
 
     for job in (platform, scientific, jobs["container-smoke"]):
         condition = str(job["if"])
@@ -119,7 +127,12 @@ def test_real_pytest_jobs_provide_prerequisites_and_junit():
 def test_pytest_marker_contract_matches_documented_tiers():
     config = PYPROJECT_PATH.read_text(encoding="utf-8")
 
-    for marker in ("full_main", "platform_real_execution", "real_execution"):
+    for marker in (
+        "full_main",
+        "platform_real_execution",
+        "real_execution",
+        "bulk_rnaseq_real_execution",
+    ):
         assert f'"{marker}:' in config
     assert '"--strict-markers"' in config
     assert "not real_execution and not platform_real_execution" in config

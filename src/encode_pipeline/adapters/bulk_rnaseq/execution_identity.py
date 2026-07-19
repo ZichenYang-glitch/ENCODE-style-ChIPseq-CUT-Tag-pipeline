@@ -46,6 +46,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/adapters/bulk_rnaseq/runtime_assets.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/status_evidence.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/qc.py",
+    "src/encode_pipeline/adapters/bulk_rnaseq/qualification.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/upstream.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/validation.py",
     "src/encode_pipeline/platform/__init__.py",

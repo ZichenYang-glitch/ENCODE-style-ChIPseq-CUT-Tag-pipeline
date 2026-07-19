@@ -121,10 +121,13 @@ def test_fast_checks_is_the_only_deterministic_pytest_coverage_producer():
     assert "budget=1200" in producer
     assert producer.count("python3 -m pytest test") == 1
     assert (
-        "not full_main and not platform_real_execution and not real_execution"
-        in producer
+        "not full_main and not platform_real_execution and not real_execution "
+        "and not bulk_rnaseq_real_execution" in producer
     )
-    assert "not platform_real_execution and not real_execution" in producer
+    assert (
+        "not platform_real_execution and not real_execution "
+        "and not bulk_rnaseq_real_execution" in producer
+    )
     assert "--cov-fail-under=0" in producer
     assert "--junitxml=pytest-report.xml" in producer
     assert "check_junit_outcomes.py pytest-report.xml" in producer
@@ -183,6 +186,10 @@ def test_all_pytest_tiers_enforce_zero_skip_junit_outcomes():
         assert f"--junitxml={report}" in runs
         assert f"check_junit_outcomes.py {report}" in runs
 
+    bulk_runs = _runs(jobs["bulk-rnaseq-real-execution"])
+    assert "bulk-rnaseq-real-report.xml" in bulk_runs
+    assert "check_junit_outcomes.py" in bulk_runs
+
     assert "xfail_strict = true" in (REPO_ROOT / "pyproject.toml").read_text(
         encoding="utf-8"
     )
@@ -206,6 +213,23 @@ def test_real_execution_jobs_are_non_pr_conditional_and_fail_closed():
     assert "HELIXWEAVE_REQUIRE_REAL_EXECUTION" in str(jobs["real-execution"])
     assert "docker build" in container_runs
     assert "scripts/smoke_container_runner.sh" in container_runs
+
+    bulk_job = jobs["bulk-rnaseq-real-execution"]
+    bulk_condition = bulk_job["if"]
+    assert "workflow_dispatch" in bulk_condition
+    assert "inputs.bulk_rnaseq_real_execution" in bulk_condition
+    assert "pull_request" not in bulk_condition
+    assert bulk_job["runs-on"] == [
+        "self-hosted",
+        "linux",
+        "x64",
+        "helixweave-bulk-rnaseq",
+    ]
+    bulk_runs = _runs(bulk_job)
+    assert "stage_bulk_rnaseq_runtime_assets.py" in bulk_runs
+    assert "--phase verify" in bulk_runs
+    assert "-m bulk_rnaseq_real_execution test/bulk_rnaseq_real_execution" in bulk_runs
+    assert "HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION" in str(bulk_job)
 
 
 def test_lint_and_lock_workflows_cover_the_maintained_contracts():

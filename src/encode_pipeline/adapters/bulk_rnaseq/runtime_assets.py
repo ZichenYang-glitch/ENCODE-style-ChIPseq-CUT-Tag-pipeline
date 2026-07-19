@@ -42,7 +42,7 @@ SOURCE_FILE_COUNT = 829
 
 RUNTIME_IDENTITY_FILE = "runtime-identity-3.26.0.json"
 RUNTIME_IDENTITY_SHA256 = (
-    "5196c09a97b15ca8b51497234c13a0a13521f3b1819db69fcf4891aafc3a59c1"
+    "f105e45563b5f6db5a3d24ee88b74aedbd1b7398f73891561c770d4aa1e6d13e"
 )
 CONTAINER_LOCK_SCHEMA_FILE = "container-availability-lock-1.0.0.schema.json"
 CONTAINER_LOCK_SCHEMA_SHA256 = (
@@ -58,10 +58,10 @@ CONTAINER_INVENTORY_ENTRIES_SHA256 = (
 CONTAINER_PROCESS_COUNT = 56
 CONTAINER_PROCESS_AUDIT_FILE = "container-process-audit-3.26.0.json"
 CONTAINER_PROCESS_AUDIT_SHA256 = (
-    "45a2cabd6ec74de359f8d53faa2ca9423ac97cdd89cfa04e2c79c005418fd1c2"
+    "606c5c7613e82f589103aafe26c5b5edb101fb98ba4c9dc8843a8599fd76ae7d"
 )
 CONTAINER_PROCESS_AUDIT_PROCESSES_SHA256 = (
-    "4acefb6a517a805845bc034943108ec8e40a6db9e62026b17c62b27a020cd71c"
+    "faa7794e76cf10e07d5c344c7440b44384b36fbe854b71e5b163069a3a61e83c"
 )
 CONTAINER_PROCESS_UNIVERSE_COUNT = 78
 CONTAINER_EXCLUDED_PROCESS_COUNT = 22
@@ -92,6 +92,21 @@ JAVA_EXECUTABLE_SHA256 = (
 JAVA_VERSION_OUTPUT_SHA256 = (
     "2744133c4f331372bf4228910c95cc5bf1f07be87d1b1f752478846cca1b540d"
 )
+NETWORK_ISOLATION_TOOL = "util-linux unshare"
+NETWORK_ISOLATION_VERSION = "2.39.3"
+NETWORK_ISOLATION_EXECUTABLE_SHA256 = (
+    "51bcc77ba5db162c80028f861f0a2770d728c1de80773816d863f28d7a817adb"
+)
+NETWORK_ISOLATION_VERSION_OUTPUT_SHA256 = (
+    "85b9aead4ac4d08a7d4023aaa2700ca2a14400c4490f12150c8b55d1adf854fc"
+)
+NETWORK_ISOLATION_EXECUTABLE_SIZE_BYTES = 43_624
+NETWORK_ISOLATION_REQUIRED_ARGS = (
+    "--user",
+    "--map-current-user",
+    "--net",
+    "--",
+)
 NF_SCHEMA_VERSION = "2.5.1"
 NF_SCHEMA_ARCHIVE_SHA256 = (
     "f3833d0c29a51dc5e3759e00a6af87fcb1e989c94d1c1e7995d06e3f7090c461"
@@ -114,6 +129,7 @@ _MAX_DISTRIBUTION_MANIFEST_BYTES = 16 * 1024 * 1024
 _MAX_IMAGE_CONFIG_BYTES = 16 * 1024 * 1024
 _MAX_DOCKER_ARCHIVE_ENTRIES = 65_536
 _MAX_DOCKER_INSPECT_BYTES = 8 * 1024 * 1024
+_MAX_HOST_EXECUTABLE_BYTES = 16 * 1024 * 1024
 _DOCKER_INSPECT_TIMEOUT_SECONDS = 15.0
 _RUNTIME_CANARY_TIMEOUT_SECONDS = 30.0
 _MAX_RUNTIME_CANARY_BYTES = 4 * 1024 * 1024
@@ -141,6 +157,7 @@ class RuntimeAssetBinding:
     plugin_tree: str = "plugins/nf-schema-2.5.1"
     container_lock: str = "containers/availability-lock.json"
     container_root: str = "containers/assets"
+    network_isolation_executable: Path = Path("/usr/bin/unshare")
     docker_executable: Path = Path("/usr/bin/docker")
     docker_socket: Path = Path("/var/run/docker.sock")
 
@@ -171,7 +188,11 @@ class RuntimeAssetBinding:
             raise ValueError("source_tree cannot be embedded in fixed configuration")
         if ":" in self.jdk_tree:
             raise ValueError("jdk_tree cannot be embedded in the controlled PATH")
-        for name in ("docker_executable", "docker_socket"):
+        for name in (
+            "network_isolation_executable",
+            "docker_executable",
+            "docker_socket",
+        ):
             value = getattr(self, name)
             if not isinstance(value, Path) or not value.is_absolute():
                 raise ValueError(f"{name} must be an absolute pathlib.Path")
@@ -186,6 +207,12 @@ class RuntimeAssetBinding:
             self.docker_executable.parent
         ):
             raise ValueError("docker_executable must be a fixed Docker CLI path")
+        if self.network_isolation_executable.name != "unshare" or ":" in str(
+            self.network_isolation_executable.parent
+        ):
+            raise ValueError(
+                "network_isolation_executable must be a fixed unshare path"
+            )
 
 
 @dataclass(frozen=True)
@@ -232,6 +259,11 @@ class VerifiedRuntimeAssets:
     container_inventory_sha256: str
     container_lock_sha256: str
     container_process_audit_sha256: str = CONTAINER_PROCESS_AUDIT_SHA256
+    network_isolation_executable: Path = Path("/usr/bin/unshare")
+    network_isolation_executable_sha256: str = NETWORK_ISOLATION_EXECUTABLE_SHA256
+    network_isolation_version_output_sha256: str = (
+        NETWORK_ISOLATION_VERSION_OUTPUT_SHA256
+    )
 
 
 @dataclass(frozen=True)
@@ -246,6 +278,7 @@ class RuntimeAssetDoctorReport:
 class _RuntimeAssetWitness:
     entries: tuple[tuple[str, tuple[int, ...]], ...]
     docker_endpoint: tuple[tuple[int, ...], tuple[int, ...]] | None
+    network_isolation_executable: tuple[int, ...] | None
 
 
 class RuntimeAssetAdmission:
@@ -301,6 +334,7 @@ class RuntimeAssetAdmission:
                 before = _capture_runtime_witness(
                     self.binding,
                     include_docker_endpoint=self._docker_probe is None,
+                    include_network_isolation=self._contract is None,
                 )
             except _AssetFault as fault:
                 self._verified = None
@@ -319,6 +353,7 @@ class RuntimeAssetAdmission:
                 after = _capture_runtime_witness(
                     self.binding,
                     include_docker_endpoint=self._docker_probe is None,
+                    include_network_isolation=self._contract is None,
                 )
             except _AssetFault as fault:
                 return Result.failure((_issue(fault.component, fault.reason),))
@@ -339,6 +374,7 @@ class RuntimeAssetAdmission:
             before = _capture_runtime_witness(
                 self.binding,
                 include_docker_endpoint=self._docker_probe is None,
+                include_network_isolation=self._contract is None,
             )
         except _AssetFault as fault:
             return Result.failure((_issue(fault.component, fault.reason),))
@@ -357,6 +393,7 @@ class RuntimeAssetAdmission:
             after = _capture_runtime_witness(
                 self.binding,
                 include_docker_endpoint=self._docker_probe is None,
+                include_network_isolation=self._contract is None,
             )
         except _AssetFault as fault:
             return Result.failure((_issue(fault.component, fault.reason),))
@@ -485,6 +522,16 @@ def verify_runtime_assets(
         or container_lock_sha256 is None
     ):
         return Result.failure((_issue("contract", "invalid"),))
+    network_isolation_executable_sha256 = NETWORK_ISOLATION_EXECUTABLE_SHA256
+    network_isolation_version_output_sha256 = NETWORK_ISOLATION_VERSION_OUTPUT_SHA256
+    if _contract is None:
+        try:
+            (
+                network_isolation_executable_sha256,
+                network_isolation_version_output_sha256,
+            ) = _verify_network_isolation_asset(binding, identity)
+        except _AssetFault as fault:
+            return Result.failure((_issue(fault.component, fault.reason),))
     try:
         _verify_docker_availability(
             binding,
@@ -521,6 +568,11 @@ def verify_runtime_assets(
         ),
         container_lock_sha256=container_lock_sha256,
         container_process_audit_sha256=CONTAINER_PROCESS_AUDIT_SHA256,
+        network_isolation_executable=binding.network_isolation_executable,
+        network_isolation_executable_sha256=(network_isolation_executable_sha256),
+        network_isolation_version_output_sha256=(
+            network_isolation_version_output_sha256
+        ),
     )
     try:
         if _runtime_probe is not None:
@@ -618,6 +670,7 @@ def _validate_embedded_contracts(
     jdk = identity.get("jdk")
     plugins = identity.get("plugins")
     network = identity.get("network_policy")
+    host_network_isolation = identity.get("host_network_isolation")
     if (
         not isinstance(source, Mapping)
         or not isinstance(nextflow, Mapping)
@@ -628,6 +681,20 @@ def _validate_embedded_contracts(
         raise ValueError("embedded plugin identity is incomplete")
     if not isinstance(network, Mapping) or any(network.values()):
         raise ValueError("runtime network policy must deny every fetch")
+    if (
+        not isinstance(host_network_isolation, Mapping)
+        or host_network_isolation.get("tool") != NETWORK_ISOLATION_TOOL
+        or host_network_isolation.get("version") != NETWORK_ISOLATION_VERSION
+        or host_network_isolation.get("default_absolute_path") != "/usr/bin/unshare"
+        or host_network_isolation.get("size_bytes")
+        != NETWORK_ISOLATION_EXECUTABLE_SIZE_BYTES
+        or host_network_isolation.get("sha256") != NETWORK_ISOLATION_EXECUTABLE_SHA256
+        or host_network_isolation.get("version_output_sha256")
+        != NETWORK_ISOLATION_VERSION_OUTPUT_SHA256
+        or tuple(host_network_isolation.get("required_args", ()))
+        != NETWORK_ISOLATION_REQUIRED_ARGS
+    ):
+        raise ValueError("host network isolation identity is invalid")
     if source.get("commit") != NFCORE_RNASEQ_COMMIT:
         raise ValueError("source commit is invalid")
     if source.get("tree_sha256") != SOURCE_TREE_SHA256:
@@ -919,10 +986,16 @@ def _validate_container_process_audit(
             included.add(process)
         elif disposition == "excluded":
             reason = entry.get("exclusion_reason")
+            allowed_platform_owned_reason = (
+                process == "RSEM_PREPAREREFERENCE"
+                and reason == "platform_owned_transcript_fasta"
+            )
             if (
                 process in inventory_by_process
                 or not isinstance(reason, str)
-                or not reason.startswith("unsupported_")
+                or not (
+                    reason.startswith("unsupported_") or allowed_platform_owned_reason
+                )
                 or not all(
                     char.islower() or char.isdigit() or char == "_" for char in reason
                 )
@@ -1521,6 +1594,105 @@ def _hash_open_descriptor(
     return digest.hexdigest()
 
 
+def _verify_network_isolation_asset(
+    binding: RuntimeAssetBinding,
+    identity: Mapping[str, Any],
+) -> tuple[str, str]:
+    """Verify the fixed host launcher and its exact version output."""
+
+    expected = identity.get("host_network_isolation")
+    if not isinstance(expected, Mapping):
+        raise _AssetFault("network_isolation", "contract")
+    path = binding.network_isolation_executable
+    try:
+        before = os.lstat(path)
+    except OSError as exc:
+        raise _AssetFault("network_isolation", "unavailable") from exc
+    expected_size = expected.get("size_bytes")
+    expected_sha256 = expected.get("sha256")
+    expected_version_sha256 = expected.get("version_output_sha256")
+    if (
+        isinstance(expected_size, bool)
+        or not isinstance(expected_size, int)
+        or expected_size <= 0
+        or expected_size > _MAX_HOST_EXECUTABLE_BYTES
+        or not _valid_sha256(expected_sha256)
+        or not _valid_sha256(expected_version_sha256)
+    ):
+        raise _AssetFault("network_isolation", "contract")
+    if (
+        not stat.S_ISREG(before.st_mode)
+        or before.st_nlink != 1
+        or before.st_size != expected_size
+        or before.st_mode & 0o111 == 0
+        or before.st_mode & 0o022 != 0
+        or before.st_uid not in {0, os.geteuid()}
+    ):
+        raise _AssetFault("network_isolation", "file_type")
+    flags = os.O_RDONLY | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise _AssetFault("network_isolation", "unavailable") from exc
+    try:
+        opened = os.fstat(descriptor)
+        if _metadata_identity(opened) != _metadata_identity(before):
+            raise _AssetFault("network_isolation", "race")
+        executable_sha256 = _hash_open_descriptor(
+            descriptor,
+            maximum_bytes=_MAX_HOST_EXECUTABLE_BYTES,
+            component="network_isolation",
+        )
+        after = os.fstat(descriptor)
+        if _metadata_identity(after) != _metadata_identity(opened):
+            raise _AssetFault("network_isolation", "race")
+    finally:
+        os.close(descriptor)
+    if executable_sha256 != expected_sha256:
+        raise _AssetFault("network_isolation", "identity")
+    try:
+        completed = subprocess.run(
+            (str(path), "--version"),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=_RUNTIME_CANARY_TIMEOUT_SECONDS,
+            check=False,
+            shell=False,
+            env={"HOME": "/", "LANG": "C", "LC_ALL": "C"},
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise _AssetFault("network_isolation", "unavailable") from exc
+    if (
+        completed.returncode != 0
+        or len(completed.stdout) > _MAX_RUNTIME_CANARY_BYTES
+        or hashlib.sha256(completed.stdout).hexdigest() != expected_version_sha256
+    ):
+        raise _AssetFault("network_isolation", "version")
+    try:
+        final = os.lstat(path)
+    except OSError as exc:
+        raise _AssetFault("network_isolation", "race") from exc
+    if _metadata_identity(final) != _metadata_identity(before):
+        raise _AssetFault("network_isolation", "race")
+    return executable_sha256, expected_version_sha256
+
+
+def _network_isolated_argv(
+    binding: RuntimeAssetBinding,
+    argv: tuple[str, ...],
+) -> tuple[str, ...]:
+    if not argv:
+        raise _AssetFault("network_isolation", "contract")
+    return (
+        str(binding.network_isolation_executable),
+        *NETWORK_ISOLATION_REQUIRED_ARGS,
+        *argv,
+    )
+
+
 def _verify_runtime_canary(
     binding: RuntimeAssetBinding,
     identity: Mapping[str, Any],
@@ -1569,6 +1741,8 @@ def _verify_runtime_canary(
                     "process.executor = 'local'",
                     "docker.enabled = true",
                     "docker.registry = ''",
+                    "docker.runOptions = '--pull=never --network=none'",
+                    "shifter.enabled = false",
                     "wave.enabled = false",
                     "tower.enabled = false",
                     "fusion.enabled = false",
@@ -1613,6 +1787,7 @@ def _verify_runtime_canary(
             "PATH": f"{java_home / 'bin'}:/usr/bin:/bin",
         }
         java_output = _run_runtime_probe(
+            binding,
             (str(java_executable), "-version"),
             cwd=launch,
             environment=environment,
@@ -1621,6 +1796,7 @@ def _verify_runtime_canary(
         if hashlib.sha256(java_output).hexdigest() != expected_java_output:
             raise _AssetFault("jdk", "version")
         version_output = _run_runtime_probe(
+            binding,
             (str(nextflow_executable), "-version"),
             cwd=launch,
             environment=environment,
@@ -1633,6 +1809,7 @@ def _verify_runtime_canary(
         ):
             raise _AssetFault("nextflow", "version")
         config_output = _run_runtime_probe(
+            binding,
             (
                 str(nextflow_executable),
                 "-C",
@@ -1640,7 +1817,7 @@ def _verify_runtime_canary(
                 "config",
                 str(source_tree),
                 "-profile",
-                "docker",
+                "rapid_quant",
                 "-flat",
             ),
             cwd=launch,
@@ -1649,9 +1826,11 @@ def _verify_runtime_canary(
         ).decode("utf-8", errors="strict")
         required_fragments = (
             "params.helixweave_runtime_admission_marker = 'hard-config-only'",
+            "params.config_profile_name = 'Rapid quantification'",
             "process.executor = 'local'",
             "docker.enabled = true",
             "docker.registry = ''",
+            "docker.runOptions = '--pull=never --network=none'",
             "wave.enabled = false",
             "tower.enabled = false",
             "fusion.enabled = false",
@@ -1675,6 +1854,7 @@ def _verify_runtime_canary(
 
 
 def _run_runtime_probe(
+    binding: RuntimeAssetBinding,
     argv: tuple[str, ...],
     *,
     cwd: Path,
@@ -1683,7 +1863,7 @@ def _run_runtime_probe(
 ) -> bytes:
     try:
         completed = subprocess.run(
-            argv,
+            _network_isolated_argv(binding, argv),
             cwd=cwd,
             env=dict(environment),
             stdin=subprocess.DEVNULL,
@@ -1770,13 +1950,16 @@ def _run_docker_inspect(
     images: tuple[str, ...],
 ) -> bytes:
     endpoint_identity = _verify_local_docker_endpoint(binding)
-    argv = (
-        str(binding.docker_executable),
-        "--host",
-        f"unix://{binding.docker_socket}",
-        "image",
-        "inspect",
-        *images,
+    argv = _network_isolated_argv(
+        binding,
+        (
+            str(binding.docker_executable),
+            "--host",
+            f"unix://{binding.docker_socket}",
+            "image",
+            "inspect",
+            *images,
+        ),
     )
     try:
         process = subprocess.Popen(
@@ -1893,6 +2076,7 @@ def _capture_runtime_witness(
     binding: RuntimeAssetBinding,
     *,
     include_docker_endpoint: bool,
+    include_network_isolation: bool,
 ) -> _RuntimeAssetWitness:
     """Capture bounded descriptor-relative metadata without reading payloads."""
 
@@ -1941,7 +2125,20 @@ def _capture_runtime_witness(
     endpoint = (
         _verify_local_docker_endpoint(binding) if include_docker_endpoint else None
     )
-    return _RuntimeAssetWitness(entries=tuple(entries), docker_endpoint=endpoint)
+    network_isolation = None
+    if include_network_isolation:
+        try:
+            network_isolation_info = os.lstat(binding.network_isolation_executable)
+        except OSError as exc:
+            raise _AssetFault("network_isolation", "unavailable") from exc
+        if not stat.S_ISREG(network_isolation_info.st_mode):
+            raise _AssetFault("network_isolation", "file_type")
+        network_isolation = _metadata_identity(network_isolation_info)
+    return _RuntimeAssetWitness(
+        entries=tuple(entries),
+        docker_endpoint=endpoint,
+        network_isolation_executable=network_isolation,
+    )
 
 
 def _metadata_identity(info: os.stat_result) -> tuple[int, ...]:

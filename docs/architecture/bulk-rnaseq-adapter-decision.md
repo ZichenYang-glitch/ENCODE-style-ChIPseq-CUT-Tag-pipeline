@@ -153,15 +153,23 @@ and rRNA resources without modifying them. It then deterministically emits:
 
 The command uses fixed argv with `shell=False`: the pinned local Nextflow binary
 runs the pinned local source path with the generated config and params file,
-the Docker profile, `-offline`, the server-owned work directory, and a bounded
-identity-derived run name. Main execution and preflight each have exactly one
+`-offline`, the server-owned work directory, and a bounded identity-derived run
+name. Standard execution selects no upstream profile; the server-owned tiny
+qualification route selects only the immutable upstream `rapid_quant` profile.
+Neither route selects the upstream `docker` profile because that profile would
+replace the platform-owned Docker run options after the hard config is
+evaluated. Docker enablement and `--pull=never --network=none` therefore come
+only from the generated hard config. Main execution and preflight are both
+prefixed by the runtime-manifest-bound `/usr/bin/unshare --user
+--map-current-user --net --` host network namespace and each has exactly one
 hard `-C` configuration entry and no soft `-c`. The generated file first
 `includeConfig`s the verified source tree's manifest-bound `nextflow.config`,
 then applies all platform overrides. Nextflow therefore ignores
 `launchDir/nextflow.config`, `$NXF_HOME/config`, and every other implicit config
 source. A real pinned canary places conflicting marker/executor settings in
-both implicit locations and proves they are absent while the Docker profile,
-nf-schema plugin, container selector, and fixed nf-core manifest still parse.
+both implicit locations and proves they are absent while the selected scientific
+profile, nf-schema plugin, container selector, and fixed nf-core manifest still
+parse.
 The launch directory is inside the run workspace. An explicit command-owned
 `nextflow config` invocation is the preflight; the platform no longer invents
 engine-specific dry-run flags. Users cannot add tokens or override paths,
@@ -507,9 +515,13 @@ frontend in PR #151. No real STAR+Salmon scientific acceptance is claimed.
 
 PR #152 supplies deterministic artifact discovery and machine-readable QC
 extraction without HTML scraping, but does not claim scientific execution
-acceptance. Tiny `rapid_quant` qualification and the full local STAR+Salmon
-acceptance gate remain PR #153; `rapid_quant` is not the default product
-analysis. Default registry and product UI exposure remain PR #154.
+acceptance. PR #153 adds a controlled synthetic `rapid_quant` qualification
+gate and a full local STAR+Salmon/SortMeRNA acceptance through the canonical
+SQLite, Redis/RQ, worker, lifecycle, artifact, and QC path. These fixtures prove
+fixed offline execution and platform mechanics, not biological validity;
+`rapid_quant` remains a server-owned qualification mode rather than the default
+product analysis. Default registry, API, and product UI exposure remain PR
+#154.
 
 Official upstream coordinates:
 [nf-core/rnaseq 3.26.0](https://github.com/nf-core/rnaseq/releases/tag/3.26.0),

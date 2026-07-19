@@ -10,6 +10,9 @@ import pytest
 
 import scripts.audit_bulk_rnaseq_container_processes as container_audit
 import scripts.generate_bulk_rnaseq_execution_manifest as manifest_generator
+from encode_pipeline.adapters.bulk_rnaseq.upstream import (
+    PLATFORM_OWNED_NATIVE_PARAMETERS,
+)
 
 
 def _sha256(content: bytes) -> str:
@@ -134,6 +137,16 @@ def test_container_audit_normalizes_and_rejects_ambiguous_image_coordinates():
     ):
         with pytest.raises(container_audit.AuditError):
             container_audit._normalise_image_coordinate(invalid)
+
+
+def test_rsem_transcript_preparation_exclusion_requires_platform_owned_input():
+    assert "transcript_fasta" in PLATFORM_OWNED_NATIVE_PARAMETERS
+    assert container_audit.EXCLUSIONS["RSEM_PREPAREREFERENCE"] == (
+        "platform_owned_transcript_fasta"
+    )
+    assert container_audit.EXCLUSIONS["RSEM_CALCULATEEXPRESSION"] == (
+        "unsupported_rsem_route"
+    )
 
 
 def test_container_audit_extracts_fixed_and_conditional_docker_coordinates():

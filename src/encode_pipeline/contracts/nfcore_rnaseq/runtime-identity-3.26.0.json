@@ -16,6 +16,20 @@
       "--network=none"
     ]
   },
+  "host_network_isolation": {
+    "tool": "util-linux unshare",
+    "version": "2.39.3",
+    "default_absolute_path": "/usr/bin/unshare",
+    "size_bytes": 43624,
+    "sha256": "51bcc77ba5db162c80028f861f0a2770d728c1de80773816d863f28d7a817adb",
+    "version_output_sha256": "85b9aead4ac4d08a7d4023aaa2700ca2a14400c4490f12150c8b55d1adf854fc",
+    "required_args": [
+      "--user",
+      "--map-current-user",
+      "--net",
+      "--"
+    ]
+  },
   "source": {
     "project": "nf-core/rnaseq",
     "release": "3.26.0",
@@ -86,8 +100,8 @@
     "inventory_entries_sha256": "684ad35e9b3af3c0b825f6976a9568e34ad13ba62e1e1a0e316853c263f51365",
     "required_process_count": 56,
     "process_audit": "container-process-audit-3.26.0.json",
-    "process_audit_sha256": "45a2cabd6ec74de359f8d53faa2ca9423ac97cdd89cfa04e2c79c005418fd1c2",
-    "process_audit_processes_sha256": "4acefb6a517a805845bc034943108ec8e40a6db9e62026b17c62b27a020cd71c",
+    "process_audit_sha256": "606c5c7613e82f589103aafe26c5b5edb101fb98ba4c9dc8843a8599fd76ae7d",
+    "process_audit_processes_sha256": "faa7794e76cf10e07d5c344c7440b44384b36fbe854b71e5b163069a3a61e83c",
     "process_universe_count": 78,
     "excluded_process_count": 22,
     "config_container_assignment_count": 78,

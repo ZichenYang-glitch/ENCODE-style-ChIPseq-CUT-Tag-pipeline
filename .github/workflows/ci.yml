@@ -5,6 +5,12 @@ name: CI
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      bulk_rnaseq_real_execution:
+        description: Run the pre-staged nf-core/rnaseq 3.26.0 acceptance gate
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: "17 19 * * *"
   release:
@@ -75,9 +81,9 @@ jobs:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            marker='not full_main and not platform_real_execution and not real_execution'
+            marker='not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
           else
-            marker='not platform_real_execution and not real_execution'
+            marker='not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
           fi
           python3 -m pytest test -ra -p no:cacheprovider \
             -m "$marker" \
@@ -560,6 +566,129 @@ jobs:
           echo "### scientific real-execution timing" >> "$GITHUB_STEP_SUMMARY"
           echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
           echo "- Soft budget: 1200s (informational)" >> "$GITHUB_STEP_SUMMARY"
+
+  bulk-rnaseq-real-execution:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.bulk_rnaseq_real_execution
+    runs-on: [self-hosted, linux, x64, helixweave-bulk-rnaseq]
+    timeout-minutes: 240
+    environment: bulk-rnaseq-real-execution
+    env:
+      HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION: "1"
+      HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
+      HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST: ${{ vars.HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST }}
+      ENCODE_PIPELINE_TEST_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+      ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
+      ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Record job start
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Confirm exact checkout and clean source tree
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          actual_sha=$(git rev-parse HEAD)
+          test "$actual_sha" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          pr_head_sha=${PR_HEAD_SHA:-n/a}
+          pr_base_sha=${PR_BASE_SHA:-n/a}
+          echo "event=workflow_dispatch tier=bulk-rnaseq-real tested-sha=$actual_sha pr-head-sha=$pr_head_sha pr-base-sha=$pr_base_sha"
+          echo "### CI identity" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tested SHA: \`$actual_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR head SHA: \`$pr_head_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR base SHA: \`$pr_base_sha\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup micromamba
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/ci-fast.lock
+          environment-name: ci-fast
+          cache-environment: true
+          cache-environment-key: bulk-rnaseq-real-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.lock') }}
+
+      - name: Install platform package
+        shell: micromamba-shell {0}
+        run: |
+          python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
+          python3 -m pip check
+
+      - name: Require runner-owned runtime coordinates
+        shell: micromamba-shell {0}
+        run: |
+          required=(
+            HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT
+            HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST
+            ENCODE_PIPELINE_TEST_REDIS_URL
+            ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE
+            ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET
+          )
+          for name in "${required[@]}"; do
+            test -n "${!name:-}" || {
+              echo "::error::$name must be configured by the protected environment"
+              exit 1
+            }
+          done
+          test -d "$HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT"
+          test -f "$HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST"
+          test -x /usr/bin/unshare
+          test -x "$ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE"
+          test -S "$ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
+
+      - name: Verify pinned runtime admission without mutation or network
+        shell: micromamba-shell {0}
+        run: >-
+          python3 scripts/stage_bulk_rnaseq_runtime_assets.py
+          --asset-root "$HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT"
+          --docker-executable "$ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE"
+          --docker-socket "$ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
+          --phase verify
+
+      - name: Run rapid, STAR Salmon, and lifecycle acceptance
+        shell: micromamba-shell {0}
+        run: >-
+          python3 -m pytest -m bulk_rnaseq_real_execution
+          test/bulk_rnaseq_real_execution -ra -p no:cacheprovider
+          --durations=25 --durations-min=1.0
+          --basetemp="$RUNNER_TEMP/helixweave-bulk-rnaseq-real-${{ github.run_id }}"
+          --junitxml="$RUNNER_TEMP/bulk-rnaseq-real-report.xml"
+
+      - name: Require passing, zero-skip bulk RNA-seq outcomes
+        if: always()
+        shell: micromamba-shell {0}
+        run: >-
+          python3 scripts/check_junit_outcomes.py
+          "$RUNNER_TEMP/bulk-rnaseq-real-report.xml"
+          --label "bulk RNA-seq real-execution tier"
+
+      - name: Upload path-free bulk RNA-seq evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bulk-rnaseq-real-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/bulk-rnaseq-real-report.xml
+            ${{ runner.temp }}/helixweave-bulk-rnaseq-real-${{ github.run_id }}/**/evidence/*.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+      - name: Report bulk RNA-seq real wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_STARTED ))
+          echo "### bulk RNA-seq real-execution timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Hard timeout: 14400s" >> "$GITHUB_STEP_SUMMARY"
 
   container-smoke:
     if: >-

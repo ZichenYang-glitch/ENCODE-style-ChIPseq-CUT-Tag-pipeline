@@ -44,7 +44,7 @@ EXCLUSIONS = {
     "PARABRICKS_RNAFQ2BAM": "unsupported_accelerated_aligner",
     "RIBODETECTOR": "unsupported_ribodetector",
     "RSEM_CALCULATEEXPRESSION": "unsupported_rsem_route",
-    "RSEM_PREPAREREFERENCE": "unsupported_rsem_route",
+    "RSEM_PREPAREREFERENCE": "platform_owned_transcript_fasta",
     "RUSTQC": "unsupported_rustqc",
     "SENTIEON_RSEMCALCULATEEXPRESSION": "unsupported_commercial_aligner",
     "SENTIEON_RSEMPREPAREREFERENCE": "unsupported_commercial_aligner",
