@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from copy import deepcopy
 import math
+from pathlib import PurePosixPath
 import re
 from typing import Any
 
@@ -12,6 +13,7 @@ import jsonschema
 
 from encode_pipeline.adapters.bulk_rnaseq.authoring import (
     ANALYSIS_DEFAULTS,
+    MULTIQC_SAMPLE_CLEAN_TOKENS,
     OUTPUT_DEFAULTS,
     QC_DEFAULTS,
     RIBOSOMAL_RNA_REMOVAL_DEFAULTS,
@@ -34,6 +36,10 @@ from encode_pipeline.adapters.bulk_rnaseq.upstream import (
     UPSTREAM_SAMPLESHEET_SCHEMA_SHA256,
     upstream_parameter_properties,
 )
+from encode_pipeline.adapters.bulk_rnaseq.results_contract import (
+    effective_downstream_layout,
+    effective_rseqc_modules,
+)
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.results import Issue, Result
 
@@ -52,6 +58,47 @@ _RSEQC_MODULES = frozenset(
     }
 )
 _SAFE_UMI_REGEX = re.compile(r"^[A-Za-z0-9_?P<>(){}\[\].,+*^:\\-]+$")
+_MULTIQC_EXTRA_TRUNCATE_TOKENS = (
+    ".sortmerna",
+    ".umi_dedup",
+    "_val",
+    ".markdup",
+    "_primary",
+    ".namesorted",
+    ".umi_extract",
+)
+_MULTIQC_EXTRA_REMOVE_TOKENS = ("_raw", "_trimmed", "_filtered")
+_MULTIQC_EXTRA_TOKENS = frozenset(
+    (*_MULTIQC_EXTRA_TRUNCATE_TOKENS, *_MULTIQC_EXTRA_REMOVE_TOKENS)
+)
+_MULTIQC_FN_CLEAN_TRIM = (
+    ".",
+    ":",
+    "_",
+    "-",
+    ".r",
+    "_val",
+    ".idxstats",
+    "_trimmed",
+    ".trimmed",
+    ".csv",
+    ".yaml",
+    ".yml",
+    ".json",
+    "_mqc",
+    "short_summary_",
+    "_summary",
+    ".summary",
+    ".align",
+    ".h5",
+    "_matrix",
+    ".stats",
+    ".hist",
+    ".phased",
+    ".tar",
+    "runs_",
+    ".qc",
+)
 
 
 def validate_bulk_rnaseq_inputs(inputs: WorkflowInputs) -> Result[object]:
@@ -106,6 +153,9 @@ def validate_bulk_rnaseq_inputs(inputs: WorkflowInputs) -> Result[object]:
         return Result.failure(advanced_result.issues)
 
     normalized = _normalize_inputs(standard, advanced_result.value, inputs.samples)
+    result_identity_issue = _validate_normalized_result_identities(normalized)
+    if result_identity_issue is not None:
+        return Result.failure([result_identity_issue])
     return Result.success(normalized)
 
 
@@ -550,6 +600,226 @@ def _normalize_umi(umi: Mapping[str, object]) -> dict[str, object]:
     return params
 
 
+def _validate_normalized_result_identities(
+    normalized: Mapping[str, object],
+) -> Issue | None:
+    params = normalized["nfcore_params"]
+    samples = normalized["samples"]
+    if not isinstance(params, Mapping) or not isinstance(samples, list):
+        return _issue("BULK_RNASEQ_INPUTS_INVALID", "inputs")
+
+    if params.get("skip_multiqc") is False:
+        multiqc_issue = _validate_multiqc_sample_identities(samples, params)
+        if multiqc_issue is not None:
+            return multiqc_issue
+
+    if (
+        params.get("skip_rseqc") is False
+        and "tin" in effective_rseqc_modules(params)
+        and any("bam" in sample for sample in _canonical_sample_ids(samples))
+    ):
+        return _issue(
+            "BULK_RNASEQ_RSEQC_TIN_SAMPLE_ID_UNSUPPORTED",
+            "samples",
+            context={
+                "module": "tin",
+                "reason_code": "upstream_filename_rewrite",
+                "tool": "rseqc",
+                "tool_version": "5.0.4",
+            },
+        )
+    return None
+
+
+def _validate_multiqc_sample_identities(
+    samples: list[object],
+    params: Mapping[str, object],
+) -> Issue | None:
+    rows_by_sample: dict[str, list[Mapping[str, object]]] = {}
+    layouts: dict[str, str] = {}
+    for row in samples:
+        if not isinstance(row, Mapping):
+            return _issue("BULK_RNASEQ_INPUTS_INVALID", "inputs")
+        sample = row.get("sample")
+        layout = row.get("layout")
+        if not isinstance(sample, str) or layout not in {"SE", "PE"}:
+            return _issue("BULK_RNASEQ_INPUTS_INVALID", "inputs")
+        layouts[sample] = layout
+        rows_by_sample.setdefault(sample, []).append(row)
+
+    identity_owners: dict[str, tuple[str, str]] = {}
+    for sample in sorted(rows_by_sample):
+        if _multiqc_clean_identity(sample) != sample:
+            return _multiqc_identity_issue()
+        layout = layouts[sample]
+        downstream_layout = effective_downstream_layout(layout, params)
+        claims: list[tuple[str, str]] = [(sample, "sample")]
+
+        # The pinned nf-core MultiQC subworkflow builds run-global table merge
+        # aliases for every authored PE sample, independently of UMI discard.
+        if layout == "PE":
+            claims.extend(((f"{sample}_1", "read1"), (f"{sample}_2", "read2")))
+
+        # Raw FastQC follows the authored layout. Trim Galore, trimmed FastQC,
+        # and filtered FastQC follow the effective post-UMI layout.
+        if params.get("skip_fastqc") is False and layout == "PE":
+            claims.extend(((f"{sample}_1", "read1"), (f"{sample}_2", "read2")))
+        downstream_mate_identities = downstream_layout == "PE" and (
+            (
+                params.get("skip_trimming") is False
+                and params.get("trimmer") == "trimgalore"
+            )
+            or (
+                params.get("skip_fastqc") is False
+                and (
+                    params.get("skip_trimming") is False
+                    or params.get("remove_ribo_rna") is True
+                )
+            )
+        )
+        if downstream_mate_identities:
+            claims.extend(
+                (
+                    (f"{sample}_1", "read1"),
+                    (f"{sample}_2", "read2"),
+                )
+            )
+
+        for identity, role in claims:
+            owner = (sample, role)
+            previous = identity_owners.setdefault(identity, owner)
+            if previous != owner:
+                return _multiqc_identity_issue()
+
+    # The merged report also supplies exact FASTQ simpleName replacements.
+    # Replicate Nextflow Path.simpleName (the basename before its first dot)
+    # and reject source aliases that can rename another sample or map to two
+    # biological owners/read roles. Considering every lane is conservative
+    # and removes input-order dependence from nf-core's first-lane selection.
+    replacements: dict[str, tuple[str, tuple[str, str]]] = {}
+    observed_sources: list[tuple[str, tuple[str, str], str | None, bool]] = []
+    for sample in sorted(rows_by_sample):
+        layout = layouts[sample]
+        for row in rows_by_sample[sample]:
+            read1 = _nextflow_simple_name(row.get("fastq_1"))
+            emits_replacements = read1 != sample
+            sources = [(read1, "single" if layout == "SE" else "read1")]
+            if layout == "PE":
+                sources.append((_nextflow_simple_name(row.get("fastq_2")), "read2"))
+            for index, (source_identity, role) in enumerate(sources):
+                if not source_identity:
+                    return _multiqc_identity_issue()
+                owner = (sample, role)
+                target_identity = (
+                    sample
+                    if role == "single"
+                    else f"{sample}_{1 if role == 'read1' else 2}"
+                )
+                cleaned_identity = _multiqc_clean_identity(source_identity)
+                if not emits_replacements and cleaned_identity != source_identity:
+                    return _multiqc_identity_issue()
+                expected_target: str | None = None
+                if emits_replacements:
+                    expected_target = target_identity
+                    replacement = (target_identity, owner)
+                    previous_replacement = replacements.setdefault(
+                        source_identity, replacement
+                    )
+                    if previous_replacement != replacement:
+                        return _multiqc_identity_issue()
+                observed_sources.append(
+                    (
+                        cleaned_identity,
+                        owner,
+                        expected_target,
+                        not emits_replacements and index == 0,
+                    )
+                )
+
+    # A hard replacement is global. Its raw key must not already denote a
+    # canonical/derived identity owned by another sample or mate role.
+    for source_identity, (_target_identity, target_owner) in replacements.items():
+        source_owner = identity_owners.get(source_identity)
+        if source_owner is not None and source_owner != target_owner:
+            return _multiqc_identity_issue()
+
+    # MultiQC cleans every observed identity before looking it up in the
+    # global exact-replacement map. Resolve that final graph before accepting
+    # any owner; this also crosses upstream no-op rows with mappings emitted by
+    # other samples.
+    final_owners = dict(identity_owners)
+    for cleaned_identity, owner, expected_target, canonical_noop in observed_sources:
+        resolved_replacement = replacements.get(cleaned_identity)
+        if resolved_replacement is None:
+            final_identity = cleaned_identity
+        else:
+            final_identity, replacement_owner = resolved_replacement
+            if replacement_owner != owner:
+                return _multiqc_identity_issue()
+        if expected_target is not None and final_identity != expected_target:
+            return _multiqc_identity_issue()
+        previous_owner = final_owners.setdefault(final_identity, owner)
+        if previous_owner == owner:
+            continue
+        canonical_owner = (owner[0], "sample")
+        if previous_owner == canonical_owner and (
+            owner[1] == "single" or canonical_noop
+        ):
+            continue
+        return _multiqc_identity_issue()
+    return None
+
+
+def _canonical_sample_ids(samples: list[object]) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            {
+                sample
+                for row in samples
+                if isinstance(row, Mapping)
+                and isinstance((sample := row.get("sample")), str)
+            }
+        )
+    )
+
+
+def _nextflow_simple_name(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    name = PurePosixPath(value).name
+    return name.split(".", 1)[0]
+
+
+def _multiqc_clean_identity(value: str) -> str:
+    original = value
+    cleaned = value
+    for token in _MULTIQC_EXTRA_TRUNCATE_TOKENS:
+        cleaned = cleaned.split(token, 1)[0]
+    for token in _MULTIQC_EXTRA_REMOVE_TOKENS:
+        cleaned = cleaned.replace(token, "")
+    for token in MULTIQC_SAMPLE_CLEAN_TOKENS:
+        if token not in _MULTIQC_EXTRA_TOKENS:
+            cleaned = cleaned.split(token, 1)[0]
+    for token in _MULTIQC_FN_CLEAN_TRIM:
+        if cleaned.endswith(token):
+            cleaned = cleaned[: -len(token)]
+        if cleaned.startswith(token):
+            cleaned = cleaned[len(token) :]
+    cleaned = cleaned.strip()
+    return original if not cleaned else cleaned
+
+
+def _multiqc_identity_issue() -> Issue:
+    return _issue(
+        "BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT",
+        "samples",
+        context={
+            "identity_space": "multiqc-1.33",
+            "reason_code": "derived_sample_identity_not_unique",
+        },
+    )
+
+
 def _first_schema_error(
     schema: Mapping[str, object],
     value: object,
@@ -573,13 +843,19 @@ def _schema_path(prefix: str, error: jsonschema.ValidationError) -> str:
     return f"{prefix}{suffix}"
 
 
-def _issue(code: str, path: str) -> Issue:
+def _issue(
+    code: str,
+    path: str,
+    *,
+    context: Mapping[str, object] | None = None,
+) -> Issue:
     return Issue(
         code=code,
         message="Bulk RNA-seq input validation failed.",
         severity="error",
         path=path,
         source="adapter",
+        context={} if context is None else dict(context),
     )
 
 

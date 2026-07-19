@@ -35,6 +35,11 @@ export interface ArtifactReferenceResponse {
   uri: string;
   mime_type?: ArtifactReferenceResponseMimeType;
   produced_at: string;
+  /**
+   * @maxLength 76
+   * @pattern ^artifactrev-[0-9a-f]{64}$
+   */
+  revision: string;
   relative_path: string;
   output_type: string;
   size_bytes: number;

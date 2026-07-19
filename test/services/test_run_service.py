@@ -7,6 +7,7 @@ import subprocess
 import sys
 import textwrap
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -36,6 +37,10 @@ from encode_pipeline.services.runs import (
     RunCancellationNotAvailableError,
     RunService,
 )
+
+
+def _artifact_revision(seed: str) -> str:
+    return "artifactrev-" + sha256(seed.encode()).hexdigest()
 
 
 class FakeAdapter:
@@ -74,6 +79,17 @@ class FakeAdapter:
 
     def extract_artifacts(self, inputs, workspace):
         return Result.success(())
+
+
+def _succeed_run(service: RunService, run_id: str) -> None:
+    for status in (
+        RunStatus.VALIDATING,
+        RunStatus.PLANNED,
+        RunStatus.QUEUED,
+        RunStatus.RUNNING,
+        RunStatus.SUCCEEDED,
+    ):
+        service.transition_run(run_id, status)
 
 
 def test_service_rejects_non_workflow_registry_registry():
@@ -491,10 +507,11 @@ def test_list_logs_invalid_limit_raises_value_error():
         service.list_logs("run-1", "stdout", limit=-1)
 
 
-def test_record_artifact_lists_in_stable_id_order_and_supports_detail():
+def test_replace_artifacts_lists_in_stable_id_order_and_supports_detail():
     registry = WorkflowRegistry(adapters=[FakeAdapter()])
     service = RunService(registry=registry, id_factory=lambda: "run-1")
     service.create_run("fake", WorkflowInputs(config={}))
+    _succeed_run(service, "run-1")
     artifact1 = RunArtifactRef(
         artifact_id="art-1",
         run_id="run-1",
@@ -503,6 +520,7 @@ def test_record_artifact_lists_in_stable_id_order_and_supports_detail():
         uri="run://runs/run-1/artifacts/peaks.narrowPeak",
         mime_type=None,
         produced_at=datetime.now(timezone.utc),
+        revision=_artifact_revision("art-1"),
         metadata={"sample": "S1"},
     )
     artifact2 = RunArtifactRef(
@@ -513,11 +531,11 @@ def test_record_artifact_lists_in_stable_id_order_and_supports_detail():
         uri="run://runs/run-1/artifacts/summary.json",
         mime_type="application/json",
         produced_at=datetime.now(timezone.utc),
+        revision=_artifact_revision("art-2"),
         metadata={},
     )
 
-    service.record_artifact("run-1", artifact2)
-    service.record_artifact("run-1", artifact1)
+    service.replace_artifacts("run-1", (artifact2, artifact1))
 
     artifacts = service.list_artifacts("run-1")
     assert artifacts == (artifact1, artifact2)
@@ -549,7 +567,7 @@ def test_list_qc_metrics_supports_pagination_and_rejects_invalid_limit():
         service.list_qc_metrics("run-1", limit=0)
 
 
-def test_record_artifact_rejects_mismatched_run_id():
+def test_replace_artifacts_rejects_mismatched_run_id():
     registry = WorkflowRegistry(adapters=[FakeAdapter()])
     service = RunService(registry=registry, id_factory=lambda: "run-1")
     service.create_run("fake", WorkflowInputs(config={}))
@@ -561,17 +579,19 @@ def test_record_artifact_rejects_mismatched_run_id():
         uri="run://runs/run-other/artifacts/peaks.narrowPeak",
         mime_type=None,
         produced_at=datetime.now(timezone.utc),
+        revision=_artifact_revision("mismatch"),
         metadata={},
     )
 
     with pytest.raises(ValueError, match="run_id"):
-        service.record_artifact("run-1", artifact)
+        service.replace_artifacts("run-1", (artifact,))
 
 
-def test_record_artifact_rejects_duplicate_artifact_id():
+def test_replace_artifacts_rejects_duplicate_artifact_id():
     registry = WorkflowRegistry(adapters=[FakeAdapter()])
     service = RunService(registry=registry, id_factory=lambda: "run-1")
     service.create_run("fake", WorkflowInputs(config={}))
+    _succeed_run(service, "run-1")
     artifact = RunArtifactRef(
         artifact_id="art-1",
         run_id="run-1",
@@ -580,12 +600,11 @@ def test_record_artifact_rejects_duplicate_artifact_id():
         uri="run://runs/run-1/artifacts/peaks.narrowPeak",
         mime_type=None,
         produced_at=datetime.now(timezone.utc),
+        revision=_artifact_revision("duplicate"),
         metadata={},
     )
-    service.record_artifact("run-1", artifact)
-
-    with pytest.raises(ValueError, match="artifact_id"):
-        service.record_artifact("run-1", artifact)
+    with pytest.raises(ValueError, match="duplicate"):
+        service.replace_artifacts("run-1", (artifact, artifact))
 
 
 def test_ensure_execution_assignment_is_deterministic_and_idempotent():

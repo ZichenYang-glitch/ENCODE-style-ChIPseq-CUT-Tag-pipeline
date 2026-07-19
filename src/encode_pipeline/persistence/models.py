@@ -267,7 +267,112 @@ class RunArtifactRow(Base):
     produced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+    revision: Mapped[str | None] = mapped_column(String(76))
     artifact_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+
+class RunResultStateRow(Base):
+    __tablename__ = "run_result_states"
+    __table_args__ = (
+        CheckConstraint(
+            "artifact_revision >= 0 AND qc_revision >= 0",
+            name="ck_run_result_states_nonnegative_revisions",
+        ),
+        CheckConstraint(
+            "(artifact_revision = 0 AND artifact_generation IS NULL AND "
+            "artifact_manifest_digest IS NULL) OR "
+            "(artifact_revision > 0 AND artifact_generation IS NOT NULL AND "
+            "artifact_manifest_digest IS NOT NULL)",
+            name="ck_run_result_states_artifact_binding",
+        ),
+        CheckConstraint(
+            "(qc_revision = 0 AND qc_generation IS NULL AND "
+            "qc_manifest_digest IS NULL AND qc_artifact_generation IS NULL) OR "
+            "(qc_revision > 0 AND ((qc_generation IS NULL AND "
+            "qc_manifest_digest IS NULL AND qc_artifact_generation IS NULL) OR "
+            "(qc_generation IS NOT NULL AND qc_manifest_digest IS NOT NULL AND "
+            "qc_artifact_generation IS NOT NULL)))",
+            name="ck_run_result_states_qc_binding",
+        ),
+        CheckConstraint(
+            "(artifact_attempt_id IS NULL AND artifact_attempt_status IS NULL) OR "
+            "(artifact_attempt_id IS NOT NULL AND artifact_attempt_status IN "
+            "('pending', 'succeeded', 'failed'))",
+            name="ck_run_result_states_artifact_attempt",
+        ),
+        CheckConstraint(
+            "(qc_attempt_id IS NULL AND qc_attempt_status IS NULL AND "
+            "qc_attempt_artifact_generation IS NULL) OR "
+            "(qc_attempt_id IS NOT NULL AND qc_attempt_status IN "
+            "('pending', 'succeeded', 'failed') AND "
+            "qc_attempt_artifact_generation IS NOT NULL)",
+            name="ck_run_result_states_qc_attempt",
+        ),
+        CheckConstraint(
+            "artifact_outcome IS NULL OR artifact_outcome IN ('succeeded', 'failed')",
+            name="ck_run_result_states_artifact_outcome",
+        ),
+        CheckConstraint(
+            "qc_outcome IS NULL OR qc_outcome IN "
+            "('succeeded', 'failed', 'invalidated')",
+            name="ck_run_result_states_qc_outcome",
+        ),
+        CheckConstraint(
+            "(artifact_outcome = 'failed' AND artifact_reason_code IS NOT NULL) OR "
+            "(artifact_outcome IS NULL AND artifact_reason_code IS NULL) OR "
+            "(artifact_outcome = 'succeeded' AND artifact_reason_code IS NULL)",
+            name="ck_run_result_states_artifact_reason",
+        ),
+        CheckConstraint(
+            "(qc_outcome = 'failed' AND qc_reason_code IS NOT NULL) OR "
+            "(qc_outcome IS NULL AND qc_reason_code IS NULL) OR "
+            "(qc_outcome IN ('succeeded', 'invalidated') AND qc_reason_code IS NULL)",
+            name="ck_run_result_states_qc_reason",
+        ),
+    )
+
+    run_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("runs.run_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    artifact_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    artifact_generation: Mapped[str | None] = mapped_column(String(76))
+    artifact_manifest_digest: Mapped[str | None] = mapped_column(String(64))
+    artifact_attempt_id: Mapped[str | None] = mapped_column(String(78))
+    artifact_attempt_status: Mapped[str | None] = mapped_column(String(16))
+    artifact_outcome: Mapped[str | None] = mapped_column(String(16))
+    artifact_reason_code: Mapped[str | None] = mapped_column(String(128))
+    qc_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    qc_generation: Mapped[str | None] = mapped_column(String(70))
+    qc_manifest_digest: Mapped[str | None] = mapped_column(String(64))
+    qc_attempt_id: Mapped[str | None] = mapped_column(String(78))
+    qc_attempt_status: Mapped[str | None] = mapped_column(String(16))
+    qc_attempt_artifact_generation: Mapped[str | None] = mapped_column(String(76))
+    qc_artifact_generation: Mapped[str | None] = mapped_column(String(76))
+    qc_outcome: Mapped[str | None] = mapped_column(String(16))
+    qc_reason_code: Mapped[str | None] = mapped_column(String(128))
+
+
+class RunResultAttemptRow(Base):
+    __tablename__ = "run_result_attempts"
+    __table_args__ = (
+        CheckConstraint(
+            "(result_kind = 'artifact' AND artifact_generation IS NULL) OR "
+            "(result_kind = 'qc' AND artifact_generation IS NOT NULL)",
+            name="ck_run_result_attempts_binding",
+        ),
+        Index("ix_run_result_attempts_run_id", "run_id"),
+    )
+
+    attempt_id: Mapped[str] = mapped_column(String(78), primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    result_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    artifact_generation: Mapped[str | None] = mapped_column(String(76))
 
 
 class RunQcMetricRow(Base):

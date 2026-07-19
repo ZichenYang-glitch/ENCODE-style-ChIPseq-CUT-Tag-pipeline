@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 
+from encode_pipeline.persistence.repositories import SqlAlchemyRunRepository
 from encode_pipeline.services.local_run_driver import LocalRunDriver
 from encode_pipeline.services.local_execution import LocalExecutionService
 from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
@@ -26,6 +27,8 @@ def test_open_worker_runtime_reopens_sqlite_and_full_execution_dependencies(tmp_
 
         assert runtime.settings is configured
         assert runtime.persistence.database_url == configured.database_url
+        assert isinstance(runtime.persistence.repository, SqlAlchemyRunRepository)
+        assert runtime.run_service._repository is runtime.persistence.repository
         assert record.workflow_id == WORKFLOW_ID
         assert runtime.registry.get(WORKFLOW_ID).metadata.workflow_id == WORKFLOW_ID
         assert isinstance(runtime.local_run_driver, LocalRunDriver)

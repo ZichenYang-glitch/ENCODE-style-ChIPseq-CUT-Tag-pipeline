@@ -8,9 +8,11 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 import inspect
+import re
 from threading import Event, Thread
 
 import fastapi.routing
+import httpx
 import pytest
 from sqlalchemy import update
 
@@ -19,6 +21,10 @@ from encode_pipeline.api.models import QcMetricResponse
 from encode_pipeline.api.routes.qc_metrics import list_run_qc_metrics
 from encode_pipeline.persistence.models import RunQcMetricRow
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.result_generations import (
+    QcMetricCursor,
+    encode_qc_metric_cursor,
+)
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
     RunQcMetric,
@@ -30,6 +36,8 @@ from api_test_client import ApiTestClient
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 PRODUCED_AT = datetime(2026, 7, 13, 8, 30, tzinfo=timezone.utc)
+QC_GENERATION_PATTERN = re.compile(r"^qcgen-[0-9a-f]{64}$")
+ARTIFACT_REVISION = f"artifactrev-{'a' * 64}"
 
 
 async def _run_in_joined_test_thread(function, *args, **kwargs):
@@ -105,6 +113,7 @@ def _artifact(run_id: str) -> RunArtifactRef:
         uri=f"run://runs/{run_id}/artifacts/artifact-qc-summary",
         mime_type="text/tab-separated-values",
         produced_at=PRODUCED_AT,
+        revision=ARTIFACT_REVISION,
         metadata={
             "relative_path": "results/multiqc/qc_summary.tsv",
             "output_type": "qc_summary",
@@ -123,6 +132,7 @@ def _metric(
     experiment_id: str | None = "EXP1",
     assay: str | None = "chipseq",
     qc_flag: str | None = None,
+    unit: str = "count",
 ) -> RunQcMetric:
     return RunQcMetric(
         metric_id=build_qc_metric_id(
@@ -135,7 +145,7 @@ def _metric(
         metric_key=metric_key,
         display_name=metric_key.replace(".", " ").title(),
         value=value,
-        unit="count",
+        unit=unit,
         scope=scope,
         sample_id=sample_id,
         experiment_id=experiment_id,
@@ -173,6 +183,7 @@ def test_existing_run_without_qc_metrics_returns_empty_page(client):
     assert response.json() == {
         "ok": True,
         "run_id": run_id,
+        "qc_generation": None,
         "qc_metrics": [],
         "next_cursor": None,
         "issues": [],
@@ -193,16 +204,18 @@ def test_qc_metrics_are_stably_paginated_and_decimal_is_lossless(client):
         f"/api/v1/runs/{run_id}/qc-metrics",
         params={"limit": 2},
     )
+    generation = first.json()["qc_generation"]
+    cursor = first.json()["next_cursor"]
     second = client.get(
         f"/api/v1/runs/{run_id}/qc-metrics",
-        params={"after": ordered[1].metric_id, "limit": 2},
+        params={"after": cursor, "generation": generation, "limit": 2},
     )
 
     assert first.status_code == second.status_code == 200
     assert [item["metric_id"] for item in first.json()["qc_metrics"]] == [
         item.metric_id for item in ordered[:2]
     ]
-    assert first.json()["next_cursor"] == ordered[1].metric_id
+    assert cursor.startswith("qccur_")
     assert [item["metric_id"] for item in second.json()["qc_metrics"]] == [
         ordered[2].metric_id
     ]
@@ -217,6 +230,83 @@ def test_qc_metrics_are_stably_paginated_and_decimal_is_lossless(client):
     }
 
 
+def test_qc_pages_expose_generation_and_use_an_opaque_generation_bound_cursor(client):
+    run_id = _create_succeeded_run(client)
+    metrics = (
+        _metric(run_id, "sequencing.total_reads"),
+        _metric(run_id, "peaks.count", value=Decimal("42")),
+    )
+    _record_metrics(client, run_id, metrics)
+
+    first = client.get(
+        f"/api/v1/runs/{run_id}/qc-metrics",
+        params={"limit": 1},
+    )
+    generation = first.json()["qc_generation"]
+    cursor = first.json()["next_cursor"]
+    second = client.get(
+        f"/api/v1/runs/{run_id}/qc-metrics",
+        params={
+            "after": cursor,
+            "generation": generation,
+            "limit": 1,
+        },
+    )
+
+    assert first.status_code == second.status_code == 200
+    assert QC_GENERATION_PATTERN.fullmatch(generation)
+    assert cursor.startswith("qccur_")
+    assert cursor not in {metric.metric_id for metric in metrics}
+    assert second.json()["qc_generation"] == generation
+
+
+def test_qc_cursor_rejects_same_ids_and_count_from_a_new_value_generation(client):
+    run_id = _create_succeeded_run(client)
+    artifact = _artifact(run_id)
+    first_generation = (
+        _metric(run_id, "sequencing.total_reads", value=Decimal("100")),
+        _metric(run_id, "peaks.count", value=Decimal("10")),
+    )
+    client.app.state.run_service.replace_artifacts(run_id, (artifact,))
+    client.app.state.run_service.replace_qc_metrics(
+        run_id,
+        first_generation,
+        expected_artifacts=(artifact,),
+    )
+    first_page = client.get(
+        f"/api/v1/runs/{run_id}/qc-metrics",
+        params={"limit": 1},
+    )
+    old_cursor = first_page.json()["next_cursor"]
+    old_generation = first_page.json()["qc_generation"]
+
+    second_generation = tuple(
+        replace(metric, value=metric.value + 1) for metric in first_generation
+    )
+    client.app.state.run_service.replace_qc_metrics(
+        run_id,
+        second_generation,
+        expected_artifacts=(artifact,),
+    )
+    stale = client.get(
+        f"/api/v1/runs/{run_id}/qc-metrics",
+        params={
+            "after": old_cursor,
+            "generation": old_generation,
+            "limit": 1,
+        },
+    )
+    current = client.get(f"/api/v1/runs/{run_id}/qc-metrics")
+
+    assert stale.status_code == 409
+    assert stale.json()["issues"][0]["code"] == ("RUN_QC_METRIC_GENERATION_CHANGED")
+    assert stale.json()["qc_generation"] is None
+    assert stale.json()["qc_metrics"] == []
+    assert current.status_code == 200
+    assert current.json()["qc_generation"] != old_generation
+    assert {item["value"] for item in current.json()["qc_metrics"]} == {"11", "101"}
+
+
 def test_qc_metrics_default_page_is_bounded_to_fifty(client):
     run_id = _create_succeeded_run(client)
     metrics = tuple(_metric(run_id, f"metric{i}") for i in range(51))
@@ -226,9 +316,7 @@ def test_qc_metrics_default_page_is_bounded_to_fifty(client):
 
     assert response.status_code == 200
     assert len(response.json()["qc_metrics"]) == 50
-    assert (
-        response.json()["next_cursor"] == response.json()["qc_metrics"][-1]["metric_id"]
-    )
+    assert response.json()["next_cursor"].startswith("qccur_")
 
 
 def test_qc_metric_projection_preserves_nullable_fields(client):
@@ -266,10 +354,28 @@ def test_qc_metric_projection_preserves_nullable_fields(client):
     assert "run_id" not in response.json()["qc_metrics"][0]
 
 
+def test_qc_metric_projection_preserves_a_workflow_neutral_score_unit(client):
+    run_id = _create_succeeded_run(client)
+    metric = _metric(
+        run_id,
+        "rseqc.tin.mean_score",
+        value=Decimal("72.125"),
+        unit="score",
+    )
+    _record_metrics(client, run_id, (metric,))
+
+    response = client.get(f"/api/v1/runs/{run_id}/qc-metrics")
+
+    assert response.status_code == 200
+    assert response.json()["qc_metrics"][0]["unit"] == "score"
+    assert response.json()["qc_metrics"][0]["value"] == "72.125"
+
+
 def test_unknown_run_returns_stable_redacted_404(client):
     response = client.get("/api/v1/runs/run-missing/qc-metrics")
 
     assert response.status_code == 404
+    assert response.json()["qc_generation"] is None
     assert response.json()["issues"][0]["code"] == "RUN_NOT_FOUND"
     assert response.json()["issues"][0]["context"] == {"run_id": "run-missing"}
     assert "technical_message" not in response.text
@@ -281,7 +387,6 @@ def test_unknown_run_returns_stable_redacted_404(client):
         {"metric_id": build_qc_metric_id("peaks.count", "sample", "-S1", "EXP1")},
         {"display_name": "DATABASE_URL=sqlite"},
         {"source_artifact_id": "../private"},
-        {"produced_at": datetime(2026, 7, 13, 8, 30)},
     ),
 )
 def test_qc_metric_projection_rejects_invalid_or_disclosure_unsafe_values(change):
@@ -289,6 +394,11 @@ def test_qc_metric_projection_rejects_invalid_or_disclosure_unsafe_values(change
 
     with pytest.raises(ValueError):
         QcMetricResponse.from_metric(metric, expected_run_id="run-1")
+
+
+def test_qc_metric_domain_rejects_naive_produced_time_before_projection():
+    with pytest.raises(ValueError, match="timezone-aware"):
+        replace(_metric("run-1"), produced_at=datetime(2026, 7, 13, 8, 30))
 
 
 def test_qc_metric_projection_rejects_cross_run_domain_value():
@@ -302,22 +412,44 @@ def test_qc_metric_projection_rejects_cross_run_domain_value():
 def test_unknown_and_cross_run_cursors_share_the_same_400(client):
     first_run = _create_succeeded_run(client)
     second_run = _create_succeeded_run(client)
+    current = _metric(first_run, "library.nrf")
     other = _metric(second_run, "library.nrf")
+    _record_metrics(client, first_run, (current,))
     _record_metrics(client, second_run, (other,))
-    missing_cursor = build_qc_metric_id(
+    first_generation = client.get(f"/api/v1/runs/{first_run}/qc-metrics").json()[
+        "qc_generation"
+    ]
+    second_generation = client.get(f"/api/v1/runs/{second_run}/qc-metrics").json()[
+        "qc_generation"
+    ]
+    missing_metric_id = build_qc_metric_id(
         "library.pbc1",
         "sample",
         "-S1",
         "EXP1",
     )
+    missing_cursor = encode_qc_metric_cursor(
+        QcMetricCursor(
+            run_id=first_run,
+            qc_generation=first_generation,
+            after_metric_id=missing_metric_id,
+        )
+    )
+    cross_run_cursor = encode_qc_metric_cursor(
+        QcMetricCursor(
+            run_id=second_run,
+            qc_generation=second_generation,
+            after_metric_id=other.metric_id,
+        )
+    )
 
     missing = client.get(
         f"/api/v1/runs/{first_run}/qc-metrics",
-        params={"after": missing_cursor},
+        params={"after": missing_cursor, "generation": first_generation},
     )
     cross_run = client.get(
         f"/api/v1/runs/{first_run}/qc-metrics",
-        params={"after": other.metric_id},
+        params={"after": cross_run_cursor, "generation": first_generation},
     )
 
     assert missing.status_code == cross_run.status_code == 400
@@ -339,6 +471,7 @@ def test_invalid_query_parameters_use_qc_specific_envelope(client, params):
     assert response.json() == {
         "ok": False,
         "run_id": run_id,
+        "qc_generation": None,
         "qc_metrics": [],
         "issues": [
             {
@@ -376,9 +509,56 @@ def test_damaged_persisted_metric_fails_closed_without_disclosure(client):
     response = client.get(f"/api/v1/runs/{run_id}/qc-metrics")
 
     assert response.status_code == 500
+    assert response.json()["qc_generation"] is None
     assert response.json()["qc_metrics"] == []
     assert response.json()["issues"][0]["code"] == "RUN_QC_METRIC_DATA_INVALID"
     assert private_value not in response.text
+    assert "technical_message" not in response.text
+
+
+def test_unexpected_qc_repository_failure_uses_declared_safe_envelope(
+    client,
+    monkeypatch,
+):
+    run_id = _create_succeeded_run(client)
+    private_text = "sqlite:///private/qc.db SECRET_TOKEN=value"
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError(private_text)
+
+    monkeypatch.setattr(client.app.state.run_service, "list_qc_metrics_page", fail)
+
+    async def request() -> httpx.Response:
+        transport = httpx.ASGITransport(
+            app=client.app,
+            raise_app_exceptions=False,
+        )
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as async_client:
+            return await async_client.get(f"/api/v1/runs/{run_id}/qc-metrics")
+
+    response = asyncio.run(request())
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "ok": False,
+        "run_id": run_id,
+        "qc_generation": None,
+        "qc_metrics": [],
+        "issues": [
+            {
+                "code": "INTERNAL_SERVER_ERROR",
+                "message": "Run QC metrics are temporarily unavailable.",
+                "severity": "error",
+                "path": "qc_metrics",
+                "source": "runtime",
+                "context": {},
+            }
+        ],
+    }
+    assert private_text not in response.text
     assert "technical_message" not in response.text
 
 
@@ -390,6 +570,14 @@ def test_damaged_cursor_row_cannot_be_skipped(client):
     )
     _record_metrics(client, run_id, metrics)
     cursor = min(metrics, key=lambda metric: metric.metric_id)
+    generation = client.get(f"/api/v1/runs/{run_id}/qc-metrics").json()["qc_generation"]
+    encoded_cursor = encode_qc_metric_cursor(
+        QcMetricCursor(
+            run_id=run_id,
+            qc_generation=generation,
+            after_metric_id=cursor.metric_id,
+        )
+    )
     with client.app.state.persistence.engine.begin() as connection:
         connection.execute(
             update(RunQcMetricRow)
@@ -402,10 +590,11 @@ def test_damaged_cursor_row_cannot_be_skipped(client):
 
     response = client.get(
         f"/api/v1/runs/{run_id}/qc-metrics",
-        params={"after": cursor.metric_id},
+        params={"after": encoded_cursor, "generation": generation},
     )
 
     assert response.status_code == 500
+    assert response.json()["qc_generation"] is None
     assert response.json()["issues"][0]["code"] == "RUN_QC_METRIC_DATA_INVALID"
     assert "Private/path" not in response.text
 

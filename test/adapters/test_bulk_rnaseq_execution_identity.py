@@ -35,6 +35,34 @@ MANIFEST_PATH = (
     / EXECUTION_IMPLEMENTATION_MANIFEST_FILE
 )
 
+PRODUCTION_PERSISTENCE_PATHS = frozenset(
+    {
+        "src/encode_pipeline/persistence/runtime.py",
+        "src/encode_pipeline/persistence/database.py",
+        "src/encode_pipeline/persistence/migrations.py",
+        "src/encode_pipeline/persistence/models.py",
+        "src/encode_pipeline/persistence/repositories.py",
+        "src/encode_pipeline/persistence/alembic/env.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260711_01_run_persistence.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260711_02_run_execution_assignments.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260712_03_run_workflow_build_identities.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260712_04_run_cancellation_intent.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260712_05_run_qc_metrics.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260714_06_validated_input_snapshots.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260714_07_run_history_indexes.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260717_08_run_result_generations.py",
+    }
+)
+PRODUCTION_RESULT_DELIVERY_PATHS = frozenset(
+    {
+        "src/encode_pipeline/platform/result_generations.py",
+        "src/encode_pipeline/services/artifact_downloads.py",
+        "src/encode_pipeline/services/artifact_extraction.py",
+        "src/encode_pipeline/services/run_repositories.py",
+        "src/encode_pipeline/services/runs.py",
+    }
+)
+
 
 def _assets() -> VerifiedRuntimeAssets:
     root = Path("/runtime")
@@ -139,20 +167,134 @@ def test_adapter_version_manifest_and_code_identity_each_change_build_digest(
     original_digest = execution_module._runtime_build_digest(
         _assets(),
         adapter_version="1.0.0",
+        adapter_variant="runtime-v1",
         implementation=original.value,
     )
     changed_version_digest = execution_module._runtime_build_digest(
         _assets(),
         adapter_version="1.0.1",
+        adapter_variant="runtime-v1",
         implementation=original.value,
     )
     changed_code_digest = execution_module._runtime_build_digest(
         _assets(),
         adapter_version="1.0.0",
+        adapter_variant="runtime-v1",
         implementation=changed.value,
     )
+    changed_variant_digest = execution_module._runtime_build_digest(
+        _assets(),
+        adapter_version="1.0.0",
+        adapter_variant="results-v1",
+        implementation=original.value,
+    )
 
-    assert len({original_digest, changed_version_digest, changed_code_digest}) == 3
+    assert (
+        len(
+            {
+                original_digest,
+                changed_version_digest,
+                changed_code_digest,
+                changed_variant_digest,
+            }
+        )
+        == 4
+    )
+
+
+def test_production_sqlite_replacement_is_bound_and_changes_results_build_identity(
+    tmp_path: Path,
+):
+    assert PRODUCTION_PERSISTENCE_PATHS.issubset(EXECUTION_IMPLEMENTATION_PATHS)
+    original_bytes = MANIFEST_PATH.read_bytes()
+    original = verify_execution_implementation(manifest_bytes=original_bytes)
+    assert original.is_success
+
+    project = tmp_path / "changed-production-persistence"
+    package_root = _copy_controlled_implementation(project)
+    repository = package_root / "persistence/repositories.py"
+    repository.write_bytes(
+        repository.read_bytes() + b"\n# intentional QC invalidation identity change\n"
+    )
+
+    stale = verify_execution_implementation(
+        manifest_bytes=original_bytes,
+        package_root=package_root,
+    )
+    assert stale.is_failure
+    assert stale.errors[0].code == "BULK_RNASEQ_EXECUTION_IMPLEMENTATION_INVALID"
+
+    changed_manifest = build_execution_implementation_manifest(project)
+    changed = verify_execution_implementation(
+        manifest_bytes=canonical_execution_manifest_bytes(changed_manifest),
+        package_root=package_root,
+    )
+    assert changed.is_success
+    assert changed.value.aggregate_sha256 != original.value.aggregate_sha256
+    original_digest = execution_module._runtime_build_digest(
+        _assets(),
+        adapter_version="1.0.0",
+        adapter_variant="results-v1",
+        implementation=original.value,
+    )
+    changed_digest = execution_module._runtime_build_digest(
+        _assets(),
+        adapter_version="1.0.0",
+        adapter_variant="results-v1",
+        implementation=changed.value,
+    )
+    assert changed_digest != original_digest
+
+
+def test_production_artifact_delivery_is_bound_and_stale_manifest_fails_closed(
+    tmp_path: Path,
+):
+    assert PRODUCTION_RESULT_DELIVERY_PATHS.issubset(EXECUTION_IMPLEMENTATION_PATHS)
+    original_bytes = MANIFEST_PATH.read_bytes()
+    original = verify_execution_implementation(manifest_bytes=original_bytes)
+    assert original.is_success
+
+    project = tmp_path / "changed-artifact-delivery"
+    package_root = _copy_controlled_implementation(project)
+    download_service = package_root / "services/artifact_downloads.py"
+    download_service.write_bytes(
+        download_service.read_bytes()
+        + b"\n# intentional artifact revision closure identity change\n"
+    )
+
+    stale = verify_execution_implementation(
+        manifest_bytes=original_bytes,
+        package_root=package_root,
+    )
+    assert stale.is_failure
+    assert stale.errors[0].code == "BULK_RNASEQ_EXECUTION_IMPLEMENTATION_INVALID"
+
+    changed_manifest = build_execution_implementation_manifest(project)
+    changed = verify_execution_implementation(
+        manifest_bytes=canonical_execution_manifest_bytes(changed_manifest),
+        package_root=package_root,
+    )
+    assert changed.is_success
+    assert changed.value.aggregate_sha256 != original.value.aggregate_sha256
+
+
+def test_unlisted_production_migration_revision_fails_closed(
+    tmp_path: Path,
+):
+    project = tmp_path / "unexpected-migration"
+    package_root = _copy_controlled_implementation(project)
+    extra = package_root / "persistence/alembic/versions/20990101_99_unlisted.py"
+    extra.parent.mkdir(parents=True, exist_ok=True)
+    extra.write_text("revision = '20990101_99'\n", encoding="utf-8")
+
+    installed = verify_execution_implementation(
+        manifest_bytes=MANIFEST_PATH.read_bytes(),
+        package_root=package_root,
+    )
+    assert installed.is_failure
+    assert installed.errors[0].code == "BULK_RNASEQ_EXECUTION_IMPLEMENTATION_INVALID"
+    with pytest.raises(ValueError, match="migration revision"):
+        build_execution_implementation_manifest(project)
 
 
 def test_capture_fails_before_assets_when_implementation_is_invalid(

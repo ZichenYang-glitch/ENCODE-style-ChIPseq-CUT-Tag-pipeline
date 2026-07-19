@@ -11,6 +11,7 @@ import pytest
 import encode_pipeline.adapters.bulk_rnaseq.execution as execution_module
 from encode_pipeline.adapters.bulk_rnaseq import (
     BulkRnaSeqExecutionBinding,
+    BulkRnaSeqResultsWorkflowAdapter,
     BulkRnaSeqWorkflowAdapter,
     RuntimeAssetBinding,
 )
@@ -22,7 +23,12 @@ from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
     VerifiedContainerAsset,
     VerifiedRuntimeAssets,
 )
-from encode_pipeline.platform.adapters import WorkflowInputs, WorkspacePlan
+from encode_pipeline.platform.adapters import (
+    QcSourceArtifact,
+    QcSourceDocument,
+    WorkflowInputs,
+    WorkspacePlan,
+)
 from encode_pipeline.platform.managed_containers import (
     managed_container_endpoint_identity,
     managed_container_scope,
@@ -63,7 +69,8 @@ def _inputs(
     standard = {"reference": reference, **(standard_updates or {})}
     samples = []
     for index, layout in enumerate(layouts, start=1):
-        fastq_1 = tmp_path / f"inputs/S{index}.R1.fastq.gz"
+        read1_name = f"S{index}_1" if layout == "PE" else f"S{index}"
+        fastq_1 = tmp_path / f"inputs/{read1_name}.fastq.gz"
         row = {
             "sample": f"S{index}",
             "library": "lib1",
@@ -75,7 +82,7 @@ def _inputs(
         }
         _write(fastq_1, f"R1-{index}".encode())
         if layout == "PE":
-            fastq_2 = tmp_path / f"inputs/S{index}.R2.fastq.gz"
+            fastq_2 = tmp_path / f"inputs/S{index}_2.fastq.gz"
             _write(fastq_2, f"R2-{index}".encode())
             row["fastq_2"] = str(fastq_2)
         samples.append(row)
@@ -241,6 +248,32 @@ def test_build_plan_and_command_share_the_binding_admission(
     assert all(item is binding.runtime_admission for item in observed)
 
 
+def test_multiqc_identity_conflict_fails_before_runtime_admission(
+    tmp_path: Path,
+    composed_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    binding, _ = composed_runtime
+    inputs = _inputs(tmp_path, layouts=("PE", "SE"))
+    inputs.samples[0]["sample"] = "A"
+    inputs.samples[1]["sample"] = "A_1"
+
+    def acquire(_binding: BulkRnaSeqExecutionBinding):
+        pytest.fail("runtime admission must not run for invalid sample identities")
+
+    monkeypatch.setattr(execution_module, "_acquire_runtime_assets", acquire)
+
+    result = BulkRnaSeqWorkflowAdapter(execution=binding).plan_workspace(
+        inputs,
+        (tmp_path / "workspace").resolve(),
+    )
+
+    assert result.is_failure
+    assert [issue.code for issue in result.issues] == [
+        "BULK_RNASEQ_MULTIQC_SAMPLE_IDENTITY_CONFLICT"
+    ]
+
+
 def test_composed_adapter_passes_reusable_conformance(tmp_path: Path, composed_runtime):
     binding, _ = composed_runtime
     valid = _inputs(tmp_path)
@@ -258,6 +291,150 @@ def test_composed_adapter_passes_reusable_conformance(tmp_path: Path, composed_r
     )
 
 
+def test_results_adapter_passes_artifact_and_qc_conformance(
+    tmp_path: Path,
+    composed_runtime,
+):
+    binding, _ = composed_runtime
+    standard_updates = {
+        "trimming": {"enabled": False, "tool": "trimgalore"},
+        "qc": {"enabled": False},
+        "outputs": {"bigwig": False},
+    }
+    valid = _inputs(tmp_path, standard_updates=standard_updates)
+    invalid = _inputs(tmp_path / "invalid", standard_updates=standard_updates)
+    invalid.config["standard"]["reference"]["fasta_sha256"] = "bad"
+    artifact_workspace = (tmp_path / "artifacts").resolve()
+    artifacts = (
+        "pipeline_info/nf_core_rnaseq_software_mqc_versions.yml",
+        "star_salmon/S1.sorted.bam",
+        "star_salmon/S1.sorted.bam.bai",
+        "star_salmon/log/S1.Log.final.out",
+        "star_salmon/log/S1.SJ.out.tab",
+        "star_salmon/S1/quant.sf",
+        "star_salmon/S1/quant.genes.sf",
+        "star_salmon/S1/aux_info/meta_info.json",
+        "star_salmon/salmon.merged.gene_counts.tsv",
+        "star_salmon/salmon.merged.gene_counts_length_scaled.tsv",
+        "star_salmon/salmon.merged.gene_counts_scaled.tsv",
+        "star_salmon/salmon.merged.gene_lengths.tsv",
+        "star_salmon/salmon.merged.gene_tpm.tsv",
+        "star_salmon/salmon.merged.transcript_counts.tsv",
+        "star_salmon/salmon.merged.transcript_lengths.tsv",
+        "star_salmon/salmon.merged.transcript_tpm.tsv",
+        "star_salmon/salmon.merged.tx2gene.tsv",
+        "star_salmon/salmon.merged.tx2gene_augmented.tsv",
+    )
+    for relative_path in artifacts:
+        _write(artifact_workspace / "results" / relative_path, b"fixture")
+    star_content = b"""\
+Started job on | Jul 17 00:00:00
+Started mapping on | Jul 17 00:00:01
+Finished on | Jul 17 00:00:02
+Mapping speed, Million of reads per hour | 1800.00
+Number of input reads | 1000
+Average input read length | 100
+UNIQUE READS:
+Uniquely mapped reads number | 800
+Uniquely mapped reads % | 80.00%
+Average mapped length | 99.00
+Number of splices: Total | 100
+Number of splices: Annotated (sjdb) | 90
+Number of splices: GT/AG | 80
+Number of splices: GC/AG | 10
+Number of splices: AT/AC | 5
+Number of splices: Non-canonical | 5
+Mismatch rate per base, % | 0.10%
+Deletion rate per base | 0.01%
+Deletion average length | 1.00
+Insertion rate per base | 0.01%
+Insertion average length | 1.00
+MULTI-MAPPING READS:
+Number of reads mapped to multiple loci | 100
+% of reads mapped to multiple loci | 10.00%
+Number of reads mapped to too many loci | 20
+% of reads mapped to too many loci | 2.00%
+UNMAPPED READS:
+Number of reads unmapped: too many mismatches | 10
+% of reads unmapped: too many mismatches | 1.00%
+Number of reads unmapped: too short | 60
+% of reads unmapped: too short | 6.00%
+Number of reads unmapped: other | 10
+% of reads unmapped: other | 1.00%
+CHIMERIC READS:
+Number of chimeric reads | 0
+% of chimeric reads | 0.00%
+"""
+    salmon_content = json.dumps(
+        {
+            "salmon_version": "1.10.3",
+            "mapping_type": "alignment",
+            "num_libraries": 1,
+            "num_processed": 1000,
+            "num_mapped": 800,
+            "percent_mapped": 80,
+        },
+        separators=(",", ":"),
+    ).encode()
+    source_metadata = {"scope": "sample", "sample_id": "S1", "assay": "bulk-rnaseq"}
+    qc_sources = (
+        QcSourceDocument(
+            source=QcSourceArtifact(
+                artifact_id="artifact-star",
+                output_type="bulk_rnaseq.star.log_final",
+                relative_path="results/star_salmon/log/S1.Log.final.out",
+                metadata=source_metadata,
+            ),
+            content=star_content,
+        ),
+        QcSourceDocument(
+            source=QcSourceArtifact(
+                artifact_id="artifact-salmon",
+                output_type="bulk_rnaseq.salmon.meta_info",
+                relative_path="results/star_salmon/S1/aux_info/meta_info.json",
+                metadata=source_metadata,
+            ),
+            content=salmon_content,
+        ),
+    )
+
+    verify_adapter_conformance(
+        AdapterConformanceCase(
+            adapter=BulkRnaSeqResultsWorkflowAdapter(execution=binding),
+            valid_inputs=valid,
+            invalid_inputs=invalid,
+            planning_workspace=(tmp_path / "workspace").resolve(),
+            artifact_workspace=artifact_workspace,
+            qc_sources=qc_sources,
+        )
+    )
+
+
+def test_results_composition_is_bound_into_build_and_workspace_identity(
+    tmp_path: Path,
+    composed_runtime,
+):
+    binding, _ = composed_runtime
+    runtime_adapter = BulkRnaSeqWorkflowAdapter(execution=binding)
+    results_adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
+
+    runtime_build = runtime_adapter.capture_build_identity()
+    results_build = results_adapter.capture_build_identity()
+
+    assert runtime_build.is_success
+    assert results_build.is_success
+    assert runtime_build.value.digest != results_build.value.digest
+
+    workspace = (tmp_path / "workspace").resolve()
+    results_plan = results_adapter.plan_workspace(_inputs(tmp_path), workspace)
+    assert results_plan.is_success
+    assert results_adapter.build_command(results_plan.value, workspace).is_success
+
+    mismatched = runtime_adapter.build_command(results_plan.value, workspace)
+    assert mismatched.is_failure
+    assert mismatched.errors[0].code == "BULK_RNASEQ_COMMAND_IDENTITY_MISMATCH"
+
+
 @pytest.mark.parametrize("layout", ["SE", "PE"])
 def test_workspace_serializes_single_layout_with_per_row_platform(
     layout: str, tmp_path: Path, composed_runtime
@@ -270,12 +447,17 @@ def test_workspace_serializes_single_layout_with_per_row_platform(
     result = adapter.plan_workspace(inputs, workspace)
 
     assert result.is_success
-    fastq_2 = f"{tmp_path}/inputs/S1.R2.fastq.gz" if layout == "PE" else ""
+    fastq_1 = (
+        f"{tmp_path}/inputs/S1_1.fastq.gz"
+        if layout == "PE"
+        else f"{tmp_path}/inputs/S1.fastq.gz"
+    )
+    fastq_2 = f"{tmp_path}/inputs/S1_2.fastq.gz" if layout == "PE" else ""
     _assert_samplesheet_and_params(
         result.value,
         workspace,
         [
-            f"S1,{tmp_path}/inputs/S1.R1.fastq.gz,{fastq_2},auto,ILLUMINA",
+            f"S1,{fastq_1},{fastq_2},auto,ILLUMINA",
         ],
     )
 
@@ -287,8 +469,8 @@ def test_workspace_serializes_repeated_lanes_with_per_row_platform(
     inputs = _inputs(tmp_path)
     second_lane = dict(inputs.samples[0])
     second_lane["lane"] = "L002"
-    second_lane["fastq_1"] = str(tmp_path / "inputs/S1.lib1.L002.R1.fastq.gz")
-    second_lane["fastq_2"] = str(tmp_path / "inputs/S1.lib1.L002.R2.fastq.gz")
+    second_lane["fastq_1"] = str(tmp_path / "inputs/S1_1.lib1.L002.fastq.gz")
+    second_lane["fastq_2"] = str(tmp_path / "inputs/S1_2.lib1.L002.fastq.gz")
     _write(Path(second_lane["fastq_1"]), b"R1-lane-2")
     _write(Path(second_lane["fastq_2"]), b"R2-lane-2")
     inputs.samples.append(second_lane)
@@ -304,12 +486,12 @@ def test_workspace_serializes_repeated_lanes_with_per_row_platform(
         workspace,
         [
             (
-                f"S1,{tmp_path}/inputs/S1.R1.fastq.gz,"
-                f"{tmp_path}/inputs/S1.R2.fastq.gz,auto,ILLUMINA"
+                f"S1,{tmp_path}/inputs/S1_1.fastq.gz,"
+                f"{tmp_path}/inputs/S1_2.fastq.gz,auto,ILLUMINA"
             ),
             (
-                f"S1,{tmp_path}/inputs/S1.lib1.L002.R1.fastq.gz,"
-                f"{tmp_path}/inputs/S1.lib1.L002.R2.fastq.gz,auto,ILLUMINA"
+                f"S1,{tmp_path}/inputs/S1_1.lib1.L002.fastq.gz,"
+                f"{tmp_path}/inputs/S1_2.lib1.L002.fastq.gz,auto,ILLUMINA"
             ),
         ],
     )
@@ -333,10 +515,10 @@ def test_workspace_serializes_mixed_layout_deterministically(
         first.value,
         workspace,
         [
-            f"S1,{tmp_path}/inputs/S1.R1.fastq.gz,,auto,ILLUMINA",
+            f"S1,{tmp_path}/inputs/S1.fastq.gz,,auto,ILLUMINA",
             (
-                f"S2,{tmp_path}/inputs/S2.R1.fastq.gz,"
-                f"{tmp_path}/inputs/S2.R2.fastq.gz,auto,ILLUMINA"
+                f"S2,{tmp_path}/inputs/S2_1.fastq.gz,"
+                f"{tmp_path}/inputs/S2_2.fastq.gz,auto,ILLUMINA"
             ),
         ],
     )

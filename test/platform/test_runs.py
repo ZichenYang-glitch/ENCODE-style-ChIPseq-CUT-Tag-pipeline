@@ -9,6 +9,7 @@ import pytest
 
 
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
+ARTIFACT_REVISION = "artifactrev-" + "a" * 64
 
 
 def test_run_status_values_and_terminal_detection():
@@ -347,6 +348,7 @@ def test_run_artifact_ref_stores_uri_and_metadata():
         uri="run://runs/run-1/artifacts/peaks.narrowPeak",
         mime_type="text/plain",
         produced_at=now,
+        revision=ARTIFACT_REVISION,
         metadata={"sample": "S1"},
     )
 
@@ -359,7 +361,7 @@ def test_run_artifact_ref_metadata_is_defensively_copied():
     from datetime import datetime, timezone
     from encode_pipeline.platform.runs import RunArtifactRef
 
-    metadata = {"sample": "S1"}
+    metadata = {"sample": "S1", "identity": {"labels": ["initial"]}}
     ref = RunArtifactRef(
         artifact_id="art-1",
         run_id="run-1",
@@ -368,11 +370,24 @@ def test_run_artifact_ref_metadata_is_defensively_copied():
         uri="run://runs/run-1/artifacts/peaks.narrowPeak",
         mime_type=None,
         produced_at=datetime.now(timezone.utc),
+        revision=ARTIFACT_REVISION,
         metadata=metadata,
     )
 
     metadata["sample"] = "S2"
-    assert ref.metadata == {"sample": "S1"}
+    metadata["identity"]["labels"].append("caller-mutated")
+    assert ref.to_dict()["metadata"] == {
+        "sample": "S1",
+        "identity": {"labels": ["initial"]},
+    }
+
+    exported = ref.to_dict()["metadata"]
+    exported["sample"] = "S3"
+    exported["identity"]["labels"].append("export-mutated")
+    assert ref.to_dict()["metadata"] == {
+        "sample": "S1",
+        "identity": {"labels": ["initial"]},
+    }
 
 
 def test_platform_package_exports_run_primitives():

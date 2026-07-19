@@ -20,6 +20,16 @@ from encode_pipeline.platform.execution import (
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.results import Issue
+from encode_pipeline.platform.result_generations import (
+    RunResultState,
+    artifact_manifest_digest,
+    build_artifact_generation,
+    build_qc_generation,
+    qc_metric_manifest_digest,
+    validate_artifact_generation,
+    validate_qc_generation,
+    validate_result_attempt_id,
+)
 from encode_pipeline.platform.run_history import RunHistoryCursor, RunSummary
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
@@ -43,7 +53,7 @@ _CANONICAL_DECIMAL = re.compile(r"^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?$")
 _QC_METRIC_ID = re.compile(r"^qcmetric-[0-9a-f]{64}$")
 _QC_METRIC_KEY = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
 _QC_SOURCE_ARTIFACT_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
-_QC_UNITS = frozenset({"count", "fraction", "ratio"})
+_QC_UNITS = frozenset({"count", "fraction", "ratio", "score"})
 _QC_SCOPES = frozenset({"run", "sample", "experiment"})
 _QC_FLAGS = frozenset({"pass", "warning", "fail"})
 _QC_OUTCOME_TYPES = frozenset(
@@ -57,6 +67,10 @@ _QC_OUTCOME_TYPES = frozenset(
 
 class ConcurrentRunUpdateError(RuntimeError):
     """Raised when a persisted run changed after it was read."""
+
+
+class ResultGenerationChangedError(ConcurrentRunUpdateError):
+    """Raised when a generation-bound result read or write became stale."""
 
 
 class ValidatedSnapshotExpiredError(RuntimeError):
@@ -181,17 +195,42 @@ class RunRepository(Protocol):
         limit: int = 50,
     ) -> tuple[RunLogChunk, ...]: ...
 
-    def record_artifact(
+    def get_result_state(self, run_id: str) -> RunResultState: ...
+
+    def begin_artifact_result_attempt(
         self,
         run_id: str,
-        artifact: RunArtifactRef,
-    ) -> RunArtifactRef: ...
+        *,
+        attempt_id: str,
+        expected_status: RunStatus,
+    ) -> RunResultState: ...
+
+    def begin_qc_result_attempt(
+        self,
+        run_id: str,
+        *,
+        attempt_id: str,
+        expected_artifact_generation: str,
+        expected_artifacts: tuple[RunArtifactRef, ...],
+        expected_status: RunStatus,
+    ) -> RunResultState: ...
 
     def replace_artifacts(
         self,
         run_id: str,
         artifacts: tuple[RunArtifactRef, ...],
         *,
+        attempt_id: str,
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent | None: ...
+
+    def record_artifact_failure(
+        self,
+        run_id: str,
+        *,
+        attempt_id: str,
+        reason_code: str,
         expected_status: RunStatus,
         event: RunEventDraft,
     ) -> RunEvent | None: ...
@@ -204,13 +243,32 @@ class RunRepository(Protocol):
         limit: int | None = None,
     ) -> tuple[RunArtifactRef, ...]: ...
 
+    def list_artifacts_page(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str | None,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str | None, tuple[RunArtifactRef, ...]]: ...
+
     def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef: ...
+
+    def get_artifact_at_generation(
+        self,
+        run_id: str,
+        artifact_id: str,
+        *,
+        expected_generation: str | None,
+    ) -> tuple[str, RunArtifactRef]: ...
 
     def replace_qc_metrics(
         self,
         run_id: str,
         metrics: tuple[RunQcMetric, ...],
         *,
+        attempt_id: str,
+        expected_artifact_generation: str,
         expected_artifacts: tuple[RunArtifactRef, ...],
         expected_status: RunStatus,
         event: RunEventDraft,
@@ -224,10 +282,21 @@ class RunRepository(Protocol):
         limit: int | None = None,
     ) -> tuple[RunQcMetric, ...]: ...
 
+    def list_qc_metrics_page(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str | None,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str | None, tuple[RunQcMetric, ...]]: ...
+
     def record_qc_metrics_failure(
         self,
         run_id: str,
         *,
+        attempt_id: str,
+        expected_artifact_generation: str,
         reason_code: str,
         expected_status: RunStatus,
         event: RunEventDraft,
@@ -312,6 +381,8 @@ class InMemoryRunRepository:
         self._logs: dict[str, dict[str, list[RunLogChunk]]] = {}
         self._artifacts: dict[str, dict[str, RunArtifactRef]] = {}
         self._qc_metrics: dict[str, dict[str, RunQcMetric]] = {}
+        self._result_states: dict[str, RunResultState] = {}
+        self._result_attempts: dict[str, tuple[str, str, str | None]] = {}
         self._execution_assignments: dict[str, RunExecutionAssignment] = {}
         self._execution_run_ids_by_job: dict[str, str] = {}
         self._workflow_build_identities: dict[str, WorkflowBuildIdentity] = {}
@@ -331,6 +402,7 @@ class InMemoryRunRepository:
             self._logs[record.run_id] = {}
             self._artifacts[record.run_id] = {}
             self._qc_metrics[record.run_id] = {}
+            self._result_states[record.run_id] = RunResultState(run_id=record.run_id)
             return created_event
 
     def create_validated_input_snapshot(
@@ -402,6 +474,7 @@ class InMemoryRunRepository:
             self._logs[record.run_id] = {}
             self._artifacts[record.run_id] = {}
             self._qc_metrics[record.run_id] = {}
+            self._result_states[record.run_id] = RunResultState(run_id=record.run_id)
             self._validated_input_snapshots[snapshot_id] = consumed
             return ValidatedSnapshotRunCreation(record=record, created=True)
 
@@ -606,80 +679,236 @@ class InMemoryRunRepository:
             )
             return tuple(stream_logs[start : start + limit])
 
-    def record_artifact(
+    def get_result_state(self, run_id: str) -> RunResultState:
+        with self._lock:
+            self._runs[run_id]
+            return self._result_states[run_id]
+
+    def begin_artifact_result_attempt(
         self,
         run_id: str,
-        artifact: RunArtifactRef,
-    ) -> RunArtifactRef:
+        *,
+        attempt_id: str,
+        expected_status: RunStatus,
+    ) -> RunResultState:
+        validate_result_attempt_id(attempt_id)
         with self._lock:
-            artifacts = self._artifacts[run_id]
-            if artifact.artifact_id in artifacts:
-                raise ValueError(f"Duplicate artifact_id: {artifact.artifact_id!r}")
-            artifacts[artifact.artifact_id] = artifact
-            return artifact
+            if self._runs[run_id].status is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer eligible for artifact indexing."
+                )
+            state = self._result_states[run_id]
+            previous = self._result_attempts.get(attempt_id)
+            if previous is not None:
+                if previous == (run_id, "artifact", None) and (
+                    state.artifact_attempt_id == attempt_id
+                ):
+                    return state
+                raise ConcurrentRunUpdateError(
+                    "artifact result attempt was already superseded"
+                )
+            self._result_attempts[attempt_id] = (run_id, "artifact", None)
+            state = replace(
+                state,
+                artifact_attempt_id=attempt_id,
+                artifact_attempt_status="pending",
+            )
+            self._result_states[run_id] = state
+            return state
+
+    def begin_qc_result_attempt(
+        self,
+        run_id: str,
+        *,
+        attempt_id: str,
+        expected_artifact_generation: str,
+        expected_artifacts: tuple[RunArtifactRef, ...],
+        expected_status: RunStatus,
+    ) -> RunResultState:
+        validate_result_attempt_id(attempt_id)
+        validate_artifact_generation(expected_artifact_generation)
+        with self._lock:
+            if self._runs[run_id].status is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer eligible for QC indexing."
+                )
+            state = self._result_states[run_id]
+            if state.artifact_generation != expected_artifact_generation:
+                raise ResultGenerationChangedError(
+                    f"Run {run_id!r} artifact generation changed before QC indexing."
+                )
+            current_artifacts = _sorted_artifacts(self._artifacts[run_id].values())
+            if current_artifacts != _validated_expected_artifacts(
+                run_id,
+                expected_artifacts,
+            ):
+                raise ResultGenerationChangedError(
+                    f"Run {run_id!r} artifact manifest changed before QC indexing."
+                )
+            previous = self._result_attempts.get(attempt_id)
+            if previous is not None:
+                if previous == (run_id, "qc", expected_artifact_generation) and (
+                    state.qc_attempt_id == attempt_id
+                    and state.qc_attempt_artifact_generation
+                    == expected_artifact_generation
+                ):
+                    return state
+                raise ConcurrentRunUpdateError(
+                    "QC result attempt was already superseded"
+                )
+            self._result_attempts[attempt_id] = (
+                run_id,
+                "qc",
+                expected_artifact_generation,
+            )
+            state = replace(
+                state,
+                qc_attempt_id=attempt_id,
+                qc_attempt_status="pending",
+                qc_attempt_artifact_generation=expected_artifact_generation,
+            )
+            self._result_states[run_id] = state
+            return state
 
     def replace_artifacts(
         self,
         run_id: str,
         artifacts: tuple[RunArtifactRef, ...],
         *,
+        attempt_id: str,
         expected_status: RunStatus,
         event: RunEventDraft,
     ) -> RunEvent | None:
+        validate_result_attempt_id(attempt_id)
         with self._lock:
             current = self._runs[run_id]
             if current.status is not expected_status:
                 raise ConcurrentRunUpdateError(
                     f"Run {run_id!r} is no longer eligible for artifact replacement."
                 )
-            replacement: dict[str, RunArtifactRef] = {}
-            for artifact in artifacts:
-                if artifact.run_id != run_id:
-                    raise ValueError("artifact run_id does not match the run")
-                if artifact.artifact_id in replacement:
-                    raise ValueError("duplicate artifact_id in replacement")
-                replacement[artifact.artifact_id] = artifact
-            existing = _sorted_artifacts(self._artifacts[run_id].values())
-            sorted_replacement = _sorted_artifacts(replacement.values())
-            equivalent = existing == sorted_replacement
-            latest_outcome = next(
-                (
-                    item.event_type
-                    for item in reversed(self._events[run_id])
-                    if item.event_type
-                    in {"artifacts_indexed", "artifact_extraction_failed"}
-                ),
-                None,
+            state = self._result_states[run_id]
+            _require_current_attempt(
+                state.artifact_attempt_id,
+                attempt_id,
+                "artifact",
             )
-            if equivalent and latest_outcome == "artifacts_indexed":
-                return None
-            indexed_event = self._make_event(
-                run_id,
-                len(self._events[run_id]) + 1,
-                event,
-            )
-            self._artifacts[run_id] = replacement
-            self._events[run_id].append(indexed_event)
-            if not equivalent:
-                latest_qc_outcome = self._latest_event_type(
-                    run_id,
-                    _QC_OUTCOME_TYPES,
+            sorted_replacement = _validated_expected_artifacts(run_id, artifacts)
+            manifest_digest = artifact_manifest_digest(sorted_replacement)
+            if state.artifact_attempt_status == "succeeded":
+                if state.artifact_manifest_digest == manifest_digest:
+                    return None
+                raise ConcurrentRunUpdateError("artifact attempt already committed")
+            if state.artifact_attempt_status != "pending":
+                raise ConcurrentRunUpdateError("artifact attempt is no longer current")
+            changed = state.artifact_manifest_digest != manifest_digest
+            replacement = {
+                artifact.artifact_id: artifact for artifact in sorted_replacement
+            }
+            should_emit = changed or state.artifact_outcome != "succeeded"
+            prepared_events: list[RunEvent] = []
+            if changed:
+                revision = state.artifact_revision + 1
+                generation = build_artifact_generation(
+                    run_id=run_id,
+                    revision=revision,
+                    artifacts=sorted_replacement,
                 )
                 had_qc_state = bool(self._qc_metrics[run_id]) or (
-                    latest_qc_outcome is not None
+                    state.qc_generation is not None or state.qc_outcome is not None
                 )
-                self._qc_metrics[run_id] = {}
-                if had_qc_state and latest_qc_outcome != "qc_metrics_invalidated":
-                    self._append_event(
-                        run_id,
-                        RunEventDraft(
-                            event_type="qc_metrics_invalidated",
-                            message="Workflow QC metrics invalidated.",
-                            status=RunStatus.SUCCEEDED,
-                            stage="qc_summary_indexing",
-                        ),
+                state = _state_after_artifact_change(
+                    state,
+                    artifacts=sorted_replacement,
+                    artifact_revision=revision,
+                    artifact_generation=generation,
+                    attempt_id=attempt_id,
+                    attempt_status="succeeded",
+                    outcome="succeeded",
+                )
+                if had_qc_state:
+                    prepared_events.append(
+                        self._make_event(
+                            run_id,
+                            len(self._events[run_id]) + len(prepared_events) + 1,
+                            _event_with_context(
+                                RunEventDraft(
+                                    event_type="qc_metrics_invalidated",
+                                    message="Workflow QC metrics invalidated.",
+                                    status=RunStatus.SUCCEEDED,
+                                    stage="qc_summary_indexing",
+                                ),
+                                artifact_generation=generation,
+                                qc_generation=state.qc_generation,
+                            ),
+                        )
                     )
-            return indexed_event
+            else:
+                state = replace(
+                    state,
+                    artifact_attempt_status="succeeded",
+                    artifact_outcome="succeeded",
+                    artifact_reason_code=None,
+                )
+            result_event: RunEvent | None = None
+            if should_emit:
+                result_event = self._make_event(
+                    run_id,
+                    len(self._events[run_id]) + len(prepared_events) + 1,
+                    _event_with_context(
+                        event,
+                        attempt_id=attempt_id,
+                        artifact_generation=state.artifact_generation,
+                        artifact_count=len(sorted_replacement),
+                    ),
+                )
+                prepared_events.append(result_event)
+
+            if changed:
+                self._artifacts[run_id] = replacement
+                self._qc_metrics[run_id] = {}
+            self._result_states[run_id] = state
+            self._events[run_id].extend(prepared_events)
+            return result_event
+
+    def record_artifact_failure(
+        self,
+        run_id: str,
+        *,
+        attempt_id: str,
+        reason_code: str,
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent | None:
+        validate_result_attempt_id(attempt_id)
+        with self._lock:
+            if self._runs[run_id].status is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer eligible for artifact failure."
+                )
+            state = self._result_states[run_id]
+            _require_current_attempt(state.artifact_attempt_id, attempt_id, "artifact")
+            if state.artifact_attempt_status == "succeeded":
+                return None
+            if state.artifact_attempt_status == "failed":
+                if state.artifact_reason_code == reason_code:
+                    return None
+                raise ConcurrentRunUpdateError("artifact attempt already failed")
+            next_state = replace(
+                state,
+                artifact_attempt_status="failed",
+                artifact_outcome="failed",
+                artifact_reason_code=reason_code,
+            )
+            result_event = self._make_event(
+                run_id,
+                len(self._events[run_id]) + 1,
+                _event_with_context(
+                    event, attempt_id=attempt_id, reason_code=reason_code
+                ),
+            )
+            self._result_states[run_id] = next_state
+            self._events[run_id].append(result_event)
+            return result_event
 
     def list_artifacts(
         self,
@@ -688,8 +917,34 @@ class InMemoryRunRepository:
         after: str | None = None,
         limit: int | None = None,
     ) -> tuple[RunArtifactRef, ...]:
+        _, artifacts = self.list_artifacts_page(
+            run_id,
+            expected_generation=None,
+            after=after,
+            limit=limit,
+        )
+        return artifacts
+
+    def list_artifacts_page(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str | None,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str | None, tuple[RunArtifactRef, ...]]:
+        if expected_generation is not None:
+            validate_artifact_generation(expected_generation)
         with self._lock:
             self._runs[run_id]
+            state = self._result_states[run_id]
+            if (
+                expected_generation is not None
+                and state.artifact_generation != expected_generation
+            ):
+                raise ResultGenerationChangedError("artifact generation changed")
+            if self._artifacts[run_id] and state.artifact_generation is None:
+                raise ValueError("artifact generation is unbound")
             artifacts = tuple(
                 sorted(
                     self._artifacts[run_id].values(),
@@ -701,39 +956,82 @@ class InMemoryRunRepository:
                 if after is None
                 else self._index_after(artifacts, after, "artifact_id") + 1
             )
+            if limit is not None and limit <= 0:
+                raise ValueError("limit must be positive")
             return (
-                artifacts[start:] if limit is None else artifacts[start : start + limit]
+                state.artifact_generation,
+                artifacts[start:]
+                if limit is None
+                else artifacts[start : start + limit],
             )
 
     def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef:
+        _, artifact = self.get_artifact_at_generation(
+            run_id,
+            artifact_id,
+            expected_generation=None,
+        )
+        return artifact
+
+    def get_artifact_at_generation(
+        self,
+        run_id: str,
+        artifact_id: str,
+        *,
+        expected_generation: str | None,
+    ) -> tuple[str, RunArtifactRef]:
+        if expected_generation is not None:
+            validate_artifact_generation(expected_generation)
         with self._lock:
             self._runs[run_id]
+            state = self._result_states[run_id]
+            if (
+                expected_generation is not None
+                and state.artifact_generation != expected_generation
+            ):
+                raise ResultGenerationChangedError("artifact generation changed")
             try:
-                return self._artifacts[run_id][artifact_id]
+                artifact = self._artifacts[run_id][artifact_id]
             except KeyError:
                 raise KeyError((run_id, artifact_id)) from None
+            if state.artifact_generation is None:
+                raise ValueError("artifact generation is unbound")
+            return state.artifact_generation, artifact
 
     def replace_qc_metrics(
         self,
         run_id: str,
         metrics: tuple[RunQcMetric, ...],
         *,
+        attempt_id: str,
+        expected_artifact_generation: str,
         expected_artifacts: tuple[RunArtifactRef, ...],
         expected_status: RunStatus,
         event: RunEventDraft,
     ) -> RunEvent | None:
+        validate_result_attempt_id(attempt_id)
+        validate_artifact_generation(expected_artifact_generation)
         with self._lock:
             current = self._runs[run_id]
             if current.status is not expected_status:
                 raise ConcurrentRunUpdateError(
                     f"Run {run_id!r} is no longer eligible for QC replacement."
                 )
+            state = self._result_states[run_id]
+            _require_current_attempt(state.qc_attempt_id, attempt_id, "QC")
+            if (
+                state.artifact_generation != expected_artifact_generation
+                or state.qc_attempt_artifact_generation != expected_artifact_generation
+            ):
+                raise ResultGenerationChangedError(
+                    f"Run {run_id!r} artifact generation changed during QC indexing."
+                )
             current_artifacts = _sorted_artifacts(self._artifacts[run_id].values())
             if current_artifacts != _validated_expected_artifacts(
                 run_id,
                 expected_artifacts,
             ):
-                raise ConcurrentRunUpdateError(
+                raise ResultGenerationChangedError(
                     f"Run {run_id!r} artifact generation changed during QC indexing."
                 )
             replacement = _validated_qc_replacement(
@@ -741,25 +1039,59 @@ class InMemoryRunRepository:
                 metrics,
                 {artifact.artifact_id for artifact in current_artifacts},
             )
-            existing = tuple(
-                sorted(
-                    self._qc_metrics[run_id].values(),
-                    key=lambda metric: metric.metric_id,
-                )
+            manifest_digest = qc_metric_manifest_digest(replacement)
+            if state.qc_attempt_status == "succeeded":
+                if (
+                    state.qc_manifest_digest == manifest_digest
+                    and state.qc_artifact_generation == expected_artifact_generation
+                ):
+                    return None
+                raise ConcurrentRunUpdateError("QC attempt already committed")
+            if state.qc_attempt_status != "pending":
+                raise ConcurrentRunUpdateError("QC attempt is no longer current")
+            changed = (
+                state.qc_manifest_digest != manifest_digest
+                or state.qc_artifact_generation != expected_artifact_generation
+                or state.qc_outcome != "succeeded"
             )
-            latest_outcome = self._latest_event_type(run_id, _QC_OUTCOME_TYPES)
-            if existing == replacement and latest_outcome == "qc_metrics_indexed":
+            if changed:
+                revision = state.qc_revision + 1
+                generation = build_qc_generation(
+                    run_id=run_id,
+                    revision=revision,
+                    artifact_generation=expected_artifact_generation,
+                    metrics=replacement,
+                )
+                replacement_by_id = {metric.metric_id: metric for metric in replacement}
+                state = replace(
+                    state,
+                    qc_revision=revision,
+                    qc_generation=generation,
+                    qc_manifest_digest=manifest_digest,
+                    qc_attempt_status="succeeded",
+                    qc_artifact_generation=expected_artifact_generation,
+                    qc_outcome="succeeded",
+                    qc_reason_code=None,
+                )
+            else:
+                state = replace(state, qc_attempt_status="succeeded")
+                self._result_states[run_id] = state
                 return None
-            indexed_event = self._make_event(
+            result_event = self._make_event(
                 run_id,
                 len(self._events[run_id]) + 1,
-                event,
+                _event_with_context(
+                    event,
+                    attempt_id=attempt_id,
+                    artifact_generation=expected_artifact_generation,
+                    qc_generation=state.qc_generation,
+                    metric_count=len(replacement),
+                ),
             )
-            self._qc_metrics[run_id] = {
-                metric.metric_id: metric for metric in replacement
-            }
-            self._events[run_id].append(indexed_event)
-            return indexed_event
+            self._qc_metrics[run_id] = replacement_by_id
+            self._result_states[run_id] = state
+            self._events[run_id].append(result_event)
+            return result_event
 
     def list_qc_metrics(
         self,
@@ -768,8 +1100,37 @@ class InMemoryRunRepository:
         after: str | None = None,
         limit: int | None = None,
     ) -> tuple[RunQcMetric, ...]:
+        _, metrics = self.list_qc_metrics_page(
+            run_id,
+            expected_generation=None,
+            after=after,
+            limit=limit,
+        )
+        return metrics
+
+    def list_qc_metrics_page(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str | None,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str | None, tuple[RunQcMetric, ...]]:
+        if expected_generation is not None:
+            validate_qc_generation(expected_generation)
         with self._lock:
             self._runs[run_id]
+            state = self._result_states[run_id]
+            if (
+                expected_generation is not None
+                and state.qc_generation != expected_generation
+            ):
+                raise ResultGenerationChangedError("QC generation changed")
+            if self._qc_metrics[run_id] and (
+                state.qc_generation is None
+                or state.qc_artifact_generation != state.artifact_generation
+            ):
+                raise ValueError("QC generation is unbound")
             by_id = self._qc_metrics[run_id]
             ordered_ids = tuple(sorted(by_id))
             if after is not None:
@@ -799,36 +1160,73 @@ class InMemoryRunRepository:
                     storage_key=storage_key,
                 )
                 selected.append(metric)
-            return tuple(selected)
+            return state.qc_generation, tuple(selected)
 
     def record_qc_metrics_failure(
         self,
         run_id: str,
         *,
+        attempt_id: str,
+        expected_artifact_generation: str,
         reason_code: str,
         expected_status: RunStatus,
         event: RunEventDraft,
     ) -> RunEvent | None:
+        validate_result_attempt_id(attempt_id)
+        validate_artifact_generation(expected_artifact_generation)
         with self._lock:
             if self._runs[run_id].status is not expected_status:
                 raise ConcurrentRunUpdateError(
                     f"Run {run_id!r} is no longer eligible for QC failure."
                 )
-            latest = next(
-                (
-                    item
-                    for item in reversed(self._events[run_id])
-                    if item.event_type in _QC_OUTCOME_TYPES
-                ),
-                None,
-            )
+            state = self._result_states[run_id]
+            _require_current_attempt(state.qc_attempt_id, attempt_id, "QC")
             if (
-                latest is not None
-                and latest.event_type == "qc_metrics_indexing_failed"
-                and latest.context.get("reason_code") == reason_code
+                state.artifact_generation != expected_artifact_generation
+                or state.qc_attempt_artifact_generation != expected_artifact_generation
             ):
+                raise ResultGenerationChangedError(
+                    "QC attempt artifact generation changed"
+                )
+            if state.qc_attempt_status == "succeeded":
                 return None
-            return self._append_event(run_id, event)
+            if state.qc_attempt_status == "failed":
+                if state.qc_reason_code == reason_code:
+                    return None
+                raise ConcurrentRunUpdateError("QC attempt already failed")
+            empty: tuple[RunQcMetric, ...] = ()
+            revision = state.qc_revision + 1
+            generation = build_qc_generation(
+                run_id=run_id,
+                revision=revision,
+                artifact_generation=expected_artifact_generation,
+                metrics=empty,
+            )
+            next_state = replace(
+                state,
+                qc_revision=revision,
+                qc_generation=generation,
+                qc_manifest_digest=qc_metric_manifest_digest(empty),
+                qc_attempt_status="failed",
+                qc_artifact_generation=expected_artifact_generation,
+                qc_outcome="failed",
+                qc_reason_code=reason_code,
+            )
+            result_event = self._make_event(
+                run_id,
+                len(self._events[run_id]) + 1,
+                _event_with_context(
+                    event,
+                    attempt_id=attempt_id,
+                    artifact_generation=expected_artifact_generation,
+                    qc_generation=generation,
+                    reason_code=reason_code,
+                ),
+            )
+            self._qc_metrics[run_id] = {}
+            self._result_states[run_id] = next_state
+            self._events[run_id].append(result_event)
+            return result_event
 
     def ensure_execution_assignment(
         self,
@@ -1228,6 +1626,60 @@ def decimal_from_canonical_text(value: str) -> Decimal:
     if not result.is_finite() or canonical_decimal_text(result) != value:
         raise ValueError("Persisted QC decimal is not canonical")
     return result
+
+
+def _require_current_attempt(
+    current_attempt_id: str | None,
+    expected_attempt_id: str,
+    name: str,
+) -> None:
+    if current_attempt_id != expected_attempt_id:
+        raise ConcurrentRunUpdateError(f"{name} result attempt is no longer current")
+
+
+def _event_with_context(event: RunEventDraft, **context: object) -> RunEventDraft:
+    merged = dict(event.context)
+    merged.update({key: value for key, value in context.items() if value is not None})
+    return replace(event, context=merged)
+
+
+def _state_after_artifact_change(
+    state: RunResultState,
+    *,
+    artifacts: tuple[RunArtifactRef, ...],
+    artifact_revision: int,
+    artifact_generation: str,
+    attempt_id: str | None,
+    attempt_status: str | None,
+    outcome: str,
+) -> RunResultState:
+    had_qc_state = state.qc_generation is not None or state.qc_outcome is not None
+    values: dict[str, object] = {
+        "artifact_revision": artifact_revision,
+        "artifact_generation": artifact_generation,
+        "artifact_manifest_digest": artifact_manifest_digest(artifacts),
+        "artifact_attempt_id": attempt_id,
+        "artifact_attempt_status": attempt_status,
+        "artifact_outcome": outcome,
+        "artifact_reason_code": None,
+        # A changed artifact generation always supersedes a pending QC attempt.
+        "qc_attempt_id": None,
+        "qc_attempt_status": None,
+        "qc_attempt_artifact_generation": None,
+    }
+    if had_qc_state:
+        qc_revision = state.qc_revision + 1
+        values.update(
+            {
+                "qc_revision": qc_revision,
+                "qc_generation": None,
+                "qc_manifest_digest": None,
+                "qc_artifact_generation": None,
+                "qc_outcome": "invalidated",
+                "qc_reason_code": None,
+            }
+        )
+    return replace(state, **values)
 
 
 def _sorted_artifacts(

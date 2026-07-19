@@ -5,6 +5,7 @@
  * Reproducible omics workflows, from inputs to evidence.
  * OpenAPI spec version: 0.3.0
  */
+import type { RunArtifactDetailResponseArtifactGeneration } from './runArtifactDetailResponseArtifactGeneration';
 import type { RunArtifactDetailResponseArtifact } from './runArtifactDetailResponseArtifact';
 import type { IssueResponse } from './issueResponse';
 
@@ -14,6 +15,7 @@ import type { IssueResponse } from './issueResponse';
 export interface RunArtifactDetailResponse {
   ok: boolean;
   run_id: string;
+  artifact_generation: RunArtifactDetailResponseArtifactGeneration;
   artifact?: RunArtifactDetailResponseArtifact;
   issues?: IssueResponse[];
 }

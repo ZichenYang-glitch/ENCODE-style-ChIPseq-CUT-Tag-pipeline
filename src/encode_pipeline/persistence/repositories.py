@@ -17,6 +17,8 @@ from encode_pipeline.persistence.models import (
     RunExecutionAssignmentRow,
     RunLogRow,
     RunQcMetricRow,
+    RunResultAttemptRow,
+    RunResultStateRow,
     RunRow,
     RunWorkflowBuildIdentityRow,
     ValidatedInputSnapshotRow,
@@ -30,6 +32,16 @@ from encode_pipeline.platform.execution import (
     RunExecutionStopAcknowledgement,
 )
 from encode_pipeline.platform.results import Issue
+from encode_pipeline.platform.result_generations import (
+    RunResultState,
+    artifact_manifest_digest,
+    build_artifact_generation,
+    build_qc_generation,
+    qc_metric_manifest_digest,
+    validate_artifact_generation,
+    validate_qc_generation,
+    validate_result_attempt_id,
+)
 from encode_pipeline.platform.run_history import RunHistoryCursor, RunSummary
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
@@ -45,11 +57,14 @@ from encode_pipeline.platform.snapshots import (
 )
 from encode_pipeline.services.run_repositories import (
     ConcurrentRunUpdateError,
+    ResultGenerationChangedError,
     RunEventDraft,
     ValidatedSnapshotExpiredError,
     ValidatedSnapshotReplayConflictError,
-    _QC_OUTCOME_TYPES,
+    _event_with_context,
+    _require_current_attempt,
     _sorted_artifacts,
+    _state_after_artifact_change,
     _validate_qc_metric_fields,
     _validated_expected_artifacts,
     _validated_qc_replacement,
@@ -82,6 +97,8 @@ class SqlAlchemyRunRepository:
                 with self._session_factory.begin() as session:
                     _begin_write(session)
                     session.add(_run_row(record))
+                    session.flush()
+                    session.add(RunResultStateRow(run_id=record.run_id))
                     session.flush()
                     return self._insert_event(session, record.run_id, event)
             except IntegrityError as exc:
@@ -163,6 +180,8 @@ class SqlAlchemyRunRepository:
                     )
 
                 session.add(_run_row(record))
+                session.flush()
+                session.add(RunResultStateRow(run_id=record.run_id))
                 session.flush()
                 created_event = self._insert_event(
                     session,
@@ -454,43 +473,138 @@ class SqlAlchemyRunRepository:
             ).all()
             return tuple(_log_from_row(row) for row in rows)
 
-    def record_artifact(
+    def get_result_state(self, run_id: str) -> RunResultState:
+        with self._session_factory() as session:
+            self._require_run(session, run_id)
+            return _result_state_from_row(self._require_result_state(session, run_id))
+
+    def begin_artifact_result_attempt(
         self,
         run_id: str,
-        artifact: RunArtifactRef,
-    ) -> RunArtifactRef:
-        with self._lock:
-            try:
-                with self._session_factory.begin() as session:
-                    _begin_write(session)
-                    self._require_run(session, run_id)
-                    session.add(
-                        RunArtifactRow(
-                            artifact_id=artifact.artifact_id,
-                            run_id=run_id,
-                            artifact_type=artifact.artifact_type,
-                            name=artifact.name,
-                            uri=artifact.uri,
-                            mime_type=artifact.mime_type,
-                            produced_at=artifact.produced_at,
-                            artifact_metadata=dict(artifact.metadata),
-                        )
-                    )
-                    session.flush()
-            except IntegrityError as exc:
-                raise ValueError(
-                    f"Duplicate artifact_id: {artifact.artifact_id!r}"
-                ) from exc
-            return artifact
+        *,
+        attempt_id: str,
+        expected_status: RunStatus,
+    ) -> RunResultState:
+        validate_result_attempt_id(attempt_id)
+        with self._lock, self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, run_id)
+            if RunStatus(current.status) is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer eligible for artifact indexing."
+                )
+            row = self._require_result_state(session, run_id)
+            state = _result_state_from_row(row)
+            previous = session.get(RunResultAttemptRow, attempt_id)
+            if previous is not None:
+                if (
+                    previous.run_id == run_id
+                    and previous.result_kind == "artifact"
+                    and previous.artifact_generation is None
+                    and state.artifact_attempt_id == attempt_id
+                ):
+                    return state
+                raise ConcurrentRunUpdateError(
+                    "artifact result attempt was already superseded"
+                )
+            session.add(
+                RunResultAttemptRow(
+                    attempt_id=attempt_id,
+                    run_id=run_id,
+                    result_kind="artifact",
+                    artifact_generation=None,
+                )
+            )
+            session.flush()
+            state = replace(
+                state,
+                artifact_attempt_id=attempt_id,
+                artifact_attempt_status="pending",
+            )
+            _apply_result_state(row, state)
+            session.flush()
+            return state
+
+    def begin_qc_result_attempt(
+        self,
+        run_id: str,
+        *,
+        attempt_id: str,
+        expected_artifact_generation: str,
+        expected_artifacts: tuple[RunArtifactRef, ...],
+        expected_status: RunStatus,
+    ) -> RunResultState:
+        validate_result_attempt_id(attempt_id)
+        validate_artifact_generation(expected_artifact_generation)
+        with self._lock, self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, run_id)
+            if RunStatus(current.status) is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer eligible for QC indexing."
+                )
+            row = self._require_result_state(session, run_id)
+            state = _result_state_from_row(row)
+            if state.artifact_generation != expected_artifact_generation:
+                raise ResultGenerationChangedError(
+                    f"Run {run_id!r} artifact generation changed before QC indexing."
+                )
+            current_artifacts = _sorted_artifacts(
+                _artifact_from_row(artifact_row)
+                for artifact_row in session.scalars(
+                    select(RunArtifactRow).where(RunArtifactRow.run_id == run_id)
+                ).all()
+            )
+            if current_artifacts != _validated_expected_artifacts(
+                run_id,
+                expected_artifacts,
+            ):
+                raise ResultGenerationChangedError(
+                    f"Run {run_id!r} artifact manifest changed before QC indexing."
+                )
+            previous = session.get(RunResultAttemptRow, attempt_id)
+            if previous is not None:
+                if (
+                    previous.run_id == run_id
+                    and previous.result_kind == "qc"
+                    and previous.artifact_generation == expected_artifact_generation
+                    and state.qc_attempt_id == attempt_id
+                    and state.qc_attempt_artifact_generation
+                    == expected_artifact_generation
+                ):
+                    return state
+                raise ConcurrentRunUpdateError(
+                    "QC result attempt was already superseded"
+                )
+            session.add(
+                RunResultAttemptRow(
+                    attempt_id=attempt_id,
+                    run_id=run_id,
+                    result_kind="qc",
+                    artifact_generation=expected_artifact_generation,
+                )
+            )
+            session.flush()
+            state = replace(
+                state,
+                qc_attempt_id=attempt_id,
+                qc_attempt_status="pending",
+                qc_attempt_artifact_generation=expected_artifact_generation,
+            )
+            _apply_result_state(row, state)
+            session.flush()
+            return state
 
     def replace_artifacts(
         self,
         run_id: str,
         artifacts: tuple[RunArtifactRef, ...],
         *,
+        attempt_id: str,
         expected_status: RunStatus,
         event: RunEventDraft,
     ) -> RunEvent | None:
+        validate_result_attempt_id(attempt_id)
         try:
             with self._lock, self._session_factory.begin() as session:
                 _begin_write(session)
@@ -499,45 +613,23 @@ class SqlAlchemyRunRepository:
                     raise ConcurrentRunUpdateError(
                         f"Run {run_id!r} is no longer eligible for artifact replacement."
                     )
-                replacement_ids: set[str] = set()
-                for artifact in artifacts:
-                    if artifact.run_id != run_id:
-                        raise ValueError("artifact run_id does not match the run")
-                    if artifact.artifact_id in replacement_ids:
-                        raise ValueError("duplicate artifact_id in replacement")
-                    replacement_ids.add(artifact.artifact_id)
-                existing_rows = session.scalars(
-                    select(RunArtifactRow)
-                    .where(RunArtifactRow.run_id == run_id)
-                    .order_by(RunArtifactRow.id)
-                ).all()
-                existing = _sorted_artifacts(
-                    _artifact_from_row(row) for row in existing_rows
-                )
                 sorted_replacement = _validated_expected_artifacts(run_id, artifacts)
-                equivalent = existing == sorted_replacement
-                latest_outcome = session.scalar(
-                    select(RunEventRow.event_type)
-                    .where(
-                        RunEventRow.run_id == run_id,
-                        RunEventRow.event_type.in_(
-                            ("artifacts_indexed", "artifact_extraction_failed")
-                        ),
-                    )
-                    .order_by(RunEventRow.id.desc())
-                    .limit(1)
+                state_row = self._require_result_state(session, run_id)
+                state = _result_state_from_row(state_row)
+                _require_current_attempt(
+                    state.artifact_attempt_id, attempt_id, "artifact"
                 )
-                if equivalent and latest_outcome == "artifacts_indexed":
-                    return None
-                latest_qc_outcome = session.scalar(
-                    select(RunEventRow.event_type)
-                    .where(
-                        RunEventRow.run_id == run_id,
-                        RunEventRow.event_type.in_(_QC_OUTCOME_TYPES),
+                manifest_digest = artifact_manifest_digest(sorted_replacement)
+                if state.artifact_attempt_status == "succeeded":
+                    if state.artifact_manifest_digest == manifest_digest:
+                        return None
+                    raise ConcurrentRunUpdateError("artifact attempt already committed")
+                if state.artifact_attempt_status != "pending":
+                    raise ConcurrentRunUpdateError(
+                        "artifact attempt is no longer current"
                     )
-                    .order_by(RunEventRow.id.desc())
-                    .limit(1)
-                )
+                changed = state.artifact_manifest_digest != manifest_digest
+                should_emit = changed or state.artifact_outcome != "succeeded"
                 had_qc_rows = (
                     session.scalar(
                         select(func.count())
@@ -546,46 +638,118 @@ class SqlAlchemyRunRepository:
                     )
                     or 0
                 ) > 0
-                session.execute(
-                    delete(RunArtifactRow).where(RunArtifactRow.run_id == run_id)
+                had_qc_state = (
+                    had_qc_rows
+                    or state.qc_generation is not None
+                    or (state.qc_outcome is not None)
                 )
-                session.add_all(
-                    [
-                        RunArtifactRow(
-                            artifact_id=artifact.artifact_id,
-                            run_id=run_id,
-                            artifact_type=artifact.artifact_type,
-                            name=artifact.name,
-                            uri=artifact.uri,
-                            mime_type=artifact.mime_type,
-                            produced_at=artifact.produced_at,
-                            artifact_metadata=dict(artifact.metadata),
-                        )
-                        for artifact in sorted_replacement
-                    ]
-                )
-                session.flush()
-                indexed_event = self._insert_event(session, run_id, event)
-                if not equivalent:
+                if changed:
+                    revision = state.artifact_revision + 1
+                    generation = build_artifact_generation(
+                        run_id=run_id,
+                        revision=revision,
+                        artifacts=sorted_replacement,
+                    )
+                    session.execute(
+                        delete(RunArtifactRow).where(RunArtifactRow.run_id == run_id)
+                    )
+                    session.add_all(
+                        [_artifact_row(artifact) for artifact in sorted_replacement]
+                    )
                     session.execute(
                         delete(RunQcMetricRow).where(RunQcMetricRow.run_id == run_id)
                     )
-                    if (
-                        had_qc_rows or latest_qc_outcome is not None
-                    ) and latest_qc_outcome != "qc_metrics_invalidated":
+                    state = _state_after_artifact_change(
+                        state,
+                        artifacts=sorted_replacement,
+                        artifact_revision=revision,
+                        artifact_generation=generation,
+                        attempt_id=attempt_id,
+                        attempt_status="succeeded",
+                        outcome="succeeded",
+                    )
+                    _apply_result_state(state_row, state)
+                    session.flush()
+                    if had_qc_state:
                         self._insert_event(
                             session,
                             run_id,
-                            RunEventDraft(
-                                event_type="qc_metrics_invalidated",
-                                message="Workflow QC metrics invalidated.",
-                                status=RunStatus.SUCCEEDED,
-                                stage="qc_summary_indexing",
+                            _event_with_context(
+                                RunEventDraft(
+                                    event_type="qc_metrics_invalidated",
+                                    message="Workflow QC metrics invalidated.",
+                                    status=RunStatus.SUCCEEDED,
+                                    stage="qc_summary_indexing",
+                                ),
+                                artifact_generation=generation,
+                                qc_generation=state.qc_generation,
                             ),
                         )
-                return indexed_event
+                else:
+                    state = replace(
+                        state,
+                        artifact_attempt_status="succeeded",
+                        artifact_outcome="succeeded",
+                        artifact_reason_code=None,
+                    )
+                    _apply_result_state(state_row, state)
+                    session.flush()
+                if not should_emit:
+                    return None
+                return self._insert_event(
+                    session,
+                    run_id,
+                    _event_with_context(
+                        event,
+                        attempt_id=attempt_id,
+                        artifact_generation=state.artifact_generation,
+                        artifact_count=len(sorted_replacement),
+                    ),
+                )
         except IntegrityError as exc:
             raise ValueError("artifact replacement could not be persisted") from exc
+
+    def record_artifact_failure(
+        self,
+        run_id: str,
+        *,
+        attempt_id: str,
+        reason_code: str,
+        expected_status: RunStatus,
+        event: RunEventDraft,
+    ) -> RunEvent | None:
+        validate_result_attempt_id(attempt_id)
+        with self._lock, self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, run_id)
+            if RunStatus(current.status) is not expected_status:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer eligible for artifact failure."
+                )
+            row = self._require_result_state(session, run_id)
+            state = _result_state_from_row(row)
+            _require_current_attempt(state.artifact_attempt_id, attempt_id, "artifact")
+            if state.artifact_attempt_status == "succeeded":
+                return None
+            if state.artifact_attempt_status == "failed":
+                if state.artifact_reason_code == reason_code:
+                    return None
+                raise ConcurrentRunUpdateError("artifact attempt already failed")
+            state = replace(
+                state,
+                artifact_attempt_status="failed",
+                artifact_outcome="failed",
+                artifact_reason_code=reason_code,
+            )
+            _apply_result_state(row, state)
+            session.flush()
+            return self._insert_event(
+                session,
+                run_id,
+                _event_with_context(
+                    event, attempt_id=attempt_id, reason_code=reason_code
+                ),
+            )
 
     def list_artifacts(
         self,
@@ -594,8 +758,40 @@ class SqlAlchemyRunRepository:
         after: str | None = None,
         limit: int | None = None,
     ) -> tuple[RunArtifactRef, ...]:
+        _, artifacts = self.list_artifacts_page(
+            run_id,
+            expected_generation=None,
+            after=after,
+            limit=limit,
+        )
+        return artifacts
+
+    def list_artifacts_page(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str | None,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str | None, tuple[RunArtifactRef, ...]]:
+        if expected_generation is not None:
+            validate_artifact_generation(expected_generation)
         with self._session_factory() as session:
+            _begin_consistent_read(session)
             self._require_run(session, run_id)
+            state = _result_state_from_row(self._require_result_state(session, run_id))
+            if (
+                expected_generation is not None
+                and state.artifact_generation != expected_generation
+            ):
+                raise ResultGenerationChangedError("artifact generation changed")
+            has_rows = session.scalar(
+                select(func.count())
+                .select_from(RunArtifactRow)
+                .where(RunArtifactRow.run_id == run_id)
+            )
+            if has_rows and state.artifact_generation is None:
+                raise ValueError("artifact generation is unbound")
             if after is not None:
                 cursor = session.scalar(
                     select(RunArtifactRow.artifact_id).where(
@@ -620,11 +816,36 @@ class SqlAlchemyRunRepository:
             if limit is not None:
                 statement = statement.limit(limit)
             rows = session.scalars(statement).all()
-            return tuple(_artifact_from_row(row) for row in rows)
+            return state.artifact_generation, tuple(
+                _artifact_from_row(row) for row in rows
+            )
 
     def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef:
+        _, artifact = self.get_artifact_at_generation(
+            run_id,
+            artifact_id,
+            expected_generation=None,
+        )
+        return artifact
+
+    def get_artifact_at_generation(
+        self,
+        run_id: str,
+        artifact_id: str,
+        *,
+        expected_generation: str | None,
+    ) -> tuple[str, RunArtifactRef]:
+        if expected_generation is not None:
+            validate_artifact_generation(expected_generation)
         with self._session_factory() as session:
+            _begin_consistent_read(session)
             self._require_run(session, run_id)
+            state = _result_state_from_row(self._require_result_state(session, run_id))
+            if (
+                expected_generation is not None
+                and state.artifact_generation != expected_generation
+            ):
+                raise ResultGenerationChangedError("artifact generation changed")
             row = session.scalar(
                 select(RunArtifactRow).where(
                     RunArtifactRow.run_id == run_id,
@@ -633,17 +854,23 @@ class SqlAlchemyRunRepository:
             )
             if row is None:
                 raise KeyError((run_id, artifact_id))
-            return _artifact_from_row(row)
+            if state.artifact_generation is None:
+                raise ValueError("artifact generation is unbound")
+            return state.artifact_generation, _artifact_from_row(row)
 
     def replace_qc_metrics(
         self,
         run_id: str,
         metrics: tuple[RunQcMetric, ...],
         *,
+        attempt_id: str,
+        expected_artifact_generation: str,
         expected_artifacts: tuple[RunArtifactRef, ...],
         expected_status: RunStatus,
         event: RunEventDraft,
     ) -> RunEvent | None:
+        validate_result_attempt_id(attempt_id)
+        validate_artifact_generation(expected_artifact_generation)
         try:
             with self._lock, self._session_factory.begin() as session:
                 _begin_write(session)
@@ -651,6 +878,17 @@ class SqlAlchemyRunRepository:
                 if RunStatus(current.status) is not expected_status:
                     raise ConcurrentRunUpdateError(
                         f"Run {run_id!r} is no longer eligible for QC replacement."
+                    )
+                state_row = self._require_result_state(session, run_id)
+                state = _result_state_from_row(state_row)
+                _require_current_attempt(state.qc_attempt_id, attempt_id, "QC")
+                if (
+                    state.artifact_generation != expected_artifact_generation
+                    or state.qc_attempt_artifact_generation
+                    != expected_artifact_generation
+                ):
+                    raise ResultGenerationChangedError(
+                        f"Run {run_id!r} artifact generation changed during QC indexing."
                     )
                 current_artifacts = _sorted_artifacts(
                     _artifact_from_row(row)
@@ -662,7 +900,7 @@ class SqlAlchemyRunRepository:
                     run_id,
                     expected_artifacts,
                 ):
-                    raise ConcurrentRunUpdateError(
+                    raise ResultGenerationChangedError(
                         f"Run {run_id!r} artifact generation changed during QC indexing."
                     )
                 replacement = _validated_qc_replacement(
@@ -670,31 +908,60 @@ class SqlAlchemyRunRepository:
                     metrics,
                     {artifact.artifact_id for artifact in current_artifacts},
                 )
-                existing = tuple(
-                    _qc_metric_from_row(row)
-                    for row in session.scalars(
-                        select(RunQcMetricRow)
-                        .where(RunQcMetricRow.run_id == run_id)
-                        .order_by(RunQcMetricRow.metric_id)
-                    ).all()
+                manifest_digest = qc_metric_manifest_digest(replacement)
+                if state.qc_attempt_status == "succeeded":
+                    if (
+                        state.qc_manifest_digest == manifest_digest
+                        and state.qc_artifact_generation == expected_artifact_generation
+                    ):
+                        return None
+                    raise ConcurrentRunUpdateError("QC attempt already committed")
+                if state.qc_attempt_status != "pending":
+                    raise ConcurrentRunUpdateError("QC attempt is no longer current")
+                changed = (
+                    state.qc_manifest_digest != manifest_digest
+                    or state.qc_artifact_generation != expected_artifact_generation
+                    or state.qc_outcome != "succeeded"
                 )
-                latest_outcome = session.scalar(
-                    select(RunEventRow.event_type)
-                    .where(
-                        RunEventRow.run_id == run_id,
-                        RunEventRow.event_type.in_(_QC_OUTCOME_TYPES),
-                    )
-                    .order_by(RunEventRow.id.desc())
-                    .limit(1)
-                )
-                if existing == replacement and latest_outcome == "qc_metrics_indexed":
+                if not changed:
+                    state = replace(state, qc_attempt_status="succeeded")
+                    _apply_result_state(state_row, state)
+                    session.flush()
                     return None
+                revision = state.qc_revision + 1
+                generation = build_qc_generation(
+                    run_id=run_id,
+                    revision=revision,
+                    artifact_generation=expected_artifact_generation,
+                    metrics=replacement,
+                )
                 session.execute(
                     delete(RunQcMetricRow).where(RunQcMetricRow.run_id == run_id)
                 )
                 session.add_all([_qc_metric_row(metric) for metric in replacement])
+                state = replace(
+                    state,
+                    qc_revision=revision,
+                    qc_generation=generation,
+                    qc_manifest_digest=manifest_digest,
+                    qc_attempt_status="succeeded",
+                    qc_artifact_generation=expected_artifact_generation,
+                    qc_outcome="succeeded",
+                    qc_reason_code=None,
+                )
+                _apply_result_state(state_row, state)
                 session.flush()
-                return self._insert_event(session, run_id, event)
+                return self._insert_event(
+                    session,
+                    run_id,
+                    _event_with_context(
+                        event,
+                        attempt_id=attempt_id,
+                        artifact_generation=expected_artifact_generation,
+                        qc_generation=generation,
+                        metric_count=len(replacement),
+                    ),
+                )
         except IntegrityError as exc:
             raise ValueError("QC replacement could not be persisted") from exc
 
@@ -705,8 +972,43 @@ class SqlAlchemyRunRepository:
         after: str | None = None,
         limit: int | None = None,
     ) -> tuple[RunQcMetric, ...]:
+        _, metrics = self.list_qc_metrics_page(
+            run_id,
+            expected_generation=None,
+            after=after,
+            limit=limit,
+        )
+        return metrics
+
+    def list_qc_metrics_page(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str | None,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str | None, tuple[RunQcMetric, ...]]:
+        if expected_generation is not None:
+            validate_qc_generation(expected_generation)
         with self._session_factory() as session:
+            _begin_consistent_read(session)
             self._require_run(session, run_id)
+            state = _result_state_from_row(self._require_result_state(session, run_id))
+            if (
+                expected_generation is not None
+                and state.qc_generation != expected_generation
+            ):
+                raise ResultGenerationChangedError("QC generation changed")
+            has_rows = session.scalar(
+                select(func.count())
+                .select_from(RunQcMetricRow)
+                .where(RunQcMetricRow.run_id == run_id)
+            )
+            if has_rows and (
+                state.qc_generation is None
+                or state.qc_artifact_generation != state.artifact_generation
+            ):
+                raise ValueError("QC generation is unbound")
             if after is not None:
                 cursor_row = session.scalar(
                     select(RunQcMetricRow).where(
@@ -728,16 +1030,20 @@ class SqlAlchemyRunRepository:
             if limit is not None:
                 statement = statement.limit(limit)
             rows = session.scalars(statement).all()
-            return tuple(_qc_metric_from_row(row) for row in rows)
+            return state.qc_generation, tuple(_qc_metric_from_row(row) for row in rows)
 
     def record_qc_metrics_failure(
         self,
         run_id: str,
         *,
+        attempt_id: str,
+        expected_artifact_generation: str,
         reason_code: str,
         expected_status: RunStatus,
         event: RunEventDraft,
     ) -> RunEvent | None:
+        validate_result_attempt_id(attempt_id)
+        validate_artifact_generation(expected_artifact_generation)
         with self._lock, self._session_factory.begin() as session:
             _begin_write(session)
             current = self._require_run(session, run_id)
@@ -745,22 +1051,56 @@ class SqlAlchemyRunRepository:
                 raise ConcurrentRunUpdateError(
                     f"Run {run_id!r} is no longer eligible for QC failure."
                 )
-            latest = session.scalar(
-                select(RunEventRow)
-                .where(
-                    RunEventRow.run_id == run_id,
-                    RunEventRow.event_type.in_(_QC_OUTCOME_TYPES),
-                )
-                .order_by(RunEventRow.id.desc())
-                .limit(1)
-            )
+            row = self._require_result_state(session, run_id)
+            state = _result_state_from_row(row)
+            _require_current_attempt(state.qc_attempt_id, attempt_id, "QC")
             if (
-                latest is not None
-                and latest.event_type == "qc_metrics_indexing_failed"
-                and latest.context.get("reason_code") == reason_code
+                state.artifact_generation != expected_artifact_generation
+                or state.qc_attempt_artifact_generation != expected_artifact_generation
             ):
+                raise ResultGenerationChangedError(
+                    "QC attempt artifact generation changed"
+                )
+            if state.qc_attempt_status == "succeeded":
                 return None
-            return self._insert_event(session, run_id, event)
+            if state.qc_attempt_status == "failed":
+                if state.qc_reason_code == reason_code:
+                    return None
+                raise ConcurrentRunUpdateError("QC attempt already failed")
+            empty: tuple[RunQcMetric, ...] = ()
+            revision = state.qc_revision + 1
+            generation = build_qc_generation(
+                run_id=run_id,
+                revision=revision,
+                artifact_generation=expected_artifact_generation,
+                metrics=empty,
+            )
+            session.execute(
+                delete(RunQcMetricRow).where(RunQcMetricRow.run_id == run_id)
+            )
+            state = replace(
+                state,
+                qc_revision=revision,
+                qc_generation=generation,
+                qc_manifest_digest=qc_metric_manifest_digest(empty),
+                qc_attempt_status="failed",
+                qc_artifact_generation=expected_artifact_generation,
+                qc_outcome="failed",
+                qc_reason_code=reason_code,
+            )
+            _apply_result_state(row, state)
+            session.flush()
+            return self._insert_event(
+                session,
+                run_id,
+                _event_with_context(
+                    event,
+                    attempt_id=attempt_id,
+                    artifact_generation=expected_artifact_generation,
+                    qc_generation=generation,
+                    reason_code=reason_code,
+                ),
+            )
 
     def ensure_execution_assignment(
         self,
@@ -1112,6 +1452,13 @@ class SqlAlchemyRunRepository:
         return row
 
     @staticmethod
+    def _require_result_state(session: Session, run_id: str) -> RunResultStateRow:
+        row = session.get(RunResultStateRow, run_id)
+        if row is None:
+            raise ValueError("run result generation state is missing")
+        return row
+
+    @staticmethod
     def _next_log_sequence(
         session: Session,
         run_id: str,
@@ -1217,6 +1564,16 @@ def _begin_write(session: Session) -> None:
     bind = session.get_bind()
     if bind.dialect.name == "sqlite":
         session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+
+
+def _begin_consistent_read(session: Session) -> None:
+    """Establish one SQLite snapshot before a generation-bound multi-read."""
+    bind = session.get_bind()
+    if bind.dialect.name == "sqlite":
+        # Python sqlite3 legacy transaction control does not emit BEGIN for
+        # SELECT. Without an explicit read transaction, a writer can commit
+        # between the generation and row queries and produce a mixed page.
+        session.connection().exec_driver_sql("BEGIN")
 
 
 def _run_values(record: RunRecord) -> dict[str, object]:
@@ -1352,6 +1709,8 @@ def _log_from_row(row: RunLogRow) -> RunLogChunk:
 
 
 def _artifact_from_row(row: RunArtifactRow) -> RunArtifactRef:
+    if row.revision is None:
+        raise ValueError("persisted artifact generation is unbound")
     return RunArtifactRef(
         artifact_id=row.artifact_id,
         run_id=row.run_id,
@@ -1360,8 +1719,66 @@ def _artifact_from_row(row: RunArtifactRow) -> RunArtifactRef:
         uri=row.uri,
         mime_type=row.mime_type,
         produced_at=_as_utc(row.produced_at),
+        revision=row.revision,
         metadata=row.artifact_metadata,
     )
+
+
+def _artifact_row(artifact: RunArtifactRef) -> RunArtifactRow:
+    return RunArtifactRow(
+        artifact_id=artifact.artifact_id,
+        run_id=artifact.run_id,
+        artifact_type=artifact.artifact_type,
+        name=artifact.name,
+        uri=artifact.uri,
+        mime_type=artifact.mime_type,
+        produced_at=artifact.produced_at,
+        revision=artifact.revision,
+        artifact_metadata=artifact.to_dict()["metadata"],
+    )
+
+
+def _result_state_from_row(row: RunResultStateRow) -> RunResultState:
+    return RunResultState(
+        run_id=row.run_id,
+        artifact_revision=row.artifact_revision,
+        artifact_generation=row.artifact_generation,
+        artifact_manifest_digest=row.artifact_manifest_digest,
+        artifact_attempt_id=row.artifact_attempt_id,
+        artifact_attempt_status=row.artifact_attempt_status,
+        artifact_outcome=row.artifact_outcome,
+        artifact_reason_code=row.artifact_reason_code,
+        qc_revision=row.qc_revision,
+        qc_generation=row.qc_generation,
+        qc_manifest_digest=row.qc_manifest_digest,
+        qc_attempt_id=row.qc_attempt_id,
+        qc_attempt_status=row.qc_attempt_status,
+        qc_attempt_artifact_generation=row.qc_attempt_artifact_generation,
+        qc_artifact_generation=row.qc_artifact_generation,
+        qc_outcome=row.qc_outcome,
+        qc_reason_code=row.qc_reason_code,
+    )
+
+
+def _apply_result_state(row: RunResultStateRow, state: RunResultState) -> None:
+    if row.run_id != state.run_id:
+        raise ValueError("result state run_id does not match")
+    row.artifact_revision = state.artifact_revision
+    row.artifact_generation = state.artifact_generation
+    row.artifact_manifest_digest = state.artifact_manifest_digest
+    row.artifact_attempt_id = state.artifact_attempt_id
+    row.artifact_attempt_status = state.artifact_attempt_status
+    row.artifact_outcome = state.artifact_outcome
+    row.artifact_reason_code = state.artifact_reason_code
+    row.qc_revision = state.qc_revision
+    row.qc_generation = state.qc_generation
+    row.qc_manifest_digest = state.qc_manifest_digest
+    row.qc_attempt_id = state.qc_attempt_id
+    row.qc_attempt_status = state.qc_attempt_status
+    row.qc_attempt_artifact_generation = state.qc_attempt_artifact_generation
+    row.qc_artifact_generation = state.qc_artifact_generation
+    row.qc_outcome = state.qc_outcome
+    row.qc_reason_code = state.qc_reason_code
 
 
 def _qc_metric_row(metric: RunQcMetric) -> RunQcMetricRow:

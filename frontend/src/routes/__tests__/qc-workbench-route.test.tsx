@@ -27,6 +27,7 @@ const listQcMetricsMock = vi.mocked(listRunQcMetrics);
 const listArtifactsMock = vi.mocked(listRunArtifacts);
 const getArtifactMock = vi.mocked(getRunArtifact);
 const METRIC_ID = `qcmetric-${'a'.repeat(64)}`;
+const QC_GENERATION = `qcgen-${'a'.repeat(64)}`;
 
 const qcMetric: QcMetricResponse = {
   metric_id: METRIC_ID,
@@ -51,6 +52,7 @@ const sourceArtifact: ArtifactReferenceResponse = {
   uri: 'run://runs/run-1/artifacts/artifact-qc-summary',
   mime_type: 'text/tab-separated-values',
   produced_at: '2026-07-13T08:00:00Z',
+  revision: `artifactrev-${'a'.repeat(64)}`,
   relative_path: 'results/qc/qc_summary.tsv',
   output_type: 'qc_summary',
   size_bytes: 42,
@@ -92,7 +94,10 @@ function succeededRunClient(): RunApiClient {
           status: 'succeeded',
           stage: 'artifact_extraction',
           message: 'Artifacts indexed.',
-          context: { artifact_count: 1 },
+          context: {
+            artifact_count: 1,
+            artifact_generation: `artifactgen-${'a'.repeat(64)}`,
+          },
           issue: null,
         },
         {
@@ -104,7 +109,7 @@ function succeededRunClient(): RunApiClient {
           status: 'succeeded',
           stage: 'qc_summary_indexing',
           message: 'QC metrics indexed.',
-          context: { metric_count: 1 },
+          context: { metric_count: 1, qc_generation: QC_GENERATION },
           issue: null,
         },
       ],
@@ -129,6 +134,7 @@ beforeEach(() => {
   listQcMetricsMock.mockResolvedValue({
     ok: true,
     run_id: 'run-1',
+    qc_generation: QC_GENERATION,
     qc_metrics: [qcMetric],
     next_cursor: null,
     issues: [],
@@ -136,6 +142,7 @@ beforeEach(() => {
   listArtifactsMock.mockResolvedValue({
     ok: true,
     run_id: 'run-1',
+    artifact_generation: `artifactgen-${'a'.repeat(64)}`,
     artifacts: [sourceArtifact],
     next_cursor: null,
     issues: [],
@@ -143,6 +150,7 @@ beforeEach(() => {
   getArtifactMock.mockResolvedValue({
     ok: true,
     run_id: 'run-1',
+    artifact_generation: `artifactgen-${'a'.repeat(64)}`,
     artifact: sourceArtifact,
     issues: [],
   });

@@ -14,4 +14,5 @@ export const QcMetricResponseUnit = {
   count: 'count',
   fraction: 'fraction',
   ratio: 'ratio',
+  score: 'score',
 } as const;

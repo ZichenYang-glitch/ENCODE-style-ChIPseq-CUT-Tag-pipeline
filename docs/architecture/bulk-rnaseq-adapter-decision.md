@@ -1,7 +1,8 @@
 # Bulk RNA-seq Offline Execution Boundary
 
 Status: Accepted for phased implementation. PR #151 enables only an explicitly
-runtime-composed adapter; product exposure remains deferred.
+runtime-composed adapter and PR #152 adds its closed result contract; product
+exposure remains deferred.
 
 ## Context and decision
 
@@ -267,6 +268,236 @@ both mates are unmapped. It does not publish the final paired filtered FASTQ for
 reads for Bowtie2 single-end runs only and rejects that request for paired or
 mixed layouts. RiboDetector and GPU RiboDetector remain outside schema 1.0.0.
 
+## Result boundary
+
+PR #152 adds a separate, explicitly runtime-composed results adapter. It
+declares `artifact_extract` and `qc_summary_extract` only in addition to the
+verified workspace and command capabilities; the contract-only adapter and the
+default registry remain unchanged. Its versioned results contract is fixed to
+nf-core/rnaseq 3.26.0 STAR+Salmon and has SHA-256
+`a099f495de027a385580cf14e2316b7e96ea6d67b971af02f3180cbf751e859f`.
+
+Artifact discovery derives a finite list of exact paths from normalized sample
+identities and output-shaping parameters. It does not recursively glob the
+results tree. It audits every fixed, sample-bearing STAR/Salmon, BigWig,
+featureCounts, samtools, UMI, RSeQC, FastQC, trimming, rRNA-filtering, and
+published-FASTQ namespace with bounded, single-level descriptor scans. A
+recognized entry that is foreign, ambiguous, non-regular, or above the shared
+entry bound fails closed; names outside the fixed suffix grammar are ignored by
+design. It reads the two bounded MultiQC sample-threshold tables when present
+and treats every other required-path absence as failure. `save_reference` and
+StringTie remain fail-closed until their complete trees have manifests.
+Every published MultiQC machine table is also read descriptor-relatively under
+a 16 MiB per-table and 64 MiB aggregate bound. Its strict UTF-8 TSV rows must
+have an exact column count and a unique, validated sample owner for the exact
+authored, downstream, analysis-pass, or post-mapping-pass route declared by
+that table family. For General Stats, fixed nf-core grouping and MultiQC 1.33
+emit canonical `S` plus the paired secondary rows `S Read 1` and `S Read 2`
+when raw paired FastQC or paired Trim Galore evidence exists. The set is exact,
+is not reduced by later trim/map thresholds, and has a worst-case bound of
+3,000 rows for the 1,000-sample authoring limit. The adapter captures content
+identities before candidate collection and repeats the complete audit
+afterward, so a foreign row, duplicate row, malformed table, or observable
+replacement fails closed. The two threshold tables remain under their stricter
+native-evidence reconciliation and are not accepted by the generic table
+audit. Both status tables and every bounded native evidence path (including
+absence) are content-SHA snapshotted during reconciliation and reread under a
+16 MiB per-file and 256 MiB aggregate bound after candidate collection.
+Qualimap, dupRadar, DESeq2 QC plots, preseq, generated scripts, opaque R
+objects, raw tool logs, and files known to contain commands or private paths
+are explicit public exclusions rather than dynamically discovered artifacts.
+MultiQC 1.33 HTML is also excluded because its default report embeds analysis
+file paths; publication requires a future pinned privacy-override canary.
+Nextflow execution reports and logs remain platform-private outside the
+results root; moving them would not make their commands, work paths, and engine
+state suitable public artifacts.
+
+The workflow-neutral artifact and QC services enforce descriptor-relative
+no-follow reads, regular-file and component checks, stable identity reopens, a
+1 TiB per-artifact ceiling, and finite candidate/source/metric ceilings derived
+to cover the platform's 1,000-row authoring bound. The bulk result contract
+records their exact values, including 16 MiB per QC source and 256 MiB total.
+The platform persists a public-safe revision on every artifact. Bounded QC
+sources use the content SHA-256 in that revision; large artifacts use a
+descriptor/liveness revision and are not unconditionally content-hashed. A
+canonical artifact manifest plus a monotonic database revision creates an
+ABA-safe artifact generation. Replacing a bounded source with different bytes,
+even at the same path and length, therefore advances generation and invalidates
+the old QC projection. QC generation is similarly monotonic, binds the exact
+artifact generation and metric manifest, and cannot be reused across an
+artifact replacement. The bulk adapter supplies stable output types, media
+types, sample/run scope, assay, and deterministic ordering. The authoring
+contract has no experiment identity, so it is not invented in result metadata.
+
+Artifact list and detail responses expose that public-safe generation. List
+cursors are canonical opaque values bound to run, generation, and artifact-ID
+position; the repository validates the expected generation in the same
+consistent read as the page or detail and returns a stable conflict before a
+cross-generation result can be composed. Frontend list/detail caches and
+download actions use the generation as authority and discard the complete old
+cache family when it changes. A download additionally requires the exact
+revision shown in the selected detail. Before response headers, the service
+safely opens the descriptor-relative no-follow path and reconciles its opaque
+path identity plus either the bounded content SHA-256 revision or the complete
+large-file descriptor revision. Bounded content is snapshotted only after the
+checks pass. Large streams recheck the descriptor chain around each read and
+never yield a chunk observed across a detectable mutation; a race terminates
+the stream with no replacement bytes admitted under the old generation.
+
+MultiQC 1.33 filename cleaning is not injective over the original 1.0.0 sample
+identifier alphabet. The adapter therefore reserves every literal from the
+pinned MultiQC defaults and nf-core config that could rewrite an authored
+sample ID. Validation rejects those IDs before execution rather than guessing a
+cleaned name or permitting two biological samples to collapse into one report
+identity. The exact upstream config digests and 159-literal policy are part of
+the versioned result contract. In addition, canonical validation builds a
+run-global owner map for canonical IDs, pinned pre-group authored-PE `_1`/`_2`
+identities, actual post-UMI downstream identities, and exact FASTQ
+`simpleName` replacements. Conflicting owners fail with one stable,
+value-free issue before workspace planning. Ownership includes both canonical
+sample and mate role, so a basename cannot silently reassign R1 to R2. Repeated
+lanes claim the same owner and are valid. The graph mirrors MultiQC 1.33's
+fixed order: prepended nf-core `extra_fn_clean_exts`, default `fn_clean_exts`,
+`fn_clean_trim`, then global exact name replacement. It resolves every observed
+FASTQ identity through the same global replacement table before checking final
+sample-and-mate ownership. It therefore rejects canonical IDs changed by trim
+tokens, replacement keys invalidated by cleaning, duplicate PE source keys,
+cross-sample replacement/no-op collisions, and the R2 role collapse created
+when upstream suppresses both replacements after an R1 no-op. This
+route-specific graph is not applied when MultiQC is disabled.
+The machine-data extractor repeats the Cutadapt row-owner check so a bypassed
+or stale validation snapshot cannot cause dictionary overwrite.
+Published General Stats rows use the separate fixed MultiQC grouped form
+`S Read 1`/`S Read 2`; they are never guessed from the pre-group `_1`/`_2`
+identities. The pinned nf-core and MultiQC source paths, sizes, and SHA-256
+values supporting that transformation are recorded in the results contract.
+
+This reservation is a deliberate pre-release correctness amendment to the
+authoring schema labeled 1.0.0 in PR #150. The workflow has never been in the
+default registry or product API, so no user-visible 1.0.0 input contract has
+been released. The amendment is made before exposure; after product release,
+an accepted-set change requires a new schema version and compatibility policy.
+
+QC uses a closed source and metric catalog: FastQC 0.12.1 ZIP data, fastp 1.0.1
+JSON, sanitized MultiQC 1.33 Cutadapt and Picard tables, STAR final summaries,
+Salmon metadata, featureCounts summaries, and selected RSeQC 5.0.4 native
+tables. MultiQC HTML is neither published nor parsed. Percentages are converted directly to
+`Decimal` fractions, unknown or duplicate semantic coordinates fail, and
+missing optional tools never produce synthetic zeroes. In the fixed 3.26.0
+preprocessing graph, `skip_fastqc` gates the separate raw FastQC process and
+the later filtered FastQC process. It does not disable Trim Galore's bundled
+post-trim FastQC: the pinned module config always supplies `--fastqc_args`, and
+the Trim Galore process publishes its HTML/ZIP outputs for both SE and PE.
+The evidence closure fixes upstream Trim Galore tag `v2.1.0` at commit
+`3f6be57a7da52b0b91a2641c6121bff6e34eb6a4` and records the exact CLI and
+SE/PE dispatch source identities proving that `--fastqc_args` activates the
+bundled FastQC route.
+Accordingly, `qc.fastqc=false` removes raw/filtered FastQC artifacts but the
+post-trim evidence remains required whenever Trim Galore trimming is enabled;
+low-yield samples keep that evidence even when later analysis outputs are
+filtered. Trimmed FastQC `Total
+Sequences` provides an exact final retained-read count; paired mates must
+agree. MultiQC Cutadapt integer fields provide exact input and
+post-adapter/quality base counts before later length/pair filtering. FastQC
+abbreviates `Total Bases`, while the pinned Trim Galore module does not publish
+its exact JSON and its raw report contains command-line fields, so PR #152 does
+not mislabel either source as an exact final retained-base metric. A future
+runtime-produced sanitized derivative is required for that value.
+The two MultiQC failure tables are status evidence, not an independent source
+of truth. A fastp trim row must come from bounded, duplicate-key-rejecting
+fastp 1.0.1 JSON; `passed_filter_reads` must equal
+`after_filtering.total_reads`, and after-filter reads/bases cannot exceed their
+before-filter values. It must then reproduce the fixed upstream Long/Float
+comparisons. A Trim Galore row must reproduce the upstream binary32
+`Float(input) - Float(removed)` value from a fixed nine-column MultiQC Cutadapt
+4.0 row and equal trimmed-FastQC mate counts; direct integer equality would be
+wrong for large counters. Because the product does not expose
+`--discard-untrimmed`, Cutadapt `r_written` must equal `r_processed`; count and
+base ranges must be internally possible, and `percent_trimmed` must agree with
+the exact base ratio within `0.000000001` percentage points. A mapped row is
+admitted only after the complete fixed STAR
+2.7.11b `Log.final.out` grammar, six-category count partition, and every
+count/printed-percent pair validate, then it must equal the literal uniquely
+mapped percentage used by upstream. Table membership must also match the fixed
+comparisons (`<= min_trimmed_reads` and `< min_mapped_reads`). The exact trim
+threshold row remains visible as status evidence but does not hide analysis
+output, because the workflow passes that sample onward at
+`>= min_trimmed_reads`. A status table on a disabled MultiQC/trimming route, a
+missing expected row or native source, a truncated STAR log, or any
+contradictory row fails closed. A same-path, same-length replacement of a
+status table or any native reconciliation source also fails as a stable race;
+an old closure cannot be paired with newer evidence.
+STAR `Number of input reads` is exposed as input templates: one PE template is
+one read pair and one SE template is one read. The three true unmapped
+categories are distinct from `mapped to too many loci`; the contract exposes
+their explicitly named `pure_unmapped_template_fraction` separately from an
+unaccepted-template fraction that additionally includes too-many-loci. All
+public fractions derive from the exact six-way count partition; STAR's
+two-decimal percentages are only bounded consistency evidence.
+The pinned featureCounts module uses `-p` without `--countReadPairs`, so its
+summary values are reads for both SE and PE, never fragments, pairs, or generic
+alignments.
+RSeQC transcript integrity numbers retain their upstream 0–100 score semantics;
+the workflow-neutral QC unit vocabulary therefore adds `score` rather than
+mislabeling TIN as a fraction or ratio. The RNA-seq adapter, not the platform,
+owns the TIN-specific range check. RSeQC 5.0.4 computes the population standard
+deviation of bounded 0–100 transcript scores, whose theoretical global maximum
+is 50. The parser first applies the public 12-decimal canonicalization envelope
+to accommodate legal binary64 overshoot, then rejects a mean/median above 100
+or standard deviation above 50. RSeQC 5.0.4 `tin.py` also applies a
+case-sensitive global `basename.replace("bam", "")`, while the pinned nf-core
+wrapper expects the unmodified BAM basename. When the effective module set
+contains TIN, sample IDs containing lowercase `bam` are therefore rejected
+before workspace planning; IDs are never rewritten. CSI indexing removes TIN
+upstream and does not activate this restriction.
+
+The RSeQC inner-distance contract follows the fixed module's output labels:
+for paired-end input, `<sample>.inner_distance.txt` is per-read-pair distance
+detail and is published as `bulk_rnaseq.rseqc.inner_distance.distance`; it is
+not a summary. For single-end input, the same filename contains only the fixed
+upstream “not supported” placeholder. That placeholder remains under the
+bounded sample-owner namespace audit but is not a public artifact.
+`<sample>.inner_distance_mean.txt` contains the mean, median, and standard
+deviation summary and remains the `.mean` artifact. Salmon 1.10.3 writes
+`num_processed` and `num_mapped` from its observed-fragment and mapped-fragment
+counters. Public metric keys therefore use `processed_fragments` and
+`mapped_fragments`, and `mapping_fraction` is explicitly fragment-based. One PE
+fragment is one read pair; one SE fragment is one single read.
+The public mapping fraction is derived from the two exact fragment counters;
+the serialized `percent_mapped` value is only accepted when it agrees within
+the fixed 1e-12 public fraction envelope.
+
+Artifact and QC index writes use explicit attempt identities. A replacement or
+newer attempt supersedes the previous pending attempt, and both success and
+failure commits compare the current attempt and expected artifact generation
+inside the repository transaction. Late timeout/failure callbacks and old
+indexers therefore cannot overwrite a newer outcome. This is implemented
+identically by the in-memory and SQLAlchemy repositories; the former is not a
+weaker test-only path. The API exposes only opaque public generation tokens.
+QC cursors bind run ID, QC generation, and sort position, and return a stable
+generation-changed conflict rather than mixing pages after replacement. The
+frontend keys and clears its paginated cache by that generation, including
+same-count replacements with reused deterministic metric IDs. Existing
+databases without generation state fail closed until the Alembic migration has
+created the canonical result-state and attempt tables; no path or private
+runtime identity is exposed.
+
+Discovery and indexing each reopen path components and reject observable
+replacement, but they are not one atomic directory snapshot. The existing
+input-path TOCTOU and the result replacement interval between adapter discovery
+and platform persistence remain explicit deployment risks.
+
+Execution composition identity includes the adapter variant: `runtime-v1` for
+the execution-only adapter and `results-v1` for the result-capable adapter.
+Consequently their build, workspace, cache, and resume identities cannot be
+interchanged even when they share the same pinned runtime assets. The controlled
+implementation manifest also binds the production SQLite composition,
+SQLAlchemy repository/models, Alembic environment, and the complete current
+upgrade-to-head revision set. An added unlisted revision or a change to atomic
+artifact replacement/QC invalidation makes the old manifest fail closed and
+changes the results build identity; binding only the in-memory repository is
+insufficient.
+
 ## Delivery boundary and consequences
 
 The runtime-composed adapter may truthfully declare workspace and command
@@ -274,11 +505,11 @@ capabilities after its assets are verified. The default adapter instance remains
 contract-only, and `bulk-rnaseq` is not added to the default registry, API, or
 frontend in PR #151. No real STAR+Salmon scientific acceptance is claimed.
 
-Artifact discovery and machine-readable QC extraction remain PR #152; HTML
-scraping will not define their core contract. Tiny `rapid_quant` qualification
-and the full local STAR+Salmon acceptance gate remain PR #153; `rapid_quant` is
-not the default product analysis. Default registry and product UI exposure
-remain PR #154.
+PR #152 supplies deterministic artifact discovery and machine-readable QC
+extraction without HTML scraping, but does not claim scientific execution
+acceptance. Tiny `rapid_quant` qualification and the full local STAR+Salmon
+acceptance gate remain PR #153; `rapid_quant` is not the default product
+analysis. Default registry and product UI exposure remain PR #154.
 
 Official upstream coordinates:
 [nf-core/rnaseq 3.26.0](https://github.com/nf-core/rnaseq/releases/tag/3.26.0),

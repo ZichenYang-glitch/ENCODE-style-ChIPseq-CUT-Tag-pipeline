@@ -20,6 +20,12 @@ from encode_pipeline.platform.execution import (
     build_execution_job_id,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.result_generations import (
+    RunResultState,
+    new_result_attempt_id,
+    validate_artifact_generation,
+    validate_result_attempt_id,
+)
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.run_history import (
     RunHistoryCursor,
@@ -931,23 +937,12 @@ class RunService:
                     continue
                 return updated
 
-    def record_artifact(
-        self,
-        run_id: str,
-        artifact: RunArtifactRef,
-    ) -> RunArtifactRef:
-        """Record an artifact reference for a run."""
-        with self._lock:
-            if artifact.run_id != run_id:
-                raise ValueError(
-                    f"Artifact run_id {artifact.run_id!r} does not match {run_id!r}"
-                )
-            return self._repository.record_artifact(run_id, artifact)
-
     def replace_artifacts(
         self,
         run_id: str,
         artifacts: Iterable[RunArtifactRef],
+        *,
+        attempt_id: str | None = None,
     ) -> tuple[RunArtifactRef, ...]:
         """Atomically replace a succeeded run's complete artifact index."""
         with self._lock:
@@ -957,9 +952,17 @@ class RunService:
                     raise ValueError("artifacts must contain RunArtifactRef values")
                 if artifact.run_id != run_id:
                     raise ValueError("artifact run_id does not match the run")
+            if attempt_id is None:
+                attempt_id = self.begin_artifact_result_attempt(
+                    run_id
+                ).artifact_attempt_id
+                assert attempt_id is not None
+            else:
+                validate_result_attempt_id(attempt_id)
             self._repository.replace_artifacts(
                 run_id,
                 replacement,
+                attempt_id=attempt_id,
                 expected_status=RunStatus.SUCCEEDED,
                 event=RunEventDraft(
                     event_type="artifacts_indexed",
@@ -970,6 +973,57 @@ class RunService:
                 ),
             )
             return replacement
+
+    def get_result_state(self, run_id: str) -> RunResultState:
+        """Return the canonical durable artifact/QC generation state."""
+        with self._lock:
+            return self._repository.get_result_state(run_id)
+
+    def begin_artifact_result_attempt(
+        self,
+        run_id: str,
+        *,
+        attempt_id: str | None = None,
+    ) -> RunResultState:
+        """Register an artifact attempt before any mutable result I/O."""
+        with self._lock:
+            owned_attempt_id = (
+                new_result_attempt_id() if attempt_id is None else attempt_id
+            )
+            validate_result_attempt_id(owned_attempt_id)
+            return self._repository.begin_artifact_result_attempt(
+                run_id,
+                attempt_id=owned_attempt_id,
+                expected_status=RunStatus.SUCCEEDED,
+            )
+
+    def record_artifact_failure(
+        self,
+        run_id: str,
+        *,
+        attempt_id: str,
+        reason_code: str,
+    ) -> None:
+        """Record failure only for the still-current artifact attempt."""
+        with self._lock:
+            validate_result_attempt_id(attempt_id)
+            if not isinstance(reason_code, str) or not _PUBLIC_REASON_CODE.fullmatch(
+                reason_code
+            ):
+                raise ValueError("reason_code must be a public-safe stable code")
+            self._repository.record_artifact_failure(
+                run_id,
+                attempt_id=attempt_id,
+                reason_code=reason_code,
+                expected_status=RunStatus.SUCCEEDED,
+                event=RunEventDraft(
+                    event_type="artifact_extraction_failed",
+                    message="Workflow artifacts could not be indexed.",
+                    status=RunStatus.SUCCEEDED,
+                    stage="artifact_extraction",
+                    context={"reason_code": reason_code},
+                ),
+            )
 
     def list_artifacts(
         self,
@@ -988,10 +1042,44 @@ class RunService:
                 limit=limit,
             )
 
+    def list_artifacts_page(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str | None,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str | None, tuple[RunArtifactRef, ...]]:
+        """Atomically read one artifact page and its exact generation."""
+        with self._lock:
+            if limit is not None and limit <= 0:
+                raise ValueError("limit must be positive")
+            return self._repository.list_artifacts_page(
+                run_id,
+                expected_generation=expected_generation,
+                after=after,
+                limit=limit,
+            )
+
     def get_artifact(self, run_id: str, artifact_id: str) -> RunArtifactRef:
         """Return one artifact scoped to its canonical run."""
         with self._lock:
             return self._repository.get_artifact(run_id, artifact_id)
+
+    def get_artifact_at_generation(
+        self,
+        run_id: str,
+        artifact_id: str,
+        *,
+        expected_generation: str | None,
+    ) -> tuple[str, RunArtifactRef]:
+        """Atomically read one artifact under an optional generation guard."""
+        with self._lock:
+            return self._repository.get_artifact_at_generation(
+                run_id,
+                artifact_id,
+                expected_generation=expected_generation,
+            )
 
     def replace_qc_metrics(
         self,
@@ -999,6 +1087,8 @@ class RunService:
         metrics: Iterable[RunQcMetric],
         *,
         expected_artifacts: Iterable[RunArtifactRef],
+        attempt_id: str | None = None,
+        expected_artifact_generation: str | None = None,
     ) -> tuple[RunQcMetric, ...]:
         """Atomically replace QC metrics for one complete artifact generation."""
         with self._lock:
@@ -1007,9 +1097,30 @@ class RunService:
             for metric in replacement:
                 if not isinstance(metric, RunQcMetric) or metric.run_id != run_id:
                     raise ValueError("QC metric does not match the run")
+            if attempt_id is None:
+                state = self._repository.get_result_state(run_id)
+                if state.artifact_generation is None:
+                    raise ValueError("QC indexing requires an artifact generation")
+                expected_artifact_generation = state.artifact_generation
+                attempt_id = self.begin_qc_result_attempt(
+                    run_id,
+                    expected_artifact_generation=expected_artifact_generation,
+                    expected_artifacts=artifacts,
+                ).qc_attempt_id
+                assert attempt_id is not None
+            else:
+                validate_result_attempt_id(attempt_id)
+                if expected_artifact_generation is None:
+                    raise ValueError(
+                        "explicit QC attempt requires expected artifact generation"
+                    )
+            assert expected_artifact_generation is not None
+            validate_artifact_generation(expected_artifact_generation)
             self._repository.replace_qc_metrics(
                 run_id,
                 replacement,
+                attempt_id=attempt_id,
+                expected_artifact_generation=expected_artifact_generation,
                 expected_artifacts=artifacts,
                 expected_status=RunStatus.SUCCEEDED,
                 event=RunEventDraft(
@@ -1021,6 +1132,30 @@ class RunService:
                 ),
             )
             return replacement
+
+    def begin_qc_result_attempt(
+        self,
+        run_id: str,
+        *,
+        expected_artifact_generation: str,
+        expected_artifacts: Iterable[RunArtifactRef],
+        attempt_id: str | None = None,
+    ) -> RunResultState:
+        """Register a QC attempt bound to one artifact generation."""
+        with self._lock:
+            validate_artifact_generation(expected_artifact_generation)
+            owned_attempt_id = (
+                new_result_attempt_id() if attempt_id is None else attempt_id
+            )
+            validate_result_attempt_id(owned_attempt_id)
+            artifacts = tuple(expected_artifacts)
+            return self._repository.begin_qc_result_attempt(
+                run_id,
+                attempt_id=owned_attempt_id,
+                expected_artifact_generation=expected_artifact_generation,
+                expected_artifacts=artifacts,
+                expected_status=RunStatus.SUCCEEDED,
+            )
 
     def list_qc_metrics(
         self,
@@ -1039,11 +1174,32 @@ class RunService:
                 limit=limit,
             )
 
+    def list_qc_metrics_page(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str | None,
+        after: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str | None, tuple[RunQcMetric, ...]]:
+        """Atomically read one QC page and its exact generation."""
+        with self._lock:
+            if limit is not None and limit <= 0:
+                raise ValueError("limit must be positive")
+            return self._repository.list_qc_metrics_page(
+                run_id,
+                expected_generation=expected_generation,
+                after=after,
+                limit=limit,
+            )
+
     def record_qc_metrics_failure(
         self,
         run_id: str,
         *,
         reason_code: str,
+        attempt_id: str | None = None,
+        expected_artifact_generation: str | None = None,
     ) -> None:
         """Record one idempotent public-safe QC indexing failure outcome."""
         with self._lock:
@@ -1051,8 +1207,31 @@ class RunService:
                 reason_code
             ):
                 raise ValueError("reason_code must be a public-safe stable code")
+            if attempt_id is None:
+                state = self._repository.get_result_state(run_id)
+                if state.artifact_generation is None:
+                    # There is no QC generation to bind. The artifact attempt
+                    # outcome is the single authoritative failure in this case.
+                    return
+                expected_artifact_generation = state.artifact_generation
+                artifacts = self._repository.list_artifacts(run_id)
+                attempt_id = self.begin_qc_result_attempt(
+                    run_id,
+                    expected_artifact_generation=expected_artifact_generation,
+                    expected_artifacts=artifacts,
+                ).qc_attempt_id
+                assert attempt_id is not None
+            else:
+                validate_result_attempt_id(attempt_id)
+                if expected_artifact_generation is None:
+                    raise ValueError(
+                        "explicit QC failure requires expected artifact generation"
+                    )
+            assert expected_artifact_generation is not None
             self._repository.record_qc_metrics_failure(
                 run_id,
+                attempt_id=attempt_id,
+                expected_artifact_generation=expected_artifact_generation,
                 reason_code=reason_code,
                 expected_status=RunStatus.SUCCEEDED,
                 event=RunEventDraft(

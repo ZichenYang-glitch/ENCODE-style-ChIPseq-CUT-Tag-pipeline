@@ -13,6 +13,7 @@ const artifact: ArtifactReferenceResponse = {
   uri: 'run://runs/run-1/artifacts/result_manifest.abc',
   mime_type: 'text/tab-separated-values',
   produced_at: '2026-07-12T12:00:00Z',
+  revision: `artifactrev-${'a'.repeat(64)}`,
   relative_path: longPath,
   output_type: 'result_manifest',
   size_bytes: 1536,

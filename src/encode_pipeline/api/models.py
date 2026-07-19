@@ -495,6 +495,7 @@ class ArtifactReferenceResponse(BaseModel):
     uri: str = Field(min_length=1, max_length=2048)
     mime_type: str | None = Field(default=None, max_length=255)
     produced_at: datetime
+    revision: str = Field(pattern=r"^artifactrev-[0-9a-f]{64}$", max_length=76)
     relative_path: str
     output_type: str
     size_bytes: int
@@ -520,6 +521,7 @@ class ArtifactReferenceResponse(BaseModel):
             uri=artifact.uri,
             mime_type=artifact.mime_type,
             produced_at=artifact.produced_at,
+            revision=artifact.revision,
             relative_path=persisted.relative_path,
             output_type=persisted.output_type,
             size_bytes=persisted.size_bytes,
@@ -557,6 +559,9 @@ class RunArtifactsResponse(BaseModel):
 
     ok: bool
     run_id: str
+    artifact_generation: str | None = Field(
+        pattern=r"^artifactgen-[0-9a-f]{64}$", max_length=76
+    )
     artifacts: list[ArtifactReferenceResponse] = Field(default_factory=list)
     next_cursor: str | None = None
     issues: list[IssueResponse] = Field(default_factory=list)
@@ -567,6 +572,9 @@ class RunArtifactDetailResponse(BaseModel):
 
     ok: bool
     run_id: str
+    artifact_generation: str | None = Field(
+        pattern=r"^artifactgen-[0-9a-f]{64}$", max_length=76
+    )
     artifact: ArtifactReferenceResponse | None = None
     issues: list[IssueResponse] = Field(default_factory=list)
 
@@ -633,7 +641,7 @@ class QcMetricResponse(BaseModel):
         pattern=r"^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?$",
         max_length=40,
     )
-    unit: Literal["count", "fraction", "ratio"]
+    unit: Literal["count", "fraction", "ratio", "score"]
     scope: Literal["run", "sample", "experiment"]
     sample_id: str | None = Field(max_length=255)
     experiment_id: str | None = Field(max_length=255)
@@ -717,8 +725,12 @@ class RunQcMetricsResponse(BaseModel):
 
     ok: bool
     run_id: str
+    qc_generation: str | None = Field(
+        pattern=r"^qcgen-[0-9a-f]{64}$",
+        max_length=70,
+    )
     qc_metrics: list[QcMetricResponse] = Field(default_factory=list)
-    next_cursor: str | None = None
+    next_cursor: str | None = Field(default=None, max_length=1024)
     issues: list[IssueResponse] = Field(default_factory=list)
 
 

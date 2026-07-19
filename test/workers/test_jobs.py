@@ -21,6 +21,11 @@ from encode_pipeline.persistence.runtime import open_run_persistence
 from encode_pipeline.platform.execution import RunExecutionAssignment
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
+from encode_pipeline.platform.result_generations import (
+    validate_artifact_generation,
+    validate_qc_generation,
+    validate_result_attempt_id,
+)
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.defaults import (
     create_default_run_service,
@@ -42,6 +47,9 @@ from encode_pipeline.workers.settings import (
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
 
 from .conftest import create_planned_run, worker_settings
+
+
+ARTIFACT_GENERATION = f"artifactgen-{'a' * 64}"
 
 
 def _configure_worker_environment(
@@ -202,7 +210,10 @@ def test_rq_worker_rebuilds_dependencies_and_persists_handshake_event(
             event for event in events if event.event_type == "qc_metrics_indexed"
         ]
         assert len(qc_events) == 1
-        assert qc_events[0].context == {"metric_count": 0}
+        assert qc_events[0].context["metric_count"] == 0
+        validate_result_attempt_id(qc_events[0].context["attempt_id"])
+        validate_artifact_generation(qc_events[0].context["artifact_generation"])
+        validate_qc_generation(qc_events[0].context["qc_generation"])
     finally:
         persistence.close()
 
@@ -285,7 +296,10 @@ def test_rq_worker_persists_nonempty_qc_metrics_for_new_sqlite_reader(
     qc_event = next(
         event for event in events if event.event_type == "qc_metrics_indexed"
     )
-    assert qc_event.context == {"metric_count": 8}
+    assert qc_event.context["metric_count"] == 8
+    validate_result_attempt_id(qc_event.context["attempt_id"])
+    validate_artifact_generation(qc_event.context["artifact_generation"])
+    validate_qc_generation(qc_event.context["qc_generation"])
 
 
 def test_rq_worker_rejects_stale_job_identity_without_writing_handshake(
@@ -687,57 +701,53 @@ def test_unexpected_failure_mapping_swallows_repository_errors():
 
 
 def test_post_success_artifact_exception_does_not_fail_execution_job():
-    recorded: list[str] = []
-    qc_recorded: list[str] = []
+    recorded: list[tuple[str, str]] = []
 
     class Extraction:
-        def extract(self, _run_id):
+        def extract(self, _run_id, *, attempt_id):
+            validate_result_attempt_id(attempt_id)
             raise RuntimeError("/private/workspace")
 
-        def record_unexpected_failure(self, run_id):
-            recorded.append(run_id)
+        def record_unexpected_failure(self, run_id, *, attempt_id):
+            recorded.append((run_id, attempt_id))
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id: Result.success(object())
         ),
         artifact_extraction_service=Extraction(),
-        qc_summary_indexing_service=SimpleNamespace(
-            record_artifact_source_failure=lambda run_id: qc_recorded.append(run_id)
-        ),
     )
 
     worker_jobs._execute_claimed_run(runtime, "run-1")
 
-    assert recorded == ["run-1"]
-    assert qc_recorded == ["run-1"]
+    assert len(recorded) == 1
+    assert recorded[0][0] == "run-1"
+    validate_result_attempt_id(recorded[0][1])
 
 
 def test_post_success_artifact_hard_timeout_does_not_fail_execution_job():
-    recorded: list[str] = []
-    qc_recorded: list[str] = []
+    recorded: list[tuple[str, str]] = []
 
     class Extraction:
-        def extract(self, _run_id):
+        def extract(self, _run_id, *, attempt_id):
+            validate_result_attempt_id(attempt_id)
             raise WorkerHardTimeout("artifact indexing exceeded the RQ deadline")
 
-        def record_unexpected_failure(self, run_id):
-            recorded.append(run_id)
+        def record_unexpected_failure(self, run_id, *, attempt_id):
+            recorded.append((run_id, attempt_id))
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id: Result.success(object())
         ),
         artifact_extraction_service=Extraction(),
-        qc_summary_indexing_service=SimpleNamespace(
-            record_artifact_source_failure=lambda run_id: qc_recorded.append(run_id)
-        ),
     )
 
     worker_jobs._execute_claimed_run(runtime, "run-1")
 
-    assert recorded == ["run-1"]
-    assert qc_recorded == ["run-1"]
+    assert len(recorded) == 1
+    assert recorded[0][0] == "run-1"
+    validate_result_attempt_id(recorded[0][1])
 
 
 def test_post_success_qc_receives_only_successful_complete_artifact_set():
@@ -749,41 +759,59 @@ def test_post_success_qc_receives_only_successful_complete_artifact_set():
             execute=lambda _run_id: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
-            extract=lambda _run_id: Result.success(artifacts)
+            extract=lambda _run_id, **_kwargs: Result.success(artifacts)
+        ),
+        run_service=SimpleNamespace(
+            get_result_state=lambda _run_id: SimpleNamespace(
+                artifact_generation=ARTIFACT_GENERATION
+            )
         ),
         qc_summary_indexing_service=SimpleNamespace(
-            index=lambda run_id, values: calls.append((run_id, values))
+            index=lambda run_id, values, **kwargs: calls.append(
+                (run_id, values, kwargs)
+            )
         ),
     )
 
     worker_jobs._execute_claimed_run(runtime, "run-1")
 
-    assert calls == [("run-1", artifacts)]
+    assert len(calls) == 1
+    assert calls[0][:2] == ("run-1", artifacts)
+    assert calls[0][2]["expected_artifact_generation"] == ARTIFACT_GENERATION
+    validate_result_attempt_id(calls[0][2]["attempt_id"])
 
 
 def test_post_success_qc_exception_is_recorded_without_failing_execution():
     recorded = []
 
     class QcIndexing:
-        def index(self, _run_id, _artifacts):
+        def index(self, _run_id, _artifacts, **_kwargs):
             raise RuntimeError("/private/qc/workspace")
 
-        def record_unexpected_failure(self, run_id):
-            recorded.append(run_id)
+        def record_unexpected_failure(self, run_id, **kwargs):
+            recorded.append((run_id, kwargs))
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
-            extract=lambda _run_id: Result.success(())
+            extract=lambda _run_id, **_kwargs: Result.success(())
+        ),
+        run_service=SimpleNamespace(
+            get_result_state=lambda _run_id: SimpleNamespace(
+                artifact_generation=ARTIFACT_GENERATION
+            )
         ),
         qc_summary_indexing_service=QcIndexing(),
     )
 
     worker_jobs._execute_claimed_run(runtime, "run-1")
 
-    assert recorded == ["run-1"]
+    assert len(recorded) == 1
+    assert recorded[0][0] == "run-1"
+    assert recorded[0][1]["expected_artifact_generation"] == ARTIFACT_GENERATION
+    validate_result_attempt_id(recorded[0][1]["attempt_id"])
 
 
 def test_failure_mapping_does_not_swallow_rq_timeout():

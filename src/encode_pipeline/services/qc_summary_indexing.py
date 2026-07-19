@@ -8,16 +8,25 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
+from typing import cast
 
 from encode_pipeline.platform.adapters import (
+    MAX_SAMPLE_ROWS,
     QC_SUMMARY_EXTRACT_CAPABILITY,
     ExtractedQcMetricCandidate,
     QcSourceArtifact,
     QcSourceDocument,
     QcSummaryExtractingAdapter,
+    SamplePayload,
     WorkflowInputs,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.result_generations import (
+    ARTIFACT_PATH_IDENTITY_METADATA_KEY,
+    build_artifact_path_identity,
+    build_artifact_content_revision,
+    validate_artifact_path_identity,
+)
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
@@ -34,12 +43,18 @@ from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 
 
-_MAX_SOURCE_BYTES = 1024 * 1024
+# Preserve bounded admission while covering the platform's 1,000-row authoring
+# contract for adapters with a finite per-sample machine-QC catalog.
+_MAX_SOURCE_FILES = MAX_SAMPLE_ROWS * 16 + 16
+_MAX_SOURCE_BYTES = 16 * 1024 * 1024
+_MAX_TOTAL_SOURCE_BYTES = 256 * 1024 * 1024
+_MAX_SOURCE_PATH_COMPONENTS = 32
+_MAX_QC_METRICS = MAX_SAMPLE_ROWS * 128
 _SAFE_ARTIFACT_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _SAFE_OUTPUT_TYPE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _SAFE_METRIC_KEY = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
-_ALLOWED_UNITS = frozenset({"count", "fraction", "ratio"})
+_ALLOWED_UNITS = frozenset({"count", "fraction", "ratio", "score"})
 _ALLOWED_SCOPES = frozenset({"run", "sample", "experiment"})
 _ALLOWED_FLAGS = frozenset({"pass", "warning", "fail"})
 _SOURCE_METADATA_KEYS = ("scope", "sample_id", "experiment_id", "assay")
@@ -62,7 +77,11 @@ class QcSummaryIndexingService:
             raise ValueError("registry must be a WorkflowRegistry")
         if not isinstance(build_identity_provider, WorkflowBuildIdentityProvider):
             raise ValueError("build_identity_provider is invalid")
-        if not isinstance(workspace_root, Path) or not workspace_root.is_absolute():
+        if (
+            not isinstance(workspace_root, Path)
+            or not workspace_root.is_absolute()
+            or any(part in {"", ".", ".."} for part in workspace_root.parts[1:])
+        ):
             raise ValueError("workspace_root must be an absolute Path")
         self._run_service = run_service
         self._registry = registry
@@ -73,6 +92,9 @@ class QcSummaryIndexingService:
         self,
         run_id: str,
         artifacts: tuple[RunArtifactRef, ...],
+        *,
+        attempt_id: str | None = None,
+        expected_artifact_generation: str | None = None,
     ) -> Result[tuple[RunQcMetric, ...]]:
         """Index one SUCCEEDED run without changing its terminal lifecycle."""
         try:
@@ -83,14 +105,42 @@ class QcSummaryIndexingService:
             return self._result_failure("QC_INDEXING_RUN_NOT_SUCCEEDED")
 
         try:
+            if (attempt_id is None) != (expected_artifact_generation is None):
+                raise ValueError("QC attempt identity and generation must be paired")
+            if attempt_id is None:
+                attempt_id, expected_artifact_generation = self.begin_attempt(
+                    run_id,
+                    artifacts,
+                )
+            else:
+                assert expected_artifact_generation is not None
+                self._run_service.begin_qc_result_attempt(
+                    run_id,
+                    expected_artifact_generation=expected_artifact_generation,
+                    expected_artifacts=self._validated_artifact_generation(
+                        run_id,
+                        artifacts,
+                    ),
+                    attempt_id=attempt_id,
+                )
             adapter = self._registry.get(record.workflow_id)
             if (
                 QC_SUMMARY_EXTRACT_CAPABILITY not in adapter.capabilities.supports
                 or not isinstance(adapter, QcSummaryExtractingAdapter)
             ):
-                return self._fail(run_id, "QC_INDEXING_UNSUPPORTED")
+                return self._fail(
+                    run_id,
+                    "QC_INDEXING_UNSUPPORTED",
+                    attempt_id,
+                    expected_artifact_generation,
+                )
             if not self._build_matches(record.run_id, record.workflow_id):
-                return self._fail(run_id, "QC_INDEXING_BUILD_MISMATCH")
+                return self._fail(
+                    run_id,
+                    "QC_INDEXING_BUILD_MISMATCH",
+                    attempt_id,
+                    expected_artifact_generation,
+                )
             expected_artifacts = self._validated_artifact_generation(run_id, artifacts)
             if expected_artifacts != tuple(
                 sorted(
@@ -101,6 +151,8 @@ class QcSummaryIndexingService:
                 return self._fail(
                     run_id,
                     "QC_INDEXING_ARTIFACT_GENERATION_MISMATCH",
+                    attempt_id,
+                    expected_artifact_generation,
                 )
             source_types = self._validated_source_types(
                 adapter.qc_source_output_types()
@@ -116,11 +168,18 @@ class QcSummaryIndexingService:
                 return self._fail(
                     run_id,
                     "QC_INDEXING_SOURCE_VALIDATION_FAILED",
+                    attempt_id,
+                    expected_artifact_generation,
                 )
             inputs = self._reconstruct_inputs(record.inputs)
             candidate_result = adapter.extract_qc_metrics(inputs, documents)
             if candidate_result.is_failure:
-                return self._fail(run_id, "QC_INDEXING_ADAPTER_FAILED")
+                return self._fail(
+                    run_id,
+                    "QC_INDEXING_ADAPTER_FAILED",
+                    attempt_id,
+                    expected_artifact_generation,
+                )
             metrics = self._build_metrics(
                 run_id,
                 record.ended_at,
@@ -130,23 +189,74 @@ class QcSummaryIndexingService:
             self._run_service.replace_qc_metrics(
                 run_id,
                 metrics,
+                attempt_id=attempt_id,
+                expected_artifact_generation=expected_artifact_generation,
                 expected_artifacts=expected_artifacts,
             )
             return Result.success(metrics)
         except ConcurrentRunUpdateError:
-            return self._fail(run_id, "QC_INDEXING_STATE_CHANGED")
+            return self._fail(
+                run_id,
+                "QC_INDEXING_STATE_CHANGED",
+                attempt_id,
+                expected_artifact_generation,
+            )
         except (KeyError, OSError, TypeError, ValueError):
-            return self._fail(run_id, "QC_INDEXING_VALIDATION_FAILED")
+            return self._fail(
+                run_id,
+                "QC_INDEXING_VALIDATION_FAILED",
+                attempt_id,
+                expected_artifact_generation,
+            )
         except Exception:
-            return self._fail(run_id, "QC_INDEXING_UNEXPECTED_ERROR")
+            return self._fail(
+                run_id,
+                "QC_INDEXING_UNEXPECTED_ERROR",
+                attempt_id,
+                expected_artifact_generation,
+            )
 
-    def record_unexpected_failure(self, run_id: str) -> None:
+    def begin_attempt(
+        self,
+        run_id: str,
+        artifacts: tuple[RunArtifactRef, ...],
+    ) -> tuple[str, str]:
+        """Begin one QC attempt bound to the current complete artifact generation."""
+        expected_artifacts = self._validated_artifact_generation(run_id, artifacts)
+        if expected_artifacts != tuple(
+            sorted(
+                self._run_service.list_artifacts(run_id),
+                key=lambda item: item.artifact_id,
+            )
+        ):
+            raise ConcurrentRunUpdateError("artifact generation changed")
+        state = self._run_service.get_result_state(run_id)
+        generation = state.artifact_generation
+        if generation is None:
+            raise ConcurrentRunUpdateError("artifact generation is unavailable")
+        state = self._run_service.begin_qc_result_attempt(
+            run_id,
+            expected_artifact_generation=generation,
+            expected_artifacts=expected_artifacts,
+        )
+        if state.qc_attempt_id is None:
+            raise ValueError("QC attempt identity is unavailable")
+        return state.qc_attempt_id, generation
+
+    def record_unexpected_failure(
+        self,
+        run_id: str,
+        *,
+        attempt_id: str,
+        expected_artifact_generation: str,
+    ) -> None:
         """Record a best-effort public-safe worker defensive failure."""
-        self._record_failure_event(run_id, "QC_INDEXING_UNEXPECTED_ERROR")
-
-    def record_artifact_source_failure(self, run_id: str) -> None:
-        """Record that a complete artifact generation was unavailable."""
-        self._record_failure_event(run_id, "QC_INDEXING_ARTIFACTS_UNAVAILABLE")
+        self._record_failure_event(
+            run_id,
+            "QC_INDEXING_UNEXPECTED_ERROR",
+            attempt_id,
+            expected_artifact_generation,
+        )
 
     def _build_matches(self, run_id: str, workflow_id: str) -> bool:
         persisted = self._run_service.get_workflow_build_identity(run_id)
@@ -162,7 +272,11 @@ class QcSummaryIndexingService:
         options = snapshot.get("options", {})
         if not isinstance(config, Mapping) or not isinstance(options, Mapping):
             raise ValueError("run inputs are malformed")
-        return WorkflowInputs(config=config, samples=samples, options=options)
+        return WorkflowInputs(
+            config=config,
+            samples=cast(SamplePayload, samples),
+            options=options,
+        )
 
     @staticmethod
     def _validated_artifact_generation(
@@ -210,8 +324,9 @@ class QcSummaryIndexingService:
         source_types: frozenset[str],
         workspace: Path,
     ) -> tuple[QcSourceDocument, ...]:
-        documents: list[QcSourceDocument] = []
+        prepared: list[tuple[RunArtifactRef, str, str, int, str, dict[str, str]]] = []
         seen_paths: set[str] = set()
+        total_bytes = 0
         for artifact in artifacts:
             output_type = artifact.metadata.get("output_type")
             if output_type not in source_types:
@@ -233,12 +348,51 @@ class QcSummaryIndexingService:
             expected_size = self._validated_source_size(
                 artifact.metadata.get("size_bytes")
             )
+            path_identity_value = artifact.metadata.get(
+                ARTIFACT_PATH_IDENTITY_METADATA_KEY
+            )
+            path_identity = validate_artifact_path_identity(path_identity_value)
             metadata = self._validated_source_metadata(artifact.metadata)
+            prepared.append(
+                (
+                    artifact,
+                    output_type,
+                    relative_path,
+                    expected_size,
+                    path_identity,
+                    metadata,
+                )
+            )
+            if len(prepared) > _MAX_SOURCE_FILES:
+                raise ValueError("too many QC source files")
+            total_bytes += expected_size
+            if total_bytes > _MAX_TOTAL_SOURCE_BYTES:
+                raise ValueError("QC source files exceed the total byte limit")
+
+        documents: list[QcSourceDocument] = []
+        for (
+            artifact,
+            output_type,
+            relative_path,
+            expected_size,
+            path_identity,
+            metadata,
+        ) in prepared:
             content = self._read_bounded_regular_file(
                 workspace,
                 relative_path,
                 expected_size,
+                expected_path_identity=path_identity,
             )
+            expected_revision = build_artifact_content_revision(
+                output_type=output_type,
+                relative_path=relative_path,
+                content=content,
+            )
+            if artifact.revision != expected_revision:
+                raise ValueError(
+                    "QC source content does not match its artifact revision"
+                )
             documents.append(
                 QcSourceDocument(
                     source=QcSourceArtifact(
@@ -270,6 +424,7 @@ class QcSummaryIndexingService:
             or path.is_absolute()
             or not path.parts
             or path.parts[0] != "results"
+            or len(path.parts) > _MAX_SOURCE_PATH_COMPONENTS
             or any(part in {"", ".", ".."} for part in value.split("/"))
         ):
             raise ValueError("QC source path is invalid")
@@ -307,6 +462,8 @@ class QcSummaryIndexingService:
         workspace: Path,
         relative_path: str,
         expected_size: int,
+        *,
+        expected_path_identity: str,
     ) -> bytes:
         required_flags = ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK")
         if any(not hasattr(os, name) for name in required_flags):
@@ -317,6 +474,7 @@ class QcSummaryIndexingService:
         if not components:
             raise ValueError("QC source path is empty")
         descriptors: list[int] = []
+        component_infos: list[os.stat_result] = []
         try:
             current = os.open("/", directory_flags)
             descriptors.append(current)
@@ -332,6 +490,7 @@ class QcSummaryIndexingService:
                 info = os.fstat(descriptor)
                 if not final and not stat.S_ISDIR(info.st_mode):
                     raise ValueError("QC source parent is not a directory")
+                component_infos.append(info)
             before = os.fstat(current)
             if (
                 not stat.S_ISREG(before.st_mode)
@@ -370,6 +529,41 @@ class QcSummaryIndexingService:
                 or identity_before != identity_after
             ):
                 raise ValueError("QC source changed while it was read")
+            reopened_descriptors, reopened_infos = (
+                QcSummaryIndexingService._reopen_source_chain(
+                    components,
+                    directory_flags,
+                    final_flags,
+                )
+            )
+            try:
+                if tuple(
+                    QcSummaryIndexingService._descriptor_identity(info)
+                    for info in component_infos
+                ) != tuple(
+                    QcSummaryIndexingService._descriptor_identity(info)
+                    for info in reopened_infos
+                ):
+                    raise ValueError("QC source path changed while it was read")
+                current_path_identity = build_artifact_path_identity(
+                    parent_identities=tuple(
+                        (info.st_dev, info.st_ino, info.st_mode)
+                        for info in component_infos[:-1]
+                    ),
+                    file_identity=QcSummaryIndexingService._descriptor_identity(
+                        component_infos[-1]
+                    ),
+                )
+                if current_path_identity != expected_path_identity:
+                    raise ValueError(
+                        "QC source path identity does not match its artifact"
+                    )
+            finally:
+                for descriptor in reversed(reopened_descriptors):
+                    try:
+                        os.close(descriptor)
+                    except OSError:
+                        pass
             return content
         finally:
             for descriptor in reversed(descriptors):
@@ -378,6 +572,53 @@ class QcSummaryIndexingService:
                 except OSError:
                     pass
 
+    @staticmethod
+    def _reopen_source_chain(
+        components: tuple[str, ...],
+        directory_flags: int,
+        final_flags: int,
+    ) -> tuple[list[int], tuple[os.stat_result, ...]]:
+        descriptors: list[int] = []
+        infos: list[os.stat_result] = []
+        try:
+            current = os.open("/", directory_flags)
+            descriptors.append(current)
+            for index, component in enumerate(components):
+                final = index == len(components) - 1
+                descriptor = os.open(
+                    component,
+                    final_flags if final else directory_flags,
+                    dir_fd=current,
+                )
+                descriptors.append(descriptor)
+                current = descriptor
+                info = os.fstat(descriptor)
+                if not final and not stat.S_ISDIR(info.st_mode):
+                    raise ValueError("QC source parent is not a directory")
+                infos.append(info)
+            return descriptors, tuple(infos)
+        except Exception:
+            for descriptor in reversed(descriptors):
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+            raise
+
+    @staticmethod
+    def _descriptor_identity(info: os.stat_result) -> tuple[int, ...]:
+        return (
+            info.st_dev,
+            info.st_ino,
+            info.st_mode,
+            info.st_nlink,
+            info.st_uid,
+            info.st_gid,
+            info.st_size,
+            info.st_mtime_ns,
+            info.st_ctime_ns,
+        )
+
     def _build_metrics(
         self,
         run_id: str,
@@ -385,7 +626,11 @@ class QcSummaryIndexingService:
         candidates,
         source_artifact_ids: set[str],
     ) -> tuple[RunQcMetric, ...]:
-        if ended_at is None or not isinstance(candidates, tuple):
+        if (
+            ended_at is None
+            or not isinstance(candidates, tuple)
+            or len(candidates) > _MAX_QC_METRICS
+        ):
             raise ValueError("QC candidate collection is invalid")
         metrics: list[RunQcMetric] = []
         seen_ids: set[str] = set()
@@ -472,16 +717,32 @@ class QcSummaryIndexingService:
         self,
         run_id: str,
         reason_code: str,
+        attempt_id: str | None,
+        expected_artifact_generation: str | None,
     ) -> Result[tuple[RunQcMetric, ...]]:
-        self._record_failure_event(run_id, reason_code)
+        if attempt_id is not None and expected_artifact_generation is not None:
+            self._record_failure_event(
+                run_id,
+                reason_code,
+                attempt_id,
+                expected_artifact_generation,
+            )
         return self._result_failure(reason_code)
 
-    def _record_failure_event(self, run_id: str, reason_code: str) -> None:
+    def _record_failure_event(
+        self,
+        run_id: str,
+        reason_code: str,
+        attempt_id: str,
+        expected_artifact_generation: str,
+    ) -> None:
         try:
             if self._run_service.get_run(run_id).status is RunStatus.SUCCEEDED:
                 self._run_service.record_qc_metrics_failure(
                     run_id,
                     reason_code=reason_code,
+                    attempt_id=attempt_id,
+                    expected_artifact_generation=expected_artifact_generation,
                 )
         except Exception:
             return

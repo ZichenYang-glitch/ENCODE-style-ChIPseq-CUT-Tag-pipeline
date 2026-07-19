@@ -8,6 +8,7 @@
 
 export type ListRunQcMetricsParams = {
 after?: string | null;
+generation?: string | null;
 /**
  * @minimum 1
  * @maximum 100

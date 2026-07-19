@@ -5,6 +5,8 @@ import type {
 import type { RunEventResponse } from '../../api/runTypes';
 
 const ARTIFACT_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/;
+const ARTIFACT_GENERATION_PATTERN = /^artifactgen-[0-9a-f]{64}$/;
+const ARTIFACT_CURSOR_PATTERN = /^artifactcur_[A-Za-z0-9_-]{1,1012}$/;
 const REASON_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/;
 const byteFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 1,
@@ -13,24 +15,35 @@ const byteFormatter = new Intl.NumberFormat(undefined, {
 export type ArtifactExtractionOutcome =
   | { kind: 'pending' }
   | { kind: 'unconfirmed' }
-  | { kind: 'indexed'; count: number }
+  | { kind: 'indexed'; count: number; generation: string }
   | { kind: 'failed'; reasonCode: string | null };
 
 export function isValidArtifactId(value: string | null): value is string {
   return value !== null && ARTIFACT_ID_PATTERN.test(value);
 }
 
+export function isValidArtifactGeneration(value: unknown): value is string {
+  return typeof value === 'string' && ARTIFACT_GENERATION_PATTERN.test(value);
+}
+
+export function isValidArtifactCursor(
+  value: string | null | undefined,
+): value is string {
+  return typeof value === 'string' && ARTIFACT_CURSOR_PATTERN.test(value);
+}
+
 export function artifactExtractionOutcome(
   events: RunEventResponse[],
   truncated = false,
 ): ArtifactExtractionOutcome {
+  if (truncated) return { kind: 'unconfirmed' };
   const latest = events
     .filter((item) =>
       ['artifacts_indexed', 'artifact_extraction_failed'].includes(item.event_type),
     )
     .sort((left, right) => right.sequence - left.sequence)[0];
 
-  if (!latest) return truncated ? { kind: 'unconfirmed' } : { kind: 'pending' };
+  if (!latest) return { kind: 'pending' };
   if (latest.event_type === 'artifact_extraction_failed') {
     const reasonCode = latest.context.reason_code;
     return {
@@ -43,20 +56,35 @@ export function artifactExtractionOutcome(
   }
 
   const count = latest.context.artifact_count;
+  const generation = latest.context.artifact_generation;
   if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
     return { kind: 'unconfirmed' };
   }
-  return { kind: 'indexed', count };
+  if (!isValidArtifactGeneration(generation)) {
+    return { kind: 'unconfirmed' };
+  }
+  return { kind: 'indexed', count, generation };
 }
 
 export function flattenArtifactPages(
   pages: RunArtifactsResponse[],
 ): ArtifactReferenceResponse[] {
+  const generations = new Set(pages.map((page) => page.artifact_generation));
+  if (
+    generations.size > 1 ||
+    [...generations].some(
+      (generation) => !isValidArtifactGeneration(generation),
+    )
+  ) {
+    throw new Error('artifact pagination generation mismatch');
+  }
   const seen = new Set<string>();
   const result: ArtifactReferenceResponse[] = [];
   for (const page of pages) {
     for (const artifact of page.artifacts ?? []) {
-      if (seen.has(artifact.artifact_id)) continue;
+      if (seen.has(artifact.artifact_id)) {
+        throw new Error('duplicate artifact in paginated result');
+      }
       seen.add(artifact.artifact_id);
       result.push(artifact);
     }
@@ -70,7 +98,7 @@ export function safeNextArtifactCursor(
   pageParams: unknown[],
 ): string | undefined {
   const next = lastPage.next_cursor;
-  if (typeof next !== 'string' || !isValidArtifactId(next)) return undefined;
+  if (!isValidArtifactCursor(next)) return undefined;
   const currentPageParam = pageParams.at(-1);
   if (currentPageParam === next) return undefined;
   if (pageParams.some((value) => value === next)) return undefined;

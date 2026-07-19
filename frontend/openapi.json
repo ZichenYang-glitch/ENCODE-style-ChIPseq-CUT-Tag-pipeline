@@ -876,13 +876,33 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 1024,
+                  "pattern": "^artifactcur_[A-Za-z0-9_-]{1,1012}$"
                 },
                 {
                   "type": "null"
                 }
               ],
               "title": "After"
+            }
+          },
+          {
+            "name": "generation",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 76,
+                  "pattern": "^artifactgen-[0-9a-f]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Generation"
             }
           },
           {
@@ -939,6 +959,16 @@
             },
             "description": "Not Found"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunArtifactsResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -978,6 +1008,17 @@
               "type": "string",
               "title": "Artifact Id"
             }
+          },
+          {
+            "name": "generation",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 76,
+              "pattern": "^artifactgen-[0-9a-f]{64}$",
+              "title": "Generation"
+            }
           }
         ],
         "responses": {
@@ -1010,6 +1051,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunArtifactDetailResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "500": {
             "content": {
@@ -1049,6 +1100,28 @@
             "schema": {
               "type": "string",
               "title": "Artifact Id"
+            }
+          },
+          {
+            "name": "generation",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 76,
+              "pattern": "^artifactgen-[0-9a-f]{64}$",
+              "title": "Generation"
+            }
+          },
+          {
+            "name": "revision",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 76,
+              "pattern": "^artifactrev-[0-9a-f]{64}$",
+              "title": "Revision"
             }
           }
         ],
@@ -1133,13 +1206,32 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "^qcmetric-[0-9a-f]{64}$"
+                  "maxLength": 1024,
+                  "pattern": "^qccur_[A-Za-z0-9_-]{1,1018}$"
                 },
                 {
                   "type": "null"
                 }
               ],
               "title": "After"
+            }
+          },
+          {
+            "name": "generation",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 70,
+                  "pattern": "^qcgen-[0-9a-f]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Generation"
             }
           },
           {
@@ -1195,6 +1287,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunQcMetricsResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "500": {
             "content": {
@@ -1681,6 +1783,12 @@
             "format": "date-time",
             "title": "Produced At"
           },
+          "revision": {
+            "type": "string",
+            "maxLength": 76,
+            "pattern": "^artifactrev-[0-9a-f]{64}$",
+            "title": "Revision"
+          },
           "relative_path": {
             "type": "string",
             "title": "Relative Path"
@@ -1705,6 +1813,7 @@
           "name",
           "uri",
           "produced_at",
+          "revision",
           "relative_path",
           "output_type",
           "size_bytes",
@@ -1892,7 +2001,8 @@
             "enum": [
               "count",
               "fraction",
-              "ratio"
+              "ratio",
+              "score"
             ],
             "title": "Unit"
           },
@@ -1997,6 +2107,19 @@
             "type": "string",
             "title": "Run Id"
           },
+          "artifact_generation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 76,
+                "pattern": "^artifactgen-[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Generation"
+          },
           "artifact": {
             "anyOf": [
               {
@@ -2018,7 +2141,8 @@
         "type": "object",
         "required": [
           "ok",
-          "run_id"
+          "run_id",
+          "artifact_generation"
         ],
         "title": "RunArtifactDetailResponse",
         "description": "Envelope for one run-scoped artifact reference."
@@ -2065,6 +2189,19 @@
             "type": "string",
             "title": "Run Id"
           },
+          "artifact_generation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 76,
+                "pattern": "^artifactgen-[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Generation"
+          },
           "artifacts": {
             "items": {
               "$ref": "#/components/schemas/ArtifactReferenceResponse"
@@ -2094,7 +2231,8 @@
         "type": "object",
         "required": [
           "ok",
-          "run_id"
+          "run_id",
+          "artifact_generation"
         ],
         "title": "RunArtifactsResponse",
         "description": "Envelope for GET /api/v1/runs/{run_id}/artifacts."
@@ -2391,6 +2529,19 @@
             "type": "string",
             "title": "Run Id"
           },
+          "qc_generation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 70,
+                "pattern": "^qcgen-[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qc Generation"
+          },
           "qc_metrics": {
             "items": {
               "$ref": "#/components/schemas/QcMetricResponse"
@@ -2401,7 +2552,8 @@
           "next_cursor": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 1024
               },
               {
                 "type": "null"
@@ -2420,7 +2572,8 @@
         "type": "object",
         "required": [
           "ok",
-          "run_id"
+          "run_id",
+          "qc_generation"
         ],
         "title": "RunQcMetricsResponse",
         "description": "Envelope for GET /api/v1/runs/{run_id}/qc-metrics."

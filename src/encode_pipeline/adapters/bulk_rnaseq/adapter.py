@@ -1,4 +1,4 @@
-"""Contract-only adapter for pinned nf-core/rnaseq input semantics."""
+"""Composable adapters for pinned nf-core/rnaseq input and result semantics."""
 
 from __future__ import annotations
 
@@ -8,6 +8,16 @@ from typing import Any
 from encode_pipeline import __version__
 from encode_pipeline.adapters.bulk_rnaseq.authoring import (
     build_bulk_rnaseq_authoring_schema,
+)
+from encode_pipeline.adapters.bulk_rnaseq.artifacts import (
+    discover_bulk_rnaseq_artifacts,
+)
+from encode_pipeline.adapters.bulk_rnaseq.qc import (
+    BULK_RNASEQ_QC_SOURCE_TYPES,
+    extract_bulk_rnaseq_qc_metrics,
+)
+from encode_pipeline.adapters.bulk_rnaseq.results_contract import (
+    load_bulk_rnaseq_results_contract,
 )
 from encode_pipeline.adapters.bulk_rnaseq.validation import (
     validate_bulk_rnaseq_inputs,
@@ -20,13 +30,17 @@ from encode_pipeline.adapters.bulk_rnaseq.execution import (
     plan_bulk_rnaseq_workspace,
 )
 from encode_pipeline.platform.adapters import (
+    ARTIFACT_EXTRACT_CAPABILITY,
     COMMAND_CAPABILITY,
     INPUT_AUTHORING_CAPABILITY,
+    QC_SUMMARY_EXTRACT_CAPABILITY,
     VALIDATION_CAPABILITY,
     WORKSPACE_PLAN_CAPABILITY,
     CommandSpec,
     DagPreview,
     ExtractedArtifactCandidate,
+    ExtractedQcMetricCandidate,
+    QcSourceDocument,
     WorkflowCapabilities,
     WorkflowInputs,
     WorkflowMetadata,
@@ -41,6 +55,8 @@ WORKFLOW_ID = "bulk-rnaseq"
 
 class BulkRnaSeqWorkflowAdapter:
     """Expose contract-only or explicitly composed offline runtime behavior."""
+
+    _execution_variant = "runtime-v1"
 
     metadata = WorkflowMetadata(
         workflow_id=WORKFLOW_ID,
@@ -96,6 +112,7 @@ class BulkRnaSeqWorkflowAdapter:
             workspace,
             binding=self._execution,
             adapter_version=self.metadata.version,
+            adapter_variant=self._execution_variant,
         )
 
     def build_command(
@@ -111,6 +128,7 @@ class BulkRnaSeqWorkflowAdapter:
             workspace,
             binding=self._execution,
             adapter_version=self.metadata.version,
+            adapter_variant=self._execution_variant,
         )
 
     def capture_build_identity(self):
@@ -120,6 +138,7 @@ class BulkRnaSeqWorkflowAdapter:
         return capture_bulk_rnaseq_build_identity(
             binding=self._execution,
             adapter_version=self.metadata.version,
+            adapter_variant=self._execution_variant,
         )
 
     def doctor(self):
@@ -135,6 +154,45 @@ class BulkRnaSeqWorkflowAdapter:
     ) -> Result[tuple[ExtractedArtifactCandidate, ...]]:
         """Remain unsupported until deterministic output contracts are fixed."""
         return _unsupported("extract_artifacts")
+
+
+class BulkRnaSeqResultsWorkflowAdapter(BulkRnaSeqWorkflowAdapter):
+    """Add the pinned STAR+Salmon artifact and machine-QC result boundary."""
+
+    _execution_variant = "results-v1"
+
+    def __init__(self, *, execution: BulkRnaSeqExecutionBinding) -> None:
+        if not isinstance(execution, BulkRnaSeqExecutionBinding):
+            raise ValueError("execution must be a BulkRnaSeqExecutionBinding")
+        load_bulk_rnaseq_results_contract()
+        super().__init__(execution=execution)
+        self.capabilities = WorkflowCapabilities(
+            supports=(
+                *self.capabilities.supports,
+                ARTIFACT_EXTRACT_CAPABILITY,
+                QC_SUMMARY_EXTRACT_CAPABILITY,
+            )
+        )
+
+    def extract_artifacts(
+        self,
+        inputs: WorkflowInputs,
+        workspace: str | Path,
+    ) -> Result[tuple[ExtractedArtifactCandidate, ...]]:
+        """Discover only fixed, allowlisted nf-core/rnaseq 3.26.0 outputs."""
+        return discover_bulk_rnaseq_artifacts(inputs, workspace)
+
+    def qc_source_output_types(self) -> tuple[str, ...]:
+        """Return the closed machine-readable QC source catalog."""
+        return BULK_RNASEQ_QC_SOURCE_TYPES
+
+    def extract_qc_metrics(
+        self,
+        inputs: WorkflowInputs,
+        sources: tuple[QcSourceDocument, ...],
+    ) -> Result[tuple[ExtractedQcMetricCandidate, ...]]:
+        """Extract deterministic Decimal metrics from vetted source bytes."""
+        return extract_bulk_rnaseq_qc_metrics(inputs, sources)
 
 
 def _unsupported(method: str) -> Result[Any]:
