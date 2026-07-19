@@ -222,6 +222,7 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
         stdout = run_service.list_logs(run_id, "stdout", limit=100)
         stderr = run_service.list_logs(run_id, "stderr", limit=100)
         qc_metrics = run_service.list_qc_metrics(run_id)
+        result_state = run_service.get_result_state(run_id)
     finally:
         persistence.close()
 
@@ -244,9 +245,29 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
     assert "localrule all:" in persisted_output
     assert "1 of 1 steps (100%) done" in persisted_output
     assert qc_metrics == ()
+    assert result_state.artifact_revision == 1
+    assert result_state.artifact_attempt_id is not None
+    assert result_state.artifact_attempt_status == "succeeded"
+    assert result_state.artifact_outcome == "succeeded"
+    assert result_state.artifact_generation is not None
+    assert result_state.qc_revision == 1
+    assert result_state.qc_attempt_id is not None
+    assert result_state.qc_attempt_id != result_state.artifact_attempt_id
+    assert result_state.qc_attempt_status == "succeeded"
+    assert result_state.qc_attempt_artifact_generation == (
+        result_state.artifact_generation
+    )
+    assert result_state.qc_artifact_generation == result_state.artifact_generation
+    assert result_state.qc_outcome == "succeeded"
+    assert result_state.qc_generation is not None
     qc_events = [event for event in events if event.event_type == "qc_metrics_indexed"]
     assert len(qc_events) == 1
-    assert qc_events[0].context == {"metric_count": 0}
+    assert qc_events[0].context == {
+        "artifact_generation": result_state.artifact_generation,
+        "attempt_id": result_state.qc_attempt_id,
+        "metric_count": len(qc_metrics),
+        "qc_generation": result_state.qc_generation,
+    }
 
     connection = Redis.from_url(redis_url)
     run_queue = RqRunQueue(
