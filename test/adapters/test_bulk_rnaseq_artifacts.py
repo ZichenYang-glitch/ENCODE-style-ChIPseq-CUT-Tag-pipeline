@@ -512,6 +512,8 @@ def test_unknown_sample_in_an_audited_namespace_fails_closed(
         "trimgalore/UNKNOWN_trimmed.fastq.gz_trimming_report.txt",
         "fastq/UNKNOWN.merged.fastq.gz",
         "umitools/UNKNOWN.umi_extract.fastq.gz",
+        "umitools/UNKNOWN.umi_extract_1.fastq.gz",
+        "umitools/UNKNOWN.umi_extract_2.fastq.gz",
         "sortmerna/UNKNOWN.non_rRNA.fastq.gz",
         "bowtie2_rrna/UNKNOWN.bowtie2_rrna.unmapped.fastq.gz",
     ),

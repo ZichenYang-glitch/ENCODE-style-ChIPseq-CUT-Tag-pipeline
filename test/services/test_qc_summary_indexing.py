@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
 import pytest
@@ -22,6 +23,8 @@ from encode_pipeline.platform.adapters import (
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.result_generations import (
+    ARTIFACT_PATH_IDENTITY_METADATA_KEY,
+    build_artifact_path_identity,
     build_artifact_content_revision,
     new_result_attempt_id,
     validate_artifact_generation,
@@ -185,6 +188,55 @@ def _artifact(
     )
 
 
+def _with_current_path_identity(
+    artifact: RunArtifactRef,
+    workspace: Path,
+) -> RunArtifactRef:
+    relative_path = str(artifact.metadata["relative_path"])
+    current = Path("/")
+    infos = []
+    for component in (*workspace.parts[1:], *PurePosixPath(relative_path).parts):
+        current /= component
+        infos.append(os.stat(current, follow_symlinks=False))
+    file_info = infos[-1]
+    path_identity = build_artifact_path_identity(
+        parent_identities=tuple(
+            (info.st_dev, info.st_ino, info.st_mode) for info in infos[:-1]
+        ),
+        file_identity=(
+            file_info.st_dev,
+            file_info.st_ino,
+            file_info.st_mode,
+            file_info.st_nlink,
+            file_info.st_uid,
+            file_info.st_gid,
+            file_info.st_size,
+            file_info.st_mtime_ns,
+            file_info.st_ctime_ns,
+        ),
+    )
+    return replace(
+        artifact,
+        metadata={
+            **artifact.to_dict()["metadata"],
+            ARTIFACT_PATH_IDENTITY_METADATA_KEY: path_identity,
+        },
+    )
+
+
+def _replace_with_current_path_identities(
+    run_service: RunService,
+    workspace: Path,
+    artifacts: tuple[RunArtifactRef, ...],
+) -> tuple[RunArtifactRef, ...]:
+    bound = tuple(
+        _with_current_path_identity(artifact, workspace) for artifact in artifacts
+    )
+    if bound:
+        run_service.replace_artifacts(bound[0].run_id, bound)
+    return bound
+
+
 def _assert_qc_outcome_context(event, *, reason_code: str | None = None) -> None:
     validate_result_attempt_id(event.context["attempt_id"])
     validate_artifact_generation(event.context["artifact_generation"])
@@ -251,6 +303,11 @@ def test_index_builds_deterministic_metrics_and_is_idempotent(tmp_path):
         tmp_path, adapter, artifacts=(artifact,)
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     first = service.index("run-1", artifacts)
     second = service.index("run-1", tuple(reversed(artifacts)))
@@ -269,6 +326,78 @@ def test_index_builds_deterministic_metrics_and_is_idempotent(tmp_path):
     ) == 1
 
 
+@pytest.mark.parametrize("replacement_kind", ["file", "parent"])
+def test_index_rejects_same_content_path_identity_replacement(
+    tmp_path,
+    replacement_kind,
+):
+    adapter = QcAdapter((_candidate(),))
+    service, run_service, workspace, _provider, _artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(),
+    )
+    source = workspace / "results/summary.tsv"
+    source.write_bytes(b"safe-qc\n")
+    artifact = _with_current_path_identity(_artifact(), workspace)
+    run_service.replace_artifacts("run-1", (artifact,))
+
+    if replacement_kind == "file":
+        replacement = source.with_name("replacement.tsv")
+        replacement.write_bytes(b"safe-qc\n")
+        replacement.replace(source)
+    else:
+        previous = workspace / "previous-results"
+        source.parent.replace(previous)
+        source.parent.mkdir()
+        source.write_bytes(b"safe-qc\n")
+
+    result = service.index("run-1", (artifact,))
+
+    assert result.is_failure
+    assert result.issues[0].context["reason_code"] == (
+        "QC_INDEXING_SOURCE_VALIDATION_FAILED"
+    )
+    assert adapter.calls == 0
+    assert run_service.list_qc_metrics("run-1") == ()
+
+
+@pytest.mark.parametrize(
+    "path_identity",
+    (None, "artifactpath-invalid"),
+)
+def test_index_requires_a_valid_canonical_source_path_identity_before_adapter(
+    tmp_path,
+    path_identity,
+):
+    adapter = QcAdapter((_candidate(),))
+    artifact = _artifact()
+    if path_identity is not None:
+        artifact = replace(
+            artifact,
+            metadata={
+                **artifact.to_dict()["metadata"],
+                ARTIFACT_PATH_IDENTITY_METADATA_KEY: path_identity,
+            },
+        )
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(artifact,),
+    )
+    (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+
+    result = service.index("run-1", artifacts)
+
+    assert result.is_failure
+    assert adapter.calls == 0
+    assert run_service.list_qc_metrics("run-1") == ()
+    _assert_qc_outcome_context(
+        run_service.list_events("run-1")[-1],
+        reason_code="QC_INDEXING_SOURCE_VALIDATION_FAILED",
+    )
+
+
 def test_same_length_source_replacement_rejects_the_old_qc_attempt(tmp_path):
     adapter = QcAdapter((_candidate(),))
     original = _artifact(size_bytes=4, content=b"100\n")
@@ -279,11 +408,20 @@ def test_same_length_source_replacement_rejects_the_old_qc_attempt(tmp_path):
     )
     source = workspace / "results/summary.tsv"
     source.write_bytes(b"100\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
     stale_attempt, stale_generation = service.begin_attempt("run-1", artifacts)
 
     replacement = _artifact(size_bytes=4, content=b"900\n")
     source.write_bytes(b"900\n")
-    run_service.replace_artifacts("run-1", (replacement,))
+    replacement = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        (replacement,),
+    )[0]
     stale = service.index(
         "run-1",
         artifacts,
@@ -312,10 +450,19 @@ def test_stale_worker_cannot_register_failure_against_newer_qc_success(tmp_path)
     )
     source = workspace / "results/summary.tsv"
     source.write_bytes(b"100\n")
+    stale_artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        stale_artifacts,
+    )
 
     second = _artifact(size_bytes=4, content=b"900\n")
     source.write_bytes(b"900\n")
-    run_service.replace_artifacts("run-1", (second,))
+    second = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        (second,),
+    )[0]
     current = service.index("run-1", (second,))
     assert current.is_success
     current_state = run_service.get_result_state("run-1")
@@ -345,6 +492,11 @@ def test_superseded_qc_attempt_cannot_be_reactivated_by_delayed_indexer(tmp_path
         artifacts=(artifact,),
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
     first_attempt, generation = service.begin_attempt("run-1", artifacts)
     second_attempt, second_generation = service.begin_attempt("run-1", artifacts)
     assert second_generation == generation
@@ -381,6 +533,11 @@ def test_hard_timeout_after_qc_commit_cannot_append_a_failure(tmp_path, monkeypa
         artifacts=(artifact,),
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
     attempt_id, artifact_generation = service.begin_attempt("run-1", artifacts)
     replace_qc_metrics = run_service.replace_qc_metrics
 
@@ -432,6 +589,11 @@ def test_index_accepts_and_persists_a_workflow_neutral_score_unit(tmp_path):
         tmp_path, adapter, artifacts=(artifact,)
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     result = service.index("run-1", artifacts)
 
@@ -452,6 +614,11 @@ def test_digit_leading_canonical_run_id_indexes_qc(tmp_path):
         run_id=run_id,
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     result = service.index(run_id, artifacts)
 
@@ -473,6 +640,11 @@ def test_index_accepts_canonical_leading_punctuation_identifiers(
         artifacts=(artifact,),
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     result = service.index("run-1", artifacts)
 
@@ -491,6 +663,11 @@ def test_index_rejects_unsafe_source_identifiers_before_adapter(tmp_path, sample
         artifacts=(artifact,),
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     result = service.index("run-1", artifacts)
 
@@ -549,6 +726,11 @@ def test_adapter_failure_preserves_succeeded_and_redacts_private_details(tmp_pat
         tmp_path, adapter, artifacts=(artifact,)
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     result = service.index("run-1", artifacts)
 
@@ -575,6 +757,11 @@ def test_source_size_must_match_persisted_artifact_metadata(tmp_path, size_bytes
         artifacts=(artifact,),
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     result = service.index("run-1", artifacts)
 
@@ -604,6 +791,11 @@ def test_source_size_metadata_must_be_a_bounded_nonnegative_integer(
         artifacts=(artifact,),
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     result = service.index("run-1", artifacts)
 
@@ -616,12 +808,17 @@ def test_fastqc_sized_machine_readable_source_is_supported(tmp_path):
     content = b"x" * (2 * 1024 * 1024)
     adapter = QcAdapter()
     artifact = _artifact(size_bytes=len(content), content=content)
-    service, _run_service, workspace, _provider, artifacts = _service(
+    service, run_service, workspace, _provider, artifacts = _service(
         tmp_path,
         adapter,
         artifacts=(artifact,),
     )
     (workspace / "results/summary.tsv").write_bytes(content)
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     result = service.index("run-1", artifacts)
 
@@ -652,6 +849,11 @@ def test_qc_source_file_count_is_bounded_before_reading(tmp_path, monkeypatch):
     )
     (workspace / "results/one.tsv").write_bytes(b"one")
     (workspace / "results/two.tsv").write_bytes(b"two")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     result = service.index("run-1", tuple(reversed(artifacts)))
 
@@ -685,6 +887,11 @@ def test_qc_source_total_bytes_are_bounded_before_reading(tmp_path, monkeypatch)
     )
     (workspace / "results/one.tsv").write_bytes(b"one")
     (workspace / "results/two.tsv").write_bytes(b"two")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     result = service.index("run-1", artifacts)
 
@@ -707,13 +914,18 @@ def test_multiple_qc_sources_are_delivered_in_deterministic_order(tmp_path):
         content=b"b",
     )
     adapter = QcAdapter()
-    service, _run_service, workspace, _provider, artifacts = _service(
+    service, run_service, workspace, _provider, artifacts = _service(
         tmp_path,
         adapter,
         artifacts=(second, first),
     )
     (workspace / "results/a.tsv").write_bytes(b"a")
     (workspace / "results/b.tsv").write_bytes(b"b")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     first_result = service.index("run-1", artifacts)
     first_documents = adapter.documents
@@ -744,6 +956,11 @@ def test_qc_source_path_component_count_is_bounded(tmp_path, monkeypatch):
     target = workspace / "results/nested/summary.tsv"
     target.parent.mkdir()
     target.write_bytes(b"x")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     result = service.index("run-1", artifacts)
 
@@ -772,6 +989,11 @@ def test_qc_metric_candidate_count_is_bounded_before_persistence(
         artifacts=(artifact,),
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     result = service.index("run-1", artifacts)
 
@@ -796,6 +1018,11 @@ def test_size_mismatch_invalidates_previous_qc_index_with_a_new_failure_generati
     )
     source = workspace / "results/summary.tsv"
     source.write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
     first = service.index("run-1", artifacts)
     assert first.is_success
     prior_metrics = run_service.list_qc_metrics("run-1")
@@ -828,6 +1055,11 @@ def test_source_change_during_read_fails_before_adapter(tmp_path, monkeypatch):
     )
     source = workspace / "results/summary.tsv"
     source.write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
     real_read = module.os.read
     changed = False
 
@@ -865,6 +1097,11 @@ def test_source_entry_replacement_during_read_fails_before_adapter(
     )
     source = workspace / "results/summary.tsv"
     source.write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
     displaced = workspace / "results/displaced.tsv"
     real_read = module.os.read
     replaced = False
@@ -959,7 +1196,14 @@ def test_index_rejects_symlink_directory_fifo_and_oversized_sources(tmp_path):
         tmp_path, adapter, artifacts=(artifact,)
     )
     source = workspace / "results/summary.tsv"
+    source.write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
+    source.unlink()
     source.mkdir()
     assert service.index("run-1", artifacts).is_failure
     source.rmdir()
@@ -986,11 +1230,16 @@ def test_descriptor_race_never_passes_outside_bytes_to_adapter(
 
     adapter = QcAdapter((_candidate(),))
     artifact = _artifact()
-    service, _run_service, workspace, _provider, artifacts = _service(
+    service, run_service, workspace, _provider, artifacts = _service(
         tmp_path, adapter, artifacts=(artifact,)
     )
     source = workspace / "results/summary.tsv"
     source.write_bytes(b"inside-safe")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
     outside = tmp_path / "outside-secret.tsv"
     outside.write_bytes(b"OUTSIDE-SENTINEL")
     real_open = module.os.open
@@ -1024,9 +1273,17 @@ def test_index_rejects_symlinked_parent_component(tmp_path):
         adapter,
         artifacts=(artifact,),
     )
+    source = workspace / "results/summary.tsv"
+    source.write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
     outside = tmp_path / "outside-results"
     outside.mkdir()
     (outside / "summary.tsv").write_bytes(b"OUTSIDE-SENTINEL")
+    source.unlink()
     (workspace / "results").rmdir()
     (workspace / "results").symlink_to(outside, target_is_directory=True)
 
@@ -1053,6 +1310,11 @@ def test_intermediate_component_swap_to_symlink_fails_closed(tmp_path, monkeypat
     )
     source = workspace / "results/summary.tsv"
     source.write_bytes(b"inside-safe")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
     outside = tmp_path / "outside-results"
     outside.mkdir()
     (outside / "summary.tsv").write_bytes(b"OUTSIDE-SENTINEL")
@@ -1089,6 +1351,11 @@ def test_device_mode_descriptor_is_rejected_before_read(tmp_path, monkeypatch):
         artifacts=(artifact,),
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
     real_open = module.os.open
     real_fstat = module.os.fstat
     final_descriptor = None
@@ -1134,6 +1401,11 @@ def test_index_rejects_invalid_adapter_candidates(tmp_path, candidate):
         tmp_path, adapter, artifacts=(artifact,)
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     result = service.index("run-1", artifacts)
 
@@ -1152,6 +1424,11 @@ def test_index_rejects_duplicate_semantic_metric_without_partial_replace(tmp_pat
         tmp_path, adapter, artifacts=(artifact,)
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     assert service.index("run-1", artifacts).is_failure
     assert run_service.list_qc_metrics("run-1") == ()
@@ -1164,6 +1441,11 @@ def test_index_fails_closed_when_artifact_generation_or_build_changes(tmp_path):
         tmp_path, adapter, artifacts=(artifact,)
     )
     (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
 
     stale = service.index("run-1", (_artifact(artifact_id="artifact-stale"),))
     assert stale.is_failure

@@ -256,6 +256,34 @@ describe('ArtifactBrowser queries', () => {
     });
   });
 
+  it('fails closed before starting canonical refresh for a generation-conflicted page', async () => {
+    const user = userEvent.setup();
+    const changed = new ApiError(
+      409,
+      'RUN_ARTIFACT_GENERATION_CHANGED',
+      'Artifact generation changed.',
+    );
+    listArtifactsMock
+      .mockResolvedValueOnce(page([artifact('artifact-a')], CURSOR_A))
+      .mockRejectedValueOnce(changed);
+    let staleArtifactWasVisibleAtRefresh = true;
+    const onRefreshStatus = vi.fn(async () => {
+      staleArtifactWasVisibleAtRefresh =
+        screen.queryAllByText('artifact-a').length > 0;
+    });
+    renderBrowser({
+      outcome: { kind: 'indexed', count: 2, generation: GENERATION_A },
+      onRefreshStatus,
+    });
+
+    expect(await screen.findAllByText('artifact-a')).not.toHaveLength(0);
+    await user.click(screen.getByRole('button', { name: 'Load more artifacts' }));
+
+    await waitFor(() => expect(onRefreshStatus).toHaveBeenCalledTimes(1));
+    expect(staleArtifactWasVisibleAtRefresh).toBe(false);
+    expect(screen.queryAllByText('artifact-a')).toHaveLength(0);
+  });
+
   it('keeps a conflicted generation quarantined across unconfirmed status snapshots', async () => {
     const user = userEvent.setup();
     const changed = new ApiError(
@@ -381,6 +409,7 @@ describe('ArtifactBrowser queries', () => {
   it('downloads through the generated operation and reports redacted failures', async () => {
     const user = userEvent.setup();
     const selected = artifact('artifact-a');
+    const onRefreshStatus = vi.fn();
     listArtifactsMock.mockResolvedValue(page([selected]));
     getArtifactMock.mockResolvedValue(detail(selected));
     downloadArtifactMock
@@ -392,7 +421,10 @@ describe('ArtifactBrowser queries', () => {
     const click = vi
       .spyOn(HTMLAnchorElement.prototype, 'click')
       .mockImplementation(() => undefined);
-    renderBrowser({ selectedArtifactId: selected.artifact_id });
+    renderBrowser({
+      selectedArtifactId: selected.artifact_id,
+      onRefreshStatus,
+    });
 
     const button = await screen.findByRole('button', {
       name: 'Download artifact-a.tsv',
@@ -410,6 +442,124 @@ describe('ArtifactBrowser queries', () => {
     await user.click(button);
     expect(await screen.findByText(/Download could not be completed/)).toBeInTheDocument();
     expect(screen.queryByText('/private/workspace')).not.toBeInTheDocument();
+    expect(onRefreshStatus).not.toHaveBeenCalled();
+    expect(screen.getByText(selected.uri)).toBeInTheDocument();
+  });
+
+  it('quarantines the viewed generation when download reports a generation conflict', async () => {
+    const user = userEvent.setup();
+    const selected = artifact('artifact-a');
+    const current = {
+      ...selected,
+      revision: `artifactrev-${'b'.repeat(64)}`,
+      size_bytes: 84,
+    };
+    const onRefreshStatus = vi.fn();
+    const changed = new ApiError(
+      409,
+      'RUN_ARTIFACT_DOWNLOAD_CONFLICT',
+      'Artifact content is no longer available as indexed.',
+      [
+        {
+          code: 'RUN_ARTIFACT_DOWNLOAD_CONFLICT',
+          message: 'Artifact content is no longer available as indexed.',
+          path: 'generation',
+        },
+      ],
+    );
+    listArtifactsMock
+      .mockResolvedValueOnce(page([selected]))
+      .mockResolvedValueOnce(page([current], null, GENERATION_B));
+    getArtifactMock
+      .mockResolvedValueOnce(detail(selected))
+      .mockResolvedValueOnce(detail(current, GENERATION_B));
+    downloadArtifactMock.mockRejectedValue(changed);
+    const rendered = renderBrowser({
+      selectedArtifactId: selected.artifact_id,
+      onRefreshStatus,
+    });
+
+    const button = await screen.findByRole('button', {
+      name: 'Download artifact-a.tsv',
+    });
+    expect(screen.getByText(selected.uri)).toBeInTheDocument();
+    await user.click(button);
+
+    expect(
+      await screen.findByText('Artifact generation changed'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(selected.uri)).not.toBeInTheDocument();
+    expect(screen.queryAllByText(selected.relative_path)).toHaveLength(0);
+    expect(onRefreshStatus).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(
+        rendered.queryClient.getQueryCache().find({
+          queryKey: ['run-artifacts', 'run-1', GENERATION_A],
+          exact: true,
+        })?.state.data,
+      ).toBeUndefined();
+      expect(
+        rendered.queryClient.getQueryCache().find({
+          queryKey: [
+            'run-artifact',
+            'run-1',
+            GENERATION_A,
+            selected.artifact_id,
+          ],
+          exact: true,
+        })?.state.data,
+      ).toBeUndefined();
+    });
+
+    rendered.rerender(
+      <QueryClientProvider client={rendered.queryClient}>
+        <ArtifactBrowser
+          {...rendered.props}
+          outcome={{ kind: 'indexed', count: 1, generation: GENERATION_B }}
+        />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findAllByText('84 B')).not.toHaveLength(0);
+    expect(
+      screen.queryByText('Artifact generation changed'),
+    ).not.toBeInTheDocument();
+    expect(onRefreshStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves confirmed evidence for a non-generation download conflict', async () => {
+    const user = userEvent.setup();
+    const selected = artifact('artifact-a');
+    const onRefreshStatus = vi.fn();
+    const changed = new ApiError(
+      409,
+      'RUN_ARTIFACT_DOWNLOAD_CONFLICT',
+      'Artifact content is no longer available as indexed.',
+      [
+        {
+          code: 'RUN_ARTIFACT_DOWNLOAD_CONFLICT',
+          message: 'Artifact content is no longer available as indexed.',
+          path: 'artifact_id',
+        },
+      ],
+    );
+    listArtifactsMock.mockResolvedValue(page([selected]));
+    getArtifactMock.mockResolvedValue(detail(selected));
+    downloadArtifactMock.mockRejectedValue(changed);
+    renderBrowser({
+      selectedArtifactId: selected.artifact_id,
+      onRefreshStatus,
+    });
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Download artifact-a.tsv' }),
+    );
+
+    expect(await screen.findByText(/Download could not be completed/)).toBeInTheDocument();
+    expect(screen.getByText(selected.uri)).toBeInTheDocument();
+    expect(onRefreshStatus).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText('Artifact generation changed'),
+    ).not.toBeInTheDocument();
   });
 
   it('clears equal-count list and detail caches when generation changes', async () => {

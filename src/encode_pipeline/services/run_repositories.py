@@ -805,6 +805,7 @@ class InMemoryRunRepository:
                 artifact.artifact_id: artifact for artifact in sorted_replacement
             }
             should_emit = changed or state.artifact_outcome != "succeeded"
+            prepared_events: list[RunEvent] = []
             if changed:
                 revision = state.artifact_revision + 1
                 generation = build_artifact_generation(
@@ -815,8 +816,6 @@ class InMemoryRunRepository:
                 had_qc_state = bool(self._qc_metrics[run_id]) or (
                     state.qc_generation is not None or state.qc_outcome is not None
                 )
-                self._artifacts[run_id] = replacement
-                self._qc_metrics[run_id] = {}
                 state = _state_after_artifact_change(
                     state,
                     artifacts=sorted_replacement,
@@ -826,20 +825,22 @@ class InMemoryRunRepository:
                     attempt_status="succeeded",
                     outcome="succeeded",
                 )
-                self._result_states[run_id] = state
                 if had_qc_state:
-                    self._append_event(
-                        run_id,
-                        _event_with_context(
-                            RunEventDraft(
-                                event_type="qc_metrics_invalidated",
-                                message="Workflow QC metrics invalidated.",
-                                status=RunStatus.SUCCEEDED,
-                                stage="qc_summary_indexing",
+                    prepared_events.append(
+                        self._make_event(
+                            run_id,
+                            len(self._events[run_id]) + len(prepared_events) + 1,
+                            _event_with_context(
+                                RunEventDraft(
+                                    event_type="qc_metrics_invalidated",
+                                    message="Workflow QC metrics invalidated.",
+                                    status=RunStatus.SUCCEEDED,
+                                    stage="qc_summary_indexing",
+                                ),
+                                artifact_generation=generation,
+                                qc_generation=state.qc_generation,
                             ),
-                            artifact_generation=generation,
-                            qc_generation=state.qc_generation,
-                        ),
+                        )
                     )
             else:
                 state = replace(
@@ -848,18 +849,26 @@ class InMemoryRunRepository:
                     artifact_outcome="succeeded",
                     artifact_reason_code=None,
                 )
-                self._result_states[run_id] = state
-            if not should_emit:
-                return None
-            return self._append_event(
-                run_id,
-                _event_with_context(
-                    event,
-                    attempt_id=attempt_id,
-                    artifact_generation=state.artifact_generation,
-                    artifact_count=len(sorted_replacement),
-                ),
-            )
+            result_event: RunEvent | None = None
+            if should_emit:
+                result_event = self._make_event(
+                    run_id,
+                    len(self._events[run_id]) + len(prepared_events) + 1,
+                    _event_with_context(
+                        event,
+                        attempt_id=attempt_id,
+                        artifact_generation=state.artifact_generation,
+                        artifact_count=len(sorted_replacement),
+                    ),
+                )
+                prepared_events.append(result_event)
+
+            if changed:
+                self._artifacts[run_id] = replacement
+                self._qc_metrics[run_id] = {}
+            self._result_states[run_id] = state
+            self._events[run_id].extend(prepared_events)
+            return result_event
 
     def record_artifact_failure(
         self,
@@ -884,19 +893,22 @@ class InMemoryRunRepository:
                 if state.artifact_reason_code == reason_code:
                     return None
                 raise ConcurrentRunUpdateError("artifact attempt already failed")
-            state = replace(
+            next_state = replace(
                 state,
                 artifact_attempt_status="failed",
                 artifact_outcome="failed",
                 artifact_reason_code=reason_code,
             )
-            self._result_states[run_id] = state
-            return self._append_event(
+            result_event = self._make_event(
                 run_id,
+                len(self._events[run_id]) + 1,
                 _event_with_context(
                     event, attempt_id=attempt_id, reason_code=reason_code
                 ),
             )
+            self._result_states[run_id] = next_state
+            self._events[run_id].append(result_event)
+            return result_event
 
     def list_artifacts(
         self,
@@ -1050,9 +1062,7 @@ class InMemoryRunRepository:
                     artifact_generation=expected_artifact_generation,
                     metrics=replacement,
                 )
-                self._qc_metrics[run_id] = {
-                    metric.metric_id: metric for metric in replacement
-                }
+                replacement_by_id = {metric.metric_id: metric for metric in replacement}
                 state = replace(
                     state,
                     qc_revision=revision,
@@ -1063,13 +1073,13 @@ class InMemoryRunRepository:
                     qc_outcome="succeeded",
                     qc_reason_code=None,
                 )
-                self._result_states[run_id] = state
             else:
                 state = replace(state, qc_attempt_status="succeeded")
                 self._result_states[run_id] = state
                 return None
-            return self._append_event(
+            result_event = self._make_event(
                 run_id,
+                len(self._events[run_id]) + 1,
                 _event_with_context(
                     event,
                     attempt_id=attempt_id,
@@ -1078,6 +1088,10 @@ class InMemoryRunRepository:
                     metric_count=len(replacement),
                 ),
             )
+            self._qc_metrics[run_id] = replacement_by_id
+            self._result_states[run_id] = state
+            self._events[run_id].append(result_event)
+            return result_event
 
     def list_qc_metrics(
         self,
@@ -1188,8 +1202,7 @@ class InMemoryRunRepository:
                 artifact_generation=expected_artifact_generation,
                 metrics=empty,
             )
-            self._qc_metrics[run_id] = {}
-            state = replace(
+            next_state = replace(
                 state,
                 qc_revision=revision,
                 qc_generation=generation,
@@ -1199,9 +1212,9 @@ class InMemoryRunRepository:
                 qc_outcome="failed",
                 qc_reason_code=reason_code,
             )
-            self._result_states[run_id] = state
-            return self._append_event(
+            result_event = self._make_event(
                 run_id,
+                len(self._events[run_id]) + 1,
                 _event_with_context(
                     event,
                     attempt_id=attempt_id,
@@ -1210,6 +1223,10 @@ class InMemoryRunRepository:
                     reason_code=reason_code,
                 ),
             )
+            self._qc_metrics[run_id] = {}
+            self._result_states[run_id] = next_state
+            self._events[run_id].append(result_event)
+            return result_event
 
     def ensure_execution_assignment(
         self,

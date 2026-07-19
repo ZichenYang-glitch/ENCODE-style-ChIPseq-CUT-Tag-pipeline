@@ -4,13 +4,20 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from decimal import Decimal
 from hashlib import sha256
 
 import pytest
 
 from encode_pipeline.platform.execution import RunExecutionAssignment
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
-from encode_pipeline.platform.runs import RunArtifactRef, RunRecord, RunStatus
+from encode_pipeline.platform.runs import (
+    RunArtifactRef,
+    RunQcMetric,
+    RunRecord,
+    RunStatus,
+    build_qc_metric_id,
+)
 from encode_pipeline.services.run_repositories import (
     ConcurrentRunUpdateError,
     InMemoryRunRepository,
@@ -99,6 +106,282 @@ def test_in_memory_replace_artifacts_is_atomic_and_idempotent():
     assert [event.event_type for event in repository.list_events("run-1")].count(
         "artifacts_indexed"
     ) == 1
+
+
+def test_in_memory_artifact_replacement_rolls_back_when_event_is_invalid():
+    repository = InMemoryRunRepository()
+    succeeded = replace(
+        _record(),
+        status=RunStatus.SUCCEEDED,
+        ended_at=datetime.now(timezone.utc),
+    )
+    repository.create_run(succeeded, _created_event())
+    original = (_artifact("run-1", "artifact-original"),)
+    _replace_artifacts(repository, "run-1", original)
+    artifact_generation = repository.get_result_state("run-1").artifact_generation
+    assert artifact_generation is not None
+    qc_attempt_id = "resultattempt-" + "b" * 64
+    repository.begin_qc_result_attempt(
+        "run-1",
+        attempt_id=qc_attempt_id,
+        expected_artifact_generation=artifact_generation,
+        expected_artifacts=original,
+        expected_status=RunStatus.SUCCEEDED,
+    )
+    repository.replace_qc_metrics(
+        "run-1",
+        (),
+        attempt_id=qc_attempt_id,
+        expected_artifact_generation=artifact_generation,
+        expected_artifacts=original,
+        expected_status=RunStatus.SUCCEEDED,
+        event=RunEventDraft(
+            event_type="qc_metrics_indexed",
+            message="Workflow QC metrics indexed.",
+            status=RunStatus.SUCCEEDED,
+        ),
+    )
+    artifact_attempt_id = "resultattempt-" + "c" * 64
+    repository.begin_artifact_result_attempt(
+        "run-1",
+        attempt_id=artifact_attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+    )
+    before_state = repository.get_result_state("run-1")
+    before_events = repository.list_events("run-1")
+
+    with pytest.raises(TypeError):
+        repository.replace_artifacts(
+            "run-1",
+            (_artifact("run-1", "artifact-replacement"),),
+            attempt_id=artifact_attempt_id,
+            expected_status=RunStatus.SUCCEEDED,
+            event=RunEventDraft(
+                event_type="artifacts_indexed",
+                message="Workflow artifacts indexed.",
+                status=RunStatus.SUCCEEDED,
+                context=object(),
+            ),
+        )
+
+    assert repository.list_artifacts("run-1") == original
+    assert repository.list_qc_metrics("run-1") == ()
+    assert repository.get_result_state("run-1") == before_state
+    assert repository.list_events("run-1") == before_events
+
+
+def test_in_memory_qc_replacement_rolls_back_when_event_is_invalid():
+    repository = InMemoryRunRepository()
+    succeeded = replace(
+        _record(),
+        status=RunStatus.SUCCEEDED,
+        ended_at=datetime.now(timezone.utc),
+    )
+    repository.create_run(succeeded, _created_event())
+    artifacts = (_artifact("run-1", "artifact-1"),)
+    _replace_artifacts(repository, "run-1", artifacts)
+    artifact_generation = repository.get_result_state("run-1").artifact_generation
+    assert artifact_generation is not None
+    attempt_id = "resultattempt-" + "d" * 64
+    repository.begin_qc_result_attempt(
+        "run-1",
+        attempt_id=attempt_id,
+        expected_artifact_generation=artifact_generation,
+        expected_artifacts=artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+    )
+    before_state = repository.get_result_state("run-1")
+    before_events = repository.list_events("run-1")
+    metric_key = "mapping.rate"
+    metric = RunQcMetric(
+        metric_id=build_qc_metric_id(metric_key, "run", None, None),
+        run_id="run-1",
+        metric_key=metric_key,
+        display_name="Mapping rate",
+        value=Decimal("0.5"),
+        unit="fraction",
+        scope="run",
+        source_artifact_id=artifacts[0].artifact_id,
+        produced_at=datetime.now(timezone.utc),
+    )
+
+    with pytest.raises(TypeError):
+        repository.replace_qc_metrics(
+            "run-1",
+            (metric,),
+            attempt_id=attempt_id,
+            expected_artifact_generation=artifact_generation,
+            expected_artifacts=artifacts,
+            expected_status=RunStatus.SUCCEEDED,
+            event=RunEventDraft(
+                event_type="qc_metrics_indexed",
+                message="Workflow QC metrics indexed.",
+                status=RunStatus.SUCCEEDED,
+                context=object(),
+            ),
+        )
+
+    assert repository.list_artifacts("run-1") == artifacts
+    assert repository.list_qc_metrics("run-1") == ()
+    assert repository.get_result_state("run-1") == before_state
+    assert repository.list_events("run-1") == before_events
+
+
+def test_in_memory_artifact_failure_rolls_back_when_event_is_invalid():
+    repository = InMemoryRunRepository()
+    succeeded = replace(
+        _record(),
+        status=RunStatus.SUCCEEDED,
+        ended_at=datetime.now(timezone.utc),
+    )
+    repository.create_run(succeeded, _created_event())
+    artifacts = (_artifact("run-1", "artifact-1"),)
+    _replace_artifacts(repository, "run-1", artifacts)
+    artifact_generation = repository.get_result_state("run-1").artifact_generation
+    assert artifact_generation is not None
+    qc_attempt_id = "resultattempt-" + "e" * 64
+    repository.begin_qc_result_attempt(
+        "run-1",
+        attempt_id=qc_attempt_id,
+        expected_artifact_generation=artifact_generation,
+        expected_artifacts=artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+    )
+    metric_key = "mapping.rate"
+    metric = RunQcMetric(
+        metric_id=build_qc_metric_id(metric_key, "run", None, None),
+        run_id="run-1",
+        metric_key=metric_key,
+        display_name="Mapping rate",
+        value=Decimal("0.5"),
+        unit="fraction",
+        scope="run",
+        source_artifact_id=artifacts[0].artifact_id,
+        produced_at=datetime.now(timezone.utc),
+    )
+    repository.replace_qc_metrics(
+        "run-1",
+        (metric,),
+        attempt_id=qc_attempt_id,
+        expected_artifact_generation=artifact_generation,
+        expected_artifacts=artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+        event=RunEventDraft(
+            event_type="qc_metrics_indexed",
+            message="Workflow QC metrics indexed.",
+            status=RunStatus.SUCCEEDED,
+        ),
+    )
+    artifact_attempt_id = "resultattempt-" + "f" * 64
+    repository.begin_artifact_result_attempt(
+        "run-1",
+        attempt_id=artifact_attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+    )
+    before_artifacts = repository.list_artifacts("run-1")
+    before_metrics = repository.list_qc_metrics("run-1")
+    before_state = repository.get_result_state("run-1")
+    before_events = repository.list_events("run-1")
+
+    with pytest.raises(TypeError):
+        repository.record_artifact_failure(
+            "run-1",
+            attempt_id=artifact_attempt_id,
+            reason_code="ARTIFACT_EXTRACTION_FAILED",
+            expected_status=RunStatus.SUCCEEDED,
+            event=RunEventDraft(
+                event_type="artifact_extraction_failed",
+                message="Workflow artifacts could not be indexed.",
+                status=RunStatus.SUCCEEDED,
+                context=object(),
+            ),
+        )
+
+    assert before_metrics
+    assert repository.list_artifacts("run-1") == before_artifacts
+    assert repository.list_qc_metrics("run-1") == before_metrics
+    assert repository.get_result_state("run-1") == before_state
+    assert repository.list_events("run-1") == before_events
+
+
+def test_in_memory_qc_failure_rolls_back_when_event_is_invalid():
+    repository = InMemoryRunRepository()
+    succeeded = replace(
+        _record(),
+        status=RunStatus.SUCCEEDED,
+        ended_at=datetime.now(timezone.utc),
+    )
+    repository.create_run(succeeded, _created_event())
+    artifacts = (_artifact("run-1", "artifact-1"),)
+    _replace_artifacts(repository, "run-1", artifacts)
+    artifact_generation = repository.get_result_state("run-1").artifact_generation
+    assert artifact_generation is not None
+    first_attempt_id = "resultattempt-" + "1" * 64
+    repository.begin_qc_result_attempt(
+        "run-1",
+        attempt_id=first_attempt_id,
+        expected_artifact_generation=artifact_generation,
+        expected_artifacts=artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+    )
+    metric_key = "mapping.rate"
+    metric = RunQcMetric(
+        metric_id=build_qc_metric_id(metric_key, "run", None, None),
+        run_id="run-1",
+        metric_key=metric_key,
+        display_name="Mapping rate",
+        value=Decimal("0.5"),
+        unit="fraction",
+        scope="run",
+        source_artifact_id=artifacts[0].artifact_id,
+        produced_at=datetime.now(timezone.utc),
+    )
+    repository.replace_qc_metrics(
+        "run-1",
+        (metric,),
+        attempt_id=first_attempt_id,
+        expected_artifact_generation=artifact_generation,
+        expected_artifacts=artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+        event=RunEventDraft(
+            event_type="qc_metrics_indexed",
+            message="Workflow QC metrics indexed.",
+            status=RunStatus.SUCCEEDED,
+        ),
+    )
+    failure_attempt_id = "resultattempt-" + "2" * 64
+    repository.begin_qc_result_attempt(
+        "run-1",
+        attempt_id=failure_attempt_id,
+        expected_artifact_generation=artifact_generation,
+        expected_artifacts=artifacts,
+        expected_status=RunStatus.SUCCEEDED,
+    )
+    before_artifacts = repository.list_artifacts("run-1")
+    before_metrics = repository.list_qc_metrics("run-1")
+    before_state = repository.get_result_state("run-1")
+    before_events = repository.list_events("run-1")
+
+    with pytest.raises(TypeError):
+        repository.record_qc_metrics_failure(
+            "run-1",
+            attempt_id=failure_attempt_id,
+            expected_artifact_generation=artifact_generation,
+            reason_code="QC_INDEXING_ADAPTER_FAILED",
+            expected_status=RunStatus.SUCCEEDED,
+            event=RunEventDraft(
+                event_type="qc_metrics_indexing_failed",
+                message="Workflow QC metrics could not be indexed.",
+                status=RunStatus.SUCCEEDED,
+                context=object(),
+            ),
+        )
+
+    assert before_metrics
+    assert repository.list_artifacts("run-1") == before_artifacts
+    assert repository.list_qc_metrics("run-1") == before_metrics
+    assert repository.get_result_state("run-1") == before_state
+    assert repository.list_events("run-1") == before_events
 
 
 def test_in_memory_replace_artifacts_rejects_non_succeeded_without_mutation():

@@ -212,8 +212,8 @@ _AUDITED_SAMPLE_NAMESPACE_SUFFIXES: Mapping[str, tuple[str, ...]] = {
     "fastq": (".merged.fastq.gz", "_1.merged.fastq.gz", "_2.merged.fastq.gz"),
     "umitools": (
         ".umi_extract.fastq.gz",
-        "_1.umi_extract.fastq.gz",
-        "_2.umi_extract.fastq.gz",
+        ".umi_extract_1.fastq.gz",
+        ".umi_extract_2.fastq.gz",
         ".umi_extract.log",
     ),
     "sortmerna": (

@@ -22,7 +22,10 @@ from encode_pipeline.platform.adapters import (
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.result_generations import (
+    ARTIFACT_PATH_IDENTITY_METADATA_KEY,
+    build_artifact_path_identity,
     build_artifact_content_revision,
+    validate_artifact_path_identity,
 )
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import (
@@ -321,7 +324,7 @@ class QcSummaryIndexingService:
         source_types: frozenset[str],
         workspace: Path,
     ) -> tuple[QcSourceDocument, ...]:
-        prepared: list[tuple[RunArtifactRef, str, str, int, dict[str, str]]] = []
+        prepared: list[tuple[RunArtifactRef, str, str, int, str, dict[str, str]]] = []
         seen_paths: set[str] = set()
         total_bytes = 0
         for artifact in artifacts:
@@ -345,6 +348,10 @@ class QcSummaryIndexingService:
             expected_size = self._validated_source_size(
                 artifact.metadata.get("size_bytes")
             )
+            path_identity_value = artifact.metadata.get(
+                ARTIFACT_PATH_IDENTITY_METADATA_KEY
+            )
+            path_identity = validate_artifact_path_identity(path_identity_value)
             metadata = self._validated_source_metadata(artifact.metadata)
             prepared.append(
                 (
@@ -352,6 +359,7 @@ class QcSummaryIndexingService:
                     output_type,
                     relative_path,
                     expected_size,
+                    path_identity,
                     metadata,
                 )
             )
@@ -362,11 +370,19 @@ class QcSummaryIndexingService:
                 raise ValueError("QC source files exceed the total byte limit")
 
         documents: list[QcSourceDocument] = []
-        for artifact, output_type, relative_path, expected_size, metadata in prepared:
+        for (
+            artifact,
+            output_type,
+            relative_path,
+            expected_size,
+            path_identity,
+            metadata,
+        ) in prepared:
             content = self._read_bounded_regular_file(
                 workspace,
                 relative_path,
                 expected_size,
+                expected_path_identity=path_identity,
             )
             expected_revision = build_artifact_content_revision(
                 output_type=output_type,
@@ -446,6 +462,8 @@ class QcSummaryIndexingService:
         workspace: Path,
         relative_path: str,
         expected_size: int,
+        *,
+        expected_path_identity: str,
     ) -> bytes:
         required_flags = ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK")
         if any(not hasattr(os, name) for name in required_flags):
@@ -527,6 +545,19 @@ class QcSummaryIndexingService:
                     for info in reopened_infos
                 ):
                     raise ValueError("QC source path changed while it was read")
+                current_path_identity = build_artifact_path_identity(
+                    parent_identities=tuple(
+                        (info.st_dev, info.st_ino, info.st_mode)
+                        for info in component_infos[:-1]
+                    ),
+                    file_identity=QcSummaryIndexingService._descriptor_identity(
+                        component_infos[-1]
+                    ),
+                )
+                if current_path_identity != expected_path_identity:
+                    raise ValueError(
+                        "QC source path identity does not match its artifact"
+                    )
             finally:
                 for descriptor in reversed(reopened_descriptors):
                     try:

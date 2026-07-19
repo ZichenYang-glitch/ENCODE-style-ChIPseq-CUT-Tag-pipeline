@@ -106,6 +106,15 @@ function isArtifactGenerationChanged(error: unknown): boolean {
   );
 }
 
+function isArtifactDownloadGenerationChanged(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.code === 'RUN_ARTIFACT_DOWNLOAD_CONFLICT' &&
+    error.issues.some((issue) => issue.path === 'generation')
+  );
+}
+
 export function ArtifactBrowser({
   runId,
   runStatus,
@@ -220,7 +229,9 @@ export function ArtifactBrowser({
 
   const generationChanged =
     isArtifactGenerationChanged(listQuery.error) ||
-    isArtifactGenerationChanged(detailQuery.error);
+    isArtifactGenerationChanged(detailQuery.error) ||
+    (downloadMutation.variables?.viewedGeneration === generation &&
+      isArtifactDownloadGenerationChanged(downloadMutation.error));
 
   useEffect(() => {
     if (!generationChanged || !generation) return;
@@ -293,7 +304,7 @@ export function ArtifactBrowser({
     );
   }
 
-  if (generationIsStale) {
+  if (generationChanged || generationIsStale) {
     return (
       <ArtifactStatus title="Artifact generation changed" tone="error">
         Cached artifact pages and details were discarded. Refresh canonical run status before loading the replacement generation.

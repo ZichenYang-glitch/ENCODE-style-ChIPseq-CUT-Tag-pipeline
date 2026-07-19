@@ -34,6 +34,25 @@ _MAX_STAR_TEMPLATE_COUNT = 10**25
 _MAX_STATUS_COUNT = 10**25
 _CUTADAPT_PERCENT_TOLERANCE = Decimal("0.000000001")
 _STAR_PERCENT_FRACTION_TOLERANCE = Decimal("0.00005")
+_STAR_TIMESTAMP = re.compile(
+    r"(?P<month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) "
+    r"(?P<day>0?[1-9]| [1-9]|[12][0-9]|3[01]) "
+    r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:(?:[0-5][0-9]|60)"
+)
+_STAR_MONTH_DAYS = {
+    "Jan": 31,
+    "Feb": 29,
+    "Mar": 31,
+    "Apr": 30,
+    "May": 31,
+    "Jun": 30,
+    "Jul": 31,
+    "Aug": 31,
+    "Sep": 30,
+    "Oct": 31,
+    "Nov": 30,
+    "Dec": 31,
+}
 _STAR_LOG_FINAL_LAYOUT = (
     "Started job on",
     "Started mapping on",
@@ -562,7 +581,37 @@ def parse_star_log_final(content: bytes) -> StarLogFinalEvidence:
             raise StatusEvidenceError
         values[key] = raw
 
+    for key in ("Started job on", "Started mapping on", "Finished on"):
+        _validate_star_timestamp(values[key])
+    _star_nonnegative_decimal(values["Mapping speed, Million of reads per hour"])
+    average_input_length = _star_nonnegative_decimal(
+        values["Average input read length"]
+    )
+    average_mapped_length = _star_nonnegative_decimal(values["Average mapped length"])
+
     input_templates = _star_nonnegative_int(values["Number of input reads"])
+    splice_total = _star_nonnegative_int(values["Number of splices: Total"])
+    splice_annotated = _star_nonnegative_int(
+        values["Number of splices: Annotated (sjdb)"]
+    )
+    splice_motifs = tuple(
+        _star_nonnegative_int(values[key])
+        for key in (
+            "Number of splices: GT/AG",
+            "Number of splices: GC/AG",
+            "Number of splices: AT/AC",
+            "Number of splices: Non-canonical",
+        )
+    )
+    for key in (
+        "Mismatch rate per base, %",
+        "Deletion rate per base",
+        "Insertion rate per base",
+    ):
+        _star_percent(values[key])
+    for key in ("Deletion average length", "Insertion average length"):
+        _star_nonnegative_decimal(values[key])
+
     counts = {
         "unique": _star_nonnegative_int(values["Uniquely mapped reads number"]),
         "multi": _star_nonnegative_int(
@@ -579,6 +628,8 @@ def parse_star_log_final(content: bytes) -> StarLogFinalEvidence:
         ),
         "other": _star_nonnegative_int(values["Number of reads unmapped: other"]),
     }
+    chimeric_count = _star_nonnegative_int(values["Number of chimeric reads"])
+    accepted_mapped_count = counts["unique"] + counts["multi"]
     reported_percentages = {
         "unique": _star_percent(values["Uniquely mapped reads %"]),
         "multi": _star_percent(values["% of reads mapped to multiple loci"]),
@@ -589,16 +640,33 @@ def parse_star_log_final(content: bytes) -> StarLogFinalEvidence:
         "too_short": _star_percent(values["% of reads unmapped: too short"]),
         "other": _star_percent(values["% of reads unmapped: other"]),
     }
+    chimeric_percentage = _star_percent(values["% of chimeric reads"])
     if (
         input_templates <= 0
+        or average_input_length <= 0
         or any(count > input_templates for count in counts.values())
         or sum(counts.values()) != input_templates
+        or chimeric_count > input_templates
+        or splice_annotated > splice_total
+        or sum(splice_motifs) != splice_total
+        or (accepted_mapped_count > 0 and average_mapped_length <= 0)
+        or (
+            accepted_mapped_count == 0
+            and (average_mapped_length != 0 or splice_total != 0)
+        )
     ):
         raise StatusEvidenceError
     with localcontext() as context:
         context.prec = 64
-        for name, reported_percentage in reported_percentages.items():
-            exact_fraction = Decimal(counts[name]) / Decimal(input_templates)
+        count_percentage_pairs = (
+            *(
+                (counts[name], percentage)
+                for name, percentage in reported_percentages.items()
+            ),
+            (chimeric_count, chimeric_percentage),
+        )
+        for count, reported_percentage in count_percentage_pairs:
+            exact_fraction = Decimal(count) / Decimal(input_templates)
             reported_fraction = reported_percentage / Decimal(100)
             if (
                 abs(exact_fraction - reported_fraction)
@@ -638,6 +706,26 @@ def _star_percent(raw: str) -> Decimal:
     if not value.is_finite() or value > 100:
         raise StatusEvidenceError
     return value
+
+
+def _star_nonnegative_decimal(raw: str) -> Decimal:
+    if _PLAIN_NUMBER.fullmatch(raw) is None:
+        raise StatusEvidenceError
+    try:
+        value = Decimal(raw)
+    except InvalidOperation as exc:
+        raise StatusEvidenceError from exc
+    if not value.is_finite() or value < 0 or value > Decimal(_MAX_STAR_TEMPLATE_COUNT):
+        raise StatusEvidenceError
+    return value
+
+
+def _validate_star_timestamp(raw: str) -> None:
+    match = _STAR_TIMESTAMP.fullmatch(raw)
+    if match is None:
+        raise StatusEvidenceError
+    if int(match.group("day")) > _STAR_MONTH_DAYS[match.group("month")]:
+        raise StatusEvidenceError
 
 
 def _bounded_nonnegative_int(raw: str) -> int:

@@ -181,6 +181,49 @@ Number of chimeric reads | 0
 """
 
 
+def _star_log_with_zero_accepted_mappings() -> bytes:
+    return (
+        _star_log()
+        .replace(
+            b"Uniquely mapped reads number | 800",
+            b"Uniquely mapped reads number | 0",
+        )
+        .replace(
+            b"Uniquely mapped reads % | 80.00%",
+            b"Uniquely mapped reads % | 0.00%",
+        )
+        .replace(
+            b"Number of reads mapped to multiple loci | 100",
+            b"Number of reads mapped to multiple loci | 0",
+        )
+        .replace(
+            b"% of reads mapped to multiple loci | 10.00%",
+            b"% of reads mapped to multiple loci | 0.00%",
+        )
+        .replace(b"Average mapped length | 99.00", b"Average mapped length | 0.00")
+        .replace(b"Number of splices: Total | 100", b"Number of splices: Total | 0")
+        .replace(
+            b"Number of splices: Annotated (sjdb) | 90",
+            b"Number of splices: Annotated (sjdb) | 0",
+        )
+        .replace(b"Number of splices: GT/AG | 80", b"Number of splices: GT/AG | 0")
+        .replace(b"Number of splices: GC/AG | 10", b"Number of splices: GC/AG | 0")
+        .replace(b"Number of splices: AT/AC | 5", b"Number of splices: AT/AC | 0")
+        .replace(
+            b"Number of splices: Non-canonical | 5",
+            b"Number of splices: Non-canonical | 0",
+        )
+        .replace(
+            b"Number of reads unmapped: too short | 60",
+            b"Number of reads unmapped: too short | 960",
+        )
+        .replace(
+            b"% of reads unmapped: too short | 6.00%",
+            b"% of reads unmapped: too short | 96.00%",
+        )
+    )
+
+
 def _star_log_five_percent_unique() -> bytes:
     return (
         _star_log()
@@ -1125,21 +1168,103 @@ def test_star_and_salmon_semantics_are_distinct_and_exact_decimal(layout: str):
             assert "read" not in metric.display_name.lower().split()
 
 
-@pytest.mark.parametrize("layout", ("SE", "PE"))
-def test_star_rounded_percentages_use_the_exact_template_count_partition(
-    layout: str,
+@pytest.mark.parametrize(
+    ("original", "replacement"),
+    (
+        (b"Started job on | Jul 17 00:00:00", b"Started job on | not-a-time"),
+        (
+            b"Started mapping on | Jul 17 00:00:01",
+            b"Started mapping on | Feb 31 25:61:61",
+        ),
+        (b"Finished on | Jul 17 00:00:02", b"Finished on | Jul 00 00:00:00"),
+        (
+            b"Mapping speed, Million of reads per hour | 1800.00",
+            b"Mapping speed, Million of reads per hour | unlimited",
+        ),
+        (b"Average input read length | 100", b"Average input read length | -1"),
+        (b"Average mapped length | 99.00", b"Average mapped length | NaN"),
+        (b"Number of splices: Total | 100", b"Number of splices: Total | many"),
+        (
+            b"Number of splices: Annotated (sjdb) | 90",
+            b"Number of splices: Annotated (sjdb) | 1.5",
+        ),
+        (b"Number of splices: GT/AG | 80", b"Number of splices: GT/AG | -1"),
+        (b"Number of splices: GC/AG | 10", b"Number of splices: GC/AG | NaN"),
+        (b"Number of splices: AT/AC | 5", b"Number of splices: AT/AC | 1e3"),
+        (
+            b"Number of splices: Non-canonical | 5",
+            b"Number of splices: Non-canonical | none",
+        ),
+        (b"Mismatch rate per base, % | 0.10%", b"Mismatch rate per base, % | 101%"),
+        (b"Deletion rate per base | 0.01%", b"Deletion rate per base | none"),
+        (b"Deletion average length | 1.00", b"Deletion average length | -0.01"),
+        (b"Insertion rate per base | 0.01%", b"Insertion rate per base | 100.01%"),
+        (b"Insertion average length | 1.00", b"Insertion average length | Infinity"),
+        (b"Number of chimeric reads | 0", b"Number of chimeric reads | many"),
+        (b"% of chimeric reads | 0.00%", b"% of chimeric reads | none"),
+    ),
+)
+def test_star_fixed_layout_rejects_invalid_non_mapping_fields(
+    original: bytes,
+    replacement: bytes,
 ):
-    star = _source(
+    sources = _core_sources()
+    assert original in sources[0].content
+    sources[0] = _source(
         "bulk_rnaseq.star.log_final",
+        sources[0].content.replace(original, replacement),
+        sample="S1",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(_inputs(), tuple(sources))
+
+    assert result.is_failure
+    assert result.errors[0].context == {"reason_code": "source_content_invalid"}
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement"),
+    (
+        (
+            b"Number of splices: Annotated (sjdb) | 90",
+            b"Number of splices: Annotated (sjdb) | 101",
+        ),
+        (
+            b"Number of splices: Non-canonical | 5",
+            b"Number of splices: Non-canonical | 6",
+        ),
+        (b"Average input read length | 100", b"Average input read length | 0"),
+        (b"Number of chimeric reads | 0", b"Number of chimeric reads | 1"),
+    ),
+    ids=(
+        "annotated-splices-exceed-total",
+        "splice-motif-counts-do-not-partition-total",
+        "positive-input-has-zero-average-length",
+        "chimeric-count-disagrees-with-percent",
+    ),
+)
+def test_star_fixed_layout_rejects_impossible_cross_field_values(
+    original: bytes,
+    replacement: bytes,
+):
+    sources = _core_sources()
+    assert original in sources[0].content
+    sources[0] = _source(
+        "bulk_rnaseq.star.log_final",
+        sources[0].content.replace(original, replacement),
+        sample="S1",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(_inputs(), tuple(sources))
+
+    assert result.is_failure
+    assert result.errors[0].context == {"reason_code": "source_content_invalid"}
+
+
+@pytest.mark.parametrize(
+    "content",
+    (
         _star_log()
-        .replace(b"Number of input reads | 1000", b"Number of input reads | 6")
-        .replace(
-            b"Uniquely mapped reads number | 800",
-            b"Uniquely mapped reads number | 0",
-        )
-        .replace(
-            b"Uniquely mapped reads % | 80.00%", b"Uniquely mapped reads % | 0.00%"
-        )
         .replace(
             b"Number of reads mapped to multiple loci | 100",
             b"Number of reads mapped to multiple loci | 0",
@@ -1148,6 +1273,99 @@ def test_star_rounded_percentages_use_the_exact_template_count_partition(
             b"% of reads mapped to multiple loci | 10.00%",
             b"% of reads mapped to multiple loci | 0.00%",
         )
+        .replace(
+            b"Number of reads unmapped: too short | 60",
+            b"Number of reads unmapped: too short | 160",
+        )
+        .replace(
+            b"% of reads unmapped: too short | 6.00%",
+            b"% of reads unmapped: too short | 16.00%",
+        )
+        .replace(b"Average mapped length | 99.00", b"Average mapped length | 0.00"),
+        _star_log_with_zero_accepted_mappings()
+        .replace(
+            b"Number of reads mapped to multiple loci | 0",
+            b"Number of reads mapped to multiple loci | 100",
+        )
+        .replace(
+            b"% of reads mapped to multiple loci | 0.00%",
+            b"% of reads mapped to multiple loci | 10.00%",
+        )
+        .replace(
+            b"Number of reads unmapped: too short | 960",
+            b"Number of reads unmapped: too short | 860",
+        )
+        .replace(
+            b"% of reads unmapped: too short | 96.00%",
+            b"% of reads unmapped: too short | 86.00%",
+        ),
+    ),
+    ids=("unique-only", "accepted-multimapped-only"),
+)
+def test_star_positive_accepted_mapped_count_requires_positive_average_length(
+    content: bytes,
+):
+    sources = _core_sources()
+    sources[0] = _source("bulk_rnaseq.star.log_final", content, sample="S1")
+
+    result = extract_bulk_rnaseq_qc_metrics(_inputs(), tuple(sources))
+
+    assert result.is_failure
+    assert result.errors[0].context == {"reason_code": "source_content_invalid"}
+
+
+@pytest.mark.parametrize(
+    "content",
+    (
+        _star_log_with_zero_accepted_mappings().replace(
+            b"Average mapped length | 0.00", b"Average mapped length | 99.00"
+        ),
+        _star_log_with_zero_accepted_mappings()
+        .replace(b"Number of splices: Total | 0", b"Number of splices: Total | 1")
+        .replace(
+            b"Number of splices: Annotated (sjdb) | 0",
+            b"Number of splices: Annotated (sjdb) | 1",
+        )
+        .replace(b"Number of splices: GT/AG | 0", b"Number of splices: GT/AG | 1"),
+    ),
+    ids=("nonzero-average-mapped-length", "nonzero-splice-total"),
+)
+def test_star_zero_accepted_mapped_count_requires_zero_length_and_splices(
+    content: bytes,
+):
+    sources = _core_sources()
+    sources[0] = _source("bulk_rnaseq.star.log_final", content, sample="S1")
+
+    result = extract_bulk_rnaseq_qc_metrics(_inputs(), tuple(sources))
+
+    assert result.is_failure
+    assert result.errors[0].context == {"reason_code": "source_content_invalid"}
+
+
+def test_star_zero_accepted_mapped_count_accepts_zero_length_and_splices():
+    sources = _core_sources()
+    sources[0] = _source(
+        "bulk_rnaseq.star.log_final",
+        _star_log_with_zero_accepted_mappings(),
+        sample="S1",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(_inputs(), tuple(sources))
+
+    assert result.is_success
+    metrics = _metric_map(result)
+    assert metrics["star.uniquely_mapped_template_fraction"].value == 0
+    assert metrics["star.accepted_multimapped_template_fraction"].value == 0
+
+
+@pytest.mark.parametrize("layout", ("SE", "PE"))
+def test_star_rounded_percentages_use_the_exact_template_count_partition(
+    layout: str,
+):
+    star = _source(
+        "bulk_rnaseq.star.log_final",
+        _star_log_with_zero_accepted_mappings()
+        .replace(b"Number of input reads | 1000", b"Number of input reads | 6")
         .replace(
             b"Number of reads mapped to too many loci | 20",
             b"Number of reads mapped to too many loci | 1",
@@ -1165,11 +1383,11 @@ def test_star_rounded_percentages_use_the_exact_template_count_partition(
             b"% of reads unmapped: too many mismatches | 16.67%",
         )
         .replace(
-            b"Number of reads unmapped: too short | 60",
+            b"Number of reads unmapped: too short | 960",
             b"Number of reads unmapped: too short | 1",
         )
         .replace(
-            b"% of reads unmapped: too short | 6.00%",
+            b"% of reads unmapped: too short | 96.00%",
             b"% of reads unmapped: too short | 16.67%",
         )
         .replace(
