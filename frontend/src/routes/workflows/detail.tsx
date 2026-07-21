@@ -55,12 +55,12 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
   const { workflowClient, agentClient, runClient } = useClients();
 
   const {
-    data: workflowsData,
-    isLoading: workflowsLoading,
-    error: workflowsError,
+    data: workflowData,
+    isLoading: workflowLoading,
+    error: workflowError,
   } = useQuery({
-    queryKey: ['workflows'],
-    queryFn: () => workflowClient.listWorkflows(),
+    queryKey: ['workflow', workflowId],
+    queryFn: () => workflowClient.getWorkflow(workflowId),
   });
 
   const {
@@ -72,15 +72,11 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
     queryFn: () => workflowClient.getWorkflowSchema(workflowId),
   });
 
-  const workflow = useMemo(
-    () =>
-      workflowsData?.workflows.find(
-        (w) => w.metadata.workflow_id === workflowId,
-      ),
-    [workflowsData, workflowId],
-  );
+  const workflow = workflowData?.workflow ?? null;
 
   const schemaHints: WorkflowSchema | null = schemaData?.schema_hints ?? null;
+  const supportsServerPathSamples =
+    schemaHints?.input_modes?.samples.includes('server_path') === true;
 
   const [configText, setConfigText] = useState('{}');
   const [samplesText, setSamplesText] = useState('');
@@ -106,17 +102,18 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
   }, [workflowId]);
 
   const isNotFound =
-    !workflowsLoading &&
+    !workflowLoading &&
     !schemaLoading &&
-    workflowsData !== undefined &&
+    workflowData !== undefined &&
     schemaData !== undefined &&
-    ((workflowsData.ok && workflow === undefined) ||
+    ((!workflowData.ok &&
+      workflowData.issues.some((issue) => issue.code === 'WORKFLOW_NOT_FOUND')) ||
       schemaData.issues.some((issue) => issue.code === 'WORKFLOW_NOT_FOUND'));
 
-  const loadError = workflowsError ?? schemaError;
+  const loadError = workflowError ?? schemaError;
   const loadIssue =
-    workflowsData?.ok === false
-      ? workflowsData.issues[0]
+    workflowData?.ok === false && !isNotFound
+      ? workflowData.issues[0]
       : schemaData?.ok === false && !isNotFound
         ? schemaData.issues[0]
         : null;
@@ -295,8 +292,7 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
           <Panel title="Workflow detail">
             <div className="space-y-3">
               <WorkflowDetail
-                workflowId={workflow.metadata.workflow_id}
-                workflowName={workflow.metadata.name}
+                workflow={workflow}
               />
               <Button asChild variant="primary" className="gap-1.5">
                 <Link to={`/workflows/${workflow.metadata.workflow_id}/new-run`}>
@@ -311,7 +307,7 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
             </div>
           </Panel>
         )}
-        {workflow && (
+        {workflow && supportsServerPathSamples && (
           <Panel title="Validation workspace">
             <ValidationWorkspace
               workflowId={workflow.metadata.workflow_id}
@@ -326,32 +322,37 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
             />
           </Panel>
         )}
-        {workflow && (
+        {workflow && supportsServerPathSamples && (
           <Panel title="Run progress">
             <RunProgressPanel
               workflowId={workflow.metadata.workflow_id}
               validationResult={validationResult}
               runClient={runClient}
+              executionAvailability={workflow.availability.execution}
               onRunCreated={handleRunCreated}
             />
           </Panel>
         )}
-        <Panel title="Validation results">
-          <IssuePanel issues={displayedIssues} onAskAgent={handleAskAgent} />
-        </Panel>
+        {supportsServerPathSamples && (
+          <Panel title="Validation results">
+            <IssuePanel issues={displayedIssues} onAskAgent={handleAskAgent} />
+          </Panel>
+        )}
       </section>
 
-      <aside className="flex w-full flex-col gap-3 lg:w-72">
-        <AgentSidebar
-          workflowId={workflowId}
-          issues={displayedIssues}
-          agentClient={agentClient}
-          draftMessage={agentDraftMessage || undefined}
-          onDraftConsumed={handleAgentDraftConsumed}
-          focusedIssue={agentFocusedIssue}
-          onFocusedIssueConsumed={handleAgentFocusedIssueConsumed}
-        />
-      </aside>
+      {supportsServerPathSamples && (
+        <aside className="flex w-full flex-col gap-3 lg:w-72">
+          <AgentSidebar
+            workflowId={workflowId}
+            issues={displayedIssues}
+            agentClient={agentClient}
+            draftMessage={agentDraftMessage || undefined}
+            onDraftConsumed={handleAgentDraftConsumed}
+            focusedIssue={agentFocusedIssue}
+            onFocusedIssueConsumed={handleAgentFocusedIssueConsumed}
+          />
+        </aside>
+      )}
     </>
   );
 }

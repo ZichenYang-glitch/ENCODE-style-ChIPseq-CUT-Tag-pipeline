@@ -18,11 +18,49 @@ export const stubWorkflows: WorkflowSummary[] = [
     capabilities: {
       supports: ['validation'],
     },
+    schema_version: '1.1.0',
+    upstream_identity: null,
+    availability: {
+      authoring: 'available',
+      execution: 'available',
+      reason_code: 'WORKFLOW_EXECUTION_READY',
+    },
+  },
+  {
+    metadata: {
+      workflow_id: 'bulk-rnaseq',
+      name: 'Bulk RNA-seq',
+      version: '0.3.0',
+      description:
+        'Offline-composable HelixWeave adapter for pinned nf-core/rnaseq 3.26.0.',
+      engines: ['nextflow'],
+      tags: ['bulk-rnaseq', 'illumina', 'nf-core'],
+    },
+    schema_version: '1.0.0',
+    capabilities: {
+      supports: ['validation', 'input_authoring'],
+    },
+    upstream_identity: {
+      name: 'nf-core/rnaseq',
+      version: '3.26.0',
+      revision: 'e7ca46272c8f9d5ceee3f71759f4ba551d3217a4',
+    },
+    availability: {
+      authoring: 'available',
+      execution: 'not_configured',
+      reason_code: 'WORKFLOW_EXECUTION_NOT_CONFIGURED',
+    },
   },
 ];
 
 export const stubWorkflowSchemas: Record<string, WorkflowSchema> = {
   'encode-style-chipseq-cuttag-atac-mnase': {
+    schema_version: '1.1.0',
+    input_modes: {
+      config: ['object'],
+      samples: ['inline_rows', 'server_path'],
+      options: ['object'],
+    },
     config_schema: {
       schema_kind: 'hints',
       required: ['samples'],
@@ -46,6 +84,31 @@ export const stubWorkflowSchemas: Record<string, WorkflowSchema> = {
           default: false,
         },
       },
+    },
+  },
+  'bulk-rnaseq': {
+    schema_version: '1.0.0',
+    input_modes: {
+      config: ['object'],
+      samples: ['inline_rows'],
+      options: ['object'],
+    },
+    config_schema: {
+      type: 'object',
+      title: 'Bulk RNA-seq adapter config',
+      description:
+        'The complete adapter-owned contract is loaded by the authoring workspace.',
+    },
+    sample_schema: {
+      type: 'array',
+      title: 'Bulk RNA-seq sample rows',
+      description:
+        'Inline rows support SE, PE, repeated lanes, strandedness, and fixed ILLUMINA platform identity.',
+    },
+    option_schema: {
+      type: 'object',
+      title: 'Bulk RNA-seq adapter options',
+      additionalProperties: false,
     },
   },
 };

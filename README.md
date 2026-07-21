@@ -198,7 +198,10 @@ measured test and coverage facts have one authoritative home in the
 - Deployment is local or for a small trusted team. Authentication,
   multi-tenancy, HPC/cloud backends, Kubernetes, object storage, and remote
   workspace semantics are not implemented.
-- The ENCODE-style epigenomics workflow is the only registered adapter today.
+- The default registry contains the ENCODE-style epigenomics adapter and the
+  schema-driven Bulk RNA-seq adapter. Bulk RNA-seq authoring and validation are
+  available without local execution assets; create/start remain fail-closed
+  until the pinned runtime is fully admitted.
 - The Agent surface is read-only: it cannot submit, start, cancel, modify, or
   delete runs, and its explanations are not provenance.
 - The deterministic platform demo does not replace real scientific validation,

@@ -232,6 +232,73 @@ def test_real_execution_jobs_are_non_pr_conditional_and_fail_closed():
     assert "HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION" in str(bulk_job)
 
 
+def test_bulk_product_gate_is_exact_head_path_free_and_coordinate_scoped():
+    workflow = _load("ci.yml")
+    dispatch_inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+    assert "bulk_rnaseq_expected_sha" in dispatch_inputs
+
+    job = workflow["jobs"]["bulk-rnaseq-real-execution"]
+    assert set(job.get("env", {})) == {"PYTHONDONTWRITEBYTECODE"}
+    steps = job["steps"]
+    confirm = next(
+        step
+        for step in steps
+        if step.get("name") == "Confirm exact checkout and clean source tree"
+    )
+    assert confirm["env"]["EXPECTED_REVIEWED_SHA"] == (
+        "${{ inputs.bulk_rnaseq_expected_sha }}"
+    )
+    assert "^[0-9a-f]{40}$" in confirm["run"]
+    assert 'test "$actual_sha" = "$EXPECTED_REVIEWED_SHA"' in confirm["run"]
+
+    product = next(
+        step
+        for step in steps
+        if step.get("name")
+        == "Run public registry-to-results Bulk RNA-seq product Gate"
+    )
+    assert product["env"]["HELIXWEAVE_REQUIRE_BULK_RNASEQ_PRODUCT_GATE"] == "1"
+    assert product["env"]["HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION"] == "1"
+    assert "bulk-rnaseq-unavailable.spec.ts" in product["run"]
+    assert "continue-on-error" not in product
+
+    protected_coordinates = {
+        "HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT",
+        "HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST",
+        "ENCODE_PIPELINE_TEST_REDIS_URL",
+        "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE",
+        "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET",
+    }
+    assert protected_coordinates <= set(product["env"])
+    assert all(name not in job["env"] for name in protected_coordinates)
+
+    audit = next(
+        step
+        for step in steps
+        if step.get("name")
+        == "Require path-free product evidence and no managed containers"
+    )
+    assert audit["if"] == "always()"
+    assert "bulk-rnaseq-product-evidence.json" in audit["env"]["PRODUCT_EVIDENCE"]
+    assert "json.tool" in audit["run"]
+    assert "org.helixweave.workspace-scope" in audit["run"]
+    assert "continue-on-error" not in audit
+
+    upload = next(
+        step
+        for step in steps
+        if step.get("name") == "Upload path-free bulk RNA-seq evidence"
+    )
+    assert "**/evidence/**" in upload["with"]["path"]
+    assert upload["with"]["if-no-files-found"] == "error"
+
+    product_spec = (
+        REPO_ROOT / "frontend" / "e2e" / "bulk-rnaseq-unavailable.spec.ts"
+    ).read_text(encoding="utf-8")
+    assert "test.skip" not in product_spec
+    assert "test.fixme" not in product_spec
+
+
 def test_lint_and_lock_workflows_cover_the_maintained_contracts():
     lint = _load("lint.yml")
     lock = _load("lock-check.yml")

@@ -11,6 +11,11 @@ name: CI
         required: false
         default: false
         type: boolean
+      bulk_rnaseq_expected_sha:
+        description: Exact reviewed 40-character commit required by the protected gate
+        required: false
+        default: ""
+        type: string
   schedule:
     - cron: "17 19 * * *"
   release:
@@ -575,12 +580,6 @@ jobs:
     timeout-minutes: 240
     environment: bulk-rnaseq-real-execution
     env:
-      HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION: "1"
-      HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
-      HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST: ${{ vars.HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST }}
-      ENCODE_PIPELINE_TEST_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
-      ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
-      ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - name: Record job start
@@ -594,11 +593,14 @@ jobs:
       - name: Confirm exact checkout and clean source tree
         env:
           EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_REVIEWED_SHA: ${{ inputs.bulk_rnaseq_expected_sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           actual_sha=$(git rev-parse HEAD)
           test "$actual_sha" = "$EXPECTED_SHA"
+          [[ "$EXPECTED_REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$actual_sha" = "$EXPECTED_REVIEWED_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           pr_head_sha=${PR_HEAD_SHA:-n/a}
           pr_base_sha=${PR_BASE_SHA:-n/a}
@@ -624,6 +626,12 @@ jobs:
 
       - name: Require runner-owned runtime coordinates
         shell: micromamba-shell {0}
+        env:
+          HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
+          HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST: ${{ vars.HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST }}
+          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+          ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
+          ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
         run: |
           required=(
             HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT
@@ -646,6 +654,10 @@ jobs:
 
       - name: Verify pinned runtime admission without mutation or network
         shell: micromamba-shell {0}
+        env:
+          HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
+          ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
+          ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
         run: >-
           python3 scripts/stage_bulk_rnaseq_runtime_assets.py
           --asset-root "$HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT"
@@ -655,6 +667,13 @@ jobs:
 
       - name: Run rapid, STAR Salmon, and lifecycle acceptance
         shell: micromamba-shell {0}
+        env:
+          HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION: "1"
+          HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
+          HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST: ${{ vars.HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST }}
+          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+          ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
+          ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
         run: >-
           python3 -m pytest -m bulk_rnaseq_real_execution
           test/bulk_rnaseq_real_execution -ra -p no:cacheprovider
@@ -670,6 +689,53 @@ jobs:
           "$RUNNER_TEMP/bulk-rnaseq-real-report.xml"
           --label "bulk RNA-seq real-execution tier"
 
+      - name: Setup Node.js for the protected product Gate
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install protected product Gate dependencies
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run public registry-to-results Bulk RNA-seq product Gate
+        shell: micromamba-shell {0}
+        working-directory: frontend
+        env:
+          HELIXWEAVE_REQUIRE_BULK_RNASEQ_PRODUCT_GATE: "1"
+          HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION: "1"
+          HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
+          HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST: ${{ vars.HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST }}
+          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+          ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
+          ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
+          ENCODE_PIPELINE_E2E_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+          ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS: "7200"
+          ENCODE_PIPELINE_E2E_SCREENSHOT_DIR: ${{ runner.temp }}/helixweave-bulk-rnaseq-real-${{ github.run_id }}/product/evidence/screenshots
+          HELIXWEAVE_BULK_RNASEQ_PRODUCT_EVIDENCE_DIR: ${{ runner.temp }}/helixweave-bulk-rnaseq-real-${{ github.run_id }}/product/evidence
+        run: npm run test:e2e -- bulk-rnaseq-unavailable.spec.ts
+
+      - name: Require path-free product evidence and no managed containers
+        if: always()
+        shell: micromamba-shell {0}
+        env:
+          PRODUCT_EVIDENCE: ${{ runner.temp }}/helixweave-bulk-rnaseq-real-${{ github.run_id }}/product/evidence/bulk-rnaseq-product-evidence.json
+          ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
+          ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
+        run: |
+          test -s "$PRODUCT_EVIDENCE"
+          python3 -m json.tool "$PRODUCT_EVIDENCE" >/dev/null
+          container_ids=$(
+            "$ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE" \
+              --host "unix://$ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET" \
+              ps -aq --filter label=org.helixweave.workspace-scope
+          )
+          test -z "$container_ids"
+
       - name: Upload path-free bulk RNA-seq evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -677,7 +743,7 @@ jobs:
           name: bulk-rnaseq-real-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/bulk-rnaseq-real-report.xml
-            ${{ runner.temp }}/helixweave-bulk-rnaseq-real-${{ github.run_id }}/**/evidence/*.json
+            ${{ runner.temp }}/helixweave-bulk-rnaseq-real-${{ github.run_id }}/**/evidence/**
           if-no-files-found: error
           overwrite: true
           retention-days: 14

@@ -206,7 +206,41 @@ def test_results_capabilities_require_explicit_runtime_composition(tmp_path: Pat
         "workspace_plan",
         "command",
     )
-    assert not create_default_workflow_registry().has("bulk-rnaseq")
+    default_bulk = create_default_workflow_registry(environ={}).get("bulk-rnaseq")
+    assert isinstance(default_bulk, BulkRnaSeqWorkflowAdapter)
+    assert not isinstance(default_bulk, BulkRnaSeqResultsWorkflowAdapter)
+    assert default_bulk.capabilities.supports == ("validation", "input_authoring")
+
+
+def test_runtime_availability_redacts_unexpected_doctor_error(
+    tmp_path: Path,
+    monkeypatch,
+):
+    binding = BulkRnaSeqExecutionBinding(
+        assets=RuntimeAssetBinding(root=(tmp_path / "runtime").resolve()),
+        transcriptome=BulkRnaSeqTranscriptomeBinding(
+            reference_id="GRCh38-test",
+            fasta_sha256="a" * 64,
+            gtf_sha256="b" * 64,
+            transcript_fasta=(tmp_path / "transcripts.fa").resolve(),
+            transcript_fasta_sha256="c" * 64,
+        ),
+    )
+    adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
+
+    def raise_private_error(_binding):
+        raise RuntimeError("/private/runtime/path")
+
+    monkeypatch.setattr(
+        "encode_pipeline.adapters.bulk_rnaseq.adapter.doctor_bulk_rnaseq_runtime",
+        raise_private_error,
+    )
+
+    assert adapter.execution_availability().to_dict() == {
+        "authoring": "available",
+        "execution": "unavailable",
+        "reason_code": "WORKFLOW_EXECUTION_UNAVAILABLE",
+    }
 
 
 def test_results_adapter_rejects_missing_runtime_binding():
@@ -1537,7 +1571,7 @@ def test_non_json_config_values_fail_closed_without_exceptions(config):
     assert _error_code(_inputs(config=config)) == "BULK_RNASEQ_CONFIG_INVALID"
 
 
-def test_bulk_and_encode_adapters_coexist_only_in_explicit_test_registry():
+def test_bulk_and_encode_adapters_coexist_in_explicit_test_registry():
     registry = WorkflowRegistry(
         (EncodeStyleWorkflowAdapter(), BulkRnaSeqWorkflowAdapter())
     )
@@ -1549,10 +1583,11 @@ def test_bulk_and_encode_adapters_coexist_only_in_explicit_test_registry():
     assert registry.get("bulk-rnaseq").metadata.engines == ("nextflow",)
 
 
-def test_default_registry_remains_encode_only():
-    registry = create_default_workflow_registry()
+def test_default_registry_registers_bulk_authoring_without_runtime():
+    registry = create_default_workflow_registry(environ={})
 
     assert [item.workflow_id for item in registry.list_metadata()] == [
-        "encode-style-chipseq-cuttag-atac-mnase"
+        "encode-style-chipseq-cuttag-atac-mnase",
+        "bulk-rnaseq",
     ]
-    assert registry.has("bulk-rnaseq") is False
+    assert registry.has("bulk-rnaseq") is True

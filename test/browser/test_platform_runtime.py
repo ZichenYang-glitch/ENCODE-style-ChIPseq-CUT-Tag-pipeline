@@ -22,7 +22,7 @@ from scripts.run_local_platform import (
     run_environment_doctor,
 )
 from scripts.results_visibility_fixture import prepare_results_visibility_fixture
-from platform_runtime import write_manifest
+from platform_runtime import prepare_bulk_authoring_fixture, write_manifest
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -528,8 +528,9 @@ def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
     runtime_root = tmp_path / "runtime"
     runtime_root.mkdir()
     inputs = prepare_results_visibility_fixture(runtime_root / "project")
+    bulk_authoring = prepare_bulk_authoring_fixture(runtime_root)
 
-    write_manifest(runtime_root, "browser-queue", inputs)
+    write_manifest(runtime_root, "browser-queue", inputs, bulk_authoring)
 
     raw = json.loads((runtime_root / "runtime.json").read_text(encoding="utf-8"))
     assert set(raw) == {
@@ -544,6 +545,13 @@ def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
         "workspaceRoot",
         "markerRoot",
         "queueName",
+        "bulkWorkflowId",
+        "bulkSamplesPath",
+        "bulkConfig",
+        "bulkOptions",
+        "bulkExpectedExecution",
+        "bulkRequiredArtifactOutputTypes",
+        "bulkRequiredQcMetricKeys",
     }
     assert raw["samplesPath"] == str(inputs.samples_path)
     assert raw["resultsConfig"] == inputs.results_config
@@ -551,6 +559,36 @@ def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
     assert raw["emptyConfig"] == inputs.empty_config
     assert raw["malformedConfig"] == inputs.malformed_config
     assert raw["expectedQcSummary"] == inputs.expected_qc_summary
+    assert all(raw[name] == value for name, value in bulk_authoring.items())
+    assert raw["bulkWorkflowId"] == "bulk-rnaseq"
+    assert raw["bulkOptions"] == {}
+    assert raw["bulkExpectedExecution"] == "not_configured"
+    assert raw["bulkRequiredArtifactOutputTypes"] == []
+    assert raw["bulkRequiredQcMetricKeys"] == []
+    bulk_samples_path = Path(raw["bulkSamplesPath"])
+    assert bulk_samples_path.is_relative_to(runtime_root)
+    bulk_rows = bulk_samples_path.read_text(encoding="utf-8").splitlines()
+    assert len(bulk_rows) == 4
+    assert [row.split("\t")[0] for row in bulk_rows[1:]] == [
+        "pairedA",
+        "pairedA",
+        "singleB",
+    ]
+    assert [row.split("\t")[3] for row in bulk_rows[1:]] == ["PE", "PE", "SE"]
+    assert [row.split("\t")[6] for row in bulk_rows[1:]] == [
+        "reverse",
+        "reverse",
+        "auto",
+    ]
+    assert all(row.split("\t")[7] == "ILLUMINA" for row in bulk_rows[1:])
+    bulk_standard = raw["bulkConfig"]["standard"]
+    assert bulk_standard["analysis"] == {
+        "alignment": "star",
+        "quantification": "salmon",
+    }
+    assert bulk_standard["trimming"] == {"enabled": True, "tool": "fastp"}
+    assert bulk_standard["umi"]["mode"] == "read_name"
+    assert bulk_standard["ribosomal_rna_removal"]["tool"] == "sortmerna"
     assert all(
         "samples" not in raw[name]
         for name in (

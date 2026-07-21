@@ -12,6 +12,8 @@ from encode_pipeline.services.run_queue import (
 )
 from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
 from encode_pipeline.services.runs import RunService
+from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
+from encode_pipeline.services.workflow_info import resolve_workflow_availability
 
 
 class RunSubmissionError(RuntimeError):
@@ -30,6 +32,14 @@ class RunBuildIdentityMissingError(RunSubmissionError):
     """A legacy planned run has no durable workflow build identity."""
 
 
+class RunExecutionUnavailableError(RunSubmissionError):
+    """Current execution admission or build identity is unavailable."""
+
+
+class RunWorkflowBuildChangedError(RunSubmissionError):
+    """Current workflow build differs from the preflighted build."""
+
+
 class RunStartConflictError(RunSubmissionError):
     """Durable run and queue identities cannot be reconciled."""
 
@@ -41,13 +51,26 @@ class RunSubmissionUnavailableError(RunSubmissionError):
 class RunSubmissionService:
     """Reserve, enqueue, and durably queue one workflow execution."""
 
-    def __init__(self, run_service: RunService, run_queue: RunQueue) -> None:
+    def __init__(
+        self,
+        run_service: RunService,
+        run_queue: RunQueue,
+        *,
+        build_identity_provider: WorkflowBuildIdentityProvider,
+    ) -> None:
         if not isinstance(run_service, RunService):
             raise ValueError("run_service must be a RunService instance")
         if not isinstance(run_queue, RunQueue):
             raise ValueError("run_queue must implement RunQueue")
+        if not isinstance(build_identity_provider, WorkflowBuildIdentityProvider):
+            raise ValueError(
+                "build_identity_provider must be WorkflowBuildIdentityProvider"
+            )
+        if build_identity_provider.registry is not run_service.registry:
+            raise ValueError("build_identity_provider registry must match run_service")
         self._run_service = run_service
         self._run_queue = run_queue
+        self._build_identity_provider = build_identity_provider
 
     def start_run(self, run_id: str) -> RunRecord:
         """Submit a planned run, converging retries on one durable job ID.
@@ -64,14 +87,38 @@ class RunSubmissionService:
                 "Run must complete preflight before it can start.",
                 record=current,
             )
-        if (
-            current.status is RunStatus.PLANNED
-            and self._run_service.get_workflow_build_identity(run_id) is None
-        ):
-            raise RunBuildIdentityMissingError(
-                "Run must be preflighted with a durable workflow build identity.",
-                record=current,
+        if current.status is RunStatus.PLANNED:
+            persisted_identity = self._run_service.get_workflow_build_identity(run_id)
+            if persisted_identity is None:
+                raise RunBuildIdentityMissingError(
+                    "Run must be preflighted with a durable workflow build identity.",
+                    record=current,
+                )
+            try:
+                adapter = self._run_service.registry.get(current.workflow_id)
+            except (KeyError, ValueError):
+                raise RunExecutionUnavailableError(
+                    "Workflow execution is unavailable.",
+                    record=current,
+                ) from None
+            if resolve_workflow_availability(adapter).execution != "available":
+                raise RunExecutionUnavailableError(
+                    "Workflow execution is unavailable.",
+                    record=current,
+                )
+            current_identity = self._build_identity_provider.capture(
+                current.workflow_id
             )
+            if current_identity.is_failure or current_identity.value is None:
+                raise RunExecutionUnavailableError(
+                    "Workflow execution is unavailable.",
+                    record=current,
+                )
+            if not persisted_identity.matches(current_identity.value):
+                raise RunWorkflowBuildChangedError(
+                    "Workflow build changed after preflight.",
+                    record=current,
+                )
 
         assignment = self._resolve_assignment(current)
         current = self._run_service.get_run(run_id)

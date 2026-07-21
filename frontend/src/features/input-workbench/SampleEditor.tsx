@@ -22,6 +22,7 @@ interface SampleCellProps {
   row: DraftSampleRow;
   rowNumber: number;
   maxCellLength: number;
+  readOnly: boolean;
   onChange: (value: string) => void;
 }
 
@@ -30,6 +31,7 @@ function SampleCell({
   row,
   rowNumber,
   maxCellLength,
+  readOnly,
   onChange,
 }: SampleCellProps) {
   const label = `Sample ${rowNumber} ${column.key}`;
@@ -38,6 +40,17 @@ function SampleCell({
   const className = `w-full min-w-32 rounded border bg-white px-2 py-1.5 text-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] ${
     invalid ? 'border-red-400' : 'border-[var(--color-border)]'
   }`;
+  if (readOnly) {
+    return (
+      <input
+        type="text"
+        readOnly
+        aria-label={label}
+        className={`${className} cursor-not-allowed bg-[var(--color-bg)] text-[var(--color-text-muted)]`}
+        value={value}
+      />
+    );
+  }
   if (column.enumValues) {
     const hasEmpty = column.enumValues.includes('');
     return (
@@ -98,6 +111,7 @@ export function SampleEditor({ schema, draft }: SampleEditorProps) {
             row={row.original}
             rowNumber={row.index + 1}
             maxCellLength={schema.limits.max_sample_cell_length}
+            readOnly={column.readOnly}
             onChange={(value) =>
               draft.updateSample(row.original.id, column.key, value)
             }
@@ -331,6 +345,7 @@ export function SampleEditor({ schema, draft }: SampleEditorProps) {
                         row={row}
                         rowNumber={rowIndex + 1}
                         maxCellLength={schema.limits.max_sample_cell_length}
+                        readOnly={column.readOnly}
                         onChange={(value) =>
                           draft.updateSample(row.id, column.key, value)
                         }

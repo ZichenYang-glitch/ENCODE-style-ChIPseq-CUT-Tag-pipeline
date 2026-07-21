@@ -6,6 +6,7 @@ import {
   createGeneratedWorkflowClient,
 } from './generated-client-adapters';
 import {
+  getWorkflow,
   getWorkflowSchema,
   listWorkflows,
   validateWorkflow,
@@ -15,6 +16,7 @@ import { triggerPreflight } from './generated/preflight/preflight';
 import { chatWithWorkflowAgent } from './generated/agent/agent';
 
 vi.mock('./generated/workflows/workflows', () => ({
+  getWorkflow: vi.fn(),
   getWorkflowSchema: vi.fn(),
   listWorkflows: vi.fn(),
   validateWorkflow: vi.fn(),
@@ -49,7 +51,14 @@ describe('generated client adapters', () => {
             name: 'ENCODE',
             version: '1.0.0',
           },
+          schema_version: '1.0.0',
           capabilities: {},
+          upstream_identity: null,
+          availability: {
+            authoring: 'available',
+            execution: 'available',
+            reason_code: 'WORKFLOW_EXECUTION_READY',
+          },
         },
       ],
     });
@@ -69,10 +78,57 @@ describe('generated client adapters', () => {
             tags: [],
           },
           capabilities: { supports: [] },
+          schema_version: '1.0.0',
+          upstream_identity: null,
+          availability: {
+            authoring: 'available',
+            execution: 'available',
+            reason_code: 'WORKFLOW_EXECUTION_READY',
+          },
         },
       ],
       issues: [],
     });
+  });
+
+  it('uses the generated workflow detail operation', async () => {
+    vi.mocked(getWorkflow).mockResolvedValue({
+      ok: true,
+      workflow_id: 'bulk-rnaseq',
+      workflow: {
+        metadata: {
+          workflow_id: 'bulk-rnaseq',
+          name: 'Bulk RNA-seq',
+          version: '0.3.0',
+          description: 'Pinned bulk RNA-seq workflow.',
+          engines: ['nextflow'],
+          tags: ['bulk-rnaseq'],
+        },
+        schema_version: '1.0.0',
+        capabilities: { supports: ['validation', 'input_authoring'] },
+        upstream_identity: {
+          name: 'nf-core/rnaseq',
+          version: '3.26.0',
+          revision: 'e7ca46272c8f9d5ceee3f71759f4ba551d3217a4',
+        },
+        availability: {
+          authoring: 'available',
+          execution: 'not_configured',
+          reason_code: 'WORKFLOW_EXECUTION_NOT_CONFIGURED',
+        },
+      },
+      issues: [],
+    });
+
+    const response =
+      await createGeneratedWorkflowClient().getWorkflow('bulk-rnaseq');
+
+    expect(getWorkflow).toHaveBeenCalledWith('bulk-rnaseq');
+    expect(response.workflow?.upstream_identity).toMatchObject({
+      name: 'nf-core/rnaseq',
+      version: '3.26.0',
+    });
+    expect(response.workflow?.availability.execution).toBe('not_configured');
   });
 
   it('uses generated validation and schema operations', async () => {
@@ -127,6 +183,11 @@ describe('generated client adapters', () => {
     });
 
     expect(schema.schema_hints?.config_schema).toEqual({ type: 'object' });
+    expect(schema.schema_hints?.schema_version).toBe('1.0.0');
+    expect(schema.schema_hints?.input_modes?.samples).toEqual([
+      'inline_rows',
+      'server_path',
+    ]);
     expect(validation.ok).toBe(true);
     expect(validateWorkflow).toHaveBeenCalledWith('encode', {
       config: { genome: 'hg38' },

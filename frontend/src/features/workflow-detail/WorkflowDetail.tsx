@@ -1,20 +1,61 @@
 import { ChevronRight, Code2 } from 'lucide-react';
-import type { WorkflowSchema } from '../../api/types';
+import type { WorkflowSchema, WorkflowSummary } from '../../api/types';
+import { ExecutionAvailabilityBadge } from './WorkflowAvailability';
 
 interface WorkflowDetailProps {
-  workflowId: string;
-  workflowName: string;
+  workflow: WorkflowSummary;
 }
 
-export function WorkflowDetail({
-  workflowId,
-  workflowName,
-}: WorkflowDetailProps) {
+export function WorkflowDetail({ workflow }: WorkflowDetailProps) {
+  const { metadata } = workflow;
   return (
-    <div className="min-w-0 text-sm text-[var(--color-text-muted)]">
-      <span className="font-medium text-[var(--color-text)]">{workflowName}</span>
-      <span className="mx-1">·</span>
-      <code className="break-all text-xs">{workflowId}</code>
+    <div className="min-w-0 space-y-3 text-sm text-[var(--color-text-muted)]">
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="font-medium text-[var(--color-text)]">
+            {metadata.name}
+          </span>
+          <ExecutionAvailabilityBadge
+            availability={workflow.availability.execution}
+          />
+        </div>
+        <code className="mt-1 block break-all text-xs">
+          {metadata.workflow_id}
+        </code>
+        {metadata.description && (
+          <p className="mt-2 break-words">{metadata.description}</p>
+        )}
+      </div>
+      <div className="flex min-w-0 flex-wrap gap-2 text-xs">
+        <span className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1">
+          Adapter {metadata.version}
+        </span>
+        <span className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1">
+          Schema {workflow.schema_version}
+        </span>
+        {metadata.engines.map((engine) => (
+          <span
+            key={engine}
+            className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1"
+          >
+            {engine}
+          </span>
+        ))}
+      </div>
+      {workflow.upstream_identity && (
+        <p className="break-words text-xs">
+          Upstream: {workflow.upstream_identity.name}{' '}
+          {workflow.upstream_identity.version}
+          <span className="mx-1">·</span>
+          <code className="break-all">
+            {workflow.upstream_identity.revision}
+          </code>
+        </p>
+      )}
+      <p className="min-w-0 break-words text-xs">
+        Input authoring is available. Execution status:{' '}
+        <code className="break-all">{workflow.availability.reason_code}</code>
+      </p>
     </div>
   );
 }

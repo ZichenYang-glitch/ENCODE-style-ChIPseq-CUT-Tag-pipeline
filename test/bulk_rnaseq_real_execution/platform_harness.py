@@ -601,6 +601,7 @@ class PlatformAcceptanceHarness:
             queued = RunSubmissionService(
                 run_service=runtime.run_service,
                 run_queue=run_queue,
+                build_identity_provider=runtime.build_identity_provider,
             ).start_run(run_id)
             if queued.status.value != "queued":
                 raise AssertionError("bulk RNA-seq run was not durably queued")

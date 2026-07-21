@@ -44,7 +44,9 @@ export function createEmptySampleRow(
 ): DraftSampleRow {
   return {
     id: createId(),
-    values: Object.fromEntries(schema.sampleColumns.map((column) => [column.key, ''])),
+    values: Object.fromEntries(
+      schema.sampleColumns.map((column) => [column.key, column.defaultValue]),
+    ),
   };
 }
 
@@ -158,6 +160,14 @@ export function parseSampleTsv(
     for (const column of schema.sampleColumns) {
       const headerIndex = headerIndexes.get(column.key);
       const value = headerIndex === undefined ? '' : rawRow[headerIndex];
+      if (column.readOnly && value !== column.defaultValue) {
+        return failure(
+          'SAMPLE_TSV_INVALID',
+          'A sample cell does not match the adapter-declared constant.',
+          displayRow,
+          column.key,
+        );
+      }
       values[column.key] = value;
     }
     rows.push({ id: createId(), values });

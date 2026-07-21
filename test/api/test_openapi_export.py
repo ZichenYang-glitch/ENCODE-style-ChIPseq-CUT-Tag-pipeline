@@ -40,6 +40,7 @@ from encode_pipeline.workers.settings import (
 
 EXPECTED_OPERATIONS = {
     ("GET", "/api/v1/workflows/"): "listWorkflows",
+    ("GET", "/api/v1/workflows/{workflow_id}"): "getWorkflow",
     ("GET", "/api/v1/workflows/{workflow_id}/schema"): "getWorkflowSchema",
     ("POST", "/api/v1/workflows/{workflow_id}/validate"): "validateWorkflow",
     ("POST", "/api/v1/workflows/{workflow_id}/runs"): "createRun",

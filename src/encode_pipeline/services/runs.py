@@ -104,6 +104,11 @@ class RunService:
         )
         self._lock = RLock()
 
+    @property
+    def registry(self) -> WorkflowRegistry:
+        """Return the deployment registry used for all run operations."""
+        return self._registry
+
     def create_run(
         self,
         workflow_id: str,

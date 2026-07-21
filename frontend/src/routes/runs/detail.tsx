@@ -17,7 +17,7 @@ export function RunDetailPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { runClient } = useClients();
+  const { runClient, workflowClient } = useClients();
   const selectedArtifactId = searchParams.get('artifact');
   const requestedView = searchParams.get('view');
   const activeView: RunDetailView =
@@ -86,6 +86,7 @@ export function RunDetailPage() {
         <RunProgressPanel
           runId={runId}
           runClient={runClient}
+          workflowClient={workflowClient}
           beginPreflight={beginPreflight}
           preflightRequestId={preflightRequestId}
           onPreflightConsumed={handlePreflightConsumed}

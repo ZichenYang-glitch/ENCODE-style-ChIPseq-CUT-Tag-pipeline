@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, Play, RefreshCw } from 'lucide-react';
+import type { WorkflowApiClient } from '../../api/client';
 import type { RunApiClient } from '../../api/runClient';
 import type {
   RunEventResponse,
   RunLogChunkResponse,
   RunRecordResponse,
 } from '../../api/runTypes';
-import type { Issue, ValidateWorkflowResponse } from '../../api/types';
+import type {
+  Issue,
+  ValidateWorkflowResponse,
+  WorkflowExecutionAvailability,
+} from '../../api/types';
 import { Button } from '../../components/Button';
 import { ArtifactBrowser } from '../run-artifacts/ArtifactBrowser';
 import {
@@ -15,6 +20,7 @@ import {
   type ArtifactExtractionOutcome,
 } from '../run-artifacts/artifactState';
 import { QcWorkbench } from '../run-qc/QcWorkbench';
+import { ExecutionAvailabilityNotice } from '../workflow-detail/WorkflowAvailability';
 import {
   qcIndexingOutcome,
   type QcIndexingOutcome,
@@ -28,6 +34,8 @@ export type RunDetailView = 'activity' | 'artifacts' | 'qc';
 
 interface RunProgressPanelProps {
   workflowId?: string | null;
+  workflowClient?: WorkflowApiClient;
+  executionAvailability?: WorkflowExecutionAvailability | null;
   validationResult?: ValidateWorkflowResponse | null;
   runClient: RunApiClient;
   runId?: string | null;
@@ -261,6 +269,8 @@ function mergeRun(current: RunSnapshot | undefined, run: RunRecordResponse): Run
 
 export function RunProgressPanel({
   workflowId = null,
+  workflowClient,
+  executionAvailability,
   validationResult = null,
   runClient,
   runId = null,
@@ -303,6 +313,22 @@ export function RunProgressPanel({
       return POLL_INTERVAL_MS;
     },
   });
+  const snapshot = runQuery.data;
+  const run = snapshot?.run ?? null;
+  const availabilityWorkflowId = run?.workflow_id ?? workflowId;
+  const workflowAvailabilityQuery = useQuery({
+    queryKey: ['workflow', availabilityWorkflowId, 'execution-availability'],
+    queryFn: () => workflowClient!.getWorkflow(availabilityWorkflowId!),
+    enabled:
+      executionAvailability === undefined &&
+      workflowClient !== undefined &&
+      availabilityWorkflowId !== null,
+    retry: false,
+  });
+  const resolvedExecutionAvailability =
+    executionAvailability !== undefined
+      ? executionAvailability
+      : workflowAvailabilityQuery.data?.workflow?.availability.execution ?? null;
 
   const clearActionIssues = () => {
     setActionIssues([]);
@@ -439,8 +465,6 @@ export function RunProgressPanel({
     targetRunId,
   ]);
 
-  const snapshot = runQuery.data;
-  const run = snapshot?.run ?? null;
   const artifactOutcome = extractionOutcome(snapshot);
   const qcIndexing = qcOutcome(snapshot);
   const shouldPollSnapshot = shouldPollRunSnapshot(snapshot, activeView);
@@ -477,13 +501,21 @@ export function RunProgressPanel({
     if (startWasConfirmed || cancellationReachedTerminal) clearActionIssues();
   }, [actionIssueKind, run?.status]);
 
-  const canCreateRun = createAuthority !== null;
+  const canCreateRun =
+    createAuthority !== null && resolvedExecutionAvailability === 'available';
   const executionActionPending = startMutation.isPending || cancelMutation.isPending;
 
   async function handleCreateRun() {
     clearActionIssues();
     const snapshotId = validationResult?.snapshot?.snapshot_id;
-    if (!workflowId || !snapshotId || createAuthority === null) return;
+    if (
+      !workflowId ||
+      !snapshotId ||
+      createAuthority === null ||
+      resolvedExecutionAvailability !== 'available'
+    ) {
+      return;
+    }
     const attempt: CreateRunAttempt = {
       authority: createAuthority,
       workflowId,
@@ -549,7 +581,9 @@ export function RunProgressPanel({
     : [];
   const visibleIssues = [...actionIssues, ...unexpectedQueryIssues, ...queryIssues];
   const canCancelRun = run !== null && cancellableStatuses.has(run.status);
-  const canStartRun = run?.status === 'planned';
+  const showStartRun = run?.status === 'planned';
+  const canStartRun =
+    showStartRun && resolvedExecutionAvailability === 'available';
   const canPreflightRun = run?.status === 'created';
   const showNoRunPlaceholder = !run && !runQuery.isLoading && visibleIssues.length === 0 && !runId;
   const showMissingRunError =
@@ -577,6 +611,12 @@ export function RunProgressPanel({
 
   return (
     <div className="space-y-4" data-testid="run-progress-panel">
+      {(createAuthority !== null || showStartRun) &&
+        resolvedExecutionAvailability !== 'available' && (
+          <ExecutionAvailabilityNotice
+            availability={resolvedExecutionAvailability}
+          />
+        )}
       {showNoRunPlaceholder && (
         <p className="text-sm text-[var(--color-text-muted)]">
           Validate inputs before creating a run record.
@@ -645,11 +685,13 @@ export function RunProgressPanel({
                 {preflightMutation.isPending ? 'Starting preflight…' : 'Run preflight'}
               </Button>
             )}
-            {canStartRun && (
+            {showStartRun && (
               <Button
                 variant="primary"
-                onClick={() => startMutation.mutate(run.run_id)}
-                disabled={executionActionPending}
+                onClick={() => {
+                  if (canStartRun) startMutation.mutate(run.run_id);
+                }}
+                disabled={!canStartRun || executionActionPending}
                 aria-label="Start run"
                 data-testid="start-run-button"
               >

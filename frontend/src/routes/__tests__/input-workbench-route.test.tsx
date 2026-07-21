@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SchemaResponse } from '../../api/generated/models';
 import { ApiError } from '../../api/fetcher';
+import { createStubWorkflowClient } from '../../api/client';
 import { appRoutes } from '../../app/router';
 import { createAuthoringSchemaFixture, WORKFLOW_ID } from '../../features/input-workbench/test-fixtures';
 import { renderWithRouter } from '../../test/test-utils';
@@ -114,7 +115,7 @@ function textFile(contents: string, name: string, type = 'text/tab-separated-val
 }
 
 async function authorValidDraft(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole('tab', { name: 'Samples' }));
+  await user.click(await screen.findByRole('tab', { name: 'Samples' }));
   await user.upload(
     screen.getByLabelText('Import samples TSV'),
     textFile(
@@ -165,6 +166,103 @@ describe('schema input workbench route', () => {
       /stage4b|stage5/,
     );
     expect(screen.getByRole('button', { name: 'Validate current inputs' })).toBeDisabled();
+  });
+
+  it('loads bulk authoring from the generated schema operation, not stub detail hints', async () => {
+    const response = successResponse();
+    response.workflow_id = 'bulk-rnaseq';
+    response.schema!.schema_version = '1.0.0';
+    generatedMocks.getWorkflowSchema.mockResolvedValue(response);
+
+    renderWithRouter(appRoutes, {
+      initialEntries: ['/workflows/bulk-rnaseq/new-run'],
+    });
+
+    expect(
+      await screen.findByRole('heading', { name: 'Input workbench' }),
+    ).toBeVisible();
+    expect(generatedMocks.getWorkflowSchema).toHaveBeenCalledWith(
+      'bulk-rnaseq',
+    );
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Options' }));
+    expect(screen.getByRole('heading', { name: 'Adapter options' })).toBeVisible();
+  });
+
+  it('prefills and locks an adapter-declared constant sample cell', async () => {
+    const response = successResponse();
+    const items = (response.schema!.sample_schema as {
+      items: {
+        properties: Record<string, unknown>;
+        required: string[];
+      };
+    }).items;
+    items.properties.platform = {
+      type: 'string',
+      title: 'Sequencing platform',
+      const: 'ILLUMINA',
+    };
+    items.required.push('platform');
+    generatedMocks.getWorkflowSchema.mockResolvedValue(response);
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run?step=samples`],
+    });
+
+    await user.click(await screen.findByRole('button', { name: 'Add sample row' }));
+
+    const platformCells = screen.getAllByLabelText('Sample 1 platform');
+    expect(platformCells).toHaveLength(2);
+    for (const platform of platformCells) {
+      expect(platform).toHaveValue('ILLUMINA');
+      expect(platform).toHaveAttribute('readonly');
+      await user.type(platform, 'OTHER');
+      expect(platform).toHaveValue('ILLUMINA');
+    }
+  });
+
+  it('keeps validation available but disables run creation when execution is not configured', async () => {
+    generatedMocks.validateWorkflow.mockResolvedValue({
+      ok: true,
+      workflow_id: WORKFLOW_ID,
+      value: { validated: true },
+      snapshot: null,
+      issues: [],
+    });
+    const workflowClient = createStubWorkflowClient();
+    workflowClient.getWorkflow = vi.fn(async (workflowId) => {
+      const response = await createStubWorkflowClient().getWorkflow(workflowId);
+      if (response.workflow) {
+        response.workflow = {
+          ...response.workflow,
+          availability: {
+            ...response.workflow.availability,
+            execution: 'not_configured',
+            reason_code: 'WORKFLOW_EXECUTION_NOT_CONFIGURED',
+          },
+        };
+      }
+      return response;
+    });
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+      clients: { workflowClient },
+    });
+
+    await authorValidDraft(user);
+    const validate = screen.getByRole('button', {
+      name: 'Validate current inputs',
+    });
+    expect(validate).toBeEnabled();
+    await user.click(validate);
+
+    expect(await screen.findByText(/execution runtime is not configured/i)).toBeVisible();
+    expect(screen.getByText(/backend validation succeeded/i)).toBeVisible();
+    expect(screen.queryByText(/VALIDATION_NOT_CONFIRMED/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Create run from validated inputs' }),
+    ).toBeDisabled();
+    expect(generatedMocks.createRun).not.toHaveBeenCalled();
   });
 
   it('keeps a successful deprecated-alias warning non-terminal and create-ready', async () => {

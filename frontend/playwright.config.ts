@@ -6,6 +6,9 @@ const noProxy = [process.env.NO_PROXY, '127.0.0.1', 'localhost', '::1']
 process.env.NO_PROXY = noProxy;
 process.env.no_proxy = noProxy;
 
+const protectedBulkProductGate =
+  process.env.HELIXWEAVE_REQUIRE_BULK_RNASEQ_PRODUCT_GATE === '1';
+
 if (
   !process.env.ENCODE_PIPELINE_E2E_ROOT ||
   !process.env.ENCODE_PIPELINE_E2E_OWNER
@@ -18,20 +21,24 @@ export default defineConfig({
   globalTeardown: './e2e/global-teardown.ts',
   fullyParallel: false,
   workers: 1,
-  retries: process.env.CI ? 1 : 0,
+  retries: process.env.CI && !protectedBulkProductGate ? 1 : 0,
   timeout: 90_000,
   expect: { timeout: 20_000 },
-  reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
+  reporter: protectedBulkProductGate
+    ? 'github'
+    : process.env.CI
+      ? [['github'], ['html', { open: 'never' }]]
+      : 'list',
   use: {
     baseURL: 'http://127.0.0.1:4173',
-    trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    trace: protectedBulkProductGate ? 'off' : 'retain-on-failure',
+    screenshot: protectedBulkProductGate ? 'off' : 'only-on-failure',
+    video: protectedBulkProductGate ? 'off' : 'retain-on-failure',
   },
   webServer: {
     command: 'exec python3 ../test/browser/platform_runtime.py',
     url: 'http://127.0.0.1:4173',
-    timeout: 120_000,
+    timeout: protectedBulkProductGate ? 300_000 : 120_000,
     reuseExistingServer: false,
     stdout: 'pipe',
     stderr: 'pipe',

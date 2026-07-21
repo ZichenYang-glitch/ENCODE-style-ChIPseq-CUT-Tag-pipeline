@@ -1,4 +1,5 @@
 import type {
+  GetWorkflowResponse,
   GetWorkflowSchemaResponse,
   ListWorkflowsResponse,
   ValidateWorkflowResponse,
@@ -12,6 +13,7 @@ import {
 
 export interface WorkflowApiClient {
   listWorkflows(): Promise<ListWorkflowsResponse>;
+  getWorkflow(workflowId: string): Promise<GetWorkflowResponse>;
   getWorkflowSchema(workflowId: string): Promise<GetWorkflowSchemaResponse>;
   validateWorkflow(
     workflowId: string,
@@ -38,6 +40,26 @@ export function createStubWorkflowClient(): WorkflowApiClient {
       return {
         ok: true,
         workflows: stubWorkflows,
+        issues: [],
+      };
+    },
+
+    async getWorkflow(workflowId) {
+      const workflow = stubWorkflows.find(
+        (candidate) => candidate.metadata.workflow_id === workflowId,
+      );
+      if (!workflow) {
+        return {
+          ok: false,
+          workflow_id: workflowId,
+          workflow: null,
+          issues: [workflowNotFoundIssue(workflowId)],
+        };
+      }
+      return {
+        ok: true,
+        workflow_id: workflowId,
+        workflow,
         issues: [],
       };
     },

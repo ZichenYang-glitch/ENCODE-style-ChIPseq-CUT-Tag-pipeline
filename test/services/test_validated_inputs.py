@@ -9,6 +9,7 @@ from encode_pipeline.platform.adapters import (
     CommandSpec,
     DagPreview,
     WorkflowCapabilities,
+    WorkflowAvailability,
     WorkflowInputs,
     WorkflowMetadata,
     WorkflowSchema,
@@ -22,6 +23,7 @@ from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.validated_inputs import (
     ValidatedInputService,
     ValidatedRunCreationService,
+    ValidatedSnapshotExecutionUnavailableError,
     ValidatedSnapshotNotFoundError,
     ValidatedSnapshotStaleError,
 )
@@ -47,6 +49,7 @@ class FakeAdapter:
         self.result = result or Result.success({"accepted": True})
         self.calls = 0
         self.trace = trace
+        self.execution_status = "available"
 
     def schema(self) -> WorkflowSchema:
         if self.trace is not None:
@@ -70,6 +73,17 @@ class FakeAdapter:
 
     def extract_artifacts(self, inputs, workspace):
         return Result.success(())
+
+    def execution_availability(self) -> WorkflowAvailability:
+        reason = {
+            "available": "WORKFLOW_EXECUTION_READY",
+            "not_configured": "WORKFLOW_EXECUTION_NOT_CONFIGURED",
+            "unavailable": "WORKFLOW_EXECUTION_UNAVAILABLE",
+        }[self.execution_status]
+        return WorkflowAvailability(
+            execution=self.execution_status,
+            reason_code=reason,
+        )
 
 
 class FakeBuildProvider:
@@ -224,6 +238,33 @@ def test_schema_contract_is_read_inside_the_stable_build_capture_window() -> Non
 
     assert result.is_success
     assert trace == ["capture", "schema", "validate", "capture"]
+
+
+def test_authoring_validation_succeeds_without_execution_and_persists_no_snapshot():
+    adapter = FakeAdapter()
+    adapter.execution_status = "not_configured"
+    service, _, repository, provider = _services(adapter=adapter)
+
+    result = service.validate("workflow-a", WorkflowInputs(config={}))
+
+    assert result.is_success
+    assert result.value is None
+    assert adapter.calls == 1
+    assert provider.calls == 0
+    assert repository._validated_input_snapshots == {}
+
+
+def test_unconsumed_snapshot_cannot_create_run_after_execution_becomes_unavailable():
+    adapter = FakeAdapter()
+    validation, creation, repository, _ = _services(adapter=adapter)
+    validated = validation.validate("workflow-a", WorkflowInputs(config={}))
+    assert validated.is_success and validated.value is not None
+    adapter.execution_status = "unavailable"
+
+    with pytest.raises(ValidatedSnapshotExecutionUnavailableError):
+        creation.create_run("workflow-a", validated.value.snapshot_id)
+
+    assert repository._runs == {}
 
 
 def test_schema_contract_failure_is_sanitized_before_adapter_validation() -> None:

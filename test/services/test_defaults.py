@@ -2,12 +2,22 @@
 
 import asyncio
 import os
+import stat
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
+from encode_pipeline.adapters.bulk_rnaseq import (
+    BulkRnaSeqExecutionBinding,
+    BulkRnaSeqResultsWorkflowAdapter,
+    BulkRnaSeqTranscriptomeBinding,
+    BulkRnaSeqWorkflowAdapter,
+    RuntimeAssetBinding,
+)
 from encode_pipeline.api.models import AgentRequest
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.registry import WorkflowRegistry
@@ -19,11 +29,14 @@ from encode_pipeline.services.defaults import (
     create_default_agent_service,
     create_default_validation_service,
     create_default_workflow_registry,
+    create_default_process_runner,
 )
+from encode_pipeline.workers.settings import WorkerSettings
 
 
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
+BULK_WORKFLOW_ID = "bulk-rnaseq"
 
 
 def _write_samples(path: Path) -> Path:
@@ -42,14 +55,16 @@ def test_create_default_workflow_registry_returns_workflow_registry():
     assert isinstance(registry, WorkflowRegistry)
 
 
-def test_default_registry_lists_encode_metadata():
-    registry = create_default_workflow_registry()
+def test_default_registry_lists_encode_and_bulk_metadata_without_runtime():
+    registry = create_default_workflow_registry(environ={})
 
     metadata = registry.list_metadata()
 
-    assert len(metadata) == 1
+    assert len(metadata) == 2
     assert metadata[0].workflow_id == WORKFLOW_ID
     assert metadata[0].name == "ENCODE-style ChIP-seq/CUT&Tag/ATAC/MNase"
+    assert metadata[1].workflow_id == BULK_WORKFLOW_ID
+    assert metadata[1].name == "Bulk RNA-seq"
 
 
 def test_default_registry_resolves_encode_adapter():
@@ -58,6 +73,18 @@ def test_default_registry_resolves_encode_adapter():
     adapter = registry.get(WORKFLOW_ID)
 
     assert isinstance(adapter, EncodeStyleWorkflowAdapter)
+
+
+def test_default_registry_resolves_authoring_only_bulk_adapter_without_runtime():
+    registry = create_default_workflow_registry(environ={})
+
+    adapter = registry.get(BULK_WORKFLOW_ID)
+
+    assert isinstance(adapter, BulkRnaSeqWorkflowAdapter)
+    assert adapter.capabilities.supports == ("validation", "input_authoring")
+    availability = adapter.execution_availability()
+    assert availability.execution == "not_configured"
+    assert availability.reason_code == "WORKFLOW_EXECUTION_NOT_CONFIGURED"
 
 
 def test_repeated_default_registry_calls_return_distinct_objects():
@@ -247,6 +274,147 @@ def test_create_default_local_run_driver_returns_instance():
     driver = create_default_local_run_driver(run_service=run_service)
 
     assert driver.__class__.__name__ == "LocalRunDriver"
+
+
+def test_default_process_runner_allows_only_bundled_engine_without_bulk_runtime(
+    tmp_path,
+):
+    settings = WorkerSettings(
+        database_url=f"sqlite:///{tmp_path / 'db.sqlite'}",
+        redis_url="redis://localhost:6379/0",
+        queue_name="tests",
+        workspace_root=(tmp_path / "workspaces").resolve(),
+    )
+
+    runner = create_default_process_runner(
+        registry=create_default_workflow_registry(environ={}),
+        settings=settings,
+    )
+
+    assert runner._allowed_executables == ("snakemake",)
+
+
+def test_default_process_runner_uses_exact_admitted_bulk_server_coordinates(
+    tmp_path,
+    monkeypatch,
+):
+    import encode_pipeline.services.managed_containers as managed_containers_module
+
+    docker = (tmp_path / "bin/docker").resolve()
+    socket = (tmp_path / "docker.sock").resolve()
+    docker.parent.mkdir()
+    docker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    docker.chmod(0o755)
+    socket.write_bytes(b"")
+    real_lstat = os.lstat
+    socket_stat = real_lstat(socket)
+    socket_values = list(socket_stat)
+    socket_values[0] = stat.S_IFSOCK | 0o660
+    simulated_socket_stat = os.stat_result(socket_values)
+
+    def lstat_with_simulated_socket(path):
+        if Path(path) == socket:
+            return simulated_socket_stat
+        return real_lstat(path)
+
+    monkeypatch.setattr(
+        managed_containers_module.os,
+        "lstat",
+        lstat_with_simulated_socket,
+    )
+    binding = BulkRnaSeqExecutionBinding(
+        assets=RuntimeAssetBinding(
+            root=(tmp_path / "runtime").resolve(),
+            docker_executable=docker,
+            docker_socket=socket,
+        ),
+        transcriptome=BulkRnaSeqTranscriptomeBinding(
+            reference_id="tiny",
+            fasta_sha256="a" * 64,
+            gtf_sha256="b" * 64,
+            transcript_fasta=(tmp_path / "transcripts.fa").resolve(),
+            transcript_fasta_sha256="c" * 64,
+        ),
+    )
+    registry = WorkflowRegistry(
+        [
+            EncodeStyleWorkflowAdapter(),
+            BulkRnaSeqResultsWorkflowAdapter(execution=binding),
+        ]
+    )
+    settings = WorkerSettings(
+        database_url=f"sqlite:///{tmp_path / 'db.sqlite'}",
+        redis_url="redis://localhost:6379/0",
+        queue_name="tests",
+        workspace_root=(tmp_path / "workspaces").resolve(),
+        managed_docker_executable=docker,
+        managed_docker_socket=socket,
+    )
+
+    runner = create_default_process_runner(registry=registry, settings=settings)
+
+    assert runner._allowed_executables == ("snakemake", "/usr/bin/unshare")
+
+    mismatched = WorkerSettings(
+        database_url=settings.database_url,
+        redis_url="redis://localhost:6379/0",
+        queue_name="tests",
+        workspace_root=settings.workspace_root,
+        managed_docker_executable=(tmp_path / "other/docker").resolve(),
+        managed_docker_socket=socket,
+    )
+    with pytest.raises(ValueError, match="do not match"):
+        create_default_process_runner(registry=registry, settings=mismatched)
+
+
+def test_default_process_runner_disables_bulk_when_cleaner_cannot_bind(
+    tmp_path,
+    monkeypatch,
+):
+    import encode_pipeline.services.defaults as defaults
+
+    docker = (tmp_path / "bin/docker").resolve()
+    socket = (tmp_path / "missing/docker.sock").resolve()
+    binding = BulkRnaSeqExecutionBinding(
+        assets=RuntimeAssetBinding(
+            root=(tmp_path / "runtime").resolve(),
+            docker_executable=docker,
+            docker_socket=socket,
+        ),
+        transcriptome=BulkRnaSeqTranscriptomeBinding(
+            reference_id="tiny",
+            fasta_sha256="a" * 64,
+            gtf_sha256="b" * 64,
+            transcript_fasta=(tmp_path / "transcripts.fa").resolve(),
+            transcript_fasta_sha256="c" * 64,
+        ),
+    )
+    adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
+    registry = WorkflowRegistry([EncodeStyleWorkflowAdapter(), adapter])
+    settings = WorkerSettings(
+        database_url=f"sqlite:///{tmp_path / 'db.sqlite'}",
+        redis_url="redis://localhost:6379/0",
+        queue_name="tests",
+        workspace_root=(tmp_path / "workspaces").resolve(),
+        managed_docker_executable=docker,
+        managed_docker_socket=socket,
+    )
+
+    def unavailable_cleaner(_settings):
+        raise FileNotFoundError("private Docker endpoint")
+
+    monkeypatch.setattr(
+        defaults,
+        "create_default_managed_container_cleaner",
+        unavailable_cleaner,
+    )
+
+    runner = create_default_process_runner(registry=registry, settings=settings)
+
+    assert runner._allowed_executables == ("snakemake",)
+    assert runner._managed_container_cleaner is None
+    assert adapter.execution_binding is None
+    assert adapter.execution_availability().execution == "unavailable"
 
 
 def test_create_default_workspace_materializer_returns_instance():

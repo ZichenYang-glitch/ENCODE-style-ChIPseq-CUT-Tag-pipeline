@@ -71,6 +71,19 @@ Artifact and QC platform services still enforce lifecycle state, build
 identity, path containment, regular-file and size rules, candidate types, and
 atomic persistence. Conformance never bypasses those runtime checks.
 
+## Bundled workflow support
+
+| Workflow ID | Authoring | Local execution | Engine / upstream |
+| :--- | :--- | :--- | :--- |
+| `encode-style-chipseq-cuttag-atac-mnase` | Available | Existing bundled local composition | Snakemake |
+| `bulk-rnaseq` | Available even without runtime assets | Available only after the complete operator binding passes live admission | Nextflow; nf-core/rnaseq 3.26.0 at `e7ca46272c8f9d5ceee3f71759f4ba551d3217a4` |
+
+The workflow list/detail API publishes the adapter schema version, safe
+upstream identity, authoring capabilities, and a path-free execution state.
+An absent or rejected bulk runtime is `not_configured` or `unavailable`; it is
+never reported as runnable. API create/start and the worker recheck the same
+server-owned authority, so a UI button is not the security boundary.
+
 ## Current deployment limit
 
 The local `CommandBuilder` and `WorkflowBuildIdentityProvider` remain composed
@@ -78,10 +91,9 @@ for this repository's bundled ENCODE Snakemake source. The tested conformance
 seam does not imply that an arbitrary external package can enter the durable
 worker without a later, explicit source/command composition design.
 
-Dynamic discovery remains deferred. The contract-only `bulk-rnaseq` adapter is
-the selected second-adapter direction, but it is intentionally absent from the
-default registry until its runtime, artifact, acceptance, and product gates are
-complete; see the [selection decision](../architecture/bulk-rnaseq-adapter-decision.md).
+Dynamic discovery remains deferred. `bulk-rnaseq` is a bundled default adapter,
+not a dynamically loaded plugin; see the
+[selection decision](../architecture/bulk-rnaseq-adapter-decision.md).
 If external discovery is later selected, use Python standard
 `importlib.metadata.entry_points` with an explicit deployment allowlist and
 deterministic duplicate/version and load-failure policy; do not add a custom

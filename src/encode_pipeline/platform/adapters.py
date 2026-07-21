@@ -35,8 +35,17 @@ MAX_SAMPLE_CELL_LENGTH = 4_096
 
 _SCHEMA_VERSION_PATTERN = re.compile(r"^[1-9]\d*\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$")
 _MODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_PUBLIC_IDENTITY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+/-]{0,254}$")
 _SCHEMA_COVERAGE_VALUES = frozenset({"partial", "complete"})
 _PREFLIGHT_KINDS = frozenset({"dry_run", "configuration"})
+_EXECUTION_AVAILABILITY_VALUES = frozenset(
+    {"available", "not_configured", "unavailable"}
+)
+_EXECUTION_AVAILABILITY_REASON_CODES = {
+    "available": "WORKFLOW_EXECUTION_READY",
+    "not_configured": "WORKFLOW_EXECUTION_NOT_CONFIGURED",
+    "unavailable": "WORKFLOW_EXECUTION_UNAVAILABLE",
+}
 
 VALIDATION_CAPABILITY = "validation"
 DAG_PREVIEW_CAPABILITY = "dag_preview"
@@ -54,6 +63,14 @@ WORKFLOW_CAPABILITY_NAMES = frozenset(
         COMMAND_CAPABILITY,
         INPUT_AUTHORING_CAPABILITY,
         INPUT_BUNDLE_IMPORT_CAPABILITY,
+        ARTIFACT_EXTRACT_CAPABILITY,
+        QC_SUMMARY_EXTRACT_CAPABILITY,
+    }
+)
+EXECUTION_CAPABILITY_NAMES = frozenset(
+    {
+        WORKSPACE_PLAN_CAPABILITY,
+        COMMAND_CAPABILITY,
         ARTIFACT_EXTRACT_CAPABILITY,
         QC_SUMMARY_EXTRACT_CAPABILITY,
     }
@@ -252,6 +269,100 @@ class WorkflowCapabilities:
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-ready representation."""
         return {"supports": list(self.supports)}
+
+
+@dataclass(frozen=True)
+class WorkflowUpstreamIdentity:
+    """Safe public identity for an adapter's selected upstream workflow."""
+
+    name: str
+    version: str
+    revision: str
+
+    def __post_init__(self) -> None:
+        for field_name in ("name", "version", "revision"):
+            object.__setattr__(
+                self,
+                field_name,
+                _normalize_public_identity_string(
+                    getattr(self, field_name), field_name
+                ),
+            )
+
+    def to_dict(self) -> dict[str, str]:
+        """Return a JSON-ready public identity."""
+        return {
+            "name": self.name,
+            "version": self.version,
+            "revision": self.revision,
+        }
+
+
+@dataclass(frozen=True)
+class WorkflowAvailability:
+    """Path-free authoring and execution availability for one adapter."""
+
+    authoring: str = "available"
+    execution: str = "available"
+    reason_code: str = "WORKFLOW_EXECUTION_READY"
+
+    def __post_init__(self) -> None:
+        if self.authoring != "available":
+            raise ValueError("Workflow authoring availability must be available")
+        if self.execution not in _EXECUTION_AVAILABILITY_VALUES:
+            raise ValueError("Workflow execution availability is invalid")
+        if self.reason_code != _EXECUTION_AVAILABILITY_REASON_CODES[self.execution]:
+            raise ValueError("Workflow execution availability reason code is invalid")
+
+    def to_dict(self) -> dict[str, str]:
+        """Return a JSON-ready availability projection."""
+        return {
+            "authoring": self.authoring,
+            "execution": self.execution,
+            "reason_code": self.reason_code,
+        }
+
+
+@dataclass(frozen=True)
+class WorkflowDescriptor:
+    """Stable workflow-neutral product information for list and detail views."""
+
+    metadata: WorkflowMetadata
+    schema_version: str
+    capabilities: WorkflowCapabilities
+    upstream_identity: WorkflowUpstreamIdentity | None
+    availability: WorkflowAvailability
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.metadata, WorkflowMetadata):
+            raise ValueError("Workflow descriptor metadata is invalid")
+        if (
+            not isinstance(self.schema_version, str)
+            or _SCHEMA_VERSION_PATTERN.fullmatch(self.schema_version) is None
+        ):
+            raise ValueError("Workflow descriptor schema_version is invalid")
+        if not isinstance(self.capabilities, WorkflowCapabilities):
+            raise ValueError("Workflow descriptor capabilities are invalid")
+        if self.upstream_identity is not None and not isinstance(
+            self.upstream_identity, WorkflowUpstreamIdentity
+        ):
+            raise ValueError("Workflow descriptor upstream identity is invalid")
+        if not isinstance(self.availability, WorkflowAvailability):
+            raise ValueError("Workflow descriptor availability is invalid")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-ready product descriptor."""
+        return {
+            "metadata": self.metadata.to_dict(),
+            "schema_version": self.schema_version,
+            "capabilities": self.capabilities.to_dict(),
+            "upstream_identity": (
+                None
+                if self.upstream_identity is None
+                else self.upstream_identity.to_dict()
+            ),
+            "availability": self.availability.to_dict(),
+        }
 
 
 @dataclass(frozen=True)
@@ -728,6 +839,21 @@ class WorkflowBuildIdentityProvidingAdapter(Protocol):
 
 
 @runtime_checkable
+class WorkflowAvailabilityProvidingAdapter(Protocol):
+    """Optional adapter contract for path-free dynamic execution readiness."""
+
+    def execution_availability(self) -> WorkflowAvailability:
+        """Return current authoring/execution availability without private detail."""
+
+
+@runtime_checkable
+class WorkflowUpstreamIdentityProvidingAdapter(Protocol):
+    """Optional adapter contract for one safe public upstream identity."""
+
+    upstream_identity: WorkflowUpstreamIdentity
+
+
+@runtime_checkable
 class InputBundleImportingAdapter(Protocol):
     """Optional adapter contract for mapping one verified public input Bundle."""
 
@@ -756,6 +882,17 @@ def _normalize_required_string(value: str, name: str) -> str:
     normalized = value.strip()
     if not normalized:
         raise ValueError(f"{name} must be non-empty")
+    return normalized
+
+
+def _normalize_public_identity_string(value: str, name: str) -> str:
+    normalized = _normalize_required_string(value, name)
+    if (
+        normalized != value
+        or _PUBLIC_IDENTITY_PATTERN.fullmatch(normalized) is None
+        or any(part in {"", ".", ".."} for part in normalized.split("/"))
+    ):
+        raise ValueError(f"{name} must be a public-safe identity token")
     return normalized
 
 

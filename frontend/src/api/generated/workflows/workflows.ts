@@ -9,6 +9,7 @@ import type {
   SchemaResponse,
   ValidationRequest,
   ValidationResponse,
+  WorkflowDetailResponse,
   WorkflowListResponse
 } from '.././models';
 
@@ -29,6 +30,30 @@ export const getListWorkflowsUrl = () => {
 export const listWorkflows = async ( options?: RequestInit): Promise<WorkflowListResponse> => {
 
   return fetcher<WorkflowListResponse>(getListWorkflowsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * Return one safe workflow product descriptor.
+ * @summary Get Workflow
+ */
+export const getGetWorkflowUrl = (workflowId: string,) => {
+
+
+
+
+  return `/api/v1/workflows/${workflowId}`
+}
+
+export const getWorkflow = async (workflowId: string, options?: RequestInit): Promise<WorkflowDetailResponse> => {
+
+  return fetcher<WorkflowDetailResponse>(getGetWorkflowUrl(workflowId),
   {
     ...options,
     method: 'GET'

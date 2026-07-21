@@ -31,12 +31,43 @@ export interface WorkflowCapabilities {
   supports: string[];
 }
 
+export type WorkflowExecutionAvailability =
+  | 'available'
+  | 'not_configured'
+  | 'unavailable';
+
+export type WorkflowAvailabilityReasonCode =
+  | 'WORKFLOW_EXECUTION_READY'
+  | 'WORKFLOW_EXECUTION_NOT_CONFIGURED'
+  | 'WORKFLOW_EXECUTION_UNAVAILABLE';
+
+export interface WorkflowAvailability {
+  authoring: 'available';
+  execution: WorkflowExecutionAvailability;
+  reason_code: WorkflowAvailabilityReasonCode;
+}
+
+export interface WorkflowUpstreamIdentity {
+  name: string;
+  version: string;
+  revision: string;
+}
+
 export interface WorkflowSummary {
   metadata: WorkflowMetadata;
+  schema_version: string;
   capabilities: WorkflowCapabilities;
+  upstream_identity: WorkflowUpstreamIdentity | null;
+  availability: WorkflowAvailability;
 }
 
 export interface WorkflowSchema {
+  schema_version?: string;
+  input_modes?: {
+    config: string[];
+    samples: string[];
+    options: string[];
+  };
   config_schema: Record<string, unknown>;
   sample_schema: Record<string, unknown>;
   option_schema: Record<string, unknown>;
@@ -51,6 +82,13 @@ export interface WorkflowInputs {
 export interface ListWorkflowsResponse {
   ok: boolean;
   workflows: WorkflowSummary[];
+  issues: Issue[];
+}
+
+export interface GetWorkflowResponse {
+  ok: boolean;
+  workflow_id: string;
+  workflow: WorkflowSummary | null;
   issues: Issue[];
 }
 

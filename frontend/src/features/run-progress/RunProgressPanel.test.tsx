@@ -258,6 +258,7 @@ function renderPanel(props: Partial<Parameters<typeof RunProgressPanel>[0]> = {}
     workflowId: WORKFLOW_ID,
     validationResult: null,
     runClient,
+    executionAvailability: 'available' as const,
   };
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -452,6 +453,19 @@ describe('RunProgressPanel', () => {
 
     expect(screen.getByTestId('create-run-button')).toBeEnabled();
   });
+
+  it.each(['not_configured', 'unavailable'] as const)(
+    'keeps create fail-closed when execution is %s',
+    (executionAvailability) => {
+      renderPanel({
+        validationResult: successfulValidation,
+        executionAvailability,
+      });
+
+      expect(screen.getByTestId('create-run-button')).toBeDisabled();
+      expect(screen.getByTestId('execution-availability-notice')).toBeVisible();
+    },
+  );
 
   it('creates a run record and shows status, events, and stdout logs', async () => {
     const user = userEvent.setup();
@@ -1119,6 +1133,30 @@ describe('RunProgressPanel', () => {
     expect(screen.getByTestId('run-status-badge')).toHaveTextContent('queued');
     expect(screen.queryByRole('button', { name: 'Start run' })).not.toBeInTheDocument();
   });
+
+  it.each(['not_configured', 'unavailable', null] as const)(
+    'keeps a planned run fail-closed when execution availability is %s',
+    async (executionAvailability) => {
+      const runClient = createMockRunClient();
+      await runClient.createRun(WORKFLOW_ID, {
+        snapshot_id: validatedSnapshot.snapshot_id,
+      });
+      await runClient.preflightRun('run-1');
+
+      renderPanel({
+        runId: 'run-1',
+        runClient,
+        executionAvailability,
+      });
+
+      expect(await screen.findByTestId('run-status-badge')).toHaveTextContent(
+        'planned',
+      );
+      expect(screen.getByRole('button', { name: 'Start run' })).toBeDisabled();
+      expect(screen.getByTestId('execution-availability-notice')).toBeVisible();
+      expect(runClient.startRun).not.toHaveBeenCalled();
+    },
+  );
 
   it('treats an unconfirmed start as unknown and clears it after canonical advancement', async () => {
     const baseClient = createMockRunClient();

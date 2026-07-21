@@ -10,7 +10,9 @@ import type {
   ValidatedInputSnapshotResponse,
 } from '../../api/generated/models';
 import { ApiError } from '../../api/fetcher';
+import type { WorkflowAvailability } from '../../api/types';
 import { Button } from '../../components/Button';
+import { ExecutionAvailabilityNotice } from '../workflow-detail/WorkflowAvailability';
 import type { InputDraftController } from './useInputDraft';
 
 interface SafeIssue {
@@ -39,6 +41,7 @@ interface CreateAttempt {
 interface ValidatedSubmissionProps {
   workflowId: string;
   draft: InputDraftController;
+  availability: WorkflowAvailability | null;
 }
 
 function safeIssues(issues: IssueResponse[] | undefined): SafeIssue[] {
@@ -73,6 +76,7 @@ function requestIssues(error: unknown, fallback: SafeIssue): SafeIssue[] {
 export function ValidatedSubmission({
   workflowId,
   draft,
+  availability,
 }: ValidatedSubmissionProps) {
   const navigate = useNavigate();
   const [snapshotState, setSnapshotState] = useState<SnapshotState | null>(null);
@@ -83,6 +87,7 @@ export function ValidatedSubmission({
       ? snapshotState.snapshot
       : null;
   const snapshotInvalidated = snapshotState !== null && activeSnapshot === null;
+  const executionAvailable = availability?.execution === 'available';
 
   useEffect(() => {
     if (snapshotInvalidated) {
@@ -104,6 +109,18 @@ export function ValidatedSubmission({
         return;
       }
       const responseIssues = safeIssues(response.issues);
+      if (
+        response.ok &&
+        response.snapshot === null &&
+        !executionAvailable
+      ) {
+        setSnapshotState(null);
+        setIssues(responseIssues);
+        setNotice(
+          'Backend validation succeeded. No runnable snapshot was issued because execution is unavailable.',
+        );
+        return;
+      }
       if (
         !response.ok ||
         response.snapshot === null ||
@@ -128,7 +145,11 @@ export function ValidatedSubmission({
         revision: draft.state.semanticRevision,
       });
       setIssues(responseIssues);
-      setNotice('Backend validation succeeded. This exact draft can create one run.');
+      setNotice(
+        executionAvailable
+          ? 'Backend validation succeeded. This exact draft can create one run.'
+          : 'Backend validation succeeded. This exact draft is saved, but execution is unavailable.',
+      );
     },
     onError: (error, attempt) => {
       setSnapshotState(null);
@@ -241,6 +262,7 @@ export function ValidatedSubmission({
       className="mt-4 min-w-0 border-t border-[var(--color-border)] pt-4"
       aria-labelledby="validated-submission-title"
     >
+      <ExecutionAvailabilityNotice availability={availability} />
       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h3 id="validated-submission-title" className="text-sm font-semibold">
@@ -274,9 +296,18 @@ export function ValidatedSubmission({
             type="button"
             variant="primary"
             className="gap-1.5"
-            disabled={activeSnapshot === null || validationMutation.isPending || createMutation.isPending}
+            disabled={
+              !executionAvailable ||
+              activeSnapshot === null ||
+              validationMutation.isPending ||
+              createMutation.isPending
+            }
             onClick={() => {
-              if (activeSnapshot !== null && snapshotState !== null) {
+              if (
+                executionAvailable &&
+                activeSnapshot !== null &&
+                snapshotState !== null
+              ) {
                 createMutation.mutate({
                   snapshotId: activeSnapshot.snapshot_id,
                   revision: snapshotState.revision,

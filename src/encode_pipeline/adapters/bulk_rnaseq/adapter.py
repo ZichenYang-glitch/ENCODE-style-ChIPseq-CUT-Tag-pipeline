@@ -32,6 +32,10 @@ from encode_pipeline.adapters.bulk_rnaseq.execution import (
     doctor_bulk_rnaseq_runtime,
     plan_bulk_rnaseq_workspace,
 )
+from encode_pipeline.adapters.bulk_rnaseq.upstream import (
+    NFCORE_RNASEQ_COMMIT,
+    NFCORE_RNASEQ_RELEASE,
+)
 from encode_pipeline.platform.adapters import (
     ARTIFACT_EXTRACT_CAPABILITY,
     COMMAND_CAPABILITY,
@@ -45,9 +49,11 @@ from encode_pipeline.platform.adapters import (
     ExtractedQcMetricCandidate,
     QcSourceDocument,
     WorkflowCapabilities,
+    WorkflowAvailability,
     WorkflowInputs,
     WorkflowMetadata,
     WorkflowSchema,
+    WorkflowUpstreamIdentity,
     WorkspacePlan,
 )
 from encode_pipeline.platform.results import Issue, Result
@@ -75,17 +81,37 @@ class BulkRnaSeqWorkflowAdapter:
     capabilities = WorkflowCapabilities(
         supports=(VALIDATION_CAPABILITY, INPUT_AUTHORING_CAPABILITY)
     )
+    upstream_identity = WorkflowUpstreamIdentity(
+        name="nf-core/rnaseq",
+        version=NFCORE_RNASEQ_RELEASE,
+        revision=NFCORE_RNASEQ_COMMIT,
+    )
 
     def __init__(
         self,
         *,
         execution: BulkRnaSeqExecutionBinding | None = None,
+        configured_availability: WorkflowAvailability | None = None,
     ) -> None:
         if execution is not None and not isinstance(
             execution, BulkRnaSeqExecutionBinding
         ):
             raise ValueError("execution must be a BulkRnaSeqExecutionBinding or None")
+        if configured_availability is None:
+            configured_availability = WorkflowAvailability(
+                execution=("available" if execution is not None else "not_configured"),
+                reason_code=(
+                    "WORKFLOW_EXECUTION_READY"
+                    if execution is not None
+                    else "WORKFLOW_EXECUTION_NOT_CONFIGURED"
+                ),
+            )
+        if not isinstance(configured_availability, WorkflowAvailability):
+            raise ValueError("configured_availability must be WorkflowAvailability")
+        if execution is None and configured_availability.execution == "available":
+            raise ValueError("execution availability requires an execution binding")
         self._execution = execution
+        self._configured_availability = configured_availability
         supports = [VALIDATION_CAPABILITY, INPUT_AUTHORING_CAPABILITY]
         if execution is not None:
             supports.extend((WORKSPACE_PLAN_CAPABILITY, COMMAND_CAPABILITY))
@@ -153,6 +179,37 @@ class BulkRnaSeqWorkflowAdapter:
         if self._execution is None:
             return _unsupported("doctor")
         return doctor_bulk_rnaseq_runtime(self._execution)
+
+    def execution_availability(self) -> WorkflowAvailability:
+        """Return path-free readiness while reusing the live admission authority."""
+        if self._execution is None:
+            return self._configured_availability
+        try:
+            report = doctor_bulk_rnaseq_runtime(self._execution)
+        except Exception:
+            return WorkflowAvailability(
+                execution="unavailable",
+                reason_code="WORKFLOW_EXECUTION_UNAVAILABLE",
+            )
+        if report.ready:
+            return WorkflowAvailability()
+        return WorkflowAvailability(
+            execution="unavailable",
+            reason_code="WORKFLOW_EXECUTION_UNAVAILABLE",
+        )
+
+    @property
+    def execution_binding(self) -> BulkRnaSeqExecutionBinding | None:
+        """Return the deployment-owned binding for local service composition."""
+        return self._execution
+
+    def disable_execution(self) -> None:
+        """Permanently fail closed when local runner composition is unavailable."""
+        self._execution = None
+        self._configured_availability = WorkflowAvailability(
+            execution="unavailable",
+            reason_code="WORKFLOW_EXECUTION_UNAVAILABLE",
+        )
 
     def extract_artifacts(
         self,

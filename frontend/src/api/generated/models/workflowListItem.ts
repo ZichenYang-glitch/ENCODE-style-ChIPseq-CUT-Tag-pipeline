@@ -7,11 +7,17 @@
  */
 import type { WorkflowMetadataResponse } from './workflowMetadataResponse';
 import type { WorkflowCapabilityResponse } from './workflowCapabilityResponse';
+import type { WorkflowListItemUpstreamIdentity } from './workflowListItemUpstreamIdentity';
+import type { WorkflowAvailabilityResponse } from './workflowAvailabilityResponse';
 
 /**
  * One entry in the workflow list response.
  */
 export interface WorkflowListItem {
   metadata: WorkflowMetadataResponse;
+  /** @pattern ^[1-9]\d*\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$ */
+  schema_version: string;
   capabilities: WorkflowCapabilityResponse;
+  upstream_identity?: WorkflowListItemUpstreamIdentity;
+  availability: WorkflowAvailabilityResponse;
 }

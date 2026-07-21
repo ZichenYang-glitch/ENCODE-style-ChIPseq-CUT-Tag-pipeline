@@ -13,6 +13,8 @@ from encode_pipeline.platform.adapters import (
     WorkflowInputs,
     WorkflowMetadata,
     WorkflowSchema,
+    WorkflowAvailability,
+    WorkflowUpstreamIdentity,
     WorkspacePlan,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
@@ -157,3 +159,85 @@ def test_invalid_workflow_id_from_registry_get_propagates_value_error():
 
     with pytest.raises(ValueError):
         service.get_capabilities("")
+
+
+class ProductAdapter(FakeAdapter):
+    upstream_identity = WorkflowUpstreamIdentity(
+        name="example/workflow",
+        version="2.3.4",
+        revision="a" * 40,
+    )
+
+    def __init__(self, *, execution: str) -> None:
+        super().__init__(
+            workflow_id="product",
+            supports=(
+                "validation",
+                "input_authoring",
+                "workspace_plan",
+                "command",
+            ),
+        )
+        self._execution = execution
+
+    def execution_availability(self) -> WorkflowAvailability:
+        reason = {
+            "available": "WORKFLOW_EXECUTION_READY",
+            "not_configured": "WORKFLOW_EXECUTION_NOT_CONFIGURED",
+            "unavailable": "WORKFLOW_EXECUTION_UNAVAILABLE",
+        }[self._execution]
+        return WorkflowAvailability(
+            authoring="available",
+            execution=self._execution,
+            reason_code=reason,
+        )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("name", "/private/workflow"),
+        ("name", "example/../private"),
+        ("version", " https://private.example/version "),
+        ("revision", "private\\revision"),
+    ],
+)
+def test_upstream_identity_rejects_path_or_endpoint_disclosure(field, value):
+    fields = {
+        "name": "example/workflow",
+        "version": "2.3.4",
+        "revision": "a" * 40,
+    }
+    fields[field] = value
+
+    with pytest.raises(ValueError, match="public-safe identity token"):
+        WorkflowUpstreamIdentity(**fields)
+
+
+def test_descriptor_filters_execution_capabilities_when_runtime_is_not_configured():
+    service = WorkflowInfoService(
+        registry=WorkflowRegistry([ProductAdapter(execution="not_configured")])
+    )
+
+    result = service.get_descriptor("product")
+
+    assert result.is_success
+    descriptor = result.value
+    assert descriptor.schema_version == "1.0.0"
+    assert descriptor.upstream_identity == ProductAdapter.upstream_identity
+    assert descriptor.availability.execution == "not_configured"
+    assert descriptor.capabilities.supports == ("validation", "input_authoring")
+
+
+def test_descriptor_preserves_execution_capabilities_only_when_runtime_is_available():
+    service = WorkflowInfoService(
+        registry=WorkflowRegistry([ProductAdapter(execution="available")])
+    )
+
+    descriptor = service.get_descriptor("product").value
+
+    assert descriptor.availability.execution == "available"
+    assert (
+        descriptor.capabilities.supports
+        == ProductAdapter(execution="available").capabilities.supports
+    )

@@ -70,6 +70,7 @@ describe('Router', () => {
     expect(
       await screen.findByText(/ENCODE-style ChIP-seq/i),
     ).toBeInTheDocument();
+    expect(screen.getByText('Bulk RNA-seq')).toBeVisible();
   });
 
   it('renders workflow detail when navigating to /workflows/:workflowId', async () => {
@@ -80,6 +81,105 @@ describe('Router', () => {
     expect(await screen.findByText(/Config schema/i)).toBeInTheDocument();
     expect(screen.getByText(/Sample schema/i)).toBeInTheDocument();
     expect(screen.getByText(/Options schema/i)).toBeInTheDocument();
+  });
+
+  it('shows safe workflow identity and execution availability on workflow detail', async () => {
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}`],
+    });
+
+    expect(await screen.findByText('Runnable')).toBeVisible();
+    expect(screen.getByText('snakemake')).toBeVisible();
+    expect(screen.getByText('Schema 1.1.0')).toBeVisible();
+  });
+
+  it('renders bulk RNA-seq as a generic not-configured workflow product', async () => {
+    renderWithRouter(appRoutes, {
+      initialEntries: ['/workflows/bulk-rnaseq'],
+    });
+
+    expect((await screen.findAllByText('Bulk RNA-seq')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Not configured').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/nf-core\/rnaseq/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/3\.26\.0/).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: 'Author inputs' })).toBeVisible();
+    expect(
+      screen.queryByRole('heading', { name: 'Validation workspace' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Validation results' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Validation Assistant/i)).not.toBeInTheDocument();
+  });
+
+  it('does not render the legacy server-path workspace for inline-only authoring', async () => {
+    const base = createStubWorkflowClient();
+    const schema = {
+      ...stubWorkflowSchemas[WORKFLOW_ID],
+      input_modes: {
+        config: ['object'],
+        samples: ['inline_rows'],
+        options: ['object'],
+      },
+    };
+    const workflowClient: WorkflowApiClient = {
+      ...base,
+      async getWorkflowSchema(workflowId) {
+        return {
+          ok: true,
+          workflow_id: workflowId,
+          schema_hints: schema,
+          issues: [],
+        };
+      },
+    };
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}`],
+      clients: { workflowClient },
+    });
+
+    expect(await screen.findByRole('link', { name: 'Author inputs' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Validation workspace' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Run progress' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Validation results' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Validation Assistant/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps the legacy workspace closed until server-path support is explicit', async () => {
+    const base = createStubWorkflowClient();
+    const pendingSchema = deferred<
+      Awaited<ReturnType<WorkflowApiClient['getWorkflowSchema']>>
+    >();
+    const workflowClient: WorkflowApiClient = {
+      ...base,
+      getWorkflowSchema: vi.fn(() => pendingSchema.promise),
+    };
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}`],
+      clients: { workflowClient },
+    });
+
+    expect(await screen.findByRole('link', { name: 'Author inputs' })).toBeVisible();
+    expect(
+      screen.queryByRole('heading', { name: 'Validation workspace' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Run progress' }),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      pendingSchema.resolve({
+        ok: true,
+        workflow_id: WORKFLOW_ID,
+        schema_hints: stubWorkflowSchemas[WORKFLOW_ID],
+        issues: [],
+      });
+    });
+    expect(
+      await screen.findByRole('heading', { name: 'Validation workspace' }),
+    ).toBeVisible();
   });
 
   it('places Author inputs before a default-closed developer schema disclosure', async () => {
@@ -130,24 +230,40 @@ describe('Router', () => {
   it('resets validation draft when workflowId changes', async () => {
     const user = userEvent.setup();
     const secondWorkflowId = 'second-workflow';
+    const secondWorkflow = {
+      metadata: {
+        workflow_id: secondWorkflowId,
+        name: 'Second workflow',
+        version: '0.1.0',
+        description: 'Second workflow for route tests.',
+        engines: ['snakemake'],
+        tags: [],
+      },
+      capabilities: { supports: ['validation'] },
+      schema_version: '1.0.0',
+      upstream_identity: null,
+      availability: {
+        authoring: 'available' as const,
+        execution: 'available' as const,
+        reason_code: 'WORKFLOW_EXECUTION_READY' as const,
+      },
+    };
     const workflowClient: WorkflowApiClient = {
       async listWorkflows() {
         return {
           ok: true,
-          workflows: [
-            ...stubWorkflows,
-            {
-              metadata: {
-                workflow_id: secondWorkflowId,
-                name: 'Second workflow',
-                version: '0.1.0',
-                description: 'Second workflow for route tests.',
-                engines: ['snakemake'],
-                tags: [],
-              },
-              capabilities: { supports: ['validation'] },
-            },
-          ],
+          workflows: [...stubWorkflows, secondWorkflow],
+          issues: [],
+        };
+      },
+      async getWorkflow(workflowId) {
+        const workflow = [...stubWorkflows, secondWorkflow].find(
+          (candidate) => candidate.metadata.workflow_id === workflowId,
+        );
+        return {
+          ok: workflow !== undefined,
+          workflow_id: workflowId,
+          workflow: workflow ?? null,
           issues: [],
         };
       },
@@ -303,9 +419,10 @@ describe('Router', () => {
 
   it('does not report workflow API failures as not found', async () => {
     const workflowClient = createStubWorkflowClient();
-    workflowClient.listWorkflows = vi.fn().mockResolvedValue({
+    workflowClient.getWorkflow = vi.fn().mockResolvedValue({
       ok: false,
-      workflows: [],
+      workflow_id: WORKFLOW_ID,
+      workflow: null,
       issues: [
         {
           code: 'API_UNAVAILABLE',

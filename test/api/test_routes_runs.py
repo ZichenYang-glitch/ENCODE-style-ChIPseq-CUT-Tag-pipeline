@@ -350,6 +350,40 @@ def test_create_run_stale_build_identity_fails_without_run(
     assert client.app.state.run_service.list_runs() == ()
 
 
+def test_create_run_bulk_runtime_unavailable_fails_closed_without_run(
+    client: ApiTestClient,
+    workflow_id: str,
+) -> None:
+    source_id = _create_snapshot(client, workflow_id)
+    source = client.app.state.run_service.get_validated_input_snapshot(source_id)
+    bulk_adapter = client.app.state.registry.get("bulk-rnaseq")
+    bulk_identity = replace(
+        source.workflow_build_identity,
+        workflow_id="bulk-rnaseq",
+        adapter_version=bulk_adapter.metadata.version,
+    )
+    bulk_snapshot = replace(
+        source,
+        snapshot_id="vsnap_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        workflow_id="bulk-rnaseq",
+        adapter_version=bulk_adapter.metadata.version,
+        schema_version=bulk_adapter.schema().schema_version,
+        workflow_build_identity=bulk_identity,
+    )
+    client.app.state.persistence.repository.create_validated_input_snapshot(
+        bulk_snapshot
+    )
+
+    response = client.post(
+        "/api/v1/workflows/bulk-rnaseq/runs",
+        json={"snapshot_id": bulk_snapshot.snapshot_id},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["issues"][0]["code"] == ("WORKFLOW_EXECUTION_UNAVAILABLE")
+    assert client.app.state.run_service.list_runs() == ()
+
+
 def test_create_run_corrupt_snapshot_returns_safe_data_invalid_without_run(
     client: ApiTestClient,
     workflow_id: str,

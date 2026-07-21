@@ -28,6 +28,69 @@
         }
       }
     },
+    "/api/v1/workflows/{workflow_id}": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Get Workflow",
+        "description": "Return one safe workflow product descriptor.",
+        "operationId": "getWorkflow",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetailResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetailResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workflows/{workflow_id}/schema": {
       "get": {
         "tags": [
@@ -3041,6 +3104,42 @@
         "title": "ValidationResponse",
         "description": "Envelope for POST /api/v1/workflows/{workflow_id}/validate."
       },
+      "WorkflowAvailabilityResponse": {
+        "properties": {
+          "authoring": {
+            "type": "string",
+            "const": "available",
+            "title": "Authoring"
+          },
+          "execution": {
+            "type": "string",
+            "enum": [
+              "available",
+              "not_configured",
+              "unavailable"
+            ],
+            "title": "Execution"
+          },
+          "reason_code": {
+            "type": "string",
+            "enum": [
+              "WORKFLOW_EXECUTION_READY",
+              "WORKFLOW_EXECUTION_NOT_CONFIGURED",
+              "WORKFLOW_EXECUTION_UNAVAILABLE"
+            ],
+            "title": "Reason Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "authoring",
+          "execution",
+          "reason_code"
+        ],
+        "title": "WorkflowAvailabilityResponse",
+        "description": "Path-free workflow authoring and execution availability."
+      },
       "WorkflowCapabilityResponse": {
         "properties": {
           "supports": {
@@ -3054,6 +3153,43 @@
         "type": "object",
         "title": "WorkflowCapabilityResponse",
         "description": "WorkflowCapabilities JSON shape."
+      },
+      "WorkflowDetailResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowListItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "workflow_id",
+          "workflow"
+        ],
+        "title": "WorkflowDetailResponse",
+        "description": "Envelope for GET /api/v1/workflows/{workflow_id}."
       },
       "WorkflowInputLimitsResponse": {
         "properties": {
@@ -3105,14 +3241,34 @@
           "metadata": {
             "$ref": "#/components/schemas/WorkflowMetadataResponse"
           },
+          "schema_version": {
+            "type": "string",
+            "pattern": "^[1-9]\\d*\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$",
+            "title": "Schema Version"
+          },
           "capabilities": {
             "$ref": "#/components/schemas/WorkflowCapabilityResponse"
+          },
+          "upstream_identity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowUpstreamIdentityResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "availability": {
+            "$ref": "#/components/schemas/WorkflowAvailabilityResponse"
           }
         },
         "type": "object",
         "required": [
           "metadata",
-          "capabilities"
+          "schema_version",
+          "capabilities",
+          "availability"
         ],
         "title": "WorkflowListItem",
         "description": "One entry in the workflow list response."
@@ -3327,6 +3483,31 @@
         ],
         "title": "WorkflowSchemaResponse",
         "description": "Versioned renderable schema contract returned by an adapter."
+      },
+      "WorkflowUpstreamIdentityResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "revision": {
+            "type": "string",
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "revision"
+        ],
+        "title": "WorkflowUpstreamIdentityResponse",
+        "description": "Safe public upstream workflow identity."
       }
     }
   }

@@ -220,12 +220,17 @@ def plan_bulk_rnaseq_workspace(
 
     verified_inputs = input_result.value
     implementation = implementation_result.value
+    transcriptome_identity_sha256 = _transcriptome_build_identity(
+        binding.transcriptome,
+        verified_inputs.transcript_fasta,
+    )
     build_identity_sha256 = _runtime_build_digest(
         assets_result.value,
         adapter_version=adapter_version,
         adapter_variant=adapter_variant,
         execution_mode=execution_mode,
         implementation=implementation,
+        transcriptome_identity_sha256=transcriptome_identity_sha256,
     )
     workspace_identity_sha256 = managed_container_scope(workspace_path)
     params = _runtime_params(
@@ -346,12 +351,19 @@ def build_bulk_rnaseq_command(
         return _failure("BULK_RNASEQ_RUNTIME_UNAVAILABLE", "runtime")
     assets = assets_result.value
     implementation = implementation_result.value
+    transcript_result = _verify_bound_transcriptome(binding)
+    if transcript_result.is_failure:
+        return _failure("BULK_RNASEQ_RUNTIME_UNAVAILABLE", "runtime")
     expected_build = _runtime_build_digest(
         assets,
         adapter_version=adapter_version,
         adapter_variant=adapter_variant,
         execution_mode=execution_mode,
         implementation=implementation,
+        transcriptome_identity_sha256=_transcriptome_build_identity(
+            binding.transcriptome,
+            transcript_result.value,
+        ),
     )
     if (
         not _execution_identity_shape_is_valid(identity)
@@ -515,6 +527,9 @@ def capture_bulk_rnaseq_build_identity(
     assets_result = _acquire_runtime_assets(binding)
     if assets_result.is_failure:
         return _failure("BULK_RNASEQ_RUNTIME_UNAVAILABLE", "runtime")
+    transcript_result = _verify_bound_transcriptome(binding)
+    if transcript_result.is_failure:
+        return _failure("BULK_RNASEQ_RUNTIME_UNAVAILABLE", "runtime")
     try:
         identity = WorkflowBuildIdentity(
             workflow_id="bulk-rnaseq",
@@ -527,6 +542,10 @@ def capture_bulk_rnaseq_build_identity(
                 adapter_variant=adapter_variant,
                 execution_mode=execution_mode,
                 implementation=implementation_result.value,
+                transcriptome_identity_sha256=_transcriptome_build_identity(
+                    binding.transcriptome,
+                    transcript_result.value,
+                ),
             ),
             captured_at=datetime.now(timezone.utc),
         )
@@ -539,9 +558,10 @@ def doctor_bulk_rnaseq_runtime(binding: BulkRnaSeqExecutionBinding):
     """Return the redacted runtime-asset doctor report."""
     implementation = verify_execution_implementation()
     assets = binding.runtime_admission.doctor()
+    transcriptome = _verify_bound_transcriptome(binding)
     return RuntimeAssetDoctorReport(
-        ready=implementation.is_success and assets.ready,
-        issues=(*implementation.issues, *assets.issues),
+        ready=(implementation.is_success and assets.ready and transcriptome.is_success),
+        issues=(*implementation.issues, *assets.issues, *transcriptome.issues),
     )
 
 
@@ -549,6 +569,42 @@ def _acquire_runtime_assets(
     binding: BulkRnaSeqExecutionBinding,
 ) -> Result[VerifiedRuntimeAssets]:
     return binding.runtime_admission.acquire()
+
+
+def _verify_bound_transcriptome(
+    binding: BulkRnaSeqExecutionBinding,
+) -> Result[VerifiedLocalFile]:
+    """Verify the deployment transcript FASTA without exposing its location."""
+    result = safe_regular_file_identity(
+        binding.transcriptome.transcript_fasta,
+        expected_sha256=binding.transcriptome.transcript_fasta_sha256,
+        policy=binding.resource_policy,
+    )
+    if result.is_failure:
+        return _failure("BULK_RNASEQ_TRANSCRIPTOME_INVALID", "runtime")
+    return result
+
+
+def _transcriptome_build_identity(
+    transcriptome: BulkRnaSeqTranscriptomeBinding,
+    verified_transcript: VerifiedLocalFile,
+) -> str:
+    """Return the path-free immutable transcriptome deployment identity."""
+    if (
+        not isinstance(transcriptome, BulkRnaSeqTranscriptomeBinding)
+        or not isinstance(verified_transcript, VerifiedLocalFile)
+        or verified_transcript.sha256 != transcriptome.transcript_fasta_sha256
+    ):
+        raise ValueError("transcriptome build identity is invalid")
+    return _canonical_digest(
+        {
+            "schema_version": "bulk-rnaseq-transcriptome-binding-v1",
+            "reference_id": transcriptome.reference_id,
+            "reference_fasta_sha256": transcriptome.fasta_sha256,
+            "reference_gtf_sha256": transcriptome.gtf_sha256,
+            "transcript_fasta_sha256": verified_transcript.sha256,
+        }
+    )
 
 
 def _verify_input_closure(
@@ -865,6 +921,7 @@ def _runtime_build_digest(
     adapter_variant: str,
     execution_mode: BulkRnaSeqExecutionMode,
     implementation: VerifiedExecutionImplementation,
+    transcriptome_identity_sha256: str,
 ) -> str:
     if not isinstance(adapter_version, str) or not adapter_version.strip():
         raise ValueError("adapter_version must be non-empty")
@@ -873,6 +930,11 @@ def _runtime_build_digest(
         or re.fullmatch(r"[a-z][a-z0-9-]{0,63}", adapter_variant) is None
     ):
         raise ValueError("adapter_variant is invalid")
+    if (
+        not isinstance(transcriptome_identity_sha256, str)
+        or _SHA256.fullmatch(transcriptome_identity_sha256) is None
+    ):
+        raise ValueError("transcriptome_identity_sha256 is invalid")
     mode_identity = execution_mode_identity(execution_mode)
     digest = hashlib.sha256()
     for value in (
@@ -889,6 +951,8 @@ def _runtime_build_digest(
         bytes.fromhex(implementation.aggregate_sha256),
         b"sortmerna-no-prebuilt-index-strategy",
         SORTMERNA_NO_PREBUILT_INDEX_STRATEGY.encode(),
+        b"transcriptome-binding",
+        bytes.fromhex(transcriptome_identity_sha256),
     ):
         _frame(digest, value)
     for value in (

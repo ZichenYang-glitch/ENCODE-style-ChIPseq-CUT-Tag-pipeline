@@ -89,6 +89,34 @@ describe('readWorkbenchSchema', () => {
     ]);
   });
 
+  it('treats a safe string const sample field as one immutable authored value', () => {
+    const schema = createAuthoringSchemaFixture();
+    const items = (schema.sample_schema as {
+      items: {
+        properties: Record<string, unknown>;
+        required: string[];
+      };
+    }).items;
+    items.properties.platform = {
+      type: 'string',
+      title: 'Sequencing platform',
+      const: 'ILLUMINA',
+    };
+    items.required.push('platform');
+
+    const result = readWorkbenchSchema(schema);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(
+      result.value.sampleColumns.find((column) => column.key === 'platform'),
+    ).toMatchObject({
+      enumValues: ['ILLUMINA'],
+      defaultValue: 'ILLUMINA',
+      readOnly: true,
+    });
+  });
+
   it.each(['1.2.0', '2.0.0'])('fails closed for unknown schema version %s', (version) => {
     const schema = createAuthoringSchemaFixture();
     schema.schema_version = version;
