@@ -272,6 +272,20 @@ def test_bulk_product_gate_is_exact_head_path_free_and_coordinate_scoped():
     assert protected_coordinates <= set(product["env"])
     assert all(name not in job["env"] for name in protected_coordinates)
 
+    dependencies = next(
+        step
+        for step in steps
+        if step.get("name") == "Install protected product Gate dependencies"
+    )
+    assert "playwright install-deps chromium --dry-run" in dependencies["run"]
+    assert "playwright install chromium" in dependencies["run"]
+    assert dependencies["run"].index(
+        "playwright install-deps chromium --dry-run"
+    ) < dependencies["run"].index("playwright install chromium")
+    assert "--with-deps" not in dependencies["run"]
+    assert "continue-on-error" not in dependencies
+    assert "sudo" not in str(job)
+
     audit = next(
         step
         for step in steps

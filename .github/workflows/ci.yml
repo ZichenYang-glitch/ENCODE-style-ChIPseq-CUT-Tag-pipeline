@@ -700,7 +700,8 @@ jobs:
         working-directory: frontend
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install-deps chromium --dry-run
+          npx playwright install chromium
 
       - name: Run public registry-to-results Bulk RNA-seq product Gate
         shell: micromamba-shell {0}
