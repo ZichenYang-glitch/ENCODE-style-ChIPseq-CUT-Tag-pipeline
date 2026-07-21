@@ -13,6 +13,7 @@ import pytest
 import encode_pipeline.adapters.bulk_rnaseq.execution as execution_module
 from encode_pipeline.adapters.bulk_rnaseq import (
     BulkRnaSeqExecutionBinding,
+    BulkRnaSeqTranscriptomeBinding,
     BulkRnaSeqWorkflowAdapter,
     RuntimeAssetBinding,
 )
@@ -22,6 +23,9 @@ from encode_pipeline.adapters.bulk_rnaseq.execution_identity import (
     build_execution_implementation_manifest,
     canonical_execution_manifest_bytes,
     verify_execution_implementation,
+)
+from encode_pipeline.adapters.bulk_rnaseq.qualification import (
+    BulkRnaSeqExecutionMode,
 )
 from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
     VerifiedRuntimeAssets,
@@ -147,7 +151,7 @@ def test_manifest_or_installed_code_mismatch_fails_closed_without_leak(
         assert result.errors[0].context == {}
 
 
-def test_adapter_version_manifest_and_code_identity_each_change_build_digest(
+def test_adapter_version_mode_manifest_and_code_each_change_build_digest(
     tmp_path: Path,
 ):
     original = verify_execution_implementation()
@@ -168,24 +172,35 @@ def test_adapter_version_manifest_and_code_identity_each_change_build_digest(
         _assets(),
         adapter_version="1.0.0",
         adapter_variant="runtime-v1",
+        execution_mode=BulkRnaSeqExecutionMode.STANDARD,
         implementation=original.value,
     )
     changed_version_digest = execution_module._runtime_build_digest(
         _assets(),
         adapter_version="1.0.1",
         adapter_variant="runtime-v1",
+        execution_mode=BulkRnaSeqExecutionMode.STANDARD,
         implementation=original.value,
     )
     changed_code_digest = execution_module._runtime_build_digest(
         _assets(),
         adapter_version="1.0.0",
         adapter_variant="runtime-v1",
+        execution_mode=BulkRnaSeqExecutionMode.STANDARD,
         implementation=changed.value,
     )
     changed_variant_digest = execution_module._runtime_build_digest(
         _assets(),
         adapter_version="1.0.0",
         adapter_variant="results-v1",
+        execution_mode=BulkRnaSeqExecutionMode.STANDARD,
+        implementation=original.value,
+    )
+    changed_mode_digest = execution_module._runtime_build_digest(
+        _assets(),
+        adapter_version="1.0.0",
+        adapter_variant="runtime-v1",
+        execution_mode=BulkRnaSeqExecutionMode.RAPID_QUANT,
         implementation=original.value,
     )
 
@@ -196,9 +211,10 @@ def test_adapter_version_manifest_and_code_identity_each_change_build_digest(
                 changed_version_digest,
                 changed_code_digest,
                 changed_variant_digest,
+                changed_mode_digest,
             }
         )
-        == 4
+        == 5
     )
 
 
@@ -235,12 +251,14 @@ def test_production_sqlite_replacement_is_bound_and_changes_results_build_identi
         _assets(),
         adapter_version="1.0.0",
         adapter_variant="results-v1",
+        execution_mode=BulkRnaSeqExecutionMode.STANDARD,
         implementation=original.value,
     )
     changed_digest = execution_module._runtime_build_digest(
         _assets(),
         adapter_version="1.0.0",
         adapter_variant="results-v1",
+        execution_mode=BulkRnaSeqExecutionMode.STANDARD,
         implementation=changed.value,
     )
     assert changed_digest != original_digest
@@ -318,7 +336,14 @@ def test_capture_fails_before_assets_when_implementation_is_invalid(
         unexpected_asset_verification,
     )
     binding = BulkRnaSeqExecutionBinding(
-        assets=RuntimeAssetBinding(root=(tmp_path / "runtime").resolve())
+        assets=RuntimeAssetBinding(root=(tmp_path / "runtime").resolve()),
+        transcriptome=BulkRnaSeqTranscriptomeBinding(
+            reference_id="tiny-ref",
+            fasta_sha256="a" * 64,
+            gtf_sha256="b" * 64,
+            transcript_fasta=(tmp_path / "transcripts.fa").resolve(),
+            transcript_fasta_sha256="c" * 64,
+        ),
     )
 
     result = BulkRnaSeqWorkflowAdapter(execution=binding).capture_build_identity()

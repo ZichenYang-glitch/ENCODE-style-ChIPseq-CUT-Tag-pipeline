@@ -93,17 +93,29 @@ _FASTQC_ICON_FILES = frozenset(
 _FASTQC_IMAGE_FILES = frozenset(
     {
         "adapter_content.png",
+        "adapter_content.svg",
         "duplication_levels.png",
+        "duplication_levels.svg",
         "kmer_profiles.png",
+        "kmer_profiles.svg",
         "overrepresented_sequences.png",
+        "overrepresented_sequences.svg",
         "per_base_n_content.png",
+        "per_base_n_content.svg",
         "per_base_quality.png",
+        "per_base_quality.svg",
         "per_base_sequence_content.png",
+        "per_base_sequence_content.svg",
         "per_sequence_gc_content.png",
+        "per_sequence_gc_content.svg",
         "per_sequence_quality.png",
+        "per_sequence_quality.svg",
         "per_tile_quality.png",
+        "per_tile_quality.svg",
         "sequence_duplication_levels.png",
+        "sequence_duplication_levels.svg",
         "sequence_length_distribution.png",
+        "sequence_length_distribution.svg",
     }
 )
 _FASTQC_STATUS_MODULES = frozenset(
@@ -852,11 +864,11 @@ def _fastqc_identity(
     if stage == "raw":
         basename = f"{sample_id}_raw{role_number}"
         directory = "raw"
-        extension = "fastq.gz"
+        extension = "gz"
     elif stage == "filtered":
         basename = f"{sample_id}_filtered{role_number}"
         directory = "filtered"
-        extension = "fastq.gz"
+        extension = "gz"
     elif stage == "trimmed":
         directory = "trim"
         trimmer = params.get("trimmer")

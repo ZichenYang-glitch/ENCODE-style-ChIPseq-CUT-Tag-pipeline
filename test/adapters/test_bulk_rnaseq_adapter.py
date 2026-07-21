@@ -14,6 +14,7 @@ from encode_pipeline import __version__
 from encode_pipeline.adapters.bulk_rnaseq import (
     BulkRnaSeqExecutionBinding,
     BulkRnaSeqResultsWorkflowAdapter,
+    BulkRnaSeqTranscriptomeBinding,
     BulkRnaSeqWorkflowAdapter,
     RuntimeAssetBinding,
 )
@@ -178,7 +179,14 @@ def test_adapter_identity_and_capabilities_are_truthful():
 
 def test_results_capabilities_require_explicit_runtime_composition(tmp_path: Path):
     binding = BulkRnaSeqExecutionBinding(
-        assets=RuntimeAssetBinding(root=(tmp_path / "runtime").resolve())
+        assets=RuntimeAssetBinding(root=(tmp_path / "runtime").resolve()),
+        transcriptome=BulkRnaSeqTranscriptomeBinding(
+            reference_id="GRCh38-test",
+            fasta_sha256="a" * 64,
+            gtf_sha256="b" * 64,
+            transcript_fasta=(tmp_path / "transcripts.fa").resolve(),
+            transcript_fasta_sha256="c" * 64,
+        ),
     )
     adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
 
@@ -730,6 +738,11 @@ def test_valid_advanced_allowlist_is_exactly_validated_and_classified():
     [
         ("aligner", "star_salmon", "BULK_RNASEQ_PARAMETER_SURFACE_CONFLICT"),
         ("input", "/tmp/samples.csv", "BULK_RNASEQ_PLATFORM_PARAMETER_FORBIDDEN"),
+        (
+            "transcript_fasta",
+            "/tmp/transcripts.fa",
+            "BULK_RNASEQ_PLATFORM_PARAMETER_FORBIDDEN",
+        ),
         ("workDir", "/tmp/work", "BULK_RNASEQ_PLATFORM_PARAMETER_FORBIDDEN"),
         ("profile", "docker", "BULK_RNASEQ_PLATFORM_PARAMETER_FORBIDDEN"),
         ("resume", True, "BULK_RNASEQ_PLATFORM_PARAMETER_FORBIDDEN"),

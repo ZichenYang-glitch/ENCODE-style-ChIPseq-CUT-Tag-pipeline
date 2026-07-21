@@ -33,12 +33,14 @@ class ControlledRunner(ProcessRunner):
         *,
         exit_code: int = 0,
         fail: bool = False,
+        failure_code: str = "PROCESS_RUNNER_EXECUTION_ERROR",
         callback=None,
         output_truncated: bool = False,
     ) -> None:
         super().__init__(allowed_executables=("snakemake",))
         self.exit_code = exit_code
         self.fail = fail
+        self.failure_code = failure_code
         self.callback = callback
         self.output_truncated = output_truncated
         self.specs = []
@@ -51,7 +53,7 @@ class ControlledRunner(ProcessRunner):
             return Result.failure(
                 [
                     Issue(
-                        code="PROCESS_RUNNER_EXECUTION_ERROR",
+                        code=self.failure_code,
                         message="Subprocess execution failed.",
                         source="process_runner",
                     )
@@ -195,6 +197,22 @@ def test_local_execution_maps_runner_infrastructure_failure(tmp_path):
     record = run_service.get_run("run-1")
     assert record.status is RunStatus.FAILED
     assert record.error.context == {"reason_code": "LOCAL_RUN_PROCESS_FAILED"}
+
+
+def test_local_execution_persists_the_process_runner_timeout_reason(tmp_path):
+    service, run_service, _workspace = _prepared_service(
+        tmp_path,
+        ControlledRunner(fail=True, failure_code="PROCESS_RUNNER_TIMEOUT"),
+    )
+
+    result = service.execute("run-1")
+
+    assert result.is_failure
+    record = run_service.get_run("run-1")
+    assert record.status is RunStatus.FAILED
+    assert record.error is not None
+    assert record.error.code == "RUN_EXECUTION_FAILED"
+    assert record.error.context == {"reason_code": "PROCESS_RUNNER_TIMEOUT"}
 
 
 def test_local_execution_rejects_changed_preflight_workspace(tmp_path):

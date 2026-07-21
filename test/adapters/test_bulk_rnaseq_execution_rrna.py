@@ -11,6 +11,7 @@ import pytest
 import encode_pipeline.adapters.bulk_rnaseq.execution as execution_module
 from encode_pipeline.adapters.bulk_rnaseq import (
     BulkRnaSeqExecutionBinding,
+    BulkRnaSeqTranscriptomeBinding,
     BulkRnaSeqWorkflowAdapter,
     RuntimeAssetBinding,
 )
@@ -154,7 +155,17 @@ def _inputs(
 @pytest.fixture
 def execution_binding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     root = (tmp_path / "runtime").resolve()
-    binding = BulkRnaSeqExecutionBinding(assets=RuntimeAssetBinding(root=root))
+    transcript_fasta = (tmp_path / "inputs/transcripts.fa").resolve()
+    binding = BulkRnaSeqExecutionBinding(
+        assets=RuntimeAssetBinding(root=root),
+        transcriptome=BulkRnaSeqTranscriptomeBinding(
+            reference_id="tiny-reference",
+            fasta_sha256=_sha256(b">chr1\nACGT\n"),
+            gtf_sha256=_sha256(b'chr1\ttest\texon\t1\t4\t.\t+\t.\tgene_id "g1";\n'),
+            transcript_fasta=transcript_fasta,
+            transcript_fasta_sha256=_write(transcript_fasta, b">tx1\nACGT\n"),
+        ),
+    )
     verified = VerifiedRuntimeAssets(
         root=root,
         source_tree=root / "source/rnaseq",

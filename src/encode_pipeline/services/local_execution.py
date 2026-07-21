@@ -240,6 +240,10 @@ class LocalExecutionService:
                 )
             )
         reason_code = issue_list[0].code
+        if reason_code == "LOCAL_RUN_PROCESS_FAILED":
+            nested_reason = issue_list[0].context.get("reason_code")
+            if nested_reason == "PROCESS_RUNNER_TIMEOUT":
+                reason_code = nested_reason
         record_issue = Issue(
             code="RUN_EXECUTION_FAILED",
             message="Local workflow execution failed.",

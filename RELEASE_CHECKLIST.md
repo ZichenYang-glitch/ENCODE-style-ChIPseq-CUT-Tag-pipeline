@@ -12,7 +12,7 @@ under `docs/release-checks/`; temporary outputs and data stay outside Git.
 python3 scripts/validate_samples.py --config config/config.yaml
 encode-validate --config config/config.yaml
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest test -ra -p no:cacheprovider \
-  -m "not platform_real_execution and not real_execution" \
+  -m "not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution" \
   --junitxml=pytest-report.xml \
   --cov --cov-config=pyproject.toml --cov-context=test \
   --cov-fail-under=0 \

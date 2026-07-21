@@ -9,13 +9,14 @@ opaque command.
 
 | Layer | Triggers | Selection and purpose |
 | --- | --- | --- |
-| PR fast | Pull requests | One pytest run for unit, contract, validator, and scientific DAG smoke tests; excludes `full_main`, `platform_real_execution`, and `real_execution`. Changed Python lines must be at least 80% covered. |
-| Full main | Push to `main`, `workflow_dispatch`, nightly schedule, published release | One complete deterministic pytest run, including `full_main`; excludes both real-execution markers. Enforces the repository and core-module floors in the [coverage policy](coverage-policy.md). |
+| PR fast | Pull requests | One pytest run for unit, contract, validator, and scientific DAG smoke tests; excludes `full_main` and all three real-execution markers. Changed Python lines must be at least 80% covered. |
+| Full main | Push to `main`, `workflow_dispatch`, nightly schedule, published release | One complete deterministic pytest run, including `full_main`; excludes all three real-execution markers. Enforces the repository and core-module floors in the [coverage policy](coverage-policy.md). |
 | Platform real | `workflow_dispatch`, nightly schedule, published release | Real Redis/RQ, SIGALRM timeout, process-group cancellation, and tiny Snakemake execution under `platform_real_execution`. |
 | Scientific real | `workflow_dispatch`, nightly schedule, published release | Complete `test/real_execution` suite with real scientific tools under `real_execution`. |
+| Bulk RNA-seq real | Explicit `workflow_dispatch` opt-in on a protected self-hosted runner | Verifies the pre-staged nf-core/rnaseq 3.26.0 closure, then runs rapid quantification, full STAR+Salmon/SortMeRNA, and lifecycle gates under `bulk_rnaseq_real_execution`. |
 | Container smoke | `workflow_dispatch`, nightly schedule, published release | Builds the runner image and exercises the default container profile without publishing an image. |
 
-The three real-execution jobs are intentionally not PR-required checks. A
+The four real-execution jobs are intentionally not PR-required checks. A
 high-risk PR can be validated by manually dispatching its exact branch. A
 nightly or release trigger uses the workflow on the default branch, so a
 workflow change cannot claim those external results until it is present there.
@@ -26,7 +27,7 @@ PR events run:
 
 ```bash
 python3 -m pytest test -ra -p no:cacheprovider \
-  -m "not full_main and not platform_real_execution and not real_execution" \
+  -m "not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution" \
   --junitxml=pytest-report.xml \
   --cov --cov-config=pyproject.toml --cov-context=test \
   --cov-fail-under=0 \
@@ -37,7 +38,7 @@ Full-main events run:
 
 ```bash
 python3 -m pytest test -ra -p no:cacheprovider \
-  -m "not platform_real_execution and not real_execution" \
+  -m "not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution" \
   --junitxml=pytest-report.xml \
   --cov --cov-config=pyproject.toml --cov-context=test \
   --cov-fail-under=0 \
@@ -50,11 +51,12 @@ global/core floors on complete-suite events; it does not invoke pytest a
 second time. These reports are uploaded as short-lived CI artifacts and are
 never committed.
 
-All four pytest entry points—PR fast, full main, platform real, and scientific
-real—must report zero skips and zero xfails in CI. Markers are registered and
-checked strictly, and XPASS is a failure. Local real-execution runs may still
-skip when an explicitly documented external prerequisite is absent; the CI
-jobs provide their prerequisites and treat an absent tool as a failure.
+All five pytest entry points—PR fast, full main, platform real, scientific
+real, and bulk RNA-seq real—must report zero skips and zero xfails in CI.
+Markers are registered and checked strictly, and XPASS is a failure. The bulk
+RNA-seq tier is dispatched only when its protected self-hosted runner and
+pre-staged immutable assets are available; missing coordinates fail instead
+of becoming skips.
 
 ## Stable checks and budgets
 
@@ -68,9 +70,9 @@ The recommended required contexts are:
 - `coverage`
 
 This is a repository policy recommendation, not a repository-settings change.
-`platform-real-execution`, `real-execution`, and `container-smoke` should remain
-non-required unless they are later redesigned as stable always-reporting
-checks.
+`platform-real-execution`, `real-execution`, `bulk-rnaseq-real-execution`, and
+`container-smoke` should remain non-required unless they are later redesigned
+as stable always-reporting checks.
 
 CI reports the slowest tests and records wall time in the job summary. Soft
 budgets are review signals; a cold cache crossing one does not fail the job.

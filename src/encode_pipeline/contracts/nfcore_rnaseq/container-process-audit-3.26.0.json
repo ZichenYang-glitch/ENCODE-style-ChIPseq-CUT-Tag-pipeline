@@ -33,7 +33,7 @@
       "override_reason": "unsupported_parabricks_alias"
     }
   ],
-  "processes_sha256": "4acefb6a517a805845bc034943108ec8e40a6db9e62026b17c62b27a020cd71c",
+  "processes_sha256": "faa7794e76cf10e07d5c344c7440b44384b36fbe854b71e5b163069a3a61e83c",
   "processes": [
     {
       "process": "BBMAP_BBSPLIT",
@@ -363,7 +363,7 @@
         "community.wave.seqera.io/library/rsem_star:5acb4e8c03239c32"
       ],
       "disposition": "excluded",
-      "exclusion_reason": "unsupported_rsem_route"
+      "exclusion_reason": "platform_owned_transcript_fasta"
     },
     {
       "process": "RSEQC_BAMSTAT",

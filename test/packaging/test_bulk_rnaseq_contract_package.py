@@ -37,16 +37,16 @@ RUNTIME_EXPECTED = {
         "3cae9f36c2b872958dd82b2233cc178aa53fe7ab6111f7bdb0346f8e2bbbe9cf",
     ),
     "container-process-audit-3.26.0.json": (
-        30_536,
-        "45a2cabd6ec74de359f8d53faa2ca9423ac97cdd89cfa04e2c79c005418fd1c2",
+        30_545,
+        "606c5c7613e82f589103aafe26c5b5edb101fb98ba4c9dc8843a8599fd76ae7d",
     ),
     "container-availability-lock-1.0.0.schema.json": (
         3_931,
         "1774c6dfbdefbb8d03ca99a76ad88e893a07bc913d2534855911353d210fa636",
     ),
     "runtime-identity-3.26.0.json": (
-        5_340,
-        "5196c09a97b15ca8b51497234c13a0a13521f3b1819db69fcf4891aafc3a59c1",
+        5_786,
+        "f105e45563b5f6db5a3d24ee88b74aedbd1b7398f73891561c770d4aa1e6d13e",
     ),
     "results-contract-3.26.0.json": (
         26_889,

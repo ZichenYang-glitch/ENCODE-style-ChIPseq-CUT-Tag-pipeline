@@ -16,6 +16,9 @@ from encode_pipeline.adapters.bulk_rnaseq.qc import (
     BULK_RNASEQ_QC_SOURCE_TYPES,
     extract_bulk_rnaseq_qc_metrics,
 )
+from encode_pipeline.adapters.bulk_rnaseq.qualification import (
+    BulkRnaSeqExecutionMode,
+)
 from encode_pipeline.adapters.bulk_rnaseq.results_contract import (
     load_bulk_rnaseq_results_contract,
 )
@@ -57,6 +60,7 @@ class BulkRnaSeqWorkflowAdapter:
     """Expose contract-only or explicitly composed offline runtime behavior."""
 
     _execution_variant = "runtime-v1"
+    _execution_mode = BulkRnaSeqExecutionMode.STANDARD
 
     metadata = WorkflowMetadata(
         workflow_id=WORKFLOW_ID,
@@ -113,6 +117,7 @@ class BulkRnaSeqWorkflowAdapter:
             binding=self._execution,
             adapter_version=self.metadata.version,
             adapter_variant=self._execution_variant,
+            execution_mode=self._execution_mode,
         )
 
     def build_command(
@@ -129,6 +134,7 @@ class BulkRnaSeqWorkflowAdapter:
             binding=self._execution,
             adapter_version=self.metadata.version,
             adapter_variant=self._execution_variant,
+            execution_mode=self._execution_mode,
         )
 
     def capture_build_identity(self):
@@ -139,6 +145,7 @@ class BulkRnaSeqWorkflowAdapter:
             binding=self._execution,
             adapter_version=self.metadata.version,
             adapter_variant=self._execution_variant,
+            execution_mode=self._execution_mode,
         )
 
     def doctor(self):
@@ -154,6 +161,18 @@ class BulkRnaSeqWorkflowAdapter:
     ) -> Result[tuple[ExtractedArtifactCandidate, ...]]:
         """Remain unsupported until deterministic output contracts are fixed."""
         return _unsupported("extract_artifacts")
+
+
+class BulkRnaSeqRapidQuantQualificationAdapter(BulkRnaSeqWorkflowAdapter):
+    """Run only the pinned upstream rapid_quant qualification route."""
+
+    _execution_variant = "rapid-quant-qualification-v1"
+    _execution_mode = BulkRnaSeqExecutionMode.RAPID_QUANT
+
+    def __init__(self, *, execution: BulkRnaSeqExecutionBinding) -> None:
+        if not isinstance(execution, BulkRnaSeqExecutionBinding):
+            raise ValueError("execution must be a BulkRnaSeqExecutionBinding")
+        super().__init__(execution=execution)
 
 
 class BulkRnaSeqResultsWorkflowAdapter(BulkRnaSeqWorkflowAdapter):

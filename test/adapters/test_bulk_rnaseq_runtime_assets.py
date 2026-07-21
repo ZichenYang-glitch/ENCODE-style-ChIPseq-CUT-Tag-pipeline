@@ -41,6 +41,7 @@ from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
     JDK_VENDOR,
     JDK_VERSION,
     NEXTFLOW_OFFLINE_ENV,
+    NETWORK_ISOLATION_REQUIRED_ARGS,
     NFCORE_RNASEQ_COMMIT,
     NF_SCHEMA_ARCHIVE_SHA256,
     NF_SCHEMA_VERSION,
@@ -622,6 +623,38 @@ def test_committed_runtime_contracts_are_immutable_and_offline() -> None:
         == "docker-archive+distribution-manifest"
     )
     assert NEXTFLOW_OFFLINE_ENV == {"NXF_OFFLINE": "true"}
+    assert NETWORK_ISOLATION_REQUIRED_ARGS == (
+        "--user",
+        "--map-current-user",
+        "--net",
+        "--",
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("version", "2.40.0"),
+        ("sha256", "0" * 64),
+        ("version_output_sha256", "0" * 64),
+        ("required_args", ["--net", "--"]),
+    ],
+)
+def test_embedded_contract_rejects_changed_host_network_isolation_identity(
+    field: str,
+    value: object,
+) -> None:
+    contract = _load_runtime_contract()
+    identity = deepcopy(contract.identity)
+    identity["host_network_isolation"][field] = value
+
+    with pytest.raises(ValueError, match="host network isolation identity"):
+        _validate_embedded_contracts(
+            identity,
+            contract.source_manifest,
+            contract.container_inventory,
+            contract.container_process_audit,
+        )
 
 
 def test_committed_contract_records_real_scale_admission_cost() -> None:
@@ -817,9 +850,11 @@ def test_runtime_canary_uses_exact_jdk_and_hard_config_with_poison_sources(
             output = "\n".join(
                 (
                     "params.helixweave_runtime_admission_marker = 'hard-config-only'",
+                    "params.config_profile_name = 'Rapid quantification'",
                     "process.executor = 'local'",
                     "docker.enabled = true",
                     "docker.registry = ''",
+                    "docker.runOptions = '--pull=never --network=none'",
                     "wave.enabled = false",
                     "tower.enabled = false",
                     "fusion.enabled = false",
@@ -831,7 +866,9 @@ def test_runtime_canary_uses_exact_jdk_and_hard_config_with_poison_sources(
                     fixture.config_digest,
                 )
             ).encode()
-        elif argv_tuple[-1] == "-version" and argv_tuple[0].endswith("bin/java"):
+        elif argv_tuple[-1] == "-version" and any(
+            value.endswith("bin/java") for value in argv_tuple
+        ):
             output = b"synthetic java version\n"
         else:
             output = b"version 25.04.3 build 5949\n"
@@ -849,12 +886,29 @@ def test_runtime_canary_uses_exact_jdk_and_hard_config_with_poison_sources(
     assert len(calls) == 3
     java_call, version_call, config_call = calls
     java_home = fixture.jdk_tree
-    assert java_call["argv"] == (str(fixture.java_executable), "-version")
-    assert version_call["argv"] == (str(fixture.nextflow), "-version")
+    isolation_prefix = (
+        str(fixture.binding.network_isolation_executable),
+        "--user",
+        "--map-current-user",
+        "--net",
+        "--",
+    )
+    assert java_call["argv"] == (
+        *isolation_prefix,
+        str(fixture.java_executable),
+        "-version",
+    )
+    assert version_call["argv"] == (
+        *isolation_prefix,
+        str(fixture.nextflow),
+        "-version",
+    )
+    assert "--fork" not in isolation_prefix
     argv = config_call["argv"]
     assert argv.count("-C") == 1
     assert "-c" not in argv
     assert argv.index("-C") < argv.index("config")
+    assert argv[argv.index("-profile") + 1] == "rapid_quant"
     hard_config = config_call["hard_config"]
     assert hard_config.count("includeConfig ") == 1
     assert hard_config.splitlines()[0] == (
@@ -862,6 +916,8 @@ def test_runtime_canary_uses_exact_jdk_and_hard_config_with_poison_sources(
     )
     assert "helixweave_launch_poison" in config_call["launch_poison"]
     assert "helixweave_home_poison" in config_call["home_poison"]
+    assert "profiles {" not in hard_config
+    assert "docker.runOptions = '--pull=never --network=none'" in hard_config
     environment = config_call["env"]
     assert environment["JAVA_HOME"] == str(java_home)
     assert environment["NXF_JAVA_HOME"] == str(java_home)
@@ -872,6 +928,71 @@ def test_runtime_canary_uses_exact_jdk_and_hard_config_with_poison_sources(
     assert "JDK_JAVA_OPTIONS" not in environment
     assert "_JAVA_OPTIONS" not in environment
     assert config_call["shell"] is False
+
+
+def test_network_isolation_asset_verifies_exact_binary_and_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = tmp_path / "bin/unshare"
+    executable.parent.mkdir()
+    content = b"synthetic fixed unshare"
+    executable.write_bytes(content)
+    executable.chmod(0o755)
+    version_output = b"unshare from util-linux synthetic\n"
+    binding = RuntimeAssetBinding(
+        root=(tmp_path / "runtime").resolve(),
+        network_isolation_executable=executable.resolve(),
+    )
+    identity = {
+        "host_network_isolation": {
+            "size_bytes": len(content),
+            "sha256": _sha256(content),
+            "version_output_sha256": _sha256(version_output),
+        }
+    }
+    calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
+
+    def run(argv, **kwargs):
+        calls.append((tuple(argv), kwargs))
+        return SimpleNamespace(returncode=0, stdout=version_output)
+
+    monkeypatch.setattr(runtime_assets_module.subprocess, "run", run)
+
+    result = runtime_assets_module._verify_network_isolation_asset(binding, identity)
+
+    assert result == (_sha256(content), _sha256(version_output))
+    assert calls[0][0] == (str(executable), "--version")
+    assert calls[0][1]["shell"] is False
+    assert calls[0][1]["env"] == {"HOME": "/", "LANG": "C", "LC_ALL": "C"}
+
+
+def test_network_isolation_binary_mutation_changes_admission_witness(
+    tmp_path: Path,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    executable = tmp_path / "bin/unshare"
+    executable.parent.mkdir()
+    executable.write_bytes(b"first")
+    executable.chmod(0o755)
+    binding = replace(
+        fixture.binding,
+        network_isolation_executable=executable.resolve(),
+    )
+    before = runtime_assets_module._capture_runtime_witness(
+        binding,
+        include_docker_endpoint=False,
+        include_network_isolation=True,
+    )
+    executable.write_bytes(b"changed binary")
+    executable.chmod(0o755)
+    after = runtime_assets_module._capture_runtime_witness(
+        binding,
+        include_docker_endpoint=False,
+        include_network_isolation=True,
+    )
+
+    assert before != after
 
 
 def test_admission_hashes_heavy_assets_once_and_reuses_verified_object(
@@ -1589,6 +1710,11 @@ def test_production_docker_probe_is_one_fixed_local_inspect_without_shell_or_fet
     assert len(calls) == 1
     argv, kwargs = calls[0]
     assert argv == (
+        str(binding.network_isolation_executable),
+        "--user",
+        "--map-current-user",
+        "--net",
+        "--",
         str(docker),
         "--host",
         f"unix://{socket_path}",
@@ -1917,6 +2043,21 @@ def test_binding_requires_a_fixed_docker_cli_basename(tmp_path: Path) -> None:
         RuntimeAssetBinding(
             root=tmp_path,
             docker_executable=Path("/usr/bin/docker-wrapper"),
+        )
+
+
+def test_binding_requires_fixed_absolute_network_isolation_executable(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="absolute pathlib.Path"):
+        RuntimeAssetBinding(
+            root=tmp_path,
+            network_isolation_executable=Path("bin/unshare"),
+        )
+    with pytest.raises(ValueError, match="fixed unshare path"):
+        RuntimeAssetBinding(
+            root=tmp_path,
+            network_isolation_executable=Path("/usr/bin/network-wrapper"),
         )
 
 

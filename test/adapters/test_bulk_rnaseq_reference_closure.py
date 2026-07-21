@@ -27,6 +27,7 @@ _PRODUCER_IMAGES = {
         "quay.io/biocontainers/salmon:1.10.3--h6dccd9a_2@sha256:" + "b" * 64
     ),
 }
+_TRANSCRIPT_FASTA_SHA256 = hashlib.sha256(b">tx1\nACGT\n").hexdigest()
 
 
 def _sha256(value: bytes) -> str:
@@ -51,8 +52,14 @@ def _write_index(
     for relative, content in (("index/a.bin", b"a"), ("index/b.bin", b"bb")):
         digest = _write_file(root / relative, content)
         entries.append({"path": relative, "size_bytes": len(content), "sha256": digest})
+    reference = {
+        "fasta_sha256": fasta_sha256,
+        "gtf_sha256": gtf_sha256,
+    }
+    if kind == "salmon":
+        reference["transcript_fasta_sha256"] = _TRANSCRIPT_FASTA_SHA256
     manifest = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "index_kind": kind,
         "producer": (
             {
@@ -94,10 +101,7 @@ def _write_index(
                 "skip_gtf_transcript_filter": False,
             }
         ),
-        "reference": {
-            "fasta_sha256": fasta_sha256,
-            "gtf_sha256": gtf_sha256,
-        },
+        "reference": reference,
         "files": entries,
     }
     content = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
@@ -142,8 +146,16 @@ def _reference(
 def test_reference_closure_is_deterministic_and_binds_indexes(tmp_path: Path):
     reference = _reference(tmp_path)
 
-    first = verify_reference_closure(reference, producer_images=_PRODUCER_IMAGES)
-    second = verify_reference_closure(reference, producer_images=_PRODUCER_IMAGES)
+    first = verify_reference_closure(
+        reference,
+        producer_images=_PRODUCER_IMAGES,
+        transcript_fasta_sha256=_TRANSCRIPT_FASTA_SHA256,
+    )
+    second = verify_reference_closure(
+        reference,
+        producer_images=_PRODUCER_IMAGES,
+        transcript_fasta_sha256=_TRANSCRIPT_FASTA_SHA256,
+    )
 
     assert first.is_success
     assert second.is_success
@@ -165,7 +177,11 @@ def test_reference_closure_is_deterministic_and_binds_indexes(tmp_path: Path):
 def test_gencode_salmon_index_build_contract_is_accepted(tmp_path: Path):
     reference = _reference(tmp_path, annotation_style="gencode")
 
-    result = verify_reference_closure(reference, producer_images=_PRODUCER_IMAGES)
+    result = verify_reference_closure(
+        reference,
+        producer_images=_PRODUCER_IMAGES,
+        transcript_fasta_sha256=_TRANSCRIPT_FASTA_SHA256,
+    )
 
     assert result.is_success
     assert result.value.salmon_index is not None
@@ -190,6 +206,7 @@ def test_reference_indexes_reject_run_shaping_parameter_mismatch(
         reference,
         producer_images=_PRODUCER_IMAGES,
         index_build_parameters=run_parameters,
+        transcript_fasta_sha256=_TRANSCRIPT_FASTA_SHA256,
     )
 
     assert result.is_failure
@@ -224,7 +241,11 @@ def test_reference_index_rejects_incompatible_producer_or_build_contract(
     manifest_path.write_bytes(content)
     star["identity_sha256"] = _sha256(content)
 
-    result = verify_reference_closure(reference, producer_images=_PRODUCER_IMAGES)
+    result = verify_reference_closure(
+        reference,
+        producer_images=_PRODUCER_IMAGES,
+        transcript_fasta_sha256=_TRANSCRIPT_FASTA_SHA256,
+    )
 
     assert result.is_failure
     assert result.errors[0].code == "BULK_RNASEQ_REFERENCE_INVALID"
@@ -234,7 +255,11 @@ def test_reference_primary_file_tamper_fails_closed_without_path(tmp_path: Path)
     reference = _reference(tmp_path, indexes=False)
     Path(reference["fasta"]).write_bytes(b"changed")
 
-    result = verify_reference_closure(reference, producer_images=_PRODUCER_IMAGES)
+    result = verify_reference_closure(
+        reference,
+        producer_images=_PRODUCER_IMAGES,
+        transcript_fasta_sha256=_TRANSCRIPT_FASTA_SHA256,
+    )
 
     assert result.is_failure
     assert result.errors[0].code == "BULK_RNASEQ_REFERENCE_INVALID"
@@ -259,12 +284,31 @@ def test_reference_index_rejects_reference_identity_mismatch(tmp_path: Path):
     assert result.errors[0].code == "BULK_RNASEQ_REFERENCE_INDEX_INVALID"
 
 
+def test_salmon_index_rejects_transcript_fasta_identity_mismatch(
+    tmp_path: Path,
+) -> None:
+    reference = _reference(tmp_path)
+
+    result = verify_reference_closure(
+        reference,
+        producer_images=_PRODUCER_IMAGES,
+        transcript_fasta_sha256="f" * 64,
+    )
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_REFERENCE_INVALID"
+
+
 def test_reference_index_rejects_unlisted_extra_file(tmp_path: Path):
     reference = _reference(tmp_path)
     star = reference["star_index"]
     Path(star["path"], "extra.bin").write_bytes(b"extra")
 
-    result = verify_reference_closure(reference, producer_images=_PRODUCER_IMAGES)
+    result = verify_reference_closure(
+        reference,
+        producer_images=_PRODUCER_IMAGES,
+        transcript_fasta_sha256=_TRANSCRIPT_FASTA_SHA256,
+    )
 
     assert result.is_failure
 
@@ -275,7 +319,9 @@ def test_reference_index_rejects_unlisted_empty_directory(tmp_path: Path):
     Path(star["path"], "unlisted-empty").mkdir()
 
     assert verify_reference_closure(
-        reference, producer_images=_PRODUCER_IMAGES
+        reference,
+        producer_images=_PRODUCER_IMAGES,
+        transcript_fasta_sha256=_TRANSCRIPT_FASTA_SHA256,
     ).is_failure
 
 
@@ -285,6 +331,7 @@ def test_reference_index_directory_depth_is_bounded(tmp_path: Path):
     result = verify_reference_closure(
         reference,
         producer_images=_PRODUCER_IMAGES,
+        transcript_fasta_sha256=_TRANSCRIPT_FASTA_SHA256,
         policy=ResourceClosurePolicy(maximum_index_depth=1),
     )
 
@@ -301,7 +348,9 @@ def test_reference_index_rejects_symlink_and_fifo(tmp_path: Path):
     (index_root / "linked.bin").symlink_to(external)
 
     assert verify_reference_closure(
-        reference, producer_images=_PRODUCER_IMAGES
+        reference,
+        producer_images=_PRODUCER_IMAGES,
+        transcript_fasta_sha256=_TRANSCRIPT_FASTA_SHA256,
     ).is_failure
 
     (index_root / "linked.bin").unlink()
@@ -309,7 +358,9 @@ def test_reference_index_rejects_symlink_and_fifo(tmp_path: Path):
     os.mkfifo(fifo)
     try:
         assert verify_reference_closure(
-            reference, producer_images=_PRODUCER_IMAGES
+            reference,
+            producer_images=_PRODUCER_IMAGES,
+            transcript_fasta_sha256=_TRANSCRIPT_FASTA_SHA256,
         ).is_failure
     finally:
         fifo.unlink()
@@ -319,7 +370,7 @@ def test_reference_index_manifest_rejects_traversal(tmp_path: Path):
     root = tmp_path / "index"
     root.mkdir()
     manifest = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "index_kind": "star",
         "producer": {
             "process": "STAR_GENOMEGENERATE",

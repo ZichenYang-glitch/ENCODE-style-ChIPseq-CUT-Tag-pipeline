@@ -11,9 +11,18 @@ import pytest
 import encode_pipeline.adapters.bulk_rnaseq.execution as execution_module
 from encode_pipeline.adapters.bulk_rnaseq import (
     BulkRnaSeqExecutionBinding,
+    BulkRnaSeqRapidQuantQualificationAdapter,
     BulkRnaSeqResultsWorkflowAdapter,
+    BulkRnaSeqTranscriptomeBinding,
     BulkRnaSeqWorkflowAdapter,
     RuntimeAssetBinding,
+)
+from encode_pipeline.adapters.bulk_rnaseq.execution_identity import (
+    VerifiedExecutionImplementation,
+)
+from encode_pipeline.adapters.bulk_rnaseq.qualification import (
+    RAPID_QUANT_MODE_OWNED_PARAMETERS,
+    RAPID_QUANT_PROFILE_OWNED_PARAMETERS,
 )
 from encode_pipeline.adapters.bulk_rnaseq.reference_closure import (
     REFERENCE_INDEX_MANIFEST,
@@ -30,6 +39,7 @@ from encode_pipeline.platform.adapters import (
     WorkspacePlan,
 )
 from encode_pipeline.platform.managed_containers import (
+    MANAGED_CONTAINER_SCOPE_LABEL,
     managed_container_endpoint_identity,
     managed_container_scope,
 )
@@ -49,6 +59,18 @@ def _write(path: Path, value: bytes) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(value)
     return _sha256(value)
+
+
+def _transcriptome_binding(tmp_path: Path) -> BulkRnaSeqTranscriptomeBinding:
+    transcript_fasta = tmp_path / "inputs/transcripts.fa"
+    transcript_fasta_sha256 = _write(transcript_fasta, b">tx1\nACGT\n")
+    return BulkRnaSeqTranscriptomeBinding(
+        reference_id="tiny-ref",
+        fasta_sha256=_sha256(b">chr1\nACGT\n"),
+        gtf_sha256=_sha256(b'chr1\ttest\texon\t1\t4\t.\t+\t.\tgene_id "g1";\n'),
+        transcript_fasta=transcript_fasta,
+        transcript_fasta_sha256=transcript_fasta_sha256,
+    )
 
 
 def _inputs(
@@ -92,7 +114,10 @@ def _inputs(
 @pytest.fixture
 def composed_runtime(tmp_path: Path, monkeypatch):
     root = tmp_path / "runtime"
-    binding = BulkRnaSeqExecutionBinding(assets=RuntimeAssetBinding(root=root))
+    binding = BulkRnaSeqExecutionBinding(
+        assets=RuntimeAssetBinding(root=root),
+        transcriptome=_transcriptome_binding(tmp_path),
+    )
     containers = (
         VerifiedContainerAsset(
             process="FASTQC",
@@ -176,6 +201,21 @@ def _file_bytes(plan, path: str) -> bytes:
     return dict(plan.files)[path]
 
 
+@pytest.fixture
+def admitted_execution_implementation(monkeypatch: pytest.MonkeyPatch):
+    implementation = VerifiedExecutionImplementation(
+        manifest_sha256="3" * 64,
+        aggregate_sha256="4" * 64,
+        files=(),
+    )
+    monkeypatch.setattr(
+        execution_module,
+        "verify_execution_implementation",
+        lambda: Result.success(implementation),
+    )
+    return implementation
+
+
 def _assert_samplesheet_and_params(
     plan: WorkspacePlan,
     workspace: Path,
@@ -189,6 +229,8 @@ def _assert_samplesheet_and_params(
     assert params["input"] == str(workspace / "config/samplesheet.csv")
     assert params["outdir"] == str(workspace / "results")
     assert params["custom_config_base"] == ""
+    assert params["pipelines_testdata_base_path"] == str(workspace / "config")
+    assert params["igenomes_base"] == str(workspace / "config")
     assert params["igenomes_ignore"] is True
     assert params["monochrome_logs"] is True
     assert "seq_platform" not in params
@@ -215,12 +257,186 @@ def test_execution_binding_owns_one_process_local_runtime_admission(
     tmp_path: Path,
 ) -> None:
     assets = RuntimeAssetBinding(root=(tmp_path / "runtime").resolve())
-    first = BulkRnaSeqExecutionBinding(assets=assets)
-    worker = BulkRnaSeqExecutionBinding(assets=assets)
+    transcriptome = _transcriptome_binding(tmp_path)
+    first = BulkRnaSeqExecutionBinding(
+        assets=assets,
+        transcriptome=transcriptome,
+    )
+    worker = BulkRnaSeqExecutionBinding(
+        assets=assets,
+        transcriptome=transcriptome,
+    )
 
     assert isinstance(first.runtime_admission, RuntimeAssetAdmission)
     assert first.runtime_admission.binding is assets
     assert worker.runtime_admission is not first.runtime_admission
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("reference_id", "bad reference"),
+        ("fasta_sha256", "bad"),
+        ("gtf_sha256", "bad"),
+        ("transcript_fasta", Path("relative.fa")),
+        ("transcript_fasta_sha256", "bad"),
+    ],
+)
+def test_transcriptome_binding_is_closed_and_canonical(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    document = {
+        "reference_id": "tiny-ref",
+        "fasta_sha256": "a" * 64,
+        "gtf_sha256": "b" * 64,
+        "transcript_fasta": (tmp_path / "transcripts.fa").resolve(),
+        "transcript_fasta_sha256": "c" * 64,
+    }
+    document[field] = value
+
+    with pytest.raises(ValueError):
+        BulkRnaSeqTranscriptomeBinding(**document)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("reference_id", "another-ref"),
+        ("fasta_sha256", "a" * 64),
+        ("gtf_sha256", "b" * 64),
+    ],
+)
+def test_workspace_rejects_each_transcriptome_reference_binding_mismatch(
+    tmp_path: Path,
+    composed_runtime,
+    admitted_execution_implementation,
+    field: str,
+    value: str,
+) -> None:
+    binding, _verified = composed_runtime
+    transcriptome_document = {
+        name: getattr(binding.transcriptome, name)
+        for name in BulkRnaSeqTranscriptomeBinding.__dataclass_fields__
+    }
+    transcriptome_document[field] = value
+    mismatched_binding = BulkRnaSeqExecutionBinding(
+        assets=binding.assets,
+        transcriptome=BulkRnaSeqTranscriptomeBinding(**transcriptome_document),
+    )
+    adapter = BulkRnaSeqWorkflowAdapter(execution=mismatched_binding)
+    inputs = _inputs(tmp_path)
+    workspace = (tmp_path / "workspace").resolve()
+
+    result = adapter.plan_workspace(inputs, workspace)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_TRANSCRIPTOME_REFERENCE_MISMATCH"
+
+
+def test_workspace_rejects_transcriptome_content_drift(
+    tmp_path: Path,
+    composed_runtime,
+    admitted_execution_implementation,
+) -> None:
+    binding, _verified = composed_runtime
+    adapter = BulkRnaSeqWorkflowAdapter(execution=binding)
+    inputs = _inputs(tmp_path)
+    workspace = (tmp_path / "workspace").resolve()
+    binding.transcriptome.transcript_fasta.write_bytes(b">tx1\nTGCA\n")
+
+    result = adapter.plan_workspace(inputs, workspace)
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_TRANSCRIPTOME_INVALID"
+
+
+@pytest.mark.parametrize("path_kind", ["missing", "symlink"])
+def test_workspace_rejects_missing_or_symlinked_transcriptome(
+    tmp_path: Path,
+    composed_runtime,
+    admitted_execution_implementation,
+    path_kind: str,
+) -> None:
+    binding, _verified = composed_runtime
+    transcript = (tmp_path / f"deployment/{path_kind}/transcripts.fa").resolve()
+    expected_sha256 = _sha256(b">tx1\nACGT\n")
+    if path_kind == "symlink":
+        target = (tmp_path / "deployment/target.fa").resolve()
+        _write(target, b">tx1\nACGT\n")
+        transcript.parent.mkdir(parents=True)
+        transcript.symlink_to(target)
+    transcriptome = BulkRnaSeqTranscriptomeBinding(
+        reference_id=binding.transcriptome.reference_id,
+        fasta_sha256=binding.transcriptome.fasta_sha256,
+        gtf_sha256=binding.transcriptome.gtf_sha256,
+        transcript_fasta=transcript,
+        transcript_fasta_sha256=expected_sha256,
+    )
+    adapter = BulkRnaSeqWorkflowAdapter(
+        execution=BulkRnaSeqExecutionBinding(
+            assets=binding.assets,
+            transcriptome=transcriptome,
+        )
+    )
+
+    result = adapter.plan_workspace(
+        _inputs(tmp_path),
+        (tmp_path / "workspace").resolve(),
+    )
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_TRANSCRIPTOME_INVALID"
+
+
+def test_transcriptome_change_updates_input_and_cache_identity(
+    tmp_path: Path,
+    composed_runtime,
+    admitted_execution_implementation,
+) -> None:
+    binding, _verified = composed_runtime
+    inputs = _inputs(tmp_path)
+    workspace = (tmp_path / "workspace").resolve()
+    first = BulkRnaSeqWorkflowAdapter(execution=binding).plan_workspace(
+        inputs,
+        workspace,
+    )
+    changed_content = b">tx1\nTGCA\n"
+    changed_sha256 = _write(
+        binding.transcriptome.transcript_fasta,
+        changed_content,
+    )
+    changed_transcriptome = BulkRnaSeqTranscriptomeBinding(
+        reference_id=binding.transcriptome.reference_id,
+        fasta_sha256=binding.transcriptome.fasta_sha256,
+        gtf_sha256=binding.transcriptome.gtf_sha256,
+        transcript_fasta=binding.transcriptome.transcript_fasta,
+        transcript_fasta_sha256=changed_sha256,
+    )
+    changed_adapter = BulkRnaSeqWorkflowAdapter(
+        execution=BulkRnaSeqExecutionBinding(
+            assets=binding.assets,
+            transcriptome=changed_transcriptome,
+        )
+    )
+
+    second = changed_adapter.plan_workspace(inputs, workspace)
+
+    assert first.is_success and second.is_success
+    first_execution = json.loads(
+        _file_bytes(first.value, "config/execution-identity.json")
+    )
+    second_execution = json.loads(
+        _file_bytes(second.value, "config/execution-identity.json")
+    )
+    first_cache = json.loads(_file_bytes(first.value, "engine/cache-identity.json"))
+    second_cache = json.loads(_file_bytes(second.value, "engine/cache-identity.json"))
+    assert (
+        first_execution["input_identity_sha256"]
+        != second_execution["input_identity_sha256"]
+    )
+    assert first_cache["identity_sha256"] != second_cache["identity_sha256"]
 
 
 def test_build_plan_and_command_share_the_binding_admission(
@@ -435,6 +651,199 @@ def test_results_composition_is_bound_into_build_and_workspace_identity(
     assert mismatched.errors[0].code == "BULK_RNASEQ_COMMAND_IDENTITY_MISMATCH"
 
 
+def test_rapid_quant_qualification_requires_server_runtime_and_stays_runtime_only(
+    tmp_path: Path,
+    composed_runtime,
+    admitted_execution_implementation,
+):
+    binding, _ = composed_runtime
+
+    with pytest.raises(ValueError, match="BulkRnaSeqExecutionBinding"):
+        BulkRnaSeqRapidQuantQualificationAdapter(  # type: ignore[arg-type]
+            execution=None
+        )
+
+    adapter = BulkRnaSeqRapidQuantQualificationAdapter(execution=binding)
+
+    assert adapter.capabilities.supports == (
+        "validation",
+        "input_authoring",
+        "workspace_plan",
+        "command",
+    )
+    assert (
+        adapter.extract_artifacts(_inputs(tmp_path), (tmp_path / "artifacts").resolve())
+        .errors[0]
+        .code
+        == "BULK_RNASEQ_CAPABILITY_UNSUPPORTED"
+    )
+
+
+def test_rapid_quant_profile_is_exact_and_cannot_be_overridden_by_params_file(
+    tmp_path: Path,
+    composed_runtime,
+    admitted_execution_implementation,
+):
+    binding, _ = composed_runtime
+    inputs = _inputs(tmp_path)
+    workspace = (tmp_path / "workspace").resolve()
+    standard = BulkRnaSeqWorkflowAdapter(execution=binding)
+    rapid = BulkRnaSeqRapidQuantQualificationAdapter(execution=binding)
+
+    standard_plan = standard.plan_workspace(inputs, workspace)
+    rapid_plan = rapid.plan_workspace(inputs, workspace)
+
+    assert standard_plan.is_success and rapid_plan.is_success
+    standard_params = json.loads(_file_bytes(standard_plan.value, "config/params.json"))
+    rapid_params = json.loads(_file_bytes(rapid_plan.value, "config/params.json"))
+    assert RAPID_QUANT_PROFILE_OWNED_PARAMETERS == frozenset(
+        {
+            "pseudo_aligner",
+            "skip_alignment",
+            "skip_bigwig",
+            "skip_biotype_qc",
+            "skip_deseq2_qc",
+            "skip_dupradar",
+            "skip_markduplicates",
+            "skip_multiqc",
+            "skip_preseq",
+            "skip_qualimap",
+            "skip_quantification_merge",
+            "skip_rseqc",
+            "skip_stringtie",
+        }
+    )
+    assert set(
+        standard_params
+    ) & RAPID_QUANT_PROFILE_OWNED_PARAMETERS == RAPID_QUANT_PROFILE_OWNED_PARAMETERS - {
+        "pseudo_aligner"
+    }
+    assert set(rapid_params).isdisjoint(RAPID_QUANT_PROFILE_OWNED_PARAMETERS)
+    assert RAPID_QUANT_MODE_OWNED_PARAMETERS == (
+        RAPID_QUANT_PROFILE_OWNED_PARAMETERS | {"skip_pseudo_alignment"}
+    )
+    assert "skip_pseudo_alignment" not in rapid_params
+    assert standard_params["transcript_fasta"] == rapid_params["transcript_fasta"]
+    assert standard_params["transcript_fasta"].endswith("/inputs/transcripts.fa")
+    assert rapid_params == {
+        name: value
+        for name, value in standard_params.items()
+        if name not in RAPID_QUANT_MODE_OWNED_PARAMETERS
+    }
+    assert "config_profile_name" not in rapid_params
+    assert "config_profile_description" not in rapid_params
+
+    standard_identity = json.loads(
+        _file_bytes(standard_plan.value, "config/execution-identity.json")
+    )
+    rapid_identity = json.loads(
+        _file_bytes(rapid_plan.value, "config/execution-identity.json")
+    )
+    standard_cache = json.loads(
+        _file_bytes(standard_plan.value, "engine/cache-identity.json")
+    )
+    rapid_cache = json.loads(
+        _file_bytes(rapid_plan.value, "engine/cache-identity.json")
+    )
+    assert standard_identity["execution_mode"] == "standard-v1"
+    assert rapid_identity["execution_mode"] == "rapid-quant-v1"
+    assert standard_cache["execution_mode"] == "standard-v1"
+    assert rapid_cache["execution_mode"] == "rapid-quant-v1"
+    assert standard_identity["schema_version"] == "1.1.0"
+    assert rapid_identity["schema_version"] == "1.1.0"
+    assert (
+        standard_identity["build_identity_sha256"]
+        != rapid_identity["build_identity_sha256"]
+    )
+    assert (
+        standard_identity["workspace_contract_sha256"]
+        != rapid_identity["workspace_contract_sha256"]
+    )
+    assert standard_cache["identity_sha256"] != rapid_cache["identity_sha256"]
+
+    standard_command = standard.build_command(standard_plan.value, workspace)
+    command = rapid.build_command(rapid_plan.value, workspace)
+
+    assert standard_command.is_success and command.is_success
+    assert "-profile" not in standard_command.value.argv
+    assert "-profile" not in standard_command.value.preflight_argv
+    assert command.value.argv[command.value.argv.index("-profile") + 1] == (
+        "rapid_quant"
+    )
+    assert (
+        command.value.preflight_argv[command.value.preflight_argv.index("-profile") + 1]
+        == "rapid_quant"
+    )
+    assert command.value.argv.count("-C") == 1
+    assert command.value.preflight_argv.count("-C") == 1
+    assert "-resume" not in command.value.argv
+
+
+def test_rapid_quant_mode_is_bound_fail_closed_across_builders(
+    tmp_path: Path,
+    composed_runtime,
+    admitted_execution_implementation,
+):
+    binding, _ = composed_runtime
+    inputs = _inputs(tmp_path)
+    workspace = (tmp_path / "workspace").resolve()
+    standard = BulkRnaSeqWorkflowAdapter(execution=binding)
+    rapid = BulkRnaSeqRapidQuantQualificationAdapter(execution=binding)
+    standard_plan = standard.plan_workspace(inputs, workspace).value
+    rapid_plan = rapid.plan_workspace(inputs, workspace).value
+
+    assert standard.build_command(rapid_plan, workspace).errors[0].code == (
+        "BULK_RNASEQ_COMMAND_IDENTITY_MISMATCH"
+    )
+    assert rapid.build_command(standard_plan, workspace).errors[0].code == (
+        "BULK_RNASEQ_COMMAND_IDENTITY_MISMATCH"
+    )
+
+    identity = json.loads(_file_bytes(rapid_plan, "config/execution-identity.json"))
+    identity["execution_mode"] = "standard-v1"
+    replacement = (
+        json.dumps(identity, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode()
+    tampered = WorkspacePlan(
+        directories=rapid_plan.directories,
+        files=tuple(
+            (
+                path,
+                replacement if path == "config/execution-identity.json" else value,
+            )
+            for path, value in rapid_plan.files
+        ),
+    )
+
+    assert rapid.build_command(tampered, workspace).errors[0].code == (
+        "BULK_RNASEQ_COMMAND_IDENTITY_MISMATCH"
+    )
+
+
+def test_rapid_quant_uses_the_complete_runtime_admission_boundary(
+    tmp_path: Path,
+    composed_runtime,
+    admitted_execution_implementation,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    binding, verified = composed_runtime
+    observed: list[RuntimeAssetAdmission] = []
+
+    def acquire(execution_binding: BulkRnaSeqExecutionBinding):
+        observed.append(execution_binding.runtime_admission)
+        return Result.success(verified)
+
+    monkeypatch.setattr(execution_module, "_acquire_runtime_assets", acquire)
+    adapter = BulkRnaSeqRapidQuantQualificationAdapter(execution=binding)
+    workspace = (tmp_path / "workspace").resolve()
+
+    assert adapter.capture_build_identity().is_success
+    plan = adapter.plan_workspace(_inputs(tmp_path), workspace)
+    assert plan.is_success
+    assert adapter.build_command(plan.value, workspace).is_success
+    assert observed == [binding.runtime_admission] * 3
+
+
 @pytest.mark.parametrize("layout", ["SE", "PE"])
 def test_workspace_serializes_single_layout_with_per_row_platform(
     layout: str, tmp_path: Path, composed_runtime
@@ -569,7 +978,7 @@ def test_workspace_rejects_prebuilt_index_incompatible_with_run_shaping_params(
         if item.process == "STAR_GENOMEGENERATE"
     )
     manifest = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "index_kind": "star",
         "producer": {
             "process": "STAR_GENOMEGENERATE",
@@ -635,8 +1044,18 @@ def test_command_owns_nextflow_paths_profile_reports_and_no_pull(
 
     assert result.is_success
     command = result.value
-    assert command.argv[0] == str(verified.nextflow_executable)
+    expected_isolation_prefix = (
+        str(verified.network_isolation_executable),
+        "--user",
+        "--map-current-user",
+        "--net",
+        "--",
+    )
+    assert command.argv[:5] == expected_isolation_prefix
+    assert command.argv[5] == str(verified.nextflow_executable)
     assert command.preflight_argv[0] == command.argv[0]
+    assert command.preflight_argv[:6] == command.argv[:6]
+    assert "--fork" not in command.argv
     assert command.argv.count("-C") == 1
     assert command.preflight_argv.count("-C") == 1
     assert "-c" not in command.argv
@@ -668,7 +1087,8 @@ def test_command_owns_nextflow_paths_profile_reports_and_no_pull(
     assert command.env["CONDA_PREFIX"] == ""
     assert command.env["MAMBA_ROOT_PREFIX"] == ""
     assert command.argv[command.argv.index("run") + 1] == str(verified.source_tree)
-    assert command.argv[command.argv.index("-profile") + 1] == "docker"
+    assert "-profile" not in command.argv
+    assert "-profile" not in command.preflight_argv
     assert "-resume" not in command.argv
     assert not any("nf-core/rnaseq" == token for token in command.argv)
     config = _file_bytes(plan, "config/platform.nextflow.config").decode()
@@ -680,8 +1100,22 @@ def test_command_owns_nextflow_paths_profile_reports_and_no_pull(
     assert config.count("includeConfig ") == 1
     assert config.index(source_include) < config.index("process.executor = 'local'")
     assert "--pull=never --network=none" in config
+    assert config.count("docker.runOptions = ") == 1
+    assert (
+        "docker.runOptions = '--pull=never --network=none "
+        f"--user={binding.container_uid}:{binding.container_gid} "
+        f"--label={MANAGED_CONTAINER_SCOPE_LABEL}="
+    ) in config
     assert "process.stageInMode = 'copy'" in config
+    assert (
+        "    resourceLimits = [\n"
+        "        cpus: 4,\n"
+        "        memory: '24.GB',\n"
+        "        time: '2.h'\n"
+        "    ]"
+    ) in config
     assert "wave.enabled = false" in config
+    assert "shifter.enabled = false" in config
     assert "tower.enabled = false" in config
     assert "withName: 'FASTQC'" in config
     assert verified.containers[0].runtime_image in config
@@ -958,13 +1392,48 @@ def test_jdk_identity_changes_build_and_cache_identity(
     assert first_cache["identity_sha256"] != second_cache["identity_sha256"]
 
 
+def test_network_isolation_identity_changes_build_and_cache_identity(
+    tmp_path: Path,
+    composed_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    binding, verified = composed_runtime
+    adapter = BulkRnaSeqWorkflowAdapter(execution=binding)
+    workspace = (tmp_path / "workspace").resolve()
+    inputs = _inputs(tmp_path)
+    first = adapter.plan_workspace(inputs, workspace)
+    changed = VerifiedRuntimeAssets(
+        **{
+            **verified.__dict__,
+            "network_isolation_executable_sha256": "0" * 64,
+        }
+    )
+    monkeypatch.setattr(
+        execution_module,
+        "_acquire_runtime_assets",
+        lambda _binding: Result.success(changed),
+    )
+
+    second = adapter.plan_workspace(inputs, workspace)
+
+    assert first.is_success and second.is_success
+    first_cache = json.loads(_file_bytes(first.value, "engine/cache-identity.json"))
+    second_cache = json.loads(_file_bytes(second.value, "engine/cache-identity.json"))
+    assert first_cache["workflow_build_sha256"] != second_cache["workflow_build_sha256"]
+    assert first_cache["identity_sha256"] != second_cache["identity_sha256"]
+
+
 def test_resume_is_server_owned_and_unavailable_without_attempt_lifecycle(
     tmp_path: Path,
 ):
     assets = RuntimeAssetBinding(root=(tmp_path / "runtime").resolve())
 
     with pytest.raises(ValueError, match="attempt/session lifecycle"):
-        BulkRnaSeqExecutionBinding(assets=assets, resume_enabled=True)
+        BulkRnaSeqExecutionBinding(
+            assets=assets,
+            transcriptome=_transcriptome_binding(tmp_path),
+            resume_enabled=True,
+        )
 
 
 def test_workspace_rejects_missing_fastq_and_symlinked_reference(

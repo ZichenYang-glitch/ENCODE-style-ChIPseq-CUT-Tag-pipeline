@@ -33,7 +33,7 @@ from encode_pipeline.platform.results import Issue, Result
 
 REFERENCE_CLOSURE_SCHEME = "sha256-framed-reference-v1"
 REFERENCE_INDEX_MANIFEST = "helixweave-reference-index.json"
-REFERENCE_INDEX_SCHEMA_VERSION = "1.0.0"
+REFERENCE_INDEX_SCHEMA_VERSION = "1.1.0"
 MAXIMUM_INDEX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAXIMUM_INDEX_FILES = 16_384
 MAXIMUM_INDEX_TOTAL_BYTES = 512 * 1024**3
@@ -113,6 +113,7 @@ def verify_reference_closure(
     *,
     producer_images: Mapping[str, str] | None = None,
     index_build_parameters: Mapping[str, object] | None = None,
+    transcript_fasta_sha256: str | None = None,
     policy: ResourceClosurePolicy = DEFAULT_RESOURCE_CLOSURE_POLICY,
 ) -> Result[ReferenceClosure]:
     """Verify explicit FASTA/GTF bytes and every supplied index manifest."""
@@ -162,6 +163,7 @@ def verify_reference_closure(
                 expected_manifest_sha256=value.get("identity_sha256"),
                 fasta_sha256=fasta_sha256,
                 gtf_sha256=gtf_sha256,
+                transcript_fasta_sha256=transcript_fasta_sha256,
                 annotation_style=annotation_style,
                 index_build_parameters=index_build_parameters,
                 expected_container_image=_expected_container_image(
@@ -201,6 +203,7 @@ def verify_reference_index(
     expected_manifest_sha256: str,
     fasta_sha256: str,
     gtf_sha256: str,
+    transcript_fasta_sha256: str | None = None,
     annotation_style: str,
     expected_container_image: str,
     index_build_parameters: Mapping[str, object] | None = None,
@@ -213,6 +216,7 @@ def verify_reference_index(
             or not _is_sha256(expected_manifest_sha256)
             or not _is_sha256(fasta_sha256)
             or not _is_sha256(gtf_sha256)
+            or (kind == "salmon" and not _is_sha256(transcript_fasta_sha256))
             or annotation_style not in {"ensembl", "gencode"}
             or not isinstance(expected_container_image, str)
             or _IMMUTABLE_IMAGE.fullmatch(expected_container_image) is None
@@ -238,6 +242,11 @@ def verify_reference_index(
             manifest["index_kind"] != kind
             or manifest["reference"]["fasta_sha256"] != fasta_sha256
             or manifest["reference"]["gtf_sha256"] != gtf_sha256
+            or (
+                kind == "salmon"
+                and manifest["reference"]["transcript_fasta_sha256"]
+                != transcript_fasta_sha256
+            )
             or manifest["producer"] != expected_producer
             or not _valid_build_parameters(
                 kind,
@@ -420,10 +429,10 @@ def _parse_manifest(content: bytes) -> dict[str, Any]:
     if not isinstance(build_parameters, dict):
         raise _ResourceFailure
     reference = value["reference"]
-    if not isinstance(reference, dict) or set(reference) != {
-        "fasta_sha256",
-        "gtf_sha256",
-    }:
+    expected_reference_keys = {"fasta_sha256", "gtf_sha256"}
+    if value["index_kind"] == "salmon":
+        expected_reference_keys.add("transcript_fasta_sha256")
+    if not isinstance(reference, dict) or set(reference) != expected_reference_keys:
         raise _ResourceFailure
     if not all(_is_sha256(item) for item in reference.values()):
         raise _ResourceFailure

@@ -22,7 +22,7 @@ Pull requests run the fast unit, contract, validator, and DAG-smoke selection:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest test -ra -p no:cacheprovider \
-  -m "not full_main and not platform_real_execution and not real_execution" \
+  -m "not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution" \
   --junitxml=pytest-report.xml \
   --cov --cov-config=pyproject.toml --cov-context=test \
   --cov-fail-under=0 \
@@ -39,7 +39,7 @@ run the complete deterministic suite, including tests marked `full_main`:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest test -ra -p no:cacheprovider \
-  -m "not platform_real_execution and not real_execution" \
+  -m "not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution" \
   --junitxml=pytest-report.xml \
   --cov --cov-config=pyproject.toml --cov-context=test \
   --cov-fail-under=0 \

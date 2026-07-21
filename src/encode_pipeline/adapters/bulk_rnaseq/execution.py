@@ -22,12 +22,19 @@ from encode_pipeline.adapters.bulk_rnaseq.reference_closure import (
     ReferenceClosure,
     verify_reference_closure,
 )
+from encode_pipeline.adapters.bulk_rnaseq.qualification import (
+    BulkRnaSeqExecutionMode,
+    execution_mode_identity,
+    nextflow_profile_for_mode,
+    runtime_params_for_mode,
+)
 from encode_pipeline.adapters.bulk_rnaseq.resource_closure import (
     DEFAULT_RESOURCE_CLOSURE_POLICY,
     SORTMERNA_NO_PREBUILT_INDEX_STRATEGY,
     ResourceClosurePolicy,
     RiboDatabaseClosure,
     SortMeRnaIndexClosure,
+    VerifiedLocalFile,
     safe_regular_file_identity,
     verify_ribo_database_manifest,
     verify_sortmerna_index,
@@ -36,6 +43,7 @@ from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
     CONTAINER_DEFAULT_CONFIG_DENIED_SELECTORS,
     CONTAINER_RESERVED_DEFAULT_DENY_LABEL,
     DOCKER_REQUIRED_RUN_OPTIONS,
+    NETWORK_ISOLATION_REQUIRED_ARGS,
     NEXTFLOW_VERSION,
     NF_SCHEMA_VERSION,
     SOURCE_MANIFEST_SHA256,
@@ -64,7 +72,10 @@ from encode_pipeline.platform.results import Issue, Result
 
 BUILD_IDENTITY_SCHEME = "sha256-bulk-rnaseq-runtime-v1"
 LOGICAL_ENTRYPOINT = "main.nf"
-WORKSPACE_SCHEMA_VERSION = "1.0.0"
+WORKSPACE_SCHEMA_VERSION = "1.1.0"
+LOCAL_RESOURCE_LIMIT_CPUS = 4
+LOCAL_RESOURCE_LIMIT_MEMORY = "24.GB"
+LOCAL_RESOURCE_LIMIT_TIME = "2.h"
 _UNAVAILABLE_CONTAINER_IMAGE = f"sha256:{'0' * 64}"
 _WORKSPACE_DIRECTORIES = (
     "config",
@@ -82,6 +93,40 @@ _WORKSPACE_DIRECTORIES = (
 _SAFE_WORKSPACE = re.compile(r"^/[A-Za-z0-9._/+@%=-]+$")
 _SAFE_PROCESS = re.compile(r"^[A-Z][A-Z0-9_]*(?::[A-Z][A-Z0-9_]*)*$")
 _SAFE_AUDITED_SELECTOR = re.compile(r"^\.\*[A-Z][A-Z0-9_]*$")
+_REFERENCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True)
+class BulkRnaSeqTranscriptomeBinding:
+    """Deployment-owned transcript FASTA bound to one exact reference."""
+
+    reference_id: str
+    fasta_sha256: str
+    gtf_sha256: str
+    transcript_fasta: Path
+    transcript_fasta_sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.reference_id, str)
+            or _REFERENCE_ID.fullmatch(self.reference_id) is None
+        ):
+            raise ValueError("reference_id is invalid")
+        for name in ("fasta_sha256", "gtf_sha256", "transcript_fasta_sha256"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
+                raise ValueError(f"{name} is invalid")
+        path = self.transcript_fasta
+        if not isinstance(path, Path) or not path.is_absolute():
+            raise ValueError("transcript_fasta must be an absolute pathlib.Path")
+        rendered = str(path)
+        if (
+            rendered != str(Path(rendered))
+            or any(part == ".." for part in path.parts)
+            or any(character in rendered for character in ("\x00", "\n", "\r"))
+        ):
+            raise ValueError("transcript_fasta must be a canonical absolute path")
 
 
 @dataclass(frozen=True)
@@ -89,6 +134,7 @@ class BulkRnaSeqExecutionBinding:
     """Deployment-owned execution settings; no field comes from WorkflowInputs."""
 
     assets: RuntimeAssetBinding
+    transcriptome: BulkRnaSeqTranscriptomeBinding
     container_uid: int = field(default_factory=os.getuid)
     container_gid: int = field(default_factory=os.getgid)
     resume_enabled: bool = False
@@ -102,6 +148,8 @@ class BulkRnaSeqExecutionBinding:
     def __post_init__(self) -> None:
         if not isinstance(self.assets, RuntimeAssetBinding):
             raise ValueError("assets must be a RuntimeAssetBinding")
+        if not isinstance(self.transcriptome, BulkRnaSeqTranscriptomeBinding):
+            raise ValueError("transcriptome must be a BulkRnaSeqTranscriptomeBinding")
         for name in ("container_uid", "container_gid"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -124,6 +172,7 @@ class VerifiedInputClosure:
     """Private resource evidence used to construct one deterministic workspace."""
 
     reference: ReferenceClosure
+    transcript_fasta: VerifiedLocalFile
     fastq_files: tuple[tuple[str, int, str], ...]
     ribo_database: RiboDatabaseClosure | None
     sortmerna_index: SortMeRnaIndexClosure | None
@@ -138,8 +187,13 @@ def plan_bulk_rnaseq_workspace(
     binding: BulkRnaSeqExecutionBinding,
     adapter_version: str,
     adapter_variant: str,
+    execution_mode: BulkRnaSeqExecutionMode,
 ) -> Result[WorkspacePlan]:
     """Verify resources and return deterministic, server-owned workspace bytes."""
+    try:
+        mode_identity = execution_mode_identity(execution_mode)
+    except ValueError:
+        return _failure("BULK_RNASEQ_EXECUTION_MODE_INVALID", "runtime")
     validation = validate_bulk_rnaseq_inputs(inputs)
     if validation.is_failure:
         return Result.failure(validation.issues)
@@ -170,6 +224,7 @@ def plan_bulk_rnaseq_workspace(
         assets_result.value,
         adapter_version=adapter_version,
         adapter_variant=adapter_variant,
+        execution_mode=execution_mode,
         implementation=implementation,
     )
     workspace_identity_sha256 = managed_container_scope(workspace_path)
@@ -178,6 +233,7 @@ def plan_bulk_rnaseq_workspace(
         inputs=inputs,
         closure=verified_inputs,
         workspace=workspace_path,
+        execution_mode=execution_mode,
     )
     samplesheet = _samplesheet_bytes(normalized["samples"])
     platform_config = _platform_config_bytes(
@@ -195,6 +251,7 @@ def plan_bulk_rnaseq_workspace(
         adapter_version=adapter_version,
         implementation=implementation,
         workflow_build_sha256=build_identity_sha256,
+        execution_mode=mode_identity,
     )
     files: list[tuple[str, bytes]] = [
         ("config/samplesheet.csv", samplesheet),
@@ -217,6 +274,7 @@ def plan_bulk_rnaseq_workspace(
         "schema_version": WORKSPACE_SCHEMA_VERSION,
         "workflow_id": "bulk-rnaseq",
         "adapter_version": adapter_version,
+        "execution_mode": mode_identity,
         "build_identity_sha256": build_identity_sha256,
         "input_identity_sha256": verified_inputs.identity_sha256,
         "ribo_database_closure_sha256": (
@@ -254,8 +312,14 @@ def build_bulk_rnaseq_command(
     binding: BulkRnaSeqExecutionBinding,
     adapter_version: str,
     adapter_variant: str,
+    execution_mode: BulkRnaSeqExecutionMode,
 ) -> Result[CommandSpec]:
     """Build fixed shell-free Nextflow argv from one adapter-owned plan."""
+    try:
+        mode_identity = execution_mode_identity(execution_mode)
+        nextflow_profile = nextflow_profile_for_mode(execution_mode)
+    except ValueError:
+        return _failure("BULK_RNASEQ_EXECUTION_MODE_INVALID", "runtime")
     if not isinstance(plan, WorkspacePlan):
         return _failure("BULK_RNASEQ_COMMAND_INVALID", "workspace_plan")
     try:
@@ -286,6 +350,7 @@ def build_bulk_rnaseq_command(
         assets,
         adapter_version=adapter_version,
         adapter_variant=adapter_variant,
+        execution_mode=execution_mode,
         implementation=implementation,
     )
     if (
@@ -293,6 +358,7 @@ def build_bulk_rnaseq_command(
         or identity.get("schema_version") != WORKSPACE_SCHEMA_VERSION
         or identity.get("workflow_id") != "bulk-rnaseq"
         or identity.get("adapter_version") != adapter_version
+        or identity.get("execution_mode") != mode_identity
         or identity.get("build_identity_sha256") != expected_build
         or identity.get("execution_implementation_manifest_sha256")
         != implementation.manifest_sha256
@@ -316,6 +382,7 @@ def build_bulk_rnaseq_command(
             adapter_version=adapter_version,
             implementation=implementation,
             expected_build=expected_build,
+            expected_execution_mode=mode_identity,
         )
     ):
         return _failure("BULK_RNASEQ_COMMAND_IDENTITY_MISMATCH", "workspace_plan")
@@ -323,6 +390,10 @@ def build_bulk_rnaseq_command(
         return _failure("BULK_RNASEQ_RESUME_UNAVAILABLE", "workspace_plan")
 
     executable = str(assets.nextflow_executable)
+    network_prefix = (
+        str(assets.network_isolation_executable),
+        *NETWORK_ISOLATION_REQUIRED_ARGS,
+    )
     config_path = workspace_path / "config/platform.nextflow.config"
     params_path = workspace_path / "config/params.json"
     source_path = assets.source_tree
@@ -332,8 +403,10 @@ def build_bulk_rnaseq_command(
     input_identity = identity.get("input_identity_sha256")
     if not isinstance(input_identity, str) or len(input_identity) != 64:
         return _failure("BULK_RNASEQ_COMMAND_INVALID", "workspace_plan")
+    profile_argv = () if nextflow_profile is None else ("-profile", nextflow_profile)
 
     argv = (
+        *network_prefix,
         executable,
         "-log",
         str(log_path),
@@ -341,8 +414,7 @@ def build_bulk_rnaseq_command(
         str(config_path),
         "run",
         str(source_path),
-        "-profile",
-        "docker",
+        *profile_argv,
         "-offline",
         "-params-file",
         str(params_path),
@@ -352,6 +424,7 @@ def build_bulk_rnaseq_command(
         f"helixweave-{input_identity[:16]}",
     )
     preflight_argv = (
+        *network_prefix,
         executable,
         "-log",
         str(preflight_log),
@@ -359,8 +432,7 @@ def build_bulk_rnaseq_command(
         str(config_path),
         "config",
         str(source_path),
-        "-profile",
-        "docker",
+        *profile_argv,
     )
     env = {
         "CLASSPATH": "",
@@ -399,6 +471,7 @@ def build_bulk_rnaseq_command(
         str(assets.jdk_tree),
         str(assets.java_executable),
         str(assets.plugin_tree),
+        str(assets.network_isolation_executable),
         str(binding.assets.docker_executable),
         str(binding.assets.docker_socket),
         f"unix://{binding.assets.docker_socket}",
@@ -429,8 +502,13 @@ def capture_bulk_rnaseq_build_identity(
     binding: BulkRnaSeqExecutionBinding,
     adapter_version: str,
     adapter_variant: str,
+    execution_mode: BulkRnaSeqExecutionMode,
 ) -> Result[WorkflowBuildIdentity]:
     """Capture source, engine, plugin, container and adapter contract identity."""
+    try:
+        execution_mode_identity(execution_mode)
+    except ValueError:
+        return _failure("BULK_RNASEQ_EXECUTION_MODE_INVALID", "runtime")
     implementation_result = verify_execution_implementation()
     if implementation_result.is_failure:
         return Result.failure(implementation_result.issues)
@@ -447,6 +525,7 @@ def capture_bulk_rnaseq_build_identity(
                 assets_result.value,
                 adapter_version=adapter_version,
                 adapter_variant=adapter_variant,
+                execution_mode=execution_mode,
                 implementation=implementation_result.value,
             ),
             captured_at=datetime.now(timezone.utc),
@@ -484,10 +563,29 @@ def _verify_input_closure(
         standard["reference"],
         producer_images={item.process: item.image for item in assets.containers},
         index_build_parameters=normalized["nfcore_params"],
+        transcript_fasta_sha256=binding.transcriptome.transcript_fasta_sha256,
         policy=binding.resource_policy,
     )
     if reference_result.is_failure:
         return Result.failure(reference_result.issues)
+    reference = reference_result.value
+    transcriptome = binding.transcriptome
+    if (
+        transcriptome.reference_id != reference.reference_id
+        or transcriptome.fasta_sha256 != reference.fasta.sha256
+        or transcriptome.gtf_sha256 != reference.gtf.sha256
+    ):
+        return _failure(
+            "BULK_RNASEQ_TRANSCRIPTOME_REFERENCE_MISMATCH",
+            "config.standard.reference",
+        )
+    transcript_result = safe_regular_file_identity(
+        transcriptome.transcript_fasta,
+        expected_sha256=transcriptome.transcript_fasta_sha256,
+        policy=binding.resource_policy,
+    )
+    if transcript_result.is_failure:
+        return _failure("BULK_RNASEQ_TRANSCRIPTOME_INVALID", "runtime")
 
     fastqs: list[tuple[str, int, str]] = []
     assert isinstance(inputs.samples, list)
@@ -549,6 +647,9 @@ def _verify_input_closure(
     digest = hashlib.sha256()
     _frame(digest, b"bulk-rnaseq-input-closure-v1")
     _frame(digest, bytes.fromhex(reference_result.value.identity_sha256))
+    _frame(digest, str(transcript_result.value.path).encode())
+    _frame(digest, str(transcript_result.value.size_bytes).encode())
+    _frame(digest, bytes.fromhex(transcript_result.value.sha256))
     for path, size, file_sha256 in sorted(fastqs):
         _frame(digest, path.encode())
         _frame(digest, str(size).encode())
@@ -563,6 +664,7 @@ def _verify_input_closure(
     return Result.success(
         VerifiedInputClosure(
             reference=reference_result.value,
+            transcript_fasta=transcript_result.value,
             fastq_files=tuple(sorted(fastqs)),
             ribo_database=ribo_database,
             sortmerna_index=sortmerna_index,
@@ -578,14 +680,18 @@ def _runtime_params(
     inputs: WorkflowInputs,
     closure: VerifiedInputClosure,
     workspace: Path,
+    execution_mode: BulkRnaSeqExecutionMode,
 ) -> dict[str, Any]:
     params = dict(normalized["nfcore_params"])
     params.update(
         {
             "custom_config_base": "",
+            "igenomes_base": str(workspace / "config"),
             "input": str(workspace / "config/samplesheet.csv"),
             "monochrome_logs": True,
             "outdir": str(workspace / "results"),
+            "pipelines_testdata_base_path": str(workspace / "config"),
+            "transcript_fasta": str(closure.transcript_fasta.path),
             "trace_report_suffix": "helixweave",
             "validate_params": True,
         }
@@ -597,6 +703,7 @@ def _runtime_params(
         )
         if closure.sortmerna_index is not None:
             params["sortmerna_index"] = str(closure.sortmerna_index.path)
+    params = runtime_params_for_mode(params, mode=execution_mode)
     return {name: params[name] for name in sorted(params)}
 
 
@@ -649,6 +756,7 @@ def _platform_config_bytes(
         "conda.enabled = false",
         "podman.enabled = false",
         "singularity.enabled = false",
+        "shifter.enabled = false",
         "spack.enabled = false",
         "wave.enabled = false",
         "fusion.enabled = false",
@@ -663,6 +771,11 @@ def _platform_config_bytes(
         'dag.file = "${launchDir}/../../reports/dag.html"',
         "process.stageInMode = 'copy'",
         "process {",
+        "    resourceLimits = [",
+        f"        cpus: {LOCAL_RESOURCE_LIMIT_CPUS},",
+        f"        memory: '{LOCAL_RESOURCE_LIMIT_MEMORY}',",
+        f"        time: '{LOCAL_RESOURCE_LIMIT_TIME}'",
+        "    ]",
         (f"    withLabel: '!{CONTAINER_RESERVED_DEFAULT_DENY_LABEL}' {{"),
         f"        container = '{_UNAVAILABLE_CONTAINER_IMAGE}'",
         "    }",
@@ -722,10 +835,12 @@ def _cache_identity_document(
     adapter_version: str,
     implementation: VerifiedExecutionImplementation,
     workflow_build_sha256: str,
+    execution_mode: str,
 ) -> dict[str, Any]:
     coordinates = {
         "schema_version": WORKSPACE_SCHEMA_VERSION,
         "adapter_version": adapter_version,
+        "execution_mode": execution_mode,
         "workflow_build_sha256": workflow_build_sha256,
         "execution_implementation_manifest_sha256": (implementation.manifest_sha256),
         "execution_implementation_aggregate_sha256": (implementation.aggregate_sha256),
@@ -748,6 +863,7 @@ def _runtime_build_digest(
     *,
     adapter_version: str,
     adapter_variant: str,
+    execution_mode: BulkRnaSeqExecutionMode,
     implementation: VerifiedExecutionImplementation,
 ) -> str:
     if not isinstance(adapter_version, str) or not adapter_version.strip():
@@ -757,6 +873,7 @@ def _runtime_build_digest(
         or re.fullmatch(r"[a-z][a-z0-9-]{0,63}", adapter_variant) is None
     ):
         raise ValueError("adapter_variant is invalid")
+    mode_identity = execution_mode_identity(execution_mode)
     digest = hashlib.sha256()
     for value in (
         BUILD_IDENTITY_SCHEME.encode(),
@@ -764,6 +881,8 @@ def _runtime_build_digest(
         adapter_version.strip().encode(),
         b"adapter-variant",
         adapter_variant.encode(),
+        b"execution-mode",
+        mode_identity.encode(),
         b"execution-implementation-manifest",
         bytes.fromhex(implementation.manifest_sha256),
         b"execution-implementation-aggregate",
@@ -781,6 +900,9 @@ def _runtime_build_digest(
         assets.jdk_archive_sha256,
         assets.jdk_tree_sha256,
         assets.java_executable_sha256,
+        assets.network_isolation_executable_sha256,
+        assets.network_isolation_version_output_sha256,
+        *NETWORK_ISOLATION_REQUIRED_ARGS,
         NF_SCHEMA_VERSION,
         assets.plugin_archive_sha256,
         assets.plugin_tree_sha256,
@@ -854,10 +976,12 @@ def _cache_identity_is_valid(
     adapter_version: str,
     implementation: VerifiedExecutionImplementation,
     expected_build: str,
+    expected_execution_mode: str,
 ) -> bool:
     expected_keys = {
         "schema_version",
         "adapter_version",
+        "execution_mode",
         "workflow_build_sha256",
         "execution_implementation_manifest_sha256",
         "execution_implementation_aggregate_sha256",
@@ -877,6 +1001,7 @@ def _cache_identity_is_valid(
     return (
         value.get("schema_version") == WORKSPACE_SCHEMA_VERSION
         and value.get("adapter_version") == adapter_version
+        and value.get("execution_mode") == expected_execution_mode
         and value.get("workflow_build_sha256") == expected_build
         and value.get("execution_implementation_manifest_sha256")
         == implementation.manifest_sha256
@@ -905,6 +1030,7 @@ def _execution_identity_shape_is_valid(value: Mapping[str, Any]) -> bool:
         "schema_version",
         "workflow_id",
         "adapter_version",
+        "execution_mode",
         "build_identity_sha256",
         "input_identity_sha256",
         "ribo_database_closure_sha256",
