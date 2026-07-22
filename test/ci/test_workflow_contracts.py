@@ -240,6 +240,17 @@ def test_bulk_product_gate_is_exact_head_path_free_and_coordinate_scoped():
     job = workflow["jobs"]["bulk-rnaseq-real-execution"]
     assert set(job.get("env", {})) == {"PYTHONDONTWRITEBYTECODE"}
     steps = job["steps"]
+    checkout = next(
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    assert checkout["uses"] == (
+        "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09"
+    )
+    assert checkout["with"]["persist-credentials"] is False
+    assert checkout["with"]["token"] == "local-mirror-only"
+
     confirm = next(
         step
         for step in steps
@@ -250,6 +261,60 @@ def test_bulk_product_gate_is_exact_head_path_free_and_coordinate_scoped():
     )
     assert "^[0-9a-f]{40}$" in confirm["run"]
     assert 'test "$actual_sha" = "$EXPECTED_REVIEWED_SHA"' in confirm["run"]
+
+    admitted_toolchain = next(
+        step
+        for step in steps
+        if step.get("name") == "Require pre-admitted protected toolchain"
+    )
+    assert admitted_toolchain["env"] == {
+        "EXPECTED_MICROMAMBA_VERSION": "2.8.1",
+        "EXPECTED_MICROMAMBA_SHA256": (
+            "9689782d863c05a1bf5d2d371ba527104e7a4eb4310c1637d8653b751aed9c82"
+        ),
+    }
+    assert "micromamba --version" in admitted_toolchain["run"]
+    assert "sha256sum" in admitted_toolchain["run"]
+
+    micromamba = next(step for step in steps if step.get("name") == "Setup micromamba")
+    assert micromamba["uses"] == (
+        "mamba-org/setup-micromamba@d7c9bd84e824b79d2af72a2d4196c7f4300d3476"
+    )
+    assert micromamba["with"]["download-micromamba"] is False
+    assert micromamba["with"]["cache-downloads"] is False
+    assert micromamba["with"]["cache-environment"] is False
+    assert micromamba["with"]["create-args"] == "--offline"
+    assert "cache-downloads-key" not in micromamba["with"]
+    assert "cache-environment-key" not in micromamba["with"]
+    assert "micromamba-version" not in micromamba["with"]
+    assert "micromamba-url" not in micromamba["with"]
+    assert "micromamba-binary-path" not in micromamba["with"]
+
+    node = next(
+        step
+        for step in steps
+        if step.get("name") == "Setup Node.js for the protected product Gate"
+    )
+    admitted_node = next(
+        step
+        for step in steps
+        if step.get("name") == "Require pre-admitted Node.js toolchain"
+    )
+    assert admitted_node["env"] == {
+        "EXPECTED_NODE_VERSION": "v20.20.2",
+        "EXPECTED_NPM_VERSION": "10.8.2",
+    }
+    assert "RUNNER_TOOL_CACHE" in admitted_node["run"]
+    assert "x64.complete" in admitted_node["run"]
+    assert 'bin/node" --version' in admitted_node["run"]
+    assert 'bin/npm" --version' in admitted_node["run"]
+    assert node["uses"] == (
+        "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+    )
+    assert node["with"] == {
+        "node-version": "20.20.2",
+        "check-latest": False,
+    }
 
     product = next(
         step
@@ -277,6 +342,27 @@ def test_bulk_product_gate_is_exact_head_path_free_and_coordinate_scoped():
         for step in steps
         if step.get("name") == "Install protected product Gate dependencies"
     )
+    assert dependencies["env"] == {
+        "DO_NOT_TRACK": "1",
+        "NPM_CONFIG_AUDIT": "false",
+        "NPM_CONFIG_CACHE": "${{ runner.tool_cache }}/helixweave-npm-cache",
+        "NPM_CONFIG_FUND": "false",
+        "NPM_CONFIG_OFFLINE": "true",
+        "PLAYWRIGHT_BROWSERS_PATH": (
+            "${{ runner.tool_cache }}/helixweave-playwright/1.61.1"
+        ),
+        "SCARF_ANALYTICS": "false",
+        "SCARF_NO_ANALYTICS": "true",
+    }
+    assert "unshare --user --map-root-user --net" in dependencies["run"]
+    assert "npm ci --offline --no-audit --no-fund" in dependencies["run"]
+    assert (
+        "./node_modules/.bin/playwright install-deps chromium --dry-run"
+        in (dependencies["run"])
+    )
+    assert "./node_modules/.bin/playwright install chromium" in dependencies["run"]
+    assert "chromium.executablePath()" in dependencies["run"]
+    assert "npx" not in dependencies["run"]
     assert "playwright install-deps chromium --dry-run" in dependencies["run"]
     assert "playwright install chromium" in dependencies["run"]
     assert dependencies["run"].index(
@@ -285,6 +371,9 @@ def test_bulk_product_gate_is_exact_head_path_free_and_coordinate_scoped():
     assert "--with-deps" not in dependencies["run"]
     assert "continue-on-error" not in dependencies
     assert "sudo" not in str(job)
+    assert product["env"]["PLAYWRIGHT_BROWSERS_PATH"] == (
+        "${{ runner.tool_cache }}/helixweave-playwright/1.61.1"
+    )
 
     audit = next(
         step
@@ -295,13 +384,17 @@ def test_bulk_product_gate_is_exact_head_path_free_and_coordinate_scoped():
     assert audit["if"] == "always()"
     assert "bulk-rnaseq-product-evidence.json" in audit["env"]["PRODUCT_EVIDENCE"]
     assert "json.tool" in audit["run"]
-    assert "org.helixweave.workspace-scope" in audit["run"]
+    assert "ps -aq" in audit["run"]
+    assert "--filter" not in audit["run"]
     assert "continue-on-error" not in audit
 
     upload = next(
         step
         for step in steps
         if step.get("name") == "Upload path-free bulk RNA-seq evidence"
+    )
+    assert upload["uses"] == (
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
     )
     assert "**/evidence/**" in upload["with"]["path"]
     assert upload["with"]["if-no-files-found"] == "error"
