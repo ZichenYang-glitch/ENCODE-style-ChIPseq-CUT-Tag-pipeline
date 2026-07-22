@@ -301,8 +301,8 @@ def test_bulk_product_gate_is_exact_head_path_free_and_coordinate_scoped():
         if step.get("name") == "Require pre-admitted Node.js toolchain"
     )
     assert admitted_node["env"] == {
-        "EXPECTED_NODE_VERSION": "v20.20.2",
-        "EXPECTED_NPM_VERSION": "10.8.2",
+        "EXPECTED_NODE_VERSION": "v22.23.1",
+        "EXPECTED_NPM_VERSION": "10.9.8",
     }
     assert "RUNNER_TOOL_CACHE" in admitted_node["run"]
     assert "x64.complete" in admitted_node["run"]
@@ -312,7 +312,7 @@ def test_bulk_product_gate_is_exact_head_path_free_and_coordinate_scoped():
         "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
     )
     assert node["with"] == {
-        "node-version": "20.20.2",
+        "node-version": "22.23.1",
         "check-latest": False,
     }
 

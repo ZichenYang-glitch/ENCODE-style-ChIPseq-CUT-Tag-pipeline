@@ -707,20 +707,20 @@ jobs:
 
       - name: Require pre-admitted Node.js toolchain
         env:
-          EXPECTED_NODE_VERSION: v20.20.2
-          EXPECTED_NPM_VERSION: 10.8.2
+          EXPECTED_NODE_VERSION: v22.23.1
+          EXPECTED_NPM_VERSION: 10.9.8
         run: |
-          node_root="$RUNNER_TOOL_CACHE/node/20.20.2/x64"
+          node_root="$RUNNER_TOOL_CACHE/node/22.23.1/x64"
           test -x "$node_root/bin/node"
           test -x "$node_root/bin/npm"
-          test -f "$RUNNER_TOOL_CACHE/node/20.20.2/x64.complete"
+          test -f "$RUNNER_TOOL_CACHE/node/22.23.1/x64.complete"
           test "$("$node_root/bin/node" --version)" = "$EXPECTED_NODE_VERSION"
           test "$("$node_root/bin/npm" --version)" = "$EXPECTED_NPM_VERSION"
 
       - name: Setup Node.js for the protected product Gate
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20.20.2'
+          node-version: '22.23.1'
           check-latest: false
 
       - name: Install protected product Gate dependencies
