@@ -17,6 +17,10 @@ interface RuntimeManifest {
   bulkExpectedExecution: 'available' | 'not_configured';
   bulkRequiredArtifactOutputTypes: string[];
   bulkRequiredQcMetricKeys: string[];
+  bulkRequiredSampleIds: string[];
+  bulkRequiredArtifactSampleOutputTypes: [string, string][];
+  bulkRequiredQcSampleMetricKeys: [string, string][];
+  bulkRequiredQcSampleMetricValues: [string, string, string][];
 }
 
 const runtimeRoot = process.env.ENCODE_PIPELINE_E2E_ROOT!;
@@ -129,13 +133,19 @@ interface ArtifactRecord {
   revision: string;
   output_type: string;
   size_bytes: number;
+  metadata: {
+    sample_id?: string | null;
+  };
 }
 
 interface QcMetricRecord {
   metric_id: string;
   metric_key: string;
+  display_name: string;
   value: string;
   unit: string;
+  sample_id: string | null;
+  source_artifact_id: string;
 }
 
 interface PublicWorkflowIdentity {
@@ -262,8 +272,12 @@ async function persistPathFreeEvidence(
     payloadDigest: string;
     artifactGeneration: string;
     artifacts: ArtifactRecord[];
+    requiredSampleIds: string[];
+    requiredArtifactSampleOutputTypes: [string, string][];
     qcGeneration: string;
     metrics: QcMetricRecord[];
+    requiredQcSampleMetricKeys: [string, string][];
+    requiredQcSampleMetricValues: [string, string, string][];
     downloadedArtifactId: string;
     downloadedArtifactRevision: string;
     downloadedSha256: string;
@@ -300,11 +314,46 @@ async function persistPathFreeEvidence(
     artifact_output_types: [
       ...new Set(values.artifacts.map((artifact) => artifact.output_type)),
     ].sort(),
+    fixture_oracle: {
+      required_sample_ids: [...values.requiredSampleIds].sort(),
+      artifact_sample_output_types: [...values.requiredArtifactSampleOutputTypes]
+        .map(([sampleId, outputType]) => ({
+          sample_id: sampleId,
+          output_type: outputType,
+        }))
+        .sort((left, right) =>
+          `${left.sample_id}\u0000${left.output_type}`.localeCompare(
+            `${right.sample_id}\u0000${right.output_type}`,
+          ),
+        ),
+      qc_sample_metric_keys: [...values.requiredQcSampleMetricKeys]
+        .map(([sampleId, metricKey]) => ({
+          sample_id: sampleId,
+          metric_key: metricKey,
+        }))
+        .sort((left, right) =>
+          `${left.sample_id}\u0000${left.metric_key}`.localeCompare(
+            `${right.sample_id}\u0000${right.metric_key}`,
+          ),
+        ),
+      qc_sample_metric_values: [...values.requiredQcSampleMetricValues]
+        .map(([sampleId, metricKey, value]) => ({
+          sample_id: sampleId,
+          metric_key: metricKey,
+          value,
+        }))
+        .sort((left, right) => {
+          const leftKey = `${left.sample_id}\u0000${left.metric_key}\u0000${left.value}`;
+          const rightKey = `${right.sample_id}\u0000${right.metric_key}\u0000${right.value}`;
+          return leftKey.localeCompare(rightKey);
+        }),
+    },
     artifacts: values.artifacts
       .map((artifact) => ({
         artifact_id: artifact.artifact_id,
         output_type: artifact.output_type,
         revision: artifact.revision,
+        sample_id: artifact.metadata.sample_id ?? null,
       }))
       .sort((left, right) => left.artifact_id.localeCompare(right.artifact_id)),
     qc_generation: values.qcGeneration,
@@ -313,8 +362,11 @@ async function persistPathFreeEvidence(
       .map((metric) => ({
         metric_id: metric.metric_id,
         metric_key: metric.metric_key,
+        display_name: metric.display_name,
         value: metric.value,
         unit: metric.unit,
+        sample_id: metric.sample_id,
+        source_artifact_id: metric.source_artifact_id,
       }))
       .sort((left, right) =>
         `${left.metric_key}\u0000${left.metric_id}`.localeCompare(
@@ -534,6 +586,8 @@ test('Bulk RNA-seq product path is fail-closed or executes by declared admission
   expect(validation.snapshot?.payload_digest).toMatch(/^[0-9a-f]{64}$/);
   expect(fixture.bulkRequiredArtifactOutputTypes.length).toBeGreaterThan(0);
   expect(fixture.bulkRequiredQcMetricKeys.length).toBeGreaterThan(0);
+  expect(fixture.bulkRequiredArtifactSampleOutputTypes.length).toBeGreaterThan(0);
+  expect(fixture.bulkRequiredQcSampleMetricValues.length).toBeGreaterThan(0);
   await expect(
     page.getByText(/This exact draft can create one run/i),
   ).toBeVisible();
@@ -597,9 +651,57 @@ test('Bulk RNA-seq product path is fail-closed or executes by declared admission
     runId!,
   );
   expect(artifacts.length).toBeGreaterThan(0);
+  const artifactIds = new Set(artifacts.map((artifact) => artifact.artifact_id));
   const outputTypes = new Set(artifacts.map((artifact) => artifact.output_type));
   for (const outputType of fixture.bulkRequiredArtifactOutputTypes) {
     expect(outputTypes.has(outputType), `missing artifact ${outputType}`).toBe(true);
+  }
+  const artifactSampleOutputTypes = new Set(
+    artifacts.flatMap((artifact) =>
+      artifact.metadata.sample_id
+        ? [`${artifact.metadata.sample_id}\u0000${artifact.output_type}`]
+        : [],
+    ),
+  );
+  for (const [sampleId, outputType] of
+    fixture.bulkRequiredArtifactSampleOutputTypes) {
+    expect(
+      artifactSampleOutputTypes.has(`${sampleId}\u0000${outputType}`),
+      `missing artifact ${sampleId}/${outputType}`,
+    ).toBe(true);
+  }
+  for (const sampleId of fixture.bulkRequiredSampleIds) {
+    expect(
+      artifacts.some((artifact) => artifact.metadata.sample_id === sampleId),
+      `missing artifact ownership for ${sampleId}`,
+    ).toBe(true);
+  }
+  const artifactTable = page.getByRole('table', {
+    name: 'Indexed run artifacts',
+  });
+  for (let pageNumber = 0; pageNumber < 20; pageNumber += 1) {
+    const loadMore = page.getByRole('button', { name: 'Load more artifacts' });
+    if ((await loadMore.count()) === 0) break;
+    const rowsBefore = await artifactTable.getByRole('row').count();
+    await expect(loadMore).toBeEnabled();
+    await loadMore.click();
+    await expect
+      .poll(() => artifactTable.getByRole('row').count())
+      .toBeGreaterThan(rowsBefore);
+  }
+  await expect(
+    page.getByRole('button', { name: 'Load more artifacts' }),
+  ).toHaveCount(0);
+  for (const [sampleId, outputType] of
+    fixture.bulkRequiredArtifactSampleOutputTypes) {
+    const row = artifactTable
+      .getByRole('row')
+      .filter({ hasText: outputType })
+      .filter({ hasText: sampleId });
+    await expect(
+      row.first(),
+      `artifact UI omitted ${sampleId}/${outputType}`,
+    ).toBeVisible();
   }
   const downloadedArtifact = artifacts.find((artifact) =>
     [
@@ -665,6 +767,84 @@ test('Bulk RNA-seq product path is fail-closed or executes by declared admission
   for (const metricKey of fixture.bulkRequiredQcMetricKeys) {
     expect(metricKeys.has(metricKey), `missing QC metric ${metricKey}`).toBe(true);
   }
+  const qcSampleMetricKeys = new Set(
+    metrics.flatMap((metric) =>
+      metric.sample_id
+        ? [`${metric.sample_id}\u0000${metric.metric_key}`]
+        : [],
+    ),
+  );
+  const qcSampleMetricValues = new Set(
+    metrics.flatMap((metric) =>
+      metric.sample_id
+        ? [`${metric.sample_id}\u0000${metric.metric_key}\u0000${metric.value}`]
+        : [],
+    ),
+  );
+  for (const [sampleId, metricKey] of fixture.bulkRequiredQcSampleMetricKeys) {
+    expect(
+      qcSampleMetricKeys.has(`${sampleId}\u0000${metricKey}`),
+      `missing QC metric ${sampleId}/${metricKey}`,
+    ).toBe(true);
+  }
+  for (const [sampleId, metricKey, value] of
+    fixture.bulkRequiredQcSampleMetricValues) {
+    expect(
+      qcSampleMetricValues.has(`${sampleId}\u0000${metricKey}\u0000${value}`),
+      `QC value drifted for ${sampleId}/${metricKey}`,
+    ).toBe(true);
+  }
+  for (const metric of metrics) {
+    expect(
+      artifactIds.has(metric.source_artifact_id),
+      `QC source artifact is missing for ${metric.metric_key}`,
+    ).toBe(true);
+  }
+  for (const sampleId of fixture.bulkRequiredSampleIds) {
+    expect(
+      metrics.some((metric) => metric.sample_id === sampleId),
+      `missing QC ownership for ${sampleId}`,
+    ).toBe(true);
+  }
+  const qcTable = page.getByRole('table', {
+    name: 'Indexed run QC metrics',
+  });
+  for (let pageNumber = 0; pageNumber < 20; pageNumber += 1) {
+    const loadMore = page.getByRole('button', { name: 'Load more QC metrics' });
+    if ((await loadMore.count()) === 0) break;
+    const rowsBefore = await qcTable.getByRole('row').count();
+    await expect(loadMore).toBeEnabled();
+    await loadMore.click();
+    await expect
+      .poll(() => qcTable.getByRole('row').count())
+      .toBeGreaterThan(rowsBefore);
+  }
+  await expect(
+    page.getByRole('button', { name: 'Load more QC metrics' }),
+  ).toHaveCount(0);
+  for (const [sampleId, metricKey, value] of
+    fixture.bulkRequiredQcSampleMetricValues) {
+    const metric = metrics.find(
+      (candidate) =>
+        candidate.sample_id === sampleId &&
+        candidate.metric_key === metricKey &&
+        candidate.value === value,
+    );
+    expect(
+      metric,
+      `QC API omitted ${sampleId}/${metricKey}/${value}`,
+    ).toBeDefined();
+    const row = qcTable
+      .getByRole('row')
+      .filter({ hasText: metricKey })
+      .filter({ hasText: sampleId });
+    await expect(
+      row.first(),
+      `QC UI omitted ${sampleId}/${metricKey}`,
+    ).toBeVisible();
+    await expect(row.first().getByText(value, { exact: true })).toBeVisible();
+    await expect(row.first()).toContainText(metric!.source_artifact_id);
+  }
   const firstMetric = metrics[0]!;
   const firstMetricRow = page
     .getByRole('table', { name: 'Indexed run QC metrics' })
@@ -690,14 +870,103 @@ test('Bulk RNA-seq product path is fail-closed or executes by declared admission
     payloadDigest: validation.snapshot!.payload_digest,
     artifactGeneration,
     artifacts,
+    requiredSampleIds: fixture.bulkRequiredSampleIds,
+    requiredArtifactSampleOutputTypes:
+      fixture.bulkRequiredArtifactSampleOutputTypes,
     qcGeneration,
     metrics,
+    requiredQcSampleMetricKeys: fixture.bulkRequiredQcSampleMetricKeys,
+    requiredQcSampleMetricValues: fixture.bulkRequiredQcSampleMetricValues,
     downloadedArtifactId: downloadedArtifact.artifact_id,
     downloadedArtifactRevision: downloadedArtifact.revision,
     downloadedSha256,
     downloadedByteCount: downloadedBytes.byteLength,
     workflowIdentity,
   });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('tab', { name: 'Artifacts' }).click();
+  await expect(artifactTable).toBeHidden();
+  const artifactMobileList = page.getByTestId('artifact-list').locator('ul');
+  await expect(artifactMobileList).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  const [mobileArtifactSampleId, mobileArtifactOutputType] =
+    fixture.bulkRequiredArtifactSampleOutputTypes[0]!;
+  const mobileArtifact = artifacts.find(
+    (artifact) =>
+      artifact.metadata.sample_id === mobileArtifactSampleId &&
+      artifact.output_type === mobileArtifactOutputType,
+  );
+  expect(mobileArtifact).toBeDefined();
+  const mobileArtifactCard = artifactMobileList
+    .getByRole('listitem')
+    .filter({ hasText: mobileArtifactSampleId })
+    .filter({ hasText: mobileArtifactOutputType })
+    .first();
+  await expect(mobileArtifactCard).toBeVisible();
+  const openMobileArtifact = mobileArtifactCard.getByRole('button', {
+    name: `Open artifact ${mobileArtifact!.name}`,
+  });
+  await expect(openMobileArtifact).toBeEnabled();
+  await captureElement(
+    page,
+    mobileArtifactCard,
+    testInfo,
+    'bulk-available-artifact-mobile-390x844',
+  );
+  await openMobileArtifact.click();
+  await expect(page).toHaveURL(
+    `/runs/${runId}?view=artifacts&artifact=${mobileArtifact!.artifact_id}`,
+  );
+  await expect(artifactInspector).toContainText(mobileArtifactOutputType);
+  await expectNoHorizontalOverflow(page);
+  await page.getByRole('tab', { name: 'QC' }).click();
+  await expect(qcTable).toBeHidden();
+  const qcMobileList = page.getByRole('list', {
+    name: 'Indexed run QC metrics',
+  });
+  await expect(qcMobileList).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  const [mobileQcSampleId, mobileQcMetricKey, mobileQcValue] =
+    fixture.bulkRequiredQcSampleMetricValues[0]!;
+  const mobileQcMetric = metrics.find(
+    (metric) =>
+      metric.sample_id === mobileQcSampleId &&
+      metric.metric_key === mobileQcMetricKey &&
+      metric.value === mobileQcValue,
+  );
+  expect(mobileQcMetric).toBeDefined();
+  const mobileQcSourceArtifact = artifacts.find(
+    (artifact) =>
+      artifact.artifact_id === mobileQcMetric!.source_artifact_id,
+  );
+  expect(mobileQcSourceArtifact).toBeDefined();
+  const mobileQcCard = qcMobileList
+    .getByRole('listitem')
+    .filter({ hasText: mobileQcSampleId })
+    .filter({ hasText: mobileQcMetricKey })
+    .filter({ hasText: mobileQcValue })
+    .filter({ hasText: mobileQcMetric!.source_artifact_id })
+    .first();
+  await expect(mobileQcCard).toBeVisible();
+  const openMobileQcSource = mobileQcCard.getByRole('button', {
+    name: `Open source artifact for ${mobileQcMetric!.display_name}`,
+  });
+  await expect(openMobileQcSource).toBeEnabled();
+  await captureElement(
+    page,
+    mobileQcCard,
+    testInfo,
+    'bulk-available-qc-mobile-390x844',
+  );
+  await openMobileQcSource.click();
+  await expect(page).toHaveURL(
+    `/runs/${runId}?view=artifacts&artifact=${mobileQcMetric!.source_artifact_id}`,
+  );
+  await expect(artifactInspector).toContainText(
+    mobileQcSourceArtifact!.output_type,
+  );
+  await expectNoHorizontalOverflow(page);
 });
 
 test('Bulk RNA-seq authoring remains operable without mobile overflow @mobile', async ({

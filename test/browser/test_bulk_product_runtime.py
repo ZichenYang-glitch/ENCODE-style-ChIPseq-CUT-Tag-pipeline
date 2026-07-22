@@ -67,9 +67,18 @@ def _fixture(tmp_path: Path) -> AcceptanceFixture:
         required_artifact_output_types=("bulk_rnaseq.star.bam",),
         required_qc_metric_keys=("star.input_templates",),
         required_sample_ids=("PE1", "SE1"),
-        required_artifact_sample_output_types=(),
-        required_qc_sample_metric_keys=(),
-        required_qc_sample_metric_values=(),
+        required_artifact_sample_output_types=(
+            ("PE1", "bulk_rnaseq.star.bam"),
+            ("SE1", "bulk_rnaseq.star.bam"),
+        ),
+        required_qc_sample_metric_keys=(
+            ("PE1", "star.input_templates"),
+            ("SE1", "star.input_templates"),
+        ),
+        required_qc_sample_metric_values=(
+            ("PE1", "star.input_templates", "384"),
+            ("SE1", "star.input_templates", "128"),
+        ),
     )
 
 
@@ -116,6 +125,19 @@ def test_product_projection_uses_verified_fixture_and_writes_private_binding(
     assert fields["bulkOptions"] == fixture.workflow_inputs.options
     assert fields["bulkRequiredArtifactOutputTypes"] == ["bulk_rnaseq.star.bam"]
     assert fields["bulkRequiredQcMetricKeys"] == ["star.input_templates"]
+    assert fields["bulkRequiredSampleIds"] == ["PE1", "SE1"]
+    assert fields["bulkRequiredArtifactSampleOutputTypes"] == [
+        ["PE1", "bulk_rnaseq.star.bam"],
+        ["SE1", "bulk_rnaseq.star.bam"],
+    ]
+    assert fields["bulkRequiredQcSampleMetricKeys"] == [
+        ["PE1", "star.input_templates"],
+        ["SE1", "star.input_templates"],
+    ]
+    assert fields["bulkRequiredQcSampleMetricValues"] == [
+        ["PE1", "star.input_templates", "384"],
+        ["SE1", "star.input_templates", "128"],
+    ]
 
     samples_path = Path(fields["bulkSamplesPath"])
     with samples_path.open(encoding="utf-8", newline="") as handle:

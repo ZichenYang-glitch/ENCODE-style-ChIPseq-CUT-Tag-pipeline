@@ -93,6 +93,16 @@ def prepare_bulk_product_browser_runtime(
         "bulkExpectedExecution": "available",
         "bulkRequiredArtifactOutputTypes": list(fixture.required_artifact_output_types),
         "bulkRequiredQcMetricKeys": list(fixture.required_qc_metric_keys),
+        "bulkRequiredSampleIds": list(fixture.required_sample_ids),
+        "bulkRequiredArtifactSampleOutputTypes": [
+            list(value) for value in fixture.required_artifact_sample_output_types
+        ],
+        "bulkRequiredQcSampleMetricKeys": [
+            list(value) for value in fixture.required_qc_sample_metric_keys
+        ],
+        "bulkRequiredQcSampleMetricValues": [
+            list(value) for value in fixture.required_qc_sample_metric_values
+        ],
     }
     deployment_environment = {TRANSCRIPTOME_BINDING_MANIFEST_ENV: str(binding_manifest)}
     combined_environment = {**source, **deployment_environment}
