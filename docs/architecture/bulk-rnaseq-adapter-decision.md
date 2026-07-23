@@ -509,9 +509,12 @@ insufficient.
 ## Delivery boundary and consequences
 
 The runtime-composed adapter may truthfully declare workspace and command
-capabilities after its assets are verified. The default adapter instance remains
-contract-only, and `bulk-rnaseq` is not added to the default registry, API, or
-frontend in PR #151. No real STAR+Salmon scientific acceptance is claimed.
+capabilities only after its assets are verified. The default registry always
+contains `bulk-rnaseq`: absent or rejected operator bindings remain
+authoring-only, while a complete admitted binding selects the result-capable
+adapter. The API and frontend publish only path-free availability and upstream
+identity; runtime paths, container coordinates, argv, and private nf-core
+parameters remain server-owned.
 
 PR #152 supplies deterministic artifact discovery and machine-readable QC
 extraction without HTML scraping, but does not claim scientific execution
@@ -520,8 +523,9 @@ gate and a full local STAR+Salmon/SortMeRNA acceptance through the canonical
 SQLite, Redis/RQ, worker, lifecycle, artifact, and QC path. These fixtures prove
 fixed offline execution and platform mechanics, not biological validity;
 `rapid_quant` remains a server-owned qualification mode rather than the default
-product analysis. Default registry, API, and product UI exposure remain PR
-#154.
+product analysis. PR #154 supplies default registry, API, and schema-driven
+product UI exposure, with create/start admission rechecked at the backend
+boundary.
 
 Official upstream coordinates:
 [nf-core/rnaseq 3.26.0](https://github.com/nf-core/rnaseq/releases/tag/3.26.0),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readWorkbenchSchema } from './schemaContract';
 import {
+  createEmptySampleRow,
   parseSampleTsv,
   type DraftSampleRow,
 } from './sampleTsv';
@@ -13,6 +14,61 @@ function contract() {
 }
 
 describe('parseSampleTsv', () => {
+  it('prefills adapter-declared string constants in a new row', () => {
+    const schema = createAuthoringSchemaFixture();
+    const items = (schema.sample_schema as {
+      items: {
+        properties: Record<string, unknown>;
+        required: string[];
+      };
+    }).items;
+    items.properties.platform = { type: 'string', const: 'ILLUMINA' };
+    items.required.push('platform');
+    const parsed = readWorkbenchSchema(schema);
+    if (!parsed.ok) throw new Error('fixture must be supported');
+
+    expect(createEmptySampleRow(parsed.value, () => 'row-const')).toEqual({
+      id: 'row-const',
+      values: {
+        sample: '',
+        fastq_1: '',
+        layout: '',
+        fastq_2: '',
+        platform: 'ILLUMINA',
+      },
+    });
+  });
+
+  it('rejects a TSV value that conflicts with an adapter-declared constant', () => {
+    const schema = createAuthoringSchemaFixture();
+    const items = (schema.sample_schema as {
+      items: {
+        properties: Record<string, unknown>;
+        required: string[];
+      };
+    }).items;
+    items.properties.platform = { type: 'string', const: 'ILLUMINA' };
+    items.required.push('platform');
+    const parsedSchema = readWorkbenchSchema(schema);
+    if (!parsedSchema.ok) throw new Error('fixture must be supported');
+
+    expect(
+      parseSampleTsv(
+        'sample\tfastq_1\tlayout\tfastq_2\tplatform\n' +
+          'S1\t/data/S1.fastq.gz\tSE\t\tONT\n',
+        parsedSchema.value,
+      ),
+    ).toEqual({
+      ok: false,
+      issue: {
+        code: 'SAMPLE_TSV_INVALID',
+        message: 'A sample cell does not match the adapter-declared constant.',
+        row: 2,
+        column: 'platform',
+      },
+    });
+  });
+
   it('accepts quoted fields, empty optional cells, and CRLF without coercing strings', () => {
     const result = parseSampleTsv(
       'sample\tfastq_1\tlayout\tfastq_2\r\n' +

@@ -29,6 +29,7 @@ from encode_pipeline.services.defaults import (
     create_default_agent_service,
     create_default_command_builder,
     create_default_local_run_driver,
+    create_default_process_runner,
     create_default_run_service,
     create_default_validation_service,
     create_default_workflow_build_identity_provider,
@@ -86,7 +87,7 @@ def create_app(
         max_request_bytes=MAX_AUTHORING_REQUEST_BYTES,
     )
 
-    registry = create_default_workflow_registry()
+    registry = create_default_workflow_registry(environ=settings_environment)
     build_identity_provider = create_default_workflow_build_identity_provider(
         registry=registry,
         project_root=project_root,
@@ -109,6 +110,7 @@ def create_app(
     run_submission_service = RunSubmissionService(
         run_service=run_service,
         run_queue=run_queue,
+        build_identity_provider=build_identity_provider,
     )
     run_cancellation_service = RunCancellationService(
         run_service=run_service,
@@ -123,6 +125,10 @@ def create_app(
         run_service=run_service,
         workspace_root=worker_settings.workspace_root,
         command_builder=command_builder,
+        process_runner=create_default_process_runner(
+            registry=registry,
+            settings=worker_settings,
+        ),
     )
     preflight_service = LocalPreflightService(
         run_service=run_service,

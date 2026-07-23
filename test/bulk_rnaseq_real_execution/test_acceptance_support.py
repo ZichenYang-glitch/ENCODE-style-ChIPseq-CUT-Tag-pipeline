@@ -724,7 +724,7 @@ def test_fixture_manifest_rejects_a_resealed_false_index_closure(
         load_acceptance_fixture(manifest)
 
 
-def test_results_registry_is_explicit_and_never_changes_default_registry(
+def test_results_registry_is_explicit_and_default_remains_authoring_only_without_env(
     tmp_path: Path,
 ) -> None:
     settings = GateSettings(
@@ -741,7 +741,9 @@ def test_results_registry_is_explicit_and_never_changes_default_registry(
 
     composition = build_results_composition(settings)
 
-    assert not create_default_workflow_registry().has("bulk-rnaseq")
+    default_bulk = create_default_workflow_registry(environ={}).get("bulk-rnaseq")
+    assert not isinstance(default_bulk, BulkRnaSeqResultsWorkflowAdapter)
+    assert default_bulk.capabilities.supports == ("validation", "input_authoring")
     adapter = composition.registry.get("bulk-rnaseq")
     assert isinstance(adapter, BulkRnaSeqResultsWorkflowAdapter)
     assert composition.build_identity_provider.registry is composition.registry

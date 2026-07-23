@@ -13,7 +13,7 @@ export function OptionsEditor({ schema, draft }: OptionsEditorProps) {
     <section className="min-w-0 space-y-3" aria-labelledby="options-editor-title">
       <div>
         <h3 id="options-editor-title" className="text-sm font-semibold">
-          Platform options
+          Adapter options
         </h3>
         <p className="mt-1 text-xs text-[var(--color-text-muted)]">
           Fields and defaults are declared by this workflow adapter.

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
 import { getWorkflowSchema } from '../../api/generated/workflows/workflows';
+import { useClients } from '../../api/client-context';
 import { Button } from '../../components/Button';
 import { Panel } from '../../components/Panel';
 import { InputWorkbench } from '../../features/input-workbench/InputWorkbench';
@@ -11,9 +12,15 @@ interface NewRunWorkbenchPageProps {
 }
 
 export function NewRunWorkbenchPage({ workflowId }: NewRunWorkbenchPageProps) {
+  const { workflowClient } = useClients();
   const query = useQuery({
     queryKey: ['workflow-authoring-schema', workflowId],
     queryFn: () => getWorkflowSchema(workflowId),
+    retry: false,
+  });
+  const detailQuery = useQuery({
+    queryKey: ['workflow', workflowId],
+    queryFn: () => workflowClient.getWorkflow(workflowId),
     retry: false,
   });
 
@@ -64,6 +71,7 @@ export function NewRunWorkbenchPage({ workflowId }: NewRunWorkbenchPageProps) {
       key={`${workflowId}:${parsed.value.contract.schema_version}`}
       workflowId={workflowId}
       schema={parsed.value}
+      availability={detailQuery.data?.workflow?.availability ?? null}
     />
   );
 }

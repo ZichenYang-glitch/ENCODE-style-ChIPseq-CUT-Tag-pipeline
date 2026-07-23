@@ -174,6 +174,7 @@ def test_adapter_version_mode_manifest_and_code_each_change_build_digest(
         adapter_variant="runtime-v1",
         execution_mode=BulkRnaSeqExecutionMode.STANDARD,
         implementation=original.value,
+        transcriptome_identity_sha256="f" * 64,
     )
     changed_version_digest = execution_module._runtime_build_digest(
         _assets(),
@@ -181,6 +182,7 @@ def test_adapter_version_mode_manifest_and_code_each_change_build_digest(
         adapter_variant="runtime-v1",
         execution_mode=BulkRnaSeqExecutionMode.STANDARD,
         implementation=original.value,
+        transcriptome_identity_sha256="f" * 64,
     )
     changed_code_digest = execution_module._runtime_build_digest(
         _assets(),
@@ -188,6 +190,7 @@ def test_adapter_version_mode_manifest_and_code_each_change_build_digest(
         adapter_variant="runtime-v1",
         execution_mode=BulkRnaSeqExecutionMode.STANDARD,
         implementation=changed.value,
+        transcriptome_identity_sha256="f" * 64,
     )
     changed_variant_digest = execution_module._runtime_build_digest(
         _assets(),
@@ -195,6 +198,7 @@ def test_adapter_version_mode_manifest_and_code_each_change_build_digest(
         adapter_variant="results-v1",
         execution_mode=BulkRnaSeqExecutionMode.STANDARD,
         implementation=original.value,
+        transcriptome_identity_sha256="f" * 64,
     )
     changed_mode_digest = execution_module._runtime_build_digest(
         _assets(),
@@ -202,6 +206,7 @@ def test_adapter_version_mode_manifest_and_code_each_change_build_digest(
         adapter_variant="runtime-v1",
         execution_mode=BulkRnaSeqExecutionMode.RAPID_QUANT,
         implementation=original.value,
+        transcriptome_identity_sha256="f" * 64,
     )
 
     assert (
@@ -253,6 +258,7 @@ def test_production_sqlite_replacement_is_bound_and_changes_results_build_identi
         adapter_variant="results-v1",
         execution_mode=BulkRnaSeqExecutionMode.STANDARD,
         implementation=original.value,
+        transcriptome_identity_sha256="f" * 64,
     )
     changed_digest = execution_module._runtime_build_digest(
         _assets(),
@@ -260,6 +266,7 @@ def test_production_sqlite_replacement_is_bound_and_changes_results_build_identi
         adapter_variant="results-v1",
         execution_mode=BulkRnaSeqExecutionMode.STANDARD,
         implementation=changed.value,
+        transcriptome_identity_sha256="f" * 64,
     )
     assert changed_digest != original_digest
 

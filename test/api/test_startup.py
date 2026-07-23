@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import inspect
+import json
 from pathlib import Path
 
 import pytest
@@ -11,6 +13,13 @@ fastapi = pytest.importorskip("fastapi")
 
 from encode_pipeline.api import dependencies  # noqa: E402
 from encode_pipeline.api.main import create_app  # noqa: E402
+from encode_pipeline.adapters.bulk_rnaseq.deployment import (  # noqa: E402
+    MANAGED_DOCKER_EXECUTABLE_ENV,
+    MANAGED_DOCKER_SOCKET_ENV,
+    RUNTIME_ROOT_ENV,
+    TRANSCRIPTOME_BINDING_MANIFEST_ENV,
+)
+from encode_pipeline.services.workflow_info import WorkflowInfoService  # noqa: E402
 from encode_pipeline.workers.rq_queue import RqRunQueue  # noqa: E402
 from encode_pipeline.workers.settings import (  # noqa: E402
     QUEUE_NAME_ENV,
@@ -138,6 +147,59 @@ def test_create_app_composes_shared_api_and_worker_settings(
     app.state.persistence.close()
 
 
+def test_create_app_keeps_bulk_authoring_when_configured_docker_is_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    transcript = (tmp_path / "fixture/transcripts.fa").resolve()
+    transcript.parent.mkdir()
+    transcript.write_text(">TX1\nACGT\n", encoding="utf-8")
+    transcript_sha256 = hashlib.sha256(transcript.read_bytes()).hexdigest()
+    binding_manifest = (tmp_path / "transcriptome-binding.json").resolve()
+    binding_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "reference_id": "tiny",
+                "fasta_sha256": "a" * 64,
+                "gtf_sha256": "b" * 64,
+                "transcript_fasta": str(transcript),
+                "transcript_fasta_sha256": transcript_sha256,
+            }
+        ),
+        encoding="utf-8",
+    )
+    docker = (tmp_path / "bin/docker").resolve()
+    docker.parent.mkdir()
+    docker.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    docker.chmod(0o755)
+    missing_socket = (tmp_path / "run/docker.sock").resolve()
+    monkeypatch.setenv(RUNTIME_ROOT_ENV, str((tmp_path / "runtime").resolve()))
+    monkeypatch.setenv(
+        TRANSCRIPTOME_BINDING_MANIFEST_ENV,
+        str(binding_manifest),
+    )
+    monkeypatch.setenv(MANAGED_DOCKER_EXECUTABLE_ENV, str(docker))
+    monkeypatch.setenv(MANAGED_DOCKER_SOCKET_ENV, str(missing_socket))
+
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'platform.db'}")
+
+    descriptor = WorkflowInfoService(app.state.registry).get_descriptor("bulk-rnaseq")
+    assert descriptor.is_success
+    assert descriptor.value.availability.execution == "unavailable"
+    assert descriptor.value.capabilities.supports == (
+        "validation",
+        "input_authoring",
+    )
+    assert app.state.local_run_driver._process_runner._allowed_executables == (
+        "snakemake",
+    )
+    assert app.state.local_run_driver._process_runner._managed_container_cleaner is None
+
+    app.state.run_queue.close()
+    app.state.persistence.close()
+
+
 def test_only_explicit_blocking_routes_use_fastapi_threadpool() -> None:
     app = create_app()
     route_handlers = [
@@ -149,6 +211,8 @@ def test_only_explicit_blocking_routes_use_fastapi_threadpool() -> None:
     assert route_handlers
     for path, endpoint in route_handlers:
         if path in {
+            "/api/v1/workflows",
+            "/api/v1/workflows/{workflow_id}",
             "/api/v1/workflows/{workflow_id}/validate",
             "/api/v1/workflows/{workflow_id}/runs",
             "/api/v1/runs",

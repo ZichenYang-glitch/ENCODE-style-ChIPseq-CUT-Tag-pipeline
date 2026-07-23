@@ -347,9 +347,12 @@ def test_workspace_rejects_transcriptome_content_drift(
     binding.transcriptome.transcript_fasta.write_bytes(b">tx1\nTGCA\n")
 
     result = adapter.plan_workspace(inputs, workspace)
+    build_identity = adapter.capture_build_identity()
 
     assert result.is_failure
     assert result.errors[0].code == "BULK_RNASEQ_TRANSCRIPTOME_INVALID"
+    assert build_identity.is_failure
+    assert build_identity.errors[0].code == "BULK_RNASEQ_RUNTIME_UNAVAILABLE"
 
 
 @pytest.mark.parametrize("path_kind", ["missing", "symlink"])
@@ -403,15 +406,13 @@ def test_transcriptome_change_updates_input_and_cache_identity(
         workspace,
     )
     changed_content = b">tx1\nTGCA\n"
-    changed_sha256 = _write(
-        binding.transcriptome.transcript_fasta,
-        changed_content,
-    )
+    changed_transcript_path = (tmp_path / "changed/transcripts.fa").resolve()
+    changed_sha256 = _write(changed_transcript_path, changed_content)
     changed_transcriptome = BulkRnaSeqTranscriptomeBinding(
         reference_id=binding.transcriptome.reference_id,
         fasta_sha256=binding.transcriptome.fasta_sha256,
         gtf_sha256=binding.transcriptome.gtf_sha256,
-        transcript_fasta=binding.transcriptome.transcript_fasta,
+        transcript_fasta=changed_transcript_path,
         transcript_fasta_sha256=changed_sha256,
     )
     changed_adapter = BulkRnaSeqWorkflowAdapter(
@@ -432,6 +433,27 @@ def test_transcriptome_change_updates_input_and_cache_identity(
     )
     first_cache = json.loads(_file_bytes(first.value, "engine/cache-identity.json"))
     second_cache = json.loads(_file_bytes(second.value, "engine/cache-identity.json"))
+    first_capture = BulkRnaSeqWorkflowAdapter(
+        execution=binding
+    ).capture_build_identity()
+    second_capture = changed_adapter.capture_build_identity()
+    assert first_capture.is_success and second_capture.is_success
+    assert (
+        BulkRnaSeqWorkflowAdapter(execution=binding)
+        .build_command(
+            first.value,
+            workspace,
+        )
+        .is_success
+    )
+    assert changed_adapter.build_command(second.value, workspace).is_success
+    assert first_capture.value.digest != second_capture.value.digest
+    assert first_execution["build_identity_sha256"] == first_capture.value.digest
+    assert second_execution["build_identity_sha256"] == second_capture.value.digest
+    assert (
+        first_execution["build_identity_sha256"]
+        != second_execution["build_identity_sha256"]
+    )
     assert (
         first_execution["input_identity_sha256"]
         != second_execution["input_identity_sha256"]

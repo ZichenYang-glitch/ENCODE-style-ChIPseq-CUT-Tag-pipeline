@@ -232,6 +232,189 @@ def test_real_execution_jobs_are_non_pr_conditional_and_fail_closed():
     assert "HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION" in str(bulk_job)
 
 
+def test_bulk_product_gate_is_exact_head_path_free_and_coordinate_scoped():
+    workflow = _load("ci.yml")
+    dispatch_inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+    assert "bulk_rnaseq_expected_sha" in dispatch_inputs
+
+    job = workflow["jobs"]["bulk-rnaseq-real-execution"]
+    assert set(job.get("env", {})) == {"PYTHONDONTWRITEBYTECODE"}
+    steps = job["steps"]
+    checkout = next(
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    assert checkout["uses"] == (
+        "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09"
+    )
+    assert checkout["with"]["persist-credentials"] is False
+    assert checkout["with"]["token"] == "local-mirror-only"
+
+    confirm = next(
+        step
+        for step in steps
+        if step.get("name") == "Confirm exact checkout and clean source tree"
+    )
+    assert confirm["env"]["EXPECTED_REVIEWED_SHA"] == (
+        "${{ inputs.bulk_rnaseq_expected_sha }}"
+    )
+    assert "^[0-9a-f]{40}$" in confirm["run"]
+    assert 'test "$actual_sha" = "$EXPECTED_REVIEWED_SHA"' in confirm["run"]
+
+    admitted_toolchain = next(
+        step
+        for step in steps
+        if step.get("name") == "Require pre-admitted protected toolchain"
+    )
+    assert admitted_toolchain["env"] == {
+        "EXPECTED_MICROMAMBA_VERSION": "2.8.1",
+        "EXPECTED_MICROMAMBA_SHA256": (
+            "9689782d863c05a1bf5d2d371ba527104e7a4eb4310c1637d8653b751aed9c82"
+        ),
+    }
+    assert "micromamba --version" in admitted_toolchain["run"]
+    assert "sha256sum" in admitted_toolchain["run"]
+
+    micromamba = next(step for step in steps if step.get("name") == "Setup micromamba")
+    assert micromamba["uses"] == (
+        "mamba-org/setup-micromamba@d7c9bd84e824b79d2af72a2d4196c7f4300d3476"
+    )
+    assert micromamba["with"]["download-micromamba"] is False
+    assert micromamba["with"]["cache-downloads"] is False
+    assert micromamba["with"]["cache-environment"] is False
+    assert micromamba["with"]["create-args"] == "--offline"
+    assert "cache-downloads-key" not in micromamba["with"]
+    assert "cache-environment-key" not in micromamba["with"]
+    assert "micromamba-version" not in micromamba["with"]
+    assert "micromamba-url" not in micromamba["with"]
+    assert "micromamba-binary-path" not in micromamba["with"]
+
+    node = next(
+        step
+        for step in steps
+        if step.get("name") == "Setup Node.js for the protected product Gate"
+    )
+    admitted_node = next(
+        step
+        for step in steps
+        if step.get("name") == "Require pre-admitted Node.js toolchain"
+    )
+    assert admitted_node["env"] == {
+        "EXPECTED_NODE_VERSION": "v22.23.1",
+        "EXPECTED_NPM_VERSION": "10.9.8",
+    }
+    assert "RUNNER_TOOL_CACHE" in admitted_node["run"]
+    assert "x64.complete" in admitted_node["run"]
+    assert 'bin/node" --version' in admitted_node["run"]
+    assert 'bin/npm" --version' in admitted_node["run"]
+    assert node["uses"] == (
+        "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+    )
+    assert node["with"] == {
+        "node-version": "22.23.1",
+        "check-latest": False,
+    }
+
+    product = next(
+        step
+        for step in steps
+        if step.get("name")
+        == "Run public registry-to-results Bulk RNA-seq product Gate"
+    )
+    assert product["env"]["HELIXWEAVE_REQUIRE_BULK_RNASEQ_PRODUCT_GATE"] == "1"
+    assert product["env"]["HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION"] == "1"
+    assert "bulk-rnaseq-unavailable.spec.ts" in product["run"]
+    assert "continue-on-error" not in product
+
+    protected_coordinates = {
+        "HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT",
+        "HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST",
+        "ENCODE_PIPELINE_TEST_REDIS_URL",
+        "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE",
+        "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET",
+    }
+    assert protected_coordinates <= set(product["env"])
+    assert all(name not in job["env"] for name in protected_coordinates)
+
+    dependencies = next(
+        step
+        for step in steps
+        if step.get("name") == "Install protected product Gate dependencies"
+    )
+    assert dependencies["env"] == {
+        "DO_NOT_TRACK": "1",
+        "NPM_CONFIG_AUDIT": "false",
+        "NPM_CONFIG_CACHE": "${{ runner.tool_cache }}/helixweave-npm-cache",
+        "NPM_CONFIG_FUND": "false",
+        "NPM_CONFIG_OFFLINE": "true",
+        "PLAYWRIGHT_BROWSERS_PATH": (
+            "${{ runner.tool_cache }}/helixweave-playwright/1.61.1"
+        ),
+        "SCARF_ANALYTICS": "false",
+        "SCARF_NO_ANALYTICS": "true",
+    }
+    assert "unshare --user --map-root-user --net" in dependencies["run"]
+    assert "npm ci --offline --no-audit --no-fund" in dependencies["run"]
+    assert (
+        "./node_modules/.bin/playwright install-deps chromium --dry-run"
+        in (dependencies["run"])
+    )
+    assert "./node_modules/.bin/playwright install chromium" in dependencies["run"]
+    assert "chromium.executablePath()" in dependencies["run"]
+    assert "npx" not in dependencies["run"]
+    assert "playwright install-deps chromium --dry-run" in dependencies["run"]
+    assert "playwright install chromium" in dependencies["run"]
+    assert dependencies["run"].index(
+        "playwright install-deps chromium --dry-run"
+    ) < dependencies["run"].index("playwright install chromium")
+    assert "--with-deps" not in dependencies["run"]
+    assert "continue-on-error" not in dependencies
+    assert "sudo" not in str(job)
+    assert product["env"]["PLAYWRIGHT_BROWSERS_PATH"] == (
+        "${{ runner.tool_cache }}/helixweave-playwright/1.61.1"
+    )
+
+    audit = next(
+        step
+        for step in steps
+        if step.get("name") == "Require path-free product evidence"
+    )
+    assert audit["if"] == "always()"
+    assert "bulk-rnaseq-product-evidence.json" in audit["env"]["PRODUCT_EVIDENCE"]
+    assert "set -euo pipefail" in audit["run"]
+    assert "json.tool" in audit["run"]
+    assert "continue-on-error" not in audit
+
+    container_audit = next(
+        step for step in steps if step.get("name") == "Require no managed containers"
+    )
+    assert container_audit["if"] == "always()"
+    assert "set -euo pipefail" in container_audit["run"]
+    assert "ps -aq" in container_audit["run"]
+    assert "--filter" not in container_audit["run"]
+    assert "continue-on-error" not in container_audit
+
+    upload = next(
+        step
+        for step in steps
+        if step.get("name") == "Upload path-free bulk RNA-seq evidence"
+    )
+    assert upload["if"] == "always()"
+    assert upload["uses"] == (
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+    )
+    assert "**/evidence/**" in upload["with"]["path"]
+    assert upload["with"]["if-no-files-found"] == "error"
+    assert steps.index(audit) < steps.index(container_audit) < steps.index(upload)
+
+    product_spec = (
+        REPO_ROOT / "frontend" / "e2e" / "bulk-rnaseq-unavailable.spec.ts"
+    ).read_text(encoding="utf-8")
+    assert "test.skip" not in product_spec
+    assert "test.fixme" not in product_spec
+
+
 def test_lint_and_lock_workflows_cover_the_maintained_contracts():
     lint = _load("lint.yml")
     lock = _load("lock-check.yml")

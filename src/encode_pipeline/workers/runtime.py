@@ -71,8 +71,9 @@ def open_worker_runtime(
     """Reopen SQLite and reconstruct all adapter/execution dependencies.
 
     The optional registry and runner are deployment-owned composition seams.
-    Normal worker startup continues to use the ENCODE-only default registry;
-    workflow inputs can never select either dependency.
+    Normal worker startup rebuilds the bundled registry and any admitted
+    operator-owned bulk RNA-seq binding; workflow inputs can never select or
+    override either dependency.
     """
     from encode_pipeline.services.defaults import (
         create_default_command_builder,
@@ -80,6 +81,8 @@ def open_worker_runtime(
         create_default_execution_planner,
         create_default_local_execution_service,
         create_default_local_run_driver,
+        create_default_managed_container_cleaner,
+        create_default_process_runner,
         create_default_qc_summary_indexing_service,
         create_default_run_service,
         create_default_workflow_registry,
@@ -142,13 +145,8 @@ def open_worker_runtime(
             registry=registry,
             project_root=source_project_root,
         )
-        managed_container_cleaner = (
-            None
-            if resolved_settings.managed_docker_executable is None
-            else ManagedContainerCleaner(
-                executable=resolved_settings.managed_docker_executable,
-                unix_socket=resolved_settings.managed_docker_socket,
-            )
+        managed_container_cleaner = create_default_managed_container_cleaner(
+            resolved_settings
         )
         local_run_driver = create_default_local_run_driver(
             run_service,
@@ -158,8 +156,9 @@ def open_worker_runtime(
             process_runner=(
                 process_runner
                 if process_runner is not None
-                else ProcessRunner(
-                    timeout_seconds=resolved_settings.job_timeout_seconds,
+                else create_default_process_runner(
+                    registry=registry,
+                    settings=resolved_settings,
                     passthrough_exceptions=(WorkerHardTimeout,),
                     managed_container_cleaner=managed_container_cleaner,
                 )

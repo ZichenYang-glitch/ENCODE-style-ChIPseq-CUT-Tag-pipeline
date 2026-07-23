@@ -26,6 +26,7 @@ from encode_pipeline.services.run_repositories import (
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.validation import ValidationService
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
+from encode_pipeline.services.workflow_info import resolve_workflow_availability
 
 
 DEFAULT_SNAPSHOT_TTL = timedelta(minutes=30)
@@ -53,6 +54,10 @@ class ValidatedSnapshotDataInvalidError(RuntimeError):
 
 class ValidatedSnapshotBuildUnavailableError(RuntimeError):
     """Current workflow source could not be fingerprinted safely."""
+
+
+class ValidatedSnapshotExecutionUnavailableError(RuntimeError):
+    """Current deployment cannot admit execution for a new run."""
 
 
 def _now_utc(clock: Callable[[], datetime]) -> datetime:
@@ -118,7 +123,7 @@ class ValidatedInputService:
         self,
         workflow_id: str,
         inputs: WorkflowInputs,
-    ) -> Result[ValidatedInputSnapshot]:
+    ) -> Result[ValidatedInputSnapshot | None]:
         """Return a durable snapshot only after stable successful validation."""
         try:
             adapter = self._registry.get(workflow_id)
@@ -128,6 +133,17 @@ class ValidatedInputService:
         if VALIDATION_CAPABILITY not in adapter.capabilities.supports:
             result = self._validation_service.validate(workflow_id, inputs)
             return Result.failure(result.issues)
+
+        availability = resolve_workflow_availability(adapter)
+        if availability.execution != "available":
+            try:
+                adapter.schema()
+            except Exception:
+                return Result.failure([_schema_unavailable_issue()])
+            result = self._validation_service.validate(workflow_id, inputs)
+            if result.is_failure:
+                return Result.failure(result.issues)
+            return Result.success(None, issues=result.issues)
 
         before_result = self._build_identity_provider.capture(workflow_id)
         if before_result.is_failure or before_result.value is None:
@@ -231,6 +247,12 @@ class ValidatedRunCreationService:
         else:
             if now >= snapshot.expires_at:
                 raise ValidatedSnapshotExpiredError
+            try:
+                adapter = self._run_service.registry.get(workflow_id)
+            except (KeyError, ValueError):
+                raise ValidatedSnapshotExecutionUnavailableError from None
+            if resolve_workflow_availability(adapter).execution != "available":
+                raise ValidatedSnapshotExecutionUnavailableError
             identity_result = self._build_identity_provider.capture(workflow_id)
             if identity_result.is_failure or identity_result.value is None:
                 raise ValidatedSnapshotBuildUnavailableError

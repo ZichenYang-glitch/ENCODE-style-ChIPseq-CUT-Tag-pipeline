@@ -38,6 +38,8 @@ export interface SampleColumn {
   description: string | null;
   required: boolean;
   enumValues: string[] | null;
+  defaultValue: string;
+  readOnly: boolean;
 }
 
 export interface WorkbenchSchema {
@@ -142,6 +144,44 @@ function readSampleColumns(
     ) {
       return null;
     }
+    const rawConst = rawDefinition.const;
+    if (
+      rawConst !== undefined &&
+      (typeof rawConst !== 'string' ||
+        !isSampleCellSafe(rawConst, limits.max_sample_cell_length))
+    ) {
+      return null;
+    }
+    if (
+      typeof rawConst === 'string' &&
+      Array.isArray(rawEnum) &&
+      !rawEnum.includes(rawConst)
+    ) {
+      return null;
+    }
+    const rawDefault = rawDefinition.default;
+    if (
+      rawDefault !== undefined &&
+      (typeof rawDefault !== 'string' ||
+        !isSampleCellSafe(rawDefault, limits.max_sample_cell_length))
+    ) {
+      return null;
+    }
+    const allowedValues =
+      typeof rawConst === 'string'
+        ? [rawConst]
+        : rawEnum === undefined
+          ? null
+          : [...rawEnum];
+    const defaultValue =
+      typeof rawConst === 'string'
+        ? rawConst
+        : typeof rawDefault === 'string'
+          ? rawDefault
+          : '';
+    if (allowedValues !== null && defaultValue && !allowedValues.includes(defaultValue)) {
+      return null;
+    }
     columns.push({
       key,
       label:
@@ -151,7 +191,9 @@ function readSampleColumns(
           ? rawDefinition.description
           : null,
       required: required.has(key),
-      enumValues: rawEnum === undefined ? null : [...rawEnum],
+      enumValues: allowedValues,
+      defaultValue,
+      readOnly: typeof rawConst === 'string',
     });
   }
   return columns.length > 0 ? columns : null;

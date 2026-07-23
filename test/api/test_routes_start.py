@@ -89,6 +89,7 @@ def client_and_queue(tmp_path) -> Iterator[tuple[ApiTestClient, RecordingRunQueu
     app.state.run_submission_service = RunSubmissionService(
         app.state.run_service,
         queue,
+        build_identity_provider=app.state.build_identity_provider,
     )
     try:
         with ApiTestClient(app) as client:

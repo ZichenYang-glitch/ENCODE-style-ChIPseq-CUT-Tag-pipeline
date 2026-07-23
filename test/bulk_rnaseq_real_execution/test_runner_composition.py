@@ -202,6 +202,7 @@ def test_platform_submission_injects_the_acceptance_process_runner(
         run_service=SimpleNamespace(
             get_execution_assignment=lambda _run_id: SimpleNamespace(job_id="job-1")
         ),
+        build_identity_provider=composition.build_identity_provider,
     )
 
     class RuntimeContext:

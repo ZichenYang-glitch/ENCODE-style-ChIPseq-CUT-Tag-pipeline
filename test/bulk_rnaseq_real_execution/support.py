@@ -478,7 +478,7 @@ def build_results_composition(
     *,
     project_root: Path | None = None,
 ) -> ResultsComposition:
-    """Build the explicit results registry without changing platform defaults."""
+    """Build the explicit results registry for isolated acceptance composition."""
     if not isinstance(settings, GateSettings):
         raise ValueError("settings must be GateSettings")
     fixture = load_acceptance_fixture(settings.fixture_manifest)

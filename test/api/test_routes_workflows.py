@@ -114,16 +114,96 @@ def unsupported_capability_client() -> Iterator[ApiTestClient]:
         yield tc
 
 
-def test_list_workflows_returns_encode_workflow(client: ApiTestClient) -> None:
+def test_list_workflows_returns_encode_and_authoring_only_bulk(
+    client: ApiTestClient,
+) -> None:
     response = client.get("/api/v1/workflows")
     assert response.status_code == 200
     data = response.json()
     assert data["ok"] is True
-    assert len(data["workflows"]) == 1
-    item = data["workflows"][0]
-    assert item["metadata"]["workflow_id"] == "encode-style-chipseq-cuttag-atac-mnase"
+    assert len(data["workflows"]) == 2
+    by_id = {item["metadata"]["workflow_id"]: item for item in data["workflows"]}
+    item = by_id["encode-style-chipseq-cuttag-atac-mnase"]
     assert "validation" in item["capabilities"]["supports"]
+    bulk = by_id["bulk-rnaseq"]
+    assert bulk["metadata"]["name"] == "Bulk RNA-seq"
+    assert bulk["schema_version"] == "1.0.0"
+    assert bulk["metadata"]["engines"] == ["nextflow"]
+    assert bulk["upstream_identity"] == {
+        "name": "nf-core/rnaseq",
+        "version": "3.26.0",
+        "revision": "e7ca46272c8f9d5ceee3f71759f4ba551d3217a4",
+    }
+    assert bulk["capabilities"]["supports"] == ["validation", "input_authoring"]
+    assert bulk["availability"] == {
+        "authoring": "available",
+        "execution": "not_configured",
+        "reason_code": "WORKFLOW_EXECUTION_NOT_CONFIGURED",
+    }
     assert data["issues"] == []
+
+
+def test_get_workflow_detail_returns_safe_bulk_product_descriptor(
+    client: ApiTestClient,
+) -> None:
+    response = client.get("/api/v1/workflows/bulk-rnaseq")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["workflow_id"] == "bulk-rnaseq"
+    assert body["workflow"]["metadata"]["name"] == "Bulk RNA-seq"
+    assert body["workflow"]["availability"]["execution"] == "not_configured"
+    assert "/" not in body["workflow"]["availability"]["reason_code"]
+    assert body["issues"] == []
+
+
+def test_get_workflow_detail_unknown_returns_404(client: ApiTestClient) -> None:
+    response = client.get("/api/v1/workflows/missing")
+
+    assert response.status_code == 404
+    assert response.json()["workflow"] is None
+    assert response.json()["issues"][0]["code"] == "WORKFLOW_NOT_FOUND"
+
+
+def test_bulk_validation_remains_available_without_execution_runtime(
+    client: ApiTestClient,
+) -> None:
+    response = client.post(
+        "/api/v1/workflows/bulk-rnaseq/validate",
+        json={
+            "config": {
+                "standard": {
+                    "reference": {
+                        "reference_id": "tiny",
+                        "fasta": "/operator/ref.fa",
+                        "fasta_sha256": "a" * 64,
+                        "gtf": "/operator/ref.gtf",
+                        "gtf_sha256": "b" * 64,
+                        "annotation_style": "gencode",
+                    }
+                }
+            },
+            "samples": [
+                {
+                    "sample": "S1",
+                    "library": "lib1",
+                    "lane": "L001",
+                    "layout": "SE",
+                    "fastq_1": "/operator/S1.fastq.gz",
+                    "strandedness": "auto",
+                    "platform": "ILLUMINA",
+                }
+            ],
+            "options": {},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["snapshot"] is None
+    assert body["issues"] == []
 
 
 def test_get_schema_returns_versioned_renderable_contract(

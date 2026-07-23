@@ -30,8 +30,9 @@ export function ConfigEditor({
             Workflow config
           </h3>
           <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-            Form coverage is {schema.contract.coverage.config}. Advanced keys
-            remain available in YAML.
+            {schema.contract.coverage.config === 'complete'
+              ? 'Form and YAML use the same complete adapter-owned schema.'
+              : 'Form coverage is partial. Additional adapter-owned keys remain available in YAML.'}
           </p>
         </div>
         <div

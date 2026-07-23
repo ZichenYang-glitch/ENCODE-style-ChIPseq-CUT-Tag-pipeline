@@ -95,11 +95,38 @@ class WorkflowCapabilityResponse(BaseModel):
     supports: list[str] = Field(default_factory=list)
 
 
+class WorkflowUpstreamIdentityResponse(BaseModel):
+    """Safe public upstream workflow identity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    version: str
+    revision: str
+
+
+class WorkflowAvailabilityResponse(BaseModel):
+    """Path-free workflow authoring and execution availability."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    authoring: Literal["available"]
+    execution: Literal["available", "not_configured", "unavailable"]
+    reason_code: Literal[
+        "WORKFLOW_EXECUTION_READY",
+        "WORKFLOW_EXECUTION_NOT_CONFIGURED",
+        "WORKFLOW_EXECUTION_UNAVAILABLE",
+    ]
+
+
 class WorkflowListItem(BaseModel):
     """One entry in the workflow list response."""
 
     metadata: WorkflowMetadataResponse
+    schema_version: str = Field(pattern=r"^[1-9]\d*\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$")
     capabilities: WorkflowCapabilityResponse
+    upstream_identity: WorkflowUpstreamIdentityResponse | None = None
+    availability: WorkflowAvailabilityResponse
 
 
 class WorkflowListResponse(BaseModel):
@@ -107,6 +134,15 @@ class WorkflowListResponse(BaseModel):
 
     ok: bool
     workflows: list[WorkflowListItem]
+    issues: list[IssueResponse] = Field(default_factory=list)
+
+
+class WorkflowDetailResponse(BaseModel):
+    """Envelope for GET /api/v1/workflows/{workflow_id}."""
+
+    ok: bool
+    workflow_id: str
+    workflow: WorkflowListItem | None
     issues: list[IssueResponse] = Field(default_factory=list)
 
 

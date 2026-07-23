@@ -3,6 +3,7 @@ import * as Tabs from '@radix-ui/react-tabs';
 import { FileCode2, ListChecks, Settings2, TableProperties } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
+import type { WorkflowAvailability } from '../../api/types';
 import { ConfigEditor, type ConfigMode } from './ConfigEditor';
 import { DraftReview } from './DraftReview';
 import { OptionsEditor } from './OptionsEditor';
@@ -37,9 +38,14 @@ function readMode(value: string | null): ConfigMode {
 interface InputWorkbenchProps {
   workflowId: string;
   schema: WorkbenchSchema;
+  availability: WorkflowAvailability | null;
 }
 
-export function InputWorkbench({ workflowId, schema }: InputWorkbenchProps) {
+export function InputWorkbench({
+  workflowId,
+  schema,
+  availability,
+}: InputWorkbenchProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const draft = useInputDraft(schema);
   const step = readStep(searchParams.get('step'));
@@ -131,7 +137,11 @@ export function InputWorkbench({ workflowId, schema }: InputWorkbenchProps) {
             className="min-w-0 pt-4 outline-none data-[state=inactive]:hidden"
           >
             <DraftReview schema={schema} draft={draft} />
-            <ValidatedSubmission workflowId={workflowId} draft={draft} />
+            <ValidatedSubmission
+              workflowId={workflowId}
+              draft={draft}
+              availability={availability}
+            />
           </Tabs.Content>
         </Tabs.Root>
       </Panel>

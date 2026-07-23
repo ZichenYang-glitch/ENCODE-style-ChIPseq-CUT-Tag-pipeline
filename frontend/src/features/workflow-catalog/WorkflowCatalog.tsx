@@ -1,4 +1,5 @@
 import type { WorkflowSummary } from '../../api/types';
+import { ExecutionAvailabilityBadge } from '../workflow-detail/WorkflowAvailability';
 
 interface WorkflowCatalogProps {
   workflows: WorkflowSummary[];
@@ -26,10 +27,17 @@ export function WorkflowCatalog({
                 : 'border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-bg)]'
             }`}
           >
-            <div className="text-sm font-medium text-[var(--color-text)]">
-              {workflow.metadata.name}
+            <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0 text-sm font-medium text-[var(--color-text)]">
+                {workflow.metadata.name}
+              </div>
+              <ExecutionAvailabilityBadge
+                availability={workflow.availability.execution}
+              />
             </div>
-            <div className="text-xs text-[var(--color-text-muted)]">{id}</div>
+            <div className="break-all text-xs text-[var(--color-text-muted)]">
+              {id}
+            </div>
           </button>
         );
       })}

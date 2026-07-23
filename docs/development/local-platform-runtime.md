@@ -179,6 +179,45 @@ migration, API, and worker connections. Relative SQLite and workspace paths are
 also rejected so processes with different working directories cannot silently
 open different state.
 
+### Optional Bulk RNA-seq execution binding
+
+`bulk-rnaseq` input authoring and adapter validation require no local scientific
+runtime. To create or start a run, both API and worker processes must receive
+the same complete server-owned binding:
+
+```bash
+export HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT="/absolute/pinned-runtime"
+export HELIXWEAVE_BULK_RNASEQ_TRANSCRIPTOME_BINDING_MANIFEST="/absolute/transcriptome-binding.json"
+export ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE="/usr/bin/docker"
+export ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET="/var/run/docker.sock"
+```
+
+The manifest is small operator metadata, not reference payload:
+
+```json
+{
+  "schema_version": "1.0.0",
+  "reference_id": "operator-reference-id",
+  "fasta_sha256": "<64 lowercase hex>",
+  "gtf_sha256": "<64 lowercase hex>",
+  "transcript_fasta": "/absolute/transcripts.fa",
+  "transcript_fasta_sha256": "<64 lowercase hex>"
+}
+```
+
+The runtime must be the fixed nf-core/rnaseq 3.26.0 closure: immutable source
+commit `e7ca46272c8f9d5ceee3f71759f4ba551d3217a4`, Nextflow 25.04.3, Amazon
+Corretto 21.0.7.6.1, nf-schema 2.5.1, admitted OCI images, reference/STAR/Salmon
+indexes, and any configured SortMeRNA database/index. Execution stays offline
+with the adapter-owned hard config and no-pull/no-network Docker controls.
+Partial, malformed, missing, or drifted coordinates keep execution unavailable;
+their values and paths are not returned by the API.
+
+OCI archives, JDKs, references, indexes, and fixture payloads are deployment
+assets and must not be committed. The controlled tiny fixture proves execution,
+cleanup, lifecycle, artifact, and QC contracts only; it does not establish
+biological validity or production-scale performance.
+
 The Redis timeout values must be positive finite numbers. The API queue client
 uses the two-second connection timeout and five-second command read timeout by
 default. The synchronous start and running-cancel routes run in FastAPI's worker
@@ -503,6 +542,6 @@ the stopped callback cannot reach SQLite after the process group is gone, the
 run can remain `running` with a durable intent and requires operator diagnosis.
 Heartbeat/lease reconciliation is intentionally not invented here.
 
-Authentication, multi-tenancy, HPC scheduling, object storage, immutable
-workflow bundles, automatic QC thresholds/conclusions, and a second adapter
-remain outside this local runtime.
+Authentication, multi-tenancy, HPC scheduling, object storage, dynamic workflow
+discovery, and automatic QC thresholds/conclusions remain outside this local
+runtime.

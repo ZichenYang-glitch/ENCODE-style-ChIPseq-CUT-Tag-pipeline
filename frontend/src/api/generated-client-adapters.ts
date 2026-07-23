@@ -1,4 +1,5 @@
 import {
+  getWorkflow,
   getWorkflowSchema,
   listWorkflows,
   validateWorkflow,
@@ -39,7 +40,9 @@ import type {
   AgentToolCall,
   Issue,
   Severity,
+  WorkflowAvailability,
   WorkflowSchema,
+  WorkflowSummary,
 } from './types';
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -105,9 +108,108 @@ function mapIssues(issues: GeneratedIssue[] | undefined): Issue[] {
   return (issues ?? []).map(toIssue);
 }
 
+function asStringArray(value: unknown): string[] | null {
+  return Array.isArray(value) &&
+    value.every((item): item is string => typeof item === 'string')
+    ? [...value]
+    : null;
+}
+
+const availabilityReasonByExecution = {
+  available: 'WORKFLOW_EXECUTION_READY',
+  not_configured: 'WORKFLOW_EXECUTION_NOT_CONFIGURED',
+  unavailable: 'WORKFLOW_EXECUTION_UNAVAILABLE',
+} as const;
+
+function toWorkflowAvailability(value: unknown): WorkflowAvailability {
+  const availability = asRecord(value);
+  const execution = availability.execution;
+  const reasonCode = availability.reason_code;
+  if (
+    availability.authoring === 'available' &&
+    (execution === 'available' ||
+      execution === 'not_configured' ||
+      execution === 'unavailable') &&
+    reasonCode === availabilityReasonByExecution[execution]
+  ) {
+    return {
+      authoring: 'available',
+      execution,
+      reason_code: availabilityReasonByExecution[execution],
+    };
+  }
+  return {
+    authoring: 'available',
+    execution: 'unavailable',
+    reason_code: 'WORKFLOW_EXECUTION_UNAVAILABLE',
+  };
+}
+
+function toWorkflowSummary(value: unknown): WorkflowSummary | null {
+  const workflow = asRecord(value);
+  const metadata = asRecord(workflow.metadata);
+  const capabilities = asRecord(workflow.capabilities);
+  const supports = asStringArray(capabilities.supports) ?? [];
+  if (
+    typeof metadata.workflow_id !== 'string' ||
+    typeof metadata.name !== 'string' ||
+    typeof metadata.version !== 'string' ||
+    typeof workflow.schema_version !== 'string'
+  ) {
+    return null;
+  }
+  const upstream = asRecord(workflow.upstream_identity);
+  const upstreamIdentity =
+    typeof upstream.name === 'string' &&
+    typeof upstream.version === 'string' &&
+    typeof upstream.revision === 'string'
+      ? {
+          name: upstream.name,
+          version: upstream.version,
+          revision: upstream.revision,
+        }
+      : null;
+  if (workflow.upstream_identity != null && upstreamIdentity === null) {
+    return null;
+  }
+  return {
+    metadata: {
+      workflow_id: metadata.workflow_id,
+      name: metadata.name,
+      version: metadata.version,
+      description:
+        typeof metadata.description === 'string' ? metadata.description : '',
+      engines: asStringArray(metadata.engines) ?? [],
+      tags: asStringArray(metadata.tags) ?? [],
+    },
+    schema_version: workflow.schema_version,
+    capabilities: {
+      supports,
+    },
+    upstream_identity: upstreamIdentity,
+    availability: toWorkflowAvailability(workflow.availability),
+  };
+}
+
 function toWorkflowSchema(value: unknown): WorkflowSchema {
   const hints = asRecord(value);
+  const inputModes = asRecord(hints.input_modes);
+  const configModes = asStringArray(inputModes.config);
+  const sampleModes = asStringArray(inputModes.samples);
+  const optionModes = asStringArray(inputModes.options);
   return {
+    ...(typeof hints.schema_version === 'string'
+      ? { schema_version: hints.schema_version }
+      : {}),
+    ...(configModes !== null && sampleModes !== null && optionModes !== null
+      ? {
+          input_modes: {
+            config: configModes,
+            samples: sampleModes,
+            options: optionModes,
+          },
+        }
+      : {}),
     config_schema: asRecord(hints.config_schema),
     sample_schema: asRecord(hints.sample_schema),
     option_schema: asRecord(hints.option_schema),
@@ -208,24 +310,57 @@ export function createGeneratedWorkflowClient(): WorkflowApiClient {
         const response = await listWorkflows();
         return {
           ok: response.ok,
-          workflows: response.workflows.map((workflow) => ({
-            metadata: {
-              workflow_id: workflow.metadata.workflow_id,
-              name: workflow.metadata.name,
-              version: workflow.metadata.version,
-              description: workflow.metadata.description ?? '',
-              engines: workflow.metadata.engines ?? [],
-              tags: workflow.metadata.tags ?? [],
-            },
-            capabilities: {
-              supports: workflow.capabilities.supports ?? [],
-            },
-          })),
+          workflows: response.workflows
+            .map((workflow) => toWorkflowSummary(workflow))
+            .filter((workflow): workflow is WorkflowSummary => workflow !== null),
           issues: mapIssues(response.issues),
         };
       } catch (error) {
         if (!(error instanceof ApiError)) throw error;
         return { ok: false, workflows: [], issues: issuesFromError(error) };
+      }
+    },
+
+    async getWorkflow(workflowId) {
+      try {
+        const response = await getWorkflow(workflowId);
+        const workflow =
+          response.workflow === null
+            ? null
+            : toWorkflowSummary(response.workflow);
+        if (response.ok && workflow === null) {
+          return {
+            ok: false,
+            workflow_id: response.workflow_id,
+            workflow: null,
+            issues: [
+              {
+                code: 'WORKFLOW_DESCRIPTOR_UNAVAILABLE',
+                message: 'Workflow product information is unavailable.',
+                severity: 'error',
+                path: 'workflow',
+                source: 'api',
+                technical_message: null,
+                hint: null,
+                context: {},
+              },
+            ],
+          };
+        }
+        return {
+          ok: response.ok,
+          workflow_id: response.workflow_id,
+          workflow,
+          issues: mapIssues(response.issues),
+        };
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        return {
+          ok: false,
+          workflow_id: workflowId,
+          workflow: null,
+          issues: issuesFromError(error),
+        };
       }
     },
 

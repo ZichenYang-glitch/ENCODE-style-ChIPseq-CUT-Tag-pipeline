@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 
 import pytest
 
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.execution import RunExecutionAssignment
 from encode_pipeline.platform.runs import RunStatus
+from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.services.defaults import (
     create_default_workflow_build_identity_provider,
     create_default_workflow_registry,
@@ -19,10 +21,12 @@ from encode_pipeline.services.run_queue import (
 )
 from encode_pipeline.services.run_submission import (
     RunBuildIdentityMissingError,
+    RunExecutionUnavailableError,
     RunNotReadyError,
     RunStartConflictError,
     RunSubmissionService,
     RunSubmissionUnavailableError,
+    RunWorkflowBuildChangedError,
 )
 from encode_pipeline.services.runs import RunService
 
@@ -55,6 +59,16 @@ def _service() -> RunService:
     )
 
 
+def _submission(run_service: RunService, queue: RecordingRunQueue):
+    return RunSubmissionService(
+        run_service,
+        queue,
+        build_identity_provider=create_default_workflow_build_identity_provider(
+            registry=run_service.registry
+        ),
+    )
+
+
 def _planned_run(service: RunService) -> None:
     service.create_run(WORKFLOW_ID, WorkflowInputs(config={}))
     service.transition_run("run-1", RunStatus.VALIDATING)
@@ -75,7 +89,7 @@ def test_start_run_dispatches_and_queues_exactly_once():
     run_service = _service()
     _planned_run(run_service)
     queue = RecordingRunQueue()
-    submission = RunSubmissionService(run_service, queue)
+    submission = _submission(run_service, queue)
 
     first = submission.start_run("run-1")
     events_after_first = run_service.list_events("run-1")
@@ -105,7 +119,68 @@ def test_start_rejects_legacy_planned_run_without_build_identity():
     queue = RecordingRunQueue()
 
     with pytest.raises(RunBuildIdentityMissingError):
-        RunSubmissionService(run_service, queue).start_run("run-1")
+        _submission(run_service, queue).start_run("run-1")
+
+    assert run_service.get_run("run-1").status is RunStatus.PLANNED
+    assert run_service.get_execution_assignment("run-1") is None
+    assert queue.assignments == []
+
+
+def test_start_rechecks_current_build_before_reserving_or_enqueueing(monkeypatch):
+    run_service = _service()
+    _planned_run(run_service)
+    queue = RecordingRunQueue()
+    provider = create_default_workflow_build_identity_provider(
+        registry=run_service.registry
+    )
+    monkeypatch.setattr(
+        provider,
+        "capture",
+        lambda _workflow_id: Result.failure(
+            [
+                Issue(
+                    code="PRIVATE_RUNTIME_FAILURE",
+                    message="private runtime detail",
+                )
+            ]
+        ),
+    )
+    submission = RunSubmissionService(
+        run_service,
+        queue,
+        build_identity_provider=provider,
+    )
+
+    with pytest.raises(RunExecutionUnavailableError):
+        submission.start_run("run-1")
+
+    assert run_service.get_run("run-1").status is RunStatus.PLANNED
+    assert run_service.get_execution_assignment("run-1") is None
+    assert queue.assignments == []
+
+
+def test_start_rejects_changed_build_before_reserving_or_enqueueing(monkeypatch):
+    run_service = _service()
+    _planned_run(run_service)
+    queue = RecordingRunQueue()
+    persisted = run_service.get_workflow_build_identity("run-1")
+    assert persisted is not None
+    provider = create_default_workflow_build_identity_provider(
+        registry=run_service.registry
+    )
+    monkeypatch.setattr(
+        provider,
+        "capture",
+        lambda _workflow_id: Result.success(replace(persisted, digest="f" * 64)),
+    )
+    submission = RunSubmissionService(
+        run_service,
+        queue,
+        build_identity_provider=provider,
+    )
+
+    with pytest.raises(RunWorkflowBuildChangedError):
+        submission.start_run("run-1")
 
     assert run_service.get_run("run-1").status is RunStatus.PLANNED
     assert run_service.get_execution_assignment("run-1") is None
@@ -117,7 +192,7 @@ def test_queue_failure_preserves_planned_reservation_for_retry():
     _planned_run(run_service)
     queue = RecordingRunQueue()
     queue.error = RunQueueUnavailableError("redis://secret-host is unavailable")
-    submission = RunSubmissionService(run_service, queue)
+    submission = _submission(run_service, queue)
 
     with pytest.raises(RunSubmissionUnavailableError) as raised:
         submission.start_run("run-1")
@@ -153,7 +228,7 @@ def test_ambiguous_queue_error_keeps_confirmed_queued_state_retryable():
 
     queue.callback = worker_repairs
     queue.error = RunQueueUnavailableError("connection dropped after enqueue")
-    submission = RunSubmissionService(run_service, queue)
+    submission = _submission(run_service, queue)
 
     with pytest.raises(RunSubmissionUnavailableError) as raised:
         submission.start_run("run-1")
@@ -190,7 +265,7 @@ def test_backend_terminal_race_returns_confirmed_worker_progress():
 
     queue.callback = worker_advances
     queue.error = RunQueueJobUnavailableError("job finished during retry")
-    submission = RunSubmissionService(run_service, queue)
+    submission = _submission(run_service, queue)
 
     result = submission.start_run("run-1")
 
@@ -216,7 +291,7 @@ def test_backend_error_rechecks_progress_before_building_conflict(monkeypatch):
 
     queue.callback = worker_repairs
     queue.error = RunQueueJobUnavailableError("job completed during retry")
-    submission = RunSubmissionService(run_service, queue)
+    submission = _submission(run_service, queue)
     original_get_assignment = run_service.get_execution_assignment
     advanced = False
 
@@ -255,7 +330,7 @@ def test_unreusable_backend_job_is_a_start_conflict():
     _planned_run(run_service)
     queue = RecordingRunQueue()
     queue.error = RunQueueJobUnavailableError("failed")
-    submission = RunSubmissionService(run_service, queue)
+    submission = _submission(run_service, queue)
 
     with pytest.raises(RunStartConflictError) as raised:
         submission.start_run("run-1")
@@ -267,7 +342,7 @@ def test_unreusable_backend_job_is_a_start_conflict():
 def test_start_requires_planned_run_and_confirmed_terminal_dispatch():
     run_service = _service()
     run_service.create_run(WORKFLOW_ID, WorkflowInputs(config={}))
-    submission = RunSubmissionService(run_service, RecordingRunQueue())
+    submission = _submission(run_service, RecordingRunQueue())
 
     with pytest.raises(RunNotReadyError):
         submission.start_run("run-1")
@@ -282,7 +357,7 @@ def test_cancel_race_after_enqueue_persists_dispatch_without_queue_event():
     _planned_run(run_service)
     queue = RecordingRunQueue()
     queue.callback = lambda _assignment: run_service.cancel_run("run-1", reason="race")
-    submission = RunSubmissionService(run_service, queue)
+    submission = _submission(run_service, queue)
 
     cancelled = submission.start_run("run-1")
     retried = submission.start_run("run-1")

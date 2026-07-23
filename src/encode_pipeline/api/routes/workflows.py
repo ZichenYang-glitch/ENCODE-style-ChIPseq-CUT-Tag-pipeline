@@ -8,19 +8,19 @@ from fastapi.responses import JSONResponse
 from encode_pipeline.api.dependencies import get_registry, get_validated_input_service
 from encode_pipeline.api.models import (
     SchemaResponse,
+    WorkflowDetailResponse,
     WorkflowSchemaResponse,
     ValidationRequest,
     ValidationResponse,
     ValidatedInputSnapshotResponse,
-    WorkflowCapabilityResponse,
     WorkflowListItem,
     WorkflowListResponse,
-    WorkflowMetadataResponse,
 )
 from encode_pipeline.platform.adapters import VALIDATION_CAPABILITY, WorkflowInputs
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.services.validated_inputs import ValidatedInputService
+from encode_pipeline.services.workflow_info import WorkflowInfoService
 
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -56,23 +56,55 @@ def _conflict_response(workflow_id: str, body: dict) -> JSONResponse:
     return JSONResponse(status_code=409, content=body)
 
 
+def _descriptor_item(descriptor) -> WorkflowListItem:
+    return WorkflowListItem.model_validate(descriptor.to_dict())
+
+
 @router.get("/", response_model=WorkflowListResponse, operation_id="listWorkflows")
-async def list_workflows(
+def list_workflows(
     registry: WorkflowRegistry = Depends(get_registry),
 ) -> WorkflowListResponse:
     """List registered workflows with metadata and capabilities."""
-    items: list[WorkflowListItem] = []
-    for metadata in registry.list_metadata():
-        adapter = registry.get(metadata.workflow_id)
-        items.append(
-            WorkflowListItem(
-                metadata=WorkflowMetadataResponse(**metadata.to_dict()),
-                capabilities=WorkflowCapabilityResponse(
-                    **adapter.capabilities.to_dict()
-                ),
-            )
-        )
+    items = [
+        _descriptor_item(descriptor)
+        for descriptor in WorkflowInfoService(registry).list_descriptors()
+    ]
     return WorkflowListResponse(ok=True, workflows=items, issues=[])
+
+
+@router.get(
+    "/{workflow_id}",
+    response_model=WorkflowDetailResponse,
+    operation_id="getWorkflow",
+    responses={
+        404: {"model": WorkflowDetailResponse},
+        503: {"model": WorkflowDetailResponse},
+    },
+)
+def get_workflow(
+    workflow_id: str,
+    registry: WorkflowRegistry = Depends(get_registry),
+) -> WorkflowDetailResponse | JSONResponse:
+    """Return one safe workflow product descriptor."""
+    result = WorkflowInfoService(registry).get_descriptor(workflow_id)
+    if result.is_failure or result.value is None:
+        issue = result.issues[0]
+        status_code = 404 if issue.code == "WORKFLOW_NOT_FOUND" else 503
+        return JSONResponse(
+            status_code=status_code,
+            content=WorkflowDetailResponse(
+                ok=False,
+                workflow_id=workflow_id,
+                workflow=None,
+                issues=[item.to_dict() for item in result.issues],
+            ).model_dump(mode="json"),
+        )
+    return WorkflowDetailResponse(
+        ok=True,
+        workflow_id=workflow_id,
+        workflow=_descriptor_item(result.value),
+        issues=[],
+    )
 
 
 @router.get(

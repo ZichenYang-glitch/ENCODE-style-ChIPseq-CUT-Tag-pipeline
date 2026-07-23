@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientProvider } from '../../api/client-context';
 import { appRoutes } from '../../app/router';
 import {
+  getWorkflow,
   getWorkflowSchema,
   listWorkflows,
   validateWorkflow,
@@ -19,6 +20,7 @@ import {
 import { triggerPreflight } from '../../api/generated/preflight/preflight';
 
 vi.mock('../../api/generated/workflows/workflows', () => ({
+  getWorkflow: vi.fn(),
   getWorkflowSchema: vi.fn(),
   listWorkflows: vi.fn(),
   validateWorkflow: vi.fn(),
@@ -64,21 +66,33 @@ function runRecord(status: string) {
 describe('real preflight product path', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    const workflow = {
+      metadata: {
+        workflow_id: WORKFLOW_ID,
+        name: 'ENCODE workflow',
+        version: '0.3.0',
+        description: 'Epigenomics workflow.',
+        engines: ['snakemake'],
+        tags: ['chip-seq'],
+      },
+      schema_version: '1.0.0',
+      capabilities: { supports: ['validation', 'workspace_plan'] },
+      upstream_identity: null,
+      availability: {
+        authoring: 'available' as const,
+        execution: 'available' as const,
+        reason_code: 'WORKFLOW_EXECUTION_READY' as const,
+      },
+    };
     vi.mocked(listWorkflows).mockResolvedValue({
       ok: true,
-      workflows: [
-        {
-          metadata: {
-            workflow_id: WORKFLOW_ID,
-            name: 'ENCODE workflow',
-            version: '0.3.0',
-            description: 'Epigenomics workflow.',
-            engines: ['snakemake'],
-            tags: ['chip-seq'],
-          },
-          capabilities: { supports: ['validation', 'workspace_plan'] },
-        },
-      ],
+      workflows: [workflow],
+      issues: [],
+    });
+    vi.mocked(getWorkflow).mockResolvedValue({
+      ok: true,
+      workflow_id: WORKFLOW_ID,
+      workflow,
       issues: [],
     });
     vi.mocked(getWorkflowSchema).mockResolvedValue({

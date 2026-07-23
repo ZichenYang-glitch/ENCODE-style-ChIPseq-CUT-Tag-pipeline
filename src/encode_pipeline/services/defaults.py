@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from encode_pipeline.platform.registry import WorkflowRegistry
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from encode_pipeline.services.command_builder import CommandBuilder
     from encode_pipeline.services.local_run_driver import LocalRunDriver
     from encode_pipeline.services.local_execution import LocalExecutionService
+    from encode_pipeline.services.managed_containers import ManagedContainerCleaner
     from encode_pipeline.services.materialization import WorkspaceMaterializer
     from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
     from encode_pipeline.services.runs import RunService
@@ -24,14 +26,19 @@ if TYPE_CHECKING:
     from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
     from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
     from encode_pipeline.services.qc_summary_indexing import QcSummaryIndexingService
+    from encode_pipeline.workers.settings import WorkerSettings
 
 
 def create_default_workflow_registry(
     *,
     project_root: Path | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> WorkflowRegistry:
-    """Return a fresh registry containing the bundled ENCODE-style adapter."""
+    """Return fresh bundled ENCODE and fail-closed bulk RNA-seq adapters."""
     from encode_pipeline.adapters import EncodeStyleWorkflowAdapter
+    from encode_pipeline.adapters.bulk_rnaseq.deployment import (
+        load_default_bulk_rnaseq_adapter,
+    )
 
     catalog_path = (
         None
@@ -39,7 +46,10 @@ def create_default_workflow_registry(
         else str(project_root / "docs" / "architecture" / "artifact-inventory.yaml")
     )
     return WorkflowRegistry(
-        adapters=[EncodeStyleWorkflowAdapter(catalog_path=catalog_path)]
+        adapters=[
+            EncodeStyleWorkflowAdapter(catalog_path=catalog_path),
+            load_default_bulk_rnaseq_adapter(environ),
+        ]
     )
 
 
@@ -56,6 +66,83 @@ def create_default_validation_service(
     if registry is None:
         registry = create_default_workflow_registry()
     return ValidationService(registry=registry)
+
+
+def create_default_managed_container_cleaner(
+    settings: WorkerSettings,
+) -> ManagedContainerCleaner | None:
+    """Return the configured local Docker cleanup authority, if present."""
+    from encode_pipeline.services.managed_containers import ManagedContainerCleaner
+    from encode_pipeline.workers.settings import WorkerSettings
+
+    if not isinstance(settings, WorkerSettings):
+        raise ValueError("settings must be WorkerSettings")
+    if settings.managed_docker_executable is None:
+        return None
+    return ManagedContainerCleaner(
+        executable=settings.managed_docker_executable,
+        unix_socket=settings.managed_docker_socket,
+    )
+
+
+def create_default_process_runner(
+    *,
+    registry: WorkflowRegistry,
+    settings: WorkerSettings,
+    managed_container_cleaner: ManagedContainerCleaner | None = None,
+    passthrough_exceptions: tuple[type[BaseException], ...] = (),
+) -> ProcessRunner:
+    """Build one local runner from admitted server-owned adapter bindings."""
+    from encode_pipeline.adapters.bulk_rnaseq.deployment import (
+        disable_local_execution,
+        local_execution_configuration,
+    )
+    from encode_pipeline.services.managed_containers import ManagedContainerCleaner
+    from encode_pipeline.services.process_runner import ProcessRunner
+    from encode_pipeline.workers.settings import WorkerSettings
+
+    if not isinstance(registry, WorkflowRegistry):
+        raise ValueError("registry must be WorkflowRegistry")
+    if not isinstance(settings, WorkerSettings):
+        raise ValueError("settings must be WorkerSettings")
+    if managed_container_cleaner is not None and not isinstance(
+        managed_container_cleaner, ManagedContainerCleaner
+    ):
+        raise ValueError("managed_container_cleaner is invalid")
+
+    configurations = []
+    for metadata in registry.list_metadata():
+        adapter = registry.get(metadata.workflow_id)
+        configuration = local_execution_configuration(adapter)
+        if configuration is None:
+            continue
+        if (
+            settings.managed_docker_executable != configuration.docker_executable
+            or settings.managed_docker_socket != configuration.docker_socket
+        ):
+            raise ValueError("managed Docker settings do not match adapter binding")
+        configurations.append((adapter, configuration))
+
+    cleaner = managed_container_cleaner
+    if cleaner is None:
+        try:
+            cleaner = create_default_managed_container_cleaner(settings)
+        except (OSError, ValueError):
+            cleaner = None
+    if configurations and cleaner is None:
+        for adapter, _configuration in configurations:
+            disable_local_execution(adapter)
+        configurations = []
+    allowed_executables = [
+        "snakemake",
+        *(str(configuration.executable) for _, configuration in configurations),
+    ]
+    return ProcessRunner(
+        allowed_executables=tuple(dict.fromkeys(allowed_executables)),
+        timeout_seconds=settings.job_timeout_seconds,
+        passthrough_exceptions=passthrough_exceptions,
+        managed_container_cleaner=cleaner,
+    )
 
 
 def create_default_workflow_build_identity_provider(

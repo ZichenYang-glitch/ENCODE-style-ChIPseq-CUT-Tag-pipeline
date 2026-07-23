@@ -40,16 +40,19 @@ from encode_pipeline.services.runs import (
 )
 from encode_pipeline.services.run_submission import (
     RunBuildIdentityMissingError,
+    RunExecutionUnavailableError,
     RunNotReadyError,
     RunStartConflictError,
     RunSubmissionService,
     RunSubmissionUnavailableError,
+    RunWorkflowBuildChangedError,
 )
 from encode_pipeline.services.validated_inputs import (
     ValidatedRunCreationService,
     ValidatedSnapshotBuildUnavailableError,
     ValidatedSnapshotDataInvalidError,
     ValidatedSnapshotExpiredError,
+    ValidatedSnapshotExecutionUnavailableError,
     ValidatedSnapshotNotFoundError,
     ValidatedSnapshotReplayConflictError,
     ValidatedSnapshotStaleError,
@@ -141,6 +144,24 @@ def _run_queue_unavailable_issue(current_status: str) -> IssueResponse:
         message="The execution queue could not confirm submission.",
         path="run_id",
         context={"current_status": current_status, "retryable": True},
+    )
+
+
+def _run_execution_unavailable_issue(current_status: str) -> IssueResponse:
+    return _issue(
+        code="WORKFLOW_EXECUTION_UNAVAILABLE",
+        message="Workflow execution is not configured or currently unavailable.",
+        path="run_id",
+        context={"current_status": current_status, "retryable": True},
+    )
+
+
+def _run_workflow_build_changed_issue(current_status: str) -> IssueResponse:
+    return _issue(
+        code="RUN_WORKFLOW_BUILD_CHANGED",
+        message="Workflow source or runtime changed after preflight. Preflight again.",
+        path="run_id",
+        context={"current_status": current_status},
     )
 
 
@@ -317,6 +338,20 @@ def create_run(
                     _validated_snapshot_issue(
                         "VALIDATED_SNAPSHOT_BUILD_UNAVAILABLE",
                         "Workflow source identity could not be confirmed. Retry later.",
+                    )
+                ],
+            ).model_dump(mode="json"),
+        )
+    except ValidatedSnapshotExecutionUnavailableError:
+        return JSONResponse(
+            status_code=503,
+            content=RunResponse(
+                ok=False,
+                run=None,
+                issues=[
+                    _validated_snapshot_issue(
+                        "WORKFLOW_EXECUTION_UNAVAILABLE",
+                        "Workflow execution is not configured or currently unavailable.",
                     )
                 ],
             ).model_dump(mode="json"),
@@ -511,6 +546,24 @@ def start_run(
                 ok=False,
                 run=_run_record_response(exc.record),
                 issues=[_run_start_conflict_issue(exc.record.status.value)],
+            ).model_dump(mode="json"),
+        )
+    except RunWorkflowBuildChangedError as exc:
+        return JSONResponse(
+            status_code=409,
+            content=RunResponse(
+                ok=False,
+                run=_run_record_response(exc.record),
+                issues=[_run_workflow_build_changed_issue(exc.record.status.value)],
+            ).model_dump(mode="json"),
+        )
+    except RunExecutionUnavailableError as exc:
+        return JSONResponse(
+            status_code=503,
+            content=RunResponse(
+                ok=False,
+                run=_run_record_response(exc.record),
+                issues=[_run_execution_unavailable_issue(exc.record.status.value)],
             ).model_dump(mode="json"),
         )
     except RunSubmissionUnavailableError as exc:
