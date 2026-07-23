@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import sys
 from uuid import uuid4
 
@@ -218,16 +219,81 @@ def write_manifest(
     )
 
 
+def _validated_owned_runtime_root(
+    runtime_value: str, runtime_owner: str
+) -> tuple[Path, int]:
+    """Resolve one invocation-owned runtime without following its root entry."""
+    requested_root = Path(runtime_value)
+    if not requested_root.is_absolute():
+        raise ValueError("E2E runtime root must be an absolute path")
+    lexical_root = Path(os.path.abspath(runtime_value))
+    runtime_root = lexical_root.resolve(strict=True)
+    if runtime_root != lexical_root:
+        raise ValueError("E2E runtime root must not traverse symbolic links")
+    if runtime_root in {
+        Path("/"),
+        Path("/tmp").resolve(),
+        Path.home().resolve(),
+        REPOSITORY_ROOT.resolve(),
+    }:
+        raise ValueError("E2E runtime root must be a dedicated temporary directory")
+    runtime_info = runtime_root.lstat()
+    if not stat.S_ISDIR(runtime_info.st_mode) or runtime_info.st_uid != os.geteuid():
+        raise ValueError("E2E runtime root is not an owned directory")
+    sentinel = runtime_root / OWNERSHIP_SENTINEL
+    sentinel_info = sentinel.lstat()
+    if (
+        not stat.S_ISREG(sentinel_info.st_mode)
+        or sentinel_info.st_nlink != 1
+        or sentinel_info.st_uid != os.geteuid()
+        or sentinel.read_text(encoding="utf-8") != runtime_owner
+    ):
+        raise ValueError("E2E runtime root is not owned by this Playwright invocation")
+    return runtime_root, runtime_info.st_dev
+
+
+def _make_owned_directories_removable(path: Path, expected_device: int) -> None:
+    """Restore owner access on directories without following links or mounts."""
+    info = path.lstat()
+    if (
+        not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.geteuid()
+        or info.st_dev != expected_device
+        or path.is_mount()
+    ):
+        raise ValueError("E2E runtime contains an unsafe directory")
+    path.chmod(info.st_mode | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    with os.scandir(path) as entries:
+        children = tuple(entries)
+    for child in children:
+        child_info = child.stat(follow_symlinks=False)
+        if child_info.st_uid != os.geteuid():
+            raise ValueError("E2E runtime contains an unowned entry")
+        if stat.S_ISLNK(child_info.st_mode):
+            continue
+        child_path = Path(child.path)
+        if child_path.is_mount():
+            raise ValueError("E2E runtime contains an unexpected mount")
+        if stat.S_ISDIR(child_info.st_mode):
+            _make_owned_directories_removable(child_path, expected_device)
+
+
+def cleanup_owned_runtime_root(runtime_value: str, runtime_owner: str) -> None:
+    """Remove only a sentinel-owned runtime, including copied read-only trees."""
+    runtime_root, expected_device = _validated_owned_runtime_root(
+        runtime_value, runtime_owner
+    )
+    _make_owned_directories_removable(runtime_root, expected_device)
+    shutil.rmtree(runtime_root)
+    if os.path.lexists(runtime_root):
+        raise OSError("E2E runtime root still exists after cleanup")
+
+
 def prepare_owned_runtime_root(runtime_value: str, runtime_owner: str) -> Path:
     """Reset only the invocation-owned temporary runtime directory."""
     runtime_root = Path(runtime_value).resolve()
-    if runtime_root in {Path("/"), Path("/tmp"), Path.home(), REPOSITORY_ROOT}:
-        raise ValueError("E2E runtime root must be a dedicated temporary directory")
-    sentinel = runtime_root / OWNERSHIP_SENTINEL
-    if not sentinel.is_file() or sentinel.read_text(encoding="utf-8") != runtime_owner:
-        raise ValueError("E2E runtime root is not owned by this Playwright invocation")
-    shutil.rmtree(runtime_root)
-    runtime_root.mkdir(parents=True)
+    cleanup_owned_runtime_root(runtime_value, runtime_owner)
+    runtime_root.mkdir(mode=0o700)
     (runtime_root / OWNERSHIP_SENTINEL).write_text(runtime_owner, encoding="utf-8")
     return runtime_root
 
@@ -271,5 +337,21 @@ def main() -> None:
     os.execvpe(sys.executable, argv, child_environment)
 
 
+def _cleanup_owned_runtime_from_environment() -> int:
+    runtime_value = os.environ.get("ENCODE_PIPELINE_E2E_ROOT")
+    runtime_owner = os.environ.get("ENCODE_PIPELINE_E2E_OWNER")
+    if not runtime_value or not runtime_owner:
+        print("owned Playwright runtime cleanup was not configured", file=sys.stderr)
+        return 2
+    try:
+        cleanup_owned_runtime_root(runtime_value, runtime_owner)
+    except (OSError, ValueError):
+        print("owned Playwright runtime cleanup failed", file=sys.stderr)
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--cleanup-owned-runtime"]:
+        raise SystemExit(_cleanup_owned_runtime_from_environment())
     main()

@@ -22,7 +22,12 @@ from scripts.run_local_platform import (
     run_environment_doctor,
 )
 from scripts.results_visibility_fixture import prepare_results_visibility_fixture
-from platform_runtime import prepare_bulk_authoring_fixture, write_manifest
+from platform_runtime import (
+    cleanup_owned_runtime_root,
+    prepare_bulk_authoring_fixture,
+    prepare_owned_runtime_root,
+    write_manifest,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -520,6 +525,97 @@ def test_playwright_runtime_reset_rejects_a_mismatched_owner(tmp_path):
     assert completed.returncode != 0
     assert "not owned" in completed.stderr
     assert unrelated.read_text(encoding="utf-8") == "keep"
+
+
+def test_playwright_runtime_reset_repairs_read_only_owned_directories(tmp_path):
+    runtime_root = tmp_path / "runtime"
+    read_only_directory = runtime_root / "workspaces" / "attempt" / "sortmerna"
+    read_only_directory.mkdir(parents=True)
+    stale_index = read_only_directory / "index.bursttrie_0.dat"
+    stale_index.write_bytes(b"sealed index")
+    (runtime_root / OWNERSHIP_SENTINEL).write_text("owner-a", encoding="utf-8")
+    read_only_directory.chmod(0o550)
+    read_only_directory.parent.chmod(0o550)
+
+    prepared = prepare_owned_runtime_root(str(runtime_root), "owner-a")
+
+    assert prepared == runtime_root
+    assert prepared.is_dir()
+    assert (prepared / OWNERSHIP_SENTINEL).read_text(encoding="utf-8") == "owner-a"
+    assert not stale_index.exists()
+
+
+def test_playwright_runtime_cleanup_repairs_owned_tree_without_following_symlinks(
+    tmp_path,
+):
+    runtime_root = tmp_path / "runtime"
+    read_only_directory = runtime_root / "workspaces" / "attempt" / "sortmerna"
+    read_only_directory.mkdir(parents=True)
+    (read_only_directory / "index.bursttrie_0.dat").write_bytes(b"sealed index")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_sentinel = outside / "keep.txt"
+    outside_sentinel.write_text("keep", encoding="utf-8")
+    (runtime_root / "outside-link").symlink_to(outside, target_is_directory=True)
+    (runtime_root / OWNERSHIP_SENTINEL).write_text("owner-a", encoding="utf-8")
+    read_only_directory.chmod(0o550)
+    read_only_directory.parent.chmod(0o550)
+
+    cleanup_owned_runtime_root(str(runtime_root), "owner-a")
+
+    assert not runtime_root.exists()
+    assert outside_sentinel.read_text(encoding="utf-8") == "keep"
+
+
+def test_playwright_runtime_cleanup_rejects_a_symlinked_root(tmp_path):
+    owned_runtime = tmp_path / "owned-runtime"
+    owned_runtime.mkdir()
+    sentinel = owned_runtime / OWNERSHIP_SENTINEL
+    sentinel.write_text("owner-a", encoding="utf-8")
+    runtime_link = tmp_path / "runtime-link"
+    runtime_link.symlink_to(owned_runtime, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symbolic links"):
+        cleanup_owned_runtime_root(str(runtime_link), "owner-a")
+
+    assert sentinel.read_text(encoding="utf-8") == "owner-a"
+
+
+def test_playwright_runtime_cleanup_cli_repairs_read_only_owned_directories(
+    tmp_path,
+):
+    runtime_root = tmp_path / "runtime"
+    read_only_directory = runtime_root / "workspaces" / "attempt" / "sortmerna"
+    read_only_directory.mkdir(parents=True)
+    (read_only_directory / "index.bursttrie_0.dat").write_bytes(b"sealed index")
+    (runtime_root / OWNERSHIP_SENTINEL).write_text("owner-a", encoding="utf-8")
+    read_only_directory.chmod(0o550)
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "ENCODE_PIPELINE_E2E_ROOT": str(runtime_root),
+            "ENCODE_PIPELINE_E2E_OWNER": "owner-a",
+        }
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(REPOSITORY_ROOT / "test/browser/platform_runtime.py"),
+            "--cleanup-owned-runtime",
+        ],
+        cwd=REPOSITORY_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert completed.stdout == ""
+    assert completed.stderr == ""
+    assert not runtime_root.exists()
 
 
 def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
