@@ -144,7 +144,9 @@ interface QcMetricRecord {
   display_name: string;
   value: string;
   unit: string;
+  scope: string;
   sample_id: string | null;
+  experiment_id: string | null;
   source_artifact_id: string;
 }
 
@@ -846,12 +848,26 @@ test('Bulk RNA-seq product path is fail-closed or executes by declared admission
     await expect(row.first()).toContainText(metric!.source_artifact_id);
   }
   const firstMetric = metrics[0]!;
-  const firstMetricRow = page
-    .getByRole('table', { name: 'Indexed run QC metrics' })
+  let firstMetricRows = qcTable
     .getByRole('row')
-    .filter({ hasText: firstMetric.metric_key });
-  await expect(firstMetricRow.getByText(firstMetric.value, { exact: true })).toBeVisible();
-  await expect(firstMetricRow.getByText(firstMetric.unit, { exact: true })).toBeVisible();
+    .filter({ hasText: firstMetric.metric_key })
+    .filter({ hasText: firstMetric.scope });
+  for (const ownerId of [
+    firstMetric.sample_id,
+    firstMetric.experiment_id,
+  ]) {
+    if (ownerId) firstMetricRows = firstMetricRows.filter({ hasText: ownerId });
+  }
+  await expect(firstMetricRows).toHaveCount(1);
+  const firstMetricRow = firstMetricRows.first();
+  await expect(firstMetricRow).toContainText(firstMetric.source_artifact_id);
+  const firstMetricValueUnitCell = firstMetricRow.getByRole('cell').nth(1);
+  await expect(
+    firstMetricValueUnitCell.getByTitle(firstMetric.value),
+  ).toHaveText(firstMetric.value);
+  await expect(
+    firstMetricValueUnitCell.getByText(firstMetric.unit, { exact: true }),
+  ).toBeVisible();
   await captureElement(
     page,
     page.getByTestId('qc-metric-list'),

@@ -378,26 +378,35 @@ def test_bulk_product_gate_is_exact_head_path_free_and_coordinate_scoped():
     audit = next(
         step
         for step in steps
-        if step.get("name")
-        == "Require path-free product evidence and no managed containers"
+        if step.get("name") == "Require path-free product evidence"
     )
     assert audit["if"] == "always()"
     assert "bulk-rnaseq-product-evidence.json" in audit["env"]["PRODUCT_EVIDENCE"]
+    assert "set -euo pipefail" in audit["run"]
     assert "json.tool" in audit["run"]
-    assert "ps -aq" in audit["run"]
-    assert "--filter" not in audit["run"]
     assert "continue-on-error" not in audit
+
+    container_audit = next(
+        step for step in steps if step.get("name") == "Require no managed containers"
+    )
+    assert container_audit["if"] == "always()"
+    assert "set -euo pipefail" in container_audit["run"]
+    assert "ps -aq" in container_audit["run"]
+    assert "--filter" not in container_audit["run"]
+    assert "continue-on-error" not in container_audit
 
     upload = next(
         step
         for step in steps
         if step.get("name") == "Upload path-free bulk RNA-seq evidence"
     )
+    assert upload["if"] == "always()"
     assert upload["uses"] == (
         "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
     )
     assert "**/evidence/**" in upload["with"]["path"]
     assert upload["with"]["if-no-files-found"] == "error"
+    assert steps.index(audit) < steps.index(container_audit) < steps.index(upload)
 
     product_spec = (
         REPO_ROOT / "frontend" / "e2e" / "bulk-rnaseq-unavailable.spec.ts"

@@ -761,16 +761,24 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.tool_cache }}/helixweave-playwright/1.61.1
         run: npm run test:e2e -- bulk-rnaseq-unavailable.spec.ts
 
-      - name: Require path-free product evidence and no managed containers
+      - name: Require path-free product evidence
         if: always()
         shell: micromamba-shell {0}
         env:
           PRODUCT_EVIDENCE: ${{ runner.temp }}/helixweave-bulk-rnaseq-real-${{ github.run_id }}/product/evidence/bulk-rnaseq-product-evidence.json
+        run: |
+          set -euo pipefail
+          test -s "$PRODUCT_EVIDENCE"
+          python3 -m json.tool "$PRODUCT_EVIDENCE" >/dev/null
+
+      - name: Require no managed containers
+        if: always()
+        shell: micromamba-shell {0}
+        env:
           ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
           ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
         run: |
-          test -s "$PRODUCT_EVIDENCE"
-          python3 -m json.tool "$PRODUCT_EVIDENCE" >/dev/null
+          set -euo pipefail
           container_ids=$(
             "$ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE" \
               --host "unix://$ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET" \
