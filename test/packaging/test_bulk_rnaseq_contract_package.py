@@ -59,7 +59,8 @@ EXPECTED = {**UPSTREAM_EXPECTED, **RUNTIME_EXPECTED}
 def test_wheel_ships_exact_pinned_nfcore_contracts(tmp_path: Path) -> None:
     build_root = tmp_path / "source"
     build_root.mkdir()
-    shutil.copy2(REPO_ROOT / "pyproject.toml", build_root / "pyproject.toml")
+    for filename in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
+        shutil.copy2(REPO_ROOT / filename, build_root / filename)
     shutil.copytree(
         REPO_ROOT / "src",
         build_root / "src",

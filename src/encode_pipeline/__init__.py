@@ -1,3 +1,3 @@
-"""ENCODE-style ChIP-seq / CUT&Tag / ATAC-seq / MNase-seq pipeline library."""
+"""HelixWeave local omics platform compatibility package."""
 
 __version__ = "0.3.0"

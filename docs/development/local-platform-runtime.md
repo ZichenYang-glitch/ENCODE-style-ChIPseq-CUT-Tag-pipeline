@@ -10,12 +10,30 @@ record exists, but it is not the lifecycle truth or the final idempotency guard.
 A job ID reused for another run is rejected, and a stale or unsuccessful RQ job
 is reported instead of being treated as a successful enqueue.
 
+## Distribution and trial asset boundary
+
+The `encode-pipeline` wheel and sdist are compatibility Python distributions.
+They provide the `encode_pipeline` package, existing `encode-*` entry points,
+Alembic revisions, artifact catalog, and versioned adapter contracts. They are
+not a complete copy of the browser frontend or scientific workflow tree.
+
+The v0.3.0 no-Git-checkout product trial uses the separately checksummed
+`helixweave-v0.3.0-source-trial.tar.gz` archive built from the exact release
+tree. It contains the committed frontend, workflow, scripts, documentation, and
+lock files needed by the local product path. It does not bundle installed
+environments, OCI images, JDKs, references, indexes, FASTQ data, caches, results,
+or credentials.
+
+See the [local trial checklist](../local-trial-checklist.md) for clean
+installation, both workflow journeys, browser viewports, evidence, and cleanup.
+
 ## Run locally
 
 ### One-command HelixWeave stack
 
-Create the repository-local locked environment once. The environment lives
-under the ignored `.local/` directory and is never part of a commit:
+From either a verified source checkout or an extracted exact-tree source-trial
+archive, create the local locked environment once. The environment lives under
+the ignored `.local/` directory and is never part of a commit:
 
 ```bash
 micromamba create -p .local/envs/ci-fast --file workflow/envs/ci-fast.lock
@@ -27,10 +45,16 @@ export PATH="$PWD/.local/envs/ci-fast/bin:$PATH"
 python scripts/run_local_platform.py --doctor
 ```
 
-The doctor checks Python 3.12, the API/test imports, Snakemake 8.30.0, Redis
-server 7 or newer, Node.js 20 or newer, npm, and the locked frontend install.
-It exits before opening ports or creating runtime data. Failures name the
-missing prerequisite without printing environment variables or private paths.
+The doctor checks Python 3.12, runtime and API imports, Snakemake 8.30.0, Redis
+server 7 or newer, Node.js 20 or newer, npm, the locked frontend install, and
+the default registry shape. It reports safe availability reason codes for both
+registered workflows. A missing optional Bulk RNA-seq binding is reported as
+`not_configured` or `unavailable` but does not make the core platform doctor
+fail: Bulk RNA-seq authoring and validation remain available while execution
+stays fail-closed. A missing required platform dependency, malformed registry,
+or incomplete core toolchain is fatal. The doctor exits before opening ports or
+creating runtime data and does not print environment values, credentials,
+private payloads, or filesystem paths.
 
 After the doctor succeeds, one foreground command starts the complete
 HelixWeave stack:
@@ -178,6 +202,131 @@ database is deliberately rejected because it cannot preserve state across the
 migration, API, and worker connections. Relative SQLite and workspace paths are
 also rejected so processes with different working directories cannot silently
 open different state.
+
+### v0.3.0 database upgrade
+
+The v0.3.0 database head is Alembic revision `20260717_08`. Its supported
+pre-generation schema fixture is revision `20260714_07`. Earlier v0.2
+prereleases did not ship a supported platform SQLite database, so they do not
+add another in-place database-upgrade baseline.
+
+Before upgrading, stop the supervisor, API, and worker so no process can mutate
+the database. Set two explicit absolute paths. The source must already be a
+regular, non-symlink file; the backup must not exist:
+
+```bash
+PLATFORM_DB=/absolute/path/platform.db
+PLATFORM_BACKUP=/absolute/path/platform-v0.3.0-preupgrade.db
+python - "$PLATFORM_DB" "$PLATFORM_BACKUP" <<'PY'
+import os
+from pathlib import Path
+import sqlite3
+import sys
+
+source_input = Path(sys.argv[1]).expanduser()
+backup_input = Path(sys.argv[2]).expanduser()
+if source_input.is_symlink():
+    raise SystemExit("source database must not be a symlink")
+source = source_input.resolve(strict=True)
+if not source.is_file():
+    raise SystemExit("source database must be a regular file")
+if backup_input.exists() or backup_input.is_symlink():
+    raise SystemExit("backup destination must not exist")
+backup_parent = backup_input.parent.resolve(strict=True)
+backup = backup_parent / backup_input.name
+if source == backup:
+    raise SystemExit("source and backup must be different files")
+
+created = False
+try:
+    descriptor = os.open(
+        backup,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600,
+    )
+    os.close(descriptor)
+    created = True
+    with sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True) as database:
+        if database.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+            raise RuntimeError("source integrity check failed")
+        revision = database.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone()
+        if revision not in {("20260714_07",), ("20260717_08",)}:
+            raise RuntimeError("source schema revision is unsupported")
+        with sqlite3.connect(backup) as destination:
+            database.backup(destination)
+    with sqlite3.connect(f"{backup.as_uri()}?mode=ro", uri=True) as database:
+        if database.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+            raise RuntimeError("backup integrity check failed")
+        if database.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() != revision:
+            raise RuntimeError("backup schema revision changed")
+except Exception:
+    if created:
+        backup.unlink(missing_ok=True)
+    raise
+
+print(f"backup complete: source revision {revision[0]}")
+PY
+```
+
+This read-only URI check cannot create a missing source database, and the
+exclusive backup creation cannot overwrite an existing file. Run the bundled
+migration explicitly against the same source before restarting services:
+
+```bash
+python - "$PLATFORM_DB" <<'PY'
+from pathlib import Path
+import sqlite3
+import sys
+
+from encode_pipeline.persistence.migrations import upgrade_database
+
+source_input = Path(sys.argv[1]).expanduser()
+if source_input.is_symlink():
+    raise SystemExit("source database must not be a symlink")
+source = source_input.resolve(strict=True)
+if not source.is_file():
+    raise SystemExit("source database must be a regular file")
+
+with sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True) as database:
+    if database.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+        raise SystemExit("source integrity check failed")
+    before = database.execute(
+        "SELECT version_num FROM alembic_version"
+    ).fetchone()
+if before not in {("20260714_07",), ("20260717_08",)}:
+    raise SystemExit("source schema revision is unsupported")
+
+if before == ("20260714_07",):
+    upgrade_database(f"sqlite:///{source}")
+
+with sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True) as database:
+    if database.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+        raise SystemExit("upgraded database integrity check failed")
+    after = database.execute(
+        "SELECT version_num FROM alembic_version"
+    ).fetchone()
+if after != ("20260717_08",):
+    raise SystemExit("database did not reach the v0.3.0 schema")
+print(f"database upgrade verified: {before[0]} -> {after[0]}")
+PY
+```
+
+The application factory also upgrades on startup, but the explicit operation
+keeps backup and migration evidence separate from service readiness. The
+supported fixture test proves preservation of workflow and run identity,
+lifecycle state, events and logs, queue assignment, build identity, validated
+snapshot, artifacts, and QC. Legacy result rows stay explicitly
+generation-unbound; migration does not invent artifact or QC revision evidence.
+
+There is no online downgrade contract. To roll back, stop every process again
+and restore the verified pre-upgrade database backup together with the matching
+application version. Do not use an Alembic downgrade against a live or newer
+database. After upgrade or restore, give the API and worker the same absolute
+database and workspace coordinates before starting either process.
 
 ### Optional Bulk RNA-seq execution binding
 

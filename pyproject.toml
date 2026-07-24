@@ -5,12 +5,22 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "encode-pipeline"
 version = "0.3.0"
-description = "ENCODE-style ChIP-seq / CUT&Tag / ATAC-seq / MNase-seq Snakemake pipeline library"
+description = "HelixWeave local omics platform compatibility library"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Zichen Yang" },
+]
 requires-python = ">=3.10"
 dependencies = [
     "jsonschema>=4.23,<5",
     "pyyaml",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline"
+Repository = "https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline"
 
 [project.optional-dependencies]
 api = [
@@ -46,6 +56,7 @@ encode-worker = "encode_pipeline.workers.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
+"encode_pipeline.artifacts" = ["artifact-inventory.yaml"]
 "encode_pipeline.persistence" = ["alembic/script.py.mako"]
 "encode_pipeline.contracts.omics_intake" = ["*.schema.json"]
 "encode_pipeline.contracts.nfcore_rnaseq" = ["*.json", "*.txt"]
