@@ -1,7 +1,13 @@
-# Container Usage Guide
+# Local ENCODE Runner Container Guide
 
-This document explains how to build and run the pipeline using the
-runner-only container images (Docker and Apptainer/SingularityCE).
+This document explains how to build and run the bundled ENCODE-style
+epigenomics workflow with the repository's runner-only Docker and
+Apptainer/SingularityCE definitions.
+
+HelixWeave v0.3.0 does not publish a container image. These definitions are
+optional local build inputs, not HelixWeave application release assets. They
+do not provide the Bulk RNA-seq runtime, whose admitted nf-core/rnaseq 3.26.0
+OCI closure remains operator-owned.
 
 ## Runner-Only Image Contract
 
@@ -19,6 +25,8 @@ via `snakemake --use-conda`.
 
 The runner image does **NOT** contain the workflow repository, reference data,
 or sample data. The repository must be bind-mounted at `/workspace`.
+It also does **NOT** contain Nextflow, the Bulk RNA-seq JDK/plugin/runtime
+closure, STAR/Salmon indexes, SortMeRNA assets, or Bulk RNA-seq references.
 
 **`--conda-prefix` is mandatory.** The container image is read-only. Snakemake
 creates rule-specific Conda environments at runtime, which must land on a
@@ -29,22 +37,25 @@ writable bind-mounted filesystem.
 ### Docker
 
 ```bash
-docker build -f containers/Dockerfile.runner -t chipseq-runner .
+docker build -f containers/Dockerfile.runner \
+  -t helixweave-encode-runner:0.3.0-local .
 ```
 
 ### Apptainer / SingularityCE
 
 ```bash
 # Apptainer
-apptainer build chipseq-runner.sif containers/Apptainer.runner.def
+apptainer build helixweave-encode-runner-0.3.0-local.sif \
+  containers/Apptainer.runner.def
 
 # SingularityCE
-singularity build chipseq-runner.sif containers/Apptainer.runner.def
+singularity build helixweave-encode-runner-0.3.0-local.sif \
+  containers/Apptainer.runner.def
 ```
 
-Build verification reports:
-[Stage 35 Docker](release-checks/stage35-docker-runner-smoke.md)
-[Stage 36 SingularityCE](release-checks/stage36-singularity-runner-smoke.md)
+Historical local build verification is retained in the
+[Docker smoke report](release-checks/stage35-docker-runner-smoke.md) and
+[SingularityCE smoke report](release-checks/stage36-singularity-runner-smoke.md).
 
 ## Docker Usage
 
@@ -65,7 +76,7 @@ docker run --rm \
     -e HOME=/conda_cache/home \
     -e XDG_CACHE_HOME=/conda_cache/xdg-cache \
     -u $(id -u):$(id -g) \
-    chipseq-runner \
+    helixweave-encode-runner:0.3.0-local \
     -s workflow/Snakefile \
     --configfile config/config.yaml \
     --cores 16 \
@@ -98,7 +109,7 @@ apptainer exec \
     --pwd /workspace \
     --bind "$PWD":/workspace,/data:/data,/reference:/reference,/path/to/conda_cache:/conda_cache \
     --env XDG_CACHE_HOME=/conda_cache/xdg-cache \
-    chipseq-runner.sif \
+    helixweave-encode-runner-0.3.0-local.sif \
     snakemake \
     -s workflow/Snakefile \
     --configfile config/config.yaml \
@@ -114,7 +125,7 @@ singularity exec \
     --pwd /workspace \
     --bind "$PWD":/workspace,/data:/data,/reference:/reference,/path/to/conda_cache:/conda_cache \
     --env XDG_CACHE_HOME=/conda_cache/xdg-cache \
-    chipseq-runner.sif \
+    helixweave-encode-runner-0.3.0-local.sif \
     snakemake \
     -s workflow/Snakefile \
     --configfile config/config.yaml \
@@ -188,23 +199,24 @@ creates placeholder FASTQs, and runs a bind-mounted dry-run. Usage:
 
 ```bash
 # Docker
-bash scripts/smoke_container_runner.sh docker chipseq-runner:stage35-smoke
+bash scripts/smoke_container_runner.sh \
+  docker helixweave-encode-runner:0.3.0-local
 
 # SingularityCE
-bash scripts/smoke_container_runner.sh singularity chipseq-runner.sif
+bash scripts/smoke_container_runner.sh \
+  singularity helixweave-encode-runner-0.3.0-local.sif
 ```
 
 The script does NOT download public data and does NOT write outputs into
 the repository.
 
-## Image Publishing
+## v0.3.0 release boundary
 
-Image publishing (Docker Hub, GitHub Container Registry, Singularity Hub)
-is **deferred**. Publishing will be implemented when:
+No Docker, GHCR, Apptainer, Singularity, or other container artifact is part of
+the HelixWeave v0.3.0 release contract. Do not interpret the local
+`0.3.0-local` examples as published tags.
 
-1. CI container build and smoke checks are stable.
-2. A Docker image tag policy is established.
-3. Release tag → image tag mapping is defined.
-
-For now, build images locally using the `Dockerfile.runner` /
-`Apptainer.runner.def` files in the `containers/` directory.
+Build the optional ENCODE runner locally from `Dockerfile.runner` or
+`Apptainer.runner.def`. Publishing an application image, this runner image, or
+any Bulk RNA-seq runtime image requires a separate versioning, provenance,
+security, and release decision.

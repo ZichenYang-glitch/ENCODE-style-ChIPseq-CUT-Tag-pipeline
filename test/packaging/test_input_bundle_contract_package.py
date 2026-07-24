@@ -18,7 +18,8 @@ SCHEMA_SHA256 = "6dcda336c9f0ba763383ddd58bec280946f8970af8bd730eb758fab5e3a8dd7
 def test_wheel_ships_pinned_bundle_schema_and_runtime_validator(tmp_path: Path) -> None:
     build_root = tmp_path / "source"
     build_root.mkdir()
-    shutil.copy2(REPO_ROOT / "pyproject.toml", build_root / "pyproject.toml")
+    for filename in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
+        shutil.copy2(REPO_ROOT / filename, build_root / filename)
     shutil.copytree(
         REPO_ROOT / "src",
         build_root / "src",

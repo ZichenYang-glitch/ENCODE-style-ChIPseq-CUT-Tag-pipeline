@@ -36,7 +36,11 @@ RUNTIME_IMPORTS = (
     "alembic",
     "redis",
     "rq",
-    "pytest",
+    "uvicorn",
+)
+EXPECTED_WORKFLOW_IDS = (
+    "encode-style-chipseq-cuttag-atac-mnase",
+    "bulk-rnaseq",
 )
 
 
@@ -44,6 +48,15 @@ RUNTIME_IMPORTS = (
 class EnvironmentCheck:
     name: str
     version: str
+
+
+@dataclass(frozen=True)
+class WorkflowCheck:
+    workflow_id: str
+    name: str
+    authoring: str
+    execution: str
+    reason_code: str
 
 
 @dataclass(frozen=True)
@@ -191,6 +204,28 @@ def _read_reachable_redis_version(redis_url: str) -> tuple[int, ...]:
     return redis_version
 
 
+def _automatic_redis_start_target(redis_url: str) -> tuple[str, int] | None:
+    """Return the bounded local endpoint the supervisor may create."""
+    try:
+        parsed = urlparse(redis_url)
+        parsed_port = parsed.port
+    except (TypeError, ValueError):
+        return None
+    port = 6379 if parsed_port is None else parsed_port
+    if (
+        parsed.scheme != "redis"
+        or parsed.hostname not in {"127.0.0.1", "localhost"}
+        or not 1 <= port <= 65535
+        or parsed.password
+        or parsed.username
+        or parsed.path not in {"", "/", "/0"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+    return parsed.hostname, port
+
+
 def run_environment_doctor(
     frontend_root: Path,
     *,
@@ -210,7 +245,7 @@ def run_environment_doctor(
         except Exception:
             raise RuntimeError(
                 f"Python package {module} is unavailable; install the project "
-                "with the api and dev extras"
+                "with the api extra in the locked local environment"
             ) from None
 
     snakemake_output = _read_tool_version("snakemake", ("--version",))
@@ -224,12 +259,16 @@ def run_environment_doctor(
             "Snakemake 8.30.0 is required; recreate the locked ci-fast environment"
         )
 
-    if shutil.which("redis-server") is None:
-        try:
-            redis_version = _read_reachable_redis_version(redis_url)
-        except RuntimeError:
+    try:
+        redis_version = _read_reachable_redis_version(redis_url)
+    except RuntimeError:
+        automatic_target = _automatic_redis_start_target(redis_url)
+        if automatic_target is None or not _port_available(*automatic_target):
+            raise RuntimeError(
+                "the configured Redis server version is unavailable"
+            ) from None
+        if shutil.which("redis-server") is None:
             raise RuntimeError("redis-server is unavailable on PATH") from None
-    else:
         redis_output = _read_tool_version("redis-server", ("--version",))
         redis_version = _parse_version(
             redis_output,
@@ -262,7 +301,6 @@ def run_environment_doctor(
     required_frontend_paths = (
         normalized_frontend / "package-lock.json",
         normalized_frontend / "node_modules" / ".bin" / "vite",
-        normalized_frontend / "node_modules" / ".bin" / "playwright",
     )
     if not all(path.is_file() for path in required_frontend_paths):
         raise RuntimeError(
@@ -279,6 +317,48 @@ def run_environment_doctor(
         EnvironmentCheck("Node.js", ".".join(str(part) for part in node_version)),
         EnvironmentCheck("npm", ".".join(str(part) for part in npm_version)),
         EnvironmentCheck("Frontend dependencies", "available"),
+    )
+
+
+def run_workflow_doctor(
+    project_root: Path,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> tuple[WorkflowCheck, ...]:
+    """Return path-free product availability for the exact bundled registry."""
+    from encode_pipeline.services.defaults import create_default_workflow_registry
+    from encode_pipeline.services.workflow_info import WorkflowInfoService
+
+    normalized_root = project_root.expanduser().resolve()
+    required_product_paths = (
+        normalized_root / "src" / "encode_pipeline",
+        normalized_root / "workflow" / "Snakefile",
+        normalized_root / "docs" / "architecture" / "artifact-inventory.yaml",
+    )
+    if not all(path.exists() for path in required_product_paths):
+        raise RuntimeError("workflow product information is unavailable")
+    try:
+        registry = create_default_workflow_registry(
+            project_root=normalized_root,
+            environ=os.environ if environ is None else environ,
+        )
+        descriptors = WorkflowInfoService(registry).list_descriptors()
+    except Exception:
+        raise RuntimeError("workflow product information is unavailable") from None
+    if (
+        tuple(descriptor.metadata.workflow_id for descriptor in descriptors)
+        != EXPECTED_WORKFLOW_IDS
+    ):
+        raise RuntimeError("workflow product information is unavailable")
+    return tuple(
+        WorkflowCheck(
+            workflow_id=descriptor.metadata.workflow_id,
+            name=descriptor.metadata.name,
+            authoring=descriptor.availability.authoring,
+            execution=descriptor.availability.execution,
+            reason_code=descriptor.availability.reason_code,
+        )
+        for descriptor in descriptors
     )
 
 
@@ -450,19 +530,12 @@ class PlatformSupervisor:
     def _ensure_redis(self) -> None:
         if _redis_ready(self.config.redis_url):
             return
-        parsed = urlparse(self.config.redis_url)
-        if parsed.scheme != "redis" or parsed.hostname not in {
-            "127.0.0.1",
-            "localhost",
-        }:
+        automatic_target = _automatic_redis_start_target(self.config.redis_url)
+        if automatic_target is None:
             raise RuntimeError(
-                "configured Redis is unavailable and is not a local endpoint"
+                "configured Redis is unavailable and cannot be started locally"
             )
-        if parsed.password or parsed.username or parsed.path not in {"", "/", "/0"}:
-            raise RuntimeError(
-                "automatic Redis startup supports only an unauthenticated local DB 0"
-            )
-        port = parsed.port or 6379
+        host, port = automatic_target
         redis_root = self.config.runtime_root / "redis"
         redis_root.mkdir(parents=True, exist_ok=True)
         self._start(
@@ -470,7 +543,7 @@ class PlatformSupervisor:
             [
                 "redis-server",
                 "--bind",
-                parsed.hostname or "127.0.0.1",
+                host,
                 "--port",
                 str(port),
                 "--dir",
@@ -652,7 +725,7 @@ def _http_ready(url: str) -> bool:
     try:
         opener = build_opener(ProxyHandler({}))
         with opener.open(url, timeout=1) as response:  # noqa: S310 - fixed local URLs
-            return 200 <= response.status < 500
+            return 200 <= response.status < 300
     except Exception:
         return False
 
@@ -762,6 +835,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.frontend_root,
             redis_url=args.redis_url,
         )
+        workflow_checks = run_workflow_doctor(
+            (args.project_root or REPOSITORY_ROOT),
+            environ=os.environ,
+        )
     except RuntimeError as error:
         print(f"HelixWeave environment check failed: {error}", file=sys.stderr)
         return 1
@@ -769,6 +846,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("HelixWeave environment check")
         for check in environment_checks:
             print(f"{check.name}: {check.version}")
+        print("HelixWeave workflow availability")
+        for check in workflow_checks:
+            print(
+                f"{check.workflow_id}: authoring={check.authoring} "
+                f"execution={check.execution} reason={check.reason_code}"
+            )
+        bulk_check = next(
+            check for check in workflow_checks if check.workflow_id == "bulk-rnaseq"
+        )
+        if bulk_check.execution != "available":
+            print(
+                "Bulk RNA-seq execution is optional; authoring and validation "
+                "remain available."
+            )
+            print(
+                "Provisioning: docs/development/local-platform-runtime.md "
+                "(HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT, "
+                "HELIXWEAVE_BULK_RNASEQ_TRANSCRIPTOME_BINDING_MANIFEST, "
+                "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE, "
+                "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET)."
+            )
         return 0
     try:
         config = config_from_args(args)

@@ -9,12 +9,7 @@ from encode_pipeline.artifacts.models import (
 )
 
 
-_CATALOG_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "docs"
-    / "architecture"
-    / "artifact-inventory.yaml"
-)
+_CATALOG_PATH = Path(__file__).with_name("artifact-inventory.yaml")
 
 
 def _default_catalog_path() -> str:
@@ -24,9 +19,9 @@ def _default_catalog_path() -> str:
 def load_catalog(path: Optional[str] = None) -> list[Artifact]:
     """Load the artifact inventory as a list of validated ``Artifact`` objects.
 
-    If ``path`` is not provided, uses the default inventory at
-    ``docs/architecture/artifact-inventory.yaml`` relative to the repository
-    root.
+    If ``path`` is not provided, uses the packaged copy of the maintained
+    artifact inventory. Source-tree composition passes the documentation copy
+    explicitly; a packaging contract requires both copies to remain byte-identical.
     """
     if path is None:
         path = _default_catalog_path()

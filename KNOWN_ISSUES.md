@@ -7,8 +7,13 @@ The maintained delivery sequence is the
 
 ## Scientific scope
 
-HelixWeave ships an ENCODE-inspired workflow; it does not claim complete ENCODE
-pipeline parity for every assay, mark, replicate design, or QC metric.
+HelixWeave ships two scientific adapters. Their supported paths and evidence
+must not be generalized beyond the contracts below.
+
+### ENCODE-style epigenomics
+
+The ENCODE-inspired workflow does not claim complete ENCODE pipeline parity
+for every assay, mark, replicate design, or QC metric.
 
 - Broad-peak IDR is experimental and opt-in. It is not the default final-output
   policy. See [reproducibility policy](docs/reproducibility-policy.md).
@@ -28,6 +33,21 @@ pipeline parity for every assay, mark, replicate design, or QC metric.
 - CUT&Tag spike-in normalization and a multi-caller comparison framework are
   not implemented.
 - GC-bias metrics and optional `plotFingerprint` QC are not implemented.
+
+### Bulk RNA-seq
+
+- The adapter is pinned to nf-core/rnaseq 3.26.0. Authoring and validation are
+  available without execution assets, but create and start remain fail-closed
+  until the complete operator-owned runtime and transcriptome binding pass
+  live admission.
+- Nextflow, the JDK/plugin/source closure, OCI images, references, STAR/Salmon
+  indexes, and SortMeRNA database/index assets are not bundled or downloaded
+  automatically.
+- The controlled synthetic acceptance fixture proves runtime, lifecycle,
+  cleanup, artifact, QC, and product contracts. It does not establish
+  biological validity or production-scale performance.
+- RiboDetector/GPU, Tower/Wave, cloud/HPC executors, and cross-attempt resume
+  are outside the current product boundary.
 
 Assay-specific truth is maintained in [assay policy](docs/assay-policy.md),
 [configuration](docs/configuration.md), and
@@ -66,6 +86,9 @@ See [container usage](docs/container-usage.md),
 
 - The supported product boundary is local or small trusted teams with SQLite,
   Redis/RQ, and filesystem workspaces.
+- The default registry contains the ENCODE-style epigenomics and Bulk RNA-seq
+  adapters. An unavailable optional Bulk RNA-seq runtime does not prevent safe
+  authoring or validation and does not make the base platform unavailable.
 - Authentication, multi-tenant isolation, PostgreSQL, object storage, HPC
   schedulers, Kubernetes, and remote workspace semantics are not implemented.
 - SQLite is canonical lifecycle and result-metadata state. Queue state must not
@@ -74,6 +97,11 @@ See [container usage](docs/container-usage.md),
   paths and symlink escapes are intentionally rejected.
 - The Agent surface is read-only. It cannot submit, start, cancel, modify, or
   delete runs, and generated explanations are not provenance.
+- Omics Intake integration is limited to a pinned, read-only Bundle 0.2
+  inspection boundary for ENCODE authoring inputs. It does not import producer
+  code, persist Bundle provenance, create a snapshot, or authorize execution.
+- v0.3.0 does not publish a HelixWeave application, ENCODE runner, or
+  Bulk RNA-seq container image.
 
 See the [architecture overview](docs/architecture/platform-overview.md) for
 the durable ownership and safety boundaries.

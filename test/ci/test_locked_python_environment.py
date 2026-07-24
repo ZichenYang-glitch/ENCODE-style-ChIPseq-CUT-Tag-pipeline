@@ -28,6 +28,7 @@ REQUIRED_DIRECT_DEPENDENCIES = {
     "pip",
     "pytest",
     "pytest-cov",
+    "python-build",
     "pyyaml",
     "redis-py",
     "rq",
@@ -60,6 +61,7 @@ def test_ci_environment_declares_build_runtime_test_and_gate_dependencies():
     assert "coverage >=7.10.6,<8" in specifications
     assert "diff-cover >=9,<10" in specifications
     assert "pytest-cov >=7,<8" in specifications
+    assert "python-build >=1.2,<2" in specifications
     assert "redis-py >=7,<9" in specifications
     assert "rq >=2.10,<2.11" in specifications
     assert "ruff ==0.15.21" in specifications

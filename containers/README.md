@@ -1,8 +1,13 @@
-# Runner-Only Container
+# Local ENCODE Snakemake Runner Container
 
 This directory contains container definition files that produce a **runner-only**
-Snakemake image. The image includes Python + PyYAML + Snakemake and can execute
-any Snakemake workflow.
+Snakemake image for the bundled ENCODE-style epigenomics workflow. The image
+includes Python, PyYAML, and Snakemake.
+
+HelixWeave v0.3.0 does not publish this image or include it in the release
+assets. These definitions are provided for optional local builds. They are not
+the HelixWeave API/frontend application image and are not the pinned
+Bulk RNA-seq OCI closure.
 
 ## What This Image Is
 
@@ -16,6 +21,8 @@ any Snakemake workflow.
   All tools come from `workflow/envs/*.yml` via `snakemake --use-conda`.
 - It does NOT contain the workflow repository, reference data, or sample data.
   The repository must be bind-mounted at `/workspace`.
+- It does NOT provision the Bulk RNA-seq Nextflow/JDK/plugin/container,
+  reference, STAR/Salmon index, or SortMeRNA assets.
 
 ## Key Requirements
 
@@ -37,7 +44,7 @@ docker run \
     -e HOME=/conda_cache/home \
     -e XDG_CACHE_HOME=/conda_cache/xdg-cache \
     -u $(id -u):$(id -g) \
-    chipseq-runner \
+    helixweave-encode-runner:0.3.0-local \
     -s workflow/Snakefile \
     --configfile config/config.yaml \
     --cores 16 \
@@ -52,7 +59,7 @@ apptainer exec \
     --pwd /workspace \
     --bind "$PWD":/workspace,/data:/data,/reference:/reference,/data/conda_cache:/conda_cache \
     --env XDG_CACHE_HOME=/conda_cache/xdg-cache \
-    chipseq-runner.sif \
+    helixweave-encode-runner-0.3.0-local.sif \
     snakemake \
     -s workflow/Snakefile \
     --configfile config/config.yaml \
@@ -85,32 +92,34 @@ apptainer exec \
 
 ## Full User Guide
 
-See [`docs/container-usage.md`](../docs/container-usage.md) for the full
-container usage guide covering Docker and Apptainer/SingularityCE build,
-run, bind mounts, HPC guidance, troubleshooting, and image publishing
-status.
+See [`docs/container-usage.md`](../docs/container-usage.md) for the full local
+ENCODE runner guide covering Docker and Apptainer/SingularityCE builds, bind
+mounts, troubleshooting, and the non-publishing boundary.
 
 ## Build Instructions
 
-Docker build and smoke verification completed in Stage 35. See
+Historical Docker build and smoke evidence is retained in
 [`docs/release-checks/stage35-docker-runner-smoke.md`](../docs/release-checks/stage35-docker-runner-smoke.md)
-for the full report.
+for review.
 
-SingularityCE build and smoke verification completed in Stage 36. See
+Historical SingularityCE build and smoke evidence is retained in
 [`docs/release-checks/stage36-singularity-runner-smoke.md`](../docs/release-checks/stage36-singularity-runner-smoke.md)
-for the full report.
+for review.
 
 Build commands (for reference):
 
 ```bash
 # Docker
-docker build -f containers/Dockerfile.runner -t chipseq-runner .
+docker build -f containers/Dockerfile.runner \
+  -t helixweave-encode-runner:0.3.0-local .
 
 # Apptainer
-apptainer build chipseq-runner.sif containers/Apptainer.runner.def
+apptainer build helixweave-encode-runner-0.3.0-local.sif \
+  containers/Apptainer.runner.def
 
 # SingularityCE
-singularity build chipseq-runner.sif containers/Apptainer.runner.def
+singularity build helixweave-encode-runner-0.3.0-local.sif \
+  containers/Apptainer.runner.def
 ```
 
 ## Verification
