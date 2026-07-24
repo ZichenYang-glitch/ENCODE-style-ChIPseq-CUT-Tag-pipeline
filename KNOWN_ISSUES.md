@@ -122,6 +122,34 @@ thresholds, and configuring branch-protection contexts remains a maintainer
 operation outside repository content. See the
 [development harness](docs/development/harness.md) for the current tier model.
 
+### Frontend dependency and bundle maintenance
+
+The v0.3.0 candidate lock reports 12 npm package-level findings: three are in
+production dependency paths (`fast-uri`, `react-router`, and
+`react-router-dom`), while nine are confined to the Vite, Vitest, Orval, and
+OpenAPI-generation toolchain. The audit did not classify any finding as a
+v0.3.0 release blocker within the supported single-workstation or trusted-team
+boundary: schema URI parsing is not used as a network allow/deny decision,
+navigation targets are internal and constrained, there is no server-side
+rendering, Vitest UI/API/browser mode is not enabled, and generated OpenAPI
+input is repository-controlled. Vite is nevertheless part of the supported
+local trial launcher and retains a browser-to-loopback attack surface. It must
+remain bound to loopback and must not receive untrusted requests; exposing it
+to a LAN or other untrusted network is outside the supported trial boundary.
+
+Maintenance should update `fast-uri` to the compatible fixed `3.1.4` lock
+version, then test coordinated React Router 7.18.1+, Vite 6.4.3+/Vitest 3.2.6+,
+and Orval/JS-YAML upgrades as their upstream ranges permit. Do not use
+`npm audit fix --force` or an unreviewed major upgrade merely to reduce the
+aggregate count.
+
+The lazy `/workflows/:workflowId/new-run` authoring chunk is approximately
+1.20 MB minified (385 KB gzip). It is not loaded by the workflow catalog or
+detail routes; most of its size comes from CodeMirror/Lezer and RJSF/AJV.
+Future bounded work can align the duplicate `@codemirror/view` versions and
+load the YAML editor only when YAML mode is selected. Raising Vite's warning
+limit would only hide the maintenance signal and is not a fix.
+
 ## Reporting a new issue
 
 A useful issue should identify the assay or platform layer, minimal inputs,
