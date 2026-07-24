@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from sqlalchemy import inspect, text
 
@@ -656,4 +658,377 @@ def test_result_generation_migration_keeps_legacy_results_explicitly_unbound(
         repository.list_artifacts("legacy-run")
     with pytest.raises(ValueError, match="generation is unbound"):
         repository.list_qc_metrics("legacy-run")
+    upgraded.dispose()
+
+
+def test_v030_supported_prior_schema_upgrade_preserves_complete_product_record(
+    tmp_path,
+) -> None:
+    """Revision 07 is the supported pre-generation schema fixture."""
+    database_url = f"sqlite:///{tmp_path / 'v030-upgrade.db'}"
+    upgrade_database(database_url, "20260714_07")
+    engine = create_database_engine(database_url)
+    now = "2026-07-17 12:00:00"
+    run_id = "release-upgrade-run"
+    workflow_id = "bulk-rnaseq"
+    artifact_id = "release-artifact"
+    metric_id = "qcmetric-" + "b" * 64
+    snapshot_id = "vsnap_" + "c" * 32
+    digest = "d" * 64
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO runs (
+                    run_id, workflow_id, inputs, status, created_at, updated_at,
+                    started_at, ended_at, current_stage, cancellation_reason,
+                    error, tags
+                ) VALUES (
+                    :run_id, :workflow_id, :inputs, 'succeeded', :now, :now,
+                    :now, :now, 'results', NULL, NULL, :tags
+                )
+                """
+            ),
+            {
+                "run_id": run_id,
+                "workflow_id": workflow_id,
+                "inputs": '{"config":{"standard":{}},"samples":[],"options":{}}',
+                "now": now,
+                "tags": '{"release_fixture":"v0.3.0"}',
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO run_events (
+                    event_id, run_id, sequence, event_type, timestamp, status,
+                    stage, message, context, issue
+                ) VALUES (
+                    'event-1', :run_id, 1, 'status_changed', :now, 'succeeded',
+                    'results', 'Results indexed.', :context, NULL
+                )
+                """
+            ),
+            {"run_id": run_id, "now": now, "context": '{"attempt_id":"attempt-1"}'},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO run_logs (
+                    chunk_id, run_id, stream_name, sequence, timestamp, lines
+                ) VALUES (
+                    'chunk-1', :run_id, 'stdout', 1, :now, :lines
+                )
+                """
+            ),
+            {"run_id": run_id, "now": now, "lines": '["workflow complete"]'},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO run_execution_assignments (
+                    run_id, job_id, backend, queue_name, created_at,
+                    dispatched_at, claimed_at, cancellation_requested_at,
+                    cancellation_reason, cancellation_acknowledged_at
+                ) VALUES (
+                    :run_id, 'release-job', 'rq', 'release-queue', :now,
+                    :now, :now, NULL, NULL, NULL
+                )
+                """
+            ),
+            {"run_id": run_id, "now": now},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO run_workflow_build_identities (
+                    run_id, workflow_id, adapter_version, scheme,
+                    logical_entrypoint, digest, captured_at
+                ) VALUES (
+                    :run_id, :workflow_id, '0.3.0', 'sha256-tree-v1',
+                    'main.nf', :digest, :now
+                )
+                """
+            ),
+            {
+                "run_id": run_id,
+                "workflow_id": workflow_id,
+                "digest": digest,
+                "now": now,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO validated_input_snapshots (
+                    snapshot_id, workflow_id, adapter_version, schema_version,
+                    schema_dialect, canonical_payload, payload_digest_scheme,
+                    payload_digest, validation_outcome, validation_issue_codes,
+                    validated_at, expires_at, build_adapter_version, build_scheme,
+                    build_logical_entrypoint, build_digest, build_captured_at,
+                    consumed_run_id, consumed_at
+                ) VALUES (
+                    :snapshot_id, :workflow_id, '0.3.0', '1.0.0',
+                    'https://json-schema.org/draft/2020-12/schema',
+                    :payload, 'sha256-canonical-json-v1', :digest,
+                    'adapter_validation_succeeded', :issues, :now, :expires,
+                    '0.3.0', 'sha256-tree-v1', 'main.nf', :digest, :now,
+                    :run_id, :now
+                )
+                """
+            ),
+            {
+                "snapshot_id": snapshot_id,
+                "workflow_id": workflow_id,
+                "payload": '{"config":{"standard":{}},"samples":[],"options":{}}',
+                "digest": digest,
+                "issues": "[]",
+                "now": now,
+                "expires": "2026-07-18 12:00:00",
+                "run_id": run_id,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO run_artifacts (
+                    artifact_id, run_id, artifact_type, name, uri, mime_type,
+                    produced_at, artifact_metadata
+                ) VALUES (
+                    :artifact_id, :run_id, 'file', 'summary.tsv',
+                    :uri, 'text/tab-separated-values', :now, :metadata
+                )
+                """
+            ),
+            {
+                "artifact_id": artifact_id,
+                "run_id": run_id,
+                "uri": f"run://runs/{run_id}/artifacts/{artifact_id}",
+                "now": now,
+                "metadata": '{"output_type":"qc_summary","sample_id":"S1"}',
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO run_qc_metrics (
+                    metric_id, run_id, metric_key, display_name, value_text,
+                    unit, scope, sample_id, experiment_id, assay, qc_flag,
+                    source_artifact_id, produced_at
+                ) VALUES (
+                    :metric_id, :run_id, 'sequencing.total_reads', 'Total reads',
+                    '10', 'count', 'sample', 'S1', NULL, 'rnaseq', 'pass',
+                    :artifact_id, :now
+                )
+                """
+            ),
+            {
+                "metric_id": metric_id,
+                "run_id": run_id,
+                "artifact_id": artifact_id,
+                "now": now,
+            },
+        )
+    engine.dispose()
+
+    upgrade_database(database_url)
+    upgraded = create_database_engine(database_url)
+    with upgraded.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20260717_08"
+        )
+        run = (
+            connection.execute(
+                text(
+                    "SELECT workflow_id, status, current_stage, tags "
+                    "FROM runs WHERE run_id=:run_id"
+                ),
+                {"run_id": run_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert run["workflow_id"] == workflow_id
+        assert run["status"] == "succeeded"
+        assert run["current_stage"] == "results"
+        assert json.loads(run["tags"]) == {"release_fixture": "v0.3.0"}
+        event = (
+            connection.execute(
+                text(
+                    "SELECT event_id, sequence, event_type, status, stage, message, "
+                    "context, issue FROM run_events WHERE run_id=:run_id"
+                ),
+                {"run_id": run_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert dict(event) == {
+            "event_id": "event-1",
+            "sequence": 1,
+            "event_type": "status_changed",
+            "status": "succeeded",
+            "stage": "results",
+            "message": "Results indexed.",
+            "context": '{"attempt_id":"attempt-1"}',
+            "issue": None,
+        }
+        log = (
+            connection.execute(
+                text(
+                    "SELECT chunk_id, stream_name, sequence, lines "
+                    "FROM run_logs WHERE run_id=:run_id"
+                ),
+                {"run_id": run_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert dict(log) == {
+            "chunk_id": "chunk-1",
+            "stream_name": "stdout",
+            "sequence": 1,
+            "lines": '["workflow complete"]',
+        }
+        assignment = (
+            connection.execute(
+                text(
+                    "SELECT job_id, backend, queue_name, dispatched_at, claimed_at, "
+                    "cancellation_requested_at, cancellation_reason, "
+                    "cancellation_acknowledged_at FROM run_execution_assignments "
+                    "WHERE run_id=:run_id"
+                ),
+                {"run_id": run_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert assignment["job_id"] == "release-job"
+        assert assignment["backend"] == "rq"
+        assert assignment["queue_name"] == "release-queue"
+        assert assignment["dispatched_at"] is not None
+        assert assignment["claimed_at"] is not None
+        assert assignment["cancellation_requested_at"] is None
+        assert assignment["cancellation_reason"] is None
+        assert assignment["cancellation_acknowledged_at"] is None
+        build_identity = (
+            connection.execute(
+                text(
+                    "SELECT workflow_id, adapter_version, scheme, logical_entrypoint, "
+                    "digest FROM run_workflow_build_identities "
+                    "WHERE run_id=:run_id"
+                ),
+                {"run_id": run_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert dict(build_identity) == {
+            "workflow_id": workflow_id,
+            "adapter_version": "0.3.0",
+            "scheme": "sha256-tree-v1",
+            "logical_entrypoint": "main.nf",
+            "digest": digest,
+        }
+        snapshot = (
+            connection.execute(
+                text(
+                    "SELECT workflow_id, adapter_version, schema_version, "
+                    "canonical_payload, payload_digest_scheme, payload_digest, "
+                    "validation_outcome, validation_issue_codes, "
+                    "build_adapter_version, build_scheme, "
+                    "build_logical_entrypoint, build_digest, consumed_run_id "
+                    "FROM validated_input_snapshots "
+                    "WHERE snapshot_id=:snapshot_id"
+                ),
+                {"snapshot_id": snapshot_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert snapshot["workflow_id"] == workflow_id
+        assert snapshot["adapter_version"] == "0.3.0"
+        assert snapshot["schema_version"] == "1.0.0"
+        assert json.loads(snapshot["canonical_payload"]) == {
+            "config": {"standard": {}},
+            "samples": [],
+            "options": {},
+        }
+        assert snapshot["payload_digest_scheme"] == "sha256-canonical-json-v1"
+        assert snapshot["payload_digest"] == digest
+        assert snapshot["validation_outcome"] == "adapter_validation_succeeded"
+        assert json.loads(snapshot["validation_issue_codes"]) == []
+        assert snapshot["build_adapter_version"] == "0.3.0"
+        assert snapshot["build_scheme"] == "sha256-tree-v1"
+        assert snapshot["build_logical_entrypoint"] == "main.nf"
+        assert snapshot["build_digest"] == digest
+        assert snapshot["consumed_run_id"] == run_id
+        state = (
+            connection.execute(
+                text(
+                    "SELECT artifact_revision, artifact_generation, qc_revision, "
+                    "qc_generation FROM run_result_states WHERE run_id=:run_id"
+                ),
+                {"run_id": run_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert dict(state) == {
+            "artifact_revision": 0,
+            "artifact_generation": None,
+            "qc_revision": 0,
+            "qc_generation": None,
+        }
+        artifact = (
+            connection.execute(
+                text(
+                    "SELECT artifact_type, name, uri, mime_type, "
+                    "artifact_metadata, revision FROM run_artifacts "
+                    "WHERE run_id=:run_id AND artifact_id=:artifact_id"
+                ),
+                {"run_id": run_id, "artifact_id": artifact_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert artifact["artifact_type"] == "file"
+        assert artifact["name"] == "summary.tsv"
+        assert artifact["uri"] == f"run://runs/{run_id}/artifacts/{artifact_id}"
+        assert artifact["mime_type"] == "text/tab-separated-values"
+        assert json.loads(artifact["artifact_metadata"]) == {
+            "output_type": "qc_summary",
+            "sample_id": "S1",
+        }
+        assert artifact["revision"] is None
+        metric = (
+            connection.execute(
+                text(
+                    "SELECT metric_key, display_name, value_text, unit, scope, "
+                    "sample_id, experiment_id, assay, qc_flag, source_artifact_id "
+                    "FROM run_qc_metrics WHERE run_id=:run_id"
+                ),
+                {"run_id": run_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert dict(metric) == {
+            "metric_key": "sequencing.total_reads",
+            "display_name": "Total reads",
+            "value_text": "10",
+            "unit": "count",
+            "scope": "sample",
+            "sample_id": "S1",
+            "experiment_id": None,
+            "assay": "rnaseq",
+            "qc_flag": "pass",
+            "source_artifact_id": artifact_id,
+        }
+
+    repository = SqlAlchemyRunRepository(create_session_factory(upgraded))
+    with pytest.raises(ValueError, match="generation is unbound"):
+        repository.list_artifacts(run_id)
+    with pytest.raises(ValueError, match="generation is unbound"):
+        repository.list_qc_metrics(run_id)
     upgraded.dispose()

@@ -1,8 +1,15 @@
-# Quick Start
+# ENCODE Scientific Quick Start
 
-This guide walks through installing the pipeline, configuring your data, and
-running your first analysis. For a compact overview, see the
-[README](../README.md).
+This guide covers only the bundled ENCODE-style ChIP-seq, CUT&Tag, ATAC-seq,
+and MNase-seq Snakemake workflow. It walks through configuring scientific
+inputs and running that workflow directly.
+
+For the HelixWeave product stack, both workflow cards, runtime doctor, browser
+authoring, durable lifecycle, artifacts, and QC, use the
+[local trial checklist](local-trial-checklist.md). Bulk RNA-seq has a separate,
+optional nf-core/rnaseq 3.26.0 runtime binding described in the
+[local runtime guide](development/local-platform-runtime.md); this ENCODE
+scientific quick start does not provision or execute it.
 
 ## 1. Install
 
@@ -16,6 +23,8 @@ micromamba activate chipseq-runner
 The `chipseq-runner` environment is intentionally small: Python, PyYAML, and
 Snakemake. The bioinformatics tools live in rule-specific environments and are
 created automatically when you run Snakemake with `--use-conda`.
+This is an ENCODE scientific runner, not the HelixWeave API/frontend
+environment and not the Bulk RNA-seq runtime.
 For details about every environment file and cache cleanup, see
 [docs/environments.md](environments.md).
 
@@ -92,10 +101,10 @@ snakemake -s workflow/Snakefile --configfile config/config.yaml --cores 16 --use
 
 ## Smoke and test execution
 
-The repository ships with four bundled test selections that use contracts or
-synthetic data (no real FASTQs needed). Pytest selections require a development
-test environment rather than the minimal `chipseq-runner`, and the real tiers
-add the prerequisites shown below. See the
+The repository ships with contract and synthetic-data test selections that do
+not need real FASTQs. Pytest selections require a development test environment
+rather than the minimal `chipseq-runner`, and the real tiers add the
+prerequisites shown below. See the
 [development harness](development/harness.md) before running them.
 
 ```bash

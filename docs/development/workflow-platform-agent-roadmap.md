@@ -12,10 +12,17 @@ local workstation or within a small trusted team. It owns input authoring,
 validation, durable run state, local execution coordination, artifacts, QC, and
 the browser experience around those concepts.
 
-The bundled ENCODE-style ChIP-seq, CUT&Tag, ATAC-seq, and MNase-seq Snakemake
-workflow is the first and currently only scientific adapter. Workflow-specific
-schemas, assay policy, commands, output paths, artifact extraction, and
-scientific behavior remain adapter or workflow responsibilities.
+The bundled registry contains two scientific adapters:
+
+- ENCODE-style ChIP-seq, CUT&Tag, ATAC-seq, and MNase-seq through Snakemake;
+  and
+- `bulk-rnaseq` through the pinned nf-core/rnaseq 3.26.0 Nextflow runtime.
+
+Workflow-specific schemas, assay policy, commands, output paths, artifact
+extraction, and scientific behavior remain adapter or workflow
+responsibilities. Bulk RNA-seq authoring and validation remain available
+without execution assets; execution is declared available only after the
+complete operator binding passes live admission.
 
 The platform is not a hosted multi-tenant service. SQLite and the local
 filesystem are deliberate canonical stores; Redis/RQ provides an execution
@@ -26,6 +33,8 @@ handoff rather than independent lifecycle truth.
 The current product supports:
 
 - discovery of registered workflows and adapter-owned capabilities;
+- the ENCODE-style epigenomics and Bulk RNA-seq adapters in the default
+  registry, without workflow-specific API, lifecycle, or frontend stores;
 - schema-driven config, sample, and option authoring with advanced text modes;
 - structured validation issues without exposing adapter-private payloads;
 - immutable, server-validated input snapshots for submitted runs;
@@ -37,6 +46,8 @@ The current product supports:
 - safe artifact listing and download without arbitrary path access;
 - workflow, run, activity, artifact, and QC views in the browser;
 - a deterministic local input-to-results demonstration path;
+- a pinned, read-only Omics Intake Bundle 0.2 inspection boundary for the
+  ENCODE adapter, without producer imports or execution authorization;
 - a read-only Agent boundary for schema and issue explanation; and
 - reusable adapter conformance tests with a minimal test adapter.
 
@@ -59,64 +70,41 @@ inventory, measured coverage, and enforced floors have one authoritative home
 in the [quality baseline](coverage-policy.md); tier ownership and timing live in
 the [development harness](harness.md).
 
+## Completed: intake consumption and Bulk RNA-seq delivery
+
+The initial Omics Intake consumption boundary is delivered as a service-only,
+read-only inspection of the pinned Bundle 0.2 public contract. HelixWeave
+verifies contract identity, safely observes required local files, delegates
+mapping to the ENCODE adapter, and revalidates the mapped inputs. It does not
+import Omics Intake code, mutate the Bundle, create a validated snapshot, or
+authorize execution. Durable Bundle provenance and a product import flow remain
+separate future decisions.
+
+Bulk RNA-seq is delivered as the second bundled adapter. Its product contract
+includes adapter-owned authoring schemas, validation without runtime assets,
+path-free availability, backend create/start admission, and the existing
+workflow-neutral run, artifact, QC, and download surfaces. Execution is pinned
+to nf-core/rnaseq 3.26.0 and was accepted with controlled synthetic
+STAR+Salmon and SortMeRNA runs through SQLite, Redis/RQ, Nextflow, and offline
+containers. That evidence proves execution and product contracts, not
+biological validity or production-scale performance.
+
 ## Current delivery priorities
 
 The order below expresses the current decision and delivery sequence. Each
 priority still requires scoped review; none carries an implied release date.
 
-### 1. Omics Intake Bundle → HelixWeave consumption boundary
+### 1. v0.3.0 local trial and release convergence
 
-Define how HelixWeave consumes reviewed inputs from an Omics Intake Bundle
-without making the platform own upstream acquisition or silently trust
-external paths and metadata.
-
-The proposed service-only first slice and its trust limits are recorded in the
-[Bundle consumption boundary](../architecture/omics-intake-bundle-consumption.md).
+Consolidate the two-workflow local product path and its supported installation,
+upgrade, diagnostic, trial, and release contracts.
 
 Expected work:
 
-- separate producer and consumer responsibilities;
-- define a versioned, fail-closed handoff with explicit identity and provenance;
-- map accepted bundle data into adapter-owned authoring and validation inputs;
-- preserve immutable snapshot, redaction, and workspace-containment rules; and
-- prove rejection behavior for incomplete, ambiguous, or unsafe bundles.
-
-Exit evidence:
-
-- a focused boundary decision is reviewed before runtime integration;
-- deterministic fixtures prove both accepted and rejected handoffs; and
-- workflow-neutral services do not acquire adapter-private or intake-private
-  field dependencies.
-
-### 2. Second-adapter research and implementation
-
-Research a bounded second adapter against the existing registry, authoring,
-execution, artifact, and QC contracts. Bulk RNA-seq is the current candidate,
-not an approved product commitment or delivery date.
-
-Expected work:
-
-- evaluate candidate ownership, maintained engines, schemas, validation,
-  workspace planning, commands, artifacts, and QC semantics;
-- record an explicit adapter selection decision before implementation;
-- keep generic API and frontend code free of workflow-specific branches; and
-- extend deployment/source composition deliberately rather than claiming
-  arbitrary zero-configuration plugin loading.
-
-Exit evidence if a candidate is approved:
-
-- the adapter passes the reusable conformance suite;
-- the existing ENCODE adapter remains unchanged and green;
-- one deterministic small-data run produces indexed artifacts and QC; and
-- operators can compare adapter capabilities before creating a run.
-
-### 3. Product experience and deployment convergence
-
-Consolidate the current local product path after its input, execution, and
-result surfaces are in place.
-
-Expected work:
-
+- keep package, API, frontend, documentation, and release identities aligned;
+- prove a fresh distribution install and supported database upgrade;
+- make both workflow availability states and optional runtime prerequisites
+  clear without exposing private deployment coordinates;
 - reduce setup and navigation friction from workflow choice to evidence;
 - make local prerequisites, diagnostics, storage, recovery, and cleanup clear;
 - tighten empty, loading, failure, and long-running states across desktop and
@@ -131,13 +119,20 @@ Exit evidence:
 - usability changes preserve accessibility, public contracts, and adapter
   boundaries.
 
+### 2. Deferred intake and deployment decisions
+
+Any durable Omics Intake provenance, snapshot/run import, authentication,
+remote execution, or additional adapter work requires a separate reviewed
+decision. It must not be inferred from the delivered read-only Bundle
+inspection or the two bundled local adapters.
+
 ## Agent direction
 
 The current Agent surface is already advisory and read-only. It may explain
 schemas and validation issues through platform services, but it cannot submit,
-start, cancel, mutate, or delete runs. Further Agent expansion should follow
-the consumption-boundary and multi-adapter evidence rather than encode the
-first workflow's private vocabulary.
+start, cancel, mutate, or delete runs. Further Agent expansion requires a
+separate decision and must remain workflow-neutral rather than encode either
+adapter's private vocabulary.
 
 ## Explicit non-goals
 

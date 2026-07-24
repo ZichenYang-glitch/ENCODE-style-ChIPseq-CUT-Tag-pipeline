@@ -206,6 +206,105 @@ def test_repository_atomically_replaces_artifacts_and_event(repository):
     ) == 2
 
 
+def test_artifact_failure_attempt_is_durable_idempotent_and_conflict_safe(repository):
+    repository.create_run(_succeeded_record("failed-results"), _created_event())
+    attempt_id = "resultattempt-" + "f" * 64
+    pending = repository.begin_artifact_result_attempt(
+        "failed-results",
+        attempt_id=attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+    )
+
+    assert (
+        repository.begin_artifact_result_attempt(
+            "failed-results",
+            attempt_id=attempt_id,
+            expected_status=RunStatus.SUCCEEDED,
+        )
+        == pending
+    )
+
+    failure_event = RunEventDraft(
+        event_type="artifact_indexing_failed",
+        message="Workflow artifact indexing failed.",
+        status=RunStatus.SUCCEEDED,
+    )
+    first = repository.record_artifact_failure(
+        "failed-results",
+        attempt_id=attempt_id,
+        reason_code="ARTIFACT_EXTRACTION_FAILED",
+        expected_status=RunStatus.SUCCEEDED,
+        event=failure_event,
+    )
+    assert first is not None
+    failed_state = repository.get_result_state("failed-results")
+    assert failed_state.artifact_attempt_status == "failed"
+    assert failed_state.artifact_outcome == "failed"
+    assert failed_state.artifact_reason_code == "ARTIFACT_EXTRACTION_FAILED"
+
+    events_before_replay = repository.list_events("failed-results")
+    assert (
+        repository.record_artifact_failure(
+            "failed-results",
+            attempt_id=attempt_id,
+            reason_code="ARTIFACT_EXTRACTION_FAILED",
+            expected_status=RunStatus.SUCCEEDED,
+            event=failure_event,
+        )
+        is None
+    )
+    assert repository.list_events("failed-results") == events_before_replay
+
+    with pytest.raises(ConcurrentRunUpdateError, match="already failed"):
+        repository.record_artifact_failure(
+            "failed-results",
+            attempt_id=attempt_id,
+            reason_code="DIFFERENT_FAILURE",
+            expected_status=RunStatus.SUCCEEDED,
+            event=failure_event,
+        )
+    with pytest.raises(ConcurrentRunUpdateError, match="no longer eligible"):
+        repository.record_artifact_failure(
+            "failed-results",
+            attempt_id=attempt_id,
+            reason_code="ARTIFACT_EXTRACTION_FAILED",
+            expected_status=RunStatus.RUNNING,
+            event=failure_event,
+        )
+
+    repository.create_run(_succeeded_record("indexed-results"), _created_event())
+    successful_attempt_id = "resultattempt-" + "e" * 64
+    repository.begin_artifact_result_attempt(
+        "indexed-results",
+        attempt_id=successful_attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+    )
+    repository.replace_artifacts(
+        "indexed-results",
+        (_artifact("indexed-results", "artifact-1"),),
+        attempt_id=successful_attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+        event=RunEventDraft(
+            event_type="artifacts_indexed",
+            message="Workflow artifacts indexed.",
+            status=RunStatus.SUCCEEDED,
+        ),
+    )
+    successful_state = repository.get_result_state("indexed-results")
+
+    assert (
+        repository.record_artifact_failure(
+            "indexed-results",
+            attempt_id=successful_attempt_id,
+            reason_code="LATE_FAILURE",
+            expected_status=RunStatus.SUCCEEDED,
+            event=failure_event,
+        )
+        is None
+    )
+    assert repository.get_result_state("indexed-results") == successful_state
+
+
 def test_repository_artifact_replace_rolls_back_full_set_and_event(
     repository,
     monkeypatch,

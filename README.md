@@ -6,12 +6,17 @@
 [![Lint](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/workflows/lint.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-HelixWeave is a local, workflow-neutral omics analysis platform. Its first
-adapter provides reproducible ENCODE-style epigenomics workflows.
+HelixWeave is a local, workflow-neutral omics analysis platform. Its bundled
+registry provides an ENCODE-style epigenomics workflow and a Bulk RNA-seq
+adapter pinned to nf-core/rnaseq 3.26.0.
 
 It is built for a workstation or a small trusted team: author inputs from an
 adapter-owned schema, validate them into an immutable snapshot, execute a
 durable local run, and review logs, QC, and artifacts in the browser.
+
+HelixWeave is the product name. The `encode-pipeline` Python distribution,
+`encode_pipeline` import namespace, and existing `encode-*` command names are
+retained as compatibility identities for v0.3.0.
 
 ![HelixWeave artifact workbench showing a succeeded deterministic run, indexed artifacts, and safe download details](docs/assets/helixweave-artifact-workbench.png)
 
@@ -28,7 +33,7 @@ flowchart LR
     Services -->|durable run ID| Queue[Redis / RQ handoff]
     Queue --> Worker[RQ worker]
     Worker --> Adapter[Workflow adapter]
-    Adapter --> Engine[Snakemake]
+    Adapter --> Engine[Snakemake / Nextflow]
     Engine --> Files[Workspace artifacts and QC files]
     Files --> Extract[Adapter artifact and QC extraction]
     Extract --> Services
@@ -46,41 +51,34 @@ workflow.
 | :--- | :--- | :--- |
 | **Platform** | Author → validate → run → results | Schema-driven config/sample authoring, structured validation, immutable validated snapshots, durable execution, run history, logs, QC, artifacts, and downloads. |
 | **ENCODE adapter** | FASTQ/config → Snakemake → scientific outputs | ChIP-seq, CUT&Tag, ATAC-seq, and MNase-seq policies, environments, DAGs, artifacts, and QC extraction. |
+| **Bulk RNA-seq adapter** | Samples/config → nf-core/rnaseq → scientific outputs | Schema-driven authoring and validation are always available; execution uses the admitted, offline nf-core/rnaseq 3.26.0 runtime and produces indexed artifacts and QC. |
 
 | Capability | Available now |
 | :--- | :--- |
 | Input authoring | Adapter-owned JSON Schema drives supported config fields, samples, options, and review. Advanced YAML and TSV import remain available. |
 | Validation | Server validation returns structured issues and an immutable, expiring validated snapshot for run creation. |
 | Lifecycle | File-backed SQLite persists runs, events, logs, assignments, cancellation intent, and result metadata across API restarts. |
-| Local execution | Redis/RQ hands a durable run identity to an independent worker that executes the real Snakemake process. |
+| Local execution | Redis/RQ hands a durable run identity to an independent worker that executes the adapter-selected Snakemake or Nextflow process. |
 | Run control | Preflight, explicit start, progress, live persisted logs, and acknowledged process-group cancellation. |
 | Evidence | Filterable run history, indexed artifacts, fail-closed downloads, and a QC workbench with source-artifact navigation. |
 
-The default registry currently contains one adapter. The platform contracts are
-workflow-neutral, but onboarding another workflow still requires an explicit
-adapter and deployment integration.
+The default registry contains both bundled workflows. The platform contracts
+remain workflow-neutral; onboarding any additional workflow still requires an
+explicit adapter and deployment integration.
 
-## Five-minute local demo
+## Local trial
 
-From a fresh clone, create the locked local environment and install the
-frontend. Download time varies by machine and package cache.
+Use the [local trial checklist](docs/local-trial-checklist.md) for the supported
+fresh-install path, database upgrade check, runtime doctor, both workflow
+availability states, deterministic ENCODE demo, and browser evidence. Detailed
+ports, storage, process ownership, and cleanup behavior live in the
+[local runtime guide](docs/development/local-platform-runtime.md).
+
+After completing the checklist prerequisites, the maintained launcher checks
+the product environment and starts the deterministic input-to-results demo:
 
 ```bash
-git clone https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline.git
-cd ENCODE-style-ChIPseq-CUT-Tag-pipeline
-
-micromamba create -p .local/envs/ci-fast --file workflow/envs/ci-fast.lock
-./.local/envs/ci-fast/bin/python -m pip install --no-index --no-deps \
-  --no-build-isolation -e ".[api]"
-./.local/envs/ci-fast/bin/python -m pip check
-npm --prefix frontend ci
-export PATH="$PWD/.local/envs/ci-fast/bin:$PATH"
 python scripts/run_local_platform.py --doctor
-```
-
-Start the deterministic input-to-results demo:
-
-```bash
 python scripts/run_local_platform.py --input-authoring-demo
 ```
 
@@ -97,8 +95,7 @@ Open <http://127.0.0.1:5173>, choose the ENCODE workflow, and select
 
 Press `Ctrl-C` once to stop services started by the launcher. The demo uses a
 controlled synthetic project and proves the platform journey, not scientific
-correctness. See the [local runtime guide](docs/development/local-platform-runtime.md)
-for prerequisites, storage, port overrides, process ownership, and cleanup.
+correctness or production-scale performance.
 
 ## User journey
 
@@ -116,7 +113,7 @@ flowchart LR
 The browser never turns a draft directly into execution. Only a successful
 server validation can create the snapshot consumed by run creation.
 
-## First adapter: ENCODE-style epigenomics
+## ENCODE scientific adapter
 
 The bundled adapter uses Snakemake and preserves the existing
 `encode-style-chipseq-cuttag-atac-mnase` workflow identity.
@@ -144,9 +141,16 @@ python3 scripts/validate_samples.py --config config/config.yaml
 
 The example FASTQ paths are illustrative. Before a Snakemake dry-run, edit
 `config/config.yaml` and `config/samples.tsv` to reference real inputs, then
-follow the [scientific quick start](docs/quickstart.md). Execution, controls,
-reference preparation, containers, and troubleshooting belong there and in
-the [environment guide](docs/environments.md).
+follow the [ENCODE scientific quick start](docs/quickstart.md). Execution,
+controls, reference preparation, containers, and troubleshooting belong there
+and in the [environment guide](docs/environments.md).
+
+Bulk RNA-seq authoring and validation do not require local execution assets.
+Execution remains unavailable until an operator admits the complete pinned
+runtime, reference/index closure, and managed Docker endpoint described in the
+[local runtime guide](docs/development/local-platform-runtime.md). The
+controlled tiny acceptance fixture proves execution and result contracts, not
+biological validity or production-scale performance.
 
 ## Extension boundary
 
@@ -170,9 +174,10 @@ source; see [adapter conformance](docs/development/adapter-conformance.md).
 | Topic | Maintained reference |
 | :--- | :--- |
 | Platform design and safety | [Architecture overview](docs/architecture/platform-overview.md) |
-| Local stack and deterministic demo | [Local runtime](docs/development/local-platform-runtime.md) |
+| Local trial | [Local trial checklist](docs/local-trial-checklist.md) |
+| Local stack operations | [Local runtime](docs/development/local-platform-runtime.md) |
 | Adapter contract | [Adapter conformance](docs/development/adapter-conformance.md) |
-| Scientific setup | [Quick start](docs/quickstart.md), [environments](docs/environments.md), [containers](docs/container-usage.md) |
+| ENCODE scientific setup | [ENCODE quick start](docs/quickstart.md), [environments](docs/environments.md), [local ENCODE runner containers](docs/container-usage.md) |
 | Inputs | [Configuration](docs/configuration.md), [sample sheet](docs/sample-sheet.md), [reference resources](docs/reference-resources.md) |
 | Evidence | [Output contract](docs/output-contract.md), [artifact inventory](docs/architecture/artifact-inventory.yaml), [QC interpretation](docs/qc-interpretation.md) |
 | Quality and testing | [Development harness](docs/development/harness.md), [quality baseline](docs/development/coverage-policy.md) |

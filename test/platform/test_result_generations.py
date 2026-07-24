@@ -240,3 +240,73 @@ def test_unbound_result_state_preserves_opaque_run_id_until_results_exist():
             artifact_attempt_id=new_result_attempt_id(),
             artifact_attempt_status="pending",
         )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    (
+        (
+            {"artifact_generation": "artifactgen-" + "a" * 64},
+            "artifact generation and manifest digest must be paired",
+        ),
+        (
+            {"qc_generation": "qcgen-" + "a" * 64},
+            "QC generation and manifest digest must be paired",
+        ),
+        (
+            {"qc_artifact_generation": "artifactgen-" + "a" * 64},
+            "unbound QC state cannot name an artifact generation",
+        ),
+        (
+            {
+                "qc_generation": "qcgen-" + "a" * 64,
+                "qc_manifest_digest": "b" * 64,
+                "qc_artifact_generation": "artifactgen-" + "c" * 64,
+            },
+            "bound QC state requires a positive revision",
+        ),
+        (
+            {
+                "qc_attempt_artifact_generation": "artifactgen-" + "a" * 64,
+            },
+            "QC attempt generation requires an attempt",
+        ),
+        (
+            {
+                "qc_attempt_id": "resultattempt-" + "a" * 64,
+                "qc_attempt_status": "pending",
+            },
+            "QC attempt requires an artifact generation",
+        ),
+        (
+            {"artifact_attempt_id": "resultattempt-" + "a" * 64},
+            "artifact attempt ID and status must be paired",
+        ),
+        (
+            {
+                "artifact_attempt_id": "resultattempt-" + "a" * 64,
+                "artifact_attempt_status": "unknown",
+            },
+            "artifact attempt status is invalid",
+        ),
+        (
+            {"artifact_outcome": "failed"},
+            "failed artifact outcome requires a reason",
+        ),
+        (
+            {
+                "artifact_outcome": "succeeded",
+                "artifact_reason_code": "STALE_REASON",
+            },
+            "non-failed artifact outcome cannot have a reason",
+        ),
+    ),
+)
+def test_result_state_rejects_incomplete_persisted_generation_closure(
+    changes,
+    message,
+):
+    state = RunResultState(run_id="run-1")
+
+    with pytest.raises(ValueError, match=message):
+        replace(state, **changes)

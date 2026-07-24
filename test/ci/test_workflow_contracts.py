@@ -163,6 +163,7 @@ def test_coverage_artifact_and_ratchets_are_stable_and_nonduplicative():
 
     coverage_runs = _runs(jobs["coverage"])
     assert "--fail-under=80" in coverage_runs
+    assert "set -euo pipefail" in coverage_runs
     assert "coverage report --fail-under=83" in coverage_runs
     for floor in ("88.45", "87.28", "89.06", "82.37"):
         assert f"--fail-under={floor}" in coverage_runs

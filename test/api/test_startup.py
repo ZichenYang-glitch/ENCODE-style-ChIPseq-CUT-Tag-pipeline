@@ -13,6 +13,7 @@ fastapi = pytest.importorskip("fastapi")
 
 from encode_pipeline.api import dependencies  # noqa: E402
 from encode_pipeline.api.main import create_app  # noqa: E402
+from encode_pipeline import __version__  # noqa: E402
 from encode_pipeline.adapters.bulk_rnaseq.deployment import (  # noqa: E402
     MANAGED_DOCKER_EXECUTABLE_ENV,
     MANAGED_DOCKER_SOCKET_ENV,
@@ -31,6 +32,7 @@ from encode_pipeline.workers.settings import (  # noqa: E402
 def test_create_app_builds_expected_app() -> None:
     app = create_app()
     assert app.title == "HelixWeave API"
+    assert app.version == __version__
     assert app.description == "Reproducible omics workflows, from inputs to evidence."
 
 

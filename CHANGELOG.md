@@ -6,122 +6,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+This is the curated release-candidate summary for v0.3.0. The release has not
+yet been tagged or published.
+
 ### Added
-- Artifact readiness roadmap documenting staged path from target-helper
-  architecture to artifact-oriented design (Stage 41).
-- Machine-readable artifact inventory (`docs/architecture/artifact-inventory.yaml`)
-  cataloguing 62 output types with 13 fields each (Stage 43).
-- MNase path helpers pilot (`workflow/rules/paths.smk`) with 7 thin
-  path-producing functions (Stage 44).
-- Artifact dataclass and loader (`workflow/lib/artifact.py`): frozen 13-field
-  `Artifact` dataclass, `validate_artifact()`, `load_artifacts()` (Stage 45).
-- Artifact query helpers: `artifacts_by_id()`, `artifacts_by_manifest_output_type()`,
-  `filter_artifacts()` (Stage 48).
-- Artifact adoption decision record: pause runtime artifact adoption, return to
-  release hardening and scientific features (Stage 51).
-- Documentation and release-readiness sweep (Stage 52): updated README,
-  CHANGELOG, KNOWN_ISSUES, configuration.md, assay-policy.md, output-contract.md,
-  and durable architecture references for post-Stage-51 consistency.
-- Test suites: artifact inventory (Stage 43), artifact model (Stage 45), MNase
-  path contract (Stage 47), manifest artifact contract (Stage 49), output contract
-  dry-run (Stage 50).
-- MNase-seq fragment stratification and QC summary (Stage 40): sub-nucleosome
-  and di-nucleosome BAMs alongside existing mono BAM; sample-level MNase QC
-  summary (`scripts/mnase_qc_summary.py`, stdlib-only) with fragment read counts
-  and config metadata. Configurable via `mnase.fragments` (defaults: sub
-  [1,139], mono [140,200], di [300,400]).
-- Explicit `mnase.dyad_range` config key (default [130, 200]) wired into
-  sample-level and pooled dyad BigWig rules via `--minFragmentLength` /
-  `--maxFragmentLength`. Allowed to differ from `fragments.mono`.
-- `mnase.callers` config surface (danpos3, inps, sem) reserved; setting any
-  caller to `true` raises a validation error ("execution deferred").
-- MNase QC custom content section in MultiQC report (`mnase_qc` table).
-- Manifest rows for `mnase_sub_bam`, `mnase_sub_bai`, `mnase_di_bam`,
-  `mnase_di_bai`, and `mnase_qc_summary`.
-- MNase-seq nucleosome positioning support (Stage 39): `assay: mnase` for PE
-  MNase-seq. Produces mono-nucleosome BAM (alignmentSieve), dyad BigWig
-  (bamCoverage --MNase), and mono occupancy BigWig at both sample and pooled
-  experiment levels. Reuses existing preprocessing (FastQC, Trim Galore,
-  Bowtie2, MAPQ filter, duplicate handling, final.bam).
-- New `peak_mode: nucleosome` — required for MNase, rejected for non-MNase
-  assays. PE-only constraint enforced in sample validation.
-- Optional `mnase.mono_range` config key (default [140, 200]) for
-  mono-nucleosome fragment length.
-- MNase test profile (8th smoke profile), validation stress tests (7 new
-  cases), and Stage 39 stress tests (28 cases).
-- Manifest support for MNase outputs: mono BAM, dyad/mono BigWigs at sample
-  and pooled level. Peak-centric outputs marked not_applicable for MNase rows.
-- Optional `--strict-inputs` validation mode for FASTQ and Bowtie2 index
-  file existence (Stage 30). Default is non-strict for dry-run compatibility;
-  use `--strict-inputs` for pre-run or release validation.
+- HelixWeave's workflow-neutral local platform: schema-driven input authoring,
+  structured validation, immutable validated snapshots, file-backed SQLite
+  lifecycle state, Redis/RQ execution, cancellation acknowledgement, run
+  history, logs, indexed artifacts, machine-readable QC, and revision-bound
+  downloads.
+- Browser workflows for desktop and mobile covering workflow discovery,
+  authoring, validation, run creation and start, run history, artifacts, QC,
+  and downloads.
+- The default `bulk-rnaseq` adapter, pinned to nf-core/rnaseq 3.26.0 at
+  `e7ca46272c8f9d5ceee3f71759f4ba551d3217a4`, with authoring available without
+  runtime assets and fail-closed execution admission.
+- Protected synthetic execution acceptance for Bulk RNA-seq through the public
+  product path, SQLite/RQ/Nextflow, STAR+Salmon, SortMeRNA, artifact/QC
+  extraction, lifecycle, cancellation, timeout, and offline reuse contracts.
+- A pinned, read-only Omics Intake Bundle 0.2 inspection boundary for the
+  ENCODE adapter. It verifies the public contract and local file identities
+  without creating snapshots or runs.
+- ENCODE-style MNase-seq support, including fragment classes, dyad and occupancy
+  tracks, sample and pooled outputs, QC summaries, and manifest coverage.
+- A deterministic local ENCODE input-to-results demonstration and runtime
+  doctor for workstation trial and operational checks.
 
 ### Changed
-- `mnase.mono_range` is deprecated in favor of `mnase.fragments.mono`.
-  `fragments.mono` takes precedence when both are set.
-- `get_mono_range()` now checks `fragments.mono` first, then `mono_range`,
-  then hard default `[140, 200]`.
-- `pipeline_done` and `_mnase_targets()` now include all Stage 40 MNase outputs.
-- `pipeline_done` rule in report.smk now conditionally gates peak-centric
-  inputs on non-MNase samples.
-- Target builder split into `PEAK_SAMPLE_IDS` (non-MNase treatment) and
-  `MNASE_SAMPLE_IDS` (MNase treatment) with corresponding experiment-level
-  subsets for pooled output gating.
-- SE ChIP-seq MACS3 fragment-size fallback now emits a clear warning to stderr
-  when using the 200 bp default, rather than failing silently.
+- The public product name is HelixWeave. The `encode-pipeline` distribution,
+  `encode_pipeline` import namespace, and existing `encode-*` commands remain
+  compatibility identities for v0.3.0.
+- The default registry now contains both the ENCODE-style epigenomics adapter
+  and Bulk RNA-seq. Shared API, lifecycle, artifact, QC, and frontend surfaces
+  remain workflow-neutral.
+- Workflow availability is explicit: authoring can remain available while
+  execution is `not_configured` or `unavailable`; create and start recheck
+  execution admission at backend boundaries.
+- `mnase.mono_range` is deprecated in favor of `mnase.fragments.mono`;
+  `fragments.mono` takes precedence when both are present.
 
 ### Fixed
-- MultiQC rule now passes `--filename multiqc_report.html` explicitly, so the
-  output filename is stable regardless of the configured `--title` value.
-  (Stage A release hardening; see Stage 37 real-run report.)
-- bedGraph-to-BigWig sort commands now use `--temporary-directory /tmp`
-  explicitly so that sort scratch files are routed to a known location
-  rather than relying on the system default. The conversion rules also
-  declare `resources: bigwig_convert=1`, allowing users to cap concurrent
-  conversions with `--resources bigwig_convert=<N>`. (Stage A; does not add
-  new config keys.)
-- MultiQC config now declares `extra_fn_clean_exts` for `.final`, `.sorted`,
-  and `.blacklist_filtered` to reduce sample-name fragmentation across tools
-  in the MultiQC report. (Stage A.)
+- Public errors and workflow availability remain path-free and redact
+  deployment coordinates, Redis credentials, environment values, command
+  lines, and private adapter payloads.
+- Artifact and QC generations, cursors, revisions, and download closure now
+  fail closed across refresh, re-indexing, and stale requests.
+- Local process ownership, timeout, and cancellation paths persist canonical
+  terminal outcomes and clean up process groups and managed containers.
 
-### Documentation
-- `docs/output-contract.md` now includes the 8 Stage 39 MNase MVP output
-  types (sample-level mono BAM/BAI, dyad BW, mono occupancy BW; pooled
-  counterparts).
-- `KNOWN_ISSUES.md` now tracks Stage 37 real-run follow-ups with status
-  and mitigation guidance (MultiQC sample-name consistency, bedGraph
-  disk pressure).
-- Documented strict input validation in README, configuration docs, release
-  checklist, and assay policy.
-- Public data execution report template and four per-queue stubs (Stage 32).
-  All stubs state "not executed yet" — no data committed.
-- `scripts/prepare_public_validation_inputs.py --report-stubs` prints
-  queue names and expected report paths (stdlib-only, no downloads).
-- Containerization planning (Stage 33): Apptainer/Docker strategy for v0.3-dev.
-  Runner-only image first; full bioinformatics image deferred. Conda env files
-  remain source of truth. No images built or committed.
-- Runner container definition files (Stage 34): `containers/Dockerfile.runner`,
-  `containers/Apptainer.runner.def`, `containers/README.md` with Docker and
-  Apptainer usage examples. Static files only — build/smoke deferred to Stage 35.
-  18 static-file contract tests. No images built.
-- Docker runner build smoke report (Stage 35): build, pull, and dry-run
-  verification documented. `/.cache` PermissionError root cause and
-  HOME/XDG_CACHE_HOME fix documented in `containers/README.md`.
-  `chipseq-runner:stage35-smoke` local image verified — no image artifacts
-  committed.
-- Singularity runner build smoke report (Stage 36): `singularity-container`
-  installed as `singularity-ce version 4.1.1`; `containers/Apptainer.runner.def`
-  built to a local `.sif`; Snakemake 8.30.0, PyYAML import, and bind-mounted
-  14-job dry-run verified. Singularity HOME override warning documented; no
-  image artifacts committed.
-- Full 30-sample histone ChIP-seq real-run report (Stage 37): 5 conditions x
-  3 marks x 2 biological replicates completed externally with sample-level and
-  pooled outputs, MultiQC, result manifest, signal tracks, QC summaries, and
-  documented follow-ups for bedGraph disk pressure and MultiQC naming.
-- Container user experience polish (Stage 37): `docs/container-usage.md` full
-  user guide with Docker/SingularityCE/Apptainer build, run, bind mount, HPC,
-  and troubleshooting sections. `scripts/smoke_container_runner.sh` for
-  automated container smoke tests (docker and singularity modes). Image
-  publishing deferred.
+### Release boundary
+- v0.3.0 does not publish a Docker, Apptainer, or Singularity image. The
+  committed container definitions build an optional local runner for the
+  ENCODE Snakemake workflow only.
+- Bulk RNA-seq OCI images, JDK, Nextflow runtime, references, indexes, and
+  fixture payloads remain operator-owned deployment assets and are not shipped
+  in the Python distribution or source release.
+- Synthetic gates prove execution and product contracts, not biological
+  validity or production-scale performance.
 
 ## [v0.2.0-rc1] - 2026-05-24
 

@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
+import hashlib
+import json
 import os
+from pathlib import Path
 import sys
 
 import pytest
@@ -22,7 +26,7 @@ from encode_pipeline.platform.adapters import (
 )
 from encode_pipeline.platform.input_bundles import InputBundleMapping
 from encode_pipeline.platform.registry import WorkflowRegistry
-from encode_pipeline.platform.results import Result
+from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.services.input_bundle_imports import InputBundleImportService
 from input_bundle_support import (
     bowtie2_shard_paths,
@@ -720,3 +724,502 @@ def test_bundle_inspection_does_not_load_omics_intake_python_modules(tmp_path) -
     }
     assert result.is_success, result.issues
     assert after == before
+
+
+@pytest.mark.parametrize(
+    ("failure_boundary", "expected_code"),
+    (
+        pytest.param(
+            "capability-drift",
+            "INPUT_BUNDLE_CAPABILITY_UNSUPPORTED",
+            id="capability-drift",
+        ),
+        pytest.param(
+            "contract-loader",
+            "INPUT_BUNDLE_DOCUMENT_INVALID",
+            id="unexpected-contract-loader-failure",
+        ),
+        pytest.param(
+            "import-raises",
+            "INPUT_BUNDLE_ADAPTER_FAILED",
+            id="importer-raises",
+        ),
+        pytest.param(
+            "import-non-result",
+            "INPUT_BUNDLE_ADAPTER_FAILED",
+            id="importer-non-result",
+        ),
+        pytest.param(
+            "import-wrong-value",
+            "INPUT_BUNDLE_ADAPTER_FAILED",
+            id="importer-wrong-value",
+        ),
+        pytest.param(
+            "observe-raises",
+            "INPUT_BUNDLE_SOURCE_UNSAFE",
+            id="observation-raises",
+        ),
+        pytest.param(
+            "validate-raises",
+            "INPUT_BUNDLE_ADAPTER_FAILED",
+            id="validator-raises",
+        ),
+        pytest.param(
+            "validate-non-result",
+            "INPUT_BUNDLE_ADAPTER_FAILED",
+            id="validator-non-result",
+        ),
+        pytest.param(
+            "validate-failure",
+            "CONTROLLED_VALIDATION_FAILURE",
+            id="validator-failure",
+        ),
+    ),
+)
+def test_import_service_fail_closed_boundary_matrix(
+    tmp_path,
+    monkeypatch,
+    failure_boundary,
+    expected_code,
+) -> None:
+    bundle_path = create_runnable_bundle(tmp_path / "bundle")
+    adapter = ContractOnlyAdapter()
+    registry = WorkflowRegistry((adapter,))
+    service = InputBundleImportService(registry)
+
+    if failure_boundary == "capability-drift":
+        adapter.capabilities = WorkflowCapabilities(supports=("validation",))
+    elif failure_boundary == "contract-loader":
+        monkeypatch.setattr(
+            input_bundle_module,
+            "_load_contract_view",
+            lambda _body: (_ for _ in ()).throw(RuntimeError("private parser failure")),
+        )
+    elif failure_boundary == "import-raises":
+        monkeypatch.setattr(
+            adapter,
+            "import_input_bundle",
+            lambda _bundle: (_ for _ in ()).throw(
+                RuntimeError("private adapter failure")
+            ),
+        )
+    elif failure_boundary == "import-non-result":
+        monkeypatch.setattr(
+            adapter,
+            "import_input_bundle",
+            lambda _bundle: object(),
+        )
+    elif failure_boundary == "import-wrong-value":
+        monkeypatch.setattr(
+            adapter,
+            "import_input_bundle",
+            lambda _bundle: Result.success(object()),
+        )
+    elif failure_boundary == "observe-raises":
+        monkeypatch.setattr(
+            input_bundle_module,
+            "_observe_mapping_files",
+            lambda *_args: (_ for _ in ()).throw(
+                RuntimeError("private observation failure")
+            ),
+        )
+    elif failure_boundary == "validate-raises":
+        monkeypatch.setattr(
+            adapter,
+            "validate",
+            lambda _inputs: (_ for _ in ()).throw(
+                RuntimeError("private validator failure")
+            ),
+        )
+    elif failure_boundary == "validate-non-result":
+        monkeypatch.setattr(adapter, "validate", lambda _inputs: object())
+    else:
+        monkeypatch.setattr(
+            adapter,
+            "validate",
+            lambda _inputs: Result.failure(
+                [
+                    Issue(
+                        code="CONTROLLED_VALIDATION_FAILURE",
+                        message="Input validation failed.",
+                        source="test",
+                    )
+                ]
+            ),
+        )
+
+    result = service.inspect(bundle_path, adapter.metadata.workflow_id)
+
+    assert _error_code(result) == expected_code
+    assert str(tmp_path) not in result.errors[0].message
+    assert result.errors[0].context == {}
+
+
+@pytest.mark.parametrize(
+    "unsafe_source",
+    (
+        pytest.param("not-a-path", id="non-path"),
+        pytest.param("wrong-name", id="wrong-filename"),
+        pytest.param("directory-open-error", id="directory-open-error"),
+    ),
+)
+def test_import_service_rejects_unsafe_source_coordinates(
+    tmp_path,
+    monkeypatch,
+    unsafe_source,
+) -> None:
+    if unsafe_source == "not-a-path":
+        bundle_path = "intake-bundle.json"
+    elif unsafe_source == "wrong-name":
+        bundle_path = tmp_path / "bundle.json"
+    else:
+        bundle_path = tmp_path / "intake-bundle.json"
+        monkeypatch.setattr(
+            input_bundle_module,
+            "_open_absolute_directory",
+            lambda _path: (_ for _ in ()).throw(OSError("private source open failure")),
+        )
+
+    result = _service().inspect(bundle_path, WORKFLOW_ID)
+
+    assert _error_code(result) == "INPUT_BUNDLE_SOURCE_UNSAFE"
+    assert result.errors[0].context == {}
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    (
+        pytest.param(
+            "artifact-order",
+            "INPUT_BUNDLE_DOCUMENT_INVALID",
+            id="artifact-order",
+        ),
+        pytest.param(
+            "file-count-limit",
+            "INPUT_BUNDLE_TOO_LARGE",
+            id="file-count-limit",
+        ),
+        pytest.param(
+            "unbound-file",
+            "INPUT_BUNDLE_HANDOFF_NOT_READY",
+            id="unbound-file",
+        ),
+        pytest.param(
+            "unverified-local",
+            "INPUT_BUNDLE_HANDOFF_NOT_READY",
+            id="unverified-local",
+        ),
+        pytest.param(
+            "no-local-files",
+            "INPUT_BUNDLE_HANDOFF_NOT_READY",
+            id="no-local-files",
+        ),
+        pytest.param(
+            "planned-path-mismatch",
+            "INPUT_BUNDLE_INTEGRITY_INVALID",
+            id="planned-path-mismatch",
+        ),
+        pytest.param(
+            "validation-order",
+            "INPUT_BUNDLE_DOCUMENT_INVALID",
+            id="validation-order",
+        ),
+        pytest.param(
+            "validation-not-ready",
+            "INPUT_BUNDLE_HANDOFF_NOT_READY",
+            id="validation-not-ready",
+        ),
+        pytest.param(
+            "issue-count-limit",
+            "INPUT_BUNDLE_TOO_LARGE",
+            id="issue-count-limit",
+        ),
+        pytest.param(
+            "issue-order",
+            "INPUT_BUNDLE_DOCUMENT_INVALID",
+            id="issue-order",
+        ),
+    ),
+)
+def test_bundle_semantics_rejects_noncanonical_handoff_states(
+    tmp_path,
+    monkeypatch,
+    mutation,
+    expected_code,
+) -> None:
+    bundle_path = create_runnable_bundle(tmp_path / "bundle")
+    payload = read_bundle(bundle_path)
+    if mutation == "artifact-order":
+        payload["artifacts"].reverse()
+    elif mutation == "file-count-limit":
+        monkeypatch.setattr(input_bundle_module, "_MAX_FILE_REFERENCES", 1)
+    elif mutation == "unbound-file":
+        payload["files"][0]["kind"] = "unbound"
+        payload["files"][0]["scope"] = "external"
+        payload["files"][0]["path"] = None
+        payload["files"].sort(
+            key=lambda item: (
+                item["file_id"],
+                item["kind"],
+                item["path"] or "",
+                item["scope"],
+            )
+        )
+    elif mutation == "unverified-local":
+        payload["files"][0]["checksum"]["status"] = "declared"
+    elif mutation == "no-local-files":
+        payload["files"] = [
+            record for record in payload["files"] if record["kind"] == "planned"
+        ]
+    elif mutation == "planned-path-mismatch":
+        payload["files"][1]["path"] = "downloads/ena/OTHER.fastq.gz"
+    elif mutation == "validation-order":
+        payload["validations"].reverse()
+    elif mutation == "validation-not-ready":
+        payload["validations"][0]["reason_code"] = "CONTROLLED_FAILURE"
+    elif mutation == "issue-count-limit":
+        monkeypatch.setattr(input_bundle_module, "_MAX_ISSUE_SUMMARIES", 0)
+        payload["issues"] = [
+            {
+                "severity": "warning",
+                "code": "CONTROLLED_WARNING",
+                "owner_kind": "data_file",
+                "count": 1,
+            }
+        ]
+    else:
+        payload["issues"] = [
+            {
+                "severity": "warning",
+                "code": code,
+                "owner_kind": "data_file",
+                "count": 1,
+            }
+            for code in ("Z_WARNING", "A_WARNING")
+        ]
+
+    with pytest.raises(input_bundle_module._InputBundleFailure) as raised:
+        input_bundle_module._validate_semantics(payload)
+
+    assert raised.value.code == expected_code
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        pytest.param(b"[]", id="top-level-array"),
+        pytest.param(str(2**63).encode("ascii"), id="integer-out-of-range"),
+        pytest.param(
+            b"[" * 65 + b"0" + b"]" * 65,
+            id="nesting-out-of-range",
+        ),
+    ),
+)
+def test_contract_loader_rejects_noncanonical_json_shapes(
+    tmp_path,
+    body,
+) -> None:
+    bundle_path = create_runnable_bundle(tmp_path / "bundle")
+    bundle_path.write_bytes(body)
+
+    result = _service().inspect(bundle_path, WORKFLOW_ID)
+
+    assert _error_code(result) == "INPUT_BUNDLE_DOCUMENT_INVALID"
+
+
+def test_contract_loader_reports_pinned_schema_unavailability(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    bundle_path = create_runnable_bundle(tmp_path / "bundle")
+    monkeypatch.setattr(
+        input_bundle_module,
+        "_bundle_validator",
+        lambda: (_ for _ in ()).throw(RuntimeError("schema unavailable")),
+    )
+
+    result = _service().inspect(bundle_path, WORKFLOW_ID)
+
+    assert _error_code(result) == "INPUT_BUNDLE_CONTRACT_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    "schema_failure",
+    (
+        pytest.param("digest", id="schema-digest"),
+        pytest.param("coordinate", id="schema-coordinate"),
+    ),
+)
+def test_pinned_schema_identity_must_match_bundled_contract(
+    monkeypatch,
+    schema_failure,
+) -> None:
+    if schema_failure == "digest":
+        schema_bytes = b"{}"
+        expected_message = "digest mismatch"
+    else:
+        schema_bytes = json.dumps(
+            {
+                "$id": "urn:wrong-contract",
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+            }
+        ).encode("utf-8")
+        monkeypatch.setattr(
+            input_bundle_module,
+            "OMICS_INTAKE_BUNDLE_SCHEMA_SHA256",
+            hashlib.sha256(schema_bytes).hexdigest(),
+        )
+        expected_message = "coordinate mismatch"
+
+    class SchemaResource:
+        def joinpath(self, _resource):
+            return self
+
+        def read_bytes(self):
+            return schema_bytes
+
+    monkeypatch.setattr(
+        input_bundle_module,
+        "files",
+        lambda _package: SchemaResource(),
+    )
+    input_bundle_module._bundle_validator.cache_clear()
+
+    with pytest.raises(ValueError, match=expected_message):
+        input_bundle_module._bundle_validator()
+
+    input_bundle_module._bundle_validator.cache_clear()
+
+
+def test_invalid_calendar_timestamp_is_not_rfc3339() -> None:
+    assert not input_bundle_module._is_rfc3339_datetime("2026-02-30T00:00:00Z")
+
+
+def test_verified_bundle_rejects_nonmapping_workflow_identity(tmp_path) -> None:
+    bundle_path = create_runnable_bundle(tmp_path / "bundle")
+    payload = read_bundle(bundle_path)
+    contract = input_bundle_module._validate_semantics(payload)
+    malformed = replace(
+        contract,
+        payload={**payload, "workflow": "private-invalid-workflow"},
+    )
+
+    with input_bundle_module._BundleProjectReader.open(bundle_path) as reader:
+        with pytest.raises(input_bundle_module._InputBundleFailure) as raised:
+            input_bundle_module._load_verified_bundle(
+                reader,
+                malformed,
+                bundle_sha256="a" * 64,
+            )
+
+    assert raised.value.code == "INPUT_BUNDLE_HANDOFF_NOT_READY"
+
+
+def test_reader_lifecycle_and_root_binding_fail_closed(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    bundle_path = create_runnable_bundle(tmp_path / "bundle")
+    reader = input_bundle_module._BundleProjectReader.open(bundle_path)
+    reader.close()
+    reader.close()
+
+    reader = input_bundle_module._BundleProjectReader.open(bundle_path)
+    monkeypatch.setattr(
+        input_bundle_module,
+        "_open_absolute_directory",
+        lambda _path: (_ for _ in ()).throw(OSError("root disappeared")),
+    )
+    with pytest.raises(input_bundle_module._InputBundleFailure) as raised:
+        reader.verify_root_binding()
+    reader.close()
+
+    assert raised.value.code == "INPUT_BUNDLE_SOURCE_UNSAFE"
+
+
+def test_reader_rejects_rebound_project_root(tmp_path, monkeypatch) -> None:
+    bundle_path = create_runnable_bundle(tmp_path / "bundle")
+    other_root = tmp_path / "other-root"
+    other_root.mkdir()
+    other_descriptor = input_bundle_module._open_absolute_directory(other_root)
+    reader = input_bundle_module._BundleProjectReader.open(bundle_path)
+    monkeypatch.setattr(
+        input_bundle_module,
+        "_open_absolute_directory",
+        lambda _path: os.dup(other_descriptor),
+    )
+    try:
+        with pytest.raises(input_bundle_module._InputBundleFailure) as raised:
+            reader.verify_root_binding()
+    finally:
+        reader.close()
+        os.close(other_descriptor)
+
+    assert raised.value.code == "INPUT_BUNDLE_SOURCE_UNSAFE"
+
+
+def test_reader_rejects_invalid_paths_digests_and_reopen_identity(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    bundle_path = create_runnable_bundle(tmp_path / "bundle")
+    relative_path = "downloads/ena/SRR000001.fastq.gz"
+    size_bytes = (bundle_path.parent / relative_path).stat().st_size
+
+    with input_bundle_module._BundleProjectReader.open(bundle_path) as reader:
+        with pytest.raises(input_bundle_module._InputBundleFailure) as invalid_path:
+            reader.observe_file(
+                "../private.fastq.gz",
+                expected_size=None,
+                expected_sha256=None,
+                maximum_bytes=1024,
+            )
+        assert invalid_path.value.code == "INPUT_BUNDLE_DOCUMENT_INVALID"
+
+        with pytest.raises(input_bundle_module._InputBundleFailure) as wrong_digest:
+            reader.observe_file(
+                relative_path,
+                expected_size=size_bytes,
+                expected_sha256="0" * 64,
+                maximum_bytes=1024,
+            )
+        assert wrong_digest.value.code == "INPUT_BUNDLE_INTEGRITY_INVALID"
+
+        monkeypatch.setattr(reader, "_reopen_identity", lambda _path: ())
+        with pytest.raises(input_bundle_module._InputBundleFailure) as rebound:
+            reader.observe_file(
+                relative_path,
+                expected_size=size_bytes,
+                expected_sha256=None,
+                maximum_bytes=1024,
+            )
+        assert rebound.value.code == "INPUT_BUNDLE_SOURCE_UNSAFE"
+
+
+def test_safe_open_primitives_reject_unsupported_or_non_directory_paths(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    with pytest.raises(ValueError, match="absolute and normalized"):
+        input_bundle_module._open_absolute_directory(
+            Path(f"{tmp_path}/../{tmp_path.name}")
+        )
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(
+            input_bundle_module,
+            "_directory_flags",
+            lambda: os.O_RDONLY | os.O_NOFOLLOW,
+        )
+        with pytest.raises(OSError, match="not a directory"):
+            input_bundle_module._open_absolute_directory(Path("/dev/null"))
+
+    with monkeypatch.context() as scoped:
+        scoped.delattr(os, "O_DIRECTORY")
+        with pytest.raises(OSError, match="directory flags"):
+            input_bundle_module._directory_flags()
+
+    with monkeypatch.context() as scoped:
+        scoped.delattr(os, "O_NOFOLLOW")
+        with pytest.raises(OSError, match="file flags"):
+            input_bundle_module._file_flags()

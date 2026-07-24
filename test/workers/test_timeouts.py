@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import inspect
 import os
 import signal
@@ -172,6 +173,90 @@ def test_durable_worker_never_kills_the_parent_process_group(monkeypatch):
 
     assert group_calls == []
     assert process_calls == [(123, signal.SIGKILL)]
+
+
+def test_durable_worker_kills_its_owned_process_group(monkeypatch):
+    worker = object.__new__(DurableWorker)
+    worker._horse_pid = 123
+    worker.log = SimpleNamespace(
+        info=lambda *_args: None,
+        debug=lambda *_args: None,
+    )
+    calls = []
+    monkeypatch.setattr(os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(
+        os,
+        "killpg",
+        lambda process_group, signum: calls.append((process_group, signum)),
+    )
+
+    DurableWorker.kill_horse(worker)
+
+    assert calls == [(123, signal.SIGKILL)]
+
+
+@pytest.mark.parametrize(
+    ("error_number", "raises"),
+    (
+        (errno.ESRCH, False),
+        (errno.EPERM, True),
+    ),
+)
+def test_durable_worker_handles_process_group_lookup_errors(
+    monkeypatch,
+    error_number,
+    raises,
+):
+    worker = object.__new__(DurableWorker)
+    worker._horse_pid = 123
+    worker.log = SimpleNamespace(
+        info=lambda *_args: None,
+        debug=lambda *_args: None,
+    )
+
+    def fail_lookup(_pid):
+        raise OSError(error_number, os.strerror(error_number))
+
+    monkeypatch.setattr(os, "getpgid", fail_lookup)
+    if raises:
+        with pytest.raises(OSError) as error:
+            DurableWorker.kill_horse(worker)
+        assert error.value.errno == error_number
+    else:
+        assert DurableWorker.kill_horse(worker) is None
+
+
+@pytest.mark.parametrize(
+    ("error_number", "raises"),
+    (
+        (errno.ESRCH, False),
+        (errno.EPERM, True),
+    ),
+)
+def test_durable_worker_handles_process_group_signal_errors(
+    monkeypatch,
+    error_number,
+    raises,
+):
+    worker = object.__new__(DurableWorker)
+    worker._horse_pid = 123
+    worker.log = SimpleNamespace(
+        info=lambda *_args: None,
+        debug=lambda *_args: None,
+    )
+
+    monkeypatch.setattr(os, "getpgid", lambda pid: pid)
+
+    def fail_signal(_process_group, _signum):
+        raise OSError(error_number, os.strerror(error_number))
+
+    monkeypatch.setattr(os, "killpg", fail_signal)
+    if raises:
+        with pytest.raises(OSError) as error:
+            DurableWorker.kill_horse(worker)
+        assert error.value.errno == error_number
+    else:
+        assert DurableWorker.kill_horse(worker) is None
 
 
 def test_worker_hard_timeout_bypasses_application_exception_handlers():

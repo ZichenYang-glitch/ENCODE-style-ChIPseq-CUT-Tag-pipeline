@@ -1,0 +1,1154 @@
+artifacts:
+- id: final_bam
+  description: Final filtered/dedup BAM for downstream use
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/02_align/<sample>.final.bam
+  producing_rule: (common.smk)
+  tool: bowtie2+samtools
+  manifest_output_type: final_bam
+  pipeline_done: false
+  rule_all: false
+  config_gate: null
+  notes: pipeline_done depends on final_bam.bai, not final_bam directly
+- id: final_bai
+  description: BAM index for final.bam
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/02_align/<sample>.final.bam.bai
+  producing_rule: (common.smk)
+  tool: samtools index
+  manifest_output_type: final_bai
+  pipeline_done: false
+  rule_all: false
+  config_gate: null
+  notes: indirect dependency via sorted.bam.bai / bamCoverage; not a named pipeline_done input
+- id: cpm_bigwig
+  description: CPM-normalized coverage BigWig
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/03_bigwig/<sample>.CPM.bw
+  producing_rule: (common.smk)
+  tool: bamCoverage CPM
+  manifest_output_type: cpm_bigwig
+  pipeline_done: true
+  rule_all: true
+  config_gate: null
+  notes: produced for treatment and control samples
+- id: pipeline_done
+  description: Sentinel file marking sample-level pipeline completion
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/logs/<sample>.pipeline.done
+  producing_rule: (common.smk)
+  tool: touch
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: null
+  notes: treatment samples only
+- id: macs3_peak
+  description: MACS3 peak calling directory
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/04_peaks/<sample>/
+  producing_rule: macs3_callpeak
+  tool: macs3 callpeak
+  manifest_output_type: macs3_peak
+  pipeline_done: true
+  rule_all: true
+  config_gate: null
+  notes: directory output; not produced for MNase
+- id: macs3_fe_bdg
+  description: MACS3 fold-enrichment bedGraph
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/03_signal/<sample>.FE.bdg
+  producing_rule: signal_track_fe
+  tool: macs3 bdgcmp FE
+  manifest_output_type: macs3_fe_bdg
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'qc.signal_tracks: true'
+  notes: gated on QC_CONFIG signal_tracks
+- id: macs3_ppois_bdg
+  description: MACS3 Poisson p-value bedGraph
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/03_signal/<sample>.ppois.bdg
+  producing_rule: signal_track_ppois
+  tool: macs3 bdgcmp ppois
+  manifest_output_type: macs3_ppois_bdg
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'qc.signal_tracks: true'
+  notes: gated on QC_CONFIG signal_tracks
+- id: macs3_fe_bw
+  description: MACS3 fold-enrichment BigWig
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/03_signal/<sample>.FE.bw
+  producing_rule: signal_track_fe_bw
+  tool: bedGraphToBigWig
+  manifest_output_type: macs3_fe_bw
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.signal_tracks: true + chrom_sizes configured'
+  notes: Stage 22
+- id: macs3_ppois_bw
+  description: MACS3 Poisson p-value BigWig
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/03_signal/<sample>.ppois.bw
+  producing_rule: signal_track_ppois_bw
+  tool: bedGraphToBigWig
+  manifest_output_type: macs3_ppois_bw
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.signal_tracks: true + chrom_sizes configured'
+  notes: Stage 22
+- id: peak_counts
+  description: Peak count TSV
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/01_qc/<sample>.peak_counts.tsv
+  producing_rule: peak_counts
+  tool: wc -l
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.summary: true'
+  notes: not produced for MNase
+- id: frip
+  description: Fraction of Reads in Peaks
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/01_qc/<sample>.frip.tsv
+  producing_rule: frip
+  tool: calc_frip.py
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.frip: true or qc.summary: true'
+  notes: not produced for MNase
+- id: library_complexity
+  description: Library complexity from Picard duplicate metrics
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/01_qc/<sample>.library_complexity.tsv
+  producing_rule: library_complexity
+  tool: parse_dup_metrics.py
+  manifest_output_type: null
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'qc.library_complexity: true or qc.summary: true'
+  notes: BAM-derived; applies to all treatment samples including MNase
+- id: nrf_pbc
+  description: NRF/PBC library complexity from BAM
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/01_qc/<sample>.nrf_pbc.tsv
+  producing_rule: nrf_pbc
+  tool: calc_nrf_pbc.py
+  manifest_output_type: null
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'qc.nrf_pbc: true or qc.summary: true'
+  notes: BAM-derived; applies to all treatment samples including MNase
+- id: qc_summary
+  description: Per-sample QC summary TSV (37 columns)
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/01_qc/<sample>.qc_summary.tsv
+  producing_rule: qc_summary
+  tool: assemble_qc_summary.py
+  manifest_output_type: qc_summary
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'qc.summary: true'
+  notes: depends on peak_counts + frip; not produced for MNase
+- id: blacklist_filtered_bam
+  description: Blacklist-filtered BAM
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/02_align/<sample>.blacklist_filtered.bam
+  producing_rule: blacklist_filter_bam
+  tool: bedtools intersect
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.blacklist_filter: true + blacklist BED configured'
+  notes: resource-gated per genome
+- id: cross_correlation
+  description: Cross-correlation QC metrics (NSC/RSC)
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/05_qc/cross_correlation/<sample>.cc.qc
+  producing_rule: cross_correlation
+  tool: phantompeakqualtools
+  manifest_output_type: null
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'qc.cross_correlation: true'
+  notes: applies to all treatment samples including MNase
+- id: cross_correlation_plot
+  description: Cross-correlation plot PDF
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/05_qc/cross_correlation/<sample>.cc.plot.pdf
+  producing_rule: cross_correlation
+  tool: phantompeakqualtools
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.cross_correlation: true'
+  notes: companion to cross_correlation
+- id: preseq
+  description: Preseq library complexity extrapolation
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/05_qc/preseq/<sample>.preseq.txt
+  producing_rule: preseq_complexity
+  tool: preseq lc_extrap
+  manifest_output_type: null
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'qc.preseq_complexity: true'
+  notes: applies to all treatment samples including MNase
+- id: picard_alignment
+  description: Picard alignment summary metrics
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/05_qc/picard/<sample>.alignment_summary_metrics
+  producing_rule: picard_collect_multiple_metrics
+  tool: Picard CollectMultipleMetrics
+  manifest_output_type: null
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'qc.picard_metrics: true'
+  notes: requires genome_resources.reference_fasta
+- id: picard_insert_size
+  description: Picard insert size metrics
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/05_qc/picard/<sample>.insert_size_metrics
+  producing_rule: picard_collect_multiple_metrics
+  tool: Picard CollectMultipleMetrics
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.picard_metrics: true'
+  notes: used as reference by mnase_qc_summary (params path, not input)
+- id: picard_quality
+  description: Picard quality distribution metrics
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/05_qc/picard/<sample>.quality_distribution_metrics
+  producing_rule: picard_collect_multiple_metrics
+  tool: Picard CollectMultipleMetrics
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.picard_metrics: true'
+  notes: requires genome_resources.reference_fasta
+- id: tss_matrix
+  description: computeMatrix output around TSS
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/05_qc/tss/<sample>.tss_matrix.gz
+  producing_rule: tss_enrichment_profile
+  tool: computeMatrix
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.tss_enrichment: true + GTF configured'
+  notes: not produced for MNase
+- id: tss_profile_tsv
+  description: TSS profile data TSV
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/05_qc/tss/<sample>.tss_profile.tsv
+  producing_rule: tss_enrichment_profile
+  tool: plotProfile
+  manifest_output_type: null
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'qc.tss_enrichment: true + GTF configured'
+  notes: not produced for MNase
+- id: tss_profile_pdf
+  description: TSS profile plot PDF
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/05_qc/tss/<sample>.tss_profile.pdf
+  producing_rule: tss_enrichment_profile
+  tool: plotProfile
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.tss_enrichment: true + GTF configured'
+  notes: not produced for MNase
+- id: cuttag_fragment_size
+  description: CUT&Tag fragment-size QC TSV
+  scope: sample
+  level: per_sample
+  assay_gate: cuttag
+  path_template: results/<sample>/01_qc/<sample>.cuttag_fragment_size.tsv
+  producing_rule: cuttag_fragment_size
+  tool: calc_cuttag_fragment_size.py
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.cuttag_fragment_size: true'
+  notes: CUT&Tag PE treatment only
+- id: seacr_bedgraph
+  description: SEACR input bedGraph
+  scope: sample
+  level: per_sample
+  assay_gate: cuttag
+  path_template: results/<sample>/04_peaks_seacr/<sample>.bedgraph
+  producing_rule: seacr_bedgraph
+  tool: bedtools genomecov
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'cuttag.seacr.enabled: true'
+  notes: CUT&Tag PE treatment only
+- id: seacr_peaks
+  description: SEACR peak BED
+  scope: sample
+  level: per_sample
+  assay_gate: cuttag
+  path_template: results/<sample>/04_peaks_seacr/<sample>/<sample>.seacr.<mode>.bed
+  producing_rule: seacr_call
+  tool: SEACR_1.3.sh
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'cuttag.seacr.enabled: true'
+  notes: mode is seacr mode (stringent/relaxed)
+- id: mnase_sub_bam
+  description: Sub-nucleosome fragment BAM
+  scope: sample
+  level: per_sample
+  assay_gate: mnase
+  path_template: results/<sample>/03_fragments/<sample>.sub.bam
+  producing_rule: mnase_split_sub
+  tool: alignmentSieve
+  manifest_output_type: mnase_sub_bam
+  pipeline_done: true
+  rule_all: true
+  config_gate: null
+  notes: Stage 40; default range [1, 139]
+- id: mnase_sub_bai
+  description: Sub-nucleosome BAM index
+  scope: sample
+  level: per_sample
+  assay_gate: mnase
+  path_template: results/<sample>/03_fragments/<sample>.sub.bam.bai
+  producing_rule: mnase_split_sub
+  tool: samtools index
+  manifest_output_type: mnase_sub_bai
+  pipeline_done: true
+  rule_all: true
+  config_gate: null
+  notes: Stage 40
+- id: mnase_mono_bam
+  description: Mono-nucleosome fragment BAM
+  scope: sample
+  level: per_sample
+  assay_gate: mnase
+  path_template: results/<sample>/03_fragments/<sample>.mono.bam
+  producing_rule: mnase_split_mono
+  tool: alignmentSieve
+  manifest_output_type: mnase_mono_bam
+  pipeline_done: true
+  rule_all: true
+  config_gate: null
+  notes: Stage 39; default range [140, 200]
+- id: mnase_mono_bai
+  description: Mono-nucleosome BAM index
+  scope: sample
+  level: per_sample
+  assay_gate: mnase
+  path_template: results/<sample>/03_fragments/<sample>.mono.bam.bai
+  producing_rule: mnase_split_mono
+  tool: samtools index
+  manifest_output_type: mnase_mono_bai
+  pipeline_done: true
+  rule_all: true
+  config_gate: null
+  notes: Stage 39
+- id: mnase_di_bam
+  description: Di-nucleosome fragment BAM
+  scope: sample
+  level: per_sample
+  assay_gate: mnase
+  path_template: results/<sample>/03_fragments/<sample>.di.bam
+  producing_rule: mnase_split_di
+  tool: alignmentSieve
+  manifest_output_type: mnase_di_bam
+  pipeline_done: true
+  rule_all: true
+  config_gate: null
+  notes: Stage 40; default range [300, 400]
+- id: mnase_di_bai
+  description: Di-nucleosome BAM index
+  scope: sample
+  level: per_sample
+  assay_gate: mnase
+  path_template: results/<sample>/03_fragments/<sample>.di.bam.bai
+  producing_rule: mnase_split_di
+  tool: samtools index
+  manifest_output_type: mnase_di_bai
+  pipeline_done: true
+  rule_all: true
+  config_gate: null
+  notes: Stage 40
+- id: mnase_dyad_bigwig
+  description: Dyad BigWig from bamCoverage --MNase
+  scope: sample
+  level: per_sample
+  assay_gate: mnase
+  path_template: results/<sample>/04_signal/<sample>.dyad.CPM.bw
+  producing_rule: mnase_dyad_bigwig
+  tool: bamCoverage --MNase --binSize 1
+  manifest_output_type: mnase_dyad_bigwig
+  pipeline_done: true
+  rule_all: true
+  config_gate: null
+  notes: Stage 39; dyad_range default [130, 200]
+- id: mnase_mono_bigwig
+  description: Mono-nucleosome occupancy BigWig
+  scope: sample
+  level: per_sample
+  assay_gate: mnase
+  path_template: results/<sample>/04_signal/<sample>.mono.CPM.bw
+  producing_rule: mnase_mono_bigwig
+  tool: bamCoverage
+  manifest_output_type: mnase_mono_bigwig
+  pipeline_done: true
+  rule_all: true
+  config_gate: null
+  notes: Stage 39; from mono.bam
+- id: mnase_qc_summary
+  description: MNase per-sample QC summary TSV
+  scope: sample
+  level: per_sample
+  assay_gate: mnase
+  path_template: results/<sample>/01_qc/<sample>.mnase_qc_summary.tsv
+  producing_rule: mnase_qc_summary
+  tool: mnase_qc_summary.py
+  manifest_output_type: mnase_qc_summary
+  pipeline_done: true
+  rule_all: true
+  config_gate: null
+  notes: Stage 40
+- id: pooled_final_bam
+  description: Pooled treatment final BAM
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: all
+  path_template: results/experiments/<experiment>/02_align/<experiment>.pooled.final.bam
+  producing_rule: (replicates.smk)
+  tool: samtools merge
+  manifest_output_type: pooled_final_bam
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true + >=2 treatment bioreps'
+  notes: includes MNase experiments
+- id: pooled_final_bai
+  description: Pooled treatment final BAM index
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: all
+  path_template: results/experiments/<experiment>/02_align/<experiment>.pooled.final.bam.bai
+  producing_rule: (replicates.smk)
+  tool: samtools index
+  manifest_output_type: pooled_final_bai
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true + >=2 treatment bioreps'
+  notes: emitted by make_manifest.py but previously missing from output-contract.md; added Stage 43
+- id: biorep_final_bam
+  description: Biological-replicate merged BAM
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: all
+  path_template: results/experiments/<experiment>/02_align/biorep<N>.final.bam
+  producing_rule: (replicates.smk)
+  tool: samtools merge / symlink
+  manifest_output_type: biorep<N>_final_bam
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true'
+  notes: N is the biological_replicate number
+- id: biorep_final_bai
+  description: Biological-replicate BAM index
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: all
+  path_template: results/experiments/<experiment>/02_align/biorep<N>.final.bam.bai
+  producing_rule: (replicates.smk)
+  tool: samtools index
+  manifest_output_type: biorep<N>_final_bai
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true'
+  notes: emitted by make_manifest.py but previously missing from output-contract.md; added Stage 43
+- id: pooled_macs3_peak
+  description: Pooled MACS3 peak directory
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/04_peaks/pooled/<experiment>_pooled_peaks/
+  producing_rule: macs3_pooled_peaks
+  tool: macs3 callpeak
+  manifest_output_type: pooled_macs3_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true + >=2 peak-centric treatment bioreps'
+  notes: not produced for MNase experiments
+- id: pooled_fe_bdg
+  description: Pooled fold-enrichment bedGraph
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/03_signal/<experiment>.pooled.FE.bdg
+  producing_rule: pooled_signal_track_fe
+  tool: macs3 bdgcmp FE
+  manifest_output_type: pooled_fe_bdg
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true + qc.signal_tracks: true + >=2 peak-centric bioreps'
+  notes: not produced for MNase experiments
+- id: pooled_ppois_bdg
+  description: Pooled Poisson p-value bedGraph
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/03_signal/<experiment>.pooled.ppois.bdg
+  producing_rule: pooled_signal_track_ppois
+  tool: macs3 bdgcmp ppois
+  manifest_output_type: pooled_ppois_bdg
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true + qc.signal_tracks: true + >=2 peak-centric bioreps'
+  notes: not produced for MNase experiments
+- id: pooled_fe_bw
+  description: Pooled fold-enrichment BigWig
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/03_signal/<experiment>.pooled.FE.bw
+  producing_rule: pooled_signal_track_fe_bw
+  tool: bedGraphToBigWig
+  manifest_output_type: pooled_fe_bw
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true + qc.signal_tracks: true + chrom_sizes + >=2 peak-centric bioreps'
+  notes: Stage 22
+- id: pooled_ppois_bw
+  description: Pooled Poisson p-value BigWig
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/03_signal/<experiment>.pooled.ppois.bw
+  producing_rule: pooled_signal_track_ppois_bw
+  tool: bedGraphToBigWig
+  manifest_output_type: pooled_ppois_bw
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true + qc.signal_tracks: true + chrom_sizes + >=2 peak-centric bioreps'
+  notes: Stage 22
+- id: pooled_qc_summary
+  description: Pooled experiment QC summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/01_qc/<experiment>.pooled_qc_summary.tsv
+  producing_rule: pooled_experiment_qc_summary
+  tool: pooled_qc_summary.py
+  manifest_output_type: pooled_qc_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true + >=2 peak-centric treatment bioreps'
+  notes: Stage 6b; not produced for MNase experiments
+- id: pooled_mnase_mono_bam
+  description: Pooled MNase mono-nucleosome BAM
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: mnase
+  path_template: results/experiments/<experiment>/03_fragments/<experiment>.pooled.mono.bam
+  producing_rule: mnase_pooled_mono
+  tool: alignmentSieve
+  manifest_output_type: pooled_mnase_mono_bam
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true + >=2 MNase treatment bioreps'
+  notes: Stage 39; pooled sub/di deferred
+- id: pooled_mnase_mono_bai
+  description: Pooled MNase mono BAM index
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: mnase
+  path_template: results/experiments/<experiment>/03_fragments/<experiment>.pooled.mono.bam.bai
+  producing_rule: mnase_pooled_mono
+  tool: samtools index
+  manifest_output_type: pooled_mnase_mono_bai
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true + >=2 MNase treatment bioreps'
+  notes: Stage 39
+- id: pooled_mnase_dyad_bigwig
+  description: Pooled MNase dyad BigWig
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: mnase
+  path_template: results/experiments/<experiment>/04_signal/<experiment>.pooled.dyad.CPM.bw
+  producing_rule: mnase_pooled_dyad_bigwig
+  tool: bamCoverage --MNase --binSize 1
+  manifest_output_type: pooled_mnase_dyad_bigwig
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true + >=2 MNase treatment bioreps'
+  notes: Stage 39
+- id: pooled_mnase_mono_bigwig
+  description: Pooled MNase mono occupancy BigWig
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: mnase
+  path_template: results/experiments/<experiment>/04_signal/<experiment>.pooled.mono.CPM.bw
+  producing_rule: mnase_pooled_mono_bigwig
+  tool: bamCoverage
+  manifest_output_type: pooled_mnase_mono_bigwig
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage4b: true + >=2 MNase treatment bioreps'
+  notes: Stage 39
+- id: idr_true_replicate_raw
+  description: True-replicate IDR raw output
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: idr
+  path_template: results/experiments/<experiment>/06_idr/true_replicates/idr.txt
+  producing_rule: idr_true_replicates
+  tool: idr
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
+  notes: Stage 5a
+- id: idr_true_replicate_thresh
+  description: True-replicate IDR thresholded narrowPeak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: idr
+  path_template: results/experiments/<experiment>/06_idr/true_replicates/idr.thresholded.narrowPeak
+  producing_rule: idr_true_replicates
+  tool: idr
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
+  notes: Stage 5a
+- id: idr_self_raw
+  description: Self-pseudoreplicate IDR raw output
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: idr
+  path_template: results/experiments/<experiment>/06_idr/self_pseudoreplicates/biorep<N>.idr.txt
+  producing_rule: idr_self_pseudoreps
+  tool: idr
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
+  notes: Stage 5b; N is biorep number; manifest uses dynamic f-string
+- id: idr_pooled_raw
+  description: Pooled-pseudoreplicate IDR raw output
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: idr
+  path_template: results/experiments/<experiment>/06_idr/pooled_pseudoreplicates/idr.txt
+  producing_rule: idr_pooled_pseudoreps
+  tool: idr
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
+  notes: Stage 5b
+- id: idr_conservative
+  description: IDR conservative peak set
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: idr
+  path_template: results/experiments/<experiment>/06_idr/final/conservative.narrowPeak
+  producing_rule: stage5b_summary
+  tool: idr filter
+  manifest_output_type: idr_conservative
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
+  notes: Stage 5b
+- id: idr_optimal
+  description: IDR optimal peak set
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: idr
+  path_template: results/experiments/<experiment>/06_idr/final/optimal.narrowPeak
+  producing_rule: stage5b_summary
+  tool: idr filter
+  manifest_output_type: idr_optimal
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
+  notes: Stage 5b
+- id: idr_reproducibility_summary
+  description: IDR reproducibility summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: idr
+  path_template: results/experiments/<experiment>/06_idr/final/reproducibility_summary.tsv
+  producing_rule: stage5b_summary
+  tool: (script)
+  manifest_output_type: idr_reproducibility_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
+  notes: Stage 5b
+
+# ---- Stage 53-65 reproducibility outputs (consensus + IDR final + consensus final) ----
+
+# Consensus outputs (catalog/report)
+
+- id: chipseq_macs3_narrow_consensus_peak
+  description: ChIP-seq narrow consensus peak (catalog/report)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.chipseq.macs3.narrow.consensus.narrowPeak
+  producing_rule: consensus_compute_narrow
+  tool: compute_consensus.py
+  manifest_output_type: chipseq_macs3_narrow_consensus_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output; not primary final (legacy stage5 IDR is final)
+
+- id: chipseq_macs3_narrow_consensus_summary
+  description: ChIP-seq narrow consensus summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.chipseq.macs3.narrow.consensus.summary.tsv
+  producing_rule: consensus_compute_narrow
+  tool: compute_consensus.py
+  manifest_output_type: chipseq_macs3_narrow_consensus_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output
+
+- id: chipseq_macs3_broad_consensus_peak
+  description: ChIP-seq broad consensus peak (catalog/report)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.chipseq.macs3.broad.consensus.broadPeak
+  producing_rule: consensus_compute_broad
+  tool: compute_consensus.py
+  manifest_output_type: chipseq_macs3_broad_consensus_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output; not primary final unless broad IDR is disabled
+
+- id: chipseq_macs3_broad_consensus_summary
+  description: ChIP-seq broad consensus summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.chipseq.macs3.broad.consensus.summary.tsv
+  producing_rule: consensus_compute_broad
+  tool: compute_consensus.py
+  manifest_output_type: chipseq_macs3_broad_consensus_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output
+
+- id: cuttag_macs3_narrow_consensus_peak
+  description: CUT&Tag narrow consensus peak (catalog/report)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.cuttag.macs3.narrow.consensus.narrowPeak
+  producing_rule: consensus_compute_narrow
+  tool: compute_consensus.py
+  manifest_output_type: cuttag_macs3_narrow_consensus_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output
+
+- id: cuttag_macs3_narrow_consensus_summary
+  description: CUT&Tag narrow consensus summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.cuttag.macs3.narrow.consensus.summary.tsv
+  producing_rule: consensus_compute_narrow
+  tool: compute_consensus.py
+  manifest_output_type: cuttag_macs3_narrow_consensus_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output
+
+- id: cuttag_macs3_broad_consensus_peak
+  description: CUT&Tag broad consensus peak (catalog/report)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.cuttag.macs3.broad.consensus.broadPeak
+  producing_rule: consensus_compute_broad
+  tool: compute_consensus.py
+  manifest_output_type: cuttag_macs3_broad_consensus_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output; not primary final unless broad IDR is disabled
+
+- id: cuttag_macs3_broad_consensus_summary
+  description: CUT&Tag broad consensus summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.cuttag.macs3.broad.consensus.summary.tsv
+  producing_rule: consensus_compute_broad
+  tool: compute_consensus.py
+  manifest_output_type: cuttag_macs3_broad_consensus_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output
+
+- id: atac_macs3_narrow_consensus_peak
+  description: ATAC narrow consensus peak (catalog/report)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: atac
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.atac.macs3.narrow.consensus.narrowPeak
+  producing_rule: consensus_compute_narrow
+  tool: compute_consensus.py
+  manifest_output_type: atac_macs3_narrow_consensus_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output; ATAC narrow consensus is secondary when ATAC IDR is enabled
+
+- id: atac_macs3_narrow_consensus_summary
+  description: ATAC narrow consensus summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: atac
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.atac.macs3.narrow.consensus.summary.tsv
+  producing_rule: consensus_compute_narrow
+  tool: compute_consensus.py
+  manifest_output_type: atac_macs3_narrow_consensus_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
+  notes: Consensus catalog output
+
+- id: cuttag_seacr_consensus_peak
+  description: CUT&Tag SEACR consensus peak (catalog/report)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.cuttag.seacr.<mode>.consensus.bed
+  producing_rule: consensus_compute_seacr
+  tool: compute_consensus.py
+  manifest_output_type: cuttag_seacr_consensus_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled and cuttag.seacr.enabled
+  notes: SEACR consensus catalog output; primary reproducibility method for CUT&Tag SEACR
+
+- id: cuttag_seacr_consensus_summary
+  description: CUT&Tag SEACR consensus summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/consensus/<experiment>.cuttag.seacr.<mode>.consensus.summary.tsv
+  producing_rule: consensus_compute_seacr
+  tool: compute_consensus.py
+  manifest_output_type: cuttag_seacr_consensus_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled and cuttag.seacr.enabled
+  notes: SEACR consensus catalog output
+
+# IDR final outputs (primary replicate-validated)
+
+- id: cuttag_macs3_narrow_idr_final_peak
+  description: CUT&Tag narrow IDR final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak
+  producing_rule: idr_summary_cuttag_narrow
+  tool: idr_reproducibility_summary.py
+  manifest_output_type: cuttag_macs3_narrow_idr_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.cuttag_narrow
+  notes: Supported opt-in IDR; final when enabled and eligible
+
+- id: atac_macs3_narrow_idr_final_peak
+  description: ATAC narrow IDR final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: atac
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.atac.macs3.narrow.replicate_validated.idr.narrowPeak
+  producing_rule: idr_summary_atac_narrow
+  tool: idr_reproducibility_summary.py
+  manifest_output_type: atac_macs3_narrow_idr_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.atac_narrow
+  notes: Production-supported IDR; final when enabled and eligible
+
+- id: chipseq_macs3_broad_idr_final_peak
+  description: ChIP-seq broad IDR final validated peak (experimental)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: chipseq
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.chipseq.macs3.broad.replicate_validated.idr.broadPeak
+  producing_rule: idr_summary_chipseq_broad
+  tool: idr_reproducibility_summary.py
+  manifest_output_type: chipseq_macs3_broad_idr_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.chipseq_broad_experimental
+  notes: Experimental opt-in only; omitted when flag is false
+
+- id: cuttag_macs3_broad_idr_final_peak
+  description: CUT&Tag broad IDR final validated peak (experimental)
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.cuttag.macs3.broad.replicate_validated.idr.broadPeak
+  producing_rule: idr_summary_cuttag_broad
+  tool: idr_reproducibility_summary.py
+  manifest_output_type: cuttag_macs3_broad_idr_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.cuttag_broad_experimental
+  notes: Experimental opt-in only; omitted when flag is false
+
+# Consensus final outputs (primary when no IDR)
+
+- id: chipseq_macs3_broad_consensus_final_peak
+  description: ChIP-seq broad consensus final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.chipseq.macs3.broad.replicate_validated.consensus.broadPeak
+  producing_rule: consensus_final
+  tool: cp
+  manifest_output_type: chipseq_macs3_broad_consensus_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled (broad IDR not enabled)
+  notes: Primary final when broad IDR is not enabled
+
+- id: cuttag_macs3_narrow_consensus_final_peak
+  description: CUT&Tag narrow consensus final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak
+  producing_rule: consensus_final
+  tool: cp
+  manifest_output_type: cuttag_macs3_narrow_consensus_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled (CUT&Tag narrow IDR not enabled)
+  notes: Primary final when CUT&Tag narrow IDR is not enabled
+
+- id: cuttag_macs3_broad_consensus_final_peak
+  description: CUT&Tag broad consensus final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.cuttag.macs3.broad.replicate_validated.consensus.broadPeak
+  producing_rule: consensus_final
+  tool: cp
+  manifest_output_type: cuttag_macs3_broad_consensus_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled (broad IDR not enabled)
+  notes: Primary final when broad IDR is not enabled
+
+- id: cuttag_seacr_consensus_final_peak
+  description: CUT&Tag SEACR consensus final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.cuttag.seacr.<mode>.replicate_validated.consensus.bed
+  producing_rule: consensus_final_seacr
+  tool: cp
+  manifest_output_type: cuttag_seacr_consensus_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled and cuttag.seacr.enabled
+  notes: SEACR consensus is primary final for CUT&Tag SEACR
+
+# IDR QC summaries
+
+- id: atac_macs3_narrow_idr_summary
+  description: ATAC narrow IDR reproducibility summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: atac
+  path_template: results/experiments/<experiment>/06_reproducibility/final/reproducibility_summary.tsv
+  producing_rule: idr_summary_atac_narrow
+  tool: idr_reproducibility_summary.py
+  manifest_output_type: atac_macs3_narrow_idr_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.atac_narrow
+  notes: IDR QC summary
+
+- id: cuttag_macs3_narrow_idr_summary
+  description: CUT&Tag narrow IDR reproducibility summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/reproducibility_summary.tsv
+  producing_rule: idr_summary_cuttag_narrow
+  tool: idr_reproducibility_summary.py
+  manifest_output_type: cuttag_macs3_narrow_idr_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.cuttag_narrow
+  notes: IDR QC summary
+
+- id: chipseq_macs3_broad_idr_summary
+  description: ChIP-seq broad IDR reproducibility summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: chipseq
+  path_template: results/experiments/<experiment>/06_reproducibility/final/reproducibility_summary.tsv
+  producing_rule: idr_summary_chipseq_broad
+  tool: idr_reproducibility_summary.py
+  manifest_output_type: chipseq_macs3_broad_idr_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.chipseq_broad_experimental
+  notes: IDR QC summary; experimental opt-in
+
+- id: cuttag_macs3_broad_idr_summary
+  description: CUT&Tag broad IDR reproducibility summary TSV
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: cuttag
+  path_template: results/experiments/<experiment>/06_reproducibility/final/reproducibility_summary.tsv
+  producing_rule: idr_summary_cuttag_broad
+  tool: idr_reproducibility_summary.py
+  manifest_output_type: cuttag_macs3_broad_idr_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: reproducibility.enabled and reproducibility.idr.cuttag_broad_experimental
+  notes: IDR QC summary; experimental opt-in
+
+- id: multiqc_report
+  description: MultiQC aggregation report
+  scope: project
+  level: project
+  assay_gate: all
+  path_template: results/multiqc/multiqc_report.html
+  producing_rule: multiqc
+  tool: MultiQC
+  manifest_output_type: multiqc_report
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'multiqc: true'
+  notes: depends on pipeline_done for all treatment samples
+- id: stage3_qc_summary
+  description: Project-level QC summary TSV
+  scope: project
+  level: project
+  assay_gate: peak_centric
+  path_template: results/multiqc/stage3_qc_summary.tsv
+  producing_rule: stage3_qc_summary
+  tool: aggregate_qc_summary.py
+  manifest_output_type: stage3_qc_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.summary: true'
+  notes: aggregates per-sample qc_summary.tsv files
+- id: result_manifest
+  description: Project-level result manifest TSV
+  scope: project
+  level: project
+  assay_gate: all
+  path_template: results/multiqc/result_manifest.tsv
+  producing_rule: result_manifest
+  tool: make_manifest.py
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.summary: true'
+  notes: Stage 25; depends on all other rule-all targets
+- id: cross_correlation_summary
+  description: Project-level cross-correlation summary TSV
+  scope: project
+  level: project
+  assay_gate: all
+  path_template: results/multiqc/cross_correlation_summary.tsv
+  producing_rule: cross_correlation_summary
+  tool: parse_cross_correlation.py
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.cross_correlation: true'
+  notes: Stage 14; exposed in MultiQC custom content
+- id: tss_bed
+  description: TSS reference BED derived from GTF
+  scope: reference
+  level: reference
+  assay_gate: all
+  path_template: results/reference/<genome>.tss.bed
+  producing_rule: tss_bed_from_gtf
+  tool: gtf_to_tss_bed.py
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.tss_enrichment: true + GTF configured'
+  notes: Stage 18; genome-level reference file

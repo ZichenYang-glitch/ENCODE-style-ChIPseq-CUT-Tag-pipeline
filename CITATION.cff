@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: "ENCODE-style ChIP-seq and CUT&Tag Pipeline"
+title: "HelixWeave"
 message: "If you use this software in your research, please cite it as below."
 type: software
 authors:
@@ -7,17 +7,23 @@ authors:
     family-names: Yang
 repository-code: "https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline"
 abstract: >
-  A Snakemake-based pipeline suite for ChIP-seq and CUT&Tag data analysis,
-  supporting single-sample preprocessing, multi-replicate experiments with
-  pooled outputs, single-sample QC, TF ChIP-seq IDR reproducibility analysis,
-  histone pooled QC, and CUT&Tag-specific fragment-size QC with optional
-  SEACR peak calling.
+  A workflow-neutral local omics analysis platform with durable SQLite
+  lifecycle state, Redis/RQ execution, browser-based input authoring, indexed
+  artifacts, and machine-readable QC. Bundled scientific adapters support
+  ENCODE-style ChIP-seq, CUT&Tag, ATAC-seq, and MNase-seq through Snakemake,
+  plus Bulk RNA-seq through a pinned nf-core/rnaseq 3.26.0 runtime.
 keywords:
+  - HelixWeave
+  - omics
   - ChIP-seq
   - CUT&Tag
+  - ATAC-seq
+  - MNase-seq
+  - RNA-seq
   - Snakemake
+  - Nextflow
   - peak-calling
   - IDR
   - bioinformatics
 license: MIT
-version: 0.2.0-rc1
+version: 0.3.0

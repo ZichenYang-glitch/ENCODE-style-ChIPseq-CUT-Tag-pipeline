@@ -67,41 +67,42 @@ execution remain protected by their dedicated gates.
 
 The locked environment resolves Python 3.12.13, pytest 9.1.1, pytest-cov
 7.1.0, coverage.py 7.15.1, and diff-cover 9.7.2. Percentages combine statements
-and branches unless a column says otherwise. The post-retirement baseline below
-was measured by the complete deterministic suite after making ambient runner
-inputs explicit in the affected behavior tests.
+and branches unless a column says otherwise. The v0.3.0 release-readiness
+baseline below was measured by the complete deterministic suite. The coverage
+consumer starts in fail-fast shell mode so an earlier area ratchet cannot be
+masked by a later report-only command.
 
 The post-maintenance verification inventory is the authoritative count for the
 current repository state:
 
 | Gate | Current baseline |
 | --- | ---: |
-| All Python tests collected | 2,535 |
-| PR-fast Python selection | 2,413 |
-| Deterministic full-main Python selection | 2,523 |
+| All Python tests collected | 3,839 |
+| PR-fast Python selection | 3,711 |
+| Deterministic full-main Python selection | 3,823 |
 | Platform real-execution tests | 4 |
 | Scientific real-execution tests | 8 |
-| Frontend Vitest tests | 292 |
-| Playwright browser tests | 8 |
+| Bulk RNA-seq real-execution tests | 4 |
+| Frontend Vitest tests | 328 |
+| Playwright browser tests | 10 |
 
 | Area | Line | Branch | Combined | Enforced floor |
 | --- | ---: | ---: | ---: | ---: |
-| Repository | 85.4375% | 76.1842% | 83.1711% | 83% |
-| Platform | 91.2866% | 80.2817% | 88.4522% | 88.45% |
-| Services | 89.5655% | 80.3922% | 87.2808% | 87.28% |
-| Persistence | 92.9593% | 72.6852% | 89.0667% | 89.06% |
-| Workers | 84.7756% | 71.8310% | 82.3760% | 82.37% |
-| Adapters | 92.0091% | 83.7838% | 89.9317% | report only |
-| API, CLI, config, samples | 94.9958% | 89.3216% | 93.5728% | report only |
-| Snakemake-facing scripts | 58.1197% | 51.1401% | 56.4733% | report only |
+| Repository | 86.4275% | 76.3563% | 83.7600% | 83% |
+| Platform | 91.3945% | 81.5068% | 88.6800% | 88.45% |
+| Services | 90.1076% | 81.1413% | 87.8251% | 87.28% |
+| Persistence | 93.0396% | 73.5714% | 89.1873% | 89.06% |
+| Workers | 84.7482% | 73.5632% | 82.5086% | 82.37% |
+| Adapters | 86.9874% | 76.3460% | 83.8318% | report only |
+| API, CLI, config, samples | 95.0440% | 89.0244% | 93.5581% | report only |
+| Snakemake-facing scripts | 69.6559% | 59.4417% | 67.1216% | report only |
 | Workflow compatibility library | 100.00% | n/a | 100.00% | report only |
 | Container definition tooling | 97.06% | 83.33% | 95.00% | report only |
 
-The tests explicitly control `SNAKEMAKE` resolution, `NO_PROXY` normalization,
-and the optional `GITHUB_STEP_SUMMARY` destination. These inputs previously
-made a small number of CLI and script branches depend on the host environment;
-they now exercise the same behavior paths locally and on GitHub-hosted runners.
-No file or source root is omitted, and all four core-area results are unchanged.
+No authored Python source root is omitted. The current baseline includes
+substantive fail-closed lifecycle, input-bundle, artifact/QC generation,
+persistence, and worker cleanup cases added to preserve every existing
+core-area floor after the two workflow product surface was completed.
 
 The repository floor is the integer floor of the complete measured result.
 Core floors remain at their previously verified values because the retirement

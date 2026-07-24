@@ -12,7 +12,10 @@ import pytest
 import scripts.run_local_platform as local_platform
 from scripts.run_local_platform import (
     EnvironmentCheck,
+    RUNTIME_IMPORTS,
     RuntimeConfig,
+    WorkflowCheck,
+    _http_ready,
     _session_process_groups,
     build_parser,
     build_shared_environment,
@@ -20,6 +23,7 @@ from scripts.run_local_platform import (
     config_from_args,
     prepare_runtime,
     run_environment_doctor,
+    run_workflow_doctor,
 )
 from scripts.results_visibility_fixture import prepare_results_visibility_fixture
 from platform_runtime import (
@@ -62,6 +66,14 @@ def test_environment_doctor_accepts_the_locked_project_toolchain(tmp_path, monke
         "_read_tool_version",
         lambda executable, _arguments: versions[executable],
     )
+    monkeypatch.setattr(
+        local_platform,
+        "_read_reachable_redis_version",
+        lambda _redis_url: (_ for _ in ()).throw(
+            RuntimeError("the configured Redis server version is unavailable")
+        ),
+    )
+    monkeypatch.setattr(local_platform, "_port_available", lambda _host, _port: True)
 
     checks = run_environment_doctor(frontend_root)
 
@@ -73,6 +85,188 @@ def test_environment_doctor_accepts_the_locked_project_toolchain(tmp_path, monke
         EnvironmentCheck("Node.js", "22.18.0"),
         EnvironmentCheck("npm", "10.9.3"),
         EnvironmentCheck("Frontend dependencies", "available"),
+    )
+
+
+def test_environment_doctor_requires_product_runtime_not_test_tools() -> None:
+    assert "uvicorn" in RUNTIME_IMPORTS
+    assert "pytest" not in RUNTIME_IMPORTS
+
+
+def test_environment_doctor_does_not_require_playwright(tmp_path, monkeypatch) -> None:
+    frontend_root = tmp_path / "frontend"
+    (frontend_root / "node_modules" / ".bin").mkdir(parents=True)
+    (frontend_root / "node_modules" / ".bin" / "vite").touch()
+    (frontend_root / "package-lock.json").touch()
+    monkeypatch.setattr(local_platform.sys, "version_info", (3, 12, 13))
+    monkeypatch.setattr(
+        local_platform,
+        "_import_runtime_dependency",
+        lambda module: None,
+    )
+    monkeypatch.setattr(
+        local_platform.shutil,
+        "which",
+        lambda executable: f"/tools/{executable}",
+    )
+    versions = {
+        "snakemake": "8.30.0\n",
+        "redis-server": "Redis server v=7.4.7 sha=00000000 malloc=libc bits=64\n",
+        "node": "v22.18.0\n",
+        "npm": "10.9.3\n",
+    }
+    monkeypatch.setattr(
+        local_platform,
+        "_read_tool_version",
+        lambda executable, _arguments: versions[executable],
+    )
+    monkeypatch.setattr(
+        local_platform,
+        "_read_reachable_redis_version",
+        lambda _redis_url: (_ for _ in ()).throw(
+            RuntimeError("the configured Redis server version is unavailable")
+        ),
+    )
+    monkeypatch.setattr(local_platform, "_port_available", lambda _host, _port: True)
+
+    checks = run_environment_doctor(frontend_root)
+
+    assert EnvironmentCheck("Frontend dependencies", "available") in checks
+
+
+def test_workflow_doctor_reports_both_products_without_optional_bulk_runtime() -> None:
+    checks = run_workflow_doctor(REPOSITORY_ROOT, environ={})
+
+    assert checks == (
+        WorkflowCheck(
+            workflow_id="encode-style-chipseq-cuttag-atac-mnase",
+            name="ENCODE-style ChIP-seq/CUT&Tag/ATAC/MNase",
+            authoring="available",
+            execution="available",
+            reason_code="WORKFLOW_EXECUTION_READY",
+        ),
+        WorkflowCheck(
+            workflow_id="bulk-rnaseq",
+            name="Bulk RNA-seq",
+            authoring="available",
+            execution="not_configured",
+            reason_code="WORKFLOW_EXECUTION_NOT_CONFIGURED",
+        ),
+    )
+
+
+def test_workflow_doctor_fails_closed_for_incomplete_trial_tree(tmp_path) -> None:
+    with pytest.raises(RuntimeError, match="product information is unavailable"):
+        run_workflow_doctor(tmp_path, environ={})
+
+
+def test_workflow_doctor_redacts_partial_bulk_runtime_configuration() -> None:
+    private_value = "/private/operator/runtime"
+    checks = run_workflow_doctor(
+        REPOSITORY_ROOT,
+        environ={"HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT": private_value},
+    )
+
+    bulk = checks[1]
+    assert bulk.execution == "unavailable"
+    assert bulk.reason_code == "WORKFLOW_EXECUTION_UNAVAILABLE"
+    assert private_value not in repr(checks)
+
+
+def test_workflow_doctor_redacts_registry_composition_failure(
+    monkeypatch,
+) -> None:
+    private_detail = "/private/operator/runtime"
+
+    def fail_registry(**_kwargs):
+        raise RuntimeError(private_detail)
+
+    monkeypatch.setattr(
+        "encode_pipeline.services.defaults.create_default_workflow_registry",
+        fail_registry,
+    )
+
+    with pytest.raises(
+        RuntimeError, match="workflow product information is unavailable"
+    ) as caught:
+        run_workflow_doctor(REPOSITORY_ROOT, environ={})
+
+    assert private_detail not in str(caught.value)
+
+
+def test_workflow_doctor_rejects_unexpected_registry_identity(monkeypatch) -> None:
+    class UnexpectedDescriptor:
+        class metadata:
+            workflow_id = "unexpected-workflow"
+
+    class UnexpectedWorkflowInfo:
+        def __init__(self, _registry):
+            pass
+
+        def list_descriptors(self):
+            return (UnexpectedDescriptor(),)
+
+    monkeypatch.setattr(
+        "encode_pipeline.services.workflow_info.WorkflowInfoService",
+        UnexpectedWorkflowInfo,
+    )
+
+    with pytest.raises(
+        RuntimeError, match="workflow product information is unavailable"
+    ):
+        run_workflow_doctor(REPOSITORY_ROOT, environ={})
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"), [(200, True), (204, True), (404, False)]
+)
+def test_http_readiness_requires_a_success_response(
+    monkeypatch,
+    status,
+    expected,
+) -> None:
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def __init__(self, response_status):
+            self.status = response_status
+
+    class Opener:
+        def open(self, _url, *, timeout):
+            assert timeout == 1
+            return Response(status)
+
+    monkeypatch.setattr(local_platform, "build_opener", lambda *_args: Opener())
+
+    assert _http_ready("http://127.0.0.1:8000/ready") is expected
+
+
+@pytest.mark.parametrize(
+    "redis_url",
+    [
+        "rediss://127.0.0.1:6379/0",
+        "redis://private-host:6379/0",
+        "redis://user@localhost:6379/0",
+        "redis://:secret@localhost:6379/0",
+        "redis://localhost:6379/1",
+        "redis://localhost:6379/0?private=true",
+        "redis://localhost:6379/0#private",
+        "redis://localhost:0/0",
+        "redis://localhost:70000/0",
+    ],
+)
+def test_automatic_redis_start_target_rejects_unsafe_coordinates(redis_url) -> None:
+    assert local_platform._automatic_redis_start_target(redis_url) is None
+
+
+def test_automatic_redis_start_target_defaults_only_the_missing_port() -> None:
+    assert local_platform._automatic_redis_start_target("redis://localhost/0") == (
+        "localhost",
+        6379,
     )
 
 
@@ -172,12 +366,12 @@ def test_environment_doctor_external_redis_failure_does_not_expose_connection(
             redis_url="redis://user:secret@private-host:6379/0",
         )
 
-    assert str(caught.value) == "redis-server is unavailable on PATH"
+    assert str(caught.value) == "the configured Redis server version is unavailable"
     assert "secret" not in str(caught.value)
     assert "private-host" not in str(caught.value)
 
 
-def test_environment_doctor_does_not_fallback_for_a_broken_present_redis_binary(
+def test_environment_doctor_prefers_the_configured_reachable_redis(
     tmp_path, monkeypatch
 ):
     frontend_root = tmp_path / "frontend"
@@ -207,21 +401,109 @@ def test_environment_doctor_does_not_fallback_for_a_broken_present_redis_binary(
             raise RuntimeError("redis-server could not report a version")
         return versions[executable]
 
-    fallback_calls: list[str] = []
     monkeypatch.setattr(local_platform, "_read_tool_version", tool_version)
     monkeypatch.setattr(
         local_platform,
         "_read_reachable_redis_version",
-        lambda redis_url: fallback_calls.append(redis_url) or (7, 4, 9),
+        lambda _redis_url: (7, 4, 9),
     )
 
-    with pytest.raises(RuntimeError, match="could not report"):
+    checks = run_environment_doctor(
+        frontend_root,
+        redis_url="redis://127.0.0.1:6379/14",
+    )
+
+    assert EnvironmentCheck("Redis server", "7.4.9") in checks
+
+
+def test_environment_doctor_rejects_unreachable_custom_redis_even_with_binary(
+    tmp_path, monkeypatch
+):
+    frontend_root = tmp_path / "frontend"
+    (frontend_root / "node_modules" / ".bin").mkdir(parents=True)
+    (frontend_root / "node_modules" / ".bin" / "vite").touch()
+    (frontend_root / "package-lock.json").touch()
+    monkeypatch.setattr(local_platform.sys, "version_info", (3, 12, 13))
+    monkeypatch.setattr(
+        local_platform, "_import_runtime_dependency", lambda _module: None
+    )
+    monkeypatch.setattr(
+        local_platform.shutil,
+        "which",
+        lambda executable: f"/tools/{executable}",
+    )
+    versions = {
+        "snakemake": "8.30.0\n",
+        "redis-server": "Redis server v=7.4.7 sha=00000000 malloc=libc bits=64\n",
+        "node": "v22.18.0\n",
+        "npm": "10.9.3\n",
+    }
+    binary_calls: list[str] = []
+
+    def tool_version(executable, _arguments):
+        binary_calls.append(executable)
+        return versions[executable]
+
+    monkeypatch.setattr(local_platform, "_read_tool_version", tool_version)
+    monkeypatch.setattr(
+        local_platform,
+        "_read_reachable_redis_version",
+        lambda _redis_url: (_ for _ in ()).throw(
+            RuntimeError("redis://private-host:6379/14")
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError, match="configured Redis server version is unavailable"
+    ) as caught:
         run_environment_doctor(
             frontend_root,
-            redis_url="redis://127.0.0.1:6379/14",
+            redis_url="redis://private-host:6379/14",
         )
 
-    assert fallback_calls == []
+    assert "redis-server" not in binary_calls
+    assert "private-host" not in str(caught.value)
+
+
+def test_environment_doctor_does_not_replace_an_old_reachable_redis_with_binary(
+    tmp_path, monkeypatch
+):
+    frontend_root = tmp_path / "frontend"
+    (frontend_root / "node_modules" / ".bin").mkdir(parents=True)
+    (frontend_root / "node_modules" / ".bin" / "vite").touch()
+    (frontend_root / "package-lock.json").touch()
+    monkeypatch.setattr(local_platform.sys, "version_info", (3, 12, 13))
+    monkeypatch.setattr(
+        local_platform, "_import_runtime_dependency", lambda _module: None
+    )
+    monkeypatch.setattr(
+        local_platform.shutil,
+        "which",
+        lambda executable: f"/tools/{executable}",
+    )
+    versions = {
+        "snakemake": "8.30.0\n",
+        "redis-server": "Redis server v=7.4.7 sha=00000000 malloc=libc bits=64\n",
+        "node": "v22.18.0\n",
+        "npm": "10.9.3\n",
+    }
+    binary_calls: list[str] = []
+
+    def tool_version(executable, _arguments):
+        binary_calls.append(executable)
+        return versions[executable]
+
+    monkeypatch.setattr(local_platform, "_read_tool_version", tool_version)
+    monkeypatch.setattr(
+        local_platform,
+        "_read_reachable_redis_version",
+        lambda _redis_url: (6, 2, 14),
+    )
+
+    with pytest.raises(RuntimeError, match="Redis server 7.x is required"):
+        run_environment_doctor(frontend_root)
+
+    assert "redis-server" not in binary_calls
 
 
 def test_reachable_redis_version_wraps_malformed_url_without_disclosure(
@@ -320,6 +602,14 @@ def test_environment_doctor_rejects_incompatible_tools(
         "_read_tool_version",
         lambda executable, _arguments: versions[executable],
     )
+    monkeypatch.setattr(
+        local_platform,
+        "_read_reachable_redis_version",
+        lambda _redis_url: (_ for _ in ()).throw(
+            RuntimeError("the configured Redis server version is unavailable")
+        ),
+    )
+    monkeypatch.setattr(local_platform, "_port_available", lambda _host, _port: True)
 
     with pytest.raises(RuntimeError, match=message):
         run_environment_doctor(frontend_root)
@@ -364,6 +654,29 @@ def test_doctor_mode_has_no_port_runtime_or_process_side_effects(
     )
     monkeypatch.setattr(
         local_platform,
+        "run_workflow_doctor",
+        lambda _root, *, environ: (
+            calls.append("workflows")
+            or (
+                WorkflowCheck(
+                    "encode-style-chipseq-cuttag-atac-mnase",
+                    "ENCODE-style ChIP-seq/CUT&Tag/ATAC/MNase",
+                    "available",
+                    "available",
+                    "WORKFLOW_EXECUTION_READY",
+                ),
+                WorkflowCheck(
+                    "bulk-rnaseq",
+                    "Bulk RNA-seq",
+                    "available",
+                    "not_configured",
+                    "WORKFLOW_EXECUTION_NOT_CONFIGURED",
+                ),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        local_platform,
         "_port_available",
         lambda _host, _port: calls.append("port") or True,
     )
@@ -381,11 +694,14 @@ def test_doctor_mode_has_no_port_runtime_or_process_side_effects(
         == 0
     )
 
-    assert calls == ["doctor"]
+    assert calls == ["doctor", "workflows"]
     assert not runtime_root.exists()
     output = capsys.readouterr().out
     assert "HelixWeave environment check" in output
     assert "Python: 3.12.13" in output
+    assert "bulk-rnaseq: authoring=available execution=not_configured" in output
+    assert "Bulk RNA-seq execution is optional" in output
+    assert "private" not in output.lower()
 
 
 def test_launcher_help_uses_product_brand_and_keeps_compatibility_flags():
@@ -463,6 +779,91 @@ def test_supervisor_exposes_frontend_only_after_api_and_worker_are_ready(
     supervisor._start_services()
 
     assert order == ["api", "worker", "backend-ready", "frontend"]
+
+
+def test_supervisor_starts_only_the_bounded_configured_local_redis(
+    tmp_path, monkeypatch
+):
+    config = RuntimeConfig(
+        project_root=tmp_path / "project",
+        frontend_root=tmp_path / "frontend",
+        runtime_root=tmp_path / "runtime",
+        redis_url="redis://localhost:6380/0",
+        queue_name="browser-e2e",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=30,
+    )
+    supervisor = local_platform.PlatformSupervisor(config)
+    redis_ready = iter((False, True))
+    monkeypatch.setattr(
+        local_platform,
+        "_redis_ready",
+        lambda _redis_url: next(redis_ready),
+    )
+    starts: list[tuple[str, list[str], Path]] = []
+    monkeypatch.setattr(
+        supervisor,
+        "_start",
+        lambda name, argv, *, cwd: starts.append((name, argv, cwd)),
+    )
+
+    def wait_until(condition, timeout, description, check_processes):
+        assert timeout == 30
+        assert description == "Redis"
+        assert check_processes == supervisor._assert_processes_alive
+        assert condition() is True
+
+    monkeypatch.setattr(local_platform, "_wait_until", wait_until)
+
+    supervisor._ensure_redis()
+
+    assert starts == [
+        (
+            "redis",
+            [
+                "redis-server",
+                "--bind",
+                "localhost",
+                "--port",
+                "6380",
+                "--dir",
+                str(config.runtime_root / "redis"),
+                "--save",
+                "",
+                "--appendonly",
+                "no",
+            ],
+            config.runtime_root,
+        )
+    ]
+    assert (config.runtime_root / "redis").is_dir()
+
+
+def test_supervisor_refuses_to_start_redis_for_an_unsafe_coordinate(
+    tmp_path, monkeypatch
+):
+    config = RuntimeConfig(
+        project_root=tmp_path / "project",
+        frontend_root=tmp_path / "frontend",
+        runtime_root=tmp_path / "runtime",
+        redis_url="redis://private-host:6380/0",
+        queue_name="browser-e2e",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=30,
+    )
+    supervisor = local_platform.PlatformSupervisor(config)
+    monkeypatch.setattr(local_platform, "_redis_ready", lambda _redis_url: False)
+
+    with pytest.raises(RuntimeError, match="unavailable and cannot be started locally"):
+        supervisor._ensure_redis()
+
+    assert not config.runtime_root.exists()
 
 
 def test_session_process_groups_never_include_the_test_process_group(monkeypatch):
@@ -816,6 +1217,11 @@ def test_main_checks_ports_then_prepares_demo_before_starting_processes(
     monkeypatch.setattr(local_platform, "config_from_args", configured)
     monkeypatch.setattr(local_platform, "prepare_runtime", prepared)
     monkeypatch.setattr(local_platform, "run_environment_doctor", doctor)
+    monkeypatch.setattr(
+        local_platform,
+        "run_workflow_doctor",
+        lambda _root, *, environ: order.append("workflows") or (),
+    )
     monkeypatch.setattr(local_platform, "_port_available", available)
     monkeypatch.setattr(local_platform, "PlatformSupervisor", Supervisor)
 
@@ -830,4 +1236,12 @@ def test_main_checks_ports_then_prepares_demo_before_starting_processes(
         == 0
     )
 
-    assert order == ["doctor", "configure", "port", "port", "prepare", "process"]
+    assert order == [
+        "doctor",
+        "workflows",
+        "configure",
+        "port",
+        "port",
+        "prepare",
+        "process",
+    ]

@@ -211,6 +211,7 @@ jobs:
         if: needs.fast-checks.result == 'success' && github.event_name != 'pull_request'
         shell: micromamba-shell {0}
         run: |
+          set -euo pipefail
           python3 -m coverage report --fail-under=83
           python3 -m coverage report \
             --include='src/encode_pipeline/platform/*' --fail-under=88.45
