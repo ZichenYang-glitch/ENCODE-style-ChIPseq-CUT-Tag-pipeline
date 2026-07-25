@@ -70,9 +70,12 @@ Project or Sample display name.
 - **InputFile** is a stable logical regular-file identity owned by one Project
   and located in an approved StoragePool. Each immutable input-file revision
   stores a safe pool-relative path, byte size, full content checksum, and
-  revision time. Directory trees, index prefixes, and input Bundles are outside
-  the first InputFile implementation; existing adapters must not be described
-  as fully managed until a separate closure/bundle contract covers them.
+  revision time. Regular-file InputFile support is additive; it does not imply
+  that every execution input or adapter is managed. Directory trees, index
+  prefixes, multi-file scientific closures, and input Bundles are outside the
+  first InputFile implementation. An adapter must not be described as fully
+  managed until every execution-required input use has a qualified catalog
+  representation and resolver.
 - **RunSample** is the ordered many-to-many association from a Run to the exact
   SampleRevision records frozen in the consumed snapshot. A run may bind
   several samples and the same sample revision may contribute to several runs.
@@ -114,8 +117,16 @@ versioned **snapshot binding envelope** records:
 
 - the Project ID and binding mode;
 - ordered exact SampleRevision IDs and their immutable payload digests;
-- ordered exact InputFile revision IDs and their content digests when managed
-  inputs are used;
+- the workflow ID and adapter contract version;
+- every adapter-declared input use as a stable opaque key, its occurrence, its
+  exact input-use capability and closure-contract versions, and its provenance
+  mode;
+- for every input use in `managed_revision_v1` mode, the ordered zero-or-more
+  opaque resource/revision IDs, member InputFile revision IDs, logical member
+  coordinates, and generic closure digest;
+- explicit `transitional_unmanaged_v1` records for execution-required input
+  uses that have not reached managed cutover, without copying or interpreting
+  their physical paths;
 - the existing workflow-input snapshot digest; and
 - a canonical digest over the complete envelope and its scheme version.
 
@@ -130,8 +141,9 @@ the direct compatibility path, creates the Run, Project binding, ordered
 RunSample/RunInput associations, first lifecycle event, and snapshot-consumption
 record as one atomic repository operation. The SQLite implementation performs
 that operation in one transaction. Idempotent replay compares the envelope
-digest and every ordered SampleRevision and InputFile revision association;
-missing or unequal binding evidence fails closed.
+digest, every ordered SampleRevision association, and the complete ordered
+per-input-use mode, capability version, resource membership, and closure
+evidence. Missing or unequal binding evidence fails closed.
 
 Archiving a Project, Sample, or input prevents a new snapshot from binding it.
 It does not invalidate an already frozen, unexpired snapshot or prevent its
@@ -139,13 +151,31 @@ one-time consumption. That rule preserves the exact reviewed input while
 stopping new work from selecting an archived object.
 
 For a non-Legacy Project, a new trusted-provenance snapshot must bind at least
-one exact SampleRevision. Managed InputFile revisions become mandatory for the
-single-file input uses covered by the Storage Pool stage. Adapter-owned
-workflow semantics stay in the adapter: an adapter declares input uses and
-artifact contributors, while the platform validates identities and membership
-without inspecting sample columns, workflow rule names, or scientific roles.
+one exact SampleRevision. Managed resource revisions become mandatory only for
+an input use whose exact workflow ID, adapter contract version, and input-use
+capability have completed cutover. Adapter-owned workflow semantics stay in
+the adapter: an adapter declares required input uses, permitted provenance-mode
+combinations, scientific closure validation, and artifact contributors, while
+the platform validates opaque identities, authorization, digests, and
+membership without inspecting sample columns, workflow rule names, or
+scientific roles.
 
-### Legacy compatibility, path cutover, and conservative migration
+A mixed managed/unmanaged snapshot is permitted only as an explicit migration
+state. The exact adapter contract must allow that combination, every
+execution-required input use must appear exactly once, and each use records
+either `managed_revision_v1` or `transitional_unmanaged_v1`. Missing,
+duplicated, undeclared, or contract-forbidden combinations fail closed. A
+managed use can never fall back to a physical path because a different use in
+the same adapter remains transitional.
+
+A concrete snapshot is fully managed only when every input use required by
+that execution is in `managed_revision_v1` mode. An optional use that is not
+activated does not downgrade the snapshot. An adapter contract may be
+described as fully managed only after every execution-required input use it can
+activate for its supported routes has a qualified catalog representation,
+adapter validator, and worker resolver.
+
+### Legacy compatibility, capability-scoped transition, and conservative migration
 
 The migration creates one deterministic reserved Legacy Project with a system
 kind and stable ID. The reserved identity and kind cannot be renamed, archived,
@@ -167,22 +197,40 @@ SampleRevision, RunSample, InputFile, input binding, or ArtifactSample records
 for historical runs. Their missing relationships are marked `unresolved`, not
 guessed.
 
-Persisted pre-cutover v1 snapshots and runs remain readable and, when otherwise
-eligible, consumable as `legacy_v1`. Historical payloads may already contain
-physical paths; migration does not rewrite them, public projections redact
-them, and only the private legacy execution resolver may consume them.
+Persisted pre-migration and historical v1 snapshots and runs remain readable
+and, when otherwise eligible, consumable as `legacy_v1`. Historical payloads
+may already contain physical paths; migration does not rewrite them, public
+projections redact them, and only the private compatibility execution resolver
+may consume them.
 
-During the Project/Sample stage, before managed input resolution exists, a new
-unbound request may still use the transitional v1 validation contract and is
-assigned to the reserved Legacy Project with unresolved provenance. The
-StoragePool/InputFile stage is the mandatory cutover: from that stage onward,
-new HTTP and frontend validation rejects physical server paths with a stable
-public error, whether or not the caller supplies a binding envelope.
-`legacy_v1` describes missing provenance and never grants path-submission
-permission. New local files enter through administrator registration and
-ordinary clients select opaque revisions. An explicitly separate local
-administrator compatibility command may create an unmanaged Legacy snapshot,
-but it is never exposed through HTTP and remains untrusted provenance.
+Managed cutover is per-adapter, per-input-use. Its identity is the exact
+workflow ID, adapter contract version, and input-use capability recorded in the
+snapshot envelope. An input use enters managed-only mode only after its
+complete closure can be represented by catalog revisions, the adapter can
+validate the scientific layout, and the worker can independently resolve and
+reverify the same closure. Only that qualified input use rejects a supplied
+physical path with a stable result. Cutover of one use never changes the path
+policy of another use, even within the same adapter.
+
+An input use that has not completed qualification remains explicitly
+`transitional_unmanaged_v1` when the exact adapter contract permits it. The
+existing trusted-local v1 path validation remains available for that use and
+does not become managed provenance. A new catalog-aware snapshot may therefore
+bind trusted Project and SampleRevision identities while recording transitional
+input provenance per use; it is not assigned to the Legacy Project merely
+because some inputs remain transitional. A fully unbound compatibility request
+may still use the reserved Legacy Project with unresolved provenance.
+
+`legacy_v1` is a provenance classification; it neither grants nor prohibits
+physical-path submission. For a new catalog-aware snapshot, path acceptance is
+decided only by the frozen adapter/input-use capability and provenance mode. A
+historical v1 snapshot has no synthesized per-use capability record; its
+eligibility follows its frozen v1 workflow contract and digest, and only the
+private compatibility resolver may consume an eligible path. Project/Sample
+stage does not reject physical paths that the current adapter contract already
+validates, and it does not infer managed input identity from them. A separate
+local administrator compatibility command may create an unmanaged Legacy
+snapshot, but it is never exposed as trusted provenance.
 
 New catalog-aware clients use the bound contract. Existing run IDs, inputs,
 workspace roots, artifact URIs, generations, revision-bound downloads,
@@ -203,9 +251,12 @@ InputFile registration are operator actions.
 This milestone must not add an unauthenticated management write API. Ordinary
 HTTP and frontend clients may select already-authorized opaque IDs through
 workflow contracts, but they cannot create or archive catalog objects,
-register pools, bind physical roots, import server files, or submit arbitrary
-server paths. Read-only public projections expose only allowlisted logical
-metadata.
+register pools, bind physical roots, or import server files. They cannot submit
+a physical path for an input use that has completed managed cutover. Until a
+specific input use is qualified, its exact existing trusted-local adapter
+contract may continue to accept a validated path; this compatibility is not a
+generic path-management API. Read-only public projections expose only
+allowlisted logical metadata.
 
 The deployment remains locally trusted; the CLI boundary is an operational
 boundary, not a claim of OS-level multi-tenant authorization.
@@ -217,8 +268,9 @@ one absolute local root. The same mapping is loaded by API and worker
 composition. For newly registered inputs, bound snapshots, and publications,
 roots never enter SQLite rows, public manifests, artifact metadata, logs,
 exception text, OpenAPI schemas, or generated clients. Historical v1 snapshot
-payloads are the explicit compatibility exception; they are not rewritten and
-remain redacted from public projections.
+payloads and an explicitly transitional adapter-private v1 payload are the
+compatibility exceptions; they are not rewritten, are never copied into the
+binding envelope, and remain redacted from public projections.
 
 A Project binds to an approved, active StoragePool by stable ID. Local
 InputFile registration is no-follow and descriptor-owned: every path component
@@ -229,21 +281,34 @@ not download FASTQ, invoke GenomePy, interpret scientific formats, or move
 real user data. A changed byte stream creates a new immutable revision rather
 than overwriting history.
 
-The persisted bound snapshot stores opaque input-revision references, not
-resolved physical paths. A workflow-neutral managed-input resolver reopens a
-revision beneath its configured pool root, verifies the revision ID, expected
-size, and checksum, and produces a short-lived private descriptor/view. An
-adapter-owned input-resolution capability maps declared opaque input uses to
-the adapter's private validation or execution representation without exposing
-its scientific roles to platform code.
+For a managed input use, the platform owns opaque resource and revision IDs,
+Project and StoragePool authorization, ordered leaf membership, leaf size and
+checksum verification, the generic closure digest, and immutable binding. A
+workflow-neutral resolver reopens member revisions beneath configured roots and
+produces a short-lived private descriptor or layout-preserving view. Validation
+and worker materialization independently resolve and reverify the same ordered
+closure. Resolved absolute paths are never persisted in the binding envelope,
+logged, returned, or exposed through public contracts.
 
-Validation and worker materialization resolve and reverify independently.
-Resolved absolute paths are never persisted, logged, returned, or inserted
-into the immutable bound payload. An adapter that lacks the managed-input
-capability fails admission with a stable unsupported-capability result instead
-of falling back to caller paths. Existing historical workspaces remain
-readable through the legacy resolver; assigning a Project pool does not
-silently relocate or reinterpret an existing run.
+The adapter owns the scientific meaning and qualification of that view,
+including a Bowtie2 prefix and its complete alternative file set, FASTA
+sidecars, STAR, Salmon, and SortMeRNA directory or manifest layouts, and
+producer, tool, container, and build parameters. Platform code does not know
+those filenames, alternative groups, tool semantics, or workflow roles. It
+must not infer closure identity from a filename, directory name, sample sheet,
+configuration path, or adapter-private payload.
+
+A request for `managed_revision_v1` fails admission with a stable
+unsupported- or invalid-capability result when the exact adapter/input-use
+capability, complete catalog closure, adapter validator, or worker resolver is
+missing. Once an input use is qualified and cut over, it never falls back to a
+caller path. An unqualified input use instead follows only an explicitly
+permitted `transitional_unmanaged_v1` resolver and the existing private adapter
+validation contract; regular-file InputFile support is additive and does not
+silently convert a prefix, sidecar set, manifest-referenced resource, or
+directory tree into managed provenance. Existing historical workspaces remain
+readable through the compatibility resolver, and assigning a Project pool does
+not silently relocate or reinterpret an existing run.
 
 ### Artifact lifecycle and one-copy publication
 
@@ -362,6 +427,31 @@ keys, and proves that legacy provenance remains unresolved. No migration
 downloads inputs, calls a genome manager, copies artifact bytes, or migrates
 real user data.
 
+The Project/Sample stage adds logical identities and exact sample-revision
+bindings without changing any adapter input-use path policy. The
+StoragePool/InputFile stage adds regular-file and managed-binding capabilities,
+but does not flip an input use merely because its leaf files can be registered.
+The landing sequence for each input use is:
+
+1. define and version its adapter-owned complete closure and platform binding;
+2. implement adapter validation plus independent worker resolution and
+   revalidation;
+3. reconcile the exact execution closure and obtain exact-HEAD qualification
+   for every supported route that activates the use;
+4. advertise the capability for that exact workflow and adapter contract; and
+5. only then require `managed_revision_v1` and return the stable physical-path
+   rejection for that use.
+
+Adding the registry migration changes the bulk-rnaseq execution implementation
+manifest and therefore its exact execution closure. Protected evidence from
+PR #154 is stale for the changed tree: updating a recorded digest or manifest
+text alone does not requalify the runtime. Until new exact-HEAD qualification
+lands against the reconciled closure, the affected runtime remains unavailable
+and fails closed. An unqualified input use may remain transitional when its
+exact adapter contract permits that provenance mode, but transitional catalog
+provenance does not admit a stale execution runtime. This milestone does not
+requalify the runtime and does not run the expensive rootful scientific gate.
+
 OpenAPI is changed only for workflow-neutral binding selection and safe
 read-only projection. When it changes, the checked-in specification and Orval
 client are regenerated with the repository script and a repeated generation
@@ -374,10 +464,14 @@ implementation detail.
 
 | Situation | Normative contract |
 | --- | --- |
-| new HTTP server path after managed-input cutover | forbidden |
-| pre-existing snapshot | Legacy + unresolved |
+| managed cutover identity | workflow ID + adapter contract version + input use capability |
+| qualified managed input use | opaque revision only; physical path rejected |
+| new catalog-aware unqualified input use | explicit transitional_unmanaged_v1; trusted-local path contract preserved |
+| mixed managed/unmanaged snapshot | per-use provenance required and exact adapter contract must allow the mix |
+| fully managed adapter | every execution-required input use qualified |
+| pre-migration or historical unbound v1 snapshot | Legacy + unresolved |
 | snapshot consumption | one SQLite transaction |
-| snapshot replay | exact ordered binding equality or fail closed |
+| snapshot replay | exact ordered per-use mode and evidence equality or fail closed |
 | managed-input execution | ephemeral adapter view; resolved path not persisted |
 | publication move unit | one regular-file Artifact revision |
 | publication visibility | valid manifest AND indexed SQLite state |
@@ -398,6 +492,12 @@ implementation detail.
   display names are mutable and collisions would change physical identity.
 - **Store pool roots or absolute paths in public metadata.** Rejected because
   it leaks operator-private topology and recreates arbitrary-path submission.
+- **Cut over physical paths globally at one persistence stage.** Rejected
+  because regular-file registration cannot express every adapter closure and a
+  stage-wide switch would strand unqualified input uses.
+- **Let platform code infer or interpret scientific closure layout.** Rejected
+  because prefix alternatives, sidecars, index manifests, and tool/build
+  compatibility remain versioned adapter contracts.
 - **Overwrite a Sample or InputFile revision.** Rejected because historical
   runs must remain reproducible and queryable.
 - **Hardlink, reflink, or retain a workspace copy during default publication.**
@@ -416,8 +516,17 @@ processes must compose the same database and private pool mappings. Publication
 also introduces explicit recoverable intermediate states rather than pretending
 that a filesystem rename and SQL commit are one transaction.
 
+Input management is deliberately progressive. A snapshot may contain managed
+and transitional uses only when its exact adapter contract permits that mix and
+records every use's provenance mode. The milestone performs no unconditional
+global physical-path cutover, and regular-file support alone cannot justify a
+fully managed adapter claim. Project/Sample delivery in particular preserves
+current trusted-local adapter validation while refusing to manufacture catalog
+provenance from paths or private payloads.
+
 The milestone does not add authentication, a hosted administrator service,
 arbitrary remote/object storage, public-data downloads, GenomePy execution,
 directory/index bundle registration, automatic migration of existing bytes,
 Genome Browser integration, email notification, workspace garbage collection,
-merge automation, tagging, or release behavior.
+bulk-rnaseq runtime requalification, merge automation, tagging, or release
+behavior.
