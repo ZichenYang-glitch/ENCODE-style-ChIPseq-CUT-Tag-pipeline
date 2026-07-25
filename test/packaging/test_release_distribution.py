@@ -26,6 +26,7 @@ EXPECTED_CONSOLE_SCRIPTS = {
     "encode-manifest": "encode_pipeline.cli.manifest:main",
     "encode-validate": "encode_pipeline.cli.validate:main",
     "encode-worker": "encode_pipeline.workers.cli:main",
+    "helixweave": "encode_pipeline.cli.app:main",
 }
 
 
@@ -58,7 +59,7 @@ def _build_wheel(tmp_path: Path) -> Path:
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
-    wheels = tuple(wheel_root.glob("encode_pipeline-*.whl"))
+    wheels = tuple(wheel_root.glob("helixweave-*.whl"))
     assert len(wheels) == 1
     return wheels[0]
 
@@ -82,7 +83,7 @@ def test_release_identity_is_consistent_across_public_metadata(
         project_root=REPO_ROOT,
     )
     try:
-        assert pyproject["project"]["name"] == "encode-pipeline"
+        assert pyproject["project"]["name"] == "helixweave"
         assert pyproject["project"]["version"] == RELEASE_VERSION
         assert pyproject["project"]["description"].startswith("HelixWeave")
         assert __version__ == RELEASE_VERSION
@@ -122,13 +123,17 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(tmp_path: Path) -> Non
         metadata = Parser().parsestr(metadata_text)
         entry_points = archive.read(entry_points_name).decode("utf-8")
 
-        assert metadata["Name"] == "encode-pipeline"
+        assert metadata["Name"] == "helixweave"
         assert metadata["Version"] == RELEASE_VERSION
         assert metadata["Summary"].startswith("HelixWeave")
         assert metadata["Description-Content-Type"] == "text/markdown"
         assert "\n# HelixWeave\n" in metadata_text
         for name, target in EXPECTED_CONSOLE_SCRIPTS.items():
             assert f"{name} = {target}" in entry_points
+        assert "encode_pipeline/__main__.py" in names
+        assert "encode_pipeline/cli/app.py" in names
+        assert "encode_pipeline/cli/local_platform.py" in names
+        assert "encode_pipeline/cli/results_visibility_fixture.py" in names
         assert "encode_pipeline/artifacts/artifact-inventory.yaml" in names
         assert "encode_pipeline/persistence/alembic/script.py.mako" in names
         assert (
@@ -171,18 +176,16 @@ def test_pep517_build_produces_bounded_wheel_and_sdist(tmp_path: Path) -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert {path.name for path in distribution_root.iterdir()} == {
-        "encode_pipeline-0.3.0-py3-none-any.whl",
-        "encode_pipeline-0.3.0.tar.gz",
+        "helixweave-0.3.0-py3-none-any.whl",
+        "helixweave-0.3.0.tar.gz",
     }
-    with tarfile.open(
-        distribution_root / "encode_pipeline-0.3.0.tar.gz", "r:gz"
-    ) as archive:
+    with tarfile.open(distribution_root / "helixweave-0.3.0.tar.gz", "r:gz") as archive:
         names = archive.getnames()
-    assert "encode_pipeline-0.3.0/README.md" in names
+    assert "helixweave-0.3.0/README.md" in names
     assert (
-        "encode_pipeline-0.3.0/src/encode_pipeline/artifacts/artifact-inventory.yaml"
+        "helixweave-0.3.0/src/encode_pipeline/artifacts/artifact-inventory.yaml"
     ) in names
-    assert not any(name.startswith("encode_pipeline-0.3.0/test/") for name in names)
+    assert not any(name.startswith("helixweave-0.3.0/test/") for name in names)
 
 
 def test_extracted_wheel_supports_registry_and_openapi_outside_source_tree(

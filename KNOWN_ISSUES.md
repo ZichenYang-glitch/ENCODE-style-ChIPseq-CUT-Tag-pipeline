@@ -124,24 +124,30 @@ operation outside repository content. See the
 
 ### Frontend dependency and bundle maintenance
 
-The v0.3.0 candidate lock reports 12 npm package-level findings: three are in
-production dependency paths (`fast-uri`, `react-router`, and
-`react-router-dom`), while nine are confined to the Vite, Vitest, Orval, and
-OpenAPI-generation toolchain. The audit did not classify any finding as a
-v0.3.0 release blocker within the supported single-workstation or trusted-team
-boundary: schema URI parsing is not used as a network allow/deny decision,
-navigation targets are internal and constrained, there is no server-side
-rendering, Vitest UI/API/browser mode is not enabled, and generated OpenAPI
-input is repository-controlled. Vite is nevertheless part of the supported
-local trial launcher and retains a browser-to-loopback attack surface. It must
-remain bound to loopback and must not receive untrusted requests; exposing it
-to a LAN or other untrusted network is outside the supported trial boundary.
+Against lock SHA-256
+`3b2472cb4bf6201443f6aa64feb854369c398a25ba740196ff8f75c7aab2b49c`,
+the live npm advisory database reported 28 package-level findings on
+2026-07-25: three are in production dependency paths (`fast-uri`,
+`react-router`, and `react-router-dom`), while 25 are confined to the Vite,
+Vitest, PostCSS, Orval, and OpenAPI-generation toolchain or are propagated
+effects in that toolchain. This aggregate is a time-stamped observation rather
+than a stable lockfile property: new PostCSS and `brace-expansion` advisories
+changed the count without changing `package.json` or the lockfile. The audit
+did not classify any finding as a v0.3.0 release blocker within the supported
+single-workstation or trusted-team boundary: schema URI parsing is not used as
+a network allow/deny decision, navigation targets are internal and
+constrained, there is no server-side rendering, Vitest UI/API/browser mode is
+not enabled, and generated OpenAPI input is repository-controlled. Vite is
+nevertheless part of the supported local trial launcher and retains a
+browser-to-loopback attack surface. It must remain bound to loopback and must
+not receive untrusted requests; exposing it to a LAN or other untrusted network
+is outside the supported trial boundary.
 
 Maintenance should update `fast-uri` to the compatible fixed `3.1.4` lock
-version, then test coordinated React Router 7.18.1+, Vite 6.4.3+/Vitest 3.2.6+,
-and Orval/JS-YAML upgrades as their upstream ranges permit. Do not use
-`npm audit fix --force` or an unreviewed major upgrade merely to reduce the
-aggregate count.
+version and PostCSS beyond `8.5.17`, then test coordinated React Router
+7.18.1+, Vite 6.4.3+/Vitest 3.2.6+, and Orval/JS-YAML upgrades as their
+upstream ranges permit. Do not use `npm audit fix --force` or an unreviewed
+major upgrade merely to reduce the aggregate count.
 
 The lazy `/workflows/:workflowId/new-run` authoring chunk is approximately
 1.20 MB minified (385 KB gzip). It is not loaded by the workflow catalog or

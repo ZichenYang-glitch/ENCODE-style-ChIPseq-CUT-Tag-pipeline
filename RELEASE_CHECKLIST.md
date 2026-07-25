@@ -17,32 +17,34 @@ The v0.3.0 release contract is:
 | :--- | :--- |
 | Product name | HelixWeave |
 | Git tag | `v0.3.0` |
-| Python distribution | `encode-pipeline` |
+| Python distribution | `helixweave` |
 | Python package | `encode_pipeline` |
 | Package/API/frontend version | `0.3.0` |
+| Primary CLI | `helixweave` |
 | Compatibility CLIs | `encode-validate`, `encode-manifest`, `encode-dag`, `encode-worker` |
 | Bundled workflows | ENCODE-style ChIP-seq/CUT&Tag/ATAC/MNase and `bulk-rnaseq` |
 | Bulk upstream | nf-core/rnaseq 3.26.0 |
 
-HelixWeave is the product name. The repository slug, Python distribution,
-import namespace, and `encode-*` CLI names are compatibility identities in this
-release; v0.3.0 does not rename them.
+HelixWeave is the product and distribution name. The `encode_pipeline` import
+namespace, `encode-*` CLI names, workflow IDs, and repository slug remain
+compatibility identities in this release. The reviewed name and local-candidate
+transition evidence is recorded in the
+[Python identity migration](docs/release-checks/v0.3.0-python-identity-migration.md).
 
-The future approved release asset set is exactly:
+The approved user-uploaded GitHub Release asset set is exactly:
 
-- `encode_pipeline-0.3.0-py3-none-any.whl`;
-- `encode_pipeline-0.3.0.tar.gz`;
-- `helixweave-v0.3.0-source-trial.tar.gz`; and
-- `SHA256SUMS`, covering the three files above.
+- `helixweave-0.3.0-py3-none-any.whl`;
+- `helixweave-0.3.0.tar.gz`; and
+- `SHA256SUMS`, covering those two files.
 
-The wheel and sdist are the compatibility Python distribution. They contain the
-Python APIs, console entry points, Alembic migrations, artifact catalog, and
-versioned adapter contracts; they are not the complete browser/scientific
-product tree. The source-trial archive is the no-Git-checkout product asset and
-must be created from the exact reviewed Git tree with a
-`helixweave-v0.3.0/` prefix. It contains the committed frontend, workflow,
-scripts, documentation, and lock files, but no environment, reference,
-container, FASTQ, result, cache, or secret payload.
+The wheel and sdist contain the Python APIs, primary and compatibility console
+entry points, Alembic migrations, artifact catalog, and versioned adapter
+contracts; they are not the complete browser/scientific product tree. A
+qualification-only source-trial archive must also be created from the exact
+reviewed Git tree with a `helixweave-v0.3.0/` prefix. It contains the committed
+frontend, workflow, scripts, documentation, and lock files, but no environment,
+reference, container, FASTQ, result, cache, or secret payload. Do not upload
+that source-trial archive to the GitHub Release.
 
 v0.3.0 does not publish a Docker/OCI or Apptainer image. The existing
 runner-only definitions remain local ENCODE compatibility assets. Container
@@ -73,21 +75,23 @@ python3 -m pytest test/packaging -v
 `--no-isolation` is intentional: build backend and frontend dependencies come
 from the reviewed `ci-fast.lock` instead of an unpinned network bootstrap.
 
-Inspect `dist/` and reject any unexpected filename. Build the no-checkout trial
-archive from the same exact commit, then create checksums:
+Inspect `dist/` and reject any unexpected filename. Create the formal checksums
+there. Build the no-checkout qualification archive into a separate directory
+from the same exact commit:
 
 ```bash
-git archive --format=tar --prefix=helixweave-v0.3.0/ HEAD \
-  | gzip -n > dist/helixweave-v0.3.0-source-trial.tar.gz
 (
   cd dist
   sha256sum \
-    encode_pipeline-0.3.0-py3-none-any.whl \
-    encode_pipeline-0.3.0.tar.gz \
-    helixweave-v0.3.0-source-trial.tar.gz \
+    helixweave-0.3.0-py3-none-any.whl \
+    helixweave-0.3.0.tar.gz \
     > SHA256SUMS
   sha256sum --check SHA256SUMS
 )
+mkdir -p qualification
+git archive --format=tar --prefix=helixweave-v0.3.0/ HEAD \
+  | gzip -n > qualification/helixweave-v0.3.0-source-trial.tar.gz
+sha256sum qualification/helixweave-v0.3.0-source-trial.tar.gz
 ```
 
 Use separate new virtual environments to install the wheel and the sdist. Do
@@ -97,8 +101,11 @@ the current directory, user site packages, or an editable install.
 For each installed artifact:
 
 - run `python -m pip check`;
-- confirm `importlib.metadata.version("encode-pipeline") == "0.3.0"`;
-- exercise all four compatibility console scripts and their module entry points;
+- confirm `importlib.metadata.version("helixweave") == "0.3.0"` and
+  `encode-pipeline` metadata is absent;
+- exercise `helixweave`, `python -m encode_pipeline`, all four compatibility
+  console scripts, and their module entry points;
+- confirm `packages_distributions()["encode_pipeline"] == ["helixweave"]`;
 - create the default registry and confirm the two workflow IDs;
 - export OpenAPI and compare it with `frontend/openapi.json`;
 - create and migrate a fresh file-backed SQLite database;
@@ -106,11 +113,11 @@ For each installed artifact:
   and
 - run from a directory outside the unpacked source and build trees.
 
-Extract the source-trial archive into a new directory, verify `SHA256SUMS`, and
-complete the maintained [local trial checklist](docs/local-trial-checklist.md).
-The trial may use package and npm caches, but it must not depend on a Git
-checkout, user-home source files, hard-coded workspace paths, or unrecorded
-runtime data.
+Verify the separately recorded source-trial checksum, extract it into a new
+directory, and complete the maintained
+[local trial checklist](docs/local-trial-checklist.md). The trial may use
+package and npm caches, but it must not depend on a Git checkout, user-home
+source files, hard-coded workspace paths, or unrecorded runtime data.
 
 ## Automated checks
 
@@ -245,9 +252,11 @@ environment, JDK, OCI, reference, index, or cache artifacts.
 
 - [ ] `CHANGELOG.md` and the draft release notes describe the exact release diff.
 - [ ] README and maintained docs consistently describe HelixWeave, both
-      workflows, and the compatibility package/CLI identities.
-- [ ] The four future release assets have the expected names and verified
-      checksums; no container image is in the v0.3.0 asset set.
+      workflows, the `helixweave` distribution/CLI, and retained
+      import/compatibility CLI identities.
+- [ ] The three user-uploaded Release assets have the expected names and
+      verified checksums; the qualification source trial and container images
+      are not in the v0.3.0 upload set.
 - [ ] Wheel, sdist, and source-trial archive checks ran outside the source tree.
 - [ ] OpenAPI and the generated frontend client have zero drift.
 - [ ] The supported `20260714_07` database fixture upgrades to `20260717_08`

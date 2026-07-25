@@ -11,7 +11,7 @@ import sys
 import pytest
 
 from encode_pipeline.adapters.encode_qc import _QC_HEADER
-from scripts.results_visibility_fixture import (
+from encode_pipeline.cli.results_visibility_fixture import (
     FIXTURE_SENTINEL_CONTENT,
     FIXTURE_SENTINEL_NAME,
     prepare_results_visibility_fixture,

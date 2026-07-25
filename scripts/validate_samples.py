@@ -8,7 +8,7 @@ The implementation has moved to src/encode_pipeline/. This file preserves
 import os
 import sys
 
-# Local-source fallback for environments where encode-pipeline is not installed.
+# Local-source fallback for environments where HelixWeave is not installed.
 try:
     from encode_pipeline.cli.validate import main
 except ImportError:
