@@ -18,6 +18,7 @@ from encode_pipeline.platform.adapters import (
     WorkflowCapabilities,
     WorkflowMetadata,
 )
+from encode_pipeline.platform.data_registry import LEGACY_PROJECT_ID
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.validation import ValidationService
 from encode_pipeline.services.validated_inputs import ValidatedInputService
@@ -267,6 +268,11 @@ def test_validate_success(
     assert data["snapshot"]["workflow_id"] == workflow_id
     assert data["snapshot"]["schema_version"] == "1.1.0"
     assert len(data["snapshot"]["payload_digest"]) == 64
+    assert data["snapshot"]["project_id"] == LEGACY_PROJECT_ID
+    assert data["snapshot"]["binding_mode"] == "legacy_v1"
+    assert data["snapshot"]["provenance"] == "unresolved"
+    assert data["snapshot"]["sample_revision_ids"] == []
+    assert len(data["snapshot"]["binding_digest"]) == 64
     assert data["issues"] == []
 
 

@@ -143,11 +143,15 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(tmp_path: Path) -> Non
         assert "encode_pipeline/artifacts/artifact-inventory.yaml" in names
         assert "encode_pipeline/persistence/alembic/script.py.mako" in names
         assert (
+            "encode_pipeline/persistence/alembic/versions/"
+            "20260726_09_project_sample_registry.py"
+        ) in names
+        assert (
             sum(
                 "/persistence/alembic/versions/" in name and name.endswith(".py")
                 for name in names
             )
-            == 9
+            == 10
         )
         assert not any(name.startswith("test/") for name in names)
 

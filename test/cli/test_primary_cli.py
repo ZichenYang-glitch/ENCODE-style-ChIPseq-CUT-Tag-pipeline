@@ -16,8 +16,30 @@ from encode_pipeline.cli import local_platform
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_primary_cli_reuses_canonical_local_platform_app() -> None:
-    assert app.main is local_platform.main
+def test_primary_cli_delegates_existing_arguments_to_local_platform(
+    monkeypatch,
+) -> None:
+    observed: list[list[str]] = []
+    monkeypatch.setattr(
+        local_platform,
+        "main",
+        lambda arguments: observed.append(list(arguments)) or 17,
+    )
+
+    assert app.main(["--doctor"]) == 17
+    assert observed == [["--doctor"]]
+
+
+def test_primary_cli_dispatches_only_the_admin_namespace(monkeypatch) -> None:
+    observed: list[list[str]] = []
+    monkeypatch.setattr(
+        app.admin,
+        "main",
+        lambda arguments: observed.append(list(arguments)) or 19,
+    )
+
+    assert app.main(["admin", "--database-url", "sqlite:////tmp/platform.db"]) == 19
+    assert observed == [["--database-url", "sqlite:////tmp/platform.db"]]
 
 
 def test_primary_cli_rejects_unknown_commands(capsys) -> None:

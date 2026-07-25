@@ -68,7 +68,6 @@ function succeededRunClient(): RunApiClient {
       run: {
         run_id: 'run-1',
         workflow_id: 'encode-style-chipseq-cuttag-atac-mnase',
-        inputs: {},
         status: 'succeeded',
         created_at: '2026-07-13T07:00:00Z',
         updated_at: '2026-07-13T08:00:00Z',

@@ -7,6 +7,10 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from encode_pipeline.platform.adapters import VALIDATION_CAPABILITY, WorkflowInputs
+from encode_pipeline.platform.data_registry import (
+    ProjectSampleBinding,
+    ProjectSampleSelection,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.snapshots import (
@@ -18,6 +22,7 @@ from encode_pipeline.platform.snapshots import (
     canonical_workflow_inputs_json,
 )
 from encode_pipeline.services.run_repositories import (
+    ProjectSampleSelectionError,
     RunRepository,
     ValidatedSnapshotBuildMismatchError as RepositoryBuildMismatchError,
     ValidatedSnapshotExpiredError as RepositoryExpiredError,
@@ -123,6 +128,8 @@ class ValidatedInputService:
         self,
         workflow_id: str,
         inputs: WorkflowInputs,
+        *,
+        project_sample_selection: ProjectSampleSelection | None = None,
     ) -> Result[ValidatedInputSnapshot | None]:
         """Return a durable snapshot only after stable successful validation."""
         try:
@@ -193,7 +200,24 @@ class ValidatedInputService:
                 validated_at=now,
                 expires_at=now + self._snapshot_ttl,
             )
-            persisted = self._repository.create_validated_input_snapshot(snapshot)
+            persisted = self._repository.create_validated_input_snapshot(
+                snapshot,
+                project_sample_selection=project_sample_selection,
+            )
+        except ProjectSampleSelectionError:
+            return Result.failure(
+                [
+                    Issue(
+                        code="DATA_BINDING_SELECTION_INVALID",
+                        message=(
+                            "The selected Project or Sample revisions are not "
+                            "eligible for a new validation snapshot."
+                        ),
+                        source="data_registry",
+                        path="project_id",
+                    )
+                ]
+            )
         except Exception:
             return Result.failure(
                 [
@@ -206,6 +230,13 @@ class ValidatedInputService:
                 ]
             )
         return Result.success(persisted, issues=validation_result.issues)
+
+    def get_validated_input_binding(
+        self,
+        snapshot_id: str,
+    ) -> ProjectSampleBinding:
+        """Return the safe immutable binding frozen with one snapshot."""
+        return self._repository.get_validated_input_binding(snapshot_id)
 
 
 class ValidatedRunCreationService:

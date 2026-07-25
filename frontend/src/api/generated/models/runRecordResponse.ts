@@ -5,7 +5,6 @@
  * Reproducible omics workflows, from inputs to evidence.
  * OpenAPI spec version: 0.3.0
  */
-import type { RunRecordResponseInputs } from './runRecordResponseInputs';
 import type { RunRecordResponseStartedAt } from './runRecordResponseStartedAt';
 import type { RunRecordResponseEndedAt } from './runRecordResponseEndedAt';
 import type { RunRecordResponseCurrentStage } from './runRecordResponseCurrentStage';
@@ -14,12 +13,11 @@ import type { RunRecordResponseError } from './runRecordResponseError';
 import type { RunRecordResponseTags } from './runRecordResponseTags';
 
 /**
- * JSON-ready RunRecord shape.
+ * Allowlisted public projection of one internal RunRecord.
  */
 export interface RunRecordResponse {
   run_id: string;
   workflow_id: string;
-  inputs: RunRecordResponseInputs;
   status: string;
   created_at: string;
   updated_at: string;

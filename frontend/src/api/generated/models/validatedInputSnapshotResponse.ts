@@ -5,6 +5,8 @@
  * Reproducible omics workflows, from inputs to evidence.
  * OpenAPI spec version: 0.3.0
  */
+import type { ValidatedInputSnapshotResponseBindingMode } from './validatedInputSnapshotResponseBindingMode';
+import type { ValidatedInputSnapshotResponseProvenance } from './validatedInputSnapshotResponseProvenance';
 
 /**
  * Safe public projection of one server-owned validation snapshot.
@@ -25,4 +27,17 @@ export interface ValidatedInputSnapshotResponse {
   payload_digest: string;
   validated_at: string;
   expires_at: string;
+  /**
+   * @maxLength 36
+   * @pattern ^prj_[0-9a-f]{32}$
+   */
+  project_id: string;
+  binding_mode: ValidatedInputSnapshotResponseBindingMode;
+  provenance: ValidatedInputSnapshotResponseProvenance;
+  sample_revision_ids: string[];
+  /**
+   * @maxLength 64
+   * @pattern ^[0-9a-f]{64}$
+   */
+  binding_digest: string;
 }

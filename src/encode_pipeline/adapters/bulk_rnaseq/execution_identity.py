@@ -29,6 +29,7 @@ EXECUTION_MIGRATION_REVISION_PATHS = (
     "src/encode_pipeline/persistence/alembic/versions/20260714_06_validated_input_snapshots.py",
     "src/encode_pipeline/persistence/alembic/versions/20260714_07_run_history_indexes.py",
     "src/encode_pipeline/persistence/alembic/versions/20260717_08_run_result_generations.py",
+    "src/encode_pipeline/persistence/alembic/versions/20260726_09_project_sample_registry.py",
 )
 
 # This is an exact allowlist, not a recursive glob. A new execution dependency
@@ -53,6 +54,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/platform/__init__.py",
     "src/encode_pipeline/platform/adapters.py",
     "src/encode_pipeline/platform/builds.py",
+    "src/encode_pipeline/platform/data_registry.py",
     "src/encode_pipeline/platform/execution.py",
     "src/encode_pipeline/platform/managed_containers.py",
     "src/encode_pipeline/platform/planning.py",
@@ -75,8 +77,10 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/api/routes/qc_metrics.py",
     "src/encode_pipeline/api/routes/runs.py",
     "src/encode_pipeline/api/routes/workflows.py",
+    "src/encode_pipeline/persistence/__init__.py",
     "src/encode_pipeline/persistence/runtime.py",
     "src/encode_pipeline/persistence/database.py",
+    "src/encode_pipeline/persistence/data_registry.py",
     "src/encode_pipeline/persistence/migrations.py",
     "src/encode_pipeline/persistence/models.py",
     "src/encode_pipeline/persistence/repositories.py",
@@ -85,6 +89,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/services/artifact_extraction.py",
     "src/encode_pipeline/services/artifact_downloads.py",
     "src/encode_pipeline/services/command_builder.py",
+    "src/encode_pipeline/services/data_registry_repositories.py",
     "src/encode_pipeline/services/defaults.py",
     "src/encode_pipeline/services/local_execution.py",
     "src/encode_pipeline/services/local_run_driver.py",

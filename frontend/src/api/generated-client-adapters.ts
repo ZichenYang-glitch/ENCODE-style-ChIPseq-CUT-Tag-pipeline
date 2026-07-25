@@ -220,7 +220,6 @@ function toRunRecord(run: GeneratedRunRecord): RunRecordResponse {
   return {
     run_id: run.run_id,
     workflow_id: run.workflow_id,
-    inputs: asRecord(run.inputs),
     status: run.status,
     created_at: run.created_at,
     updated_at: run.updated_at,

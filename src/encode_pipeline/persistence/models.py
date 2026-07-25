@@ -9,6 +9,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     JSON,
@@ -21,6 +22,381 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
     """Declarative base for platform persistence rows."""
+
+
+class ProjectRow(Base):
+    __tablename__ = "projects"
+    __table_args__ = (
+        CheckConstraint(
+            "length(project_id) = 36 AND substr(project_id, 1, 4) = 'prj_'",
+            name="ck_projects_id",
+        ),
+        CheckConstraint(
+            "length(trim(display_name)) BETWEEN 1 AND 255",
+            name="ck_projects_display_name",
+        ),
+        CheckConstraint(
+            "kind IN ('user', 'system')",
+            name="ck_projects_kind",
+        ),
+        CheckConstraint(
+            "(kind = 'system' AND "
+            "project_id = 'prj_00000000000000000000000000000000' AND "
+            "display_name = 'Legacy Project' AND archived_at IS NULL) OR "
+            "(kind = 'user' AND "
+            "project_id != 'prj_00000000000000000000000000000000')",
+            name="ck_projects_legacy_identity",
+        ),
+        CheckConstraint(
+            "archived_at IS NULL OR archived_at >= created_at",
+            name="ck_projects_archive_order",
+        ),
+        Index(
+            "ix_projects_archived_created",
+            "archived_at",
+            "created_at",
+            "project_id",
+        ),
+    )
+
+    project_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SampleRow(Base):
+    __tablename__ = "samples"
+    __table_args__ = (
+        CheckConstraint(
+            "length(sample_id) = 36 AND substr(sample_id, 1, 4) = 'smp_'",
+            name="ck_samples_id",
+        ),
+        CheckConstraint(
+            "length(trim(stable_key)) BETWEEN 1 AND 255",
+            name="ck_samples_stable_key",
+        ),
+        ForeignKeyConstraint(
+            ["project_id"],
+            ["projects.project_id"],
+            name="fk_samples_project",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "sample_id",
+            name="uq_samples_project_sample",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "stable_key",
+            name="uq_samples_project_stable_key",
+        ),
+        Index(
+            "ix_samples_project_created",
+            "project_id",
+            "created_at",
+            "sample_id",
+        ),
+    )
+
+    sample_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    stable_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class SampleRevisionRow(Base):
+    __tablename__ = "sample_revisions"
+    __table_args__ = (
+        CheckConstraint(
+            "length(sample_revision_id) = 37 "
+            "AND substr(sample_revision_id, 1, 5) = 'smpr_'",
+            name="ck_sample_revisions_id",
+        ),
+        CheckConstraint(
+            "revision_number >= 1",
+            name="ck_sample_revisions_positive_revision",
+        ),
+        CheckConstraint(
+            "payload_digest_scheme = 'sha256-framed-sample-revision-payload-v1'",
+            name="ck_sample_revisions_digest_scheme",
+        ),
+        CheckConstraint(
+            "length(payload_digest) = 64",
+            name="ck_sample_revisions_digest_length",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "sample_id"],
+            ["samples.project_id", "samples.sample_id"],
+            name="fk_sample_revisions_sample",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "sample_revision_id",
+            name="uq_sample_revisions_project_revision",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "sample_revision_id",
+            "payload_digest",
+            name="uq_sample_revisions_project_revision_digest",
+        ),
+        UniqueConstraint(
+            "sample_id",
+            "revision_number",
+            name="uq_sample_revisions_sample_number",
+        ),
+        Index(
+            "ix_sample_revisions_sample_revision",
+            "sample_id",
+            "revision_number",
+        ),
+        Index(
+            "ix_sample_revisions_project_created",
+            "project_id",
+            "created_at",
+            "sample_revision_id",
+        ),
+    )
+
+    sample_revision_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    sample_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    canonical_payload: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_digest_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class SnapshotProjectBindingRow(Base):
+    __tablename__ = "snapshot_project_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "binding_mode IN ('legacy_v1', 'bound_v1')",
+            name="ck_snapshot_project_bindings_mode",
+        ),
+        CheckConstraint(
+            "provenance IN ('resolved', 'unresolved')",
+            name="ck_snapshot_project_bindings_provenance",
+        ),
+        CheckConstraint(
+            "(binding_mode = 'legacy_v1' AND provenance = 'unresolved' AND "
+            "project_id = 'prj_00000000000000000000000000000000') OR "
+            "(binding_mode = 'bound_v1' AND provenance = 'resolved' AND "
+            "project_id != 'prj_00000000000000000000000000000000')",
+            name="ck_snapshot_project_bindings_legacy_project",
+        ),
+        CheckConstraint(
+            "binding_digest_scheme = 'sha256-framed-data-binding-v1'",
+            name="ck_snapshot_project_bindings_digest_scheme",
+        ),
+        CheckConstraint(
+            "length(binding_digest) = 64",
+            name="ck_snapshot_project_bindings_digest_length",
+        ),
+        CheckConstraint(
+            "length(workflow_inputs_digest) = 64",
+            name="ck_snapshot_project_bindings_workflow_digest_length",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id"],
+            ["validated_input_snapshots.snapshot_id"],
+            name="fk_snapshot_project_bindings_snapshot",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id"],
+            ["projects.project_id"],
+            name="fk_snapshot_project_bindings_project",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "snapshot_id",
+            "project_id",
+            name="uq_snapshot_project_bindings_project",
+        ),
+        Index(
+            "ix_snapshot_project_bindings_project",
+            "project_id",
+            "created_at",
+            "snapshot_id",
+        ),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    binding_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    provenance: Mapped[str] = mapped_column(String(32), nullable=False)
+    workflow_inputs_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    binding_digest_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    binding_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class SnapshotSampleRevisionRow(Base):
+    __tablename__ = "snapshot_sample_revisions"
+    __table_args__ = (
+        CheckConstraint(
+            "ordinal >= 0",
+            name="ck_snapshot_sample_revisions_ordinal",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "project_id"],
+            [
+                "snapshot_project_bindings.snapshot_id",
+                "snapshot_project_bindings.project_id",
+            ],
+            name="fk_snapshot_sample_revisions_binding",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "sample_revision_id", "payload_digest"],
+            [
+                "sample_revisions.project_id",
+                "sample_revisions.sample_revision_id",
+                "sample_revisions.payload_digest",
+            ],
+            name="fk_snapshot_sample_revisions_revision",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "snapshot_id",
+            "sample_revision_id",
+            name="uq_snapshot_sample_revisions_revision",
+        ),
+        Index(
+            "ix_snapshot_sample_revisions_revision",
+            "sample_revision_id",
+            "snapshot_id",
+        ),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    sample_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+
+class RunProjectBindingRow(Base):
+    __tablename__ = "run_project_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "binding_mode IN ('legacy_v1', 'bound_v1')",
+            name="ck_run_project_bindings_mode",
+        ),
+        CheckConstraint(
+            "provenance IN ('resolved', 'unresolved')",
+            name="ck_run_project_bindings_provenance",
+        ),
+        CheckConstraint(
+            "(binding_mode = 'legacy_v1' AND provenance = 'unresolved' AND "
+            "project_id = 'prj_00000000000000000000000000000000') OR "
+            "(binding_mode = 'bound_v1' AND provenance = 'resolved' AND "
+            "project_id != 'prj_00000000000000000000000000000000')",
+            name="ck_run_project_bindings_legacy_project",
+        ),
+        CheckConstraint(
+            "binding_digest_scheme = 'sha256-framed-data-binding-v1'",
+            name="ck_run_project_bindings_digest_scheme",
+        ),
+        CheckConstraint(
+            "length(binding_digest) = 64",
+            name="ck_run_project_bindings_digest_length",
+        ),
+        CheckConstraint(
+            "length(workflow_inputs_digest) = 64",
+            name="ck_run_project_bindings_workflow_digest_length",
+        ),
+        ForeignKeyConstraint(
+            ["run_id"],
+            ["runs.run_id"],
+            name="fk_run_project_bindings_run",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["project_id"],
+            ["projects.project_id"],
+            name="fk_run_project_bindings_project",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "run_id",
+            "project_id",
+            name="uq_run_project_bindings_project",
+        ),
+        Index(
+            "ix_run_project_bindings_project",
+            "project_id",
+            "created_at",
+            "run_id",
+        ),
+    )
+
+    run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    binding_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    provenance: Mapped[str] = mapped_column(String(32), nullable=False)
+    workflow_inputs_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    binding_digest_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    binding_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class RunSampleRow(Base):
+    __tablename__ = "run_samples"
+    __table_args__ = (
+        CheckConstraint("ordinal >= 0", name="ck_run_samples_ordinal"),
+        ForeignKeyConstraint(
+            ["run_id", "project_id"],
+            [
+                "run_project_bindings.run_id",
+                "run_project_bindings.project_id",
+            ],
+            name="fk_run_samples_binding",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "sample_revision_id", "payload_digest"],
+            [
+                "sample_revisions.project_id",
+                "sample_revisions.sample_revision_id",
+                "sample_revisions.payload_digest",
+            ],
+            name="fk_run_samples_revision",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "run_id",
+            "sample_revision_id",
+            name="uq_run_samples_revision",
+        ),
+        Index(
+            "ix_run_samples_revision",
+            "sample_revision_id",
+            "run_id",
+        ),
+    )
+
+    run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    sample_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
 
 
 class RunRow(Base):

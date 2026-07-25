@@ -8,6 +8,7 @@
 import type { ValidationRequestConfig } from './validationRequestConfig';
 import type { ValidationRequestSamples } from './validationRequestSamples';
 import type { ValidationRequestOptions } from './validationRequestOptions';
+import type { ValidationRequestProjectId } from './validationRequestProjectId';
 
 /**
  * Request body for POST /api/v1/workflows/{workflow_id}/validate.
@@ -16,4 +17,6 @@ export interface ValidationRequest {
   config: ValidationRequestConfig;
   samples?: ValidationRequestSamples;
   options?: ValidationRequestOptions;
+  project_id?: ValidationRequestProjectId;
+  sample_revision_ids?: string[];
 }
