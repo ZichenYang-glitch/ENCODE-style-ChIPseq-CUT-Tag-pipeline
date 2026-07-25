@@ -279,22 +279,27 @@ environment, JDK, OCI, reference, index, or cache artifacts.
 After explicit publication authorization only:
 
 1. replace the `[Unreleased]` candidate heading with
-   `[v0.3.0] - YYYY-MM-DD`, add the matching release date to citation metadata,
+   `[0.3.0] - YYYY-MM-DD`, retain an empty `[Unreleased]`, add the matching
+   release date to citation metadata,
    and commit that release-only metadata change;
 2. run the complete required exact-HEAD CI and applicable real-execution
    disposition on the new commit; no asset from the earlier Draft PR head is a
    final release asset;
-3. rebuild the wheel, sdist, source-trial archive, and basename-only
-   `SHA256SUMS` from that clean exact commit, then repeat every clean-install,
-   migration, OpenAPI, browser, and archive check above;
+3. build verification-only candidate wheel, sdist, source-trial archive, and
+   basename-only `SHA256SUMS` from that clean exact commit, then repeat every
+   clean-install, migration, OpenAPI, browser, and archive check above;
 4. re-confirm the final commit, tree, version metadata, clean status, CI,
    protected-evidence inheritance or rerun, and asset checksums;
 5. create and push the annotated `v0.3.0` tag on that exact commit;
-6. create the GitHub Release and upload only the approved asset set;
-7. verify the downloaded flat release assets against `SHA256SUMS`; and
-8. record the final tag, commit, tree, CI, protected evidence, and asset digests
-   under `docs/release-checks/`.
+6. wait for the tag-push CI on the exact peeled commit, then use a fresh
+   detached tag worktree to rebuild and reverify the final wheel, sdist, and
+   `SHA256SUMS`;
+7. create the GitHub Release and upload only the approved asset set;
+8. download the three flat release assets into a fresh directory and verify
+   them byte-for-byte and against `SHA256SUMS`; and
+9. record the final tag, commit, tree, CI, protected evidence, and asset
+   digests in the GitHub Release evidence and delivery report.
 
-Do not rename the repository or Python identities, publish to PyPI/conda/a
-container registry, or create additional release assets without separate
-authorization.
+Do not further rename the repository, import namespace, compatibility CLIs, or
+workflow identities; publish to PyPI, conda, or a container registry; or create
+additional release assets without separate authorization.

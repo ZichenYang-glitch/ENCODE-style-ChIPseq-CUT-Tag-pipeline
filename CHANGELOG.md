@@ -6,8 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-This is the curated release-candidate summary for v0.3.0. The release has not
-yet been tagged or published.
+No changes have been recorded since v0.3.0.
+
+## [0.3.0] - 2026-07-25
+
+This is the curated HelixWeave v0.3.0 release summary.
 
 ### Added
 - HelixWeave's workflow-neutral local platform: schema-driven input authoring,

@@ -1,20 +1,22 @@
 # HelixWeave v0.3.0 Local Trial Checklist
 
-Use this checklist to evaluate the exact v0.3.0 candidate on one workstation.
-It covers the supported local/small trusted-team product boundary, both bundled
-workflows, the browser journey, persistence, and cleanup. It is not a production
-deployment or scientific benchmarking guide.
+Use this checklist to evaluate the exact v0.3.0 tag (or its pre-tag release
+candidate) on one workstation. It covers the supported local/small trusted-team
+product boundary, both bundled workflows, the browser journey, persistence,
+and cleanup. It is not a production deployment or scientific benchmarking
+guide.
 
 ## Trial asset and scope
 
-- [ ] Obtain the wheel, sdist, and `SHA256SUMS` from the same candidate commit.
+- [ ] Obtain the wheel, sdist, and `SHA256SUMS` from the same GitHub Release;
+      before publication, build all three from the same exact candidate commit.
 - [ ] For release qualification, build the source-trial archive separately
       from that exact commit. It is verification-only and is not a GitHub
       Release upload.
 - [ ] Run `sha256sum --check SHA256SUMS` before extracting or installing.
 - [ ] Confirm the source archive expands under one
       `helixweave-v0.3.0/` directory and does not require a Git checkout.
-- [ ] Confirm the candidate identity is HelixWeave v0.3.0: distribution and
+- [ ] Confirm the release identity is HelixWeave v0.3.0: distribution and
       primary CLI `helixweave`, import namespace `encode_pipeline`, and
       compatibility commands `encode-*`.
 - [ ] Confirm no OCI image, JDK, reference, index, FASTQ, result database,
@@ -272,9 +274,10 @@ For every viewport:
 - [ ] no ENCODE-specific wording is hard-coded into generic Runs, Artifacts,
       or QC surfaces.
 
-Save screenshots with the candidate commit and viewport in their evidence
-metadata. Screenshots must not expose local paths, environment values, private
-or non-synthetic sample identifiers, or credentials.
+Save screenshots with the exact tag commit (or pre-tag candidate) and viewport
+in their evidence metadata. Screenshots must not expose local paths,
+environment values, private or non-synthetic sample identifiers, or
+credentials.
 
 ## Optional Omics Intake Bundle boundary
 
@@ -301,7 +304,7 @@ for its exact contract.
       lifecycle state.
 - [ ] The maintained `20260714_07` fixture upgrades to `20260717_08` with the
       release test.
-- [ ] Before upgrading an existing candidate database, stop services and
+- [ ] Before upgrading an existing pre-v0.3.0 local database, stop services and
       follow the
       [v0.3.0 database upgrade procedure](development/local-platform-runtime.md#v030-database-upgrade).
 
@@ -320,7 +323,7 @@ Press Ctrl-C and wait for launcher shutdown before cleanup.
 
 Record:
 
-- exact candidate commit and tree;
+- exact tag object, peeled commit, and tree (or exact pre-tag candidate);
 - asset SHA-256 values;
 - installed package/API version;
 - doctor output with both workflow states;

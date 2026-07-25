@@ -66,6 +66,7 @@ def test_ci_event_matrix_and_concurrency_are_tier_aware():
         "release",
     }
     assert workflow["on"]["push"]["branches"] == ["main"]
+    assert workflow["on"]["push"]["tags"] == ["v*"]
     assert workflow["on"]["release"]["types"] == ["published"]
     assert workflow["on"]["schedule"]
     assert "github.event_name" in workflow["concurrency"]["group"]

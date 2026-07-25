@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from email.parser import Parser
 import json
 import os
@@ -21,6 +22,7 @@ from encode_pipeline.api.main import create_app
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RELEASE_VERSION = "0.3.0"
+RELEASE_DATE = date(2026, 7, 25)
 EXPECTED_CONSOLE_SCRIPTS = {
     "encode-dag": "encode_pipeline.cli.dag:main",
     "encode-manifest": "encode_pipeline.cli.manifest:main",
@@ -76,6 +78,7 @@ def test_release_identity_is_consistent_across_public_metadata(
     frontend_lock = json.loads(
         (REPO_ROOT / "frontend/package-lock.json").read_text(encoding="utf-8")
     )
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     citation = yaml.safe_load((REPO_ROOT / "CITATION.cff").read_text(encoding="utf-8"))
     app = create_app(
         database_url=f"sqlite:///{tmp_path / 'release-identity.db'}",
@@ -96,6 +99,9 @@ def test_release_identity_is_consistent_across_public_metadata(
         assert frontend_lock["packages"][""]["version"] == RELEASE_VERSION
         assert citation["title"] == "HelixWeave"
         assert citation["version"] == RELEASE_VERSION
+        assert citation["date-released"] == RELEASE_DATE
+        assert "## [Unreleased]\n" in changelog
+        assert f"## [{RELEASE_VERSION}] - {RELEASE_DATE.isoformat()}\n" in changelog
     finally:
         app.state.run_queue.close()
         app.state.persistence.close()
