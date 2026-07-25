@@ -4,6 +4,7 @@ name: CI
   pull_request:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       bulk_rnaseq_real_execution:
