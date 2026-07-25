@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "encode-pipeline"
+name = "helixweave"
 version = "0.3.0"
-description = "HelixWeave local omics platform compatibility library"
+description = "HelixWeave local omics platform Python package"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -47,6 +47,7 @@ dev = [
 ]
 
 [project.scripts]
+helixweave = "encode_pipeline.cli.app:main"
 encode-validate = "encode_pipeline.cli.validate:main"
 encode-manifest = "encode_pipeline.cli.manifest:main"
 encode-dag = "encode_pipeline.cli.dag:main"

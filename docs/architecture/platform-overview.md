@@ -122,11 +122,12 @@ contract.
 
 ## Compatibility anchors
 
-Maintenance work preserves the `encode_pipeline` import namespace, the
-`encode-pipeline` distribution, existing `encode-*` CLIs, `/api/v1` routes,
-workflow/adapter identity, Alembic history, SQLite fields, Redis/RQ job
-identity, artifact URIs, environment variables, and Snakemake behavior unless
-a separately reviewed migration explicitly changes one of those contracts.
+The canonical Python distribution and primary CLI are `helixweave`. Maintenance
+work preserves the `encode_pipeline` import namespace, existing `encode-*`
+CLIs, `/api/v1` routes, workflow/adapter identity, Alembic history, SQLite
+fields, Redis/RQ job identity, artifact URIs, environment variables, repository
+slug, and Snakemake behavior unless a separately reviewed migration explicitly
+changes one of those contracts.
 
 ## Operational references
 

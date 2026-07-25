@@ -12,8 +12,8 @@ is reported instead of being treated as a successful enqueue.
 
 ## Distribution and trial asset boundary
 
-The `encode-pipeline` wheel and sdist are compatibility Python distributions.
-They provide the `encode_pipeline` package, existing `encode-*` entry points,
+The `helixweave` wheel and sdist provide the `encode_pipeline` import package,
+the primary `helixweave` CLI, existing `encode-*` compatibility entry points,
 Alembic revisions, artifact catalog, and versioned adapter contracts. They are
 not a complete copy of the browser frontend or scientific workflow tree.
 
@@ -42,8 +42,17 @@ micromamba create -p .local/envs/ci-fast --file workflow/envs/ci-fast.lock
 ./.local/envs/ci-fast/bin/python -m pip check
 npm --prefix frontend ci
 export PATH="$PWD/.local/envs/ci-fast/bin:$PATH"
-python scripts/run_local_platform.py --doctor
+helixweave --doctor
 ```
+
+The source-trial compatibility script and the installed entry points all use
+the same package-owned implementation. From the exact source tree,
+`helixweave --doctor`, `python -m encode_pipeline --doctor`, and
+`python scripts/run_local_platform.py --doctor` are equivalent. The script is
+retained as a compatibility path; maintained trial commands use the primary
+CLI. A wheel-only installation has no frontend or workflow tree and therefore
+fails closed with an actionable prerequisite message if asked to start the
+complete product.
 
 The doctor checks Python 3.12, runtime and API imports, Snakemake 8.30.0, Redis
 server 7 or newer, Node.js 20 or newer, npm, the locked frontend install, and
@@ -60,7 +69,7 @@ After the doctor succeeds, one foreground command starts the complete
 HelixWeave stack:
 
 ```bash
-python scripts/run_local_platform.py
+helixweave
 ```
 
 Open `http://127.0.0.1:5173`. The supervisor starts or reuses local Redis,
@@ -93,7 +102,7 @@ startup.
 Use explicit flags for an isolated demo or non-default ports:
 
 ```bash
-python scripts/run_local_platform.py \
+helixweave \
   --runtime-root /tmp/encode-platform-demo \
   --redis-url redis://127.0.0.1:6380/0 \
   --queue-name encode-platform-demo \
@@ -110,7 +119,7 @@ An opt-in deterministic project exercises the complete browser authoring and
 results path without scientific data or bioinformatics tools:
 
 ```bash
-python scripts/run_local_platform.py --input-authoring-demo
+helixweave --input-authoring-demo
 ```
 
 Open the printed `http://127.0.0.1:5173` URL. The launcher also prints the path

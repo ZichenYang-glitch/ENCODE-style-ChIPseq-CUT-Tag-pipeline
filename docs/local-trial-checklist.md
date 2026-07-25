@@ -7,21 +7,23 @@ deployment or scientific benchmarking guide.
 
 ## Trial asset and scope
 
-- [ ] Obtain the wheel, sdist, source-trial archive, and `SHA256SUMS` from the
-      same candidate commit.
+- [ ] Obtain the wheel, sdist, and `SHA256SUMS` from the same candidate commit.
+- [ ] For release qualification, build the source-trial archive separately
+      from that exact commit. It is verification-only and is not a GitHub
+      Release upload.
 - [ ] Run `sha256sum --check SHA256SUMS` before extracting or installing.
 - [ ] Confirm the source archive expands under one
       `helixweave-v0.3.0/` directory and does not require a Git checkout.
-- [ ] Confirm the candidate identity is HelixWeave v0.3.0 while the Python
-      distribution/import/CLI compatibility identities remain
-      `encode-pipeline`, `encode_pipeline`, and `encode-*`.
+- [ ] Confirm the candidate identity is HelixWeave v0.3.0: distribution and
+      primary CLI `helixweave`, import namespace `encode_pipeline`, and
+      compatibility commands `encode-*`.
 - [ ] Confirm no OCI image, JDK, reference, index, FASTQ, result database,
       environment, cache, or credential is bundled.
 
-The wheel and sdist are the compatibility Python distribution. The source-trial
-archive is the complete no-Git-checkout product tree containing the frontend,
-workflows, scripts, documentation, and lock files. v0.3.0 does not publish a
-container image.
+The wheel and sdist are the `helixweave` Python distribution. The separately
+built source-trial archive is the complete no-Git-checkout product tree
+containing the frontend, workflows, scripts, documentation, and lock files.
+v0.3.0 does not publish that qualification archive or a container image.
 
 Supported product scope:
 
@@ -34,12 +36,12 @@ Supported product scope:
 Authentication, multi-user isolation, HPC/cloud schedulers, object storage,
 Tower/Wave, production support SLAs, and cross-attempt resume are not provided.
 
-## Compatibility distribution checks
+## Python distribution checks
 
 The wheel and sdist checks are deliberately separate from the source-trial
 browser journey. From a directory outside the extracted archive and any Git
 checkout, create two new virtual environments and install one verified
-compatibility artifact into each:
+Python artifact into each:
 
 ```bash
 TRIAL_ROOT=$(mktemp -d)
@@ -48,14 +50,14 @@ ASSET_ROOT=/absolute/path/to/verified/assets
 python3.12 -m venv "$TRIAL_ROOT/wheel"
 env -u PYTHONPATH PYTHONNOUSERSITE=1 \
   "$TRIAL_ROOT/wheel/bin/python" -m pip install \
-  "$ASSET_ROOT/encode_pipeline-0.3.0-py3-none-any.whl[api]"
+  "$ASSET_ROOT/helixweave-0.3.0-py3-none-any.whl[api]"
 env -u PYTHONPATH PYTHONNOUSERSITE=1 \
   "$TRIAL_ROOT/wheel/bin/python" -m pip check
 
 python3.12 -m venv "$TRIAL_ROOT/sdist"
 env -u PYTHONPATH PYTHONNOUSERSITE=1 \
   "$TRIAL_ROOT/sdist/bin/python" -m pip install \
-  "$ASSET_ROOT/encode_pipeline-0.3.0.tar.gz[api]"
+  "$ASSET_ROOT/helixweave-0.3.0.tar.gz[api]"
 env -u PYTHONPATH PYTHONNOUSERSITE=1 \
   "$TRIAL_ROOT/sdist/bin/python" -m pip check
 ```
@@ -65,20 +67,67 @@ checks below through each environment's Python from the same outside
 directory. Do not use an editable install, `PYTHONPATH`, user site packages, or
 files from the source-trial tree for these two distribution checks.
 
-- [ ] `python -c 'import importlib.metadata; print(importlib.metadata.version("encode-pipeline"))'`
+- [ ] `python -c 'import importlib.metadata; print(importlib.metadata.version("helixweave"))'`
       prints `0.3.0`.
 - [ ] `python -c 'import encode_pipeline; print(encode_pipeline.__version__)'`
       prints `0.3.0`.
-- [ ] `encode-validate --help`, `encode-manifest --help`,
-      `encode-dag --help`, and `encode-worker --help` start from the installed
+- [ ] `helixweave --help` and `python -m encode_pipeline --help` produce the
+      same canonical local-platform help.
+- [ ] `encode-validate --help`, `encode-manifest --help`, `encode-dag --help`,
+      and `encode-worker --help` remain available from the installed
       distribution.
 - [ ] The installed API can export OpenAPI and apply its packaged Alembic
       migrations without reading the source tree.
 
+## Migrating an old local candidate
+
+No `encode-pipeline` release was present on PyPI when this migration was
+reviewed on 2026-07-25. This is an index-occupancy observation, not a trademark
+or legal conclusion. These steps apply only to an earlier locally built
+candidate. The two distribution names must never be co-installed because both
+own the same `encode_pipeline` files and compatibility scripts.
+
+Stop the API and worker, back up the SQLite database and runtime root, then use
+this order in the existing environment:
+
+```bash
+set -Eeuo pipefail
+python -m pip uninstall -y encode-pipeline
+python - <<'PY'
+from importlib import metadata, util
+
+try:
+    metadata.version("encode-pipeline")
+except metadata.PackageNotFoundError:
+    pass
+else:
+    raise SystemExit("legacy encode-pipeline metadata is still installed")
+
+providers = metadata.packages_distributions().get("encode_pipeline", [])
+if providers or util.find_spec("encode_pipeline") is not None:
+    raise SystemExit(
+        "legacy encode_pipeline ownership remains; uninstall both distributions "
+        "and reinstall only helixweave"
+    )
+PY
+python -m pip install "/absolute/path/helixweave-0.3.0-py3-none-any.whl[api]"
+python -m pip check
+python -m pip show helixweave
+```
+
+- [ ] `python -m pip show encode-pipeline` reports that it is not installed.
+- [ ] `python -c 'from importlib.metadata import packages_distributions; print(packages_distributions()["encode_pipeline"])'`
+      prints only `['helixweave']`.
+- [ ] `import encode_pipeline`, `helixweave --help`, and all four
+      compatibility commands work after the new install.
+- [ ] If both distributions were ever installed together, uninstall both and
+      reinstall only the exact `helixweave` artifact; uninstalling just one can
+      remove shared files owned by the other.
+
 ## Source-trial environment
 
 The complete browser/scientific product is intentionally exercised from the
-separately checksummed source-trial archive, not from the compatibility wheel.
+separately checksummed source-trial archive, not from the Python wheel.
 Inside the extracted archive, create its locked environment and install its
 exact source package without dependency resolution:
 
@@ -110,7 +159,7 @@ Linux host may also need Playwright's separately approved
 Run the maintained doctor before opening ports or creating runtime data:
 
 ```bash
-python scripts/run_local_platform.py --doctor
+helixweave --doctor
 ```
 
 - [ ] Required Python, Redis, Snakemake, Node.js, npm, frontend, and platform
@@ -139,7 +188,7 @@ both must keep create/start fail-closed.
 Choose a task-owned runtime directory and start the deterministic trial:
 
 ```bash
-python scripts/run_local_platform.py \
+helixweave \
   --input-authoring-demo \
   --runtime-root "$PWD/.local/v0.3.0-trial"
 ```

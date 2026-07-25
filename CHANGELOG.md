@@ -33,8 +33,10 @@ yet been tagged or published.
   doctor for workstation trial and operational checks.
 
 ### Changed
-- The public product name is HelixWeave. The `encode-pipeline` distribution,
-  `encode_pipeline` import namespace, and existing `encode-*` commands remain
+- The Python distribution is now `helixweave`, with a primary `helixweave`
+  CLI that shares the maintained local-platform implementation with
+  `python -m encode_pipeline`. The `encode_pipeline` import namespace,
+  existing `encode-*` commands, workflow IDs, and repository slug remain
   compatibility identities for v0.3.0.
 - The default registry now contains both the ENCODE-style epigenomics adapter
   and Bulk RNA-seq. Shared API, lifecycle, artifact, QC, and frontend surfaces

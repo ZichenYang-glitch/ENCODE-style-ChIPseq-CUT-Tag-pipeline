@@ -3,14 +3,15 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import runpy
 import signal
 import subprocess
 import sys
 
 import pytest
 
-import scripts.run_local_platform as local_platform
-from scripts.run_local_platform import (
+import encode_pipeline.cli.local_platform as local_platform
+from encode_pipeline.cli.local_platform import (
     EnvironmentCheck,
     RUNTIME_IMPORTS,
     RuntimeConfig,
@@ -25,7 +26,9 @@ from scripts.run_local_platform import (
     run_environment_doctor,
     run_workflow_doctor,
 )
-from scripts.results_visibility_fixture import prepare_results_visibility_fixture
+from encode_pipeline.cli.results_visibility_fixture import (
+    prepare_results_visibility_fixture,
+)
 from platform_runtime import (
     cleanup_owned_runtime_root,
     prepare_bulk_authoring_fixture,
@@ -866,10 +869,561 @@ def test_supervisor_refuses_to_start_redis_for_an_unsafe_coordinate(
     assert not config.runtime_root.exists()
 
 
+def test_compatibility_wrappers_export_the_package_owned_implementations():
+    launcher = runpy.run_path(str(REPOSITORY_ROOT / "scripts/run_local_platform.py"))
+    fixture = runpy.run_path(
+        str(REPOSITORY_ROOT / "scripts/results_visibility_fixture.py")
+    )
+
+    assert launcher["main"] is local_platform.main
+    assert (
+        fixture["prepare_results_visibility_fixture"]
+        is prepare_results_visibility_fixture
+    )
+
+
+def test_compatibility_wrappers_prefer_their_checkout_over_a_stale_package(
+    tmp_path,
+):
+    stale_root = tmp_path / "stale"
+    (stale_root / "encode_pipeline" / "cli").mkdir(parents=True)
+    (stale_root / "encode_pipeline" / "__init__.py").write_text("", encoding="utf-8")
+    (stale_root / "encode_pipeline" / "cli" / "__init__.py").write_text(
+        "",
+        encoding="utf-8",
+    )
+    (stale_root / "encode_pipeline" / "cli" / "local_platform.py").write_text(
+        "def main():\n    return 99\n",
+        encoding="utf-8",
+    )
+    (
+        stale_root / "encode_pipeline" / "cli" / "results_visibility_fixture.py"
+    ).write_text(
+        "prepare_results_visibility_fixture = object()\n",
+        encoding="utf-8",
+    )
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(stale_root)
+
+    launcher = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(REPOSITORY_ROOT / "scripts/run_local_platform.py"),
+            "--help",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    fixture = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-c",
+            (
+                "import runpy; "
+                f"ns = runpy.run_path({str(REPOSITORY_ROOT / 'scripts/results_visibility_fixture.py')!r}); "
+                "print(ns['prepare_results_visibility_fixture'].__module__)"
+            ),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert launcher.returncode == 0, launcher.stderr
+    assert "HelixWeave local stack" in launcher.stdout
+    assert fixture.returncode == 0, fixture.stderr
+    assert fixture.stdout.strip() == ("encode_pipeline.cli.results_visibility_fixture")
+
+    cached_stale = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-c",
+            (
+                "import encode_pipeline.cli.local_platform, runpy; "
+                f"runpy.run_path({str(REPOSITORY_ROOT / 'scripts/run_local_platform.py')!r})"
+            ),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert cached_stale.returncode != 0
+    assert (
+        "local platform CLI did not resolve from this source checkout"
+        in cached_stale.stderr
+    )
+    assert str(stale_root) not in cached_stale.stderr
+
+
+def test_supervisor_run_restores_handlers_and_stops_after_a_clean_signal(
+    tmp_path, monkeypatch, capsys
+):
+    config = RuntimeConfig(
+        project_root=tmp_path / "project",
+        frontend_root=tmp_path / "frontend",
+        runtime_root=tmp_path / "runtime",
+        redis_url="redis://127.0.0.1:6380/0",
+        queue_name="browser-e2e",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=30,
+    )
+    supervisor = local_platform.PlatformSupervisor(config)
+    supervisor._stopping = True
+    order: list[str] = []
+    monkeypatch.setattr(supervisor, "_prepare", lambda: order.append("prepare"))
+    monkeypatch.setattr(supervisor, "_ensure_redis", lambda: order.append("redis"))
+    monkeypatch.setattr(supervisor, "_start_services", lambda: order.append("services"))
+    monkeypatch.setattr(supervisor, "_wait_ready", lambda: order.append("ready"))
+    monkeypatch.setattr(supervisor, "stop", lambda: order.append("stop"))
+    signal_calls: list[tuple[signal.Signals, object]] = []
+
+    def replace_handler(signum, handler):
+        signal_calls.append((signum, handler))
+        return f"previous-{signum}"
+
+    monkeypatch.setattr(local_platform.signal, "signal", replace_handler)
+
+    assert supervisor.run() == 0
+
+    assert order == ["prepare", "redis", "services", "ready", "stop"]
+    assert [call[0] for call in signal_calls[:2]] == [
+        signal.SIGINT,
+        signal.SIGTERM,
+    ]
+    assert signal_calls[-2:] == [
+        (signal.SIGINT, f"previous-{signal.SIGINT}"),
+        (signal.SIGTERM, f"previous-{signal.SIGTERM}"),
+    ]
+    output = capsys.readouterr().out
+    assert "HelixWeave ready: http://127.0.0.1:4173" in output
+    assert f"Runtime data: {config.runtime_root}" in output
+
+
+def test_supervisor_run_reports_an_unexpected_service_exit_and_still_stops(
+    tmp_path, monkeypatch
+):
+    config = RuntimeConfig(
+        project_root=tmp_path / "project",
+        frontend_root=tmp_path / "frontend",
+        runtime_root=tmp_path / "runtime",
+        redis_url="redis://127.0.0.1:6380/0",
+        queue_name="browser-e2e",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=30,
+    )
+    supervisor = local_platform.PlatformSupervisor(config)
+
+    class ExitedProcess:
+        pid = 10001
+
+        @staticmethod
+        def poll():
+            return 17
+
+    supervisor.processes.append(
+        local_platform.ManagedProcess("worker", ExitedProcess(), object())
+    )
+    monkeypatch.setattr(supervisor, "_prepare", lambda: None)
+    monkeypatch.setattr(supervisor, "_ensure_redis", lambda: None)
+    monkeypatch.setattr(supervisor, "_start_services", lambda: None)
+    monkeypatch.setattr(supervisor, "_wait_ready", lambda: None)
+    stopped: list[bool] = []
+    monkeypatch.setattr(supervisor, "stop", lambda: stopped.append(True))
+    monkeypatch.setattr(local_platform.signal, "signal", lambda *_args: signal.SIG_DFL)
+
+    with pytest.raises(RuntimeError, match="worker exited unexpectedly with status 17"):
+        supervisor.run()
+
+    assert stopped == [True]
+
+
+def test_supervisor_run_treats_keyboard_interrupt_as_a_clean_stop(
+    tmp_path, monkeypatch
+):
+    config = RuntimeConfig(
+        project_root=tmp_path / "project",
+        frontend_root=tmp_path / "frontend",
+        runtime_root=tmp_path / "runtime",
+        redis_url="redis://127.0.0.1:6380/0",
+        queue_name="browser-e2e",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=30,
+    )
+    supervisor = local_platform.PlatformSupervisor(config)
+    monkeypatch.setattr(supervisor, "_prepare", lambda: None)
+    monkeypatch.setattr(
+        supervisor,
+        "_ensure_redis",
+        lambda: (_ for _ in ()).throw(KeyboardInterrupt),
+    )
+    stopped: list[bool] = []
+    monkeypatch.setattr(supervisor, "stop", lambda: stopped.append(True))
+    monkeypatch.setattr(local_platform.signal, "signal", lambda *_args: signal.SIG_DFL)
+
+    assert supervisor.run() == 0
+    assert stopped == [True]
+
+
+def test_supervisor_prepare_creates_only_the_owned_runtime_shape(tmp_path):
+    project_root = tmp_path / "project"
+    frontend_root = tmp_path / "frontend"
+    (project_root / "src" / "encode_pipeline").mkdir(parents=True)
+    frontend_root.mkdir()
+    (frontend_root / "package.json").write_text("{}\n", encoding="utf-8")
+    config = RuntimeConfig(
+        project_root=project_root,
+        frontend_root=frontend_root,
+        runtime_root=tmp_path / "runtime",
+        redis_url="redis://127.0.0.1:6380/0",
+        queue_name="browser-e2e",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=30,
+    )
+
+    local_platform.PlatformSupervisor(config)._prepare()
+
+    assert config.workspace_root.is_dir()
+    assert (config.runtime_root / "tmp").is_dir()
+    assert (config.runtime_root / "logs").is_dir()
+    assert (config.runtime_root / "supervisor.pid").read_text(encoding="utf-8") == str(
+        os.getpid()
+    )
+
+
+@pytest.mark.parametrize(
+    ("project_ready", "frontend_ready", "timeout", "message"),
+    [
+        (False, True, 30, "project root"),
+        (True, False, 30, "frontend root"),
+        (True, True, 0, "readiness timeout"),
+    ],
+)
+def test_supervisor_prepare_fails_closed_before_creating_runtime(
+    tmp_path,
+    project_ready,
+    frontend_ready,
+    timeout,
+    message,
+):
+    project_root = tmp_path / "project"
+    frontend_root = tmp_path / "frontend"
+    if project_ready:
+        (project_root / "src" / "encode_pipeline").mkdir(parents=True)
+    if frontend_ready:
+        frontend_root.mkdir()
+        (frontend_root / "package.json").write_text("{}\n", encoding="utf-8")
+    config = RuntimeConfig(
+        project_root=project_root,
+        frontend_root=frontend_root,
+        runtime_root=tmp_path / "runtime",
+        redis_url="redis://127.0.0.1:6380/0",
+        queue_name="browser-e2e",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=timeout,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        local_platform.PlatformSupervisor(config)._prepare()
+
+    assert not config.runtime_root.exists()
+
+
+def test_supervisor_start_records_a_new_process_session(tmp_path, monkeypatch):
+    runtime_root = tmp_path / "runtime"
+    (runtime_root / "logs").mkdir(parents=True)
+    config = RuntimeConfig(
+        project_root=tmp_path / "project",
+        frontend_root=tmp_path / "frontend",
+        runtime_root=runtime_root,
+        redis_url="redis://127.0.0.1:6380/0",
+        queue_name="browser-e2e",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=30,
+    )
+    supervisor = local_platform.PlatformSupervisor(config)
+    popen_calls: list[tuple[list[str], dict[str, object]]] = []
+
+    class RunningProcess:
+        pid = 10002
+
+    def fake_popen(argv, **kwargs):
+        popen_calls.append((argv, kwargs))
+        return RunningProcess()
+
+    monkeypatch.setattr(local_platform.subprocess, "Popen", fake_popen)
+
+    supervisor._start("worker", ["python", "-m", "worker"], cwd=config.project_root)
+
+    assert len(supervisor.processes) == 1
+    assert supervisor.processes[0].name == "worker"
+    assert popen_calls[0][0] == ["python", "-m", "worker"]
+    assert popen_calls[0][1]["start_new_session"] is True
+    assert popen_calls[0][1]["cwd"] == config.project_root
+    assert json.loads(
+        (runtime_root / "service-pids.json").read_text(encoding="utf-8")
+    ) == {"worker": 10002}
+    supervisor.processes[0].log_handle.close()
+
+
+def test_supervisor_readiness_checks_api_worker_then_frontend(tmp_path, monkeypatch):
+    config = RuntimeConfig(
+        project_root=tmp_path / "project",
+        frontend_root=tmp_path / "frontend",
+        runtime_root=tmp_path / "runtime",
+        redis_url="redis://127.0.0.1:6380/0",
+        queue_name="browser-e2e",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=30,
+    )
+    supervisor = local_platform.PlatformSupervisor(config)
+    urls: list[str] = []
+    descriptions: list[str] = []
+    monkeypatch.setattr(
+        local_platform,
+        "_http_ready",
+        lambda url: urls.append(url) or True,
+    )
+    monkeypatch.setattr(supervisor, "_worker_ready", lambda: True)
+
+    def wait_until(predicate, timeout, description, health_check):
+        assert timeout == 30
+        assert health_check == supervisor._assert_processes_alive
+        descriptions.append(description)
+        assert predicate() is True
+
+    monkeypatch.setattr(local_platform, "_wait_until", wait_until)
+
+    supervisor._wait_backend_ready()
+    supervisor._wait_ready()
+
+    assert descriptions == ["FastAPI", "RQ worker", "frontend"]
+    assert urls == [
+        "http://127.0.0.1:8010/api/v1/workflows/",
+        "http://127.0.0.1:4173",
+    ]
+
+
+@pytest.mark.parametrize("worker_failure", [False, True])
+def test_supervisor_worker_readiness_closes_redis_connection(
+    tmp_path, monkeypatch, worker_failure
+):
+    config = RuntimeConfig(
+        project_root=tmp_path / "project",
+        frontend_root=tmp_path / "frontend",
+        runtime_root=tmp_path / "runtime",
+        redis_url="redis://127.0.0.1:6380/0",
+        queue_name="browser-e2e",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=30,
+    )
+    supervisor = local_platform.PlatformSupervisor(config)
+
+    class Connection:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    class Worker:
+        @staticmethod
+        def queue_names():
+            return ["browser-e2e"]
+
+    connection = Connection()
+    monkeypatch.setattr(
+        "redis.Redis.from_url",
+        lambda *_args, **_kwargs: connection,
+    )
+
+    def workers(*, connection):
+        assert connection is not None
+        if worker_failure:
+            raise RuntimeError("worker registry unavailable")
+        return [Worker()]
+
+    monkeypatch.setattr("rq.Worker.all", workers)
+
+    assert supervisor._worker_ready() is (not worker_failure)
+    assert connection.closed is True
+
+
+def test_supervisor_detects_startup_exit_and_signal_requests_stop(
+    tmp_path,
+):
+    config = RuntimeConfig(
+        project_root=tmp_path / "project",
+        frontend_root=tmp_path / "frontend",
+        runtime_root=tmp_path / "runtime",
+        redis_url="redis://127.0.0.1:6380/0",
+        queue_name="browser-e2e",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=30,
+    )
+    supervisor = local_platform.PlatformSupervisor(config)
+
+    class ExitedProcess:
+        @staticmethod
+        def poll():
+            return 3
+
+    supervisor.processes.append(
+        local_platform.ManagedProcess("api", ExitedProcess(), object())
+    )
+
+    with pytest.raises(RuntimeError, match="api exited during startup with status 3"):
+        supervisor._assert_processes_alive()
+
+    supervisor._handle_signal(signal.SIGTERM, None)
+    assert supervisor._stopping is True
+    with pytest.raises(KeyboardInterrupt):
+        supervisor._assert_processes_alive()
+
+
+def test_supervisor_stop_reaps_sessions_closes_logs_and_removes_pid(
+    tmp_path, monkeypatch
+):
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    (runtime_root / "supervisor.pid").write_text("10000", encoding="utf-8")
+    config = RuntimeConfig(
+        project_root=tmp_path / "project",
+        frontend_root=tmp_path / "frontend",
+        runtime_root=runtime_root,
+        redis_url="redis://127.0.0.1:6380/0",
+        queue_name="browser-e2e",
+        api_host="127.0.0.1",
+        api_port=8010,
+        frontend_host="127.0.0.1",
+        frontend_port=4173,
+        readiness_timeout=30,
+    )
+    supervisor = local_platform.PlatformSupervisor(config)
+
+    class StoppedProcess:
+        pid = 10003
+        waited = False
+
+        @staticmethod
+        def poll():
+            return 0
+
+        def wait(self, *, timeout):
+            assert timeout == 2
+            self.waited = True
+
+    process = StoppedProcess()
+    log_handle = (runtime_root / "worker.log").open("w", encoding="utf-8")
+    supervisor.processes.append(
+        local_platform.ManagedProcess("worker", process, log_handle)
+    )
+    signals: list[tuple[int, signal.Signals]] = []
+    monkeypatch.setattr(
+        local_platform,
+        "_signal_session",
+        lambda pid, signum: signals.append((pid, signum)),
+    )
+
+    supervisor.stop()
+
+    assert process.waited is True
+    assert log_handle.closed is True
+    assert supervisor.processes == []
+    assert signals == [
+        (10003, signal.SIGTERM),
+        (10003, signal.SIGKILL),
+    ]
+    assert not (runtime_root / "supervisor.pid").exists()
+
+
+@pytest.mark.parametrize("ping_failure", [False, True])
+def test_redis_readiness_closes_connections(tmp_path, monkeypatch, ping_failure):
+    class Connection:
+        closed = False
+
+        def ping(self):
+            if ping_failure:
+                raise RuntimeError("Redis unavailable")
+            return True
+
+        def close(self):
+            self.closed = True
+
+    connection = Connection()
+    monkeypatch.setattr(
+        "redis.Redis.from_url",
+        lambda *_args, **_kwargs: connection,
+    )
+
+    assert local_platform._redis_ready("redis://127.0.0.1:6380/0") is (not ping_failure)
+    assert connection.closed is True
+
+
+def test_wait_until_runs_health_checks_and_times_out(monkeypatch):
+    clock = iter((0.0, 0.1, 0.2, 2.0))
+    health_checks: list[bool] = []
+    monkeypatch.setattr(local_platform.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(local_platform.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(RuntimeError, match="Timed out waiting for worker readiness"):
+        local_platform._wait_until(
+            lambda: False,
+            1,
+            "worker",
+            lambda: health_checks.append(True),
+        )
+
+    assert health_checks == [True, True]
+
+
 def test_session_process_groups_never_include_the_test_process_group(monkeypatch):
     own_group = 88
-    monkeypatch.setattr("scripts.run_local_platform.Path.iterdir", lambda _path: ())
-    monkeypatch.setattr("scripts.run_local_platform.os.getpgrp", lambda: own_group)
+    monkeypatch.setattr(
+        "encode_pipeline.cli.local_platform.Path.iterdir", lambda _path: ()
+    )
+    monkeypatch.setattr(
+        "encode_pipeline.cli.local_platform.os.getpgrp", lambda: own_group
+    )
 
     groups = _session_process_groups(99)
 
@@ -885,12 +1439,12 @@ def test_cleanup_service_sessions_signals_every_process_group(tmp_path, monkeypa
     pid_file.write_text(json.dumps({"worker": session_id}), encoding="utf-8")
     scans = iter(((horse_group, session_id), ()))
     monkeypatch.setattr(
-        "scripts.run_local_platform._session_process_groups",
+        "encode_pipeline.cli.local_platform._session_process_groups",
         lambda _session_id: next(scans, ()),
     )
     signals: list[tuple[int, signal.Signals]] = []
     monkeypatch.setattr(
-        "scripts.run_local_platform.os.killpg",
+        "encode_pipeline.cli.local_platform.os.killpg",
         lambda group, signum: signals.append((group, signum)),
     )
 

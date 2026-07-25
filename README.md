@@ -14,9 +14,10 @@ It is built for a workstation or a small trusted team: author inputs from an
 adapter-owned schema, validate them into an immutable snapshot, execute a
 durable local run, and review logs, QC, and artifacts in the browser.
 
-HelixWeave is the product name. The `encode-pipeline` Python distribution,
-`encode_pipeline` import namespace, and existing `encode-*` command names are
-retained as compatibility identities for v0.3.0.
+HelixWeave is the product name, the Python distribution is `helixweave`, and
+the primary CLI is `helixweave`. The `encode_pipeline` import namespace,
+existing `encode-*` commands, workflow IDs, and repository slug remain
+compatibility identities for v0.3.0.
 
 ![HelixWeave artifact workbench showing a succeeded deterministic run, indexed artifacts, and safe download details](docs/assets/helixweave-artifact-workbench.png)
 
@@ -74,12 +75,17 @@ availability states, deterministic ENCODE demo, and browser evidence. Detailed
 ports, storage, process ownership, and cleanup behavior live in the
 [local runtime guide](docs/development/local-platform-runtime.md).
 
+The verified wheel exposes `helixweave --help` and the equivalent
+`python -m encode_pipeline --help`. A complete browser/scientific trial still
+requires the exact tagged source tree because the wheel intentionally does not
+bundle the frontend, workflow, references, or runtime assets.
+
 After completing the checklist prerequisites, the maintained launcher checks
 the product environment and starts the deterministic input-to-results demo:
 
 ```bash
-python scripts/run_local_platform.py --doctor
-python scripts/run_local_platform.py --input-authoring-demo
+helixweave --doctor
+helixweave --input-authoring-demo
 ```
 
 Open <http://127.0.0.1:5173>, choose the ENCODE workflow, and select

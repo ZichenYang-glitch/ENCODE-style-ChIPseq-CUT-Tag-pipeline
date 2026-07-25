@@ -44,7 +44,7 @@ def test_wheel_ships_pinned_bundle_schema_and_runtime_validator(tmp_path: Path) 
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
-    wheels = tuple(wheel_root.glob("encode_pipeline-*.whl"))
+    wheels = tuple(wheel_root.glob("helixweave-*.whl"))
     assert len(wheels) == 1
 
     with zipfile.ZipFile(wheels[0]) as archive:

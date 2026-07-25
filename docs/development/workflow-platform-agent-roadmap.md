@@ -143,8 +143,10 @@ The maintained roadmap does not currently authorize:
 - PostgreSQL, object storage, or remote workspace semantics;
 - Agent write actions or automatic workflow submission;
 - arbitrary workflow loading without an approved adapter/deployment contract;
-- changes to the Python distribution, import namespace, CLI names, repository
-  slug, workflow identity, or artifact URI scheme;
+- further changes to the `encode_pipeline` import namespace, existing
+  compatibility CLI names, repository slug, workflow identity, or artifact URI
+  scheme. The approved v0.3.0 identity migration changes only the distribution
+  to `helixweave` and adds the primary `helixweave` CLI;
 - a frontend rewrite, server-side rendering, or a second frontend repository;
 - scientific changes hidden inside platform or documentation work.
 
