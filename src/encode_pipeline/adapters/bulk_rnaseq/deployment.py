@@ -29,6 +29,12 @@ MANAGED_DOCKER_EXECUTABLE_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE"
 MANAGED_DOCKER_SOCKET_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
 TRANSCRIPTOME_BINDING_SCHEMA_VERSION = "1.0.0"
 
+# Stage 2 changes the manifest-protected execution closure, so PR #154
+# qualification is stale. This source-owned gate is deliberately not
+# environment-configurable: an enablement candidate must set it to True,
+# regenerate the implementation manifest, and then pass the protected Gate on
+# that exact enabled HEAD before it may land.
+_DEFAULT_EXECUTION_EXACT_HEAD_QUALIFIED = False
 _COORDINATE_NAMES = (
     RUNTIME_ROOT_ENV,
     TRANSCRIPTOME_BINDING_MANIFEST_ENV,
@@ -60,16 +66,20 @@ def load_default_bulk_rnaseq_adapter(
 ) -> BulkRnaSeqWorkflowAdapter:
     """Return authoring-only or fully admitted execution composition.
 
-    Missing configuration is a normal authoring-only deployment. Partial,
-    malformed, or unadmitted configuration remains visible as unavailable and
-    never exposes the rejected operator coordinates.
+    Missing configuration is a normal authoring-only deployment. Complete
+    coordinates are necessary but not sufficient while exact-HEAD execution
+    qualification is pending. Partial, malformed, pending, or unadmitted
+    configuration remains visible as unavailable and never exposes the
+    rejected operator coordinates.
     """
 
     source = os.environ if environ is None else environ
-    configured = tuple(name for name in _COORDINATE_NAMES if source.get(name))
-    if not configured:
+    configured_keys = frozenset(source).intersection(_COORDINATE_NAMES)
+    if not configured_keys:
         return BulkRnaSeqWorkflowAdapter()
-    if len(configured) != len(_COORDINATE_NAMES):
+    if len(configured_keys) != len(_COORDINATE_NAMES):
+        return _unavailable_adapter()
+    if not _DEFAULT_EXECUTION_EXACT_HEAD_QUALIFIED:
         return _unavailable_adapter()
 
     try:

@@ -79,6 +79,11 @@ export interface WorkflowInputs {
   options?: ValidationRequestOptions;
 }
 
+export interface WorkflowProjectSampleSelection {
+  project_id: string;
+  sample_revision_ids: readonly string[];
+}
+
 export interface ListWorkflowsResponse {
   ok: boolean;
   workflows: WorkflowSummary[];

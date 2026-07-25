@@ -16,7 +16,7 @@ from typing import Any
 LEGACY_PROJECT_ID = "prj_00000000000000000000000000000000"
 LEGACY_PROJECT_DISPLAY_NAME = "Legacy Project"
 SAMPLE_REVISION_PAYLOAD_DIGEST_SCHEME = "sha256-framed-sample-revision-payload-v1"
-PROJECT_SAMPLE_BINDING_DIGEST_SCHEME = "sha256-framed-data-binding-v1"
+PROJECT_SAMPLE_BINDING_DIGEST_SCHEME = "sha256-framed-project-sample-binding-v1"
 
 _PROJECT_ID = re.compile(r"^prj_[0-9a-f]{32}$")
 _SAMPLE_ID = re.compile(r"^smp_[0-9a-f]{32}$")
@@ -347,19 +347,6 @@ class SampleRevisionBindingRef:
         _validate_digest(self.payload_digest, "payload_digest")
 
 
-@dataclass(frozen=True)
-class InputRevisionBindingRef:
-    """Reserved shape for Stage 3 managed-input binding evidence."""
-
-    input_revision_id: str
-    content_digest: str
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.input_revision_id, str) or not self.input_revision_id:
-            raise ValueError("input_revision_id must be a non-empty opaque ID")
-        _validate_digest(self.content_digest, "content_digest")
-
-
 def canonical_project_sample_binding(
     *,
     project_id: str,
@@ -367,18 +354,10 @@ def canonical_project_sample_binding(
     provenance: BindingProvenance,
     workflow_inputs_digest: str,
     sample_revisions: tuple[SampleRevisionBindingRef, ...],
-    input_revisions: tuple[InputRevisionBindingRef, ...],
 ) -> str:
     """Return canonical JSON for the complete Stage 2 binding evidence."""
     payload = {
         "binding_mode": binding_mode.value,
-        "input_revisions": [
-            {
-                "content_digest": ref.content_digest,
-                "input_revision_id": ref.input_revision_id,
-            }
-            for ref in input_revisions
-        ],
         "project_id": project_id,
         "provenance": provenance.value,
         "sample_revisions": [
@@ -408,7 +387,6 @@ class ProjectSampleBinding:
     provenance: BindingProvenance | str
     workflow_inputs_digest: str
     sample_revisions: tuple[SampleRevisionBindingRef, ...]
-    input_revisions: tuple[InputRevisionBindingRef, ...]
     digest_scheme: str
     digest: str
 
@@ -432,18 +410,13 @@ class ProjectSampleBinding:
             "workflow_inputs_digest",
         )
         sample_revisions = tuple(self.sample_revisions)
-        input_revisions = tuple(self.input_revisions)
         if any(
             not isinstance(ref, SampleRevisionBindingRef) for ref in sample_revisions
         ):
             raise ValueError("sample_revisions must contain binding references")
-        if any(not isinstance(ref, InputRevisionBindingRef) for ref in input_revisions):
-            raise ValueError("input_revisions must contain binding references")
         sample_ids = tuple(ref.sample_revision_id for ref in sample_revisions)
         if len(set(sample_ids)) != len(sample_ids):
             raise ValueError("binding contains duplicate sample revisions")
-        if input_revisions:
-            raise ValueError("Stage 2 binding input revisions must be empty")
 
         if binding_mode is BindingMode.LEGACY_V1:
             if (
@@ -468,7 +441,6 @@ class ProjectSampleBinding:
             provenance=provenance,
             workflow_inputs_digest=workflow_inputs_digest,
             sample_revisions=sample_revisions,
-            input_revisions=input_revisions,
         )
         expected_digest = _framed_sha256(
             PROJECT_SAMPLE_BINDING_DIGEST_SCHEME,
@@ -486,7 +458,6 @@ class ProjectSampleBinding:
             workflow_inputs_digest,
         )
         object.__setattr__(self, "sample_revisions", sample_revisions)
-        object.__setattr__(self, "input_revisions", input_revisions)
 
     @property
     def sample_revision_ids(self) -> tuple[str, ...]:
@@ -501,7 +472,6 @@ def build_project_sample_binding(
     provenance: BindingProvenance,
     workflow_inputs_digest: str,
     sample_revisions: tuple[SampleRevisionBindingRef, ...],
-    input_revisions: tuple[InputRevisionBindingRef, ...] = (),
 ) -> ProjectSampleBinding:
     """Build and verify a canonical Project/Sample binding."""
     canonical_payload = canonical_project_sample_binding(
@@ -510,7 +480,6 @@ def build_project_sample_binding(
         provenance=provenance,
         workflow_inputs_digest=workflow_inputs_digest,
         sample_revisions=tuple(sample_revisions),
-        input_revisions=tuple(input_revisions),
     )
     return ProjectSampleBinding(
         project_id=project_id,
@@ -518,7 +487,6 @@ def build_project_sample_binding(
         provenance=provenance,
         workflow_inputs_digest=workflow_inputs_digest,
         sample_revisions=tuple(sample_revisions),
-        input_revisions=tuple(input_revisions),
         digest_scheme=PROJECT_SAMPLE_BINDING_DIGEST_SCHEME,
         digest=_framed_sha256(
             PROJECT_SAMPLE_BINDING_DIGEST_SCHEME,
@@ -537,5 +505,4 @@ def build_legacy_project_sample_binding(
         provenance=BindingProvenance.UNRESOLVED,
         workflow_inputs_digest=workflow_inputs_digest,
         sample_revisions=(),
-        input_revisions=(),
     )

@@ -557,6 +557,7 @@ def test_project_sample_registry_schema_enforces_evidence_relationships(
         },
         "samples": {
             "ck_samples_id",
+            "ck_samples_not_legacy",
             "ck_samples_stable_key",
         },
         "sample_revisions": {
@@ -609,6 +610,20 @@ def test_project_sample_registry_schema_enforces_evidence_relationships(
         "uq_sample_revisions_project_revision_digest",
         "uq_sample_revisions_sample_number",
     }
+    with engine.begin() as connection:
+        with pytest.raises(IntegrityError, match="ck_samples_not_legacy"):
+            connection.execute(
+                text(
+                    "INSERT INTO samples "
+                    "(sample_id, project_id, stable_key, created_at) VALUES "
+                    "('smp_00000000000000000000000000000000', "
+                    ":legacy_project_id, 'forbidden', :created_at)"
+                ),
+                {
+                    "legacy_project_id": LEGACY_PROJECT_ID,
+                    "created_at": "2026-07-26 00:00:00",
+                },
+            )
     for statement in (
         "UPDATE projects SET display_name='Renamed' "
         f"WHERE project_id='{LEGACY_PROJECT_ID}'",
@@ -705,7 +720,7 @@ def test_project_sample_registry_schema_enforces_evidence_relationships(
                 "('run-cross-project', "
                 "'prj_22222222222222222222222222222222', 'bound_v1', "
                 "'resolved', :workflow_digest, "
-                "'sha256-framed-data-binding-v1', "
+                "'sha256-framed-project-sample-binding-v1', "
                 ":digest, :created_at)"
             ),
             {
@@ -846,6 +861,67 @@ def test_project_sample_registry_upgrade_rejects_mismatched_consumed_evidence(
         match=r"inconsistent (consumed )?snapshot evidence",
     ):
         upgrade_database(database_url)
+
+
+def test_project_sample_registry_upgrade_preflights_before_ddl_and_can_retry(
+    tmp_path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'preflight-retry.db'}"
+    upgrade_database(database_url, "20260717_08")
+    engine = create_database_engine(database_url)
+    invalid_inputs = '{"config":{"bad":NaN},"options":{},"samples":null}'
+    with engine.begin() as connection:
+        _insert_rev08_run(
+            connection,
+            "standalone-invalid",
+            created_at="2026-07-17 01:00:00",
+            inputs=invalid_inputs,
+        )
+    engine.dispose()
+
+    with pytest.raises(
+        RuntimeError,
+        match="invalid legacy run inputs block registry upgrade",
+    ):
+        upgrade_database(database_url)
+
+    failed = create_database_engine(database_url)
+    rev09_tables = {
+        "projects",
+        "samples",
+        "sample_revisions",
+        "snapshot_project_bindings",
+        "snapshot_sample_revisions",
+        "run_project_bindings",
+        "run_samples",
+    }
+    assert rev09_tables.isdisjoint(inspect(failed).get_table_names())
+    with failed.begin() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20260717_08"
+        )
+        connection.execute(
+            text("UPDATE runs SET inputs=:inputs WHERE run_id='standalone-invalid'"),
+            {"inputs": STANDALONE_CANONICAL_INPUTS},
+        )
+    failed.dispose()
+
+    upgrade_database(database_url)
+    retried = create_database_engine(database_url)
+    with retried.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20260726_09"
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT count(*) FROM run_project_bindings "
+                    "WHERE run_id='standalone-invalid'"
+                )
+            )
+            == 1
+        )
+    retried.dispose()
 
 
 def _insert_rev08_run(

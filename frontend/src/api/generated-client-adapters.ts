@@ -385,13 +385,22 @@ export function createGeneratedWorkflowClient(): WorkflowApiClient {
       }
     },
 
-    async validateWorkflow(workflowId, inputs) {
+    async validateWorkflow(workflowId, inputs, projectSampleSelection) {
       try {
-        const response = await validateWorkflow(workflowId, {
+        const request: ValidationRequest = {
           config: inputs.config,
           samples: inputs.samples as ValidationRequest['samples'],
           options: inputs.options ?? {},
-        });
+          ...(projectSampleSelection === undefined
+            ? {}
+            : {
+                project_id: projectSampleSelection.project_id,
+                sample_revision_ids: [
+                  ...projectSampleSelection.sample_revision_ids,
+                ],
+              }),
+        };
+        const response = await validateWorkflow(workflowId, request);
         return {
           ok: response.ok,
           workflow_id: response.workflow_id ?? workflowId,

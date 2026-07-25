@@ -28,6 +28,7 @@ from encode_pipeline.platform.data_registry import (
 )
 from encode_pipeline.services.data_registry_repositories import (
     DataRegistryConflictError,
+    InMemoryDataRegistryRepository,
 )
 
 
@@ -187,6 +188,75 @@ def test_repository_batch_sample_create_is_atomic_on_late_conflict(repository) -
     assert repository.list_samples(PROJECT_ID) == ()
     with pytest.raises(KeyError):
         repository.get_sample_revision(first_revision.sample_revision_id)
+
+
+def test_repository_list_order_matches_memory_for_same_time_entities(
+    repository,
+) -> None:
+    memory = InMemoryDataRegistryRepository(
+        legacy_created_at=datetime(1970, 1, 1, tzinfo=timezone.utc)
+    )
+    project = _project()
+    for candidate in (memory, repository):
+        for created_project in (
+            _project(
+                "prj_" + "f" * 32,
+                display_name="Project F",
+            ),
+            _project(
+                "prj_" + "2" * 32,
+                display_name="Project Two",
+            ),
+            project,
+        ):
+            candidate.create_project(created_project)
+        entries = tuple(
+            (
+                _sample(
+                    sample_id,
+                    stable_key=f"sample-{suffix}",
+                    created_at=NOW,
+                ),
+                _revision(
+                    sample_revision_id=f"smpr_{suffix * 32}",
+                    sample_id=sample_id,
+                    created_at=NOW,
+                ),
+            )
+            for sample_id, suffix in (
+                ("smp_" + "f" * 32, "f"),
+                ("smp_" + "1" * 32, "1"),
+            )
+        )
+        candidate.create_samples(entries)
+
+    expected_project_ids = (
+        LEGACY_PROJECT_ID,
+        PROJECT_ID,
+        "prj_" + "2" * 32,
+        "prj_" + "f" * 32,
+    )
+    assert (
+        tuple(project.project_id for project in memory.list_projects())
+        == expected_project_ids
+    )
+    assert (
+        tuple(project.project_id for project in repository.list_projects())
+        == expected_project_ids
+    )
+    assert (
+        memory.get_project(LEGACY_PROJECT_ID).created_at
+        == repository.get_project(LEGACY_PROJECT_ID).created_at
+    )
+
+    expected_ids = ("smp_" + "1" * 32, "smp_" + "f" * 32)
+    assert tuple(sample.sample_id for sample in memory.list_samples(PROJECT_ID)) == (
+        expected_ids
+    )
+    assert (
+        tuple(sample.sample_id for sample in repository.list_samples(PROJECT_ID))
+        == expected_ids
+    )
 
 
 def test_repository_resolves_ordered_same_project_digest_pinned_selection(

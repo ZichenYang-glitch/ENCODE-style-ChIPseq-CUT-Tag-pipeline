@@ -22,7 +22,7 @@ depends_on = None
 
 
 LEGACY_PROJECT_ID = "prj_00000000000000000000000000000000"
-_BINDING_DIGEST_SCHEME = "sha256-framed-data-binding-v1"
+_BINDING_DIGEST_SCHEME = "sha256-framed-project-sample-binding-v1"
 _WORKFLOW_INPUTS_DIGEST_SCHEME = "sha256-framed-workflow-inputs-v1"
 _CANONICAL_JSON_SEPARATORS = (",", ":")
 
@@ -52,12 +52,20 @@ def upgrade() -> None:
         .all()
     )
     _validate_consumed_snapshot_links(snapshot_rows, run_rows)
+    snapshot_binding_plan, run_binding_plan = _plan_legacy_bindings(
+        snapshot_rows,
+        run_rows,
+    )
 
     _create_registry_tables()
     _create_binding_tables()
     _backfill_legacy_project(connection)
-    snapshot_digests = _backfill_snapshot_bindings(connection, snapshot_rows)
-    _backfill_run_bindings(connection, run_rows, snapshot_digests)
+    _backfill_snapshot_bindings(
+        connection,
+        snapshot_rows,
+        snapshot_binding_plan,
+    )
+    _backfill_run_bindings(connection, run_rows, run_binding_plan)
 
 
 def downgrade() -> None:
@@ -172,6 +180,10 @@ def _create_registry_tables() -> None:
         sa.CheckConstraint(
             "length(trim(stable_key)) BETWEEN 1 AND 255",
             name="ck_samples_stable_key",
+        ),
+        sa.CheckConstraint(
+            f"project_id != '{LEGACY_PROJECT_ID}'",
+            name="ck_samples_not_legacy",
         ),
         sa.ForeignKeyConstraint(
             ["project_id"],
@@ -583,11 +595,10 @@ def _backfill_legacy_project(connection: sa.Connection) -> None:
 def _backfill_snapshot_bindings(
     connection: sa.Connection,
     snapshot_rows: Sequence[sa.RowMapping],
-) -> dict[str, tuple[str, str]]:
-    consumed_run_digests: dict[str, tuple[str, str]] = {}
+    binding_plan: dict[str, tuple[str, str]],
+) -> None:
     for row in snapshot_rows:
-        workflow_inputs_digest = str(row["payload_digest"])
-        binding_digest = _legacy_binding_digest(workflow_inputs_digest)
+        workflow_inputs_digest, binding_digest = binding_plan[str(row["snapshot_id"])]
         connection.execute(
             sa.text(
                 "INSERT INTO snapshot_project_bindings "
@@ -607,28 +618,16 @@ def _backfill_snapshot_bindings(
                 "created_at": row["validated_at"],
             },
         )
-        consumed_run_id = row["consumed_run_id"]
-        if consumed_run_id is not None:
-            consumed_run_digests[str(consumed_run_id)] = (
-                workflow_inputs_digest,
-                binding_digest,
-            )
-    return consumed_run_digests
 
 
 def _backfill_run_bindings(
     connection: sa.Connection,
     run_rows: Sequence[sa.RowMapping],
-    snapshot_digests: dict[str, tuple[str, str]],
+    binding_plan: dict[str, tuple[str, str]],
 ) -> None:
     for row in run_rows:
         run_id = str(row["run_id"])
-        snapshot_binding = snapshot_digests.get(run_id)
-        if snapshot_binding is None:
-            workflow_inputs_digest = _standalone_workflow_inputs_digest(row["inputs"])
-            binding_digest = _legacy_binding_digest(workflow_inputs_digest)
-        else:
-            workflow_inputs_digest, binding_digest = snapshot_binding
+        workflow_inputs_digest, binding_digest = binding_plan[run_id]
         connection.execute(
             sa.text(
                 "INSERT INTO run_project_bindings "
@@ -650,11 +649,45 @@ def _backfill_run_bindings(
         )
 
 
+def _plan_legacy_bindings(
+    snapshot_rows: Sequence[sa.RowMapping],
+    run_rows: Sequence[sa.RowMapping],
+) -> tuple[
+    dict[str, tuple[str, str]],
+    dict[str, tuple[str, str]],
+]:
+    """Validate and freeze every backfill digest before SQLite DDL begins."""
+    snapshot_plan: dict[str, tuple[str, str]] = {}
+    consumed_run_plan: dict[str, tuple[str, str]] = {}
+    for row in snapshot_rows:
+        workflow_inputs_digest = str(row["payload_digest"])
+        snapshot_binding = (
+            workflow_inputs_digest,
+            _legacy_binding_digest(workflow_inputs_digest),
+        )
+        snapshot_plan[str(row["snapshot_id"])] = snapshot_binding
+        consumed_run_id = row["consumed_run_id"]
+        if consumed_run_id is not None:
+            consumed_run_plan[str(consumed_run_id)] = snapshot_binding
+
+    run_plan: dict[str, tuple[str, str]] = {}
+    for row in run_rows:
+        run_id = str(row["run_id"])
+        run_binding = consumed_run_plan.get(run_id)
+        if run_binding is None:
+            workflow_inputs_digest = _standalone_workflow_inputs_digest(row["inputs"])
+            run_binding = (
+                workflow_inputs_digest,
+                _legacy_binding_digest(workflow_inputs_digest),
+            )
+        run_plan[run_id] = run_binding
+    return snapshot_plan, run_plan
+
+
 def _legacy_binding_digest(workflow_inputs_digest: str) -> str:
     return _framed_canonical_digest(
         {
             "binding_mode": "legacy_v1",
-            "input_revisions": [],
             "project_id": LEGACY_PROJECT_ID,
             "provenance": "unresolved",
             "sample_revisions": [],

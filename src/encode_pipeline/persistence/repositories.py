@@ -1886,7 +1886,6 @@ def _project_sample_binding_from_values(
         provenance=provenance,
         workflow_inputs_digest=workflow_inputs_digest,
         sample_revisions=sample_revisions,
-        input_revisions=(),
         digest_scheme=digest_scheme,
         digest=digest,
     )

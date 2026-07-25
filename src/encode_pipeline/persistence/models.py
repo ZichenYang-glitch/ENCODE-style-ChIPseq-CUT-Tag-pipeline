@@ -79,6 +79,10 @@ class SampleRow(Base):
             "length(trim(stable_key)) BETWEEN 1 AND 255",
             name="ck_samples_stable_key",
         ),
+        CheckConstraint(
+            "project_id != 'prj_00000000000000000000000000000000'",
+            name="ck_samples_not_legacy",
+        ),
         ForeignKeyConstraint(
             ["project_id"],
             ["projects.project_id"],
@@ -197,7 +201,7 @@ class SnapshotProjectBindingRow(Base):
             name="ck_snapshot_project_bindings_legacy_project",
         ),
         CheckConstraint(
-            "binding_digest_scheme = 'sha256-framed-data-binding-v1'",
+            "binding_digest_scheme = 'sha256-framed-project-sample-binding-v1'",
             name="ck_snapshot_project_bindings_digest_scheme",
         ),
         CheckConstraint(
@@ -309,7 +313,7 @@ class RunProjectBindingRow(Base):
             name="ck_run_project_bindings_legacy_project",
         ),
         CheckConstraint(
-            "binding_digest_scheme = 'sha256-framed-data-binding-v1'",
+            "binding_digest_scheme = 'sha256-framed-project-sample-binding-v1'",
             name="ck_run_project_bindings_digest_scheme",
         ),
         CheckConstraint(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timezone
 from dataclasses import replace
 from threading import RLock
@@ -82,13 +84,20 @@ class DataRegistryRepository(Protocol):
         workflow_inputs_digest: str,
     ) -> ProjectSampleBinding: ...
 
+    def locked_project_sample_selection(
+        self,
+        selection: ProjectSampleSelection,
+        *,
+        workflow_inputs_digest: str,
+    ) -> AbstractContextManager[ProjectSampleBinding]: ...
+
 
 class InMemoryDataRegistryRepository:
     """Lock-protected in-memory implementation with SQL-equivalent invariants."""
 
     def __init__(self, *, legacy_created_at: datetime | None = None) -> None:
         if legacy_created_at is None:
-            legacy_created_at = datetime.now(timezone.utc)
+            legacy_created_at = datetime(1970, 1, 1, tzinfo=timezone.utc)
         legacy = build_legacy_project(legacy_created_at)
         self._projects: dict[str, Project] = {legacy.project_id: legacy}
         self._samples: dict[str, Sample] = {}
@@ -126,7 +135,12 @@ class InMemoryDataRegistryRepository:
         include_archived: bool = False,
     ) -> tuple[Project, ...]:
         with self._lock:
-            projects = tuple(self._projects.values())
+            projects = tuple(
+                sorted(
+                    self._projects.values(),
+                    key=lambda project: (project.created_at, project.project_id),
+                )
+            )
             if include_archived:
                 return projects
             return tuple(project for project in projects if project.archived_at is None)
@@ -230,8 +244,16 @@ class InMemoryDataRegistryRepository:
         with self._lock:
             self.get_project(project_id)
             return tuple(
-                self._samples[sample_id]
-                for sample_id in self._sample_ids_by_project.get(project_id, ())
+                sorted(
+                    (
+                        self._samples[sample_id]
+                        for sample_id in self._sample_ids_by_project.get(
+                            project_id,
+                            (),
+                        )
+                    ),
+                    key=lambda sample: (sample.created_at, sample.sample_id),
+                )
             )
 
     def get_sample_revision(self, sample_revision_id: str) -> SampleRevision:
@@ -327,6 +349,20 @@ class InMemoryDataRegistryRepository:
                     )
                     for revision in revisions
                 ),
+            )
+
+    @contextmanager
+    def locked_project_sample_selection(
+        self,
+        selection: ProjectSampleSelection,
+        *,
+        workflow_inputs_digest: str,
+    ) -> Iterator[ProjectSampleBinding]:
+        """Hold the registry lock until immutable binding evidence is stored."""
+        with self._lock:
+            yield self.resolve_project_sample_selection(
+                selection,
+                workflow_inputs_digest=workflow_inputs_digest,
             )
 
     @staticmethod

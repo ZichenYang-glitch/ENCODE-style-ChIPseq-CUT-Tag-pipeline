@@ -14,7 +14,6 @@ from encode_pipeline.platform.data_registry import (
     SAMPLE_REVISION_PAYLOAD_DIGEST_SCHEME,
     BindingMode,
     BindingProvenance,
-    InputRevisionBindingRef,
     Project,
     ProjectKind,
     ProjectSampleSelection,
@@ -25,6 +24,7 @@ from encode_pipeline.platform.data_registry import (
     build_legacy_project_sample_binding,
     build_project_sample_binding,
     build_sample_revision_payload_digest,
+    canonical_project_sample_binding,
     canonical_sample_revision_payload,
 )
 
@@ -239,7 +239,7 @@ def test_project_sample_selection_preserves_order_and_rejects_duplicates() -> No
         )
 
 
-def test_bound_project_sample_binding_is_ordered_and_reserves_empty_inputs() -> None:
+def test_bound_project_sample_binding_is_ordered_and_stage2_scoped() -> None:
     revision_a = _revision()
     revision_b = _revision(
         sample_revision_id=REVISION_B_ID,
@@ -269,24 +269,21 @@ def test_bound_project_sample_binding_is_ordered_and_reserves_empty_inputs() -> 
         sample_revisions=tuple(reversed(refs)),
     )
 
-    assert binding.digest_scheme == PROJECT_SAMPLE_BINDING_DIGEST_SCHEME
-    assert binding.input_revisions == ()
+    assert (
+        binding.digest_scheme
+        == "sha256-framed-project-sample-binding-v1"
+        == PROJECT_SAMPLE_BINDING_DIGEST_SCHEME
+    )
     assert binding.sample_revision_ids == (REVISION_A_ID, REVISION_B_ID)
     assert binding.digest != reversed_binding.digest
-    with pytest.raises(ValueError, match="input revisions"):
-        build_project_sample_binding(
-            project_id=PROJECT_ID,
-            binding_mode=BindingMode.BOUND_V1,
-            provenance=BindingProvenance.RESOLVED,
-            workflow_inputs_digest=WORKFLOW_INPUTS_DIGEST,
-            sample_revisions=refs,
-            input_revisions=(
-                InputRevisionBindingRef(
-                    input_revision_id="inprev_" + "7" * 32,
-                    content_digest="8" * 64,
-                ),
-            ),
-        )
+    canonical = canonical_project_sample_binding(
+        project_id=PROJECT_ID,
+        binding_mode=BindingMode.BOUND_V1,
+        provenance=BindingProvenance.RESOLVED,
+        workflow_inputs_digest=WORKFLOW_INPUTS_DIGEST,
+        sample_revisions=refs,
+    )
+    assert "input_revisions" not in canonical
 
 
 def test_legacy_binding_is_unresolved_and_cannot_claim_sample_revisions() -> None:
@@ -296,7 +293,6 @@ def test_legacy_binding_is_unresolved_and_cannot_claim_sample_revisions() -> Non
     assert binding.binding_mode is BindingMode.LEGACY_V1
     assert binding.provenance is BindingProvenance.UNRESOLVED
     assert binding.sample_revisions == ()
-    assert binding.input_revisions == ()
     with pytest.raises(ValueError):
         build_project_sample_binding(
             project_id=LEGACY_PROJECT_ID,

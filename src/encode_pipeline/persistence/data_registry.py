@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 
@@ -234,45 +236,28 @@ class SqlAlchemyDataRegistryRepository:
         *,
         workflow_inputs_digest: str,
     ) -> ProjectSampleBinding:
-        if not isinstance(selection, ProjectSampleSelection):
-            raise ValueError("selection must be a ProjectSampleSelection")
         with self._session_factory() as session:
             _begin_consistent_read(session)
-            project_row = session.get(ProjectRow, selection.project_id)
-            if project_row is None:
-                raise KeyError(f"Unknown project_id: {selection.project_id!r}")
-            _require_active_user_project(_project_from_row(project_row))
-            rows = session.scalars(
-                select(SampleRevisionRow).where(
-                    SampleRevisionRow.sample_revision_id.in_(
-                        selection.sample_revision_ids
-                    )
-                )
-            ).all()
-            by_id = {row.sample_revision_id: row for row in rows}
-            revisions: list[SampleRevision] = []
-            for revision_id in selection.sample_revision_ids:
-                row = by_id.get(revision_id)
-                if row is None:
-                    raise KeyError(f"Unknown sample_revision_id: {revision_id!r}")
-                revision = _sample_revision_from_row(row)
-                if revision.project_id != selection.project_id:
-                    raise ValueError(
-                        "all SampleRevisions must belong to the same Project"
-                    )
-                revisions.append(revision)
-            return build_project_sample_binding(
-                project_id=selection.project_id,
-                binding_mode=BindingMode.BOUND_V1,
-                provenance=BindingProvenance.RESOLVED,
+            return _resolve_project_sample_selection(
+                session,
+                selection,
                 workflow_inputs_digest=workflow_inputs_digest,
-                sample_revisions=tuple(
-                    SampleRevisionBindingRef(
-                        sample_revision_id=revision.sample_revision_id,
-                        payload_digest=revision.payload_digest,
-                    )
-                    for revision in revisions
-                ),
+            )
+
+    @contextmanager
+    def locked_project_sample_selection(
+        self,
+        selection: ProjectSampleSelection,
+        *,
+        workflow_inputs_digest: str,
+    ) -> Iterator[ProjectSampleBinding]:
+        """Keep a write-serialization boundary through evidence storage."""
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            yield _resolve_project_sample_selection(
+                session,
+                selection,
+                workflow_inputs_digest=workflow_inputs_digest,
             )
 
     @staticmethod
@@ -340,6 +325,48 @@ class SqlAlchemyDataRegistryRepository:
             pending_sample_ids.add(sample.sample_id)
             pending_revision_ids.add(initial_revision.sample_revision_id)
             pending_stable_identities.add(stable_identity)
+
+
+def _resolve_project_sample_selection(
+    session: Session,
+    selection: ProjectSampleSelection,
+    *,
+    workflow_inputs_digest: str,
+) -> ProjectSampleBinding:
+    if not isinstance(selection, ProjectSampleSelection):
+        raise ValueError("selection must be a ProjectSampleSelection")
+    project_row = session.get(ProjectRow, selection.project_id)
+    if project_row is None:
+        raise KeyError(f"Unknown project_id: {selection.project_id!r}")
+    _require_active_user_project(_project_from_row(project_row))
+    rows = session.scalars(
+        select(SampleRevisionRow).where(
+            SampleRevisionRow.sample_revision_id.in_(selection.sample_revision_ids)
+        )
+    ).all()
+    by_id = {row.sample_revision_id: row for row in rows}
+    revisions: list[SampleRevision] = []
+    for revision_id in selection.sample_revision_ids:
+        row = by_id.get(revision_id)
+        if row is None:
+            raise KeyError(f"Unknown sample_revision_id: {revision_id!r}")
+        revision = _sample_revision_from_row(row)
+        if revision.project_id != selection.project_id:
+            raise ValueError("all SampleRevisions must belong to the same Project")
+        revisions.append(revision)
+    return build_project_sample_binding(
+        project_id=selection.project_id,
+        binding_mode=BindingMode.BOUND_V1,
+        provenance=BindingProvenance.RESOLVED,
+        workflow_inputs_digest=workflow_inputs_digest,
+        sample_revisions=tuple(
+            SampleRevisionBindingRef(
+                sample_revision_id=revision.sample_revision_id,
+                payload_digest=revision.payload_digest,
+            )
+            for revision in revisions
+        ),
+    )
 
 
 def _require_active_user_project(project: Project) -> None:

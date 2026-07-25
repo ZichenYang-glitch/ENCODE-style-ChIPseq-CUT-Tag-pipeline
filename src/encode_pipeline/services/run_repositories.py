@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -453,27 +454,35 @@ class InMemoryRunRepository:
                 raise ValueError(
                     f"Duplicate validated snapshot ID: {validated.snapshot_id!r}"
                 )
+            binding_context: AbstractContextManager[ProjectSampleBinding]
             if project_sample_selection is None:
-                binding = build_legacy_project_sample_binding(validated.payload_digest)
+                binding_context = nullcontext(
+                    build_legacy_project_sample_binding(validated.payload_digest)
+                )
             else:
                 if self._data_registry_repository is None:
                     raise ProjectSampleSelectionError(
                         "a data registry repository is required for Project selection"
                     )
-                try:
-                    binding = (
-                        self._data_registry_repository.resolve_project_sample_selection(
-                            project_sample_selection,
-                            workflow_inputs_digest=validated.payload_digest,
-                        )
+                binding_context = (
+                    self._data_registry_repository.locked_project_sample_selection(
+                        project_sample_selection,
+                        workflow_inputs_digest=validated.payload_digest,
                     )
-                except (DataRegistryConflictError, KeyError, ValueError) as exc:
+                )
+            try:
+                with binding_context as binding:
+                    stored_binding = _data_binding_copy(binding)
+                    self._validated_input_snapshots[validated.snapshot_id] = validated
+                    self._validated_input_bindings[validated.snapshot_id] = (
+                        stored_binding
+                    )
+            except (DataRegistryConflictError, KeyError, ValueError) as exc:
+                if project_sample_selection is not None:
                     raise ProjectSampleSelectionError(
                         "Project/SampleRevision selection is not eligible"
                     ) from exc
-            stored_binding = _data_binding_copy(binding)
-            self._validated_input_snapshots[validated.snapshot_id] = validated
-            self._validated_input_bindings[validated.snapshot_id] = stored_binding
+                raise
             return _validated_snapshot_copy(validated)
 
     def get_validated_input_snapshot(

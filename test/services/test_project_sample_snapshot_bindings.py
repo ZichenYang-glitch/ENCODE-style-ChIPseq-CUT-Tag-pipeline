@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Event
 
 import pytest
 
@@ -182,7 +184,6 @@ def test_unselected_snapshot_gets_explicit_unresolved_legacy_binding() -> None:
     assert binding.provenance is BindingProvenance.UNRESOLVED
     assert binding.workflow_inputs_digest == snapshot.payload_digest
     assert binding.sample_revisions == ()
-    assert binding.input_revisions == ()
 
 
 def test_snapshot_consumption_copies_exact_legacy_binding_to_run() -> None:
@@ -272,6 +273,76 @@ def test_selection_is_resolved_before_snapshot_exists_and_fails_atomically() -> 
         repository.get_validated_input_snapshot(snapshot.snapshot_id)
     with pytest.raises(KeyError):
         repository.get_validated_input_binding(snapshot.snapshot_id)
+
+
+def test_in_memory_snapshot_selection_is_atomic_with_project_archive() -> None:
+    resolved = Event()
+    release_resolution = Event()
+    archive_started = Event()
+    archive_finished = Event()
+
+    class PausingRegistry(InMemoryDataRegistryRepository):
+        def resolve_project_sample_selection(
+            self,
+            selection,
+            *,
+            workflow_inputs_digest,
+        ):
+            binding = super().resolve_project_sample_selection(
+                selection,
+                workflow_inputs_digest=workflow_inputs_digest,
+            )
+            resolved.set()
+            if not release_resolution.wait(timeout=5):
+                raise RuntimeError("test did not release selection resolution")
+            return binding
+
+    data_registry = PausingRegistry(legacy_created_at=NOW)
+    seed = _data_registry()
+    for project in seed.list_projects(include_archived=True):
+        if project.project_id != LEGACY_PROJECT_ID:
+            data_registry.create_project(project)
+    for sample_id in (SAMPLE_A_ID, SAMPLE_B_ID):
+        sample = seed.get_sample(sample_id)
+        data_registry.create_sample(
+            sample,
+            seed.list_sample_revisions(sample_id)[0],
+        )
+    repository = InMemoryRunRepository(data_registry_repository=data_registry)
+    snapshot = _snapshot()
+    selection = ProjectSampleSelection(
+        project_id=PROJECT_ID,
+        sample_revision_ids=(REVISION_A_ID,),
+    )
+
+    def archive_project() -> None:
+        archive_started.set()
+        data_registry.archive_project(
+            PROJECT_ID,
+            archived_at=NOW + timedelta(minutes=1),
+        )
+        archive_finished.set()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        snapshot_future = pool.submit(
+            repository.create_validated_input_snapshot,
+            snapshot,
+            project_sample_selection=selection,
+        )
+        assert resolved.wait(timeout=2)
+        archive_future = pool.submit(archive_project)
+        assert archive_started.wait(timeout=2)
+        archive_was_blocked = not archive_finished.wait(timeout=0.25)
+        release_resolution.set()
+        snapshot_future.result(timeout=2)
+        archive_future.result(timeout=2)
+
+    assert archive_was_blocked
+    assert (
+        repository.get_validated_input_binding(snapshot.snapshot_id).project_id
+        == PROJECT_ID
+    )
+    assert data_registry.get_project(PROJECT_ID).archived_at is not None
 
 
 def test_snapshot_replay_requires_identical_run_binding_evidence() -> None:

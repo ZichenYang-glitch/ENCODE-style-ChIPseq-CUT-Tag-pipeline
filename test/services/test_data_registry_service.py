@@ -255,7 +255,6 @@ def test_selection_resolution_is_exact_ordered_and_builds_binding() -> None:
     assert binding.binding_mode is BindingMode.BOUND_V1
     assert binding.provenance is BindingProvenance.RESOLVED
     assert binding.sample_revision_ids == selection.sample_revision_ids
-    assert binding.input_revisions == ()
 
 
 def test_selection_resolution_rejects_cross_project_and_archived_project() -> None:
