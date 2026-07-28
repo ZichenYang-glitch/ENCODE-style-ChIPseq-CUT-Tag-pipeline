@@ -42,6 +42,7 @@ from encode_pipeline.services.input_registry_repositories import (
     InMemoryInputRegistryRepository,
 )
 from encode_pipeline.services.run_repositories import (
+    InputBindingSelectionError,
     InMemoryRunRepository,
     ProjectSampleSelectionError,
     RunEventDraft,
@@ -653,3 +654,291 @@ def test_sql_bound_snapshot_read_rejects_tampered_revision_payload(tmp_path) -> 
         _consume(persistence.repository, snapshot.snapshot_id, "run-tampered")
     assert persistence.repository.contains_run("run-tampered") is False
     persistence.close()
+
+
+def test_sql_late_input_resolution_failure_rolls_back_all_snapshot_evidence(
+    tmp_path,
+) -> None:
+    persistence = open_run_persistence(f"sqlite:///{tmp_path / 'platform.db'}")
+    registry = _registry(persistence)
+    project = registry.create_project("Pilot")
+    sample = registry.import_sample(
+        project.project_id,
+        stable_key="sample-a",
+        display_name="Sample A",
+        attributes={},
+    )
+    input_registry = _input_registry(persistence)
+    pool = input_registry.create_storage_pool(
+        display_name="Approved ingress",
+        config_key="ingress-primary",
+    )
+    input_registry.bind_project_storage_pool(
+        project.project_id,
+        pool.storage_pool_id,
+    )
+    registered = input_registry.register_input_file(
+        project.project_id,
+        stable_key="reads-r1",
+        observation=FileObservation(
+            relative_path="reads/r1.fastq.gz",
+            size_bytes=5,
+            content_sha256="a" * 64,
+            path_fingerprint=((1, 2), (3, 4, 5, 1, 5, 6, 7)),
+        ),
+    )
+    plan = build_input_use_binding_plan(
+        project_id=project.project_id,
+        workflow_id=WORKFLOW_ID,
+        contract=AdapterInputUseContract(
+            adapter_contract_version="workflow-a-inputs-v1",
+            declarations=(
+                InputUseDeclaration(
+                    key="primary-reads",
+                    occurrence=0,
+                    capability_version="regular-file-v1",
+                    closure_contract_version="regular_file_v1",
+                    allowed_provenance_modes=(InputProvenanceMode.MANAGED_REVISION_V1,),
+                ),
+            ),
+            allows_mixed=False,
+        ),
+        selections=(
+            InputFileRevisionSelection(
+                input_use_key="primary-reads",
+                occurrence=0,
+                input_file_revision_ids=(registered.revision.input_file_revision_id,),
+            ),
+        ),
+    )
+    with persistence.engine.begin() as connection:
+        connection.execute(
+            text("DROP TRIGGER IF EXISTS trg_input_file_revisions_no_update")
+        )
+        connection.execute(
+            text(
+                "UPDATE input_file_revisions SET content_sha256=:content_sha256 "
+                "WHERE input_file_revision_id=:revision_id"
+            ),
+            {
+                "content_sha256": "f" * 64,
+                "revision_id": registered.revision.input_file_revision_id,
+            },
+        )
+    snapshot = _snapshot(9)
+
+    with pytest.raises(InputBindingSelectionError):
+        persistence.repository.create_validated_input_snapshot(
+            snapshot,
+            project_sample_selection=ProjectSampleSelection(
+                project_id=project.project_id,
+                sample_revision_ids=(sample.revision.sample_revision_id,),
+            ),
+            input_use_binding_plan=plan,
+        )
+
+    with persistence.engine.connect() as connection:
+        for table_name in (
+            "validated_input_snapshots",
+            "snapshot_project_bindings",
+            "snapshot_sample_revisions",
+            "snapshot_input_bindings",
+            "snapshot_input_uses",
+            "snapshot_input_members",
+        ):
+            assert (
+                connection.scalar(
+                    text(
+                        f"SELECT count(*) FROM {table_name} "
+                        "WHERE snapshot_id=:snapshot_id"
+                    ),
+                    {"snapshot_id": snapshot.snapshot_id},
+                )
+                == 0
+            )
+        assert connection.scalar(text("SELECT count(*) FROM input_files")) == 1
+        assert connection.scalar(text("SELECT count(*) FROM input_file_revisions")) == 1
+    persistence.close()
+
+
+def test_sql_incomplete_managed_snapshot_evidence_blocks_read_and_first_consume(
+    tmp_path,
+) -> None:
+    persistence = open_run_persistence(f"sqlite:///{tmp_path / 'platform.db'}")
+    registry = _registry(persistence)
+    project = registry.create_project("Pilot")
+    sample = registry.import_sample(
+        project.project_id,
+        stable_key="sample-a",
+        display_name="Sample A",
+        attributes={},
+    )
+    input_registry = _input_registry(persistence)
+    pool = input_registry.create_storage_pool(
+        display_name="Approved ingress",
+        config_key="ingress-primary",
+    )
+    input_registry.bind_project_storage_pool(
+        project.project_id,
+        pool.storage_pool_id,
+    )
+    registered = input_registry.register_input_file(
+        project.project_id,
+        stable_key="reads-r1",
+        observation=FileObservation(
+            relative_path="reads/r1.fastq.gz",
+            size_bytes=5,
+            content_sha256="a" * 64,
+            path_fingerprint=((1, 2), (3, 4, 5, 1, 5, 6, 7)),
+        ),
+    )
+    plan = build_input_use_binding_plan(
+        project_id=project.project_id,
+        workflow_id=WORKFLOW_ID,
+        contract=AdapterInputUseContract(
+            adapter_contract_version="workflow-a-inputs-v1",
+            declarations=(
+                InputUseDeclaration(
+                    key="primary-reads",
+                    occurrence=0,
+                    capability_version="regular-file-v1",
+                    closure_contract_version="regular_file_v1",
+                    allowed_provenance_modes=(InputProvenanceMode.MANAGED_REVISION_V1,),
+                ),
+            ),
+            allows_mixed=False,
+        ),
+        selections=(
+            InputFileRevisionSelection(
+                input_use_key="primary-reads",
+                occurrence=0,
+                input_file_revision_ids=(registered.revision.input_file_revision_id,),
+            ),
+        ),
+    )
+    snapshot = _snapshot(10)
+    persistence.repository.create_validated_input_snapshot(
+        snapshot,
+        project_sample_selection=ProjectSampleSelection(
+            project_id=project.project_id,
+            sample_revision_ids=(sample.revision.sample_revision_id,),
+        ),
+        input_use_binding_plan=plan,
+    )
+    with persistence.engine.begin() as connection:
+        connection.execute(
+            text("DROP TRIGGER IF EXISTS trg_snapshot_input_members_no_delete")
+        )
+        connection.execute(
+            text("DELETE FROM snapshot_input_members WHERE snapshot_id=:snapshot_id"),
+            {"snapshot_id": snapshot.snapshot_id},
+        )
+
+    with pytest.raises(ValueError, match="member"):
+        persistence.repository.get_validated_input_use_binding(snapshot.snapshot_id)
+    with pytest.raises(ValueError, match="member"):
+        _consume(persistence.repository, snapshot.snapshot_id, "run-incomplete")
+
+    assert persistence.repository.contains_run("run-incomplete") is False
+    stored = persistence.repository.get_validated_input_snapshot(snapshot.snapshot_id)
+    assert stored.consumed_run_id is None
+    assert stored.consumed_at is None
+    persistence.close()
+
+
+def test_sql_mixed_input_binding_round_trips_ordinals_across_restart(
+    tmp_path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
+    first = open_run_persistence(database_url)
+    registry = _registry(first)
+    project = registry.create_project("Pilot")
+    sample = registry.import_sample(
+        project.project_id,
+        stable_key="sample-a",
+        display_name="Sample A",
+        attributes={},
+    )
+    input_registry = _input_registry(first)
+    pool = input_registry.create_storage_pool(
+        display_name="Approved ingress",
+        config_key="ingress-primary",
+    )
+    input_registry.bind_project_storage_pool(
+        project.project_id,
+        pool.storage_pool_id,
+    )
+    registered = input_registry.register_input_file(
+        project.project_id,
+        stable_key="reads-r1",
+        observation=FileObservation(
+            relative_path="reads/r1.fastq.gz",
+            size_bytes=5,
+            content_sha256="a" * 64,
+            path_fingerprint=((1, 2), (3, 4, 5, 1, 5, 6, 7)),
+        ),
+    )
+    plan = build_input_use_binding_plan(
+        project_id=project.project_id,
+        workflow_id=WORKFLOW_ID,
+        contract=AdapterInputUseContract(
+            adapter_contract_version="workflow-a-inputs-v1",
+            declarations=(
+                InputUseDeclaration(
+                    key="reference-index",
+                    occurrence=0,
+                    capability_version="reference-v1",
+                    closure_contract_version="index-directory-v1",
+                    allowed_provenance_modes=(
+                        InputProvenanceMode.TRANSITIONAL_UNMANAGED_V1,
+                    ),
+                ),
+                InputUseDeclaration(
+                    key="primary-reads",
+                    occurrence=0,
+                    capability_version="regular-file-v1",
+                    closure_contract_version="regular_file_v1",
+                    allowed_provenance_modes=(InputProvenanceMode.MANAGED_REVISION_V1,),
+                ),
+            ),
+            allows_mixed=True,
+        ),
+        selections=(
+            InputFileRevisionSelection(
+                input_use_key="primary-reads",
+                occurrence=0,
+                input_file_revision_ids=(registered.revision.input_file_revision_id,),
+            ),
+        ),
+    )
+    snapshot = _snapshot(11)
+    first.repository.create_validated_input_snapshot(
+        snapshot,
+        project_sample_selection=ProjectSampleSelection(
+            project_id=project.project_id,
+            sample_revision_ids=(sample.revision.sample_revision_id,),
+        ),
+        input_use_binding_plan=plan,
+    )
+    frozen = first.repository.get_validated_input_use_binding(snapshot.snapshot_id)
+    first.close()
+
+    second = open_run_persistence(database_url)
+    restored = second.repository.get_validated_input_use_binding(snapshot.snapshot_id)
+    created = _consume(second.repository, snapshot.snapshot_id, "run-mixed")
+
+    assert restored == frozen
+    assert created.created is True
+    assert [use.provenance_mode for use in restored.input_uses] == [
+        InputProvenanceMode.TRANSITIONAL_UNMANAGED_V1,
+        InputProvenanceMode.MANAGED_REVISION_V1,
+    ]
+    assert restored.input_uses[0].members == ()
+    assert restored.input_uses[0].closure_digest is None
+    assert len(restored.input_uses[1].members) == 1
+    assert restored.input_uses[1].members[0].input_file_revision_id == (
+        registered.revision.input_file_revision_id
+    )
+    assert not hasattr(restored.input_uses[1].members[0], "relative_path")
+    assert second.repository.get_run_input_use_binding("run-mixed") == restored
+    second.close()

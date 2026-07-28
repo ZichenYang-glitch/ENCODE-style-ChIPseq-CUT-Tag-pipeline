@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
@@ -641,4 +642,125 @@ def test_catalog_evidence_mismatch_fails_closed_before_file_or_adapter(
     result = service.verify_binding(inputs, binding, adapter)
 
     _assert_redacted_failure(result, RELATIVE_PATH, CONFIG_KEY)
+    assert adapter.calls == []
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ("binding-type", "workflow-identity", "repository-error"),
+)
+def test_run_verification_rejects_corrupt_binding_scope(
+    tmp_path: Path,
+    corruption: str,
+) -> None:
+    inputs = _inputs()
+    _pool, _authorization, _input_file, revision = _entities(b"exact immutable bytes\n")
+    binding = _declared_binding(inputs, revision)
+    run = _run(inputs)
+    if corruption == "binding-type":
+        runs = _RunRepository(run, object())  # type: ignore[arg-type]
+    elif corruption == "workflow-identity":
+        runs = _RunRepository(
+            replace(run, workflow_id="different-workflow"),
+            binding,
+        )
+    else:
+
+        class BrokenRunRepository:
+            def get_run(self, run_id: str) -> RunRecord:
+                assert run_id == run.run_id
+                return run
+
+            def get_run_input_use_binding(
+                self,
+                run_id: str,
+            ) -> InputUseBindingEnvelope:
+                assert run_id == run.run_id
+                raise RuntimeError("private repository failure /operator/input")
+
+        runs = BrokenRunRepository()
+    service = ManagedInputVerificationService(
+        run_repository=runs,  # type: ignore[arg-type]
+        input_registry_repository=_ExplodingInputRegistry(),
+        storage_pool_config_path=tmp_path / "must-not-be-read.json",
+    )
+
+    result = service.verify_run(run.run_id)
+
+    _assert_redacted_failure(
+        result,
+        "private repository failure",
+        "/operator/input",
+    )
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ("binding-type", "inputs-type", "inputs-digest", "adapter-workflow"),
+)
+def test_binding_scope_drift_fails_before_catalog_or_adapter(
+    tmp_path: Path,
+    corruption: str,
+) -> None:
+    service, adapter, repository, binding, inputs, _input_path = _managed_fixture(
+        tmp_path
+    )
+    candidate_binding: object = binding
+    candidate_inputs: object = inputs
+    if corruption == "binding-type":
+        candidate_binding = object()
+    elif corruption == "inputs-type":
+        candidate_inputs = object()
+    elif corruption == "inputs-digest":
+        candidate_inputs = WorkflowInputs(
+            config={"assay": "changed"},
+            samples=inputs.samples,
+            options=inputs.options,
+        )
+    else:
+        adapter.metadata = WorkflowMetadata(
+            workflow_id="different-workflow",
+            name="Different",
+            version="1.0.0",
+        )
+
+    result = service.verify_binding(
+        candidate_inputs,  # type: ignore[arg-type]
+        candidate_binding,  # type: ignore[arg-type]
+        adapter,
+    )
+
+    _assert_redacted_failure(result, RELATIVE_PATH, CONFIG_KEY)
+    assert repository.calls == []
+    assert adapter.calls == []
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ("authorization", "revision", "input-file", "pool"),
+)
+def test_malformed_catalog_entities_fail_closed_before_private_reads(
+    tmp_path: Path,
+    corruption: str,
+) -> None:
+    service, adapter, repository, binding, inputs, input_path = _managed_fixture(
+        tmp_path
+    )
+    if corruption == "authorization":
+        repository.project_binding = object()  # type: ignore[assignment]
+    elif corruption == "revision":
+        repository.revision = object()  # type: ignore[assignment]
+    elif corruption == "input-file":
+        repository.input_file = object()  # type: ignore[assignment]
+    else:
+        repository.pool = object()  # type: ignore[assignment]
+
+    result = service.verify_binding(inputs, binding, adapter)
+
+    _assert_redacted_failure(
+        result,
+        str(input_path),
+        RELATIVE_PATH,
+        CONFIG_KEY,
+    )
     assert adapter.calls == []
