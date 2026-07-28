@@ -15,7 +15,6 @@ from encode_pipeline.platform.result_generations import new_result_attempt_id
 from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.managed_containers import ManagedContainerCleaner
-from encode_pipeline.services.process_runner import ProcessRunnerCleanupError
 from encode_pipeline.workers.runtime import open_worker_runtime
 from encode_pipeline.workers.settings import load_worker_settings
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
@@ -50,15 +49,7 @@ def run_execution_job(run_id: str) -> None:
                     run_id,
                 )
             except WorkerHardTimeout:
-                if not _cleanup_runtime_managed_containers(runtime, run_id):
-                    raise ProcessRunnerCleanupError(
-                        "Workflow cleanup could not be confirmed."
-                    ) from None
-                _record_unexpected_failure_safely(
-                    runtime.run_service,
-                    run_id,
-                    reason_code="WORKER_JOB_TIMEOUT",
-                )
+                _handle_runtime_hard_timeout_safely(runtime, run_id)
                 raise
             except WorkerJobIdentityError:
                 raise
@@ -74,15 +65,7 @@ def run_execution_job(run_id: str) -> None:
             try:
                 _execute_claimed_run(runtime, run_id)
             except WorkerHardTimeout:
-                if not _cleanup_runtime_managed_containers(runtime, run_id):
-                    raise ProcessRunnerCleanupError(
-                        "Workflow cleanup could not be confirmed."
-                    ) from None
-                _record_unexpected_failure_safely(
-                    runtime.run_service,
-                    run_id,
-                    reason_code="WORKER_JOB_TIMEOUT",
-                )
+                _handle_runtime_hard_timeout_safely(runtime, run_id)
                 raise
             except WorkerExecutionError:
                 raise
@@ -91,13 +74,16 @@ def run_execution_job(run_id: str) -> None:
                 raise WorkerExecutionError(
                     "durable local workflow execution failed unexpectedly"
                 ) from None
-    except WorkerHardTimeout:
-        _record_initialization_failure_fallback(
-            run_id,
-            current_job,
-            reason_code="WORKER_JOB_TIMEOUT",
-        )
-        raise
+    except WorkerHardTimeout as timeout:
+        try:
+            _record_initialization_failure_fallback(
+                run_id,
+                current_job,
+                reason_code="WORKER_JOB_TIMEOUT",
+            )
+        except WorkerHardTimeout:
+            pass
+        raise timeout from None
     except (WorkerExecutionError, WorkerJobIdentityError):
         raise
     except Exception:
@@ -233,16 +219,20 @@ def _execute_claimed_run(runtime, run_id: str) -> None:
                     run_id,
                     attempt_id=artifact_attempt_id,
                 )
-            except (Exception, WorkerHardTimeout):
+            except WorkerHardTimeout as timeout:
+                raise timeout from None
+            except Exception:
                 pass
-            return
+            raise
         except Exception:
             try:
                 runtime.artifact_extraction_service.record_unexpected_failure(
                     run_id,
                     attempt_id=artifact_attempt_id,
                 )
-            except (Exception, WorkerHardTimeout):
+            except WorkerHardTimeout as timeout:
+                raise timeout from None
+            except Exception:
                 pass
             return
         if artifact_result.is_failure:
@@ -251,7 +241,9 @@ def _execute_claimed_run(runtime, run_id: str) -> None:
             artifact_generation = runtime.run_service.get_result_state(
                 run_id
             ).artifact_generation
-        except (Exception, WorkerHardTimeout):
+        except WorkerHardTimeout:
+            raise
+        except Exception:
             return
         if artifact_generation is None:
             return
@@ -270,8 +262,11 @@ def _execute_claimed_run(runtime, run_id: str) -> None:
                     attempt_id=qc_attempt_id,
                     expected_artifact_generation=artifact_generation,
                 )
-            except (Exception, WorkerHardTimeout):
+            except WorkerHardTimeout as timeout:
+                raise timeout from None
+            except Exception:
                 pass
+            raise
         except Exception:
             try:
                 runtime.qc_summary_indexing_service.record_unexpected_failure(
@@ -279,7 +274,9 @@ def _execute_claimed_run(runtime, run_id: str) -> None:
                     attempt_id=qc_attempt_id,
                     expected_artifact_generation=artifact_generation,
                 )
-            except (Exception, WorkerHardTimeout):
+            except WorkerHardTimeout as timeout:
+                raise timeout from None
+            except Exception:
                 pass
         return
     current = runtime.run_service.get_run(run_id)
@@ -365,6 +362,27 @@ def _require_identity(label: str, actual: object, expected: object) -> None:
         raise WorkerJobIdentityError(
             f"stale execution job: {label} does not match durable ownership"
         )
+
+
+def _handle_runtime_hard_timeout_safely(runtime, run_id: str) -> None:
+    """Preserve the active P0 signal while recording only public-safe evidence."""
+    try:
+        _cleanup_runtime_managed_containers(runtime, run_id)
+    except WorkerHardTimeout:
+        pass
+    except Exception:
+        try:
+            _record_cleanup_failure_safely(runtime.run_service, run_id)
+        except WorkerHardTimeout:
+            pass
+    try:
+        _record_unexpected_failure_safely(
+            runtime.run_service,
+            run_id,
+            reason_code="WORKER_JOB_TIMEOUT",
+        )
+    except WorkerHardTimeout:
+        pass
 
 
 def _cleanup_runtime_managed_containers(runtime, run_id: str) -> bool:

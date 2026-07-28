@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import shlex
+import traceback
 from types import SimpleNamespace
 
 import fakeredis
@@ -31,8 +32,10 @@ from encode_pipeline.services.defaults import (
     create_default_run_service,
     create_default_workflow_registry,
 )
+from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
 from encode_pipeline.services.local_execution import LocalExecutionService
 from encode_pipeline.services.process_runner import ProcessRunner
+from encode_pipeline.services.qc_summary_indexing import QcSummaryIndexingService
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 from encode_pipeline.workers.jobs import (
     handle_execution_stopped,
@@ -131,6 +134,40 @@ def _read_run(configured, run_id):
         )
     finally:
         persistence.close()
+
+
+def _read_results(configured, run_id):
+    persistence = open_run_persistence(configured.database_url)
+    service = create_default_run_service(
+        registry=create_default_workflow_registry(),
+        repository=persistence.repository,
+    )
+    try:
+        return (
+            service.get_result_state(run_id),
+            service.list_artifacts(run_id),
+            service.list_qc_metrics(run_id),
+        )
+    finally:
+        persistence.close()
+
+
+def _complete_workflow_successfully(execution_service, run_id):
+    execution_service._run_service.transition_run(
+        run_id,
+        RunStatus.RUNNING,
+        stage="execution",
+        message="Worker started local workflow execution.",
+        context={"reason_code": "LOCAL_EXECUTION_STARTED"},
+    )
+    completed = execution_service._run_service.transition_run(
+        run_id,
+        RunStatus.SUCCEEDED,
+        stage="execution",
+        message="Local workflow execution completed successfully.",
+        context={"reason_code": "LOCAL_EXECUTION_SUCCEEDED"},
+    )
+    return Result.success(completed)
 
 
 def _copy_controlled_project(destination: Path) -> None:
@@ -649,6 +686,189 @@ def test_rq_worker_persists_and_reraises_job_timeout(tmp_path, monkeypatch):
     assert record.error.context == {"reason_code": "WORKER_JOB_TIMEOUT"}
 
 
+def test_rq_worker_reraises_timeout_after_atomic_artifact_success(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "artifact-finalization-timeout",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+    monkeypatch.setattr(
+        LocalExecutionService,
+        "execute",
+        _complete_workflow_successfully,
+    )
+
+    def commit_then_time_out(self, run_id, *, attempt_id):
+        self._run_service.begin_artifact_result_attempt(
+            run_id,
+            attempt_id=attempt_id,
+        )
+        self._run_service.replace_artifacts(
+            run_id,
+            (),
+            attempt_id=attempt_id,
+        )
+        raise WorkerHardTimeout("deadline after artifact finalization commit")
+
+    monkeypatch.setattr(
+        ArtifactExtractionService,
+        "extract",
+        commit_then_time_out,
+    )
+    connection = fakeredis.FakeRedis()
+    run_queue = RqRunQueue(configured, connection=connection)
+    run_queue.enqueue_execution(assignment)
+
+    assert _run_burst(connection, run_queue) is True
+
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    record, events, _assignment = _read_run(
+        configured,
+        "artifact-finalization-timeout",
+    )
+    result_state, artifacts, qc_metrics = _read_results(
+        configured,
+        "artifact-finalization-timeout",
+    )
+    assert job is not None
+    assert job.is_failed
+    failure = job.latest_result()
+    assert failure is not None
+    assert "WorkerHardTimeout" in (failure.exc_string or "")
+    assert record.status is RunStatus.SUCCEEDED
+    assert record.error is None
+    assert result_state.artifact_attempt_status == "succeeded"
+    assert result_state.artifact_outcome == "succeeded"
+    assert result_state.qc_outcome is None
+    assert artifacts == ()
+    assert qc_metrics == ()
+    outcome_types = [
+        event.event_type
+        for event in events
+        if event.event_type
+        in {
+            "artifacts_indexed",
+            "artifact_extraction_failed",
+            "qc_metrics_indexed",
+            "qc_metrics_indexing_failed",
+        }
+    ]
+    assert outcome_types == ["artifacts_indexed"]
+    assert "/private/" not in str([event.to_dict() for event in events])
+
+
+def test_rq_worker_reraises_timeout_after_atomic_qc_success(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "qc-finalization-timeout",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+    monkeypatch.setattr(
+        LocalExecutionService,
+        "execute",
+        _complete_workflow_successfully,
+    )
+
+    def commit_artifacts(self, run_id, *, attempt_id):
+        self._run_service.begin_artifact_result_attempt(
+            run_id,
+            attempt_id=attempt_id,
+        )
+        artifacts = self._run_service.replace_artifacts(
+            run_id,
+            (),
+            attempt_id=attempt_id,
+        )
+        return Result.success(artifacts)
+
+    def commit_then_time_out(
+        self,
+        run_id,
+        artifacts,
+        *,
+        attempt_id,
+        expected_artifact_generation,
+    ):
+        self._run_service.begin_qc_result_attempt(
+            run_id,
+            expected_artifact_generation=expected_artifact_generation,
+            expected_artifacts=artifacts,
+            attempt_id=attempt_id,
+        )
+        self._run_service.replace_qc_metrics(
+            run_id,
+            (),
+            expected_artifacts=artifacts,
+            attempt_id=attempt_id,
+            expected_artifact_generation=expected_artifact_generation,
+        )
+        raise WorkerHardTimeout("deadline after QC finalization commit")
+
+    monkeypatch.setattr(
+        ArtifactExtractionService,
+        "extract",
+        commit_artifacts,
+    )
+    monkeypatch.setattr(
+        QcSummaryIndexingService,
+        "index",
+        commit_then_time_out,
+    )
+    connection = fakeredis.FakeRedis()
+    run_queue = RqRunQueue(configured, connection=connection)
+    run_queue.enqueue_execution(assignment)
+
+    assert _run_burst(connection, run_queue) is True
+
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    record, events, _assignment = _read_run(
+        configured,
+        "qc-finalization-timeout",
+    )
+    result_state, artifacts, qc_metrics = _read_results(
+        configured,
+        "qc-finalization-timeout",
+    )
+    assert job is not None
+    assert job.is_failed
+    failure = job.latest_result()
+    assert failure is not None
+    assert "WorkerHardTimeout" in (failure.exc_string or "")
+    assert record.status is RunStatus.SUCCEEDED
+    assert record.error is None
+    assert result_state.artifact_attempt_status == "succeeded"
+    assert result_state.artifact_outcome == "succeeded"
+    assert result_state.qc_attempt_status == "succeeded"
+    assert result_state.qc_outcome == "succeeded"
+    assert artifacts == ()
+    assert qc_metrics == ()
+    outcome_types = [
+        event.event_type
+        for event in events
+        if event.event_type
+        in {
+            "artifacts_indexed",
+            "artifact_extraction_failed",
+            "qc_metrics_indexed",
+            "qc_metrics_indexing_failed",
+        }
+    ]
+    assert outcome_types == ["artifacts_indexed", "qc_metrics_indexed"]
+    assert "/private/" not in str([event.to_dict() for event in events])
+
+
 def test_rq_worker_generalizes_failure_when_durable_mapping_itself_fails(
     tmp_path,
     monkeypatch,
@@ -725,7 +945,7 @@ def test_post_success_artifact_exception_does_not_fail_execution_job():
     validate_result_attempt_id(recorded[0][1])
 
 
-def test_post_success_artifact_hard_timeout_does_not_fail_execution_job():
+def test_post_success_artifact_hard_timeout_is_recorded_and_reraised():
     recorded: list[tuple[str, str]] = []
 
     class Extraction:
@@ -743,11 +963,177 @@ def test_post_success_artifact_hard_timeout_does_not_fail_execution_job():
         artifact_extraction_service=Extraction(),
     )
 
-    worker_jobs._execute_claimed_run(runtime, "run-1")
+    with pytest.raises(
+        WorkerHardTimeout,
+        match="artifact indexing exceeded the RQ deadline",
+    ):
+        worker_jobs._execute_claimed_run(runtime, "run-1")
 
     assert len(recorded) == 1
     assert recorded[0][0] == "run-1"
     validate_result_attempt_id(recorded[0][1])
+
+
+@pytest.mark.parametrize(
+    ("callback_error", "expected_message"),
+    (
+        (
+            WorkerHardTimeout("deadline during artifact timeout evidence"),
+            "deadline during artifact timeout evidence",
+        ),
+        (
+            RuntimeError("/private/artifact-timeout-evidence"),
+            "artifact indexing exceeded the RQ deadline",
+        ),
+    ),
+)
+def test_post_success_artifact_timeout_survives_failure_callback_fault(
+    callback_error,
+    expected_message,
+):
+    class Extraction:
+        def extract(self, _run_id, *, attempt_id):
+            validate_result_attempt_id(attempt_id)
+            raise WorkerHardTimeout("artifact indexing exceeded the RQ deadline")
+
+        def record_unexpected_failure(self, _run_id, *, attempt_id):
+            validate_result_attempt_id(attempt_id)
+            raise callback_error
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=Extraction(),
+    )
+
+    with pytest.raises(WorkerHardTimeout, match=expected_message) as raised:
+        worker_jobs._execute_claimed_run(runtime, "run-1")
+
+    formatted = "".join(traceback.format_exception(raised.value))
+    assert "/private/artifact-timeout-evidence" not in formatted
+
+
+def test_post_success_artifact_failure_callback_reraises_hard_timeout():
+    class Extraction:
+        def extract(self, _run_id, *, attempt_id):
+            validate_result_attempt_id(attempt_id)
+            raise RuntimeError("/private/workspace")
+
+        def record_unexpected_failure(self, _run_id, *, attempt_id):
+            validate_result_attempt_id(attempt_id)
+            raise WorkerHardTimeout("deadline during artifact failure evidence")
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=Extraction(),
+    )
+
+    with pytest.raises(
+        WorkerHardTimeout,
+        match="deadline during artifact failure evidence",
+    ) as raised:
+        worker_jobs._execute_claimed_run(runtime, "run-1")
+
+    formatted = "".join(traceback.format_exception(raised.value))
+    assert "/private/workspace" not in formatted
+
+
+def test_post_success_artifact_failure_callback_exception_remains_nonfatal():
+    class Extraction:
+        def extract(self, _run_id, *, attempt_id):
+            validate_result_attempt_id(attempt_id)
+            raise RuntimeError("/private/workspace")
+
+        def record_unexpected_failure(self, _run_id, *, attempt_id):
+            validate_result_attempt_id(attempt_id)
+            raise RuntimeError("/private/artifact-failure-evidence")
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=Extraction(),
+    )
+
+    assert worker_jobs._execute_claimed_run(runtime, "run-1") is None
+
+
+def test_post_success_result_state_hard_timeout_stops_before_qc():
+    qc_calls = []
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda _run_id, **_kwargs: Result.success(())
+        ),
+        run_service=SimpleNamespace(
+            get_result_state=lambda _run_id: (_ for _ in ()).throw(
+                WorkerHardTimeout("deadline while reading artifact generation")
+            )
+        ),
+        qc_summary_indexing_service=SimpleNamespace(
+            index=lambda *_args, **_kwargs: qc_calls.append("indexed")
+        ),
+    )
+
+    with pytest.raises(
+        WorkerHardTimeout,
+        match="deadline while reading artifact generation",
+    ):
+        worker_jobs._execute_claimed_run(runtime, "run-1")
+
+    assert qc_calls == []
+
+
+def test_post_success_result_state_exception_stops_before_qc():
+    qc_calls = []
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda _run_id, **_kwargs: Result.success(())
+        ),
+        run_service=SimpleNamespace(
+            get_result_state=lambda _run_id: (_ for _ in ()).throw(
+                RuntimeError("/private/result-state")
+            )
+        ),
+        qc_summary_indexing_service=SimpleNamespace(
+            index=lambda *_args, **_kwargs: qc_calls.append("indexed")
+        ),
+    )
+
+    assert worker_jobs._execute_claimed_run(runtime, "run-1") is None
+    assert qc_calls == []
+
+
+def test_post_success_result_wrapper_hard_timeout_stops_before_qc():
+    class TimedOutArtifactResult:
+        @property
+        def is_failure(self):
+            raise WorkerHardTimeout("deadline while reading artifact result")
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda _run_id, **_kwargs: TimedOutArtifactResult()
+        ),
+    )
+
+    with pytest.raises(
+        WorkerHardTimeout,
+        match="deadline while reading artifact result",
+    ):
+        worker_jobs._execute_claimed_run(runtime, "run-1")
 
 
 def test_post_success_qc_receives_only_successful_complete_artifact_set():
@@ -812,6 +1198,151 @@ def test_post_success_qc_exception_is_recorded_without_failing_execution():
     assert recorded[0][0] == "run-1"
     assert recorded[0][1]["expected_artifact_generation"] == ARTIFACT_GENERATION
     validate_result_attempt_id(recorded[0][1]["attempt_id"])
+
+
+def test_post_success_qc_hard_timeout_is_recorded_and_reraised():
+    recorded = []
+
+    class QcIndexing:
+        def index(self, _run_id, _artifacts, **_kwargs):
+            raise WorkerHardTimeout("QC indexing exceeded the RQ deadline")
+
+        def record_unexpected_failure(self, run_id, **kwargs):
+            recorded.append((run_id, kwargs))
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda _run_id, **_kwargs: Result.success(())
+        ),
+        run_service=SimpleNamespace(
+            get_result_state=lambda _run_id: SimpleNamespace(
+                artifact_generation=ARTIFACT_GENERATION
+            )
+        ),
+        qc_summary_indexing_service=QcIndexing(),
+    )
+
+    with pytest.raises(
+        WorkerHardTimeout,
+        match="QC indexing exceeded the RQ deadline",
+    ):
+        worker_jobs._execute_claimed_run(runtime, "run-1")
+
+    assert len(recorded) == 1
+    assert recorded[0][0] == "run-1"
+    assert recorded[0][1]["expected_artifact_generation"] == ARTIFACT_GENERATION
+    validate_result_attempt_id(recorded[0][1]["attempt_id"])
+
+
+@pytest.mark.parametrize(
+    ("callback_error", "expected_message"),
+    (
+        (
+            WorkerHardTimeout("deadline during QC timeout evidence"),
+            "deadline during QC timeout evidence",
+        ),
+        (
+            RuntimeError("/private/qc-timeout-evidence"),
+            "QC indexing exceeded the RQ deadline",
+        ),
+    ),
+)
+def test_post_success_qc_timeout_survives_failure_callback_fault(
+    callback_error,
+    expected_message,
+):
+    class QcIndexing:
+        def index(self, _run_id, _artifacts, **_kwargs):
+            raise WorkerHardTimeout("QC indexing exceeded the RQ deadline")
+
+        def record_unexpected_failure(self, _run_id, **kwargs):
+            validate_result_attempt_id(kwargs["attempt_id"])
+            raise callback_error
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda _run_id, **_kwargs: Result.success(())
+        ),
+        run_service=SimpleNamespace(
+            get_result_state=lambda _run_id: SimpleNamespace(
+                artifact_generation=ARTIFACT_GENERATION
+            )
+        ),
+        qc_summary_indexing_service=QcIndexing(),
+    )
+
+    with pytest.raises(WorkerHardTimeout, match=expected_message) as raised:
+        worker_jobs._execute_claimed_run(runtime, "run-1")
+
+    formatted = "".join(traceback.format_exception(raised.value))
+    assert "/private/qc-timeout-evidence" not in formatted
+
+
+def test_post_success_qc_failure_callback_reraises_hard_timeout():
+    class QcIndexing:
+        def index(self, _run_id, _artifacts, **_kwargs):
+            raise RuntimeError("/private/qc/workspace")
+
+        def record_unexpected_failure(self, _run_id, **kwargs):
+            validate_result_attempt_id(kwargs["attempt_id"])
+            raise WorkerHardTimeout("deadline during QC failure evidence")
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda _run_id, **_kwargs: Result.success(())
+        ),
+        run_service=SimpleNamespace(
+            get_result_state=lambda _run_id: SimpleNamespace(
+                artifact_generation=ARTIFACT_GENERATION
+            )
+        ),
+        qc_summary_indexing_service=QcIndexing(),
+    )
+
+    with pytest.raises(
+        WorkerHardTimeout,
+        match="deadline during QC failure evidence",
+    ) as raised:
+        worker_jobs._execute_claimed_run(runtime, "run-1")
+
+    formatted = "".join(traceback.format_exception(raised.value))
+    assert "/private/qc/workspace" not in formatted
+
+
+def test_post_success_qc_failure_callback_exception_remains_nonfatal():
+    class QcIndexing:
+        def index(self, _run_id, _artifacts, **_kwargs):
+            raise RuntimeError("/private/qc/workspace")
+
+        def record_unexpected_failure(self, _run_id, **kwargs):
+            validate_result_attempt_id(kwargs["attempt_id"])
+            raise RuntimeError("/private/qc-failure-evidence")
+
+    runtime = SimpleNamespace(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda _run_id, **_kwargs: Result.success(())
+        ),
+        run_service=SimpleNamespace(
+            get_result_state=lambda _run_id: SimpleNamespace(
+                artifact_generation=ARTIFACT_GENERATION
+            )
+        ),
+        qc_summary_indexing_service=QcIndexing(),
+    )
+
+    assert worker_jobs._execute_claimed_run(runtime, "run-1") is None
 
 
 def test_failure_mapping_does_not_swallow_rq_timeout():
@@ -940,6 +1471,207 @@ def test_worker_hard_timeout_during_composition_uses_durable_fallback(
     assert record.error.context == {"reason_code": "WORKER_JOB_TIMEOUT"}
     assert persisted_assignment is not None
     assert persisted_assignment.dispatched_at is not None
+
+
+def test_worker_claim_timeout_survives_timeout_in_durable_fallback(monkeypatch):
+    run_id = "claim-timeout"
+    runtime = SimpleNamespace(run_service=object())
+
+    class RuntimeContext:
+        def __enter__(self):
+            return runtime
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(
+        worker_jobs,
+        "get_current_job",
+        lambda: SimpleNamespace(id="job-1", origin="queue"),
+    )
+    monkeypatch.setattr(worker_jobs, "open_worker_runtime", RuntimeContext)
+    monkeypatch.setattr(
+        worker_jobs,
+        "_initialize_execution_with_runtime",
+        lambda *_args: (_ for _ in ()).throw(
+            WorkerHardTimeout("original claim deadline")
+        ),
+    )
+    monkeypatch.setattr(
+        worker_jobs,
+        "_cleanup_runtime_managed_containers",
+        lambda *_args: True,
+    )
+    monkeypatch.setattr(
+        worker_jobs,
+        "_record_unexpected_failure_safely",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        worker_jobs,
+        "_record_initialization_failure_fallback",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            WorkerHardTimeout("secondary fallback deadline")
+        ),
+    )
+
+    with pytest.raises(WorkerHardTimeout, match="original claim deadline") as raised:
+        worker_jobs.run_execution_job(run_id)
+
+    formatted = "".join(traceback.format_exception(raised.value))
+    assert "secondary fallback deadline" not in formatted
+
+
+@pytest.mark.parametrize("cleanup_outcome", ("failure", "exception"))
+def test_worker_hard_timeout_survives_cleanup_failure(
+    monkeypatch,
+    cleanup_outcome,
+):
+    run_id = f"cleanup-{cleanup_outcome}"
+    runtime = SimpleNamespace(run_service=object())
+    cleanup_events = []
+
+    class RuntimeContext:
+        def __enter__(self):
+            return runtime
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(
+        worker_jobs,
+        "get_current_job",
+        lambda: SimpleNamespace(id="job-1", origin="queue"),
+    )
+    monkeypatch.setattr(worker_jobs, "open_worker_runtime", RuntimeContext)
+    monkeypatch.setattr(
+        worker_jobs,
+        "_initialize_execution_with_runtime",
+        lambda *_args: True,
+    )
+    monkeypatch.setattr(
+        worker_jobs,
+        "_execute_claimed_run",
+        lambda *_args: (_ for _ in ()).throw(WorkerHardTimeout("original RQ deadline")),
+    )
+
+    def cleanup(*_args):
+        if cleanup_outcome == "exception":
+            raise RuntimeError("/private/cleanup")
+        return False
+
+    monkeypatch.setattr(
+        worker_jobs,
+        "_cleanup_runtime_managed_containers",
+        cleanup,
+    )
+    monkeypatch.setattr(
+        worker_jobs,
+        "_record_cleanup_failure_safely",
+        lambda service, observed_run_id: cleanup_events.append(
+            (service, observed_run_id)
+        ),
+    )
+    monkeypatch.setattr(
+        worker_jobs,
+        "_record_unexpected_failure_safely",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        worker_jobs,
+        "_record_initialization_failure_fallback",
+        lambda *_args, **_kwargs: None,
+    )
+
+    with pytest.raises(WorkerHardTimeout, match="original RQ deadline") as raised:
+        worker_jobs.run_execution_job(run_id)
+
+    formatted = "".join(traceback.format_exception(raised.value))
+    assert "/private/cleanup" not in formatted
+    if cleanup_outcome == "exception":
+        assert cleanup_events == [(runtime.run_service, run_id)]
+
+
+@pytest.mark.parametrize(
+    "secondary_fault",
+    ("cleanup_timeout", "cleanup_evidence_timeout", "failure_evidence_timeout"),
+)
+def test_worker_hard_timeout_survives_secondary_timeout(
+    monkeypatch,
+    secondary_fault,
+):
+    run_id = f"secondary-{secondary_fault}"
+    runtime = SimpleNamespace(run_service=object())
+
+    class RuntimeContext:
+        def __enter__(self):
+            return runtime
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(
+        worker_jobs,
+        "get_current_job",
+        lambda: SimpleNamespace(id="job-1", origin="queue"),
+    )
+    monkeypatch.setattr(worker_jobs, "open_worker_runtime", RuntimeContext)
+    monkeypatch.setattr(
+        worker_jobs,
+        "_initialize_execution_with_runtime",
+        lambda *_args: True,
+    )
+    monkeypatch.setattr(
+        worker_jobs,
+        "_execute_claimed_run",
+        lambda *_args: (_ for _ in ()).throw(WorkerHardTimeout("original RQ deadline")),
+    )
+
+    def cleanup(*_args):
+        if secondary_fault == "cleanup_timeout":
+            raise WorkerHardTimeout("secondary cleanup deadline")
+        if secondary_fault == "cleanup_evidence_timeout":
+            raise RuntimeError("/private/cleanup")
+        return True
+
+    def record_cleanup_failure(*_args):
+        if secondary_fault == "cleanup_evidence_timeout":
+            raise WorkerHardTimeout("secondary cleanup evidence deadline")
+        raise AssertionError("cleanup evidence callback was not expected")
+
+    def record_failure(*_args, **_kwargs):
+        if secondary_fault == "failure_evidence_timeout":
+            raise WorkerHardTimeout("secondary failure evidence deadline")
+
+    monkeypatch.setattr(
+        worker_jobs,
+        "_cleanup_runtime_managed_containers",
+        cleanup,
+    )
+    monkeypatch.setattr(
+        worker_jobs,
+        "_record_cleanup_failure_safely",
+        record_cleanup_failure,
+    )
+    monkeypatch.setattr(
+        worker_jobs,
+        "_record_unexpected_failure_safely",
+        record_failure,
+    )
+    monkeypatch.setattr(
+        worker_jobs,
+        "_record_initialization_failure_fallback",
+        lambda *_args, **_kwargs: None,
+    )
+
+    with pytest.raises(WorkerHardTimeout, match="original RQ deadline") as raised:
+        worker_jobs.run_execution_job(run_id)
+
+    formatted = "".join(traceback.format_exception(raised.value))
+    assert "/private/cleanup" not in formatted
+    assert "secondary cleanup deadline" not in formatted
+    assert "secondary cleanup evidence deadline" not in formatted
+    assert "secondary failure evidence deadline" not in formatted
 
 
 def test_missing_worker_adapter_is_initialization_failure_not_identity_error(
