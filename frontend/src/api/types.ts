@@ -82,6 +82,13 @@ export interface WorkflowInputs {
 export interface WorkflowProjectSampleSelection {
   project_id: string;
   sample_revision_ids: readonly string[];
+  input_selections?: readonly WorkflowInputRevisionSelection[];
+}
+
+export interface WorkflowInputRevisionSelection {
+  input_use_key: string;
+  occurrence: number;
+  input_file_revision_ids: readonly string[];
 }
 
 export interface ListWorkflowsResponse {

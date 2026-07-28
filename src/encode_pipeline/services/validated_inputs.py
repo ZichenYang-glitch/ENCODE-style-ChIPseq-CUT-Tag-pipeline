@@ -6,10 +6,22 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from encode_pipeline.platform.adapters import VALIDATION_CAPABILITY, WorkflowInputs
+from encode_pipeline.platform.adapters import (
+    VALIDATION_CAPABILITY,
+    InputUseDeclaringAdapter,
+    WorkflowInputs,
+)
 from encode_pipeline.platform.data_registry import (
     ProjectSampleBinding,
     ProjectSampleSelection,
+)
+from encode_pipeline.platform.input_registry import (
+    AdapterInputUseContract,
+    InputFileRevisionSelection,
+    InputProvenanceMode,
+    InputUseBindingEnvelope,
+    InputUseBindingPlan,
+    build_input_use_binding_plan,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
@@ -22,6 +34,7 @@ from encode_pipeline.platform.snapshots import (
     canonical_workflow_inputs_json,
 )
 from encode_pipeline.services.run_repositories import (
+    InputBindingSelectionError,
     ProjectSampleSelectionError,
     RunRepository,
     ValidatedSnapshotBuildMismatchError as RepositoryBuildMismatchError,
@@ -94,6 +107,15 @@ def _schema_unavailable_issue() -> Issue:
     )
 
 
+def _input_use_contract_unavailable_issue() -> Issue:
+    return Issue(
+        code="INPUT_USE_CAPABILITY_UNAVAILABLE",
+        message="The exact workflow input-use contract could not be confirmed.",
+        source="input_registry",
+        path="input_selections",
+    )
+
+
 class ValidatedInputService:
     """Validate adapter inputs and persist complete immutable success evidence."""
 
@@ -130,8 +152,17 @@ class ValidatedInputService:
         inputs: WorkflowInputs,
         *,
         project_sample_selection: ProjectSampleSelection | None = None,
+        input_file_revision_selections: tuple[InputFileRevisionSelection, ...] = (),
     ) -> Result[ValidatedInputSnapshot | None]:
         """Return a durable snapshot only after stable successful validation."""
+        input_file_revision_selections = tuple(input_file_revision_selections)
+        if any(
+            not isinstance(selection, InputFileRevisionSelection)
+            for selection in input_file_revision_selections
+        ):
+            raise ValueError(
+                "input_file_revision_selections must contain exact selections"
+            )
         try:
             adapter = self._registry.get(workflow_id)
         except KeyError:
@@ -140,8 +171,53 @@ class ValidatedInputService:
         if VALIDATION_CAPABILITY not in adapter.capabilities.supports:
             result = self._validation_service.validate(workflow_id, inputs)
             return Result.failure(result.issues)
+        if input_file_revision_selections and not isinstance(
+            adapter,
+            InputUseDeclaringAdapter,
+        ):
+            return Result.failure(
+                [
+                    Issue(
+                        code="INPUT_USE_CAPABILITY_UNAVAILABLE",
+                        message=(
+                            "The exact workflow input use does not support "
+                            "managed revision selection."
+                        ),
+                        source="input_registry",
+                        path="input_selections",
+                    )
+                ]
+            )
+        if input_file_revision_selections and project_sample_selection is None:
+            return Result.failure(
+                [
+                    Issue(
+                        code="INPUT_BINDING_SELECTION_INVALID",
+                        message=(
+                            "Managed input revisions require an exact Project "
+                            "and SampleRevision selection."
+                        ),
+                        source="input_registry",
+                        path="project_id",
+                    )
+                ]
+            )
 
         availability = resolve_workflow_availability(adapter)
+        if input_file_revision_selections and availability.execution != "available":
+            return Result.failure(
+                [
+                    Issue(
+                        code="INPUT_USE_CAPABILITY_UNAVAILABLE",
+                        message=(
+                            "Managed provenance is not qualified for this exact "
+                            "workflow input use."
+                        ),
+                        source="input_registry",
+                        path="input_selections",
+                    )
+                ]
+            )
         if availability.execution != "available":
             try:
                 adapter.schema()
@@ -164,6 +240,66 @@ class ValidatedInputService:
         validation_result = self._validation_service.validate(workflow_id, inputs)
         if validation_result.is_failure:
             return Result.failure(validation_result.issues)
+
+        input_use_binding_plan: InputUseBindingPlan | None = None
+        if project_sample_selection is not None and isinstance(
+            adapter,
+            InputUseDeclaringAdapter,
+        ):
+            try:
+                declaration_result = adapter.declare_input_uses(
+                    inputs,
+                    validation_result.value,
+                )
+            except Exception:
+                return Result.failure([_input_use_contract_unavailable_issue()])
+            if (
+                not isinstance(declaration_result, Result)
+                or declaration_result.is_failure
+                or not isinstance(
+                    declaration_result.value,
+                    AdapterInputUseContract,
+                )
+            ):
+                return Result.failure([_input_use_contract_unavailable_issue()])
+            try:
+                input_use_binding_plan = build_input_use_binding_plan(
+                    project_id=project_sample_selection.project_id,
+                    workflow_id=workflow_id,
+                    contract=declaration_result.value,
+                    selections=input_file_revision_selections,
+                )
+            except (TypeError, ValueError):
+                return Result.failure(
+                    [
+                        Issue(
+                            code="INPUT_BINDING_SELECTION_INVALID",
+                            message=(
+                                "The selected input revisions do not match the "
+                                "exact workflow input-use contract."
+                            ),
+                            source="input_registry",
+                            path="input_selections",
+                        )
+                    ]
+                )
+            if any(
+                input_use.provenance_mode is InputProvenanceMode.MANAGED_REVISION_V1
+                for input_use in input_use_binding_plan.input_uses
+            ):
+                return Result.failure(
+                    [
+                        Issue(
+                            code="INPUT_USE_CAPABILITY_UNAVAILABLE",
+                            message=(
+                                "Managed provenance is not qualified for this "
+                                "exact workflow input use."
+                            ),
+                            source="input_registry",
+                            path="input_selections",
+                        )
+                    ]
+                )
 
         after_result = self._build_identity_provider.capture(workflow_id)
         if after_result.is_failure or after_result.value is None:
@@ -200,10 +336,17 @@ class ValidatedInputService:
                 validated_at=now,
                 expires_at=now + self._snapshot_ttl,
             )
-            persisted = self._repository.create_validated_input_snapshot(
-                snapshot,
-                project_sample_selection=project_sample_selection,
-            )
+            if input_use_binding_plan is None:
+                persisted = self._repository.create_validated_input_snapshot(
+                    snapshot,
+                    project_sample_selection=project_sample_selection,
+                )
+            else:
+                persisted = self._repository.create_validated_input_snapshot(
+                    snapshot,
+                    project_sample_selection=project_sample_selection,
+                    input_use_binding_plan=input_use_binding_plan,
+                )
         except ProjectSampleSelectionError:
             return Result.failure(
                 [
@@ -215,6 +358,20 @@ class ValidatedInputService:
                         ),
                         source="data_registry",
                         path="project_id",
+                    )
+                ]
+            )
+        except InputBindingSelectionError:
+            return Result.failure(
+                [
+                    Issue(
+                        code="INPUT_BINDING_SELECTION_INVALID",
+                        message=(
+                            "The selected input revisions are not eligible for "
+                            "this validation snapshot."
+                        ),
+                        source="input_registry",
+                        path="input_selections",
                     )
                 ]
             )
@@ -237,6 +394,13 @@ class ValidatedInputService:
     ) -> ProjectSampleBinding:
         """Return the safe immutable binding frozen with one snapshot."""
         return self._repository.get_validated_input_binding(snapshot_id)
+
+    def get_validated_input_use_binding(
+        self,
+        snapshot_id: str,
+    ) -> InputUseBindingEnvelope:
+        """Return the safe immutable input-use evidence frozen with a snapshot."""
+        return self._repository.get_validated_input_use_binding(snapshot_id)
 
 
 class ValidatedRunCreationService:

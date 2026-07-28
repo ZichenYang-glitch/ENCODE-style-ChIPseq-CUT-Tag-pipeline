@@ -21,6 +21,7 @@ REDIS_CONNECT_TIMEOUT_SECONDS_ENV = "ENCODE_PIPELINE_REDIS_CONNECT_TIMEOUT_SECON
 REDIS_API_READ_TIMEOUT_SECONDS_ENV = "ENCODE_PIPELINE_REDIS_API_READ_TIMEOUT_SECONDS"
 QUEUE_NAME_ENV = "ENCODE_PIPELINE_QUEUE_NAME"
 WORKSPACE_ROOT_ENV = "ENCODE_PIPELINE_WORKSPACE_ROOT"
+STORAGE_POOL_CONFIG_ENV = "ENCODE_PIPELINE_STORAGE_POOL_CONFIG"
 JOB_TIMEOUT_SECONDS_ENV = "ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS"
 MANAGED_DOCKER_EXECUTABLE_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE"
 MANAGED_DOCKER_SOCKET_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
@@ -41,6 +42,7 @@ class WorkerSettings:
     redis_url: str = field(repr=False)
     queue_name: str
     workspace_root: Path
+    storage_pool_config: Path | None = field(default=None, repr=False)
     job_timeout_seconds: int = DEFAULT_JOB_TIMEOUT_SECONDS
     redis_connect_timeout_seconds: float = DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS
     redis_api_read_timeout_seconds: float = DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS
@@ -76,6 +78,12 @@ class WorkerSettings:
         workspace_root = self.workspace_root.expanduser()
         if not workspace_root.is_absolute():
             raise ValueError("workspace_root must be an absolute path")
+        storage_pool_config = self.storage_pool_config
+        if storage_pool_config is not None:
+            storage_pool_config = _absolute_path(
+                storage_pool_config,
+                "storage_pool_config",
+            )
         managed_docker_executable = self.managed_docker_executable
         if managed_docker_executable is not None:
             managed_docker_executable = _absolute_path(
@@ -91,6 +99,7 @@ class WorkerSettings:
         object.__setattr__(self, "redis_url", redis_url)
         object.__setattr__(self, "queue_name", queue_name)
         object.__setattr__(self, "workspace_root", workspace_root)
+        object.__setattr__(self, "storage_pool_config", storage_pool_config)
         object.__setattr__(
             self,
             "managed_docker_executable",
@@ -131,6 +140,11 @@ def load_worker_settings(
         redis_url=source.get(REDIS_URL_ENV, DEFAULT_REDIS_URL),
         queue_name=source.get(QUEUE_NAME_ENV, DEFAULT_QUEUE_NAME),
         workspace_root=workspace_root,
+        storage_pool_config=(
+            None
+            if source.get(STORAGE_POOL_CONFIG_ENV) is None
+            else Path(source[STORAGE_POOL_CONFIG_ENV])
+        ),
         job_timeout_seconds=_positive_int(
             source.get(
                 JOB_TIMEOUT_SECONDS_ENV,

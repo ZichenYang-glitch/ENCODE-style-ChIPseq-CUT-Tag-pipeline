@@ -229,6 +229,12 @@ class SnapshotProjectBindingRow(Base):
             "project_id",
             name="uq_snapshot_project_bindings_project",
         ),
+        UniqueConstraint(
+            "snapshot_id",
+            "project_id",
+            "binding_digest",
+            name="uq_snapshot_project_bindings_input_evidence",
+        ),
         Index(
             "ix_snapshot_project_bindings_project",
             "project_id",
@@ -341,6 +347,12 @@ class RunProjectBindingRow(Base):
             "project_id",
             name="uq_run_project_bindings_project",
         ),
+        UniqueConstraint(
+            "run_id",
+            "project_id",
+            "binding_digest",
+            name="uq_run_project_bindings_input_evidence",
+        ),
         Index(
             "ix_run_project_bindings_project",
             "project_id",
@@ -401,6 +413,698 @@ class RunSampleRow(Base):
     sample_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
     payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+
+class StoragePoolRow(Base):
+    __tablename__ = "storage_pools"
+    __table_args__ = (
+        CheckConstraint(
+            "length(storage_pool_id) = 37 AND substr(storage_pool_id, 1, 5) = 'stgp_'",
+            name="ck_storage_pools_id",
+        ),
+        CheckConstraint(
+            "length(trim(config_key)) BETWEEN 1 AND 255",
+            name="ck_storage_pools_config_key",
+        ),
+        CheckConstraint(
+            "length(trim(display_name)) BETWEEN 1 AND 255",
+            name="ck_storage_pools_display_name",
+        ),
+        CheckConstraint(
+            "archived_at IS NULL OR archived_at >= created_at",
+            name="ck_storage_pools_archive_order",
+        ),
+        UniqueConstraint("config_key", name="uq_storage_pools_config_key"),
+        Index(
+            "ix_storage_pools_archived_created",
+            "archived_at",
+            "created_at",
+            "storage_pool_id",
+        ),
+    )
+
+    storage_pool_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    config_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ProjectStoragePoolBindingRow(Base):
+    __tablename__ = "project_storage_pool_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "project_id != 'prj_00000000000000000000000000000000'",
+            name="ck_project_storage_pool_bindings_not_legacy",
+        ),
+        ForeignKeyConstraint(
+            ["project_id"],
+            ["projects.project_id"],
+            name="fk_project_storage_pool_bindings_project",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["storage_pool_id"],
+            ["storage_pools.storage_pool_id"],
+            name="fk_project_storage_pool_bindings_pool",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "storage_pool_id",
+            name="uq_project_storage_pool_bindings_project_pool",
+        ),
+        Index(
+            "ix_project_storage_pool_bindings_pool",
+            "storage_pool_id",
+            "project_id",
+        ),
+    )
+
+    project_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    storage_pool_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    bound_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class InputFileRow(Base):
+    __tablename__ = "input_files"
+    __table_args__ = (
+        CheckConstraint(
+            "length(input_file_id) = 37 AND substr(input_file_id, 1, 5) = 'inpf_'",
+            name="ck_input_files_id",
+        ),
+        CheckConstraint(
+            "length(trim(stable_key)) BETWEEN 1 AND 255",
+            name="ck_input_files_stable_key",
+        ),
+        CheckConstraint(
+            "archived_at IS NULL OR archived_at >= created_at",
+            name="ck_input_files_archive_order",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "storage_pool_id"],
+            [
+                "project_storage_pool_bindings.project_id",
+                "project_storage_pool_bindings.storage_pool_id",
+            ],
+            name="fk_input_files_project_pool",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "stable_key",
+            name="uq_input_files_project_stable_key",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "storage_pool_id",
+            "input_file_id",
+            name="uq_input_files_project_pool_file",
+        ),
+        Index(
+            "ix_input_files_project_created",
+            "project_id",
+            "archived_at",
+            "created_at",
+            "input_file_id",
+        ),
+    )
+
+    input_file_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    storage_pool_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    stable_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class InputFileRevisionRow(Base):
+    __tablename__ = "input_file_revisions"
+    __table_args__ = (
+        CheckConstraint(
+            "length(input_file_revision_id) = 38 "
+            "AND substr(input_file_revision_id, 1, 6) = 'inpfr_'",
+            name="ck_input_file_revisions_id",
+        ),
+        CheckConstraint(
+            "revision_number >= 1",
+            name="ck_input_file_revisions_positive_revision",
+        ),
+        CheckConstraint(
+            "length(relative_path) > 0 AND substr(relative_path, 1, 1) != '/' "
+            "AND relative_path != '.' AND relative_path != '..' "
+            "AND relative_path NOT LIKE '../%' "
+            "AND relative_path NOT LIKE '%/../%' "
+            "AND relative_path NOT LIKE '%/..' "
+            "AND relative_path NOT LIKE './%' "
+            "AND relative_path NOT LIKE '%/./%' "
+            "AND relative_path NOT LIKE '%/.' "
+            "AND relative_path NOT LIKE '%//%' "
+            "AND instr(relative_path, char(92)) = 0",
+            name="ck_input_file_revisions_safe_relative_path",
+        ),
+        CheckConstraint(
+            "size_bytes >= 0",
+            name="ck_input_file_revisions_nonnegative_size",
+        ),
+        CheckConstraint(
+            "length(content_sha256) = 64",
+            name="ck_input_file_revisions_content_sha256_length",
+        ),
+        CheckConstraint(
+            "digest_scheme = 'sha256-framed-input-file-revision-v1'",
+            name="ck_input_file_revisions_digest_scheme",
+        ),
+        CheckConstraint(
+            "length(digest) = 64",
+            name="ck_input_file_revisions_digest_length",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "storage_pool_id", "input_file_id"],
+            [
+                "input_files.project_id",
+                "input_files.storage_pool_id",
+                "input_files.input_file_id",
+            ],
+            name="fk_input_file_revisions_file",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "input_file_id",
+            "revision_number",
+            name="uq_input_file_revisions_file_number",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "input_file_revision_id",
+            "digest",
+            name="uq_input_file_revisions_project_revision_digest",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "input_file_id",
+            "input_file_revision_id",
+            "digest",
+            "size_bytes",
+            "content_sha256",
+            name="uq_input_file_revisions_binding_evidence",
+        ),
+        Index(
+            "ix_input_file_revisions_input_number",
+            "input_file_id",
+            "revision_number",
+        ),
+        Index(
+            "ix_input_file_revisions_project_created",
+            "project_id",
+            "created_at",
+            "input_file_revision_id",
+        ),
+    )
+
+    input_file_revision_id: Mapped[str] = mapped_column(String(38), primary_key=True)
+    input_file_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    storage_pool_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    relative_path: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    digest_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class SnapshotInputBindingRow(Base):
+    __tablename__ = "snapshot_input_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "length(trim(workflow_id)) >= 1",
+            name="ck_snapshot_input_bindings_workflow_id",
+        ),
+        CheckConstraint(
+            "adapter_contract_version IS NULL "
+            "OR length(trim(adapter_contract_version)) BETWEEN 1 AND 255",
+            name="ck_snapshot_input_bindings_adapter_contract_version",
+        ),
+        CheckConstraint(
+            "binding_mode IN ('compatibility_unresolved_v1', 'declared_input_uses_v1')",
+            name="ck_snapshot_input_bindings_mode",
+        ),
+        CheckConstraint(
+            "binding_mode = 'compatibility_unresolved_v1' "
+            "OR adapter_contract_version IS NOT NULL",
+            name="ck_snapshot_input_bindings_declared_adapter_version",
+        ),
+        CheckConstraint(
+            "length(workflow_inputs_digest) = 64",
+            name="ck_snapshot_input_bindings_workflow_digest_length",
+        ),
+        CheckConstraint(
+            "length(project_sample_binding_digest) = 64",
+            name="ck_snapshot_input_bindings_project_sample_digest_length",
+        ),
+        CheckConstraint(
+            "binding_digest_scheme = 'sha256-framed-input-use-binding-envelope-v1'",
+            name="ck_snapshot_input_bindings_digest_scheme",
+        ),
+        CheckConstraint(
+            "length(binding_digest) = 64",
+            name="ck_snapshot_input_bindings_digest_length",
+        ),
+        ForeignKeyConstraint(
+            [
+                "snapshot_id",
+                "project_id",
+                "project_sample_binding_digest",
+            ],
+            [
+                "snapshot_project_bindings.snapshot_id",
+                "snapshot_project_bindings.project_id",
+                "snapshot_project_bindings.binding_digest",
+            ],
+            name="fk_snapshot_input_bindings_project_binding",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "snapshot_id",
+            "project_id",
+            name="uq_snapshot_input_bindings_project",
+        ),
+        Index(
+            "ix_snapshot_input_bindings_project",
+            "project_id",
+            "created_at",
+            "snapshot_id",
+        ),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workflow_id: Mapped[str] = mapped_column(Text, nullable=False)
+    adapter_contract_version: Mapped[str | None] = mapped_column(String(255))
+    binding_mode: Mapped[str] = mapped_column(String(40), nullable=False)
+    workflow_inputs_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    project_sample_binding_digest: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    binding_digest_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    binding_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class SnapshotInputUseRow(Base):
+    __tablename__ = "snapshot_input_uses"
+    __table_args__ = (
+        CheckConstraint("ordinal >= 0", name="ck_snapshot_input_uses_ordinal"),
+        CheckConstraint(
+            "length(trim(input_use_key)) BETWEEN 1 AND 255",
+            name="ck_snapshot_input_uses_key",
+        ),
+        CheckConstraint(
+            "occurrence >= 0",
+            name="ck_snapshot_input_uses_occurrence",
+        ),
+        CheckConstraint(
+            "length(trim(capability_version)) BETWEEN 1 AND 255",
+            name="ck_snapshot_input_uses_capability_version",
+        ),
+        CheckConstraint(
+            "length(trim(closure_contract_version)) BETWEEN 1 AND 255",
+            name="ck_snapshot_input_uses_closure_version",
+        ),
+        CheckConstraint(
+            "(provenance_mode = 'transitional_unmanaged_v1' "
+            "AND closure_digest_scheme IS NULL AND closure_digest IS NULL) OR "
+            "(provenance_mode = 'managed_revision_v1' "
+            "AND closure_digest_scheme = 'sha256-framed-input-closure-v1' "
+            "AND length(closure_digest) = 64)",
+            name="ck_snapshot_input_uses_provenance_evidence",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "project_id"],
+            [
+                "snapshot_input_bindings.snapshot_id",
+                "snapshot_input_bindings.project_id",
+            ],
+            name="fk_snapshot_input_uses_binding",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "snapshot_id",
+            "input_use_key",
+            "occurrence",
+            name="uq_snapshot_input_uses_identity",
+        ),
+        UniqueConstraint(
+            "snapshot_id",
+            "ordinal",
+            "project_id",
+            name="uq_snapshot_input_uses_project",
+        ),
+        Index(
+            "ix_snapshot_input_uses_key",
+            "input_use_key",
+            "capability_version",
+            "snapshot_id",
+        ),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    input_use_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    occurrence: Mapped[int] = mapped_column(Integer, nullable=False)
+    capability_version: Mapped[str] = mapped_column(String(255), nullable=False)
+    closure_contract_version: Mapped[str] = mapped_column(String(255), nullable=False)
+    provenance_mode: Mapped[str] = mapped_column(String(40), nullable=False)
+    closure_digest_scheme: Mapped[str | None] = mapped_column(String(64))
+    closure_digest: Mapped[str | None] = mapped_column(String(64))
+
+
+class SnapshotInputMemberRow(Base):
+    __tablename__ = "snapshot_input_members"
+    __table_args__ = (
+        CheckConstraint(
+            "use_ordinal >= 0 AND member_ordinal >= 0",
+            name="ck_snapshot_input_members_ordinals",
+        ),
+        CheckConstraint(
+            "length(trim(logical_member_key)) BETWEEN 1 AND 255",
+            name="ck_snapshot_input_members_member_key",
+        ),
+        CheckConstraint(
+            "length(revision_digest) = 64",
+            name="ck_snapshot_input_members_revision_digest_length",
+        ),
+        CheckConstraint(
+            "size_bytes >= 0",
+            name="ck_snapshot_input_members_nonnegative_size",
+        ),
+        CheckConstraint(
+            "length(content_sha256) = 64",
+            name="ck_snapshot_input_members_content_sha256_length",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "use_ordinal", "project_id"],
+            [
+                "snapshot_input_uses.snapshot_id",
+                "snapshot_input_uses.ordinal",
+                "snapshot_input_uses.project_id",
+            ],
+            name="fk_snapshot_input_members_use",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "project_id",
+                "input_file_id",
+                "input_file_revision_id",
+                "revision_digest",
+                "size_bytes",
+                "content_sha256",
+            ],
+            [
+                "input_file_revisions.project_id",
+                "input_file_revisions.input_file_id",
+                "input_file_revisions.input_file_revision_id",
+                "input_file_revisions.digest",
+                "input_file_revisions.size_bytes",
+                "input_file_revisions.content_sha256",
+            ],
+            name="fk_snapshot_input_members_revision",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "snapshot_id",
+            "use_ordinal",
+            "logical_member_key",
+            name="uq_snapshot_input_members_member_key",
+        ),
+        UniqueConstraint(
+            "snapshot_id",
+            "use_ordinal",
+            "input_file_revision_id",
+            name="uq_snapshot_input_members_revision",
+        ),
+        Index(
+            "ix_snapshot_input_members_revision",
+            "input_file_revision_id",
+            "snapshot_id",
+        ),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    use_ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    member_ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    logical_member_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    input_file_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    input_file_revision_id: Mapped[str] = mapped_column(String(38), nullable=False)
+    revision_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class RunInputBindingRow(Base):
+    __tablename__ = "run_input_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "length(trim(workflow_id)) >= 1",
+            name="ck_run_input_bindings_workflow_id",
+        ),
+        CheckConstraint(
+            "adapter_contract_version IS NULL "
+            "OR length(trim(adapter_contract_version)) BETWEEN 1 AND 255",
+            name="ck_run_input_bindings_adapter_contract_version",
+        ),
+        CheckConstraint(
+            "binding_mode IN ('compatibility_unresolved_v1', 'declared_input_uses_v1')",
+            name="ck_run_input_bindings_mode",
+        ),
+        CheckConstraint(
+            "binding_mode = 'compatibility_unresolved_v1' "
+            "OR adapter_contract_version IS NOT NULL",
+            name="ck_run_input_bindings_declared_adapter_version",
+        ),
+        CheckConstraint(
+            "length(workflow_inputs_digest) = 64",
+            name="ck_run_input_bindings_workflow_digest_length",
+        ),
+        CheckConstraint(
+            "length(project_sample_binding_digest) = 64",
+            name="ck_run_input_bindings_project_sample_digest_length",
+        ),
+        CheckConstraint(
+            "binding_digest_scheme = 'sha256-framed-input-use-binding-envelope-v1'",
+            name="ck_run_input_bindings_digest_scheme",
+        ),
+        CheckConstraint(
+            "length(binding_digest) = 64",
+            name="ck_run_input_bindings_digest_length",
+        ),
+        ForeignKeyConstraint(
+            [
+                "run_id",
+                "project_id",
+                "project_sample_binding_digest",
+            ],
+            [
+                "run_project_bindings.run_id",
+                "run_project_bindings.project_id",
+                "run_project_bindings.binding_digest",
+            ],
+            name="fk_run_input_bindings_project_binding",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "run_id",
+            "project_id",
+            name="uq_run_input_bindings_project",
+        ),
+        Index(
+            "ix_run_input_bindings_project",
+            "project_id",
+            "created_at",
+            "run_id",
+        ),
+    )
+
+    run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workflow_id: Mapped[str] = mapped_column(Text, nullable=False)
+    adapter_contract_version: Mapped[str | None] = mapped_column(String(255))
+    binding_mode: Mapped[str] = mapped_column(String(40), nullable=False)
+    workflow_inputs_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    project_sample_binding_digest: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    binding_digest_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    binding_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class RunInputUseRow(Base):
+    __tablename__ = "run_input_uses"
+    __table_args__ = (
+        CheckConstraint("ordinal >= 0", name="ck_run_input_uses_ordinal"),
+        CheckConstraint(
+            "length(trim(input_use_key)) BETWEEN 1 AND 255",
+            name="ck_run_input_uses_key",
+        ),
+        CheckConstraint(
+            "occurrence >= 0",
+            name="ck_run_input_uses_occurrence",
+        ),
+        CheckConstraint(
+            "length(trim(capability_version)) BETWEEN 1 AND 255",
+            name="ck_run_input_uses_capability_version",
+        ),
+        CheckConstraint(
+            "length(trim(closure_contract_version)) BETWEEN 1 AND 255",
+            name="ck_run_input_uses_closure_version",
+        ),
+        CheckConstraint(
+            "(provenance_mode = 'transitional_unmanaged_v1' "
+            "AND closure_digest_scheme IS NULL AND closure_digest IS NULL) OR "
+            "(provenance_mode = 'managed_revision_v1' "
+            "AND closure_digest_scheme = 'sha256-framed-input-closure-v1' "
+            "AND length(closure_digest) = 64)",
+            name="ck_run_input_uses_provenance_evidence",
+        ),
+        ForeignKeyConstraint(
+            ["run_id", "project_id"],
+            [
+                "run_input_bindings.run_id",
+                "run_input_bindings.project_id",
+            ],
+            name="fk_run_input_uses_binding",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "run_id",
+            "input_use_key",
+            "occurrence",
+            name="uq_run_input_uses_identity",
+        ),
+        UniqueConstraint(
+            "run_id",
+            "ordinal",
+            "project_id",
+            name="uq_run_input_uses_project",
+        ),
+        Index(
+            "ix_run_input_uses_key",
+            "input_use_key",
+            "capability_version",
+            "run_id",
+        ),
+    )
+
+    run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    input_use_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    occurrence: Mapped[int] = mapped_column(Integer, nullable=False)
+    capability_version: Mapped[str] = mapped_column(String(255), nullable=False)
+    closure_contract_version: Mapped[str] = mapped_column(String(255), nullable=False)
+    provenance_mode: Mapped[str] = mapped_column(String(40), nullable=False)
+    closure_digest_scheme: Mapped[str | None] = mapped_column(String(64))
+    closure_digest: Mapped[str | None] = mapped_column(String(64))
+
+
+class RunInputMemberRow(Base):
+    __tablename__ = "run_input_members"
+    __table_args__ = (
+        CheckConstraint(
+            "use_ordinal >= 0 AND member_ordinal >= 0",
+            name="ck_run_input_members_ordinals",
+        ),
+        CheckConstraint(
+            "length(trim(logical_member_key)) BETWEEN 1 AND 255",
+            name="ck_run_input_members_member_key",
+        ),
+        CheckConstraint(
+            "length(revision_digest) = 64",
+            name="ck_run_input_members_revision_digest_length",
+        ),
+        CheckConstraint(
+            "size_bytes >= 0",
+            name="ck_run_input_members_nonnegative_size",
+        ),
+        CheckConstraint(
+            "length(content_sha256) = 64",
+            name="ck_run_input_members_content_sha256_length",
+        ),
+        ForeignKeyConstraint(
+            ["run_id", "use_ordinal", "project_id"],
+            [
+                "run_input_uses.run_id",
+                "run_input_uses.ordinal",
+                "run_input_uses.project_id",
+            ],
+            name="fk_run_input_members_use",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            [
+                "project_id",
+                "input_file_id",
+                "input_file_revision_id",
+                "revision_digest",
+                "size_bytes",
+                "content_sha256",
+            ],
+            [
+                "input_file_revisions.project_id",
+                "input_file_revisions.input_file_id",
+                "input_file_revisions.input_file_revision_id",
+                "input_file_revisions.digest",
+                "input_file_revisions.size_bytes",
+                "input_file_revisions.content_sha256",
+            ],
+            name="fk_run_input_members_revision",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "run_id",
+            "use_ordinal",
+            "logical_member_key",
+            name="uq_run_input_members_member_key",
+        ),
+        UniqueConstraint(
+            "run_id",
+            "use_ordinal",
+            "input_file_revision_id",
+            name="uq_run_input_members_revision",
+        ),
+        Index(
+            "ix_run_input_members_revision",
+            "input_file_revision_id",
+            "run_id",
+        ),
+    )
+
+    run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    use_ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    member_ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    logical_member_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    input_file_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    input_file_revision_id: Mapped[str] = mapped_column(String(38), nullable=False)
+    revision_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
 class RunRow(Base):

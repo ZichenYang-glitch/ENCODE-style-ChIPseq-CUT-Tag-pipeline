@@ -17,6 +17,13 @@ from encode_pipeline.platform.adapters import (
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.data_registry import ProjectSampleSelection
+from encode_pipeline.platform.input_registry import InputFileRevisionSelection
+from encode_pipeline.platform.input_registry import (
+    AdapterInputUseContract,
+    InputProvenanceMode,
+    InputUseBindingPlan,
+    InputUseDeclaration,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.services.run_repositories import InMemoryRunRepository
@@ -198,6 +205,312 @@ def test_successful_validation_passes_project_sample_selection_to_repository() -
 
     assert result.is_success
     assert observed == [selection]
+
+
+def test_input_revision_selection_requires_exact_adapter_input_use_contract() -> None:
+    service, _, repository, _ = _services()
+
+    result = service.validate(
+        "workflow-a",
+        WorkflowInputs(config={}),
+        input_file_revision_selections=(
+            InputFileRevisionSelection(
+                input_use_key="primary_reads",
+                occurrence=0,
+                input_file_revision_ids=("inpfr_33333333333333333333333333333333",),
+            ),
+        ),
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "INPUT_USE_CAPABILITY_UNAVAILABLE"
+    with pytest.raises(KeyError):
+        repository.get_validated_input_snapshot(
+            "vsnap_0123456789abcdef0123456789abcdef"
+        )
+
+
+def test_adapter_declared_transitional_use_is_planned_without_path_inference() -> None:
+    class TransitionalAdapter(FakeAdapter):
+        def declare_input_uses(
+            self,
+            inputs: WorkflowInputs,
+            validated: object,
+        ) -> Result[AdapterInputUseContract]:
+            assert validated == {"accepted": True}
+            return Result.success(
+                AdapterInputUseContract(
+                    adapter_contract_version="workflow-a-inputs-v1",
+                    declarations=(
+                        InputUseDeclaration(
+                            key="private-execution-closure",
+                            occurrence=0,
+                            capability_version="trusted-local-v1",
+                            closure_contract_version="private_closure_v1",
+                            allowed_provenance_modes=(
+                                InputProvenanceMode.TRANSITIONAL_UNMANAGED_V1,
+                            ),
+                        ),
+                    ),
+                    allows_mixed=False,
+                )
+            )
+
+    service, _, repository, _ = _services(adapter=TransitionalAdapter())
+    observed: list[InputUseBindingPlan | None] = []
+    original = repository.create_validated_input_snapshot
+
+    def record_plan(
+        snapshot,
+        *,
+        project_sample_selection=None,
+        input_use_binding_plan=None,
+    ):
+        observed.append(input_use_binding_plan)
+        return original(snapshot)
+
+    repository.create_validated_input_snapshot = record_plan  # type: ignore[method-assign]
+
+    result = service.validate(
+        "workflow-a",
+        WorkflowInputs(
+            config={"private_path": "/operator/adapter-owned"},
+        ),
+        project_sample_selection=ProjectSampleSelection(
+            project_id="prj_11111111111111111111111111111111",
+            sample_revision_ids=("smpr_22222222222222222222222222222222",),
+        ),
+    )
+
+    assert result.is_success
+    assert len(observed) == 1
+    assert observed[0] is not None
+    assert observed[0].input_uses[0].provenance_mode is (
+        InputProvenanceMode.TRANSITIONAL_UNMANAGED_V1
+    )
+    assert observed[0].input_uses[0].input_file_revision_ids == ()
+
+
+@pytest.mark.parametrize(
+    "declaration_behavior",
+    ("exception", "malformed", "failure", "wrong_value"),
+)
+def test_input_use_declaration_boundary_is_stable_and_redacted(
+    declaration_behavior: str,
+) -> None:
+    private_detail = "/operator/private/input-use-contract"
+
+    class BrokenDeclaringAdapter(FakeAdapter):
+        def declare_input_uses(
+            self,
+            inputs: WorkflowInputs,
+            validated: object,
+        ) -> object:
+            if declaration_behavior == "exception":
+                raise RuntimeError(private_detail)
+            if declaration_behavior == "malformed":
+                return object()
+            if declaration_behavior == "failure":
+                return Result.failure(
+                    [
+                        Issue(
+                            code="PRIVATE_ADAPTER_FAILURE",
+                            message=private_detail,
+                            technical_message=private_detail,
+                        )
+                    ]
+                )
+            return Result.success({"private_path": private_detail})
+
+    service, _, repository, provider = _services(adapter=BrokenDeclaringAdapter())
+
+    result = service.validate(
+        "workflow-a",
+        WorkflowInputs(config={"legacy_path": "/trusted/local/input"}),
+        project_sample_selection=ProjectSampleSelection(
+            project_id="prj_11111111111111111111111111111111",
+            sample_revision_ids=("smpr_22222222222222222222222222222222",),
+        ),
+    )
+
+    assert result.is_failure
+    assert [issue.code for issue in result.issues] == [
+        "INPUT_USE_CAPABILITY_UNAVAILABLE"
+    ]
+    assert private_detail not in str(result.issues[0].to_dict())
+    assert provider.calls == 1
+    with pytest.raises(KeyError):
+        repository.get_validated_input_snapshot(
+            "vsnap_0123456789abcdef0123456789abcdef"
+        )
+
+
+def test_managed_selection_fails_closed_without_scientific_validator() -> None:
+    class DeclaringOnlyAdapter(FakeAdapter):
+        def declare_input_uses(
+            self,
+            inputs: WorkflowInputs,
+            validated: object,
+        ) -> Result[AdapterInputUseContract]:
+            return Result.success(
+                AdapterInputUseContract(
+                    adapter_contract_version="workflow-a-inputs-v1",
+                    declarations=(
+                        InputUseDeclaration(
+                            key="primary_reads",
+                            occurrence=0,
+                            capability_version="regular-file-v1",
+                            closure_contract_version="regular_file_v1",
+                            allowed_provenance_modes=(
+                                InputProvenanceMode.MANAGED_REVISION_V1,
+                            ),
+                        ),
+                    ),
+                    allows_mixed=False,
+                )
+            )
+
+    service, _, repository, _ = _services(adapter=DeclaringOnlyAdapter())
+
+    result = service.validate(
+        "workflow-a",
+        WorkflowInputs(config={"legacy_path": "/trusted/local/reads.fastq.gz"}),
+        project_sample_selection=ProjectSampleSelection(
+            project_id="prj_11111111111111111111111111111111",
+            sample_revision_ids=("smpr_22222222222222222222222222222222",),
+        ),
+        input_file_revision_selections=(
+            InputFileRevisionSelection(
+                input_use_key="primary_reads",
+                occurrence=0,
+                input_file_revision_ids=("inpfr_33333333333333333333333333333333",),
+            ),
+        ),
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "INPUT_USE_CAPABILITY_UNAVAILABLE"
+    with pytest.raises(KeyError):
+        repository.get_validated_input_snapshot(
+            "vsnap_0123456789abcdef0123456789abcdef"
+        )
+
+
+def test_managed_selection_is_not_ignored_when_execution_is_unavailable() -> None:
+    class UnavailableDeclaringAdapter(FakeAdapter):
+        def __init__(self) -> None:
+            super().__init__()
+            self.execution_status = "not_configured"
+
+        def declare_input_uses(
+            self,
+            inputs: WorkflowInputs,
+            validated: object,
+        ) -> Result[AdapterInputUseContract]:
+            raise AssertionError(
+                "unqualified managed selection must fail before declaration"
+            )
+
+    adapter = UnavailableDeclaringAdapter()
+    service, _, repository, provider = _services(adapter=adapter)
+
+    result = service.validate(
+        "workflow-a",
+        WorkflowInputs(config={"legacy_path": "/trusted/local/reads.fastq.gz"}),
+        project_sample_selection=ProjectSampleSelection(
+            project_id="prj_11111111111111111111111111111111",
+            sample_revision_ids=("smpr_22222222222222222222222222222222",),
+        ),
+        input_file_revision_selections=(
+            InputFileRevisionSelection(
+                input_use_key="primary_reads",
+                occurrence=0,
+                input_file_revision_ids=("inpfr_33333333333333333333333333333333",),
+            ),
+        ),
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "INPUT_USE_CAPABILITY_UNAVAILABLE"
+    assert adapter.calls == 0
+    assert provider.calls == 0
+    with pytest.raises(KeyError):
+        repository.get_validated_input_snapshot(
+            "vsnap_0123456789abcdef0123456789abcdef"
+        )
+
+
+@pytest.mark.parametrize("include_legacy_path", (False, True))
+def test_managed_selection_is_unavailable_until_execution_handoff_is_qualified(
+    include_legacy_path: bool,
+) -> None:
+    class ManagedAdapter(FakeAdapter):
+        managed_validation_calls = 0
+
+        def declare_input_uses(
+            self,
+            inputs: WorkflowInputs,
+            validated: object,
+        ) -> Result[AdapterInputUseContract]:
+            return Result.success(
+                AdapterInputUseContract(
+                    adapter_contract_version="workflow-a-inputs-v1",
+                    declarations=(
+                        InputUseDeclaration(
+                            key="primary_reads",
+                            occurrence=0,
+                            capability_version="regular-file-v1",
+                            closure_contract_version="regular_file_v1",
+                            allowed_provenance_modes=(
+                                InputProvenanceMode.MANAGED_REVISION_V1,
+                            ),
+                        ),
+                    ),
+                    allows_mixed=False,
+                )
+            )
+
+        def validate_managed_input_uses(
+            self,
+            inputs: WorkflowInputs,
+            binding: object,
+        ) -> Result[object]:
+            self.managed_validation_calls += 1
+            return Result.success({"scientifically_valid": True})
+
+    adapter = ManagedAdapter()
+    service, _, repository, _ = _services(adapter=adapter)
+    inputs = WorkflowInputs(
+        config=(
+            {"legacy_path": "/trusted/local/reads.fastq.gz"}
+            if include_legacy_path
+            else {"assay": "test"}
+        )
+    )
+
+    result = service.validate(
+        "workflow-a",
+        inputs,
+        project_sample_selection=ProjectSampleSelection(
+            project_id="prj_11111111111111111111111111111111",
+            sample_revision_ids=("smpr_22222222222222222222222222222222",),
+        ),
+        input_file_revision_selections=(
+            InputFileRevisionSelection(
+                input_use_key="primary_reads",
+                occurrence=0,
+                input_file_revision_ids=("inpfr_33333333333333333333333333333333",),
+            ),
+        ),
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "INPUT_USE_CAPABILITY_UNAVAILABLE"
+    assert adapter.managed_validation_calls == 0
+    with pytest.raises(KeyError):
+        repository.get_validated_input_snapshot(
+            "vsnap_0123456789abcdef0123456789abcdef"
+        )
 
 
 def test_encode_snapshot_retains_submitted_semantic_config_without_engine_aliases(

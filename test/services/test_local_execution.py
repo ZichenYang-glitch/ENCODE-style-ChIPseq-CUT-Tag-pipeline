@@ -91,7 +91,22 @@ class ControlledRunner(ProcessRunner):
         )
 
 
-def _prepared_service(tmp_path: Path, runner: ProcessRunner):
+class ControlledManagedInputVerifier:
+    def __init__(self, result: Result[None] | None = None) -> None:
+        self.result = result if result is not None else Result.success(None)
+        self.calls: list[str] = []
+
+    def verify_run(self, run_id: str) -> Result[None]:
+        self.calls.append(run_id)
+        return self.result
+
+
+def _prepared_service(
+    tmp_path: Path,
+    runner: ProcessRunner,
+    *,
+    managed_input_verifier: ControlledManagedInputVerifier | None = None,
+):
     registry = create_default_workflow_registry()
     run_service = RunService(registry, id_factory=lambda: "run-1")
     samples = tmp_path / "empty-samples.tsv"
@@ -130,6 +145,11 @@ def _prepared_service(tmp_path: Path, runner: ProcessRunner):
         workspace_planner=workspace_planner,
         command_builder=command_builder,
         local_run_driver=driver,
+        managed_input_verifier=(
+            managed_input_verifier
+            if managed_input_verifier is not None
+            else ControlledManagedInputVerifier()
+        ),
     )
     return execution_service, run_service, workspace_dir
 
@@ -265,6 +285,41 @@ def test_local_execution_rejects_changed_preflight_workspace(tmp_path):
     record = run_service.get_run("run-1")
     assert record.status is RunStatus.FAILED
     assert record.error.context == {"reason_code": "LOCAL_EXECUTION_WORKSPACE_INVALID"}
+
+
+def test_local_execution_rejects_unqualified_managed_execution_before_process(
+    tmp_path,
+) -> None:
+    runner = ControlledRunner()
+    verifier = ControlledManagedInputVerifier(
+        Result.failure(
+            [
+                Issue(
+                    code="MANAGED_INPUT_EXECUTION_UNAVAILABLE",
+                    message="Managed input execution handoff is not qualified.",
+                    source="input_registry",
+                    path="input_binding",
+                )
+            ]
+        )
+    )
+    service, run_service, _workspace = _prepared_service(
+        tmp_path,
+        runner,
+        managed_input_verifier=verifier,
+    )
+
+    result = service.execute("run-1")
+
+    assert result.is_failure
+    assert verifier.calls == ["run-1"]
+    assert runner.specs == []
+    record = run_service.get_run("run-1")
+    assert record.status is RunStatus.FAILED
+    assert record.error is not None
+    assert record.error.context == {
+        "reason_code": "MANAGED_INPUT_EXECUTION_UNAVAILABLE"
+    }
 
 
 def test_local_execution_does_not_start_process_when_queued_cancel_wins(

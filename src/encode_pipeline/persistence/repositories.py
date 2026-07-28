@@ -13,6 +13,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from encode_pipeline.persistence.models import (
     ProjectRow,
+    RunInputBindingRow,
+    RunInputMemberRow,
+    RunInputUseRow,
     RunArtifactRow,
     RunEventRow,
     RunExecutionAssignmentRow,
@@ -26,8 +29,14 @@ from encode_pipeline.persistence.models import (
     RunWorkflowBuildIdentityRow,
     SampleRevisionRow,
     SnapshotProjectBindingRow,
+    SnapshotInputBindingRow,
+    SnapshotInputMemberRow,
+    SnapshotInputUseRow,
     SnapshotSampleRevisionRow,
     ValidatedInputSnapshotRow,
+)
+from encode_pipeline.persistence.input_registry import (
+    resolve_input_use_binding_plan_in_session,
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.data_registry import (
@@ -47,6 +56,15 @@ from encode_pipeline.platform.execution import (
     RunExecutionClaim,
     RunExecutionOwnership,
     RunExecutionStopAcknowledgement,
+)
+from encode_pipeline.platform.input_registry import (
+    InputBindingContractMode,
+    InputFileRevisionBindingRef,
+    InputProvenanceMode,
+    InputUseBinding,
+    InputUseBindingEnvelope,
+    InputUseBindingPlan,
+    build_compatibility_input_binding,
 )
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.result_generations import (
@@ -74,6 +92,7 @@ from encode_pipeline.platform.snapshots import (
 )
 from encode_pipeline.services.run_repositories import (
     ConcurrentRunUpdateError,
+    InputBindingSelectionError,
     ProjectSampleSelectionError,
     ResultGenerationChangedError,
     RunEventDraft,
@@ -118,11 +137,25 @@ class SqlAlchemyRunRepository:
                     session.add(_run_row(record))
                     session.flush()
                     session.add(RunResultStateRow(run_id=record.run_id))
+                    binding = build_legacy_project_sample_binding(
+                        _legacy_run_inputs_digest(record)
+                    )
                     _add_run_data_binding(
                         session,
                         record.run_id,
-                        build_legacy_project_sample_binding(
-                            _legacy_run_inputs_digest(record)
+                        binding,
+                        created_at=record.created_at,
+                    )
+                    session.flush()
+                    _add_run_input_binding(
+                        session,
+                        record.run_id,
+                        build_compatibility_input_binding(
+                            project_id=binding.project_id,
+                            project_sample_binding_digest=binding.digest,
+                            workflow_id=record.workflow_id,
+                            adapter_contract_version=None,
+                            workflow_inputs_digest=binding.workflow_inputs_digest,
                         ),
                         created_at=record.created_at,
                     )
@@ -136,10 +169,23 @@ class SqlAlchemyRunRepository:
         snapshot: ValidatedInputSnapshot,
         *,
         project_sample_selection: ProjectSampleSelection | None = None,
+        input_use_binding_plan: InputUseBindingPlan | None = None,
     ) -> ValidatedInputSnapshot:
         validated = _validated_input_snapshot_from_row(
             _validated_input_snapshot_row(snapshot)
         )
+        if input_use_binding_plan is not None:
+            if project_sample_selection is None:
+                raise InputBindingSelectionError(
+                    "managed input selection requires an exact Project binding"
+                )
+            if (
+                input_use_binding_plan.project_id != project_sample_selection.project_id
+                or input_use_binding_plan.workflow_id != validated.workflow_id
+            ):
+                raise InputBindingSelectionError(
+                    "input-use plan does not match the validation scope"
+                )
         try:
             with self._lock, self._session_factory.begin() as session:
                 _begin_write(session)
@@ -167,6 +213,35 @@ class SqlAlchemyRunRepository:
                     created_at=validated.validated_at,
                 )
                 session.flush()
+                if input_use_binding_plan is None:
+                    input_binding = build_compatibility_input_binding(
+                        project_id=binding.project_id,
+                        project_sample_binding_digest=binding.digest,
+                        workflow_id=validated.workflow_id,
+                        adapter_contract_version=None,
+                        workflow_inputs_digest=validated.payload_digest,
+                    )
+                else:
+                    try:
+                        input_binding = resolve_input_use_binding_plan_in_session(
+                            session,
+                            input_use_binding_plan,
+                            project_sample_binding_digest=binding.digest,
+                            workflow_inputs_digest=validated.payload_digest,
+                        )
+                    except (KeyError, ValueError) as exc:
+                        raise InputBindingSelectionError(
+                            "input-use revision selection is not eligible"
+                        ) from exc
+                _add_snapshot_input_binding(
+                    session,
+                    validated.snapshot_id,
+                    input_binding,
+                    created_at=validated.validated_at,
+                )
+                session.flush()
+        except InputBindingSelectionError:
+            raise
         except IntegrityError as exc:
             raise ValueError(
                 f"Duplicate validated snapshot ID: {validated.snapshot_id!r}"
@@ -197,6 +272,27 @@ class SqlAlchemyRunRepository:
                 expected_workflow_inputs_digest=snapshot_row.payload_digest,
             )
 
+    def get_validated_input_use_binding(
+        self,
+        snapshot_id: str,
+    ) -> InputUseBindingEnvelope:
+        with self._session_factory() as session:
+            snapshot_row = session.get(ValidatedInputSnapshotRow, snapshot_id)
+            if snapshot_row is None:
+                raise KeyError(snapshot_id)
+            data_binding = _snapshot_data_binding_from_rows(
+                session,
+                snapshot_id,
+                expected_workflow_inputs_digest=snapshot_row.payload_digest,
+            )
+            return _snapshot_input_binding_from_rows(
+                session,
+                snapshot_id,
+                expected_data_binding=data_binding,
+                expected_workflow_id=snapshot_row.workflow_id,
+                expected_workflow_inputs_digest=snapshot_row.payload_digest,
+            )
+
     def consume_validated_input_snapshot(
         self,
         snapshot_id: str,
@@ -217,6 +313,13 @@ class SqlAlchemyRunRepository:
                 snapshot_binding = _snapshot_data_binding_from_rows(
                     session,
                     snapshot_id,
+                    expected_workflow_inputs_digest=snapshot.payload_digest,
+                )
+                snapshot_input_binding = _snapshot_input_binding_from_rows(
+                    session,
+                    snapshot_id,
+                    expected_data_binding=snapshot_binding,
+                    expected_workflow_id=snapshot.workflow_id,
                     expected_workflow_inputs_digest=snapshot.payload_digest,
                 )
                 if snapshot.workflow_id != workflow_id:
@@ -245,11 +348,20 @@ class SqlAlchemyRunRepository:
                             session,
                             current.run_id,
                         )
+                        run_input_binding = _run_input_binding_from_rows(
+                            session,
+                            current.run_id,
+                            expected_data_binding=run_binding,
+                            expected_workflow_id=current.workflow_id,
+                        )
                     except (KeyError, ValueError) as exc:
                         raise ValidatedSnapshotReplayConflictError(
                             "validated snapshot replay binding evidence is invalid"
                         ) from exc
-                    if run_binding != snapshot_binding:
+                    if (
+                        run_binding != snapshot_binding
+                        or run_input_binding != snapshot_input_binding
+                    ):
                         raise ValidatedSnapshotReplayConflictError(
                             "validated snapshot replay binding evidence differs"
                         )
@@ -269,6 +381,13 @@ class SqlAlchemyRunRepository:
                     session,
                     record.run_id,
                     snapshot_binding,
+                    created_at=consumed_at,
+                )
+                session.flush()
+                _add_run_input_binding(
+                    session,
+                    record.run_id,
+                    snapshot_input_binding,
                     created_at=consumed_at,
                 )
                 session.flush()
@@ -295,6 +414,19 @@ class SqlAlchemyRunRepository:
             if session.scalar(select(RunRow.id).where(RunRow.run_id == run_id)) is None:
                 raise KeyError(run_id)
             return _run_data_binding_from_rows(session, run_id)
+
+    def get_run_input_use_binding(self, run_id: str) -> InputUseBindingEnvelope:
+        with self._session_factory() as session:
+            run_row = session.scalar(select(RunRow).where(RunRow.run_id == run_id))
+            if run_row is None:
+                raise KeyError(run_id)
+            data_binding = _run_data_binding_from_rows(session, run_id)
+            return _run_input_binding_from_rows(
+                session,
+                run_id,
+                expected_data_binding=data_binding,
+                expected_workflow_id=run_row.workflow_id,
+            )
 
     def list_runs(self) -> tuple[RunRecord, ...]:
         with self._session_factory() as session:
@@ -1765,6 +1897,120 @@ def _add_run_data_binding(
         )
 
 
+def _add_snapshot_input_binding(
+    session: Session,
+    snapshot_id: str,
+    binding: InputUseBindingEnvelope,
+    *,
+    created_at: datetime,
+) -> None:
+    if not isinstance(binding, InputUseBindingEnvelope):
+        raise ValueError("binding must be an InputUseBindingEnvelope")
+    session.add(
+        SnapshotInputBindingRow(
+            snapshot_id=snapshot_id,
+            project_id=binding.project_id,
+            workflow_id=binding.workflow_id,
+            adapter_contract_version=binding.adapter_contract_version,
+            binding_mode=InputBindingContractMode(binding.contract_mode).value,
+            workflow_inputs_digest=binding.workflow_inputs_digest,
+            project_sample_binding_digest=binding.project_sample_binding_digest,
+            binding_digest_scheme=binding.digest_scheme,
+            binding_digest=binding.digest,
+            created_at=created_at,
+        )
+    )
+    session.flush()
+    for use_ordinal, input_use in enumerate(binding.input_uses):
+        session.add(
+            SnapshotInputUseRow(
+                snapshot_id=snapshot_id,
+                project_id=binding.project_id,
+                ordinal=use_ordinal,
+                input_use_key=input_use.key,
+                occurrence=input_use.occurrence,
+                capability_version=input_use.capability_version,
+                closure_contract_version=input_use.closure_contract_version,
+                provenance_mode=InputProvenanceMode(input_use.provenance_mode).value,
+                closure_digest_scheme=input_use.closure_digest_scheme,
+                closure_digest=input_use.closure_digest,
+            )
+        )
+        session.flush()
+        for member_ordinal, member in enumerate(input_use.members):
+            session.add(
+                SnapshotInputMemberRow(
+                    snapshot_id=snapshot_id,
+                    project_id=binding.project_id,
+                    use_ordinal=use_ordinal,
+                    member_ordinal=member_ordinal,
+                    logical_member_key=member.logical_member_key,
+                    input_file_id=member.input_file_id,
+                    input_file_revision_id=member.input_file_revision_id,
+                    revision_digest=member.revision_digest,
+                    size_bytes=member.size_bytes,
+                    content_sha256=member.content_sha256,
+                )
+            )
+
+
+def _add_run_input_binding(
+    session: Session,
+    run_id: str,
+    binding: InputUseBindingEnvelope,
+    *,
+    created_at: datetime,
+) -> None:
+    if not isinstance(binding, InputUseBindingEnvelope):
+        raise ValueError("binding must be an InputUseBindingEnvelope")
+    session.add(
+        RunInputBindingRow(
+            run_id=run_id,
+            project_id=binding.project_id,
+            workflow_id=binding.workflow_id,
+            adapter_contract_version=binding.adapter_contract_version,
+            binding_mode=InputBindingContractMode(binding.contract_mode).value,
+            workflow_inputs_digest=binding.workflow_inputs_digest,
+            project_sample_binding_digest=binding.project_sample_binding_digest,
+            binding_digest_scheme=binding.digest_scheme,
+            binding_digest=binding.digest,
+            created_at=created_at,
+        )
+    )
+    session.flush()
+    for use_ordinal, input_use in enumerate(binding.input_uses):
+        session.add(
+            RunInputUseRow(
+                run_id=run_id,
+                project_id=binding.project_id,
+                ordinal=use_ordinal,
+                input_use_key=input_use.key,
+                occurrence=input_use.occurrence,
+                capability_version=input_use.capability_version,
+                closure_contract_version=input_use.closure_contract_version,
+                provenance_mode=InputProvenanceMode(input_use.provenance_mode).value,
+                closure_digest_scheme=input_use.closure_digest_scheme,
+                closure_digest=input_use.closure_digest,
+            )
+        )
+        session.flush()
+        for member_ordinal, member in enumerate(input_use.members):
+            session.add(
+                RunInputMemberRow(
+                    run_id=run_id,
+                    project_id=binding.project_id,
+                    use_ordinal=use_ordinal,
+                    member_ordinal=member_ordinal,
+                    logical_member_key=member.logical_member_key,
+                    input_file_id=member.input_file_id,
+                    input_file_revision_id=member.input_file_revision_id,
+                    revision_digest=member.revision_digest,
+                    size_bytes=member.size_bytes,
+                    content_sha256=member.content_sha256,
+                )
+            )
+
+
 def _snapshot_data_binding_from_rows(
     session: Session,
     snapshot_id: str,
@@ -1822,6 +2068,164 @@ def _run_data_binding_from_rows(
         digest_scheme=row.binding_digest_scheme,
         digest=row.binding_digest,
         sample_revisions=refs,
+    )
+
+
+def _snapshot_input_binding_from_rows(
+    session: Session,
+    snapshot_id: str,
+    *,
+    expected_data_binding: ProjectSampleBinding,
+    expected_workflow_id: str,
+    expected_workflow_inputs_digest: str,
+) -> InputUseBindingEnvelope:
+    row = session.get(SnapshotInputBindingRow, snapshot_id)
+    if row is None:
+        raise ValueError("validated snapshot input binding evidence is missing")
+    use_rows = session.scalars(
+        select(SnapshotInputUseRow)
+        .where(SnapshotInputUseRow.snapshot_id == snapshot_id)
+        .order_by(SnapshotInputUseRow.ordinal)
+    ).all()
+    member_rows = session.scalars(
+        select(SnapshotInputMemberRow)
+        .where(SnapshotInputMemberRow.snapshot_id == snapshot_id)
+        .order_by(
+            SnapshotInputMemberRow.use_ordinal,
+            SnapshotInputMemberRow.member_ordinal,
+        )
+    ).all()
+    return _input_binding_from_rows(
+        project_id=row.project_id,
+        workflow_id=row.workflow_id,
+        adapter_contract_version=row.adapter_contract_version,
+        binding_mode=row.binding_mode,
+        workflow_inputs_digest=row.workflow_inputs_digest,
+        project_sample_binding_digest=row.project_sample_binding_digest,
+        binding_digest_scheme=row.binding_digest_scheme,
+        binding_digest=row.binding_digest,
+        use_rows=use_rows,
+        member_rows=member_rows,
+        expected_data_binding=expected_data_binding,
+        expected_workflow_id=expected_workflow_id,
+        expected_workflow_inputs_digest=expected_workflow_inputs_digest,
+    )
+
+
+def _run_input_binding_from_rows(
+    session: Session,
+    run_id: str,
+    *,
+    expected_data_binding: ProjectSampleBinding,
+    expected_workflow_id: str,
+) -> InputUseBindingEnvelope:
+    row = session.get(RunInputBindingRow, run_id)
+    if row is None:
+        raise ValueError("run input binding evidence is missing")
+    use_rows = session.scalars(
+        select(RunInputUseRow)
+        .where(RunInputUseRow.run_id == run_id)
+        .order_by(RunInputUseRow.ordinal)
+    ).all()
+    member_rows = session.scalars(
+        select(RunInputMemberRow)
+        .where(RunInputMemberRow.run_id == run_id)
+        .order_by(
+            RunInputMemberRow.use_ordinal,
+            RunInputMemberRow.member_ordinal,
+        )
+    ).all()
+    return _input_binding_from_rows(
+        project_id=row.project_id,
+        workflow_id=row.workflow_id,
+        adapter_contract_version=row.adapter_contract_version,
+        binding_mode=row.binding_mode,
+        workflow_inputs_digest=row.workflow_inputs_digest,
+        project_sample_binding_digest=row.project_sample_binding_digest,
+        binding_digest_scheme=row.binding_digest_scheme,
+        binding_digest=row.binding_digest,
+        use_rows=use_rows,
+        member_rows=member_rows,
+        expected_data_binding=expected_data_binding,
+        expected_workflow_id=expected_workflow_id,
+        expected_workflow_inputs_digest=expected_data_binding.workflow_inputs_digest,
+    )
+
+
+def _input_binding_from_rows(
+    *,
+    project_id: str,
+    workflow_id: str,
+    adapter_contract_version: str | None,
+    binding_mode: str,
+    workflow_inputs_digest: str,
+    project_sample_binding_digest: str,
+    binding_digest_scheme: str,
+    binding_digest: str,
+    use_rows: Iterable[SnapshotInputUseRow | RunInputUseRow],
+    member_rows: Iterable[SnapshotInputMemberRow | RunInputMemberRow],
+    expected_data_binding: ProjectSampleBinding,
+    expected_workflow_id: str,
+    expected_workflow_inputs_digest: str,
+) -> InputUseBindingEnvelope:
+    if (
+        project_id != expected_data_binding.project_id
+        or project_sample_binding_digest != expected_data_binding.digest
+        or workflow_id != expected_workflow_id
+        or workflow_inputs_digest != expected_workflow_inputs_digest
+    ):
+        raise ValueError("input binding scope differs from Project/Sample evidence")
+
+    normalized_uses = tuple(use_rows)
+    normalized_members = tuple(member_rows)
+    members_by_use: dict[int, list[InputFileRevisionBindingRef]] = {}
+    next_member_ordinal: dict[int, int] = {}
+    for member_row in normalized_members:
+        expected_member_ordinal = next_member_ordinal.get(member_row.use_ordinal, 0)
+        if member_row.member_ordinal != expected_member_ordinal:
+            raise ValueError("input binding member order is invalid")
+        next_member_ordinal[member_row.use_ordinal] = expected_member_ordinal + 1
+        members_by_use.setdefault(member_row.use_ordinal, []).append(
+            InputFileRevisionBindingRef(
+                logical_member_key=member_row.logical_member_key,
+                input_file_id=member_row.input_file_id,
+                input_file_revision_id=member_row.input_file_revision_id,
+                revision_digest=member_row.revision_digest,
+                size_bytes=member_row.size_bytes,
+                content_sha256=member_row.content_sha256,
+            )
+        )
+
+    input_uses: list[InputUseBinding] = []
+    for expected_ordinal, use_row in enumerate(normalized_uses):
+        if use_row.ordinal != expected_ordinal:
+            raise ValueError("input binding use order is invalid")
+        if use_row.project_id != project_id:
+            raise ValueError("input binding use Project differs")
+        input_uses.append(
+            InputUseBinding(
+                key=use_row.input_use_key,
+                occurrence=use_row.occurrence,
+                capability_version=use_row.capability_version,
+                closure_contract_version=use_row.closure_contract_version,
+                provenance_mode=use_row.provenance_mode,
+                members=tuple(members_by_use.pop(expected_ordinal, ())),
+                closure_digest_scheme=use_row.closure_digest_scheme,
+                closure_digest=use_row.closure_digest,
+            )
+        )
+    if members_by_use:
+        raise ValueError("input binding contains members for an unknown use")
+    return InputUseBindingEnvelope(
+        project_id=project_id,
+        project_sample_binding_digest=project_sample_binding_digest,
+        workflow_id=workflow_id,
+        adapter_contract_version=adapter_contract_version,
+        workflow_inputs_digest=workflow_inputs_digest,
+        contract_mode=binding_mode,
+        input_uses=tuple(input_uses),
+        digest_scheme=binding_digest_scheme,
+        digest=binding_digest,
     )
 
 

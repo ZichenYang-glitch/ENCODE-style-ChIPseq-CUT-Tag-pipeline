@@ -23,6 +23,13 @@ from encode_pipeline.platform.data_registry import (
     build_sample_revision_payload_digest,
     canonical_sample_revision_payload,
 )
+from encode_pipeline.platform.input_registry import (
+    AdapterInputUseContract,
+    InputFileRevisionSelection,
+    InputProvenanceMode,
+    InputUseDeclaration,
+    build_input_use_binding_plan,
+)
 from encode_pipeline.platform.runs import RunRecord, RunStatus
 from encode_pipeline.platform.snapshots import (
     PAYLOAD_DIGEST_SCHEME,
@@ -39,6 +46,11 @@ from encode_pipeline.services.run_repositories import (
 )
 from encode_pipeline.services.data_registry_repositories import (
     InMemoryDataRegistryRepository,
+)
+from encode_pipeline.services.input_file_access import FileObservation
+from encode_pipeline.services.input_registry import InputRegistryService
+from encode_pipeline.services.input_registry_repositories import (
+    InMemoryInputRegistryRepository,
 )
 
 
@@ -186,6 +198,106 @@ def test_unselected_snapshot_gets_explicit_unresolved_legacy_binding() -> None:
     assert binding.sample_revisions == ()
 
 
+def test_every_snapshot_gets_explicit_compatibility_input_envelope() -> None:
+    repository = InMemoryRunRepository()
+    snapshot = _snapshot()
+
+    repository.create_validated_input_snapshot(snapshot)
+
+    project_samples = repository.get_validated_input_binding(snapshot.snapshot_id)
+    inputs = repository.get_validated_input_use_binding(snapshot.snapshot_id)
+    assert inputs.project_id == project_samples.project_id
+    assert inputs.project_sample_binding_digest == project_samples.digest
+    assert inputs.workflow_id == snapshot.workflow_id
+    assert inputs.workflow_inputs_digest == snapshot.payload_digest
+    assert inputs.contract_mode.value == "compatibility_unresolved_v1"
+    assert inputs.input_uses == ()
+    assert inputs.fully_managed is False
+
+
+def test_declared_managed_input_revision_is_frozen_then_copied_after_archive() -> None:
+    data_registry = _data_registry()
+    input_repository = InMemoryInputRegistryRepository(project_repository=data_registry)
+    input_service = InputRegistryService(
+        repository=input_repository,
+        storage_pool_id_factory=lambda: "stgp_" + "7" * 32,
+        input_file_id_factory=lambda: "inpf_" + "8" * 32,
+        input_file_revision_id_factory=lambda: "inpfr_" + "9" * 32,
+        now_factory=lambda: NOW,
+    )
+    pool = input_service.create_storage_pool(
+        display_name="Approved ingress",
+        config_key="ingress-primary",
+    )
+    input_service.bind_project_storage_pool(PROJECT_ID, pool.storage_pool_id)
+    registered = input_service.register_input_file(
+        PROJECT_ID,
+        stable_key="reads-r1",
+        observation=FileObservation(
+            relative_path="reads/r1.fastq.gz",
+            size_bytes=5,
+            content_sha256="a" * 64,
+            path_fingerprint=((1, 2), (3, 4, 5, 1, 5, 6, 7)),
+        ),
+    )
+    contract = AdapterInputUseContract(
+        adapter_contract_version="workflow-a-inputs-v1",
+        declarations=(
+            InputUseDeclaration(
+                key="primary-reads",
+                occurrence=0,
+                capability_version="regular-file-v1",
+                closure_contract_version="regular_file_v1",
+                allowed_provenance_modes=(InputProvenanceMode.MANAGED_REVISION_V1,),
+            ),
+        ),
+        allows_mixed=False,
+    )
+    plan = build_input_use_binding_plan(
+        project_id=PROJECT_ID,
+        workflow_id="workflow-a",
+        contract=contract,
+        selections=(
+            InputFileRevisionSelection(
+                input_use_key="primary-reads",
+                occurrence=0,
+                input_file_revision_ids=(registered.revision.input_file_revision_id,),
+            ),
+        ),
+    )
+    repository = InMemoryRunRepository(
+        data_registry_repository=data_registry,
+        input_registry_repository=input_repository,
+    )
+    snapshot = _snapshot()
+
+    repository.create_validated_input_snapshot(
+        snapshot,
+        project_sample_selection=ProjectSampleSelection(
+            project_id=PROJECT_ID,
+            sample_revision_ids=(REVISION_A_ID,),
+        ),
+        input_use_binding_plan=plan,
+    )
+    frozen = repository.get_validated_input_use_binding(snapshot.snapshot_id)
+    input_service.archive_input_file(registered.input_file.input_file_id)
+    created = repository.consume_validated_input_snapshot(
+        snapshot.snapshot_id,
+        workflow_id="workflow-a",
+        expected_build_identity=_identity(),
+        record=_record("run-managed-input"),
+        consumed_at=NOW + timedelta(minutes=1),
+        event=_event(),
+    )
+
+    assert created.created is True
+    assert frozen.fully_managed is True
+    assert frozen.input_uses[0].members[0].input_file_revision_id == (
+        registered.revision.input_file_revision_id
+    )
+    assert repository.get_run_input_use_binding("run-managed-input") == frozen
+
+
 def test_snapshot_consumption_copies_exact_legacy_binding_to_run() -> None:
     repository = InMemoryRunRepository()
     snapshot = _snapshot()
@@ -217,6 +329,11 @@ def test_direct_compatibility_run_gets_explicit_legacy_binding() -> None:
     assert binding.binding_mode is BindingMode.LEGACY_V1
     assert binding.provenance is BindingProvenance.UNRESOLVED
     assert binding.sample_revisions == ()
+    input_binding = repository.get_run_input_use_binding(record.run_id)
+    assert input_binding.project_id == LEGACY_PROJECT_ID
+    assert input_binding.project_sample_binding_digest == binding.digest
+    assert input_binding.contract_mode.value == "compatibility_unresolved_v1"
+    assert input_binding.input_uses == ()
 
 
 def test_bound_snapshot_freezes_order_and_consumption_copies_exact_evidence() -> None:

@@ -18,6 +18,7 @@ from encode_pipeline.api.models import (
 )
 from encode_pipeline.platform.adapters import VALIDATION_CAPABILITY, WorkflowInputs
 from encode_pipeline.platform.data_registry import ProjectSampleSelection
+from encode_pipeline.platform.input_registry import InputFileRevisionSelection
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.services.validated_inputs import ValidatedInputService
@@ -173,11 +174,27 @@ def validate_workflow(
             sample_revision_ids=tuple(request_body.sample_revision_ids),
         )
     )
-    result = validation_service.validate(
-        workflow_id,
-        inputs,
-        project_sample_selection=project_sample_selection,
+    input_file_revision_selections = tuple(
+        InputFileRevisionSelection(
+            input_use_key=selection.input_use_key,
+            occurrence=selection.occurrence,
+            input_file_revision_ids=tuple(selection.input_file_revision_ids),
+        )
+        for selection in request_body.input_selections
     )
+    if input_file_revision_selections:
+        result = validation_service.validate(
+            workflow_id,
+            inputs,
+            project_sample_selection=project_sample_selection,
+            input_file_revision_selections=input_file_revision_selections,
+        )
+    else:
+        result = validation_service.validate(
+            workflow_id,
+            inputs,
+            project_sample_selection=project_sample_selection,
+        )
 
     if result.is_failure and result.issues:
         first = result.issues[0]
@@ -205,6 +222,8 @@ def validate_workflow(
             )
         status_by_code = {
             "DATA_BINDING_SELECTION_INVALID": 409,
+            "INPUT_BINDING_SELECTION_INVALID": 409,
+            "INPUT_USE_CAPABILITY_UNAVAILABLE": 409,
             "VALIDATION_WORKFLOW_BUILD_CHANGED": 409,
             "VALIDATION_WORKFLOW_BUILD_UNAVAILABLE": 503,
             "VALIDATION_WORKFLOW_SCHEMA_UNAVAILABLE": 503,
@@ -231,6 +250,9 @@ def validate_workflow(
             ValidatedInputSnapshotResponse.from_snapshot(
                 result.value,
                 validation_service.get_validated_input_binding(
+                    result.value.snapshot_id
+                ),
+                validation_service.get_validated_input_use_binding(
                     result.value.snapshot_id
                 ),
             )

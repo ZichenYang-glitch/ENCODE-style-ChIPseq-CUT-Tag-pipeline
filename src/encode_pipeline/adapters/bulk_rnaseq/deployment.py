@@ -29,11 +29,11 @@ MANAGED_DOCKER_EXECUTABLE_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE"
 MANAGED_DOCKER_SOCKET_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
 TRANSCRIPTOME_BINDING_SCHEMA_VERSION = "1.0.0"
 
-# Stage 2 changes the manifest-protected execution closure, so PR #154
-# qualification is stale. This source-owned gate is deliberately not
-# environment-configurable: an enablement candidate must set it to True,
-# regenerate the implementation manifest, and then pass the protected Gate on
-# that exact enabled HEAD before it may land.
+# The data-foundation registry stack changes the manifest-protected execution
+# closure, so PR #154 qualification is stale. This source-owned gate is
+# deliberately not environment-configurable: an enablement candidate must set
+# it to True, reconcile and regenerate the implementation manifest, and then
+# pass the protected Gate on that exact enabled HEAD before it may land.
 _DEFAULT_EXECUTION_EXACT_HEAD_QUALIFIED = False
 _COORDINATE_NAMES = (
     RUNTIME_ROOT_ENV,

@@ -7,6 +7,7 @@
  */
 import type { ValidatedInputSnapshotResponseBindingMode } from './validatedInputSnapshotResponseBindingMode';
 import type { ValidatedInputSnapshotResponseProvenance } from './validatedInputSnapshotResponseProvenance';
+import type { InputBindingResponse } from './inputBindingResponse';
 
 /**
  * Safe public projection of one server-owned validation snapshot.
@@ -40,4 +41,5 @@ export interface ValidatedInputSnapshotResponse {
    * @pattern ^[0-9a-f]{64}$
    */
   binding_digest: string;
+  input_binding: InputBindingResponse;
 }

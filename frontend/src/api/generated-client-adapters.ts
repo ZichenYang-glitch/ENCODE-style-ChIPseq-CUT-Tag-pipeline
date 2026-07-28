@@ -398,6 +398,20 @@ export function createGeneratedWorkflowClient(): WorkflowApiClient {
                 sample_revision_ids: [
                   ...projectSampleSelection.sample_revision_ids,
                 ],
+                ...(projectSampleSelection.input_selections === undefined
+                  ? {}
+                  : {
+                      input_selections:
+                        projectSampleSelection.input_selections.map(
+                          (selection) => ({
+                            input_use_key: selection.input_use_key,
+                            occurrence: selection.occurrence,
+                            input_file_revision_ids: [
+                              ...selection.input_file_revision_ids,
+                            ],
+                          }),
+                        ),
+                    }),
               }),
         };
         const response = await validateWorkflow(workflowId, request);

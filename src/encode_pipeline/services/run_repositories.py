@@ -25,6 +25,11 @@ from encode_pipeline.platform.data_registry import (
     ProjectSampleSelection,
     build_legacy_project_sample_binding,
 )
+from encode_pipeline.platform.input_registry import (
+    InputUseBindingEnvelope,
+    InputUseBindingPlan,
+    build_compatibility_input_binding,
+)
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.results import Issue
@@ -57,6 +62,10 @@ from encode_pipeline.platform.snapshots import (
 from encode_pipeline.services.data_registry_repositories import (
     DataRegistryConflictError,
     DataRegistryRepository,
+)
+from encode_pipeline.services.input_registry_repositories import (
+    InputRegistryConflictError,
+    InputRegistryRepository,
 )
 
 
@@ -101,6 +110,10 @@ class ProjectSampleSelectionError(RuntimeError):
     """Raised when exact Project/SampleRevision selection cannot be frozen."""
 
 
+class InputBindingSelectionError(RuntimeError):
+    """Raised when exact input-use revision evidence cannot be frozen."""
+
+
 @dataclass(frozen=True)
 class RunEventDraft:
     """Event data whose repository-owned identity has not been assigned yet."""
@@ -125,6 +138,7 @@ class RunRepository(Protocol):
         snapshot: ValidatedInputSnapshot,
         *,
         project_sample_selection: ProjectSampleSelection | None = None,
+        input_use_binding_plan: InputUseBindingPlan | None = None,
     ) -> ValidatedInputSnapshot: ...
 
     def get_validated_input_snapshot(
@@ -136,6 +150,11 @@ class RunRepository(Protocol):
         self,
         snapshot_id: str,
     ) -> ProjectSampleBinding: ...
+
+    def get_validated_input_use_binding(
+        self,
+        snapshot_id: str,
+    ) -> InputUseBindingEnvelope: ...
 
     def consume_validated_input_snapshot(
         self,
@@ -151,6 +170,8 @@ class RunRepository(Protocol):
     def get_run(self, run_id: str) -> RunRecord: ...
 
     def get_run_data_binding(self, run_id: str) -> ProjectSampleBinding: ...
+
+    def get_run_input_use_binding(self, run_id: str) -> InputUseBindingEnvelope: ...
 
     def list_runs(self) -> tuple[RunRecord, ...]: ...
 
@@ -403,9 +424,11 @@ class InMemoryRunRepository:
         self,
         *,
         data_registry_repository: DataRegistryRepository | None = None,
+        input_registry_repository: InputRegistryRepository | None = None,
     ) -> None:
         self._lock = RLock()
         self._data_registry_repository = data_registry_repository
+        self._input_registry_repository = input_registry_repository
         self._runs: dict[str, RunRecord] = {}
         self._events: dict[str, list[RunEvent]] = {}
         self._logs: dict[str, dict[str, list[RunLogChunk]]] = {}
@@ -418,7 +441,9 @@ class InMemoryRunRepository:
         self._workflow_build_identities: dict[str, WorkflowBuildIdentity] = {}
         self._validated_input_snapshots: dict[str, ValidatedInputSnapshot] = {}
         self._validated_input_bindings: dict[str, ProjectSampleBinding] = {}
+        self._validated_input_use_bindings: dict[str, InputUseBindingEnvelope] = {}
         self._run_data_bindings: dict[str, ProjectSampleBinding] = {}
+        self._run_input_use_bindings: dict[str, InputUseBindingEnvelope] = {}
 
     def contains_run(self, run_id: str) -> bool:
         with self._lock:
@@ -433,8 +458,18 @@ class InMemoryRunRepository:
                 _legacy_run_inputs_digest(record)
             )
             stored_binding = _data_binding_copy(binding)
+            input_binding = build_compatibility_input_binding(
+                project_id=stored_binding.project_id,
+                project_sample_binding_digest=stored_binding.digest,
+                workflow_id=record.workflow_id,
+                adapter_contract_version=None,
+                workflow_inputs_digest=stored_binding.workflow_inputs_digest,
+            )
             self._runs[record.run_id] = record
             self._run_data_bindings[record.run_id] = stored_binding
+            self._run_input_use_bindings[record.run_id] = _input_binding_copy(
+                input_binding
+            )
             self._events[record.run_id] = [created_event]
             self._logs[record.run_id] = {}
             self._artifacts[record.run_id] = {}
@@ -447,6 +482,7 @@ class InMemoryRunRepository:
         snapshot: ValidatedInputSnapshot,
         *,
         project_sample_selection: ProjectSampleSelection | None = None,
+        input_use_binding_plan: InputUseBindingPlan | None = None,
     ) -> ValidatedInputSnapshot:
         with self._lock:
             validated = _validated_snapshot_copy(snapshot)
@@ -454,6 +490,24 @@ class InMemoryRunRepository:
                 raise ValueError(
                     f"Duplicate validated snapshot ID: {validated.snapshot_id!r}"
                 )
+            if input_use_binding_plan is not None:
+                if project_sample_selection is None:
+                    raise InputBindingSelectionError(
+                        "managed input selection requires an exact Project binding"
+                    )
+                if (
+                    input_use_binding_plan.project_id
+                    != project_sample_selection.project_id
+                    or input_use_binding_plan.workflow_id != validated.workflow_id
+                ):
+                    raise InputBindingSelectionError(
+                        "input-use plan does not match the validation scope"
+                    )
+                if self._input_registry_repository is None:
+                    raise InputBindingSelectionError(
+                        "an input registry repository is required for input selection"
+                    )
+
             binding_context: AbstractContextManager[ProjectSampleBinding]
             if project_sample_selection is None:
                 binding_context = nullcontext(
@@ -471,19 +525,89 @@ class InMemoryRunRepository:
                     )
                 )
             try:
-                with binding_context as binding:
-                    stored_binding = _data_binding_copy(binding)
-                    self._validated_input_snapshots[validated.snapshot_id] = validated
-                    self._validated_input_bindings[validated.snapshot_id] = (
-                        stored_binding
+                if input_use_binding_plan is None:
+                    with binding_context as binding:
+                        stored_binding = _data_binding_copy(binding)
+                        input_binding = build_compatibility_input_binding(
+                            project_id=stored_binding.project_id,
+                            project_sample_binding_digest=stored_binding.digest,
+                            workflow_id=validated.workflow_id,
+                            adapter_contract_version=None,
+                            workflow_inputs_digest=validated.payload_digest,
+                        )
+                        self._store_validated_input_snapshot(
+                            validated,
+                            stored_binding,
+                            input_binding,
+                        )
+                else:
+                    assert project_sample_selection is not None
+                    assert self._data_registry_repository is not None
+                    assert self._input_registry_repository is not None
+                    tentative_binding = (
+                        self._data_registry_repository.resolve_project_sample_selection(
+                            project_sample_selection,
+                            workflow_inputs_digest=validated.payload_digest,
+                        )
                     )
-            except (DataRegistryConflictError, KeyError, ValueError) as exc:
+                    with self._input_registry_repository.locked_input_use_binding_plan(
+                        input_use_binding_plan,
+                        project_sample_binding_digest=tentative_binding.digest,
+                        workflow_inputs_digest=validated.payload_digest,
+                    ) as input_binding:
+                        with binding_context as binding:
+                            stored_binding = _data_binding_copy(binding)
+                            if stored_binding.digest != tentative_binding.digest:
+                                raise InputBindingSelectionError(
+                                    "Project/Sample binding changed during input resolution"
+                                )
+                            self._store_validated_input_snapshot(
+                                validated,
+                                stored_binding,
+                                input_binding,
+                            )
+            except InputBindingSelectionError:
+                raise
+            except InputRegistryConflictError as exc:
+                raise InputBindingSelectionError(
+                    "input-use revision selection is not eligible"
+                ) from exc
+            except (KeyError, ValueError) as exc:
+                if input_use_binding_plan is not None:
+                    raise InputBindingSelectionError(
+                        "input-use revision selection is not eligible"
+                    ) from exc
+                if project_sample_selection is not None:
+                    raise ProjectSampleSelectionError(
+                        "Project/SampleRevision selection is not eligible"
+                    ) from exc
+                raise
+            except DataRegistryConflictError as exc:
                 if project_sample_selection is not None:
                     raise ProjectSampleSelectionError(
                         "Project/SampleRevision selection is not eligible"
                     ) from exc
                 raise
             return _validated_snapshot_copy(validated)
+
+    def _store_validated_input_snapshot(
+        self,
+        snapshot: ValidatedInputSnapshot,
+        data_binding: ProjectSampleBinding,
+        input_binding: InputUseBindingEnvelope,
+    ) -> None:
+        if (
+            input_binding.project_id != data_binding.project_id
+            or input_binding.project_sample_binding_digest != data_binding.digest
+            or input_binding.workflow_id != snapshot.workflow_id
+            or input_binding.workflow_inputs_digest != snapshot.payload_digest
+        ):
+            raise ValueError("input binding does not match the validated snapshot")
+        self._validated_input_snapshots[snapshot.snapshot_id] = snapshot
+        self._validated_input_bindings[snapshot.snapshot_id] = data_binding
+        self._validated_input_use_bindings[snapshot.snapshot_id] = _input_binding_copy(
+            input_binding
+        )
 
     def get_validated_input_snapshot(
         self,
@@ -501,6 +625,13 @@ class InMemoryRunRepository:
         with self._lock:
             return _data_binding_copy(self._validated_input_bindings[snapshot_id])
 
+    def get_validated_input_use_binding(
+        self,
+        snapshot_id: str,
+    ) -> InputUseBindingEnvelope:
+        with self._lock:
+            return _input_binding_copy(self._validated_input_use_bindings[snapshot_id])
+
     def consume_validated_input_snapshot(
         self,
         snapshot_id: str,
@@ -517,6 +648,9 @@ class InMemoryRunRepository:
             )
             snapshot_binding = _data_binding_copy(
                 self._validated_input_bindings[snapshot_id]
+            )
+            snapshot_input_binding = _input_binding_copy(
+                self._validated_input_use_bindings[snapshot_id]
             )
             if snapshot.workflow_id != workflow_id:
                 raise KeyError(snapshot_id)
@@ -540,11 +674,17 @@ class InMemoryRunRepository:
                     run_binding = _data_binding_copy(
                         self._run_data_bindings[current.run_id]
                     )
+                    run_input_binding = _input_binding_copy(
+                        self._run_input_use_bindings[current.run_id]
+                    )
                 except (KeyError, ValueError) as exc:
                     raise ValidatedSnapshotReplayConflictError(
                         "validated snapshot replay binding evidence is invalid"
                     ) from exc
-                if run_binding != snapshot_binding:
+                if (
+                    run_binding != snapshot_binding
+                    or run_input_binding != snapshot_input_binding
+                ):
                     raise ValidatedSnapshotReplayConflictError(
                         "validated snapshot replay binding evidence differs"
                     )
@@ -559,8 +699,10 @@ class InMemoryRunRepository:
             created_event = self._make_event(record.run_id, 1, event)
             consumed = snapshot.with_consumption(record.run_id, consumed_at)
             run_binding = _data_binding_copy(snapshot_binding)
+            run_input_binding = _input_binding_copy(snapshot_input_binding)
             self._runs[record.run_id] = record
             self._run_data_bindings[record.run_id] = run_binding
+            self._run_input_use_bindings[record.run_id] = run_input_binding
             self._events[record.run_id] = [created_event]
             self._logs[record.run_id] = {}
             self._artifacts[record.run_id] = {}
@@ -576,6 +718,10 @@ class InMemoryRunRepository:
     def get_run_data_binding(self, run_id: str) -> ProjectSampleBinding:
         with self._lock:
             return _data_binding_copy(self._run_data_bindings[run_id])
+
+    def get_run_input_use_binding(self, run_id: str) -> InputUseBindingEnvelope:
+        with self._lock:
+            return _input_binding_copy(self._run_input_use_bindings[run_id])
 
     def list_runs(self) -> tuple[RunRecord, ...]:
         with self._lock:
@@ -1911,6 +2057,14 @@ def _validated_snapshot_copy(
 def _data_binding_copy(binding: ProjectSampleBinding) -> ProjectSampleBinding:
     if not isinstance(binding, ProjectSampleBinding):
         raise ValueError("binding must be a ProjectSampleBinding")
+    return replace(binding)
+
+
+def _input_binding_copy(
+    binding: InputUseBindingEnvelope,
+) -> InputUseBindingEnvelope:
+    if not isinstance(binding, InputUseBindingEnvelope):
+        raise ValueError("binding must be an InputUseBindingEnvelope")
     return replace(binding)
 
 
