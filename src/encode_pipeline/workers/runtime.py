@@ -61,7 +61,20 @@ class WorkerRuntime:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        self.close()
+        active_hard_timeout = exc_type is not None and issubclass(
+            exc_type,
+            WorkerHardTimeout,
+        )
+        try:
+            self.close()
+        except WorkerHardTimeout as timeout:
+            if active_hard_timeout:
+                return
+            raise timeout from None
+        except Exception:
+            if active_hard_timeout:
+                return
+            raise
 
 
 def open_worker_runtime(

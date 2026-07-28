@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import shutil
+import traceback
+
+import pytest
 
 from encode_pipeline.persistence.repositories import SqlAlchemyRunRepository
 from encode_pipeline.persistence.input_registry import (
@@ -18,7 +21,7 @@ from encode_pipeline.services.artifact_extraction import ArtifactExtractionServi
 from encode_pipeline.services.preflight import LocalPreflightService
 from encode_pipeline.services.process_runner import ProcessRunner
 from encode_pipeline.services.qc_summary_indexing import QcSummaryIndexingService
-from encode_pipeline.workers.runtime import open_worker_runtime
+from encode_pipeline.workers.runtime import WorkerRuntime, open_worker_runtime
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
 
 from .conftest import WORKFLOW_ID, create_planned_run, worker_settings
@@ -196,3 +199,60 @@ def test_open_worker_runtime_closes_persistence_if_composition_fails(
         raise AssertionError("composition unexpectedly succeeded")
 
     assert closed is True
+
+
+@pytest.mark.parametrize(
+    "close_error",
+    (
+        RuntimeError("/private/database"),
+        WorkerHardTimeout("second deadline during close"),
+    ),
+)
+def test_runtime_close_cannot_replace_active_worker_hard_timeout(close_error):
+    class RuntimeWithBrokenClose:
+        __enter__ = WorkerRuntime.__enter__
+        __exit__ = WorkerRuntime.__exit__
+
+        def close(self):
+            raise close_error
+
+    with pytest.raises(WorkerHardTimeout, match="original RQ deadline") as raised:
+        with RuntimeWithBrokenClose():
+            raise WorkerHardTimeout("original RQ deadline")
+
+    assert raised.value is not close_error
+    formatted = "".join(traceback.format_exception(raised.value))
+    assert "/private/database" not in formatted
+    assert "second deadline during close" not in formatted
+
+
+def test_runtime_close_failure_without_active_timeout_still_propagates():
+    class RuntimeWithBrokenClose:
+        __enter__ = WorkerRuntime.__enter__
+        __exit__ = WorkerRuntime.__exit__
+
+        def close(self):
+            raise RuntimeError("close failed")
+
+    with pytest.raises(RuntimeError, match="close failed"):
+        with RuntimeWithBrokenClose():
+            pass
+
+
+def test_runtime_close_hard_timeout_suppresses_private_body_exception():
+    class RuntimeWithTimedOutClose:
+        __enter__ = WorkerRuntime.__enter__
+        __exit__ = WorkerRuntime.__exit__
+
+        def close(self):
+            raise WorkerHardTimeout("deadline during runtime close")
+
+    with pytest.raises(
+        WorkerHardTimeout,
+        match="deadline during runtime close",
+    ) as raised:
+        with RuntimeWithTimedOutClose():
+            raise RuntimeError("/private/workspace")
+
+    formatted = "".join(traceback.format_exception(raised.value))
+    assert "/private/workspace" not in formatted
