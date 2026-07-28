@@ -27,6 +27,7 @@ from encode_pipeline.platform.input_registry import (
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.services.run_repositories import InMemoryRunRepository
+from encode_pipeline.services.run_repositories import InputBindingSelectionError
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.validated_inputs import (
     ValidatedInputService,
@@ -106,6 +107,39 @@ class FakeBuildProvider:
         self.calls += 1
         result = self.results[min(self.calls - 1, len(self.results) - 1)]
         return result
+
+
+class DeclaringAdapter(FakeAdapter):
+    def __init__(
+        self,
+        provenance_mode: InputProvenanceMode,
+    ) -> None:
+        super().__init__()
+        self.provenance_mode = provenance_mode
+        self.declaration_calls = 0
+
+    def declare_input_uses(
+        self,
+        inputs: WorkflowInputs,
+        validated: object,
+    ) -> Result[AdapterInputUseContract]:
+        self.declaration_calls += 1
+        assert validated == {"accepted": True}
+        return Result.success(
+            AdapterInputUseContract(
+                adapter_contract_version="workflow-a-inputs-v1",
+                declarations=(
+                    InputUseDeclaration(
+                        key="primary_reads",
+                        occurrence=0,
+                        capability_version="regular-file-v1",
+                        closure_contract_version="regular_file_v1",
+                        allowed_provenance_modes=(self.provenance_mode,),
+                    ),
+                ),
+                allows_mixed=False,
+            )
+        )
 
 
 def _identity(digest: str = "a" * 64) -> WorkflowBuildIdentity:
@@ -438,6 +472,125 @@ def test_managed_selection_is_not_ignored_when_execution_is_unavailable() -> Non
         repository.get_validated_input_snapshot(
             "vsnap_0123456789abcdef0123456789abcdef"
         )
+
+
+def test_managed_selection_requires_exact_project_before_validation() -> None:
+    adapter = DeclaringAdapter(InputProvenanceMode.MANAGED_REVISION_V1)
+    service, _, repository, provider = _services(adapter=adapter)
+
+    result = service.validate(
+        "workflow-a",
+        WorkflowInputs(config={}),
+        input_file_revision_selections=(
+            InputFileRevisionSelection(
+                input_use_key="primary_reads",
+                occurrence=0,
+                input_file_revision_ids=("inpfr_33333333333333333333333333333333",),
+            ),
+        ),
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "INPUT_BINDING_SELECTION_INVALID"
+    assert result.issues[0].path == "project_id"
+    assert adapter.calls == 0
+    assert adapter.declaration_calls == 0
+    assert provider.calls == 0
+    with pytest.raises(KeyError):
+        repository.get_validated_input_snapshot(
+            "vsnap_0123456789abcdef0123456789abcdef"
+        )
+
+
+def test_selection_must_match_the_declared_input_use_contract() -> None:
+    adapter = DeclaringAdapter(InputProvenanceMode.MANAGED_REVISION_V1)
+    service, _, repository, provider = _services(adapter=adapter)
+
+    result = service.validate(
+        "workflow-a",
+        WorkflowInputs(config={}),
+        project_sample_selection=ProjectSampleSelection(
+            project_id="prj_11111111111111111111111111111111",
+            sample_revision_ids=("smpr_22222222222222222222222222222222",),
+        ),
+        input_file_revision_selections=(
+            InputFileRevisionSelection(
+                input_use_key="undeclared_reads",
+                occurrence=0,
+                input_file_revision_ids=("inpfr_33333333333333333333333333333333",),
+            ),
+        ),
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "INPUT_BINDING_SELECTION_INVALID"
+    assert result.issues[0].path == "input_selections"
+    assert adapter.calls == 1
+    assert adapter.declaration_calls == 1
+    assert provider.calls == 1
+    with pytest.raises(KeyError):
+        repository.get_validated_input_snapshot(
+            "vsnap_0123456789abcdef0123456789abcdef"
+        )
+
+
+def test_second_build_capture_failure_leaves_no_validated_snapshot() -> None:
+    service, _, repository, provider = _services(
+        build_results=[
+            Result.success(_identity()),
+            Result.failure(
+                [
+                    Issue(
+                        code="PRIVATE_BUILD_FAILURE",
+                        message="/operator/private/workflow",
+                    )
+                ]
+            ),
+        ]
+    )
+
+    result = service.validate("workflow-a", WorkflowInputs(config={}))
+
+    assert result.is_failure
+    assert result.issues[0].code == "VALIDATION_WORKFLOW_BUILD_UNAVAILABLE"
+    assert "/operator/private/workflow" not in str(result.issues[0].to_dict())
+    assert provider.calls == 2
+    with pytest.raises(KeyError):
+        repository.get_validated_input_snapshot(
+            "vsnap_0123456789abcdef0123456789abcdef"
+        )
+
+
+def test_repository_input_binding_rejection_is_stable_and_redacted() -> None:
+    adapter = DeclaringAdapter(InputProvenanceMode.TRANSITIONAL_UNMANAGED_V1)
+    service, _, repository, provider = _services(adapter=adapter)
+
+    def reject_input_binding(
+        _snapshot,
+        *,
+        project_sample_selection=None,
+        input_use_binding_plan=None,
+    ):
+        assert project_sample_selection is not None
+        assert input_use_binding_plan is not None
+        raise InputBindingSelectionError("private revision /operator/input")
+
+    repository.create_validated_input_snapshot = reject_input_binding  # type: ignore[method-assign]
+
+    result = service.validate(
+        "workflow-a",
+        WorkflowInputs(config={}),
+        project_sample_selection=ProjectSampleSelection(
+            project_id="prj_11111111111111111111111111111111",
+            sample_revision_ids=("smpr_22222222222222222222222222222222",),
+        ),
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "INPUT_BINDING_SELECTION_INVALID"
+    assert "/operator/input" not in str(result.issues[0].to_dict())
+    assert adapter.declaration_calls == 1
+    assert provider.calls == 2
 
 
 @pytest.mark.parametrize("include_legacy_path", (False, True))

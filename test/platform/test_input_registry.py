@@ -331,6 +331,164 @@ def test_regular_file_managed_use_requires_exactly_one_opaque_revision() -> None
         )
 
 
+@pytest.mark.parametrize(
+    ("factory", "message"),
+    (
+        pytest.param(
+            lambda: InputUseDeclaration(
+                key="reads",
+                occurrence=0,
+                capability_version="regular-file-v1",
+                closure_contract_version="regular_file_v1",
+                allowed_provenance_modes=("unsupported",),
+            ),
+            "unsupported",
+            id="declaration-unsupported-provenance",
+        ),
+        pytest.param(
+            lambda: InputUseDeclaration(
+                key="reads",
+                occurrence=0,
+                capability_version="regular-file-v1",
+                closure_contract_version="regular_file_v1",
+                allowed_provenance_modes=(),
+            ),
+            "at least one",
+            id="declaration-missing-provenance",
+        ),
+        pytest.param(
+            lambda: InputUseDeclaration(
+                key="reads",
+                occurrence=0,
+                capability_version="regular-file-v1",
+                closure_contract_version="regular_file_v1",
+                allowed_provenance_modes=(
+                    InputProvenanceMode.MANAGED_REVISION_V1,
+                    InputProvenanceMode.MANAGED_REVISION_V1,
+                ),
+            ),
+            "duplicate",
+            id="declaration-duplicate-provenance",
+        ),
+        pytest.param(
+            lambda: AdapterInputUseContract(
+                adapter_contract_version="adapter-v1",
+                declarations=(object(),),
+                allows_mixed=True,
+            ),
+            "InputUseDeclaration",
+            id="contract-invalid-declaration-type",
+        ),
+        pytest.param(
+            lambda: AdapterInputUseContract(
+                adapter_contract_version="adapter-v1",
+                declarations=(),
+                allows_mixed=1,
+            ),
+            "boolean",
+            id="contract-invalid-mixed-flag-type",
+        ),
+        pytest.param(
+            lambda: PlannedInputUse(
+                key="reads",
+                occurrence=0,
+                capability_version="regular-file-v1",
+                closure_contract_version="regular_file_v1",
+                provenance_mode="unsupported",
+                input_file_revision_ids=(),
+            ),
+            "unsupported",
+            id="planned-use-unsupported-provenance",
+        ),
+        pytest.param(
+            lambda: PlannedInputUse(
+                key="reads",
+                occurrence=0,
+                capability_version="bundle-v1",
+                closure_contract_version="bundle_v1",
+                provenance_mode=InputProvenanceMode.MANAGED_REVISION_V1,
+                input_file_revision_ids=(REVISION_ID, REVISION_ID),
+            ),
+            "duplicate",
+            id="planned-use-duplicate-revision",
+        ),
+        pytest.param(
+            lambda: PlannedInputUse(
+                key="reads",
+                occurrence=0,
+                capability_version="regular-file-v1",
+                closure_contract_version="regular_file_v1",
+                provenance_mode=InputProvenanceMode.TRANSITIONAL_UNMANAGED_V1,
+                input_file_revision_ids=(REVISION_ID,),
+            ),
+            "cannot select managed revisions",
+            id="transitional-use-with-managed-revision",
+        ),
+        pytest.param(
+            lambda: InputUseBindingPlan(
+                project_id=PROJECT_ID,
+                workflow_id="test-workflow",
+                adapter_contract_version="adapter-v1",
+                input_uses=(object(),),
+            ),
+            "PlannedInputUse",
+            id="plan-invalid-use-type",
+        ),
+        pytest.param(
+            lambda: InputUseBindingPlan(
+                project_id=PROJECT_ID,
+                workflow_id="test-workflow",
+                adapter_contract_version="adapter-v1",
+                input_uses=_planned_uses(1) * 2,
+            ),
+            "duplicate coordinate",
+            id="plan-duplicate-use-coordinate",
+        ),
+        pytest.param(
+            lambda: build_input_use_binding_plan(
+                project_id=PROJECT_ID,
+                workflow_id="test-workflow",
+                contract=object(),
+                selections=(),
+            ),
+            "AdapterInputUseContract",
+            id="builder-invalid-contract-type",
+        ),
+        pytest.param(
+            lambda: build_input_use_binding_plan(
+                project_id=PROJECT_ID,
+                workflow_id="test-workflow",
+                contract=AdapterInputUseContract(
+                    adapter_contract_version="adapter-v1",
+                    declarations=(),
+                    allows_mixed=True,
+                ),
+                selections=(object(),),
+            ),
+            "InputFileRevisionSelection",
+            id="builder-invalid-selection-type",
+        ),
+        pytest.param(
+            lambda: build_input_use_binding_plan(
+                project_id=PROJECT_ID,
+                workflow_id="test-workflow",
+                contract=AdapterInputUseContract(
+                    adapter_contract_version="adapter-v1",
+                    declarations=(),
+                    allows_mixed=True,
+                ),
+                selections=_selections(1) * 2,
+            ),
+            "duplicate input use coordinate",
+            id="builder-duplicate-selection-coordinate",
+        ),
+    ),
+)
+def test_input_use_contracts_reject_invalid_public_shapes(factory, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        factory()
+
+
 def test_domain_collections_accept_exactly_256_items() -> None:
     revision_ids = _revision_ids(MAX_COLLECTION_ITEMS)
     declarations = _declarations(MAX_COLLECTION_ITEMS)

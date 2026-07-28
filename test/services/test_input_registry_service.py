@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from itertools import count
 import stat
@@ -17,6 +18,7 @@ from encode_pipeline.platform.input_registry import (
     InputProvenanceMode,
     InputUseBindingPlan,
     PlannedInputUse,
+    build_input_file_revision,
 )
 from encode_pipeline.services.data_registry_repositories import (
     InMemoryDataRegistryRepository,
@@ -25,6 +27,7 @@ from encode_pipeline.services.input_file_access import FileObservation
 from encode_pipeline.services.input_file_access import InputFileAccess
 from encode_pipeline.services.input_registry import (
     InputRegistryAdminService,
+    InputFileCurrentView,
     InputRegistryService,
 )
 from encode_pipeline.services.input_registry_repositories import (
@@ -43,7 +46,11 @@ def _ids(prefix: str):
     return lambda: f"{prefix}_{next(serial):032x}"
 
 
-def _service() -> tuple[InputRegistryService, InMemoryDataRegistryRepository]:
+def _service_components() -> tuple[
+    InputRegistryService,
+    InMemoryDataRegistryRepository,
+    InMemoryInputRegistryRepository,
+]:
     projects = InMemoryDataRegistryRepository(legacy_created_at=NOW)
     projects.create_project(
         Project(
@@ -54,16 +61,19 @@ def _service() -> tuple[InputRegistryService, InMemoryDataRegistryRepository]:
         )
     )
     repository = InMemoryInputRegistryRepository(project_repository=projects)
-    return (
-        InputRegistryService(
-            repository=repository,
-            storage_pool_id_factory=_ids("stgp"),
-            input_file_id_factory=_ids("inpf"),
-            input_file_revision_id_factory=_ids("inpfr"),
-            now_factory=lambda: NOW,
-        ),
-        projects,
+    service = InputRegistryService(
+        repository=repository,
+        storage_pool_id_factory=_ids("stgp"),
+        input_file_id_factory=_ids("inpf"),
+        input_file_revision_id_factory=_ids("inpfr"),
+        now_factory=lambda: NOW,
     )
+    return service, projects, repository
+
+
+def _service() -> tuple[InputRegistryService, InMemoryDataRegistryRepository]:
+    service, projects, _repository = _service_components()
+    return service, projects
 
 
 def _observation(
@@ -452,3 +462,164 @@ def test_admin_rejects_archived_project_before_observing_bytes(
             stable_key="donor-r1",
             pool_relative_path="large.fastq",
         )
+
+
+def test_registration_rejects_non_observation_and_missing_private_config() -> None:
+    service, _projects = _service()
+    admin = InputRegistryAdminService(service, private_config=None)
+
+    with pytest.raises(ValueError, match="FileObservation"):
+        service.register_input_file(
+            PROJECT_ID,
+            stable_key="donor-r1",
+            observation=object(),  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="private storage pool configuration"):
+        admin.register_storage_pool(
+            display_name="Ingress",
+            config_key="ingress",
+        )
+
+
+def test_registration_converges_after_a_create_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _projects, repository = _service_components()
+    pool = service.create_storage_pool(display_name="Ingress", config_key="ingress")
+    service.bind_project_storage_pool(PROJECT_ID, pool.storage_pool_id)
+    original_create = repository.create_input_file
+    conflict_count = 0
+
+    def create_then_report_conflict(input_file, initial_revision):
+        nonlocal conflict_count
+        conflict_count += 1
+        if conflict_count == 1:
+            original_create(input_file, initial_revision)
+            raise InputRegistryConflictError("concurrent create")
+        return original_create(input_file, initial_revision)
+
+    monkeypatch.setattr(repository, "create_input_file", create_then_report_conflict)
+
+    registered = service.register_input_file(
+        PROJECT_ID,
+        stable_key="donor-r1",
+        observation=_observation(),
+    )
+
+    assert conflict_count == 1
+    assert service.list_input_files(PROJECT_ID) == (registered,)
+    assert service.list_input_file_revisions(registered.input_file.input_file_id) == (
+        registered.revision,
+    )
+
+
+def test_registration_conflict_exhaustion_preserves_immutable_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _projects, repository = _service_components()
+    pool = service.create_storage_pool(display_name="Ingress", config_key="ingress")
+    service.bind_project_storage_pool(PROJECT_ID, pool.storage_pool_id)
+    original = service.register_input_file(
+        PROJECT_ID,
+        stable_key="donor-r1",
+        observation=_observation(),
+    )
+
+    def reject_append(_revision, *, expected_previous_revision_number):
+        assert expected_previous_revision_number == 1
+        raise InputRegistryConflictError("concurrent append")
+
+    monkeypatch.setattr(
+        repository,
+        "append_input_file_revision",
+        reject_append,
+    )
+
+    with pytest.raises(InputRegistryConflictError, match="too many times"):
+        service.register_input_file(
+            PROJECT_ID,
+            stable_key="donor-r1",
+            observation=_observation(
+                relative_path="reads/donor-01-v2.fastq.gz",
+                size_bytes=456,
+                content_sha256="b" * 64,
+            ),
+        )
+    assert service.list_input_file_revisions(original.input_file.input_file_id) == (
+        original.revision,
+    )
+
+
+def test_corrupt_current_view_and_registry_scope_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _projects, repository = _service_components()
+    pool = service.create_storage_pool(display_name="Ingress", config_key="ingress")
+    service.bind_project_storage_pool(PROJECT_ID, pool.storage_pool_id)
+    registered = service.register_input_file(
+        PROJECT_ID,
+        stable_key="donor-r1",
+        observation=_observation(),
+    )
+
+    other_revision = build_input_file_revision(
+        input_file_revision_id="inpfr_99999999999999999999999999999999",
+        input_file_id="inpf_99999999999999999999999999999999",
+        project_id=registered.revision.project_id,
+        storage_pool_id=registered.revision.storage_pool_id,
+        revision_number=1,
+        relative_path=registered.revision.relative_path,
+        size_bytes=registered.revision.size_bytes,
+        content_sha256=registered.revision.content_sha256,
+        created_at=registered.revision.created_at,
+    )
+    with pytest.raises(ValueError, match="current revision does not match"):
+        InputFileCurrentView(
+            input_file=registered.input_file,
+            revision=other_revision,
+        )
+
+    monkeypatch.setattr(
+        repository,
+        "get_input_file_by_stable_key",
+        lambda _project_id, _stable_key: replace(
+            registered.input_file,
+            storage_pool_id="stgp_99999999999999999999999999999999",
+        ),
+    )
+    with pytest.raises(ValueError, match="active Project pool binding"):
+        service.register_input_file(
+            PROJECT_ID,
+            stable_key="donor-r1",
+            observation=_observation(),
+        )
+
+
+def test_registry_rejects_input_file_without_immutable_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _projects, repository = _service_components()
+    pool = service.create_storage_pool(display_name="Ingress", config_key="ingress")
+    service.bind_project_storage_pool(PROJECT_ID, pool.storage_pool_id)
+    registered = service.register_input_file(
+        PROJECT_ID,
+        stable_key="donor-r1",
+        observation=_observation(),
+    )
+    monkeypatch.setattr(
+        repository,
+        "list_input_file_revisions",
+        lambda _input_file_id: (),
+    )
+
+    with pytest.raises(RuntimeError, match="no immutable revision"):
+        service.register_input_file(
+            PROJECT_ID,
+            stable_key="donor-r1",
+            observation=_observation(),
+        )
+    with pytest.raises(RuntimeError, match="no immutable revision"):
+        service.list_input_files(PROJECT_ID)
+    assert service.get_input_file(registered.input_file.input_file_id) == (
+        registered.input_file
+    )
