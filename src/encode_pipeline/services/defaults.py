@@ -15,7 +15,10 @@ if TYPE_CHECKING:
     from encode_pipeline.services.agent import AgentService
     from encode_pipeline.services.command_builder import CommandBuilder
     from encode_pipeline.services.local_run_driver import LocalRunDriver
-    from encode_pipeline.services.local_execution import LocalExecutionService
+    from encode_pipeline.services.local_execution import (
+        LocalExecutionService,
+        ManagedInputVerifier,
+    )
     from encode_pipeline.services.managed_containers import ManagedContainerCleaner
     from encode_pipeline.services.materialization import WorkspaceMaterializer
     from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
@@ -304,6 +307,7 @@ def create_default_local_execution_service(
     workspace_planner: WorkspacePlanner,
     command_builder: CommandBuilder,
     local_run_driver: LocalRunDriver,
+    managed_input_verifier: ManagedInputVerifier,
 ) -> LocalExecutionService:
     """Return durable execution orchestration from worker-local dependencies."""
     from encode_pipeline.services.local_execution import LocalExecutionService
@@ -314,6 +318,7 @@ def create_default_local_execution_service(
         workspace_planner=workspace_planner,
         command_builder=command_builder,
         local_run_driver=local_run_driver,
+        managed_input_verifier=managed_input_verifier,
     )
 
 

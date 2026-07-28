@@ -9,6 +9,7 @@ import type { ValidationRequestConfig } from './validationRequestConfig';
 import type { ValidationRequestSamples } from './validationRequestSamples';
 import type { ValidationRequestOptions } from './validationRequestOptions';
 import type { ValidationRequestProjectId } from './validationRequestProjectId';
+import type { InputFileRevisionSelectionRequest } from './inputFileRevisionSelectionRequest';
 
 /**
  * Request body for POST /api/v1/workflows/{workflow_id}/validate.
@@ -19,4 +20,6 @@ export interface ValidationRequest {
   options?: ValidationRequestOptions;
   project_id?: ValidationRequestProjectId;
   sample_revision_ids?: string[];
+  /** @maxItems 256 */
+  input_selections?: InputFileRevisionSelectionRequest[];
 }

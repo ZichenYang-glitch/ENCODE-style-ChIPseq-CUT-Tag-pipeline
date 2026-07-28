@@ -38,6 +38,11 @@ from encode_pipeline.platform.data_registry import (
     BindingProvenance,
     ProjectSampleBinding,
 )
+from encode_pipeline.platform.input_registry import (
+    InputBindingContractMode,
+    InputProvenanceMode,
+    InputUseBindingEnvelope,
+)
 from encode_pipeline.platform.run_history import RunSummary
 from encode_pipeline.services.run_repositories import canonical_decimal_text
 from encode_pipeline.platform.snapshots import (
@@ -48,6 +53,7 @@ from encode_pipeline.platform.adapters import WorkflowInputs
 
 
 _LOGICAL_ID_PATTERN = r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$"
+_INPUT_USE_KEY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$"
 _MIME_TYPE_PATTERN = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/"
     r"[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$"
@@ -74,6 +80,10 @@ ProjectId = Annotated[str, Field(pattern=r"^prj_[0-9a-f]{32}$", max_length=36)]
 SampleRevisionId = Annotated[
     str,
     Field(pattern=r"^smpr_[0-9a-f]{32}$", max_length=37),
+]
+InputFileRevisionId = Annotated[
+    str,
+    Field(pattern=r"^inpfr_[0-9a-f]{32}$", max_length=38),
 ]
 
 
@@ -273,6 +283,19 @@ def _reject_sample_control_characters(
     return samples
 
 
+class InputFileRevisionSelectionRequest(BaseModel):
+    """Opaque revisions selected for one adapter-owned input-use closure."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input_use_key: str = Field(pattern=_INPUT_USE_KEY_PATTERN, max_length=255)
+    occurrence: int = Field(ge=0, le=1_000_000)
+    input_file_revision_ids: list[InputFileRevisionId] = Field(
+        min_length=1,
+        max_length=256,
+    )
+
+
 class ValidationRequest(BaseModel):
     """Request body for POST /api/v1/workflows/{workflow_id}/validate."""
 
@@ -283,6 +306,10 @@ class ValidationRequest(BaseModel):
     options: dict[str, JsonValue] = Field(default_factory=dict)
     project_id: ProjectId | None = None
     sample_revision_ids: list[SampleRevisionId] = Field(default_factory=list)
+    input_selections: list["InputFileRevisionSelectionRequest"] = Field(
+        default_factory=list,
+        max_length=256,
+    )
 
     _validate_sample_cells = field_validator("samples")(
         _reject_sample_control_characters
@@ -300,6 +327,22 @@ class ValidationRequest(BaseModel):
             raise ValueError("the reserved Legacy Project cannot be selected")
         if len(set(self.sample_revision_ids)) != len(self.sample_revision_ids):
             raise ValueError("sample revision IDs must be unique")
+        if self.input_selections and self.project_id is None:
+            raise ValueError("input revision selections require a project")
+        coordinates = tuple(
+            (selection.input_use_key, selection.occurrence)
+            for selection in self.input_selections
+        )
+        if len(set(coordinates)) != len(coordinates):
+            raise ValueError("input-use selection coordinates must be unique")
+        if any(
+            len(set(selection.input_file_revision_ids))
+            != len(selection.input_file_revision_ids)
+            for selection in self.input_selections
+        ):
+            raise ValueError(
+                "input file revision IDs must be unique within each input use"
+            )
         canonical_workflow_inputs_json(
             WorkflowInputs(
                 config=self.config,
@@ -308,6 +351,37 @@ class ValidationRequest(BaseModel):
             )
         )
         return self
+
+
+class InputUseBindingResponse(BaseModel):
+    """Path-free public evidence for one adapter-owned input use."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input_use_key: str = Field(pattern=_INPUT_USE_KEY_PATTERN, max_length=255)
+    occurrence: int = Field(ge=0, le=1_000_000)
+    capability_version: str = Field(min_length=1, max_length=255)
+    closure_contract_version: str = Field(min_length=1, max_length=255)
+    provenance_mode: Literal[
+        "managed_revision_v1",
+        "transitional_unmanaged_v1",
+    ]
+    input_file_revision_ids: list[InputFileRevisionId] = Field(max_length=256)
+
+
+class InputBindingResponse(BaseModel):
+    """Allowlisted public projection of immutable input-use provenance."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal[
+        "compatibility_unresolved_v1",
+        "declared_input_uses_v1",
+    ]
+    adapter_contract_version: str | None = Field(default=None, max_length=255)
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$", max_length=64)
+    fully_managed: bool
+    input_uses: list[InputUseBindingResponse] = Field(max_length=256)
 
 
 class ValidatedInputSnapshotResponse(BaseModel):
@@ -325,15 +399,24 @@ class ValidatedInputSnapshotResponse(BaseModel):
     provenance: Literal["resolved", "unresolved"]
     sample_revision_ids: list[SampleRevisionId]
     binding_digest: str = Field(pattern=r"^[0-9a-f]{64}$", max_length=64)
+    input_binding: InputBindingResponse
 
     @classmethod
     def from_snapshot(
         cls,
         snapshot: ValidatedInputSnapshot,
         binding: ProjectSampleBinding,
+        input_binding: InputUseBindingEnvelope,
     ) -> "ValidatedInputSnapshotResponse":
         if binding.workflow_inputs_digest != snapshot.payload_digest:
             raise ValueError("snapshot binding input digest differs")
+        if (
+            input_binding.project_id != binding.project_id
+            or input_binding.project_sample_binding_digest != binding.digest
+            or input_binding.workflow_id != snapshot.workflow_id
+            or input_binding.workflow_inputs_digest != snapshot.payload_digest
+        ):
+            raise ValueError("snapshot input binding scope differs")
         return cls(
             snapshot_id=snapshot.snapshot_id,
             workflow_id=snapshot.workflow_id,
@@ -347,6 +430,28 @@ class ValidatedInputSnapshotResponse(BaseModel):
             provenance=BindingProvenance(binding.provenance).value,
             sample_revision_ids=list(binding.sample_revision_ids),
             binding_digest=binding.digest,
+            input_binding=InputBindingResponse(
+                mode=InputBindingContractMode(input_binding.contract_mode).value,
+                adapter_contract_version=input_binding.adapter_contract_version,
+                digest=input_binding.digest,
+                fully_managed=input_binding.fully_managed,
+                input_uses=[
+                    InputUseBindingResponse(
+                        input_use_key=input_use.key,
+                        occurrence=input_use.occurrence,
+                        capability_version=input_use.capability_version,
+                        closure_contract_version=(input_use.closure_contract_version),
+                        provenance_mode=InputProvenanceMode(
+                            input_use.provenance_mode
+                        ).value,
+                        input_file_revision_ids=[
+                            member.input_file_revision_id
+                            for member in input_use.members
+                        ],
+                    )
+                    for input_use in input_binding.input_uses
+                ],
+            ),
         )
 
 

@@ -22,6 +22,7 @@ from encode_pipeline.persistence.migrations import (
 from encode_pipeline.platform.data_registry import (
     build_legacy_project_sample_binding,
 )
+from encode_pipeline.platform.input_registry import InputUseBindingEnvelope
 from encode_pipeline.platform.runs import RunRecord, RunStatus
 from encode_pipeline.platform.snapshots import build_workflow_inputs_digest
 from encode_pipeline.services.run_repositories import RunEventDraft
@@ -46,14 +47,35 @@ STANDALONE_CANONICAL_INPUTS = json.dumps(
 STANDALONE_NONCANONICAL_INPUTS = (
     '{ "samples": null, "options": {}, "config": {"label": "样本"} }'
 )
+INPUT_BINDING_DIGEST_SCHEME = "sha256-framed-input-use-binding-envelope-v1"
+
+
+INPUT_REGISTRY_TABLES = {
+    "input_file_revisions",
+    "input_files",
+    "project_storage_pool_bindings",
+    "run_input_bindings",
+    "run_input_members",
+    "run_input_uses",
+    "snapshot_input_bindings",
+    "snapshot_input_members",
+    "snapshot_input_uses",
+    "storage_pools",
+}
 
 
 EXPECTED_TABLES = {
     "alembic_version",
     "projects",
+    "input_file_revisions",
+    "input_files",
+    "project_storage_pool_bindings",
     "run_artifacts",
     "run_events",
     "run_execution_assignments",
+    "run_input_bindings",
+    "run_input_members",
+    "run_input_uses",
     "run_logs",
     "run_project_bindings",
     "run_qc_metrics",
@@ -65,7 +87,11 @@ EXPECTED_TABLES = {
     "sample_revisions",
     "samples",
     "snapshot_project_bindings",
+    "snapshot_input_bindings",
+    "snapshot_input_members",
+    "snapshot_input_uses",
     "snapshot_sample_revisions",
+    "storage_pools",
     "validated_input_snapshots",
 }
 
@@ -80,7 +106,7 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
     assert set(inspector.get_table_names()) == EXPECTED_TABLES
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260726_09"
+            "20260726_10"
         )
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert connection.scalar(text("PRAGMA journal_mode")) == "wal"
@@ -325,7 +351,7 @@ def test_project_sample_registry_upgrades_rev08_with_conservative_legacy_binding
     upgraded = create_database_engine(database_url)
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260726_09"
+            "20260726_10"
         )
         legacy = (
             connection.execute(
@@ -910,7 +936,7 @@ def test_project_sample_registry_upgrade_preflights_before_ddl_and_can_retry(
     retried = create_database_engine(database_url)
     with retried.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260726_09"
+            "20260726_10"
         )
         assert (
             connection.scalar(
@@ -922,6 +948,688 @@ def test_project_sample_registry_upgrade_preflights_before_ddl_and_can_retry(
             == 1
         )
     retried.dispose()
+
+
+@pytest.mark.parametrize("starting_revision", ["20260717_08", "20260726_09"])
+def test_input_registry_upgrade_backfills_only_unresolved_compatibility_envelopes(
+    tmp_path,
+    starting_revision,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / f'input-registry-{starting_revision}.db'}"
+    upgrade_database(database_url, "20260717_08")
+    snapshot_id = "vsnap_" + "c" * 32
+    workflow_id = "workflow+" + "v" * 247
+    assert len(workflow_id) == 256
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        _insert_rev08_run(
+            connection,
+            "consumed-input-run",
+            created_at="2026-07-17 01:00:00",
+            workflow_id=workflow_id,
+        )
+        _insert_rev08_run(
+            connection,
+            "standalone-input-run",
+            created_at="2026-07-17 02:00:00",
+            workflow_id=workflow_id,
+            inputs=STANDALONE_NONCANONICAL_INPUTS,
+        )
+        _insert_rev08_snapshot(
+            connection,
+            snapshot_id,
+            digest=REV08_INPUTS_DIGEST,
+            consumed_run_id="consumed-input-run",
+            workflow_id=workflow_id,
+        )
+    engine.dispose()
+    if starting_revision == "20260726_09":
+        upgrade_database(database_url, starting_revision)
+
+    upgrade_database(database_url)
+    upgraded = create_database_engine(database_url)
+    with upgraded.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20260726_10"
+        )
+        snapshot_binding = (
+            connection.execute(
+                text(
+                    "SELECT project_id, workflow_id, adapter_contract_version, "
+                    "binding_mode, workflow_inputs_digest, "
+                    "project_sample_binding_digest, binding_digest_scheme, "
+                    "binding_digest "
+                    "FROM snapshot_input_bindings WHERE snapshot_id=:snapshot_id"
+                ),
+                {"snapshot_id": snapshot_id},
+            )
+            .mappings()
+            .one()
+        )
+        run_bindings = {
+            row["run_id"]: row
+            for row in connection.execute(
+                text(
+                    "SELECT run_id, project_id, workflow_id, "
+                    "adapter_contract_version, binding_mode, "
+                    "workflow_inputs_digest, project_sample_binding_digest, "
+                    "binding_digest_scheme, binding_digest "
+                    "FROM run_input_bindings ORDER BY run_id"
+                )
+            )
+            .mappings()
+            .all()
+        }
+        consumed_binding = run_bindings["consumed-input-run"]
+        assert dict(consumed_binding) == {
+            "run_id": "consumed-input-run",
+            **dict(snapshot_binding),
+        }
+        project_sample_binding_digest = connection.scalar(
+            text(
+                "SELECT binding_digest FROM snapshot_project_bindings "
+                "WHERE snapshot_id=:snapshot_id"
+            ),
+            {"snapshot_id": snapshot_id},
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT adapter_version FROM validated_input_snapshots "
+                    "WHERE snapshot_id=:snapshot_id"
+                ),
+                {"snapshot_id": snapshot_id},
+            )
+            == "1.0.0"
+        )
+        assert dict(snapshot_binding) == {
+            "project_id": LEGACY_PROJECT_ID,
+            "workflow_id": workflow_id,
+            "adapter_contract_version": None,
+            "binding_mode": "compatibility_unresolved_v1",
+            "workflow_inputs_digest": REV08_INPUTS_DIGEST,
+            "project_sample_binding_digest": project_sample_binding_digest,
+            "binding_digest_scheme": INPUT_BINDING_DIGEST_SCHEME,
+            "binding_digest": _compatibility_input_binding_digest(
+                project_id=LEGACY_PROJECT_ID,
+                workflow_id=workflow_id,
+                adapter_contract_version=None,
+                workflow_inputs_digest=REV08_INPUTS_DIGEST,
+                project_sample_binding_digest=project_sample_binding_digest,
+            ),
+        }
+        snapshot_envelope = InputUseBindingEnvelope(
+            project_id=snapshot_binding["project_id"],
+            project_sample_binding_digest=snapshot_binding[
+                "project_sample_binding_digest"
+            ],
+            workflow_id=snapshot_binding["workflow_id"],
+            adapter_contract_version=snapshot_binding["adapter_contract_version"],
+            workflow_inputs_digest=snapshot_binding["workflow_inputs_digest"],
+            contract_mode=snapshot_binding["binding_mode"],
+            input_uses=(),
+            digest_scheme=snapshot_binding["binding_digest_scheme"],
+            digest=snapshot_binding["binding_digest"],
+        )
+        assert snapshot_envelope.adapter_contract_version is None
+        assert snapshot_envelope.input_uses == ()
+        standalone = run_bindings["standalone-input-run"]
+        assert standalone["adapter_contract_version"] is None
+        assert standalone["binding_mode"] == "compatibility_unresolved_v1"
+        assert standalone["binding_digest"] == _compatibility_input_binding_digest(
+            project_id=LEGACY_PROJECT_ID,
+            workflow_id=workflow_id,
+            adapter_contract_version=None,
+            workflow_inputs_digest=standalone["workflow_inputs_digest"],
+            project_sample_binding_digest=standalone["project_sample_binding_digest"],
+        )
+        assert (
+            InputUseBindingEnvelope(
+                project_id=standalone["project_id"],
+                project_sample_binding_digest=standalone[
+                    "project_sample_binding_digest"
+                ],
+                workflow_id=standalone["workflow_id"],
+                adapter_contract_version=standalone["adapter_contract_version"],
+                workflow_inputs_digest=standalone["workflow_inputs_digest"],
+                contract_mode=standalone["binding_mode"],
+                input_uses=(),
+                digest_scheme=standalone["binding_digest_scheme"],
+                digest=standalone["binding_digest"],
+            ).adapter_contract_version
+            is None
+        )
+        assert connection.scalar(text("SELECT count(*) FROM storage_pools")) == 0
+        assert (
+            connection.scalar(
+                text("SELECT count(*) FROM project_storage_pool_bindings")
+            )
+            == 0
+        )
+        assert connection.scalar(text("SELECT count(*) FROM input_files")) == 0
+        assert connection.scalar(text("SELECT count(*) FROM input_file_revisions")) == 0
+        assert connection.scalar(text("SELECT count(*) FROM snapshot_input_uses")) == 0
+        assert (
+            connection.scalar(text("SELECT count(*) FROM snapshot_input_members")) == 0
+        )
+        assert connection.scalar(text("SELECT count(*) FROM run_input_uses")) == 0
+        assert connection.scalar(text("SELECT count(*) FROM run_input_members")) == 0
+    upgraded.dispose()
+
+
+def test_input_registry_upgrade_preflights_stage2_evidence_before_ddl_and_can_retry(
+    tmp_path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'input-registry-preflight.db'}"
+    upgrade_database(database_url, "20260717_08")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        _insert_rev08_run(
+            connection,
+            "preflight-run",
+            created_at="2026-07-17 01:00:00",
+        )
+    engine.dispose()
+    upgrade_database(database_url, "20260726_09")
+
+    rev09 = create_database_engine(database_url)
+    with rev09.begin() as connection:
+        valid_digest = connection.scalar(
+            text(
+                "SELECT binding_digest FROM run_project_bindings "
+                "WHERE run_id='preflight-run'"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE run_project_bindings SET binding_digest=:digest "
+                "WHERE run_id='preflight-run'"
+            ),
+            {"digest": "0" * 64},
+        )
+    rev09.dispose()
+
+    with pytest.raises(
+        RuntimeError,
+        match="inconsistent project/sample binding evidence blocks input registry upgrade",
+    ):
+        upgrade_database(database_url)
+
+    failed = create_database_engine(database_url)
+    assert INPUT_REGISTRY_TABLES.isdisjoint(inspect(failed).get_table_names())
+    with failed.begin() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20260726_09"
+        )
+        connection.execute(
+            text(
+                "UPDATE run_project_bindings SET binding_digest=:digest "
+                "WHERE run_id='preflight-run'"
+            ),
+            {"digest": valid_digest},
+        )
+    failed.dispose()
+
+    upgrade_database(database_url)
+    retried = create_database_engine(database_url)
+    assert INPUT_REGISTRY_TABLES <= set(inspect(retried).get_table_names())
+    with retried.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20260726_10"
+        )
+    retried.dispose()
+
+
+def test_input_registry_schema_is_path_private_append_only_and_mode_scoped(
+    tmp_path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'input-registry-schema.db'}"
+    upgrade_database(database_url, "20260717_08")
+    snapshot_id = "vsnap_" + "d" * 32
+    rev08 = create_database_engine(database_url)
+    with rev08.begin() as connection:
+        _insert_rev08_run(
+            connection,
+            "compatibility-input-run",
+            created_at="2026-07-17 01:00:00",
+        )
+        _insert_rev08_snapshot(
+            connection,
+            snapshot_id,
+            digest=REV08_INPUTS_DIGEST,
+            consumed_run_id="compatibility-input-run",
+        )
+    rev08.dispose()
+    upgrade_database(database_url)
+
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert {column["name"] for column in inspector.get_columns("storage_pools")} == {
+        "storage_pool_id",
+        "config_key",
+        "display_name",
+        "created_at",
+        "archived_at",
+    }
+    assert {
+        column["name"]
+        for column in inspector.get_columns("project_storage_pool_bindings")
+    } == {"project_id", "storage_pool_id", "bound_at"}
+    assert all(
+        "root" not in column["name"] and "absolute" not in column["name"]
+        for table_name in INPUT_REGISTRY_TABLES
+        for column in inspector.get_columns(table_name)
+    )
+
+    project_id = "prj_" + "1" * 32
+    pool_id = "stgp_" + "2" * 32
+    input_file_id = "inpf_" + "3" * 32
+    revision_id = "inpfr_" + "4" * 32
+    created_at = "2026-07-26 01:00:00"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO projects "
+                "(project_id, display_name, kind, created_at, archived_at) "
+                "VALUES (:project_id, 'Input Project', 'user', :created_at, NULL)"
+            ),
+            {"project_id": project_id, "created_at": created_at},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO storage_pools "
+                "(storage_pool_id, config_key, display_name, created_at, "
+                "archived_at) VALUES "
+                "(:pool_id, 'approved-primary', 'Approved primary', "
+                ":created_at, NULL)"
+            ),
+            {"pool_id": pool_id, "created_at": created_at},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO project_storage_pool_bindings "
+                "(project_id, storage_pool_id, bound_at) "
+                "VALUES (:project_id, :pool_id, :created_at)"
+            ),
+            {
+                "project_id": project_id,
+                "pool_id": pool_id,
+                "created_at": created_at,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO input_files "
+                "(input_file_id, project_id, storage_pool_id, stable_key, "
+                "created_at, archived_at) VALUES "
+                "(:input_file_id, :project_id, :pool_id, 'reads-r1', "
+                ":created_at, NULL)"
+            ),
+            {
+                "input_file_id": input_file_id,
+                "project_id": project_id,
+                "pool_id": pool_id,
+                "created_at": created_at,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO input_file_revisions "
+                "(input_file_revision_id, input_file_id, project_id, "
+                "storage_pool_id, revision_number, relative_path, size_bytes, "
+                "content_sha256, digest_scheme, digest, created_at) VALUES "
+                "(:revision_id, :input_file_id, :project_id, :pool_id, 1, "
+                "'incoming/reads.fastq.gz', 5, :content_sha256, "
+                "'sha256-framed-input-file-revision-v1', :digest, :created_at)"
+            ),
+            {
+                "revision_id": revision_id,
+                "input_file_id": input_file_id,
+                "project_id": project_id,
+                "pool_id": pool_id,
+                "content_sha256": "a" * 64,
+                "digest": "b" * 64,
+                "created_at": created_at,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO runs "
+                "(run_id, workflow_id, inputs, status, created_at, updated_at, "
+                "started_at, ended_at, current_stage, cancellation_reason, "
+                "error, tags) VALUES "
+                "('declared-input-run', 'workflow', '{}', 'created', "
+                ":created_at, :created_at, NULL, NULL, NULL, NULL, NULL, '{}')"
+            ),
+            {"created_at": created_at},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO run_result_states "
+                "(run_id, artifact_revision, qc_revision) "
+                "VALUES ('declared-input-run', 0, 0)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO run_project_bindings "
+                "(run_id, project_id, binding_mode, provenance, "
+                "workflow_inputs_digest, binding_digest_scheme, "
+                "binding_digest, created_at) VALUES "
+                "('declared-input-run', :project_id, 'bound_v1', 'resolved', "
+                ":workflow_digest, 'sha256-framed-project-sample-binding-v1', "
+                ":project_sample_digest, :created_at)"
+            ),
+            {
+                "project_id": project_id,
+                "workflow_digest": "c" * 64,
+                "project_sample_digest": "d" * 64,
+                "created_at": created_at,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO run_input_bindings "
+                "(run_id, project_id, workflow_id, adapter_contract_version, "
+                "binding_mode, workflow_inputs_digest, "
+                "project_sample_binding_digest, binding_digest_scheme, "
+                "binding_digest, created_at) VALUES "
+                "('declared-input-run', :project_id, 'workflow', '2.0.0', "
+                "'declared_input_uses_v1', :workflow_digest, "
+                ":project_sample_digest, "
+                "'sha256-framed-input-use-binding-envelope-v1', "
+                ":binding_digest, :created_at)"
+            ),
+            {
+                "project_id": project_id,
+                "workflow_digest": "c" * 64,
+                "project_sample_digest": "d" * 64,
+                "binding_digest": "e" * 64,
+                "created_at": created_at,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO run_input_uses "
+                "(run_id, project_id, ordinal, input_use_key, occurrence, "
+                "capability_version, closure_contract_version, provenance_mode, "
+                "closure_digest_scheme, closure_digest) VALUES "
+                "('declared-input-run', :project_id, 0, 'transitional', 0, "
+                "'capability-v1', 'regular_file_v1', "
+                "'transitional_unmanaged_v1', NULL, NULL)"
+            ),
+            {"project_id": project_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO run_input_uses "
+                "(run_id, project_id, ordinal, input_use_key, occurrence, "
+                "capability_version, closure_contract_version, provenance_mode, "
+                "closure_digest_scheme, closure_digest) VALUES "
+                "('declared-input-run', :project_id, 1, 'managed', 0, "
+                "'capability-v1', 'regular_file_v1', 'managed_revision_v1', "
+                "'sha256-framed-input-closure-v1', :closure_digest)"
+            ),
+            {"project_id": project_id, "closure_digest": "f" * 64},
+        )
+
+    with engine.begin() as connection:
+        with pytest.raises(
+            IntegrityError,
+            match="ck_input_file_revisions_safe_relative_path",
+        ):
+            connection.execute(
+                text(
+                    "INSERT INTO input_file_revisions "
+                    "(input_file_revision_id, input_file_id, project_id, "
+                    "storage_pool_id, revision_number, relative_path, "
+                    "size_bytes, content_sha256, digest_scheme, digest, "
+                    "created_at) VALUES "
+                    "(:revision_id, :input_file_id, :project_id, :pool_id, 2, "
+                    "'/srv/private/reads.fastq.gz', 5, :content_sha256, "
+                    "'sha256-framed-input-file-revision-v1', :digest, "
+                    ":created_at)"
+                ),
+                {
+                    "revision_id": "inpfr_" + "5" * 32,
+                    "input_file_id": input_file_id,
+                    "project_id": project_id,
+                    "pool_id": pool_id,
+                    "content_sha256": "a" * 64,
+                    "digest": "f" * 64,
+                    "created_at": created_at,
+                },
+            )
+
+    member_parameters = {
+        "project_id": project_id,
+        "input_file_id": input_file_id,
+        "revision_id": revision_id,
+        "revision_digest": "b" * 64,
+        "content_sha256": "a" * 64,
+    }
+    with engine.begin() as connection:
+        with pytest.raises(
+            IntegrityError,
+            match="input uses require declared_input_uses_v1 binding",
+        ):
+            connection.execute(
+                text(
+                    "INSERT INTO run_input_uses "
+                    "(run_id, project_id, ordinal, input_use_key, occurrence, "
+                    "capability_version, closure_contract_version, "
+                    "provenance_mode, closure_digest_scheme, closure_digest) "
+                    "VALUES ('compatibility-input-run', :project_id, 0, "
+                    "'synthetic', 0, 'capability-v1', 'regular_file_v1', "
+                    "'transitional_unmanaged_v1', NULL, NULL)"
+                ),
+                {"project_id": LEGACY_PROJECT_ID},
+            )
+    with engine.begin() as connection:
+        with pytest.raises(
+            IntegrityError,
+            match="input members require managed_revision_v1 provenance",
+        ):
+            connection.execute(
+                text(
+                    "INSERT INTO run_input_members "
+                    "(run_id, project_id, use_ordinal, member_ordinal, "
+                    "logical_member_key, input_file_id, input_file_revision_id, "
+                    "revision_digest, size_bytes, content_sha256) VALUES "
+                    "('declared-input-run', :project_id, 0, 0, 'reads', "
+                    ":input_file_id, :revision_id, :revision_digest, 5, "
+                    ":content_sha256)"
+                ),
+                member_parameters,
+            )
+    with engine.begin() as connection:
+        with pytest.raises(IntegrityError, match="FOREIGN KEY constraint failed"):
+            connection.execute(
+                text(
+                    "INSERT INTO run_input_members "
+                    "(run_id, project_id, use_ordinal, member_ordinal, "
+                    "logical_member_key, input_file_id, input_file_revision_id, "
+                    "revision_digest, size_bytes, content_sha256) VALUES "
+                    "('declared-input-run', :project_id, 1, 0, 'reads', "
+                    ":input_file_id, :revision_id, :revision_digest, 6, "
+                    ":content_sha256)"
+                ),
+                member_parameters,
+            )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO run_input_members "
+                "(run_id, project_id, use_ordinal, member_ordinal, "
+                "logical_member_key, input_file_id, input_file_revision_id, "
+                "revision_digest, size_bytes, content_sha256) VALUES "
+                "('declared-input-run', :project_id, 1, 0, 'reads', "
+                ":input_file_id, :revision_id, :revision_digest, 5, "
+                ":content_sha256)"
+            ),
+            member_parameters,
+        )
+
+    immutable_statements = (
+        (
+            "UPDATE storage_pools SET display_name='Renamed' "
+            "WHERE storage_pool_id=:pool_id",
+            "StoragePool permits only one archive transition",
+        ),
+        (
+            "DELETE FROM project_storage_pool_bindings WHERE project_id=:project_id",
+            "Project/StoragePool binding is immutable",
+        ),
+        (
+            "UPDATE input_files SET stable_key='renamed' "
+            "WHERE input_file_id=:input_file_id",
+            "InputFile permits only one archive transition",
+        ),
+        (
+            "UPDATE input_file_revisions SET size_bytes=6 "
+            "WHERE input_file_revision_id=:revision_id",
+            "InputFileRevision is immutable",
+        ),
+        (
+            "UPDATE run_input_bindings SET binding_digest=:replacement_digest "
+            "WHERE run_id='compatibility-input-run'",
+            "Run input binding is immutable",
+        ),
+        (
+            "DELETE FROM run_input_bindings WHERE run_id='compatibility-input-run'",
+            "Run input binding is immutable",
+        ),
+        (
+            "DELETE FROM snapshot_input_bindings WHERE snapshot_id=:snapshot_id",
+            "Snapshot input binding is immutable",
+        ),
+    )
+    statement_parameters = {
+        "pool_id": pool_id,
+        "project_id": project_id,
+        "input_file_id": input_file_id,
+        "revision_id": revision_id,
+        "replacement_digest": "9" * 64,
+        "snapshot_id": snapshot_id,
+    }
+    for statement, message in immutable_statements:
+        with engine.begin() as connection:
+            with pytest.raises(IntegrityError, match=message):
+                connection.execute(text(statement), statement_parameters)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE storage_pools SET archived_at='2026-07-26 02:00:00' "
+                "WHERE storage_pool_id=:pool_id"
+            ),
+            {"pool_id": pool_id},
+        )
+    with engine.begin() as connection:
+        with pytest.raises(
+            IntegrityError,
+            match="StoragePool permits only one archive transition",
+        ):
+            connection.execute(
+                text(
+                    "UPDATE storage_pools SET archived_at=NULL "
+                    "WHERE storage_pool_id=:pool_id"
+                ),
+                {"pool_id": pool_id},
+            )
+    engine.dispose()
+
+
+def test_input_registry_downgrade_and_reapply_is_deterministic(tmp_path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'input-registry-reapply.db'}"
+    upgrade_database(database_url, "20260717_08")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        _insert_rev08_run(
+            connection,
+            "input-reapply-run",
+            created_at="2026-07-17 01:00:00",
+        )
+    engine.dispose()
+
+    upgrade_database(database_url)
+    first = create_database_engine(database_url)
+    with first.connect() as connection:
+        first_binding = dict(
+            connection.execute(
+                text(
+                    "SELECT project_id, workflow_id, adapter_contract_version, "
+                    "binding_mode, workflow_inputs_digest, "
+                    "project_sample_binding_digest, binding_digest_scheme, "
+                    "binding_digest FROM run_input_bindings "
+                    "WHERE run_id='input-reapply-run'"
+                )
+            )
+            .mappings()
+            .one()
+        )
+    first.dispose()
+
+    downgrade_database(database_url, "20260726_09")
+    downgraded = create_database_engine(database_url)
+    assert INPUT_REGISTRY_TABLES.isdisjoint(inspect(downgraded).get_table_names())
+    with downgraded.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM runs")) == 1
+        assert connection.scalar(text("SELECT count(*) FROM run_project_bindings")) == 1
+    downgraded.dispose()
+
+    upgrade_database(database_url)
+    reapplied = create_database_engine(database_url)
+    with reapplied.connect() as connection:
+        assert (
+            dict(
+                connection.execute(
+                    text(
+                        "SELECT project_id, workflow_id, "
+                        "adapter_contract_version, binding_mode, "
+                        "workflow_inputs_digest, project_sample_binding_digest, "
+                        "binding_digest_scheme, binding_digest "
+                        "FROM run_input_bindings "
+                        "WHERE run_id='input-reapply-run'"
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            == first_binding
+        )
+    reapplied.dispose()
+
+
+def _compatibility_input_binding_digest(
+    *,
+    project_id: str,
+    workflow_id: str,
+    adapter_contract_version: str | None,
+    workflow_inputs_digest: str,
+    project_sample_binding_digest: str,
+) -> str:
+    canonical = json.dumps(
+        {
+            "adapter_contract_version": adapter_contract_version,
+            "contract_mode": "compatibility_unresolved_v1",
+            "input_uses": [],
+            "project_id": project_id,
+            "project_sample_binding_digest": project_sample_binding_digest,
+            "workflow_id": workflow_id,
+            "workflow_inputs_digest": workflow_inputs_digest,
+        },
+        ensure_ascii=True,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    digest = sha256()
+    for part in (INPUT_BINDING_DIGEST_SCHEME, canonical):
+        encoded = part.encode("utf-8")
+        digest.update(len(encoded).to_bytes(8, byteorder="big", signed=False))
+        digest.update(encoded)
+    return digest.hexdigest()
 
 
 def _insert_rev08_run(
@@ -1181,7 +1889,7 @@ def test_qc_metric_migration_upgrades_current_main_without_changing_existing_row
             == 0
         )
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260726_09"
+            "20260726_10"
         )
     upgraded.dispose()
 
@@ -1235,7 +1943,7 @@ def test_validated_snapshot_migration_upgrades_current_main_without_changing_run
             == 0
         )
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260726_09"
+            "20260726_10"
         )
     upgraded.dispose()
 
@@ -1280,7 +1988,7 @@ def test_run_history_index_migration_preserves_rows_and_supports_all_query_shape
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT count(*) FROM runs")) == 1
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260726_09"
+            "20260726_10"
         )
         plans = {
             "ix_runs_created_run_id": (
@@ -1596,7 +2304,7 @@ def test_v030_supported_prior_schema_upgrade_preserves_complete_product_record(
     upgraded = create_database_engine(database_url)
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20260726_09"
+            "20260726_10"
         )
         run = (
             connection.execute(

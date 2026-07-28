@@ -6,8 +6,14 @@ from pathlib import Path
 import shutil
 
 from encode_pipeline.persistence.repositories import SqlAlchemyRunRepository
+from encode_pipeline.persistence.input_registry import (
+    SqlAlchemyInputRegistryRepository,
+)
 from encode_pipeline.services.local_run_driver import LocalRunDriver
 from encode_pipeline.services.local_execution import LocalExecutionService
+from encode_pipeline.services.managed_input_verification import (
+    ManagedInputVerificationService,
+)
 from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
 from encode_pipeline.services.preflight import LocalPreflightService
 from encode_pipeline.services.process_runner import ProcessRunner
@@ -28,11 +34,28 @@ def test_open_worker_runtime_reopens_sqlite_and_full_execution_dependencies(tmp_
         assert runtime.settings is configured
         assert runtime.persistence.database_url == configured.database_url
         assert isinstance(runtime.persistence.repository, SqlAlchemyRunRepository)
+        assert isinstance(
+            runtime.persistence.input_registry_repository,
+            SqlAlchemyInputRegistryRepository,
+        )
         assert runtime.run_service._repository is runtime.persistence.repository
         assert record.workflow_id == WORKFLOW_ID
         assert runtime.registry.get(WORKFLOW_ID).metadata.workflow_id == WORKFLOW_ID
         assert isinstance(runtime.local_run_driver, LocalRunDriver)
         assert isinstance(runtime.local_execution_service, LocalExecutionService)
+        assert isinstance(
+            runtime.managed_input_verifier,
+            ManagedInputVerificationService,
+        )
+        assert (
+            runtime.managed_input_verifier._input_registry_repository
+            is runtime.persistence.input_registry_repository
+        )
+        assert runtime.managed_input_verifier._storage_pool_config_path is None
+        assert (
+            runtime.local_execution_service._managed_input_verifier
+            is runtime.managed_input_verifier
+        )
         assert isinstance(
             runtime.artifact_extraction_service,
             ArtifactExtractionService,

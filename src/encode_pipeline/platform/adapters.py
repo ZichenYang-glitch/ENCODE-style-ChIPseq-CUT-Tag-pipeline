@@ -22,6 +22,10 @@ if TYPE_CHECKING:
     from encode_pipeline.platform.builds import WorkflowBuildIdentity
     from encode_pipeline.platform.planning import ExecutionPlan
     from encode_pipeline.platform.runs import RunRecord
+    from encode_pipeline.platform.input_registry import (
+        AdapterInputUseContract,
+        InputUseBindingEnvelope,
+    )
 
 
 SamplePayload = str | Path | list[dict[str, str]] | None
@@ -862,6 +866,30 @@ class InputBundleImportingAdapter(Protocol):
         bundle: "WorkflowInputBundle",
     ) -> "Result[InputBundleMapping]":
         """Map verified public artifacts without mutating source or platform state."""
+
+
+@runtime_checkable
+class InputUseDeclaringAdapter(Protocol):
+    """Optional exact contract for adapter-owned execution input uses."""
+
+    def declare_input_uses(
+        self,
+        inputs: WorkflowInputs,
+        validated: object,
+    ) -> "Result[AdapterInputUseContract]":
+        """Declare ordered uses without exposing or interpreting physical paths."""
+
+
+@runtime_checkable
+class ManagedInputUseValidatingAdapter(Protocol):
+    """Optional scientific validation for a resolved path-free input envelope."""
+
+    def validate_managed_input_uses(
+        self,
+        inputs: WorkflowInputs,
+        binding: "InputUseBindingEnvelope",
+    ) -> Result[object]:
+        """Validate adapter-owned closure semantics after platform verification."""
 
 
 @runtime_checkable

@@ -13,6 +13,9 @@ from encode_pipeline.services.artifact_extraction import ArtifactExtractionServi
 from encode_pipeline.services.local_execution import LocalExecutionService
 from encode_pipeline.services.local_run_driver import LocalRunDriver
 from encode_pipeline.services.managed_containers import ManagedContainerCleaner
+from encode_pipeline.services.managed_input_verification import (
+    ManagedInputVerificationService,
+)
 from encode_pipeline.services.materialization import WorkspaceMaterializer
 from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 from encode_pipeline.services.preflight import LocalPreflightService
@@ -38,6 +41,7 @@ class WorkerRuntime:
     materializer: WorkspaceMaterializer
     command_builder: CommandBuilder
     local_run_driver: LocalRunDriver
+    managed_input_verifier: ManagedInputVerificationService
     local_execution_service: LocalExecutionService
     artifact_extraction_service: ArtifactExtractionService
     qc_summary_indexing_service: QcSummaryIndexingService
@@ -164,12 +168,18 @@ def open_worker_runtime(
                 )
             ),
         )
+        managed_input_verifier = ManagedInputVerificationService(
+            run_repository=persistence.repository,
+            input_registry_repository=persistence.input_registry_repository,
+            storage_pool_config_path=resolved_settings.storage_pool_config,
+        )
         local_execution_service = create_default_local_execution_service(
             run_service,
             execution_planner=execution_planner,
             workspace_planner=workspace_planner,
             command_builder=command_builder,
             local_run_driver=local_run_driver,
+            managed_input_verifier=managed_input_verifier,
         )
         artifact_extraction_service = create_default_artifact_extraction_service(
             run_service=run_service,
@@ -201,6 +211,7 @@ def open_worker_runtime(
             materializer=materializer,
             command_builder=command_builder,
             local_run_driver=local_run_driver,
+            managed_input_verifier=managed_input_verifier,
             local_execution_service=local_execution_service,
             artifact_extraction_service=artifact_extraction_service,
             qc_summary_indexing_service=qc_summary_indexing_service,

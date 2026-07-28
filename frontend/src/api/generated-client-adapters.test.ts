@@ -211,19 +211,33 @@ describe('generated client adapters', () => {
       options: {},
     };
 
-    await client.validateWorkflow('encode', inputs, {
+    const selection = {
       project_id: 'prj_11111111111111111111111111111111',
       sample_revision_ids: [
         'smpr_22222222222222222222222222222222',
         'smpr_33333333333333333333333333333333',
       ],
-    });
+      input_selections: [
+        {
+          input_use_key: 'primary_reads',
+          occurrence: 0,
+          input_file_revision_ids: [
+            'inpfr_44444444444444444444444444444444',
+          ],
+        },
+      ],
+    } as const;
+
+    await client.validateWorkflow('encode', inputs, selection);
 
     expect(inputs).toEqual({
       config: { genome: 'hg38' },
       samples: 'samples.tsv',
       options: {},
     });
+    expect(selection.input_selections[0].input_file_revision_ids).toEqual([
+      'inpfr_44444444444444444444444444444444',
+    ]);
     expect(validateWorkflow).toHaveBeenCalledWith('encode', {
       config: { genome: 'hg38' },
       samples: 'samples.tsv',
@@ -232,6 +246,15 @@ describe('generated client adapters', () => {
       sample_revision_ids: [
         'smpr_22222222222222222222222222222222',
         'smpr_33333333333333333333333333333333',
+      ],
+      input_selections: [
+        {
+          input_use_key: 'primary_reads',
+          occurrence: 0,
+          input_file_revision_ids: [
+            'inpfr_44444444444444444444444444444444',
+          ],
+        },
       ],
     });
   });

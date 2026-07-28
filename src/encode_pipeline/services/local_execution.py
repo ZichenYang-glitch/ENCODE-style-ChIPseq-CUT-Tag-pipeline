@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from encode_pipeline.platform.planning import WorkspacePathError, WorkspacePathPolicy
 from encode_pipeline.platform.results import Issue, Result
@@ -18,6 +18,12 @@ if TYPE_CHECKING:
     from encode_pipeline.services.runs import RunService
 
 
+class ManagedInputVerifier(Protocol):
+    """Worker-side exact managed input revalidation boundary."""
+
+    def verify_run(self, run_id: str) -> Result[None]: ...
+
+
 class LocalExecutionService:
     """Rebuild and execute a preflighted workspace under durable lifecycle state."""
 
@@ -29,6 +35,7 @@ class LocalExecutionService:
         workspace_planner: "WorkspacePlanner",
         command_builder: "CommandBuilder",
         local_run_driver: "LocalRunDriver",
+        managed_input_verifier: ManagedInputVerifier,
     ) -> None:
         from encode_pipeline.services.command_builder import CommandBuilder
         from encode_pipeline.services.local_run_driver import LocalRunDriver
@@ -49,12 +56,15 @@ class LocalExecutionService:
             raise ValueError("LocalExecutionService requires a CommandBuilder instance")
         if not isinstance(local_run_driver, LocalRunDriver):
             raise ValueError("LocalExecutionService requires a LocalRunDriver instance")
+        if not callable(getattr(managed_input_verifier, "verify_run", None)):
+            raise ValueError("LocalExecutionService requires a managed input verifier")
 
         self._run_service = run_service
         self._execution_planner = execution_planner
         self._workspace_planner = workspace_planner
         self._command_builder = command_builder
         self._local_run_driver = local_run_driver
+        self._managed_input_verifier = managed_input_verifier
 
     def execute(self, run_id: str) -> Result[RunRecord]:
         """Execute one claimed QUEUED run and persist its terminal outcome."""
@@ -147,6 +157,19 @@ class LocalExecutionService:
         if plan_result.is_failure:
             return plan_result
 
+        try:
+            input_verification = self._managed_input_verifier.verify_run(run_id)
+        except Exception:
+            input_verification = self._managed_input_failure()
+        if (
+            not isinstance(input_verification, Result)
+            or input_verification.is_failure
+            or input_verification.value is not None
+        ):
+            if isinstance(input_verification, Result) and input_verification.issues:
+                return Result.failure(input_verification.issues)
+            return Result.failure(self._managed_input_failure().issues)
+
         workspace_dir = self._local_run_driver.derive_workspace_dir(run_id)
         workspace_result = self._workspace_planner.plan_workspace(
             plan_result.value,
@@ -169,6 +192,19 @@ class LocalExecutionService:
         if command_result.is_failure:
             return command_result
         return command_result
+
+    @staticmethod
+    def _managed_input_failure() -> Result[None]:
+        return Result.failure(
+            [
+                Issue(
+                    code="MANAGED_INPUT_VERIFICATION_FAILED",
+                    message="Managed input evidence could not be verified.",
+                    source="input_registry",
+                    path="input_binding",
+                )
+            ]
+        )
 
     @staticmethod
     def _verify_materialized_workspace(

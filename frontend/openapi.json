@@ -1898,6 +1898,152 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "InputBindingResponse": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "compatibility_unresolved_v1",
+              "declared_input_uses_v1"
+            ],
+            "title": "Mode"
+          },
+          "adapter_contract_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adapter Contract Version"
+          },
+          "digest": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Digest"
+          },
+          "fully_managed": {
+            "type": "boolean",
+            "title": "Fully Managed"
+          },
+          "input_uses": {
+            "items": {
+              "$ref": "#/components/schemas/InputUseBindingResponse"
+            },
+            "type": "array",
+            "maxItems": 256,
+            "title": "Input Uses"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "digest",
+          "fully_managed",
+          "input_uses"
+        ],
+        "title": "InputBindingResponse",
+        "description": "Allowlisted public projection of immutable input-use provenance."
+      },
+      "InputFileRevisionSelectionRequest": {
+        "properties": {
+          "input_use_key": {
+            "type": "string",
+            "maxLength": 255,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$",
+            "title": "Input Use Key"
+          },
+          "occurrence": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Occurrence"
+          },
+          "input_file_revision_ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 38,
+              "pattern": "^inpfr_[0-9a-f]{32}$"
+            },
+            "type": "array",
+            "maxItems": 256,
+            "minItems": 1,
+            "title": "Input File Revision Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "input_use_key",
+          "occurrence",
+          "input_file_revision_ids"
+        ],
+        "title": "InputFileRevisionSelectionRequest",
+        "description": "Opaque revisions selected for one adapter-owned input-use closure."
+      },
+      "InputUseBindingResponse": {
+        "properties": {
+          "input_use_key": {
+            "type": "string",
+            "maxLength": 255,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$",
+            "title": "Input Use Key"
+          },
+          "occurrence": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Occurrence"
+          },
+          "capability_version": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Capability Version"
+          },
+          "closure_contract_version": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Closure Contract Version"
+          },
+          "provenance_mode": {
+            "type": "string",
+            "enum": [
+              "managed_revision_v1",
+              "transitional_unmanaged_v1"
+            ],
+            "title": "Provenance Mode"
+          },
+          "input_file_revision_ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 38,
+              "pattern": "^inpfr_[0-9a-f]{32}$"
+            },
+            "type": "array",
+            "maxItems": 256,
+            "title": "Input File Revision Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "input_use_key",
+          "occurrence",
+          "capability_version",
+          "closure_contract_version",
+          "provenance_mode",
+          "input_file_revision_ids"
+        ],
+        "title": "InputUseBindingResponse",
+        "description": "Path-free public evidence for one adapter-owned input use."
+      },
       "IssueResponse": {
         "properties": {
           "code": {
@@ -2977,6 +3123,9 @@
             "maxLength": 64,
             "pattern": "^[0-9a-f]{64}$",
             "title": "Binding Digest"
+          },
+          "input_binding": {
+            "$ref": "#/components/schemas/InputBindingResponse"
           }
         },
         "type": "object",
@@ -2992,7 +3141,8 @@
           "binding_mode",
           "provenance",
           "sample_revision_ids",
-          "binding_digest"
+          "binding_digest",
+          "input_binding"
         ],
         "title": "ValidatedInputSnapshotResponse",
         "description": "Safe public projection of one server-owned validation snapshot."
@@ -3105,6 +3255,14 @@
             },
             "type": "array",
             "title": "Sample Revision Ids"
+          },
+          "input_selections": {
+            "items": {
+              "$ref": "#/components/schemas/InputFileRevisionSelectionRequest"
+            },
+            "type": "array",
+            "maxItems": 256,
+            "title": "Input Selections"
           }
         },
         "additionalProperties": false,

@@ -160,6 +160,13 @@ export const stubValidationResponses: Record<
         provenance: 'unresolved',
         sample_revision_ids: [],
         binding_digest: 'b'.repeat(64),
+        input_binding: {
+          mode: 'compatibility_unresolved_v1',
+          adapter_contract_version: null,
+          digest: 'c'.repeat(64),
+          fully_managed: false,
+          input_uses: [],
+        },
       },
       issues: [],
     };
