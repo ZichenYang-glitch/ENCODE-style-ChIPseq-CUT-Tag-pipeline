@@ -137,6 +137,37 @@ def test_fast_checks_is_the_only_deterministic_pytest_coverage_producer():
     assert "always()" in jobs["coverage"]["if"]
 
 
+def test_fast_checks_proves_python_provenance_before_importing_product():
+    steps = _load("ci.yml")["jobs"]["fast-checks"]["steps"]
+    provenance_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Verify current-checkout Python provenance"
+    )
+    pytest_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Run deterministic Python tier once"
+    )
+    script_validation_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Validate default config"
+    )
+    console_validation_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Validate default config via package CLI"
+    )
+    provenance = str(steps[provenance_index]["run"])
+
+    assert provenance_index < pytest_index
+    assert provenance_index < script_validation_index
+    assert provenance_index < console_validation_index
+    assert "scripts/source_provenance.py checkout" in provenance
+    assert "--repository-root ." in provenance
+
+
 def test_documented_python_timing_budgets_match_the_workflow():
     harness = (REPO_ROOT / "docs" / "development" / "harness.md").read_text(
         encoding="utf-8"

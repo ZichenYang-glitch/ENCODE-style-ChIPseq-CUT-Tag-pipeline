@@ -80,6 +80,12 @@ jobs:
           python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
           python3 -m pip check
 
+      - name: Verify current-checkout Python provenance
+        shell: micromamba-shell {0}
+        run: >-
+          python3 scripts/source_provenance.py checkout
+          --repository-root .
+
       - name: Run deterministic Python tier once
         shell: micromamba-shell {0}
         env:

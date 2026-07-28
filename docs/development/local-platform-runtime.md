@@ -40,10 +40,16 @@ micromamba create -p .local/envs/ci-fast --file workflow/envs/ci-fast.lock
 ./.local/envs/ci-fast/bin/python -m pip install --no-index --no-deps \
   --no-build-isolation -e ".[api]"
 ./.local/envs/ci-fast/bin/python -m pip check
+./.local/envs/ci-fast/bin/python scripts/source_provenance.py checkout \
+  --repository-root .
 npm --prefix frontend ci
 export PATH="$PWD/.local/envs/ci-fast/bin:$PATH"
 helixweave --doctor
 ```
+
+The provenance check must precede source-checkout validation. It rejects stale
+editable installs from sibling worktrees without changing or uninstalling
+anything; see [Python source provenance](source-provenance.md).
 
 The source-trial compatibility script and the installed entry points all use
 the same package-owned implementation. From the exact source tree,

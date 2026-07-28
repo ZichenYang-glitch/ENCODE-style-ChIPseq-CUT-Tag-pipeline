@@ -4,12 +4,18 @@
 from __future__ import annotations
 
 import importlib
+import runpy
 import sys
 from pathlib import Path
 
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE_ROOT))
+_require_checkout = runpy.run_path(
+    str(Path(__file__).with_name("source_provenance.py"))
+)["require_checkout"]
+_require_checkout(SOURCE_ROOT.parent)
+
 _local_platform = importlib.import_module("encode_pipeline.cli.local_platform")
 
 module_path = Path(_local_platform.__file__ or "").resolve()

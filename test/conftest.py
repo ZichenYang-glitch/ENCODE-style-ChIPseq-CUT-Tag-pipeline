@@ -3,15 +3,22 @@
 import asyncio
 import csv
 import os
+from pathlib import Path
 import re
+import runpy
 import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
 from threading import Event, Thread
 
-import pytest
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+_require_checkout = runpy.run_path(
+    str(_REPOSITORY_ROOT / "scripts" / "source_provenance.py")
+)["require_checkout"]
+_require_checkout(_REPOSITORY_ROOT)
+
+import pytest  # noqa: E402
 
 
 _TEST_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -12,8 +12,10 @@ import subprocess
 import sys
 import tarfile
 import tomllib
+import venv
 import zipfile
 
+import pytest
 import yaml
 
 from encode_pipeline import __version__
@@ -30,6 +32,7 @@ EXPECTED_CONSOLE_SCRIPTS = {
     "encode-worker": "encode_pipeline.workers.cli:main",
     "helixweave": "encode_pipeline.cli.app:main",
 }
+SOURCE_PROVENANCE_SCRIPT = REPO_ROOT / "scripts" / "source_provenance.py"
 
 
 def _build_wheel(tmp_path: Path) -> Path:
@@ -64,6 +67,120 @@ def _build_wheel(tmp_path: Path) -> Path:
     wheels = tuple(wheel_root.glob("helixweave-*.whl"))
     assert len(wheels) == 1
     return wheels[0]
+
+
+def _build_sdist(tmp_path: Path) -> Path:
+    build_root = tmp_path / "source"
+    build_root.mkdir()
+    for filename in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
+        shutil.copy2(REPO_ROOT / filename, build_root / filename)
+    shutil.copytree(
+        REPO_ROOT / "src",
+        build_root / "src",
+        ignore=shutil.ignore_patterns("*.egg-info", "__pycache__", "*.pyc"),
+    )
+    distribution_root = tmp_path / "dist"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "build",
+            "--no-isolation",
+            "--sdist",
+            "--outdir",
+            str(distribution_root),
+            str(build_root),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    sdists = tuple(distribution_root.glob("helixweave-*.tar.gz"))
+    assert len(sdists) == 1
+    return sdists[0]
+
+
+def _install_in_clean_room(tmp_path: Path, artifact: Path) -> Path:
+    environment_root = tmp_path / "venv"
+    venv.EnvBuilder(with_pip=False, system_site_packages=True).create(environment_root)
+    python = environment_root / (
+        "Scripts/python.exe" if os.name == "nt" else "bin/python"
+    )
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"PYTHONPATH", "PYTHONHOME"}
+    }
+    installed = subprocess.run(
+        [
+            str(python),
+            "-m",
+            "pip",
+            "install",
+            "--ignore-installed",
+            "--no-index",
+            "--no-deps",
+            "--no-build-isolation",
+            str(artifact),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert installed.returncode == 0, installed.stderr
+
+    configuration = environment_root / "pyvenv.cfg"
+    content = configuration.read_text(encoding="utf-8")
+    assert "include-system-site-packages = true" in content
+    configuration.write_text(
+        content.replace(
+            "include-system-site-packages = true",
+            "include-system-site-packages = false",
+        ),
+        encoding="utf-8",
+    )
+    return python
+
+
+@pytest.mark.parametrize("artifact_kind", ("wheel", "sdist"))
+def test_clean_room_artifact_provenance_mode(
+    tmp_path: Path,
+    artifact_kind: str,
+) -> None:
+    case_root = tmp_path / artifact_kind
+    case_root.mkdir()
+    artifact = (
+        _build_wheel(case_root) if artifact_kind == "wheel" else _build_sdist(case_root)
+    )
+    python = _install_in_clean_room(case_root, artifact)
+
+    provenance = subprocess.run(
+        [str(python), str(SOURCE_PROVENANCE_SCRIPT), "installed-artifact"],
+        cwd=case_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    imported = subprocess.run(
+        [
+            str(python),
+            "-c",
+            "import encode_pipeline; print(encode_pipeline.__version__)",
+        ],
+        cwd=case_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert provenance.returncode == 0, provenance.stderr
+    assert provenance.stdout == ""
+    assert provenance.stderr == ""
+    assert imported.returncode == 0, imported.stderr
+    assert imported.stdout.strip() == RELEASE_VERSION
 
 
 def test_release_identity_is_consistent_across_public_metadata(
