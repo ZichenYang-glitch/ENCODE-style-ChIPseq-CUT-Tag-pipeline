@@ -51,6 +51,12 @@ External reviewed inputs cross a separate, versioned trust boundary. The
 defines the initial read-only, public-contract-only integration and its
 provenance limits.
 
+Project, Sample, managed local input, durable publication, and contributor
+provenance are governed by the
+[data foundation decision](data-foundation-decision.md). That decision also
+defines the conservative Legacy Project boundary for records that predate
+provable catalog bindings.
+
 ## Canonical state and execution
 
 SQLite is the canonical store for run identity, lifecycle, events, logs, and
