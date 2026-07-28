@@ -98,6 +98,13 @@ Backend contract changes require regeneration and a zero-drift check. Stable
 routes remain under `/api/v1`; transport errors and structured workflow issues
 are distinct concepts.
 
+Persisted run inputs keep their private execution and replay meaning, including
+for eligible trusted-local v1 compatibility runs. The public v1
+`RunRecordResponse` intentionally omits the raw `inputs` field because an
+adapter-private payload can contain operator paths. Supported generated clients
+consume the redacted projection; this is a security-driven projection change,
+not deletion or reinterpretation of SQLite run evidence.
+
 ## Artifacts, QC, and downloads
 
 Adapters map successful workflow outputs into platform-owned artifact and QC

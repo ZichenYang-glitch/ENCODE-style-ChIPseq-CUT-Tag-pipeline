@@ -16,6 +16,7 @@ from encode_pipeline.platform.adapters import (
     WorkspacePlan,
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
+from encode_pipeline.platform.data_registry import ProjectSampleSelection
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.services.run_repositories import InMemoryRunRepository
@@ -172,6 +173,31 @@ def test_successful_validation_persists_snapshot_with_warning_evidence() -> None
         result.value
     )
     assert provider.calls == 2
+
+
+def test_successful_validation_passes_project_sample_selection_to_repository() -> None:
+    service, _, repository, _ = _services()
+    selection = ProjectSampleSelection(
+        project_id="prj_11111111111111111111111111111111",
+        sample_revision_ids=("smpr_22222222222222222222222222222222",),
+    )
+    observed: list[ProjectSampleSelection | None] = []
+    original = repository.create_validated_input_snapshot
+
+    def record_selection(snapshot, *, project_sample_selection=None):
+        observed.append(project_sample_selection)
+        return original(snapshot)
+
+    repository.create_validated_input_snapshot = record_selection  # type: ignore[method-assign]
+
+    result = service.validate(
+        "workflow-a",
+        WorkflowInputs(config={}),
+        project_sample_selection=selection,
+    )
+
+    assert result.is_success
+    assert observed == [selection]
 
 
 def test_encode_snapshot_retains_submitted_semantic_config_without_engine_aliases(

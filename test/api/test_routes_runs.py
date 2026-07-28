@@ -16,7 +16,7 @@ from sqlalchemy import text
 
 from encode_pipeline.api.main import create_app
 from encode_pipeline.platform.adapters import WorkflowInputs
-from encode_pipeline.platform.results import Result
+from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunStatus
 from api_test_client import ApiTestClient
 
@@ -148,32 +148,132 @@ def test_create_run_returns_201_with_run_response(
     assert data["issues"] == []
 
 
-def test_create_run_persists_inline_sample_rows_without_server_path(
+def test_create_and_get_run_redact_private_legacy_inputs(
     client: ApiTestClient,
     workflow_id: str,
     tmp_path: Path,
 ) -> None:
+    relative_output_path = "operator-private/results"
+    private_environment_value = "DB_PASSWORD=do-not-disclose"
+    private_exception_text = "RuntimeError: operator database failed"
     row = {
-        "sample": "S1",
-        "fastq_1": str((tmp_path / "S1.R1.fastq.gz").resolve()),
+        "sample": "PRIVATE_SAMPLE_ALIAS",
+        "fastq_1": str(
+            (
+                tmp_path / "private-inputs" / f"{private_environment_value}.R1.fastq.gz"
+            ).resolve()
+        ),
         "layout": "SE",
         "assay": "chipseq",
-        "target": "CTCF",
+        "target": private_exception_text,
         "peak_mode": "narrow",
         "genome": "hs",
-        "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
+        "bowtie2_index": str(
+            (tmp_path / "operator-private" / "indices" / "hs").resolve()
+        ),
+    }
+    inputs = {
+        "config": {"outdir": relative_output_path},
+        "samples": [row],
+        "options": {},
     }
 
     response = _create_run_response(
         client,
         workflow_id,
-        inputs={"config": {}, "samples": [row], "options": {}},
+        inputs=inputs,
     )
 
     assert response.status_code == 201
     run = response.json()["run"]
-    assert run["inputs"] == {"config": {}, "samples": [row], "options": {}}
+    assert "inputs" not in run
     assert "encode-platform-inline-samples" not in response.text
+    for private_value in (
+        relative_output_path,
+        private_environment_value,
+        private_exception_text,
+        row["sample"],
+        row["fastq_1"],
+        row["bowtie2_index"],
+    ):
+        assert private_value not in response.text
+
+    persisted = client.app.state.run_service.get_run(run["run_id"])
+    assert dict(persisted.inputs) == inputs
+
+    get_response = client.get(f"/api/v1/runs/{run['run_id']}")
+
+    assert get_response.status_code == 200
+    assert "inputs" not in get_response.json()["run"]
+    for private_value in (
+        relative_output_path,
+        private_environment_value,
+        private_exception_text,
+        row["sample"],
+        row["fastq_1"],
+        row["bowtie2_index"],
+    ):
+        assert private_value not in get_response.text
+
+
+def test_get_run_redacts_persisted_exception_details(
+    client: ApiTestClient,
+    workflow_id: str,
+) -> None:
+    private_path = "/srv/operator/private/runtime.sqlite"
+    private_environment_value = "AWS_SECRET_ACCESS_KEY=do-not-disclose"
+    private_exception_text = (
+        f"RuntimeError: {private_path} failed with {private_environment_value}"
+    )
+    service = client.app.state.run_service
+    record = service.create_run(
+        workflow_id,
+        WorkflowInputs(
+            config={
+                "outdir": private_path,
+                "operator_environment": private_environment_value,
+            }
+        ),
+    )
+    service.transition_run(record.run_id, RunStatus.VALIDATING)
+    service.transition_run(
+        record.run_id,
+        RunStatus.FAILED,
+        issue=Issue.from_exception(
+            RuntimeError(private_exception_text),
+            code=private_path,
+            context={"operator_path": private_path},
+        ),
+    )
+
+    response = client.get(f"/api/v1/runs/{record.run_id}")
+
+    assert response.status_code == 200
+    run = response.json()["run"]
+    assert "inputs" not in run
+    assert run["error"] == {
+        "code": "RUN_FAILED",
+        "message": "Run failed.",
+        "severity": "error",
+        "path": "run_id",
+        "source": "api",
+        "technical_message": None,
+        "hint": None,
+        "context": {},
+    }
+    assert private_path not in response.text
+    assert private_environment_value not in response.text
+    assert private_exception_text not in response.text
+
+
+def test_run_record_openapi_omits_private_inputs(
+    client: ApiTestClient,
+) -> None:
+    schema = client.app.openapi()["components"]["schemas"]["RunRecordResponse"]
+
+    assert schema["additionalProperties"] is False
+    assert "inputs" not in schema["properties"]
+    assert "inputs" not in schema["required"]
 
 
 def test_create_run_rejects_oversized_authoring_body_without_persisting_run(

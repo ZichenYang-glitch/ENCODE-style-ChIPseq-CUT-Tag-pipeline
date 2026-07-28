@@ -41,8 +41,10 @@ MANIFEST_PATH = (
 
 PRODUCTION_PERSISTENCE_PATHS = frozenset(
     {
+        "src/encode_pipeline/persistence/__init__.py",
         "src/encode_pipeline/persistence/runtime.py",
         "src/encode_pipeline/persistence/database.py",
+        "src/encode_pipeline/persistence/data_registry.py",
         "src/encode_pipeline/persistence/migrations.py",
         "src/encode_pipeline/persistence/models.py",
         "src/encode_pipeline/persistence/repositories.py",
@@ -55,6 +57,9 @@ PRODUCTION_PERSISTENCE_PATHS = frozenset(
         "src/encode_pipeline/persistence/alembic/versions/20260714_06_validated_input_snapshots.py",
         "src/encode_pipeline/persistence/alembic/versions/20260714_07_run_history_indexes.py",
         "src/encode_pipeline/persistence/alembic/versions/20260717_08_run_result_generations.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260726_09_project_sample_registry.py",
+        "src/encode_pipeline/platform/data_registry.py",
+        "src/encode_pipeline/services/data_registry_repositories.py",
     }
 )
 PRODUCTION_RESULT_DELIVERY_PATHS = frozenset(
@@ -120,6 +125,14 @@ def test_committed_execution_implementation_manifest_verifies_installed_files():
         == hashlib.sha256(MANIFEST_PATH.read_bytes()).hexdigest()
     )
     assert len(result.value.aggregate_sha256) == 64
+
+
+def test_committed_execution_manifest_is_exact_canonical_build():
+    expected = canonical_execution_manifest_bytes(
+        build_execution_implementation_manifest(PROJECT_ROOT)
+    )
+
+    assert MANIFEST_PATH.read_bytes() == expected
 
 
 def test_manifest_or_installed_code_mismatch_fails_closed_without_leak(
@@ -316,6 +329,28 @@ def test_unlisted_production_migration_revision_fails_closed(
         manifest_bytes=MANIFEST_PATH.read_bytes(),
         package_root=package_root,
     )
+    assert installed.is_failure
+    assert installed.errors[0].code == "BULK_RNASEQ_EXECUTION_IMPLEMENTATION_INVALID"
+    with pytest.raises(ValueError, match="migration revision"):
+        build_execution_implementation_manifest(project)
+
+
+def test_missing_listed_production_migration_revision_fails_closed(
+    tmp_path: Path,
+):
+    project = tmp_path / "missing-migration"
+    package_root = _copy_controlled_implementation(project)
+    missing = (
+        package_root
+        / "persistence/alembic/versions/20260726_09_project_sample_registry.py"
+    )
+    missing.unlink()
+
+    installed = verify_execution_implementation(
+        manifest_bytes=MANIFEST_PATH.read_bytes(),
+        package_root=package_root,
+    )
+
     assert installed.is_failure
     assert installed.errors[0].code == "BULK_RNASEQ_EXECUTION_IMPLEMENTATION_INVALID"
     with pytest.raises(ValueError, match="migration revision"):

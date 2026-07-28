@@ -196,6 +196,46 @@ describe('generated client adapters', () => {
     });
   });
 
+  it('keeps Project/Sample selection separate and sends it atomically', async () => {
+    vi.mocked(validateWorkflow).mockResolvedValue({
+      ok: true,
+      workflow_id: 'encode',
+      value: null,
+      snapshot: null,
+      issues: [],
+    });
+    const client = createGeneratedWorkflowClient();
+    const inputs = {
+      config: { genome: 'hg38' },
+      samples: 'samples.tsv',
+      options: {},
+    };
+
+    await client.validateWorkflow('encode', inputs, {
+      project_id: 'prj_11111111111111111111111111111111',
+      sample_revision_ids: [
+        'smpr_22222222222222222222222222222222',
+        'smpr_33333333333333333333333333333333',
+      ],
+    });
+
+    expect(inputs).toEqual({
+      config: { genome: 'hg38' },
+      samples: 'samples.tsv',
+      options: {},
+    });
+    expect(validateWorkflow).toHaveBeenCalledWith('encode', {
+      config: { genome: 'hg38' },
+      samples: 'samples.tsv',
+      options: {},
+      project_id: 'prj_11111111111111111111111111111111',
+      sample_revision_ids: [
+        'smpr_22222222222222222222222222222222',
+        'smpr_33333333333333333333333333333333',
+      ],
+    });
+  });
+
   it('calls the generated preflight operation', async () => {
     vi.mocked(triggerPreflight).mockResolvedValue({
       ok: true,

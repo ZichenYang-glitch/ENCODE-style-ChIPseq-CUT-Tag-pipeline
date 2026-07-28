@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from encode_pipeline.persistence.models import (
+    ProjectRow,
     RunArtifactRow,
     RunEventRow,
     RunExecutionAssignmentRow,
@@ -19,11 +20,27 @@ from encode_pipeline.persistence.models import (
     RunQcMetricRow,
     RunResultAttemptRow,
     RunResultStateRow,
+    RunProjectBindingRow,
     RunRow,
+    RunSampleRow,
     RunWorkflowBuildIdentityRow,
+    SampleRevisionRow,
+    SnapshotProjectBindingRow,
+    SnapshotSampleRevisionRow,
     ValidatedInputSnapshotRow,
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
+from encode_pipeline.platform.data_registry import (
+    BindingMode,
+    BindingProvenance,
+    ProjectKind,
+    ProjectSampleBinding,
+    ProjectSampleSelection,
+    SampleRevision,
+    SampleRevisionBindingRef,
+    build_legacy_project_sample_binding,
+    build_project_sample_binding,
+)
 from encode_pipeline.platform.execution import (
     RunExecutionAssignment,
     RunExecutionCancellationRequest,
@@ -57,11 +74,13 @@ from encode_pipeline.platform.snapshots import (
 )
 from encode_pipeline.services.run_repositories import (
     ConcurrentRunUpdateError,
+    ProjectSampleSelectionError,
     ResultGenerationChangedError,
     RunEventDraft,
     ValidatedSnapshotExpiredError,
     ValidatedSnapshotReplayConflictError,
     _event_with_context,
+    _legacy_run_inputs_digest,
     _require_current_attempt,
     _sorted_artifacts,
     _state_after_artifact_change,
@@ -99,6 +118,14 @@ class SqlAlchemyRunRepository:
                     session.add(_run_row(record))
                     session.flush()
                     session.add(RunResultStateRow(run_id=record.run_id))
+                    _add_run_data_binding(
+                        session,
+                        record.run_id,
+                        build_legacy_project_sample_binding(
+                            _legacy_run_inputs_digest(record)
+                        ),
+                        created_at=record.created_at,
+                    )
                     session.flush()
                     return self._insert_event(session, record.run_id, event)
             except IntegrityError as exc:
@@ -107,6 +134,8 @@ class SqlAlchemyRunRepository:
     def create_validated_input_snapshot(
         self,
         snapshot: ValidatedInputSnapshot,
+        *,
+        project_sample_selection: ProjectSampleSelection | None = None,
     ) -> ValidatedInputSnapshot:
         validated = _validated_input_snapshot_from_row(
             _validated_input_snapshot_row(snapshot)
@@ -115,6 +144,28 @@ class SqlAlchemyRunRepository:
             with self._lock, self._session_factory.begin() as session:
                 _begin_write(session)
                 session.add(_validated_input_snapshot_row(validated))
+                session.flush()
+                if project_sample_selection is None:
+                    binding = build_legacy_project_sample_binding(
+                        validated.payload_digest
+                    )
+                else:
+                    try:
+                        binding = _resolve_project_sample_selection(
+                            session,
+                            project_sample_selection,
+                            workflow_inputs_digest=validated.payload_digest,
+                        )
+                    except (KeyError, ValueError) as exc:
+                        raise ProjectSampleSelectionError(
+                            "Project/SampleRevision selection is not eligible"
+                        ) from exc
+                _add_snapshot_data_binding(
+                    session,
+                    validated.snapshot_id,
+                    binding,
+                    created_at=validated.validated_at,
+                )
                 session.flush()
         except IntegrityError as exc:
             raise ValueError(
@@ -131,6 +182,20 @@ class SqlAlchemyRunRepository:
             if row is None:
                 raise KeyError(snapshot_id)
             return _validated_input_snapshot_from_row(row)
+
+    def get_validated_input_binding(
+        self,
+        snapshot_id: str,
+    ) -> ProjectSampleBinding:
+        with self._session_factory() as session:
+            snapshot_row = session.get(ValidatedInputSnapshotRow, snapshot_id)
+            if snapshot_row is None:
+                raise KeyError(snapshot_id)
+            return _snapshot_data_binding_from_rows(
+                session,
+                snapshot_id,
+                expected_workflow_inputs_digest=snapshot_row.payload_digest,
+            )
 
     def consume_validated_input_snapshot(
         self,
@@ -149,6 +214,11 @@ class SqlAlchemyRunRepository:
                 if row is None:
                     raise KeyError(snapshot_id)
                 snapshot = _validated_input_snapshot_from_row(row)
+                snapshot_binding = _snapshot_data_binding_from_rows(
+                    session,
+                    snapshot_id,
+                    expected_workflow_inputs_digest=snapshot.payload_digest,
+                )
                 if snapshot.workflow_id != workflow_id:
                     raise KeyError(snapshot_id)
                 _validate_snapshot_consumption_candidate(
@@ -170,6 +240,19 @@ class SqlAlchemyRunRepository:
                         raise ValidatedSnapshotReplayConflictError(
                             "validated snapshot replay metadata differs"
                         )
+                    try:
+                        run_binding = _run_data_binding_from_rows(
+                            session,
+                            current.run_id,
+                        )
+                    except (KeyError, ValueError) as exc:
+                        raise ValidatedSnapshotReplayConflictError(
+                            "validated snapshot replay binding evidence is invalid"
+                        ) from exc
+                    if run_binding != snapshot_binding:
+                        raise ValidatedSnapshotReplayConflictError(
+                            "validated snapshot replay binding evidence differs"
+                        )
                     return ValidatedSnapshotRunCreation(
                         record=current,
                         created=False,
@@ -182,6 +265,12 @@ class SqlAlchemyRunRepository:
                 session.add(_run_row(record))
                 session.flush()
                 session.add(RunResultStateRow(run_id=record.run_id))
+                _add_run_data_binding(
+                    session,
+                    record.run_id,
+                    snapshot_binding,
+                    created_at=consumed_at,
+                )
                 session.flush()
                 created_event = self._insert_event(
                     session,
@@ -200,6 +289,12 @@ class SqlAlchemyRunRepository:
     def get_run(self, run_id: str) -> RunRecord:
         with self._session_factory() as session:
             return _record_from_row(self._require_run(session, run_id))
+
+    def get_run_data_binding(self, run_id: str) -> ProjectSampleBinding:
+        with self._session_factory() as session:
+            if session.scalar(select(RunRow.id).where(RunRow.run_id == run_id)) is None:
+                raise KeyError(run_id)
+            return _run_data_binding_from_rows(session, run_id)
 
     def list_runs(self) -> tuple[RunRecord, ...]:
         with self._session_factory() as session:
@@ -1556,6 +1651,243 @@ def _validated_input_snapshot_row(
         build_captured_at=identity.captured_at,
         consumed_run_id=snapshot.consumed_run_id,
         consumed_at=snapshot.consumed_at,
+    )
+
+
+def _resolve_project_sample_selection(
+    session: Session,
+    selection: ProjectSampleSelection,
+    *,
+    workflow_inputs_digest: str,
+) -> ProjectSampleBinding:
+    if not isinstance(selection, ProjectSampleSelection):
+        raise ValueError("selection must be a ProjectSampleSelection")
+    project_row = session.get(ProjectRow, selection.project_id)
+    if project_row is None:
+        raise KeyError(selection.project_id)
+    if ProjectKind(project_row.kind) is not ProjectKind.USER:
+        raise ValueError("Legacy Project cannot receive trusted registry data")
+    if project_row.archived_at is not None:
+        raise ValueError("Project is archived")
+
+    revision_rows = session.scalars(
+        select(SampleRevisionRow).where(
+            SampleRevisionRow.sample_revision_id.in_(selection.sample_revision_ids)
+        )
+    ).all()
+    by_id = {row.sample_revision_id: row for row in revision_rows}
+    refs: list[SampleRevisionBindingRef] = []
+    for revision_id in selection.sample_revision_ids:
+        revision_row = by_id.get(revision_id)
+        if revision_row is None:
+            raise KeyError(revision_id)
+        revision = _sample_revision_from_storage_row(revision_row)
+        if revision.project_id != selection.project_id:
+            raise ValueError("all SampleRevisions must belong to the same Project")
+        refs.append(
+            SampleRevisionBindingRef(
+                sample_revision_id=revision.sample_revision_id,
+                payload_digest=revision.payload_digest,
+            )
+        )
+    return build_project_sample_binding(
+        project_id=selection.project_id,
+        binding_mode=BindingMode.BOUND_V1,
+        provenance=BindingProvenance.RESOLVED,
+        workflow_inputs_digest=workflow_inputs_digest,
+        sample_revisions=tuple(refs),
+    )
+
+
+def _add_snapshot_data_binding(
+    session: Session,
+    snapshot_id: str,
+    binding: ProjectSampleBinding,
+    *,
+    created_at: datetime,
+) -> None:
+    if not isinstance(binding, ProjectSampleBinding):
+        raise ValueError("binding must be a ProjectSampleBinding")
+    session.add(
+        SnapshotProjectBindingRow(
+            snapshot_id=snapshot_id,
+            project_id=binding.project_id,
+            binding_mode=BindingMode(binding.binding_mode).value,
+            provenance=BindingProvenance(binding.provenance).value,
+            workflow_inputs_digest=binding.workflow_inputs_digest,
+            binding_digest_scheme=binding.digest_scheme,
+            binding_digest=binding.digest,
+            created_at=created_at,
+        )
+    )
+    for ordinal, ref in enumerate(binding.sample_revisions):
+        session.add(
+            SnapshotSampleRevisionRow(
+                snapshot_id=snapshot_id,
+                project_id=binding.project_id,
+                sample_revision_id=ref.sample_revision_id,
+                payload_digest=ref.payload_digest,
+                ordinal=ordinal,
+            )
+        )
+
+
+def _add_run_data_binding(
+    session: Session,
+    run_id: str,
+    binding: ProjectSampleBinding,
+    *,
+    created_at: datetime,
+) -> None:
+    if not isinstance(binding, ProjectSampleBinding):
+        raise ValueError("binding must be a ProjectSampleBinding")
+    session.add(
+        RunProjectBindingRow(
+            run_id=run_id,
+            project_id=binding.project_id,
+            binding_mode=BindingMode(binding.binding_mode).value,
+            provenance=BindingProvenance(binding.provenance).value,
+            workflow_inputs_digest=binding.workflow_inputs_digest,
+            binding_digest_scheme=binding.digest_scheme,
+            binding_digest=binding.digest,
+            created_at=created_at,
+        )
+    )
+    for ordinal, ref in enumerate(binding.sample_revisions):
+        session.add(
+            RunSampleRow(
+                run_id=run_id,
+                project_id=binding.project_id,
+                sample_revision_id=ref.sample_revision_id,
+                payload_digest=ref.payload_digest,
+                ordinal=ordinal,
+            )
+        )
+
+
+def _snapshot_data_binding_from_rows(
+    session: Session,
+    snapshot_id: str,
+    *,
+    expected_workflow_inputs_digest: str,
+) -> ProjectSampleBinding:
+    row = session.get(SnapshotProjectBindingRow, snapshot_id)
+    if row is None:
+        raise ValueError("validated snapshot binding evidence is missing")
+    if row.workflow_inputs_digest != expected_workflow_inputs_digest:
+        raise ValueError("validated snapshot binding input digest differs")
+    associations = session.scalars(
+        select(SnapshotSampleRevisionRow)
+        .where(SnapshotSampleRevisionRow.snapshot_id == snapshot_id)
+        .order_by(SnapshotSampleRevisionRow.ordinal)
+    ).all()
+    refs = _sample_binding_refs_from_rows(
+        session,
+        associations,
+        expected_project_id=row.project_id,
+    )
+    return _project_sample_binding_from_values(
+        project_id=row.project_id,
+        binding_mode=row.binding_mode,
+        provenance=row.provenance,
+        workflow_inputs_digest=row.workflow_inputs_digest,
+        digest_scheme=row.binding_digest_scheme,
+        digest=row.binding_digest,
+        sample_revisions=refs,
+    )
+
+
+def _run_data_binding_from_rows(
+    session: Session,
+    run_id: str,
+) -> ProjectSampleBinding:
+    row = session.get(RunProjectBindingRow, run_id)
+    if row is None:
+        raise ValueError("run binding evidence is missing")
+    associations = session.scalars(
+        select(RunSampleRow)
+        .where(RunSampleRow.run_id == run_id)
+        .order_by(RunSampleRow.ordinal)
+    ).all()
+    refs = _sample_binding_refs_from_rows(
+        session,
+        associations,
+        expected_project_id=row.project_id,
+    )
+    return _project_sample_binding_from_values(
+        project_id=row.project_id,
+        binding_mode=row.binding_mode,
+        provenance=row.provenance,
+        workflow_inputs_digest=row.workflow_inputs_digest,
+        digest_scheme=row.binding_digest_scheme,
+        digest=row.binding_digest,
+        sample_revisions=refs,
+    )
+
+
+def _sample_binding_refs_from_rows(
+    session: Session,
+    rows: Iterable[SnapshotSampleRevisionRow | RunSampleRow],
+    *,
+    expected_project_id: str,
+) -> tuple[SampleRevisionBindingRef, ...]:
+    refs: list[SampleRevisionBindingRef] = []
+    for expected_ordinal, row in enumerate(rows):
+        if row.ordinal != expected_ordinal:
+            raise ValueError("binding sample revision order is invalid")
+        if row.project_id != expected_project_id:
+            raise ValueError("binding sample revision Project differs")
+        revision_row = session.get(SampleRevisionRow, row.sample_revision_id)
+        if revision_row is None:
+            raise ValueError("binding SampleRevision evidence is missing")
+        revision = _sample_revision_from_storage_row(revision_row)
+        if (
+            revision.project_id != expected_project_id
+            or revision.payload_digest != row.payload_digest
+        ):
+            raise ValueError("binding SampleRevision evidence differs")
+        refs.append(
+            SampleRevisionBindingRef(
+                sample_revision_id=row.sample_revision_id,
+                payload_digest=row.payload_digest,
+            )
+        )
+    return tuple(refs)
+
+
+def _sample_revision_from_storage_row(
+    row: SampleRevisionRow,
+) -> SampleRevision:
+    return SampleRevision(
+        sample_revision_id=row.sample_revision_id,
+        project_id=row.project_id,
+        sample_id=row.sample_id,
+        revision_number=row.revision_number,
+        canonical_payload=row.canonical_payload,
+        payload_digest_scheme=row.payload_digest_scheme,
+        payload_digest=row.payload_digest,
+        created_at=_as_utc(row.created_at),
+    )
+
+
+def _project_sample_binding_from_values(
+    *,
+    project_id: str,
+    binding_mode: str,
+    provenance: str,
+    workflow_inputs_digest: str,
+    digest_scheme: str,
+    digest: str,
+    sample_revisions: tuple[SampleRevisionBindingRef, ...],
+) -> ProjectSampleBinding:
+    return ProjectSampleBinding(
+        project_id=project_id,
+        binding_mode=binding_mode,
+        provenance=provenance,
+        workflow_inputs_digest=workflow_inputs_digest,
+        sample_revisions=sample_revisions,
+        digest_scheme=digest_scheme,
+        digest=digest,
     )
 
 

@@ -9,16 +9,10 @@ import {
   type RunSnapshot,
 } from './RunProgressPanel';
 import type { RunApiClient } from '../../api/runClient';
-import type { ValidateWorkflowResponse, WorkflowInputs } from '../../api/types';
+import type { ValidateWorkflowResponse } from '../../api/types';
 import type { RunEventResponse, RunResponse } from '../../api/runTypes';
 
 const WORKFLOW_ID = 'encode-style-chipseq-cuttag-atac-mnase';
-
-const validatedInputs: WorkflowInputs = {
-  config: { genome: 'hg38' },
-  samples: [{ name: 'sample-1', fastq_r1: 's1_R1.fq.gz' }],
-  options: { threads: 4 },
-};
 
 const validatedSnapshot = {
   snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
@@ -28,6 +22,11 @@ const validatedSnapshot = {
   payload_digest: 'a'.repeat(64),
   validated_at: '2026-07-14T00:00:00.000Z',
   expires_at: '2026-07-14T00:30:00.000Z',
+  project_id: 'prj_00000000000000000000000000000000',
+  binding_mode: 'legacy_v1' as const,
+  provenance: 'unresolved' as const,
+  sample_revision_ids: [],
+  binding_digest: 'b'.repeat(64),
 };
 
 const successfulValidation: ValidateWorkflowResponse = {
@@ -69,7 +68,6 @@ function createMockRunClient(): RunApiClient {
         run: {
           run_id: runId,
           workflow_id: workflowId,
-          inputs: validatedInputs,
           status: 'created',
           created_at: '2026-07-04T12:00:00.000Z',
           updated_at: '2026-07-04T12:00:00.000Z',
@@ -98,7 +96,6 @@ function createMockRunClient(): RunApiClient {
         run: {
           run_id: runId,
           workflow_id: WORKFLOW_ID,
-          inputs: validatedInputs,
           status: 'planned',
           created_at: '2026-07-04T12:00:00.000Z',
           updated_at: '2026-07-04T12:01:00.000Z',
@@ -121,7 +118,6 @@ function createMockRunClient(): RunApiClient {
         run: {
           run_id: runId,
           workflow_id: WORKFLOW_ID,
-          inputs: validatedInputs,
           status: 'queued',
           created_at: '2026-07-04T12:00:00.000Z',
           updated_at: '2026-07-04T12:02:00.000Z',
@@ -145,7 +141,6 @@ function createMockRunClient(): RunApiClient {
         run: {
           run_id: runId,
           workflow_id: WORKFLOW_ID,
-          inputs: validatedInputs,
           status: record.status,
           created_at: '2026-07-04T12:00:00.000Z',
           updated_at: record.cancelled
@@ -235,7 +230,6 @@ function createMockRunClient(): RunApiClient {
         run: {
           run_id: runId,
           workflow_id: WORKFLOW_ID,
-          inputs: validatedInputs,
           status: 'cancelled',
           created_at: '2026-07-04T12:00:00.000Z',
           updated_at: '2026-07-04T12:01:00.000Z',
@@ -301,7 +295,6 @@ describe('RunProgressPanel', () => {
       run: {
         run_id: 'run-1',
         workflow_id: WORKFLOW_ID,
-        inputs: {},
         status: 'succeeded',
         created_at: '2026-07-12T12:00:00Z',
         updated_at: '2026-07-12T12:01:00Z',
@@ -510,7 +503,6 @@ describe('RunProgressPanel', () => {
         run: {
           run_id: 'run-stale-create',
           workflow_id: WORKFLOW_ID,
-          inputs: { ...validatedInputs },
           status: 'created',
           created_at: '2026-07-14T00:01:00.000Z',
           updated_at: '2026-07-14T00:01:00.000Z',
@@ -752,7 +744,6 @@ describe('RunProgressPanel', () => {
         run: {
           run_id: 'run-1',
           workflow_id: WORKFLOW_ID,
-          inputs: validatedInputs as unknown as Record<string, unknown>,
           status: 'created',
           created_at: '2026-07-04T12:00:00.000Z',
           updated_at: '2026-07-04T12:00:00.000Z',
@@ -815,7 +806,6 @@ describe('RunProgressPanel', () => {
         run: {
           run_id: 'run-1',
           workflow_id: WORKFLOW_ID,
-          inputs: validatedInputs as unknown as Record<string, unknown>,
           status: 'created',
           created_at: '2026-07-04T12:00:00.000Z',
           updated_at: '2026-07-04T12:00:00.000Z',
@@ -893,7 +883,6 @@ describe('RunProgressPanel', () => {
           run: {
             run_id: runId,
             workflow_id: WORKFLOW_ID,
-            inputs: validatedInputs as unknown as Record<string, unknown>,
             status: 'created',
             created_at: '2026-07-04T12:00:00.000Z',
             updated_at: '2026-07-04T12:00:00.000Z',
@@ -994,11 +983,6 @@ describe('RunProgressPanel', () => {
           run: {
             run_id: 'run-polling',
             workflow_id: WORKFLOW_ID,
-            inputs: {
-              config: validatedInputs.config,
-              samples: validatedInputs.samples,
-              options: validatedInputs.options,
-            },
             status: getRunCalls === 1 ? 'validating' : 'planned',
             created_at: '2026-07-04T12:00:00.000Z',
             updated_at: '2026-07-04T12:01:00.000Z',
@@ -1056,11 +1040,6 @@ describe('RunProgressPanel', () => {
       run: {
         run_id: 'run-cancelling',
         workflow_id: WORKFLOW_ID,
-        inputs: {
-          config: validatedInputs.config,
-          samples: validatedInputs.samples,
-          options: validatedInputs.options,
-        },
         status,
         created_at: '2026-07-04T12:00:00.000Z',
         updated_at: '2026-07-04T12:01:00.000Z',
@@ -1285,7 +1264,6 @@ describe('RunProgressPanel', () => {
     const runningRun = {
       run_id: 'run-running',
       workflow_id: WORKFLOW_ID,
-      inputs: validatedInputs as unknown as Record<string, unknown>,
       status: 'running',
       created_at: '2026-07-04T12:00:00.000Z',
       updated_at: '2026-07-04T12:01:00.000Z',
@@ -1400,7 +1378,6 @@ describe('RunProgressPanel', () => {
         run: {
           run_id: 'run-reloaded',
           workflow_id: WORKFLOW_ID,
-          inputs: {},
           status: 'running',
           created_at: '2026-07-04T12:00:00.000Z',
           updated_at: '2026-07-04T12:01:00.000Z',
@@ -1458,7 +1435,6 @@ describe('RunProgressPanel', () => {
         run: {
           run_id: 'run-future',
           workflow_id: WORKFLOW_ID,
-          inputs: {},
           status: 'future_state',
           created_at: '2026-07-04T12:00:00.000Z',
           updated_at: '2026-07-04T12:00:00.000Z',
@@ -1521,7 +1497,6 @@ describe('RunProgressPanel', () => {
         run: {
           run_id: 'run-pages',
           workflow_id: WORKFLOW_ID,
-          inputs: {},
           status: 'planned',
           created_at: '2026-07-04T12:00:00.000Z',
           updated_at: '2026-07-04T12:00:00.000Z',

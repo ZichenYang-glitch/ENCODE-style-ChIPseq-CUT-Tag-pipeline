@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
@@ -60,6 +61,8 @@ from encode_pipeline.services.validated_inputs import (
 
 
 router = APIRouter(tags=["runs"])
+
+_PUBLIC_RUN_ERROR_CODE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 
 
 def _issue(
@@ -203,7 +206,35 @@ def _validated_snapshot_issue(code: str, message: str) -> IssueResponse:
 
 
 def _run_record_response(record: Any) -> RunRecordResponse:
-    return RunRecordResponse(**record.to_dict())
+    """Project an internal run without its private immutable input payload."""
+    error = None
+    if record.error is not None:
+        error_code = record.error.code
+        if _PUBLIC_RUN_ERROR_CODE_PATTERN.fullmatch(error_code) is None:
+            error_code = "RUN_FAILED"
+        error = IssueResponse(
+            code=error_code,
+            message="Run failed.",
+            severity="error",
+            path="run_id",
+            source="api",
+            technical_message=None,
+            hint=None,
+            context={},
+        )
+    return RunRecordResponse(
+        run_id=record.run_id,
+        workflow_id=record.workflow_id,
+        status=record.status.value,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        started_at=record.started_at,
+        ended_at=record.ended_at,
+        current_stage=record.current_stage,
+        cancellation_reason=record.cancellation_reason,
+        error=error,
+        tags=dict(record.tags),
+    )
 
 
 def _run_event_response(event: Any) -> RunEventResponse:

@@ -32,6 +32,12 @@ from encode_pipeline.platform.runs import (
     build_qc_metric_id,
     validate_qc_identifier_token,
 )
+from encode_pipeline.platform.data_registry import (
+    LEGACY_PROJECT_ID,
+    BindingMode,
+    BindingProvenance,
+    ProjectSampleBinding,
+)
 from encode_pipeline.platform.run_history import RunSummary
 from encode_pipeline.services.run_repositories import canonical_decimal_text
 from encode_pipeline.platform.snapshots import (
@@ -63,6 +69,12 @@ JsonValue = TypeAliasType(
         None,
     ],
 )
+
+ProjectId = Annotated[str, Field(pattern=r"^prj_[0-9a-f]{32}$", max_length=36)]
+SampleRevisionId = Annotated[
+    str,
+    Field(pattern=r"^smpr_[0-9a-f]{32}$", max_length=37),
+]
 
 
 class IssueResponse(BaseModel):
@@ -269,6 +281,8 @@ class ValidationRequest(BaseModel):
     config: dict[str, JsonValue]
     samples: SampleRequestPayload = None
     options: dict[str, JsonValue] = Field(default_factory=dict)
+    project_id: ProjectId | None = None
+    sample_revision_ids: list[SampleRevisionId] = Field(default_factory=list)
 
     _validate_sample_cells = field_validator("samples")(
         _reject_sample_control_characters
@@ -276,6 +290,16 @@ class ValidationRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_canonical_json_safety(self) -> "ValidationRequest":
+        if self.project_id is None and self.sample_revision_ids:
+            raise ValueError("sample revisions require a project")
+        if self.project_id is not None and not self.sample_revision_ids:
+            raise ValueError(
+                "a project selection requires at least one sample revision"
+            )
+        if self.project_id == LEGACY_PROJECT_ID:
+            raise ValueError("the reserved Legacy Project cannot be selected")
+        if len(set(self.sample_revision_ids)) != len(self.sample_revision_ids):
+            raise ValueError("sample revision IDs must be unique")
         canonical_workflow_inputs_json(
             WorkflowInputs(
                 config=self.config,
@@ -296,12 +320,20 @@ class ValidatedInputSnapshotResponse(BaseModel):
     payload_digest: str = Field(pattern=r"^[0-9a-f]{64}$", max_length=64)
     validated_at: datetime
     expires_at: datetime
+    project_id: ProjectId
+    binding_mode: Literal["legacy_v1", "bound_v1"]
+    provenance: Literal["resolved", "unresolved"]
+    sample_revision_ids: list[SampleRevisionId]
+    binding_digest: str = Field(pattern=r"^[0-9a-f]{64}$", max_length=64)
 
     @classmethod
     def from_snapshot(
         cls,
         snapshot: ValidatedInputSnapshot,
+        binding: ProjectSampleBinding,
     ) -> "ValidatedInputSnapshotResponse":
+        if binding.workflow_inputs_digest != snapshot.payload_digest:
+            raise ValueError("snapshot binding input digest differs")
         return cls(
             snapshot_id=snapshot.snapshot_id,
             workflow_id=snapshot.workflow_id,
@@ -310,6 +342,11 @@ class ValidatedInputSnapshotResponse(BaseModel):
             payload_digest=snapshot.payload_digest,
             validated_at=snapshot.validated_at,
             expires_at=snapshot.expires_at,
+            project_id=binding.project_id,
+            binding_mode=BindingMode(binding.binding_mode).value,
+            provenance=BindingProvenance(binding.provenance).value,
+            sample_revision_ids=list(binding.sample_revision_ids),
+            binding_digest=binding.digest,
         )
 
 
@@ -377,11 +414,12 @@ class AgentResponse(BaseModel):
 
 
 class RunRecordResponse(BaseModel):
-    """JSON-ready RunRecord shape."""
+    """Allowlisted public projection of one internal RunRecord."""
+
+    model_config = ConfigDict(extra="forbid")
 
     run_id: str
     workflow_id: str
-    inputs: dict[str, Any]
     status: str
     created_at: datetime
     updated_at: datetime

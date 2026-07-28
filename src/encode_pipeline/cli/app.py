@@ -1,6 +1,20 @@
-"""Canonical public entry point for the HelixWeave local platform CLI."""
+"""Canonical public entry point for HelixWeave local commands."""
 
-from encode_pipeline.cli.local_platform import main
+from __future__ import annotations
+
+from collections.abc import Sequence
+import sys
+
+from encode_pipeline.cli import admin
+from encode_pipeline.cli import local_platform
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Dispatch administrator commands without changing local-platform arguments."""
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments[:1] == ["admin"]:
+        return admin.main(arguments[1:])
+    return local_platform.main(arguments)
 
 
 __all__ = ["main"]

@@ -17,11 +17,6 @@ const sampleCreateRequest: RunCreateRequest = {
 const sampleRunRecord = {
   run_id: RUN_ID,
   workflow_id: WORKFLOW_ID,
-  inputs: {
-    config: { genome: 'hg38' },
-    samples: [{ name: 'sample-1', fastq_r1: 's1_R1.fq.gz' }],
-    options: { threads: 4 },
-  },
   status: 'created',
   created_at: '2026-07-03T12:00:00Z',
   updated_at: '2026-07-03T12:00:00Z',
@@ -310,9 +305,6 @@ describe('createStubRunApiClient', () => {
     expect(response.run).not.toBeNull();
     expect(response.run?.status).toBe('created');
     expect(response.run?.workflow_id).toBe(WORKFLOW_ID);
-    expect(response.run?.inputs).toEqual({
-      validated_snapshot_id: sampleCreateRequest.snapshot_id,
-    });
     expect(response.run?.tags).toEqual({ env: 'test' });
     expect(response.run?.run_id).toMatch(/^stub-run-\d+$/);
   });

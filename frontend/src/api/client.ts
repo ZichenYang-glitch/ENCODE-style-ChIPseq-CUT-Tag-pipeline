@@ -4,6 +4,7 @@ import type {
   ListWorkflowsResponse,
   ValidateWorkflowResponse,
   WorkflowInputs,
+  WorkflowProjectSampleSelection,
 } from './types';
 import {
   stubValidationResponses,
@@ -18,6 +19,7 @@ export interface WorkflowApiClient {
   validateWorkflow(
     workflowId: string,
     inputs: WorkflowInputs,
+    projectSampleSelection?: WorkflowProjectSampleSelection,
   ): Promise<ValidateWorkflowResponse>;
 }
 
@@ -82,7 +84,7 @@ export function createStubWorkflowClient(): WorkflowApiClient {
       };
     },
 
-    async validateWorkflow(workflowId, inputs) {
+    async validateWorkflow(workflowId, inputs, projectSampleSelection) {
       const responder = stubValidationResponses[workflowId];
       if (!responder) {
         return {
@@ -91,6 +93,27 @@ export function createStubWorkflowClient(): WorkflowApiClient {
           value: null,
           snapshot: null,
           issues: [workflowNotFoundIssue(workflowId)],
+        };
+      }
+      if (projectSampleSelection !== undefined) {
+        return {
+          ok: false,
+          workflow_id: workflowId,
+          value: null,
+          snapshot: null,
+          issues: [
+            {
+              code: 'DATA_BINDING_SELECTION_UNAVAILABLE',
+              message:
+                'Project/Sample selection is unavailable in the local stub client.',
+              severity: 'error',
+              path: 'project_id',
+              source: 'registry',
+              technical_message: null,
+              hint: null,
+              context: {},
+            },
+          ],
         };
       }
       return responder(inputs);

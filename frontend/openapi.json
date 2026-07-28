@@ -2651,11 +2651,6 @@
             "type": "string",
             "title": "Workflow Id"
           },
-          "inputs": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Inputs"
-          },
           "status": {
             "type": "string",
             "title": "Status"
@@ -2734,11 +2729,11 @@
             "title": "Tags"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "run_id",
           "workflow_id",
-          "inputs",
           "status",
           "created_at",
           "updated_at",
@@ -2748,7 +2743,7 @@
           "cancellation_reason"
         ],
         "title": "RunRecordResponse",
-        "description": "JSON-ready RunRecord shape."
+        "description": "Allowlisted public projection of one internal RunRecord."
       },
       "RunResponse": {
         "properties": {
@@ -2945,6 +2940,43 @@
             "type": "string",
             "format": "date-time",
             "title": "Expires At"
+          },
+          "project_id": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^prj_[0-9a-f]{32}$",
+            "title": "Project Id"
+          },
+          "binding_mode": {
+            "type": "string",
+            "enum": [
+              "legacy_v1",
+              "bound_v1"
+            ],
+            "title": "Binding Mode"
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "resolved",
+              "unresolved"
+            ],
+            "title": "Provenance"
+          },
+          "sample_revision_ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 37,
+              "pattern": "^smpr_[0-9a-f]{32}$"
+            },
+            "type": "array",
+            "title": "Sample Revision Ids"
+          },
+          "binding_digest": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Binding Digest"
           }
         },
         "type": "object",
@@ -2955,7 +2987,12 @@
           "adapter_version",
           "payload_digest",
           "validated_at",
-          "expires_at"
+          "expires_at",
+          "project_id",
+          "binding_mode",
+          "provenance",
+          "sample_revision_ids",
+          "binding_digest"
         ],
         "title": "ValidatedInputSnapshotResponse",
         "description": "Safe public projection of one server-owned validation snapshot."
@@ -3046,6 +3083,28 @@
             },
             "type": "object",
             "title": "Options"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 36,
+                "pattern": "^prj_[0-9a-f]{32}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "sample_revision_ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 37,
+              "pattern": "^smpr_[0-9a-f]{32}$"
+            },
+            "type": "array",
+            "title": "Sample Revision Ids"
           }
         },
         "additionalProperties": false,

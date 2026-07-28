@@ -6,7 +6,6 @@ import type { Issue } from './types';
 export interface RunRecordResponse {
   run_id: string;
   workflow_id: string;
-  inputs: Record<string, unknown>;
   status: string;
   created_at: string;
   updated_at: string;

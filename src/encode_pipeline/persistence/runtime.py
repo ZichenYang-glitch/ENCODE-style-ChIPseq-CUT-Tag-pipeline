@@ -13,6 +13,9 @@ from encode_pipeline.persistence.database import (
     create_database_engine,
     create_session_factory,
 )
+from encode_pipeline.persistence.data_registry import (
+    SqlAlchemyDataRegistryRepository,
+)
 from encode_pipeline.persistence.migrations import upgrade_database
 from encode_pipeline.persistence.repositories import SqlAlchemyRunRepository
 
@@ -27,6 +30,7 @@ class RunPersistence:
     database_url: str
     engine: Engine
     repository: SqlAlchemyRunRepository
+    data_registry_repository: SqlAlchemyDataRegistryRepository
 
     def close(self) -> None:
         """Release pooled database connections during API shutdown."""
@@ -35,6 +39,7 @@ class RunPersistence:
 
 def resolve_database_url(database_url: str | None = None) -> str:
     """Return an explicit or environment-configured local platform database URL."""
+    configured: str | None
     if database_url is not None:
         configured = database_url
     else:
@@ -64,9 +69,12 @@ def open_run_persistence(database_url: str | None = None) -> RunPersistence:
     resolved_url = resolve_database_url(database_url)
     upgrade_database(resolved_url)
     engine = create_database_engine(resolved_url)
-    repository = SqlAlchemyRunRepository(create_session_factory(engine))
+    session_factory = create_session_factory(engine)
+    repository = SqlAlchemyRunRepository(session_factory)
+    data_registry_repository = SqlAlchemyDataRegistryRepository(session_factory)
     return RunPersistence(
         database_url=resolved_url,
         engine=engine,
         repository=repository,
+        data_registry_repository=data_registry_repository,
     )

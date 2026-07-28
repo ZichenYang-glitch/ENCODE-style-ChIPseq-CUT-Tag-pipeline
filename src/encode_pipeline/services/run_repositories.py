@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+from hashlib import sha256
+import json
 import re
 from threading import RLock
 from typing import Any, Protocol, TypeVar
@@ -16,6 +19,11 @@ from encode_pipeline.platform.execution import (
     RunExecutionClaim,
     RunExecutionOwnership,
     RunExecutionStopAcknowledgement,
+)
+from encode_pipeline.platform.data_registry import (
+    ProjectSampleBinding,
+    ProjectSampleSelection,
+    build_legacy_project_sample_binding,
 )
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
@@ -45,6 +53,10 @@ from encode_pipeline.platform.snapshots import (
     ValidatedInputSnapshot,
     ValidatedSnapshotRunCreation,
     canonical_workflow_inputs_json,
+)
+from encode_pipeline.services.data_registry_repositories import (
+    DataRegistryConflictError,
+    DataRegistryRepository,
 )
 
 
@@ -85,6 +97,10 @@ class ValidatedSnapshotReplayConflictError(RuntimeError):
     """Raised when a consumed snapshot is replayed with different metadata."""
 
 
+class ProjectSampleSelectionError(RuntimeError):
+    """Raised when exact Project/SampleRevision selection cannot be frozen."""
+
+
 @dataclass(frozen=True)
 class RunEventDraft:
     """Event data whose repository-owned identity has not been assigned yet."""
@@ -107,12 +123,19 @@ class RunRepository(Protocol):
     def create_validated_input_snapshot(
         self,
         snapshot: ValidatedInputSnapshot,
+        *,
+        project_sample_selection: ProjectSampleSelection | None = None,
     ) -> ValidatedInputSnapshot: ...
 
     def get_validated_input_snapshot(
         self,
         snapshot_id: str,
     ) -> ValidatedInputSnapshot: ...
+
+    def get_validated_input_binding(
+        self,
+        snapshot_id: str,
+    ) -> ProjectSampleBinding: ...
 
     def consume_validated_input_snapshot(
         self,
@@ -126,6 +149,8 @@ class RunRepository(Protocol):
     ) -> ValidatedSnapshotRunCreation: ...
 
     def get_run(self, run_id: str) -> RunRecord: ...
+
+    def get_run_data_binding(self, run_id: str) -> ProjectSampleBinding: ...
 
     def list_runs(self) -> tuple[RunRecord, ...]: ...
 
@@ -374,8 +399,13 @@ class RunRepository(Protocol):
 class InMemoryRunRepository:
     """Thread-safe in-memory implementation used by unit tests and adapters."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        data_registry_repository: DataRegistryRepository | None = None,
+    ) -> None:
         self._lock = RLock()
+        self._data_registry_repository = data_registry_repository
         self._runs: dict[str, RunRecord] = {}
         self._events: dict[str, list[RunEvent]] = {}
         self._logs: dict[str, dict[str, list[RunLogChunk]]] = {}
@@ -387,6 +417,8 @@ class InMemoryRunRepository:
         self._execution_run_ids_by_job: dict[str, str] = {}
         self._workflow_build_identities: dict[str, WorkflowBuildIdentity] = {}
         self._validated_input_snapshots: dict[str, ValidatedInputSnapshot] = {}
+        self._validated_input_bindings: dict[str, ProjectSampleBinding] = {}
+        self._run_data_bindings: dict[str, ProjectSampleBinding] = {}
 
     def contains_run(self, run_id: str) -> bool:
         with self._lock:
@@ -397,7 +429,12 @@ class InMemoryRunRepository:
             if record.run_id in self._runs:
                 raise ValueError(f"Duplicate run_id: {record.run_id!r}")
             created_event = self._make_event(record.run_id, 1, event)
+            binding = build_legacy_project_sample_binding(
+                _legacy_run_inputs_digest(record)
+            )
+            stored_binding = _data_binding_copy(binding)
             self._runs[record.run_id] = record
+            self._run_data_bindings[record.run_id] = stored_binding
             self._events[record.run_id] = [created_event]
             self._logs[record.run_id] = {}
             self._artifacts[record.run_id] = {}
@@ -408,6 +445,8 @@ class InMemoryRunRepository:
     def create_validated_input_snapshot(
         self,
         snapshot: ValidatedInputSnapshot,
+        *,
+        project_sample_selection: ProjectSampleSelection | None = None,
     ) -> ValidatedInputSnapshot:
         with self._lock:
             validated = _validated_snapshot_copy(snapshot)
@@ -415,7 +454,35 @@ class InMemoryRunRepository:
                 raise ValueError(
                     f"Duplicate validated snapshot ID: {validated.snapshot_id!r}"
                 )
-            self._validated_input_snapshots[validated.snapshot_id] = validated
+            binding_context: AbstractContextManager[ProjectSampleBinding]
+            if project_sample_selection is None:
+                binding_context = nullcontext(
+                    build_legacy_project_sample_binding(validated.payload_digest)
+                )
+            else:
+                if self._data_registry_repository is None:
+                    raise ProjectSampleSelectionError(
+                        "a data registry repository is required for Project selection"
+                    )
+                binding_context = (
+                    self._data_registry_repository.locked_project_sample_selection(
+                        project_sample_selection,
+                        workflow_inputs_digest=validated.payload_digest,
+                    )
+                )
+            try:
+                with binding_context as binding:
+                    stored_binding = _data_binding_copy(binding)
+                    self._validated_input_snapshots[validated.snapshot_id] = validated
+                    self._validated_input_bindings[validated.snapshot_id] = (
+                        stored_binding
+                    )
+            except (DataRegistryConflictError, KeyError, ValueError) as exc:
+                if project_sample_selection is not None:
+                    raise ProjectSampleSelectionError(
+                        "Project/SampleRevision selection is not eligible"
+                    ) from exc
+                raise
             return _validated_snapshot_copy(validated)
 
     def get_validated_input_snapshot(
@@ -426,6 +493,13 @@ class InMemoryRunRepository:
             return _validated_snapshot_copy(
                 self._validated_input_snapshots[snapshot_id]
             )
+
+    def get_validated_input_binding(
+        self,
+        snapshot_id: str,
+    ) -> ProjectSampleBinding:
+        with self._lock:
+            return _data_binding_copy(self._validated_input_bindings[snapshot_id])
 
     def consume_validated_input_snapshot(
         self,
@@ -440,6 +514,9 @@ class InMemoryRunRepository:
         with self._lock:
             snapshot = _validated_snapshot_copy(
                 self._validated_input_snapshots[snapshot_id]
+            )
+            snapshot_binding = _data_binding_copy(
+                self._validated_input_bindings[snapshot_id]
             )
             if snapshot.workflow_id != workflow_id:
                 raise KeyError(snapshot_id)
@@ -459,6 +536,18 @@ class InMemoryRunRepository:
                     raise ValidatedSnapshotReplayConflictError(
                         "validated snapshot replay metadata differs"
                     )
+                try:
+                    run_binding = _data_binding_copy(
+                        self._run_data_bindings[current.run_id]
+                    )
+                except (KeyError, ValueError) as exc:
+                    raise ValidatedSnapshotReplayConflictError(
+                        "validated snapshot replay binding evidence is invalid"
+                    ) from exc
+                if run_binding != snapshot_binding:
+                    raise ValidatedSnapshotReplayConflictError(
+                        "validated snapshot replay binding evidence differs"
+                    )
                 return ValidatedSnapshotRunCreation(record=current, created=False)
             if consumed_at >= snapshot.expires_at:
                 raise ValidatedSnapshotExpiredError(
@@ -469,7 +558,9 @@ class InMemoryRunRepository:
 
             created_event = self._make_event(record.run_id, 1, event)
             consumed = snapshot.with_consumption(record.run_id, consumed_at)
+            run_binding = _data_binding_copy(snapshot_binding)
             self._runs[record.run_id] = record
+            self._run_data_bindings[record.run_id] = run_binding
             self._events[record.run_id] = [created_event]
             self._logs[record.run_id] = {}
             self._artifacts[record.run_id] = {}
@@ -481,6 +572,10 @@ class InMemoryRunRepository:
     def get_run(self, run_id: str) -> RunRecord:
         with self._lock:
             return self._runs[run_id]
+
+    def get_run_data_binding(self, run_id: str) -> ProjectSampleBinding:
+        with self._lock:
+            return _data_binding_copy(self._run_data_bindings[run_id])
 
     def list_runs(self) -> tuple[RunRecord, ...]:
         with self._lock:
@@ -1811,6 +1906,28 @@ def _validated_snapshot_copy(
     if not isinstance(snapshot, ValidatedInputSnapshot):
         raise ValueError("snapshot must be a ValidatedInputSnapshot")
     return replace(snapshot)
+
+
+def _data_binding_copy(binding: ProjectSampleBinding) -> ProjectSampleBinding:
+    if not isinstance(binding, ProjectSampleBinding):
+        raise ValueError("binding must be a ProjectSampleBinding")
+    return replace(binding)
+
+
+def _legacy_run_inputs_digest(record: RunRecord) -> str:
+    if not isinstance(record, RunRecord):
+        raise ValueError("record must be a RunRecord")
+    try:
+        canonical_inputs = json.dumps(
+            dict(record.inputs),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError):
+        raise ValueError("run inputs must be JSON-safe") from None
+    return sha256(canonical_inputs.encode("utf-8")).hexdigest()
 
 
 def _validate_snapshot_consumption_candidate(

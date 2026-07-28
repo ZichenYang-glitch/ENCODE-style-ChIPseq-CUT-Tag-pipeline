@@ -155,6 +155,11 @@ export const stubValidationResponses: Record<
         payload_digest: 'a'.repeat(64),
         validated_at: '2026-07-14T00:00:00Z',
         expires_at: '2026-07-14T00:30:00Z',
+        project_id: 'prj_00000000000000000000000000000000',
+        binding_mode: 'legacy_v1',
+        provenance: 'unresolved',
+        sample_revision_ids: [],
+        binding_digest: 'b'.repeat(64),
       },
       issues: [],
     };
