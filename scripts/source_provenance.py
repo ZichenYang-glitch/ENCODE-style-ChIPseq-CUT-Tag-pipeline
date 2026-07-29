@@ -9,6 +9,7 @@ making source or third-party package paths importable.
 from __future__ import annotations
 
 import argparse
+import ast
 import csv
 from dataclasses import dataclass
 from email.parser import Parser
@@ -19,7 +20,6 @@ from pathlib import Path
 import re
 import sys
 import sysconfig
-import tomllib
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
@@ -32,6 +32,19 @@ _KNOWN_DISTRIBUTION_NAMES = (
     "encode-pipeline",
 )
 _METADATA_SUFFIXES = (".dist-info", ".egg-info")
+_AUDITED_EXECUTABLE_PTH_LINES = {
+    "a1_coverage.pth": (
+        "import sys; exec('import os\\n\\nif "
+        'os.getenv("COVERAGE_PROCESS_START") or '
+        'os.getenv("COVERAGE_PROCESS_CONFIG"):\\n try:\\n  import coverage\\n '
+        'except:\\n  pass\\n else:\\n  coverage.process_startup(slug="pth")\')'
+    ),
+    "distutils-precedence.pth": (
+        "import os; var = 'SETUPTOOLS_USE_DISTUTILS'; enabled = "
+        "os.environ.get(var, 'local') == 'local'; enabled and "
+        "__import__('_distutils_hack').add_shim();"
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -142,12 +155,26 @@ def _checkout_layout(repository_root: Path) -> CheckoutLayout:
         reason_code="source_root_invalid",
         guidance="the expected package must have its canonical initializer",
     )
+    if initializer.parent != package_root:
+        _fail(
+            "source_root_invalid",
+            "the expected package initializer must not escape its package directory",
+        )
+    project_file = _resolved_existing_file(
+        root / "pyproject.toml",
+        reason_code="repository_metadata_invalid",
+        guidance="repair the checkout project metadata before retrying",
+    )
+    if project_file.parent != root:
+        _fail(
+            "repository_metadata_invalid",
+            "the checkout project metadata must not escape its repository root",
+        )
     try:
-        project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-        project_metadata = project["project"]
-        project_name = project_metadata["name"]
-        version = project_metadata["version"]
-    except (KeyError, OSError, TypeError, UnicodeError, tomllib.TOMLDecodeError):
+        project_name, version = _bounded_project_identity(
+            project_file.read_text(encoding="utf-8")
+        )
+    except (OSError, TypeError, UnicodeError, ValueError):
         _fail(
             "repository_metadata_invalid",
             "repair the checkout project metadata before retrying",
@@ -163,6 +190,42 @@ def _checkout_layout(repository_root: Path) -> CheckoutLayout:
             "repair the checkout project identity before retrying",
         )
     return CheckoutLayout(root, source_root, package_root, initializer, version)
+
+
+def _bounded_project_identity(raw: str) -> tuple[str, str]:
+    """Read the two literal identity fields without requiring TOML in Python 3.10."""
+
+    in_project = False
+    values: dict[str, str] = {}
+    for raw_line in raw.splitlines():
+        line = raw_line.strip()
+        if line.startswith("["):
+            if line == "[project]":
+                if in_project:
+                    raise ValueError
+                in_project = True
+                continue
+            if in_project:
+                break
+            continue
+        if not in_project or not line or line.startswith("#"):
+            continue
+        match = re.fullmatch(r"(name|version)\s*=\s*(.+)", line)
+        if match is None:
+            continue
+        key, encoded = match.groups()
+        if key in values:
+            raise ValueError
+        try:
+            value = ast.literal_eval(encoded)
+        except (SyntaxError, ValueError):
+            raise ValueError from None
+        if not isinstance(value, str) or not value:
+            raise ValueError
+        values[key] = value
+    if set(values) != {"name", "version"}:
+        raise ValueError
+    return values["name"], values["version"]
 
 
 def _venv_root_from_executable() -> Path | None:
@@ -262,13 +325,31 @@ def _metadata_path_looks_known(path: Path) -> bool:
     )
 
 
-def _read_optional_text(path: Path, *, known: bool) -> str | None:
-    if not path.exists():
+def _read_optional_text(
+    path: Path,
+    *,
+    known: bool,
+    container: Path | None = None,
+) -> str | None:
+    try:
+        is_symlink = path.is_symlink()
+        exists = path.exists()
+    except OSError:
+        is_symlink = exists = False
+    if is_symlink:
+        _fail(
+            "distribution_metadata_invalid",
+            "repair metadata whose file identity escapes the selected environment",
+        )
+    if not exists:
         return None
     try:
-        if not path.is_file():
+        resolved = path.resolve(strict=True)
+        if not resolved.is_file() or (
+            container is not None and (resolved.parent != container or resolved != path)
+        ):
             raise OSError
-        return path.read_text(encoding="utf-8")
+        return resolved.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         if known:
             _fail(
@@ -336,7 +417,11 @@ def _parse_direct_url(raw: str | None, *, known: bool) -> dict[str, object] | No
 def _metadata_claim(path: Path, site_root: Path) -> DistributionClaim | None:
     path_hint = _metadata_path_looks_known(path)
     metadata_name = "METADATA" if path.name.endswith(".dist-info") else "PKG-INFO"
-    raw_metadata = _read_optional_text(path / metadata_name, known=path_hint)
+    raw_metadata = _read_optional_text(
+        path / metadata_name,
+        known=path_hint,
+        container=path,
+    )
     if raw_metadata is None:
         if path_hint:
             _fail(
@@ -355,11 +440,19 @@ def _metadata_claim(path: Path, site_root: Path) -> DistributionClaim | None:
     )
     known = path_hint or normalized_name in _KNOWN_DISTRIBUTION_NAMES
 
-    raw_top_level = _read_optional_text(path / "top_level.txt", known=known)
+    raw_top_level = _read_optional_text(
+        path / "top_level.txt",
+        known=known,
+        container=path,
+    )
     top_levels = frozenset(
         line.strip() for line in (raw_top_level or "").splitlines() if line.strip()
     )
-    raw_record = _read_optional_text(path / "RECORD", known=known)
+    raw_record = _read_optional_text(
+        path / "RECORD",
+        known=known,
+        container=path,
+    )
     record_entries = _parse_record(raw_record, known=known)
     record_claims = record_entries is not None and any(
         entry.split("/", 1)[0] == IMPORT_NAMESPACE for entry in record_entries
@@ -378,7 +471,11 @@ def _metadata_claim(path: Path, site_root: Path) -> DistributionClaim | None:
             "repair the HelixWeave distribution identity metadata before retrying",
         )
     direct_url = _parse_direct_url(
-        _read_optional_text(path / "direct_url.json", known=known),
+        _read_optional_text(
+            path / "direct_url.json",
+            known=known,
+            container=path,
+        ),
         known=known,
     )
     return DistributionClaim(
@@ -403,9 +500,26 @@ def _physical_claimants(site_roots: tuple[Path, ...]) -> tuple[DistributionClaim
                 "repair the selected environment metadata before retrying",
             )
         for child in children:
-            if not child.is_dir() or not child.name.endswith(_METADATA_SUFFIXES):
+            if not child.name.endswith(_METADATA_SUFFIXES):
                 continue
-            claim = _metadata_claim(child, site_root)
+            try:
+                resolved_child = child.resolve(strict=True)
+            except (OSError, RuntimeError):
+                _fail(
+                    "distribution_metadata_invalid",
+                    "repair metadata whose identity escapes the selected environment",
+                )
+            if (
+                child.is_symlink()
+                or not resolved_child.is_dir()
+                or resolved_child.parent != site_root
+                or resolved_child != child
+            ):
+                _fail(
+                    "distribution_metadata_invalid",
+                    "repair metadata whose identity escapes the selected environment",
+                )
+            claim = _metadata_claim(resolved_child, site_root)
             if claim is not None:
                 claims.append(claim)
     if not claims:
@@ -479,17 +593,8 @@ def _record_owned_pth_names(claim: DistributionClaim) -> tuple[str, ...]:
     )
 
 
-def _product_relevant_executable_pth(path: Path, line: str) -> bool:
-    text = f"{path.name}\n{line}".lower()
-    return any(
-        token in text
-        for token in (
-            IMPORT_NAMESPACE,
-            DISTRIBUTION_NAME,
-            "encode-pipeline",
-            "__editable__",
-        )
-    )
+def _audited_nonproduct_executable_pth(path: Path, line: str) -> bool:
+    return _AUDITED_EXECUTABLE_PTH_LINES.get(path.name) == line
 
 
 def _pth_mappings(
@@ -518,7 +623,15 @@ def _pth_mappings(
             )
         for pth_path in pth_files:
             try:
-                raw = pth_path.read_text(encoding="utf-8")
+                resolved_pth = pth_path.resolve(strict=True)
+                if (
+                    pth_path.is_symlink()
+                    or resolved_pth.parent != site_root
+                    or resolved_pth != pth_path
+                    or not resolved_pth.is_file()
+                ):
+                    raise OSError
+                raw = resolved_pth.read_text(encoding="utf-8")
             except (OSError, UnicodeError):
                 _fail(
                     "pth_mapping_unsafe",
@@ -534,10 +647,10 @@ def _pth_mappings(
                 if not line or line.startswith("#"):
                     continue
                 if re.match(r"^import(?:[ \t]|$)", line):
-                    if _product_relevant_executable_pth(pth_path, line):
+                    if not _audited_nonproduct_executable_pth(pth_path, line):
                         _fail(
                             "pth_mapping_unsafe",
-                            "replace executable product .pth hooks with a plain mapping",
+                            "remove unrecognized executable .pth startup hooks",
                         )
                     continue
                 candidate = Path(line)
@@ -576,11 +689,29 @@ def _audit_checkout(
             "repair source-tree build metadata before retrying",
         )
     for metadata_path in source_metadata:
-        if not metadata_path.is_dir() or not _metadata_path_looks_known(metadata_path):
+        if not _metadata_path_looks_known(metadata_path):
             continue
+        try:
+            resolved_metadata = metadata_path.resolve(strict=True)
+        except (OSError, RuntimeError):
+            _fail(
+                "distribution_metadata_invalid",
+                "repair source-tree build metadata before retrying",
+            )
+        if (
+            metadata_path.is_symlink()
+            or not resolved_metadata.is_dir()
+            or resolved_metadata.parent != layout.source_root
+            or resolved_metadata != metadata_path
+        ):
+            _fail(
+                "distribution_metadata_invalid",
+                "repair source-tree build metadata before retrying",
+            )
         raw_direct_url = _read_optional_text(
-            metadata_path / "direct_url.json",
+            resolved_metadata / "direct_url.json",
             known=False,
+            container=resolved_metadata,
         )
         if raw_direct_url is None:
             continue

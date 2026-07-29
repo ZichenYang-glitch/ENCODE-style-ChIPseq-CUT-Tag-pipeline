@@ -289,7 +289,7 @@ def _write_executable_pth_attack(case: _CheckoutCase, stale: Path) -> Path:
         f"pathlib.Path({str(case.startup_marker)!r}).write_text("
         "'pth ran',encoding='utf-8');"
         f"sys.path.insert(0,{str(stale / 'src')!r});"
-        "import encode_pipeline\n",
+        '__import__("encode_"+"pipeline")\n',
         encoding="utf-8",
     )
     return attack

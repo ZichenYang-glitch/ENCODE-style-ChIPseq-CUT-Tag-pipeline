@@ -367,6 +367,41 @@ def test_checkout_mode_rejects_an_orphan_stale_pth(tmp_path: Path) -> None:
     assert str(stale) not in result.stderr
 
 
+def test_checkout_mode_rejects_an_obfuscated_executable_pth(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    (site_packages / "a1_coverage.pth").write_text(
+        'import sys; __import__("encode_" + "pipeline") '
+        'if "never" in sys.modules else None\n',
+        encoding="utf-8",
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[pth_mapping_unsafe]" in result.stderr
+    assert str(site_packages) not in result.stderr
+
+
+def test_checkout_mode_rejects_a_pth_file_symlink_escape(tmp_path: Path) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    pth = site_packages / "__editable__.helixweave-0.3.0.pth"
+    external_pth = tmp_path / "external-editable.pth"
+    pth.replace(external_pth)
+    pth.symlink_to(external_pth)
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[pth_mapping_unsafe]" in result.stderr
+    assert str(external_pth) not in result.stderr
+
+
 def test_checkout_mode_rejects_a_stale_editable_finder(tmp_path: Path) -> None:
     current = _create_checkout(tmp_path / "current")
     site_packages = tmp_path / "site-packages"
@@ -595,6 +630,47 @@ def test_checkout_mode_fails_stably_for_damaged_record(tmp_path: Path) -> None:
     assert str(metadata) not in result.stderr
 
 
+@pytest.mark.parametrize(
+    "metadata_name",
+    ("METADATA", "top_level.txt", "RECORD", "direct_url.json"),
+)
+def test_checkout_mode_rejects_metadata_file_symlink_escape(
+    tmp_path: Path,
+    metadata_name: str,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    metadata = site_packages / "helixweave-0.3.0.dist-info"
+    external_file = tmp_path / f"external-{metadata_name}"
+    (metadata / metadata_name).replace(external_file)
+    (metadata / metadata_name).symlink_to(external_file)
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[distribution_metadata_invalid]" in result.stderr
+    assert str(external_file) not in result.stderr
+
+
+def test_checkout_mode_rejects_metadata_directory_symlink_escape(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    metadata = site_packages / "helixweave-0.3.0.dist-info"
+    external_metadata = tmp_path / "external-metadata"
+    metadata.replace(external_metadata)
+    metadata.symlink_to(external_metadata, target_is_directory=True)
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[distribution_metadata_invalid]" in result.stderr
+    assert str(external_metadata) not in result.stderr
+
+
 def test_checkout_mode_rejects_source_metadata_pointing_to_sibling(
     tmp_path: Path,
 ) -> None:
@@ -688,6 +764,23 @@ def test_installed_mode_rejects_an_artifact_without_ownership_inventory(
     assert "[namespace_ownership_unproven]" in result.stderr
 
 
+def test_installed_mode_rejects_metadata_directory_symlink_escape(
+    tmp_path: Path,
+) -> None:
+    python, site_packages = _create_venv(tmp_path / "venv")
+    _write_installed_distribution(site_packages)
+    metadata = site_packages / "helixweave-0.3.0.dist-info"
+    external_metadata = tmp_path / "external-metadata"
+    metadata.replace(external_metadata)
+    metadata.symlink_to(external_metadata, target_is_directory=True)
+
+    result = _run_installed_guard(python)
+
+    assert result.returncode == 2
+    assert "[distribution_metadata_invalid]" in result.stderr
+    assert str(external_metadata) not in result.stderr
+
+
 def test_installed_mode_accepts_a_record_owned_artifact(tmp_path: Path) -> None:
     python, site_packages = _create_venv(tmp_path / "venv")
     _write_installed_distribution(site_packages)
@@ -743,6 +836,38 @@ def test_clean_bootstrap_discovers_a_venv_site_root_under_no_site(
 
     assert result.returncode == 0, result.stderr
     assert Path(result.stdout.strip()) == site_packages
+
+
+def test_checkout_layout_loads_without_python_311_tomllib(tmp_path: Path) -> None:
+    current = _create_checkout(tmp_path / "current")
+    code = f"""
+import importlib.abc
+import importlib.util
+from pathlib import Path
+import sys
+
+class NoTomllib(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "tomllib":
+            raise ModuleNotFoundError("simulated Python 3.10 stdlib")
+        return None
+
+sys.meta_path.insert(0, NoTomllib())
+spec = importlib.util.spec_from_file_location("provenance_310", {str(GUARD_SCRIPT)!r})
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+print(module._checkout_layout(Path({str(current)!r})).version)
+"""
+    result = subprocess.run(
+        [sys.executable, "-I", "-S", "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "0.3.0"
 
 
 def test_guard_cli_dispatch_and_public_failure_are_stable(

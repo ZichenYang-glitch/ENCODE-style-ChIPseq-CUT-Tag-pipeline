@@ -28,8 +28,12 @@ Every physical distribution that claims the namespace is counted. Duplicate
 claimants are rejected regardless of spelling, version, editable status, or
 whether both point at the current checkout. Missing or malformed ownership
 inventory, an orphan namespace `.pth`, an editable finder, or an executable
-product `.pth` also fails closed. Unrelated executable `.pth` lines are never
-executed and cannot make product paths importable.
+`.pth` outside the exact locked coverage/setuptools startup lines also fails
+closed. Those two audited lines are matched byte-for-byte after trimming;
+renamed, modified, or otherwise unknown executable `.pth` content is rejected
+without execution. Metadata directories, inventory files, and `.pth` files
+must also have a direct, non-symlinked identity inside the selected
+`site-packages`.
 
 Installed-artifact mode is only for isolated wheel and rebuilt-sdist tests:
 
