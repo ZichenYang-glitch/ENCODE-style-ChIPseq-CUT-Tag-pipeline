@@ -82,8 +82,9 @@ jobs:
 
       - name: Verify current-checkout Python provenance
         shell: micromamba-shell {0}
-        run: >-
-          python3 -I -S scripts/checkout_bootstrap.py
+        run: |
+          python3 -I -S scripts/diagnose_pth_inventory.py
+          python3 -I -S scripts/checkout_bootstrap.py \
           --repository-root . verify-checkout
 
       - name: Run deterministic Python tier once
