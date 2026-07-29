@@ -181,6 +181,62 @@ def test_fast_checks_proves_python_provenance_before_importing_product():
     assert " local-platform --help" in local_platform
 
 
+def test_protected_pytest_tiers_use_only_the_checkout_bootstrap():
+    jobs = _load("ci.yml")["jobs"]
+    protected_jobs = (
+        "fast-checks",
+        "platform-real-execution",
+        "real-execution",
+        "bulk-rnaseq-real-execution",
+    )
+    canonical = "python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest"
+    bare_pytest = (
+        r"(?m)(?:^|[;&|]\s*|\n\s*)"
+        r"(?:python(?:\d+(?:\.\d+)*)?\s+-m\s+pytest|pytest)\b"
+    )
+
+    for job_name in protected_jobs:
+        suite_steps = [
+            str(step.get("run", ""))
+            for step in jobs[job_name]["steps"]
+            if "--junitxml=" in str(step.get("run", ""))
+        ]
+        assert len(suite_steps) == 1, job_name
+        suite = suite_steps[0]
+        assert suite.count(canonical) == 1, job_name
+        assert re.search(bare_pytest, suite) is None, job_name
+        assert "-p no:cacheprovider" not in suite, job_name
+
+
+def test_scientific_real_separates_the_test_runner_from_the_locked_toolchain():
+    steps = _load("ci.yml")["jobs"]["real-execution"]["steps"]
+    python_setup = next(
+        step for step in steps if step.get("name") == "Setup Python test environment"
+    )
+    toolchain_setup = next(
+        step for step in steps if step.get("name") == "Setup scientific toolchain"
+    )
+    install = next(
+        step
+        for step in steps
+        if step.get("name") == "Install HelixWeave scientific test package"
+    )
+    suite = next(
+        step for step in steps if step.get("name") == "Scientific real-execution suite"
+    )
+
+    assert python_setup["with"]["environment-file"] == "workflow/envs/ci-fast.lock"
+    assert toolchain_setup["with"]["environment-file"] == "workflow/envs/chipseq.lock"
+    assert toolchain_setup["with"]["init-shell"] == "none"
+    assert toolchain_setup["with"]["generate-run-shell"] is False
+    assert (
+        steps.index(python_setup) < steps.index(install) < steps.index(toolchain_setup)
+    )
+    assert "micromamba run -n ci-fast" in suite["run"]
+    assert 'SNAKEMAKE="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/snakemake"' in suite["run"]
+    assert 'SAMTOOLS="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/samtools"' in suite["run"]
+
+
 def test_documented_python_timing_budgets_match_the_workflow():
     harness = (REPO_ROOT / "docs" / "development" / "harness.md").read_text(
         encoding="utf-8"
