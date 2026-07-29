@@ -142,7 +142,8 @@ metadata:
 ```bash
 micromamba create -n chipseq-runner --file workflow/envs/runner.lock
 micromamba activate chipseq-runner
-python3 scripts/validate_samples.py --config config/config.yaml
+python3 -I -S scripts/checkout_bootstrap.py --repository-root . \
+  validate --config config/config.yaml
 ```
 
 The example FASTQ paths are illustrative. Before a Snakemake dry-run, edit
@@ -194,8 +195,10 @@ source; see [adapter conformance](docs/development/adapter-conformance.md).
 Use the smallest gate that matches the change:
 
 ```bash
-python3 -m pytest test/docs/test_internal_links.py -v
-python3 -m pytest test/workflow/test_smoke_profiles.py -v
+python3 -I -S scripts/checkout_bootstrap.py --repository-root . \
+  pytest test/docs/test_internal_links.py -v
+python3 -I -S scripts/checkout_bootstrap.py --repository-root . \
+  pytest test/workflow/test_smoke_profiles.py -v
 npm --prefix frontend test -- --run
 ```
 

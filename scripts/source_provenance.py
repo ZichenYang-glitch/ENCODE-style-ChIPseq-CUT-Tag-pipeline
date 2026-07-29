@@ -415,35 +415,67 @@ def _parse_direct_url(raw: str | None, *, known: bool) -> dict[str, object] | No
     return value
 
 
-def _metadata_claim(path: Path, site_root: Path) -> DistributionClaim | None:
-    path_hint = _metadata_path_looks_known(path)
-    metadata_name = "METADATA" if path.name.endswith(".dist-info") else "PKG-INFO"
-    raw_metadata = _read_optional_text(
-        path / metadata_name,
-        known=path_hint,
-        container=path,
-    )
-    if raw_metadata is None:
-        if path_hint:
+def _metadata_identity(
+    raw: str,
+    *,
+    known: bool,
+) -> tuple[str, str] | None:
+    try:
+        parsed = Parser().parsestr(raw)
+        names = parsed.get_all("Name", [])
+        versions = parsed.get_all("Version", [])
+        valid = (
+            not parsed.defects
+            and len(names) == 1
+            and isinstance(names[0], str)
+            and bool(names[0].strip())
+            and len(versions) == 1
+            and isinstance(versions[0], str)
+            and bool(versions[0].strip())
+        )
+    except (TypeError, UnicodeError):
+        valid = False
+    if not valid:
+        if known:
             _fail(
                 "distribution_metadata_invalid",
-                "repair the HelixWeave distribution metadata before retrying",
+                "repair the HelixWeave distribution identity metadata before retrying",
             )
         return None
-    try:
-        parsed = Parser().parsestr(raw_metadata)
-        name = parsed["Name"]
-        version = parsed["Version"]
-    except (TypeError, UnicodeError):
-        name = version = None
-    normalized_name = (
-        _normalized_distribution_name(name) if isinstance(name, str) else None
-    )
-    known = path_hint or normalized_name in _KNOWN_DISTRIBUTION_NAMES
+    return names[0].strip(), versions[0].strip()
 
+
+def _mapping_inventory_claims_namespace(
+    record_entries: tuple[str, ...] | None,
+    site_root: Path,
+    path_mappings: tuple[tuple[Path, Path], ...],
+) -> bool:
+    if record_entries is None:
+        return False
+    recorded_pth_names = {
+        entry for entry in record_entries if "/" not in entry and entry.endswith(".pth")
+    }
+    for pth_path, mapping_root in path_mappings:
+        if pth_path.parent != site_root or pth_path.name not in recorded_pth_names:
+            continue
+        try:
+            package_root = (mapping_root / IMPORT_NAMESPACE).resolve(strict=True)
+        except (OSError, RuntimeError):
+            continue
+        if package_root.is_dir() and _is_within(package_root, mapping_root):
+            return True
+    return False
+
+
+def _metadata_claim(
+    path: Path,
+    site_root: Path,
+    path_mappings: tuple[tuple[Path, Path], ...],
+) -> DistributionClaim | None:
+    path_hint = _metadata_path_looks_known(path)
     raw_top_level = _read_optional_text(
         path / "top_level.txt",
-        known=known,
+        known=path_hint,
         container=path,
     )
     top_levels = frozenset(
@@ -451,33 +483,72 @@ def _metadata_claim(path: Path, site_root: Path) -> DistributionClaim | None:
     )
     raw_record = _read_optional_text(
         path / "RECORD",
-        known=known,
+        known=path_hint,
         container=path,
     )
-    record_entries = _parse_record(raw_record, known=known)
+    record_entries = _parse_record(raw_record, known=path_hint)
     record_claims = record_entries is not None and any(
         entry.split("/", 1)[0] == IMPORT_NAMESPACE for entry in record_entries
     )
-    claims_namespace = IMPORT_NAMESPACE in top_levels or record_claims
-    if not known and not claims_namespace:
-        return None
-    if (
-        not isinstance(name, str)
-        or not name.strip()
-        or not isinstance(version, str)
-        or not version.strip()
-    ):
-        _fail(
-            "distribution_metadata_invalid",
-            "repair the HelixWeave distribution identity metadata before retrying",
+    claims_namespace = (
+        IMPORT_NAMESPACE in top_levels
+        or record_claims
+        or _mapping_inventory_claims_namespace(
+            record_entries,
+            site_root,
+            path_mappings,
         )
+    )
+
+    metadata_name = "METADATA" if path.name.endswith(".dist-info") else "PKG-INFO"
+    raw_metadata = _read_optional_text(
+        path / metadata_name,
+        known=path_hint or claims_namespace,
+        container=path,
+    )
+    if raw_metadata is None:
+        if path_hint or claims_namespace:
+            _fail(
+                "distribution_metadata_invalid",
+                "repair the HelixWeave distribution metadata before retrying",
+            )
+        return None
+    identity = _metadata_identity(
+        raw_metadata,
+        known=path_hint or claims_namespace,
+    )
+    if identity is None:
+        return None
+    name, version = identity
+    known = (
+        path_hint
+        or claims_namespace
+        or _normalized_distribution_name(name) in _KNOWN_DISTRIBUTION_NAMES
+    )
+    if not known:
+        return None
+
+    raw_top_level = _read_optional_text(
+        path / "top_level.txt",
+        known=True,
+        container=path,
+    )
+    top_levels = frozenset(
+        line.strip() for line in (raw_top_level or "").splitlines() if line.strip()
+    )
+    raw_record = _read_optional_text(
+        path / "RECORD",
+        known=True,
+        container=path,
+    )
+    record_entries = _parse_record(raw_record, known=True)
     direct_url = _parse_direct_url(
         _read_optional_text(
             path / "direct_url.json",
-            known=known,
+            known=True,
             container=path,
         ),
-        known=known,
+        known=True,
     )
     return DistributionClaim(
         metadata_path=path,
@@ -490,7 +561,10 @@ def _metadata_claim(path: Path, site_root: Path) -> DistributionClaim | None:
     )
 
 
-def _physical_claimants(site_roots: tuple[Path, ...]) -> tuple[DistributionClaim, ...]:
+def _physical_claimants(
+    site_roots: tuple[Path, ...],
+    path_mappings: tuple[tuple[Path, Path], ...],
+) -> tuple[DistributionClaim, ...]:
     claims: list[DistributionClaim] = []
     for site_root in site_roots:
         try:
@@ -520,7 +594,7 @@ def _physical_claimants(site_roots: tuple[Path, ...]) -> tuple[DistributionClaim
                     "distribution_metadata_invalid",
                     "repair metadata whose identity escapes the selected environment",
                 )
-            claim = _metadata_claim(resolved_child, site_root)
+            claim = _metadata_claim(resolved_child, site_root, path_mappings)
             if claim is not None:
                 claims.append(claim)
     if not claims:
@@ -746,7 +820,8 @@ def _audit_checkout(
                 "repair source metadata that refers to another checkout",
             )
 
-    (claim,) = _physical_claimants(site_roots)
+    mappings = _pth_mappings(site_roots)
+    (claim,) = _physical_claimants(site_roots, mappings)
     _verify_claim_identity(claim, layout.version)
     if IMPORT_NAMESPACE not in claim.top_levels or claim.record_entries is None:
         _fail(
@@ -764,7 +839,6 @@ def _audit_checkout(
             "editable_mapping_invalid",
             "record exactly one plain editable source mapping",
         )
-    mappings = _pth_mappings(site_roots)
     if len(mappings) != 1:
         _fail(
             "namespace_mapping_conflict",
@@ -786,7 +860,8 @@ def _audit_checkout(
 def _audit_installed(
     site_roots: tuple[Path, ...],
 ) -> DistributionClaim:
-    (claim,) = _physical_claimants(site_roots)
+    mappings = _pth_mappings(site_roots)
+    (claim,) = _physical_claimants(site_roots, mappings)
     _verify_claim_identity(claim, DISTRIBUTION_VERSION)
     if claim.direct_url is not None:
         if _editable_root(claim.direct_url) is not None:
@@ -809,7 +884,7 @@ def _audit_installed(
             "namespace_ownership_unproven",
             "install an artifact whose RECORD explicitly owns encode_pipeline",
         )
-    if _pth_mappings(site_roots):
+    if mappings:
         _fail(
             "namespace_mapping_conflict",
             "remove source mappings from the installed artifact environment",

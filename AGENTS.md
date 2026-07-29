@@ -85,10 +85,12 @@ Start at the lowest relevant layer and broaden according to blast radius.
 Common commands, run from the repository root:
 
 ```bash
-python3 -m pytest <targeted paths> -v
+python3 -I -S scripts/checkout_bootstrap.py --repository-root . \
+  pytest <targeted paths> -v
 python3 -m ruff check <changed paths>
 python3 -m ruff format --check <changed paths>
-python3 scripts/validate_samples.py --config config/config.yaml
+python3 -I -S scripts/checkout_bootstrap.py --repository-root . \
+  validate --config config/config.yaml
 snakemake -s workflow/Snakefile --configfile config/config.yaml -n
 
 npm --prefix frontend test -- --run

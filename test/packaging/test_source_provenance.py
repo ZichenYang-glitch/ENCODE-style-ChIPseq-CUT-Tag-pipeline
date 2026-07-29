@@ -123,6 +123,7 @@ def _write_installed_distribution(
     site_packages: Path,
     *,
     include_inventory: bool = True,
+    metadata_directory: str = "helixweave-0.3.0.dist-info",
 ) -> None:
     package = site_packages / "encode_pipeline"
     package.mkdir(parents=True)
@@ -130,7 +131,7 @@ def _write_installed_distribution(
         '__version__ = "0.3.0"\n',
         encoding="utf-8",
     )
-    metadata = site_packages / "helixweave-0.3.0.dist-info"
+    metadata = site_packages / metadata_directory
     metadata.mkdir()
     (metadata / "METADATA").write_text(
         "Metadata-Version: 2.4\nName: helixweave\nVersion: 0.3.0\n",
@@ -163,6 +164,50 @@ def _write_installed_distribution(
             + "\n",
             encoding="utf-8",
         )
+
+
+def _write_unknown_distribution_metadata(
+    site_packages: Path,
+    *,
+    inventory: str,
+    metadata_content: str | bytes | None = None,
+) -> Path:
+    metadata = site_packages / "opaque_owner-9.9.dist-info"
+    metadata.mkdir()
+    if metadata_content is not None:
+        if isinstance(metadata_content, bytes):
+            (metadata / "METADATA").write_bytes(metadata_content)
+        else:
+            (metadata / "METADATA").write_text(
+                metadata_content,
+                encoding="utf-8",
+            )
+    if inventory in {"top-level", "both"}:
+        (metadata / "top_level.txt").write_text(
+            "encode_pipeline\n",
+            encoding="utf-8",
+        )
+    elif inventory == "unrelated":
+        (metadata / "top_level.txt").write_text(
+            "unrelated_package\n",
+            encoding="utf-8",
+        )
+    if inventory in {"record", "both"}:
+        (metadata / "RECORD").write_text(
+            "encode_pipeline/__init__.py,,\n",
+            encoding="utf-8",
+        )
+    elif inventory == "editable-mapping":
+        (metadata / "RECORD").write_text(
+            "opaque-owner.pth,,\n",
+            encoding="utf-8",
+        )
+    elif inventory == "unrelated":
+        (metadata / "RECORD").write_text(
+            "unrelated_package/__init__.py,,\n",
+            encoding="utf-8",
+        )
+    return metadata
 
 
 def _create_venv(root: Path) -> tuple[Path, Path]:
@@ -266,12 +311,192 @@ def _run_guard(
     )
 
 
+def _run_with_unknown_metadata(
+    tmp_path: Path,
+    *,
+    mode: str,
+    inventory: str,
+    metadata_content: str | bytes | None = None,
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    if mode == "checkout":
+        current = _create_checkout(tmp_path / "current")
+        site_packages = tmp_path / "site-packages"
+        _write_distribution(site_packages, source_root=current)
+        metadata = _write_unknown_distribution_metadata(
+            site_packages,
+            inventory=inventory,
+            metadata_content=metadata_content,
+        )
+        result = _run_guard(
+            site_packages,
+            "checkout",
+            repository_root=current,
+        )
+        return result, metadata
+    python, site_packages = _create_venv(tmp_path / "venv")
+    _write_installed_distribution(site_packages)
+    metadata = _write_unknown_distribution_metadata(
+        site_packages,
+        inventory=inventory,
+        metadata_content=metadata_content,
+    )
+    return _run_installed_guard(python), metadata
+
+
 def test_checkout_mode_accepts_only_the_requested_checkout(tmp_path: Path) -> None:
     current = _create_checkout(tmp_path / "current")
     site_packages = tmp_path / "site-packages"
     _write_distribution(site_packages, source_root=current)
 
     result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("mode", ("checkout", "installed-artifact"))
+@pytest.mark.parametrize("inventory", ("top-level", "record", "both"))
+def test_namespace_inventory_cannot_hide_an_unknown_claimant_without_metadata(
+    tmp_path: Path,
+    mode: str,
+    inventory: str,
+) -> None:
+    result, metadata = _run_with_unknown_metadata(
+        tmp_path,
+        mode=mode,
+        inventory=inventory,
+    )
+
+    assert result.returncode == 2
+    assert "[distribution_metadata_invalid]" in result.stderr
+    assert str(metadata) not in result.stderr
+    assert "encode_pipeline/__init__.py" not in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_audited_editable_mapping_cannot_hide_unknown_claimant_metadata(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    stale = _create_checkout(tmp_path / "stale")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    metadata = _write_unknown_distribution_metadata(
+        site_packages,
+        inventory="editable-mapping",
+    )
+    (site_packages / "opaque-owner.pth").write_text(
+        f"{stale / 'src'}\n",
+        encoding="utf-8",
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[distribution_metadata_invalid]" in result.stderr
+    assert str(metadata) not in result.stderr
+    assert str(stale) not in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("mode", ("checkout", "installed-artifact"))
+@pytest.mark.parametrize(
+    "metadata_content",
+    (
+        b"\xffprivate metadata must not be disclosed",
+        (
+            "Metadata-Version: 2.4\n"
+            "Name: helixweave\n"
+            "Name: conflicting-owner\n"
+            "Version: 0.3.0\n"
+        ),
+    ),
+)
+def test_namespace_inventory_rejects_malformed_or_ambiguous_metadata(
+    tmp_path: Path,
+    mode: str,
+    metadata_content: str | bytes,
+) -> None:
+    result, metadata = _run_with_unknown_metadata(
+        tmp_path,
+        mode=mode,
+        inventory="both",
+        metadata_content=metadata_content,
+    )
+
+    assert result.returncode == 2
+    assert "[distribution_metadata_invalid]" in result.stderr
+    assert str(metadata) not in result.stderr
+    assert "private metadata" not in result.stderr
+    assert "conflicting-owner" not in result.stderr
+    assert "UnicodeDecodeError" not in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("mode", ("checkout", "installed-artifact"))
+def test_valid_claimant_conflicts_with_an_unknown_namespace_owner(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    result, metadata = _run_with_unknown_metadata(
+        tmp_path,
+        mode=mode,
+        inventory="both",
+        metadata_content=("Metadata-Version: 2.4\nName: opaque-owner\nVersion: 9.9\n"),
+    )
+
+    assert result.returncode == 2
+    assert "[distribution_claimant_conflict]" in result.stderr
+    assert str(metadata) not in result.stderr
+    assert "opaque-owner" not in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("mode", ("checkout", "installed-artifact"))
+def test_unrelated_unknown_distribution_without_namespace_inventory_is_ignored(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    result, _metadata = _run_with_unknown_metadata(
+        tmp_path,
+        mode=mode,
+        inventory="unrelated",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+def test_checkout_accepts_valid_claimant_with_an_unknown_metadata_directory(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(
+        site_packages,
+        source_root=current,
+        metadata_directory="opaque_owner-9.9.dist-info",
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+def test_installed_artifact_accepts_valid_claimant_with_unknown_directory(
+    tmp_path: Path,
+) -> None:
+    python, site_packages = _create_venv(tmp_path / "venv")
+    _write_installed_distribution(
+        site_packages,
+        metadata_directory="opaque_owner-9.9.dist-info",
+    )
+
+    result = _run_installed_guard(python)
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
