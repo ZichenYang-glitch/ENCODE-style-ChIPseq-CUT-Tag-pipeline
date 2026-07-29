@@ -372,6 +372,57 @@ def test_pytest_rejects_automatic_plugin_injection_before_plugin_import(
     assert "plugin" in result.stderr.lower()
 
 
+def test_pytest_rejects_override_ini_plugin_before_plugin_import(
+    tmp_path: Path,
+) -> None:
+    case = _create_case(tmp_path)
+    stale = _write_stale_checkout(tmp_path / "private-stale", case.product_marker)
+    plugin = case.site_packages / "stale_pytest_plugin.py"
+    plugin.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        f"Path({str(case.startup_marker)!r}).write_text("
+        "'override plugin ran', encoding='utf-8')\n"
+        f"sys.path.insert(0, {str(stale / 'src')!r})\n"
+        "import encode_pipeline\n",
+        encoding="utf-8",
+    )
+
+    result = _run_bootstrap(
+        case,
+        "pytest",
+        "--override-ini",
+        "addopts=-p stale_pytest_plugin",
+        "--collect-only",
+        "test/test_probe.py",
+    )
+
+    _assert_safe_failure(result, case, stale, plugin)
+    assert "plugin" in result.stderr.lower()
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    (
+        ("-c", "alternate.ini"),
+        ("--config-file=alternate.ini",),
+        ("-o", "addopts="),
+        ("--override-ini=addopts=",),
+        ("@pytest-arguments.txt",),
+    ),
+)
+def test_pytest_rejects_indirect_configuration_surfaces(
+    tmp_path: Path,
+    arguments: tuple[str, ...],
+) -> None:
+    case = _create_case(tmp_path)
+
+    result = _run_bootstrap(case, "pytest", *arguments)
+
+    _assert_safe_failure(result, case)
+    assert "plugin" in result.stderr.lower()
+
+
 def test_verify_checkout_accepts_a_valid_current_editable(
     tmp_path: Path,
 ) -> None:
@@ -520,7 +571,7 @@ def test_bootstrap_main_dispatches_only_fixed_audited_commands(
     monkeypatch.setattr(
         BOOTSTRAP,
         "_run_pytest",
-        lambda arguments: calls.append(("pytest", tuple(arguments))) or 31,
+        lambda root, arguments: calls.append(("pytest", (root, *arguments))) or 31,
     )
     monkeypatch.setattr(
         BOOTSTRAP,
@@ -536,7 +587,7 @@ def test_bootstrap_main_dispatches_only_fixed_audited_commands(
         assert ("checkout", REPOSITORY_ROOT) in calls
     if command == "pytest":
         assert ("plugins", ("payload",)) in calls
-        assert ("pytest", ("payload",)) in calls
+        assert ("pytest", (REPOSITORY_ROOT, "payload")) in calls
     elif command in {"openapi", "validate", "local-platform"}:
         assert any(call[0].endswith(".py") for call in calls)
 
@@ -751,8 +802,10 @@ def test_bootstrap_pytest_runner_loads_only_the_explicit_plugin(
 
     monkeypatch.setattr(pytest, "main", fake_main)
 
-    assert BOOTSTRAP._run_pytest(["test/probe.py"]) == 23
+    assert BOOTSTRAP._run_pytest(REPOSITORY_ROOT, ["test/probe.py"]) == 23
     assert observed["arguments"] == [
+        "-c",
+        str(REPOSITORY_ROOT / "pyproject.toml"),
         "-p",
         "no:cacheprovider",
         "test/probe.py",

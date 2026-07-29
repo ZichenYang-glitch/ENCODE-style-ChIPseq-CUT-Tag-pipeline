@@ -68,9 +68,10 @@ python3 -I -S scripts/checkout_bootstrap.py --repository-root . \
 
 The pytest command disables automatic plugin discovery before importing
 pytest. It explicitly loads only the repository-required pytest-cov plugin and
-rejects `PYTEST_PLUGINS`, `PYTEST_ADDOPTS`, and caller-supplied plugin flags.
-CI and frontend OpenAPI regeneration use these commands, not merely a separate
-provenance probe.
+pins configuration to the resolved checkout `pyproject.toml`. It rejects
+`PYTEST_PLUGINS`, `PYTEST_ADDOPTS`, caller-supplied plugin/config override
+flags, and `@argsfile` indirection. CI and frontend OpenAPI regeneration use
+these commands, not merely a separate provenance probe.
 
 ## Trust boundary and failures
 

@@ -76,10 +76,19 @@ def _reject_pytest_plugin_injection(arguments: list[str]) -> None:
             or argument.startswith("-p")
             or argument == "--plugins"
             or argument.startswith("--plugins=")
+            or argument == "-c"
+            or argument.startswith("-c")
+            or argument == "--config-file"
+            or argument.startswith("--config-file=")
+            or argument == "-o"
+            or argument.startswith("-o")
+            or argument == "--override-ini"
+            or argument.startswith("--override-ini=")
+            or argument.startswith("@")
         ):
             _abort(
                 "pytest_plugin_unsafe",
-                "use only the bootstrap-managed pytest plugins",
+                "use the repository pytest config and bootstrap-managed plugins",
             )
 
 
@@ -96,7 +105,7 @@ def _run_script(path: Path, arguments: list[str]) -> int:
     return 0
 
 
-def _run_pytest(arguments: list[str]) -> int:
+def _run_pytest(repository_root: Path, arguments: list[str]) -> int:
     os.environ["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     try:
         import pytest
@@ -108,7 +117,13 @@ def _run_pytest(arguments: list[str]) -> int:
         )
     return int(
         pytest.main(
-            ["-p", "no:cacheprovider", *arguments],
+            [
+                "-c",
+                str(repository_root / "pyproject.toml"),
+                "-p",
+                "no:cacheprovider",
+                *arguments,
+            ],
             plugins=[pytest_cov_plugin],
         )
     )
@@ -154,7 +169,7 @@ def main() -> int:
     if args.command in {"verify-checkout", "installed-artifact"}:
         return 0
     if args.command == "pytest":
-        return _run_pytest(payload_arguments)
+        return _run_pytest(repository_root, payload_arguments)
 
     targets = {
         "openapi": bootstrap_root / "scripts" / "export_openapi.py",
