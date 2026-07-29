@@ -823,6 +823,17 @@ def test_checkout_mode_uses_the_nearest_conda_environment_inventory(
     assert result.returncode == 0, result.stderr
 
 
+def test_conda_prefix_detection_supports_the_direct_windows_layout(
+    tmp_path: Path,
+) -> None:
+    prefix = tmp_path / "environment"
+    site_packages = prefix / "Lib" / "site-packages"
+    site_packages.mkdir(parents=True)
+    (prefix / "conda-meta").mkdir()
+
+    assert PROVENANCE._conda_prefix_for_site_root(site_packages) == (True, prefix)
+
+
 @pytest.mark.parametrize("named_inventory", ("missing", "empty"))
 def test_checkout_mode_never_borrows_an_outer_conda_inventory(
     tmp_path: Path,
