@@ -795,7 +795,6 @@ def _record_inventory_owners(
 
 
 def _conda_prefix_for_site_root(site_root: Path) -> tuple[bool, Path | None]:
-    candidates: list[Path] = []
     for parent in site_root.parents:
         if parent == parent.parent:
             break
@@ -814,12 +813,8 @@ def _conda_prefix_for_site_root(site_root: Path) -> tuple[bool, Path | None]:
             return False, None
         if metadata != candidate or metadata.parent != parent or not metadata.is_dir():
             return False, None
-        candidates.append(parent)
-    if not candidates:
-        return True, None
-    if len(candidates) != 1:
-        return False, None
-    return True, candidates[0]
+        return True, parent
+    return True, None
 
 
 def _conda_inventory_owners(

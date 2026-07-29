@@ -796,6 +796,32 @@ def test_checkout_mode_reconciles_exact_conda_hook_inventory(
         assert "[pth_mapping_unsafe]" in result.stderr
 
 
+def test_checkout_mode_uses_the_nearest_conda_environment_inventory(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    root_prefix = tmp_path / "micromamba"
+    prefix = root_prefix / "envs" / "ci-fast"
+    site_packages = prefix / "lib" / "python3.12" / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    hook_name = "distutils-precedence.pth"
+    raw, _, version = _AUDITED_HOOKS[hook_name]
+    (site_packages / hook_name).write_bytes(raw)
+    _write_conda_hook_inventory(
+        prefix,
+        site_packages,
+        hook_name,
+        version=version,
+        build="pyh332efcf_0",
+        raw=raw,
+    )
+    (root_prefix / "conda-meta").mkdir()
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_checkout_mode_rejects_duplicate_record_hook_owners(
     tmp_path: Path,
 ) -> None:
