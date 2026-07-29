@@ -563,6 +563,8 @@ jobs:
         with:
           environment-file: workflow/envs/chipseq.lock
           environment-name: chipseq
+          init-shell: none
+          generate-run-shell: false
           cache-environment: true
           cache-environment-key: chipseq-${{ runner.os }}-${{ hashFiles('workflow/envs/chipseq.lock') }}
 

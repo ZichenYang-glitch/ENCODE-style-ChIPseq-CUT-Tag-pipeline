@@ -227,6 +227,8 @@ def test_scientific_real_separates_the_test_runner_from_the_locked_toolchain():
 
     assert python_setup["with"]["environment-file"] == "workflow/envs/ci-fast.lock"
     assert toolchain_setup["with"]["environment-file"] == "workflow/envs/chipseq.lock"
+    assert toolchain_setup["with"]["init-shell"] == "none"
+    assert toolchain_setup["with"]["generate-run-shell"] is False
     assert (
         steps.index(python_setup) < steps.index(install) < steps.index(toolchain_setup)
     )
