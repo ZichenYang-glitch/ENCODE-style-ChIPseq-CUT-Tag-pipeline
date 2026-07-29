@@ -7,9 +7,11 @@ import base64
 import csv
 from email.parser import Parser
 import hashlib
+from importlib import util as importlib_util
 import json
 from pathlib import Path
 import re
+import stat
 import sys
 import sysconfig
 
@@ -23,6 +25,32 @@ def main() -> int:
     site_root = Path(sysconfig.get_path("purelib")).resolve(strict=True)
     prefix = Path(sys.prefix).resolve(strict=True)
     conda_root = prefix / "conda-meta"
+    provenance_spec = importlib_util.spec_from_file_location(
+        "_diagnostic_source_provenance",
+        Path(__file__).with_name("source_provenance.py"),
+    )
+    assert provenance_spec is not None
+    assert provenance_spec.loader is not None
+    provenance = importlib_util.module_from_spec(provenance_spec)
+    sys.modules[provenance_spec.name] = provenance
+    provenance_spec.loader.exec_module(provenance)
+    conda_candidates = 0
+    invalid_conda_candidates = 0
+    for parent in site_root.parents:
+        if parent == parent.parent:
+            break
+        candidate = parent / "conda-meta"
+        try:
+            mode = candidate.lstat().st_mode
+        except FileNotFoundError:
+            continue
+        conda_candidates += 1
+        if not stat.S_ISDIR(mode) or candidate.resolve(strict=True) != candidate:
+            invalid_conda_candidates += 1
+    print(
+        f"TOPOLOGY conda_candidates={conda_candidates}"
+        f" invalid_conda_candidates={invalid_conda_candidates}"
+    )
     for hook in sorted(site_root.glob("*.pth")):
         raw = hook.read_bytes()
         lines = tuple(
@@ -84,6 +112,21 @@ def main() -> int:
                         f":size={entry.get('size_in_bytes') == len(raw)}"
                     )
         print("CONDA claims=" + (",".join(conda_claims) or "<none>"))
+        audited = provenance._AUDITED_EXECUTABLE_PTH.get(hook.name)
+        if audited is not None:
+            record_evaluation = provenance._record_inventory_owners(
+                site_root,
+                hook,
+                audited,
+                raw,
+            )
+            conda_evaluation = provenance._conda_inventory_owners(
+                site_root,
+                hook,
+                audited,
+                raw,
+            )
+            print(f"EVALUATION record={record_evaluation!r} conda={conda_evaluation!r}")
     return 0
 
 
