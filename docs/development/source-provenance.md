@@ -33,7 +33,10 @@ closed. Those two audited lines are matched byte-for-byte after trimming;
 renamed, modified, or otherwise unknown executable `.pth` content is rejected
 without execution. Metadata directories, inventory files, and `.pth` files
 must also have a direct, non-symlinked identity inside the selected
-`site-packages`.
+`site-packages`. Any additional existing plain `.pth` target is a conflicting
+import path, including archives and directories that do not currently expose
+the product namespace. Importable `sitecustomize` and `usercustomize` source,
+bytecode, extension, and package forms are rejected without loading them.
 
 Installed-artifact mode is only for isolated wheel and rebuilt-sdist tests:
 

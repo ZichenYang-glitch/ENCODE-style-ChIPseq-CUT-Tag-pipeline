@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from importlib import machinery
 from importlib import util as importlib_util
 from importlib.util import find_spec
 from urllib.parse import quote
@@ -400,6 +401,63 @@ def test_checkout_mode_rejects_a_pth_file_symlink_escape(tmp_path: Path) -> None
     assert result.returncode == 2
     assert "[pth_mapping_unsafe]" in result.stderr
     assert str(external_pth) not in result.stderr
+
+
+@pytest.mark.parametrize("target_kind", ("directory", "archive"))
+def test_checkout_mode_rejects_an_extra_existing_pth_target(
+    tmp_path: Path,
+    target_kind: str,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    target = tmp_path / f"unrelated-{target_kind}"
+    if target_kind == "directory":
+        target.mkdir()
+    else:
+        target.write_bytes(b"not a trusted import archive")
+    (site_packages / "orphan-path.pth").write_text(
+        f"{target}\n",
+        encoding="utf-8",
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[namespace_mapping_conflict]" in result.stderr
+    assert str(target) not in result.stderr
+
+
+@pytest.mark.parametrize(
+    "hook_name",
+    (
+        "sitecustomize",
+        "sitecustomize.pyc",
+        f"usercustomize{machinery.EXTENSION_SUFFIXES[-1]}",
+    ),
+)
+def test_checkout_mode_rejects_every_direct_startup_hook_shape(
+    tmp_path: Path,
+    hook_name: str,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    hook = site_packages / hook_name
+    if "." in hook_name:
+        hook.write_bytes(b"must never load")
+    else:
+        hook.mkdir()
+        (hook / "__init__.py").write_text(
+            "raise AssertionError('must never import')\n",
+            encoding="utf-8",
+        )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[startup_hook_unsafe]" in result.stderr
+    assert str(hook) not in result.stderr
 
 
 def test_checkout_mode_rejects_a_stale_editable_finder(tmp_path: Path) -> None:

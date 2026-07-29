@@ -13,6 +13,7 @@ import ast
 import csv
 from dataclasses import dataclass
 from email.parser import Parser
+from importlib import machinery
 from importlib import util
 import json
 import os
@@ -597,17 +598,41 @@ def _audited_nonproduct_executable_pth(path: Path, line: str) -> bool:
     return _AUDITED_EXECUTABLE_PTH_LINES.get(path.name) == line
 
 
+def _reject_startup_customizations(site_root: Path) -> None:
+    hook_stems = ("sitecustomize", "usercustomize")
+    import_suffixes = tuple(
+        suffix.casefold()
+        for suffix in (
+            *machinery.SOURCE_SUFFIXES,
+            *machinery.BYTECODE_SUFFIXES,
+            *machinery.EXTENSION_SUFFIXES,
+        )
+    )
+    try:
+        children = tuple(site_root.iterdir())
+    except OSError:
+        _fail(
+            "startup_hook_unsafe",
+            "repair the selected environment startup metadata before retrying",
+        )
+    for child in children:
+        name = child.name.casefold()
+        if any(
+            name == stem or any(name == f"{stem}{suffix}" for suffix in import_suffixes)
+            for stem in hook_stems
+        ):
+            _fail(
+                "startup_hook_unsafe",
+                "remove environment startup customization before retrying",
+            )
+
+
 def _pth_mappings(
     site_roots: tuple[Path, ...],
 ) -> tuple[tuple[Path, Path], ...]:
-    namespace_mappings: list[tuple[Path, Path]] = []
+    path_mappings: list[tuple[Path, Path]] = []
     for site_root in site_roots:
-        for hook_name in ("sitecustomize.py", "usercustomize.py"):
-            if (site_root / hook_name).exists():
-                _fail(
-                    "startup_hook_unsafe",
-                    "remove environment startup customization before retrying",
-                )
+        _reject_startup_customizations(site_root)
         try:
             finder_files = tuple(site_root.glob("__editable__*finder.py"))
             pth_files = tuple(sorted(site_root.glob("*.pth")))
@@ -665,16 +690,15 @@ def _pth_mappings(
                             "repair the recorded editable source mapping before retrying",
                         )
                     continue
-                if not mapping.is_dir():
+                if not mapping.exists():
                     if "__editable__" in pth_path.name.lower():
                         _fail(
                             "editable_mapping_invalid",
                             "repair the recorded editable source mapping before retrying",
                         )
                     continue
-                if (mapping / IMPORT_NAMESPACE).is_dir():
-                    namespace_mappings.append((pth_path.resolve(), mapping))
-    return tuple(namespace_mappings)
+                path_mappings.append((pth_path.resolve(), mapping))
+    return tuple(path_mappings)
 
 
 def _audit_checkout(

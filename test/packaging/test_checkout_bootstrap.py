@@ -322,6 +322,29 @@ def test_product_commands_reject_startup_hooks_before_any_import_or_effect(
     assert "startup" in result.stderr.lower() or ".pth" in result.stderr.lower()
 
 
+def test_verify_checkout_rejects_a_sitecustomize_package_before_any_effect(
+    tmp_path: Path,
+) -> None:
+    case = _create_case(tmp_path)
+    stale = _write_stale_checkout(tmp_path / "private-stale", case.product_marker)
+    package = case.site_packages / "sitecustomize"
+    package.mkdir()
+    (package / "__init__.py").write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        f"Path({str(case.startup_marker)!r}).write_text("
+        "'sitecustomize package ran', encoding='utf-8')\n"
+        f"sys.path.insert(0, {str(stale / 'src')!r})\n"
+        "import encode_pipeline\n",
+        encoding="utf-8",
+    )
+
+    result = _run_bootstrap(case, "verify-checkout")
+
+    _assert_safe_failure(result, case, stale, package)
+    assert "startup" in result.stderr.lower()
+
+
 def test_pytest_rejects_automatic_plugin_injection_before_plugin_import(
     tmp_path: Path,
 ) -> None:
