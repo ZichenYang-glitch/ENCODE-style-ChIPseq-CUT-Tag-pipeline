@@ -197,11 +197,12 @@ def _write_conda_hook_inventory(
     metadata_root = prefix / "conda-meta"
     metadata_root.mkdir(exist_ok=True)
     digest = hashlib.sha256(raw).hexdigest()
-    metadata = metadata_root / f"setuptools-{version}-{build}.json"
+    distribution_name = _AUDITED_HOOKS[hook_name][1]
+    metadata = metadata_root / f"{distribution_name}-{version}-{build}.json"
     metadata.write_text(
         json.dumps(
             {
-                "name": "setuptools",
+                "name": distribution_name,
                 "version": version,
                 "build": build,
                 "paths_data": {
@@ -804,7 +805,7 @@ def test_checkout_mode_uses_the_nearest_conda_environment_inventory(
     prefix = root_prefix / "envs" / "ci-fast"
     site_packages = prefix / "lib" / "python3.12" / "site-packages"
     _write_distribution(site_packages, source_root=current)
-    hook_name = "distutils-precedence.pth"
+    hook_name = "coloredlogs.pth"
     raw, _, version = _AUDITED_HOOKS[hook_name]
     (site_packages / hook_name).write_bytes(raw)
     _write_conda_hook_inventory(
@@ -812,7 +813,7 @@ def test_checkout_mode_uses_the_nearest_conda_environment_inventory(
         site_packages,
         hook_name,
         version=version,
-        build="pyh332efcf_0",
+        build="pyhd8ed1ab_4",
         raw=raw,
     )
     (root_prefix / "conda-meta").mkdir()
@@ -820,6 +821,37 @@ def test_checkout_mode_uses_the_nearest_conda_environment_inventory(
     result = _run_guard(site_packages, "checkout", repository_root=current)
 
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("named_inventory", ("missing", "empty"))
+def test_checkout_mode_never_borrows_an_outer_conda_inventory(
+    tmp_path: Path,
+    named_inventory: str,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    root_prefix = tmp_path / "micromamba"
+    prefix = root_prefix / "envs" / "ci-fast"
+    site_packages = prefix / "lib" / "python3.12" / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    hook_name = "coloredlogs.pth"
+    raw, _, version = _AUDITED_HOOKS[hook_name]
+    _write_audited_hook_owner(site_packages, hook_name, raw=raw)
+    _write_conda_hook_inventory(
+        root_prefix,
+        root_prefix / "site-packages",
+        hook_name,
+        version=version,
+        build="pyhd8ed1ab_4",
+        raw=raw,
+    )
+    if named_inventory == "empty":
+        (prefix / "conda-meta").mkdir()
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[pth_mapping_unsafe]" in result.stderr
+    assert str(root_prefix) not in result.stderr
 
 
 def test_checkout_mode_rejects_duplicate_record_hook_owners(

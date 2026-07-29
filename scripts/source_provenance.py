@@ -795,26 +795,41 @@ def _record_inventory_owners(
 
 
 def _conda_prefix_for_site_root(site_root: Path) -> tuple[bool, Path | None]:
-    for parent in site_root.parents:
-        if parent == parent.parent:
-            break
-        candidate = parent / "conda-meta"
-        try:
-            mode = candidate.lstat().st_mode
-        except FileNotFoundError:
-            continue
-        except OSError:
+    if site_root.name != "site-packages":
+        return True, None
+    python_root = site_root.parent
+    if python_root.name == "Lib":
+        prefix = python_root.parent
+    elif python_root.parent.name == "lib" and re.fullmatch(
+        r"python\d+\.\d+", python_root.name
+    ):
+        prefix = python_root.parent.parent
+    else:
+        return True, None
+    candidate = prefix / "conda-meta"
+    try:
+        mode = candidate.lstat().st_mode
+    except FileNotFoundError:
+        for parent in prefix.parents:
+            try:
+                (parent / "conda-meta").lstat()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                return False, None
             return False, None
-        if not stat.S_ISDIR(mode):
-            return False, None
-        try:
-            metadata = candidate.resolve(strict=True)
-        except (OSError, RuntimeError):
-            return False, None
-        if metadata != candidate or metadata.parent != parent or not metadata.is_dir():
-            return False, None
-        return True, parent
-    return True, None
+        return True, None
+    except OSError:
+        return False, None
+    if not stat.S_ISDIR(mode):
+        return False, None
+    try:
+        metadata = candidate.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False, None
+    if metadata != candidate or metadata.parent != prefix or not metadata.is_dir():
+        return False, None
+    return True, prefix
 
 
 def _conda_inventory_owners(
