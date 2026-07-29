@@ -21,7 +21,7 @@ once.
 Pull requests run the fast unit, contract, validator, and DAG-smoke selection:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest test -ra -p no:cacheprovider \
+python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest test -ra \
   -m "not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution" \
   --junitxml=pytest-report.xml \
   --cov --cov-config=pyproject.toml --cov-context=test \
@@ -38,7 +38,7 @@ Pushes to `main`, manual dispatches, nightly schedules, and published releases
 run the complete deterministic suite, including tests marked `full_main`:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest test -ra -p no:cacheprovider \
+python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest test -ra \
   -m "not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution" \
   --junitxml=pytest-report.xml \
   --cov --cov-config=pyproject.toml --cov-context=test \

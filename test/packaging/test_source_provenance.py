@@ -5,12 +5,10 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 from importlib import util as importlib_util
 from importlib.util import find_spec
-from types import SimpleNamespace
 from urllib.parse import quote
 import venv
 
@@ -19,9 +17,6 @@ import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 GUARD_SCRIPT = REPOSITORY_ROOT / "scripts" / "source_provenance.py"
-VALIDATOR_SCRIPT = REPOSITORY_ROOT / "scripts" / "validate_samples.py"
-OPENAPI_SCRIPT = REPOSITORY_ROOT / "scripts" / "export_openapi.py"
-LOCAL_PLATFORM_SCRIPT = REPOSITORY_ROOT / "scripts" / "run_local_platform.py"
 _COVERAGE_SPEC = find_spec("coverage")
 assert _COVERAGE_SPEC is not None
 assert _COVERAGE_SPEC.origin is not None
@@ -37,31 +32,6 @@ sys.modules[_PROVENANCE_SPEC.name] = PROVENANCE
 _PROVENANCE_SPEC.loader.exec_module(PROVENANCE)
 
 
-class _FakeDistribution:
-    def __init__(
-        self,
-        root: Path,
-        *,
-        direct_url: dict[str, object] | None,
-    ) -> None:
-        self.metadata = {"Name": "helixweave"}
-        self.files: tuple[Path, ...] = ()
-        self._root = root
-        self._direct_url = direct_url
-
-    def locate_file(self, _path: str) -> Path:
-        return self._root
-
-    def read_text(self, name: str) -> str | None:
-        if name == "top_level.txt":
-            return "encode_pipeline\n"
-        if name == "METADATA":
-            return "Metadata-Version: 2.4\nName: helixweave\n"
-        if name == "direct_url.json" and self._direct_url is not None:
-            return json.dumps(self._direct_url)
-        return None
-
-
 def _coverage_bootstrap() -> str:
     return (
         "import os, sys\n"
@@ -75,6 +45,11 @@ def _coverage_bootstrap() -> str:
 
 
 def _create_checkout(root: Path) -> Path:
+    root.mkdir(parents=True)
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "helixweave"\nversion = "0.3.0"\n',
+        encoding="utf-8",
+    )
     package = root / "src" / "encode_pipeline"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text(
@@ -93,21 +68,27 @@ def _write_distribution(
     *,
     source_root: Path,
     distribution_name: str = "helixweave",
+    version: str = "0.3.0",
     direct_root: Path | None = None,
     direct_url_text: str | None = None,
+    metadata_directory: str | None = None,
+    include_inventory: bool = True,
 ) -> None:
     site_packages.mkdir(parents=True, exist_ok=True)
     normalized = distribution_name.replace("-", "_")
-    metadata = site_packages / f"{normalized}-0.3.0.dist-info"
+    metadata = site_packages / (
+        metadata_directory or f"{normalized}-{version}.dist-info"
+    )
     metadata.mkdir()
     (metadata / "METADATA").write_text(
-        f"Metadata-Version: 2.4\nName: {distribution_name}\nVersion: 0.3.0\n",
+        f"Metadata-Version: 2.4\nName: {distribution_name}\nVersion: {version}\n",
         encoding="utf-8",
     )
-    (metadata / "top_level.txt").write_text(
-        "encode_pipeline\n",
-        encoding="utf-8",
-    )
+    if include_inventory:
+        (metadata / "top_level.txt").write_text(
+            "encode_pipeline\n",
+            encoding="utf-8",
+        )
     if direct_url_text is None:
         direct_url_text = json.dumps(
             {
@@ -116,13 +97,32 @@ def _write_distribution(
             }
         )
     (metadata / "direct_url.json").write_text(direct_url_text, encoding="utf-8")
-    (site_packages / f"__editable__.{normalized}-0.3.0.pth").write_text(
+    pth_name = f"__editable__.{normalized}-{version}.pth"
+    (site_packages / pth_name).write_text(
         f"{(source_root / 'src').resolve()}\n",
         encoding="utf-8",
     )
+    if include_inventory:
+        (metadata / "RECORD").write_text(
+            "\n".join(
+                (
+                    f"{pth_name},,",
+                    f"{metadata.name}/METADATA,,",
+                    f"{metadata.name}/top_level.txt,,",
+                    f"{metadata.name}/direct_url.json,,",
+                    f"{metadata.name}/RECORD,,",
+                )
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
 
-def _write_installed_distribution(site_packages: Path) -> None:
+def _write_installed_distribution(
+    site_packages: Path,
+    *,
+    include_inventory: bool = True,
+) -> None:
     package = site_packages / "encode_pipeline"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text(
@@ -148,6 +148,20 @@ def _write_installed_distribution(site_packages: Path) -> None:
         ),
         encoding="utf-8",
     )
+    if include_inventory:
+        (metadata / "RECORD").write_text(
+            "\n".join(
+                (
+                    "encode_pipeline/__init__.py,,",
+                    "helixweave-0.3.0.dist-info/METADATA,,",
+                    "helixweave-0.3.0.dist-info/top_level.txt,,",
+                    "helixweave-0.3.0.dist-info/direct_url.json,,",
+                    "helixweave-0.3.0.dist-info/RECORD,,",
+                )
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
 
 def _create_venv(root: Path) -> tuple[Path, Path]:
@@ -233,14 +247,19 @@ def _run_guard(
     repository_root: Path | None = None,
     before_guard: str = "",
 ) -> subprocess.CompletedProcess[str]:
-    arguments = [mode]
-    if repository_root is not None:
-        arguments.extend(("--repository-root", str(repository_root)))
+    assert mode == "checkout"
+    assert repository_root is not None
     return _run_with_site(
         (
             f"{before_guard}\n"
-            "from source_provenance import main\n"
-            f"raise SystemExit(main({arguments!r}))"
+            "from pathlib import Path\n"
+            "from source_provenance import SourceProvenanceError, verify_checkout\n"
+            "try:\n"
+            f"    verify_checkout(Path({str(repository_root)!r}), "
+            f"site_roots=(Path({str(site_packages)!r}),))\n"
+            "except SourceProvenanceError as error:\n"
+            "    print(error, file=sys.stderr)\n"
+            "    raise SystemExit(2) from None\n"
         ),
         site_packages=site_packages,
     )
@@ -258,6 +277,131 @@ def test_checkout_mode_accepts_only_the_requested_checkout(tmp_path: Path) -> No
     assert result.stderr == ""
 
 
+@pytest.mark.parametrize("root_kind", ("missing", "file"))
+def test_checkout_mode_rejects_an_invalid_repository_root(
+    tmp_path: Path,
+    root_kind: str,
+) -> None:
+    repository_root = tmp_path / "invalid-repository"
+    if root_kind == "file":
+        repository_root.write_text("not a checkout\n", encoding="utf-8")
+    site_packages = tmp_path / "site-packages"
+    site_packages.mkdir()
+
+    result = _run_guard(
+        site_packages,
+        "checkout",
+        repository_root=repository_root,
+    )
+
+    assert result.returncode == 2
+    assert "[repository_root_invalid]" in result.stderr
+    assert str(repository_root) not in result.stderr
+
+
+def test_checkout_mode_rejects_two_physical_claimants_with_the_same_version(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    _write_distribution(
+        site_packages,
+        source_root=current,
+        distribution_name="HelixWeave",
+        metadata_directory="HELIXWEAVE-copy-0.3.0.dist-info",
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[distribution_claimant_conflict]" in result.stderr
+
+
+def test_checkout_mode_rejects_a_claimant_version_mismatch(tmp_path: Path) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(
+        site_packages,
+        source_root=current,
+        version="0.2.0",
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[distribution_version_mismatch]" in result.stderr
+
+
+def test_checkout_mode_rejects_missing_namespace_ownership_inventory(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(
+        site_packages,
+        source_root=current,
+        include_inventory=False,
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[namespace_ownership_unproven]" in result.stderr
+
+
+def test_checkout_mode_rejects_an_orphan_stale_pth(tmp_path: Path) -> None:
+    current = _create_checkout(tmp_path / "current")
+    stale = _create_checkout(tmp_path / "stale")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    (site_packages / "zzz-orphan-stale.pth").write_text(
+        f"{stale / 'src'}\n",
+        encoding="utf-8",
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[namespace_mapping_conflict]" in result.stderr
+    assert str(stale) not in result.stderr
+
+
+def test_checkout_mode_rejects_a_stale_editable_finder(tmp_path: Path) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    (site_packages / "__editable___stale_finder.py").write_text(
+        "raise AssertionError('finder content must never execute')\n",
+        encoding="utf-8",
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[pth_mapping_unsafe]" in result.stderr
+    assert "AssertionError" not in result.stderr
+
+
+def test_checkout_mode_rejects_a_second_symlink_alias_mapping(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    source_alias = tmp_path / "source-alias"
+    source_alias.symlink_to(current / "src", target_is_directory=True)
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    (site_packages / "zzz-source-alias.pth").write_text(
+        f"{source_alias}\n",
+        encoding="utf-8",
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[namespace_mapping_conflict]" in result.stderr
+
+
 def test_checkout_mode_rejects_a_sibling_checkout(tmp_path: Path) -> None:
     current = _create_checkout(tmp_path / "current")
     stale = _create_checkout(tmp_path / "stale")
@@ -267,7 +411,7 @@ def test_checkout_mode_rejects_a_sibling_checkout(tmp_path: Path) -> None:
     result = _run_guard(site_packages, "checkout", repository_root=current)
 
     assert result.returncode == 2
-    assert "[module_search_location_mismatch]" in result.stderr
+    assert "[distribution_source_mismatch]" in result.stderr
 
 
 def test_checkout_mode_rejects_module_metadata_disagreement(tmp_path: Path) -> None:
@@ -397,7 +541,7 @@ def test_checkout_mode_rejects_stale_known_metadata_without_inventory(
     result = _run_guard(site_packages, "checkout", repository_root=current)
 
     assert result.returncode == 2
-    assert "[distribution_identity_mismatch]" in result.stderr
+    assert "[distribution_claimant_conflict]" in result.stderr
     assert str(stale) not in result.stderr
 
 
@@ -532,101 +676,73 @@ def test_installed_mode_rejects_checkout_mixed_with_installed_artifact(
     assert str(checkout) not in result.stderr
 
 
+def test_installed_mode_rejects_an_artifact_without_ownership_inventory(
+    tmp_path: Path,
+) -> None:
+    python, site_packages = _create_venv(tmp_path / "venv")
+    _write_installed_distribution(site_packages, include_inventory=False)
+
+    result = _run_installed_guard(python)
+
+    assert result.returncode == 2
+    assert "[namespace_ownership_unproven]" in result.stderr
+
+
+def test_installed_mode_accepts_a_record_owned_artifact(tmp_path: Path) -> None:
+    python, site_packages = _create_venv(tmp_path / "venv")
+    _write_installed_distribution(site_packages)
+
+    result = _run_installed_guard(python)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
 def test_installed_mode_rejects_noneditable_directory_install(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     source = _create_checkout(tmp_path / "source")
-    site_packages = tmp_path / "venv" / "site-packages"
-    package = site_packages / "encode_pipeline"
-    package.mkdir(parents=True)
-    initializer = package / "__init__.py"
-    initializer.write_text("", encoding="utf-8")
-    distribution = _FakeDistribution(
-        site_packages,
-        direct_url={
-            "dir_info": {},
-            "url": _file_url(source),
-        },
+    python, site_packages = _create_venv(tmp_path / "venv")
+    _write_installed_distribution(site_packages)
+    (site_packages / "helixweave-0.3.0.dist-info" / "direct_url.json").write_text(
+        json.dumps(
+            {
+                "dir_info": {},
+                "url": _file_url(source),
+            }
+        ),
+        encoding="utf-8",
     )
-    spec = SimpleNamespace(
-        origin=str(initializer),
-        submodule_search_locations=[str(package)],
-    )
-    monkeypatch.setattr(
-        PROVENANCE,
-        "_installed_site_roots",
-        lambda: (site_packages,),
-    )
-    monkeypatch.setattr(
-        PROVENANCE,
-        "_claiming_distributions",
-        lambda: (distribution,),
-    )
-    monkeypatch.setattr(PROVENANCE, "_package_spec", lambda: spec)
 
-    with pytest.raises(PROVENANCE.SourceProvenanceError) as error:
-        PROVENANCE.verify_installed_artifact()
-    assert error.value.reason_code == "installed_source_mismatch"
-    assert str(source) not in str(error.value)
+    result = _run_installed_guard(python)
+
+    assert result.returncode == 2
+    assert "[installed_source_mismatch]" in result.stderr
+    assert str(source) not in result.stderr
 
 
-def test_installed_mode_accepts_one_current_site_package_in_process(
+def test_clean_bootstrap_discovers_a_venv_site_root_under_no_site(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
-    site_packages = tmp_path / "venv" / "site-packages"
-    package = site_packages / "encode_pipeline"
-    package.mkdir(parents=True)
-    initializer = package / "__init__.py"
-    initializer.write_text("", encoding="utf-8")
-    distribution = _FakeDistribution(
-        site_packages,
-        direct_url={
-            "archive_info": {"hash": "sha256=" + ("0" * 64)},
-            "url": "file:///artifact/helixweave.whl",
-        },
+    python, site_packages = _create_venv(tmp_path / "venv")
+    code = (
+        "import importlib.util,sys\n"
+        f"spec=importlib.util.spec_from_file_location('provenance',{str(GUARD_SCRIPT)!r})\n"
+        "module=importlib.util.module_from_spec(spec)\n"
+        "sys.modules[spec.name]=module\n"
+        "spec.loader.exec_module(module)\n"
+        "print(module.environment_site_roots()[0])\n"
     )
-    spec = SimpleNamespace(
-        origin=str(initializer),
-        submodule_search_locations=[str(package)],
-    )
-    monkeypatch.setattr(
-        PROVENANCE,
-        "_installed_site_roots",
-        lambda: (site_packages,),
-    )
-    monkeypatch.setattr(
-        PROVENANCE,
-        "_claiming_distributions",
-        lambda: (distribution,),
-    )
-    monkeypatch.setattr(PROVENANCE, "_package_spec", lambda: spec)
-
-    PROVENANCE.verify_installed_artifact()
-
-
-def test_installed_site_roots_require_the_current_isolated_prefix(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    prefix = tmp_path / "venv"
-    site_packages = prefix / "lib" / "site-packages"
-    site_packages.mkdir(parents=True)
-    monkeypatch.setattr(PROVENANCE.sys, "prefix", str(prefix))
-    monkeypatch.setattr(PROVENANCE.sys, "base_prefix", str(tmp_path / "base"))
-    monkeypatch.setattr(
-        PROVENANCE.sysconfig,
-        "get_path",
-        lambda _name: str(site_packages),
+    result = subprocess.run(
+        [str(python), "-I", "-S", "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
-    assert PROVENANCE._installed_site_roots() == (site_packages,)
-
-    monkeypatch.setattr(PROVENANCE.sys, "base_prefix", str(prefix))
-    with pytest.raises(PROVENANCE.SourceProvenanceError) as error:
-        PROVENANCE._installed_site_roots()
-    assert error.value.reason_code == "installed_environment_invalid"
+    assert result.returncode == 0, result.stderr
+    assert Path(result.stdout.strip()) == site_packages
 
 
 def test_guard_cli_dispatch_and_public_failure_are_stable(
@@ -678,161 +794,3 @@ def test_guard_cli_dispatch_and_public_failure_are_stable(
     with pytest.raises(SystemExit, match="2"):
         PROVENANCE.require_checkout(tmp_path)
     assert capsys.readouterr().err == f"{failure}\n"
-
-
-def test_pytest_fails_before_collection_imports_product(
-    tmp_path: Path,
-) -> None:
-    fake_repository = _create_checkout(tmp_path / "private-current")
-    (fake_repository / "scripts").mkdir()
-    shutil.copy2(
-        GUARD_SCRIPT,
-        fake_repository / "scripts" / "source_provenance.py",
-    )
-    fake_test_root = fake_repository / "test"
-    fake_test_root.mkdir()
-    shutil.copy2(
-        REPOSITORY_ROOT / "test" / "conftest.py",
-        fake_test_root / "conftest.py",
-    )
-    marker = tmp_path / "collection-imported"
-    (fake_test_root / "test_import_marker.py").write_text(
-        "import os\n"
-        "from pathlib import Path\n"
-        "Path(os.environ['IMPORT_MARKER']).write_text('imported')\n",
-        encoding="utf-8",
-    )
-    stale = _create_checkout(tmp_path / "private-stale")
-    environment = {
-        key: value
-        for key, value in os.environ.items()
-        if key not in {"PYTHONPATH", "PYTHONHOME"}
-    }
-    environment.update(
-        {
-            "IMPORT_MARKER": str(marker),
-            "PYTHONPATH": str(stale / "src"),
-            "PYTHONDONTWRITEBYTECODE": "1",
-        }
-    )
-
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            "--collect-only",
-            str(fake_test_root / "test_import_marker.py"),
-            "-p",
-            "no:cacheprovider",
-        ],
-        cwd=fake_repository,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 2
-    assert "[module_search_location_mismatch]" in result.stderr
-    assert not marker.exists()
-    assert str(fake_repository) not in result.stderr
-    assert str(stale) not in result.stderr
-
-
-def test_validator_rejects_stale_editable_before_product_import(
-    tmp_path: Path,
-) -> None:
-    stale = _create_checkout(tmp_path / "stale")
-    validate_module = stale / "src" / "encode_pipeline" / "cli" / "validate.py"
-    validate_module.parent.mkdir()
-    (validate_module.parent / "__init__.py").write_text("", encoding="utf-8")
-    validate_module.write_text(
-        "import os\n"
-        "from pathlib import Path\n"
-        "def main():\n"
-        "    Path(os.environ['IMPORT_MARKER']).write_text('stale')\n",
-        encoding="utf-8",
-    )
-    marker = tmp_path / "validator-imported"
-    site_packages = tmp_path / "site-packages"
-    _write_distribution(
-        site_packages,
-        source_root=stale,
-        distribution_name="encode-pipeline",
-    )
-
-    result = _run_with_site(
-        (
-            "import runpy\n"
-            f"sys.argv = [{str(VALIDATOR_SCRIPT)!r}, '--help']\n"
-            f"runpy.run_path({str(VALIDATOR_SCRIPT)!r}, run_name='__main__')"
-        ),
-        site_packages=site_packages,
-        environment={"IMPORT_MARKER": str(marker)},
-    )
-
-    assert result.returncode == 2
-    assert "[distribution_identity_mismatch]" in result.stderr
-    assert not marker.exists()
-
-
-def test_openapi_rejects_stale_editable_before_product_import(
-    tmp_path: Path,
-) -> None:
-    stale = _create_checkout(tmp_path / "stale")
-    api_main = stale / "src" / "encode_pipeline" / "api" / "main.py"
-    api_main.parent.mkdir()
-    (api_main.parent / "__init__.py").write_text("", encoding="utf-8")
-    api_main.write_text(
-        "import os\n"
-        "from pathlib import Path\n"
-        "Path(os.environ['IMPORT_MARKER']).write_text('stale')\n"
-        "raise RuntimeError('stale product imported')\n",
-        encoding="utf-8",
-    )
-    marker = tmp_path / "openapi-imported"
-    site_packages = tmp_path / "site-packages"
-    _write_distribution(
-        site_packages,
-        source_root=stale,
-        distribution_name="encode-pipeline",
-    )
-
-    result = _run_with_site(
-        (
-            "import runpy\n"
-            f"sys.argv = [{str(OPENAPI_SCRIPT)!r}]\n"
-            f"runpy.run_path({str(OPENAPI_SCRIPT)!r}, run_name='__main__')"
-        ),
-        site_packages=site_packages,
-        environment={"IMPORT_MARKER": str(marker)},
-    )
-
-    assert result.returncode == 2
-    assert "[distribution_identity_mismatch]" in result.stderr
-    assert not marker.exists()
-
-
-def test_local_platform_rejects_stale_editable_metadata_before_product_import(
-    tmp_path: Path,
-) -> None:
-    stale = _create_checkout(tmp_path / "stale")
-    site_packages = tmp_path / "site-packages"
-    _write_distribution(
-        site_packages,
-        source_root=stale,
-        distribution_name="encode-pipeline",
-    )
-
-    result = _run_with_site(
-        (
-            "import runpy\n"
-            f"sys.argv = [{str(LOCAL_PLATFORM_SCRIPT)!r}, '--help']\n"
-            f"runpy.run_path({str(LOCAL_PLATFORM_SCRIPT)!r}, run_name='__main__')"
-        ),
-        site_packages=site_packages,
-    )
-
-    assert result.returncode == 2
-    assert "[distribution_identity_mismatch]" in result.stderr

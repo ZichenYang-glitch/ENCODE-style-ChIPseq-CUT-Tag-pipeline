@@ -120,7 +120,12 @@ def test_fast_checks_is_the_only_deterministic_pytest_coverage_producer():
     assert jobs["fast-checks"]["timeout-minutes"] == 25
     assert "budget=300" in producer
     assert "budget=1200" in producer
-    assert producer.count("python3 -m pytest test") == 1
+    assert (
+        producer.count(
+            "python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest"
+        )
+        == 1
+    )
     assert (
         "not full_main and not platform_real_execution and not real_execution "
         "and not bulk_rnaseq_real_execution" in producer
@@ -154,18 +159,26 @@ def test_fast_checks_proves_python_provenance_before_importing_product():
         for index, step in enumerate(steps)
         if step.get("name") == "Validate default config"
     )
-    console_validation_index = next(
+    local_platform_index = next(
         index
         for index, step in enumerate(steps)
-        if step.get("name") == "Validate default config via package CLI"
+        if step.get("name") == "Verify local platform CLI through clean bootstrap"
     )
     provenance = str(steps[provenance_index]["run"])
+    pytest_run = str(steps[pytest_index]["run"])
+    validation = str(steps[script_validation_index]["run"])
+    local_platform = str(steps[local_platform_index]["run"])
 
     assert provenance_index < pytest_index
     assert provenance_index < script_validation_index
-    assert provenance_index < console_validation_index
-    assert "scripts/source_provenance.py checkout" in provenance
-    assert "--repository-root ." in provenance
+    assert provenance_index < local_platform_index
+    for command in (provenance, pytest_run, validation, local_platform):
+        assert "python3 -I -S scripts/checkout_bootstrap.py" in command
+        assert "--repository-root ." in command
+    assert " verify-checkout" in provenance
+    assert " pytest" in pytest_run
+    assert " validate" in validation
+    assert " local-platform --help" in local_platform
 
 
 def test_documented_python_timing_budgets_match_the_workflow():

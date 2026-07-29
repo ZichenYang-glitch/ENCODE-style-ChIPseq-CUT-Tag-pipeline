@@ -32,7 +32,7 @@ EXPECTED_CONSOLE_SCRIPTS = {
     "encode-worker": "encode_pipeline.workers.cli:main",
     "helixweave": "encode_pipeline.cli.app:main",
 }
-SOURCE_PROVENANCE_SCRIPT = REPO_ROOT / "scripts" / "source_provenance.py"
+CHECKOUT_BOOTSTRAP = REPO_ROOT / "scripts" / "checkout_bootstrap.py"
 
 
 def _build_wheel(tmp_path: Path) -> Path:
@@ -158,7 +158,15 @@ def test_clean_room_artifact_provenance_mode(
     python = _install_in_clean_room(case_root, artifact)
 
     provenance = subprocess.run(
-        [str(python), str(SOURCE_PROVENANCE_SCRIPT), "installed-artifact"],
+        [
+            str(python),
+            "-I",
+            "-S",
+            str(CHECKOUT_BOOTSTRAP),
+            "--repository-root",
+            str(REPO_ROOT),
+            "installed-artifact",
+        ],
         cwd=case_root,
         capture_output=True,
         text=True,

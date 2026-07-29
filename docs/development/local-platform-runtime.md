@@ -40,25 +40,26 @@ micromamba create -p .local/envs/ci-fast --file workflow/envs/ci-fast.lock
 ./.local/envs/ci-fast/bin/python -m pip install --no-index --no-deps \
   --no-build-isolation -e ".[api]"
 ./.local/envs/ci-fast/bin/python -m pip check
-./.local/envs/ci-fast/bin/python scripts/source_provenance.py checkout \
-  --repository-root .
+./.local/envs/ci-fast/bin/python -I -S scripts/checkout_bootstrap.py \
+  --repository-root . verify-checkout
 npm --prefix frontend ci
 export PATH="$PWD/.local/envs/ci-fast/bin:$PATH"
-helixweave --doctor
+./.local/envs/ci-fast/bin/python -I -S scripts/checkout_bootstrap.py \
+  --repository-root . local-platform --doctor
 ```
 
 The provenance check must precede source-checkout validation. It rejects stale
 editable installs from sibling worktrees without changing or uninstalling
 anything; see [Python source provenance](source-provenance.md).
 
-The source-trial compatibility script and the installed entry points all use
-the same package-owned implementation. From the exact source tree,
+The source-trial compatibility script and installed entry points still use the
+same package-owned implementation. From a trusted installed environment,
 `helixweave --doctor`, `python -m encode_pipeline --doctor`, and
-`python scripts/run_local_platform.py --doctor` are equivalent. The script is
-retained as a compatibility path; maintained trial commands use the primary
-CLI. A wheel-only installation has no frontend or workflow tree and therefore
-fails closed with an actionable prerequisite message if asked to start the
-complete product.
+`python scripts/run_local_platform.py --doctor` remain equivalent. The
+maintained source-checkout verification command uses the clean bootstrap above
+so provenance is proven before the product import. A wheel-only installation
+has no frontend or workflow tree and therefore fails closed with an actionable
+prerequisite message if asked to start the complete product.
 
 The doctor checks Python 3.12, runtime and API imports, Snakemake 8.30.0, Redis
 server 7 or newer, Node.js 20 or newer, npm, the locked frontend install, and

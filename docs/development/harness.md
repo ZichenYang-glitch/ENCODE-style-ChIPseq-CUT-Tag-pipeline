@@ -26,7 +26,7 @@ workflow change cannot claim those external results until it is present there.
 PR events run:
 
 ```bash
-python3 -m pytest test -ra -p no:cacheprovider \
+python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest test -ra \
   -m "not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution" \
   --junitxml=pytest-report.xml \
   --cov --cov-config=pyproject.toml --cov-context=test \
@@ -37,7 +37,7 @@ python3 -m pytest test -ra -p no:cacheprovider \
 Full-main events run:
 
 ```bash
-python3 -m pytest test -ra -p no:cacheprovider \
+python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest test -ra \
   -m "not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution" \
   --junitxml=pytest-report.xml \
   --cov --cov-config=pyproject.toml --cov-context=test \
@@ -144,7 +144,7 @@ The local default pytest selection runs the complete deterministic suite and
 excludes only both real-execution markers:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest test -ra -p no:cacheprovider
+python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest test -ra
 ```
 
 See the [coverage policy](coverage-policy.md) for complete coverage commands
