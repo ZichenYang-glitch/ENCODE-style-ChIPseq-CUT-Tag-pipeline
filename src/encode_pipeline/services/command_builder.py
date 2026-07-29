@@ -131,7 +131,7 @@ class CommandBuilder:
                 base_dir=base_dir,
             )
 
-        if "snakemake" not in adapter.metadata.engines:
+        if not self._registry.uses_encode_execution_fallback(adapter):
             return Result.failure(
                 [
                     Issue(

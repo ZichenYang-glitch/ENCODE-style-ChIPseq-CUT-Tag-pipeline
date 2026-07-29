@@ -87,7 +87,7 @@ class RunSubmissionService:
                 "Run must complete preflight before it can start.",
                 record=current,
             )
-        if current.status is RunStatus.PLANNED:
+        if current.status in {RunStatus.PLANNED, RunStatus.QUEUED}:
             persisted_identity = self._run_service.get_workflow_build_identity(run_id)
             if persisted_identity is None:
                 raise RunBuildIdentityMissingError(
@@ -101,12 +101,18 @@ class RunSubmissionService:
                     "Workflow execution is unavailable.",
                     record=current,
                 ) from None
-            if resolve_workflow_availability(adapter).execution != "available":
+            if (
+                resolve_workflow_availability(
+                    adapter,
+                    registry=self._run_service.registry,
+                ).execution
+                != "available"
+            ):
                 raise RunExecutionUnavailableError(
                     "Workflow execution is unavailable.",
                     record=current,
                 )
-            current_identity = self._build_identity_provider.capture(
+            current_identity = self._build_identity_provider.capture_executable(
                 current.workflow_id
             )
             if current_identity.is_failure or current_identity.value is None:

@@ -67,6 +67,8 @@ class WorkflowBuildIdentityProvider:
 
         if isinstance(adapter, WorkflowBuildIdentityProvidingAdapter):
             return self._capture_adapter_identity(adapter)
+        if not self._registry.uses_encode_execution_fallback(adapter):
+            return _source_unavailable()
 
         try:
             manifest = self._source_manifest()
@@ -96,6 +98,26 @@ class WorkflowBuildIdentityProvider:
                 ]
             )
         return Result.success(identity)
+
+    def capture_executable(
+        self,
+        workflow_id: str,
+    ) -> Result[WorkflowBuildIdentity]:
+        """Capture identity only while the registered execution is admitted."""
+        try:
+            adapter = self._registry.get(workflow_id)
+        except (KeyError, ValueError):
+            return _source_unavailable()
+        from encode_pipeline.services.workflow_info import (
+            resolve_workflow_availability,
+        )
+
+        if (
+            resolve_workflow_availability(adapter, registry=self._registry).execution
+            != "available"
+        ):
+            return _source_unavailable()
+        return self.capture(workflow_id)
 
     @staticmethod
     def _capture_adapter_identity(

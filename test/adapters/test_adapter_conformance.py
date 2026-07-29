@@ -15,6 +15,7 @@ import traceback
 import pytest
 import yaml
 
+from encode_pipeline.adapters.bulk_rnaseq import BulkRnaSeqWorkflowAdapter
 from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
 from encode_pipeline.platform.adapters import (
     CommandSpec,
@@ -25,6 +26,7 @@ from encode_pipeline.platform.adapters import (
     QcSourceArtifact,
     QcSourceDocument,
     WorkflowAuthoringModes,
+    WorkflowAvailability,
     WorkflowCapabilities,
     WorkflowInputs,
     WorkflowInputModes,
@@ -33,11 +35,13 @@ from encode_pipeline.platform.adapters import (
     WorkflowSchemaCoverage,
     WorkspacePlan,
 )
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
+from encode_pipeline.services.defaults import create_default_workflow_registry
 from encode_pipeline.services.planning import WorkspacePlanner
 from encode_pipeline.services.qc_summary_indexing import QcSummaryIndexingService
 from encode_pipeline.services.runs import RunService
@@ -48,6 +52,7 @@ from encode_pipeline.testing.adapter_conformance import (
     AdapterConformanceCase,
     AdapterConformanceError,
     verify_adapter_conformance,
+    verify_registry_conformance,
 )
 
 
@@ -92,6 +97,21 @@ class MinimalConformantAdapter:
 
     def __init__(self, *, command_fails: bool = False) -> None:
         self._command_fails = command_fails
+
+    def execution_availability(self) -> WorkflowAvailability:
+        return WorkflowAvailability()
+
+    def capture_build_identity(self) -> Result[WorkflowBuildIdentity]:
+        return Result.success(
+            WorkflowBuildIdentity(
+                workflow_id=self.metadata.workflow_id,
+                adapter_version=self.metadata.version,
+                scheme="minimal-build-v1",
+                logical_entrypoint="minimal/main",
+                digest="a" * 64,
+                captured_at=datetime.now(timezone.utc),
+            )
+        )
 
     def schema(self) -> WorkflowSchema:
         return WorkflowSchema(
@@ -263,7 +283,12 @@ def _minimal_case(tmp_path: Path, *, command_fails: bool = False):
     )
 
 
-def _encode_case(tmp_path: Path, monkeypatch) -> AdapterConformanceCase:
+def _encode_case(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    adapter: EncodeStyleWorkflowAdapter | None = None,
+) -> AdapterConformanceCase:
     config = yaml.safe_load(
         (PROJECT_ROOT / "test/profiles/platform_worker_tiny/config.yaml").read_text(
             encoding="utf-8"
@@ -291,7 +316,7 @@ def _encode_case(tmp_path: Path, monkeypatch) -> AdapterConformanceCase:
         samples=[row],
         options={"strict_inputs": False},
     )
-    adapter = EncodeStyleWorkflowAdapter()
+    adapter = EncodeStyleWorkflowAdapter() if adapter is None else adapter
     artifact_workspace = tmp_path / "encode-artifact-workspace"
     planned = adapter.plan_workspace(valid_inputs, artifact_workspace)
     assert planned.is_success
@@ -312,6 +337,49 @@ def _encode_case(tmp_path: Path, monkeypatch) -> AdapterConformanceCase:
         planning_workspace=tmp_path / "encode-planned-workspace",
         artifact_workspace=artifact_workspace,
         qc_sources=(),
+        legacy_execution_fallback=True,
+    )
+
+
+def _bulk_authoring_case(
+    tmp_path: Path,
+    *,
+    adapter: BulkRnaSeqWorkflowAdapter,
+) -> AdapterConformanceCase:
+    reference = {
+        "reference_id": "GRCh38-test",
+        "fasta": "/refs/GRCh38.fa",
+        "fasta_sha256": "a" * 64,
+        "gtf": "/refs/gencode.gtf",
+        "gtf_sha256": "b" * 64,
+        "annotation_style": "gencode",
+    }
+    sample = {
+        "sample": "S1",
+        "library": "lib1",
+        "lane": "L001",
+        "layout": "PE",
+        "fastq_1": "/data/S1_1.fastq.gz",
+        "fastq_2": "/data/S1_2.fastq.gz",
+        "strandedness": "auto",
+        "platform": "ILLUMINA",
+    }
+    valid = WorkflowInputs(
+        config={"standard": {"reference": reference}},
+        samples=[sample],
+    )
+    invalid_reference = dict(reference)
+    invalid_reference["fasta_sha256"] = "not-a-digest"
+    invalid = WorkflowInputs(
+        config={"standard": {"reference": invalid_reference}},
+        samples=[sample],
+    )
+    return AdapterConformanceCase(
+        adapter=adapter,
+        valid_inputs=valid,
+        invalid_inputs=invalid,
+        planning_workspace=(tmp_path / "bulk-planning").resolve(),
+        artifact_workspace=(tmp_path / "bulk-artifacts").resolve(),
     )
 
 
@@ -321,6 +389,51 @@ def test_minimal_adapter_passes_reusable_conformance_suite(tmp_path):
 
 def test_encode_adapter_passes_same_reusable_conformance_suite(tmp_path, monkeypatch):
     verify_adapter_conformance(_encode_case(tmp_path, monkeypatch))
+
+
+def test_default_registry_exact_instances_pass_registry_conformance(
+    tmp_path,
+    monkeypatch,
+):
+    registry = create_default_workflow_registry(environ={})
+    encode = registry.get("encode-style-chipseq-cuttag-atac-mnase")
+    bulk = registry.get("bulk-rnaseq")
+
+    cases = (
+        _encode_case(tmp_path, monkeypatch, adapter=encode),
+        _bulk_authoring_case(tmp_path, adapter=bulk),
+    )
+
+    verify_registry_conformance(registry, cases)
+
+
+def test_registry_conformance_rejects_case_for_different_adapter_instance(tmp_path):
+    registered = MinimalConformantAdapter()
+    case = replace(_minimal_case(tmp_path), adapter=MinimalConformantAdapter())
+    registry = WorkflowRegistry((registered,))
+
+    with pytest.raises(AdapterConformanceError, match="registry.*identity"):
+        verify_registry_conformance(registry, (case,))
+
+
+def test_registry_conformance_rejects_cases_outside_registration_order(tmp_path):
+    first_case = _minimal_case(tmp_path / "first")
+
+    class SecondAdapter(MinimalConformantAdapter):
+        metadata = WorkflowMetadata(
+            workflow_id="second-test-workflow",
+            name="Second test workflow",
+            version="1.0.0",
+        )
+
+    second_case = replace(
+        _minimal_case(tmp_path / "second"),
+        adapter=SecondAdapter(),
+    )
+    registry = WorkflowRegistry((first_case.adapter, second_case.adapter))
+
+    with pytest.raises(AdapterConformanceError, match="registry.*order"):
+        verify_registry_conformance(registry, (second_case, first_case))
 
 
 def test_conformance_rejects_declared_command_that_returns_failure(tmp_path):

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,12 +13,14 @@ from encode_pipeline.platform.adapters import (
     DagPreview,
     ExtractedArtifactCandidate,
     MAX_SAMPLE_ROWS,
+    WorkflowAvailability,
     WorkflowCapabilities,
     WorkflowInputs,
     WorkflowMetadata,
     WorkflowSchema,
     WorkspacePlan,
 )
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.result_generations import validate_result_attempt_id
 from encode_pipeline.platform.results import Issue, Result
@@ -29,12 +33,15 @@ from encode_pipeline.workers.timeouts import WorkerHardTimeout
 
 class ArtifactAdapter:
     metadata = WorkflowMetadata(workflow_id="fake", name="Fake", version="1.0.0")
-    capabilities = WorkflowCapabilities(supports=("artifact_extract",))
+    capabilities = WorkflowCapabilities(
+        supports=("validation", "workspace_plan", "command", "artifact_extract")
+    )
 
     def __init__(self, candidates=()):
         self.candidates = tuple(candidates)
         self.calls = 0
         self.failure = False
+        self.identity_root = None
 
     def schema(self):
         return WorkflowSchema()
@@ -48,7 +55,7 @@ class ArtifactAdapter:
     def plan_workspace(self, inputs, workspace):
         return Result.success(WorkspacePlan())
 
-    def build_command(self, plan):
+    def build_command(self, plan, workspace):
         return Result.success(CommandSpec(argv=("fake",)))
 
     def extract_artifacts(self, inputs, workspace):
@@ -65,10 +72,38 @@ class ArtifactAdapter:
             )
         return Result.success(self.candidates)
 
+    def execution_availability(self):
+        return WorkflowAvailability()
+
+    def capture_build_identity(self):
+        if self.identity_root is None:
+            return Result.failure(())
+        digest = sha256(
+            (
+                self.identity_root / "docs/architecture/artifact-inventory.yaml"
+            ).read_bytes()
+        ).hexdigest()
+        return Result.success(
+            WorkflowBuildIdentity(
+                workflow_id=self.metadata.workflow_id,
+                adapter_version=self.metadata.version,
+                scheme="artifact-adapter-v1",
+                logical_entrypoint="artifact/main",
+                digest=digest,
+                captured_at=datetime.now(timezone.utc),
+            )
+        )
+
 
 class QcArtifactAdapter(ArtifactAdapter):
     capabilities = WorkflowCapabilities(
-        supports=("artifact_extract", "qc_summary_extract")
+        supports=(
+            "validation",
+            "workspace_plan",
+            "command",
+            "artifact_extract",
+            "qc_summary_extract",
+        )
     )
 
     def qc_source_output_types(self):
@@ -106,6 +141,7 @@ def _service(tmp_path, adapter, *, terminal=RunStatus.SUCCEEDED):
     provider = WorkflowBuildIdentityProvider(
         registry, project_root=_project(tmp_path / "project")
     )
+    adapter.identity_root = provider.project_root
     run_service.create_run("fake", WorkflowInputs(config={}))
     run_service.transition_run("run-1", RunStatus.VALIDATING)
     identity = provider.capture("fake").value

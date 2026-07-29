@@ -37,6 +37,7 @@ from encode_pipeline.services.validated_inputs import (
     ValidatedSnapshotStaleError,
 )
 from encode_pipeline.services.validation import ValidationService
+from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 
 
 NOW = datetime(2026, 7, 14, 11, 0, tzinfo=timezone.utc)
@@ -54,7 +55,13 @@ class FakeAdapter:
             name="Workflow A",
             version="1.0.0",
         )
-        self.capabilities = WorkflowCapabilities(supports=("validation",))
+        self.capabilities = WorkflowCapabilities(
+            supports=(
+                "validation",
+                "workspace_plan",
+                "command",
+            )
+        )
         self.result = result or Result.success({"accepted": True})
         self.calls = 0
         self.trace = trace
@@ -77,7 +84,7 @@ class FakeAdapter:
     def plan_workspace(self, inputs: WorkflowInputs, workspace):
         return Result.success(WorkspacePlan(directories=[str(workspace)]))
 
-    def build_command(self, plan: WorkspacePlan):
+    def build_command(self, plan: WorkspacePlan, workspace):
         return Result.success(CommandSpec(argv=["run"]))
 
     def extract_artifacts(self, inputs, workspace):
@@ -94,6 +101,9 @@ class FakeAdapter:
             reason_code=reason,
         )
 
+    def capture_build_identity(self):
+        return Result.success(_identity())
+
 
 class FakeBuildProvider:
     def __init__(self, results, *, trace: list[str] | None = None) -> None:
@@ -101,7 +111,7 @@ class FakeBuildProvider:
         self.calls = 0
         self.trace = trace
 
-    def capture(self, workflow_id: str):
+    def capture_executable(self, workflow_id: str):
         if self.trace is not None:
             self.trace.append("capture")
         self.calls += 1
@@ -182,6 +192,19 @@ def _services(adapter=None, build_results=None, *, trace: list[str] | None = Non
         clock=lambda: NOW + timedelta(minutes=1),
     )
     return validation, creation, repository, provider
+
+
+def test_run_creation_rejects_build_provider_from_different_registry() -> None:
+    run_registry = WorkflowRegistry([FakeAdapter()])
+    identity_registry = WorkflowRegistry([FakeAdapter()])
+    run_service = RunService(run_registry)
+    provider = WorkflowBuildIdentityProvider(identity_registry)
+
+    with pytest.raises(ValueError, match="registry"):
+        ValidatedRunCreationService(
+            run_service=run_service,
+            build_identity_provider=provider,
+        )
 
 
 def test_successful_validation_persists_snapshot_with_warning_evidence() -> None:
@@ -670,7 +693,10 @@ def test_encode_snapshot_retains_submitted_semantic_config_without_engine_aliase
     tmp_path,
 ) -> None:
     adapter = EncodeStyleWorkflowAdapter()
-    registry = WorkflowRegistry([adapter])
+    registry = WorkflowRegistry(
+        [adapter],
+        legacy_execution_fallbacks=(adapter,),
+    )
     repository = InMemoryRunRepository()
     identity = WorkflowBuildIdentity(
         workflow_id=adapter.metadata.workflow_id,

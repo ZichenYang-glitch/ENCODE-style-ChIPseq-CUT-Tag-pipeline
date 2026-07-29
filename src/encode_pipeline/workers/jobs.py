@@ -110,6 +110,9 @@ def _initialize_execution_with_runtime(runtime, current_job, run_id: str) -> boo
         getattr(current_job, "origin", None),
         runtime.settings.queue_name,
     )
+    _require_durable_assignment_identity(runtime, current_job, run_id)
+    if not _require_matching_workflow_build(runtime, record):
+        return False
     try:
         runtime.run_service.mark_execution_dispatched(
             run_id,
@@ -121,8 +124,6 @@ def _initialize_execution_with_runtime(runtime, current_job, run_id: str) -> boo
             backend="rq",
             queue_name=runtime.settings.queue_name,
         )
-        if not _require_matching_workflow_build(runtime, record):
-            return False
         claim = runtime.run_service.claim_execution_assignment(
             run_id,
             job_id=current_job.id,
@@ -144,6 +145,22 @@ def _initialize_execution_with_runtime(runtime, current_job, run_id: str) -> boo
     return True
 
 
+def _require_durable_assignment_identity(runtime, current_job, run_id: str) -> None:
+    """Reject stale jobs before build admission can mutate durable state."""
+    assignment = runtime.run_service.get_execution_assignment(run_id)
+    if assignment is None:
+        raise WorkerJobIdentityError(
+            "stale execution job does not own durable workflow state"
+        )
+    for label, actual, expected in (
+        ("run ID", assignment.run_id, run_id),
+        ("job ID", getattr(current_job, "id", None), assignment.job_id),
+        ("backend", assignment.backend, "rq"),
+        ("queue", assignment.queue_name, runtime.settings.queue_name),
+    ):
+        _require_identity(label, actual, expected)
+
+
 def _require_matching_workflow_build(runtime, record) -> bool:
     """Fail closed before claim when durable and local workflow builds differ."""
     persisted = runtime.run_service.get_workflow_build_identity(record.run_id)
@@ -155,7 +172,9 @@ def _require_matching_workflow_build(runtime, record) -> bool:
             message="Run has no durable workflow build identity.",
         )
 
-    current_result = runtime.build_identity_provider.capture(record.workflow_id)
+    current_result = runtime.build_identity_provider.capture_executable(
+        record.workflow_id
+    )
     if current_result.is_failure:
         return _fail_workflow_build_identity(
             runtime.run_service,

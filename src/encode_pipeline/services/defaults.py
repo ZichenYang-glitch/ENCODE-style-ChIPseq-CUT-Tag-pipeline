@@ -48,11 +48,13 @@ def create_default_workflow_registry(
         if project_root is None
         else str(project_root / "docs" / "architecture" / "artifact-inventory.yaml")
     )
+    encode_adapter = EncodeStyleWorkflowAdapter(catalog_path=catalog_path)
     return WorkflowRegistry(
         adapters=[
-            EncodeStyleWorkflowAdapter(catalog_path=catalog_path),
+            encode_adapter,
             load_default_bulk_rnaseq_adapter(environ),
-        ]
+        ],
+        legacy_execution_fallbacks=(encode_adapter,),
     )
 
 

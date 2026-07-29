@@ -336,11 +336,13 @@ def test_default_process_runner_uses_exact_admitted_bulk_server_coordinates(
             transcript_fasta_sha256="c" * 64,
         ),
     )
+    encode_adapter = EncodeStyleWorkflowAdapter()
     registry = WorkflowRegistry(
         [
-            EncodeStyleWorkflowAdapter(),
+            encode_adapter,
             BulkRnaSeqResultsWorkflowAdapter(execution=binding),
-        ]
+        ],
+        legacy_execution_fallbacks=(encode_adapter,),
     )
     settings = WorkerSettings(
         database_url=f"sqlite:///{tmp_path / 'db.sqlite'}",
@@ -390,7 +392,11 @@ def test_default_process_runner_disables_bulk_when_cleaner_cannot_bind(
         ),
     )
     adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
-    registry = WorkflowRegistry([EncodeStyleWorkflowAdapter(), adapter])
+    encode_adapter = EncodeStyleWorkflowAdapter()
+    registry = WorkflowRegistry(
+        [encode_adapter, adapter],
+        legacy_execution_fallbacks=(encode_adapter,),
+    )
     settings = WorkerSettings(
         database_url=f"sqlite:///{tmp_path / 'db.sqlite'}",
         redis_url="redis://localhost:6379/0",

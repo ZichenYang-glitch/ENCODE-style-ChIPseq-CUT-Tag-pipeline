@@ -6,10 +6,13 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
 from encode_pipeline.platform.adapters import (
     CommandSpec,
     DagPreview,
+    WorkflowAvailability,
     WorkflowCapabilities,
     WorkflowInputs,
     WorkflowMetadata,
@@ -34,7 +37,11 @@ from encode_pipeline.services.runs import RunService
 
 
 def _make_registry():
-    return WorkflowRegistry(adapters=[EncodeStyleWorkflowAdapter()])
+    adapter = EncodeStyleWorkflowAdapter()
+    return WorkflowRegistry(
+        adapters=[adapter],
+        legacy_execution_fallbacks=(adapter,),
+    )
 
 
 def _make_run_service(registry=None):
@@ -113,6 +120,21 @@ class _ConfigurationPreflightAdapter:
     def extract_artifacts(self, inputs, workspace):
         return Result.success(())
 
+    def execution_availability(self):
+        return WorkflowAvailability()
+
+    def capture_build_identity(self):
+        return Result.success(
+            WorkflowBuildIdentity(
+                workflow_id=self.metadata.workflow_id,
+                adapter_version=self.metadata.version,
+                scheme="configuration-preflight-v1",
+                logical_entrypoint="configuration/main",
+                digest="a" * 64,
+                captured_at=datetime.now(timezone.utc),
+            )
+        )
+
 
 class _CallbackProcessRunner(ProcessRunner):
     def __init__(self, callback: Callable[[], None]):
@@ -167,11 +189,29 @@ def _build_identity(digest: str) -> WorkflowBuildIdentity:
 
 
 class _SequencedBuildIdentityProvider:
-    def __init__(self, *identities: WorkflowBuildIdentity) -> None:
+    def __init__(
+        self,
+        registry: WorkflowRegistry,
+        *identities: WorkflowBuildIdentity,
+    ) -> None:
+        self.registry = registry
         self._identities = iter(identities)
 
-    def capture(self, _workflow_id: str):
+    def capture_executable(self, _workflow_id: str):
         return Result.success(next(self._identities))
+
+
+def test_preflight_rejects_build_provider_from_different_registry(tmp_path):
+    registry = _make_registry()
+    other_registry = _make_registry()
+    provider = create_default_workflow_build_identity_provider(registry=other_registry)
+
+    with pytest.raises(ValueError, match="registry must match"):
+        _make_service(
+            tmp_path,
+            registry=registry,
+            build_identity_provider=provider,
+        )
 
 
 def test_preflight_transitions_run_to_planned(tmp_path):
@@ -287,11 +327,17 @@ def test_preflight_fails_when_dry_run_exits_nonzero(tmp_path):
 def test_preflight_fails_closed_when_workflow_source_changes_during_dry_run(
     tmp_path,
 ):
+    registry = _make_registry()
     provider = _SequencedBuildIdentityProvider(
+        registry,
         _build_identity("a" * 64),
         _build_identity("b" * 64),
     )
-    service = _make_service(tmp_path, build_identity_provider=provider)
+    service = _make_service(
+        tmp_path,
+        registry=registry,
+        build_identity_provider=provider,
+    )
     record = service._run_service.create_run(
         "encode-style-chipseq-cuttag-atac-mnase",
         _make_valid_inputs(tmp_path),

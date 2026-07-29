@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from encode_pipeline.platform.adapters import (
     WorkflowUpstreamIdentity,
     WorkspacePlan,
 )
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.services.workflow_info import WorkflowInfoService
@@ -59,7 +61,11 @@ class FakeAdapter:
     ) -> Result[WorkspacePlan]:
         return Result.success(WorkspacePlan(directories=[str(workspace)]))
 
-    def build_command(self, plan: WorkspacePlan) -> Result[CommandSpec]:
+    def build_command(
+        self,
+        plan: WorkspacePlan,
+        workspace: str | Path,
+    ) -> Result[CommandSpec]:
         return Result.success(CommandSpec(argv=["run-workflow"]))
 
     def extract_artifacts(self, inputs, workspace):
@@ -151,6 +157,24 @@ def test_get_capabilities_unknown_workflow_returns_workflow_not_found():
     )
 
 
+def test_authoring_only_descriptor_is_not_reported_as_execution_available():
+    adapter = FakeAdapter(
+        workflow_id="authoring-only",
+        supports=("validation", "input_authoring"),
+    )
+    service = WorkflowInfoService(registry=WorkflowRegistry((adapter,)))
+
+    result = service.get_descriptor("authoring-only")
+
+    assert result.is_success
+    assert result.value.availability.to_dict() == {
+        "authoring": "available",
+        "execution": "not_configured",
+        "reason_code": "WORKFLOW_EXECUTION_NOT_CONFIGURED",
+    }
+    assert result.value.capabilities.supports == ("validation", "input_authoring")
+
+
 def test_invalid_workflow_id_from_registry_get_propagates_value_error():
     service = WorkflowInfoService(registry=WorkflowRegistry())
 
@@ -190,6 +214,18 @@ class ProductAdapter(FakeAdapter):
             authoring="available",
             execution=self._execution,
             reason_code=reason,
+        )
+
+    def capture_build_identity(self) -> Result[WorkflowBuildIdentity]:
+        return Result.success(
+            WorkflowBuildIdentity(
+                workflow_id=self.metadata.workflow_id,
+                adapter_version=self.metadata.version,
+                scheme="product-build-v1",
+                logical_entrypoint="product/main",
+                digest="a" * 64,
+                captured_at=datetime.now(timezone.utc),
+            )
         )
 
 

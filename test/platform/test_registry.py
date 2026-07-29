@@ -11,12 +11,13 @@ import pytest
 from encode_pipeline.platform.adapters import (
     CommandSpec,
     DagPreview,
+    QcSourceDocument,
+    WorkflowAvailability,
     WorkflowCapabilities,
     WorkflowInputs,
     WorkflowMetadata,
     WorkflowSchema,
     WorkspacePlan,
-    QcSourceDocument,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Result
@@ -26,13 +27,19 @@ SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 
 
 class FakeAdapter:
-    def __init__(self, workflow_id: str, name: str = "Fake Workflow") -> None:
+    def __init__(
+        self,
+        workflow_id: str,
+        name: str = "Fake Workflow",
+        *,
+        supports: tuple[str, ...] = ("validation", "input_authoring"),
+    ) -> None:
         self.metadata = WorkflowMetadata(
             workflow_id=workflow_id,
             name=name,
             version="1.0.0",
         )
-        self.capabilities = WorkflowCapabilities(supports=("validation",))
+        self.capabilities = WorkflowCapabilities(supports=supports)
 
     def schema(self) -> WorkflowSchema:
         return WorkflowSchema(config_schema={"type": "object"})
@@ -61,11 +68,162 @@ class FakeAdapter:
         return Result.success(())
 
 
+class _AvailableExecution:
+    def execution_availability(self) -> WorkflowAvailability:
+        return WorkflowAvailability()
+
+
+class _BuildIdentityProvider:
+    def capture_build_identity(self) -> Result[object]:
+        return Result.success(object())
+
+
+class ExecutableFakeAdapter(_AvailableExecution, _BuildIdentityProvider, FakeAdapter):
+    def __init__(
+        self,
+        workflow_id: str = "executable-fake",
+        *,
+        supports: tuple[str, ...] = (
+            "validation",
+            "input_authoring",
+            "workspace_plan",
+            "command",
+        ),
+    ) -> None:
+        super().__init__(workflow_id, supports=supports)
+
+
 def test_fake_adapter_can_be_registered_and_resolved_by_workflow_id():
     adapter = FakeAdapter("fake")
     registry = WorkflowRegistry(adapters=[adapter])
 
     assert registry.get("fake") is adapter
+
+
+def test_authoring_only_adapter_can_register_without_execution_provider():
+    adapter = FakeAdapter("authoring-only")
+
+    registry = WorkflowRegistry(adapters=[adapter])
+
+    assert registry.get("authoring-only") is adapter
+
+
+def test_registry_rejects_non_encode_execution_without_availability_provider():
+    class MissingAvailabilityAdapter(_BuildIdentityProvider, FakeAdapter):
+        def __init__(self) -> None:
+            super().__init__(
+                "missing-availability",
+                supports=(
+                    "validation",
+                    "input_authoring",
+                    "workspace_plan",
+                    "command",
+                ),
+            )
+
+    with pytest.raises(ValueError, match="availability"):
+        WorkflowRegistry((MissingAvailabilityAdapter(),))
+
+
+def test_registry_rejects_non_encode_execution_without_build_identity_provider():
+    class MissingBuildIdentityAdapter(_AvailableExecution, FakeAdapter):
+        def __init__(self) -> None:
+            super().__init__(
+                "missing-build-identity",
+                supports=(
+                    "validation",
+                    "input_authoring",
+                    "workspace_plan",
+                    "command",
+                ),
+            )
+
+    with pytest.raises(ValueError, match="build identity"):
+        WorkflowRegistry((MissingBuildIdentityAdapter(),))
+
+
+@pytest.mark.parametrize(
+    "supports",
+    [
+        ("validation", "input_authoring", "workspace_plan"),
+        ("validation", "input_authoring", "command"),
+    ],
+)
+def test_registry_rejects_partial_workspace_command_execution_contract(supports):
+    adapter = ExecutableFakeAdapter(supports=supports)
+
+    with pytest.raises(
+        ValueError, match="workspace_plan.*command|command.*workspace_plan"
+    ):
+        WorkflowRegistry((adapter,))
+
+
+def test_registry_rejects_artifact_capability_without_callable_extractor():
+    adapter = ExecutableFakeAdapter(
+        supports=(
+            "validation",
+            "input_authoring",
+            "workspace_plan",
+            "command",
+            "artifact_extract",
+        )
+    )
+    adapter.extract_artifacts = None
+
+    with pytest.raises(ValueError, match="artifact_extract.*extractor"):
+        WorkflowRegistry((adapter,))
+
+
+def test_complete_non_encode_execution_adapter_can_be_registered():
+    adapter = ExecutableFakeAdapter()
+
+    registry = WorkflowRegistry((adapter,))
+
+    assert registry.get("executable-fake") is adapter
+
+
+def test_exact_encode_metadata_cannot_self_authorize_legacy_fallback():
+    class SpoofedEncodeAdapter(FakeAdapter):
+        def __init__(self) -> None:
+            super().__init__(
+                "encode-style-chipseq-cuttag-atac-mnase",
+                supports=(
+                    "validation",
+                    "workspace_plan",
+                    "input_authoring",
+                    "input_bundle_import",
+                    "artifact_extract",
+                    "qc_summary_extract",
+                ),
+            )
+            self.metadata = WorkflowMetadata(
+                workflow_id="encode-style-chipseq-cuttag-atac-mnase",
+                name="Spoofed ENCODE",
+                version="0.3.0",
+                engines=("snakemake",),
+            )
+
+        def import_input_bundle(self, bundle):
+            return Result.failure([])
+
+        def qc_source_output_types(self):
+            return ("qc_summary",)
+
+        def extract_qc_metrics(self, inputs, sources):
+            return Result.success(())
+
+    with pytest.raises(ValueError, match="workspace_plan.*command"):
+        WorkflowRegistry((SpoofedEncodeAdapter(),))
+
+
+def test_legacy_fallback_must_be_the_exact_registered_instance():
+    registered = FakeAdapter("authoring-only")
+
+    with pytest.raises(ValueError, match="registered adapter instances"):
+        WorkflowRegistry(
+            (registered,),
+            legacy_execution_fallbacks=(FakeAdapter("authoring-only"),),
+        )
 
 
 def test_has_returns_true_or_false_for_valid_workflow_ids():

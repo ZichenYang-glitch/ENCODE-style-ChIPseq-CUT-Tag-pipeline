@@ -218,7 +218,10 @@ def test_full_bundle_inspection_does_not_load_producer_or_execution_stacks() -> 
             bundle_path = create_runnable_bundle(Path(directory) / "bundle")
             adapter = EncodeStyleWorkflowAdapter()
             result = InputBundleImportService(
-                WorkflowRegistry((adapter,))
+                WorkflowRegistry(
+                    (adapter,),
+                    legacy_execution_fallbacks=(adapter,),
+                )
             ).inspect(bundle_path, adapter.metadata.workflow_id)
             if result.is_failure:
                 raise SystemExit(result.errors[0].code)

@@ -190,9 +190,9 @@ def composed_runtime(tmp_path: Path, monkeypatch):
         container_lock_sha256="7" * 64,
     )
     monkeypatch.setattr(
-        execution_module,
-        "_acquire_runtime_assets",
-        lambda _binding: Result.success(verified),
+        RuntimeAssetAdmission,
+        "acquire",
+        lambda _self: Result.success(verified),
     )
     return binding, verified
 
@@ -512,7 +512,11 @@ def test_multiqc_identity_conflict_fails_before_runtime_admission(
     ]
 
 
-def test_composed_adapter_passes_reusable_conformance(tmp_path: Path, composed_runtime):
+def test_composed_adapter_passes_reusable_conformance(
+    tmp_path: Path,
+    composed_runtime,
+    admitted_execution_implementation,
+):
     binding, _ = composed_runtime
     valid = _inputs(tmp_path)
     invalid = _inputs(tmp_path / "invalid")
@@ -532,6 +536,7 @@ def test_composed_adapter_passes_reusable_conformance(tmp_path: Path, composed_r
 def test_results_adapter_passes_artifact_and_qc_conformance(
     tmp_path: Path,
     composed_runtime,
+    admitted_execution_implementation,
 ):
     binding, _ = composed_runtime
     standard_updates = {

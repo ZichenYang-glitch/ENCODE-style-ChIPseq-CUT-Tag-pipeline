@@ -28,8 +28,17 @@ from encode_pipeline.platform.adapters import (
     WorkflowSchema,
     WorkspacePlan,
 )
-from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
+from encode_pipeline.platform.registry import (
+    WorkflowRegistry,
+    declares_workflow_execution,
+)
 from encode_pipeline.platform.results import Result
+from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
+from encode_pipeline.services.workflow_info import (
+    effective_workflow_capabilities,
+    resolve_workflow_availability,
+)
 
 
 _T = TypeVar("_T")
@@ -49,6 +58,7 @@ class AdapterConformanceCase:
     planning_workspace: Path
     artifact_workspace: Path
     qc_sources: tuple[QcSourceDocument, ...] = ()
+    legacy_execution_fallback: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.valid_inputs, WorkflowInputs):
@@ -63,6 +73,8 @@ class AdapterConformanceCase:
             isinstance(source, QcSourceDocument) for source in self.qc_sources
         ):
             raise ValueError("qc_sources must be a tuple of QcSourceDocument")
+        if not isinstance(self.legacy_execution_fallback, bool):
+            raise ValueError("legacy_execution_fallback must be a bool")
 
 
 def verify_adapter_conformance(case: AdapterConformanceCase) -> None:
@@ -94,7 +106,12 @@ def verify_adapter_conformance(case: AdapterConformanceCase) -> None:
 
     registry = _invoke(
         "adapter.registry",
-        lambda: WorkflowRegistry((adapter,)),
+        lambda: WorkflowRegistry(
+            (adapter,),
+            legacy_execution_fallbacks=(
+                (adapter,) if case.legacy_execution_fallback else ()
+            ),
+        ),
         failure_message="rejected the adapter declaration",
     )
     registered = _invoke(
@@ -104,6 +121,7 @@ def verify_adapter_conformance(case: AdapterConformanceCase) -> None:
     )
     if registered is not adapter:
         _fail("adapter.registry", "did not preserve adapter identity")
+    _verify_execution_admission(adapter, capabilities, registry)
 
     if not _invoke(
         "adapter.metadata.engines",
@@ -158,6 +176,97 @@ def verify_adapter_conformance(case: AdapterConformanceCase) -> None:
     )
     _verify_artifacts(adapter, supports, case)
     _verify_qc(adapter, supports, case)
+
+
+def verify_registry_conformance(
+    registry: WorkflowRegistry,
+    cases: tuple[AdapterConformanceCase, ...],
+) -> None:
+    """Verify exact registered adapter instances in registration order."""
+    if not isinstance(registry, WorkflowRegistry):
+        _fail("registry", "must use WorkflowRegistry")
+    if not isinstance(cases, tuple) or not all(
+        isinstance(case, AdapterConformanceCase) for case in cases
+    ):
+        _fail("registry.cases", "must be a tuple of AdapterConformanceCase")
+    registered_ids = tuple(
+        metadata.workflow_id for metadata in registry.list_metadata()
+    )
+    case_ids = tuple(case.adapter.metadata.workflow_id for case in cases)
+    if registered_ids != case_ids:
+        _fail("registry.order", "must exactly match registered adapter order")
+    for case in cases:
+        workflow_id = case.adapter.metadata.workflow_id
+        registered = _invoke(
+            "registry.identity",
+            lambda workflow_id=workflow_id: registry.get(workflow_id),
+        )
+        if registered is not case.adapter:
+            _fail("registry.identity", "case must use the registered adapter instance")
+        verify_adapter_conformance(case)
+
+
+def _verify_execution_admission(
+    adapter: WorkflowAdapter,
+    capabilities: WorkflowCapabilities,
+    registry: WorkflowRegistry,
+) -> None:
+    availability = _invoke(
+        "adapter.availability",
+        lambda: resolve_workflow_availability(adapter, registry=registry),
+    )
+    effective = _invoke(
+        "adapter.availability.capabilities",
+        lambda: effective_workflow_capabilities(
+            adapter,
+            availability,
+            registry=registry,
+        ),
+    )
+    declares_execution = _invoke(
+        "adapter.execution",
+        lambda: declares_workflow_execution(adapter),
+    )
+    if not declares_execution:
+        if availability.execution == "available":
+            _fail(
+                "adapter.availability", "authoring-only execution must be unavailable"
+            )
+        if set(effective.supports).intersection(
+            {
+                WORKSPACE_PLAN_CAPABILITY,
+                COMMAND_CAPABILITY,
+                ARTIFACT_EXTRACT_CAPABILITY,
+                QC_SUMMARY_EXTRACT_CAPABILITY,
+            }
+        ):
+            _fail(
+                "adapter.availability.capabilities",
+                "authoring-only execution capabilities must be hidden",
+            )
+        return
+    if availability.execution != "available":
+        _fail("adapter.availability", "declared execution must be available")
+    if effective != capabilities:
+        _fail(
+            "adapter.availability.capabilities",
+            "available execution must preserve declared capabilities",
+        )
+    identity_result = _result(
+        "adapter.build_identity",
+        lambda: WorkflowBuildIdentityProvider(registry).capture_executable(
+            adapter.metadata.workflow_id
+        ),
+    )
+    _require_success(identity_result, "adapter.build_identity")
+    if not isinstance(
+        _result_value(identity_result, "adapter.build_identity"),
+        WorkflowBuildIdentity,
+    ):
+        _fail(
+            "adapter.build_identity",
+            "must return WorkflowBuildIdentity",
+        )
 
 
 def _verify_validation(

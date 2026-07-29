@@ -136,6 +136,9 @@ class ValidatedInputService:
             raise ValueError("validation_service must be a ValidationService")
         if not isinstance(snapshot_ttl, timedelta) or snapshot_ttl <= timedelta(0):
             raise ValueError("snapshot_ttl must be positive")
+        provider_registry = getattr(build_identity_provider, "registry", registry)
+        if provider_registry is not registry:
+            raise ValueError("build_identity_provider registry must match registry")
         self._registry = registry
         self._validation_service = validation_service
         self._build_identity_provider = build_identity_provider
@@ -203,7 +206,10 @@ class ValidatedInputService:
                 ]
             )
 
-        availability = resolve_workflow_availability(adapter)
+        availability = resolve_workflow_availability(
+            adapter,
+            registry=self._registry,
+        )
         if input_file_revision_selections and availability.execution != "available":
             return Result.failure(
                 [
@@ -228,7 +234,7 @@ class ValidatedInputService:
                 return Result.failure(result.issues)
             return Result.success(None, issues=result.issues)
 
-        before_result = self._build_identity_provider.capture(workflow_id)
+        before_result = self._build_identity_provider.capture_executable(workflow_id)
         if before_result.is_failure or before_result.value is None:
             return Result.failure([_build_unavailable_issue()])
 
@@ -301,7 +307,7 @@ class ValidatedInputService:
                     ]
                 )
 
-        after_result = self._build_identity_provider.capture(workflow_id)
+        after_result = self._build_identity_provider.capture_executable(workflow_id)
         if after_result.is_failure or after_result.value is None:
             return Result.failure([_build_unavailable_issue()])
         if not before_result.value.matches(after_result.value):
@@ -415,6 +421,15 @@ class ValidatedRunCreationService:
     ) -> None:
         if not isinstance(run_service, RunService):
             raise ValueError("run_service must be a RunService")
+        provider_registry = getattr(
+            build_identity_provider,
+            "registry",
+            run_service.registry,
+        )
+        if provider_registry is not run_service.registry:
+            raise ValueError(
+                "build_identity_provider registry must match run_service registry"
+            )
         self._run_service = run_service
         self._build_identity_provider = build_identity_provider
         self._clock = clock or (lambda: datetime.now(timezone.utc))
@@ -446,9 +461,17 @@ class ValidatedRunCreationService:
                 adapter = self._run_service.registry.get(workflow_id)
             except (KeyError, ValueError):
                 raise ValidatedSnapshotExecutionUnavailableError from None
-            if resolve_workflow_availability(adapter).execution != "available":
+            if (
+                resolve_workflow_availability(
+                    adapter,
+                    registry=self._run_service.registry,
+                ).execution
+                != "available"
+            ):
                 raise ValidatedSnapshotExecutionUnavailableError
-            identity_result = self._build_identity_provider.capture(workflow_id)
+            identity_result = self._build_identity_provider.capture_executable(
+                workflow_id
+            )
             if identity_result.is_failure or identity_result.value is None:
                 raise ValidatedSnapshotBuildUnavailableError
             if not snapshot.workflow_build_identity.matches(identity_result.value):
