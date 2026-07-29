@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from importlib import util as importlib_util
 import os
 import site
 import subprocess
@@ -68,6 +69,15 @@ HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "tra
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMMITTED_OPENAPI_PATH = REPO_ROOT / "frontend" / "openapi.json"
+_EXPORT_SPEC = importlib_util.spec_from_file_location(
+    "_helixweave_openapi_export_test",
+    REPO_ROOT / "scripts" / "export_openapi.py",
+)
+assert _EXPORT_SPEC is not None
+assert _EXPORT_SPEC.loader is not None
+OPENAPI_EXPORT = importlib_util.module_from_spec(_EXPORT_SPEC)
+sys.modules[_EXPORT_SPEC.name] = OPENAPI_EXPORT
+_EXPORT_SPEC.loader.exec_module(OPENAPI_EXPORT)
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 INPUT_LIMIT_FIELDS = (
     ("max_request_bytes", MAX_AUTHORING_REQUEST_BYTES),
@@ -95,7 +105,17 @@ def _isolated_app_schema(tmp_path: Path, name: str) -> dict:
 
 def _export_schema(output: Path, *, environment: dict[str, str] | None = None) -> None:
     result = subprocess.run(
-        [sys.executable, "scripts/export_openapi.py", "--output", str(output)],
+        [
+            sys.executable,
+            "-I",
+            "-S",
+            "scripts/checkout_bootstrap.py",
+            "--repository-root",
+            ".",
+            "openapi",
+            "--output",
+            str(output),
+        ],
         check=False,
         capture_output=True,
         text=True,

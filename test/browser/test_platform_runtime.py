@@ -962,10 +962,7 @@ def test_compatibility_wrappers_prefer_their_checkout_over_a_stale_package(
     )
 
     assert cached_stale.returncode != 0
-    assert (
-        "local platform CLI did not resolve from this source checkout"
-        in cached_stale.stderr
-    )
+    assert "[module_search_location_mismatch]" in cached_stale.stderr
     assert str(stale_root) not in cached_stale.stderr
 
 

@@ -6,11 +6,21 @@ import argparse
 import json
 import os
 from pathlib import Path
+import runpy
+import sys
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from encode_pipeline.api.main import create_app
-from encode_pipeline.workers.settings import (
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+SOURCE_ROOT = REPOSITORY_ROOT / "src"
+sys.path.insert(0, str(SOURCE_ROOT))
+_require_checkout = runpy.run_path(
+    str(Path(__file__).with_name("source_provenance.py"))
+)["require_checkout"]
+_require_checkout(REPOSITORY_ROOT)
+
+from encode_pipeline.api.main import create_app  # noqa: E402
+from encode_pipeline.workers.settings import (  # noqa: E402
     DEFAULT_JOB_TIMEOUT_SECONDS,
     DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS,
     DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS,

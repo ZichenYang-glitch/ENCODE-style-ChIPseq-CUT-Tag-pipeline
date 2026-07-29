@@ -80,6 +80,12 @@ jobs:
           python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
           python3 -m pip check
 
+      - name: Verify current-checkout Python provenance
+        shell: micromamba-shell {0}
+        run: >-
+          python3 -I -S scripts/checkout_bootstrap.py
+          --repository-root . verify-checkout
+
       - name: Run deterministic Python tier once
         shell: micromamba-shell {0}
         env:
@@ -91,7 +97,8 @@ jobs:
           else
             marker='not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
           fi
-          python3 -m pytest test -ra -p no:cacheprovider \
+          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
+            test -ra \
             -m "$marker" \
             --durations=25 --durations-min=1.0 \
             --junitxml=pytest-report.xml \
@@ -110,11 +117,15 @@ jobs:
 
       - name: Validate default config
         shell: micromamba-shell {0}
-        run: python3 scripts/validate_samples.py --config config/config.yaml
+        run: >-
+          python3 -I -S scripts/checkout_bootstrap.py
+          --repository-root . validate --config config/config.yaml
 
-      - name: Validate default config via package CLI
+      - name: Verify local platform CLI through clean bootstrap
         shell: micromamba-shell {0}
-        run: encode-validate --config config/config.yaml
+        run: >-
+          python3 -I -S scripts/checkout_bootstrap.py
+          --repository-root . local-platform --help
 
       - name: Upload Python test and coverage evidence
         if: always()

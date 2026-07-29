@@ -75,7 +75,16 @@ def test_module_and_compatibility_script_share_exact_help(tmp_path: Path) -> Non
         check=False,
     )
     script = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts/run_local_platform.py"), "--help"],
+        [
+            sys.executable,
+            "-I",
+            "-S",
+            str(REPO_ROOT / "scripts/checkout_bootstrap.py"),
+            "--repository-root",
+            str(REPO_ROOT),
+            "local-platform",
+            "--help",
+        ],
         cwd=tmp_path,
         env=environment,
         capture_output=True,

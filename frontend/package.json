@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:e2e": "node scripts/run-playwright-e2e.mjs",
-    "openapi:export": "python3 ../scripts/export_openapi.py --output openapi.json",
+    "openapi:export": "python3 -I -S ../scripts/checkout_bootstrap.py --repository-root .. openapi --output openapi.json",
     "openapi:generate": "orval && node scripts/clean-generated.js",
     "openapi:regenerate": "npm run openapi:export && npm run openapi:generate"
   },
