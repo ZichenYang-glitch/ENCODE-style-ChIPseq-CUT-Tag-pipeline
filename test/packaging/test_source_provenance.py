@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -31,6 +33,41 @@ assert _PROVENANCE_SPEC.loader is not None
 PROVENANCE = importlib_util.module_from_spec(_PROVENANCE_SPEC)
 sys.modules[_PROVENANCE_SPEC.name] = PROVENANCE
 _PROVENANCE_SPEC.loader.exec_module(PROVENANCE)
+_AUDITED_HOOKS = {
+    "a1_coverage.pth": (
+        b'import sys; exec(\'import os\\n\\nif os.getenv("COVERAGE_PROCESS_START") '
+        b'or os.getenv("COVERAGE_PROCESS_CONFIG"):\\n try:\\n  import coverage\\n '
+        b'except:\\n  pass\\n else:\\n  coverage.process_startup(slug="pth")\')\n',
+        "coverage",
+        "7.15.1",
+    ),
+    "coloredlogs.pth": (
+        b'import os; exec(\'try: __import__("coloredlogs").auto_install() if '
+        b'os.environ.get("COLOREDLOGS_AUTO_INSTALL") else None\\nexcept '
+        b"ImportError: pass')\n",
+        "coloredlogs",
+        "15.0.1",
+    ),
+    "distutils-precedence.pth": (
+        b"import os; var = 'SETUPTOOLS_USE_DISTUTILS'; enabled = "
+        b"os.environ.get(var, 'local') == 'local'; enabled and "
+        b"__import__('_distutils_hack').add_shim(); \n",
+        "setuptools",
+        "82.0.1",
+    ),
+    "sphinxcontrib_jsmath-1.0.1-py3.9-nspkg.pth": (
+        b"import sys, types, os;p = os.path.join(sys._getframe(1).f_locals"
+        b"['sitedir'], *('sphinxcontrib',));importlib = __import__('importlib.util');"
+        b"__import__('importlib.machinery');m = sys.modules.setdefault("
+        b"'sphinxcontrib', importlib.util.module_from_spec(importlib.machinery."
+        b"PathFinder.find_spec('sphinxcontrib', [os.path.dirname(p)])));m = m or "
+        b"sys.modules.setdefault('sphinxcontrib', types.ModuleType('sphinxcontrib'));"
+        b"mp = (m or []) and m.__dict__.setdefault('__path__',[]);(p not in mp) "
+        b"and mp.append(p)\n",
+        "sphinxcontrib-jsmath",
+        "1.0.1",
+    ),
+}
 
 
 def _coverage_bootstrap() -> str:
@@ -117,6 +154,74 @@ def _write_distribution(
             + "\n",
             encoding="utf-8",
         )
+
+
+def _write_audited_hook_owner(
+    site_packages: Path,
+    hook_name: str,
+    *,
+    distribution_name: str | None = None,
+    version: str | None = None,
+    raw: bytes | None = None,
+) -> Path:
+    expected_raw, expected_name, expected_version = _AUDITED_HOOKS[hook_name]
+    hook_raw = expected_raw if raw is None else raw
+    hook = site_packages / hook_name
+    hook.write_bytes(hook_raw)
+    owner_name = distribution_name or expected_name
+    owner_version = version or expected_version
+    metadata_name = owner_name.replace("-", "_")
+    metadata = site_packages / f"{metadata_name}-{owner_version}.dist-info"
+    metadata.mkdir()
+    (metadata / "METADATA").write_text(
+        f"Metadata-Version: 2.4\nName: {owner_name}\nVersion: {owner_version}\n",
+        encoding="utf-8",
+    )
+    digest = base64.urlsafe_b64encode(hashlib.sha256(hook_raw).digest()).decode("ascii")
+    (metadata / "RECORD").write_text(
+        f"{hook_name},sha256={digest.rstrip('=')},{len(hook_raw)}\n",
+        encoding="utf-8",
+    )
+    return hook
+
+
+def _write_conda_hook_inventory(
+    prefix: Path,
+    site_packages: Path,
+    hook_name: str,
+    *,
+    version: str,
+    build: str,
+    raw: bytes,
+) -> Path:
+    metadata_root = prefix / "conda-meta"
+    metadata_root.mkdir(exist_ok=True)
+    digest = hashlib.sha256(raw).hexdigest()
+    metadata = metadata_root / f"setuptools-{version}-{build}.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "name": "setuptools",
+                "version": version,
+                "build": build,
+                "paths_data": {
+                    "paths": [
+                        {
+                            "_path": (site_packages / hook_name)
+                            .relative_to(prefix)
+                            .as_posix(),
+                            "path_type": "hardlink",
+                            "sha256": digest,
+                            "sha256_in_prefix": digest,
+                            "size_in_bytes": len(raw),
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return metadata
 
 
 def _write_installed_distribution(
@@ -591,6 +696,239 @@ def test_checkout_mode_rejects_an_orphan_stale_pth(tmp_path: Path) -> None:
     assert result.returncode == 2
     assert "[namespace_mapping_conflict]" in result.stderr
     assert str(stale) not in result.stderr
+
+
+def test_checkout_mode_accepts_exact_inventoried_nonproduct_hooks(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    for hook_name in _AUDITED_HOOKS:
+        _write_audited_hook_owner(site_packages, hook_name)
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    ("owner_name", "owner_version", "raw_suffix"),
+    (
+        ("opaque-owner", None, b""),
+        (None, "0.0", b""),
+        (None, None, b"# extra startup metadata\n"),
+    ),
+)
+def test_checkout_mode_rejects_a_hook_with_drifted_shape_or_owner(
+    tmp_path: Path,
+    owner_name: str | None,
+    owner_version: str | None,
+    raw_suffix: bytes,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    hook_name = "coloredlogs.pth"
+    expected_raw = _AUDITED_HOOKS[hook_name][0]
+    _write_audited_hook_owner(
+        site_packages,
+        hook_name,
+        distribution_name=owner_name,
+        version=owner_version,
+        raw=expected_raw + raw_suffix,
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[pth_mapping_unsafe]" in result.stderr
+    assert str(site_packages) not in result.stderr
+
+
+def test_checkout_mode_rejects_an_exact_hook_without_owner_inventory(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    hook_name = "coloredlogs.pth"
+    (site_packages / hook_name).write_bytes(_AUDITED_HOOKS[hook_name][0])
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[pth_mapping_unsafe]" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("build", "expected_returncode"),
+    (
+        ("pyh332efcf_0", 0),
+        ("unreviewed_0", 2),
+    ),
+)
+def test_checkout_mode_reconciles_exact_conda_hook_inventory(
+    tmp_path: Path,
+    build: str,
+    expected_returncode: int,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    prefix = tmp_path / "environment"
+    site_packages = prefix / "lib" / "python3.12" / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    hook_name = "distutils-precedence.pth"
+    raw, _, version = _AUDITED_HOOKS[hook_name]
+    (site_packages / hook_name).write_bytes(raw)
+    _write_conda_hook_inventory(
+        prefix,
+        site_packages,
+        hook_name,
+        version=version,
+        build=build,
+        raw=raw,
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == expected_returncode, result.stderr
+    if expected_returncode:
+        assert "[pth_mapping_unsafe]" in result.stderr
+
+
+def test_checkout_mode_rejects_duplicate_record_hook_owners(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    site_packages = tmp_path / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    hook_name = "coloredlogs.pth"
+    _write_audited_hook_owner(site_packages, hook_name)
+    original = site_packages / "coloredlogs-15.0.1.dist-info"
+    duplicate = site_packages / "coloredlogs-copy.dist-info"
+    duplicate.mkdir()
+    for filename in ("METADATA", "RECORD"):
+        (duplicate / filename).write_bytes((original / filename).read_bytes())
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[pth_mapping_unsafe]" in result.stderr
+
+
+def test_checkout_mode_rejects_cross_inventory_owner_version_conflict(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    prefix = tmp_path / "environment"
+    site_packages = prefix / "lib" / "python3.12" / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    hook_name = "distutils-precedence.pth"
+    raw, _, _ = _AUDITED_HOOKS[hook_name]
+    _write_audited_hook_owner(
+        site_packages,
+        hook_name,
+        version="83.0.0",
+        raw=raw,
+    )
+    _write_conda_hook_inventory(
+        prefix,
+        site_packages,
+        hook_name,
+        version="82.0.1",
+        build="pyh332efcf_0",
+        raw=raw,
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[pth_mapping_unsafe]" in result.stderr
+
+
+def test_checkout_mode_requires_conda_inventory_when_prefix_is_present(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    prefix = tmp_path / "environment"
+    site_packages = prefix / "lib" / "python3.12" / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    _write_audited_hook_owner(site_packages, "coloredlogs.pth")
+    (prefix / "conda-meta").mkdir()
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[pth_mapping_unsafe]" in result.stderr
+
+
+@pytest.mark.parametrize("target_location", ("inside", "outside"))
+def test_checkout_mode_rejects_a_conda_metadata_root_symlink(
+    tmp_path: Path,
+    target_location: str,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    prefix = tmp_path / "environment"
+    site_packages = prefix / "lib" / "python3.12" / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    _write_audited_hook_owner(site_packages, "coloredlogs.pth")
+    target = (
+        prefix / "metadata-real"
+        if target_location == "inside"
+        else tmp_path / "external-metadata"
+    )
+    target.mkdir()
+    (prefix / "conda-meta").symlink_to(target, target_is_directory=True)
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[pth_mapping_unsafe]" in result.stderr
+    assert str(target) not in result.stderr
+
+
+def test_checkout_mode_rejects_a_nondirectory_conda_metadata_root(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    prefix = tmp_path / "environment"
+    site_packages = prefix / "lib" / "python3.12" / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    _write_audited_hook_owner(site_packages, "coloredlogs.pth")
+    (prefix / "conda-meta").write_text("not a metadata directory\n", encoding="utf-8")
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[pth_mapping_unsafe]" in result.stderr
+
+
+def test_checkout_mode_rejects_broken_record_symlink_with_valid_conda_owner(
+    tmp_path: Path,
+) -> None:
+    current = _create_checkout(tmp_path / "current")
+    prefix = tmp_path / "environment"
+    site_packages = prefix / "lib" / "python3.12" / "site-packages"
+    _write_distribution(site_packages, source_root=current)
+    hook_name = "distutils-precedence.pth"
+    raw, _, version = _AUDITED_HOOKS[hook_name]
+    _write_audited_hook_owner(site_packages, hook_name, raw=raw)
+    owner_record = site_packages / f"setuptools-{version}.dist-info" / "RECORD"
+    owner_record.unlink()
+    owner_record.symlink_to(tmp_path / "missing-record")
+    _write_conda_hook_inventory(
+        prefix,
+        site_packages,
+        hook_name,
+        version=version,
+        build="pyh332efcf_0",
+        raw=raw,
+    )
+
+    result = _run_guard(site_packages, "checkout", repository_root=current)
+
+    assert result.returncode == 2
+    assert "[pth_mapping_unsafe]" in result.stderr
 
 
 def test_checkout_mode_rejects_an_obfuscated_executable_pth(

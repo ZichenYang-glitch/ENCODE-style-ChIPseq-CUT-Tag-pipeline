@@ -10,15 +10,18 @@ from __future__ import annotations
 
 import argparse
 import ast
+import base64
 import csv
 from dataclasses import dataclass
 from email.parser import Parser
+import hashlib
 from importlib import machinery
 from importlib import util
 import json
 import os
 from pathlib import Path
 import re
+import stat
 import sys
 import sysconfig
 from urllib.parse import urlparse
@@ -33,19 +36,7 @@ _KNOWN_DISTRIBUTION_NAMES = (
     "encode-pipeline",
 )
 _METADATA_SUFFIXES = (".dist-info", ".egg-info")
-_AUDITED_EXECUTABLE_PTH_LINES = {
-    "a1_coverage.pth": (
-        "import sys; exec('import os\\n\\nif "
-        'os.getenv("COVERAGE_PROCESS_START") or '
-        'os.getenv("COVERAGE_PROCESS_CONFIG"):\\n try:\\n  import coverage\\n '
-        'except:\\n  pass\\n else:\\n  coverage.process_startup(slug="pth")\')'
-    ),
-    "distutils-precedence.pth": (
-        "import os; var = 'SETUPTOOLS_USE_DISTUTILS'; enabled = "
-        "os.environ.get(var, 'local') == 'local'; enabled and "
-        "__import__('_distutils_hack').add_shim();"
-    ),
-}
+_PTH_INVENTORY_GUIDANCE = "remove unrecognized executable .pth startup hooks"
 
 
 @dataclass(frozen=True)
@@ -81,6 +72,57 @@ class CheckoutLayout:
     package_root: Path
     initializer: Path
     version: str
+
+
+@dataclass(frozen=True)
+class AuditedExecutablePth:
+    """One exact non-product startup hook and its locked owner."""
+
+    filename: str
+    sha256: str
+    distribution: str
+    versions: frozenset[str]
+    conda_builds: frozenset[tuple[str, str]]
+
+
+_AUDITED_EXECUTABLE_PTH = {
+    spec.filename: spec
+    for spec in (
+        AuditedExecutablePth(
+            filename="a1_coverage.pth",
+            sha256="ef2ed06d19867ec669c09a804060666a9cd5e383af0a9d11aa2de79b77d448e8",
+            distribution="coverage",
+            versions=frozenset({"7.15.1"}),
+            conda_builds=frozenset({("7.15.1", "py312h8a5da7c_0")}),
+        ),
+        AuditedExecutablePth(
+            filename="coloredlogs.pth",
+            sha256="dda83a855986efa5cd87f0248b0199c0086eb0e8e7fece7d6741959c5ce39536",
+            distribution="coloredlogs",
+            versions=frozenset({"15.0.1"}),
+            conda_builds=frozenset({("15.0.1", "pyhd8ed1ab_4")}),
+        ),
+        AuditedExecutablePth(
+            filename="distutils-precedence.pth",
+            sha256="2638ce9e2500e572a5e0de7faed6661eb569d1b696fcba07b0dd223da5f5d224",
+            distribution="setuptools",
+            versions=frozenset({"82.0.1", "83.0.0"}),
+            conda_builds=frozenset(
+                {
+                    ("82.0.1", "pyh332efcf_0"),
+                    ("83.0.0", "pyh332efcf_0"),
+                }
+            ),
+        ),
+        AuditedExecutablePth(
+            filename="sphinxcontrib_jsmath-1.0.1-py3.9-nspkg.pth",
+            sha256="a328acccc2310e241f406ef5fd39a60ce5ffdd678a9454be561d28af01a81e54",
+            distribution="sphinxcontrib-jsmath",
+            versions=frozenset({"1.0.1"}),
+            conda_builds=frozenset({("1.0.1", "pyhd8ed1ab_1")}),
+        ),
+    )
+}
 
 
 def _fail(reason_code: str, guidance: str) -> None:
@@ -668,8 +710,215 @@ def _record_owned_pth_names(claim: DistributionClaim) -> tuple[str, ...]:
     )
 
 
-def _audited_nonproduct_executable_pth(path: Path, line: str) -> bool:
-    return _AUDITED_EXECUTABLE_PTH_LINES.get(path.name) == line
+def _record_inventory_owners(
+    site_root: Path,
+    pth_path: Path,
+    spec: AuditedExecutablePth,
+    raw: bytes,
+) -> tuple[tuple[str, str], ...] | None:
+    expected_hash = "sha256=" + base64.urlsafe_b64encode(
+        hashlib.sha256(raw).digest()
+    ).decode("ascii").rstrip("=")
+    owners: list[tuple[str, str]] = []
+    try:
+        metadata_paths = tuple(
+            sorted(
+                (
+                    path
+                    for path in site_root.iterdir()
+                    if path.name.endswith(_METADATA_SUFFIXES)
+                ),
+                key=lambda path: path.name,
+            )
+        )
+    except OSError:
+        return None
+    for metadata_path in metadata_paths:
+        try:
+            resolved = metadata_path.resolve(strict=True)
+            if (
+                metadata_path.is_symlink()
+                or resolved != metadata_path
+                or resolved.parent != site_root
+                or not resolved.is_dir()
+            ):
+                return None
+            record_path = resolved / "RECORD"
+            if record_path.is_symlink():
+                return None
+            if not record_path.exists():
+                continue
+            if record_path.resolve(strict=True).parent != resolved:
+                return None
+            rows = tuple(
+                csv.reader(record_path.read_text(encoding="utf-8").splitlines())
+            )
+        except (OSError, RuntimeError, UnicodeError, csv.Error):
+            return None
+        matching_rows = tuple(row for row in rows if row and row[0] == pth_path.name)
+        if not matching_rows:
+            continue
+        if len(matching_rows) != 1 or len(matching_rows[0]) != 3:
+            return None
+        _, recorded_hash, recorded_size = matching_rows[0]
+        if recorded_hash != expected_hash or recorded_size != str(len(raw)):
+            return None
+        metadata_name = (
+            "METADATA" if resolved.name.endswith(".dist-info") else "PKG-INFO"
+        )
+        try:
+            identity_path = resolved / metadata_name
+            if (
+                identity_path.is_symlink()
+                or identity_path.resolve(strict=True).parent != resolved
+            ):
+                return None
+            identity = _metadata_identity(
+                identity_path.read_text(encoding="utf-8"),
+                known=False,
+            )
+        except (OSError, RuntimeError, UnicodeError):
+            return None
+        if identity is None:
+            return None
+        name, version = identity
+        if (
+            _normalized_distribution_name(name)
+            != _normalized_distribution_name(spec.distribution)
+            or version not in spec.versions
+        ):
+            return None
+        owners.append((_normalized_distribution_name(name), version))
+        if len(owners) > 1:
+            return None
+    return tuple(owners)
+
+
+def _conda_prefix_for_site_root(site_root: Path) -> tuple[bool, Path | None]:
+    candidates: list[Path] = []
+    for parent in site_root.parents:
+        if parent == parent.parent:
+            break
+        candidate = parent / "conda-meta"
+        try:
+            mode = candidate.lstat().st_mode
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return False, None
+        if not stat.S_ISDIR(mode):
+            return False, None
+        try:
+            metadata = candidate.resolve(strict=True)
+        except (OSError, RuntimeError):
+            return False, None
+        if metadata != candidate or metadata.parent != parent or not metadata.is_dir():
+            return False, None
+        candidates.append(parent)
+    if not candidates:
+        return True, None
+    if len(candidates) != 1:
+        return False, None
+    return True, candidates[0]
+
+
+def _conda_inventory_owners(
+    site_root: Path,
+    pth_path: Path,
+    spec: AuditedExecutablePth,
+    raw: bytes,
+) -> tuple[tuple[str, str], ...] | None:
+    prefix_valid, prefix = _conda_prefix_for_site_root(site_root)
+    if not prefix_valid:
+        return None
+    if prefix is None:
+        return ()
+    try:
+        relative_path = pth_path.relative_to(prefix).as_posix()
+        inventory_paths = {
+            relative_path,
+            f"{site_root.name}/{pth_path.name}",
+        }
+        metadata_root = (prefix / "conda-meta").resolve(strict=True)
+        metadata_paths = tuple(sorted(metadata_root.glob("*.json")))
+    except (OSError, RuntimeError, ValueError):
+        return None
+    owners: list[tuple[str, str]] = []
+    expected_digest = hashlib.sha256(raw).hexdigest()
+    for metadata_path in metadata_paths:
+        try:
+            resolved = metadata_path.resolve(strict=True)
+            if (
+                metadata_path.is_symlink()
+                or resolved != metadata_path
+                or resolved.parent != metadata_root
+                or not resolved.is_file()
+            ):
+                return None
+            metadata = json.loads(resolved.read_text(encoding="utf-8"))
+        except (OSError, RuntimeError, UnicodeError, ValueError):
+            return None
+        if not isinstance(metadata, dict):
+            return None
+        paths_data = metadata.get("paths_data")
+        if not isinstance(paths_data, dict):
+            continue
+        paths = paths_data.get("paths")
+        if not isinstance(paths, list):
+            return None
+        matching_paths = tuple(
+            entry
+            for entry in paths
+            if isinstance(entry, dict) and entry.get("_path") in inventory_paths
+        )
+        if not matching_paths:
+            continue
+        if len(matching_paths) != 1:
+            return None
+        entry = matching_paths[0]
+        name = metadata.get("name")
+        version = metadata.get("version")
+        build = metadata.get("build")
+        if (
+            not isinstance(name, str)
+            or not isinstance(version, str)
+            or not isinstance(build, str)
+            or _normalized_distribution_name(name)
+            != _normalized_distribution_name(spec.distribution)
+            or (version, build) not in spec.conda_builds
+            or entry.get("path_type") != "hardlink"
+            or entry.get("sha256") != expected_digest
+            or entry.get("sha256_in_prefix") != expected_digest
+            or entry.get("size_in_bytes") != len(raw)
+        ):
+            return None
+        owners.append((_normalized_distribution_name(name), version))
+        if len(owners) > 1:
+            return None
+    if not owners:
+        return None
+    return tuple(owners)
+
+
+def _audited_nonproduct_executable_pth(
+    path: Path,
+    raw: bytes,
+    site_root: Path,
+) -> bool:
+    spec = _AUDITED_EXECUTABLE_PTH.get(path.name)
+    if spec is None or hashlib.sha256(raw).hexdigest() != spec.sha256:
+        return False
+    record_owners = _record_inventory_owners(site_root, path, spec, raw)
+    conda_owners = _conda_inventory_owners(site_root, path, spec, raw)
+    if record_owners is None or conda_owners is None:
+        return False
+    owners = (*record_owners, *conda_owners)
+    if not owners or len(record_owners) > 1 or len(conda_owners) > 1:
+        return False
+    expected_name = _normalized_distribution_name(spec.distribution)
+    return len(set(owners)) == 1 and all(
+        name == expected_name and version in spec.versions for name, version in owners
+    )
 
 
 def _reject_startup_customizations(site_root: Path) -> None:
@@ -730,7 +979,8 @@ def _pth_mappings(
                     or not resolved_pth.is_file()
                 ):
                     raise OSError
-                raw = resolved_pth.read_text(encoding="utf-8")
+                raw_bytes = resolved_pth.read_bytes()
+                raw = raw_bytes.decode("utf-8")
             except (OSError, UnicodeError):
                 _fail(
                     "pth_mapping_unsafe",
@@ -741,16 +991,25 @@ def _pth_mappings(
                     "pth_mapping_unsafe",
                     "repair unsafe environment path metadata before retrying",
                 )
+            executable_lines = tuple(
+                line
+                for line in (raw_line.strip() for raw_line in raw.splitlines())
+                if line and re.match(r"^import(?:[ \t]|$)", line)
+            )
+            if executable_lines and not _audited_nonproduct_executable_pth(
+                resolved_pth,
+                raw_bytes,
+                site_root,
+            ):
+                _fail(
+                    "pth_mapping_unsafe",
+                    _PTH_INVENTORY_GUIDANCE,
+                )
             for raw_line in raw.splitlines():
                 line = raw_line.strip()
                 if not line or line.startswith("#"):
                     continue
                 if re.match(r"^import(?:[ \t]|$)", line):
-                    if not _audited_nonproduct_executable_pth(pth_path, line):
-                        _fail(
-                            "pth_mapping_unsafe",
-                            "remove unrecognized executable .pth startup hooks",
-                        )
                     continue
                 candidate = Path(line)
                 if not candidate.is_absolute():

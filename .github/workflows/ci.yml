@@ -479,8 +479,9 @@ jobs:
         env:
           ENCODE_PIPELINE_TEST_REDIS_URL: redis://127.0.0.1:6379/15
         run: >-
-          python3 -m pytest -m platform_real_execution test/workers -ra
-          -p no:cacheprovider --durations=25 --durations-min=1.0
+          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest
+          -m platform_real_execution test/workers -ra
+          --durations=25 --durations-min=1.0
           --junitxml=platform-real-report.xml
 
       - name: Require passing, zero-skip platform outcomes
@@ -543,7 +544,21 @@ jobs:
           echo "- PR head SHA: \`$pr_head_sha\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PR base SHA: \`$pr_base_sha\`" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Setup micromamba
+      - name: Setup Python test environment
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/ci-fast.lock
+          environment-name: ci-fast
+          cache-environment: true
+          cache-environment-key: scientific-python-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.lock') }}
+
+      - name: Install HelixWeave scientific test package
+        shell: micromamba-shell {0}
+        run: |
+          python3 -m pip install --no-index --no-deps --no-build-isolation -e .
+          python3 -m pip check
+
+      - name: Setup scientific toolchain
         uses: mamba-org/setup-micromamba@v3
         with:
           environment-file: workflow/envs/chipseq.lock
@@ -555,10 +570,14 @@ jobs:
         shell: micromamba-shell {0}
         env:
           HELIXWEAVE_REQUIRE_REAL_EXECUTION: "1"
-        run: >-
-          python3 -m pytest -m real_execution test/real_execution -ra
-          -p no:cacheprovider --durations=25 --durations-min=1.0
-          --junitxml=scientific-real-report.xml
+        run: |
+          export SNAKEMAKE="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/snakemake"
+          export SAMTOOLS="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/samtools"
+          micromamba run -n ci-fast \
+            python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
+            -m real_execution test/real_execution -ra \
+            --durations=25 --durations-min=1.0 \
+            --junitxml=scientific-real-report.xml
 
       - name: Require passing, zero-skip scientific outcomes
         if: always()
@@ -704,8 +723,9 @@ jobs:
           ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
           ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
         run: >-
-          python3 -m pytest -m bulk_rnaseq_real_execution
-          test/bulk_rnaseq_real_execution -ra -p no:cacheprovider
+          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest
+          -m bulk_rnaseq_real_execution
+          test/bulk_rnaseq_real_execution -ra
           --durations=25 --durations-min=1.0
           --basetemp="$RUNNER_TEMP/helixweave-bulk-rnaseq-real-${{ github.run_id }}"
           --junitxml="$RUNNER_TEMP/bulk-rnaseq-real-report.xml"
