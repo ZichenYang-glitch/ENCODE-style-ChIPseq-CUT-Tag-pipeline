@@ -92,6 +92,14 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
+          coverage_migration_root="$RUNNER_TEMP/helixweave-coverage-migrations-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          test ! -e "$coverage_migration_root"
+          mkdir -m 700 -- "$coverage_migration_root"
+          cleanup_coverage_migration_root() {
+            rm -rf -- "$coverage_migration_root"
+          }
+          trap cleanup_coverage_migration_root EXIT
+          export HELIXWEAVE_COVERAGE_MIGRATION_ROOT="$coverage_migration_root"
           if [ "$EVENT_NAME" = "pull_request" ]; then
             marker='not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
           else
@@ -102,11 +110,19 @@ jobs:
             -m "$marker" \
             --durations=25 --durations-min=1.0 \
             --junitxml=pytest-report.xml \
-            --cov --cov-config=pyproject.toml --cov-context=test \
+            --cov=src/encode_pipeline \
+            --cov=scripts \
+            --cov=workflow/lib \
+            --cov=containers \
+            --cov="$coverage_migration_root" \
+            --cov-config=pyproject.toml --cov-context=test \
             --cov-fail-under=0 \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
             --cov-report=json:coverage.json
+          test -z "$(find "$coverage_migration_root" -mindepth 1 -print -quit)"
+          rmdir -- "$coverage_migration_root"
+          trap - EXIT
 
       - name: Require passing, zero-skip Python outcomes
         if: always()

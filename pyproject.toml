@@ -88,6 +88,12 @@ branch = true
 relative_files = true
 patch = ["subprocess"]
 
+[tool.coverage.paths]
+migration_execution = [
+    "src/encode_pipeline/persistence/alembic",
+    "${HELIXWEAVE_COVERAGE_MIGRATION_ROOT-/__helixweave_coverage_migration_root_not_configured__}/helixweave-migration-snapshot-*/alembic",
+]
+
 [tool.coverage.report]
 fail_under = 83
 precision = 2

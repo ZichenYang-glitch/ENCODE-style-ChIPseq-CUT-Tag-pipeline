@@ -738,9 +738,10 @@ def _read_regular_at(
         raise _AdmissionFailure(invalid_reason)
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
     nofollow = getattr(os, "O_NOFOLLOW", None)
-    if nofollow is None:
+    nonblock = getattr(os, "O_NONBLOCK", None)
+    if nofollow is None or nonblock is None:
         raise _AdmissionFailure(invalid_reason)
-    flags |= nofollow
+    flags |= nofollow | nonblock
     try:
         descriptor = os.open(
             name,
@@ -793,10 +794,10 @@ def _open_absolute_directory(path: Path) -> Iterator[int]:
                 directory_flags,
                 dir_fd=current,
             )
+            descriptors.append(descriptor)
             info = os.fstat(descriptor)
             if not stat.S_ISDIR(info.st_mode):
                 raise _AdmissionFailure("MIGRATION_EXECUTION_INVENTORY_INVALID")
-            descriptors.append(descriptor)
             current = descriptor
         yield current
     except _AdmissionFailure:
@@ -819,6 +820,8 @@ def _open_directory_at(
 ) -> int:
     if not isinstance(name, str) or "/" in name or "\\" in name:
         raise _AdmissionFailure(reason_code)
+    descriptor: int | None = None
+    transferred = False
     try:
         descriptor = os.open(
             name,
@@ -826,13 +829,19 @@ def _open_directory_at(
             dir_fd=directory_descriptor,
         )
         if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
-            os.close(descriptor)
             raise _AdmissionFailure(reason_code)
+        transferred = True
         return descriptor
     except _AdmissionFailure:
         raise
     except OSError as error:
         raise _AdmissionFailure(reason_code) from error
+    finally:
+        if descriptor is not None and not transferred:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
 
 
 def _directory_flags() -> int:
