@@ -25,6 +25,12 @@ from encode_pipeline.adapters.bulk_rnaseq import (
     BulkRnaSeqTranscriptomeBinding,
     RuntimeAssetBinding,
 )
+from encode_pipeline.adapters.bulk_rnaseq.execution_identity import (
+    verify_execution_implementation,
+)
+from encode_pipeline.adapters.bulk_rnaseq.qualification import (
+    load_default_execution_qualification,
+)
 from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
     RuntimeAssetAdmission,
     VerifiedRuntimeAssets,
@@ -101,6 +107,7 @@ def _bulk_execution_adapter(
     *,
     reference_fasta_sha256: str,
     reference_gtf_sha256: str,
+    implementation_qualification,
 ) -> BulkRnaSeqResultsWorkflowAdapter:
     transcript_contents = b">tx1\nACGT\n"
     transcript_fasta.write_bytes(transcript_contents)
@@ -113,6 +120,7 @@ def _bulk_execution_adapter(
             transcript_fasta=transcript_fasta,
             transcript_fasta_sha256=hashlib.sha256(transcript_contents).hexdigest(),
         ),
+        implementation_qualification=implementation_qualification,
     )
     return BulkRnaSeqResultsWorkflowAdapter(execution=binding)
 
@@ -454,6 +462,10 @@ def test_bulk_binding_survives_durable_worker_reconstruction_and_admission(
         tmp_path
     )
     verified_assets = _verified_bulk_runtime_assets(runtime_root)
+    implementation = verify_execution_implementation()
+    assert implementation.is_success
+    qualification = load_default_execution_qualification(implementation.value)
+    assert qualification.is_success
     monkeypatch.setattr(
         RuntimeAssetAdmission,
         "acquire",
@@ -464,12 +476,14 @@ def test_bulk_binding_survives_durable_worker_reconstruction_and_admission(
         transcript_fasta,
         reference_fasta_sha256=reference_fasta_sha256,
         reference_gtf_sha256=reference_gtf_sha256,
+        implementation_qualification=qualification.value.implementation,
     )
     worker_adapter = _bulk_execution_adapter(
         runtime_root,
         transcript_fasta,
         reference_fasta_sha256=reference_fasta_sha256,
         reference_gtf_sha256=reference_gtf_sha256,
+        implementation_qualification=qualification.value.implementation,
     )
     api_registry = WorkflowRegistry((api_adapter,))
     worker_registry = WorkflowRegistry((worker_adapter,))

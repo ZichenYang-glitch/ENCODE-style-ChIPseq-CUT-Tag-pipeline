@@ -177,7 +177,10 @@ def test_adapter_identity_and_capabilities_are_truthful():
     assert adapter.capabilities.supports == ("validation", "input_authoring")
 
 
-def test_results_capabilities_require_explicit_runtime_composition(tmp_path: Path):
+def test_results_capabilities_require_explicit_runtime_composition(
+    tmp_path: Path,
+    bulk_rnaseq_qualifications,
+):
     binding = BulkRnaSeqExecutionBinding(
         assets=RuntimeAssetBinding(root=(tmp_path / "runtime").resolve()),
         transcriptome=BulkRnaSeqTranscriptomeBinding(
@@ -187,6 +190,7 @@ def test_results_capabilities_require_explicit_runtime_composition(tmp_path: Pat
             transcript_fasta=(tmp_path / "transcripts.fa").resolve(),
             transcript_fasta_sha256="c" * 64,
         ),
+        **bulk_rnaseq_qualifications,
     )
     adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
 
@@ -215,6 +219,7 @@ def test_results_capabilities_require_explicit_runtime_composition(tmp_path: Pat
 def test_runtime_availability_redacts_unexpected_doctor_error(
     tmp_path: Path,
     monkeypatch,
+    bulk_rnaseq_qualifications,
 ):
     binding = BulkRnaSeqExecutionBinding(
         assets=RuntimeAssetBinding(root=(tmp_path / "runtime").resolve()),
@@ -225,6 +230,7 @@ def test_runtime_availability_redacts_unexpected_doctor_error(
             transcript_fasta=(tmp_path / "transcripts.fa").resolve(),
             transcript_fasta_sha256="c" * 64,
         ),
+        **bulk_rnaseq_qualifications,
     )
     adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
 

@@ -500,11 +500,30 @@ the execution-only adapter and `results-v1` for the result-capable adapter.
 Consequently their build, workspace, cache, and resume identities cannot be
 interchanged even when they share the same pinned runtime assets. The controlled
 implementation manifest also binds the production SQLite composition,
-SQLAlchemy repository/models, Alembic environment, and the complete current
-upgrade-to-head revision set. An added unlisted revision or a change to atomic
-artifact replacement/QC invalidation makes the old manifest fail closed and
-changes the results build identity; binding only the in-memory repository is
-insufficient.
+SQLAlchemy repository/models, Alembic environment, and an explicit
+`bulk-rnaseq-execution-persistence` compatibility contract. That contract
+projects only the tables and columns used by Bulk execution, names the required
+capabilities and their establishing revisions, and fixes a supported-prior
+upgrade coordinate without using the current Alembic head as scientific
+identity. Its canonical SQLite projection digest covers the normalized complete
+`CREATE TABLE` DDL for each required table, reflected column/key/constraint
+semantics, unique partial indexes, table options, and triggers while excluding
+ordinary indexes and unrelated tables. A change to a bound model, repository,
+required schema capability, or atomic artifact replacement/QC invalidation
+changes the implementation aggregate or fails the projection check; a contract
+change also changes its versioned content digest and makes the old
+qualification stale. A later migration that does not affect those capabilities
+does not change the Bulk scientific identity. The full Alembic graph, upgrade
+coverage, migration files, and installed package tree remain independently
+fail-closed through migration tests, CI, and package/source provenance.
+
+Execution admission loads a canonical source-owned qualification record and
+requires its manifest digest, aggregate, file count, persistence-contract
+version, and persistence-contract digest to match the live verified
+implementation. The same record fixes the runtime, adapter/command, reference,
+and result-contract coordinates. It contains no private paths and has no
+environment-variable override. Missing, extended, malformed, non-canonical, or
+stale qualification bytes leave the default adapter authoring-only.
 
 ## Delivery boundary and consequences
 

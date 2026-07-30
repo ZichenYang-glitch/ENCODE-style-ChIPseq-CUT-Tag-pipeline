@@ -15,6 +15,12 @@ from encode_pipeline.adapters.bulk_rnaseq import (
     BulkRnaSeqWorkflowAdapter,
     RuntimeAssetBinding,
 )
+from encode_pipeline.adapters.bulk_rnaseq.execution_identity import (
+    verify_execution_implementation,
+)
+from encode_pipeline.adapters.bulk_rnaseq.qualification import (
+    load_default_execution_qualification,
+)
 from encode_pipeline.adapters.bulk_rnaseq.resource_closure import (
     SORTMERNA_INDEX_BINDING_FILENAME,
     SORTMERNA_INDEX_BINDING_SCHEMA_VERSION,
@@ -156,6 +162,10 @@ def _inputs(
 def execution_binding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     root = (tmp_path / "runtime").resolve()
     transcript_fasta = (tmp_path / "inputs/transcripts.fa").resolve()
+    implementation = verify_execution_implementation()
+    assert implementation.is_success
+    qualification = load_default_execution_qualification(implementation.value)
+    assert qualification.is_success
     binding = BulkRnaSeqExecutionBinding(
         assets=RuntimeAssetBinding(root=root),
         transcriptome=BulkRnaSeqTranscriptomeBinding(
@@ -165,6 +175,7 @@ def execution_binding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             transcript_fasta=transcript_fasta,
             transcript_fasta_sha256=_write(transcript_fasta, b">tx1\nACGT\n"),
         ),
+        implementation_qualification=qualification.value.implementation,
     )
     verified = VerifiedRuntimeAssets(
         root=root,

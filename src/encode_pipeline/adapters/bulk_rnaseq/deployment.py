@@ -17,6 +17,12 @@ from encode_pipeline.adapters.bulk_rnaseq.execution import (
     BulkRnaSeqExecutionBinding,
     BulkRnaSeqTranscriptomeBinding,
 )
+from encode_pipeline.adapters.bulk_rnaseq.execution_identity import (
+    verify_execution_implementation,
+)
+from encode_pipeline.adapters.bulk_rnaseq.qualification import (
+    load_default_execution_qualification,
+)
 from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import RuntimeAssetBinding
 from encode_pipeline.platform.adapters import WorkflowAvailability
 
@@ -29,12 +35,6 @@ MANAGED_DOCKER_EXECUTABLE_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE"
 MANAGED_DOCKER_SOCKET_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
 TRANSCRIPTOME_BINDING_SCHEMA_VERSION = "1.0.0"
 
-# This source-owned switch is deliberately not environment-configurable. True
-# marks this exact source as an execution-enabled candidate; the reconciled
-# implementation manifest and protected Gate must still pass on the same HEAD
-# before the candidate may land. Pending or unqualified test scenarios must
-# explicitly replace it with False.
-_DEFAULT_EXECUTION_EXACT_HEAD_QUALIFIED = True
 _COORDINATE_NAMES = (
     RUNTIME_ROOT_ENV,
     TRANSCRIPTOME_BINDING_MANIFEST_ENV,
@@ -79,7 +79,11 @@ def load_default_bulk_rnaseq_adapter(
         return BulkRnaSeqWorkflowAdapter()
     if len(configured_keys) != len(_COORDINATE_NAMES):
         return _unavailable_adapter()
-    if not _DEFAULT_EXECUTION_EXACT_HEAD_QUALIFIED:
+    implementation = verify_execution_implementation()
+    if implementation.is_failure:
+        return _unavailable_adapter()
+    qualification = load_default_execution_qualification(implementation.value)
+    if qualification.is_failure:
         return _unavailable_adapter()
 
     try:
@@ -99,6 +103,7 @@ def load_default_bulk_rnaseq_adapter(
                 docker_socket=docker_socket,
             ),
             transcriptome=transcriptome,
+            implementation_qualification=qualification.value.implementation,
         )
         adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
     except Exception:

@@ -19,7 +19,16 @@ from encode_pipeline.platform.results import Issue, Result
 EXECUTION_IMPLEMENTATION_MANIFEST_FILE = "execution-implementation-manifest-1.0.0.json"
 EXECUTION_IMPLEMENTATION_SCHEMA_VERSION = "1.0.0"
 EXECUTION_IMPLEMENTATION_SCHEME = "sha256-framed-execution-implementation-v1"
+EXECUTION_PERSISTENCE_CONTRACT_FILE = "execution-persistence-contract-1.0.0.json"
+EXECUTION_PERSISTENCE_CONTRACT_PATH = (
+    f"src/encode_pipeline/contracts/nfcore_rnaseq/{EXECUTION_PERSISTENCE_CONTRACT_FILE}"
+)
+EXECUTION_PERSISTENCE_CONTRACT_SCHEMA_VERSION = "1.0.0"
+EXECUTION_PERSISTENCE_CONTRACT_ID = "bulk-rnaseq-execution-persistence"
 
+# Only migrations that establish or change a capability used by Bulk execution
+# are part of the scientific implementation closure. The full Alembic graph is
+# validated independently by migration tests and package/source provenance.
 EXECUTION_MIGRATION_REVISION_PATHS = (
     "src/encode_pipeline/persistence/alembic/versions/20260711_01_run_persistence.py",
     "src/encode_pipeline/persistence/alembic/versions/20260711_02_run_execution_assignments.py",
@@ -27,10 +36,28 @@ EXECUTION_MIGRATION_REVISION_PATHS = (
     "src/encode_pipeline/persistence/alembic/versions/20260712_04_run_cancellation_intent.py",
     "src/encode_pipeline/persistence/alembic/versions/20260712_05_run_qc_metrics.py",
     "src/encode_pipeline/persistence/alembic/versions/20260714_06_validated_input_snapshots.py",
-    "src/encode_pipeline/persistence/alembic/versions/20260714_07_run_history_indexes.py",
     "src/encode_pipeline/persistence/alembic/versions/20260717_08_run_result_generations.py",
     "src/encode_pipeline/persistence/alembic/versions/20260726_09_project_sample_registry.py",
     "src/encode_pipeline/persistence/alembic/versions/20260726_10_input_registry.py",
+)
+EXECUTION_PERSISTENCE_REQUIRED_REVISIONS = (
+    "20260711_01",
+    "20260711_02",
+    "20260712_03",
+    "20260712_04",
+    "20260712_05",
+    "20260714_06",
+    "20260717_08",
+    "20260726_09",
+    "20260726_10",
+)
+EXECUTION_PERSISTENCE_CAPABILITIES = (
+    "sqlite.run-aggregate/v1",
+    "sqlite.validated-snapshot-atomic-consume/v1",
+    "sqlite.durable-assignment-cancellation/v1",
+    "sqlite.artifact-qc-generation/v1",
+    "sqlite.project-sample-binding/v1",
+    "sqlite.compatibility-input-binding/v1",
 )
 
 # This is an exact allowlist, not a recursive glob. A new execution dependency
@@ -66,6 +93,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/platform/run_history.py",
     "src/encode_pipeline/platform/runs.py",
     "src/encode_pipeline/platform/snapshots.py",
+    EXECUTION_PERSISTENCE_CONTRACT_PATH,
     "src/encode_pipeline/contracts/nfcore_rnaseq/results-contract-3.26.0.json",
     "src/encode_pipeline/api/__init__.py",
     "src/encode_pipeline/api/dependencies.py",
@@ -129,6 +157,10 @@ _PACKAGE_PREFIX = PurePosixPath("src/encode_pipeline")
 _MAXIMUM_MANIFEST_BYTES = 512 * 1024
 _MAXIMUM_IMPLEMENTATION_FILE_BYTES = 8 * 1024 * 1024
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_CONTRACT_VERSION = re.compile(r"^[1-9][0-9]*\.[0-9]+\.[0-9]+$")
+_REVISION = re.compile(r"^[0-9]{8}_[0-9]{2}$")
+_CAPABILITY = re.compile(r"^[a-z][a-z0-9.-]+/[a-z0-9.-]+$")
+_SCHEMA_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 @dataclass(frozen=True)
@@ -141,12 +173,82 @@ class ExecutionImplementationFile:
 
 
 @dataclass(frozen=True)
+class ExecutionPersistenceContract:
+    """Explicit Bulk-owned persistence compatibility coordinate."""
+
+    contract_id: str
+    contract_version: str
+    minimum_supported_revision: str
+    capabilities: tuple[str, ...]
+    required_revisions: tuple[str, ...]
+    required_schema: tuple[tuple[str, tuple[str, ...]], ...]
+    schema_projection_sha256: str
+    sha256: str
+
+
+@dataclass(frozen=True)
 class VerifiedExecutionImplementation:
     """Verified identity of the complete controlled execution implementation."""
 
     manifest_sha256: str
     aggregate_sha256: str
     files: tuple[ExecutionImplementationFile, ...]
+    persistence_contract: ExecutionPersistenceContract
+
+
+@dataclass(frozen=True)
+class ExecutionImplementationQualification:
+    """Source-owned exact implementation identity admitted for execution."""
+
+    manifest_sha256: str
+    aggregate_sha256: str
+    file_count: int
+    persistence_contract_version: str
+    persistence_contract_sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.manifest_sha256, str)
+            or _SHA256.fullmatch(self.manifest_sha256) is None
+            or not isinstance(self.aggregate_sha256, str)
+            or _SHA256.fullmatch(self.aggregate_sha256) is None
+            or isinstance(self.file_count, bool)
+            or not isinstance(self.file_count, int)
+            or self.file_count <= 0
+            or not isinstance(self.persistence_contract_version, str)
+            or _CONTRACT_VERSION.fullmatch(self.persistence_contract_version) is None
+            or not isinstance(self.persistence_contract_sha256, str)
+            or _SHA256.fullmatch(self.persistence_contract_sha256) is None
+        ):
+            raise ValueError("execution implementation qualification is invalid")
+
+    @classmethod
+    def from_verified(
+        cls,
+        value: VerifiedExecutionImplementation,
+    ) -> ExecutionImplementationQualification:
+        """Capture every implementation coordinate from one verified closure."""
+        if not isinstance(value, VerifiedExecutionImplementation):
+            raise ValueError("verified execution implementation is required")
+        return cls(
+            manifest_sha256=value.manifest_sha256,
+            aggregate_sha256=value.aggregate_sha256,
+            file_count=len(value.files),
+            persistence_contract_version=value.persistence_contract.contract_version,
+            persistence_contract_sha256=value.persistence_contract.sha256,
+        )
+
+    def matches(self, value: object) -> bool:
+        """Return whether one verified closure is this exact candidate."""
+        return (
+            isinstance(value, VerifiedExecutionImplementation)
+            and value.manifest_sha256 == self.manifest_sha256
+            and value.aggregate_sha256 == self.aggregate_sha256
+            and len(value.files) == self.file_count
+            and value.persistence_contract.contract_version
+            == self.persistence_contract_version
+            and value.persistence_contract.sha256 == self.persistence_contract_sha256
+        )
 
 
 class _ImplementationFailure(Exception):
@@ -155,6 +257,18 @@ class _ImplementationFailure(Exception):
 
 class _DuplicateJsonKey(ValueError):
     pass
+
+
+def qualify_execution_implementation(
+    value: object,
+    qualification: object,
+) -> Result[VerifiedExecutionImplementation]:
+    """Require a verified closure to match one exact source candidate."""
+    if not isinstance(qualification, ExecutionImplementationQualification):
+        return _failure()
+    if not qualification.matches(value):
+        return _failure()
+    return Result.success(value)
 
 
 def verify_execution_implementation(
@@ -175,8 +289,8 @@ def verify_execution_implementation(
         root = (
             resources.files("encode_pipeline") if package_root is None else package_root
         )
-        _verify_migration_revision_set(root)
         files: list[ExecutionImplementationFile] = []
+        persistence_contract_content: bytes | None = None
         for item in manifest["files"]:
             observed = _read_package_file(root, item["path"])
             if (
@@ -191,11 +305,17 @@ def verify_execution_implementation(
                     sha256=item["sha256"],
                 )
             )
+            if item["path"] == EXECUTION_PERSISTENCE_CONTRACT_PATH:
+                persistence_contract_content = observed
+        if persistence_contract_content is None:
+            raise _ImplementationFailure
+        persistence_contract = _parse_persistence_contract(persistence_contract_content)
         return Result.success(
             VerifiedExecutionImplementation(
                 manifest_sha256=manifest_sha256,
                 aggregate_sha256=manifest["aggregate_sha256"],
                 files=tuple(files),
+                persistence_contract=persistence_contract,
             )
         )
     except (
@@ -213,10 +333,6 @@ def build_execution_implementation_manifest(project_root: Path) -> dict[str, Any
 
     if not isinstance(project_root, Path) or not project_root.is_absolute():
         raise ValueError("project_root must be an absolute Path")
-    try:
-        _verify_migration_revision_set(project_root / "src/encode_pipeline")
-    except _ImplementationFailure as error:
-        raise ValueError("production migration revision set is invalid") from error
     files: list[dict[str, Any]] = []
     for logical_path in EXECUTION_IMPLEMENTATION_PATHS:
         result = safe_regular_file_bytes(
@@ -284,48 +400,6 @@ def _read_contract_manifest() -> bytes:
         EXECUTION_IMPLEMENTATION_MANIFEST_FILE
     )
     return _read_traversable(resource, maximum_bytes=_MAXIMUM_MANIFEST_BYTES)
-
-
-def _verify_migration_revision_set(root: object) -> None:
-    resource = root
-    for part in ("persistence", "alembic", "versions"):
-        if isinstance(resource, Path):
-            resource = resource / part
-        else:
-            joinpath = getattr(resource, "joinpath", None)
-            if not callable(joinpath):
-                raise _ImplementationFailure
-            resource = joinpath(part)
-
-    expected = {PurePosixPath(path).name for path in EXECUTION_MIGRATION_REVISION_PATHS}
-    if isinstance(resource, Path):
-        if resource.is_symlink() or not resource.is_dir():
-            raise _ImplementationFailure
-        entries = tuple(resource.iterdir())
-    else:
-        is_dir = getattr(resource, "is_dir", None)
-        iterdir = getattr(resource, "iterdir", None)
-        if not callable(is_dir) or not is_dir() or not callable(iterdir):
-            raise _ImplementationFailure
-        entries = tuple(iterdir())
-
-    observed: set[str] = set()
-    for entry in entries:
-        name = getattr(entry, "name", None)
-        if (
-            not isinstance(name, str)
-            or not name.endswith(".py")
-            or name == "__init__.py"
-        ):
-            continue
-        is_file = getattr(entry, "is_file", None)
-        if not callable(is_file) or not is_file():
-            raise _ImplementationFailure
-        if isinstance(entry, Path) and entry.is_symlink():
-            raise _ImplementationFailure
-        observed.add(name)
-    if observed != expected:
-        raise _ImplementationFailure
 
 
 def _read_package_file(root: object, logical_path: str) -> bytes:
@@ -426,6 +500,82 @@ def _parse_manifest(content: bytes) -> dict[str, Any]:
     if value["aggregate_sha256"] != aggregate:
         raise _ImplementationFailure
     return {**value, "files": normalized}
+
+
+def _parse_persistence_contract(content: bytes) -> ExecutionPersistenceContract:
+    try:
+        value = json.loads(content.decode("utf-8"), object_pairs_hook=_unique_object)
+    except (UnicodeDecodeError, json.JSONDecodeError, _DuplicateJsonKey) as error:
+        raise _ImplementationFailure from error
+    expected_fields = {
+        "schema_version",
+        "contract_id",
+        "contract_version",
+        "minimum_supported_revision",
+        "capabilities",
+        "required_revisions",
+        "required_schema",
+        "schema_projection_sha256",
+    }
+    if not isinstance(value, dict) or set(value) != expected_fields:
+        raise _ImplementationFailure
+    contract_version = value["contract_version"]
+    minimum_revision = value["minimum_supported_revision"]
+    capabilities = value["capabilities"]
+    required_revisions = value["required_revisions"]
+    required_schema = value["required_schema"]
+    schema_projection_sha256 = value["schema_projection_sha256"]
+    if (
+        value["schema_version"] != EXECUTION_PERSISTENCE_CONTRACT_SCHEMA_VERSION
+        or value["contract_id"] != EXECUTION_PERSISTENCE_CONTRACT_ID
+        or not isinstance(contract_version, str)
+        or _CONTRACT_VERSION.fullmatch(contract_version) is None
+        or not isinstance(minimum_revision, str)
+        or _REVISION.fullmatch(minimum_revision) is None
+        or not isinstance(capabilities, list)
+        or not capabilities
+        or any(
+            not isinstance(item, str) or _CAPABILITY.fullmatch(item) is None
+            for item in capabilities
+        )
+        or tuple(capabilities) != EXECUTION_PERSISTENCE_CAPABILITIES
+        or not isinstance(required_revisions, list)
+        or tuple(required_revisions) != EXECUTION_PERSISTENCE_REQUIRED_REVISIONS
+        or not isinstance(required_schema, dict)
+        or not required_schema
+        or not isinstance(schema_projection_sha256, str)
+        or _SHA256.fullmatch(schema_projection_sha256) is None
+    ):
+        raise _ImplementationFailure
+    normalized_schema: list[tuple[str, tuple[str, ...]]] = []
+    for table, columns in required_schema.items():
+        if (
+            not isinstance(table, str)
+            or _SCHEMA_NAME.fullmatch(table) is None
+            or not isinstance(columns, list)
+            or not columns
+            or any(
+                not isinstance(column, str) or _SCHEMA_NAME.fullmatch(column) is None
+                for column in columns
+            )
+            or columns != sorted(set(columns))
+        ):
+            raise _ImplementationFailure
+        normalized_schema.append((table, tuple(columns)))
+    if tuple(table for table, _columns in normalized_schema) != tuple(
+        sorted(required_schema)
+    ):
+        raise _ImplementationFailure
+    return ExecutionPersistenceContract(
+        contract_id=EXECUTION_PERSISTENCE_CONTRACT_ID,
+        contract_version=contract_version,
+        minimum_supported_revision=minimum_revision,
+        capabilities=tuple(capabilities),
+        required_revisions=tuple(required_revisions),
+        required_schema=tuple(normalized_schema),
+        schema_projection_sha256=schema_projection_sha256,
+        sha256=hashlib.sha256(content).hexdigest(),
+    )
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

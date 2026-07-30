@@ -22,9 +22,13 @@ from encode_pipeline.adapters.bulk_rnaseq import (
     BulkRnaSeqTranscriptomeBinding,
     RuntimeAssetBinding,
 )
+from encode_pipeline.adapters.bulk_rnaseq.execution_identity import (
+    verify_execution_implementation,
+)
 from encode_pipeline.adapters.bulk_rnaseq.qualification import (
     RAPID_QUANT_MODE_OWNED_PARAMETERS,
     RAPID_QUANT_PROFILE_OWNED_PARAMETERS,
+    load_default_execution_qualification,
 )
 from encode_pipeline.platform.adapters import CommandSpec, WorkflowInputs
 from encode_pipeline.platform.managed_containers import MANAGED_CONTAINER_SCOPE_LABEL
@@ -179,6 +183,10 @@ def test_controlled_tiny_rapid_quant_nextflow_container_gate(
     settings = require_gate_settings()
     fixture = load_acceptance_fixture(settings.fixture_manifest)
     inputs = _rapid_quant_inputs(fixture)
+    implementation = verify_execution_implementation()
+    assert implementation.is_success
+    qualification = load_default_execution_qualification(implementation.value)
+    assert qualification.is_success
     binding = BulkRnaSeqExecutionBinding(
         assets=RuntimeAssetBinding(
             root=settings.runtime_root,
@@ -186,6 +194,7 @@ def test_controlled_tiny_rapid_quant_nextflow_container_gate(
             docker_socket=settings.docker_socket,
         ),
         transcriptome=fixture.transcriptome,
+        implementation_qualification=qualification.value.implementation,
     )
     adapter = BulkRnaSeqRapidQuantQualificationAdapter(execution=binding)
 
