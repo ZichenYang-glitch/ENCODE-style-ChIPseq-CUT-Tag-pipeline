@@ -74,13 +74,20 @@ PRODUCTION_PERSISTENCE_PATHS = frozenset(
         "src/encode_pipeline/services/data_registry_repositories.py",
     }
 )
-PRODUCTION_RESULT_DELIVERY_PATHS = frozenset(
+PRODUCTION_RESULT_EXTRACTION_PATHS = frozenset(
     {
         "src/encode_pipeline/platform/result_generations.py",
-        "src/encode_pipeline/services/artifact_downloads.py",
         "src/encode_pipeline/services/artifact_extraction.py",
         "src/encode_pipeline/services/run_repositories.py",
         "src/encode_pipeline/services/runs.py",
+    }
+)
+PRODUCT_ONLY_RESULT_SURFACE_PATHS = frozenset(
+    {
+        "src/encode_pipeline/api/routes/agent.py",
+        "src/encode_pipeline/api/routes/artifacts.py",
+        "src/encode_pipeline/api/routes/qc_metrics.py",
+        "src/encode_pipeline/services/artifact_downloads.py",
     }
 )
 
@@ -139,6 +146,10 @@ def test_committed_execution_implementation_manifest_verifies_installed_files():
     assert len(result.value.aggregate_sha256) == 64
 
 
+def test_product_only_result_surfaces_are_not_scientific_implementation_files():
+    assert PRODUCT_ONLY_RESULT_SURFACE_PATHS.isdisjoint(EXECUTION_IMPLEMENTATION_PATHS)
+
+
 def test_committed_execution_manifest_is_exact_canonical_build():
     expected = canonical_execution_manifest_bytes(
         build_execution_implementation_manifest(PROJECT_ROOT)
@@ -153,6 +164,8 @@ def test_committed_source_qualification_is_canonical_path_free_and_exact():
     document = json.loads(QUALIFICATION_PATH.read_bytes())
 
     assert QUALIFICATION_PATH.read_bytes() == canonical_qualification_bytes(document)
+    assert QUALIFICATION_PATH.name == "default-execution-qualification-1.1.0.json"
+    assert document["schema_version"] == "1.1.0"
     result = load_default_execution_qualification(implementation.value)
 
     assert result.is_success
@@ -167,6 +180,11 @@ def test_committed_source_qualification_is_canonical_path_free_and_exact():
         == implementation.value.persistence_contract.sha256
     )
     serialized = json.dumps(document)
+    persistence = document["execution_implementation"]["persistence_contract"]
+    assert persistence["path"] == EXECUTION_PERSISTENCE_CONTRACT_PATH
+    assert persistence["version"] == "1.1.0"
+    assert set(persistence["schema_projection"]) == {"scheme", "sha256", "tables"}
+    assert "required_schema" not in persistence
     assert str(PROJECT_ROOT) not in serialized
     assert "/tmp/" not in serialized
     assert "HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT" not in serialized
@@ -184,7 +202,7 @@ def test_persistence_contract_change_changes_identity_and_stales_qualification(
         *PurePosixPath(EXECUTION_PERSISTENCE_CONTRACT_PATH).parts
     )
     contract = json.loads(contract_path.read_bytes())
-    contract["contract_version"] = "1.0.1"
+    contract["contract_version"] = "1.1.1"
     contract_path.write_bytes(
         json.dumps(
             contract,
@@ -203,7 +221,7 @@ def test_persistence_contract_change_changes_identity_and_stales_qualification(
 
     assert changed.is_success
     assert changed.value.aggregate_sha256 != original.value.aggregate_sha256
-    assert changed.value.persistence_contract.contract_version == "1.0.1"
+    assert changed.value.persistence_contract.contract_version == "1.1.1"
     stale = load_default_execution_qualification(
         changed.value,
         content=QUALIFICATION_PATH.read_bytes(),
@@ -223,7 +241,7 @@ def test_source_qualification_rejects_stale_malformed_or_extended_documents():
     corrupted = deepcopy(exact)
     corrupted["record_sha256"] = "2" * 64
     malformed_documents = (
-        b'{"schema_version":"1.0.0","schema_version":"1.0.0"}',
+        b'{"schema_version":"1.1.0","schema_version":"1.1.0"}',
         canonical_qualification_bytes(stale),
         canonical_qualification_bytes(extended),
         canonical_qualification_bytes(corrupted),
@@ -448,20 +466,20 @@ def test_production_sqlite_replacement_is_bound_and_changes_results_build_identi
     assert changed_digest != original_digest
 
 
-def test_production_artifact_delivery_is_bound_and_stale_manifest_fails_closed(
+def test_production_artifact_extraction_is_bound_and_stale_manifest_fails_closed(
     tmp_path: Path,
 ):
-    assert PRODUCTION_RESULT_DELIVERY_PATHS.issubset(EXECUTION_IMPLEMENTATION_PATHS)
+    assert PRODUCTION_RESULT_EXTRACTION_PATHS.issubset(EXECUTION_IMPLEMENTATION_PATHS)
     original_bytes = MANIFEST_PATH.read_bytes()
     original = verify_execution_implementation(manifest_bytes=original_bytes)
     assert original.is_success
 
-    project = tmp_path / "changed-artifact-delivery"
+    project = tmp_path / "changed-artifact-extraction"
     package_root = _copy_controlled_implementation(project)
-    download_service = package_root / "services/artifact_downloads.py"
-    download_service.write_bytes(
-        download_service.read_bytes()
-        + b"\n# intentional artifact revision closure identity change\n"
+    extraction_service = package_root / "services/artifact_extraction.py"
+    extraction_service.write_bytes(
+        extraction_service.read_bytes()
+        + b"\n# intentional artifact extraction identity change\n"
     )
 
     stale = verify_execution_implementation(
@@ -492,9 +510,19 @@ def test_unrelated_migration_revision_does_not_change_or_reject_identity(
     extra = package_root / "persistence/alembic/versions/20990101_99_unlisted.py"
     extra.parent.mkdir(parents=True, exist_ok=True)
     extra.write_text(
+        "from alembic import op\n"
+        "import sqlalchemy as sa\n\n"
         "revision = '20990101_99'\n"
         "down_revision = '20260726_10'\n"
-        "# Reference Catalog-only schema; not a Bulk execution capability.\n",
+        "branch_labels = None\n"
+        "depends_on = None\n\n"
+        "def upgrade():\n"
+        "    op.add_column(\n"
+        "        'runs',\n"
+        "        sa.Column('review_only_note', sa.Text(), nullable=True),\n"
+        "    )\n\n"
+        "def downgrade():\n"
+        "    op.drop_column('runs', 'review_only_note')\n",
         encoding="utf-8",
     )
 
@@ -509,6 +537,31 @@ def test_unrelated_migration_revision_does_not_change_or_reject_identity(
     assert installed.is_success
     assert installed.value.aggregate_sha256 == original.value.aggregate_sha256
     assert regenerated == original_bytes
+
+
+def test_mock_agent_route_change_does_not_change_scientific_aggregate(
+    tmp_path: Path,
+):
+    original_bytes = MANIFEST_PATH.read_bytes()
+    original = verify_execution_implementation(manifest_bytes=original_bytes)
+    assert original.is_success
+
+    project = tmp_path / "product-only-route"
+    package_root = _copy_controlled_implementation(project)
+    route = package_root / "api/routes/agent.py"
+    route.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(PROJECT_ROOT / "src/encode_pipeline/api/routes/agent.py", route)
+    route.write_bytes(route.read_bytes() + b"\n# product-only mock route change\n")
+
+    changed_manifest = build_execution_implementation_manifest(project)
+    changed = verify_execution_implementation(
+        manifest_bytes=canonical_execution_manifest_bytes(changed_manifest),
+        package_root=package_root,
+    )
+
+    assert changed.is_success
+    assert changed.value.aggregate_sha256 == original.value.aggregate_sha256
+    assert canonical_execution_manifest_bytes(changed_manifest) == original_bytes
 
 
 def test_missing_listed_production_migration_revision_fails_closed(

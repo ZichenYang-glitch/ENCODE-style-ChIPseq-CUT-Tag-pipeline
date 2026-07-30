@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+import sys
 
 from rq.serializers import JSONSerializer
 
+from encode_pipeline.persistence.migration_admission import (
+    MigrationAdmissionError,
+    verify_migration_execution_inventory,
+)
 from encode_pipeline.workers.rq_queue import (
     create_rq_queue,
     create_worker_redis_connection,
@@ -30,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     """Start one RQ worker using the shared environment configuration."""
     args = build_parser().parse_args(argv)
+    try:
+        verify_migration_execution_inventory()
+    except MigrationAdmissionError as error:
+        print(error, file=sys.stderr)
+        return 2
     settings = load_worker_settings()
     connection = create_worker_redis_connection(settings)
     try:

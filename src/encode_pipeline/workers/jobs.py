@@ -5,6 +5,7 @@ from __future__ import annotations
 from rq import get_current_job
 from rq.timeouts import JobTimeoutException
 
+from encode_pipeline.persistence.migration_admission import MigrationAdmissionError
 from encode_pipeline.persistence.runtime import open_run_persistence
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.managed_containers import managed_container_scope
@@ -26,6 +27,15 @@ class WorkerJobIdentityError(RuntimeError):
 
 class WorkerExecutionError(RuntimeError):
     """A correctly-owned execution job failed after its durable claim."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason_code: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
 
 
 def run_execution_job(run_id: str) -> None:
@@ -84,6 +94,11 @@ def run_execution_job(run_id: str) -> None:
         except WorkerHardTimeout:
             pass
         raise timeout from None
+    except MigrationAdmissionError as error:
+        raise WorkerExecutionError(
+            str(error),
+            reason_code=error.reason_code,
+        ) from None
     except (WorkerExecutionError, WorkerJobIdentityError):
         raise
     except Exception:

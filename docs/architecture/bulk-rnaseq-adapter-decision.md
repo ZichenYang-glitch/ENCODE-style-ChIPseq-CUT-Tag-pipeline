@@ -505,17 +505,28 @@ SQLAlchemy repository/models, Alembic environment, and an explicit
 projects only the tables and columns used by Bulk execution, names the required
 capabilities and their establishing revisions, and fixes a supported-prior
 upgrade coordinate without using the current Alembic head as scientific
-identity. Its canonical SQLite projection digest covers the normalized complete
-`CREATE TABLE` DDL for each required table, reflected column/key/constraint
-semantics, unique partial indexes, table options, and triggers while excluding
-ordinary indexes and unrelated tables. A change to a bound model, repository,
-required schema capability, or atomic artifact replacement/QC invalidation
-changes the implementation aggregate or fails the projection check; a contract
-change also changes its versioned content digest and makes the old
-qualification stale. A later migration that does not affect those capabilities
-does not change the Bulk scientific identity. The full Alembic graph, upgrade
-coverage, migration files, and installed package tree remain independently
-fail-closed through migration tests, CI, and package/source provenance.
+identity. Its canonical SQLite projection digest covers contract-selected
+columns with their type, nullability, default, primary-key position, and
+effective collation, plus only the explicitly selected primary
+keys, foreign keys, unique constraints, indexes, checks, triggers, and table
+options. Structured SQLite/SQLAlchemy introspection includes backing-index and
+foreign-key timing semantics. A narrow tokenizer/grammar binds only the
+selected primary-key, unique, or check clause when SQLite reflection omits a
+declared conflict semantic; unsupported or ambiguous clauses fail closed. The
+projection does not hash complete `CREATE TABLE` text, unselected columns,
+unselected components, or unrelated tables. A change to a bound model,
+repository, required schema
+capability, or atomic artifact replacement/QC invalidation changes the
+implementation aggregate or fails the projection check; a contract change also
+changes its versioned content digest and makes the old qualification stale. A
+later migration that does not affect those capabilities does not change the
+Bulk scientific identity. The full Alembic graph, upgrade coverage, migration
+files, and installed package tree remain independently fail-closed through
+migration tests, CI, and package/source provenance.
+
+Mock-agent and read-only artifact/QC API presentation files are not part of
+this scientific closure. Their API/browser behavior remains independently
+bound by ordinary product tests and protected-Gate evidence.
 
 Execution admission loads a canonical source-owned qualification record and
 requires its manifest digest, aggregate, file count, persistence-contract

@@ -1701,6 +1701,39 @@ def test_failure_mapping_does_not_swallow_rq_timeout():
         )
 
 
+def test_worker_job_preserves_migration_admission_reason_without_db_fallback(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        worker_jobs,
+        "get_current_job",
+        lambda: SimpleNamespace(id="job-1", origin="queue-1"),
+    )
+    monkeypatch.setattr(
+        worker_jobs,
+        "open_worker_runtime",
+        lambda: (_ for _ in ()).throw(
+            worker_jobs.MigrationAdmissionError("MIGRATION_REVISION_DIGEST_MISMATCH")
+        ),
+    )
+    monkeypatch.setattr(
+        worker_jobs,
+        "_record_initialization_failure_fallback",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("migration rejection must not reopen SQLite")
+        ),
+    )
+
+    with pytest.raises(worker_jobs.WorkerExecutionError) as raised:
+        worker_jobs.run_execution_job("migration-rejected-run")
+
+    assert raised.value.reason_code == "MIGRATION_REVISION_DIGEST_MISMATCH"
+    assert str(raised.value) == (
+        "migration execution admission failed [MIGRATION_REVISION_DIGEST_MISMATCH]"
+    )
+    assert raised.value.__cause__ is None
+
+
 def test_worker_composition_failure_is_public_safe_and_durably_failed(
     tmp_path,
     monkeypatch,

@@ -1,2 +1,3 @@
 prune test
+include src/encode_pipeline/persistence/migration-execution-inventory-1.0.0.json
 global-exclude __pycache__ *.py[cod]

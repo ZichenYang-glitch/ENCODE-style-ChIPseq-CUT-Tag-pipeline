@@ -21,6 +21,9 @@ from encode_pipeline.adapters.bulk_rnaseq.execution_identity import (
     ExecutionImplementationQualification,
     VerifiedExecutionImplementation,
 )
+from encode_pipeline.adapters.bulk_rnaseq.persistence_projection import (
+    schema_projection_spec_document,
+)
 from encode_pipeline.adapters.bulk_rnaseq.reference_closure import (
     REFERENCE_CLOSURE_SCHEME,
     REFERENCE_INDEX_MANIFEST,
@@ -88,8 +91,8 @@ from encode_pipeline.adapters.bulk_rnaseq.upstream import (
 from encode_pipeline.platform.results import Issue, Result
 
 
-DEFAULT_EXECUTION_QUALIFICATION_FILE = "default-execution-qualification-1.0.0.json"
-DEFAULT_EXECUTION_QUALIFICATION_SCHEMA_VERSION = "1.0.0"
+DEFAULT_EXECUTION_QUALIFICATION_FILE = "default-execution-qualification-1.1.0.json"
+DEFAULT_EXECUTION_QUALIFICATION_SCHEMA_VERSION = "1.1.0"
 DEFAULT_EXECUTION_QUALIFICATION_POLICY_ID = (
     "protected-bulk-rnaseq-product-qualification-v1"
 )
@@ -249,9 +252,6 @@ def _qualification_payload(
     implementation: VerifiedExecutionImplementation,
 ) -> dict[str, Any]:
     contract = implementation.persistence_contract
-    required_schema = {
-        table: list(columns) for table, columns in contract.required_schema
-    }
     return {
         "schema_version": DEFAULT_EXECUTION_QUALIFICATION_SCHEMA_VERSION,
         "candidate_status": "source-enabled",
@@ -289,8 +289,9 @@ def _qualification_payload(
                 "minimum_supported_revision": contract.minimum_supported_revision,
                 "capabilities": list(contract.capabilities),
                 "required_revisions": list(contract.required_revisions),
-                "required_schema": required_schema,
-                "schema_projection_sha256": contract.schema_projection_sha256,
+                "schema_projection": schema_projection_spec_document(
+                    contract.schema_projection
+                ),
             },
         },
         "adapter_command_contract": {

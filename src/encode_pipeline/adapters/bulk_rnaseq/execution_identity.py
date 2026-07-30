@@ -10,6 +10,11 @@ from pathlib import Path, PurePosixPath
 import re
 from typing import Any
 
+from encode_pipeline.adapters.bulk_rnaseq.persistence_projection import (
+    PersistenceProjectionError,
+    SchemaProjectionSpec,
+    parse_schema_projection_spec,
+)
 from encode_pipeline.adapters.bulk_rnaseq.resource_closure import (
     safe_regular_file_bytes,
 )
@@ -19,11 +24,11 @@ from encode_pipeline.platform.results import Issue, Result
 EXECUTION_IMPLEMENTATION_MANIFEST_FILE = "execution-implementation-manifest-1.0.0.json"
 EXECUTION_IMPLEMENTATION_SCHEMA_VERSION = "1.0.0"
 EXECUTION_IMPLEMENTATION_SCHEME = "sha256-framed-execution-implementation-v1"
-EXECUTION_PERSISTENCE_CONTRACT_FILE = "execution-persistence-contract-1.0.0.json"
+EXECUTION_PERSISTENCE_CONTRACT_FILE = "execution-persistence-contract-1.1.0.json"
 EXECUTION_PERSISTENCE_CONTRACT_PATH = (
     f"src/encode_pipeline/contracts/nfcore_rnaseq/{EXECUTION_PERSISTENCE_CONTRACT_FILE}"
 )
-EXECUTION_PERSISTENCE_CONTRACT_SCHEMA_VERSION = "1.0.0"
+EXECUTION_PERSISTENCE_CONTRACT_SCHEMA_VERSION = "1.1.0"
 EXECUTION_PERSISTENCE_CONTRACT_ID = "bulk-rnaseq-execution-persistence"
 
 # Only migrations that establish or change a capability used by Bulk execution
@@ -70,6 +75,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/adapters/bulk_rnaseq/deployment.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/execution.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/execution_identity.py",
+    "src/encode_pipeline/adapters/bulk_rnaseq/persistence_projection.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/reference_closure.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/resource_closure.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/results_contract.py",
@@ -101,10 +107,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/api/models.py",
     "src/encode_pipeline/api/request_limits.py",
     "src/encode_pipeline/api/routes/__init__.py",
-    "src/encode_pipeline/api/routes/agent.py",
-    "src/encode_pipeline/api/routes/artifacts.py",
     "src/encode_pipeline/api/routes/preflight.py",
-    "src/encode_pipeline/api/routes/qc_metrics.py",
     "src/encode_pipeline/api/routes/runs.py",
     "src/encode_pipeline/api/routes/workflows.py",
     "src/encode_pipeline/persistence/__init__.py",
@@ -118,7 +121,6 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/persistence/alembic/env.py",
     *EXECUTION_MIGRATION_REVISION_PATHS,
     "src/encode_pipeline/services/artifact_extraction.py",
-    "src/encode_pipeline/services/artifact_downloads.py",
     "src/encode_pipeline/services/command_builder.py",
     "src/encode_pipeline/services/data_registry_repositories.py",
     "src/encode_pipeline/services/defaults.py",
@@ -160,7 +162,6 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _CONTRACT_VERSION = re.compile(r"^[1-9][0-9]*\.[0-9]+\.[0-9]+$")
 _REVISION = re.compile(r"^[0-9]{8}_[0-9]{2}$")
 _CAPABILITY = re.compile(r"^[a-z][a-z0-9.-]+/[a-z0-9.-]+$")
-_SCHEMA_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 @dataclass(frozen=True)
@@ -181,8 +182,7 @@ class ExecutionPersistenceContract:
     minimum_supported_revision: str
     capabilities: tuple[str, ...]
     required_revisions: tuple[str, ...]
-    required_schema: tuple[tuple[str, tuple[str, ...]], ...]
-    schema_projection_sha256: str
+    schema_projection: SchemaProjectionSpec
     sha256: str
 
 
@@ -514,8 +514,7 @@ def _parse_persistence_contract(content: bytes) -> ExecutionPersistenceContract:
         "minimum_supported_revision",
         "capabilities",
         "required_revisions",
-        "required_schema",
-        "schema_projection_sha256",
+        "schema_projection",
     }
     if not isinstance(value, dict) or set(value) != expected_fields:
         raise _ImplementationFailure
@@ -523,8 +522,7 @@ def _parse_persistence_contract(content: bytes) -> ExecutionPersistenceContract:
     minimum_revision = value["minimum_supported_revision"]
     capabilities = value["capabilities"]
     required_revisions = value["required_revisions"]
-    required_schema = value["required_schema"]
-    schema_projection_sha256 = value["schema_projection_sha256"]
+    schema_projection_value = value["schema_projection"]
     if (
         value["schema_version"] != EXECUTION_PERSISTENCE_CONTRACT_SCHEMA_VERSION
         or value["contract_id"] != EXECUTION_PERSISTENCE_CONTRACT_ID
@@ -541,39 +539,19 @@ def _parse_persistence_contract(content: bytes) -> ExecutionPersistenceContract:
         or tuple(capabilities) != EXECUTION_PERSISTENCE_CAPABILITIES
         or not isinstance(required_revisions, list)
         or tuple(required_revisions) != EXECUTION_PERSISTENCE_REQUIRED_REVISIONS
-        or not isinstance(required_schema, dict)
-        or not required_schema
-        or not isinstance(schema_projection_sha256, str)
-        or _SHA256.fullmatch(schema_projection_sha256) is None
     ):
         raise _ImplementationFailure
-    normalized_schema: list[tuple[str, tuple[str, ...]]] = []
-    for table, columns in required_schema.items():
-        if (
-            not isinstance(table, str)
-            or _SCHEMA_NAME.fullmatch(table) is None
-            or not isinstance(columns, list)
-            or not columns
-            or any(
-                not isinstance(column, str) or _SCHEMA_NAME.fullmatch(column) is None
-                for column in columns
-            )
-            or columns != sorted(set(columns))
-        ):
-            raise _ImplementationFailure
-        normalized_schema.append((table, tuple(columns)))
-    if tuple(table for table, _columns in normalized_schema) != tuple(
-        sorted(required_schema)
-    ):
-        raise _ImplementationFailure
+    try:
+        schema_projection = parse_schema_projection_spec(schema_projection_value)
+    except PersistenceProjectionError as error:
+        raise _ImplementationFailure from error
     return ExecutionPersistenceContract(
         contract_id=EXECUTION_PERSISTENCE_CONTRACT_ID,
         contract_version=contract_version,
         minimum_supported_revision=minimum_revision,
         capabilities=tuple(capabilities),
         required_revisions=tuple(required_revisions),
-        required_schema=tuple(normalized_schema),
-        schema_projection_sha256=schema_projection_sha256,
+        schema_projection=schema_projection,
         sha256=hashlib.sha256(content).hexdigest(),
     )
 

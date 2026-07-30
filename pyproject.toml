@@ -58,7 +58,10 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "encode_pipeline.artifacts" = ["artifact-inventory.yaml"]
-"encode_pipeline.persistence" = ["alembic/script.py.mako"]
+"encode_pipeline.persistence" = [
+    "alembic/script.py.mako",
+    "migration-execution-inventory-1.0.0.json",
+]
 "encode_pipeline.contracts.omics_intake" = ["*.schema.json"]
 "encode_pipeline.contracts.nfcore_rnaseq" = ["*.json", "*.txt"]
 
