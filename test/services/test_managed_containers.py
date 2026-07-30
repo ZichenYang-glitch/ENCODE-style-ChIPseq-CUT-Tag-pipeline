@@ -208,6 +208,11 @@ def test_cleaner_catches_container_registered_after_initial_empty_observation(
 ):
     with _fake_docker(
         tmp_path,
+        # Leave several probe intervals before the late registration while
+        # giving each real child-process invocation a bounded startup budget.
+        cleanup_timeout_seconds=2.0,
+        maximum_cleanup_timeout_seconds=4.0,
+        final_cleanup_timeout_seconds=1.0,
         state={
             "late_on_all_ps": 4,
             "late_id": _CONTAINER_A,
