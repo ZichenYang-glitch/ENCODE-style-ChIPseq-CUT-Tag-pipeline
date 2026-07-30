@@ -90,7 +90,13 @@ class ContractOnlyAdapter:
 
 
 def _service() -> InputBundleImportService:
-    return InputBundleImportService(WorkflowRegistry((EncodeStyleWorkflowAdapter(),)))
+    adapter = EncodeStyleWorkflowAdapter()
+    return InputBundleImportService(
+        WorkflowRegistry(
+            (adapter,),
+            legacy_execution_fallbacks=(adapter,),
+        )
+    )
 
 
 def _error_code(result) -> str:
@@ -326,7 +332,12 @@ def test_validation_window_same_content_replacement_fails_closed(
         return validation
 
     monkeypatch.setattr(adapter, "validate", replacing_validate)
-    service = InputBundleImportService(WorkflowRegistry((adapter,)))
+    service = InputBundleImportService(
+        WorkflowRegistry(
+            (adapter,),
+            legacy_execution_fallbacks=(adapter,),
+        )
+    )
 
     result = service.inspect(bundle_path, WORKFLOW_ID)
 
@@ -352,7 +363,12 @@ def test_validation_window_candidate_selection_change_fails_closed(
         return real_validate(inputs)
 
     monkeypatch.setattr(adapter, "validate", completing_validate)
-    service = InputBundleImportService(WorkflowRegistry((adapter,)))
+    service = InputBundleImportService(
+        WorkflowRegistry(
+            (adapter,),
+            legacy_execution_fallbacks=(adapter,),
+        )
+    )
 
     result = service.inspect(bundle_path, WORKFLOW_ID)
 

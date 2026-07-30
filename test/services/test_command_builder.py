@@ -11,10 +11,15 @@ _WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 
 class _CommandAdapter:
     def __init__(self, callback):
+        from datetime import datetime, timezone
+
         from encode_pipeline.platform.adapters import (
+            WorkflowAvailability,
             WorkflowCapabilities,
             WorkflowMetadata,
         )
+        from encode_pipeline.platform.builds import WorkflowBuildIdentity
+        from encode_pipeline.platform.results import Result
 
         self.metadata = WorkflowMetadata(
             workflow_id="delegated-command",
@@ -22,8 +27,18 @@ class _CommandAdapter:
             version="1.0.0",
             engines=("opaque-engine",),
         )
-        self.capabilities = WorkflowCapabilities(supports=("command",))
+        self.capabilities = WorkflowCapabilities(supports=("workspace_plan", "command"))
         self._callback = callback
+        self._availability = WorkflowAvailability()
+        self._build_identity = WorkflowBuildIdentity(
+            workflow_id=self.metadata.workflow_id,
+            adapter_version=self.metadata.version,
+            scheme="delegated-command-v1",
+            logical_entrypoint="delegated/main",
+            digest="a" * 64,
+            captured_at=datetime.now(timezone.utc),
+        )
+        self._result_type = Result
 
     def schema(self): ...
     def validate(self, inputs): ...
@@ -34,6 +49,12 @@ class _CommandAdapter:
         return self._callback(plan, workspace)
 
     def extract_artifacts(self, inputs, workspace): ...
+
+    def execution_availability(self):
+        return self._availability
+
+    def capture_build_identity(self):
+        return self._result_type.success(self._build_identity)
 
 
 def _make_pending_plan(
@@ -204,6 +225,39 @@ def test_command_builder_requires_supported_engine(tmp_path):
     issue = result.issues[0]
     assert issue.code == "COMMAND_BUILD_UNSUPPORTED_ENGINE"
     assert issue.path == "workflow"
+
+
+def test_non_encode_snakemake_adapter_cannot_inherit_encode_command(tmp_path):
+    from encode_pipeline.platform.adapters import (
+        WorkflowCapabilities,
+        WorkflowMetadata,
+    )
+    from encode_pipeline.platform.registry import WorkflowRegistry
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    class OtherSnakemakeAdapter:
+        metadata = WorkflowMetadata(
+            workflow_id="other-snakemake",
+            name="Other Snakemake",
+            version="1.0.0",
+            engines=("snakemake",),
+        )
+        capabilities = WorkflowCapabilities(supports=())
+
+        def schema(self): ...
+        def validate(self, inputs): ...
+        def preview_dag(self, inputs): ...
+        def plan_workspace(self, inputs, workspace): ...
+        def build_command(self, plan, workspace): ...
+        def extract_artifacts(self, inputs, workspace): ...
+
+    plan = _make_pending_plan(workflow_id="other-snakemake")
+    builder = CommandBuilder(registry=WorkflowRegistry([OtherSnakemakeAdapter()]))
+
+    result = builder.build_command(plan, tmp_path.resolve())
+
+    assert result.is_failure
+    assert result.value is None
 
 
 def test_command_builder_rejects_invalid_cores(tmp_path):
@@ -736,4 +790,8 @@ def _make_registry():
     from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
     from encode_pipeline.platform.registry import WorkflowRegistry
 
-    return WorkflowRegistry(adapters=[EncodeStyleWorkflowAdapter()])
+    adapter = EncodeStyleWorkflowAdapter()
+    return WorkflowRegistry(
+        adapters=[adapter],
+        legacy_execution_fallbacks=(adapter,),
+    )

@@ -979,17 +979,7 @@ class ProcessRunner:
         from encode_pipeline.platform.adapters import CommandSpec
 
         if not isinstance(spec, CommandSpec):
-            return Result.failure(
-                [
-                    Issue(
-                        code="PROCESS_RUNNER_INVALID_COMMAND_SPEC",
-                        message="spec must be a CommandSpec.",
-                        severity="error",
-                        path="command_spec",
-                        source="process_runner",
-                    )
-                ]
-            )
+            return self._invalid_command_spec()
         if output_callback is not None and not callable(output_callback):
             return Result.failure(
                 [
@@ -1002,7 +992,20 @@ class ProcessRunner:
                     )
                 ]
             )
+        admission = self._admit_executable(spec)
+        if admission.is_failure:
+            return admission
+        return self._run_admitted_inner(
+            spec,
+            output_callback=output_callback,
+        )
 
+    def _admit_executable(self, spec: "CommandSpec") -> "Result[None]":
+        """Apply the same executable admission used immediately before launch."""
+        from encode_pipeline.platform.adapters import CommandSpec
+
+        if not isinstance(spec, CommandSpec):
+            return self._invalid_command_spec()
         if spec.argv[0] not in self._allowed_executables:
             return Result.failure(
                 [
@@ -1015,7 +1018,28 @@ class ProcessRunner:
                     )
                 ]
             )
+        return Result.success(None)
 
+    @staticmethod
+    def _invalid_command_spec() -> "Result[None]":
+        return Result.failure(
+            [
+                Issue(
+                    code="PROCESS_RUNNER_INVALID_COMMAND_SPEC",
+                    message="spec must be a CommandSpec.",
+                    severity="error",
+                    path="command_spec",
+                    source="process_runner",
+                )
+            ]
+        )
+
+    def _run_admitted_inner(
+        self,
+        spec: "CommandSpec",
+        *,
+        output_callback: OutputCallback | None = None,
+    ) -> "Result[ProcessResult]":
         environment_result = _subprocess_environment(spec.env)
         if environment_result.is_failure:
             return environment_result

@@ -8,11 +8,17 @@ from pathlib import Path
 
 import pytest
 
-from encode_pipeline.adapters.bulk_rnaseq import BulkRnaSeqTranscriptomeBinding
+from encode_pipeline.adapters.bulk_rnaseq import (
+    BulkRnaSeqResultsWorkflowAdapter,
+    BulkRnaSeqTranscriptomeBinding,
+)
 from encode_pipeline.adapters.bulk_rnaseq.deployment import (
+    MANAGED_DOCKER_EXECUTABLE_ENV,
+    MANAGED_DOCKER_SOCKET_ENV,
+    RUNTIME_ROOT_ENV,
     TRANSCRIPTOME_BINDING_MANIFEST_ENV,
 )
-from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.adapters import WorkflowAvailability, WorkflowInputs
 from bulk_product_runtime import (
     BulkProductBrowserRuntime,
     prepare_bulk_product_browser_runtime,
@@ -162,6 +168,46 @@ def test_product_projection_uses_verified_fixture_and_writes_private_binding(
         "transcript_fasta_sha256": "c" * 64,
     }
     assert TRANSCRIPTOME_BINDING_MANIFEST_ENV not in fields
+
+
+def test_protected_product_fixture_runs_default_registry_admission_canary(
+    tmp_path,
+    monkeypatch,
+):
+    runtime_root = (tmp_path / "browser").resolve()
+    runtime_root.mkdir()
+    fixture = _fixture(tmp_path)
+    fixture_manifest = (tmp_path / "fixture/acceptance.json").resolve()
+    fixture_manifest.write_text("{}\n", encoding="utf-8")
+    settings = GateSettings(
+        runtime_root=(tmp_path / "runtime").resolve(),
+        fixture_manifest=fixture_manifest,
+        redis_url="redis://127.0.0.1:16379/0",
+        docker_executable=Path("/usr/bin/docker"),
+        docker_socket=(tmp_path / "docker.sock").resolve(),
+    )
+    source = {
+        RUNTIME_ROOT_ENV: str(settings.runtime_root),
+        MANAGED_DOCKER_EXECUTABLE_ENV: str(settings.docker_executable),
+        MANAGED_DOCKER_SOCKET_ENV: str(settings.docker_socket),
+    }
+    monkeypatch.setattr(
+        BulkRnaSeqResultsWorkflowAdapter,
+        "execution_availability",
+        lambda _self: WorkflowAvailability(),
+    )
+
+    projected = prepare_bulk_product_browser_runtime(
+        runtime_root,
+        source,
+        settings_loader=lambda environ: settings if environ == source else None,
+        fixture_loader=lambda path: fixture if path == fixture_manifest else None,
+    )
+
+    assert projected.manifest_fields["bulkExpectedExecution"] == "available"
+    assert projected.deployment_environment[TRANSCRIPTOME_BINDING_MANIFEST_ENV] == str(
+        runtime_root / "bulk-product/transcriptome-binding.json"
+    )
 
 
 def test_browser_fixture_selector_requires_explicit_real_gate_and_forwards_environment(

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 from decimal import Decimal
+from hashlib import sha256
 import os
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
@@ -15,12 +17,14 @@ from encode_pipeline.platform.adapters import (
     DagPreview,
     ExtractedQcMetricCandidate,
     MAX_SAMPLE_ROWS,
+    WorkflowAvailability,
     WorkflowCapabilities,
     WorkflowInputs,
     WorkflowMetadata,
     WorkflowSchema,
     WorkspacePlan,
 )
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.result_generations import (
     ARTIFACT_PATH_IDENTITY_METADATA_KEY,
@@ -41,7 +45,9 @@ from encode_pipeline.workers.timeouts import WorkerHardTimeout
 
 class QcAdapter:
     metadata = WorkflowMetadata(workflow_id="fake", name="Fake", version="1.0.0")
-    capabilities = WorkflowCapabilities(supports=("qc_summary_extract",))
+    capabilities = WorkflowCapabilities(
+        supports=("validation", "workspace_plan", "command", "qc_summary_extract")
+    )
 
     def __init__(self, candidates=()):
         self.candidates = tuple(candidates)
@@ -49,6 +55,7 @@ class QcAdapter:
         self.documents = ()
         self.failure = False
         self.source_types = ("qc_summary",)
+        self.identity_root = None
 
     def schema(self):
         return WorkflowSchema()
@@ -62,7 +69,7 @@ class QcAdapter:
     def plan_workspace(self, inputs, workspace):
         return Result.success(WorkspacePlan())
 
-    def build_command(self, plan):
+    def build_command(self, plan, workspace):
         return Result.success(CommandSpec(argv=("fake",)))
 
     def extract_artifacts(self, inputs, workspace):
@@ -85,6 +92,28 @@ class QcAdapter:
                 ]
             )
         return Result.success(self.candidates)
+
+    def execution_availability(self):
+        return WorkflowAvailability()
+
+    def capture_build_identity(self):
+        if self.identity_root is None:
+            return Result.failure(())
+        digest = sha256(
+            (
+                self.identity_root / "src/encode_pipeline/adapters/encode_qc.py"
+            ).read_bytes()
+        ).hexdigest()
+        return Result.success(
+            WorkflowBuildIdentity(
+                workflow_id=self.metadata.workflow_id,
+                adapter_version=self.metadata.version,
+                scheme="qc-adapter-v1",
+                logical_entrypoint="qc/main",
+                digest=digest,
+                captured_at=datetime.now(timezone.utc),
+            )
+        )
 
 
 class NoQcAdapter:
@@ -273,9 +302,23 @@ def _service(
         registry,
         project_root=_project(tmp_path / "project"),
     )
+    if hasattr(adapter, "identity_root"):
+        adapter.identity_root = provider.project_root
     run_service.create_run("fake", WorkflowInputs(config={}))
     run_service.transition_run(run_id, RunStatus.VALIDATING)
-    identity = provider.capture("fake").value
+    identity_result = provider.capture("fake")
+    identity = (
+        identity_result.value
+        if identity_result.is_success
+        else WorkflowBuildIdentity(
+            workflow_id="fake",
+            adapter_version="1.0.0",
+            scheme="historical-test-v1",
+            logical_entrypoint="test/historical",
+            digest="a" * 64,
+            captured_at=datetime.now(timezone.utc),
+        )
+    )
     run_service.complete_preflight(run_id, identity)
     if status in {RunStatus.SUCCEEDED, RunStatus.FAILED}:
         run_service.transition_run(run_id, RunStatus.QUEUED)

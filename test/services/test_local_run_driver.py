@@ -12,12 +12,14 @@ import pytest
 
 from encode_pipeline.platform.adapters import (
     CommandSpec,
+    WorkflowAvailability,
     WorkflowCapabilities,
     WorkflowInputs,
     WorkflowMetadata,
     WorkflowSchema,
     WorkspacePlan,
 )
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
@@ -65,6 +67,21 @@ class FakeAdapter:
     def extract_artifacts(self, inputs, workspace):
         return Result.success(())
 
+    def execution_availability(self):
+        return WorkflowAvailability()
+
+    def capture_build_identity(self):
+        return Result.success(
+            WorkflowBuildIdentity(
+                workflow_id=self.metadata.workflow_id,
+                adapter_version=self.metadata.version,
+                scheme="local-run-driver-v1",
+                logical_entrypoint="driver/main",
+                digest="a" * 64,
+                captured_at=datetime.now(timezone.utc),
+            )
+        )
+
 
 # ---------------------------------------------------------------------------
 # Shared test fixtures
@@ -78,7 +95,11 @@ def _make_materializer():
 def _make_registry():
     from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
 
-    return WorkflowRegistry(adapters=[EncodeStyleWorkflowAdapter()])
+    adapter = EncodeStyleWorkflowAdapter()
+    return WorkflowRegistry(
+        adapters=[adapter],
+        legacy_execution_fallbacks=(adapter,),
+    )
 
 
 def _make_command_builder():
@@ -272,7 +293,9 @@ class _DeclaredCommandAdapter(FakeAdapter):
         version="1.0.0",
         engines=("opaque-engine",),
     )
-    capabilities = WorkflowCapabilities(supports=("validation", "command"))
+    capabilities = WorkflowCapabilities(
+        supports=("validation", "workspace_plan", "command")
+    )
 
     def __init__(self, *, preflight: bool) -> None:
         self._preflight = preflight
@@ -301,7 +324,9 @@ class _ManagedLogAdapter(FakeAdapter):
         version="1.0.0",
         engines=("opaque-engine",),
     )
-    capabilities = WorkflowCapabilities(supports=("validation", "command"))
+    capabilities = WorkflowCapabilities(
+        supports=("validation", "workspace_plan", "command")
+    )
 
     def __init__(self, redaction_values: tuple[str, ...] = ()) -> None:
         self._redaction_values = redaction_values

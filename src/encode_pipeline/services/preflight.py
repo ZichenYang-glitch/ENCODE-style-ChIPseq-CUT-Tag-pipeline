@@ -33,6 +33,13 @@ class LocalPreflightService:
         local_run_driver: "LocalRunDriver",
         build_identity_provider: "WorkflowBuildIdentityProvider",
     ) -> None:
+        if (
+            getattr(build_identity_provider, "registry", None)
+            is not run_service.registry
+        ):
+            raise ValueError(
+                "build_identity_provider registry must match run_service registry"
+            )
         self._run_service = run_service
         self._execution_planner = execution_planner
         self._workspace_planner = workspace_planner
@@ -140,7 +147,9 @@ class LocalPreflightService:
     def _run_preflight(self, run_id: str) -> Result[RunRecord]:
         try:
             current = self._run_service.get_run(run_id)
-            build_before = self._build_identity_provider.capture(current.workflow_id)
+            build_before = self._build_identity_provider.capture_executable(
+                current.workflow_id
+            )
             if build_before.is_failure:
                 return self._fail(run_id, build_before.issues)
 
@@ -163,7 +172,9 @@ class LocalPreflightService:
                 return self._fail(run_id, run_result.issues)
 
             final_plan = run_result.value
-            build_after = self._build_identity_provider.capture(current.workflow_id)
+            build_after = self._build_identity_provider.capture_executable(
+                current.workflow_id
+            )
             if build_after.is_failure:
                 return self._fail(run_id, build_after.issues)
             if not build_before.value.matches(build_after.value):

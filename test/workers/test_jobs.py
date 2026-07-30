@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -18,7 +19,18 @@ from rq.serializers import JSONSerializer
 from rq.timeouts import JobTimeoutException
 
 import encode_pipeline.workers.jobs as worker_jobs
+from encode_pipeline.adapters.bulk_rnaseq import (
+    BulkRnaSeqExecutionBinding,
+    BulkRnaSeqResultsWorkflowAdapter,
+    BulkRnaSeqTranscriptomeBinding,
+    RuntimeAssetBinding,
+)
+from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
+    RuntimeAssetAdmission,
+    VerifiedRuntimeAssets,
+)
 from encode_pipeline.persistence.runtime import open_run_persistence
+from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.execution import RunExecutionAssignment
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
@@ -42,6 +54,7 @@ from encode_pipeline.workers.jobs import (
     handle_work_horse_killed,
 )
 from encode_pipeline.workers.rq_queue import RqRunQueue
+from encode_pipeline.workers.runtime import open_worker_runtime
 from encode_pipeline.workers.settings import (
     QUEUE_NAME_ENV,
     REDIS_URL_ENV,
@@ -53,6 +66,97 @@ from .conftest import create_planned_run, worker_settings
 
 
 ARTIFACT_GENERATION = f"artifactgen-{'a' * 64}"
+
+
+def _verified_bulk_runtime_assets(root: Path) -> VerifiedRuntimeAssets:
+    return VerifiedRuntimeAssets(
+        root=root,
+        source_tree=root / "source/rnaseq",
+        nextflow_executable=root / "nextflow/nextflow-25.04.3-dist",
+        jdk_archive=root / "jdk/corretto.tar.gz",
+        jdk_tree=root / "jdk/corretto",
+        java_executable=root / "jdk/corretto/bin/java",
+        plugin_root=root / "plugins",
+        plugin_archive=root / "plugins/nf-schema-2.5.1.zip",
+        plugin_meta=root / "plugins/nf-schema-2.5.1-meta.json",
+        plugin_tree=root / "plugins/nf-schema-2.5.1",
+        container_lock=root / "containers/availability-lock.json",
+        containers=(),
+        source_tree_sha256="1" * 64,
+        runtime_identity_sha256="2" * 64,
+        nextflow_sha256="3" * 64,
+        jdk_archive_sha256="8" * 64,
+        jdk_tree_sha256="9" * 64,
+        java_executable_sha256="a" * 64,
+        plugin_archive_sha256="4" * 64,
+        plugin_tree_sha256="5" * 64,
+        container_inventory_sha256="6" * 64,
+        container_lock_sha256="7" * 64,
+    )
+
+
+def _bulk_execution_adapter(
+    runtime_root: Path,
+    transcript_fasta: Path,
+    *,
+    reference_fasta_sha256: str,
+    reference_gtf_sha256: str,
+) -> BulkRnaSeqResultsWorkflowAdapter:
+    transcript_contents = b">tx1\nACGT\n"
+    transcript_fasta.write_bytes(transcript_contents)
+    binding = BulkRnaSeqExecutionBinding(
+        assets=RuntimeAssetBinding(root=runtime_root),
+        transcriptome=BulkRnaSeqTranscriptomeBinding(
+            reference_id="tiny",
+            fasta_sha256=reference_fasta_sha256,
+            gtf_sha256=reference_gtf_sha256,
+            transcript_fasta=transcript_fasta,
+            transcript_fasta_sha256=hashlib.sha256(transcript_contents).hexdigest(),
+        ),
+    )
+    return BulkRnaSeqResultsWorkflowAdapter(execution=binding)
+
+
+def _bulk_execution_inputs(root: Path) -> tuple[WorkflowInputs, str, str]:
+    input_root = root / "bulk-inputs"
+    input_root.mkdir(parents=True)
+    reference_fasta = (input_root / "reference.fa").resolve()
+    reference_gtf = (input_root / "reference.gtf").resolve()
+    fastq = (input_root / "S1.fastq.gz").resolve()
+    reference_fasta.write_bytes(b">chr1\nACGT\n")
+    reference_gtf.write_bytes(b'chr1\ttest\texon\t1\t4\t.\t+\t.\tgene_id "g1";\n')
+    fastq.write_bytes(b"controlled-fastq")
+    fasta_sha256 = hashlib.sha256(reference_fasta.read_bytes()).hexdigest()
+    gtf_sha256 = hashlib.sha256(reference_gtf.read_bytes()).hexdigest()
+    return (
+        WorkflowInputs(
+            config={
+                "standard": {
+                    "reference": {
+                        "reference_id": "tiny",
+                        "fasta": str(reference_fasta),
+                        "fasta_sha256": fasta_sha256,
+                        "gtf": str(reference_gtf),
+                        "gtf_sha256": gtf_sha256,
+                    }
+                }
+            },
+            samples=[
+                {
+                    "sample": "S1",
+                    "library": "lib1",
+                    "lane": "L001",
+                    "layout": "SE",
+                    "fastq_1": str(fastq),
+                    "strandedness": "auto",
+                    "platform": "ILLUMINA",
+                }
+            ],
+            options={},
+        ),
+        fasta_sha256,
+        gtf_sha256,
+    )
 
 
 def _configure_worker_environment(
@@ -339,6 +443,106 @@ def test_rq_worker_persists_nonempty_qc_metrics_for_new_sqlite_reader(
     validate_qc_generation(qc_event.context["qc_generation"])
 
 
+def test_bulk_binding_survives_durable_worker_reconstruction_and_admission(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    runtime_root = (tmp_path / "bulk-runtime").resolve()
+    transcript_fasta = (tmp_path / "transcripts.fa").resolve()
+    inputs, reference_fasta_sha256, reference_gtf_sha256 = _bulk_execution_inputs(
+        tmp_path
+    )
+    verified_assets = _verified_bulk_runtime_assets(runtime_root)
+    monkeypatch.setattr(
+        RuntimeAssetAdmission,
+        "acquire",
+        lambda _self: Result.success(verified_assets),
+    )
+    api_adapter = _bulk_execution_adapter(
+        runtime_root,
+        transcript_fasta,
+        reference_fasta_sha256=reference_fasta_sha256,
+        reference_gtf_sha256=reference_gtf_sha256,
+    )
+    worker_adapter = _bulk_execution_adapter(
+        runtime_root,
+        transcript_fasta,
+        reference_fasta_sha256=reference_fasta_sha256,
+        reference_gtf_sha256=reference_gtf_sha256,
+    )
+    api_registry = WorkflowRegistry((api_adapter,))
+    worker_registry = WorkflowRegistry((worker_adapter,))
+    api_provider = WorkflowBuildIdentityProvider(api_registry)
+    worker_provider = WorkflowBuildIdentityProvider(worker_registry)
+    api_identity = api_provider.capture_executable("bulk-rnaseq")
+    worker_identity = worker_provider.capture_executable("bulk-rnaseq")
+    assert api_identity.is_success
+    assert worker_identity.is_success
+    assert api_identity.value.matches(worker_identity.value)
+    persistence = open_run_persistence(configured.database_url)
+    try:
+        service = create_default_run_service(
+            registry=api_registry,
+            repository=persistence.repository,
+        )
+        record = service.create_run("bulk-rnaseq", inputs)
+        service.transition_run(record.run_id, RunStatus.VALIDATING)
+        service.complete_preflight(record.run_id, api_identity.value)
+        assignment = service.ensure_execution_assignment(
+            record.run_id,
+            queue_name=configured.queue_name,
+        )
+    finally:
+        persistence.close()
+
+    worker_runner = ProcessRunner(allowed_executables=("/usr/bin/unshare",))
+    with open_worker_runtime(
+        configured,
+        registry=worker_registry,
+        build_identity_provider=worker_provider,
+        process_runner=worker_runner,
+    ) as runtime:
+        reconstructed = runtime.build_identity_provider.capture_executable(
+            "bulk-rnaseq"
+        )
+        assert reconstructed.is_success
+        assert api_identity.value.matches(reconstructed.value)
+        acquired = worker_jobs._initialize_execution_with_runtime(
+            runtime,
+            SimpleNamespace(
+                id=assignment.job_id,
+                origin=configured.queue_name,
+            ),
+            assignment.run_id,
+        )
+        assert acquired is True
+        assert runtime.run_service.get_run(assignment.run_id).status is RunStatus.QUEUED
+        persisted_assignment = runtime.run_service.get_execution_assignment(
+            assignment.run_id
+        )
+        assert persisted_assignment is not None
+        assert persisted_assignment.claimed_at is not None
+        events = runtime.run_service.list_events(assignment.run_id)
+        assert events[-1].event_type == "worker_dependencies_rebuilt"
+        assert events[-1].context["workflow_id"] == "bulk-rnaseq"
+        durable_plan = runtime.execution_planner.plan_run(assignment.run_id)
+        assert durable_plan.is_success
+        workspace = (tmp_path / "worker-rebuilt-workspace").resolve()
+        workspace_plan = runtime.workspace_planner.plan_workspace(
+            durable_plan.value,
+            base_dir=workspace,
+        )
+        assert workspace_plan.is_success
+        command = runtime.command_builder.build_command(
+            workspace_plan.value,
+            workspace,
+        )
+        assert command.is_success
+        assert command.value.command_spec.argv[0] == "/usr/bin/unshare"
+        assert worker_runner._admit_executable(command.value.command_spec).is_success
+
+
 def test_rq_worker_rejects_stale_job_identity_without_writing_handshake(
     tmp_path, monkeypatch
 ):
@@ -405,6 +609,10 @@ def test_rq_worker_fails_legacy_planned_run_without_build_before_claim(
     connection = fakeredis.FakeRedis()
     run_queue = RqRunQueue(configured, connection=connection)
     run_queue.enqueue_execution(assignment)
+    before_record, before_events, before_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
 
     assert _run_burst(connection, run_queue) is True
 
@@ -415,14 +623,9 @@ def test_rq_worker_fails_legacy_planned_run_without_build_before_claim(
     )
     assert job is not None
     assert job.is_failed
-    assert record.status is RunStatus.FAILED
-    assert record.error is not None
-    assert record.error.code == "RUN_WORKFLOW_BUILD_IDENTITY_MISSING"
-    assert events[-1].issue == record.error
-    assert events[-1].context["reason_code"] == record.error.code
-    assert persisted_assignment is not None
-    assert persisted_assignment.dispatched_at is not None
-    assert persisted_assignment.claimed_at is None
+    assert record == before_record
+    assert events == before_events
+    assert persisted_assignment == before_assignment
     assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
 
 
@@ -456,6 +659,10 @@ def test_rq_worker_rejects_project_a_build_on_project_b_before_process(
     connection = fakeredis.FakeRedis()
     run_queue = RqRunQueue(configured, connection=connection)
     run_queue.enqueue_execution(assignment)
+    before_record, before_events, before_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
 
     assert _run_burst(connection, run_queue) is True
 
@@ -466,14 +673,137 @@ def test_rq_worker_rejects_project_a_build_on_project_b_before_process(
     )
     assert job is not None
     assert job.is_failed
-    assert record.status is RunStatus.FAILED
-    assert record.error is not None
-    assert record.error.code == "RUN_WORKFLOW_BUILD_IDENTITY_MISMATCH"
-    assert events[-1].issue == record.error
-    assert events[-1].context["reason_code"] == record.error.code
-    assert persisted_assignment is not None
-    assert persisted_assignment.claimed_at is None
+    assert record == before_record
+    assert events == before_events
+    assert persisted_assignment == before_assignment
     assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
+
+
+def test_rq_worker_rejects_adapter_version_drift_before_any_worker_side_effect(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    registry = create_default_workflow_registry()
+    identity_result = WorkflowBuildIdentityProvider(registry).capture(
+        "encode-style-chipseq-cuttag-atac-mnase"
+    )
+    assert identity_result.is_success
+    current_identity = identity_result.value
+    assignment = create_planned_run(
+        configured,
+        "adapter-version-drift-run",
+        assign_queue=configured.queue_name,
+        build_identity=replace(
+            current_identity,
+            adapter_version=f"{current_identity.adapter_version}-stale",
+        ),
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+
+    before_record, before_events, before_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert before_record.status is RunStatus.PLANNED
+    assert before_assignment == assignment
+    assert before_assignment.dispatched_at is None
+    assert before_assignment.claimed_at is None
+
+    def fail_if_execution_rebuild_starts(*_args, **_kwargs):
+        raise AssertionError(
+            "LocalExecutionService must not rebuild or inspect the workspace "
+            "before adapter admission"
+        )
+
+    monkeypatch.setattr(
+        LocalExecutionService,
+        "execute",
+        fail_if_execution_rebuild_starts,
+    )
+    monkeypatch.setattr(ProcessRunner, "run", _fail_if_process_starts)
+    connection = fakeredis.FakeRedis()
+    run_queue = RqRunQueue(configured, connection=connection)
+    run_queue.enqueue_execution(assignment)
+
+    assert _run_burst(connection, run_queue) is True
+
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    record, events, persisted_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert job is not None
+    assert job.is_failed
+    assert record == before_record
+    assert events == before_events
+    assert persisted_assignment == before_assignment
+    assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
+
+
+def test_stale_worker_cannot_fail_queued_run_before_assignment_check(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    registry = create_default_workflow_registry()
+    identity_result = WorkflowBuildIdentityProvider(registry).capture_executable(
+        "encode-style-chipseq-cuttag-atac-mnase"
+    )
+    assert identity_result.is_success
+    assignment = create_planned_run(
+        configured,
+        "stale-build-drift-run",
+        assign_queue=configured.queue_name,
+        build_identity=replace(
+            identity_result.value,
+            adapter_version=f"{identity_result.value.adapter_version}-stale",
+        ),
+    )
+    assert assignment is not None
+    persistence = open_run_persistence(configured.database_url)
+    try:
+        service = create_default_run_service(
+            registry=create_default_workflow_registry(),
+            repository=persistence.repository,
+        )
+        service.mark_execution_dispatched(
+            assignment.run_id,
+            job_id=assignment.job_id,
+        )
+        service.queue_dispatched_run(
+            assignment.run_id,
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+    finally:
+        persistence.close()
+    _configure_worker_environment(monkeypatch, configured)
+    monkeypatch.setattr(ProcessRunner, "run", _fail_if_process_starts)
+    connection = fakeredis.FakeRedis()
+    run_queue = RqRunQueue(configured, connection=connection)
+    stale_assignment = replace(assignment, job_id="stale-build-drift-job")
+    run_queue.enqueue_execution(stale_assignment)
+    before_record, before_events, before_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert before_record.status is RunStatus.QUEUED
+
+    assert _run_burst(connection, run_queue) is True
+
+    job = run_queue._queue.fetch_job(stale_assignment.job_id)
+    record, events, persisted_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert job is not None
+    assert job.is_failed
+    assert record == before_record
+    assert events == before_events
+    assert persisted_assignment == before_assignment
 
 
 def test_rq_worker_fails_closed_when_local_build_cannot_be_fingerprinted(
@@ -506,6 +836,10 @@ def test_rq_worker_fails_closed_when_local_build_cannot_be_fingerprinted(
     connection = fakeredis.FakeRedis()
     run_queue = RqRunQueue(configured, connection=connection)
     run_queue.enqueue_execution(assignment)
+    before_record, before_events, before_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
 
     assert _run_burst(connection, run_queue) is True
 
@@ -516,13 +850,9 @@ def test_rq_worker_fails_closed_when_local_build_cannot_be_fingerprinted(
     )
     assert job is not None
     assert job.is_failed
-    assert record.status is RunStatus.FAILED
-    assert record.error is not None
-    assert record.error.code == "RUN_WORKFLOW_BUILD_IDENTITY_UNAVAILABLE"
-    assert events[-1].issue == record.error
-    assert events[-1].context["reason_code"] == record.error.code
-    assert persisted_assignment is not None
-    assert persisted_assignment.claimed_at is None
+    assert record == before_record
+    assert events == before_events
+    assert persisted_assignment == before_assignment
     assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
 
 

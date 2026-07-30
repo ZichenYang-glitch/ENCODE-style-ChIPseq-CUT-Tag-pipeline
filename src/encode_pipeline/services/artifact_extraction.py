@@ -201,7 +201,7 @@ class ArtifactExtractionService:
         persisted = self._run_service.get_workflow_build_identity(run_id)
         if persisted is None:
             return False
-        current = self._build_identity_provider.capture(workflow_id)
+        current = self._build_identity_provider.capture_executable(workflow_id)
         return current.is_success and persisted.matches(current.value)
 
     @staticmethod

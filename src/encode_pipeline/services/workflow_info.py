@@ -13,7 +13,10 @@ from encode_pipeline.platform.adapters import (
     WorkflowSchema,
     WorkflowUpstreamIdentityProvidingAdapter,
 )
-from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.registry import (
+    WorkflowRegistry,
+    declares_workflow_execution,
+)
 from encode_pipeline.platform.results import Issue, Result
 
 
@@ -47,8 +50,15 @@ class WorkflowInfoService:
         adapter = result.value
         try:
             schema_version = adapter.schema().schema_version
-            availability = resolve_workflow_availability(adapter)
-            capabilities = effective_workflow_capabilities(adapter, availability)
+            availability = resolve_workflow_availability(
+                adapter,
+                registry=self._registry,
+            )
+            capabilities = effective_workflow_capabilities(
+                adapter,
+                availability,
+                registry=self._registry,
+            )
             upstream_identity = (
                 adapter.upstream_identity
                 if isinstance(adapter, WorkflowUpstreamIdentityProvidingAdapter)
@@ -110,10 +120,24 @@ class WorkflowInfoService:
             )
 
 
-def resolve_workflow_availability(adapter: WorkflowAdapter) -> WorkflowAvailability:
+def resolve_workflow_availability(
+    adapter: WorkflowAdapter,
+    *,
+    registry: WorkflowRegistry | None = None,
+) -> WorkflowAvailability:
     """Return current safe availability, failing closed for provider faults."""
+    declares_execution = declares_workflow_execution(adapter)
     if not isinstance(adapter, WorkflowAvailabilityProvidingAdapter):
-        return WorkflowAvailability()
+        if registry is not None and registry.uses_encode_execution_fallback(adapter):
+            return WorkflowAvailability()
+        return WorkflowAvailability(
+            execution=("unavailable" if declares_execution else "not_configured"),
+            reason_code=(
+                "WORKFLOW_EXECUTION_UNAVAILABLE"
+                if declares_execution
+                else "WORKFLOW_EXECUTION_NOT_CONFIGURED"
+            ),
+        )
     try:
         availability = adapter.execution_availability()
     except Exception:
@@ -123,15 +147,25 @@ def resolve_workflow_availability(adapter: WorkflowAdapter) -> WorkflowAvailabil
             execution="unavailable",
             reason_code="WORKFLOW_EXECUTION_UNAVAILABLE",
         )
+    if not declares_execution and availability.execution == "available":
+        return WorkflowAvailability(
+            execution="not_configured",
+            reason_code="WORKFLOW_EXECUTION_NOT_CONFIGURED",
+        )
     return availability
 
 
 def effective_workflow_capabilities(
     adapter: WorkflowAdapter,
     availability: WorkflowAvailability | None = None,
+    *,
+    registry: WorkflowRegistry | None = None,
 ) -> WorkflowCapabilities:
     """Hide execution capabilities unless current admission is available."""
-    current = availability or resolve_workflow_availability(adapter)
+    current = availability or resolve_workflow_availability(
+        adapter,
+        registry=registry,
+    )
     if current.execution == "available":
         return adapter.capabilities
     return WorkflowCapabilities(

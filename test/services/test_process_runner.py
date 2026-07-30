@@ -159,6 +159,16 @@ def test_process_runner_rejects_executable_not_in_allowlist():
     assert issue.source == "process_runner"
 
 
+def test_process_runner_rejects_invalid_callback_before_executable_allowlist():
+    runner = ProcessRunner(allowed_executables=("snakemake",))
+    spec = CommandSpec(argv=("python", "-c", "print(1)"))
+
+    result = runner.run(spec, output_callback="not-callable")
+
+    assert result.is_failure is True
+    assert result.issues[0].code == "PROCESS_RUNNER_INVALID_OUTPUT_CALLBACK"
+
+
 def test_process_runner_allows_executable_in_allowlist():
     runner = _make_runner()
     spec = CommandSpec(argv=(sys.executable, "-c", "print(42)"))

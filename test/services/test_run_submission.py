@@ -413,7 +413,7 @@ def test_start_fails_closed_when_execution_admission_becomes_unavailable(
     monkeypatch.setattr(
         run_submission_module,
         "resolve_workflow_availability",
-        lambda _adapter: type(
+        lambda _adapter, **_kwargs: type(
             "Unavailable",
             (),
             {"execution": "unavailable"},
@@ -424,6 +424,71 @@ def test_start_fails_closed_when_execution_admission_becomes_unavailable(
         submission.start_run("run-1")
 
     assert run_service.get_execution_assignment("run-1") is None
+    assert queue.assignments == []
+
+
+def test_queued_retry_rechecks_execution_availability_before_enqueue(
+    monkeypatch,
+) -> None:
+    run_service = _service()
+    _planned_run(run_service)
+    queue = RecordingRunQueue()
+    submission = _submission(run_service, queue)
+    submission.start_run("run-1")
+    queue.assignments.clear()
+    before_record = run_service.get_run("run-1")
+    before_events = run_service.list_events("run-1")
+    before_assignment = run_service.get_execution_assignment("run-1")
+    monkeypatch.setattr(
+        run_submission_module,
+        "resolve_workflow_availability",
+        lambda _adapter, **_kwargs: type(
+            "Unavailable",
+            (),
+            {"execution": "unavailable"},
+        )(),
+    )
+
+    with pytest.raises(RunExecutionUnavailableError):
+        submission.start_run("run-1")
+
+    assert run_service.get_run("run-1") == before_record
+    assert run_service.list_events("run-1") == before_events
+    assert run_service.get_execution_assignment("run-1") == before_assignment
+    assert queue.assignments == []
+
+
+def test_queued_retry_rechecks_build_identity_before_enqueue(monkeypatch) -> None:
+    run_service = _service()
+    _planned_run(run_service)
+    queue = RecordingRunQueue()
+    provider = create_default_workflow_build_identity_provider(
+        registry=run_service.registry
+    )
+    submission = RunSubmissionService(
+        run_service,
+        queue,
+        build_identity_provider=provider,
+    )
+    submission.start_run("run-1")
+    queue.assignments.clear()
+    persisted = run_service.get_workflow_build_identity("run-1")
+    assert persisted is not None
+    before_record = run_service.get_run("run-1")
+    before_events = run_service.list_events("run-1")
+    before_assignment = run_service.get_execution_assignment("run-1")
+    monkeypatch.setattr(
+        provider,
+        "capture",
+        lambda _workflow_id: Result.success(replace(persisted, digest="f" * 64)),
+    )
+
+    with pytest.raises(RunWorkflowBuildChangedError):
+        submission.start_run("run-1")
+
+    assert run_service.get_run("run-1") == before_record
+    assert run_service.list_events("run-1") == before_events
+    assert run_service.get_execution_assignment("run-1") == before_assignment
     assert queue.assignments == []
 
 

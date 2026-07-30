@@ -8,6 +8,7 @@ from pathlib import Path
 
 from encode_pipeline.platform.adapters import (
     CommandSpec,
+    WorkflowAvailability,
     WorkflowCapabilities,
     WorkflowMetadata,
 )
@@ -45,6 +46,48 @@ class _IdentityAdapter:
 
     def capture_build_identity(self):
         return self._callback()
+
+
+class _AvailabilityIdentityAdapter(_IdentityAdapter):
+    def __init__(self, callback, *, execution: str) -> None:
+        super().__init__(callback)
+        self.capabilities = WorkflowCapabilities(
+            supports=(
+                "validation",
+                "input_authoring",
+                "workspace_plan",
+                "command",
+            )
+        )
+        self._execution = execution
+
+    def execution_availability(self) -> WorkflowAvailability:
+        reason_code = {
+            "available": "WORKFLOW_EXECUTION_READY",
+            "not_configured": "WORKFLOW_EXECUTION_NOT_CONFIGURED",
+            "unavailable": "WORKFLOW_EXECUTION_UNAVAILABLE",
+        }[self._execution]
+        return WorkflowAvailability(
+            execution=self._execution,
+            reason_code=reason_code,
+        )
+
+
+class _SnakemakeAdapterWithoutIdentity:
+    metadata = WorkflowMetadata(
+        workflow_id="other-snakemake",
+        name="Other Snakemake",
+        version="1.0.0",
+        engines=("snakemake",),
+    )
+    capabilities = WorkflowCapabilities(supports=("validation",))
+
+    def schema(self): ...
+    def validate(self, inputs): ...
+    def preview_dag(self, inputs): ...
+    def plan_workspace(self, inputs, workspace): ...
+    def build_command(self, plan, workspace): ...
+    def extract_artifacts(self, inputs, workspace): ...
 
 
 def _adapter_identity(**overrides) -> WorkflowBuildIdentity:
@@ -100,6 +143,57 @@ def test_build_identity_delegates_to_adapter_without_reading_project_root(tmp_pa
 
     assert result.is_success
     assert result.value is identity
+
+
+def test_executable_adapter_identity_requires_current_execution_availability(
+    tmp_path,
+):
+    adapter = _AvailabilityIdentityAdapter(
+        lambda: Result.success(_adapter_identity()),
+        execution="unavailable",
+    )
+    provider = WorkflowBuildIdentityProvider(
+        WorkflowRegistry([adapter]),
+        project_root=tmp_path.resolve(),
+    )
+
+    result = provider.capture_executable(adapter.metadata.workflow_id)
+
+    assert result.is_failure
+    assert result.issues[0].code == "WORKFLOW_BUILD_SOURCE_UNAVAILABLE"
+
+
+def test_executable_adapter_identity_accepts_available_adapter_owned_identity(
+    tmp_path,
+):
+    identity = _adapter_identity()
+    adapter = _AvailabilityIdentityAdapter(
+        lambda: Result.success(identity),
+        execution="available",
+    )
+    provider = WorkflowBuildIdentityProvider(
+        WorkflowRegistry([adapter]),
+        project_root=tmp_path.resolve(),
+    )
+
+    result = provider.capture_executable(adapter.metadata.workflow_id)
+
+    assert result.is_success
+    assert result.value is identity
+
+
+def test_non_encode_adapter_cannot_inherit_encode_source_identity(tmp_path):
+    root = _project(tmp_path / "project")
+    adapter = _SnakemakeAdapterWithoutIdentity()
+    provider = WorkflowBuildIdentityProvider(
+        WorkflowRegistry([adapter]),
+        project_root=root,
+    )
+
+    result = provider.capture(adapter.metadata.workflow_id)
+
+    assert result.is_failure
+    assert result.issues[0].code == "WORKFLOW_BUILD_SOURCE_UNAVAILABLE"
 
 
 def test_build_identity_rejects_mismatched_adapter_identity(tmp_path):

@@ -15,6 +15,7 @@ from encode_pipeline.adapters.bulk_rnaseq.deployment import (
     load_default_bulk_rnaseq_adapter,
 )
 from encode_pipeline.platform.adapters import WorkflowAvailability
+from encode_pipeline.services.defaults import create_default_workflow_registry
 from encode_pipeline.services.workflow_info import WorkflowInfoService
 from encode_pipeline.platform.registry import WorkflowRegistry
 
@@ -54,6 +55,14 @@ def _enable_exact_head_qualification(monkeypatch):
     )
 
 
+def _disable_exact_head_qualification(monkeypatch):
+    monkeypatch.setattr(
+        "encode_pipeline.adapters.bulk_rnaseq.deployment."
+        "_DEFAULT_EXECUTION_EXACT_HEAD_QUALIFIED",
+        False,
+    )
+
+
 def test_absent_coordinates_keep_authoring_available_and_execution_not_configured():
     adapter = load_default_bulk_rnaseq_adapter({})
 
@@ -80,6 +89,7 @@ def test_complete_coordinates_remain_unavailable_until_exact_head_qualification(
     tmp_path,
     monkeypatch,
 ):
+    _disable_exact_head_qualification(monkeypatch)
     manifest_reads = 0
 
     def record_manifest_read(_path):
@@ -108,7 +118,11 @@ def test_complete_coordinates_remain_unavailable_until_exact_head_qualification(
     assert private_root not in repr(adapter)
 
 
-def test_pending_qualification_checks_coordinate_keys_without_reading_values():
+def test_pending_qualification_checks_coordinate_keys_without_reading_values(
+    monkeypatch,
+):
+    _disable_exact_head_qualification(monkeypatch)
+
     class KeysOnlyCoordinates(Mapping[str, str]):
         def __iter__(self) -> Iterator[str]:
             return iter(
@@ -130,6 +144,34 @@ def test_pending_qualification_checks_coordinate_keys_without_reading_values():
 
     assert adapter.execution_availability().execution == "unavailable"
     assert local_execution_configuration(adapter) is None
+
+
+def test_source_enabled_complete_coordinates_project_ready_default_registry(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        BulkRnaSeqResultsWorkflowAdapter,
+        "execution_availability",
+        lambda _self: WorkflowAvailability(),
+    )
+
+    registry = create_default_workflow_registry(environ=_environment(tmp_path))
+    descriptor = WorkflowInfoService(registry).get_descriptor("bulk-rnaseq")
+
+    assert descriptor.is_success
+    assert descriptor.value is not None
+    assert descriptor.value.availability.to_dict() == {
+        "authoring": "available",
+        "execution": "available",
+        "reason_code": "WORKFLOW_EXECUTION_READY",
+    }
+    assert {
+        "workspace_plan",
+        "command",
+        "artifact_extract",
+        "qc_summary_extract",
+    } <= set(descriptor.value.capabilities.supports)
 
 
 def test_malformed_binding_manifest_fails_closed(tmp_path, monkeypatch):

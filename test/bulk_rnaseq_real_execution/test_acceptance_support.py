@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 from hashlib import sha256
+from importlib import util as importlib_util
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -24,7 +28,6 @@ from encode_pipeline.adapters.bulk_rnaseq.resource_closure import (
     verify_sortmerna_index,
 )
 from encode_pipeline.services.defaults import create_default_workflow_registry
-from scripts.generate_bulk_rnaseq_tiny_fixture import _reference_index_sidecar
 
 from . import support as support_module
 from .support import (
@@ -42,6 +45,12 @@ from .support import (
 )
 
 
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_FIXTURE_GENERATOR_PATH = (
+    _REPOSITORY_ROOT / "scripts" / "generate_bulk_rnaseq_tiny_fixture.py"
+)
+_FIXTURE_GENERATOR_MODULE_NAME = "_helixweave_bulk_rnaseq_acceptance_fixture_generator"
+_MISSING_MODULE = object()
 _HEX_A = "a" * 64
 _HEX_B = "b" * 64
 _HEX_C = "c" * 64
@@ -49,6 +58,53 @@ _HEX_D = "d" * 64
 _HEX_E = "e" * 64
 _HEX_F = "f" * 64
 _GIT_SHA1 = "a" * 40
+
+
+def _load_fixture_generator() -> ModuleType:
+    try:
+        status = _FIXTURE_GENERATOR_PATH.lstat()
+        resolved = _FIXTURE_GENERATOR_PATH.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise RuntimeError("fixture generator source is unavailable") from error
+    if (
+        not stat.S_ISREG(status.st_mode)
+        or _FIXTURE_GENERATOR_PATH.is_symlink()
+        or resolved != _FIXTURE_GENERATOR_PATH
+        or resolved.parent != _REPOSITORY_ROOT / "scripts"
+    ):
+        raise RuntimeError("fixture generator source is not a fixed regular file")
+
+    spec = importlib_util.spec_from_file_location(
+        _FIXTURE_GENERATOR_MODULE_NAME,
+        resolved,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("fixture generator source cannot be loaded")
+    module = importlib_util.module_from_spec(spec)
+    previous_module = sys.modules.get(
+        _FIXTURE_GENERATOR_MODULE_NAME,
+        _MISSING_MODULE,
+    )
+    original_sys_path = sys.path
+    original_sys_path_entries = tuple(sys.path)
+    sys.modules[_FIXTURE_GENERATOR_MODULE_NAME] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if sys.path is not original_sys_path:
+            sys.path = original_sys_path
+        sys.path[:] = original_sys_path_entries
+        if previous_module is _MISSING_MODULE:
+            sys.modules.pop(_FIXTURE_GENERATOR_MODULE_NAME, None)
+        else:
+            sys.modules[_FIXTURE_GENERATOR_MODULE_NAME] = previous_module
+    return module
+
+
+_reference_index_sidecar = getattr(
+    _load_fixture_generator(),
+    "_reference_index_sidecar",
+)
 
 
 def _gate_environment(tmp_path: Path) -> dict[str, str]:
@@ -71,6 +127,108 @@ def _gate_environment(tmp_path: Path) -> dict[str, str]:
         "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET": str(socket_path),
     }
     return environment
+
+
+def test_fixture_generator_loader_is_path_fixed_and_state_neutral() -> None:
+    before_path = tuple(sys.path)
+    previous_module = sys.modules.get(
+        _FIXTURE_GENERATOR_MODULE_NAME,
+        _MISSING_MODULE,
+    )
+
+    module = _load_fixture_generator()
+
+    assert module.__file__ == str(_FIXTURE_GENERATOR_PATH)
+    assert callable(module._reference_index_sidecar)
+    assert tuple(sys.path) == before_path
+    if previous_module is _MISSING_MODULE:
+        assert _FIXTURE_GENERATOR_MODULE_NAME not in sys.modules
+    else:
+        assert sys.modules[_FIXTURE_GENERATOR_MODULE_NAME] is previous_module
+
+
+def test_fixture_generator_loader_restores_state_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sentinel = ModuleType(_FIXTURE_GENERATOR_MODULE_NAME)
+    monkeypatch.setitem(
+        sys.modules,
+        _FIXTURE_GENERATOR_MODULE_NAME,
+        sentinel,
+    )
+    before_path = tuple(sys.path)
+
+    class FailingLoader:
+        @staticmethod
+        def exec_module(module: ModuleType) -> None:
+            assert sys.modules[_FIXTURE_GENERATOR_MODULE_NAME] is module
+            sys.path.insert(0, "/untrusted-test-path")
+            raise RuntimeError("simulated fixture generator failure")
+
+    fake_spec = SimpleNamespace(
+        name=_FIXTURE_GENERATOR_MODULE_NAME,
+        loader=FailingLoader(),
+    )
+    monkeypatch.setattr(
+        importlib_util,
+        "spec_from_file_location",
+        lambda *_args: fake_spec,
+    )
+    monkeypatch.setattr(
+        importlib_util,
+        "module_from_spec",
+        lambda spec: ModuleType(spec.name),
+    )
+
+    with pytest.raises(RuntimeError, match="simulated fixture generator failure"):
+        _load_fixture_generator()
+
+    assert tuple(sys.path) == before_path
+    assert sys.modules[_FIXTURE_GENERATOR_MODULE_NAME] is sentinel
+
+
+def test_canonical_isolated_bulk_selection_collects_all_gate_cases() -> None:
+    environment = os.environ.copy()
+    for name in (
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "PYTEST_ADDOPTS",
+        "PYTEST_PLUGINS",
+    ):
+        environment.pop(name, None)
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-S",
+            "scripts/checkout_bootstrap.py",
+            "--repository-root",
+            ".",
+            "pytest",
+            "--collect-only",
+            "-m",
+            "bulk_rnaseq_real_execution",
+            "test/bulk_rnaseq_real_execution",
+            "-ra",
+        ],
+        cwd=_REPOSITORY_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "4 selected" in result.stdout
+    for test_name in (
+        "test_controlled_tiny_rapid_quant_nextflow_container_gate",
+        "test_controlled_tiny_star_salmon_sortmerna_platform_acceptance",
+        "test_real_container_execution_is_truthfully_cancelled_and_reaped",
+        "test_real_nextflow_timeout_persists_failure_and_reaps_execution_tree",
+    ):
+        assert test_name in result.stdout
 
 
 def _fixture_document(fixture_root: Path) -> dict[str, object]:

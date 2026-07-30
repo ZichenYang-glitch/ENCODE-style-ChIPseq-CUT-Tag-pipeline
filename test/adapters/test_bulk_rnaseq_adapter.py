@@ -1572,8 +1572,10 @@ def test_non_json_config_values_fail_closed_without_exceptions(config):
 
 
 def test_bulk_and_encode_adapters_coexist_in_explicit_test_registry():
+    encode_adapter = EncodeStyleWorkflowAdapter()
     registry = WorkflowRegistry(
-        (EncodeStyleWorkflowAdapter(), BulkRnaSeqWorkflowAdapter())
+        (encode_adapter, BulkRnaSeqWorkflowAdapter()),
+        legacy_execution_fallbacks=(encode_adapter,),
     )
 
     assert [item.workflow_id for item in registry.list_metadata()] == [

@@ -1,18 +1,22 @@
 """Tests for the ExecutionPlanner service boundary."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
 from encode_pipeline.platform.adapters import (
+    CommandSpec,
     DagPreview,
     WorkspacePlan,
+    WorkflowAvailability,
     WorkflowCapabilities,
     WorkflowInputs,
     WorkflowMetadata,
     WorkflowSchema,
 )
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
@@ -20,15 +24,34 @@ from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 from encode_pipeline.services.runs import RunService
 
 
+class _AvailableBuildIdentity:
+    def execution_availability(self):
+        return WorkflowAvailability()
+
+    def capture_build_identity(self):
+        return Result.success(
+            WorkflowBuildIdentity(
+                workflow_id=self.metadata.workflow_id,
+                adapter_version=self.metadata.version,
+                scheme="execution-planner-v1",
+                logical_entrypoint="planner/main",
+                digest="a" * 64,
+                captured_at=datetime.now(timezone.utc),
+            )
+        )
+
+
 @pytest.fixture
 def fake_adapter():
-    class _FakeAdapter:
+    class _FakeAdapter(_AvailableBuildIdentity):
         metadata = WorkflowMetadata(
             workflow_id="stub",
             name="Stub Workflow",
             version="0.0.1",
         )
-        capabilities = WorkflowCapabilities(supports=("workspace_plan",))
+        capabilities = WorkflowCapabilities(
+            supports=("validation", "workspace_plan", "command")
+        )
 
         def schema(self) -> WorkflowSchema:
             return WorkflowSchema()
@@ -48,7 +71,11 @@ def fake_adapter():
                 WorkspacePlan(directories=("logs", "results"), files=())
             )
 
-        def build_command(self, plan: WorkspacePlan) -> Result[object]:
+        def build_command(
+            self,
+            plan: WorkspacePlan,
+            workspace: str | Path,
+        ) -> Result[CommandSpec]:
             raise AssertionError("ExecutionPlanner must not call build_command")
 
         def extract_artifacts(self, inputs, workspace):
@@ -256,7 +283,11 @@ def test_workspace_planner_preserves_one_adapter_deprecation_warning(tmp_path):
         ).to_dict(),
     )
 
-    result = WorkspacePlanner(WorkflowRegistry([adapter])).plan_workspace(
+    registry = WorkflowRegistry(
+        [adapter],
+        legacy_execution_fallbacks=(adapter,),
+    )
+    result = WorkspacePlanner(registry).plan_workspace(
         plan,
         base_dir=(tmp_path / "workspace").resolve(),
     )
@@ -449,13 +480,15 @@ def test_workspace_planner_fails_on_malformed_inputs_snapshot_invalid_samples_ty
 def test_workspace_planner_delegates_to_adapter_and_preserves_info_issue(
     run_service, tmp_path
 ):
-    class _CustomAdapter:
+    class _CustomAdapter(_AvailableBuildIdentity):
         metadata = WorkflowMetadata(
             workflow_id="stub",
             name="Stub",
             version="0.0.1",
         )
-        capabilities = WorkflowCapabilities(supports=("workspace_plan",))
+        capabilities = WorkflowCapabilities(
+            supports=("validation", "workspace_plan", "command")
+        )
 
         def schema(self):
             return WorkflowSchema()
@@ -487,7 +520,7 @@ def test_workspace_planner_delegates_to_adapter_and_preserves_info_issue(
                 ],
             )
 
-        def build_command(self, plan):
+        def build_command(self, plan, workspace):
             from encode_pipeline.platform.results import Result
 
             return Result.failure([])
@@ -587,13 +620,15 @@ def test_workspace_planner_fails_when_workflow_not_in_registry(run_service, tmp_
 def test_workspace_planner_rejects_adapter_returned_absolute_path(
     run_service, tmp_path
 ):
-    class _BadAdapter:
+    class _BadAdapter(_AvailableBuildIdentity):
         metadata = WorkflowMetadata(
             workflow_id="stub",
             name="Stub",
             version="0.0.1",
         )
-        capabilities = WorkflowCapabilities(supports=("workspace_plan",))
+        capabilities = WorkflowCapabilities(
+            supports=("validation", "workspace_plan", "command")
+        )
 
         def schema(self):
             return WorkflowSchema()
@@ -613,7 +648,7 @@ def test_workspace_planner_rejects_adapter_returned_absolute_path(
 
             return Result.success(WorkspacePlan(files=(("/etc/passwd", b"x"),)))
 
-        def build_command(self, plan):
+        def build_command(self, plan, workspace):
             from encode_pipeline.platform.results import Result
 
             return Result.failure([])
@@ -643,13 +678,15 @@ def test_workspace_planner_rejects_adapter_returned_absolute_path(
 def test_workspace_planner_rejects_adapter_returned_traversal_path(
     run_service, tmp_path
 ):
-    class _BadAdapter:
+    class _BadAdapter(_AvailableBuildIdentity):
         metadata = WorkflowMetadata(
             workflow_id="stub",
             name="Stub",
             version="0.0.1",
         )
-        capabilities = WorkflowCapabilities(supports=("workspace_plan",))
+        capabilities = WorkflowCapabilities(
+            supports=("validation", "workspace_plan", "command")
+        )
 
         def schema(self):
             return WorkflowSchema()
@@ -669,7 +706,7 @@ def test_workspace_planner_rejects_adapter_returned_traversal_path(
 
             return Result.success(WorkspacePlan(files=(("../escape", b"x"),)))
 
-        def build_command(self, plan):
+        def build_command(self, plan, workspace):
             from encode_pipeline.platform.results import Result
 
             return Result.failure([])
