@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+from dataclasses import replace
 import json
 
 from encode_pipeline.adapters.bulk_rnaseq import BulkRnaSeqResultsWorkflowAdapter
@@ -14,10 +15,20 @@ from encode_pipeline.adapters.bulk_rnaseq.deployment import (
     local_execution_configuration,
     load_default_bulk_rnaseq_adapter,
 )
+from encode_pipeline.adapters.bulk_rnaseq.execution_identity import (
+    verify_execution_implementation,
+)
+from encode_pipeline.adapters.bulk_rnaseq.qualification import (
+    load_default_execution_qualification,
+)
 from encode_pipeline.platform.adapters import WorkflowAvailability
+from encode_pipeline.platform.results import Result
 from encode_pipeline.services.defaults import create_default_workflow_registry
 from encode_pipeline.services.workflow_info import WorkflowInfoService
 from encode_pipeline.platform.registry import WorkflowRegistry
+
+
+UNTRUSTED_QUALIFICATION_ENV = "HELIXWEAVE_BULK_RNASEQ_EXECUTION_QUALIFIED"
 
 
 def _manifest(tmp_path):
@@ -47,22 +58,6 @@ def _environment(tmp_path):
     }
 
 
-def _enable_exact_head_qualification(monkeypatch):
-    monkeypatch.setattr(
-        "encode_pipeline.adapters.bulk_rnaseq.deployment."
-        "_DEFAULT_EXECUTION_EXACT_HEAD_QUALIFIED",
-        True,
-    )
-
-
-def _disable_exact_head_qualification(monkeypatch):
-    monkeypatch.setattr(
-        "encode_pipeline.adapters.bulk_rnaseq.deployment."
-        "_DEFAULT_EXECUTION_EXACT_HEAD_QUALIFIED",
-        False,
-    )
-
-
 def test_absent_coordinates_keep_authoring_available_and_execution_not_configured():
     adapter = load_default_bulk_rnaseq_adapter({})
 
@@ -85,23 +80,32 @@ def test_partial_coordinates_fail_closed_without_exposing_coordinate_values(tmp_
     assert private_root not in repr(availability)
 
 
-def test_complete_coordinates_remain_unavailable_until_exact_head_qualification(
+def test_missing_source_candidate_cannot_be_overridden_by_environment(
     tmp_path,
     monkeypatch,
 ):
-    _disable_exact_head_qualification(monkeypatch)
     manifest_reads = 0
 
     def record_manifest_read(_path):
         nonlocal manifest_reads
         manifest_reads += 1
-        raise AssertionError("pending qualification must fail before private reads")
+        raise AssertionError("missing qualification must fail before private reads")
 
     monkeypatch.setattr(
         "encode_pipeline.adapters.bulk_rnaseq.deployment._load_transcriptome_binding",
         record_manifest_read,
     )
+
+    def missing_candidate():
+        raise OSError("source candidate is missing")
+
+    monkeypatch.setattr(
+        "encode_pipeline.adapters.bulk_rnaseq.qualification."
+        "_read_qualification_resource",
+        missing_candidate,
+    )
     environment = _environment(tmp_path)
+    environment[UNTRUSTED_QUALIFICATION_ENV] = "true"
     private_root = environment[RUNTIME_ROOT_ENV]
 
     adapter = load_default_bulk_rnaseq_adapter(environment)
@@ -118,10 +122,17 @@ def test_complete_coordinates_remain_unavailable_until_exact_head_qualification(
     assert private_root not in repr(adapter)
 
 
-def test_pending_qualification_checks_coordinate_keys_without_reading_values(
+def test_stale_source_candidate_checks_keys_without_reading_private_values(
     monkeypatch,
 ):
-    _disable_exact_head_qualification(monkeypatch)
+    implementation = verify_execution_implementation()
+    assert implementation.is_success
+    stale = replace(implementation.value, aggregate_sha256="0" * 64)
+    monkeypatch.setattr(
+        "encode_pipeline.adapters.bulk_rnaseq.deployment."
+        "verify_execution_implementation",
+        lambda: Result.success(stale),
+    )
 
     class KeysOnlyCoordinates(Mapping[str, str]):
         def __iter__(self) -> Iterator[str]:
@@ -131,14 +142,15 @@ def test_pending_qualification_checks_coordinate_keys_without_reading_values(
                     TRANSCRIPTOME_BINDING_MANIFEST_ENV,
                     MANAGED_DOCKER_EXECUTABLE_ENV,
                     MANAGED_DOCKER_SOCKET_ENV,
+                    UNTRUSTED_QUALIFICATION_ENV,
                 )
             )
 
         def __len__(self) -> int:
-            return 4
+            return 5
 
         def __getitem__(self, _key: str) -> str:
-            raise AssertionError("pending qualification must not read private values")
+            raise AssertionError("stale qualification must not read private values")
 
     adapter = load_default_bulk_rnaseq_adapter(KeysOnlyCoordinates())
 
@@ -174,8 +186,7 @@ def test_source_enabled_complete_coordinates_project_ready_default_registry(
     } <= set(descriptor.value.capabilities.supports)
 
 
-def test_malformed_binding_manifest_fails_closed(tmp_path, monkeypatch):
-    _enable_exact_head_qualification(monkeypatch)
+def test_malformed_binding_manifest_fails_closed(tmp_path):
     environment = _environment(tmp_path)
     manifest = tmp_path / "transcriptome-binding.json"
     manifest.write_text('{"schema_version":"1.0.0","private_path":"/secret"}')
@@ -186,11 +197,16 @@ def test_malformed_binding_manifest_fails_closed(tmp_path, monkeypatch):
     assert adapter.capabilities.supports == ("validation", "input_authoring")
 
 
-def test_complete_coordinates_declare_execution_only_after_admission(
+def test_exact_source_candidate_composes_adapter_that_can_report_ready(
     tmp_path,
     monkeypatch,
 ):
-    _enable_exact_head_qualification(monkeypatch)
+    implementation = verify_execution_implementation()
+    assert implementation.is_success
+    qualification = load_default_execution_qualification(implementation.value)
+    assert qualification.is_success
+    assert qualification.value.implementation.matches(implementation.value)
+
     monkeypatch.setattr(
         BulkRnaSeqResultsWorkflowAdapter,
         "execution_availability",
@@ -210,13 +226,16 @@ def test_complete_coordinates_declare_execution_only_after_admission(
     )
     assert adapter.execution_binding is not None
     assert adapter.execution_binding.assets.root == (tmp_path / "runtime").resolve()
+    assert (
+        adapter.execution_binding.implementation_qualification
+        == qualification.value.implementation
+    )
 
 
 def test_failed_admission_is_rechecked_without_declaring_public_execution_capabilities(
     tmp_path,
     monkeypatch,
 ):
-    _enable_exact_head_qualification(monkeypatch)
     ready = False
 
     def current_availability(_self):
@@ -256,8 +275,6 @@ def test_failed_admission_is_rechecked_without_declaring_public_execution_capabi
 
 
 def test_unexpected_admission_error_fails_closed(tmp_path, monkeypatch):
-    _enable_exact_head_qualification(monkeypatch)
-
     def raise_private_error(_path):
         raise RuntimeError("private runtime coordinate must not escape")
 

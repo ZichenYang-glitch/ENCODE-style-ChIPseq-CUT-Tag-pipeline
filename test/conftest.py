@@ -102,6 +102,24 @@ def repo_root():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+@pytest.fixture
+def bulk_rnaseq_qualifications():
+    """Return explicit synthetic qualification for composition-only tests."""
+    from encode_pipeline.adapters.bulk_rnaseq.execution_identity import (
+        ExecutionImplementationQualification,
+    )
+
+    return {
+        "implementation_qualification": ExecutionImplementationQualification(
+            manifest_sha256="1" * 64,
+            aggregate_sha256="2" * 64,
+            file_count=1,
+            persistence_contract_version="1.0.0",
+            persistence_contract_sha256="3" * 64,
+        ),
+    }
+
+
 @pytest.fixture(scope="session")
 def snakefile(repo_root):
     """Return the path to the workflow Snakefile."""

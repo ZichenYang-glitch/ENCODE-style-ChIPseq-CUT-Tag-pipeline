@@ -18,11 +18,12 @@ from encode_pipeline.adapters.bulk_rnaseq import (
     RuntimeAssetBinding,
 )
 from encode_pipeline.adapters.bulk_rnaseq.execution_identity import (
-    VerifiedExecutionImplementation,
+    verify_execution_implementation,
 )
 from encode_pipeline.adapters.bulk_rnaseq.qualification import (
     RAPID_QUANT_MODE_OWNED_PARAMETERS,
     RAPID_QUANT_PROFILE_OWNED_PARAMETERS,
+    load_default_execution_qualification,
 )
 from encode_pipeline.adapters.bulk_rnaseq.reference_closure import (
     REFERENCE_INDEX_MANIFEST,
@@ -114,10 +115,6 @@ def _inputs(
 @pytest.fixture
 def composed_runtime(tmp_path: Path, monkeypatch):
     root = tmp_path / "runtime"
-    binding = BulkRnaSeqExecutionBinding(
-        assets=RuntimeAssetBinding(root=root),
-        transcriptome=_transcriptome_binding(tmp_path),
-    )
     containers = (
         VerifiedContainerAsset(
             process="FASTQC",
@@ -189,6 +186,15 @@ def composed_runtime(tmp_path: Path, monkeypatch):
         container_inventory_sha256="b" * 64,
         container_lock_sha256="7" * 64,
     )
+    implementation = verify_execution_implementation()
+    assert implementation.is_success
+    qualification = load_default_execution_qualification(implementation.value)
+    assert qualification.is_success
+    binding = BulkRnaSeqExecutionBinding(
+        assets=RuntimeAssetBinding(root=root),
+        transcriptome=_transcriptome_binding(tmp_path),
+        implementation_qualification=qualification.value.implementation,
+    )
     monkeypatch.setattr(
         RuntimeAssetAdmission,
         "acquire",
@@ -203,17 +209,14 @@ def _file_bytes(plan, path: str) -> bytes:
 
 @pytest.fixture
 def admitted_execution_implementation(monkeypatch: pytest.MonkeyPatch):
-    implementation = VerifiedExecutionImplementation(
-        manifest_sha256="3" * 64,
-        aggregate_sha256="4" * 64,
-        files=(),
-    )
+    implementation = verify_execution_implementation()
+    assert implementation.is_success
     monkeypatch.setattr(
         execution_module,
         "verify_execution_implementation",
-        lambda: Result.success(implementation),
+        lambda: implementation,
     )
-    return implementation
+    return implementation.value
 
 
 def _assert_samplesheet_and_params(
@@ -255,21 +258,35 @@ def test_runtime_capabilities_are_truthful_and_default_remains_contract_only(
 
 def test_execution_binding_owns_one_process_local_runtime_admission(
     tmp_path: Path,
+    bulk_rnaseq_qualifications,
 ) -> None:
     assets = RuntimeAssetBinding(root=(tmp_path / "runtime").resolve())
     transcriptome = _transcriptome_binding(tmp_path)
     first = BulkRnaSeqExecutionBinding(
         assets=assets,
         transcriptome=transcriptome,
+        **bulk_rnaseq_qualifications,
     )
     worker = BulkRnaSeqExecutionBinding(
         assets=assets,
         transcriptome=transcriptome,
+        **bulk_rnaseq_qualifications,
     )
 
     assert isinstance(first.runtime_admission, RuntimeAssetAdmission)
     assert first.runtime_admission.binding is assets
     assert worker.runtime_admission is not first.runtime_admission
+
+
+def test_execution_binding_rejects_missing_implementation_qualification(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="implementation_qualification"):
+        BulkRnaSeqExecutionBinding(
+            assets=RuntimeAssetBinding(root=(tmp_path / "private-runtime").resolve()),
+            transcriptome=_transcriptome_binding(tmp_path),
+            implementation_qualification=None,
+        )
 
 
 @pytest.mark.parametrize(
@@ -324,6 +341,7 @@ def test_workspace_rejects_each_transcriptome_reference_binding_mismatch(
     mismatched_binding = BulkRnaSeqExecutionBinding(
         assets=binding.assets,
         transcriptome=BulkRnaSeqTranscriptomeBinding(**transcriptome_document),
+        implementation_qualification=binding.implementation_qualification,
     )
     adapter = BulkRnaSeqWorkflowAdapter(execution=mismatched_binding)
     inputs = _inputs(tmp_path)
@@ -381,6 +399,7 @@ def test_workspace_rejects_missing_or_symlinked_transcriptome(
         execution=BulkRnaSeqExecutionBinding(
             assets=binding.assets,
             transcriptome=transcriptome,
+            implementation_qualification=binding.implementation_qualification,
         )
     )
 
@@ -419,6 +438,7 @@ def test_transcriptome_change_updates_input_and_cache_identity(
         execution=BulkRnaSeqExecutionBinding(
             assets=binding.assets,
             transcriptome=changed_transcriptome,
+            implementation_qualification=binding.implementation_qualification,
         )
     )
 
@@ -1452,6 +1472,7 @@ def test_network_isolation_identity_changes_build_and_cache_identity(
 
 def test_resume_is_server_owned_and_unavailable_without_attempt_lifecycle(
     tmp_path: Path,
+    bulk_rnaseq_qualifications,
 ):
     assets = RuntimeAssetBinding(root=(tmp_path / "runtime").resolve())
 
@@ -1460,6 +1481,7 @@ def test_resume_is_server_owned_and_unavailable_without_attempt_lifecycle(
             assets=assets,
             transcriptome=_transcriptome_binding(tmp_path),
             resume_enabled=True,
+            **bulk_rnaseq_qualifications,
         )
 
 

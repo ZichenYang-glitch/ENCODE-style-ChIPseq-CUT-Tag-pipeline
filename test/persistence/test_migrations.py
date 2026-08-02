@@ -5,11 +5,16 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import os
+from pathlib import Path
+import stat
+import tempfile
 
 import pytest
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
+from encode_pipeline.persistence import migration_admission
 from encode_pipeline.persistence import (
     SqlAlchemyRunRepository,
     create_database_engine,
@@ -94,6 +99,59 @@ EXPECTED_TABLES = {
     "storage_pools",
     "validated_input_snapshots",
 }
+
+
+class _CoverageMigrationTemporaryFiles:
+    def __init__(self, root: Path) -> None:
+        self._root = root
+
+    def TemporaryDirectory(  # noqa: N802 - mirrors the standard-library API
+        self,
+        *,
+        prefix: str,
+        ignore_cleanup_errors: bool,
+    ) -> tempfile.TemporaryDirectory[str]:
+        if prefix != "helixweave-migration-snapshot-":
+            raise AssertionError("unexpected migration snapshot prefix")
+        return tempfile.TemporaryDirectory(
+            prefix=prefix,
+            ignore_cleanup_errors=ignore_cleanup_errors,
+            dir=self._root,
+        )
+
+
+@pytest.fixture(autouse=True)
+def _route_admitted_migrations_to_controlled_coverage_root(monkeypatch):
+    configured_root = os.environ.get("HELIXWEAVE_COVERAGE_MIGRATION_ROOT")
+    if configured_root is None:
+        yield
+        return
+
+    root = Path(configured_root)
+    try:
+        resolved_root = root.resolve(strict=True)
+        root_mode = stat.S_IMODE(resolved_root.stat().st_mode)
+        existing_entries = tuple(resolved_root.iterdir())
+    except (OSError, RuntimeError):
+        pytest.fail("migration coverage root must be an existing private directory")
+    if (
+        not root.is_absolute()
+        or root != resolved_root
+        or root.is_symlink()
+        or not resolved_root.is_dir()
+        or root_mode != 0o700
+        or not root.name.startswith("helixweave-coverage-migrations-")
+        or existing_entries
+    ):
+        pytest.fail("migration coverage root must be an empty private directory")
+
+    monkeypatch.setattr(
+        migration_admission,
+        "tempfile",
+        _CoverageMigrationTemporaryFiles(resolved_root),
+    )
+    yield
+    assert tuple(resolved_root.iterdir()) == ()
 
 
 def test_initial_migration_creates_versioned_run_schema(tmp_path):

@@ -26,6 +26,12 @@ from encode_pipeline.adapters.bulk_rnaseq import (
     RuntimeAssetBinding,
 )
 from encode_pipeline.adapters.bulk_rnaseq.execution import WORKSPACE_SCHEMA_VERSION
+from encode_pipeline.adapters.bulk_rnaseq.execution_identity import (
+    verify_execution_implementation,
+)
+from encode_pipeline.adapters.bulk_rnaseq.qualification import (
+    load_default_execution_qualification,
+)
 from encode_pipeline.adapters.bulk_rnaseq.reference_closure import (
     verify_reference_index,
 )
@@ -482,6 +488,12 @@ def build_results_composition(
     if not isinstance(settings, GateSettings):
         raise ValueError("settings must be GateSettings")
     fixture = load_acceptance_fixture(settings.fixture_manifest)
+    implementation = verify_execution_implementation()
+    if implementation.is_failure:
+        raise ValueError("execution implementation is unavailable")
+    qualification = load_default_execution_qualification(implementation.value)
+    if qualification.is_failure:
+        raise ValueError("execution qualification is unavailable")
     binding = BulkRnaSeqExecutionBinding(
         assets=RuntimeAssetBinding(
             root=settings.runtime_root,
@@ -489,6 +501,7 @@ def build_results_composition(
             docker_socket=settings.docker_socket,
         ),
         transcriptome=fixture.transcriptome,
+        implementation_qualification=qualification.value.implementation,
     )
     registry = WorkflowRegistry((BulkRnaSeqResultsWorkflowAdapter(execution=binding),))
     provider = WorkflowBuildIdentityProvider(registry, project_root=project_root)

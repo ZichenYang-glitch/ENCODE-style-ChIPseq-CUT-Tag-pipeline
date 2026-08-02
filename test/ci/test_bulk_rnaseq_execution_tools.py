@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,7 @@ import scripts.generate_bulk_rnaseq_execution_manifest as manifest_generator
 from encode_pipeline.adapters.bulk_rnaseq.upstream import (
     PLATFORM_OWNED_NATIVE_PARAMETERS,
 )
+from encode_pipeline.platform.results import Result
 
 
 def _sha256(content: bytes) -> str:
@@ -279,14 +281,40 @@ def test_execution_manifest_generator_writes_exact_canonical_bytes(
         / "execution-manifest.json"
     )
     destination.parent.mkdir(parents=True)
+    qualification_destination = destination.with_name("qualification.json")
     manifest = {"file_count": 2, "aggregate_sha256": "c" * 64}
     content = b'{"aggregate_sha256":"value","file_count":2}\n'
+    implementation = SimpleNamespace(
+        persistence_contract=SimpleNamespace(
+            contract_version="1.1.0",
+            sha256="d" * 64,
+        )
+    )
+    qualification = {"record_sha256": "e" * 64}
+    qualification_content = (
+        b'{"record_sha256":"' + b"e" * 64 + b'","schema_version":"1.1.0"}\n'
+    )
+
+    def verify_generated(*, manifest_bytes, package_root):
+        assert manifest_bytes == content
+        assert package_root == tmp_path / "src/encode_pipeline"
+        return Result.success(implementation)
 
     monkeypatch.setattr(manifest_generator, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(
         manifest_generator,
         "EXECUTION_IMPLEMENTATION_MANIFEST_FILE",
         destination.name,
+    )
+    monkeypatch.setattr(
+        manifest_generator,
+        "DEFAULT_EXECUTION_QUALIFICATION_FILE",
+        qualification_destination.name,
+    )
+    monkeypatch.setattr(
+        manifest_generator,
+        "_refresh_persistence_projection",
+        lambda: "f" * 64,
     )
     monkeypatch.setattr(
         manifest_generator,
@@ -298,13 +326,39 @@ def test_execution_manifest_generator_writes_exact_canonical_bytes(
         "canonical_execution_manifest_bytes",
         lambda value: content if value is manifest else b"",
     )
+    monkeypatch.setattr(
+        manifest_generator,
+        "verify_execution_implementation",
+        verify_generated,
+    )
+    monkeypatch.setattr(
+        manifest_generator,
+        "qualification_document",
+        lambda value: qualification if value is implementation else {},
+    )
+    monkeypatch.setattr(
+        manifest_generator,
+        "canonical_qualification_bytes",
+        lambda value: qualification_content if value is qualification else b"",
+    )
 
     assert manifest_generator.main() == 0
+    first_manifest = destination.read_bytes()
+    first_qualification = qualification_destination.read_bytes()
+    assert manifest_generator.main() == 0
 
-    assert destination.read_bytes() == content
+    assert first_manifest == content == destination.read_bytes()
+    assert first_qualification == qualification_content
+    assert qualification_destination.read_bytes() == first_qualification
     output = capsys.readouterr().out.splitlines()
-    assert output == [
+    expected_output = [
         "files=2",
         f"aggregate_sha256={'c' * 64}",
         f"manifest_sha256={hashlib.sha256(content).hexdigest()}",
+        "persistence_contract_version=1.1.0",
+        f"persistence_contract_sha256={'d' * 64}",
+        f"schema_projection_sha256={'f' * 64}",
+        f"qualification_sha256={hashlib.sha256(qualification_content).hexdigest()}",
+        f"qualification_record_sha256={'e' * 64}",
     ]
+    assert output == [*expected_output, *expected_output]

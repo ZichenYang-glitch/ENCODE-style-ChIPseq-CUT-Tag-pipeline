@@ -60,6 +60,7 @@ class DistributionClaim:
     version: str
     top_levels: frozenset[str]
     record_entries: tuple[str, ...] | None
+    record_text: str | None
     direct_url: dict[str, object] | None
 
 
@@ -373,6 +374,7 @@ def _read_optional_text(
     *,
     known: bool,
     container: Path | None = None,
+    installed_record: bool = False,
 ) -> str | None:
     try:
         is_symlink = path.is_symlink()
@@ -380,6 +382,8 @@ def _read_optional_text(
     except OSError:
         is_symlink = exists = False
     if is_symlink:
+        if installed_record:
+            _fail_installed_artifact_integrity()
         _fail(
             "distribution_metadata_invalid",
             "repair metadata whose file identity escapes the selected environment",
@@ -395,6 +399,8 @@ def _read_optional_text(
         return resolved.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         if known:
+            if installed_record:
+                _fail_installed_artifact_integrity()
             _fail(
                 "distribution_metadata_invalid",
                 "repair the HelixWeave distribution metadata before retrying",
@@ -402,35 +408,47 @@ def _read_optional_text(
         return None
 
 
-def _parse_record(raw: str | None, *, known: bool) -> tuple[str, ...] | None:
+def _fail_installed_artifact_integrity() -> None:
+    _fail(
+        "installed_artifact_integrity_invalid",
+        "install a clean artifact whose controlled package files match its RECORD",
+    )
+
+
+def _fail_invalid_record(*, installed_artifact: bool) -> None:
+    if installed_artifact:
+        _fail_installed_artifact_integrity()
+    _fail(
+        "distribution_metadata_invalid",
+        "repair the HelixWeave distribution inventory before retrying",
+    )
+
+
+def _parse_record(
+    raw: str | None,
+    *,
+    known: bool,
+    installed_artifact: bool = False,
+) -> tuple[str, ...] | None:
     if raw is None:
         return None
     try:
         rows = tuple(csv.reader(raw.splitlines()))
     except (csv.Error, TypeError, UnicodeError):
         if known:
-            _fail(
-                "distribution_metadata_invalid",
-                "repair the HelixWeave distribution inventory before retrying",
-            )
+            _fail_invalid_record(installed_artifact=installed_artifact)
         return None
     entries: list[str] = []
     for row in rows:
         if not row or not row[0]:
             if known:
-                _fail(
-                    "distribution_metadata_invalid",
-                    "repair the HelixWeave distribution inventory before retrying",
-                )
+                _fail_invalid_record(installed_artifact=installed_artifact)
             return None
         entry = row[0].replace("\\", "/")
         path = Path(entry)
         if path.is_absolute():
             if known:
-                _fail(
-                    "distribution_metadata_invalid",
-                    "repair the HelixWeave distribution inventory before retrying",
-                )
+                _fail_invalid_record(installed_artifact=installed_artifact)
             return None
         entries.append(entry)
     return tuple(entries)
@@ -513,6 +531,8 @@ def _metadata_claim(
     path: Path,
     site_root: Path,
     path_mappings: tuple[tuple[Path, Path], ...],
+    *,
+    installed_artifact: bool = False,
 ) -> DistributionClaim | None:
     path_hint = _metadata_path_looks_known(path)
     raw_top_level = _read_optional_text(
@@ -527,8 +547,13 @@ def _metadata_claim(
         path / "RECORD",
         known=path_hint,
         container=path,
+        installed_record=installed_artifact,
     )
-    record_entries = _parse_record(raw_record, known=path_hint)
+    record_entries = _parse_record(
+        raw_record,
+        known=path_hint,
+        installed_artifact=installed_artifact,
+    )
     record_claims = record_entries is not None and any(
         entry.split("/", 1)[0] == IMPORT_NAMESPACE for entry in record_entries
     )
@@ -582,8 +607,13 @@ def _metadata_claim(
         path / "RECORD",
         known=True,
         container=path,
+        installed_record=installed_artifact,
     )
-    record_entries = _parse_record(raw_record, known=True)
+    record_entries = _parse_record(
+        raw_record,
+        known=True,
+        installed_artifact=installed_artifact,
+    )
     direct_url = _parse_direct_url(
         _read_optional_text(
             path / "direct_url.json",
@@ -599,6 +629,7 @@ def _metadata_claim(
         version=version,
         top_levels=top_levels,
         record_entries=record_entries,
+        record_text=raw_record,
         direct_url=direct_url,
     )
 
@@ -606,6 +637,8 @@ def _metadata_claim(
 def _physical_claimants(
     site_roots: tuple[Path, ...],
     path_mappings: tuple[tuple[Path, Path], ...],
+    *,
+    installed_artifact: bool = False,
 ) -> tuple[DistributionClaim, ...]:
     claims: list[DistributionClaim] = []
     for site_root in site_roots:
@@ -636,7 +669,12 @@ def _physical_claimants(
                     "distribution_metadata_invalid",
                     "repair metadata whose identity escapes the selected environment",
                 )
-            claim = _metadata_claim(resolved_child, site_root, path_mappings)
+            claim = _metadata_claim(
+                resolved_child,
+                site_root,
+                path_mappings,
+                installed_artifact=installed_artifact,
+            )
             if claim is not None:
                 claims.append(claim)
     if not claims:
@@ -1126,11 +1164,164 @@ def _audit_checkout(
     return claim
 
 
+def _installed_environment_root() -> Path:
+    try:
+        selected_root = _venv_root_from_executable()
+        root = (selected_root or Path(sys.prefix)).resolve(strict=True)
+        if not root.is_dir():
+            raise OSError
+        return root
+    except (OSError, RuntimeError):
+        _fail_installed_artifact_integrity()
+
+
+def _resolved_safe_record_path(
+    claim: DistributionClaim,
+    value: str,
+    environment_root: Path,
+) -> Path:
+    if not value or "\\" in value or ":" in value or "\x00" in value:
+        _fail_installed_artifact_integrity()
+    parts = value.split("/")
+    if any(part in {"", "."} for part in parts):
+        _fail_installed_artifact_integrity()
+    parent_count = 0
+    for part in parts:
+        if part != "..":
+            break
+        parent_count += 1
+    if parent_count == len(parts) or ".." in parts[parent_count:]:
+        _fail_installed_artifact_integrity()
+    try:
+        resolved = claim.site_root.joinpath(*parts).resolve(strict=False)
+    except (OSError, RuntimeError):
+        _fail_installed_artifact_integrity()
+    if not _is_within(resolved, environment_root):
+        _fail_installed_artifact_integrity()
+    return resolved
+
+
+def _strict_installed_record_rows(
+    claim: DistributionClaim,
+) -> tuple[tuple[str, str, str], ...]:
+    if claim.record_text is None:
+        _fail_installed_artifact_integrity()
+    try:
+        raw_rows = tuple(csv.reader(claim.record_text.splitlines(), strict=True))
+    except (csv.Error, TypeError, UnicodeError):
+        _fail_installed_artifact_integrity()
+    rows: list[tuple[str, str, str]] = []
+    paths: set[str] = set()
+    resolved_paths: set[Path] = set()
+    environment_root = _installed_environment_root()
+    for row in raw_rows:
+        if len(row) != 3:
+            _fail_installed_artifact_integrity()
+        relative_path, recorded_hash, recorded_size = row
+        resolved_path = _resolved_safe_record_path(
+            claim,
+            relative_path,
+            environment_root,
+        )
+        if relative_path in paths or resolved_path in resolved_paths:
+            _fail_installed_artifact_integrity()
+        paths.add(relative_path)
+        resolved_paths.add(resolved_path)
+        rows.append((relative_path, recorded_hash, recorded_size))
+    if not rows:
+        _fail_installed_artifact_integrity()
+    return tuple(rows)
+
+
+def _controlled_package_record_path(relative_path: str) -> bool:
+    parts = relative_path.split("/")
+    return parts[0] == IMPORT_NAMESPACE and "__pycache__" not in parts
+
+
+def _read_record_owned_package_file(
+    claim: DistributionClaim,
+    relative_path: str,
+) -> bytes:
+    package_root = claim.site_root / IMPORT_NAMESPACE
+    candidate = claim.site_root.joinpath(*relative_path.split("/"))
+    try:
+        resolved = candidate.resolve(strict=True)
+        if (
+            candidate.is_symlink()
+            or resolved != candidate
+            or not resolved.is_file()
+            or not _is_within(resolved, package_root)
+        ):
+            raise OSError
+        return resolved.read_bytes()
+    except (OSError, RuntimeError):
+        _fail_installed_artifact_integrity()
+
+
+def _installed_controlled_package_paths(
+    claim: DistributionClaim,
+) -> frozenset[str]:
+    package_root = claim.site_root / IMPORT_NAMESPACE
+    try:
+        resolved_package_root = package_root.resolve(strict=True)
+        if (
+            package_root.is_symlink()
+            or resolved_package_root != package_root
+            or not resolved_package_root.is_dir()
+        ):
+            raise OSError
+    except (OSError, RuntimeError):
+        _fail_installed_artifact_integrity()
+
+    controlled: set[str] = set()
+    pending = [package_root]
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as scanner:
+                children = tuple(sorted(scanner, key=lambda entry: entry.name))
+            for child in children:
+                if child.name == "__pycache__":
+                    continue
+                if child.is_symlink():
+                    _fail_installed_artifact_integrity()
+                if child.is_dir(follow_symlinks=False):
+                    pending.append(Path(child.path))
+                    continue
+                if not child.is_file(follow_symlinks=False):
+                    _fail_installed_artifact_integrity()
+                controlled.add(Path(child.path).relative_to(claim.site_root).as_posix())
+        except (OSError, RuntimeError, ValueError):
+            _fail_installed_artifact_integrity()
+    return frozenset(controlled)
+
+
+def _verify_installed_artifact_integrity(claim: DistributionClaim) -> None:
+    rows = _strict_installed_record_rows(claim)
+    recorded_paths: set[str] = set()
+    for relative_path, recorded_hash, recorded_size in rows:
+        if not _controlled_package_record_path(relative_path):
+            continue
+        raw = _read_record_owned_package_file(claim, relative_path)
+        expected_hash = "sha256=" + base64.urlsafe_b64encode(
+            hashlib.sha256(raw).digest()
+        ).decode("ascii").rstrip("=")
+        if recorded_hash != expected_hash or recorded_size != str(len(raw)):
+            _fail_installed_artifact_integrity()
+        recorded_paths.add(relative_path)
+    if recorded_paths != set(_installed_controlled_package_paths(claim)):
+        _fail_installed_artifact_integrity()
+
+
 def _audit_installed(
     site_roots: tuple[Path, ...],
 ) -> DistributionClaim:
     mappings = _pth_mappings(site_roots)
-    (claim,) = _physical_claimants(site_roots, mappings)
+    (claim,) = _physical_claimants(
+        site_roots,
+        mappings,
+        installed_artifact=True,
+    )
     _verify_claim_identity(claim, DISTRIBUTION_VERSION)
     if claim.direct_url is not None:
         if _editable_root(claim.direct_url) is not None:
@@ -1158,6 +1349,7 @@ def _audit_installed(
             "namespace_mapping_conflict",
             "remove source mappings from the installed artifact environment",
         )
+    _verify_installed_artifact_integrity(claim)
     return claim
 
 

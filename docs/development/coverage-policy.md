@@ -63,6 +63,19 @@ filters the environment passed to scientific processes. Coverage variables
 must not be added to that allowlist: Snakemake rules and real scientific
 execution remain protected by their dedicated gates.
 
+Alembic runs only the revision bytes that migration admission first copies to
+a private snapshot. For the migration integration module, CI creates one
+empty, mode-`0700` coverage root and passes that exact directory as an
+additional pytest-cov source. A test-only fixture routes only admitted
+`helixweave-migration-snapshot-*` directories beneath that root, and
+Coverage.py's `[paths]` mapping attributes their execution back to the
+canonical `src/encode_pipeline/persistence/alembic` sources. The fixture
+requires the root to be absolute, resolved, private, empty, and pre-existing;
+each snapshot and then the root are removed. The system temporary directory
+is never a coverage source. This in-process attribution is independent of the
+subprocess patch and does not omit revision assets from the global or
+persistence ratchets.
+
 ## Measured baseline and floors
 
 The locked environment resolves Python 3.12.13, pytest 9.1.1, pytest-cov
@@ -77,9 +90,9 @@ current repository state:
 
 | Gate | Current baseline |
 | --- | ---: |
-| All Python tests collected | 3,839 |
-| PR-fast Python selection | 3,711 |
-| Deterministic full-main Python selection | 3,823 |
+| All Python tests collected | 4,454 |
+| PR-fast Python selection | 4,313 |
+| Deterministic full-main Python selection | 4,438 |
 | Platform real-execution tests | 4 |
 | Scientific real-execution tests | 8 |
 | Bulk RNA-seq real-execution tests | 4 |
@@ -88,14 +101,14 @@ current repository state:
 
 | Area | Line | Branch | Combined | Enforced floor |
 | --- | ---: | ---: | ---: | ---: |
-| Repository | 86.4275% | 76.3563% | 83.7600% | 83% |
-| Platform | 91.3945% | 81.5068% | 88.6800% | 88.45% |
-| Services | 90.1076% | 81.1413% | 87.8251% | 87.28% |
-| Persistence | 93.0396% | 73.5714% | 89.1873% | 89.06% |
-| Workers | 84.7482% | 73.5632% | 82.5086% | 82.37% |
-| Adapters | 86.9874% | 76.3460% | 83.8318% | report only |
-| API, CLI, config, samples | 95.0440% | 89.0244% | 93.5581% | report only |
-| Snakemake-facing scripts | 69.6559% | 59.4417% | 67.1216% | report only |
+| Repository | 87.3198% | 76.8626% | 84.5724% | 83% |
+| Platform | 91.5020% | 81.1340% | 88.7490% | 88.45% |
+| Services | 89.9072% | 79.8655% | 87.3934% | 87.28% |
+| Persistence | 93.7230% | 80.3488% | 90.7517% | 89.06% |
+| Workers | 88.2431% | 76.6667% | 86.0192% | 82.37% |
+| Adapters | 86.8743% | 75.8610% | 83.5886% | report only |
+| API, CLI, config, samples | 92.7553% | 85.6464% | 91.0633% | report only |
+| Snakemake-facing scripts | 71.8978% | 64.2955% | 69.9031% | report only |
 | Workflow compatibility library | 100.00% | n/a | 100.00% | report only |
 | Container definition tooling | 97.06% | 83.33% | 95.00% | report only |
 

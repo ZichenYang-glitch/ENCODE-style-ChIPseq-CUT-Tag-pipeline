@@ -1,8 +1,10 @@
 """Durable contracts for the CI tier and coverage-ratchet topology."""
 
+import os
 from pathlib import Path
 import re
 
+from coverage import Coverage
 import yaml
 
 
@@ -275,6 +277,53 @@ def test_coverage_artifact_and_ratchets_are_stable_and_nonduplicative():
     )
     assert coverage_report
     assert re.search(r"(?m)^fail_under\s*=\s*83\s*$", coverage_report.group(1))
+
+
+def test_migration_snapshot_coverage_is_attributed_without_omitting_sources():
+    jobs = _load("ci.yml")["jobs"]
+    producer_runs = _runs(jobs["fast-checks"])
+    coverage_runs = _runs(jobs["coverage"])
+
+    assert (
+        'coverage_migration_root="$RUNNER_TEMP/'
+        'helixweave-coverage-migrations-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"'
+        in producer_runs
+    )
+    assert 'mkdir -m 700 -- "$coverage_migration_root"' in producer_runs
+    assert (
+        'export HELIXWEAVE_COVERAGE_MIGRATION_ROOT="$coverage_migration_root"'
+        in producer_runs
+    )
+    assert "trap cleanup_coverage_migration_root EXIT" in producer_runs
+    for source_root in (
+        "src/encode_pipeline",
+        "scripts",
+        "workflow/lib",
+        "containers",
+    ):
+        assert f"--cov={source_root}" in producer_runs
+    assert '--cov="$coverage_migration_root"' in producer_runs
+
+    config_path = REPO_ROOT / "pyproject.toml"
+    config_text = config_path.read_text(encoding="utf-8")
+    assert (
+        '"${HELIXWEAVE_COVERAGE_MIGRATION_ROOT-'
+        "/__helixweave_coverage_migration_root_not_configured__}/"
+        'helixweave-migration-snapshot-*/alembic"' in config_text
+    )
+    configured_root = os.environ.get(
+        "HELIXWEAVE_COVERAGE_MIGRATION_ROOT",
+        "/__helixweave_coverage_migration_root_not_configured__",
+    )
+    config = Coverage(config_file=str(config_path))
+    config.load()
+    assert config.config.paths["migration_execution"] == [
+        "src/encode_pipeline/persistence/alembic",
+        f"{configured_root}/helixweave-migration-snapshot-*/alembic",
+    ]
+    assert config.config.run_omit == []
+    assert config.config.report_omit is None
+    assert "--omit" not in coverage_runs
 
 
 def test_all_pytest_tiers_enforce_zero_skip_junit_outcomes():

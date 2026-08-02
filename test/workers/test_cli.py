@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from rq import Worker
 
+from encode_pipeline.persistence.migration_admission import MigrationAdmissionError
 from encode_pipeline.workers import cli
 from encode_pipeline.workers.timeouts import WorkerUnixSignalDeathPenalty
 
@@ -98,6 +99,34 @@ def test_worker_cli_closes_redis_if_worker_construction_fails(tmp_path, monkeypa
         raise AssertionError("worker construction unexpectedly succeeded")
 
     assert connection_closed is True
+
+
+def test_worker_cli_rejects_migration_inventory_before_settings_or_redis(
+    monkeypatch,
+    capsys,
+):
+    settings_loaded = False
+
+    def reject_inventory():
+        raise MigrationAdmissionError("MIGRATION_REVISION_UNKNOWN")
+
+    def load_settings():
+        nonlocal settings_loaded
+        settings_loaded = True
+        raise AssertionError("settings must not load after migration rejection")
+
+    monkeypatch.setattr(
+        cli,
+        "verify_migration_execution_inventory",
+        reject_inventory,
+    )
+    monkeypatch.setattr(cli, "load_worker_settings", load_settings)
+
+    assert cli.main(["--burst"]) == 2
+    assert settings_loaded is False
+    assert capsys.readouterr().err == (
+        "migration execution admission failed [MIGRATION_REVISION_UNKNOWN]\n"
+    )
 
 
 def test_durable_worker_uses_hard_timeout_death_penalty():

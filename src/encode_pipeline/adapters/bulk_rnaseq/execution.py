@@ -15,7 +15,9 @@ import re
 from typing import Any
 
 from encode_pipeline.adapters.bulk_rnaseq.execution_identity import (
+    ExecutionImplementationQualification,
     VerifiedExecutionImplementation,
+    qualify_execution_implementation,
     verify_execution_implementation,
 )
 from encode_pipeline.adapters.bulk_rnaseq.reference_closure import (
@@ -135,6 +137,7 @@ class BulkRnaSeqExecutionBinding:
 
     assets: RuntimeAssetBinding
     transcriptome: BulkRnaSeqTranscriptomeBinding
+    implementation_qualification: ExecutionImplementationQualification
     container_uid: int = field(default_factory=os.getuid)
     container_gid: int = field(default_factory=os.getgid)
     resume_enabled: bool = False
@@ -150,6 +153,11 @@ class BulkRnaSeqExecutionBinding:
             raise ValueError("assets must be a RuntimeAssetBinding")
         if not isinstance(self.transcriptome, BulkRnaSeqTranscriptomeBinding):
             raise ValueError("transcriptome must be a BulkRnaSeqTranscriptomeBinding")
+        if not isinstance(
+            self.implementation_qualification,
+            ExecutionImplementationQualification,
+        ):
+            raise ValueError("implementation_qualification is invalid")
         for name in ("container_uid", "container_gid"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -202,7 +210,7 @@ def plan_bulk_rnaseq_workspace(
     except ValueError:
         return _failure("BULK_RNASEQ_WORKSPACE_INVALID", "workspace")
 
-    implementation_result = verify_execution_implementation()
+    implementation_result = _verify_bound_implementation(binding)
     if implementation_result.is_failure:
         return Result.failure(implementation_result.issues)
     assets_result = _acquire_runtime_assets(binding)
@@ -343,7 +351,7 @@ def build_bulk_rnaseq_command(
         )
     except (TypeError, ValueError, json.JSONDecodeError):
         return _failure("BULK_RNASEQ_COMMAND_INVALID", "workspace_plan")
-    implementation_result = verify_execution_implementation()
+    implementation_result = _verify_bound_implementation(binding)
     if implementation_result.is_failure:
         return Result.failure(implementation_result.issues)
     assets_result = _acquire_runtime_assets(binding)
@@ -521,7 +529,7 @@ def capture_bulk_rnaseq_build_identity(
         execution_mode_identity(execution_mode)
     except ValueError:
         return _failure("BULK_RNASEQ_EXECUTION_MODE_INVALID", "runtime")
-    implementation_result = verify_execution_implementation()
+    implementation_result = _verify_bound_implementation(binding)
     if implementation_result.is_failure:
         return Result.failure(implementation_result.issues)
     assets_result = _acquire_runtime_assets(binding)
@@ -556,7 +564,7 @@ def capture_bulk_rnaseq_build_identity(
 
 def doctor_bulk_rnaseq_runtime(binding: BulkRnaSeqExecutionBinding):
     """Return the redacted runtime-asset doctor report."""
-    implementation = verify_execution_implementation()
+    implementation = _verify_bound_implementation(binding)
     assets = binding.runtime_admission.doctor()
     transcriptome = _verify_bound_transcriptome(binding)
     return RuntimeAssetDoctorReport(
@@ -569,6 +577,18 @@ def _acquire_runtime_assets(
     binding: BulkRnaSeqExecutionBinding,
 ) -> Result[VerifiedRuntimeAssets]:
     return binding.runtime_admission.acquire()
+
+
+def _verify_bound_implementation(
+    binding: BulkRnaSeqExecutionBinding,
+) -> Result[VerifiedExecutionImplementation]:
+    result = verify_execution_implementation()
+    if result.is_failure:
+        return result
+    return qualify_execution_implementation(
+        result.value,
+        binding.implementation_qualification,
+    )
 
 
 def _verify_bound_transcriptome(

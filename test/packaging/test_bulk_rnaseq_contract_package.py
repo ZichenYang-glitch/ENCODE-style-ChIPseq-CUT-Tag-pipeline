@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import csv
 import hashlib
+import io
 import json
 from pathlib import Path
 import shutil
@@ -54,6 +57,10 @@ RUNTIME_EXPECTED = {
     ),
 }
 EXPECTED = {**UPSTREAM_EXPECTED, **RUNTIME_EXPECTED}
+SOURCE_OWNED_EXECUTION_CONTRACTS = (
+    "execution-persistence-contract-1.1.0.json",
+    "default-execution-qualification-1.1.0.json",
+)
 
 
 def test_wheel_ships_exact_pinned_nfcore_contracts(tmp_path: Path) -> None:
@@ -94,11 +101,30 @@ def test_wheel_ships_exact_pinned_nfcore_contracts(tmp_path: Path) -> None:
             assert len(content) == size
             assert hashlib.sha256(content).hexdigest() == digest
         provenance = json.loads(archive.read(f"{RESOURCE_ROOT}/provenance.json"))
-        execution_manifest = json.loads(
-            archive.read(
-                f"{RESOURCE_ROOT}/execution-implementation-manifest-1.0.0.json"
-            )
+        execution_manifest_content = archive.read(
+            f"{RESOURCE_ROOT}/execution-implementation-manifest-1.0.0.json"
         )
+        execution_manifest = json.loads(execution_manifest_content)
+        source_owned_contracts = {
+            filename: archive.read(f"{RESOURCE_ROOT}/{filename}")
+            for filename in SOURCE_OWNED_EXECUTION_CONTRACTS
+        }
+        qualification = json.loads(
+            source_owned_contracts["default-execution-qualification-1.1.0.json"]
+        )
+        persistence_contract = json.loads(
+            source_owned_contracts["execution-persistence-contract-1.1.0.json"]
+        )
+        record_names = [
+            name for name in archive.namelist() if name.endswith(".dist-info/RECORD")
+        ]
+        assert len(record_names) == 1
+        record = {
+            row[0]: (row[1], row[2])
+            for row in csv.reader(
+                io.StringIO(archive.read(record_names[0]).decode("utf-8"))
+            )
+        }
 
     assert provenance["release"] == "3.26.0"
     assert provenance["commit"] == "e7ca46272c8f9d5ceee3f71759f4ba551d3217a4"
@@ -108,3 +134,44 @@ def test_wheel_ships_exact_pinned_nfcore_contracts(tmp_path: Path) -> None:
     assert execution_manifest["schema_version"] == "1.0.0"
     assert execution_manifest["file_count"] == len(execution_manifest["files"])
     assert execution_manifest["files"]
+    for filename, content in source_owned_contracts.items():
+        repository_content = (REPO_ROOT / "src" / RESOURCE_ROOT / filename).read_bytes()
+        assert content == repository_content
+        archive_path = f"{RESOURCE_ROOT}/{filename}"
+        encoded_digest = (
+            base64.urlsafe_b64encode(hashlib.sha256(content).digest())
+            .rstrip(b"=")
+            .decode("ascii")
+        )
+        assert record[archive_path] == (
+            f"sha256={encoded_digest}",
+            str(len(content)),
+        )
+    manifest_files = {item["path"]: item for item in execution_manifest["files"]}
+    persistence_path = (
+        "src/encode_pipeline/contracts/nfcore_rnaseq/"
+        "execution-persistence-contract-1.1.0.json"
+    )
+    assert (
+        manifest_files[persistence_path]["sha256"]
+        == hashlib.sha256(
+            source_owned_contracts["execution-persistence-contract-1.1.0.json"]
+        ).hexdigest()
+    )
+    implementation = qualification["execution_implementation"]
+    assert (
+        implementation["manifest_sha256"]
+        == hashlib.sha256(execution_manifest_content).hexdigest()
+    )
+    assert implementation["aggregate_sha256"] == execution_manifest["aggregate_sha256"]
+    assert implementation["file_count"] == execution_manifest["file_count"]
+    assert (
+        implementation["persistence_contract"]["version"]
+        == (persistence_contract["contract_version"])
+    )
+    assert (
+        implementation["persistence_contract"]["sha256"]
+        == hashlib.sha256(
+            source_owned_contracts["execution-persistence-contract-1.1.0.json"]
+        ).hexdigest()
+    )

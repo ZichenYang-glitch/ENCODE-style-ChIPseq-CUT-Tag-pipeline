@@ -297,6 +297,7 @@ def test_default_process_runner_allows_only_bundled_engine_without_bulk_runtime(
 def test_default_process_runner_uses_exact_admitted_bulk_server_coordinates(
     tmp_path,
     monkeypatch,
+    bulk_rnaseq_qualifications,
 ):
     import encode_pipeline.services.managed_containers as managed_containers_module
 
@@ -335,6 +336,7 @@ def test_default_process_runner_uses_exact_admitted_bulk_server_coordinates(
             transcript_fasta=(tmp_path / "transcripts.fa").resolve(),
             transcript_fasta_sha256="c" * 64,
         ),
+        **bulk_rnaseq_qualifications,
     )
     encode_adapter = EncodeStyleWorkflowAdapter()
     registry = WorkflowRegistry(
@@ -372,6 +374,7 @@ def test_default_process_runner_uses_exact_admitted_bulk_server_coordinates(
 def test_default_process_runner_disables_bulk_when_cleaner_cannot_bind(
     tmp_path,
     monkeypatch,
+    bulk_rnaseq_qualifications,
 ):
     import encode_pipeline.services.defaults as defaults
 
@@ -390,6 +393,7 @@ def test_default_process_runner_disables_bulk_when_cleaner_cannot_bind(
             transcript_fasta=(tmp_path / "transcripts.fa").resolve(),
             transcript_fasta_sha256="c" * 64,
         ),
+        **bulk_rnaseq_qualifications,
     )
     adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
     encode_adapter = EncodeStyleWorkflowAdapter()
