@@ -34,6 +34,7 @@ import type {
   RunRecordResponse,
   RunResponse,
 } from './runTypes';
+import { readReferenceProfileSummary } from './runTypes';
 import type {
   AgentResponse,
   AgentSuggestion,
@@ -216,6 +217,19 @@ function toWorkflowSchema(value: unknown): WorkflowSchema {
   };
 }
 
+function toOptionalReferenceProfile(value: unknown): Pick<
+  RunRecordResponse,
+  'reference_profile'
+> {
+  if (value === undefined) return {};
+  if (value === null) return { reference_profile: null };
+  const referenceProfile = readReferenceProfileSummary(value);
+  if (referenceProfile === null) {
+    throw new Error('Run reference profile projection is invalid.');
+  }
+  return { reference_profile: referenceProfile };
+}
+
 function toRunRecord(run: GeneratedRunRecord): RunRecordResponse {
   return {
     run_id: run.run_id,
@@ -229,6 +243,7 @@ function toRunRecord(run: GeneratedRunRecord): RunRecordResponse {
     cancellation_reason: run.cancellation_reason,
     error: run.error ? toIssue(run.error) : null,
     tags: asStringRecord(run.tags),
+    ...toOptionalReferenceProfile(run.reference_profile),
   };
 }
 

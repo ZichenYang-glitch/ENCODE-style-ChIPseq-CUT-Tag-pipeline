@@ -58,7 +58,7 @@ RUNTIME_EXPECTED = {
 }
 EXPECTED = {**UPSTREAM_EXPECTED, **RUNTIME_EXPECTED}
 SOURCE_OWNED_EXECUTION_CONTRACTS = (
-    "execution-persistence-contract-1.1.0.json",
+    "execution-persistence-contract-1.2.0.json",
     "default-execution-qualification-1.1.0.json",
 )
 
@@ -113,7 +113,7 @@ def test_wheel_ships_exact_pinned_nfcore_contracts(tmp_path: Path) -> None:
             source_owned_contracts["default-execution-qualification-1.1.0.json"]
         )
         persistence_contract = json.loads(
-            source_owned_contracts["execution-persistence-contract-1.1.0.json"]
+            source_owned_contracts["execution-persistence-contract-1.2.0.json"]
         )
         record_names = [
             name for name in archive.namelist() if name.endswith(".dist-info/RECORD")
@@ -150,12 +150,12 @@ def test_wheel_ships_exact_pinned_nfcore_contracts(tmp_path: Path) -> None:
     manifest_files = {item["path"]: item for item in execution_manifest["files"]}
     persistence_path = (
         "src/encode_pipeline/contracts/nfcore_rnaseq/"
-        "execution-persistence-contract-1.1.0.json"
+        "execution-persistence-contract-1.2.0.json"
     )
     assert (
         manifest_files[persistence_path]["sha256"]
         == hashlib.sha256(
-            source_owned_contracts["execution-persistence-contract-1.1.0.json"]
+            source_owned_contracts["execution-persistence-contract-1.2.0.json"]
         ).hexdigest()
     )
     implementation = qualification["execution_implementation"]
@@ -172,6 +172,6 @@ def test_wheel_ships_exact_pinned_nfcore_contracts(tmp_path: Path) -> None:
     assert (
         implementation["persistence_contract"]["sha256"]
         == hashlib.sha256(
-            source_owned_contracts["execution-persistence-contract-1.1.0.json"]
+            source_owned_contracts["execution-persistence-contract-1.2.0.json"]
         ).hexdigest()
     )

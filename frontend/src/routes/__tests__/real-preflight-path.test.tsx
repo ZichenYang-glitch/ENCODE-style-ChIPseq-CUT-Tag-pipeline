@@ -5,6 +5,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientProvider } from '../../api/client-context';
 import { appRoutes } from '../../app/router';
+import { createAuthoringSchemaFixture } from '../../features/input-workbench/test-fixtures';
 import {
   getWorkflow,
   getWorkflowSchema,
@@ -19,9 +20,15 @@ import {
 } from '../../api/generated/runs/runs';
 import { triggerPreflight } from '../../api/generated/preflight/preflight';
 
+const referenceProfileMocks = vi.hoisted(() => ({
+  listCompatibleReferenceProfiles: vi.fn(),
+}));
+
 vi.mock('../../api/generated/workflows/workflows', () => ({
   getWorkflow: vi.fn(),
   getWorkflowSchema: vi.fn(),
+  listCompatibleReferenceProfiles:
+    referenceProfileMocks.listCompatibleReferenceProfiles,
   listWorkflows: vi.fn(),
   validateWorkflow: vi.fn(),
 }));
@@ -41,6 +48,15 @@ vi.mock('../../api/generated/agent/agent', () => ({
 }));
 
 const WORKFLOW_ID = 'encode-style-chipseq-cuttag-atac-mnase';
+const REFERENCE_PROFILE = {
+  profile_id: `refp_${'1'.repeat(32)}`,
+  revision_id: `refpr_${'1'.repeat(32)}`,
+  revision_number: 1,
+  display_name: 'Human GRCh38',
+  organism: 'Homo sapiens',
+  assembly: 'GRCh38',
+  identity_sha256: '1'.repeat(64),
+};
 
 function runRecord(status: string) {
   return {
@@ -55,7 +71,74 @@ function runRecord(status: string) {
     cancellation_reason: null,
     error: null,
     tags: {},
+    reference_profile: REFERENCE_PROFILE,
   };
+}
+
+function validationResponse() {
+  return {
+    ok: true,
+    workflow_id: WORKFLOW_ID,
+    value: null,
+    snapshot: {
+      snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
+      workflow_id: WORKFLOW_ID,
+      schema_version: '1.0.0',
+      adapter_version: '0.3.0',
+      payload_digest: 'a'.repeat(64),
+      validated_at: '2026-07-14T00:00:00.000Z',
+      expires_at: '2026-07-14T00:30:00.000Z',
+      project_id: 'prj_00000000000000000000000000000000',
+      binding_mode: 'legacy_v1' as const,
+      provenance: 'unresolved' as const,
+      sample_revision_ids: [],
+      binding_digest: 'b'.repeat(64),
+      input_binding: {
+        mode: 'compatibility_unresolved_v1' as const,
+        adapter_contract_version: null,
+        digest: 'c'.repeat(64),
+        fully_managed: false,
+        input_uses: [],
+      },
+      reference_profile: REFERENCE_PROFILE,
+    },
+    issues: [],
+  };
+}
+
+function renderProductPath() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const router = createMemoryRouter(appRoutes, {
+    initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+  });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <ClientProvider>
+        <RouterProvider router={router} />
+      </ClientProvider>
+    </QueryClientProvider>,
+  );
+  return router;
+}
+
+async function authorValidInputs(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('tab', { name: 'Samples' }));
+  const contents =
+    'sample\tfastq_1\tlayout\nS1\t/data/S1.fastq.gz\tSE\n';
+  const file = new File([contents], 'samples.tsv', {
+    type: 'text/tab-separated-values',
+  });
+  Object.defineProperty(file, 'text', {
+    value: vi.fn().mockResolvedValue(contents),
+  });
+  await user.upload(
+    screen.getByLabelText('Import samples TSV'),
+    file,
+  );
+  await screen.findAllByDisplayValue('S1');
+  await user.click(screen.getByRole('tab', { name: 'Review' }));
 }
 
 describe('real preflight product path', () => {
@@ -93,64 +176,16 @@ describe('real preflight product path', () => {
     vi.mocked(getWorkflowSchema).mockResolvedValue({
       ok: true,
       workflow_id: WORKFLOW_ID,
-      schema: {
-        schema_version: '1.0.0',
-        schema_dialect: 'https://json-schema.org/draft/2020-12/schema',
-        coverage: {
-          config: 'partial',
-          samples: 'complete',
-          options: 'complete',
-        },
-        authoring_modes: {
-          config: ['schema_form', 'yaml'],
-          samples: ['tsv_upload', 'inline_table'],
-          options: ['schema_form'],
-        },
-        input_modes: {
-          config: ['object'],
-          samples: ['inline_rows', 'server_path'],
-          options: ['object'],
-        },
-        limits: {
-          max_request_bytes: 2_097_152,
-          max_sample_rows: 1_000,
-          max_sample_columns: 64,
-          max_sample_column_name_length: 128,
-          max_sample_cell_length: 4_096,
-        },
-        config_schema: { type: 'object' },
-        sample_schema: { type: 'string' },
-        option_schema: { type: 'object' },
-      },
+      schema: createAuthoringSchemaFixture(),
       issues: [],
     });
-    vi.mocked(validateWorkflow).mockResolvedValue({
+    referenceProfileMocks.listCompatibleReferenceProfiles.mockResolvedValue({
       ok: true,
       workflow_id: WORKFLOW_ID,
-      value: null,
-      snapshot: {
-        snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
-        workflow_id: WORKFLOW_ID,
-        schema_version: '1.0.0',
-        adapter_version: '0.3.0',
-        payload_digest: 'a'.repeat(64),
-        validated_at: '2026-07-14T00:00:00.000Z',
-        expires_at: '2026-07-14T00:30:00.000Z',
-        project_id: 'prj_00000000000000000000000000000000',
-        binding_mode: 'legacy_v1',
-        provenance: 'unresolved',
-        sample_revision_ids: [],
-        binding_digest: 'b'.repeat(64),
-        input_binding: {
-          mode: 'compatibility_unresolved_v1',
-          adapter_contract_version: null,
-          digest: 'c'.repeat(64),
-          fully_managed: false,
-          input_uses: [],
-        },
-      },
+      profiles: [REFERENCE_PROFILE],
       issues: [],
     });
+    vi.mocked(validateWorkflow).mockResolvedValue(validationResponse());
     vi.mocked(createRun).mockResolvedValue({
       ok: true,
       run: runRecord('created'),
@@ -227,29 +262,14 @@ describe('real preflight product path', () => {
       issues: [],
     }));
     const user = userEvent.setup();
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    const router = createMemoryRouter(appRoutes, {
-      initialEntries: [`/workflows/${WORKFLOW_ID}`],
-    });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ClientProvider>
-          <RouterProvider router={router} />
-        </ClientProvider>
-      </QueryClientProvider>,
-    );
+    const router = renderProductPath();
+    await authorValidInputs(user);
 
-    const samplesInput = await screen.findByLabelText(/Samples \(path string\)/i);
-    await user.type(
-      samplesInput,
-      'samples.tsv',
-    );
-    await user.click(screen.getByTestId('validate-button'));
-    expect(await screen.findByTestId('create-run-button')).toBeEnabled();
-
-    await user.click(screen.getByTestId('create-run-button'));
+    await user.click(screen.getByTestId('validate-draft-button'));
+    expect(
+      await screen.findByTestId('create-validated-run-button'),
+    ).toBeEnabled();
+    await user.click(screen.getByTestId('create-validated-run-button'));
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/runs/run-real-1');
@@ -265,20 +285,23 @@ describe('real preflight product path', () => {
       expect(screen.getByTestId('run-status-badge')).toHaveTextContent('planned');
     });
     expect(screen.getByText('Local preflight completed.')).toBeInTheDocument();
-    expect(
-      screen.getByText('Dry-run completed successfully.'),
-    ).toBeInTheDocument();
-
-    expect(validateWorkflow).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Dry-run completed successfully.')).toBeInTheDocument();
+    expect(validateWorkflow).toHaveBeenCalledWith(
+      WORKFLOW_ID,
+      expect.objectContaining({
+        reference_profile_revision_id: REFERENCE_PROFILE.revision_id,
+      }),
+    );
     expect(createRun).toHaveBeenCalledTimes(1);
-    expect(triggerPreflight).toHaveBeenCalledWith('run-real-1');
     expect(getRun).toHaveBeenCalledWith('run-real-1');
     expect(listRunEvents).toHaveBeenCalled();
     expect(vi.mocked(listRunLogs).mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('does not restore a stale snapshot when legacy inputs change during validation', async () => {
-    let resolveValidation!: (value: Awaited<ReturnType<typeof validateWorkflow>>) => void;
+  it('does not restore a stale snapshot when inputs change during validation', async () => {
+    let resolveValidation!: (
+      value: Awaited<ReturnType<typeof validateWorkflow>>,
+    ) => void;
     vi.mocked(validateWorkflow).mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -286,55 +309,19 @@ describe('real preflight product path', () => {
         }),
     );
     const user = userEvent.setup();
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    const router = createMemoryRouter(appRoutes, {
-      initialEntries: [`/workflows/${WORKFLOW_ID}`],
-    });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ClientProvider>
-          <RouterProvider router={router} />
-        </ClientProvider>
-      </QueryClientProvider>,
-    );
-
-    const samplesInput = await screen.findByLabelText(/Samples \(path string\)/i);
-    await user.type(samplesInput, 'samples.tsv');
-    await user.click(screen.getByTestId('validate-button'));
-    await user.type(samplesInput, '.changed');
-
-    resolveValidation({
-      ok: true,
-      workflow_id: WORKFLOW_ID,
-      value: null,
-      snapshot: {
-        snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
-        workflow_id: WORKFLOW_ID,
-        schema_version: '1.0.0',
-        adapter_version: '0.3.0',
-        payload_digest: 'a'.repeat(64),
-        validated_at: '2026-07-14T00:00:00.000Z',
-        expires_at: '2026-07-14T00:30:00.000Z',
-        project_id: 'prj_00000000000000000000000000000000',
-        binding_mode: 'legacy_v1',
-        provenance: 'unresolved',
-        sample_revision_ids: [],
-        binding_digest: 'b'.repeat(64),
-        input_binding: {
-          mode: 'compatibility_unresolved_v1',
-          adapter_contract_version: null,
-          digest: 'c'.repeat(64),
-          fully_managed: false,
-          input_uses: [],
-        },
-      },
-      issues: [],
-    });
+    renderProductPath();
+    await authorValidInputs(user);
+    await user.click(screen.getByTestId('validate-draft-button'));
+    await user.click(screen.getByRole('tab', { name: 'Samples' }));
+    await user.type(screen.getAllByLabelText('Sample 1 sample')[0], '-changed');
+    resolveValidation(validationResponse());
 
     await waitFor(() => expect(validateWorkflow).toHaveBeenCalledTimes(1));
-    expect(screen.getByTestId('create-run-button')).toBeDisabled();
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+    expect(screen.getByTestId('create-validated-run-button')).toBeDisabled();
+    expect(
+      await screen.findByText(/Inputs changed while validation was running/i),
+    ).toBeVisible();
   });
 
   it('keeps the durable run URL and offers retry when preflight fails', async () => {
@@ -356,25 +343,14 @@ describe('real preflight product path', () => {
       issues: [],
     });
     const user = userEvent.setup();
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    const router = createMemoryRouter(appRoutes, {
-      initialEntries: [`/workflows/${WORKFLOW_ID}`],
-    });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ClientProvider>
-          <RouterProvider router={router} />
-        </ClientProvider>
-      </QueryClientProvider>,
+    const router = renderProductPath();
+    await authorValidInputs(user);
+    await user.click(screen.getByTestId('validate-draft-button'));
+    await user.click(await screen.findByTestId('create-validated-run-button'));
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe('/runs/run-real-1'),
     );
-
-    await user.type(await screen.findByLabelText(/Samples \(path string\)/i), 'samples.tsv');
-    await user.click(screen.getByTestId('validate-button'));
-    await user.click(await screen.findByTestId('create-run-button'));
-
-    await waitFor(() => expect(router.state.location.pathname).toBe('/runs/run-real-1'));
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'PREFLIGHT_FAILED: Preflight did not complete.',
     );

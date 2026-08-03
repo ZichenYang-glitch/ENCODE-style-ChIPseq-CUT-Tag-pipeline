@@ -13,6 +13,9 @@ const generatedMocks = vi.hoisted(() => ({
   getWorkflowSchema: vi.fn(),
   validateWorkflow: vi.fn(),
 }));
+const referenceProfileMocks = vi.hoisted(() => ({
+  listCompatibleReferenceProfiles: vi.fn(),
+}));
 
 beforeAll(async () => {
   await import('../workflows/new-run');
@@ -20,6 +23,8 @@ beforeAll(async () => {
 
 vi.mock('../../api/generated/workflows/workflows', () => ({
   getWorkflowSchema: generatedMocks.getWorkflowSchema,
+  listCompatibleReferenceProfiles:
+    referenceProfileMocks.listCompatibleReferenceProfiles,
   validateWorkflow: generatedMocks.validateWorkflow,
 }));
 
@@ -54,7 +59,36 @@ function successResponse(): SchemaResponse {
   };
 }
 
-function validatedSnapshotResponse() {
+const GRCH38_PROFILE = {
+  profile_id: `refp_${'1'.repeat(32)}`,
+  revision_id: `refpr_${'1'.repeat(32)}`,
+  revision_number: 1,
+  display_name: 'Human GRCh38',
+  organism: 'Homo sapiens',
+  assembly: 'GRCh38',
+  identity_sha256: '1'.repeat(64),
+};
+
+const MM10_PROFILE = {
+  profile_id: `refp_${'2'.repeat(32)}`,
+  revision_id: `refpr_${'2'.repeat(32)}`,
+  revision_number: 2,
+  display_name: 'Mouse mm10',
+  organism: 'Mus musculus',
+  assembly: 'mm10',
+  identity_sha256: '2'.repeat(64),
+};
+
+function referenceProfileResponse(profiles = [GRCH38_PROFILE]) {
+  return {
+    ok: true,
+    workflow_id: WORKFLOW_ID,
+    profiles,
+    issues: [],
+  };
+}
+
+function validatedSnapshotResponse(referenceProfile = GRCH38_PROFILE) {
   return {
     ok: true,
     workflow_id: WORKFLOW_ID,
@@ -67,6 +101,7 @@ function validatedSnapshotResponse() {
       payload_digest: 'a'.repeat(64),
       validated_at: '2026-07-14T00:00:00.000Z',
       expires_at: '2026-07-14T00:30:00.000Z',
+      reference_profile: referenceProfile,
     },
     issues: [],
   };
@@ -134,6 +169,10 @@ describe('schema input workbench route', () => {
     generatedMocks.createRun.mockResolvedValue(createdRunResponse());
     generatedMocks.getWorkflowSchema.mockReset();
     generatedMocks.getWorkflowSchema.mockResolvedValue(successResponse());
+    referenceProfileMocks.listCompatibleReferenceProfiles.mockReset();
+    referenceProfileMocks.listCompatibleReferenceProfiles.mockResolvedValue(
+      referenceProfileResponse(),
+    );
     generatedMocks.validateWorkflow.mockReset();
     generatedMocks.validateWorkflow.mockResolvedValue(
       validatedSnapshotResponse(),
@@ -151,6 +190,9 @@ describe('schema input workbench route', () => {
     expect(generatedMocks.getWorkflowSchema).toHaveBeenCalledWith(WORKFLOW_ID);
     expect(screen.getByText(/Draft only/i)).toBeInTheDocument();
     expect(screen.getByText(/refresh clears this draft/i)).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Reference profile' })).toHaveValue(
+      GRCH38_PROFILE.revision_id,
+    );
     expect(screen.queryByRole('button', { name: /Start run/i })).not.toBeInTheDocument();
     expect(screen.getByText('Replicate analysis')).toBeVisible();
     expect(screen.getByText('ChIP-seq IDR')).toBeVisible();
@@ -166,6 +208,123 @@ describe('schema input workbench route', () => {
       /stage4b|stage5/,
     );
     expect(screen.getByRole('button', { name: 'Validate current inputs' })).toBeDisabled();
+  });
+
+  it('freezes the selected GRCh38 revision and invalidates its snapshot after switching to mm10', async () => {
+    referenceProfileMocks.listCompatibleReferenceProfiles.mockResolvedValue(
+      referenceProfileResponse([GRCH38_PROFILE, MM10_PROFILE]),
+    );
+    generatedMocks.validateWorkflow.mockImplementation(
+      async (_workflowId: string, payload: { reference_profile_revision_id: string }) =>
+        validatedSnapshotResponse(
+          payload.reference_profile_revision_id === MM10_PROFILE.revision_id
+            ? MM10_PROFILE
+            : GRCH38_PROFILE,
+        ),
+    );
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+
+    const reference = await screen.findByRole('combobox', {
+      name: 'Reference profile',
+    });
+    expect(reference).toHaveValue('');
+    await user.selectOptions(reference, GRCH38_PROFILE.revision_id);
+    expect(screen.getByText(/Homo sapiens · GRCh38/)).toBeVisible();
+    await authorValidDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+
+    await waitFor(() =>
+      expect(generatedMocks.validateWorkflow).toHaveBeenCalledWith(
+        WORKFLOW_ID,
+        expect.objectContaining({
+          reference_profile_revision_id: GRCH38_PROFILE.revision_id,
+        }),
+      ),
+    );
+    expect(
+      await screen.findByRole('button', {
+        name: 'Create run from validated inputs',
+      }),
+    ).toBeEnabled();
+
+    await user.selectOptions(reference, MM10_PROFILE.revision_id);
+
+    expect(screen.getByText(/Mus musculus · mm10/)).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Create run from validated inputs' }),
+    ).toBeDisabled();
+    expect(await screen.findByText(/Inputs changed after validation/i)).toBeVisible();
+  });
+
+  it('keeps authoring visible but blocks validation when no compatible reference is enabled', async () => {
+    referenceProfileMocks.listCompatibleReferenceProfiles.mockResolvedValue(
+      referenceProfileResponse([]),
+    );
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+
+    expect(await screen.findByRole('heading', { name: 'Input workbench' })).toBeVisible();
+    expect(
+      screen.getByText(/No enabled reference profile is available for this workflow/i),
+    ).toBeVisible();
+    await authorValidDraft(user);
+    expect(
+      screen.getByRole('button', { name: 'Validate current inputs' }),
+    ).toBeDisabled();
+    expect(generatedMocks.validateWorkflow).not.toHaveBeenCalled();
+  });
+
+  it('clears a frozen snapshot when its selected revision disappears from the enabled list', async () => {
+    referenceProfileMocks.listCompatibleReferenceProfiles
+      .mockResolvedValueOnce(referenceProfileResponse())
+      .mockResolvedValueOnce(referenceProfileResponse([MM10_PROFILE]));
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await authorValidDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(
+      await screen.findByRole('button', {
+        name: 'Create run from validated inputs',
+      }),
+    ).toBeEnabled();
+
+    await user.click(screen.getByRole('button', { name: 'Refresh references' }));
+
+    expect(
+      await screen.findByText(/selected reference is no longer enabled or current/i),
+    ).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Reference profile' })).toHaveValue(
+      '',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Create run from validated inputs' }),
+    ).toBeDisabled();
+  });
+
+  it('rejects a validation response that freezes a different reference revision', async () => {
+    generatedMocks.validateWorkflow.mockResolvedValue(
+      validatedSnapshotResponse(MM10_PROFILE),
+    );
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await authorValidDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'REFERENCE_PROFILE_NOT_CONFIRMED',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Create run from validated inputs' }),
+    ).toBeDisabled();
   });
 
   it('loads bulk authoring from the generated schema operation, not stub detail hints', async () => {

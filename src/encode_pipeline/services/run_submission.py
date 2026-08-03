@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+from encode_pipeline.platform.adapters import (
+    ReferenceProfileBindingAdapter,
+    WorkflowAdapter,
+    WorkflowInputs,
+)
 from encode_pipeline.platform.execution import RunExecutionAssignment
+from encode_pipeline.platform.reference_profiles import BoundWorkflowReference
 from encode_pipeline.platform.runs import RunRecord, RunStatus
 from encode_pipeline.services.run_queue import (
     RunQueue,
@@ -10,10 +16,16 @@ from encode_pipeline.services.run_queue import (
     RunQueueIdentityError,
     RunQueueJobUnavailableError,
 )
-from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
+from encode_pipeline.services.run_repositories import (
+    ConcurrentRunUpdateError,
+    ReferenceBindingSelectionError,
+)
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 from encode_pipeline.services.workflow_info import resolve_workflow_availability
+from encode_pipeline.services.reference_profile_runtime import (
+    ReferenceProfileRuntimeResolver,
+)
 
 
 class RunSubmissionError(RuntimeError):
@@ -57,6 +69,7 @@ class RunSubmissionService:
         run_queue: RunQueue,
         *,
         build_identity_provider: WorkflowBuildIdentityProvider,
+        reference_profile_resolver: ReferenceProfileRuntimeResolver | None = None,
     ) -> None:
         if not isinstance(run_service, RunService):
             raise ValueError("run_service must be a RunService instance")
@@ -71,6 +84,7 @@ class RunSubmissionService:
         self._run_service = run_service
         self._run_queue = run_queue
         self._build_identity_provider = build_identity_provider
+        self._reference_profile_resolver = reference_profile_resolver
 
     def start_run(self, run_id: str) -> RunRecord:
         """Submit a planned run, converging retries on one durable job ID.
@@ -112,8 +126,50 @@ class RunSubmissionService:
                     "Workflow execution is unavailable.",
                     record=current,
                 )
-            current_identity = self._build_identity_provider.capture_executable(
-                current.workflow_id
+            resolved_adapter: WorkflowAdapter = adapter
+            reference_capable = isinstance(adapter, ReferenceProfileBindingAdapter)
+            if reference_capable and self._reference_profile_resolver is None:
+                raise RunExecutionUnavailableError(
+                    "Workflow reference execution is unavailable.",
+                    record=current,
+                )
+            has_reference_binding = (
+                reference_capable and self._reference_profile_resolver is not None
+            )
+            if has_reference_binding:
+                assert self._reference_profile_resolver is not None
+                reference_result = self._reference_profile_resolver.resolve_run(
+                    run_id,
+                    current.workflow_id,
+                    WorkflowInputs(
+                        config=current.inputs.get("config", {}),
+                        samples=current.inputs.get("samples"),
+                        options=current.inputs.get("options", {}),
+                    ),
+                    require_enabled=True,
+                )
+                if reference_result.is_failure or reference_result.value is None:
+                    raise RunExecutionUnavailableError(
+                        "Workflow reference execution is unavailable.",
+                        record=current,
+                    )
+                if not isinstance(
+                    reference_result.value,
+                    BoundWorkflowReference,
+                ) or not isinstance(reference_result.value.adapter, WorkflowAdapter):
+                    raise RunExecutionUnavailableError(
+                        "Workflow reference execution is unavailable.",
+                        record=current,
+                    )
+                resolved_adapter = reference_result.value.adapter
+            current_identity = (
+                self._build_identity_provider.capture_resolved_executable(
+                    resolved_adapter
+                )
+                if has_reference_binding
+                else self._build_identity_provider.capture_executable(
+                    current.workflow_id
+                )
             )
             if current_identity.is_failure or current_identity.value is None:
                 raise RunExecutionUnavailableError(
@@ -126,7 +182,13 @@ class RunSubmissionService:
                     record=current,
                 )
 
-        assignment = self._resolve_assignment(current)
+        try:
+            assignment = self._resolve_assignment(current)
+        except ReferenceBindingSelectionError:
+            raise RunExecutionUnavailableError(
+                "Workflow reference execution is unavailable.",
+                record=self._run_service.get_run(run_id),
+            ) from None
         current = self._run_service.get_run(run_id)
         if current.status in {
             RunStatus.RUNNING,

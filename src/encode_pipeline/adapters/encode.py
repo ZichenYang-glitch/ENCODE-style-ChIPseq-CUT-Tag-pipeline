@@ -44,6 +44,10 @@ from encode_pipeline.platform.adapters import (
     WorkflowSchema,
     WorkspacePlan,
 )
+from encode_pipeline.platform.reference_profiles import (
+    AdapterReferenceBindingIdentity,
+    BoundWorkflowReference,
+)
 from encode_pipeline.platform.input_bundles import (
     InputBundleFileSetAlternatives,
     InputBundleMapping,
@@ -373,6 +377,9 @@ class EncodeStyleWorkflowAdapter:
         The success value shape is adapter-private. Platform code must not
         depend on ``{"config": ..., "samples": ...}``.
         """
+        return self._validate_resolved_inputs(inputs)
+
+    def _validate_resolved_inputs(self, inputs: WorkflowInputs) -> Result[object]:
         option_issue = _validate_options(inputs.options)
         if option_issue is not None:
             return Result.failure([option_issue])
@@ -404,6 +411,41 @@ class EncodeStyleWorkflowAdapter:
         if policy_issue is not None:
             return Result.failure([policy_issue])
         return Result.success(result.value, issues=config_result.issues + result.issues)
+
+    def verify_reference_profile_binding(
+        self,
+        payload: Mapping[str, object],
+    ) -> Result[AdapterReferenceBindingIdentity]:
+        """Verify one operator-private ENCODE reference binding."""
+        from encode_pipeline.adapters.encode_references import (
+            verify_encode_reference_profile_binding,
+        )
+
+        return verify_encode_reference_profile_binding(payload)
+
+    def bind_reference_profile(
+        self,
+        inputs: WorkflowInputs,
+        payload: Mapping[str, object],
+    ) -> Result[BoundWorkflowReference]:
+        """Resolve one exact binding into fresh path-private execution inputs."""
+        from encode_pipeline.adapters.encode_references import (
+            resolve_encode_reference_profile,
+        )
+
+        resolved = resolve_encode_reference_profile(inputs, payload)
+        if resolved.is_failure:
+            return Result.failure(resolved.issues)
+        assert resolved.value is not None
+        bound_inputs, identity = resolved.value
+        bound_adapter = type(self)(catalog=self._artifact_catalog)
+        return Result.success(
+            BoundWorkflowReference(
+                inputs=bound_inputs,
+                adapter=bound_adapter,
+                identity=identity,
+            )
+        )
 
     def preview_dag(self, inputs: WorkflowInputs) -> Result[DagPreview]:
         """Return unsupported until DAG preview is wired through the adapter."""

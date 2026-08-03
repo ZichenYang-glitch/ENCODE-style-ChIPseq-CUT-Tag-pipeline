@@ -437,6 +437,7 @@ test('Bulk RNA-seq product path is fail-closed or executes by declared admission
   expect(fixture.bulkConfig).toHaveProperty(
     'standard.ribosomal_rna_removal',
   );
+  expect(fixture.bulkConfig).not.toHaveProperty('standard.reference');
   if (fixture.bulkExpectedExecution === 'not_configured') {
     expect(fixture.bulkConfig).toHaveProperty('standard.umi');
   }
@@ -464,6 +465,22 @@ test('Bulk RNA-seq product path is fail-closed or executes by declared admission
   await expect(
     page.getByRole('heading', { name: 'Input workbench' }),
   ).toBeVisible();
+  const referenceSelector = page.getByRole('combobox', {
+    name: 'Reference profile',
+  });
+  if (fixture.bulkExpectedExecution === 'available') {
+    await expect(referenceSelector).toBeEnabled();
+    await expect(referenceSelector.locator('option')).toHaveCount(2);
+    await expect(referenceSelector.locator('option').nth(1)).toContainText(
+      'Bulk RNA-seq browser tiny — tiny — Synthetic organism',
+    );
+    await expect(referenceSelector).toHaveValue(/^refpr_[0-9a-f]{32}$/);
+  } else {
+    await expect(referenceSelector).toBeDisabled();
+    await expect(
+      page.getByText(/No enabled reference profile is available for this workflow/i),
+    ).toBeVisible();
+  }
 
   const configForm = page.getByLabel('Workflow config form');
   await expect(configForm).toContainText('Standard bulk RNA-seq parameters');
@@ -537,6 +554,14 @@ test('Bulk RNA-seq product path is fail-closed or executes by declared admission
   await expect(page.getByRole('button', { name: 'Start run' })).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
 
+  if (fixture.bulkExpectedExecution === 'not_configured') {
+    await expect(
+      page.getByRole('button', { name: 'Validate current inputs' }),
+    ).toBeDisabled();
+    expect(runMutationRequests).toBe(0);
+    return;
+  }
+
   const validateRequestPromise = page.waitForRequest(
     (request) =>
       request.method() === 'POST' &&
@@ -559,10 +584,15 @@ test('Bulk RNA-seq product path is fail-closed or executes by declared admission
     config: Record<string, unknown>;
     samples: Array<Record<string, string>>;
     options: Record<string, unknown>;
+    reference_profile_revision_id: string;
   };
   expect(requestPayload.config).toEqual(fixture.bulkConfig);
+  expect(requestPayload.config).not.toHaveProperty('standard.reference');
   expect(requestPayload.samples).toEqual(expectedSamples);
   expect(requestPayload.options).toEqual(fixture.bulkOptions);
+  expect(requestPayload.reference_profile_revision_id).toMatch(
+    /^refpr_[0-9a-f]{32}$/,
+  );
 
   const validation = (await validateResponse.json()) as {
     ok: boolean;
@@ -571,18 +601,6 @@ test('Bulk RNA-seq product path is fail-closed or executes by declared admission
   };
   expect(validation.ok).toBe(true);
   expect(validation).not.toHaveProperty('canonical_payload');
-  if (fixture.bulkExpectedExecution === 'not_configured') {
-    expect(validation.snapshot).toBeNull();
-    await expect(
-      page.getByText(
-        /No runnable snapshot was issued because execution is unavailable/i,
-      ),
-    ).toBeVisible();
-    await expect(createRun).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Start run' })).toHaveCount(0);
-    expect(runMutationRequests).toBe(0);
-    return;
-  }
 
   expect(validation.snapshot?.snapshot_id).toMatch(/^vsnap_[0-9a-f]{32}$/);
   expect(validation.snapshot?.payload_digest).toMatch(/^[0-9a-f]{64}$/);
@@ -637,6 +655,10 @@ test('Bulk RNA-seq product path is fail-closed or executes by declared admission
     timeout: 40 * 60 * 1_000,
   });
   await expect(page).toHaveURL(`/runs/${runId}`);
+  const referenceEvidence = page.getByTestId('run-reference-profile');
+  await expect(referenceEvidence).toContainText('Bulk RNA-seq browser tiny');
+  await expect(referenceEvidence).toContainText('Synthetic organism · tiny');
+  await expect(referenceEvidence).toContainText(/Revision 1 · [0-9a-f]{64}/);
   await captureElement(
     page,
     page.getByTestId('run-status-badge').locator('..'),

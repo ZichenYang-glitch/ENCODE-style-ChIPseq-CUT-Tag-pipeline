@@ -83,13 +83,16 @@ class RecordingRunQueue:
 
 
 @pytest.fixture
-def client_and_queue(tmp_path) -> Iterator[tuple[ApiTestClient, RecordingRunQueue]]:
-    app = create_app(database_url=f"sqlite:///{tmp_path / 'platform.db'}")
+def client_and_queue(
+    reference_ready_app,
+) -> Iterator[tuple[ApiTestClient, RecordingRunQueue]]:
+    app = reference_ready_app
     queue = RecordingRunQueue()
     app.state.run_submission_service = RunSubmissionService(
         app.state.run_service,
         queue,
         build_identity_provider=app.state.build_identity_provider,
+        reference_profile_resolver=app.state.reference_profile_resolver,
     )
     try:
         with ApiTestClient(app) as client:
@@ -108,7 +111,34 @@ def _create_run(
     bind_build_identity: bool = True,
 ) -> str:
     service = client.app.state.run_service
-    record = service.create_run(WORKFLOW_ID, WorkflowInputs(config={}))
+    validation = client.post(
+        f"/api/v1/workflows/{WORKFLOW_ID}/validate",
+        json={
+            "config": {},
+            "samples": [
+                {
+                    "sample": "S1",
+                    "fastq_1": "/tmp/S1.R1.fastq.gz",
+                    "layout": "SE",
+                    "assay": "chipseq",
+                    "target": "CTCF",
+                    "peak_mode": "narrow",
+                }
+            ],
+            "options": {},
+            "reference_profile_revision_id": (
+                client.app.state.test_reference_profile.revision_id
+            ),
+        },
+    )
+    assert validation.status_code == 200
+    assert validation.json()["ok"] is True
+    created = client.post(
+        f"/api/v1/workflows/{WORKFLOW_ID}/runs",
+        json={"snapshot_id": validation.json()["snapshot"]["snapshot_id"]},
+    )
+    assert created.status_code == 201
+    record = service.get_run(created.json()["run"]["run_id"])
     if planned:
         service.transition_run(record.run_id, RunStatus.VALIDATING)
         if bind_build_identity:
@@ -265,6 +295,7 @@ def test_start_run_submission_does_not_block_the_api_event_loop(tmp_path):
 def test_start_run_real_redis_read_timeout_is_bounded_and_sanitized(
     tmp_path,
     monkeypatch,
+    reference_ready_app,
 ):
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -297,6 +328,7 @@ def test_start_run_real_redis_read_timeout_is_bounded_and_sanitized(
     monkeypatch.setenv(REDIS_CONNECT_TIMEOUT_SECONDS_ENV, "0.2")
     monkeypatch.setenv(REDIS_API_READ_TIMEOUT_SECONDS_ENV, "0.15")
     app = create_app(database_url=f"sqlite:///{tmp_path / 'platform.db'}")
+    app.state.test_reference_profile = reference_ready_app.state.test_reference_profile
     try:
         with ApiTestClient(app) as client:
             run_id = _create_run(client, planned=True)

@@ -57,6 +57,17 @@ async function createPlannedRun(
   await expect(
     page.getByRole('heading', { name: 'Input workbench' }),
   ).toBeVisible();
+  const referenceSelector = page.getByRole('combobox', {
+    name: 'Reference profile',
+  });
+  await expect(referenceSelector).toBeEnabled();
+  const selectedReferenceRevisionId = await referenceSelector
+    .locator('option')
+    .filter({ hasText: 'GRCh38 browser tiny' })
+    .getAttribute('value');
+  expect(selectedReferenceRevisionId).toMatch(/^refpr_[0-9a-f]{32}$/);
+  await referenceSelector.selectOption(selectedReferenceRevisionId!);
+  await expect(referenceSelector).toHaveValue(selectedReferenceRevisionId!);
   await setWorkbenchConfig(
     page,
     options.proveBackendRejection
@@ -129,6 +140,7 @@ async function createPlannedRun(
     config: Record<string, unknown>;
     samples: Array<Record<string, string>>;
     options: Record<string, unknown>;
+    reference_profile_revision_id: string;
   };
   expect(validatePayload.config).not.toHaveProperty('samples');
   expect(validatePayload.config).toMatchObject({
@@ -142,6 +154,9 @@ async function createPlannedRun(
   expect(validatePayload.samples).toHaveLength(1);
   expect(validatePayload.samples[0]?.sample).toBe('C1');
   expect(validatePayload.options).toEqual({ strict_inputs: false });
+  expect(validatePayload.reference_profile_revision_id).toBe(
+    selectedReferenceRevisionId,
+  );
   const validateResponse = await validateResponsePromise;
   expect(validateResponse.status()).toBe(200);
   const validation = (await validateResponse.json()) as {
@@ -420,6 +435,10 @@ test('real run exposes QC source artifact and exact download @desktop', async ({
     { proveBackendRejection: true, requireRunning: true },
   );
   await expectNoHorizontalOverflow(page);
+  const referenceEvidence = page.getByTestId('run-reference-profile');
+  await expect(referenceEvidence).toContainText('GRCh38 browser tiny');
+  await expect(referenceEvidence).toContainText('Homo sapiens · GRCh38');
+  await expect(referenceEvidence).toContainText(/Revision 1 · [0-9a-f]{64}/);
 
   await verifyRunHistoryResultLinks(page, runId);
   await captureRunHistoryViewport(

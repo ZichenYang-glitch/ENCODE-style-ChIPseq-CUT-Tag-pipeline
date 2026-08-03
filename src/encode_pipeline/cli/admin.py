@@ -1,4 +1,4 @@
-"""Administrator-only local commands for Project and Sample catalog mutations."""
+"""Administrator-only local catalog and Reference Profile mutations."""
 
 from __future__ import annotations
 
@@ -77,6 +77,41 @@ class InputRegistryAdmin(Protocol):
     ) -> object: ...
 
 
+class ReferenceProfileAdmin(Protocol):
+    """Narrow local-only surface for operator-prepared reference mutations."""
+
+    def register(
+        self,
+        *,
+        safe_key: str,
+        display_name: str,
+        organism: str,
+        assembly: str,
+        config_key: str,
+    ) -> object: ...
+
+    def verify(self, revision_id: str) -> object: ...
+
+    def list(self) -> Sequence[object]: ...
+
+    def enable(
+        self,
+        profile_id: str,
+        *,
+        revision_id: str | None = None,
+    ) -> object: ...
+
+    def disable(self, profile_id: str) -> object: ...
+
+
+class _ReferenceProfileCliError(RuntimeError):
+    """Stable, path-free error for CLI-only admission failures."""
+
+    def __init__(self, reason_code: str, message: str) -> None:
+        self.reason_code = reason_code
+        super().__init__(message)
+
+
 class _DataRegistryServiceLike(Protocol):
     def create_project(self, display_name: str) -> object: ...
 
@@ -106,6 +141,10 @@ RegistryFactory = Callable[[str], AbstractContextManager[RegistryAdmin]]
 InputRegistryFactory = Callable[
     [str, Path | None],
     AbstractContextManager[InputRegistryAdmin],
+]
+ReferenceProfileFactory = Callable[
+    [str, Path | None, bool],
+    AbstractContextManager[ReferenceProfileAdmin],
 ]
 
 
@@ -214,6 +253,97 @@ def _open_input_registry(
         yield cast(InputRegistryAdmin, registry)
 
 
+@contextmanager
+def _open_reference_profiles(
+    database_url: str,
+    reference_profile_config: Path | None,
+    allow_schema_upgrade: bool,
+) -> Iterator[ReferenceProfileAdmin]:
+    """Compose the private Reference Profile service only for admin commands."""
+    from encode_pipeline.persistence.database import (
+        create_database_engine,
+        create_session_factory,
+    )
+    from encode_pipeline.persistence.migrations import upgrade_database
+    from encode_pipeline.persistence.reference_profiles import (
+        SqlAlchemyReferenceProfileRepository,
+    )
+    from encode_pipeline.persistence.migration_admission import (
+        verify_migration_execution_inventory,
+    )
+    from encode_pipeline.persistence.runtime import resolve_database_url
+    from encode_pipeline.services.defaults import create_default_workflow_registry
+    from encode_pipeline.services.private_reference_profiles import (
+        PrivateReferenceProfileConfigError,
+        load_private_reference_profile_config,
+    )
+    from encode_pipeline.services.reference_profiles import ReferenceProfileService
+
+    resolved_url = resolve_database_url(database_url)
+    if allow_schema_upgrade:
+        upgrade_database(resolved_url)
+        engine = create_database_engine(resolved_url)
+    else:
+        import sqlite3
+
+        from sqlalchemy import create_engine
+        from sqlalchemy.engine import make_url
+
+        inventory = verify_migration_execution_inventory()
+        if len(inventory.heads) != 1:
+            raise RuntimeError("Reference Profile database schema is unavailable.")
+        database_path = Path(cast(str, make_url(resolved_url).database))
+
+        def open_read_only_database():
+            connection = sqlite3.connect(
+                f"{database_path.as_uri()}?mode=ro",
+                uri=True,
+                check_same_thread=False,
+                timeout=30,
+            )
+            connection.execute("PRAGMA query_only=ON")
+            connection.execute("PRAGMA foreign_keys=ON")
+            return connection
+
+        engine = create_engine(
+            "sqlite://",
+            creator=open_read_only_database,
+            future=True,
+        )
+        try:
+            with engine.connect() as connection:
+                observed_heads = tuple(
+                    sorted(
+                        connection.exec_driver_sql(
+                            "SELECT version_num FROM alembic_version"
+                        ).scalars()
+                    )
+                )
+            if observed_heads != inventory.heads:
+                raise RuntimeError("Reference Profile database schema is unavailable.")
+        except Exception:
+            engine.dispose()
+            raise
+    try:
+        repository = SqlAlchemyReferenceProfileRepository(
+            create_session_factory(engine)
+        )
+        registry = create_default_workflow_registry()
+
+        def private_config_provider():
+            if reference_profile_config is None:
+                raise PrivateReferenceProfileConfigError()
+            return load_private_reference_profile_config(reference_profile_config)
+
+        yield ReferenceProfileService(
+            repository=repository,
+            private_config_provider=private_config_provider,
+            adapter_provider=registry.get,
+        )
+    finally:
+        engine.dispose()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="helixweave admin",
@@ -233,6 +363,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Private operator StoragePool mapping. Required only for commands "
             "that inspect local file bytes."
+        ),
+    )
+    parser.add_argument(
+        "--reference-profile-config",
+        type=Path,
+        help=(
+            "Private operator Reference Profile bindings. Required only for "
+            "register, verify, and enable."
         ),
     )
     resource_parsers = parser.add_subparsers(dest="resource", required=True)
@@ -306,6 +444,41 @@ def build_parser() -> argparse.ArgumentParser:
     input_file_register.add_argument("--project-id", required=True)
     input_file_register.add_argument("--stable-key", required=True)
     input_file_register.add_argument("--pool-relative-path", required=True)
+
+    reference_profile = resource_parsers.add_parser(
+        "reference-profile",
+        help="Manage operator-prepared immutable Reference Profiles.",
+    )
+    reference_commands = reference_profile.add_subparsers(
+        dest="reference_profile_command",
+        required=True,
+    )
+    reference_register = reference_commands.add_parser(
+        "register",
+        help="Create a stable profile or append a verified revision.",
+    )
+    reference_register.add_argument("--safe-key", required=True)
+    reference_register.add_argument("--display-name", required=True)
+    reference_register.add_argument("--organism", required=True)
+    reference_register.add_argument("--assembly", required=True)
+    reference_register.add_argument("--config-key", required=True)
+    reference_verify = reference_commands.add_parser(
+        "verify",
+        help="Verify one revision without mutating the database.",
+    )
+    reference_verify.add_argument("revision_id")
+    reference_commands.add_parser("list", help="List path-free profile metadata.")
+    reference_enable = reference_commands.add_parser(
+        "enable",
+        help="Verify and enable one exact revision.",
+    )
+    reference_enable.add_argument("profile_id")
+    reference_enable.add_argument("--revision-id")
+    reference_disable = reference_commands.add_parser(
+        "disable",
+        help="Disable new use without deleting history.",
+    )
+    reference_disable.add_argument("profile_id")
     return parser
 
 
@@ -412,10 +585,13 @@ def _write_result(result: object) -> None:
 
 
 def _write_command_error(error: Exception) -> None:
+    code = getattr(error, "reason_code", "registry-command-failed")
+    if not isinstance(code, str) or not code or len(code) > 128:
+        code = "registry-command-failed"
     json.dump(
         {
             "error": {
-                "code": "registry-command-failed",
+                "code": code,
                 "message": str(error),
             }
         },
@@ -432,6 +608,7 @@ def main(
     *,
     registry_factory: RegistryFactory = _open_registry,
     input_registry_factory: InputRegistryFactory = _open_input_registry,
+    reference_profile_factory: ReferenceProfileFactory = _open_reference_profiles,
 ) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -450,7 +627,40 @@ def main(
         parser.error(str(exc))
 
     try:
-        if args.resource in {"storage-pool", "input-file"} or (
+        if args.resource == "reference-profile":
+            if (
+                args.reference_profile_command in {"register", "verify", "enable"}
+                and args.reference_profile_config is None
+            ):
+                raise _ReferenceProfileCliError(
+                    "REFERENCE_PROFILE_CONFIG_REQUIRED",
+                    "Private Reference Profile configuration is required.",
+                )
+            with reference_profile_factory(
+                args.database_url,
+                args.reference_profile_config,
+                args.reference_profile_command in {"register", "enable", "disable"},
+            ) as profiles:
+                if args.reference_profile_command == "register":
+                    result = profiles.register(
+                        safe_key=args.safe_key,
+                        display_name=args.display_name,
+                        organism=args.organism,
+                        assembly=args.assembly,
+                        config_key=args.config_key,
+                    )
+                elif args.reference_profile_command == "verify":
+                    result = profiles.verify(args.revision_id)
+                elif args.reference_profile_command == "list":
+                    result = profiles.list()
+                elif args.reference_profile_command == "enable":
+                    result = profiles.enable(
+                        args.profile_id,
+                        revision_id=args.revision_id,
+                    )
+                else:
+                    result = profiles.disable(args.profile_id)
+        elif args.resource in {"storage-pool", "input-file"} or (
             args.resource == "project" and args.project_command == "bind-storage-pool"
         ):
             if (
@@ -505,7 +715,15 @@ def main(
                         display_name=args.display_name,
                         attributes=attributes,
                     )
-    except (LookupError, OSError, RuntimeError, ValueError) as exc:
+    except Exception as exc:
+        if args.resource == "reference-profile":
+            if not isinstance(getattr(exc, "reason_code", None), str):
+                exc = _ReferenceProfileCliError(
+                    "REFERENCE_PROFILE_COMMAND_FAILED",
+                    "Reference Profile command failed.",
+                )
+        elif not isinstance(exc, (LookupError, OSError, RuntimeError, ValueError)):
+            raise
         _write_command_error(exc)
         return 1
     _write_result(result)

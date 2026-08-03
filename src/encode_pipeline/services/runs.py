@@ -27,6 +27,7 @@ from encode_pipeline.platform.result_generations import (
     validate_result_attempt_id,
 )
 from encode_pipeline.platform.results import Issue
+from encode_pipeline.platform.reference_profiles import ReferenceProfileRevisionBinding
 from encode_pipeline.platform.run_history import (
     RunHistoryCursor,
     RunHistoryPage,
@@ -159,6 +160,14 @@ class RunService:
         with self._lock:
             return self._repository.get_validated_input_snapshot(snapshot_id)
 
+    def get_validated_reference_binding(
+        self,
+        snapshot_id: str,
+    ) -> ReferenceProfileRevisionBinding | None:
+        """Return path-free exact reference evidence frozen with a snapshot."""
+        with self._lock:
+            return self._repository.get_validated_reference_binding(snapshot_id)
+
     def create_run_from_validated_snapshot(
         self,
         workflow_id: str,
@@ -276,6 +285,14 @@ class RunService:
         """Return the run record for a run ID."""
         with self._lock:
             return self._repository.get_run(run_id)
+
+    def get_run_reference_binding(
+        self,
+        run_id: str,
+    ) -> ReferenceProfileRevisionBinding | None:
+        """Return path-free exact reference evidence frozen with a run."""
+        with self._lock:
+            return self._repository.get_run_reference_binding(run_id)
 
     def list_runs(self) -> tuple[RunRecord, ...]:
         """Return all runs in creation order."""

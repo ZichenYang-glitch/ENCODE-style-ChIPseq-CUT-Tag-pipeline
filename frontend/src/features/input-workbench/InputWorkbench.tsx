@@ -1,12 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import { FileCode2, ListChecks, Settings2, TableProperties } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import type { WorkflowAvailability } from '../../api/types';
+import type { ReferenceProfileSummary } from '../../api/runTypes';
 import { ConfigEditor, type ConfigMode } from './ConfigEditor';
 import { DraftReview } from './DraftReview';
 import { OptionsEditor } from './OptionsEditor';
+import { ReferenceProfileSelector } from './ReferenceProfileSelector';
 import { SampleEditor } from './SampleEditor';
 import type { WorkbenchSchema } from './schemaContract';
 import { useInputDraft } from './useInputDraft';
@@ -39,15 +41,28 @@ interface InputWorkbenchProps {
   workflowId: string;
   schema: WorkbenchSchema;
   availability: WorkflowAvailability | null;
+  referenceProfiles: readonly ReferenceProfileSummary[] | null;
+  referenceProfilesLoading: boolean;
+  referenceProfilesRefreshing: boolean;
+  referenceProfilesError: string | null;
+  onRefreshReferenceProfiles: () => void;
 }
 
 export function InputWorkbench({
   workflowId,
   schema,
   availability,
+  referenceProfiles,
+  referenceProfilesLoading,
+  referenceProfilesRefreshing,
+  referenceProfilesError,
+  onRefreshReferenceProfiles,
 }: InputWorkbenchProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const draft = useInputDraft(schema);
+  const [referenceSelectionMessage, setReferenceSelectionMessage] = useState<
+    string | null
+  >(null);
   const step = readStep(searchParams.get('step'));
   const requestedMode = readMode(searchParams.get('mode'));
   const mode =
@@ -58,6 +73,45 @@ export function InputWorkbench({
   useEffect(() => {
     if (mode === 'yaml') draft.syncYaml();
   }, [mode, draft]);
+
+  const selectedReference = useMemo(
+    () =>
+      referenceProfiles?.find(
+        (profile) =>
+          profile.revision_id === draft.state.referenceProfileRevisionId,
+      ) ?? null,
+    [referenceProfiles, draft.state.referenceProfileRevisionId],
+  );
+
+  useEffect(() => {
+    if (referenceProfiles === null) return;
+    const selectedRevisionId = draft.state.referenceProfileRevisionId;
+    if (
+      selectedRevisionId !== null &&
+      !referenceProfiles.some(
+        (profile) => profile.revision_id === selectedRevisionId,
+      )
+    ) {
+      draft.setReferenceProfileRevisionId(null);
+      setReferenceSelectionMessage(
+        'The selected reference is no longer enabled or current. Select and validate an available revision again.',
+      );
+      return;
+    }
+    if (
+      selectedRevisionId === null &&
+      referenceProfiles.length === 1 &&
+      referenceSelectionMessage === null
+    ) {
+      draft.setReferenceProfileRevisionId(referenceProfiles[0].revision_id);
+      setReferenceSelectionMessage(null);
+    }
+  }, [
+    draft.setReferenceProfileRevisionId,
+    draft.state.referenceProfileRevisionId,
+    referenceSelectionMessage,
+    referenceProfiles,
+  ]);
 
   function setStep(nextStep: string) {
     if (nextStep === 'review' && draft.state.yamlIssue !== null) return;
@@ -98,6 +152,19 @@ export function InputWorkbench({
         <p className="border-b border-[var(--color-border)] py-2 text-xs text-[var(--color-text-muted)]">
           This draft stays only in this page session; a browser refresh clears this draft.
         </p>
+        <ReferenceProfileSelector
+          profiles={referenceProfiles}
+          selectedRevisionId={draft.state.referenceProfileRevisionId}
+          loading={referenceProfilesLoading}
+          refreshing={referenceProfilesRefreshing}
+          errorMessage={referenceProfilesError}
+          selectionMessage={referenceSelectionMessage}
+          onSelect={(revisionId) => {
+            draft.setReferenceProfileRevisionId(revisionId);
+            setReferenceSelectionMessage(null);
+          }}
+          onRefresh={onRefreshReferenceProfiles}
+        />
 
         <Tabs.Root value={step} onValueChange={setStep} className="min-w-0 pt-3">
           <Tabs.List
@@ -141,6 +208,9 @@ export function InputWorkbench({
               workflowId={workflowId}
               draft={draft}
               availability={availability}
+              referenceSelectionAvailable={
+                selectedReference !== null && referenceProfilesError === null
+              }
             />
           </Tabs.Content>
         </Tabs.Root>

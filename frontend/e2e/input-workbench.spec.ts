@@ -61,6 +61,31 @@ test('schema workbench preserves one draft across form YAML samples review and h
   await expect(
     page.getByRole('heading', { name: 'Input workbench' }),
   ).toBeVisible();
+  const referenceSelector = page.getByRole('combobox', {
+    name: 'Reference profile',
+  });
+  await expect(referenceSelector).toBeEnabled();
+  await expect(referenceSelector.locator('option')).toHaveCount(3);
+  await expect(referenceSelector.locator('option').nth(1)).toContainText(
+    'GRCh38 browser tiny — GRCh38 — Homo sapiens',
+  );
+  await expect(referenceSelector.locator('option').nth(2)).toContainText(
+    'mm10 browser tiny — mm10 — Mus musculus',
+  );
+  const grch38RevisionId = await referenceSelector
+    .locator('option')
+    .nth(1)
+    .getAttribute('value');
+  const mm10RevisionId = await referenceSelector
+    .locator('option')
+    .nth(2)
+    .getAttribute('value');
+  expect(grch38RevisionId).toMatch(/^refpr_[0-9a-f]{32}$/);
+  expect(mm10RevisionId).toMatch(/^refpr_[0-9a-f]{32}$/);
+  await referenceSelector.selectOption(mm10RevisionId!);
+  await expect(page.getByText('Mus musculus · mm10 · revision 1')).toBeVisible();
+  await referenceSelector.selectOption(grch38RevisionId!);
+  await expect(page.getByText('Homo sapiens · GRCh38 · revision 1')).toBeVisible();
   await expect(page.getByText(/Draft only/)).toBeVisible();
   await expect(page.getByText('Replicate analysis', { exact: true })).toBeVisible();
   await expect(page.getByText('ChIP-seq IDR', { exact: true })).toBeVisible();
@@ -226,6 +251,17 @@ test('real workbench validates a server snapshot and creates one refresh-safe pl
   await expect(
     page.getByRole('heading', { name: 'Input workbench' }),
   ).toBeVisible();
+  const referenceSelector = page.getByRole('combobox', {
+    name: 'Reference profile',
+  });
+  await expect(referenceSelector).toBeEnabled();
+  const grch38RevisionId = await referenceSelector
+    .locator('option')
+    .filter({ hasText: 'GRCh38 browser tiny' })
+    .getAttribute('value');
+  expect(grch38RevisionId).toMatch(/^refpr_[0-9a-f]{32}$/);
+  await referenceSelector.selectOption(grch38RevisionId!);
+  await expect(referenceSelector).toHaveValue(grch38RevisionId!);
 
   await page.getByRole('button', { name: 'YAML mode' }).click();
   const yamlEditor = page.getByRole('textbox', { name: 'Advanced config YAML' });
@@ -253,12 +289,14 @@ test('real workbench validates a server snapshot and creates one refresh-safe pl
   const validateRequest = await validateRequestPromise;
   const validatePayload = validateRequest.postDataJSON() as {
     config: Record<string, unknown>;
+    reference_profile_revision_id: string;
   };
   expect(validatePayload.config).toMatchObject({
     replicate_analysis: { enabled: false },
     chipseq_idr: { enabled: false },
   });
   expect(JSON.stringify(validatePayload.config)).not.toMatch(/stage4b|stage5/);
+  expect(validatePayload.reference_profile_revision_id).toBe(grch38RevisionId);
   const validateResponse = await validateResponsePromise;
   expect(validateResponse.status()).toBe(200);
   const validation = (await validateResponse.json()) as {
@@ -272,6 +310,48 @@ test('real workbench validates a server snapshot and creates one refresh-safe pl
   expect(validation).not.toHaveProperty('canonical_payload');
   await expect(page.getByText(/This exact draft can create one run/i)).toBeVisible();
 
+  const mm10OptionValue = await referenceSelector
+    .locator('option')
+    .filter({ hasText: 'mm10 browser tiny' })
+    .getAttribute('value');
+  expect(mm10OptionValue).toMatch(/^refpr_[0-9a-f]{32}$/);
+  await referenceSelector.selectOption(mm10OptionValue!);
+  const mm10RevisionId = await referenceSelector.inputValue();
+  expect(mm10RevisionId).toMatch(/^refpr_[0-9a-f]{32}$/);
+  expect(mm10RevisionId).not.toBe(grch38RevisionId);
+  await expect(
+    page.getByRole('button', { name: 'Create run from validated inputs' }),
+  ).toBeDisabled();
+  const revalidateRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      request.url().endsWith(`/api/v1/workflows/${runtime.workflowId}/validate`),
+  );
+  const revalidateResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith(`/api/v1/workflows/${runtime.workflowId}/validate`),
+  );
+  await page.getByRole('button', { name: 'Validate current inputs' }).click();
+  const revalidateRequest = await revalidateRequestPromise;
+  expect(
+    (revalidateRequest.postDataJSON() as {
+      reference_profile_revision_id: string;
+    }).reference_profile_revision_id,
+  ).toBe(mm10RevisionId);
+  const revalidateResponse = await revalidateResponsePromise;
+  expect(revalidateResponse.status()).toBe(200);
+  const revalidation = (await revalidateResponse.json()) as {
+    ok: boolean;
+    snapshot: null | { snapshot_id: string; payload_digest: string };
+  };
+  expect(revalidation.ok).toBe(true);
+  expect(revalidation.snapshot?.snapshot_id).toMatch(/^vsnap_[0-9a-f]{32}$/);
+  expect(revalidation.snapshot?.snapshot_id).not.toBe(
+    validation.snapshot?.snapshot_id,
+  );
+  await expect(page.getByText(/This exact draft can create one run/i)).toBeVisible();
+
   const createRequestPromise = page.waitForRequest(
     (request) =>
       request.method() === 'POST' &&
@@ -283,7 +363,7 @@ test('real workbench validates a server snapshot and creates one refresh-safe pl
   const createRequest = await createRequestPromise;
   await expect(page).toHaveURL(/\/runs\/[^/]+$/);
   expect(createRequest.postDataJSON()).toEqual({
-    snapshot_id: validation.snapshot?.snapshot_id,
+    snapshot_id: revalidation.snapshot?.snapshot_id,
   });
   const runId = page.url().split('/').at(-1);
   expect(runId).toBeTruthy();
@@ -291,11 +371,18 @@ test('real workbench validates a server snapshot and creates one refresh-safe pl
     timeout: 60_000,
   });
   await expect(page.getByRole('button', { name: 'Start run' })).toBeEnabled();
+  const referenceEvidence = page.getByTestId('run-reference-profile');
+  await expect(referenceEvidence).toContainText('mm10 browser tiny');
+  await expect(referenceEvidence).toContainText('Mus musculus · mm10');
+  await expect(referenceEvidence).toContainText(/Revision 1 · [0-9a-f]{64}/);
 
   await page.reload();
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
   await expect(page.getByTestId('run-status-badge')).toHaveText('planned');
   await expect(page.getByRole('button', { name: 'Start run' })).toBeEnabled();
+  await expect(page.getByTestId('run-reference-profile')).toContainText(
+    'mm10 browser tiny',
+  );
 });
 
 test('schema workbench sample records and YAML remain operable on mobile @mobile', async ({

@@ -27,7 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_PATH = (
     PROJECT_ROOT
     / "src/encode_pipeline/contracts/nfcore_rnaseq"
-    / "execution-persistence-contract-1.1.0.json"
+    / "execution-persistence-contract-1.2.0.json"
 )
 EXPECTED_TOP_LEVEL_KEYS = {
     "schema_version",
@@ -45,6 +45,7 @@ EXPECTED_CAPABILITIES = [
     "sqlite.artifact-qc-generation/v1",
     "sqlite.project-sample-binding/v1",
     "sqlite.compatibility-input-binding/v1",
+    "sqlite.reference-profile-revision-binding/v1",
 ]
 EXPECTED_REQUIRED_REVISIONS = [
     "20260711_01",
@@ -56,11 +57,31 @@ EXPECTED_REQUIRED_REVISIONS = [
     "20260717_08",
     "20260726_09",
     "20260726_10",
+    "20260803_11",
 ]
 EXPECTED_REQUIRED_SCHEMA = {
     "projects": [
         "kind",
         "project_id",
+    ],
+    "reference_profile_revisions": [
+        "config_key",
+        "profile_id",
+        "public_identity_scheme",
+        "public_identity_sha256",
+        "revision_id",
+    ],
+    "reference_profile_workflow_bindings": [
+        "contract_version",
+        "identity_scheme",
+        "identity_sha256",
+        "profile_id",
+        "revision_id",
+        "workflow_id",
+    ],
+    "reference_profiles": [
+        "enabled_revision_id",
+        "profile_id",
     ],
     "run_artifacts": [
         "artifact_id",
@@ -139,6 +160,19 @@ EXPECTED_REQUIRED_SCHEMA = {
         "source_artifact_id",
         "unit",
         "value_text",
+    ],
+    "run_reference_bindings": [
+        "adapter_contract_version",
+        "adapter_identity_scheme",
+        "adapter_identity_sha256",
+        "binding_digest",
+        "binding_digest_scheme",
+        "profile_id",
+        "revision_id",
+        "revision_public_identity_scheme",
+        "revision_public_identity_sha256",
+        "run_id",
+        "workflow_id",
     ],
     "run_result_attempts": [
         "artifact_generation",
@@ -224,6 +258,19 @@ EXPECTED_REQUIRED_SCHEMA = {
         "provenance",
         "snapshot_id",
         "workflow_inputs_digest",
+    ],
+    "snapshot_reference_bindings": [
+        "adapter_contract_version",
+        "adapter_identity_scheme",
+        "adapter_identity_sha256",
+        "binding_digest",
+        "binding_digest_scheme",
+        "profile_id",
+        "revision_id",
+        "revision_public_identity_scheme",
+        "revision_public_identity_sha256",
+        "snapshot_id",
+        "workflow_id",
     ],
     "snapshot_sample_revisions": [
         "ordinal",
@@ -377,9 +424,9 @@ def test_bulk_rnaseq_persistence_contract_is_exact_canonical_and_path_free():
     spec = _projection_spec(contract)
 
     assert set(contract) == EXPECTED_TOP_LEVEL_KEYS
-    assert contract["schema_version"] == "1.1.0"
+    assert contract["schema_version"] == "1.2.0"
     assert contract["contract_id"] == "bulk-rnaseq-execution-persistence"
-    assert contract["contract_version"] == "1.1.0"
+    assert contract["contract_version"] == "1.2.0"
     assert contract["minimum_supported_revision"] == "20260714_07"
     assert contract["capabilities"] == EXPECTED_CAPABILITIES
     assert contract["required_revisions"] == EXPECTED_REQUIRED_REVISIONS
@@ -392,6 +439,36 @@ def test_bulk_rnaseq_persistence_contract_is_exact_canonical_and_path_free():
         assert not value.startswith(("/", "\\", "./", "../", "~"))
         assert not re.match(r"^[A-Za-z]:[\\/]", value)
         assert "://" not in value
+
+
+def test_reference_profile_projection_excludes_catalog_only_components():
+    _, contract = _load_contract()
+    projection = contract["schema_projection"]
+    assert isinstance(projection, dict)
+    tables = projection["tables"]
+    assert isinstance(tables, dict)
+
+    revisions = tables["reference_profile_revisions"]
+    profiles = tables["reference_profiles"]
+    workflow_bindings = tables["reference_profile_workflow_bindings"]
+    snapshot_bindings = tables["snapshot_reference_bindings"]
+    run_bindings = tables["run_reference_bindings"]
+    for table in (
+        revisions,
+        profiles,
+        workflow_bindings,
+        snapshot_bindings,
+        run_bindings,
+    ):
+        assert isinstance(table, dict)
+        assert table["indexes"] == []
+
+    assert set(revisions["columns"]).isdisjoint(
+        {"assembly", "created_at", "display_name", "organism", "revision_number"}
+    )
+    assert set(profiles["columns"]).isdisjoint({"created_at", "safe_key"})
+    assert "bound_at" not in snapshot_bindings["columns"]
+    assert "bound_at" not in run_bindings["columns"]
 
 
 def test_declared_revisions_exist_below_the_sole_alembic_head():
@@ -504,6 +581,28 @@ def test_schema_capability_projection_binds_bulk_semantics_not_unrelated_tables(
     finally:
         migrated_engine.dispose()
         modeled_engine.dispose()
+
+
+def test_reference_binding_workflow_guard_change_stales_projection(tmp_path: Path):
+    _, contract = _load_contract()
+    spec = _projection_spec(contract)
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'platform.db'}")
+    upgrade_database(str(engine.url))
+    try:
+        before = schema_projection_sha256(engine, spec)
+        with engine.begin() as connection:
+            connection.execute(text("DROP TRIGGER trg_run_reference_bindings_workflow"))
+            connection.execute(
+                text(
+                    "CREATE TRIGGER trg_run_reference_bindings_workflow "
+                    "BEFORE INSERT ON run_reference_bindings "
+                    "BEGIN SELECT RAISE(ABORT, 'changed guard'); END"
+                )
+            )
+
+        assert schema_projection_sha256(engine, spec) != before
+    finally:
+        engine.dispose()
 
 
 @pytest.mark.parametrize(

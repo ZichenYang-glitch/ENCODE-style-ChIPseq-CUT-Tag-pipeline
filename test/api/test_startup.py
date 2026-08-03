@@ -215,6 +215,7 @@ def test_only_explicit_blocking_routes_use_fastapi_threadpool() -> None:
         if path in {
             "/api/v1/workflows",
             "/api/v1/workflows/{workflow_id}",
+            "/api/v1/workflows/{workflow_id}/reference-profiles",
             "/api/v1/workflows/{workflow_id}/validate",
             "/api/v1/workflows/{workflow_id}/runs",
             "/api/v1/runs",

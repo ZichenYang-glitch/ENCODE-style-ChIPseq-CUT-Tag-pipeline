@@ -44,6 +44,7 @@ from encode_pipeline.platform.input_registry import (
     InputUseBindingEnvelope,
 )
 from encode_pipeline.platform.run_history import RunSummary
+from encode_pipeline.platform.reference_profiles import ReferenceProfileRevisionSummary
 from encode_pipeline.services.run_repositories import canonical_decimal_text
 from encode_pipeline.platform.snapshots import (
     ValidatedInputSnapshot,
@@ -84,6 +85,10 @@ SampleRevisionId = Annotated[
 InputFileRevisionId = Annotated[
     str,
     Field(pattern=r"^inpfr_[0-9a-f]{32}$", max_length=38),
+]
+ReferenceProfileRevisionId = Annotated[
+    str,
+    Field(pattern=r"^refpr_[0-9a-f]{32}$", max_length=38),
 ]
 
 
@@ -165,6 +170,48 @@ class WorkflowDetailResponse(BaseModel):
     ok: bool
     workflow_id: str
     workflow: WorkflowListItem | None
+    issues: list[IssueResponse] = Field(default_factory=list)
+
+
+class ReferenceProfileRevisionResponse(BaseModel):
+    """Allowlisted public identity for one immutable reference revision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: str = Field(pattern=r"^refp_[0-9a-f]{32}$", max_length=37)
+    revision_id: ReferenceProfileRevisionId
+    revision_number: int = Field(ge=1)
+    display_name: str = Field(min_length=1, max_length=255)
+    organism: str = Field(min_length=1, max_length=255)
+    assembly: str = Field(min_length=1, max_length=255)
+    identity_sha256: str = Field(pattern=r"^[0-9a-f]{64}$", max_length=64)
+
+    @classmethod
+    def from_summary(
+        cls,
+        summary: ReferenceProfileRevisionSummary,
+    ) -> "ReferenceProfileRevisionResponse":
+        if not isinstance(summary, ReferenceProfileRevisionSummary):
+            raise ValueError("summary must be a ReferenceProfileRevisionSummary")
+        return cls(
+            profile_id=summary.profile_id,
+            revision_id=summary.revision_id,
+            revision_number=summary.revision_number,
+            display_name=summary.display_name,
+            organism=summary.organism,
+            assembly=summary.assembly,
+            identity_sha256=summary.public_identity_sha256,
+        )
+
+
+class ReferenceProfileListResponse(BaseModel):
+    """Enabled compatible Reference Profiles for one workflow."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    workflow_id: str
+    profiles: list[ReferenceProfileRevisionResponse]
     issues: list[IssueResponse] = Field(default_factory=list)
 
 
@@ -310,6 +357,7 @@ class ValidationRequest(BaseModel):
         default_factory=list,
         max_length=256,
     )
+    reference_profile_revision_id: ReferenceProfileRevisionId | None = None
 
     _validate_sample_cells = field_validator("samples")(
         _reject_sample_control_characters
@@ -400,6 +448,7 @@ class ValidatedInputSnapshotResponse(BaseModel):
     sample_revision_ids: list[SampleRevisionId]
     binding_digest: str = Field(pattern=r"^[0-9a-f]{64}$", max_length=64)
     input_binding: InputBindingResponse
+    reference_profile: ReferenceProfileRevisionResponse | None = None
 
     @classmethod
     def from_snapshot(
@@ -407,6 +456,7 @@ class ValidatedInputSnapshotResponse(BaseModel):
         snapshot: ValidatedInputSnapshot,
         binding: ProjectSampleBinding,
         input_binding: InputUseBindingEnvelope,
+        reference_profile: ReferenceProfileRevisionSummary | None = None,
     ) -> "ValidatedInputSnapshotResponse":
         if binding.workflow_inputs_digest != snapshot.payload_digest:
             raise ValueError("snapshot binding input digest differs")
@@ -451,6 +501,11 @@ class ValidatedInputSnapshotResponse(BaseModel):
                     )
                     for input_use in input_binding.input_uses
                 ],
+            ),
+            reference_profile=(
+                None
+                if reference_profile is None
+                else ReferenceProfileRevisionResponse.from_summary(reference_profile)
             ),
         )
 
@@ -534,6 +589,7 @@ class RunRecordResponse(BaseModel):
     cancellation_reason: str | None
     error: IssueResponse | None = None
     tags: dict[str, str] = Field(default_factory=dict)
+    reference_profile: ReferenceProfileRevisionResponse | None = None
 
 
 class RunSummaryResponse(BaseModel):

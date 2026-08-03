@@ -106,6 +106,7 @@ def _prepared_service(
     runner: ProcessRunner,
     *,
     managed_input_verifier: ControlledManagedInputVerifier | None = None,
+    reference_profile_resolver=None,
 ):
     registry = create_default_workflow_registry()
     run_service = RunService(registry, id_factory=lambda: "run-1")
@@ -118,8 +119,14 @@ def _prepared_service(
     run_service.transition_run("run-1", RunStatus.VALIDATING, stage="preflight")
 
     execution_planner = ExecutionPlanner(run_service)
-    workspace_planner = WorkspacePlanner(registry)
-    command_builder = CommandBuilder(registry)
+    workspace_planner = WorkspacePlanner(
+        registry,
+        reference_profile_resolver=reference_profile_resolver,
+    )
+    command_builder = CommandBuilder(
+        registry,
+        reference_profile_resolver=reference_profile_resolver,
+    )
     materializer = WorkspaceMaterializer()
     workspace_root = tmp_path / "workspaces"
     driver = LocalRunDriver(
@@ -204,6 +211,32 @@ def test_local_execution_rebuilds_existing_workspace_and_succeeds(tmp_path):
         "second",
     )
     assert run_service.list_logs("run-1", "stderr")[0].lines == ("warning",)
+
+
+def test_local_execution_reverifies_dispatched_reference_without_enabled_gate(
+    tmp_path,
+):
+    class _Resolver:
+        def __init__(self):
+            self.calls = []
+
+        def resolve_run(self, run_id, workflow_id, inputs, *, require_enabled):
+            self.calls.append((run_id, workflow_id, inputs, require_enabled))
+            return Result.success(None)
+
+    resolver = _Resolver()
+    service, _run_service, _workspace = _prepared_service(
+        tmp_path,
+        ControlledRunner(),
+        reference_profile_resolver=resolver,
+    )
+    resolver.calls.clear()
+
+    result = service.execute("run-1")
+
+    assert result.is_success
+    assert [call[3] for call in resolver.calls] == [False, False]
+    assert all(call[0:2] == ("run-1", WORKFLOW_ID) for call in resolver.calls)
 
 
 def test_local_execution_maps_nonzero_exit_to_failed_run(tmp_path):
@@ -612,13 +645,17 @@ def test_local_execution_persists_rebuild_boundary_failures(
         monkeypatch.setattr(
             service._workspace_planner,
             "plan_workspace",
-            lambda _plan, base_dir: _service_failure("WORKSPACE_REBUILD_FAILED"),
+            lambda _plan, base_dir, **_kwargs: _service_failure(
+                "WORKSPACE_REBUILD_FAILED"
+            ),
         )
     else:
         monkeypatch.setattr(
             service._command_builder,
             "build_command",
-            lambda _plan, _base_dir: _service_failure("COMMAND_REBUILD_FAILED"),
+            lambda _plan, _base_dir, **_kwargs: _service_failure(
+                "COMMAND_REBUILD_FAILED"
+            ),
         )
 
     result = service.execute("run-1")

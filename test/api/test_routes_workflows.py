@@ -29,11 +29,14 @@ fastapi = pytest.importorskip("fastapi")
 
 
 @pytest.fixture
-def client() -> Iterator[ApiTestClient]:
+def client(reference_ready_app) -> Iterator[ApiTestClient]:
     """Default app wired to the bundled ENCODE-style adapter."""
-    app = create_app()
-    with ApiTestClient(app) as tc:
+    with ApiTestClient(reference_ready_app) as tc:
         yield tc
+
+
+def _reference_revision_id(client: ApiTestClient) -> str:
+    return client.app.state.test_reference_profile.revision_id
 
 
 @pytest.fixture
@@ -43,11 +46,10 @@ def minimal_config_and_samples() -> Iterator[tuple[str, str]]:
         samples_path = os.path.join(tmpdir, "samples.tsv")
         config_path = os.path.join(tmpdir, "config.yaml")
         fastq_path = os.path.join(tmpdir, "ctl1.fastq.gz")
-        bowtie2_path = os.path.join(tmpdir, "bowtie2", "index")
         with open(samples_path, "w") as f:
             f.write(
-                "sample\tfastq_1\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
-                f"ctl1\t{fastq_path}\tSE\tchipseq\tH3K4me3\tnarrow\thg38\t{bowtie2_path}\n"
+                "sample\tfastq_1\tlayout\tassay\ttarget\tpeak_mode\n"
+                f"ctl1\t{fastq_path}\tSE\tchipseq\tH3K4me3\tnarrow\n"
             )
         with open(config_path, "w") as f:
             f.write(f"samples: {samples_path}\n")
@@ -128,7 +130,7 @@ def test_list_workflows_returns_encode_and_authoring_only_bulk(
     assert "validation" in item["capabilities"]["supports"]
     bulk = by_id["bulk-rnaseq"]
     assert bulk["metadata"]["name"] == "Bulk RNA-seq"
-    assert bulk["schema_version"] == "1.0.0"
+    assert bulk["schema_version"] == "1.1.0"
     assert bulk["metadata"]["engines"] == ["nextflow"]
     assert bulk["upstream_identity"] == {
         "name": "nf-core/rnaseq",
@@ -167,7 +169,7 @@ def test_get_workflow_detail_unknown_returns_404(client: ApiTestClient) -> None:
     assert response.json()["issues"][0]["code"] == "WORKFLOW_NOT_FOUND"
 
 
-def test_bulk_validation_remains_available_without_execution_runtime(
+def test_bulk_validation_requires_reference_before_unavailable_runtime(
     client: ApiTestClient,
 ) -> None:
     response = client.post(
@@ -200,11 +202,12 @@ def test_bulk_validation_remains_available_without_execution_runtime(
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 409
     body = response.json()
-    assert body["ok"] is True
+    assert body["ok"] is False
     assert body["snapshot"] is None
-    assert body["issues"] == []
+    assert [issue["code"] for issue in body["issues"]] == ["REFERENCE_PROFILE_REQUIRED"]
+    assert "/operator/" not in response.text
 
 
 def test_get_schema_returns_versioned_renderable_contract(
@@ -216,7 +219,7 @@ def test_get_schema_returns_versioned_renderable_contract(
     data = response.json()
     assert data["ok"] is True
     assert data["workflow_id"] == workflow_id
-    assert data["schema"]["schema_version"] == "1.1.0"
+    assert data["schema"]["schema_version"] == "1.2.0"
     assert data["schema"]["schema_dialect"] == (
         "https://json-schema.org/draft/2020-12/schema"
     )
@@ -258,6 +261,7 @@ def test_validate_success(
             "config": {"samples": samples_path},
             "samples": samples_path,
             "options": {"strict_inputs": False},
+            "reference_profile_revision_id": _reference_revision_id(client),
         },
     )
     assert response.status_code == 200
@@ -266,7 +270,10 @@ def test_validate_success(
     assert data["workflow_id"] == workflow_id
     assert data["value"] is None
     assert data["snapshot"]["workflow_id"] == workflow_id
-    assert data["snapshot"]["schema_version"] == "1.1.0"
+    assert data["snapshot"]["schema_version"] == "1.2.0"
+    assert data["snapshot"]["reference_profile"]["revision_id"] == (
+        _reference_revision_id(client)
+    )
     assert len(data["snapshot"]["payload_digest"]) == 64
     assert data["snapshot"]["project_id"] == LEGACY_PROJECT_ID
     assert data["snapshot"]["binding_mode"] == "legacy_v1"
@@ -289,13 +296,16 @@ def test_validate_inline_rows_without_config_samples_is_successful(
         "assay": "chipseq",
         "target": "CTCF",
         "peak_mode": "narrow",
-        "genome": "hs",
-        "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
     }
 
     response = client.post(
         f"/api/v1/workflows/{workflow_id}/validate",
-        json={"config": {}, "samples": [row], "options": {}},
+        json={
+            "config": {},
+            "samples": [row],
+            "options": {},
+            "reference_profile_revision_id": _reference_revision_id(client),
+        },
     )
 
     assert response.status_code == 200
@@ -321,8 +331,6 @@ def test_validate_equal_semantic_and_legacy_aliases_returns_one_safe_warning(
         "assay": "chipseq",
         "target": "CTCF",
         "peak_mode": "narrow",
-        "genome": "hs",
-        "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
     }
 
     response = client.post(
@@ -336,6 +344,7 @@ def test_validate_equal_semantic_and_legacy_aliases_returns_one_safe_warning(
             },
             "samples": [row],
             "options": {},
+            "reference_profile_revision_id": _reference_revision_id(client),
         },
     )
 
@@ -343,7 +352,7 @@ def test_validate_equal_semantic_and_legacy_aliases_returns_one_safe_warning(
     data = response.json()
     assert data["ok"] is True
     assert data["snapshot"] is not None
-    assert data["snapshot"]["schema_version"] == "1.1.0"
+    assert data["snapshot"]["schema_version"] == "1.2.0"
     assert [issue["code"] for issue in data["issues"]] == [
         "ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED"
     ]
@@ -423,11 +432,10 @@ def test_separate_successful_validations_create_distinct_opaque_snapshots(
                 "assay": "chipseq",
                 "target": "CTCF",
                 "peak_mode": "narrow",
-                "genome": "hs",
-                "bowtie2_index": "/tmp/indices/hs",
             }
         ],
         "options": {},
+        "reference_profile_revision_id": _reference_revision_id(client),
     }
 
     first = client.post(
@@ -445,7 +453,11 @@ def test_validate_failure_with_structured_issues(client: ApiTestClient) -> None:
     workflow_id = "encode-style-chipseq-cuttag-atac-mnase"
     response = client.post(
         f"/api/v1/workflows/{workflow_id}/validate",
-        json={"config": {}, "samples": "nonexistent.tsv"},
+        json={
+            "config": {},
+            "samples": "nonexistent.tsv",
+            "reference_profile_revision_id": _reference_revision_id(client),
+        },
     )
     assert response.status_code == 200
     data = response.json()
@@ -453,7 +465,13 @@ def test_validate_failure_with_structured_issues(client: ApiTestClient) -> None:
     assert data["workflow_id"] == workflow_id
     assert len(data["issues"]) >= 1
     codes = {issue["code"] for issue in data["issues"]}
-    assert "ENCODE_CONFIG_INVALID" in codes or "ENCODE_SAMPLES_INVALID" in codes
+    assert codes.intersection(
+        {
+            "ENCODE_CONFIG_INVALID",
+            "ENCODE_SAMPLES_INVALID",
+            "ENCODE_REFERENCE_BINDING_CONFLICT",
+        }
+    )
 
 
 def test_validate_unknown_workflow_returns_404(client: ApiTestClient) -> None:

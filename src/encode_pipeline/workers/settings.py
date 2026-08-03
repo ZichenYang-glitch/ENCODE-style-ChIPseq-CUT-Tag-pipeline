@@ -22,6 +22,7 @@ REDIS_API_READ_TIMEOUT_SECONDS_ENV = "ENCODE_PIPELINE_REDIS_API_READ_TIMEOUT_SEC
 QUEUE_NAME_ENV = "ENCODE_PIPELINE_QUEUE_NAME"
 WORKSPACE_ROOT_ENV = "ENCODE_PIPELINE_WORKSPACE_ROOT"
 STORAGE_POOL_CONFIG_ENV = "ENCODE_PIPELINE_STORAGE_POOL_CONFIG"
+REFERENCE_PROFILE_CONFIG_ENV = "ENCODE_PIPELINE_REFERENCE_PROFILE_CONFIG"
 JOB_TIMEOUT_SECONDS_ENV = "ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS"
 MANAGED_DOCKER_EXECUTABLE_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE"
 MANAGED_DOCKER_SOCKET_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
@@ -43,6 +44,7 @@ class WorkerSettings:
     queue_name: str
     workspace_root: Path
     storage_pool_config: Path | None = field(default=None, repr=False)
+    reference_profile_config: Path | None = field(default=None, repr=False)
     job_timeout_seconds: int = DEFAULT_JOB_TIMEOUT_SECONDS
     redis_connect_timeout_seconds: float = DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS
     redis_api_read_timeout_seconds: float = DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS
@@ -84,6 +86,12 @@ class WorkerSettings:
                 storage_pool_config,
                 "storage_pool_config",
             )
+        reference_profile_config = self.reference_profile_config
+        if reference_profile_config is not None:
+            reference_profile_config = _absolute_path(
+                reference_profile_config,
+                "reference_profile_config",
+            )
         managed_docker_executable = self.managed_docker_executable
         if managed_docker_executable is not None:
             managed_docker_executable = _absolute_path(
@@ -100,6 +108,11 @@ class WorkerSettings:
         object.__setattr__(self, "queue_name", queue_name)
         object.__setattr__(self, "workspace_root", workspace_root)
         object.__setattr__(self, "storage_pool_config", storage_pool_config)
+        object.__setattr__(
+            self,
+            "reference_profile_config",
+            reference_profile_config,
+        )
         object.__setattr__(
             self,
             "managed_docker_executable",
@@ -144,6 +157,11 @@ def load_worker_settings(
             None
             if source.get(STORAGE_POOL_CONFIG_ENV) is None
             else Path(source[STORAGE_POOL_CONFIG_ENV])
+        ),
+        reference_profile_config=(
+            None
+            if source.get(REFERENCE_PROFILE_CONFIG_ENV) is None
+            else Path(source[REFERENCE_PROFILE_CONFIG_ENV])
         ),
         job_timeout_seconds=_positive_int(
             source.get(

@@ -275,11 +275,15 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(tmp_path: Path) -> Non
             "encode_pipeline/persistence/alembic/versions/20260726_10_input_registry.py"
         ) in names
         assert (
+            "encode_pipeline/persistence/alembic/versions/"
+            "20260803_11_reference_profiles.py"
+        ) in names
+        assert (
             sum(
                 "/persistence/alembic/versions/" in name and name.endswith(".py")
                 for name in names
             )
-            == 11
+            == 12
         )
         assert not any(name.startswith("test/") for name in names)
 

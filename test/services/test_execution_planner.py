@@ -18,6 +18,10 @@ from encode_pipeline.platform.adapters import (
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
+from encode_pipeline.platform.reference_profiles import (
+    AdapterReferenceBindingIdentity,
+    BoundWorkflowReference,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
@@ -252,6 +256,84 @@ def test_plan_workspace_returns_pending_plan_with_workspace_plan(run_service, tm
     assert plan.workflow_id == input_plan.workflow_id
     assert plan.dag_preview == input_plan.dag_preview
     assert plan.inputs_snapshot == input_plan.inputs_snapshot
+
+
+def test_workspace_planner_resolves_private_reference_without_persisting_inputs(
+    run_service, tmp_path
+):
+    input_plan = _make_execution_plan(run_service)
+    original_snapshot = input_plan.inputs_snapshot
+    base_adapter = run_service._registry.get("stub")
+    private_inputs = WorkflowInputs(
+        config={"reference": "/operator/private/reference.fa"},
+        samples=None,
+        options={},
+    )
+
+    class _BoundAdapter:
+        metadata = base_adapter.metadata
+        capabilities = base_adapter.capabilities
+
+        def schema(self):
+            return WorkflowSchema()
+
+        def validate(self, inputs):
+            return Result.success(None)
+
+        def preview_dag(self, inputs):
+            return Result.success(DagPreview())
+
+        def plan_workspace(self, inputs, workspace):
+            assert inputs is private_inputs
+            return Result.success(
+                WorkspacePlan(files=(("config/reference.txt", b"bound"),))
+            )
+
+        def build_command(self, plan, workspace):
+            return Result.failure(())
+
+        def extract_artifacts(self, inputs, workspace):
+            return Result.success(())
+
+    bound_adapter = _BoundAdapter()
+
+    class _Resolver:
+        def __init__(self):
+            self.calls = []
+
+        def resolve_run(self, run_id, workflow_id, inputs, *, require_enabled):
+            self.calls.append((run_id, workflow_id, inputs, require_enabled))
+            return Result.success(
+                BoundWorkflowReference(
+                    inputs=private_inputs,
+                    adapter=bound_adapter,
+                    identity=AdapterReferenceBindingIdentity(
+                        workflow_id="stub",
+                        contract_version="stub-reference-v1",
+                        identity_sha256="a" * 64,
+                    ),
+                )
+            )
+
+    resolver = _Resolver()
+    result = WorkspacePlanner(
+        registry=run_service._registry,
+        reference_profile_resolver=resolver,
+    ).plan_workspace(input_plan, base_dir=tmp_path.resolve())
+
+    assert result.is_success
+    assert result.value.workspace_plan.files == (("config/reference.txt", b"bound"),)
+    assert result.value.inputs_snapshot == original_snapshot
+    assert "/operator/private/reference.fa" not in repr(result.value.inputs_snapshot)
+    assert resolver.calls == [
+        (
+            input_plan.run_id,
+            "stub",
+            resolver.calls[0][2],
+            True,
+        )
+    ]
+    assert resolver.calls[0][2].to_dict() == original_snapshot
 
 
 def test_workspace_planner_preserves_one_adapter_deprecation_warning(tmp_path):

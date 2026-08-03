@@ -6,7 +6,10 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 
-from encode_pipeline.platform.adapters import WorkflowBuildIdentityProvidingAdapter
+from encode_pipeline.platform.adapters import (
+    WorkflowAdapter,
+    WorkflowBuildIdentityProvidingAdapter,
+)
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
@@ -65,9 +68,22 @@ class WorkflowBuildIdentityProvider:
                 ]
             )
 
+        return self._capture_resolved_adapter(
+            adapter,
+            allow_encode_fallback=self._registry.uses_encode_execution_fallback(
+                adapter
+            ),
+        )
+
+    def _capture_resolved_adapter(
+        self,
+        adapter: WorkflowAdapter,
+        *,
+        allow_encode_fallback: bool,
+    ) -> Result[WorkflowBuildIdentity]:
         if isinstance(adapter, WorkflowBuildIdentityProvidingAdapter):
             return self._capture_adapter_identity(adapter)
-        if not self._registry.uses_encode_execution_fallback(adapter):
+        if not allow_encode_fallback:
             return _source_unavailable()
 
         try:
@@ -118,6 +134,43 @@ class WorkflowBuildIdentityProvider:
         ):
             return _source_unavailable()
         return self.capture(workflow_id)
+
+    def capture_resolved_executable(
+        self,
+        adapter: WorkflowAdapter,
+    ) -> Result[WorkflowBuildIdentity]:
+        """Capture one verified run-scoped adapter against registry coordinates."""
+        if not isinstance(adapter, WorkflowAdapter):
+            return _source_unavailable()
+        try:
+            registered = self._registry.get(adapter.metadata.workflow_id)
+            compatible = (
+                adapter.metadata.workflow_id == registered.metadata.workflow_id
+                and adapter.metadata.version == registered.metadata.version
+                and adapter.metadata.engines == registered.metadata.engines
+                and set(registered.capabilities.supports).issubset(
+                    adapter.capabilities.supports
+                )
+            )
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return _source_unavailable()
+        if not compatible:
+            return _source_unavailable()
+
+        allow_encode_fallback = self._registry.uses_encode_execution_fallback(
+            registered
+        )
+        if not allow_encode_fallback:
+            from encode_pipeline.services.workflow_info import (
+                resolve_workflow_availability,
+            )
+
+            if resolve_workflow_availability(adapter).execution != "available":
+                return _source_unavailable()
+        return self._capture_resolved_adapter(
+            adapter,
+            allow_encode_fallback=allow_encode_fallback,
+        )
 
     @staticmethod
     def _capture_adapter_identity(

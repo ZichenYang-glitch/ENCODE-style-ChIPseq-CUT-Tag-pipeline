@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from encode_pipeline.services.run_submission import RunSubmissionService
     from encode_pipeline.services.run_cancellation import RunCancellationService
     from encode_pipeline.services.runs import RunService
+    from encode_pipeline.services.reference_profiles import ReferenceProfileService
     from encode_pipeline.services.validated_inputs import (
         ValidatedInputService,
         ValidatedRunCreationService,
@@ -35,6 +36,13 @@ async def get_validation_service(request: Request) -> ValidationService:
 async def get_validated_input_service(request: Request) -> "ValidatedInputService":
     """Return successful-validation snapshot orchestration."""
     return request.app.state.validated_input_service
+
+
+async def get_reference_profile_service(
+    request: Request,
+) -> "ReferenceProfileService":
+    """Return the workflow-neutral Reference Profile catalog and resolver."""
+    return request.app.state.reference_profile_service
 
 
 async def get_validated_run_creation_service(

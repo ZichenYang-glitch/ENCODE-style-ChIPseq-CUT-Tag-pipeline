@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.3.0
  */
 import type {
+  ReferenceProfileListResponse,
   SchemaResponse,
   ValidationRequest,
   ValidationResponse,
@@ -54,6 +55,30 @@ export const getGetWorkflowUrl = (workflowId: string,) => {
 export const getWorkflow = async (workflowId: string, options?: RequestInit): Promise<WorkflowDetailResponse> => {
 
   return fetcher<WorkflowDetailResponse>(getGetWorkflowUrl(workflowId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * List only enabled exact revisions compatible with one workflow.
+ * @summary List Compatible Reference Profiles
+ */
+export const getListCompatibleReferenceProfilesUrl = (workflowId: string,) => {
+
+
+
+
+  return `/api/v1/workflows/${workflowId}/reference-profiles`
+}
+
+export const listCompatibleReferenceProfiles = async (workflowId: string, options?: RequestInit): Promise<ReferenceProfileListResponse> => {
+
+  return fetcher<ReferenceProfileListResponse>(getListCompatibleReferenceProfilesUrl(workflowId),
   {
     ...options,
     method: 'GET'

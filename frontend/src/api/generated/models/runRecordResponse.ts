@@ -11,6 +11,7 @@ import type { RunRecordResponseCurrentStage } from './runRecordResponseCurrentSt
 import type { RunRecordResponseCancellationReason } from './runRecordResponseCancellationReason';
 import type { RunRecordResponseError } from './runRecordResponseError';
 import type { RunRecordResponseTags } from './runRecordResponseTags';
+import type { RunRecordResponseReferenceProfile } from './runRecordResponseReferenceProfile';
 
 /**
  * Allowlisted public projection of one internal RunRecord.
@@ -27,4 +28,5 @@ export interface RunRecordResponse {
   cancellation_reason: RunRecordResponseCancellationReason;
   error?: RunRecordResponseError;
   tags?: RunRecordResponseTags;
+  reference_profile?: RunRecordResponseReferenceProfile;
 }

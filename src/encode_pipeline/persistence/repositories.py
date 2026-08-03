@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from encode_pipeline.persistence.models import (
     ProjectRow,
+    ReferenceProfileRow,
+    RunReferenceBindingRow,
     RunInputBindingRow,
     RunInputMemberRow,
     RunInputUseRow,
@@ -29,6 +31,7 @@ from encode_pipeline.persistence.models import (
     RunWorkflowBuildIdentityRow,
     SampleRevisionRow,
     SnapshotProjectBindingRow,
+    SnapshotReferenceBindingRow,
     SnapshotInputBindingRow,
     SnapshotInputMemberRow,
     SnapshotInputUseRow,
@@ -67,6 +70,7 @@ from encode_pipeline.platform.input_registry import (
     build_compatibility_input_binding,
 )
 from encode_pipeline.platform.results import Issue
+from encode_pipeline.platform.reference_profiles import ReferenceProfileRevisionBinding
 from encode_pipeline.platform.result_generations import (
     RunResultState,
     artifact_manifest_digest,
@@ -94,6 +98,7 @@ from encode_pipeline.services.run_repositories import (
     ConcurrentRunUpdateError,
     InputBindingSelectionError,
     ProjectSampleSelectionError,
+    ReferenceBindingSelectionError,
     ResultGenerationChangedError,
     RunEventDraft,
     ValidatedSnapshotExpiredError,
@@ -170,6 +175,7 @@ class SqlAlchemyRunRepository:
         *,
         project_sample_selection: ProjectSampleSelection | None = None,
         input_use_binding_plan: InputUseBindingPlan | None = None,
+        reference_binding: ReferenceProfileRevisionBinding | None = None,
     ) -> ValidatedInputSnapshot:
         validated = _validated_input_snapshot_from_row(
             _validated_input_snapshot_row(snapshot)
@@ -186,6 +192,13 @@ class SqlAlchemyRunRepository:
                 raise InputBindingSelectionError(
                     "input-use plan does not match the validation scope"
                 )
+        if reference_binding is not None and (
+            not isinstance(reference_binding, ReferenceProfileRevisionBinding)
+            or reference_binding.workflow_id != validated.workflow_id
+        ):
+            raise ReferenceBindingSelectionError(
+                "Reference Profile selection does not match the validation scope"
+            )
         try:
             with self._lock, self._session_factory.begin() as session:
                 _begin_write(session)
@@ -240,7 +253,26 @@ class SqlAlchemyRunRepository:
                     created_at=validated.validated_at,
                 )
                 session.flush()
-        except InputBindingSelectionError:
+                if reference_binding is not None:
+                    profile = session.get(
+                        ReferenceProfileRow,
+                        reference_binding.profile_id,
+                    )
+                    if (
+                        profile is None
+                        or profile.enabled_revision_id != reference_binding.revision_id
+                    ):
+                        raise ReferenceBindingSelectionError(
+                            "Reference Profile selection is not eligible"
+                        )
+                    session.add(
+                        _snapshot_reference_binding_row(
+                            validated.snapshot_id,
+                            reference_binding,
+                        )
+                    )
+                    session.flush()
+        except (InputBindingSelectionError, ReferenceBindingSelectionError):
             raise
         except IntegrityError as exc:
             raise ValueError(
@@ -293,6 +325,16 @@ class SqlAlchemyRunRepository:
                 expected_workflow_inputs_digest=snapshot_row.payload_digest,
             )
 
+    def get_validated_reference_binding(
+        self,
+        snapshot_id: str,
+    ) -> ReferenceProfileRevisionBinding | None:
+        with self._session_factory() as session:
+            if session.get(ValidatedInputSnapshotRow, snapshot_id) is None:
+                raise KeyError(snapshot_id)
+            row = session.get(SnapshotReferenceBindingRow, snapshot_id)
+            return None if row is None else _reference_binding_from_row(row)
+
     def consume_validated_input_snapshot(
         self,
         snapshot_id: str,
@@ -321,6 +363,15 @@ class SqlAlchemyRunRepository:
                     expected_data_binding=snapshot_binding,
                     expected_workflow_id=snapshot.workflow_id,
                     expected_workflow_inputs_digest=snapshot.payload_digest,
+                )
+                snapshot_reference_row = session.get(
+                    SnapshotReferenceBindingRow,
+                    snapshot_id,
+                )
+                snapshot_reference_binding = (
+                    None
+                    if snapshot_reference_row is None
+                    else _reference_binding_from_row(snapshot_reference_row)
                 )
                 if snapshot.workflow_id != workflow_id:
                     raise KeyError(snapshot_id)
@@ -354,6 +405,15 @@ class SqlAlchemyRunRepository:
                             expected_data_binding=run_binding,
                             expected_workflow_id=current.workflow_id,
                         )
+                        run_reference_row = session.get(
+                            RunReferenceBindingRow,
+                            current.run_id,
+                        )
+                        run_reference_binding = (
+                            None
+                            if run_reference_row is None
+                            else _reference_binding_from_row(run_reference_row)
+                        )
                     except (KeyError, ValueError) as exc:
                         raise ValidatedSnapshotReplayConflictError(
                             "validated snapshot replay binding evidence is invalid"
@@ -361,6 +421,7 @@ class SqlAlchemyRunRepository:
                     if (
                         run_binding != snapshot_binding
                         or run_input_binding != snapshot_input_binding
+                        or run_reference_binding != snapshot_reference_binding
                     ):
                         raise ValidatedSnapshotReplayConflictError(
                             "validated snapshot replay binding evidence differs"
@@ -373,6 +434,19 @@ class SqlAlchemyRunRepository:
                     raise ValidatedSnapshotExpiredError(
                         "validated snapshot expired before first use"
                     )
+                if snapshot_reference_binding is not None:
+                    profile = session.get(
+                        ReferenceProfileRow,
+                        snapshot_reference_binding.profile_id,
+                    )
+                    if (
+                        profile is None
+                        or profile.enabled_revision_id
+                        != snapshot_reference_binding.revision_id
+                    ):
+                        raise ReferenceBindingSelectionError(
+                            "Reference Profile selection is not eligible"
+                        )
 
                 session.add(_run_row(record))
                 session.flush()
@@ -391,6 +465,14 @@ class SqlAlchemyRunRepository:
                     created_at=consumed_at,
                 )
                 session.flush()
+                if snapshot_reference_binding is not None:
+                    session.add(
+                        _run_reference_binding_row(
+                            record.run_id,
+                            snapshot_reference_binding,
+                        )
+                    )
+                    session.flush()
                 created_event = self._insert_event(
                     session,
                     record.run_id,
@@ -427,6 +509,16 @@ class SqlAlchemyRunRepository:
                 expected_data_binding=data_binding,
                 expected_workflow_id=run_row.workflow_id,
             )
+
+    def get_run_reference_binding(
+        self,
+        run_id: str,
+    ) -> ReferenceProfileRevisionBinding | None:
+        with self._session_factory() as session:
+            if session.scalar(select(RunRow.id).where(RunRow.run_id == run_id)) is None:
+                raise KeyError(run_id)
+            row = session.get(RunReferenceBindingRow, run_id)
+            return None if row is None else _reference_binding_from_row(row)
 
     def list_runs(self) -> tuple[RunRecord, ...]:
         with self._session_factory() as session:
@@ -1343,6 +1435,22 @@ class SqlAlchemyRunRepository:
                     raise ConcurrentRunUpdateError(
                         f"Run {assignment.run_id!r} is no longer assignable."
                     )
+                reference_binding = session.get(
+                    RunReferenceBindingRow,
+                    assignment.run_id,
+                )
+                if reference_binding is not None:
+                    profile = session.get(
+                        ReferenceProfileRow,
+                        reference_binding.profile_id,
+                    )
+                    if (
+                        profile is None
+                        or profile.enabled_revision_id != reference_binding.revision_id
+                    ):
+                        raise ReferenceBindingSelectionError(
+                            "Reference Profile selection is not eligible"
+                        )
                 row = RunExecutionAssignmentRow(
                     run_id=assignment.run_id,
                     job_id=assignment.job_id,
@@ -1784,6 +1892,48 @@ def _validated_input_snapshot_row(
         consumed_run_id=snapshot.consumed_run_id,
         consumed_at=snapshot.consumed_at,
     )
+
+
+def _snapshot_reference_binding_row(
+    snapshot_id: str,
+    binding: ReferenceProfileRevisionBinding,
+) -> SnapshotReferenceBindingRow:
+    if not isinstance(binding, ReferenceProfileRevisionBinding):
+        raise ValueError("binding must be exact Reference Profile evidence")
+    return SnapshotReferenceBindingRow(
+        snapshot_id=snapshot_id,
+        **_reference_binding_values(binding),
+    )
+
+
+def _run_reference_binding_row(
+    run_id: str,
+    binding: ReferenceProfileRevisionBinding,
+) -> RunReferenceBindingRow:
+    if not isinstance(binding, ReferenceProfileRevisionBinding):
+        raise ValueError("binding must be exact Reference Profile evidence")
+    return RunReferenceBindingRow(
+        run_id=run_id,
+        **_reference_binding_values(binding),
+    )
+
+
+def _reference_binding_values(
+    binding: ReferenceProfileRevisionBinding,
+) -> dict[str, object]:
+    return {
+        "profile_id": binding.profile_id,
+        "revision_id": binding.revision_id,
+        "workflow_id": binding.workflow_id,
+        "revision_public_identity_scheme": (binding.revision_public_identity_scheme),
+        "revision_public_identity_sha256": (binding.revision_public_identity_sha256),
+        "adapter_contract_version": binding.adapter_contract_version,
+        "adapter_identity_scheme": binding.adapter_identity_scheme,
+        "adapter_identity_sha256": binding.adapter_identity_sha256,
+        "binding_digest_scheme": binding.binding_digest_scheme,
+        "binding_digest": binding.binding_digest,
+        "bound_at": binding.bound_at,
+    }
 
 
 def _resolve_project_sample_selection(
@@ -2415,6 +2565,24 @@ def _validated_input_snapshot_from_row(
         expires_at=_as_utc(row.expires_at),
         consumed_run_id=row.consumed_run_id,
         consumed_at=_optional_utc(row.consumed_at),
+    )
+
+
+def _reference_binding_from_row(
+    row: SnapshotReferenceBindingRow | RunReferenceBindingRow,
+) -> ReferenceProfileRevisionBinding:
+    return ReferenceProfileRevisionBinding(
+        profile_id=row.profile_id,
+        revision_id=row.revision_id,
+        workflow_id=row.workflow_id,
+        revision_public_identity_scheme=row.revision_public_identity_scheme,
+        revision_public_identity_sha256=row.revision_public_identity_sha256,
+        adapter_contract_version=row.adapter_contract_version,
+        adapter_identity_scheme=row.adapter_identity_scheme,
+        adapter_identity_sha256=row.adapter_identity_sha256,
+        binding_digest_scheme=row.binding_digest_scheme,
+        binding_digest=row.binding_digest,
+        bound_at=_as_utc(row.bound_at),
     )
 
 

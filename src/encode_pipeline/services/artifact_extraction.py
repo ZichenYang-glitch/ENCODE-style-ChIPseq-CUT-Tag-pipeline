@@ -9,7 +9,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
-from typing import cast
+from typing import Protocol, cast
 from urllib.parse import quote
 
 from encode_pipeline.platform.adapters import (
@@ -18,11 +18,13 @@ from encode_pipeline.platform.adapters import (
     MAX_SAMPLE_ROWS,
     QC_SUMMARY_EXTRACT_CAPABILITY,
     QcSummaryExtractingAdapter,
+    ReferenceProfileBindingAdapter,
     SamplePayload,
     WorkflowAdapter,
     WorkflowInputs,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.reference_profiles import BoundWorkflowReference
 from encode_pipeline.platform.result_generations import (
     ARTIFACT_PATH_IDENTITY_METADATA_KEY,
     BOUNDED_ARTIFACT_CONTENT_REVISION_MAX_BYTES,
@@ -57,6 +59,28 @@ _MAX_ARTIFACT_BYTES = 1024**4
 _MAX_TOTAL_QC_REVISION_BYTES = 256 * 1024 * 1024
 
 
+def _reference_unavailable() -> Result:
+    return Result.failure(
+        [
+            Issue(
+                code="REFERENCE_PROFILE_UNAVAILABLE",
+                message="Reference Profile execution is unavailable.",
+            )
+        ]
+    )
+
+
+class _ReferenceProfileRuntimeResolver(Protocol):
+    def resolve_run(
+        self,
+        run_id: str,
+        workflow_id: str,
+        inputs: WorkflowInputs,
+        *,
+        require_enabled: bool,
+    ) -> Result[BoundWorkflowReference | None]: ...
+
+
 class ArtifactExtractionService:
     """Validate and persist a complete run-scoped artifact index."""
 
@@ -67,6 +91,7 @@ class ArtifactExtractionService:
         registry: WorkflowRegistry,
         build_identity_provider: WorkflowBuildIdentityProvider,
         workspace_root: Path,
+        reference_profile_resolver: _ReferenceProfileRuntimeResolver | None = None,
     ) -> None:
         if not isinstance(run_service, RunService):
             raise ValueError("run_service must be a RunService")
@@ -80,10 +105,15 @@ class ArtifactExtractionService:
             or any(part in {"", ".", ".."} for part in workspace_root.parts[1:])
         ):
             raise ValueError("workspace_root must be an absolute Path")
+        if reference_profile_resolver is not None and not callable(
+            getattr(reference_profile_resolver, "resolve_run", None)
+        ):
+            raise ValueError("reference_profile_resolver is invalid")
         self._run_service = run_service
         self._registry = registry
         self._build_identity_provider = build_identity_provider
         self._workspace_root = workspace_root
+        self._reference_profile_resolver = reference_profile_resolver
 
     def begin_attempt(self, run_id: str) -> str:
         """Begin and return one caller-owned artifact indexing attempt."""
@@ -121,14 +151,34 @@ class ArtifactExtractionService:
                     "ARTIFACT_EXTRACTION_UNSUPPORTED",
                     attempt_id,
                 )
-            if not self._build_matches(record.run_id, record.workflow_id):
+            inputs = self._reconstruct_inputs(record.inputs)
+            execution_context = self._resolve_reference_profile(
+                record.run_id,
+                record.workflow_id,
+                adapter,
+                inputs,
+            )
+            if execution_context.is_failure:
+                return self._fail(
+                    run_id,
+                    "ARTIFACT_EXTRACTION_REFERENCE_UNAVAILABLE",
+                    attempt_id,
+                )
+            assert execution_context.value is not None
+            adapter, inputs = execution_context.value
+            if not self._build_matches(record.run_id, adapter):
                 return self._fail(
                     run_id,
                     "ARTIFACT_EXTRACTION_BUILD_MISMATCH",
                     attempt_id,
                 )
+            if ARTIFACT_EXTRACT_CAPABILITY not in adapter.capabilities.supports:
+                return self._fail(
+                    run_id,
+                    "ARTIFACT_EXTRACTION_UNSUPPORTED",
+                    attempt_id,
+                )
             qc_source_types = self._qc_source_types(adapter)
-            inputs = self._reconstruct_inputs(record.inputs)
             workspace = self._workspace_for_run(run_id)
             candidates_result = adapter.extract_artifacts(inputs, workspace)
             if candidates_result.is_failure:
@@ -197,12 +247,81 @@ class ArtifactExtractionService:
             result.add(value)
         return frozenset(result)
 
-    def _build_matches(self, run_id: str, workflow_id: str) -> bool:
+    def _build_matches(self, run_id: str, adapter: WorkflowAdapter) -> bool:
         persisted = self._run_service.get_workflow_build_identity(run_id)
         if persisted is None:
             return False
-        current = self._build_identity_provider.capture_executable(workflow_id)
+        current = self._build_identity_provider.capture_resolved_executable(adapter)
         return current.is_success and persisted.matches(current.value)
+
+    def _resolve_reference_profile(
+        self,
+        run_id: str,
+        workflow_id: str,
+        adapter: WorkflowAdapter,
+        inputs: WorkflowInputs,
+    ) -> Result[tuple[WorkflowAdapter, WorkflowInputs]]:
+        resolver = self._reference_profile_resolver
+        if resolver is None:
+            if isinstance(adapter, ReferenceProfileBindingAdapter):
+                if self._run_service.get_run_reference_binding(run_id) is not None:
+                    return _reference_unavailable()
+                if not self._adapter_accepts_legacy_inputs(adapter, inputs):
+                    return _reference_unavailable()
+            return Result.success((adapter, inputs))
+        try:
+            resolved = resolver.resolve_run(
+                run_id,
+                workflow_id,
+                inputs,
+                require_enabled=False,
+            )
+        except Exception:
+            return _reference_unavailable()
+        if not isinstance(resolved, Result):
+            return _reference_unavailable()
+        if resolved.is_failure:
+            if self._is_valid_legacy_reference_run(adapter, inputs, resolved):
+                return Result.success((adapter, inputs))
+            return Result.failure(resolved.issues)
+        bound = resolved.value
+        if bound is None:
+            return Result.success((adapter, inputs))
+        if (
+            not isinstance(bound, BoundWorkflowReference)
+            or not isinstance(bound.inputs, WorkflowInputs)
+            or not isinstance(bound.adapter, WorkflowAdapter)
+            or bound.identity.workflow_id != workflow_id
+            or bound.adapter.metadata.workflow_id != workflow_id
+        ):
+            return _reference_unavailable()
+        return Result.success((bound.adapter, bound.inputs))
+
+    @staticmethod
+    def _is_valid_legacy_reference_run(
+        adapter: WorkflowAdapter,
+        inputs: WorkflowInputs,
+        resolved: Result[BoundWorkflowReference | None],
+    ) -> bool:
+        if not resolved.issues or any(
+            issue.code != "REFERENCE_PROFILE_REQUIRED" for issue in resolved.issues
+        ):
+            return False
+        return ArtifactExtractionService._adapter_accepts_legacy_inputs(
+            adapter,
+            inputs,
+        )
+
+    @staticmethod
+    def _adapter_accepts_legacy_inputs(
+        adapter: WorkflowAdapter,
+        inputs: WorkflowInputs,
+    ) -> bool:
+        try:
+            validation = adapter.validate(inputs)
+        except Exception:
+            return False
+        return isinstance(validation, Result) and validation.is_success
 
     @staticmethod
     def _reconstruct_inputs(snapshot: Mapping[str, object]) -> WorkflowInputs:

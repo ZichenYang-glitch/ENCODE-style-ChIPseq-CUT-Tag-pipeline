@@ -7,10 +7,16 @@ from rq.timeouts import JobTimeoutException
 
 from encode_pipeline.persistence.migration_admission import MigrationAdmissionError
 from encode_pipeline.persistence.runtime import open_run_persistence
+from encode_pipeline.platform.adapters import (
+    ReferenceProfileBindingAdapter,
+    WorkflowAdapter,
+    WorkflowInputs,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.reference_profiles import BoundWorkflowReference
 from encode_pipeline.platform.managed_containers import managed_container_scope
 from encode_pipeline.platform.planning import WorkspacePathError, WorkspacePathPolicy
-from encode_pipeline.platform.results import Issue
+from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.platform.result_generations import new_result_attempt_id
 from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
@@ -187,9 +193,7 @@ def _require_matching_workflow_build(runtime, record) -> bool:
             message="Run has no durable workflow build identity.",
         )
 
-    current_result = runtime.build_identity_provider.capture_executable(
-        record.workflow_id
-    )
+    current_result = _capture_current_workflow_build(runtime, record)
     if current_result.is_failure:
         return _fail_workflow_build_identity(
             runtime.run_service,
@@ -205,6 +209,53 @@ def _require_matching_workflow_build(runtime, record) -> bool:
             message="Workflow build differs from the preflighted build.",
         )
     return True
+
+
+def _capture_current_workflow_build(runtime, record):
+    try:
+        adapter = runtime.registry.get(record.workflow_id)
+    except (KeyError, ValueError):
+        return _workflow_build_unavailable()
+    if not isinstance(adapter, ReferenceProfileBindingAdapter):
+        return runtime.build_identity_provider.capture_executable(record.workflow_id)
+    config = record.inputs.get("config", {})
+    options = record.inputs.get("options", {})
+    if not isinstance(config, dict) or not isinstance(options, dict):
+        return _workflow_build_unavailable()
+    try:
+        resolved = runtime.reference_profile_resolver.resolve_run(
+            record.run_id,
+            record.workflow_id,
+            WorkflowInputs(
+                config=config,
+                samples=record.inputs.get("samples"),
+                options=options,
+            ),
+            require_enabled=False,
+        )
+    except Exception:
+        return _workflow_build_unavailable()
+    if (
+        not isinstance(resolved, Result)
+        or resolved.is_failure
+        or not isinstance(resolved.value, BoundWorkflowReference)
+        or not isinstance(resolved.value.adapter, WorkflowAdapter)
+    ):
+        return _workflow_build_unavailable()
+    return runtime.build_identity_provider.capture_resolved_executable(
+        resolved.value.adapter
+    )
+
+
+def _workflow_build_unavailable() -> Result:
+    return Result.failure(
+        [
+            Issue(
+                code="RUN_WORKFLOW_BUILD_IDENTITY_UNAVAILABLE",
+                message="Workflow build identity could not be verified.",
+            )
+        ]
+    )
 
 
 def _fail_workflow_build_identity(

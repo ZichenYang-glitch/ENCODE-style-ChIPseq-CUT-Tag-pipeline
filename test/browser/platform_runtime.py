@@ -3,8 +3,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import redirect_stderr, redirect_stdout
+from copy import deepcopy
+import csv
 import gzip
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -21,6 +26,13 @@ from encode_pipeline.cli.results_visibility_fixture import (  # noqa: E402
     ResultsVisibilityInputs,
     prepare_results_visibility_fixture,
 )
+from encode_pipeline.cli import app as helixweave_cli  # noqa: E402
+from encode_pipeline.services.private_reference_profiles import (  # noqa: E402
+    PRIVATE_REFERENCE_PROFILE_SCHEMA_VERSION,
+)
+from encode_pipeline.workers.settings import (  # noqa: E402
+    REFERENCE_PROFILE_CONFIG_ENV,
+)
 from bulk_product_runtime import (  # noqa: E402
     prepare_bulk_product_browser_runtime,
 )
@@ -28,6 +40,17 @@ from bulk_product_runtime import (  # noqa: E402
 
 OWNERSHIP_SENTINEL = ".encode-platform-playwright-owned"
 PRODUCT_BULK_GATE_ENV = "HELIXWEAVE_REQUIRE_BULK_RNASEQ_PRODUCT_GATE"
+ENCODE_WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
+BULK_WORKFLOW_ID = "bulk-rnaseq"
+_PRIVATE_REFERENCE_FIELDS = frozenset({"genome", "bowtie2_index"})
+_BOWTIE2_SUFFIXES = (
+    ".1.bt2",
+    ".2.bt2",
+    ".3.bt2",
+    ".4.bt2",
+    ".rev.1.bt2",
+    ".rev.2.bt2",
+)
 
 
 def _sha256(path: Path) -> str:
@@ -38,10 +61,9 @@ def prepare_bulk_authoring_fixture(runtime_root: Path) -> dict[str, object]:
     """Create tiny synthetic authoring inputs that are never used for execution."""
     fixture_root = runtime_root / "bulk-authoring"
     reads_root = fixture_root / "reads"
-    reference_root = fixture_root / "reference"
     rrna_root = fixture_root / "rrna"
     sortmerna_index_root = rrna_root / "sortmerna-index"
-    for directory in (reads_root, reference_root, sortmerna_index_root):
+    for directory in (reads_root, sortmerna_index_root):
         directory.mkdir(parents=True, exist_ok=True)
 
     read_names = (
@@ -55,14 +77,6 @@ def prepare_bulk_authoring_fixture(runtime_root: Path) -> dict[str, object]:
     for read_name in read_names:
         (reads_root / read_name).write_bytes(gzip.compress(synthetic_fastq, mtime=0))
 
-    fasta_path = reference_root / "synthetic.fa"
-    fasta_path.write_text(">chrSynthetic\nACGTACGTACGT\n", encoding="utf-8")
-    gtf_path = reference_root / "synthetic.gtf"
-    gtf_path.write_text(
-        'chrSynthetic\tHelixWeave\texon\t1\t12\t.\t+\t.\tgene_id "GENE1"; '
-        'transcript_id "TX1";\n',
-        encoding="utf-8",
-    )
     rrna_fasta_path = rrna_root / "synthetic-rrna.fa"
     rrna_fasta_path.write_text(">rrnaSynthetic\nACGTACGT\n", encoding="utf-8")
     rrna_manifest_path = rrna_root / "database-manifest.json"
@@ -132,14 +146,6 @@ def prepare_bulk_authoring_fixture(runtime_root: Path) -> dict[str, object]:
     config = {
         "standard": {
             "analysis": {"alignment": "star", "quantification": "salmon"},
-            "reference": {
-                "reference_id": "HelixWeave-synthetic",
-                "fasta": str(fasta_path),
-                "fasta_sha256": _sha256(fasta_path),
-                "gtf": str(gtf_path),
-                "gtf_sha256": _sha256(gtf_path),
-                "annotation_style": "gencode",
-            },
             "trimming": {"enabled": True, "tool": "fastp"},
             "ribosomal_rna_removal": {
                 "enabled": True,
@@ -181,16 +187,253 @@ def prepare_bulk_authoring_fixture(runtime_root: Path) -> dict[str, object]:
 def prepare_bulk_browser_fixture(
     runtime_root: Path,
     environ: dict[str, str] | None = None,
-) -> tuple[dict[str, object], dict[str, str]]:
+) -> tuple[dict[str, object], dict[str, str], Mapping[str, object] | None]:
     """Select ordinary authoring or the explicitly protected product fixture."""
     source = dict(os.environ if environ is None else environ)
     requested = source.get(PRODUCT_BULK_GATE_ENV)
     if requested is None:
-        return prepare_bulk_authoring_fixture(runtime_root), {}
+        return prepare_bulk_authoring_fixture(runtime_root), {}, None
     if requested != "1":
         raise ValueError(f"{PRODUCT_BULK_GATE_ENV} must be exactly 1 when configured")
     prepared = prepare_bulk_product_browser_runtime(runtime_root, source)
-    return dict(prepared.manifest_fields), dict(prepared.deployment_environment)
+    return (
+        dict(prepared.manifest_fields),
+        dict(prepared.deployment_environment),
+        prepared.reference_profile_binding,
+    )
+
+
+def prepare_reference_profile_runtime(
+    runtime_root: Path,
+    inputs: ResultsVisibilityInputs,
+    *,
+    bulk_binding: Mapping[str, object] | None,
+    cli_command: Callable[[Sequence[str] | None], int] = helixweave_cli.main,
+) -> tuple[ResultsVisibilityInputs, dict[str, str]]:
+    """Register exact test-private references through ``helixweave admin``."""
+    public_inputs = _strip_encode_reference_fields(inputs)
+    operator_root = runtime_root / "operator-references"
+    operator_root.mkdir(mode=0o700)
+    configured_profiles: dict[str, object] = {}
+    registrations = [
+        (
+            "browser-grch38",
+            "GRCh38 browser tiny",
+            "Homo sapiens",
+            "GRCh38",
+            "browser-grch38-private",
+            ENCODE_WORKFLOW_ID,
+            _write_encode_reference_binding(operator_root / "grch38", "GRCh38", "hs"),
+        ),
+        (
+            "browser-mm10",
+            "mm10 browser tiny",
+            "Mus musculus",
+            "mm10",
+            "browser-mm10-private",
+            ENCODE_WORKFLOW_ID,
+            _write_encode_reference_binding(operator_root / "mm10", "mm10", "mm"),
+        ),
+    ]
+    if bulk_binding is not None:
+        registrations.append(
+            (
+                "browser-bulk-rnaseq",
+                "Bulk RNA-seq browser tiny",
+                "Synthetic organism",
+                "tiny",
+                "browser-bulk-private",
+                BULK_WORKFLOW_ID,
+                dict(bulk_binding),
+            )
+        )
+    for _, _, _, _, config_key, workflow_id, binding in registrations:
+        configured_profiles[config_key] = {"bindings": {workflow_id: binding}}
+
+    config_path = operator_root / "reference-profiles.json"
+    config_descriptor = os.open(
+        config_path,
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    with os.fdopen(config_descriptor, "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "schema_version": PRIVATE_REFERENCE_PROFILE_SCHEMA_VERSION,
+                "profiles": configured_profiles,
+            },
+            handle,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        handle.write("\n")
+
+    database_url = f"sqlite:///{runtime_root / 'platform.db'}"
+    for safe_key, display_name, organism, assembly, config_key, _, _ in registrations:
+        registered = _run_reference_profile_admin(
+            [
+                "--database-url",
+                database_url,
+                "--reference-profile-config",
+                str(config_path),
+                "reference-profile",
+                "register",
+                "--safe-key",
+                safe_key,
+                "--display-name",
+                display_name,
+                "--organism",
+                organism,
+                "--assembly",
+                assembly,
+                "--config-key",
+                config_key,
+            ],
+            cli_command=cli_command,
+        )
+        profile_id = registered.get("profile_id")
+        revision_id = registered.get("revision_id")
+        if not isinstance(profile_id, str) or not isinstance(revision_id, str):
+            raise RuntimeError(
+                "reference profile registration returned invalid identity"
+            )
+        _run_reference_profile_admin(
+            [
+                "--database-url",
+                database_url,
+                "--reference-profile-config",
+                str(config_path),
+                "reference-profile",
+                "verify",
+                revision_id,
+            ],
+            cli_command=cli_command,
+        )
+        _run_reference_profile_admin(
+            [
+                "--database-url",
+                database_url,
+                "--reference-profile-config",
+                str(config_path),
+                "reference-profile",
+                "enable",
+                profile_id,
+                "--revision-id",
+                revision_id,
+            ],
+            cli_command=cli_command,
+        )
+    return public_inputs, {REFERENCE_PROFILE_CONFIG_ENV: str(config_path)}
+
+
+def _run_reference_profile_admin(
+    arguments: Sequence[str],
+    *,
+    cli_command: Callable[[Sequence[str] | None], int],
+) -> dict[str, object]:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        exit_code = cli_command(["admin", *arguments])
+    if exit_code != 0:
+        raise RuntimeError("reference profile administrator command failed")
+    try:
+        result = json.loads(stdout.getvalue())
+    except (TypeError, ValueError):
+        raise RuntimeError(
+            "reference profile administrator output is invalid"
+        ) from None
+    if not isinstance(result, dict) or stderr.getvalue():
+        raise RuntimeError("reference profile administrator output is invalid")
+    return result
+
+
+def _strip_encode_reference_fields(
+    inputs: ResultsVisibilityInputs,
+) -> ResultsVisibilityInputs:
+    with inputs.samples_path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        fieldnames = tuple(
+            field
+            for field in (reader.fieldnames or ())
+            if field not in _PRIVATE_REFERENCE_FIELDS
+        )
+        rows = [
+            {key: value for key, value in row.items() if key in fieldnames}
+            for row in reader
+        ]
+    if not rows or not fieldnames:
+        raise ValueError("controlled ENCODE sample fixture is invalid")
+    temporary = inputs.samples_path.with_suffix(".public.tmp")
+    with temporary.open("x", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=fieldnames,
+            delimiter="\t",
+            lineterminator="\n",
+            extrasaction="raise",
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    temporary.replace(inputs.samples_path)
+
+    def public_config(value: Mapping[str, object]) -> dict[str, object]:
+        result = deepcopy(dict(value))
+        result.pop("genome_resources", None)
+        return result
+
+    return ResultsVisibilityInputs(
+        samples_path=inputs.samples_path,
+        results_config=public_config(inputs.results_config),
+        cancel_config=public_config(inputs.cancel_config),
+        empty_config=public_config(inputs.empty_config),
+        malformed_config=public_config(inputs.malformed_config),
+        expected_qc_summary=inputs.expected_qc_summary,
+    )
+
+
+def _write_encode_reference_binding(
+    root: Path,
+    assembly: str,
+    effective_genome_size: str,
+) -> dict[str, object]:
+    root.mkdir(parents=True)
+    resources: dict[str, object] = {}
+    for name, suffix, content in (
+        ("reference_fasta", "fa", f">{assembly}\nACGTACGT\n".encode()),
+        (
+            "gtf",
+            "gtf",
+            (
+                f"{assembly}\tHelixWeave\texon\t1\t8\t.\t+\t.\t"
+                'gene_id "g1"; transcript_id "t1";\n'
+            ).encode(),
+        ),
+        ("chrom_sizes", "sizes", f"{assembly}\t8\n".encode()),
+        ("blacklist", "bed", f"{assembly}\t1\t2\n".encode()),
+    ):
+        path = root / f"{name}.{suffix}"
+        path.write_bytes(content)
+        resources[name] = {"path": str(path), "sha256": _sha256(path)}
+    index_prefix = root / "bowtie2" / assembly
+    index_prefix.parent.mkdir()
+    index_files: dict[str, str] = {}
+    for suffix in _BOWTIE2_SUFFIXES:
+        path = Path(f"{index_prefix}{suffix}")
+        path.write_bytes(f"{assembly}{suffix}\n".encode())
+        index_files[suffix] = _sha256(path)
+    return {
+        "schema_version": "encode-reference-binding-v1",
+        "assembly": assembly,
+        "effective_genome_size": effective_genome_size,
+        "genome_resources": resources,
+        "bowtie2_index": {"prefix": str(index_prefix), "files": index_files},
+    }
 
 
 def write_manifest(
@@ -306,7 +549,17 @@ def main() -> None:
     runtime_root = prepare_owned_runtime_root(runtime_value, runtime_owner)
     project_root = runtime_root / "project"
     inputs = prepare_results_visibility_fixture(project_root)
-    bulk_authoring, deployment_environment = prepare_bulk_browser_fixture(runtime_root)
+    (
+        bulk_authoring,
+        deployment_environment,
+        bulk_reference_binding,
+    ) = prepare_bulk_browser_fixture(runtime_root)
+    inputs, reference_environment = prepare_reference_profile_runtime(
+        runtime_root,
+        inputs,
+        bulk_binding=bulk_reference_binding,
+    )
+    deployment_environment.update(reference_environment)
     queue_name = f"encode-pipeline-browser-{uuid4().hex}"
     write_manifest(runtime_root, queue_name, inputs, bulk_authoring)
     redis_url = os.environ.get(

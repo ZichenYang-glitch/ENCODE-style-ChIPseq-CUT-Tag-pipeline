@@ -30,6 +30,7 @@ from encode_pipeline.adapters.bulk_rnaseq.reference_closure import (
 )
 from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
     RuntimeAssetAdmission,
+    RuntimeAssetDoctorReport,
     VerifiedContainerAsset,
     VerifiedRuntimeAssets,
 )
@@ -276,6 +277,87 @@ def test_execution_binding_owns_one_process_local_runtime_admission(
     assert isinstance(first.runtime_admission, RuntimeAssetAdmission)
     assert first.runtime_admission.binding is assets
     assert worker.runtime_admission is not first.runtime_admission
+
+
+def test_reference_unbound_execution_fails_closed_until_run_scoped_binding(
+    tmp_path: Path,
+    bulk_rnaseq_qualifications,
+    monkeypatch,
+) -> None:
+    execution = BulkRnaSeqExecutionBinding(
+        assets=RuntimeAssetBinding(root=(tmp_path / "runtime").resolve()),
+        transcriptome=None,
+        **bulk_rnaseq_qualifications,
+    )
+    adapter = BulkRnaSeqWorkflowAdapter(execution=execution)
+
+    workspace = adapter.plan_workspace(
+        _inputs(tmp_path / "unbound"),
+        (tmp_path / "workspace-unbound").resolve(),
+    )
+    monkeypatch.setattr(
+        execution_module,
+        "_verify_bound_implementation",
+        lambda _binding: Result.success(object()),
+    )
+    monkeypatch.setattr(
+        execution_module,
+        "_acquire_runtime_assets",
+        lambda _binding: Result.success(object()),
+    )
+    command = adapter.build_command(
+        WorkspacePlan(
+            directories=execution_module._WORKSPACE_DIRECTORIES,
+            files=(
+                ("config/execution-identity.json", b"{}\n"),
+                ("config/params.json", b"{}\n"),
+                (
+                    "config/platform.nextflow.config",
+                    b"// unbound command guard fixture\n",
+                ),
+                (
+                    "config/samplesheet.csv",
+                    b"sample,fastq_1,fastq_2,strandedness,seq_platform\n",
+                ),
+                ("engine/cache-identity.json", b"{}\n"),
+            ),
+        ),
+        (tmp_path / "workspace-unbound").resolve(),
+    )
+    build = adapter.capture_build_identity()
+
+    assert workspace.is_failure
+    assert workspace.errors[0].code == "BULK_RNASEQ_TRANSCRIPTOME_INVALID"
+    assert command.is_failure
+    assert command.errors[0].code == "BULK_RNASEQ_RUNTIME_UNAVAILABLE"
+    assert build.is_failure
+    assert build.errors[0].code == "BULK_RNASEQ_RUNTIME_UNAVAILABLE"
+
+
+def test_runtime_doctor_does_not_require_a_global_reference_binding(
+    tmp_path: Path,
+    bulk_rnaseq_qualifications,
+    monkeypatch,
+) -> None:
+    execution = BulkRnaSeqExecutionBinding(
+        assets=RuntimeAssetBinding(root=(tmp_path / "runtime").resolve()),
+        transcriptome=None,
+        **bulk_rnaseq_qualifications,
+    )
+    monkeypatch.setattr(
+        execution_module,
+        "_verify_bound_implementation",
+        lambda _binding: Result.success(object()),
+    )
+    monkeypatch.setattr(
+        RuntimeAssetAdmission,
+        "doctor",
+        lambda _self: RuntimeAssetDoctorReport(ready=True, issues=()),
+    )
+
+    report = execution_module.doctor_bulk_rnaseq_runtime(execution)
+
+    assert report == RuntimeAssetDoctorReport(ready=True, issues=())
 
 
 def test_execution_binding_rejects_missing_implementation_qualification(
@@ -1506,3 +1588,53 @@ def test_workspace_rejects_missing_fastq_and_symlinked_reference(
     linked = adapter.plan_workspace(inputs, (tmp_path / "workspace2").resolve())
     assert linked.is_failure
     assert linked.errors[0].code == "BULK_RNASEQ_REFERENCE_INVALID"
+
+
+def test_reference_profile_resolution_preserves_existing_workspace_bytes(
+    tmp_path: Path,
+    composed_runtime,
+):
+    binding, _verified = composed_runtime
+    adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
+    direct_inputs = _inputs(tmp_path)
+    reference = dict(direct_inputs.config["standard"]["reference"])
+    transcriptome = binding.transcriptome
+    payload = {
+        "schema_version": "bulk-rnaseq-reference-binding-v1",
+        "reference": reference,
+        "transcriptome": {
+            "reference_id": transcriptome.reference_id,
+            "fasta_sha256": transcriptome.fasta_sha256,
+            "gtf_sha256": transcriptome.gtf_sha256,
+            "transcript_fasta": str(transcriptome.transcript_fasta),
+            "transcript_fasta_sha256": transcriptome.transcript_fasta_sha256,
+        },
+    }
+    selected_config = dict(direct_inputs.config)
+    selected_config["standard"] = dict(selected_config["standard"])
+    selected_config["standard"].pop("reference")
+    selected_inputs = WorkflowInputs(
+        config=selected_config,
+        samples=direct_inputs.samples,
+        options=direct_inputs.options,
+    )
+
+    bound = adapter.bind_reference_profile(selected_inputs, payload)
+    assert bound.is_success
+    direct = adapter.plan_workspace(direct_inputs, (tmp_path / "workspace").resolve())
+    selected = bound.value.adapter.plan_workspace(
+        bound.value.inputs, (tmp_path / "workspace").resolve()
+    )
+
+    assert direct.is_success and selected.is_success
+    assert selected.value == direct.value
+    direct_command = adapter.build_command(
+        direct.value,
+        (tmp_path / "workspace").resolve(),
+    )
+    selected_command = bound.value.adapter.build_command(
+        selected.value,
+        (tmp_path / "workspace").resolve(),
+    )
+    assert direct_command.is_success and selected_command.is_success
+    assert selected_command.value == direct_command.value

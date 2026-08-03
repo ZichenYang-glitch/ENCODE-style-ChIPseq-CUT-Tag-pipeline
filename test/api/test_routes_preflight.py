@@ -7,7 +7,6 @@ from pathlib import Path
 
 import httpx
 
-from encode_pipeline.api.main import create_app
 from encode_pipeline.platform.results import Result
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.command_builder import CommandBuilder
@@ -38,21 +37,24 @@ class _FakeProcessRunner(ProcessRunner):
 def _make_valid_samples_tsv(tmp_path: Path) -> Path:
     samples_tsv = tmp_path / "samples.tsv"
     samples_tsv.write_text(
-        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
-        "S1\t/abs/S1_1.fq.gz\t/abs/S1_2.fq.gz\tPE\tchipseq\tH3K27ac\tnarrow\ths\t/abs/bt2/GRCh38\n",
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\n"
+        "S1\t/abs/S1_1.fq.gz\t/abs/S1_2.fq.gz\tPE\tchipseq\tH3K27ac\tnarrow\n",
         encoding="utf-8",
     )
     return samples_tsv
 
 
-def _test_app(tmp_path: Path):
-    app = create_app()
+def _test_app(app, tmp_path: Path):
     registry = app.state.registry
     run_service = app.state.run_service
+    reference_profile_resolver = app.state.reference_profile_resolver
     local_run_driver = LocalRunDriver(
         run_service=run_service,
         materializer=WorkspaceMaterializer(),
-        command_builder=CommandBuilder(registry=registry),
+        command_builder=CommandBuilder(
+            registry=registry,
+            reference_profile_resolver=reference_profile_resolver,
+        ),
         workspace_root=tmp_path / "workspaces",
         process_runner=_FakeProcessRunner(),
     )
@@ -60,31 +62,35 @@ def _test_app(tmp_path: Path):
     app.state.preflight_service = LocalPreflightService(
         run_service=run_service,
         execution_planner=ExecutionPlanner(run_service=run_service),
-        workspace_planner=create_default_workspace_planner(registry=registry),
+        workspace_planner=create_default_workspace_planner(
+            registry=registry,
+            reference_profile_resolver=reference_profile_resolver,
+        ),
         local_run_driver=local_run_driver,
         build_identity_provider=app.state.build_identity_provider,
+        reference_profile_resolver=reference_profile_resolver,
     )
     return app
 
 
-def _client(tmp_path: Path) -> httpx.AsyncClient:
+def _client(app, tmp_path: Path) -> httpx.AsyncClient:
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=_test_app(tmp_path)),
+        transport=httpx.ASGITransport(app=_test_app(app, tmp_path)),
         base_url="http://testserver",
         follow_redirects=True,
     )
 
 
-async def _create_run(client: httpx.AsyncClient, tmp_path: Path):
+async def _create_run(client: httpx.AsyncClient, tmp_path: Path, app):
     samples_tsv = _make_valid_samples_tsv(tmp_path)
     inputs = {
         "config": {
             "samples": str(samples_tsv),
             "threads": 1,
-            "genome_resources": {"hs": {"effective_genome_size": "hs"}},
         },
         "samples": str(samples_tsv),
         "options": {},
+        "reference_profile_revision_id": (app.state.test_reference_profile.revision_id),
     }
     validation = await client.post(
         "/api/v1/workflows/encode-style-chipseq-cuttag-atac-mnase/validate",
@@ -100,10 +106,13 @@ async def _create_run(client: httpx.AsyncClient, tmp_path: Path):
     return response.json()["run"]
 
 
-def test_trigger_preflight_returns_202_and_validating_status(tmp_path):
+def test_trigger_preflight_returns_202_and_validating_status(
+    tmp_path,
+    reference_ready_app,
+):
     async def scenario() -> None:
-        async with _client(tmp_path) as client:
-            run = await _create_run(client, tmp_path)
+        async with _client(reference_ready_app, tmp_path) as client:
+            run = await _create_run(client, tmp_path, reference_ready_app)
 
             response = await client.post(f"/api/v1/runs/{run['run_id']}/preflight")
 
@@ -116,10 +125,10 @@ def test_trigger_preflight_returns_202_and_validating_status(tmp_path):
     asyncio.run(scenario())
 
 
-def test_trigger_preflight_reaches_planned_on_get(tmp_path):
+def test_trigger_preflight_reaches_planned_on_get(tmp_path, reference_ready_app):
     async def scenario() -> None:
-        async with _client(tmp_path) as client:
-            run = await _create_run(client, tmp_path)
+        async with _client(reference_ready_app, tmp_path) as client:
+            run = await _create_run(client, tmp_path, reference_ready_app)
 
             await client.post(f"/api/v1/runs/{run['run_id']}/preflight")
 
@@ -141,19 +150,22 @@ def test_trigger_preflight_reaches_planned_on_get(tmp_path):
     asyncio.run(scenario())
 
 
-def test_trigger_preflight_returns_404_for_unknown_run(tmp_path):
+def test_trigger_preflight_returns_404_for_unknown_run(tmp_path, reference_ready_app):
     async def scenario() -> None:
-        async with _client(tmp_path) as client:
+        async with _client(reference_ready_app, tmp_path) as client:
             response = await client.post("/api/v1/runs/does-not-exist/preflight")
             assert response.status_code == 404
 
     asyncio.run(scenario())
 
 
-def test_trigger_preflight_returns_409_when_already_triggered(tmp_path):
+def test_trigger_preflight_returns_409_when_already_triggered(
+    tmp_path,
+    reference_ready_app,
+):
     async def scenario() -> None:
-        async with _client(tmp_path) as client:
-            run = await _create_run(client, tmp_path)
+        async with _client(reference_ready_app, tmp_path) as client:
+            run = await _create_run(client, tmp_path, reference_ready_app)
             await client.post(f"/api/v1/runs/{run['run_id']}/preflight")
 
             response = await client.post(f"/api/v1/runs/{run['run_id']}/preflight")
@@ -167,9 +179,10 @@ def test_trigger_preflight_returns_409_when_already_triggered(tmp_path):
 def test_trigger_preflight_returns_409_when_another_request_wins_transition(
     tmp_path,
     monkeypatch,
+    reference_ready_app,
 ):
     async def scenario() -> None:
-        app = _test_app(tmp_path)
+        app = _test_app(reference_ready_app, tmp_path)
         run_service = app.state.run_service
         original_transition = run_service.transition_run
 
@@ -182,7 +195,7 @@ def test_trigger_preflight_returns_409_when_another_request_wins_transition(
             transport=httpx.ASGITransport(app=app),
             base_url="http://testserver",
         ) as client:
-            run = await _create_run(client, tmp_path)
+            run = await _create_run(client, tmp_path, app)
 
             response = await client.post(f"/api/v1/runs/{run['run_id']}/preflight")
 
@@ -200,12 +213,13 @@ def test_trigger_preflight_returns_409_when_another_request_wins_transition(
 
 def test_trigger_preflight_remains_responsive_after_prior_requests(
     tmp_path,
+    reference_ready_app,
 ):
     """Preflight completes after earlier API calls in one ASGI client session."""
 
     async def scenario() -> None:
-        async with _client(tmp_path) as client:
-            run = await _create_run(client, tmp_path)
+        async with _client(reference_ready_app, tmp_path) as client:
+            run = await _create_run(client, tmp_path, reference_ready_app)
 
             for _ in range(3):
                 response = await client.get("/api/v1/workflows")

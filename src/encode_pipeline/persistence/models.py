@@ -1509,3 +1509,356 @@ class RunQcMetricRow(Base):
     produced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+
+
+class ReferenceProfileRow(Base):
+    """Stable logical profile; private configuration lives on revisions."""
+
+    __tablename__ = "reference_profiles"
+    __table_args__ = (
+        CheckConstraint(
+            "length(profile_id) = 37 AND substr(profile_id, 1, 5) = 'refp_'",
+            name="ck_reference_profiles_id",
+        ),
+        CheckConstraint(
+            "length(trim(safe_key)) BETWEEN 1 AND 255",
+            name="ck_reference_profiles_safe_key",
+        ),
+        ForeignKeyConstraint(
+            ["profile_id", "enabled_revision_id"],
+            [
+                "reference_profile_revisions.profile_id",
+                "reference_profile_revisions.revision_id",
+            ],
+            name="fk_reference_profiles_enabled_revision",
+            ondelete="RESTRICT",
+            use_alter=True,
+        ),
+        UniqueConstraint("safe_key", name="uq_reference_profiles_safe_key"),
+        UniqueConstraint(
+            "profile_id",
+            "enabled_revision_id",
+            name="uq_reference_profiles_enabled_revision",
+        ),
+        Index(
+            "ix_reference_profiles_enabled_created",
+            "enabled_revision_id",
+            "created_at",
+            "profile_id",
+        ),
+    )
+
+    profile_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    safe_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    enabled_revision_id: Mapped[str | None] = mapped_column(String(38))
+
+
+class ReferenceProfileRevisionRow(Base):
+    """Append-only profile metadata plus aggregate public identity."""
+
+    __tablename__ = "reference_profile_revisions"
+    __table_args__ = (
+        CheckConstraint(
+            "length(revision_id) = 38 AND substr(revision_id, 1, 6) = 'refpr_'",
+            name="ck_reference_profile_revisions_id",
+        ),
+        CheckConstraint(
+            "revision_number >= 1",
+            name="ck_reference_profile_revisions_positive_number",
+        ),
+        CheckConstraint(
+            "length(trim(display_name)) BETWEEN 1 AND 255",
+            name="ck_reference_profile_revisions_display_name",
+        ),
+        CheckConstraint(
+            "length(trim(organism)) BETWEEN 1 AND 255",
+            name="ck_reference_profile_revisions_organism",
+        ),
+        CheckConstraint(
+            "length(trim(assembly)) BETWEEN 1 AND 255",
+            name="ck_reference_profile_revisions_assembly",
+        ),
+        CheckConstraint(
+            "length(trim(config_key)) BETWEEN 1 AND 255",
+            name="ck_reference_profile_revisions_config_key",
+        ),
+        CheckConstraint(
+            "public_identity_scheme = 'sha256-framed-reference-profile-revision-v1'",
+            name="ck_reference_profile_revisions_identity_scheme",
+        ),
+        CheckConstraint(
+            "length(public_identity_sha256) = 64",
+            name="ck_reference_profile_revisions_identity_length",
+        ),
+        ForeignKeyConstraint(
+            ["profile_id"],
+            ["reference_profiles.profile_id"],
+            name="fk_reference_profile_revisions_profile",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "profile_id",
+            "revision_id",
+            name="uq_reference_profile_revisions_profile_revision",
+        ),
+        UniqueConstraint(
+            "profile_id",
+            "revision_number",
+            name="uq_reference_profile_revisions_profile_number",
+        ),
+        UniqueConstraint(
+            "profile_id",
+            "revision_id",
+            "public_identity_sha256",
+            name="uq_reference_profile_revisions_identity",
+        ),
+        Index(
+            "ix_reference_profile_revisions_profile_number",
+            "profile_id",
+            "revision_number",
+        ),
+    )
+
+    revision_id: Mapped[str] = mapped_column(String(38), primary_key=True)
+    profile_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    organism: Mapped[str] = mapped_column(String(255), nullable=False)
+    assembly: Mapped[str] = mapped_column(String(255), nullable=False)
+    config_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    public_identity_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    public_identity_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class ReferenceProfileWorkflowBindingRow(Base):
+    """Adapter-owned identity for one revision/workflow compatibility edge."""
+
+    __tablename__ = "reference_profile_workflow_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "length(trim(workflow_id)) BETWEEN 1 AND 255",
+            name="ck_reference_profile_workflow_bindings_workflow",
+        ),
+        CheckConstraint(
+            "length(trim(contract_version)) BETWEEN 1 AND 255",
+            name="ck_reference_profile_workflow_bindings_contract",
+        ),
+        CheckConstraint(
+            "identity_scheme = 'sha256-framed-adapter-reference-binding-v1'",
+            name="ck_reference_profile_workflow_bindings_identity_scheme",
+        ),
+        CheckConstraint(
+            "length(identity_sha256) = 64",
+            name="ck_reference_profile_workflow_bindings_identity_length",
+        ),
+        ForeignKeyConstraint(
+            ["profile_id", "revision_id"],
+            [
+                "reference_profile_revisions.profile_id",
+                "reference_profile_revisions.revision_id",
+            ],
+            name="fk_reference_profile_workflow_bindings_revision",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "profile_id",
+            "revision_id",
+            "workflow_id",
+            "contract_version",
+            "identity_sha256",
+            name="uq_reference_profile_workflow_bindings_identity",
+        ),
+        Index(
+            "ix_reference_profile_workflow_bindings_workflow",
+            "workflow_id",
+            "profile_id",
+            "revision_id",
+        ),
+    )
+
+    profile_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    revision_id: Mapped[str] = mapped_column(String(38), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    contract_version: Mapped[str] = mapped_column(String(255), nullable=False)
+    identity_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    identity_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class SnapshotReferenceBindingRow(Base):
+    """Exact path-free Reference Profile evidence frozen into a snapshot."""
+
+    __tablename__ = "snapshot_reference_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "revision_public_identity_scheme = "
+            "'sha256-framed-reference-profile-revision-v1'",
+            name="ck_snapshot_reference_bindings_revision_scheme",
+        ),
+        CheckConstraint(
+            "length(revision_public_identity_sha256) = 64",
+            name="ck_snapshot_reference_bindings_revision_identity",
+        ),
+        CheckConstraint(
+            "adapter_identity_scheme = 'sha256-framed-adapter-reference-binding-v1'",
+            name="ck_snapshot_reference_bindings_adapter_scheme",
+        ),
+        CheckConstraint(
+            "length(adapter_identity_sha256) = 64",
+            name="ck_snapshot_reference_bindings_adapter_identity",
+        ),
+        CheckConstraint(
+            "binding_digest_scheme = 'sha256-framed-reference-profile-binding-v1'",
+            name="ck_snapshot_reference_bindings_digest_scheme",
+        ),
+        CheckConstraint(
+            "length(binding_digest) = 64",
+            name="ck_snapshot_reference_bindings_digest_length",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id"],
+            ["validated_input_snapshots.snapshot_id"],
+            name="fk_snapshot_reference_bindings_snapshot",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["profile_id", "revision_id", "revision_public_identity_sha256"],
+            [
+                "reference_profile_revisions.profile_id",
+                "reference_profile_revisions.revision_id",
+                "reference_profile_revisions.public_identity_sha256",
+            ],
+            name="fk_snapshot_reference_bindings_revision",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "profile_id",
+                "revision_id",
+                "workflow_id",
+                "adapter_contract_version",
+                "adapter_identity_sha256",
+            ],
+            [
+                "reference_profile_workflow_bindings.profile_id",
+                "reference_profile_workflow_bindings.revision_id",
+                "reference_profile_workflow_bindings.workflow_id",
+                "reference_profile_workflow_bindings.contract_version",
+                "reference_profile_workflow_bindings.identity_sha256",
+            ],
+            name="fk_snapshot_reference_bindings_workflow_binding",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_snapshot_reference_bindings_revision",
+            "revision_id",
+            "snapshot_id",
+        ),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    profile_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    revision_id: Mapped[str] = mapped_column(String(38), nullable=False)
+    workflow_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision_public_identity_scheme: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    revision_public_identity_sha256: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    adapter_contract_version: Mapped[str] = mapped_column(String(255), nullable=False)
+    adapter_identity_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    adapter_identity_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    binding_digest_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    binding_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    bound_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class RunReferenceBindingRow(Base):
+    """Exact snapshot evidence copied atomically to one durable run."""
+
+    __tablename__ = "run_reference_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "revision_public_identity_scheme = "
+            "'sha256-framed-reference-profile-revision-v1'",
+            name="ck_run_reference_bindings_revision_scheme",
+        ),
+        CheckConstraint(
+            "length(revision_public_identity_sha256) = 64",
+            name="ck_run_reference_bindings_revision_identity",
+        ),
+        CheckConstraint(
+            "adapter_identity_scheme = 'sha256-framed-adapter-reference-binding-v1'",
+            name="ck_run_reference_bindings_adapter_scheme",
+        ),
+        CheckConstraint(
+            "length(adapter_identity_sha256) = 64",
+            name="ck_run_reference_bindings_adapter_identity",
+        ),
+        CheckConstraint(
+            "binding_digest_scheme = 'sha256-framed-reference-profile-binding-v1'",
+            name="ck_run_reference_bindings_digest_scheme",
+        ),
+        CheckConstraint(
+            "length(binding_digest) = 64",
+            name="ck_run_reference_bindings_digest_length",
+        ),
+        ForeignKeyConstraint(
+            ["run_id"],
+            ["runs.run_id"],
+            name="fk_run_reference_bindings_run",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["profile_id", "revision_id", "revision_public_identity_sha256"],
+            [
+                "reference_profile_revisions.profile_id",
+                "reference_profile_revisions.revision_id",
+                "reference_profile_revisions.public_identity_sha256",
+            ],
+            name="fk_run_reference_bindings_revision",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "profile_id",
+                "revision_id",
+                "workflow_id",
+                "adapter_contract_version",
+                "adapter_identity_sha256",
+            ],
+            [
+                "reference_profile_workflow_bindings.profile_id",
+                "reference_profile_workflow_bindings.revision_id",
+                "reference_profile_workflow_bindings.workflow_id",
+                "reference_profile_workflow_bindings.contract_version",
+                "reference_profile_workflow_bindings.identity_sha256",
+            ],
+            name="fk_run_reference_bindings_workflow_binding",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_run_reference_bindings_revision", "revision_id", "run_id"),
+    )
+
+    run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    profile_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    revision_id: Mapped[str] = mapped_column(String(38), nullable=False)
+    workflow_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision_public_identity_scheme: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    revision_public_identity_sha256: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    adapter_contract_version: Mapped[str] = mapped_column(String(255), nullable=False)
+    adapter_identity_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    adapter_identity_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    binding_digest_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    binding_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    bound_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

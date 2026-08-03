@@ -22,6 +22,10 @@ from encode_pipeline.platform.adapters import (
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.reference_profiles import (
+    AdapterReferenceBindingIdentity,
+    BoundWorkflowReference,
+)
 from encode_pipeline.platform.result_generations import validate_result_attempt_id
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunStatus
@@ -42,6 +46,7 @@ class ArtifactAdapter:
         self.calls = 0
         self.failure = False
         self.identity_root = None
+        self.identity_digest = None
 
     def schema(self):
         return WorkflowSchema()
@@ -78,11 +83,14 @@ class ArtifactAdapter:
     def capture_build_identity(self):
         if self.identity_root is None:
             return Result.failure(())
-        digest = sha256(
-            (
-                self.identity_root / "docs/architecture/artifact-inventory.yaml"
-            ).read_bytes()
-        ).hexdigest()
+        digest = (
+            self.identity_digest
+            or sha256(
+                (
+                    self.identity_root / "docs/architecture/artifact-inventory.yaml"
+                ).read_bytes()
+            ).hexdigest()
+        )
         return Result.success(
             WorkflowBuildIdentity(
                 workflow_id=self.metadata.workflow_id,
@@ -113,6 +121,14 @@ class QcArtifactAdapter(ArtifactAdapter):
         return Result.success(())
 
 
+class ReferenceArtifactAdapter(ArtifactAdapter):
+    def verify_reference_profile_binding(self, _payload):
+        return Result.failure(())
+
+    def bind_reference_profile(self, _inputs, _payload):
+        return Result.failure(())
+
+
 def _assert_failure_context(event, reason_code: str) -> None:
     assert event.context["reason_code"] == reason_code
     validate_result_attempt_id(event.context["attempt_id"])
@@ -135,7 +151,14 @@ def _project(root: Path) -> Path:
     return root
 
 
-def _service(tmp_path, adapter, *, terminal=RunStatus.SUCCEEDED):
+def _service(
+    tmp_path,
+    adapter,
+    *,
+    terminal=RunStatus.SUCCEEDED,
+    reference_profile_resolver=None,
+    build_adapter=None,
+):
     registry = WorkflowRegistry([adapter])
     run_service = RunService(registry, id_factory=lambda: "run-1")
     provider = WorkflowBuildIdentityProvider(
@@ -144,7 +167,11 @@ def _service(tmp_path, adapter, *, terminal=RunStatus.SUCCEEDED):
     adapter.identity_root = provider.project_root
     run_service.create_run("fake", WorkflowInputs(config={}))
     run_service.transition_run("run-1", RunStatus.VALIDATING)
-    identity = provider.capture("fake").value
+    if build_adapter is not None:
+        build_adapter.identity_root = provider.project_root
+        identity = provider.capture_resolved_executable(build_adapter).value
+    else:
+        identity = provider.capture("fake").value
     run_service.complete_preflight("run-1", identity)
     run_service.transition_run("run-1", RunStatus.QUEUED)
     if terminal is not RunStatus.CANCELLED:
@@ -157,6 +184,7 @@ def _service(tmp_path, adapter, *, terminal=RunStatus.SUCCEEDED):
         registry=registry,
         build_identity_provider=provider,
         workspace_root=workspace_root,
+        reference_profile_resolver=reference_profile_resolver,
     )
     return service, run_service, workspace_root / "run-1", provider
 
@@ -186,6 +214,135 @@ def test_extract_builds_deterministic_opaque_refs_and_is_idempotent(tmp_path):
     assert [event.event_type for event in run_service.list_events("run-1")].count(
         "artifacts_indexed"
     ) == 1
+
+
+def test_artifact_extraction_reverifies_reference_and_uses_bound_context(tmp_path):
+    candidate = ExtractedArtifactCandidate(
+        output_type="summary",
+        relative_path="results/summary.tsv",
+    )
+    base_adapter = ArtifactAdapter(())
+    bound_adapter = ArtifactAdapter((candidate,))
+    bound_adapter.identity_digest = "b" * 64
+    private_inputs = WorkflowInputs(
+        config={"reference": "/operator/private/reference.fa"},
+    )
+
+    class _Resolver:
+        def __init__(self):
+            self.calls = []
+
+        def resolve_run(self, run_id, workflow_id, inputs, *, require_enabled):
+            self.calls.append((run_id, workflow_id, inputs, require_enabled))
+            return Result.success(
+                BoundWorkflowReference(
+                    inputs=private_inputs,
+                    adapter=bound_adapter,
+                    identity=AdapterReferenceBindingIdentity(
+                        workflow_id="fake",
+                        contract_version="fake-reference-v1",
+                        identity_sha256="a" * 64,
+                    ),
+                )
+            )
+
+    resolver = _Resolver()
+    service, _run_service, workspace, _provider = _service(
+        tmp_path,
+        base_adapter,
+        reference_profile_resolver=resolver,
+        build_adapter=bound_adapter,
+    )
+    (workspace / "results/summary.tsv").write_text("x\n", encoding="utf-8")
+
+    result = service.extract("run-1")
+
+    assert result.is_success
+    assert base_adapter.calls == 0
+    assert bound_adapter.calls == 1
+    assert resolver.calls[0][:2] == ("run-1", "fake")
+    assert resolver.calls[0][3] is False
+
+
+def test_artifact_extraction_rejects_persisted_reference_without_resolver(
+    tmp_path,
+    monkeypatch,
+):
+    adapter = ReferenceArtifactAdapter(())
+    service, run_service, _workspace, _provider = _service(tmp_path, adapter)
+    monkeypatch.setattr(
+        run_service,
+        "get_run_reference_binding",
+        lambda _run_id: object(),
+    )
+
+    result = service.extract("run-1")
+
+    assert result.is_failure
+    assert result.issues[0].context["reason_code"] == (
+        "ARTIFACT_EXTRACTION_REFERENCE_UNAVAILABLE"
+    )
+
+
+def test_artifact_extraction_allows_only_adapter_valid_legacy_without_binding(
+    tmp_path,
+):
+    adapter = ArtifactAdapter(())
+
+    class _MissingBindingResolver:
+        def resolve_run(self, *_args, **_kwargs):
+            return Result.failure(
+                [
+                    Issue(
+                        code="REFERENCE_PROFILE_REQUIRED",
+                        message="A Reference Profile revision is required.",
+                    )
+                ]
+            )
+
+    service, _run_service, _workspace, _provider = _service(
+        tmp_path,
+        adapter,
+        reference_profile_resolver=_MissingBindingResolver(),
+    )
+
+    assert service.extract("run-1").is_success
+
+    adapter.validate = lambda _inputs: Result.failure(
+        [Issue(code="REFERENCE_REQUIRED", message="Reference is required.")]
+    )
+    failed_service, _run_service, _workspace, _provider = _service(
+        tmp_path / "new",
+        adapter,
+        reference_profile_resolver=_MissingBindingResolver(),
+    )
+    failed = failed_service.extract("run-1")
+    assert failed.is_failure
+    assert failed.issues[0].context["reason_code"] == (
+        "ARTIFACT_EXTRACTION_REFERENCE_UNAVAILABLE"
+    )
+
+
+def test_artifact_extraction_missing_resolver_validates_reference_capable_legacy(
+    tmp_path,
+):
+    adapter = ReferenceArtifactAdapter(())
+    service, _run_service, _workspace, _provider = _service(tmp_path, adapter)
+
+    assert service.extract("run-1").is_success
+
+    adapter.validate = lambda _inputs: Result.failure(
+        [Issue(code="REFERENCE_REQUIRED", message="Reference is required.")]
+    )
+    failed_service, _run_service, _workspace, _provider = _service(
+        tmp_path / "new",
+        adapter,
+    )
+    failed = failed_service.extract("run-1")
+    assert failed.is_failure
+    assert failed.issues[0].context["reason_code"] == (
+        "ARTIFACT_EXTRACTION_REFERENCE_UNAVAILABLE"
+    )
 
 
 def test_extract_same_length_qc_source_replacement_advances_real_generation(tmp_path):

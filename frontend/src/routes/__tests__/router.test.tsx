@@ -8,7 +8,7 @@ import { createStubWorkflowClient } from '../../api/client';
 import type { RunApiClient } from '../../api/runClient';
 import type { RunResponse } from '../../api/runTypes';
 import type { WorkflowApiClient } from '../../api/client';
-import { stubWorkflows, stubWorkflowSchemas } from '../../data/stubWorkflows';
+import { stubWorkflowSchemas } from '../../data/stubWorkflows';
 
 const WORKFLOW_ID = 'encode-style-chipseq-cuttag-atac-mnase';
 
@@ -177,9 +177,82 @@ describe('Router', () => {
         issues: [],
       });
     });
+    expect(await screen.findByRole('link', { name: 'Author inputs' })).toHaveAttribute(
+      'href',
+      `/workflows/${WORKFLOW_ID}/new-run`,
+    );
     expect(
       await screen.findByRole('heading', { name: 'Validation workspace' }),
     ).toBeVisible();
+    expect(
+      screen.getByRole('heading', { name: 'Run progress' }),
+    ).toBeVisible();
+  });
+
+  it('rebinds authoring surfaces when workflow identity changes and resets the legacy draft', async () => {
+    const user = userEvent.setup();
+    const secondWorkflowId = 'second-workflow';
+    const base = createStubWorkflowClient();
+    const secondWorkflow = {
+      metadata: {
+        workflow_id: secondWorkflowId,
+        name: 'Second workflow',
+        version: '0.1.0',
+        description: 'Second workflow for route tests.',
+        engines: ['snakemake'],
+        tags: [],
+      },
+      capabilities: { supports: ['validation'] },
+      schema_version: '1.0.0',
+      upstream_identity: null,
+      availability: {
+        authoring: 'available' as const,
+        execution: 'available' as const,
+        reason_code: 'WORKFLOW_EXECUTION_READY' as const,
+      },
+    };
+    const workflowClient: WorkflowApiClient = {
+      ...base,
+      async getWorkflow(workflowId) {
+        if (workflowId === secondWorkflowId) {
+          return {
+            ok: true,
+            workflow_id: workflowId,
+            workflow: secondWorkflow,
+            issues: [],
+          };
+        }
+        return base.getWorkflow(workflowId);
+      },
+      async getWorkflowSchema(workflowId) {
+        return {
+          ok: true,
+          workflow_id: workflowId,
+          schema_hints: stubWorkflowSchemas[WORKFLOW_ID],
+          issues: [],
+        };
+      },
+    };
+    const { router } = renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}`],
+      clients: { workflowClient },
+    });
+    expect(await screen.findByRole('link', { name: 'Author inputs' })).toHaveAttribute(
+      'href',
+      `/workflows/${WORKFLOW_ID}/new-run`,
+    );
+    const samplesInput = await screen.findByLabelText(/Samples \(path string\)/i);
+    await user.type(samplesInput, 'samples.tsv');
+    expect(samplesInput).toHaveValue('samples.tsv');
+
+    await act(async () => router.navigate(`/workflows/${secondWorkflowId}`));
+
+    expect(await screen.findByRole('link', { name: 'Author inputs' })).toHaveAttribute(
+      'href',
+      `/workflows/${secondWorkflowId}/new-run`,
+    );
+    expect(screen.getByLabelText(/Samples \(path string\)/i)).toHaveValue('');
+    expect(screen.getByTestId('validate-button')).toBeInTheDocument();
   });
 
   it('places Author inputs before a default-closed developer schema disclosure', async () => {
@@ -225,106 +298,6 @@ describe('Router', () => {
       );
     });
     expect(await screen.findByText(/Config schema/i)).toBeInTheDocument();
-  });
-
-  it('resets validation draft when workflowId changes', async () => {
-    const user = userEvent.setup();
-    const secondWorkflowId = 'second-workflow';
-    const secondWorkflow = {
-      metadata: {
-        workflow_id: secondWorkflowId,
-        name: 'Second workflow',
-        version: '0.1.0',
-        description: 'Second workflow for route tests.',
-        engines: ['snakemake'],
-        tags: [],
-      },
-      capabilities: { supports: ['validation'] },
-      schema_version: '1.0.0',
-      upstream_identity: null,
-      availability: {
-        authoring: 'available' as const,
-        execution: 'available' as const,
-        reason_code: 'WORKFLOW_EXECUTION_READY' as const,
-      },
-    };
-    const workflowClient: WorkflowApiClient = {
-      async listWorkflows() {
-        return {
-          ok: true,
-          workflows: [...stubWorkflows, secondWorkflow],
-          issues: [],
-        };
-      },
-      async getWorkflow(workflowId) {
-        const workflow = [...stubWorkflows, secondWorkflow].find(
-          (candidate) => candidate.metadata.workflow_id === workflowId,
-        );
-        return {
-          ok: workflow !== undefined,
-          workflow_id: workflowId,
-          workflow: workflow ?? null,
-          issues: [],
-        };
-      },
-      async getWorkflowSchema(workflowId) {
-        return {
-          ok: true,
-          workflow_id: workflowId,
-          schema_hints: stubWorkflowSchemas['encode-style-chipseq-cuttag-atac-mnase'],
-          issues: [],
-        };
-      },
-      async validateWorkflow(workflowId, inputs) {
-        return {
-          ok: true,
-          workflow_id: workflowId,
-          value: { config: inputs.config, samples: [] },
-          snapshot: {
-            snapshot_id: 'vsnap_0123456789abcdef0123456789abcdef',
-            workflow_id: workflowId,
-            schema_version: '1.0.0',
-            adapter_version: '0.3.0',
-            payload_digest: 'a'.repeat(64),
-            validated_at: '2026-07-14T00:00:00.000Z',
-            expires_at: '2026-07-14T00:30:00.000Z',
-            project_id: 'prj_00000000000000000000000000000000',
-            binding_mode: 'legacy_v1',
-            provenance: 'unresolved',
-            sample_revision_ids: [],
-            binding_digest: 'b'.repeat(64),
-            input_binding: {
-              mode: 'compatibility_unresolved_v1',
-              adapter_contract_version: null,
-              digest: 'c'.repeat(64),
-              fully_managed: false,
-              input_uses: [],
-            },
-          },
-          issues: [],
-        };
-      },
-    };
-
-    const { router } = renderWithRouter(appRoutes, {
-      initialEntries: ['/workflows/encode-style-chipseq-cuttag-atac-mnase'],
-      clients: { workflowClient },
-    });
-
-    const samplesInput = await screen.findByLabelText(/Samples \(path string\)/i);
-    await user.type(samplesInput, 'samples.tsv');
-    expect(samplesInput).toHaveValue('samples.tsv');
-
-    await user.click(
-      await screen.findByRole('button', { name: /Second workflow/i }),
-    );
-
-    await waitFor(() => {
-      expect(router.state.location.pathname).toBe(`/workflows/${secondWorkflowId}`);
-    });
-
-    const resetInput = screen.getByLabelText(/Samples \(path string\)/i);
-    expect(resetInput).toHaveValue('');
   });
 
   it('loads an existing run at /runs/:runId', async () => {

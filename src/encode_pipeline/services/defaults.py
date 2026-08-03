@@ -29,6 +29,9 @@ if TYPE_CHECKING:
     from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
     from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
     from encode_pipeline.services.qc_summary_indexing import QcSummaryIndexingService
+    from encode_pipeline.services.reference_profile_runtime import (
+        ReferenceProfileRuntimeResolver,
+    )
     from encode_pipeline.workers.settings import WorkerSettings
 
 
@@ -344,13 +347,18 @@ def create_default_execution_planner(
 
 def create_default_workspace_planner(
     registry: WorkflowRegistry | None = None,
+    *,
+    reference_profile_resolver: ReferenceProfileRuntimeResolver | None = None,
 ) -> WorkspacePlanner:
     """Return a fresh workspace planner wired to the given registry."""
     from encode_pipeline.services.planning import WorkspacePlanner
 
     if registry is None:
         registry = create_default_workflow_registry()
-    return WorkspacePlanner(registry=registry)
+    return WorkspacePlanner(
+        registry=registry,
+        reference_profile_resolver=reference_profile_resolver,
+    )
 
 
 def create_default_workspace_materializer() -> "WorkspaceMaterializer":
@@ -364,6 +372,7 @@ def create_default_command_builder(
     registry: WorkflowRegistry | None = None,
     *,
     project_root: Path | None = None,
+    reference_profile_resolver: ReferenceProfileRuntimeResolver | None = None,
 ) -> "CommandBuilder":
     """Return a fresh command builder wired to the default registry.
 
@@ -378,4 +387,8 @@ def create_default_command_builder(
 
     if registry is None:
         registry = create_default_workflow_registry()
-    return CommandBuilder(registry=registry, project_root=project_root)
+    return CommandBuilder(
+        registry=registry,
+        project_root=project_root,
+        reference_profile_resolver=reference_profile_resolver,
+    )

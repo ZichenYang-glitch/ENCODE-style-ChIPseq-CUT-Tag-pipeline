@@ -857,9 +857,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(
                 "Provisioning: docs/development/local-platform-runtime.md "
                 "(HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT, "
-                "HELIXWEAVE_BULK_RNASEQ_TRANSCRIPTOME_BINDING_MANIFEST, "
                 "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE, "
-                "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET)."
+                "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET; Reference Profiles use "
+                "ENCODE_PIPELINE_REFERENCE_PROFILE_CONFIG)."
             )
         return 0
     try:

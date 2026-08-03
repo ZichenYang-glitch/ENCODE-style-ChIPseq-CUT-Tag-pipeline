@@ -16,10 +16,11 @@ from encode_pipeline.adapters.bulk_rnaseq.authoring import (
     MULTIQC_SAMPLE_CLEAN_TOKENS,
     OUTPUT_DEFAULTS,
     QC_DEFAULTS,
+    RESOLVED_INPUT_SCHEMA_VERSION,
     RIBOSOMAL_RNA_REMOVAL_DEFAULTS,
-    SCHEMA_VERSION,
     TRIMMING_DEFAULTS,
     build_bulk_rnaseq_authoring_schema,
+    build_bulk_rnaseq_validation_schema,
 )
 from encode_pipeline.adapters.bulk_rnaseq.upstream import (
     ADVANCED_NATIVE_PARAMETERS,
@@ -121,7 +122,7 @@ def validate_bulk_rnaseq_inputs(inputs: WorkflowInputs) -> Result[object]:
     if not isinstance(advanced, Mapping):
         return _failure("BULK_RNASEQ_ADVANCED_INVALID", "config.advanced")
 
-    schema = build_bulk_rnaseq_authoring_schema().to_dict()
+    schema = build_bulk_rnaseq_validation_schema().to_dict()
     standard_schema = schema["config_schema"]["properties"]["standard"]
     standard_error = _first_schema_error(standard_schema, standard)
     if standard_error is not None:
@@ -534,7 +535,7 @@ def _normalize_inputs(
     return {
         "contract": {
             "workflow_id": _WORKFLOW_ID,
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": RESOLVED_INPUT_SCHEMA_VERSION,
             "nfcore_rnaseq_release": NFCORE_RNASEQ_RELEASE,
             "nfcore_rnaseq_commit": NFCORE_RNASEQ_COMMIT,
             "upstream_parameter_schema_sha256": UPSTREAM_PARAMETER_SCHEMA_SHA256,

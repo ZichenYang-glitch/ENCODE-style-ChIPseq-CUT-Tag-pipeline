@@ -119,7 +119,7 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     schema = _adapter().schema()
     as_dict = schema.to_dict()
 
-    assert as_dict["schema_version"] == "1.1.0"
+    assert as_dict["schema_version"] == "1.2.0"
     assert as_dict["schema_dialect"] == JSON_SCHEMA_DIALECT
     assert as_dict["coverage"] == {
         "config": "partial",
@@ -139,6 +139,7 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     assert "samples" not in as_dict["config_schema"].get("required", [])
     assert "samples" not in as_dict["config_schema"]["properties"]
     config_properties = as_dict["config_schema"]["properties"]
+    assert "genome_resources" not in config_properties
     assert "stage4b" not in config_properties
     assert "stage5" not in config_properties
     assert config_properties["replicate_analysis"] == {
@@ -191,11 +192,9 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
         "assay",
         "target",
         "peak_mode",
-        "genome",
-        "bowtie2_index",
     ]
     assert sample_items["additionalProperties"] is False
-    assert len(sample_items["properties"]) == 17
+    assert len(sample_items["properties"]) == 15
     assert as_dict["option_schema"]["properties"]["strict_inputs"] == {
         "type": "boolean",
         "default": False,
@@ -206,7 +205,7 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     for name in ("config_schema", "sample_schema", "option_schema"):
         document = as_dict[name]
         assert document["$schema"] == JSON_SCHEMA_DIALECT
-        assert document["$id"].endswith("/1.1.0")
+        assert document["$id"].endswith("/1.2.0")
         jsonschema.Draft202012Validator.check_schema(document)
 
 
@@ -432,9 +431,14 @@ def test_schema_accepts_tiny_profile_without_samples_and_inline_rows(tmp_path):
     )
     tiny_config.pop("samples")
     row = _inline_row(tmp_path)
+    public_row = {
+        key: value
+        for key, value in row.items()
+        if key not in {"genome", "bowtie2_index"}
+    }
 
     jsonschema.Draft202012Validator(schema.config_schema).validate(tiny_config)
-    jsonschema.Draft202012Validator(schema.sample_schema).validate([row])
+    jsonschema.Draft202012Validator(schema.sample_schema).validate([public_row])
     jsonschema.Draft202012Validator(schema.option_schema).validate(
         {"strict_inputs": False}
     )

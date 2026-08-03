@@ -182,6 +182,30 @@ def test_executable_adapter_identity_accepts_available_adapter_owned_identity(
     assert result.value is identity
 
 
+def test_resolved_adapter_capture_uses_bound_identity_not_registered_identity(
+    tmp_path,
+):
+    registered_identity = _adapter_identity(digest="a" * 64)
+    bound_identity = _adapter_identity(digest="b" * 64)
+    registered = _AvailabilityIdentityAdapter(
+        lambda: Result.success(registered_identity),
+        execution="available",
+    )
+    bound = _AvailabilityIdentityAdapter(
+        lambda: Result.success(bound_identity),
+        execution="available",
+    )
+    provider = WorkflowBuildIdentityProvider(
+        WorkflowRegistry([registered]),
+        project_root=tmp_path.resolve(),
+    )
+
+    result = provider.capture_resolved_executable(bound)
+
+    assert result.is_success
+    assert result.value is bound_identity
+
+
 def test_non_encode_adapter_cannot_inherit_encode_source_identity(tmp_path):
     root = _project(tmp_path / "project")
     adapter = _SnakemakeAdapterWithoutIdentity()

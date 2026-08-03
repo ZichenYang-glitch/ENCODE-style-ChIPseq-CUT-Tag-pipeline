@@ -40,6 +40,7 @@ from encode_pipeline.platform.snapshots import (
 PROJECT_ID = "prj_11111111111111111111111111111111"
 SAMPLE_REVISION_ID = "smpr_22222222222222222222222222222222"
 INPUT_FILE_REVISION_ID = "inpfr_33333333333333333333333333333333"
+REFERENCE_PROFILE_REVISION_ID = "refpr_44444444444444444444444444444444"
 NOW = datetime(2026, 7, 26, 10, 0, tzinfo=timezone.utc)
 
 
@@ -157,12 +158,14 @@ def test_validate_route_passes_opaque_selection_outside_workflow_inputs() -> Non
             *,
             project_sample_selection: object,
             input_file_revision_selections: object,
+            reference_profile_revision_id: object,
         ) -> Result[None]:
             observed.update(
                 workflow_id=workflow_id,
                 inputs=inputs,
                 project_sample_selection=project_sample_selection,
                 input_file_revision_selections=input_file_revision_selections,
+                reference_profile_revision_id=reference_profile_revision_id,
             )
             return Result.success(None)
 
@@ -173,6 +176,7 @@ def test_validate_route_passes_opaque_selection_outside_workflow_inputs() -> Non
             project_id=PROJECT_ID,
             sample_revision_ids=[SAMPLE_REVISION_ID],
             input_selections=[_selection()],
+            reference_profile_revision_id=REFERENCE_PROFILE_REVISION_ID,
         ),
         validation_service=RecordingService(),  # type: ignore[arg-type]
     )
@@ -183,6 +187,7 @@ def test_validate_route_passes_opaque_selection_outside_workflow_inputs() -> Non
     assert getattr(selection, "input_use_key") == "primary_reads"
     assert getattr(selection, "occurrence") == 0
     assert getattr(selection, "input_file_revision_ids") == (INPUT_FILE_REVISION_ID,)
+    assert observed["reference_profile_revision_id"] == REFERENCE_PROFILE_REVISION_ID
     assert response.ok is True  # type: ignore[union-attr]
 
 

@@ -91,6 +91,69 @@
         }
       }
     },
+    "/api/v1/workflows/{workflow_id}/reference-profiles": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "List Compatible Reference Profiles",
+        "description": "List only enabled exact revisions compatible with one workflow.",
+        "operationId": "listCompatibleReferenceProfiles",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceProfileListResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceProfileListResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceProfileListResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workflows/{workflow_id}/schema": {
       "get": {
         "tags": [
@@ -2306,6 +2369,99 @@
         "title": "QcMetricResponse",
         "description": "Lossless disclosure-safe projection of one persisted QC metric."
       },
+      "ReferenceProfileListResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/ReferenceProfileRevisionResponse"
+            },
+            "type": "array",
+            "title": "Profiles"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "workflow_id",
+          "profiles"
+        ],
+        "title": "ReferenceProfileListResponse",
+        "description": "Enabled compatible Reference Profiles for one workflow."
+      },
+      "ReferenceProfileRevisionResponse": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "maxLength": 37,
+            "pattern": "^refp_[0-9a-f]{32}$",
+            "title": "Profile Id"
+          },
+          "revision_id": {
+            "type": "string",
+            "maxLength": 38,
+            "pattern": "^refpr_[0-9a-f]{32}$",
+            "title": "Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision Number"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Display Name"
+          },
+          "organism": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Organism"
+          },
+          "assembly": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Assembly"
+          },
+          "identity_sha256": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Identity Sha256"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "profile_id",
+          "revision_id",
+          "revision_number",
+          "display_name",
+          "organism",
+          "assembly",
+          "identity_sha256"
+        ],
+        "title": "ReferenceProfileRevisionResponse",
+        "description": "Allowlisted public identity for one immutable reference revision."
+      },
       "RunArtifactDetailResponse": {
         "properties": {
           "ok": {
@@ -2873,6 +3029,16 @@
             },
             "type": "object",
             "title": "Tags"
+          },
+          "reference_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReferenceProfileRevisionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -3126,6 +3292,16 @@
           },
           "input_binding": {
             "$ref": "#/components/schemas/InputBindingResponse"
+          },
+          "reference_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReferenceProfileRevisionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -3263,6 +3439,19 @@
             "type": "array",
             "maxItems": 256,
             "title": "Input Selections"
+          },
+          "reference_profile_revision_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 38,
+                "pattern": "^refpr_[0-9a-f]{32}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Profile Revision Id"
           }
         },
         "additionalProperties": false,

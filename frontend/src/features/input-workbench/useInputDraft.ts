@@ -24,6 +24,7 @@ import {
 
 interface InputDraftState {
   semanticRevision: number;
+  referenceProfileRevisionId: string | null;
   config: ValidationRequestConfig;
   configRevision: number;
   configFormResetRevision: number;
@@ -52,6 +53,7 @@ function formSafetyIssue(section: 'Config' | 'Options'): FormSafetyIssue {
 }
 
 type InputDraftAction =
+  | { type: 'reference-profile'; revisionId: string | null }
   | { type: 'config-form'; value: unknown }
   | { type: 'config-form-fallback-accepted' }
   | {
@@ -70,6 +72,13 @@ type InputDraftAction =
 
 function reducer(state: InputDraftState, action: InputDraftAction): InputDraftState {
   switch (action.type) {
+    case 'reference-profile':
+      if (action.revisionId === state.referenceProfileRevisionId) return state;
+      return {
+        ...state,
+        semanticRevision: state.semanticRevision + 1,
+        referenceProfileRevisionId: action.revisionId,
+      };
     case 'config-form':
       if (!isJsonObject(action.value)) {
         return {
@@ -172,6 +181,7 @@ function createInitialState(schema: WorkbenchSchema): InputDraftState {
   const options = createDefaultObject(schema.optionSchema);
   return {
     semanticRevision: 0,
+    referenceProfileRevisionId: null,
     config,
     configRevision: 0,
     configFormResetRevision: 0,
@@ -246,6 +256,12 @@ export function useInputDraft(schema: WorkbenchSchema) {
   const setConfig = useCallback((value: unknown) => {
     dispatch({ type: 'config-form', value });
   }, []);
+  const setReferenceProfileRevisionId = useCallback(
+    (revisionId: string | null) => {
+      dispatch({ type: 'reference-profile', revisionId });
+    },
+    [],
+  );
   const setOptions = useCallback((value: unknown) => {
     dispatch({ type: 'options-form', value });
   }, []);
@@ -293,6 +309,7 @@ export function useInputDraft(schema: WorkbenchSchema) {
       optionsValid &&
       samplesValid &&
       review.ok,
+    setReferenceProfileRevisionId,
     setConfig,
     acceptConfigFormFallback() {
       dispatch({ type: 'config-form-fallback-accepted' });

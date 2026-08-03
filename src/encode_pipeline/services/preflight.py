@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
+from encode_pipeline.platform.adapters import (
+    ReferenceProfileBindingAdapter,
+    WorkflowAdapter,
+    WorkflowInputs,
+)
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
+from encode_pipeline.platform.reference_profiles import BoundWorkflowReference
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunRecord, RunStatus
 from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
@@ -32,6 +40,7 @@ class LocalPreflightService:
         workspace_planner: "WorkspacePlanner",
         local_run_driver: "LocalRunDriver",
         build_identity_provider: "WorkflowBuildIdentityProvider",
+        reference_profile_resolver=None,
     ) -> None:
         if (
             getattr(build_identity_provider, "registry", None)
@@ -45,6 +54,11 @@ class LocalPreflightService:
         self._workspace_planner = workspace_planner
         self._local_run_driver = local_run_driver
         self._build_identity_provider = build_identity_provider
+        if reference_profile_resolver is not None and not callable(
+            getattr(reference_profile_resolver, "resolve_run", None)
+        ):
+            raise ValueError("reference_profile_resolver is invalid")
+        self._reference_profile_resolver = reference_profile_resolver
 
     def preflight(self, run_id: str) -> Result[RunRecord]:
         """Run the full local preflight path for *run_id*.
@@ -147,9 +161,7 @@ class LocalPreflightService:
     def _run_preflight(self, run_id: str) -> Result[RunRecord]:
         try:
             current = self._run_service.get_run(run_id)
-            build_before = self._build_identity_provider.capture_executable(
-                current.workflow_id
-            )
+            build_before = self._capture_current_build(current)
             if build_before.is_failure:
                 return self._fail(run_id, build_before.issues)
 
@@ -162,6 +174,7 @@ class LocalPreflightService:
             workspace_result = self._workspace_planner.plan_workspace(
                 base_plan,
                 base_dir=workspace_dir,
+                require_reference_enabled=True,
             )
             if workspace_result.is_failure:
                 return self._fail(run_id, workspace_result.issues)
@@ -172,9 +185,7 @@ class LocalPreflightService:
                 return self._fail(run_id, run_result.issues)
 
             final_plan = run_result.value
-            build_after = self._build_identity_provider.capture_executable(
-                current.workflow_id
-            )
+            build_after = self._capture_current_build(self._run_service.get_run(run_id))
             if build_after.is_failure:
                 return self._fail(run_id, build_after.issues)
             if not build_before.value.matches(build_after.value):
@@ -230,6 +241,63 @@ class LocalPreflightService:
                 path="preflight",
             )
             return self._fail(run_id, [issue])
+
+    def _capture_current_build(
+        self,
+        record: RunRecord,
+    ) -> Result[WorkflowBuildIdentity]:
+        try:
+            adapter = self._run_service.registry.get(record.workflow_id)
+        except (KeyError, ValueError):
+            return self._reference_build_failure()
+        if not isinstance(adapter, ReferenceProfileBindingAdapter):
+            return self._build_identity_provider.capture_executable(record.workflow_id)
+        resolver = self._reference_profile_resolver
+        if resolver is None:
+            return self._reference_build_failure()
+        config = record.inputs.get("config", {})
+        options = record.inputs.get("options", {})
+        if not isinstance(config, Mapping) or not isinstance(options, Mapping):
+            return self._reference_build_failure()
+        try:
+            resolved = resolver.resolve_run(
+                record.run_id,
+                record.workflow_id,
+                WorkflowInputs(
+                    config=config,
+                    samples=record.inputs.get("samples"),
+                    options=options,
+                ),
+                require_enabled=True,
+            )
+        except Exception:
+            return self._reference_build_failure()
+        if (
+            not isinstance(resolved, Result)
+            or resolved.is_failure
+            or not isinstance(resolved.value, BoundWorkflowReference)
+            or not isinstance(resolved.value.adapter, WorkflowAdapter)
+        ):
+            return self._reference_build_failure()
+        return self._build_identity_provider.capture_resolved_executable(
+            resolved.value.adapter
+        )
+
+    @staticmethod
+    def _reference_build_failure() -> Result[WorkflowBuildIdentity]:
+        return Result.failure(
+            [
+                Issue(
+                    code="REFERENCE_PROFILE_BINDING_INVALID",
+                    message=(
+                        "The selected Reference Profile binding could not be verified."
+                    ),
+                    severity="error",
+                    source="reference_profile",
+                    path="reference_profile_revision_id",
+                )
+            ]
+        )
 
     def _fail(
         self,

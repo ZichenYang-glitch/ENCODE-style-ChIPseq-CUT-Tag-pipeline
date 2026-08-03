@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import json
 from pathlib import Path
 
 import pytest
@@ -16,7 +15,6 @@ from encode_pipeline.adapters.bulk_rnaseq.deployment import (
     MANAGED_DOCKER_EXECUTABLE_ENV,
     MANAGED_DOCKER_SOCKET_ENV,
     RUNTIME_ROOT_ENV,
-    TRANSCRIPTOME_BINDING_MANIFEST_ENV,
 )
 from encode_pipeline.platform.adapters import WorkflowAvailability, WorkflowInputs
 from bulk_product_runtime import (
@@ -28,8 +26,15 @@ import platform_runtime
 
 
 def _fixture(tmp_path: Path) -> AcceptanceFixture:
+    reference_fasta = (tmp_path / "fixture/reference.fa").resolve()
+    reference_fasta.parent.mkdir()
+    reference_fasta.write_text(">chr1\nACGT\n", encoding="utf-8")
+    reference_gtf = (tmp_path / "fixture/reference.gtf").resolve()
+    reference_gtf.write_text(
+        'chr1\ttest\texon\t1\t4\t.\t+\t.\tgene_id "g1";\n',
+        encoding="utf-8",
+    )
     transcript = (tmp_path / "fixture/transcripts.fa").resolve()
-    transcript.parent.mkdir()
     transcript.write_text(">TX1\nACGT\n", encoding="utf-8")
     rows = [
         {
@@ -54,7 +59,18 @@ def _fixture(tmp_path: Path) -> AcceptanceFixture:
     ]
     return AcceptanceFixture(
         workflow_inputs=WorkflowInputs(
-            config={"standard": {"analysis": {"alignment": "star"}}},
+            config={
+                "standard": {
+                    "analysis": {"alignment": "star"},
+                    "reference": {
+                        "reference_id": "tiny",
+                        "fasta": str(reference_fasta),
+                        "fasta_sha256": "a" * 64,
+                        "gtf": str(reference_gtf),
+                        "gtf_sha256": "b" * 64,
+                    },
+                }
+            },
             samples=rows,
             options={"strict": True},
         ),
@@ -127,7 +143,7 @@ def test_product_projection_uses_verified_fixture_and_writes_private_binding(
     fields = projected.manifest_fields
     assert fields["bulkWorkflowId"] == "bulk-rnaseq"
     assert fields["bulkExpectedExecution"] == "available"
-    assert fields["bulkConfig"] == fixture.workflow_inputs.config
+    assert fields["bulkConfig"] == {"standard": {"analysis": {"alignment": "star"}}}
     assert fields["bulkOptions"] == fixture.workflow_inputs.options
     assert fields["bulkRequiredArtifactOutputTypes"] == ["bulk_rnaseq.star.bam"]
     assert fields["bulkRequiredQcMetricKeys"] == ["star.input_templates"]
@@ -151,23 +167,21 @@ def test_product_projection_uses_verified_fixture_and_writes_private_binding(
     assert [row["layout"] for row in rows] == ["PE", "SE"]
     assert rows[1]["fastq_2"] == ""
 
-    binding_path = Path(
-        projected.deployment_environment[TRANSCRIPTOME_BINDING_MANIFEST_ENV]
-    )
-    assert admitted_environment == {
-        "gate": "enabled",
-        TRANSCRIPTOME_BINDING_MANIFEST_ENV: str(binding_path),
+    assert admitted_environment == {"gate": "enabled"}
+    assert projected.deployment_environment == {}
+    assert projected.reference_profile_binding == {
+        "schema_version": "bulk-rnaseq-reference-binding-v1",
+        "reference": fixture.workflow_inputs.config["standard"]["reference"],
+        "transcriptome": {
+            "reference_id": "tiny",
+            "fasta_sha256": "a" * 64,
+            "gtf_sha256": "b" * 64,
+            "transcript_fasta": str(fixture.transcriptome.transcript_fasta),
+            "transcript_fasta_sha256": "c" * 64,
+        },
     }
-    binding = json.loads(binding_path.read_text(encoding="utf-8"))
-    assert binding == {
-        "schema_version": "1.0.0",
-        "reference_id": "tiny",
-        "fasta_sha256": "a" * 64,
-        "gtf_sha256": "b" * 64,
-        "transcript_fasta": str(fixture.transcriptome.transcript_fasta),
-        "transcript_fasta_sha256": "c" * 64,
-    }
-    assert TRANSCRIPTOME_BINDING_MANIFEST_ENV not in fields
+    assert "reference" not in fields["bulkConfig"]["standard"]
+    assert str(fixture.transcriptome.transcript_fasta) not in repr(projected)
 
 
 def test_protected_product_fixture_runs_default_registry_admission_canary(
@@ -205,8 +219,9 @@ def test_protected_product_fixture_runs_default_registry_admission_canary(
     )
 
     assert projected.manifest_fields["bulkExpectedExecution"] == "available"
-    assert projected.deployment_environment[TRANSCRIPTOME_BINDING_MANIFEST_ENV] == str(
-        runtime_root / "bulk-product/transcriptome-binding.json"
+    assert projected.deployment_environment == {}
+    assert projected.reference_profile_binding["schema_version"] == (
+        "bulk-rnaseq-reference-binding-v1"
     )
 
 
@@ -224,6 +239,7 @@ def test_browser_fixture_selector_requires_explicit_real_gate_and_forwards_envir
         return BulkProductBrowserRuntime(
             manifest_fields={"bulkExpectedExecution": "available"},
             deployment_environment={"PRIVATE_BINDING": "/task/binding.json"},
+            reference_profile_binding={"schema_version": "private"},
         )
 
     monkeypatch.setattr(
@@ -237,7 +253,7 @@ def test_browser_fixture_selector_requires_explicit_real_gate_and_forwards_envir
         "runner_coordinate": "owned",
     }
 
-    fields, deployment = platform_runtime.prepare_bulk_browser_fixture(
+    fields, deployment, binding = platform_runtime.prepare_bulk_browser_fixture(
         runtime_root,
         source,
     )
@@ -245,6 +261,7 @@ def test_browser_fixture_selector_requires_explicit_real_gate_and_forwards_envir
     assert observed == source
     assert fields == {"bulkExpectedExecution": "available"}
     assert deployment == {"PRIVATE_BINDING": "/task/binding.json"}
+    assert binding == {"schema_version": "private"}
 
     with pytest.raises(ValueError, match="must be exactly 1"):
         platform_runtime.prepare_bulk_browser_fixture(
@@ -258,10 +275,11 @@ def test_real_acceptance_flag_alone_does_not_enable_product_browser_execution(
 ):
     runtime_root = tmp_path.resolve()
 
-    fields, deployment = platform_runtime.prepare_bulk_browser_fixture(
+    fields, deployment, binding = platform_runtime.prepare_bulk_browser_fixture(
         runtime_root,
         {"HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION": "1"},
     )
 
     assert fields["bulkExpectedExecution"] == "not_configured"
     assert deployment == {}
+    assert binding is None

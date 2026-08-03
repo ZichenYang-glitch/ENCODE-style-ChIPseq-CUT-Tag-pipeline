@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
 from encode_pipeline.api.dependencies import (
+    get_reference_profile_service,
     get_run_cancellation_service,
     get_run_service,
     get_run_submission_service,
@@ -23,6 +24,7 @@ from encode_pipeline.api.models import (
     RunLogsResponse,
     RunHistoryResponse,
     RunRecordResponse,
+    ReferenceProfileRevisionResponse,
     RunResponse,
     RunSummaryResponse,
 )
@@ -48,6 +50,7 @@ from encode_pipeline.services.run_submission import (
     RunSubmissionUnavailableError,
     RunWorkflowBuildChangedError,
 )
+from encode_pipeline.services.reference_profiles import ReferenceProfileService
 from encode_pipeline.services.validated_inputs import (
     ValidatedRunCreationService,
     ValidatedSnapshotBuildUnavailableError,
@@ -205,7 +208,10 @@ def _validated_snapshot_issue(code: str, message: str) -> IssueResponse:
     )
 
 
-def _run_record_response(record: Any) -> RunRecordResponse:
+def _run_record_response(
+    record: Any,
+    reference_profile: ReferenceProfileRevisionResponse | None = None,
+) -> RunRecordResponse:
     """Project an internal run without its private immutable input payload."""
     error = None
     if record.error is not None:
@@ -234,7 +240,25 @@ def _run_record_response(record: Any) -> RunRecordResponse:
         cancellation_reason=record.cancellation_reason,
         error=error,
         tags=dict(record.tags),
+        reference_profile=reference_profile,
     )
+
+
+def _run_reference_response(
+    run_service: RunService,
+    reference_profiles: ReferenceProfileService,
+    run_id: str,
+) -> ReferenceProfileRevisionResponse | None:
+    binding = run_service.get_run_reference_binding(run_id)
+    if binding is None:
+        return None
+    summary = reference_profiles.get_revision_summary(binding.revision_id)
+    if (
+        summary.profile_id != binding.profile_id
+        or summary.public_identity_sha256 != binding.revision_public_identity_sha256
+    ):
+        raise ValueError("persisted Reference Profile evidence is inconsistent")
+    return ReferenceProfileRevisionResponse.from_summary(summary)
 
 
 def _run_event_response(event: Any) -> RunEventResponse:
@@ -281,6 +305,10 @@ def create_run(
     creation_service: ValidatedRunCreationService = Depends(
         get_validated_run_creation_service
     ),
+    run_service: RunService = Depends(get_run_service),
+    reference_profiles: ReferenceProfileService = Depends(
+        get_reference_profile_service
+    ),
 ) -> RunResponse | JSONResponse:
     """Create or replay one run using a server-owned validated snapshot."""
     try:
@@ -326,7 +354,10 @@ def create_run(
                 issues=[
                     _validated_snapshot_issue(
                         "VALIDATED_SNAPSHOT_STALE",
-                        "Workflow source changed after validation. Validate again.",
+                        (
+                            "Validated execution identity changed after validation. "
+                            "Validate again."
+                        ),
                     )
                 ],
             ).model_dump(mode="json"),
@@ -388,9 +419,31 @@ def create_run(
             ).model_dump(mode="json"),
         )
 
+    try:
+        reference_profile = _run_reference_response(
+            run_service,
+            reference_profiles,
+            creation.record.run_id,
+        )
+    except (KeyError, RuntimeError, ValueError):
+        return JSONResponse(
+            status_code=500,
+            content=RunResponse(
+                ok=False,
+                run=None,
+                issues=[
+                    _issue(
+                        code="RUN_REFERENCE_EVIDENCE_INVALID",
+                        message="Run reference evidence could not be read safely.",
+                        path="run_id",
+                    )
+                ],
+            ).model_dump(mode="json"),
+        )
+
     response = RunResponse(
         ok=True,
-        run=_run_record_response(creation.record),
+        run=_run_record_response(creation.record, reference_profile),
         issues=[],
     )
     if not creation.created:
@@ -506,6 +559,9 @@ def list_runs(
 async def get_run(
     run_id: str,
     run_service: RunService = Depends(get_run_service),
+    reference_profiles: ReferenceProfileService = Depends(
+        get_reference_profile_service
+    ),
 ) -> RunResponse | JSONResponse:
     """Return the run record."""
     try:
@@ -520,7 +576,32 @@ async def get_run(
             ).model_dump(),
         )
 
-    return RunResponse(ok=True, run=_run_record_response(record), issues=[])
+    try:
+        reference_profile = _run_reference_response(
+            run_service,
+            reference_profiles,
+            run_id,
+        )
+    except (KeyError, RuntimeError, ValueError):
+        return JSONResponse(
+            status_code=500,
+            content=RunResponse(
+                ok=False,
+                run=None,
+                issues=[
+                    _issue(
+                        code="RUN_REFERENCE_EVIDENCE_INVALID",
+                        message="Run reference evidence could not be read safely.",
+                        path="run_id",
+                    )
+                ],
+            ).model_dump(mode="json"),
+        )
+    return RunResponse(
+        ok=True,
+        run=_run_record_response(record, reference_profile),
+        issues=[],
+    )
 
 
 @router.post(

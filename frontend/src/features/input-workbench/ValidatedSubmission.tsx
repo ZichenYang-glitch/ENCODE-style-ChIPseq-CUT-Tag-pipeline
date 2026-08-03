@@ -10,6 +10,7 @@ import type {
   ValidatedInputSnapshotResponse,
 } from '../../api/generated/models';
 import { ApiError } from '../../api/fetcher';
+import { readReferenceProfileSummary } from '../../api/runTypes';
 import type { WorkflowAvailability } from '../../api/types';
 import { Button } from '../../components/Button';
 import { ExecutionAvailabilityNotice } from '../workflow-detail/WorkflowAvailability';
@@ -29,8 +30,9 @@ interface SnapshotState {
 }
 
 interface ValidationAttempt {
-  payload: ValidationRequest;
+  payload: ValidationRequest & { reference_profile_revision_id: string };
   revision: number;
+  referenceProfileRevisionId: string;
 }
 
 interface CreateAttempt {
@@ -42,6 +44,7 @@ interface ValidatedSubmissionProps {
   workflowId: string;
   draft: InputDraftController;
   availability: WorkflowAvailability | null;
+  referenceSelectionAvailable: boolean;
 }
 
 function safeIssues(issues: IssueResponse[] | undefined): SafeIssue[] {
@@ -77,6 +80,7 @@ export function ValidatedSubmission({
   workflowId,
   draft,
   availability,
+  referenceSelectionAvailable,
 }: ValidatedSubmissionProps) {
   const navigate = useNavigate();
   const [snapshotState, setSnapshotState] = useState<SnapshotState | null>(null);
@@ -109,6 +113,26 @@ export function ValidatedSubmission({
         return;
       }
       const responseIssues = safeIssues(response.issues);
+      if (response.snapshot !== null) {
+        const frozenReference = readReferenceProfileSummary(
+          response.snapshot.reference_profile,
+        );
+        if (
+          frozenReference?.revision_id !== attempt.referenceProfileRevisionId
+        ) {
+          setSnapshotState(null);
+          setIssues([
+            {
+              code: 'REFERENCE_PROFILE_NOT_CONFIRMED',
+              message:
+                'Backend validation did not confirm the selected reference revision.',
+              path: 'reference_profile_revision_id',
+            },
+          ]);
+          setNotice(null);
+          return;
+        }
+      }
       if (
         response.ok &&
         response.snapshot === null &&
@@ -277,12 +301,29 @@ export function ValidatedSubmission({
             type="button"
             variant="secondary"
             className="gap-1.5"
-            disabled={!draft.reviewReady || validationMutation.isPending || createMutation.isPending}
+            disabled={
+              !draft.reviewReady ||
+              !referenceSelectionAvailable ||
+              draft.state.referenceProfileRevisionId === null ||
+              validationMutation.isPending ||
+              createMutation.isPending
+            }
             onClick={() => {
-              if (draft.reviewReady && draft.review.ok) {
+              const referenceProfileRevisionId =
+                draft.state.referenceProfileRevisionId;
+              if (
+                draft.reviewReady &&
+                draft.review.ok &&
+                referenceSelectionAvailable &&
+                referenceProfileRevisionId !== null
+              ) {
                 validationMutation.mutate({
-                  payload: draft.review.payload,
+                  payload: {
+                    ...draft.review.payload,
+                    reference_profile_revision_id: referenceProfileRevisionId,
+                  },
                   revision: draft.state.semanticRevision,
+                  referenceProfileRevisionId,
                 });
               }
             }}

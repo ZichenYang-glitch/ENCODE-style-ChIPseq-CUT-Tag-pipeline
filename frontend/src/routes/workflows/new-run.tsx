@@ -1,7 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
-import { getWorkflowSchema } from '../../api/generated/workflows/workflows';
+import {
+  getWorkflowSchema,
+  listCompatibleReferenceProfiles,
+} from '../../api/generated/workflows/workflows';
+import type { ReferenceProfileListResponse } from '../../api/generated/models';
 import { useClients } from '../../api/client-context';
+import {
+  readReferenceProfileSummary,
+  type ReferenceProfileSummary,
+} from '../../api/runTypes';
 import { Button } from '../../components/Button';
 import { Panel } from '../../components/Panel';
 import { InputWorkbench } from '../../features/input-workbench/InputWorkbench';
@@ -21,6 +29,11 @@ export function NewRunWorkbenchPage({ workflowId }: NewRunWorkbenchPageProps) {
   const detailQuery = useQuery({
     queryKey: ['workflow', workflowId],
     queryFn: () => workflowClient.getWorkflow(workflowId),
+    retry: false,
+  });
+  const referenceQuery = useQuery({
+    queryKey: ['workflow-reference-profiles', workflowId],
+    queryFn: () => listCompatibleReferenceProfiles(workflowId),
     retry: false,
   });
 
@@ -65,6 +78,7 @@ export function NewRunWorkbenchPage({ workflowId }: NewRunWorkbenchPageProps) {
       />
     );
   }
+  const references = readCompatibleProfiles(referenceQuery.data, workflowId);
 
   return (
     <InputWorkbench
@@ -72,8 +86,57 @@ export function NewRunWorkbenchPage({ workflowId }: NewRunWorkbenchPageProps) {
       workflowId={workflowId}
       schema={parsed.value}
       availability={detailQuery.data?.workflow?.availability ?? null}
+      referenceProfiles={references.profiles}
+      referenceProfilesLoading={referenceQuery.isLoading}
+      referenceProfilesRefreshing={referenceQuery.isFetching}
+      referenceProfilesError={
+        referenceQuery.isError
+          ? 'Unable to load enabled reference profiles.'
+          : references.error
+      }
+      onRefreshReferenceProfiles={() => void referenceQuery.refetch()}
     />
   );
+}
+
+function readCompatibleProfiles(
+  response: ReferenceProfileListResponse | undefined,
+  workflowId: string,
+): { profiles: ReferenceProfileSummary[] | null; error: string | null } {
+  if (response === undefined) return { profiles: null, error: null };
+  if (!response.ok) {
+    return {
+      profiles: [],
+      error: 'Enabled reference profiles are unavailable for this workflow.',
+    };
+  }
+  if (response.workflow_id !== workflowId || !Array.isArray(response.profiles)) {
+    return {
+      profiles: [],
+      error: 'The reference profile response could not be verified.',
+    };
+  }
+  const profiles: ReferenceProfileSummary[] = [];
+  for (const candidate of response.profiles) {
+    const profile = readReferenceProfileSummary(candidate);
+    if (profile === null) {
+      return {
+        profiles: [],
+        error: 'The reference profile response could not be verified.',
+      };
+    }
+    profiles.push(profile);
+  }
+  if (
+    new Set(profiles.map((profile) => profile.revision_id)).size !==
+    profiles.length
+  ) {
+    return {
+      profiles: [],
+      error: 'The reference profile response could not be verified.',
+    };
+  }
+  return { profiles, error: null };
 }
 
 function WorkbenchError({
