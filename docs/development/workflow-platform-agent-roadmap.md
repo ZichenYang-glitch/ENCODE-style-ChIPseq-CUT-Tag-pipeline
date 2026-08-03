@@ -56,89 +56,112 @@ Detailed ownership and safety rules are maintained in the
 contracts remain in the assay, configuration, sample, output, QC, and
 reproducibility references under `docs/`.
 
-## Completed: maintenance and quality baseline
+## Completed baseline through PR #168
 
-The maintenance baseline is complete. Historical process plans and
-stage-numbered test scaffolding were retired or migrated into maintained
-behavior contracts. CI now has distinct PR-fast, full-main, platform-real,
-scientific-real, container, frontend, browser, lint, lock, and coverage
-responsibilities without a second deterministic pytest producer.
+The v0.3.0 local release, maintenance, and quality baseline is complete. CI has
+separate PR-fast, full-main, platform-real, scientific-real, container,
+frontend, browser, lint, lock, and coverage responsibilities. Current test
+inventory and enforced floors live in the [quality baseline](coverage-policy.md);
+tier ownership and timing live in the [development harness](harness.md).
 
-The resulting gate preserved scientific workflow outputs, public API routes,
-persistence identity, CLI names, and visible runtime behavior. Current test
-inventory, measured coverage, and enforced floors have one authoritative home
-in the [quality baseline](coverage-policy.md); tier ownership and timing live in
-the [development harness](harness.md).
+The pinned Omics Intake Bundle 0.2 boundary remains service-only and read-only.
+Bulk RNA-seq is delivered as the second bundled adapter, pinned to
+nf-core/rnaseq 3.26.0 and integrated through the workflow-neutral lifecycle,
+artifact, QC, API, and browser surfaces. Its protected evidence establishes
+HelixWeave's adapter and offline product integration, not the biological
+validity or internal scientific correctness of the unchanged upstream
+workflow.
 
-## Completed: intake consumption and Bulk RNA-seq delivery
+The data foundation now provides Project, Sample, SampleRevision, StoragePool,
+InputFile, InputFileRevision, and input-use binding records. Runtime and adapter
+admission, exact-checkout and package provenance, migration validation, timeout
+handling, and Bulk qualification identity are fail-closed. PR #168 separated
+Bulk's scientific execution identity from unrelated migration history while
+retaining an independently controlled migration-execution inventory and an
+explicit Bulk persistence contract.
 
-The initial Omics Intake consumption boundary is delivered as a service-only,
-read-only inspection of the pinned Bundle 0.2 public contract. HelixWeave
-verifies contract identity, safely observes required local files, delegates
-mapping to the ENCODE adapter, and revalidates the mapped inputs. It does not
-import Omics Intake code, mutate the Bundle, create a validated snapshot, or
-authorize execution. Durable Bundle provenance and a product import flow remain
-separate future decisions.
+## Tentative delivery sequence
 
-Bulk RNA-seq is delivered as the second bundled adapter. Its product contract
-includes adapter-owned authoring schemas, validation without runtime assets,
-path-free availability, backend create/start admission, and the existing
-workflow-neutral run, artifact, QC, and download surfaces. Execution is pinned
-to nf-core/rnaseq 3.26.0 and was accepted with controlled synthetic
-STAR+Salmon and SortMeRNA runs through SQLite, Redis/RQ, Nextflow, and offline
-containers. That evidence proves execution and product contracts, not
-biological validity or production-scale performance.
+The sequence below is a planning boundary, not an implemented feature list or
+a release-date promise. Each PR must still earn scoped design, tests, and
+review, and may be reordered by an explicit product decision.
 
-## Current delivery priorities
+### PR #169: governance and roadmap synchronization
 
-The order below expresses the current decision and delivery sequence. Each
-priority still requires scoped review; none carries an implied release date.
+Align durable repository guidance with this delivery sequence. This is a
+documentation-only boundary and does not change product or execution behavior.
 
-### 1. v0.3.0 local trial and release convergence
+### PR #170: Reference Profiles
 
-Consolidate the two-workflow local product path and its supported installation,
-upgrade, diagnostic, trial, and release contracts.
+- Let administrators register, verify, enable, and disable
+  operator-prepared references.
+- Support multiple references such as GRCh38 and mm10 and select one per run.
+- Keep reference acquisition and deployment outside the platform; ordinary
+  users and the frontend cannot deploy or mutate references.
+- Pin an immutable reference identity into each validated snapshot and run.
 
-Expected work:
+### PR #171: artifact publication and provenance
 
-- keep package, API, frontend, documentation, and release identities aligned;
-- prove a fresh distribution install and supported database upgrade;
-- make both workflow availability states and optional runtime prerequisites
-  clear without exposing private deployment coordinates;
-- reduce setup and navigation friction from workflow choice to evidence;
-- make local prerequisites, diagnostics, storage, recovery, and cleanup clear;
-- tighten empty, loading, failure, and long-running states across desktop and
-  mobile views; and
-- align packaging and operator documentation around the supported workstation
-  and small trusted-team deployment.
+- Close the relationships among Project, Sample, Run, Artifact, time, and
+  storage location.
+- Keep artifact bytes in their existing storage location; record associations
+  and expose an opaque public identity without duplicating the artifact.
 
-Exit evidence:
+### PR #172: run recovery and administrator operations
 
-- a fresh locked install can complete the deterministic product journey;
-- operator-owned state and process cleanup are explicit and testable; and
-- usability changes preserve accessibility, public contracts, and adapter
-  boundaries.
+Add explicit administrator recovery and reconciliation operations around the
+already durable restart-recovery and lifecycle contracts.
 
-### 2. Deferred intake and deployment decisions
+### PR #173: deployment and runtime management CLI
 
-Any durable Omics Intake provenance, snapshot/run import, authentication,
-remote execution, or additional adapter work requires a separate reviewed
-decision. It must not be inferred from the delivered read-only Bundle
-inspection or the two bundled local adapters.
+- Provide `install`, `doctor`, `verify`, `upgrade`, and `rollback` operations.
+- Allow the platform and scientific runtime to be upgraded independently.
+- Deploy a precompiled frontend rather than requiring a frontend toolchain on
+  the target host.
+
+### PR #174: LAN authentication and roles
+
+Add the small trusted-team authentication boundary with administrator and
+ordinary-user roles; this is not authorization for hosted multi-tenancy or a
+general RBAC framework.
+
+### PR #175: email notifications and dynamic QC summaries
+
+- Notify on terminal runs; users may opt out while administrators receive
+  notifications by default.
+- Include only QC metrics that actually exist. A missing optional metric such
+  as FRiP must not make notification delivery fail.
+
+### PR #176: usability and Rosemary theme alignment
+
+Improve workflow and run usability while applying the Rosemary visual theme
+consistently across the existing product surface.
+
+### PR #177: dual-workflow acceptance and release closure
+
+Complete final acceptance for both bundled workflows and close the release
+evidence without widening either workflow's scientific contract.
+
+## Optional follow-on work
+
+An IGV.js artifact browser, further Agent capabilities, PostgreSQL, Slurm or
+cloud execution, Singularity/Apptainer, and additional maintenance trimming are
+deliberately optional. They do not block the laboratory single-host delivery
+sequence above.
 
 ## Agent direction
 
-The current Agent surface is already advisory and read-only. It may explain
-schemas and validation issues through platform services, but it cannot submit,
-start, cancel, mutate, or delete runs. Further Agent expansion requires a
-separate decision and must remain workflow-neutral rather than encode either
-adapter's private vocabulary.
+The current Agent surface is advisory, read-only, and deterministic-mock-backed.
+It may explain schemas and validation issues through platform services, but it
+cannot submit, start, cancel, mutate, or delete runs. Further Agent expansion
+is optional, requires a separate decision, and must remain workflow-neutral
+rather than encode either adapter's private vocabulary.
 
 ## Explicit non-goals
 
-The maintained roadmap does not currently authorize:
+The delivery sequence above does not currently authorize:
 
-- authentication, authorization, multi-tenant isolation, or complex RBAC;
+- hosted multi-tenant isolation or complex RBAC beyond the planned LAN roles;
 - Kubernetes, HPC scheduler integration, or microservice decomposition;
 - PostgreSQL, object storage, or remote workspace semantics;
 - Agent write actions or automatic workflow submission;
@@ -154,7 +177,8 @@ The maintained roadmap does not currently authorize:
 
 New work should advance one product outcome and name its exit evidence. Durable
 architecture, persistence, public-contract, worker, or cross-repository changes
-may require a focused decision record. Completed checklists, commit identifiers,
-and branch sequencing stay in Git history. Current test counts and coverage
-floors stay in the [quality baseline](coverage-policy.md) so README, roadmap,
-and operational docs do not drift independently.
+may require a focused decision record. Detailed completed checklists and commit
+identifiers stay in Git history; the numbered sequence above is tentative
+planning, not implementation evidence. Current test counts and coverage floors
+stay in the [quality baseline](coverage-policy.md) so README, roadmap, and
+operational docs do not drift independently.

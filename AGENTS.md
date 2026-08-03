@@ -9,9 +9,11 @@ and MNase-seq Snakemake workflow.
 Keep this file limited to durable defaults. Current priorities and delivery
 sequence belong in `docs/development/workflow-platform-agent-roadmap.md`.
 
-Use a single agent and a lightweight, risk-driven workflow by default. Do not
-invoke Superpowers, swarms, or other multi-agent ceremony unless the user
-explicitly requests it or the work is genuinely large and parallel.
+Use a lightweight, risk-driven workflow. Do not invoke Superpowers or external
+Agency/swarm-style process frameworks by default. Native Codex subagents may
+handle independent exploration, test or log analysis, disjoint implementation,
+or read-only review when useful. Avoid duplicate work and overlapping writes;
+the primary agent owns synthesis, integration, and verification.
 
 ## Architecture Boundaries
 
@@ -42,10 +44,14 @@ Preserve these invariants:
 
 ## Change Discipline
 
-Read the relevant implementation and tests before editing. Follow existing
-frameworks and seams before adding an abstraction.
+Search and read the relevant implementation and tests before editing. Prefer
+established project seams, mature upstream projects, and applicable standards
+before adding an abstraction.
 
 - Make the smallest coherent change that solves the request.
+- Keep each PR centered on one real consumer outcome. A new shared abstraction
+  must have a real non-test consumer in the same PR; do not fold opportunistic
+  refactors into the change.
 - Do not combine unrelated refactors, formatting, or roadmap work.
 - Small changes need no standalone plan document.
 - For medium changes, keep a short in-session plan.
@@ -81,6 +87,15 @@ Start at the lowest relevant layer and broaden according to blast radius.
   change pass.
 - Run the full suites only when the change is cross-cutting, a release gate or
   CI requires them, or the user explicitly requests them.
+- Consider the project-specific Protected Bulk Gate only when a change affects
+  pinned nf-core/runtime identity, scientific configuration, reference
+  identity, the execution closure, or scientific artifact/QC semantics.
+  Documentation, UI, authentication, notification, and project-management
+  changes that leave that closure unchanged do not require the Bulk Gate.
+- Trust the pinned nf-core workflow for its internal scientific implementation.
+  HelixWeave verifies the pinned identity and its own adapter, offline-execution,
+  lifecycle, artifact/QC, API, and browser integration boundaries; do not
+  recreate the upstream workflow's internal test system here.
 
 Common commands, run from the repository root:
 
@@ -112,6 +127,11 @@ stack and its doctor/demo commands.
   the user explicitly requests that action.
 - Prefer an isolated worktree when the root tree is dirty or PR work needs a
   clean base.
+- Shared environments contain only locked dependencies. Never install
+  HelixWeave editable or leave a temporary checkout path in shared
+  site-packages. For source-checkout verification, create a task-local
+  environment from the locked dependencies, install that exact checkout in
+  the task-local environment, and invoke it through the canonical bootstrap.
 - Clean up only processes and temporary files that your own work created.
 
 ## Definition Of Done
