@@ -5,7 +5,11 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
+import stat
+import tempfile
 
 import fakeredis
 import pytest
@@ -15,6 +19,7 @@ from encode_pipeline.persistence.runtime import open_run_persistence
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import RunExecutionAssignment
+from encode_pipeline.platform.reference_profiles import ReferenceProfileRevisionSummary
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.defaults import (
     create_default_workflow_build_identity_provider,
@@ -44,8 +49,13 @@ PROFILE_ROOT = Path(__file__).resolve().parents[1] / "profiles" / "platform_work
 REFERENCE_CONFIG_KEY = "worker-test-reference"
 
 
-def _write_reference_profile_config(tmp_path: Path) -> Path:
-    reference_root = tmp_path / "operator-reference"
+def write_reference_profile_config(tmp_path: Path) -> Path:
+    """Write one task-owned private profile config with strict permissions."""
+    operator_root = Path(
+        tempfile.mkdtemp(prefix="operator-reference-profile-", dir=tmp_path)
+    )
+    operator_root.chmod(0o700)
+    reference_root = operator_root / "assets"
     reference_root.mkdir(exist_ok=True)
     resources: dict[str, dict[str, str]] = {}
     contents = {
@@ -75,32 +85,131 @@ def _write_reference_profile_config(tmp_path: Path) -> Path:
         content = suffix.encode("ascii")
         Path(f"{prefix}{suffix}").write_bytes(content)
         index_files[suffix] = hashlib.sha256(content).hexdigest()
-    config_path = (tmp_path / "operator-reference-profiles.json").resolve()
-    config_path.write_text(
-        json.dumps(
-            {
-                "schema_version": "helixweave-reference-profiles-v1",
-                "profiles": {
-                    REFERENCE_CONFIG_KEY: {
-                        "bindings": {
-                            WORKFLOW_ID: {
-                                "schema_version": "encode-reference-binding-v1",
-                                "assembly": "GRCh38",
-                                "effective_genome_size": "hs",
-                                "genome_resources": resources,
-                                "bowtie2_index": {
-                                    "prefix": str(prefix),
-                                    "files": index_files,
-                                },
-                            }
+    config_path = (operator_root / "reference-profiles.json").resolve()
+    payload = json.dumps(
+        {
+            "schema_version": "helixweave-reference-profiles-v1",
+            "profiles": {
+                REFERENCE_CONFIG_KEY: {
+                    "bindings": {
+                        WORKFLOW_ID: {
+                            "schema_version": "encode-reference-binding-v1",
+                            "assembly": "GRCh38",
+                            "effective_genome_size": "hs",
+                            "genome_resources": resources,
+                            "bowtie2_index": {
+                                "prefix": str(prefix),
+                                "files": index_files,
+                            },
                         }
                     }
-                },
-            }
-        ),
-        encoding="utf-8",
+                }
+            },
+        }
     )
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(config_path, flags, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            handle.write(payload)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    operator_state = operator_root.lstat()
+    config_state = config_path.lstat()
+    assert stat.S_ISDIR(operator_state.st_mode)
+    assert stat.S_IMODE(operator_state.st_mode) == 0o700
+    assert stat.S_ISREG(config_state.st_mode)
+    assert stat.S_IMODE(config_state.st_mode) == 0o600
     return config_path
+
+
+def cleanup_reference_profile_fixture(config_path: Path) -> None:
+    """Delete only the task-owned private profile directory and its assets."""
+    operator_root = config_path.parent
+    assert config_path.name == "reference-profiles.json"
+    assert operator_root.name.startswith("operator-reference-profile-")
+    operator_state = operator_root.lstat()
+    assert stat.S_ISDIR(operator_state.st_mode)
+    assert not stat.S_ISLNK(operator_state.st_mode)
+    shutil.rmtree(operator_root)
+    assert not operator_root.exists()
+
+
+def register_enabled_reference_profile(
+    profile_service: ReferenceProfileService,
+) -> ReferenceProfileRevisionSummary:
+    """Register and enable the exact worker-fixture reference revision."""
+    enabled_profiles = tuple(
+        profile
+        for profile in profile_service.list_enabled(WORKFLOW_ID)
+        if profile.safe_key == REFERENCE_CONFIG_KEY
+    )
+    if len(enabled_profiles) > 1:
+        raise AssertionError("worker fixture reference selection is ambiguous")
+    if enabled_profiles:
+        selected = enabled_profiles[0]
+        return profile_service.enable(
+            selected.profile_id,
+            revision_id=selected.revision_id,
+        )
+    registered = profile_service.register(
+        safe_key=REFERENCE_CONFIG_KEY,
+        display_name="Worker test GRCh38",
+        organism="Homo sapiens",
+        assembly="GRCh38",
+        config_key=REFERENCE_CONFIG_KEY,
+    )
+    return profile_service.enable(
+        registered.profile_id,
+        revision_id=registered.revision_id,
+    )
+
+
+def reference_neutral_worker_inputs(
+    *,
+    samples_path: Path | None = None,
+    enable_qc_summary: bool = False,
+) -> WorkflowInputs:
+    """Load the tiny worker profile without caller-owned reference fields."""
+    config = yaml.safe_load((PROFILE_ROOT / "config.yaml").read_text(encoding="utf-8"))
+    configured_samples = (
+        (PROFILE_ROOT / "samples.tsv").resolve()
+        if samples_path is None
+        else samples_path.resolve()
+    )
+    config.pop("samples", None)
+    config.pop("genome_resources", None)
+    if enable_qc_summary:
+        config["qc"]["summary"] = True
+    with configured_samples.open(encoding="utf-8", newline="") as handle:
+        samples = list(csv.DictReader(handle, delimiter="\t"))
+    for sample in samples:
+        sample.pop("genome", None)
+        sample.pop("bowtie2_index", None)
+    return WorkflowInputs(config=config, samples=samples)
+
+
+def write_reference_neutral_samples(tmp_path: Path) -> Path:
+    """Write a task-owned server-path TSV without caller reference fields."""
+    inputs = reference_neutral_worker_inputs()
+    assert isinstance(inputs.samples, list)
+    assert inputs.samples
+    samples_path = tmp_path / "reference-neutral-samples.tsv"
+    with samples_path.open("x", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=list(inputs.samples[0]),
+            delimiter="\t",
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerows(inputs.samples)
+    return samples_path.resolve()
 
 
 @pytest.fixture(autouse=True)
@@ -129,7 +238,7 @@ def worker_settings(tmp_path: Path, queue_name: str = "worker-tests") -> WorkerS
         redis_url="redis://unused.test/0",
         queue_name=queue_name,
         workspace_root=tmp_path / "workspaces",
-        reference_profile_config=_write_reference_profile_config(tmp_path),
+        reference_profile_config=write_reference_profile_config(tmp_path),
     )
 
 
@@ -159,21 +268,7 @@ def create_planned_run(
             private_config_provider=private_config_provider,
             adapter_provider=registry.get,
         )
-        enabled_profiles = profile_service.list_enabled(WORKFLOW_ID)
-        if enabled_profiles:
-            reference_revision = enabled_profiles[0]
-        else:
-            registered = profile_service.register(
-                safe_key="worker-test-reference",
-                display_name="Worker test GRCh38",
-                organism="Homo sapiens",
-                assembly="GRCh38",
-                config_key=REFERENCE_CONFIG_KEY,
-            )
-            reference_revision = profile_service.enable(
-                registered.profile_id,
-                revision_id=registered.revision_id,
-            )
+        reference_revision = register_enabled_reference_profile(profile_service)
         binding_service = ReferenceProfileBindingService(
             repository=persistence.reference_profile_repository,
             private_config_provider=private_config_provider,
@@ -184,24 +279,10 @@ def create_planned_run(
             id_factory=lambda: run_id,
             repository=persistence.repository,
         )
-        config = yaml.safe_load(
-            (PROFILE_ROOT / "config.yaml").read_text(encoding="utf-8")
+        inputs = reference_neutral_worker_inputs(
+            samples_path=samples_path,
+            enable_qc_summary=enable_qc_summary,
         )
-        configured_samples = (
-            (PROFILE_ROOT / "samples.tsv").resolve()
-            if samples_path is None
-            else samples_path.resolve()
-        )
-        config.pop("samples", None)
-        config.pop("genome_resources", None)
-        if enable_qc_summary:
-            config["qc"]["summary"] = True
-        with configured_samples.open(encoding="utf-8", newline="") as handle:
-            samples = list(csv.DictReader(handle, delimiter="\t"))
-        for sample in samples:
-            sample.pop("genome", None)
-            sample.pop("bowtie2_index", None)
-        inputs = WorkflowInputs(config=config, samples=samples)
         build_provider = create_default_workflow_build_identity_provider(
             registry=registry
         )

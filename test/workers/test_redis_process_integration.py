@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import os
 from pathlib import Path
 import subprocess
@@ -23,12 +24,16 @@ from encode_pipeline.workers.rq_queue import RqRunQueue
 from encode_pipeline.workers.settings import (
     JOB_TIMEOUT_SECONDS_ENV,
     QUEUE_NAME_ENV,
+    REFERENCE_PROFILE_CONFIG_ENV,
     REDIS_URL_ENV,
     WORKSPACE_ROOT_ENV,
-    WorkerSettings,
 )
 
-from .conftest import create_planned_run
+from .conftest import (
+    cleanup_reference_profile_fixture,
+    create_planned_run,
+    worker_settings,
+)
 from .process_helpers import run_burst_worker, terminate_rq_worker
 from .signal_timeout_helpers import CAUGHT_MARKER_ENV, ENTERED_MARKER_ENV
 
@@ -61,7 +66,7 @@ def _create_fake_snakemake(tmp_path: Path) -> Path:
     return snakemake
 
 
-def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
+def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path, request):
     """A fresh worker receives only run_id and rebuilds from SQLite."""
     redis_url = os.getenv(TEST_REDIS_URL_ENV)
     if redis_url is None:
@@ -69,11 +74,14 @@ def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
 
     run_id = f"redis-process-{uuid4().hex}"
     queue_name = f"encode-pipeline-test-{uuid4().hex}"
-    configured = WorkerSettings(
-        database_url=f"sqlite:///{tmp_path / 'platform.db'}",
+    configured = replace(
+        worker_settings(tmp_path, queue_name),
         redis_url=redis_url,
-        queue_name=queue_name,
-        workspace_root=tmp_path / "workspaces",
+    )
+    reference_profile_config = configured.reference_profile_config
+    assert reference_profile_config is not None
+    request.addfinalizer(
+        lambda: cleanup_reference_profile_fixture(reference_profile_config)
     )
     assignment = create_planned_run(
         configured,
@@ -99,6 +107,7 @@ def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
                 "ENCODE_PIPELINE_DATABASE_URL": configured.database_url,
                 REDIS_URL_ENV: configured.redis_url,
                 QUEUE_NAME_ENV: configured.queue_name,
+                REFERENCE_PROFILE_CONFIG_ENV: str(reference_profile_config),
                 WORKSPACE_ROOT_ENV: str(configured.workspace_root),
                 "PYTHONDONTWRITEBYTECODE": "1",
                 "PYTHONPATH": str(REPOSITORY_ROOT / "src"),
@@ -114,6 +123,8 @@ def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
         )
 
         assert completed.returncode == 0, completed.stderr
+        assert "operator-reference-profile" not in completed.stdout
+        assert "operator-reference-profile" not in completed.stderr
         job = run_queue._queue.fetch_job(assignment.job_id)
         assert job is not None
         failure = job.latest_result()
@@ -160,7 +171,7 @@ def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
         connection.close()
 
 
-def test_real_rq_sigalrm_persists_timeout_and_reaps_worker(tmp_path):
+def test_real_rq_sigalrm_persists_timeout_and_reaps_worker(tmp_path, request):
     """A real DurableWorker SIGALRM cannot be swallowed by application code."""
     redis_url = os.getenv(TEST_REDIS_URL_ENV)
     if redis_url is None:
@@ -170,12 +181,15 @@ def test_real_rq_sigalrm_persists_timeout_and_reaps_worker(tmp_path):
 
     run_id = f"redis-timeout-{uuid4().hex}"
     queue_name = f"encode-pipeline-timeout-{uuid4().hex}"
-    configured = WorkerSettings(
-        database_url=f"sqlite:///{tmp_path / 'platform.db'}",
+    configured = replace(
+        worker_settings(tmp_path, queue_name),
         redis_url=redis_url,
-        queue_name=queue_name,
-        workspace_root=tmp_path / "workspaces",
         job_timeout_seconds=30,
+    )
+    reference_profile_config = configured.reference_profile_config
+    assert reference_profile_config is not None
+    request.addfinalizer(
+        lambda: cleanup_reference_profile_fixture(reference_profile_config)
     )
     assignment = create_planned_run(
         configured,
@@ -212,6 +226,7 @@ def test_real_rq_sigalrm_persists_timeout_and_reaps_worker(tmp_path):
                 "ENCODE_PIPELINE_DATABASE_URL": configured.database_url,
                 REDIS_URL_ENV: configured.redis_url,
                 QUEUE_NAME_ENV: configured.queue_name,
+                REFERENCE_PROFILE_CONFIG_ENV: str(reference_profile_config),
                 WORKSPACE_ROOT_ENV: str(configured.workspace_root),
                 JOB_TIMEOUT_SECONDS_ENV: str(configured.job_timeout_seconds),
                 ENTERED_MARKER_ENV: str(entered_marker),
@@ -240,6 +255,8 @@ def test_real_rq_sigalrm_persists_timeout_and_reaps_worker(tmp_path):
         elapsed = time.monotonic() - started_at
 
         assert worker_process.returncode == 0, stderr
+        assert "operator-reference-profile" not in stdout
+        assert "operator-reference-profile" not in stderr
         assert elapsed < 12
         assert entered_marker.read_text(encoding="utf-8") == "entered\n"
         assert not caught_marker.exists()

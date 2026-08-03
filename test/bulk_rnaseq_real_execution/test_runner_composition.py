@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import stat
 from types import SimpleNamespace
 
 import pytest
@@ -27,6 +29,80 @@ def _docker_coordinates(tmp_path: Path) -> tuple[Path, Path]:
     socket_path = tmp_path / "docker.sock"
     socket_path.write_text("test-only socket coordinate\n", encoding="utf-8")
     return executable, socket_path
+
+
+def _acceptance_fixture(tmp_path: Path) -> AcceptanceFixture:
+    reference = {
+        "reference_id": "tiny",
+        "fasta": str(tmp_path / "reference.fa"),
+        "fasta_sha256": "1" * 64,
+        "gtf": str(tmp_path / "genes.gtf"),
+        "gtf_sha256": "2" * 64,
+        "annotation_style": "ensembl",
+        "star_index": {
+            "path": str(tmp_path / "star"),
+            "identity_sha256": "3" * 64,
+        },
+        "salmon_index": {
+            "path": str(tmp_path / "salmon"),
+            "identity_sha256": "4" * 64,
+        },
+    }
+    return AcceptanceFixture(
+        workflow_inputs=WorkflowInputs(
+            config={"standard": {"reference": reference}},
+            samples=[{"sample": "tiny"}],
+            options={},
+        ),
+        transcriptome=SimpleNamespace(
+            reference_id="tiny",
+            fasta_sha256="1" * 64,
+            gtf_sha256="2" * 64,
+            transcript_fasta=tmp_path / "transcripts.fa",
+            transcript_fasta_sha256="5" * 64,
+        ),
+        acceptance_manifest_sha256="a" * 64,
+        source_manifest_sha256="b" * 64,
+        source_identity_sha256="c" * 64,
+        index_provenance_manifest_sha256="d" * 64,
+        index_provenance_identity_sha256="e" * 64,
+        required_artifact_output_types=(),
+        required_qc_metric_keys=(),
+        required_sample_ids=(),
+        required_artifact_sample_output_types=(),
+        required_qc_sample_metric_keys=(),
+        required_qc_sample_metric_values=(),
+    )
+
+
+def _private_config_harness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from . import platform_harness
+
+    docker_executable, docker_socket = _docker_coordinates(tmp_path)
+    monkeypatch.setattr(
+        platform_harness,
+        "build_results_composition",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            binding=SimpleNamespace(assets=SimpleNamespace()),
+            registry=SimpleNamespace(get=lambda _workflow_id: object()),
+            build_identity_provider=object(),
+        ),
+    )
+    return platform_harness.PlatformAcceptanceHarness(
+        gate_settings=GateSettings(
+            runtime_root=(tmp_path / "runtime").resolve(),
+            fixture_manifest=(tmp_path / "fixture.json").resolve(),
+            redis_url="redis://127.0.0.1:6379/15",
+            docker_executable=docker_executable,
+            docker_socket=docker_socket,
+        ),
+        repository_root=tmp_path.resolve(),
+        temporary_root=(tmp_path / "acceptance").resolve(),
+        job_timeout_seconds=41,
+    )
 
 
 def _write_full_trace(path: Path, processes: tuple[str, ...]) -> None:
@@ -167,7 +243,7 @@ def test_platform_submission_injects_the_acceptance_process_runner(
     binding = SimpleNamespace(assets=SimpleNamespace())
     composition = SimpleNamespace(
         binding=binding,
-        registry=object(),
+        registry=SimpleNamespace(get=lambda _workflow_id: object()),
         build_identity_provider=object(),
     )
     monkeypatch.setattr(
@@ -191,17 +267,40 @@ def test_platform_submission_injects_the_acceptance_process_runner(
         return runner
 
     captured_runtime_arguments: dict[str, object] = {}
+    reference_binding = SimpleNamespace(
+        revision_id="refpr_gate_tiny",
+        revision_public_identity_sha256="f" * 64,
+    )
+    binding_service = object()
+    reference_resolver = object()
+    run_number = 0
+
+    def create_run(_workflow_id, _snapshot_id):
+        nonlocal run_number
+        run_number += 1
+        return SimpleNamespace(record=SimpleNamespace(run_id=f"run-{run_number}"))
+
+    run_service = SimpleNamespace(
+        get_execution_assignment=lambda run_id: SimpleNamespace(
+            job_id=f"job-{run_id.removeprefix('run-')}"
+        ),
+        get_validated_reference_binding=lambda _snapshot_id: reference_binding,
+        get_run_reference_binding=lambda _run_id: reference_binding,
+    )
     runtime = SimpleNamespace(
-        persistence=SimpleNamespace(repository=object()),
+        persistence=SimpleNamespace(
+            repository=object(),
+            reference_profile_repository=object(),
+        ),
         preflight_service=SimpleNamespace(
             preflight=lambda _run_id: SimpleNamespace(
                 is_failure=False,
                 issues=(),
             )
         ),
-        run_service=SimpleNamespace(
-            get_execution_assignment=lambda _run_id: SimpleNamespace(job_id="job-1")
-        ),
+        run_service=run_service,
+        reference_profile_binding_service=binding_service,
+        reference_profile_resolver=reference_resolver,
         build_identity_provider=composition.build_identity_provider,
     )
 
@@ -217,30 +316,86 @@ def test_platform_submission_injects_the_acceptance_process_runner(
         captured_runtime_arguments["kwargs"] = kwargs
         return RuntimeContext()
 
-    class FakeValidatedInputService:
-        def __init__(self, **_kwargs):
-            pass
+    service_arguments: dict[str, list[dict[str, object]]] = {
+        "catalog": [],
+        "validation": [],
+        "creation": [],
+        "submission": [],
+    }
+    registration_calls: list[dict[str, object]] = []
+    enable_calls: list[tuple[str, str | None]] = []
 
-        def validate(self, _workflow_id, _workflow_inputs):
+    class FakeReferenceProfileService:
+        def __init__(self, **kwargs):
+            service_arguments["catalog"].append(kwargs)
+
+        def register(self, **kwargs):
+            registration_calls.append(kwargs)
+            return SimpleNamespace(
+                profile_id="refp_gate_tiny",
+                revision_id=reference_binding.revision_id,
+                public_identity_sha256=(
+                    reference_binding.revision_public_identity_sha256
+                ),
+            )
+
+        def enable(self, profile_id, *, revision_id=None):
+            enable_calls.append((profile_id, revision_id))
+            return SimpleNamespace(
+                profile_id=profile_id,
+                revision_id=revision_id,
+                public_identity_sha256=(
+                    reference_binding.revision_public_identity_sha256
+                ),
+                enabled=True,
+            )
+
+        def get_revision_summary(self, revision_id):
+            assert revision_id == reference_binding.revision_id
+            return SimpleNamespace(
+                profile_id="refp_gate_tiny",
+                revision_id=revision_id,
+                public_identity_sha256=(
+                    reference_binding.revision_public_identity_sha256
+                ),
+                enabled=True,
+            )
+
+    validated_revision_ids: list[str] = []
+    validated_inputs: list[WorkflowInputs] = []
+
+    class FakeValidatedInputService:
+        def __init__(self, **kwargs):
+            service_arguments["validation"].append(kwargs)
+
+        def validate(
+            self,
+            _workflow_id,
+            workflow_inputs,
+            *,
+            reference_profile_revision_id,
+        ):
+            validated_revision_ids.append(reference_profile_revision_id)
+            validated_inputs.append(workflow_inputs)
             return SimpleNamespace(
                 is_failure=False,
                 value=SimpleNamespace(
-                    snapshot_id="snapshot-1",
+                    snapshot_id=f"snapshot-{len(validated_revision_ids)}",
                     payload_digest="a" * 64,
                 ),
                 issues=(),
             )
 
     class FakeValidatedRunCreationService:
-        def __init__(self, **_kwargs):
-            pass
+        def __init__(self, **kwargs):
+            service_arguments["creation"].append(kwargs)
 
-        def create_run(self, _workflow_id, _snapshot_id):
-            return SimpleNamespace(record=SimpleNamespace(run_id="run-1"))
+        def create_run(self, workflow_id, snapshot_id):
+            return create_run(workflow_id, snapshot_id)
 
     class FakeRunSubmissionService:
-        def __init__(self, **_kwargs):
-            pass
+        def __init__(self, **kwargs):
+            service_arguments["submission"].append(kwargs)
 
         def start_run(self, _run_id):
             return SimpleNamespace(status=SimpleNamespace(value="queued"))
@@ -251,6 +406,12 @@ def test_platform_submission_injects_the_acceptance_process_runner(
     monkeypatch.setattr(platform_harness, "open_worker_runtime", open_runtime)
     monkeypatch.setattr(
         platform_harness, "ValidationService", lambda **_kwargs: object()
+    )
+    monkeypatch.setattr(
+        platform_harness,
+        "ReferenceProfileService",
+        FakeReferenceProfileService,
+        raising=False,
     )
     monkeypatch.setattr(
         platform_harness,
@@ -267,28 +428,16 @@ def test_platform_submission_injects_the_acceptance_process_runner(
         "RunSubmissionService",
         FakeRunSubmissionService,
     )
-    fixture = AcceptanceFixture(
-        workflow_inputs=WorkflowInputs(config={}, samples=None, options={}),
-        transcriptome=object(),
-        acceptance_manifest_sha256="a" * 64,
-        source_manifest_sha256="b" * 64,
-        source_identity_sha256="c" * 64,
-        index_provenance_manifest_sha256="d" * 64,
-        index_provenance_identity_sha256="e" * 64,
-        required_artifact_output_types=(),
-        required_qc_metric_keys=(),
-        required_sample_ids=(),
-        required_artifact_sample_output_types=(),
-        required_qc_sample_metric_keys=(),
-        required_qc_sample_metric_values=(),
-    )
+    fixture = _acceptance_fixture(tmp_path)
+    reference = fixture.workflow_inputs.config["standard"]["reference"]
     monkeypatch.setattr(
         platform_harness, "load_acceptance_fixture", lambda _path: fixture
     )
 
-    submitted = harness._submit(fixture)
+    first = harness._submit(fixture)
+    second = harness._submit(fixture)
 
-    assert submitted.run_id == "run-1"
+    assert (first.run_id, second.run_id) == ("run-1", "run-2")
     assert runner_arguments == {
         "settings": settings,
         "binding": binding,
@@ -301,6 +450,167 @@ def test_platform_submission_injects_the_acceptance_process_runner(
         "build_identity_provider": composition.build_identity_provider,
         "process_runner": runner,
     }
+    config_path = harness.worker_settings.reference_profile_config
+    assert config_path is not None
+    assert stat.S_IMODE(config_path.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
+    private_config = json.loads(config_path.read_text(encoding="utf-8"))
+    private_binding = private_config["profiles"]["bulk-rnaseq-gate-tiny-private"][
+        "bindings"
+    ]["bulk-rnaseq"]
+    assert private_binding["reference"] == reference
+    assert private_binding["transcriptome"] == {
+        "reference_id": "tiny",
+        "fasta_sha256": "1" * 64,
+        "gtf_sha256": "2" * 64,
+        "transcript_fasta": str(tmp_path / "transcripts.fa"),
+        "transcript_fasta_sha256": "5" * 64,
+    }
+    assert registration_calls == [
+        {
+            "safe_key": "bulk-rnaseq-gate-tiny",
+            "display_name": "Bulk RNA-seq protected tiny",
+            "organism": "Synthetic organism",
+            "assembly": "tiny",
+            "config_key": "bulk-rnaseq-gate-tiny-private",
+        }
+    ]
+    assert enable_calls == [("refp_gate_tiny", "refpr_gate_tiny")]
+    assert validated_revision_ids == ["refpr_gate_tiny", "refpr_gate_tiny"]
+    assert all(
+        "reference" not in inputs.config["standard"] for inputs in validated_inputs
+    )
+    assert all(
+        arguments["reference_profile_binding_service"] is binding_service
+        and arguments["reference_profile_catalog"] is not None
+        for arguments in service_arguments["validation"]
+    )
+    assert all(
+        arguments["reference_profile_binding_service"] is binding_service
+        for arguments in service_arguments["creation"]
+    )
+    assert all(
+        arguments["reference_profile_resolver"] is reference_resolver
+        for arguments in service_arguments["submission"]
+    )
+    assert harness._worker_environment()[
+        platform_harness.REFERENCE_PROFILE_CONFIG_ENV
+    ] == str(config_path)
+    config_directory = config_path.parent
+    assert harness._cleanup_reference_profile_config() is True
+    assert not config_path.exists()
+    assert not config_directory.exists()
+
+
+@pytest.mark.parametrize("failure_stage", ("document", "open"))
+def test_private_reference_config_failure_is_redacted_and_cleans_owned_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+) -> None:
+    from . import platform_harness
+
+    harness = _private_config_harness(tmp_path, monkeypatch)
+    fixture = _acceptance_fixture(tmp_path)
+    private_path = str(harness.reference_profile_config_path)
+    if failure_stage == "document":
+        monkeypatch.setattr(
+            platform_harness,
+            "_private_reference_profile_document",
+            lambda _fixture: (_ for _ in ()).throw(OSError(private_path)),
+        )
+    else:
+        original_open = platform_harness.os.open
+
+        def fail_config_open(path, flags, mode=0o777):
+            if Path(path) == harness.reference_profile_config_path:
+                raise OSError(private_path)
+            return original_open(path, flags, mode)
+
+        monkeypatch.setattr(platform_harness.os, "open", fail_config_open)
+
+    with pytest.raises(AssertionError) as captured:
+        harness._prepare_reference_profile_config(fixture)
+
+    assert (
+        str(captured.value) == "private reference profile config could not be prepared"
+    )
+    assert private_path not in str(captured.value)
+    assert not harness.reference_profile_config_path.exists()
+    assert not harness.reference_profile_config_path.parent.exists()
+
+
+def test_private_reference_config_collision_fails_closed_without_false_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from . import platform_harness
+
+    harness = _private_config_harness(tmp_path, monkeypatch)
+    fixture = _acceptance_fixture(tmp_path)
+    original_document = platform_harness._private_reference_profile_document
+
+    def collide(current_fixture):
+        harness.reference_profile_config_path.write_text(
+            "untrusted claimant\n",
+            encoding="utf-8",
+        )
+        return original_document(current_fixture)
+
+    monkeypatch.setattr(
+        platform_harness,
+        "_private_reference_profile_document",
+        collide,
+    )
+
+    with pytest.raises(AssertionError) as captured:
+        harness._prepare_reference_profile_config(fixture)
+
+    assert str(captured.value) == (
+        "private reference profile config cleanup could not be confirmed"
+    )
+    assert str(harness.reference_profile_config_path) not in str(captured.value)
+    assert harness._cleanup_reference_profile_config() is False
+    harness.reference_profile_config_path.unlink()
+    harness.reference_profile_config_path.parent.rmdir()
+
+
+def test_private_reference_config_cleanup_rejects_identity_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = _private_config_harness(tmp_path, monkeypatch)
+    harness._prepare_reference_profile_config(_acceptance_fixture(tmp_path))
+    config_path = harness.reference_profile_config_path
+    replacement_path = config_path.parent / "replacement.json"
+    replacement_path.write_text("replacement\n", encoding="utf-8")
+    replacement_path.chmod(0o600)
+    config_path.unlink()
+    replacement_path.rename(config_path)
+
+    assert harness._cleanup_reference_profile_config() is False
+    assert config_path.read_text(encoding="utf-8") == "replacement\n"
+    config_path.unlink()
+    config_path.parent.rmdir()
+
+
+def test_private_reference_config_cleanup_rejects_directory_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = _private_config_harness(tmp_path, monkeypatch)
+    harness._prepare_reference_profile_config(_acceptance_fixture(tmp_path))
+    config_directory = harness.reference_profile_config_path.parent
+    original_directory = config_directory.with_name("original-reference-profile")
+    config_directory.rename(original_directory)
+    config_directory.mkdir(mode=0o700)
+
+    assert harness._cleanup_reference_profile_config() is False
+    assert config_directory.is_dir()
+    assert (original_directory / "reference-profiles.json").is_file()
+    config_directory.rmdir()
+    (original_directory / "reference-profiles.json").unlink()
+    original_directory.rmdir()
 
 
 def test_worker_entry_injects_a_fresh_hard_timeout_runner(
