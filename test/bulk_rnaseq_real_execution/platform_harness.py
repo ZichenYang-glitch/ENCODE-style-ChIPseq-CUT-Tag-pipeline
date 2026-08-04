@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import stat
 import subprocess
@@ -43,6 +44,7 @@ from encode_pipeline.services.validation import ValidationService
 from encode_pipeline.workers.rq_queue import (
     RqRunQueue,
     create_api_redis_connection,
+    rq_job_timeout_seconds,
 )
 from encode_pipeline.workers.runtime import open_worker_runtime
 from encode_pipeline.workers.settings import (
@@ -75,12 +77,19 @@ from .support import (
     assert_no_managed_containers,
     load_acceptance_fixture,
     managed_container_ids,
+    _write_canonical_evidence_document,
 )
 
 
 _DEFAULT_ACCEPTANCE_TIMEOUT_SECONDS = 7_200
 _MAX_ACCEPTANCE_TIMEOUT_SECONDS = 14_400
 _ACTIVITY_POLL_SECONDS = 0.05
+_RQ_TERMINAL_STABILIZATION_SECONDS = 5.0
+_RQ_TERMINAL_POLL_SECONDS = 0.05
+_EARLY_TERMINAL_WORKER_WAIT_SECONDS = 120.0
+_TERMINAL_LIFECYCLE_EVIDENCE_SCHEMA_VERSION = "1.0.0"
+_TERMINAL_BEFORE_REQUIRED_ACTIVITY = "TERMINAL_BEFORE_REQUIRED_ACTIVITY"
+_PATH_FREE_EVIDENCE_TOKEN = re.compile(r"[A-Za-z0-9_.:-]+")
 _REFERENCE_CONFIG_DIRECTORY = "operator-reference-profile"
 _REFERENCE_CONFIG_FILENAME = "reference-profiles.json"
 _REFERENCE_CONFIG_KEY = "bulk-rnaseq-gate-tiny-private"
@@ -139,6 +148,46 @@ class TerminalLifecycleEvidence:
     rq_stopped: bool
     rq_finished: bool
     cleanup_confirmed: bool
+    assertion_reason_code: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        """Return the deliberately path-free Protected Gate projection."""
+        return {
+            "schema_version": _TERMINAL_LIFECYCLE_EVIDENCE_SCHEMA_VERSION,
+            "assertion_reason_code": _path_free_evidence_token(
+                self.assertion_reason_code
+            ),
+            "run_id": _path_free_evidence_token(self.run_id),
+            "job_id": _path_free_evidence_token(self.job_id),
+            "lifecycle_status": _path_free_evidence_token(self.lifecycle_status),
+            "lifecycle_history": [
+                _path_free_evidence_token(value) for value in self.lifecycle_history
+            ],
+            "event_types": [
+                _path_free_evidence_token(value) for value in self.event_types
+            ],
+            "assignment_dispatched": self.assignment_dispatched,
+            "assignment_claimed": self.assignment_claimed,
+            "cancellation_requested": self.cancellation_requested,
+            "cancellation_acknowledged": self.cancellation_acknowledged,
+            "error_code": _path_free_evidence_token(self.error_code),
+            "error_reason_code": _path_free_evidence_token(self.error_reason_code),
+            "artifact_revision": self.artifact_revision,
+            "artifact_attempt_id": _path_free_evidence_token(self.artifact_attempt_id),
+            "artifact_attempt_status": _path_free_evidence_token(
+                self.artifact_attempt_status
+            ),
+            "qc_revision": self.qc_revision,
+            "qc_attempt_id": _path_free_evidence_token(self.qc_attempt_id),
+            "qc_attempt_status": _path_free_evidence_token(self.qc_attempt_status),
+            "artifact_count": self.artifact_count,
+            "qc_metric_count": self.qc_metric_count,
+            "rq_status": _path_free_evidence_token(self.rq_status),
+            "rq_failed": self.rq_failed,
+            "rq_stopped": self.rq_stopped,
+            "rq_finished": self.rq_finished,
+            "cleanup_confirmed": self.cleanup_confirmed,
+        }
 
 
 class PlatformAcceptanceHarness:
@@ -295,19 +344,14 @@ class PlatformAcceptanceHarness:
             raise ValueError("activity timeout is outside the acceptance bound")
 
         run_queue = self._require_queue()
-        job = run_queue._queue.fetch_job(submitted.job_id)
-        if job is None:
-            raise AssertionError("accepted RQ job disappeared")
-        cleaner = ManagedContainerCleaner(
-            executable=self.gate_settings.docker_executable,
-            unix_socket=self.gate_settings.docker_socket,
-        )
-        if cleaner.verify_endpoint().is_failure:
-            raise AssertionError("managed Docker endpoint changed during acceptance")
         scope = managed_container_scope(self.workspace_root / submitted.run_id)
         deadline = time.monotonic() + float(timeout_seconds)
         nextflow_observed = False
         container_observed = False
+        terminal_observed = False
+        endpoint_verified = False
+        job = None
+        cleaner = None
 
         persistence = open_run_persistence(self.database_url)
         try:
@@ -318,23 +362,52 @@ class PlatformAcceptanceHarness:
                 repository=persistence.repository,
             )
             while time.monotonic() < deadline:
+                record = run_service.get_run(submitted.run_id)
+                assignment = run_service.get_execution_assignment(submitted.run_id)
+                if record.status.is_terminal:
+                    terminal_observed = True
+                    break
+                if not endpoint_verified:
+                    try:
+                        cleaner = ManagedContainerCleaner(
+                            executable=self.gate_settings.docker_executable,
+                            unix_socket=self.gate_settings.docker_socket,
+                        )
+                        endpoint_result = cleaner.verify_endpoint()
+                    except Exception:
+                        raise AssertionError(
+                            "managed Docker endpoint is unavailable"
+                        ) from None
+                    if endpoint_result.is_failure:
+                        raise AssertionError(
+                            "managed Docker endpoint changed during acceptance"
+                        )
+                    endpoint_verified = True
+                if job is None:
+                    try:
+                        job = run_queue._queue.fetch_job(submitted.job_id)
+                    except Exception:
+                        raise AssertionError(
+                            "accepted RQ job state is unavailable"
+                        ) from None
+                    if job is None:
+                        raise AssertionError("accepted RQ job state is unavailable")
+                try:
+                    rq_status = job.get_status(refresh=True)
+                except Exception:
+                    raise AssertionError(
+                        "accepted RQ job state is unavailable"
+                    ) from None
                 if process.poll() is not None:
                     raise AssertionError(
                         "DurableWorker exited before execution activity was observed"
-                    )
-                record = run_service.get_run(submitted.run_id)
-                assignment = run_service.get_execution_assignment(submitted.run_id)
-                job.refresh()
-                if record.status.is_terminal:
-                    raise AssertionError(
-                        "bulk RNA-seq run became terminal before required activity"
                     )
                 if (
                     record.status is RunStatus.RUNNING
                     and assignment is not None
                     and assignment.dispatched_at is not None
                     and assignment.claimed_at is not None
-                    and job.get_status(refresh=True) is JobStatus.STARTED
+                    and rq_status is JobStatus.STARTED
                     and bool(job.worker_name)
                 ):
                     nextflow_observed = nextflow_observed or bool(
@@ -344,6 +417,7 @@ class PlatformAcceptanceHarness:
                         )
                     )
                     if nextflow_observed and require_managed_container:
+                        assert cleaner is not None
                         container_observed = container_observed or bool(
                             managed_container_ids(cleaner, scope, all_containers=False)
                         )
@@ -364,6 +438,21 @@ class PlatformAcceptanceHarness:
                 time.sleep(_ACTIVITY_POLL_SECONDS)
         finally:
             persistence.close()
+        if terminal_observed:
+            evidence = self.collect_terminal(
+                submitted,
+                assertion_reason_code=_TERMINAL_BEFORE_REQUIRED_ACTIVITY,
+                allow_unstable_rq=True,
+            )
+            message = _terminal_before_activity_message(evidence)
+            try:
+                self.wait_worker(
+                    process,
+                    timeout_seconds=_EARLY_TERMINAL_WORKER_WAIT_SECONDS,
+                )
+            except AssertionError:
+                raise AssertionError(f"{message} worker_reap=FAILED") from None
+            raise AssertionError(message)
         raise AssertionError("required real execution activity was not observed")
 
     def request_cancellation(
@@ -407,7 +496,7 @@ class PlatformAcceptanceHarness:
         ):
             raise ValueError("worker wait timeout is outside the acceptance bound")
         wait_timeout = (
-            self.worker_settings.job_timeout_seconds + 90
+            rq_job_timeout_seconds(self.worker_settings.job_timeout_seconds) + 60
             if timeout_seconds is None
             else float(timeout_seconds)
         )
@@ -473,17 +562,30 @@ class PlatformAcceptanceHarness:
     def collect_terminal(
         self,
         submitted: SubmittedAcceptanceRun,
+        *,
+        assertion_reason_code: str | None = None,
+        allow_unstable_rq: bool = False,
     ) -> TerminalLifecycleEvidence:
-        """Reopen SQLite and audit a cancelled or failed run and its cleanup."""
+        """Audit a non-success run or an early-success diagnostic and cleanup."""
         if submitted not in self._submitted:
             raise ValueError("submitted run is not owned by this acceptance harness")
         run_queue = self._require_queue()
-        job = run_queue._queue.fetch_job(submitted.job_id)
-        if job is None:
-            raise AssertionError("accepted RQ job disappeared")
-        job.refresh()
-        rq_status = job.get_status(refresh=True)
-        if rq_status not in {JobStatus.FAILED, JobStatus.STOPPED}:
+        try:
+            job = run_queue._queue.fetch_job(submitted.job_id)
+        except Exception:
+            if not allow_unstable_rq:
+                raise AssertionError("accepted RQ job state is unavailable") from None
+            job = None
+        try:
+            rq_status = _wait_for_rq_terminal_status(job) if job is not None else None
+        except Exception:
+            if not allow_unstable_rq:
+                raise AssertionError("accepted RQ job state is unavailable") from None
+            rq_status = None
+        if (
+            rq_status not in {JobStatus.FAILED, JobStatus.STOPPED}
+            and not allow_unstable_rq
+        ):
             raise AssertionError("accepted RQ job lacks a non-success terminal state")
 
         persistence = open_run_persistence(self.database_url)
@@ -495,8 +597,11 @@ class PlatformAcceptanceHarness:
                 repository=persistence.repository,
             )
             record = run_service.get_run(submitted.run_id)
-            if record.status not in {RunStatus.CANCELLED, RunStatus.FAILED}:
-                raise AssertionError("accepted lifecycle is not cancelled or failed")
+            expected_terminal_statuses = {RunStatus.CANCELLED, RunStatus.FAILED}
+            if assertion_reason_code == _TERMINAL_BEFORE_REQUIRED_ACTIVITY:
+                expected_terminal_statuses.add(RunStatus.SUCCEEDED)
+            if record.status not in expected_terminal_statuses:
+                raise AssertionError("accepted lifecycle terminal state is invalid")
             assignment = run_service.get_execution_assignment(submitted.run_id)
             if assignment is None or assignment.job_id != submitted.job_id:
                 raise AssertionError("accepted lifecycle lost durable RQ ownership")
@@ -505,12 +610,16 @@ class PlatformAcceptanceHarness:
             artifacts = run_service.list_artifacts(submitted.run_id)
             metrics = run_service.list_qc_metrics(submitted.run_id)
 
-            cleaner = ManagedContainerCleaner(
-                executable=self.gate_settings.docker_executable,
-                unix_socket=self.gate_settings.docker_socket,
-            )
-            scope = managed_container_scope(self.workspace_root / submitted.run_id)
-            assert_no_managed_containers(cleaner, scope)
+            cleanup_confirmed = True
+            try:
+                cleaner = ManagedContainerCleaner(
+                    executable=self.gate_settings.docker_executable,
+                    unix_socket=self.gate_settings.docker_socket,
+                )
+                scope = managed_container_scope(self.workspace_root / submitted.run_id)
+                assert_no_managed_containers(cleaner, scope)
+            except Exception:
+                cleanup_confirmed = False
 
             lifecycle_history = tuple(
                 event.status.value
@@ -523,7 +632,7 @@ class PlatformAcceptanceHarness:
                 candidate = record.error.context.get("reason_code")
                 if isinstance(candidate, str):
                     error_reason_code = candidate
-            return TerminalLifecycleEvidence(
+            evidence = TerminalLifecycleEvidence(
                 run_id=submitted.run_id,
                 job_id=submitted.job_id,
                 lifecycle_status=record.status.value,
@@ -548,14 +657,36 @@ class PlatformAcceptanceHarness:
                 qc_attempt_status=state.qc_attempt_status,
                 artifact_count=len(artifacts),
                 qc_metric_count=len(metrics),
-                rq_status=rq_status.value,
-                rq_failed=job.is_failed,
-                rq_stopped=job.is_stopped,
-                rq_finished=job.is_finished,
-                cleanup_confirmed=True,
+                rq_status=(
+                    rq_status.value
+                    if isinstance(rq_status, JobStatus)
+                    else "unavailable"
+                ),
+                rq_failed=rq_status is JobStatus.FAILED,
+                rq_stopped=rq_status is JobStatus.STOPPED,
+                rq_finished=rq_status is JobStatus.FINISHED,
+                cleanup_confirmed=cleanup_confirmed,
+                assertion_reason_code=assertion_reason_code,
             )
+            self._publish_terminal_lifecycle_evidence(evidence)
+            if not cleanup_confirmed and not allow_unstable_rq:
+                raise AssertionError("accepted lifecycle cleanup is incomplete")
+            return evidence
         finally:
             persistence.close()
+
+    def _publish_terminal_lifecycle_evidence(
+        self,
+        evidence: TerminalLifecycleEvidence,
+    ) -> None:
+        run_id = _path_free_evidence_token(evidence.run_id)
+        if run_id in {None, "REDACTED"}:
+            raise AssertionError("terminal lifecycle evidence identity is invalid")
+        _write_canonical_evidence_document(
+            evidence.to_dict(),
+            (self.temporary_root / "evidence" / f"terminal-lifecycle-{run_id}.json"),
+            failure_message="terminal lifecycle evidence could not be published",
+        )
 
     def close(self) -> None:
         """Clean only this harness's run scopes, jobs, and unique queue."""
@@ -903,6 +1034,53 @@ class PlatformAcceptanceHarness:
         if self._run_queue is None:
             raise RuntimeError("acceptance harness is not open")
         return self._run_queue
+
+
+def _wait_for_rq_terminal_status(
+    job,
+    *,
+    timeout_seconds: float = _RQ_TERMINAL_STABILIZATION_SECONDS,
+    monotonic=time.monotonic,
+    sleep=time.sleep,
+) -> JobStatus | None:
+    """Read RQ until its metadata follows the already-durable SQLite terminal."""
+    if (
+        isinstance(timeout_seconds, bool)
+        or not isinstance(timeout_seconds, (int, float))
+        or timeout_seconds <= 0
+        or timeout_seconds > _MAX_ACCEPTANCE_TIMEOUT_SECONDS
+    ):
+        raise ValueError("RQ stabilization timeout is outside the acceptance bound")
+    deadline = monotonic() + float(timeout_seconds)
+    while True:
+        status = job.get_status(refresh=True)
+        if status in {JobStatus.FAILED, JobStatus.FINISHED, JobStatus.STOPPED}:
+            return status
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return status
+        sleep(min(_RQ_TERMINAL_POLL_SECONDS, remaining))
+
+
+def _path_free_evidence_token(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and _PATH_FREE_EVIDENCE_TOKEN.fullmatch(value):
+        return value
+    return "REDACTED"
+
+
+def _terminal_before_activity_message(
+    evidence: TerminalLifecycleEvidence,
+) -> str:
+    error_code = _path_free_evidence_token(evidence.error_code) or "UNAVAILABLE"
+    error_reason_code = (
+        _path_free_evidence_token(evidence.error_reason_code) or "UNAVAILABLE"
+    )
+    return (
+        f"{_TERMINAL_BEFORE_REQUIRED_ACTIVITY} "
+        f"error_code={error_code} error_reason_code={error_reason_code}"
+    )
 
 
 def _private_reference_profile_document(

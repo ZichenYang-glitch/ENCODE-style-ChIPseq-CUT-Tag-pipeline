@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 import subprocess
+import tempfile
 from typing import Any, Callable
 
 from encode_pipeline.adapters.bulk_rnaseq import (
@@ -911,18 +912,65 @@ def write_acceptance_evidence(evidence: AcceptanceEvidence, path: Path) -> None:
         raise ValueError("evidence must be AcceptanceEvidence")
     if not isinstance(path, Path) or not path.is_absolute():
         raise ValueError("evidence output path must be absolute")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            evidence.to_dict(),
-            allow_nan=False,
-            ensure_ascii=True,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
+    _write_canonical_evidence_document(
+        evidence.to_dict(),
+        path,
+        failure_message="acceptance evidence could not be published",
     )
+
+
+def _write_canonical_evidence_document(
+    document: Mapping[str, object],
+    path: Path,
+    *,
+    failure_message: str,
+) -> None:
+    """Atomically publish one canonical task-owned evidence document."""
+    if not isinstance(document, Mapping):
+        raise ValueError("evidence document must be a mapping")
+    if not isinstance(path, Path) or not path.is_absolute():
+        raise ValueError("evidence output path must be absolute")
+    if not isinstance(failure_message, str) or not failure_message:
+        raise ValueError("failure message must be non-empty")
+
+    temporary_path: Path | None = None
+    file_descriptor: int | None = None
+    try:
+        payload = (
+            json.dumps(
+                dict(document),
+                allow_nan=False,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        file_descriptor, raw_temporary_path = tempfile.mkstemp(
+            prefix=f".{path.name}.part-",
+            dir=path.parent,
+        )
+        temporary_path = Path(raw_temporary_path)
+        with os.fdopen(file_descriptor, "wb") as stream:
+            file_descriptor = None
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+        temporary_path = None
+    except (OSError, TypeError, ValueError):
+        if file_descriptor is not None:
+            try:
+                os.close(file_descriptor)
+            except OSError:
+                pass
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise AssertionError(failure_message) from None
 
 
 def load_acceptance_fixture(path: Path) -> AcceptanceFixture:

@@ -376,6 +376,33 @@ def test_process_runner_timeout_returns_failure():
     assert issue.context == {"timeout_seconds": 0.1}
 
 
+def test_process_runner_timeout_clock_starts_after_popen_returns(monkeypatch):
+    events: list[str] = []
+    original_popen = process_runner_module.subprocess.Popen
+    original_monotonic = process_runner_module.time.monotonic
+
+    def recording_popen(*args, **kwargs):
+        events.append("popen-entered")
+        process = original_popen(*args, **kwargs)
+        events.append("popen-returned")
+        return process
+
+    def recording_monotonic():
+        events.append("monotonic")
+        assert "popen-returned" in events
+        return original_monotonic()
+
+    monkeypatch.setattr(process_runner_module.subprocess, "Popen", recording_popen)
+    monkeypatch.setattr(process_runner_module.time, "monotonic", recording_monotonic)
+
+    result = _make_runner(timeout_seconds=1).run(
+        CommandSpec(argv=(sys.executable, "-c", "pass"))
+    )
+
+    assert result.is_success
+    assert events.index("popen-returned") < events.index("monotonic")
+
+
 def test_process_runner_timeout_terminates_direct_child(monkeypatch):
     terminated = []
     original_terminate = ProcessRunner._terminate

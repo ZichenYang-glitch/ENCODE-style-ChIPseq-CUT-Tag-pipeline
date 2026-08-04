@@ -226,6 +226,323 @@ def test_acceptance_process_runner_rejects_docker_binding_drift(
         raise AssertionError("Docker binding drift was accepted")
 
 
+@pytest.mark.parametrize(
+    "cleanup_observation",
+    ["clean", "residual", "constructor-error"],
+)
+@pytest.mark.parametrize(
+    (
+        "terminal_status_name",
+        "rq_observation",
+        "expected_rq_status",
+        "error_code",
+        "error_reason_code",
+    ),
+    [
+        (
+            "FAILED",
+            "failed",
+            "failed",
+            "RUN_EXECUTION_FAILED",
+            "WORKER_JOB_TIMEOUT",
+        ),
+        ("SUCCEEDED", "finished", "finished", None, None),
+        (
+            "FAILED",
+            "missing",
+            "unavailable",
+            "RUN_EXECUTION_FAILED",
+            "WORKER_JOB_TIMEOUT",
+        ),
+        (
+            "FAILED",
+            "status-error",
+            "unavailable",
+            "RUN_EXECUTION_FAILED",
+            "WORKER_JOB_TIMEOUT",
+        ),
+    ],
+)
+def test_terminal_before_activity_publishes_path_free_reason_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cleanup_observation: str,
+    terminal_status_name: str,
+    rq_observation: str,
+    expected_rq_status: str,
+    error_code: str | None,
+    error_reason_code: str | None,
+) -> None:
+    from encode_pipeline.platform.runs import RunStatus
+    from encode_pipeline.services import runs as runs_module
+    from . import platform_harness
+
+    harness = _private_config_harness(tmp_path, monkeypatch)
+    submitted = platform_harness.SubmittedAcceptanceRun(
+        run_id="run-terminal-before-activity",
+        job_id="run-execution-terminal-before-activity",
+        validated_snapshot_id="vsnap_terminal_before_activity",
+        fixture_acceptance_manifest_sha256="a" * 64,
+    )
+    private_detail = str(tmp_path / "private-terminal-detail")
+    cleanup_confirmed = cleanup_observation == "clean"
+
+    terminal_status = getattr(RunStatus, terminal_status_name)
+    rq_status = {
+        "failed": platform_harness.JobStatus.FAILED,
+        "finished": platform_harness.JobStatus.FINISHED,
+    }.get(rq_observation)
+    status_reads: list[None] = []
+    evidence_path = (
+        harness.temporary_root
+        / "evidence"
+        / f"terminal-lifecycle-{submitted.run_id}.json"
+    )
+
+    class FakeJob:
+        worker_name = "worker-terminal-before-activity"
+
+        @staticmethod
+        def get_status(*, refresh: bool = False):
+            assert refresh is True
+            status_reads.append(None)
+            if rq_observation == "status-error":
+                raise RuntimeError(private_detail)
+            assert rq_status is not None
+            return rq_status
+
+    class FakeProcess:
+        pid = 987_654_321
+        returncode: int | None = None
+
+        def poll(self):
+            return self.returncode
+
+        def communicate(self, *, timeout):
+            assert timeout > 0
+            assert evidence_path.is_file()
+            self.returncode = 0
+            return ("", "")
+
+    record = SimpleNamespace(
+        status=terminal_status,
+        cancellation_reason=private_detail,
+        error=(
+            None
+            if error_code is None
+            else SimpleNamespace(
+                code=error_code,
+                context={
+                    "reason_code": error_reason_code,
+                    "private_detail": private_detail,
+                },
+            )
+        ),
+    )
+    assignment = SimpleNamespace(
+        job_id=submitted.job_id,
+        dispatched_at=object(),
+        claimed_at=object(),
+        cancellation_requested_at=None,
+        cancellation_acknowledged_at=None,
+    )
+    events = (
+        SimpleNamespace(event_type="status_changed", status=RunStatus.QUEUED),
+        SimpleNamespace(event_type="status_changed", status=RunStatus.RUNNING),
+        SimpleNamespace(event_type="status_changed", status=terminal_status),
+    )
+    result_state = SimpleNamespace(
+        artifact_revision=0,
+        artifact_attempt_id=None,
+        artifact_attempt_status=None,
+        qc_revision=0,
+        qc_attempt_id=None,
+        qc_attempt_status=None,
+    )
+
+    class FakeRunService:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        @staticmethod
+        def get_run(run_id):
+            assert run_id == submitted.run_id
+            return record
+
+        @staticmethod
+        def get_execution_assignment(run_id):
+            assert run_id == submitted.run_id
+            return assignment
+
+        @staticmethod
+        def list_events(run_id, *, limit):
+            assert run_id == submitted.run_id
+            assert limit == 1000
+            return events
+
+        @staticmethod
+        def get_result_state(run_id):
+            assert run_id == submitted.run_id
+            return result_state
+
+        @staticmethod
+        def list_artifacts(run_id):
+            assert run_id == submitted.run_id
+            return ()
+
+        @staticmethod
+        def list_qc_metrics(run_id):
+            assert run_id == submitted.run_id
+            return ()
+
+    persistence = SimpleNamespace(repository=object(), close=lambda: None)
+    job = FakeJob()
+    process = FakeProcess()
+    harness._submitted.append(submitted)
+    harness._worker_processes.append(process)
+
+    def fetch_job(job_id):
+        assert job_id == submitted.job_id
+        if rq_observation == "missing":
+            return None
+        return job
+
+    harness._run_queue = SimpleNamespace(_queue=SimpleNamespace(fetch_job=fetch_job))
+    monkeypatch.setattr(runs_module, "RunService", FakeRunService)
+    monkeypatch.setattr(
+        platform_harness,
+        "open_run_persistence",
+        lambda _database_url: persistence,
+    )
+    monkeypatch.setattr(
+        platform_harness.ManagedContainerCleaner,
+        "_endpoint_identities",
+        lambda _self: ((1, 2, 3), (4, 5, 6)),
+    )
+    monkeypatch.setattr(
+        platform_harness.ManagedContainerCleaner,
+        "verify_endpoint",
+        lambda _self: SimpleNamespace(is_failure=False),
+    )
+
+    if cleanup_observation == "constructor-error":
+
+        def fail_cleaner_construction(**_kwargs):
+            raise RuntimeError(private_detail)
+
+        monkeypatch.setattr(
+            platform_harness,
+            "ManagedContainerCleaner",
+            fail_cleaner_construction,
+        )
+
+    def assert_cleanup(*_args, **_kwargs) -> None:
+        if cleanup_observation == "residual":
+            raise AssertionError(private_detail)
+
+    monkeypatch.setattr(
+        platform_harness,
+        "assert_no_managed_containers",
+        assert_cleanup,
+    )
+
+    expected_error_code = error_code or "UNAVAILABLE"
+    expected_error_reason_code = error_reason_code or "UNAVAILABLE"
+    with pytest.raises(AssertionError) as raised:
+        harness.wait_for_execution_activity(
+            submitted,
+            process,
+            require_managed_container=False,
+            timeout_seconds=1,
+        )
+    assert str(raised.value) == (
+        "TERMINAL_BEFORE_REQUIRED_ACTIVITY "
+        f"error_code={expected_error_code} "
+        f"error_reason_code={expected_error_reason_code}"
+    )
+
+    rendered = evidence_path.read_text(encoding="utf-8")
+    payload = json.loads(rendered)
+    assert payload["assertion_reason_code"] == "TERMINAL_BEFORE_REQUIRED_ACTIVITY"
+    assert payload["lifecycle_status"] == terminal_status.value
+    assert payload["lifecycle_history"] == [
+        "queued",
+        "running",
+        terminal_status.value,
+    ]
+    assert payload["error_code"] == error_code
+    assert payload["error_reason_code"] == error_reason_code
+    assert payload["assignment_dispatched"] is True
+    assert payload["assignment_claimed"] is True
+    assert payload["rq_status"] == expected_rq_status
+    assert payload["rq_failed"] is (
+        expected_rq_status == platform_harness.JobStatus.FAILED.value
+    )
+    assert payload["rq_stopped"] is False
+    assert payload["rq_finished"] is (
+        expected_rq_status == platform_harness.JobStatus.FINISHED.value
+    )
+    assert len(status_reads) == (0 if rq_observation == "missing" else 1)
+    assert payload["cleanup_confirmed"] is cleanup_confirmed
+    assert "/" not in rendered
+    assert str(tmp_path) not in rendered
+    assert private_detail not in rendered
+    assert process not in harness._worker_processes
+
+
+def test_rq_terminal_metadata_stabilization_is_bounded_without_sleeping() -> None:
+    from . import platform_harness
+
+    clock = SimpleNamespace(value=0.0)
+    calls: list[float] = []
+
+    class FakeJob:
+        @staticmethod
+        def get_status(*, refresh: bool):
+            assert refresh is True
+            calls.append(clock.value)
+            return platform_harness.JobStatus.STARTED
+
+    status = platform_harness._wait_for_rq_terminal_status(
+        FakeJob(),
+        timeout_seconds=0.2,
+        monotonic=lambda: clock.value,
+        sleep=lambda seconds: setattr(clock, "value", clock.value + seconds),
+    )
+
+    assert status is platform_harness.JobStatus.STARTED
+    assert clock.value == pytest.approx(0.2)
+    assert len(calls) == 5
+
+
+def test_rq_terminal_metadata_stabilization_observes_failed_state() -> None:
+    from . import platform_harness
+
+    statuses = iter(
+        (
+            platform_harness.JobStatus.STARTED,
+            platform_harness.JobStatus.FAILED,
+        )
+    )
+    clock = SimpleNamespace(value=0.0)
+
+    class FakeJob:
+        @staticmethod
+        def get_status(*, refresh: bool):
+            assert refresh is True
+            return next(statuses)
+
+    status = platform_harness._wait_for_rq_terminal_status(
+        FakeJob(),
+        timeout_seconds=1,
+        monotonic=lambda: clock.value,
+        sleep=lambda seconds: setattr(clock, "value", clock.value + seconds),
+    )
+
+    assert status is platform_harness.JobStatus.FAILED
+    assert clock.value == pytest.approx(platform_harness._RQ_TERMINAL_POLL_SECONDS)
+
+
 def test_platform_submission_injects_the_acceptance_process_runner(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

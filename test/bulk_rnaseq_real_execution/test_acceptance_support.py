@@ -994,6 +994,34 @@ def test_evidence_round_trip_is_canonical_and_rejects_tampering() -> None:
         AcceptanceEvidence.from_dict(malformed)
 
 
+def test_evidence_publication_is_atomic_and_preserves_previous_document(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = (tmp_path / "evidence" / "acceptance.json").resolve()
+    destination.parent.mkdir(parents=True)
+    destination.write_text("previous-document\n", encoding="utf-8")
+    private_detail = str(tmp_path / "private-replace-detail")
+
+    def fail_replace(_source, _destination):
+        raise OSError(private_detail)
+
+    monkeypatch.setattr(support_module.os, "replace", fail_replace)
+
+    with pytest.raises(
+        AssertionError,
+        match="^acceptance evidence could not be published$",
+    ) as captured:
+        support_module.write_acceptance_evidence(
+            AcceptanceEvidence.create(_evidence_values()),
+            destination,
+        )
+
+    assert private_detail not in str(captured.value)
+    assert destination.read_text(encoding="utf-8") == "previous-document\n"
+    assert tuple(destination.parent.glob(f".{destination.name}.part-*")) == ()
+
+
 def test_evidence_requires_distinct_artifact_and_qc_attempts() -> None:
     values = _evidence_values()
 

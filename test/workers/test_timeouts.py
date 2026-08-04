@@ -66,6 +66,17 @@ def test_supported_rq_minor_preserves_private_execute_contract():
     assert calls == ["patched"]
 
 
+def test_rq_timeout_wraps_user_execution_after_worker_preparation():
+    """Pin where RQ 2.10 starts the persisted outer job timeout."""
+    source = inspect.getsource(Worker.perform_job)
+
+    prepare_index = source.index("self.prepare_job_execution")
+    timeout_index = source.index("with self.death_penalty_class")
+    user_execution_index = source.index("return_value = job.perform()")
+
+    assert prepare_index < timeout_index < user_execution_index
+
+
 def test_rq_210_stop_callback_and_command_signatures_are_compatible():
     assert tuple(inspect.signature(send_stop_job_command).parameters) == (
         "connection",

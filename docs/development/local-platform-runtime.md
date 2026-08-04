@@ -427,7 +427,18 @@ normal local worker stays running.
 
 `ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS` is the workflow deadline enforced by the
 worker's `ProcessRunner` (seven days by default); it is not the outer RQ timeout.
-RQ sets its job timeout to that deadline plus a fixed 30-second cleanup grace.
+RQ sets its job timeout to a fixed 300-second startup allowance, plus that
+workflow deadline, plus a fixed 30-second cleanup grace. RQ starts this outer
+timer immediately around `Job.perform`, so the startup segment covers bounded
+platform work inside the job before `ProcessRunner` has spawned the workflow:
+runtime composition, persistence/reference revalidation, workspace and command
+construction, and process startup. It does not include queue wait, worker-fork,
+or RQ's `prepare_job_execution` step. The 300-second value is a platform-owned,
+finite single-host allowance, not a user workflow setting or a performance
+benchmark. It bounds the protected single-host startup windows observed across
+the successful and slowed Gate runs (the slowed pre-container window approached
+five minutes) without changing the workflow's own timeout.
+
 The production `encode-worker` uses a phase-aware `DurableWorker`. Its
 death-penalty adapter leaves RQ's configured exception unchanged and converts a
 `JobTimeoutException` to `WorkerHardTimeout` only when the timeout signal is
@@ -448,10 +459,11 @@ independent-process SIGALRM and process-cancellation tests.
 Any RQ minor upgrade must deliberately update that guard and pass the real
 signal test before the supported range is widened.
 
-When the workflow deadline expires, that outer window lets the worker terminate
-the directly spawned Snakemake process, perform a best-effort drain of output
-that is immediately available, and persist the durable failure before RQ
-applies its own timeout. The post-termination drain stops at the first of
+When the workflow deadline expires, the separate cleanup segment in that outer
+window lets the worker terminate the directly spawned Snakemake process, perform
+a best-effort drain of output that is immediately available, and persist the
+durable failure before RQ applies its own timeout. The post-termination drain
+stops at the first of
 256 KiB, eight non-blocking selector iterations, or 50 milliseconds; a
 descendant that keeps a pipe open cannot extend that bounded drain.
 

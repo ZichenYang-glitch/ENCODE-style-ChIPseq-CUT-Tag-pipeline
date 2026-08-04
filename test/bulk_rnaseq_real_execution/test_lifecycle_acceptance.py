@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import time
 
@@ -45,6 +46,7 @@ def test_real_container_execution_is_truthfully_cancelled_and_reaped(
         )
         harness.wait_worker(worker, timeout_seconds=120)
         evidence = harness.collect_terminal(submitted)
+        _assert_terminal_evidence_document(harness, evidence)
 
     assert activity.nextflow_observed is True
     assert activity.managed_container_observed is True
@@ -98,6 +100,7 @@ def test_real_nextflow_timeout_persists_failure_and_reaps_execution_tree(
         harness.wait_worker(worker)
         elapsed_after_activity = time.monotonic() - activity_observed_at
         evidence = harness.collect_terminal(submitted)
+        _assert_terminal_evidence_document(harness, evidence)
 
     assert activity.nextflow_observed is True
     assert activity.process_group_count >= 1
@@ -118,6 +121,44 @@ def test_real_nextflow_timeout_persists_failure_and_reaps_execution_tree(
     assert evidence.rq_stopped is False
     assert evidence.rq_finished is False
     assert evidence.cleanup_confirmed is True
+
+
+def _assert_terminal_evidence_document(
+    harness: PlatformAcceptanceHarness,
+    evidence: TerminalLifecycleEvidence,
+) -> None:
+    destination = (
+        harness.temporary_root
+        / "evidence"
+        / f"terminal-lifecycle-{evidence.run_id}.json"
+    )
+    rendered = destination.read_text(encoding="utf-8")
+    payload = json.loads(rendered)
+
+    assert payload["assertion_reason_code"] is None
+    assert payload["lifecycle_status"] == evidence.lifecycle_status
+    assert payload["lifecycle_history"] == list(evidence.lifecycle_history)
+    assert payload["event_types"] == list(evidence.event_types)
+    assert payload["error_code"] == evidence.error_code
+    assert payload["error_reason_code"] == evidence.error_reason_code
+    assert payload["assignment_dispatched"] is evidence.assignment_dispatched
+    assert payload["assignment_claimed"] is evidence.assignment_claimed
+    assert payload["rq_status"] == evidence.rq_status
+    assert payload["rq_failed"] is evidence.rq_failed
+    assert payload["rq_stopped"] is evidence.rq_stopped
+    assert payload["rq_finished"] is evidence.rq_finished
+    assert payload["cleanup_confirmed"] is evidence.cleanup_confirmed
+    assert "/" not in rendered
+    for private_value in (
+        harness.gate_settings.redis_url,
+        str(harness.gate_settings.runtime_root),
+        str(harness.gate_settings.fixture_manifest),
+        str(harness.gate_settings.docker_executable),
+        str(harness.gate_settings.docker_socket),
+        str(harness.workspace_root),
+        str(harness.reference_profile_config_path),
+    ):
+        assert private_value not in rendered
 
 
 def _assert_no_result_attempts(evidence: TerminalLifecycleEvidence) -> None:
