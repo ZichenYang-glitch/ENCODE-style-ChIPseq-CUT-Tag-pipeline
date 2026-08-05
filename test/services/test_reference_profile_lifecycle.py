@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -47,6 +48,7 @@ from encode_pipeline.services.validated_inputs import (
     ValidatedInputService,
     ValidatedRunCreationService,
     ValidatedSnapshotExecutionUnavailableError,
+    ValidatedSnapshotStaleError,
 )
 from encode_pipeline.services.validation import ValidationService
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
@@ -588,5 +590,84 @@ def test_disable_blocks_unconsumed_snapshot_but_preserves_snapshot_evidence(
             )
             == frozen
         )
+    finally:
+        harness.close()
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    ("missing-binding", "missing-catalog", "identity-drift"),
+)
+def test_snapshot_reference_summary_fails_closed_on_incomplete_evidence(
+    tmp_path: Path,
+    scenario: str,
+) -> None:
+    harness = _LifecycleHarness(tmp_path, "memory")
+    try:
+        revision = harness.register("revision-one", "GRCh38 r1")
+        harness.profiles.enable(PROFILE_ID, revision_id=revision.revision_id)
+        validated = harness.validation.validate(
+            WORKFLOW_ID,
+            WorkflowInputs(config={"user_setting": "visible"}),
+            reference_profile_revision_id=revision.revision_id,
+        )
+        assert validated.value is not None
+        snapshot_id = validated.value.snapshot_id
+        if scenario == "missing-binding":
+            harness.run_repository.get_validated_reference_binding = (  # type: ignore[method-assign]
+                lambda _snapshot_id: None
+            )
+            assert (
+                harness.validation.get_validated_reference_summary(snapshot_id) is None
+            )
+            return
+        if scenario == "missing-catalog":
+            harness.validation._reference_profile_catalog = None
+        else:
+            summary = harness.profiles.get_revision_summary(revision.revision_id)
+            harness.profiles.get_revision_summary = (  # type: ignore[method-assign]
+                lambda _revision_id: replace(
+                    summary,
+                    public_identity_sha256="0" * 64,
+                )
+            )
+
+        with pytest.raises(ValueError):
+            harness.validation.get_validated_reference_summary(snapshot_id)
+    finally:
+        harness.close()
+
+
+@pytest.mark.parametrize("scenario", ("missing-binding", "missing-resolver", "stale"))
+def test_run_creation_rechecks_complete_reference_snapshot_evidence(
+    tmp_path: Path,
+    scenario: str,
+) -> None:
+    harness = _LifecycleHarness(tmp_path, "memory")
+    try:
+        revision = harness.register("revision-one", "GRCh38 r1")
+        harness.profiles.enable(PROFILE_ID, revision_id=revision.revision_id)
+        validated = harness.validation.validate(
+            WORKFLOW_ID,
+            WorkflowInputs(config={"user_setting": "visible"}),
+            reference_profile_revision_id=revision.revision_id,
+        )
+        assert validated.value is not None
+        if scenario == "missing-binding":
+            harness.runs.get_validated_reference_binding = (  # type: ignore[method-assign]
+                lambda _snapshot_id: None
+            )
+            expected_exception = ValidatedSnapshotExecutionUnavailableError
+        elif scenario == "missing-resolver":
+            harness.creation._reference_profile_binding_service = None
+            expected_exception = ValidatedSnapshotExecutionUnavailableError
+        else:
+            second = harness.register("revision-two", "GRCh38 r2")
+            harness.profiles.enable(PROFILE_ID, revision_id=second.revision_id)
+            expected_exception = ValidatedSnapshotStaleError
+
+        with pytest.raises(expected_exception):
+            harness.creation.create_run(WORKFLOW_ID, validated.value.snapshot_id)
+        assert harness.runs.list_runs() == ()
     finally:
         harness.close()

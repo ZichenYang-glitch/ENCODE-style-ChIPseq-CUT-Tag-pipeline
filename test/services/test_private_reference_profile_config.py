@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
 from encode_pipeline.services.private_reference_profiles import (
     PRIVATE_REFERENCE_PROFILE_SCHEMA_VERSION,
+    PrivateReferenceProfileConfig,
     PrivateReferenceProfileConfigError,
     load_private_reference_profile_config,
 )
@@ -23,6 +25,11 @@ def _document(secret_path: str) -> dict[str, object]:
                     "bulk-rnaseq": {
                         "fasta": secret_path,
                         "fasta_sha256": "a" * 64,
+                        "aliases": [secret_path, {"label": "primary"}],
+                        "optional": None,
+                        "enabled": True,
+                        "priority": 1,
+                        "weight": 1.5,
                     }
                 }
             }
@@ -110,3 +117,147 @@ def test_private_reference_config_unknown_key_is_redacted(tmp_path) -> None:
     rendered = f"{captured.value!s} {captured.value!r}"
     assert "grch38-primary" not in rendered
     assert "/secret" not in rendered
+
+
+@pytest.mark.parametrize(
+    ("suffix", "document"),
+    (
+        (".json", '{"schema_version":"helixweave-reference-profiles-v1"}'),
+        (
+            ".json",
+            '{"schema_version":"helixweave-reference-profiles-v1","profiles":{}}',
+        ),
+        (
+            ".json",
+            '{"schema_version":"helixweave-reference-profiles-v1",'
+            '"profiles":{"grch38-primary":{}}}',
+        ),
+        (
+            ".json",
+            '{"schema_version":"helixweave-reference-profiles-v1",'
+            '"profiles":{"grch38-primary":{"bindings":{}}}}',
+        ),
+        (
+            ".json",
+            '{"schema_version":"helixweave-reference-profiles-v1",'
+            '"profiles":{"grch38-primary":{"bindings":'
+            '{"bulk-rnaseq":[]}}}}',
+        ),
+        (
+            ".json",
+            '{"schema_version":"helixweave-reference-profiles-v1",'
+            '"profiles":{"grch38-primary":{"bindings":'
+            '{"bulk-rnaseq":{"weight":NaN}}}}}',
+        ),
+        (
+            ".yaml",
+            "schema_version: helixweave-reference-profiles-v1\n"
+            "profiles:\n"
+            "  grch38-primary:\n"
+            "    bindings:\n"
+            "      bulk-rnaseq:\n"
+            "        weight: .nan\n",
+        ),
+        (
+            ".yaml",
+            "schema_version: helixweave-reference-profiles-v1\n"
+            "profiles: {}\n"
+            "---\n"
+            "profiles: {}\n",
+        ),
+        (
+            ".yaml",
+            "schema_version: helixweave-reference-profiles-v1\n"
+            "profiles:\n"
+            "  ? [invalid, key]\n"
+            "  : {bindings: {bulk-rnaseq: {}}}\n",
+        ),
+        (
+            ".json",
+            '{"schema_version":"helixweave-reference-profiles-v1",'
+            '"profiles":{"grch38-primary":{"bindings":'
+            '{"bulk-rnaseq":{"label":"unsafe\\u0001value"}}}}}',
+        ),
+        (
+            ".yaml",
+            "schema_version: helixweave-reference-profiles-v1\n"
+            "profiles:\n"
+            "  grch38-primary:\n"
+            "    bindings:\n"
+            "      bulk-rnaseq:\n"
+            "        generated: 2026-08-05\n",
+        ),
+    ),
+)
+def test_private_reference_config_rejects_malformed_operator_documents(
+    tmp_path: Path,
+    suffix: str,
+    document: str,
+) -> None:
+    path = tmp_path / f"references{suffix}"
+    path.write_text(document, encoding="utf-8")
+
+    with pytest.raises(PrivateReferenceProfileConfigError) as captured:
+        load_private_reference_profile_config(path)
+
+    assert captured.value.reason_code == "REFERENCE_PROFILE_CONFIG_INVALID"
+    assert str(path) not in str(captured.value)
+
+
+def test_private_reference_config_rejects_missing_and_oversized_files(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "missing.json"
+    oversized = tmp_path / "oversized.json"
+    oversized.write_bytes(b" " * (64 * 1024 + 1))
+
+    for path in (missing, oversized):
+        with pytest.raises(PrivateReferenceProfileConfigError) as captured:
+            load_private_reference_profile_config(path)
+        assert str(path) not in str(captured.value)
+
+
+def test_private_reference_config_validates_lookup_keys_and_returns_copies() -> None:
+    config = PrivateReferenceProfileConfig(
+        {
+            "grch38-primary": {
+                "bulk-rnaseq": {
+                    "assets": ["genome.fa", {"index": "star"}],
+                }
+            }
+        }
+    )
+
+    first = config.binding_for("grch38-primary", "bulk-rnaseq")
+    second = config.binding_for("grch38-primary", "bulk-rnaseq")
+    assert first == second
+    assert first is not second
+    assert first["assets"] is not second["assets"]
+
+    for operation in (
+        lambda: config.workflow_ids_for("missing"),
+        lambda: config.workflow_ids_for("../invalid"),
+        lambda: config.binding_for("grch38-primary", "../invalid"),
+    ):
+        with pytest.raises(PrivateReferenceProfileConfigError):
+            operation()
+
+    malformed = PrivateReferenceProfileConfig(
+        {"grch38-primary": {"bulk-rnaseq": []}}  # type: ignore[dict-item]
+    )
+    with pytest.raises(PrivateReferenceProfileConfigError):
+        malformed.binding_for("grch38-primary", "bulk-rnaseq")
+
+
+def test_private_reference_config_rejects_excessive_nesting(tmp_path: Path) -> None:
+    nested: object = "value"
+    for _ in range(25):
+        nested = [nested]
+    document = _document("/secret/genome.fa")
+    bindings = document["profiles"]["grch38-primary"]["bindings"]  # type: ignore[index]
+    bindings["bulk-rnaseq"]["nested"] = nested  # type: ignore[index]
+    path = tmp_path / "references.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(PrivateReferenceProfileConfigError):
+        load_private_reference_profile_config(path)

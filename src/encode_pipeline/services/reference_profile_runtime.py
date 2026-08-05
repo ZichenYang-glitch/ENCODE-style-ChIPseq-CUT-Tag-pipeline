@@ -124,9 +124,10 @@ class ReferenceProfileBindingService:
                 "_REFERENCE_BINDING_INVALID",
                 "_REFERENCE_BINDING_UNAVAILABLE",
             )
-            if bound.issues and not all(
+            has_private_operator_failure = any(
                 issue.code.endswith(operator_failure_suffixes) for issue in bound.issues
-            ):
+            )
+            if bound.issues and not has_private_operator_failure:
                 return Result.failure(bound.issues)
             return _failure("REFERENCE_PROFILE_BINDING_INVALID")
         if (
@@ -263,6 +264,11 @@ def _call_verify(
         return _failure("REFERENCE_PROFILE_BINDING_INVALID")
     if not isinstance(result, Result):
         return _failure("REFERENCE_PROFILE_BINDING_INVALID")
+    if result.is_success and not isinstance(
+        result.value,
+        AdapterReferenceBindingIdentity,
+    ):
+        return _failure("REFERENCE_PROFILE_BINDING_INVALID")
     return result
 
 
@@ -276,6 +282,8 @@ def _call_bind(
     except Exception:
         return _failure("REFERENCE_PROFILE_BINDING_INVALID")
     if not isinstance(result, Result):
+        return _failure("REFERENCE_PROFILE_BINDING_INVALID")
+    if result.is_success and not isinstance(result.value, BoundWorkflowReference):
         return _failure("REFERENCE_PROFILE_BINDING_INVALID")
     return result
 

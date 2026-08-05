@@ -345,6 +345,11 @@ def _call_verify(
         return _failure("REFERENCE_PROFILE_BINDING_INVALID")
     if not isinstance(result, Result):
         return _failure("REFERENCE_PROFILE_BINDING_INVALID")
+    if result.is_success and not isinstance(
+        result.value,
+        AdapterReferenceBindingIdentity,
+    ):
+        return _failure("REFERENCE_PROFILE_BINDING_INVALID")
     return result
 
 
