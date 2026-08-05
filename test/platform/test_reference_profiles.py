@@ -15,6 +15,7 @@ from encode_pipeline.platform.reference_profiles import (
     BoundWorkflowReference,
     ReferenceProfile,
     ReferenceProfileWorkflowBinding,
+    ResolvedReferenceProfile,
     build_reference_profile_revision,
     build_reference_profile_revision_binding,
 )
@@ -99,6 +100,147 @@ def test_profile_and_revision_reject_unsafe_or_ambiguous_identity() -> None:
             ),
             created_at=NOW,
         )
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_exception", "message"),
+    (
+        (
+            "adapter-digest-shape",
+            ValueError,
+            "identity_sha256 must be a lowercase SHA-256 digest",
+        ),
+        ("adapter-scheme", ValueError, "identity_scheme is unsupported"),
+        (
+            "summary-workflow-order",
+            ValueError,
+            "compatible_workflow_ids must be sorted and unique",
+        ),
+        ("summary-enabled-type", ValueError, "enabled must be boolean"),
+        (
+            "revision-empty-bindings",
+            ValueError,
+            "workflow_bindings must contain at least one binding",
+        ),
+        (
+            "revision-scheme",
+            ValueError,
+            "public_identity_scheme is unsupported",
+        ),
+        (
+            "revision-digest",
+            ValueError,
+            "public_identity_sha256 does not match revision",
+        ),
+        (
+            "evidence-binding-scheme",
+            ValueError,
+            "binding_digest_scheme is unsupported",
+        ),
+        (
+            "builder-adapter-type",
+            ValueError,
+            "adapter_identity must be an AdapterReferenceBindingIdentity",
+        ),
+        (
+            "builder-workflow-mismatch",
+            ValueError,
+            "adapter identity workflow does not match evidence",
+        ),
+        (
+            "resolved-identity-mismatch",
+            ValueError,
+            "resolved reference identities do not match",
+        ),
+    ),
+)
+def test_reference_profile_integrity_guards_fail_closed(
+    case: str,
+    expected_exception: type[Exception],
+    message: str,
+) -> None:
+    identity = _adapter_identity()
+    workflow_binding = ReferenceProfileWorkflowBinding.from_adapter_identity(identity)
+    revision = build_reference_profile_revision(
+        revision_id=REVISION_ID,
+        profile_id=PROFILE_ID,
+        revision_number=1,
+        display_name="GRCh38 primary",
+        organism="Homo sapiens",
+        assembly="GRCh38",
+        config_key="grch38-primary",
+        workflow_bindings=(workflow_binding,),
+        created_at=NOW,
+    )
+    summary = revision.public_summary(safe_key="grch38", enabled=True)
+    evidence = build_reference_profile_revision_binding(
+        profile_id=PROFILE_ID,
+        revision_id=REVISION_ID,
+        workflow_id="bulk-rnaseq",
+        revision_public_identity_sha256=revision.public_identity_sha256,
+        adapter_identity=identity,
+        bound_at=NOW,
+    )
+    bound = BoundWorkflowReference(
+        inputs=WorkflowInputs(config={}, samples=None, options={}),
+        adapter=object(),
+        identity=identity,
+    )
+    operations = {
+        "adapter-digest-shape": lambda: replace(
+            identity,
+            identity_sha256="3" * 63,
+        ),
+        "adapter-scheme": lambda: replace(
+            identity,
+            identity_scheme="unsupported",
+        ),
+        "summary-workflow-order": lambda: replace(
+            summary,
+            compatible_workflow_ids=("encode-chipseq", "bulk-rnaseq"),
+        ),
+        "summary-enabled-type": lambda: replace(summary, enabled=1),
+        "revision-empty-bindings": lambda: replace(
+            revision,
+            workflow_bindings=(),
+        ),
+        "revision-scheme": lambda: replace(
+            revision,
+            public_identity_scheme="unsupported",
+        ),
+        "revision-digest": lambda: replace(
+            revision,
+            public_identity_sha256="0" * 64,
+        ),
+        "evidence-binding-scheme": lambda: replace(
+            evidence,
+            binding_digest_scheme="unsupported",
+        ),
+        "builder-adapter-type": lambda: build_reference_profile_revision_binding(
+            profile_id=PROFILE_ID,
+            revision_id=REVISION_ID,
+            workflow_id="bulk-rnaseq",
+            revision_public_identity_sha256=revision.public_identity_sha256,
+            adapter_identity=object(),
+            bound_at=NOW,
+        ),
+        "builder-workflow-mismatch": lambda: build_reference_profile_revision_binding(
+            profile_id=PROFILE_ID,
+            revision_id=REVISION_ID,
+            workflow_id="encode-chipseq",
+            revision_public_identity_sha256=revision.public_identity_sha256,
+            adapter_identity=identity,
+            bound_at=NOW,
+        ),
+        "resolved-identity-mismatch": lambda: ResolvedReferenceProfile(
+            summary=replace(summary, revision_id="refpr_" + "9" * 32),
+            evidence=evidence,
+            bound_reference=bound,
+        ),
+    }
+
+    with pytest.raises(expected_exception, match=message):
+        operations[case]()
 
 
 def test_bound_reference_and_snapshot_run_evidence_pin_exact_identity() -> None:

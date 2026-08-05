@@ -226,6 +226,135 @@ def test_acceptance_process_runner_rejects_docker_binding_drift(
         raise AssertionError("Docker binding drift was accepted")
 
 
+def test_execution_activity_refreshes_claimed_job_before_observing_worker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from encode_pipeline.platform.runs import RunStatus
+    from encode_pipeline.services import runs as runs_module
+    from . import platform_harness
+
+    harness = _private_config_harness(tmp_path, monkeypatch)
+    submitted = platform_harness.SubmittedAcceptanceRun(
+        run_id="run-observe-claimed-worker",
+        job_id="run-execution-observe-claimed-worker",
+        validated_snapshot_id="vsnap_observe_claimed_worker",
+        fixture_acceptance_manifest_sha256="a" * 64,
+    )
+    full_refreshes: list[None] = []
+    status_refreshes: list[bool] = []
+    worker_reads: list[int] = []
+
+    class FakeJob:
+        def __init__(self) -> None:
+            self._status = platform_harness.JobStatus.QUEUED
+            self._worker_name: str | None = None
+
+        @property
+        def worker_name(self) -> str | None:
+            worker_reads.append(len(full_refreshes))
+            return self._worker_name
+
+        def refresh(self) -> None:
+            full_refreshes.append(None)
+            self._status = platform_harness.JobStatus.STARTED
+            self._worker_name = "worker-observe-claimed-worker"
+
+        def get_status(self, *, refresh: bool = False):
+            status_refreshes.append(refresh)
+            if refresh:
+                self._status = platform_harness.JobStatus.STARTED
+            return self._status
+
+    class FakeProcess:
+        pid = 987_654_321
+
+        @staticmethod
+        def poll() -> None:
+            return None
+
+    record = SimpleNamespace(status=RunStatus.RUNNING)
+    assignment = SimpleNamespace(
+        dispatched_at=object(),
+        claimed_at=object(),
+    )
+
+    class FakeRunService:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        @staticmethod
+        def get_run(run_id):
+            assert run_id == submitted.run_id
+            return record
+
+        @staticmethod
+        def get_execution_assignment(run_id):
+            assert run_id == submitted.run_id
+            return assignment
+
+    job = FakeJob()
+    process = FakeProcess()
+    harness._submitted.append(submitted)
+    harness._worker_processes.append(process)
+    harness._run_queue = SimpleNamespace(
+        _queue=SimpleNamespace(
+            fetch_job=lambda job_id: job if job_id == submitted.job_id else None
+        )
+    )
+    monkeypatch.setattr(runs_module, "RunService", FakeRunService)
+    monkeypatch.setattr(
+        platform_harness,
+        "open_run_persistence",
+        lambda _database_url: SimpleNamespace(
+            repository=object(),
+            close=lambda: None,
+        ),
+    )
+    monkeypatch.setattr(
+        platform_harness.ManagedContainerCleaner,
+        "_endpoint_identities",
+        lambda _self: ((1, 2, 3), (4, 5, 6)),
+    )
+    monkeypatch.setattr(
+        platform_harness.ManagedContainerCleaner,
+        "verify_endpoint",
+        lambda _self: SimpleNamespace(is_failure=False),
+    )
+    monkeypatch.setattr(
+        platform_harness,
+        "_worker_session_nextflow_processes",
+        lambda *_args, **_kwargs: (123,),
+    )
+    monkeypatch.setattr(
+        platform_harness,
+        "_worker_session_process_groups",
+        lambda *_args, **_kwargs: (456,),
+    )
+
+    def reject_another_poll(_seconds: float) -> None:
+        raise AssertionError("activity observer did not discover the claimed worker")
+
+    monkeypatch.setattr(platform_harness.time, "sleep", reject_another_poll)
+
+    evidence = harness.wait_for_execution_activity(
+        submitted,
+        process,
+        require_managed_container=False,
+        timeout_seconds=1,
+    )
+
+    assert evidence == platform_harness.ExecutionActivityEvidence(
+        worker_session_id=process.pid,
+        process_group_count=1,
+        nextflow_observed=True,
+        managed_container_observed=False,
+    )
+    assert full_refreshes == [None]
+    assert status_refreshes == [False]
+    assert worker_reads == [1]
+
+
 @pytest.mark.parametrize(
     "cleanup_observation",
     ["clean", "residual", "constructor-error"],

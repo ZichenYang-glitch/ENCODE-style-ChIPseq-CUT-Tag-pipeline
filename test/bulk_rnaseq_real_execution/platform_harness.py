@@ -393,7 +393,9 @@ class PlatformAcceptanceHarness:
                     if job is None:
                         raise AssertionError("accepted RQ job state is unavailable")
                 try:
-                    rq_status = job.get_status(refresh=True)
+                    job.refresh()
+                    worker_name = job.worker_name
+                    rq_status = job.get_status(refresh=False)
                 except Exception:
                     raise AssertionError(
                         "accepted RQ job state is unavailable"
@@ -408,7 +410,7 @@ class PlatformAcceptanceHarness:
                     and assignment.dispatched_at is not None
                     and assignment.claimed_at is not None
                     and rq_status is JobStatus.STARTED
-                    and bool(job.worker_name)
+                    and bool(worker_name)
                 ):
                     nextflow_observed = nextflow_observed or bool(
                         _worker_session_nextflow_processes(
