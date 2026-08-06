@@ -10,6 +10,10 @@ import pytest
 import encode_pipeline.services.run_submission as run_submission_module
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.execution import RunExecutionAssignment
+from encode_pipeline.platform.reference_profiles import (
+    AdapterReferenceBindingIdentity,
+    BoundWorkflowReference,
+)
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.registry import WorkflowRegistry
@@ -58,6 +62,24 @@ class RecordingRunQueue:
         )
 
 
+class PassthroughReferenceBindingResolver:
+    def __init__(self, adapter) -> None:
+        self.adapter = adapter
+
+    def resolve_run(self, _run_id, workflow_id, inputs, **_kwargs):
+        return Result.success(
+            BoundWorkflowReference(
+                inputs=inputs,
+                adapter=self.adapter,
+                identity=AdapterReferenceBindingIdentity(
+                    workflow_id=workflow_id,
+                    contract_version="test-passthrough-v1",
+                    identity_sha256="a" * 64,
+                ),
+            )
+        )
+
+
 def _service() -> RunService:
     return RunService(
         registry=create_default_workflow_registry(),
@@ -71,6 +93,9 @@ def _submission(run_service: RunService, queue: RecordingRunQueue):
         queue,
         build_identity_provider=create_default_workflow_build_identity_provider(
             registry=run_service.registry
+        ),
+        reference_profile_resolver=PassthroughReferenceBindingResolver(
+            run_service.registry.get(WORKFLOW_ID)
         ),
     )
 
@@ -132,6 +157,25 @@ def test_start_rejects_legacy_planned_run_without_build_identity():
     assert queue.assignments == []
 
 
+def test_start_rejects_reference_capable_planned_run_without_resolver():
+    run_service = _service()
+    _planned_run(run_service)
+    queue = RecordingRunQueue()
+
+    with pytest.raises(RunExecutionUnavailableError):
+        RunSubmissionService(
+            run_service,
+            queue,
+            build_identity_provider=create_default_workflow_build_identity_provider(
+                registry=run_service.registry
+            ),
+        ).start_run("run-1")
+
+    assert run_service.get_run("run-1").status is RunStatus.PLANNED
+    assert run_service.get_execution_assignment("run-1") is None
+    assert queue.assignments == []
+
+
 def test_start_rechecks_current_build_before_reserving_or_enqueueing(monkeypatch):
     run_service = _service()
     _planned_run(run_service)
@@ -141,8 +185,8 @@ def test_start_rechecks_current_build_before_reserving_or_enqueueing(monkeypatch
     )
     monkeypatch.setattr(
         provider,
-        "capture",
-        lambda _workflow_id: Result.failure(
+        "capture_resolved_executable",
+        lambda _adapter: Result.failure(
             [
                 Issue(
                     code="PRIVATE_RUNTIME_FAILURE",
@@ -155,6 +199,9 @@ def test_start_rechecks_current_build_before_reserving_or_enqueueing(monkeypatch
         run_service,
         queue,
         build_identity_provider=provider,
+        reference_profile_resolver=PassthroughReferenceBindingResolver(
+            run_service.registry.get(WORKFLOW_ID)
+        ),
     )
 
     with pytest.raises(RunExecutionUnavailableError):
@@ -176,13 +223,16 @@ def test_start_rejects_changed_build_before_reserving_or_enqueueing(monkeypatch)
     )
     monkeypatch.setattr(
         provider,
-        "capture",
-        lambda _workflow_id: Result.success(replace(persisted, digest="f" * 64)),
+        "capture_resolved_executable",
+        lambda _adapter: Result.success(replace(persisted, digest="f" * 64)),
     )
     submission = RunSubmissionService(
         run_service,
         queue,
         build_identity_provider=provider,
+        reference_profile_resolver=PassthroughReferenceBindingResolver(
+            run_service.registry.get(WORKFLOW_ID)
+        ),
     )
 
     with pytest.raises(RunWorkflowBuildChangedError):
@@ -469,6 +519,9 @@ def test_queued_retry_rechecks_build_identity_before_enqueue(monkeypatch) -> Non
         run_service,
         queue,
         build_identity_provider=provider,
+        reference_profile_resolver=PassthroughReferenceBindingResolver(
+            run_service.registry.get(WORKFLOW_ID)
+        ),
     )
     submission.start_run("run-1")
     queue.assignments.clear()
@@ -479,8 +532,8 @@ def test_queued_retry_rechecks_build_identity_before_enqueue(monkeypatch) -> Non
     before_assignment = run_service.get_execution_assignment("run-1")
     monkeypatch.setattr(
         provider,
-        "capture",
-        lambda _workflow_id: Result.success(replace(persisted, digest="f" * 64)),
+        "capture_resolved_executable",
+        lambda _adapter: Result.success(replace(persisted, digest="f" * 64)),
     )
 
     with pytest.raises(RunWorkflowBuildChangedError):

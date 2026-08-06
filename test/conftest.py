@@ -2,6 +2,8 @@
 
 import asyncio
 import csv
+import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -48,6 +50,82 @@ def isolate_api_database(request, monkeypatch):
         f"sqlite:///{tmp_path / 'platform.db'}",
     )
     yield
+
+
+@pytest.fixture
+def reference_ready_app(tmp_path, monkeypatch):
+    """Return an API app with one enabled, operator-prepared tiny ENCODE profile."""
+    from encode_pipeline.api.main import create_app
+
+    reference_root = tmp_path / "operator-reference"
+    resources = {}
+    for name, suffix, content in (
+        ("reference_fasta", "fa", b">chr1\nACGT\n"),
+        ("gtf", "gtf", b'chr1\ttest\texon\t1\t4\t.\t+\t.\tgene_id "g1";\n'),
+        ("chrom_sizes", "sizes", b"chr1\t4\n"),
+        ("blacklist", "bed", b"chr1\t1\t2\n"),
+    ):
+        path = reference_root / f"{name}.{suffix}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        resources[name] = {
+            "path": str(path),
+            "sha256": hashlib.sha256(content).hexdigest(),
+        }
+    prefix = reference_root / "bowtie2" / "GRCh38"
+    index_files = {}
+    for suffix in (
+        ".1.bt2",
+        ".2.bt2",
+        ".3.bt2",
+        ".4.bt2",
+        ".rev.1.bt2",
+        ".rev.2.bt2",
+    ):
+        path = Path(f"{prefix}{suffix}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        content = suffix.encode("ascii")
+        path.write_bytes(content)
+        index_files[suffix] = hashlib.sha256(content).hexdigest()
+    binding = {
+        "schema_version": "encode-reference-binding-v1",
+        "assembly": "GRCh38",
+        "effective_genome_size": "hs",
+        "genome_resources": resources,
+        "bowtie2_index": {"prefix": str(prefix), "files": index_files},
+    }
+    private_config = tmp_path / "operator-reference-profiles.json"
+    private_config.write_text(
+        json.dumps(
+            {
+                "schema_version": "helixweave-reference-profiles-v1",
+                "profiles": {
+                    "grch38-test": {
+                        "bindings": {"encode-style-chipseq-cuttag-atac-mnase": binding}
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(
+        "ENCODE_PIPELINE_REFERENCE_PROFILE_CONFIG",
+        str(private_config),
+    )
+    app = create_app()
+    summary = app.state.reference_profile_service.register(
+        safe_key="grch38-test",
+        display_name="GRCh38 tiny",
+        organism="Homo sapiens",
+        assembly="GRCh38",
+        config_key="grch38-test",
+    )
+    enabled = app.state.reference_profile_service.enable(
+        summary.profile_id,
+        revision_id=summary.revision_id,
+    )
+    app.state.test_reference_profile = enabled
+    return app
 
 
 async def _run_in_joined_test_thread(function, *args, **kwargs):

@@ -26,6 +26,10 @@ from encode_pipeline.platform.adapters import (
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.reference_profiles import (
+    AdapterReferenceBindingIdentity,
+    BoundWorkflowReference,
+)
 from encode_pipeline.platform.result_generations import (
     ARTIFACT_PATH_IDENTITY_METADATA_KEY,
     build_artifact_path_identity,
@@ -56,6 +60,7 @@ class QcAdapter:
         self.failure = False
         self.source_types = ("qc_summary",)
         self.identity_root = None
+        self.identity_digest = None
 
     def schema(self):
         return WorkflowSchema()
@@ -99,11 +104,14 @@ class QcAdapter:
     def capture_build_identity(self):
         if self.identity_root is None:
             return Result.failure(())
-        digest = sha256(
-            (
-                self.identity_root / "src/encode_pipeline/adapters/encode_qc.py"
-            ).read_bytes()
-        ).hexdigest()
+        digest = (
+            self.identity_digest
+            or sha256(
+                (
+                    self.identity_root / "src/encode_pipeline/adapters/encode_qc.py"
+                ).read_bytes()
+            ).hexdigest()
+        )
         return Result.success(
             WorkflowBuildIdentity(
                 workflow_id=self.metadata.workflow_id,
@@ -114,6 +122,14 @@ class QcAdapter:
                 captured_at=datetime.now(timezone.utc),
             )
         )
+
+
+class ReferenceQcAdapter(QcAdapter):
+    def verify_reference_profile_binding(self, _payload):
+        return Result.failure(())
+
+    def bind_reference_profile(self, _inputs, _payload):
+        return Result.failure(())
 
 
 class NoQcAdapter:
@@ -295,6 +311,8 @@ def _service(
     status=RunStatus.SUCCEEDED,
     artifacts=None,
     run_id="run-1",
+    reference_profile_resolver=None,
+    build_adapter=None,
 ):
     registry = WorkflowRegistry([adapter])
     run_service = RunService(registry, id_factory=lambda: run_id)
@@ -306,7 +324,11 @@ def _service(
         adapter.identity_root = provider.project_root
     run_service.create_run("fake", WorkflowInputs(config={}))
     run_service.transition_run(run_id, RunStatus.VALIDATING)
-    identity_result = provider.capture("fake")
+    if build_adapter is not None:
+        build_adapter.identity_root = provider.project_root
+        identity_result = provider.capture_resolved_executable(build_adapter)
+    else:
+        identity_result = provider.capture("fake")
     identity = (
         identity_result.value
         if identity_result.is_success
@@ -335,6 +357,7 @@ def _service(
         registry=registry,
         build_identity_provider=provider,
         workspace_root=workspace_root,
+        reference_profile_resolver=reference_profile_resolver,
     )
     return service, run_service, workspace, provider, artifact_set
 
@@ -367,6 +390,132 @@ def test_index_builds_deterministic_metrics_and_is_idempotent(tmp_path):
     assert [event.event_type for event in run_service.list_events("run-1")].count(
         "qc_metrics_indexed"
     ) == 1
+
+
+def test_qc_indexing_reverifies_reference_and_uses_bound_context(tmp_path):
+    base_adapter = QcAdapter(())
+    bound_adapter = QcAdapter((_candidate(),))
+    bound_adapter.identity_digest = "b" * 64
+    artifact = _artifact()
+    private_inputs = WorkflowInputs(
+        config={"reference": "/operator/private/reference.fa"},
+    )
+
+    class _Resolver:
+        def __init__(self):
+            self.calls = []
+
+        def resolve_run(self, run_id, workflow_id, inputs, *, require_enabled):
+            self.calls.append((run_id, workflow_id, inputs, require_enabled))
+            return Result.success(
+                BoundWorkflowReference(
+                    inputs=private_inputs,
+                    adapter=bound_adapter,
+                    identity=AdapterReferenceBindingIdentity(
+                        workflow_id="fake",
+                        contract_version="fake-reference-v1",
+                        identity_sha256="a" * 64,
+                    ),
+                )
+            )
+
+    resolver = _Resolver()
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        base_adapter,
+        artifacts=(artifact,),
+        reference_profile_resolver=resolver,
+        build_adapter=bound_adapter,
+    )
+    (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
+
+    result = service.index("run-1", artifacts)
+
+    assert result.is_success
+    assert base_adapter.calls == 0
+    assert bound_adapter.calls == 1
+    assert resolver.calls[0][:2] == ("run-1", "fake")
+    assert resolver.calls[0][3] is False
+
+
+def test_qc_indexing_rejects_persisted_reference_without_resolver(
+    tmp_path,
+    monkeypatch,
+):
+    artifact = _artifact()
+    adapter = ReferenceQcAdapter(())
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(artifact,),
+    )
+    (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
+    monkeypatch.setattr(
+        run_service,
+        "get_run_reference_binding",
+        lambda _run_id: object(),
+    )
+
+    result = service.index("run-1", artifacts)
+
+    assert result.is_failure
+    assert result.issues[0].context["reason_code"] == (
+        "QC_INDEXING_REFERENCE_UNAVAILABLE"
+    )
+
+
+def test_qc_indexing_missing_resolver_validates_reference_capable_legacy(tmp_path):
+    artifact = _artifact()
+    adapter = ReferenceQcAdapter(())
+    service, run_service, workspace, _provider, artifacts = _service(
+        tmp_path,
+        adapter,
+        artifacts=(artifact,),
+    )
+    (workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    artifacts = _replace_with_current_path_identities(
+        run_service,
+        workspace,
+        artifacts,
+    )
+
+    assert service.index("run-1", artifacts).is_success
+
+    adapter.validate = lambda _inputs: Result.failure(
+        [Issue(code="REFERENCE_REQUIRED", message="Reference is required.")]
+    )
+    (
+        failed_service,
+        failed_run_service,
+        failed_workspace,
+        _provider,
+        failed_artifacts,
+    ) = _service(
+        tmp_path / "new",
+        adapter,
+        artifacts=(artifact,),
+    )
+    (failed_workspace / "results/summary.tsv").write_bytes(b"safe-qc\n")
+    failed_artifacts = _replace_with_current_path_identities(
+        failed_run_service,
+        failed_workspace,
+        failed_artifacts,
+    )
+    failed = failed_service.index("run-1", failed_artifacts)
+    assert failed.is_failure
+    assert failed.issues[0].context["reason_code"] == (
+        "QC_INDEXING_REFERENCE_UNAVAILABLE"
+    )
 
 
 @pytest.mark.parametrize("replacement_kind", ["file", "parent"])

@@ -174,6 +174,7 @@ class LocalExecutionService:
         workspace_result = self._workspace_planner.plan_workspace(
             plan_result.value,
             base_dir=workspace_dir,
+            require_reference_enabled=False,
         )
         if workspace_result.is_failure:
             return workspace_result
@@ -188,6 +189,7 @@ class LocalExecutionService:
         command_result = self._command_builder.build_command(
             workspace_result.value,
             workspace_dir,
+            require_reference_enabled=False,
         )
         if command_result.is_failure:
             return command_result

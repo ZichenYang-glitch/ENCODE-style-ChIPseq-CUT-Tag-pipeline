@@ -19,6 +19,7 @@ from encode_pipeline.services.run_queue import RunQueue
 from encode_pipeline.workers.rq_queue import (
     FAILURE_TTL_SECONDS,
     RQ_JOB_CLEANUP_GRACE_SECONDS,
+    RQ_JOB_STARTUP_ALLOWANCE_SECONDS,
     RESULT_TTL_SECONDS,
     RqRunQueue,
     RunQueueIdentityError,
@@ -55,7 +56,11 @@ def test_rq_run_queue_enqueues_only_run_id_with_canonical_job_identity(tmp_path)
     assert job.serializer is JSONSerializer
     assert job.timeout == rq_job_timeout_seconds(configured.job_timeout_seconds)
     assert job.timeout - configured.job_timeout_seconds == (
-        RQ_JOB_CLEANUP_GRACE_SECONDS
+        RQ_JOB_STARTUP_ALLOWANCE_SECONDS + RQ_JOB_CLEANUP_GRACE_SECONDS
+    )
+    assert RQ_JOB_STARTUP_ALLOWANCE_SECONDS == 300
+    assert job.timeout - configured.job_timeout_seconds == (
+        rq_queue.RQ_JOB_STARTUP_ALLOWANCE_SECONDS + RQ_JOB_CLEANUP_GRACE_SECONDS
     )
     assert job.result_ttl == RESULT_TTL_SECONDS
     assert job.failure_ttl == FAILURE_TTL_SECONDS
@@ -64,7 +69,18 @@ def test_rq_run_queue_enqueues_only_run_id_with_canonical_job_identity(tmp_path)
 
 
 def test_rq_timeout_keeps_fixed_cleanup_window_for_one_second_workflow():
-    assert rq_job_timeout_seconds(1) == 1 + RQ_JOB_CLEANUP_GRACE_SECONDS
+    assert rq_job_timeout_seconds(1) == (
+        RQ_JOB_STARTUP_ALLOWANCE_SECONDS + 1 + RQ_JOB_CLEANUP_GRACE_SECONDS
+    )
+
+
+def test_pre_spawn_work_cannot_consume_the_process_runner_or_cleanup_budgets():
+    workflow_timeout_seconds = 20
+    pre_spawn_seconds = RQ_JOB_CLEANUP_GRACE_SECONDS + 1
+    process_runner_deadline = pre_spawn_seconds + workflow_timeout_seconds
+    required_outer_deadline = process_runner_deadline + RQ_JOB_CLEANUP_GRACE_SECONDS
+
+    assert rq_job_timeout_seconds(workflow_timeout_seconds) >= required_outer_deadline
 
 
 def test_redis_connection_profiles_keep_api_commands_bounded_and_worker_reads_blocking(

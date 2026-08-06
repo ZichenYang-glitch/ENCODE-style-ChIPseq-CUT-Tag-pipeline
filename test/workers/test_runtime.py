@@ -21,6 +21,10 @@ from encode_pipeline.services.artifact_extraction import ArtifactExtractionServi
 from encode_pipeline.services.preflight import LocalPreflightService
 from encode_pipeline.services.process_runner import ProcessRunner
 from encode_pipeline.services.qc_summary_indexing import QcSummaryIndexingService
+from encode_pipeline.services.reference_profile_runtime import (
+    ReferenceProfileBindingService,
+    ReferenceProfileRuntimeResolver,
+)
 from encode_pipeline.workers.runtime import WorkerRuntime, open_worker_runtime
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
 
@@ -68,6 +72,30 @@ def test_open_worker_runtime_reopens_sqlite_and_full_execution_dependencies(tmp_
             QcSummaryIndexingService,
         )
         assert isinstance(runtime.preflight_service, LocalPreflightService)
+        assert isinstance(
+            runtime.reference_profile_binding_service,
+            ReferenceProfileBindingService,
+        )
+        assert isinstance(
+            runtime.reference_profile_resolver,
+            ReferenceProfileRuntimeResolver,
+        )
+        assert (
+            runtime.workspace_planner._reference_profile_resolver
+            is runtime.reference_profile_resolver
+        )
+        assert (
+            runtime.command_builder._reference_profile_resolver
+            is runtime.reference_profile_resolver
+        )
+        assert (
+            runtime.artifact_extraction_service._reference_profile_resolver
+            is runtime.reference_profile_resolver
+        )
+        assert (
+            runtime.qc_summary_indexing_service._reference_profile_resolver
+            is runtime.reference_profile_resolver
+        )
         assert runtime.local_run_driver._workspace_root == configured.workspace_root
         process_timeout = runtime.local_run_driver._process_runner._timeout_seconds
         assert process_timeout == configured.job_timeout_seconds

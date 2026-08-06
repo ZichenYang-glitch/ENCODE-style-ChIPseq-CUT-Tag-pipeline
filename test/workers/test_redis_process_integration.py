@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import os
 from pathlib import Path
 import subprocess
@@ -19,18 +20,27 @@ from encode_pipeline.services.defaults import (
     create_default_run_service,
     create_default_workflow_registry,
 )
-from encode_pipeline.workers.rq_queue import RqRunQueue
+from encode_pipeline.workers.rq_queue import RqRunQueue, rq_job_timeout_seconds
 from encode_pipeline.workers.settings import (
     JOB_TIMEOUT_SECONDS_ENV,
     QUEUE_NAME_ENV,
+    REFERENCE_PROFILE_CONFIG_ENV,
     REDIS_URL_ENV,
     WORKSPACE_ROOT_ENV,
-    WorkerSettings,
 )
 
-from .conftest import create_planned_run
+from .conftest import (
+    cleanup_reference_profile_fixture,
+    create_planned_run,
+    worker_settings,
+)
 from .process_helpers import run_burst_worker, terminate_rq_worker
-from .signal_timeout_helpers import CAUGHT_MARKER_ENV, ENTERED_MARKER_ENV
+from .signal_timeout_helpers import (
+    CAUGHT_MARKER_ENV,
+    ENTERED_MARKER_ENV,
+    STARTUP_COMPLETED_MARKER_ENV,
+    STARTUP_ENTERED_MARKER_ENV,
+)
 
 
 pytestmark = pytest.mark.platform_real_execution
@@ -61,7 +71,17 @@ def _create_fake_snakemake(tmp_path: Path) -> Path:
     return snakemake
 
 
-def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
+def _create_timeout_snakemake(tmp_path: Path) -> Path:
+    """Return an executable that can only finish through ProcessRunner timeout."""
+    executable_dir = tmp_path / "timeout-test-bin"
+    executable_dir.mkdir()
+    snakemake = executable_dir / "snakemake"
+    snakemake.write_text("#!/bin/sh\nsleep 60\n", encoding="utf-8")
+    snakemake.chmod(0o755)
+    return snakemake
+
+
+def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path, request):
     """A fresh worker receives only run_id and rebuilds from SQLite."""
     redis_url = os.getenv(TEST_REDIS_URL_ENV)
     if redis_url is None:
@@ -69,11 +89,14 @@ def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
 
     run_id = f"redis-process-{uuid4().hex}"
     queue_name = f"encode-pipeline-test-{uuid4().hex}"
-    configured = WorkerSettings(
-        database_url=f"sqlite:///{tmp_path / 'platform.db'}",
+    configured = replace(
+        worker_settings(tmp_path, queue_name),
         redis_url=redis_url,
-        queue_name=queue_name,
-        workspace_root=tmp_path / "workspaces",
+    )
+    reference_profile_config = configured.reference_profile_config
+    assert reference_profile_config is not None
+    request.addfinalizer(
+        lambda: cleanup_reference_profile_fixture(reference_profile_config)
     )
     assignment = create_planned_run(
         configured,
@@ -99,6 +122,7 @@ def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
                 "ENCODE_PIPELINE_DATABASE_URL": configured.database_url,
                 REDIS_URL_ENV: configured.redis_url,
                 QUEUE_NAME_ENV: configured.queue_name,
+                REFERENCE_PROFILE_CONFIG_ENV: str(reference_profile_config),
                 WORKSPACE_ROOT_ENV: str(configured.workspace_root),
                 "PYTHONDONTWRITEBYTECODE": "1",
                 "PYTHONPATH": str(REPOSITORY_ROOT / "src"),
@@ -114,6 +138,8 @@ def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
         )
 
         assert completed.returncode == 0, completed.stderr
+        assert "operator-reference-profile" not in completed.stdout
+        assert "operator-reference-profile" not in completed.stderr
         job = run_queue._queue.fetch_job(assignment.job_id)
         assert job is not None
         failure = job.latest_result()
@@ -160,7 +186,7 @@ def test_real_redis_worker_process_rebuilds_from_sqlite(tmp_path):
         connection.close()
 
 
-def test_real_rq_sigalrm_persists_timeout_and_reaps_worker(tmp_path):
+def test_real_rq_sigalrm_persists_timeout_and_reaps_worker(tmp_path, request):
     """A real DurableWorker SIGALRM cannot be swallowed by application code."""
     redis_url = os.getenv(TEST_REDIS_URL_ENV)
     if redis_url is None:
@@ -170,12 +196,15 @@ def test_real_rq_sigalrm_persists_timeout_and_reaps_worker(tmp_path):
 
     run_id = f"redis-timeout-{uuid4().hex}"
     queue_name = f"encode-pipeline-timeout-{uuid4().hex}"
-    configured = WorkerSettings(
-        database_url=f"sqlite:///{tmp_path / 'platform.db'}",
+    configured = replace(
+        worker_settings(tmp_path, queue_name),
         redis_url=redis_url,
-        queue_name=queue_name,
-        workspace_root=tmp_path / "workspaces",
         job_timeout_seconds=30,
+    )
+    reference_profile_config = configured.reference_profile_config
+    assert reference_profile_config is not None
+    request.addfinalizer(
+        lambda: cleanup_reference_profile_fixture(reference_profile_config)
     )
     assignment = create_planned_run(
         configured,
@@ -212,6 +241,7 @@ def test_real_rq_sigalrm_persists_timeout_and_reaps_worker(tmp_path):
                 "ENCODE_PIPELINE_DATABASE_URL": configured.database_url,
                 REDIS_URL_ENV: configured.redis_url,
                 QUEUE_NAME_ENV: configured.queue_name,
+                REFERENCE_PROFILE_CONFIG_ENV: str(reference_profile_config),
                 WORKSPACE_ROOT_ENV: str(configured.workspace_root),
                 JOB_TIMEOUT_SECONDS_ENV: str(configured.job_timeout_seconds),
                 ENTERED_MARKER_ENV: str(entered_marker),
@@ -240,6 +270,8 @@ def test_real_rq_sigalrm_persists_timeout_and_reaps_worker(tmp_path):
         elapsed = time.monotonic() - started_at
 
         assert worker_process.returncode == 0, stderr
+        assert "operator-reference-profile" not in stdout
+        assert "operator-reference-profile" not in stderr
         assert elapsed < 12
         assert entered_marker.read_text(encoding="utf-8") == "entered\n"
         assert not caught_marker.exists()
@@ -267,6 +299,139 @@ def test_real_rq_sigalrm_persists_timeout_and_reaps_worker(tmp_path):
         assert record.error.code == "RUN_WORKER_FAILED"
         assert record.error.context == {"reason_code": "WORKER_JOB_TIMEOUT"}
 
+        with pytest.raises(ProcessLookupError):
+            os.killpg(worker_process.pid, 0)
+    finally:
+        if worker_process is not None and worker_process.poll() is None:
+            terminate_rq_worker(worker_process)
+        if connected:
+            job = queue.fetch_job(assignment.job_id)
+            if job is not None:
+                job.delete()
+            connection.delete(queue.key)
+        connection.close()
+
+
+def test_real_rq_startup_allowance_preserves_process_runner_timeout(
+    tmp_path,
+    request,
+):
+    """Bounded pre-spawn work cannot turn an inner timeout into an RQ timeout."""
+    redis_url = os.getenv(TEST_REDIS_URL_ENV)
+    if redis_url is None:
+        pytest.skip(f"{TEST_REDIS_URL_ENV} is not configured")
+    if os.name != "posix":
+        pytest.skip("RQ SIGALRM integration requires a POSIX worker")
+
+    run_id = f"redis-startup-timeout-{uuid4().hex}"
+    queue_name = f"encode-pipeline-startup-timeout-{uuid4().hex}"
+    configured = replace(
+        worker_settings(tmp_path, queue_name),
+        redis_url=redis_url,
+        job_timeout_seconds=1,
+    )
+    reference_profile_config = configured.reference_profile_config
+    assert reference_profile_config is not None
+    request.addfinalizer(
+        lambda: cleanup_reference_profile_fixture(reference_profile_config)
+    )
+    assignment = create_planned_run(
+        configured,
+        run_id,
+        assign_queue=queue_name,
+    )
+    assert assignment is not None
+
+    startup_entered = tmp_path / "startup-entered"
+    startup_completed = tmp_path / "startup-completed"
+    connection = Redis.from_url(redis_url)
+    queue = Queue(queue_name, connection=connection, serializer=JSONSerializer)
+    worker_process: subprocess.Popen[str] | None = None
+    connected = False
+    try:
+        assert connection.ping() is True
+        connected = True
+        outer_timeout_seconds = rq_job_timeout_seconds(configured.job_timeout_seconds)
+        job = queue.enqueue(
+            "workers.signal_timeout_helpers.run_execution_after_bounded_startup_delay",
+            args=(run_id,),
+            kwargs={},
+            job_id=assignment.job_id,
+            job_timeout=outer_timeout_seconds,
+            result_ttl=60,
+            failure_ttl=60,
+        )
+        assert job.timeout == 331
+
+        timeout_snakemake = _create_timeout_snakemake(tmp_path)
+        environment = dict(os.environ)
+        python_path = os.pathsep.join(
+            [str(REPOSITORY_ROOT / "src"), str(REPOSITORY_ROOT / "test")]
+        )
+        environment.update(
+            {
+                "ENCODE_PIPELINE_DATABASE_URL": configured.database_url,
+                REDIS_URL_ENV: configured.redis_url,
+                QUEUE_NAME_ENV: configured.queue_name,
+                REFERENCE_PROFILE_CONFIG_ENV: str(reference_profile_config),
+                WORKSPACE_ROOT_ENV: str(configured.workspace_root),
+                JOB_TIMEOUT_SECONDS_ENV: str(configured.job_timeout_seconds),
+                STARTUP_ENTERED_MARKER_ENV: str(startup_entered),
+                STARTUP_COMPLETED_MARKER_ENV: str(startup_completed),
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPATH": python_path,
+                "PATH": os.pathsep.join(
+                    [
+                        str(timeout_snakemake.parent),
+                        environment.get("PATH", os.defpath),
+                    ]
+                ),
+            }
+        )
+        worker_process = subprocess.Popen(
+            [sys.executable, "-m", "encode_pipeline.workers.cli", "--burst"],
+            cwd=REPOSITORY_ROOT,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            stdout, stderr = worker_process.communicate(timeout=15)
+        except subprocess.TimeoutExpired as exc:
+            stdout, stderr = terminate_rq_worker(worker_process)
+            raise AssertionError(
+                f"DurableWorker inner timeout hung; stdout={stdout!r}; "
+                f"stderr={stderr!r}"
+            ) from exc
+
+        assert worker_process.returncode == 0, stderr
+        assert "operator-reference-profile" not in stdout
+        assert "operator-reference-profile" not in stderr
+        assert startup_entered.read_text(encoding="utf-8") == "entered\n"
+        assert startup_completed.read_text(encoding="utf-8") == "completed\n"
+
+        job.refresh()
+        assert job.is_failed
+        failure = job.latest_result()
+        assert failure is not None
+        assert "WorkerHardTimeout" not in (failure.exc_string or "")
+
+        persistence = open_run_persistence(configured.database_url)
+        try:
+            run_service = create_default_run_service(
+                registry=create_default_workflow_registry(),
+                repository=persistence.repository,
+            )
+            record = run_service.get_run(run_id)
+        finally:
+            persistence.close()
+
+        assert record.status.value == "failed"
+        assert record.error is not None
+        assert record.error.code == "RUN_EXECUTION_FAILED"
+        assert record.error.context == {"reason_code": "PROCESS_RUNNER_TIMEOUT"}
         with pytest.raises(ProcessLookupError):
             os.killpg(worker_process.pid, 0)
     finally:

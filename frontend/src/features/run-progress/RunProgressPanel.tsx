@@ -650,6 +650,25 @@ export function RunProgressPanel({
             <div>Created: {new Date(run.created_at).toLocaleString()}</div>
             <div>Updated: {new Date(run.updated_at).toLocaleString()}</div>
           </div>
+          {run.reference_profile && (
+            <div
+              className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-xs"
+              data-testid="run-reference-profile"
+            >
+              <div className="font-medium text-[var(--color-text)]">
+                {run.reference_profile.display_name}
+              </div>
+              <div className="mt-1 text-[var(--color-text-muted)]">
+                {run.reference_profile.organism} · {run.reference_profile.assembly}
+              </div>
+              <div className="mt-1 min-w-0 text-[var(--color-text-muted)]">
+                Revision {run.reference_profile.revision_number} ·{' '}
+                <code className="break-all">
+                  {run.reference_profile.identity_sha256}
+                </code>
+              </div>
+            </div>
+          )}
 
           {showCancellationRequested && (
             <div

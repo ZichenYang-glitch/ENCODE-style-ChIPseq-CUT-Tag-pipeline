@@ -12,6 +12,9 @@ from encode_pipeline.persistence.input_registry import (
 )
 from encode_pipeline.persistence.migrations import upgrade_database
 from encode_pipeline.persistence.repositories import SqlAlchemyRunRepository
+from encode_pipeline.persistence.reference_profiles import (
+    SqlAlchemyReferenceProfileRepository,
+)
 from encode_pipeline.persistence.runtime import (
     DATABASE_URL_ENV,
     RunPersistence,
@@ -24,6 +27,7 @@ __all__ = [
     "RunPersistence",
     "SqlAlchemyDataRegistryRepository",
     "SqlAlchemyInputRegistryRepository",
+    "SqlAlchemyReferenceProfileRepository",
     "SqlAlchemyRunRepository",
     "create_database_engine",
     "create_session_factory",

@@ -5,8 +5,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from encode_pipeline.api.dependencies import get_registry, get_validated_input_service
+from encode_pipeline.api.dependencies import (
+    get_reference_profile_service,
+    get_registry,
+    get_validated_input_service,
+)
 from encode_pipeline.api.models import (
+    ReferenceProfileListResponse,
+    ReferenceProfileRevisionResponse,
     SchemaResponse,
     WorkflowDetailResponse,
     WorkflowSchemaResponse,
@@ -22,6 +28,7 @@ from encode_pipeline.platform.input_registry import InputFileRevisionSelection
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.services.validated_inputs import ValidatedInputService
+from encode_pipeline.services.reference_profiles import ReferenceProfileService
 from encode_pipeline.services.workflow_info import WorkflowInfoService
 
 
@@ -47,6 +54,16 @@ def _capability_unsupported_issue(workflow_id: str) -> Issue:
         path="workflow.capabilities",
         source="registry",
         context={"workflow_id": workflow_id, "capability": VALIDATION_CAPABILITY},
+    )
+
+
+def _reference_profile_unavailable_issue() -> Issue:
+    return Issue(
+        code="REFERENCE_PROFILE_UNAVAILABLE",
+        message="Reference Profiles are unavailable.",
+        severity="error",
+        path="reference_profile_revision_id",
+        source="reference_profile",
     )
 
 
@@ -105,6 +122,58 @@ def get_workflow(
         ok=True,
         workflow_id=workflow_id,
         workflow=_descriptor_item(result.value),
+        issues=[],
+    )
+
+
+@router.get(
+    "/{workflow_id}/reference-profiles",
+    response_model=ReferenceProfileListResponse,
+    operation_id="listCompatibleReferenceProfiles",
+    responses={
+        404: {"model": ReferenceProfileListResponse},
+        503: {"model": ReferenceProfileListResponse},
+    },
+)
+def list_compatible_reference_profiles(
+    workflow_id: str,
+    registry: WorkflowRegistry = Depends(get_registry),
+    reference_profiles: ReferenceProfileService = Depends(
+        get_reference_profile_service
+    ),
+) -> ReferenceProfileListResponse | JSONResponse:
+    """List only enabled exact revisions compatible with one workflow."""
+    try:
+        registry.get(workflow_id)
+    except KeyError:
+        return _not_found_response(
+            workflow_id,
+            ReferenceProfileListResponse(
+                ok=False,
+                workflow_id=workflow_id,
+                profiles=[],
+                issues=[_workflow_not_found_issue(workflow_id).to_dict()],
+            ).model_dump(mode="json"),
+        )
+    try:
+        summaries = reference_profiles.list_enabled(workflow_id)
+    except (LookupError, RuntimeError, ValueError):
+        return JSONResponse(
+            status_code=503,
+            content=ReferenceProfileListResponse(
+                ok=False,
+                workflow_id=workflow_id,
+                profiles=[],
+                issues=[_reference_profile_unavailable_issue().to_dict()],
+            ).model_dump(mode="json"),
+        )
+    return ReferenceProfileListResponse(
+        ok=True,
+        workflow_id=workflow_id,
+        profiles=[
+            ReferenceProfileRevisionResponse.from_summary(summary)
+            for summary in summaries
+        ],
         issues=[],
     )
 
@@ -188,12 +257,22 @@ def validate_workflow(
             inputs,
             project_sample_selection=project_sample_selection,
             input_file_revision_selections=input_file_revision_selections,
+            reference_profile_revision_id=(
+                None
+                if request_body.reference_profile_revision_id is None
+                else str(request_body.reference_profile_revision_id)
+            ),
         )
     else:
         result = validation_service.validate(
             workflow_id,
             inputs,
             project_sample_selection=project_sample_selection,
+            reference_profile_revision_id=(
+                None
+                if request_body.reference_profile_revision_id is None
+                else str(request_body.reference_profile_revision_id)
+            ),
         )
 
     if result.is_failure and result.issues:
@@ -228,6 +307,14 @@ def validate_workflow(
             "VALIDATION_WORKFLOW_BUILD_UNAVAILABLE": 503,
             "VALIDATION_WORKFLOW_SCHEMA_UNAVAILABLE": 503,
             "VALIDATED_SNAPSHOT_PERSISTENCE_FAILED": 500,
+            "REFERENCE_PROFILE_REQUIRED": 409,
+            "REFERENCE_PROFILE_DISABLED": 409,
+            "REFERENCE_PROFILE_STALE": 409,
+            "REFERENCE_PROFILE_INCOMPATIBLE": 409,
+            "REFERENCE_PROFILE_IDENTITY_MISMATCH": 409,
+            "REFERENCE_PROFILE_UNAVAILABLE": 503,
+            "REFERENCE_PROFILE_CONFIG_INVALID": 503,
+            "REFERENCE_PROFILE_BINDING_INVALID": 503,
         }
         status_code = status_by_code.get(first.code)
         if status_code is not None:
@@ -253,6 +340,9 @@ def validate_workflow(
                     result.value.snapshot_id
                 ),
                 validation_service.get_validated_input_use_binding(
+                    result.value.snapshot_id
+                ),
+                validation_service.get_validated_reference_summary(
                     result.value.snapshot_id
                 ),
             )

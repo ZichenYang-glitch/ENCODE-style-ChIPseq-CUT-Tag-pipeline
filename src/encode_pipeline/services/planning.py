@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 from collections.abc import Mapping
 from uuid import uuid4
 
 from encode_pipeline.platform.adapters import (
     WORKSPACE_PLAN_CAPABILITY,
+    WorkflowAdapter,
     WorkflowInputs,
 )
 from encode_pipeline.platform.planning import (
@@ -19,10 +20,22 @@ from encode_pipeline.platform.planning import (
     WorkspacePathPolicy,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.reference_profiles import BoundWorkflowReference
 from encode_pipeline.platform.results import Issue, Result
 
 if TYPE_CHECKING:
     from encode_pipeline.services.runs import RunService
+
+
+class _ReferenceProfileRuntimeResolver(Protocol):
+    def resolve_run(
+        self,
+        run_id: str,
+        workflow_id: str,
+        inputs: WorkflowInputs,
+        *,
+        require_enabled: bool,
+    ) -> Result[BoundWorkflowReference | None]: ...
 
 
 class ExecutionPlanner:
@@ -87,10 +100,20 @@ class WorkspacePlanner:
     filesystem, mutate run state, or build commands.
     """
 
-    def __init__(self, registry: WorkflowRegistry) -> None:
+    def __init__(
+        self,
+        registry: WorkflowRegistry,
+        *,
+        reference_profile_resolver: _ReferenceProfileRuntimeResolver | None = None,
+    ) -> None:
         if not isinstance(registry, WorkflowRegistry):
             raise ValueError("WorkspacePlanner requires a WorkflowRegistry instance")
+        if reference_profile_resolver is not None and not callable(
+            getattr(reference_profile_resolver, "resolve_run", None)
+        ):
+            raise ValueError("reference_profile_resolver is invalid")
         self._registry = registry
+        self._reference_profile_resolver = reference_profile_resolver
 
     @staticmethod
     def _reconstruct_inputs(
@@ -168,6 +191,8 @@ class WorkspacePlanner:
         self,
         plan: ExecutionPlan,
         base_dir: Path,
+        *,
+        require_reference_enabled: bool = True,
     ) -> Result[ExecutionPlan]:
         """Return a new ExecutionPlan with a safe workspace plan."""
         if not isinstance(plan, ExecutionPlan):
@@ -203,8 +228,9 @@ class WorkspacePlanner:
 
         inputs_result = self._reconstruct_inputs(plan.inputs_snapshot)
         if inputs_result.is_failure:
-            return inputs_result
+            return Result.failure(inputs_result.issues)
         inputs = inputs_result.value
+        assert inputs is not None
 
         try:
             adapter = self._registry.get(plan.workflow_id)
@@ -220,6 +246,17 @@ class WorkspacePlanner:
                     )
                 ]
             )
+
+        resolved = self._resolve_reference_profile(
+            plan,
+            inputs,
+            adapter,
+            require_enabled=require_reference_enabled,
+        )
+        if resolved.is_failure:
+            return Result.failure(resolved.issues)
+        assert resolved.value is not None
+        adapter, inputs = resolved.value
 
         if WORKSPACE_PLAN_CAPABILITY not in adapter.capabilities.supports:
             return Result.failure(
@@ -240,8 +277,9 @@ class WorkspacePlanner:
 
         adapter_result = adapter.plan_workspace(inputs, base_dir)
         if adapter_result.is_failure:
-            return adapter_result
+            return Result.failure(adapter_result.issues)
         adapter_plan = adapter_result.value
+        assert adapter_plan is not None
 
         for index, directory in enumerate(adapter_plan.directories):
             try:
@@ -294,3 +332,56 @@ class WorkspacePlanner:
             issues=plan.issues + adapter_result.issues,
         )
         return Result.success(updated_plan, issues=updated_plan.issues)
+
+    def _resolve_reference_profile(
+        self,
+        plan: ExecutionPlan,
+        inputs: WorkflowInputs,
+        adapter: WorkflowAdapter,
+        *,
+        require_enabled: bool,
+    ) -> Result[tuple[WorkflowAdapter, WorkflowInputs]]:
+        resolver = self._reference_profile_resolver
+        if resolver is None:
+            return Result.success((adapter, inputs))
+        try:
+            resolved = resolver.resolve_run(
+                plan.run_id,
+                plan.workflow_id,
+                inputs,
+                require_enabled=require_enabled,
+            )
+        except Exception:
+            return self._reference_failure()
+        if not isinstance(resolved, Result):
+            return self._reference_failure()
+        if resolved.is_failure:
+            return Result.failure(resolved.issues)
+        bound = resolved.value
+        if bound is None:
+            return Result.success((adapter, inputs))
+        if (
+            not isinstance(bound, BoundWorkflowReference)
+            or not isinstance(bound.inputs, WorkflowInputs)
+            or not isinstance(bound.adapter, WorkflowAdapter)
+            or bound.identity.workflow_id != plan.workflow_id
+            or bound.adapter.metadata.workflow_id != plan.workflow_id
+        ):
+            return self._reference_failure()
+        return Result.success((bound.adapter, bound.inputs))
+
+    @staticmethod
+    def _reference_failure() -> Result[tuple[WorkflowAdapter, WorkflowInputs]]:
+        return Result.failure(
+            [
+                Issue(
+                    code="REFERENCE_PROFILE_BINDING_INVALID",
+                    message=(
+                        "The selected Reference Profile binding could not be verified."
+                    ),
+                    severity="error",
+                    path="reference_profile_revision_id",
+                    source="workspace_planner",
+                )
+            ]
+        )

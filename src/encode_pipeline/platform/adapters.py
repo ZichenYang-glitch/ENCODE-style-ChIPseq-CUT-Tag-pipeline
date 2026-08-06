@@ -26,6 +26,10 @@ if TYPE_CHECKING:
         AdapterInputUseContract,
         InputUseBindingEnvelope,
     )
+    from encode_pipeline.platform.reference_profiles import (
+        AdapterReferenceBindingIdentity,
+        BoundWorkflowReference,
+    )
 
 
 SamplePayload = str | Path | list[dict[str, str]] | None
@@ -817,6 +821,24 @@ class WorkflowAdapter(Protocol):
         workspace: str | Path,
     ) -> Result[tuple[ExtractedArtifactCandidate, ...]]:
         """Return logical artifact candidates without persistence identities."""
+
+
+@runtime_checkable
+class ReferenceProfileBindingAdapter(Protocol):
+    """Optional adapter-owned interpretation of one private reference binding."""
+
+    def verify_reference_profile_binding(
+        self,
+        payload: Mapping[str, object],
+    ) -> "Result[AdapterReferenceBindingIdentity]":
+        """Verify private assets and return only a path-free binding identity."""
+
+    def bind_reference_profile(
+        self,
+        inputs: WorkflowInputs,
+        payload: Mapping[str, object],
+    ) -> "Result[BoundWorkflowReference]":
+        """Resolve private reference inputs into a process-local adapter binding."""
 
 
 @runtime_checkable

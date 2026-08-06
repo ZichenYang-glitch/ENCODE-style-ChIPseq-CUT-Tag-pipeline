@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,10 @@ from encode_pipeline.platform.adapters import (
     WorkflowSchema,
     WorkflowUpstreamIdentity,
     WorkspacePlan,
+)
+from encode_pipeline.platform.reference_profiles import (
+    AdapterReferenceBindingIdentity,
+    BoundWorkflowReference,
 )
 from encode_pipeline.platform.results import Issue, Result
 
@@ -124,6 +129,41 @@ class BulkRnaSeqWorkflowAdapter:
     def validate(self, inputs: WorkflowInputs) -> Result[object]:
         """Validate structure and science without probing submitted paths."""
         return validate_bulk_rnaseq_inputs(inputs)
+
+    def verify_reference_profile_binding(
+        self,
+        payload: Mapping[str, object],
+    ) -> Result[AdapterReferenceBindingIdentity]:
+        """Verify one operator-private bulk RNA-seq reference binding."""
+        from encode_pipeline.adapters.bulk_rnaseq.reference_profiles import (
+            verify_bulk_rnaseq_reference_profile_binding,
+        )
+
+        return verify_bulk_rnaseq_reference_profile_binding(self, payload)
+
+    def bind_reference_profile(
+        self,
+        inputs: WorkflowInputs,
+        payload: Mapping[str, object],
+    ) -> Result[BoundWorkflowReference]:
+        """Create a same-variant adapter bound to one exact reference revision."""
+        from encode_pipeline.adapters.bulk_rnaseq.reference_profiles import (
+            resolve_bulk_rnaseq_reference_profile,
+        )
+
+        resolved = resolve_bulk_rnaseq_reference_profile(self, inputs, payload)
+        if resolved.is_failure:
+            return Result.failure(resolved.issues)
+        assert resolved.value is not None
+        bound_inputs, run_execution, identity = resolved.value
+        bound_adapter = type(self)(execution=run_execution)
+        return Result.success(
+            BoundWorkflowReference(
+                inputs=bound_inputs,
+                adapter=bound_adapter,
+                identity=identity,
+            )
+        )
 
     def preview_dag(self, inputs: WorkflowInputs) -> Result[DagPreview]:
         """Remain unsupported until the pinned runtime is composed."""

@@ -6,6 +6,8 @@ from collections.abc import Iterator, Mapping
 from dataclasses import replace
 import json
 
+import pytest
+
 from encode_pipeline.adapters.bulk_rnaseq import BulkRnaSeqResultsWorkflowAdapter
 from encode_pipeline.adapters.bulk_rnaseq.deployment import (
     MANAGED_DOCKER_EXECUTABLE_ENV,
@@ -58,6 +60,28 @@ def _environment(tmp_path):
     }
 
 
+def _runtime_environment(tmp_path):
+    environment = _environment(tmp_path)
+    environment.pop(TRANSCRIPTOME_BINDING_MANIFEST_ENV)
+    return environment
+
+
+def _admit_source_qualification(monkeypatch, bulk_rnaseq_qualifications):
+    class Qualification:
+        implementation = bulk_rnaseq_qualifications["implementation_qualification"]
+
+    monkeypatch.setattr(
+        "encode_pipeline.adapters.bulk_rnaseq.deployment."
+        "verify_execution_implementation",
+        lambda: Result.success(object()),
+    )
+    monkeypatch.setattr(
+        "encode_pipeline.adapters.bulk_rnaseq.deployment."
+        "load_default_execution_qualification",
+        lambda _implementation: Result.success(Qualification()),
+    )
+
+
 def test_absent_coordinates_keep_authoring_available_and_execution_not_configured():
     adapter = load_default_bulk_rnaseq_adapter({})
 
@@ -78,6 +102,54 @@ def test_partial_coordinates_fail_closed_without_exposing_coordinate_values(tmp_
     assert availability.execution == "unavailable"
     assert private_root not in repr(adapter)
     assert private_root not in repr(availability)
+
+
+@pytest.mark.parametrize(
+    "missing_coordinate",
+    (RUNTIME_ROOT_ENV, MANAGED_DOCKER_EXECUTABLE_ENV, MANAGED_DOCKER_SOCKET_ENV),
+)
+def test_each_required_runtime_coordinate_is_fail_closed_when_missing(
+    tmp_path,
+    missing_coordinate,
+):
+    environment = _runtime_environment(tmp_path)
+    environment.pop(missing_coordinate)
+
+    adapter = load_default_bulk_rnaseq_adapter(environment)
+
+    assert not isinstance(adapter, BulkRnaSeqResultsWorkflowAdapter)
+    assert adapter.execution_availability().execution == "unavailable"
+    assert local_execution_configuration(adapter) is None
+
+
+def test_runtime_coordinates_compose_without_global_transcriptome_manifest(
+    tmp_path,
+    monkeypatch,
+    bulk_rnaseq_qualifications,
+):
+    _admit_source_qualification(monkeypatch, bulk_rnaseq_qualifications)
+
+    adapter = load_default_bulk_rnaseq_adapter(_runtime_environment(tmp_path))
+
+    assert isinstance(adapter, BulkRnaSeqResultsWorkflowAdapter)
+    assert adapter.execution_binding is not None
+    assert adapter.execution_binding.transcriptome is None
+    assert local_execution_configuration(adapter) is not None
+
+
+def test_optional_legacy_transcriptome_manifest_remains_supported(
+    tmp_path,
+    monkeypatch,
+    bulk_rnaseq_qualifications,
+):
+    _admit_source_qualification(monkeypatch, bulk_rnaseq_qualifications)
+
+    adapter = load_default_bulk_rnaseq_adapter(_environment(tmp_path))
+
+    assert isinstance(adapter, BulkRnaSeqResultsWorkflowAdapter)
+    assert adapter.execution_binding is not None
+    assert adapter.execution_binding.transcriptome is not None
+    assert adapter.execution_binding.transcriptome.reference_id == "tiny"
 
 
 def test_missing_source_candidate_cannot_be_overridden_by_environment(
@@ -186,7 +258,12 @@ def test_source_enabled_complete_coordinates_project_ready_default_registry(
     } <= set(descriptor.value.capabilities.supports)
 
 
-def test_malformed_binding_manifest_fails_closed(tmp_path):
+def test_malformed_binding_manifest_fails_closed(
+    tmp_path,
+    monkeypatch,
+    bulk_rnaseq_qualifications,
+):
+    _admit_source_qualification(monkeypatch, bulk_rnaseq_qualifications)
     environment = _environment(tmp_path)
     manifest = tmp_path / "transcriptome-binding.json"
     manifest.write_text('{"schema_version":"1.0.0","private_path":"/secret"}')
@@ -225,6 +302,7 @@ def test_exact_source_candidate_composes_adapter_that_can_report_ready(
         "qc_summary_extract",
     )
     assert adapter.execution_binding is not None
+    assert adapter.execution_binding.transcriptome is not None
     assert adapter.execution_binding.assets.root == (tmp_path / "runtime").resolve()
     assert (
         adapter.execution_binding.implementation_qualification

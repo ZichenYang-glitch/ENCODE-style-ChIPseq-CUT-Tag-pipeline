@@ -248,7 +248,13 @@ def test_successful_validation_passes_project_sample_selection_to_repository() -
     observed: list[ProjectSampleSelection | None] = []
     original = repository.create_validated_input_snapshot
 
-    def record_selection(snapshot, *, project_sample_selection=None):
+    def record_selection(
+        snapshot,
+        *,
+        project_sample_selection=None,
+        reference_binding=None,
+    ):
+        assert reference_binding is None
         observed.append(project_sample_selection)
         return original(snapshot)
 
@@ -322,7 +328,9 @@ def test_adapter_declared_transitional_use_is_planned_without_path_inference() -
         *,
         project_sample_selection=None,
         input_use_binding_plan=None,
+        reference_binding=None,
     ):
+        assert reference_binding is None
         observed.append(input_use_binding_plan)
         return original(snapshot)
 
@@ -593,7 +601,9 @@ def test_repository_input_binding_rejection_is_stable_and_redacted() -> None:
         *,
         project_sample_selection=None,
         input_use_binding_plan=None,
+        reference_binding=None,
     ):
+        assert reference_binding is None
         assert project_sample_selection is not None
         assert input_use_binding_plan is not None
         raise InputBindingSelectionError("private revision /operator/input")
@@ -689,7 +699,7 @@ def test_managed_selection_is_unavailable_until_execution_handoff_is_qualified(
         )
 
 
-def test_encode_snapshot_retains_submitted_semantic_config_without_engine_aliases(
+def test_encode_validation_requires_exact_reference_before_snapshot(
     tmp_path,
 ) -> None:
     adapter = EncodeStyleWorkflowAdapter()
@@ -730,21 +740,18 @@ def test_encode_snapshot_retains_submitted_semantic_config_without_engine_aliase
                 "assay": "chipseq",
                 "target": "CTCF",
                 "peak_mode": "narrow",
-                "genome": "hs",
-                "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
             }
         ],
     )
 
     result = service.validate(adapter.metadata.workflow_id, inputs)
 
-    assert result.is_success
-    assert result.value is not None
-    restored = result.value.to_workflow_inputs()
-    assert restored.config == submitted_config
-    assert "stage4b" not in restored.config
-    assert "stage5" not in restored.config
-    assert result.value.schema_version == "1.1.0"
+    assert result.is_failure
+    assert [issue.code for issue in result.issues] == ["REFERENCE_PROFILE_REQUIRED"]
+    with pytest.raises(KeyError):
+        repository.get_validated_input_snapshot(
+            "vsnap_abcdef0123456789abcdef0123456789"
+        )
 
 
 def test_schema_contract_is_read_inside_the_stable_build_capture_window() -> None:

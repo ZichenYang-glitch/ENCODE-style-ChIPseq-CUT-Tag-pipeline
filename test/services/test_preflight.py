@@ -21,6 +21,10 @@ from encode_pipeline.platform.adapters import (
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.reference_profiles import (
+    AdapterReferenceBindingIdentity,
+    BoundWorkflowReference,
+)
 from encode_pipeline.platform.results import Result
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.command_builder import CommandBuilder
@@ -34,6 +38,9 @@ from encode_pipeline.services.planning import ExecutionPlanner
 from encode_pipeline.services.preflight import LocalPreflightService
 from encode_pipeline.services.process_runner import ProcessResult, ProcessRunner
 from encode_pipeline.services.runs import RunService
+
+
+_DEFAULT_REFERENCE_RESOLVER = object()
 
 
 def _make_registry():
@@ -95,6 +102,9 @@ class _ConfigurationPreflightAdapter:
         supports=("validation", "workspace_plan", "command", "input_authoring")
     )
 
+    def __init__(self, *, build_digest: str = "a" * 64) -> None:
+        self.build_digest = build_digest
+
     def schema(self):
         return WorkflowSchema()
 
@@ -130,8 +140,28 @@ class _ConfigurationPreflightAdapter:
                 adapter_version=self.metadata.version,
                 scheme="configuration-preflight-v1",
                 logical_entrypoint="configuration/main",
-                digest="a" * 64,
+                digest=self.build_digest,
                 captured_at=datetime.now(timezone.utc),
+            )
+        )
+
+
+class _ReferencePreflightAdapter(_ConfigurationPreflightAdapter):
+    def verify_reference_profile_binding(self, _payload):
+        return Result.success(
+            AdapterReferenceBindingIdentity(
+                workflow_id=self.metadata.workflow_id,
+                contract_version="preflight-reference-v1",
+                identity_sha256="c" * 64,
+            )
+        )
+
+    def bind_reference_profile(self, inputs, _payload):
+        return Result.success(
+            BoundWorkflowReference(
+                inputs=inputs,
+                adapter=self,
+                identity=self.verify_reference_profile_binding({}).value,
             )
         )
 
@@ -153,14 +183,45 @@ def _make_service(
     registry=None,
     run_service=None,
     build_identity_provider=None,
+    reference_profile_resolver=_DEFAULT_REFERENCE_RESOLVER,
 ):
     registry = registry or _make_registry()
     run_service = run_service or _make_run_service(registry=registry)
+    if reference_profile_resolver is _DEFAULT_REFERENCE_RESOLVER:
+        adapter = registry.get(adapter_id := registry.list_metadata()[0].workflow_id)
+
+        class _PassthroughReferenceResolver:
+            def resolve_run(
+                self,
+                _run_id,
+                workflow_id,
+                inputs,
+                *,
+                require_enabled,
+            ):
+                assert workflow_id == adapter_id
+                assert require_enabled is True
+                return Result.success(
+                    BoundWorkflowReference(
+                        inputs=inputs,
+                        adapter=adapter,
+                        identity=AdapterReferenceBindingIdentity(
+                            workflow_id=workflow_id,
+                            contract_version="preflight-test-reference-v1",
+                            identity_sha256="d" * 64,
+                        ),
+                    )
+                )
+
+        reference_profile_resolver = _PassthroughReferenceResolver()
     workspace_root = tmp_path / "workspaces"
     local_run_driver = LocalRunDriver(
         run_service=run_service,
         materializer=WorkspaceMaterializer(),
-        command_builder=_make_command_builder(registry=registry),
+        command_builder=CommandBuilder(
+            registry=registry,
+            reference_profile_resolver=reference_profile_resolver,
+        ),
         workspace_root=workspace_root,
         process_runner=runner or _FakeProcessRunner(),
     )
@@ -171,9 +232,13 @@ def _make_service(
     return LocalPreflightService(
         run_service=run_service,
         execution_planner=ExecutionPlanner(run_service=run_service),
-        workspace_planner=create_default_workspace_planner(registry=registry),
+        workspace_planner=create_default_workspace_planner(
+            registry=registry,
+            reference_profile_resolver=reference_profile_resolver,
+        ),
         local_run_driver=local_run_driver,
         build_identity_provider=build_identity_provider,
+        reference_profile_resolver=reference_profile_resolver,
     )
 
 
@@ -198,6 +263,9 @@ class _SequencedBuildIdentityProvider:
         self._identities = iter(identities)
 
     def capture_executable(self, _workflow_id: str):
+        return Result.success(next(self._identities))
+
+    def capture_resolved_executable(self, _adapter):
         return Result.success(next(self._identities))
 
 
@@ -245,6 +313,89 @@ def test_preflight_transitions_run_to_planned(tmp_path):
     identity = service._run_service.get_workflow_build_identity(record.run_id)
     assert identity is not None
     assert identity.digest == completed[0].context["workflow_build_digest"]
+
+
+def test_preflight_captures_exact_reference_bound_adapter_build(tmp_path):
+    registered = _ReferencePreflightAdapter(build_digest="a" * 64)
+    bound = _ReferencePreflightAdapter(build_digest="b" * 64)
+    registry = WorkflowRegistry([registered])
+
+    class _Resolver:
+        def resolve_run(self, run_id, workflow_id, inputs, *, require_enabled):
+            assert run_id
+            assert workflow_id == registered.metadata.workflow_id
+            assert require_enabled is True
+            return Result.success(
+                BoundWorkflowReference(
+                    inputs=inputs,
+                    adapter=bound,
+                    identity=AdapterReferenceBindingIdentity(
+                        workflow_id=workflow_id,
+                        contract_version="preflight-reference-v1",
+                        identity_sha256="c" * 64,
+                    ),
+                )
+            )
+
+    service = _make_service(
+        tmp_path,
+        registry=registry,
+        reference_profile_resolver=_Resolver(),
+    )
+    record = service._run_service.create_run(
+        registered.metadata.workflow_id,
+        WorkflowInputs(config={}),
+    )
+
+    result = service.preflight(record.run_id)
+
+    assert result.is_success
+    persisted = service._run_service.get_workflow_build_identity(record.run_id)
+    assert persisted is not None
+    assert persisted.digest == "b" * 64
+
+
+def test_preflight_rejects_persisted_reference_without_resolver(
+    tmp_path,
+    monkeypatch,
+):
+    service = _make_service(tmp_path, reference_profile_resolver=None)
+    record = service._run_service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase",
+        _make_valid_inputs(tmp_path),
+    )
+    monkeypatch.setattr(
+        service._run_service,
+        "get_run_reference_binding",
+        lambda _run_id: object(),
+    )
+
+    result = service.preflight(record.run_id)
+
+    assert result.is_failure
+    assert result.issues[0].code == "REFERENCE_PROFILE_BINDING_INVALID"
+
+
+def test_preflight_rejects_reference_capable_run_without_resolver_before_io(
+    tmp_path,
+):
+    service = _make_service(tmp_path, reference_profile_resolver=None)
+    record = service._run_service.create_run(
+        "encode-style-chipseq-cuttag-atac-mnase",
+        _make_valid_inputs(tmp_path),
+    )
+
+    result = service.preflight(record.run_id)
+
+    assert result.is_failure
+    assert result.issues[0].code == "REFERENCE_PROFILE_BINDING_INVALID"
+    event_types = {
+        event.event_type for event in service._run_service.list_events(record.run_id)
+    }
+    assert "workspace_materialized" not in event_types
+    assert "command_built" not in event_types
+    assert "dry_run_completed" not in event_types
+    assert not (tmp_path / "workspaces" / record.run_id).exists()
 
 
 def test_configuration_preflight_uses_engine_neutral_completion_message(tmp_path):

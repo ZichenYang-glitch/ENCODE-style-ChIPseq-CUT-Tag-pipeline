@@ -8,11 +8,14 @@ import time
 
 from encode_pipeline.platform.results import Result
 from encode_pipeline.services.local_execution import LocalExecutionService
+from encode_pipeline.workers import jobs as worker_jobs
 from encode_pipeline.workers.jobs import run_execution_job
 
 
 ENTERED_MARKER_ENV = "ENCODE_PIPELINE_TEST_TIMEOUT_ENTERED_MARKER"
 CAUGHT_MARKER_ENV = "ENCODE_PIPELINE_TEST_TIMEOUT_CAUGHT_MARKER"
+STARTUP_ENTERED_MARKER_ENV = "ENCODE_PIPELINE_TEST_STARTUP_ENTERED_MARKER"
+STARTUP_COMPLETED_MARKER_ENV = "ENCODE_PIPELINE_TEST_STARTUP_COMPLETED_MARKER"
 
 
 def run_execution_with_blocking_exception_handler(run_id: str) -> None:
@@ -41,6 +44,29 @@ def run_execution_with_blocking_exception_handler(run_id: str) -> None:
         run_execution_job(run_id)
     finally:
         LocalExecutionService.execute = original_execute
+
+
+def run_execution_after_bounded_startup_delay(run_id: str) -> None:
+    """Delay runtime composition before running the real one-second workflow."""
+    original_open_worker_runtime = worker_jobs.open_worker_runtime
+
+    def delayed_open_worker_runtime(*args, **kwargs):
+        _marker_path(STARTUP_ENTERED_MARKER_ENV).write_text(
+            "entered\n",
+            encoding="utf-8",
+        )
+        time.sleep(1.25)
+        _marker_path(STARTUP_COMPLETED_MARKER_ENV).write_text(
+            "completed\n",
+            encoding="utf-8",
+        )
+        return original_open_worker_runtime(*args, **kwargs)
+
+    worker_jobs.open_worker_runtime = delayed_open_worker_runtime
+    try:
+        run_execution_job(run_id)
+    finally:
+        worker_jobs.open_worker_runtime = original_open_worker_runtime
 
 
 def _marker_path(environment_name: str) -> Path:

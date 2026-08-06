@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from encode_pipeline.api.main import create_app
 from encode_pipeline.api.models import ValidationRequest
 from encode_pipeline.api.routes.workflows import validate_workflow
 from encode_pipeline.platform.results import Result
@@ -18,6 +17,7 @@ REVISION_IDS = (
     "smpr_22222222222222222222222222222222",
     "smpr_33333333333333333333333333333333",
 )
+REFERENCE_PROFILE_REVISION_ID = "refpr_44444444444444444444444444444444"
 
 
 def test_validation_request_accepts_ordered_exact_sample_revision_selection() -> None:
@@ -71,11 +71,13 @@ def test_validate_route_passes_selection_outside_adapter_owned_inputs() -> None:
             inputs: object,
             *,
             project_sample_selection: object,
+            reference_profile_revision_id: object,
         ) -> Result[None]:
             observed.update(
                 workflow_id=workflow_id,
                 inputs=inputs,
                 selection=project_sample_selection,
+                reference_profile_revision_id=reference_profile_revision_id,
             )
             return Result.success(None)
 
@@ -83,6 +85,7 @@ def test_validate_route_passes_selection_outside_adapter_owned_inputs() -> None:
         config={"threads": 1},
         project_id=PROJECT_ID,
         sample_revision_ids=list(REVISION_IDS),
+        reference_profile_revision_id=REFERENCE_PROFILE_REVISION_ID,
     )
 
     response = validate_workflow(
@@ -95,14 +98,15 @@ def test_validate_route_passes_selection_outside_adapter_owned_inputs() -> None:
     assert getattr(selection, "project_id") == PROJECT_ID
     assert getattr(selection, "sample_revision_ids") == REVISION_IDS
     assert observed["workflow_id"] == "workflow-a"
+    assert observed["reference_profile_revision_id"] == REFERENCE_PROFILE_REVISION_ID
     assert response.ok is True  # type: ignore[union-attr]
 
 
-def test_validate_api_freezes_and_projects_safe_bound_revision_ids(tmp_path) -> None:
-    app = create_app(
-        database_url=f"sqlite:///{tmp_path / 'platform.db'}",
-        workspace_root=tmp_path / "workspaces",
-    )
+def test_validate_api_freezes_and_projects_safe_bound_revision_ids(
+    tmp_path,
+    reference_ready_app,
+) -> None:
+    app = reference_ready_app
     project_ids = iter((PROJECT_ID, "prj_44444444444444444444444444444444"))
     registry = DataRegistryService(
         repository=app.state.persistence.data_registry_repository,
@@ -124,8 +128,6 @@ def test_validate_api_freezes_and_projects_safe_bound_revision_ids(tmp_path) -> 
         "assay": "chipseq",
         "target": "CTCF",
         "peak_mode": "narrow",
-        "genome": "hs",
-        "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
     }
 
     with ApiTestClient(app) as client:
@@ -136,6 +138,9 @@ def test_validate_api_freezes_and_projects_safe_bound_revision_ids(tmp_path) -> 
                 "samples": [row],
                 "project_id": project.project_id,
                 "sample_revision_ids": [imported.revision.sample_revision_id],
+                "reference_profile_revision_id": (
+                    app.state.test_reference_profile.revision_id
+                ),
             },
         )
 
@@ -156,11 +161,9 @@ def test_validate_api_freezes_and_projects_safe_bound_revision_ids(tmp_path) -> 
 
 def test_validate_api_rejects_cross_project_selection_without_snapshot(
     tmp_path,
+    reference_ready_app,
 ) -> None:
-    app = create_app(
-        database_url=f"sqlite:///{tmp_path / 'platform.db'}",
-        workspace_root=tmp_path / "workspaces",
-    )
+    app = reference_ready_app
     project_ids = iter((PROJECT_ID, "prj_44444444444444444444444444444444"))
     registry = DataRegistryService(
         repository=app.state.persistence.data_registry_repository,
@@ -183,8 +186,6 @@ def test_validate_api_rejects_cross_project_selection_without_snapshot(
         "assay": "chipseq",
         "target": "CTCF",
         "peak_mode": "narrow",
-        "genome": "hs",
-        "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
     }
 
     with ApiTestClient(app) as client:
@@ -195,6 +196,9 @@ def test_validate_api_rejects_cross_project_selection_without_snapshot(
                 "samples": [row],
                 "project_id": other.project_id,
                 "sample_revision_ids": [imported.revision.sample_revision_id],
+                "reference_profile_revision_id": (
+                    app.state.test_reference_profile.revision_id
+                ),
             },
         )
 

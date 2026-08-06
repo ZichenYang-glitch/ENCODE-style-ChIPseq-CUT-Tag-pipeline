@@ -23,7 +23,11 @@ from encode_pipeline.platform.adapters import (
 )
 
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
+# Resolved inputs retain the qualified v1 scientific semantics. The public
+# authoring projection changed only because operator-owned reference paths moved
+# behind Reference Profiles.
+RESOLVED_INPUT_SCHEMA_VERSION = "1.0.0"
 _SCHEMA_ID_ROOT = "https://helixweave.org/schemas/bulk-rnaseq"
 _IDENTIFIER_PATTERN = r"^[A-Za-z_][A-Za-z0-9_.-]*(?:,[A-Za-z_][A-Za-z0-9_.-]*)*$"
 _PATH_SEGMENT = r"(?!\.{1,2}(?:/|$))[A-Za-z0-9._+@%=-]+"
@@ -233,6 +237,18 @@ OUTPUT_DEFAULTS = {
 
 def build_bulk_rnaseq_authoring_schema() -> WorkflowSchema:
     """Return a fresh, stable adapter-owned authoring contract."""
+    return _build_bulk_rnaseq_schema(include_private_reference=False)
+
+
+def build_bulk_rnaseq_validation_schema() -> WorkflowSchema:
+    """Return the strict internal schema for profile-resolved execution inputs."""
+    return _build_bulk_rnaseq_schema(include_private_reference=True)
+
+
+def _build_bulk_rnaseq_schema(
+    *,
+    include_private_reference: bool,
+) -> WorkflowSchema:
     return WorkflowSchema(
         schema_version=SCHEMA_VERSION,
         schema_dialect=JSON_SCHEMA_DIALECT,
@@ -252,7 +268,9 @@ def build_bulk_rnaseq_authoring_schema() -> WorkflowSchema:
             options=("object",),
         ),
         limits=WorkflowInputLimits(),
-        config_schema=_config_schema(),
+        config_schema=_config_schema(
+            include_private_reference=include_private_reference
+        ),
         sample_schema=_sample_schema(),
         option_schema=_option_schema(),
     )
@@ -345,7 +363,7 @@ def _ribosomal_rna_removal_schema() -> dict[str, object]:
     }
 
 
-def _config_schema() -> dict[str, object]:
+def _config_schema(*, include_private_reference: bool) -> dict[str, object]:
     standard_schema: dict[str, object] = {
         "type": "object",
         "title": "Standard bulk RNA-seq parameters",
@@ -372,59 +390,65 @@ def _config_schema() -> dict[str, object]:
                 "required": ["alignment", "quantification"],
                 "additionalProperties": False,
             },
-            "reference": {
-                "type": "object",
-                "description": (
-                    "Explicit reference files and immutable identities; iGenomes "
-                    "and implicit remote references are not supported."
-                ),
-                "properties": {
-                    "reference_id": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 128,
-                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
-                    },
-                    "fasta": _path_schema(
-                        title="Genome FASTA",
-                        pattern=_FASTA_PATH_PATTERN,
-                    ),
-                    "fasta_sha256": {
-                        "type": "string",
-                        "pattern": _SHA256_PATTERN,
-                    },
-                    "gtf": _path_schema(
-                        title="Gene annotation GTF",
-                        pattern=_GTF_PATH_PATTERN,
-                    ),
-                    "gtf_sha256": {
-                        "type": "string",
-                        "pattern": _SHA256_PATTERN,
-                    },
-                    "annotation_style": {
-                        "type": "string",
-                        "enum": ["ensembl", "gencode"],
-                        "default": "ensembl",
-                    },
-                    "star_index": _index_schema(title="STAR index"),
-                    "salmon_index": {
-                        **_index_schema(title="Salmon index"),
+            **(
+                {
+                    "reference": {
+                        "type": "object",
                         "description": (
-                            "Optional prebuilt index for samples with auto "
-                            "strandedness. STAR+Salmon quantification itself uses "
-                            "the STAR transcriptome alignment route."
+                            "Explicit reference files and immutable identities; iGenomes "
+                            "and implicit remote references are not supported."
                         ),
-                    },
-                },
-                "required": [
-                    "reference_id",
-                    "fasta",
-                    "fasta_sha256",
-                    "gtf",
-                    "gtf_sha256",
-                ],
-                "additionalProperties": False,
-            },
+                        "properties": {
+                            "reference_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128,
+                                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+                            },
+                            "fasta": _path_schema(
+                                title="Genome FASTA",
+                                pattern=_FASTA_PATH_PATTERN,
+                            ),
+                            "fasta_sha256": {
+                                "type": "string",
+                                "pattern": _SHA256_PATTERN,
+                            },
+                            "gtf": _path_schema(
+                                title="Gene annotation GTF",
+                                pattern=_GTF_PATH_PATTERN,
+                            ),
+                            "gtf_sha256": {
+                                "type": "string",
+                                "pattern": _SHA256_PATTERN,
+                            },
+                            "annotation_style": {
+                                "type": "string",
+                                "enum": ["ensembl", "gencode"],
+                                "default": "ensembl",
+                            },
+                            "star_index": _index_schema(title="STAR index"),
+                            "salmon_index": {
+                                **_index_schema(title="Salmon index"),
+                                "description": (
+                                    "Optional prebuilt index for samples with auto "
+                                    "strandedness. STAR+Salmon quantification itself uses "
+                                    "the STAR transcriptome alignment route."
+                                ),
+                            },
+                        },
+                        "required": [
+                            "reference_id",
+                            "fasta",
+                            "fasta_sha256",
+                            "gtf",
+                            "gtf_sha256",
+                        ],
+                        "additionalProperties": False,
+                    }
+                }
+                if include_private_reference
+                else {}
+            ),
             "trimming": {
                 "type": "object",
                 "default": TRIMMING_DEFAULTS,
@@ -444,7 +468,7 @@ def _config_schema() -> dict[str, object]:
             "qc": _qc_schema(),
             "outputs": _outputs_schema(),
         },
-        "required": ["reference"],
+        "required": ["reference"] if include_private_reference else [],
         "additionalProperties": False,
     }
 
@@ -692,7 +716,7 @@ def _option_schema() -> dict[str, object]:
         "$schema": JSON_SCHEMA_DIALECT,
         "$id": _document_id("options"),
         "title": "HelixWeave bulk RNA-seq adapter options",
-        "description": "No caller-owned platform options are defined in schema 1.0.0.",
+        "description": f"No caller-owned platform options are defined in schema {SCHEMA_VERSION}.",
         "type": "object",
         "properties": {},
         "additionalProperties": False,

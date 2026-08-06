@@ -136,8 +136,8 @@ class BulkRnaSeqExecutionBinding:
     """Deployment-owned execution settings; no field comes from WorkflowInputs."""
 
     assets: RuntimeAssetBinding
-    transcriptome: BulkRnaSeqTranscriptomeBinding
     implementation_qualification: ExecutionImplementationQualification
+    transcriptome: BulkRnaSeqTranscriptomeBinding | None = None
     container_uid: int = field(default_factory=os.getuid)
     container_gid: int = field(default_factory=os.getgid)
     resume_enabled: bool = False
@@ -151,8 +151,13 @@ class BulkRnaSeqExecutionBinding:
     def __post_init__(self) -> None:
         if not isinstance(self.assets, RuntimeAssetBinding):
             raise ValueError("assets must be a RuntimeAssetBinding")
-        if not isinstance(self.transcriptome, BulkRnaSeqTranscriptomeBinding):
-            raise ValueError("transcriptome must be a BulkRnaSeqTranscriptomeBinding")
+        if self.transcriptome is not None and not isinstance(
+            self.transcriptome,
+            BulkRnaSeqTranscriptomeBinding,
+        ):
+            raise ValueError(
+                "transcriptome must be a BulkRnaSeqTranscriptomeBinding or None"
+            )
         if not isinstance(
             self.implementation_qualification,
             ExecutionImplementationQualification,
@@ -209,6 +214,9 @@ def plan_bulk_rnaseq_workspace(
         workspace_path = _safe_workspace_path(workspace)
     except ValueError:
         return _failure("BULK_RNASEQ_WORKSPACE_INVALID", "workspace")
+    transcriptome = binding.transcriptome
+    if transcriptome is None:
+        return _failure("BULK_RNASEQ_TRANSCRIPTOME_INVALID", "runtime")
 
     implementation_result = _verify_bound_implementation(binding)
     if implementation_result.is_failure:
@@ -229,7 +237,7 @@ def plan_bulk_rnaseq_workspace(
     verified_inputs = input_result.value
     implementation = implementation_result.value
     transcriptome_identity_sha256 = _transcriptome_build_identity(
-        binding.transcriptome,
+        transcriptome,
         verified_inputs.transcript_fasta,
     )
     build_identity_sha256 = _runtime_build_digest(
@@ -362,6 +370,9 @@ def build_bulk_rnaseq_command(
     transcript_result = _verify_bound_transcriptome(binding)
     if transcript_result.is_failure:
         return _failure("BULK_RNASEQ_RUNTIME_UNAVAILABLE", "runtime")
+    transcriptome = binding.transcriptome
+    if transcriptome is None:
+        return _failure("BULK_RNASEQ_RUNTIME_UNAVAILABLE", "runtime")
     expected_build = _runtime_build_digest(
         assets,
         adapter_version=adapter_version,
@@ -369,7 +380,7 @@ def build_bulk_rnaseq_command(
         execution_mode=execution_mode,
         implementation=implementation,
         transcriptome_identity_sha256=_transcriptome_build_identity(
-            binding.transcriptome,
+            transcriptome,
             transcript_result.value,
         ),
     )
@@ -538,6 +549,9 @@ def capture_bulk_rnaseq_build_identity(
     transcript_result = _verify_bound_transcriptome(binding)
     if transcript_result.is_failure:
         return _failure("BULK_RNASEQ_RUNTIME_UNAVAILABLE", "runtime")
+    transcriptome = binding.transcriptome
+    if transcriptome is None:
+        return _failure("BULK_RNASEQ_RUNTIME_UNAVAILABLE", "runtime")
     try:
         identity = WorkflowBuildIdentity(
             workflow_id="bulk-rnaseq",
@@ -551,7 +565,7 @@ def capture_bulk_rnaseq_build_identity(
                 execution_mode=execution_mode,
                 implementation=implementation_result.value,
                 transcriptome_identity_sha256=_transcriptome_build_identity(
-                    binding.transcriptome,
+                    transcriptome,
                     transcript_result.value,
                 ),
             ),
@@ -563,13 +577,19 @@ def capture_bulk_rnaseq_build_identity(
 
 
 def doctor_bulk_rnaseq_runtime(binding: BulkRnaSeqExecutionBinding):
-    """Return the redacted runtime-asset doctor report."""
+    """Return runtime readiness independently of a run-scoped reference."""
     implementation = _verify_bound_implementation(binding)
     assets = binding.runtime_admission.doctor()
-    transcriptome = _verify_bound_transcriptome(binding)
+    if binding.transcriptome is None:
+        transcriptome_ready = True
+        transcriptome_issues: tuple[Issue, ...] = ()
+    else:
+        transcriptome = _verify_bound_transcriptome(binding)
+        transcriptome_ready = transcriptome.is_success
+        transcriptome_issues = transcriptome.issues
     return RuntimeAssetDoctorReport(
-        ready=(implementation.is_success and assets.ready and transcriptome.is_success),
-        issues=(*implementation.issues, *assets.issues, *transcriptome.issues),
+        ready=(implementation.is_success and assets.ready and transcriptome_ready),
+        issues=(*implementation.issues, *assets.issues, *transcriptome_issues),
     )
 
 
@@ -595,9 +615,12 @@ def _verify_bound_transcriptome(
     binding: BulkRnaSeqExecutionBinding,
 ) -> Result[VerifiedLocalFile]:
     """Verify the deployment transcript FASTA without exposing its location."""
+    transcriptome = binding.transcriptome
+    if transcriptome is None:
+        return _failure("BULK_RNASEQ_TRANSCRIPTOME_INVALID", "runtime")
     result = safe_regular_file_identity(
-        binding.transcriptome.transcript_fasta,
-        expected_sha256=binding.transcriptome.transcript_fasta_sha256,
+        transcriptome.transcript_fasta,
+        expected_sha256=transcriptome.transcript_fasta_sha256,
         policy=binding.resource_policy,
     )
     if result.is_failure:
@@ -634,18 +657,20 @@ def _verify_input_closure(
     assets: VerifiedRuntimeAssets,
     normalized: Mapping[str, Any],
 ) -> Result[VerifiedInputClosure]:
+    transcriptome = binding.transcriptome
+    if transcriptome is None:
+        return _failure("BULK_RNASEQ_TRANSCRIPTOME_INVALID", "runtime")
     standard = inputs.config["standard"]
     reference_result = verify_reference_closure(
         standard["reference"],
         producer_images={item.process: item.image for item in assets.containers},
         index_build_parameters=normalized["nfcore_params"],
-        transcript_fasta_sha256=binding.transcriptome.transcript_fasta_sha256,
+        transcript_fasta_sha256=transcriptome.transcript_fasta_sha256,
         policy=binding.resource_policy,
     )
     if reference_result.is_failure:
         return Result.failure(reference_result.issues)
     reference = reference_result.value
-    transcriptome = binding.transcriptome
     if (
         transcriptome.reference_id != reference.reference_id
         or transcriptome.fasta_sha256 != reference.fasta.sha256

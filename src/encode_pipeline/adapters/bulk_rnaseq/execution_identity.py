@@ -24,11 +24,11 @@ from encode_pipeline.platform.results import Issue, Result
 EXECUTION_IMPLEMENTATION_MANIFEST_FILE = "execution-implementation-manifest-1.0.0.json"
 EXECUTION_IMPLEMENTATION_SCHEMA_VERSION = "1.0.0"
 EXECUTION_IMPLEMENTATION_SCHEME = "sha256-framed-execution-implementation-v1"
-EXECUTION_PERSISTENCE_CONTRACT_FILE = "execution-persistence-contract-1.1.0.json"
+EXECUTION_PERSISTENCE_CONTRACT_FILE = "execution-persistence-contract-1.2.0.json"
 EXECUTION_PERSISTENCE_CONTRACT_PATH = (
     f"src/encode_pipeline/contracts/nfcore_rnaseq/{EXECUTION_PERSISTENCE_CONTRACT_FILE}"
 )
-EXECUTION_PERSISTENCE_CONTRACT_SCHEMA_VERSION = "1.1.0"
+EXECUTION_PERSISTENCE_CONTRACT_SCHEMA_VERSION = "1.2.0"
 EXECUTION_PERSISTENCE_CONTRACT_ID = "bulk-rnaseq-execution-persistence"
 
 # Only migrations that establish or change a capability used by Bulk execution
@@ -44,6 +44,7 @@ EXECUTION_MIGRATION_REVISION_PATHS = (
     "src/encode_pipeline/persistence/alembic/versions/20260717_08_run_result_generations.py",
     "src/encode_pipeline/persistence/alembic/versions/20260726_09_project_sample_registry.py",
     "src/encode_pipeline/persistence/alembic/versions/20260726_10_input_registry.py",
+    "src/encode_pipeline/persistence/alembic/versions/20260803_11_reference_profiles.py",
 )
 EXECUTION_PERSISTENCE_REQUIRED_REVISIONS = (
     "20260711_01",
@@ -55,6 +56,7 @@ EXECUTION_PERSISTENCE_REQUIRED_REVISIONS = (
     "20260717_08",
     "20260726_09",
     "20260726_10",
+    "20260803_11",
 )
 EXECUTION_PERSISTENCE_CAPABILITIES = (
     "sqlite.run-aggregate/v1",
@@ -63,6 +65,7 @@ EXECUTION_PERSISTENCE_CAPABILITIES = (
     "sqlite.artifact-qc-generation/v1",
     "sqlite.project-sample-binding/v1",
     "sqlite.compatibility-input-binding/v1",
+    "sqlite.reference-profile-revision-binding/v1",
 )
 
 # This is an exact allowlist, not a recursive glob. A new execution dependency
@@ -83,6 +86,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/adapters/bulk_rnaseq/status_evidence.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/qc.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/qualification.py",
+    "src/encode_pipeline/adapters/bulk_rnaseq/reference_profiles.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/upstream.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/validation.py",
     "src/encode_pipeline/platform/__init__.py",
@@ -94,6 +98,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/platform/managed_containers.py",
     "src/encode_pipeline/platform/planning.py",
     "src/encode_pipeline/platform/registry.py",
+    "src/encode_pipeline/platform/reference_profiles.py",
     "src/encode_pipeline/platform/result_generations.py",
     "src/encode_pipeline/platform/results.py",
     "src/encode_pipeline/platform/run_history.py",
@@ -117,6 +122,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/persistence/input_registry.py",
     "src/encode_pipeline/persistence/migrations.py",
     "src/encode_pipeline/persistence/models.py",
+    "src/encode_pipeline/persistence/reference_profiles.py",
     "src/encode_pipeline/persistence/repositories.py",
     "src/encode_pipeline/persistence/alembic/env.py",
     *EXECUTION_MIGRATION_REVISION_PATHS,
@@ -134,8 +140,10 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/services/planning.py",
     "src/encode_pipeline/services/preflight.py",
     "src/encode_pipeline/services/private_storage_pools.py",
+    "src/encode_pipeline/services/private_reference_profiles.py",
     "src/encode_pipeline/services/process_runner.py",
     "src/encode_pipeline/services/qc_summary_indexing.py",
+    "src/encode_pipeline/services/reference_profile_runtime.py",
     "src/encode_pipeline/services/run_cancellation.py",
     "src/encode_pipeline/services/run_queue.py",
     "src/encode_pipeline/services/run_repositories.py",

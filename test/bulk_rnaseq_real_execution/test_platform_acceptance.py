@@ -118,6 +118,7 @@ def test_controlled_tiny_star_salmon_sortmerna_platform_acceptance(
             str(settings.docker_executable),
             str(settings.docker_socket),
             str(harness.workspace_root),
+            str(harness.reference_profile_config_path),
         ):
             assert private_value not in rendered
 

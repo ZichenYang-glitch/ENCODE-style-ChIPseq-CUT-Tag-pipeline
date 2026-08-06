@@ -117,7 +117,19 @@ describe('readWorkbenchSchema', () => {
     });
   });
 
-  it.each(['1.2.0', '2.0.0'])('fails closed for unknown schema version %s', (version) => {
+  it.each(['1.2.0', '2.0.0'])(
+    'accepts a structurally compatible adapter-owned schema version %s',
+    (version) => {
+      const schema = createAuthoringSchemaFixture();
+      schema.schema_version = version;
+
+      expect(readWorkbenchSchema(schema).ok).toBe(true);
+    },
+  );
+
+  it.each(['1.2', 'v1.2.0', '01.2.0', '1.02.0'])(
+    'fails closed for malformed schema version %s',
+    (version) => {
     const schema = createAuthoringSchemaFixture();
     schema.schema_version = version;
 
@@ -125,7 +137,8 @@ describe('readWorkbenchSchema', () => {
       ok: false,
       code: 'AUTHORING_SCHEMA_UNSUPPORTED',
     });
-  });
+    },
+  );
 
   it.each([
     ['schema dialect', (schema: ReturnType<typeof createAuthoringSchemaFixture>) => {

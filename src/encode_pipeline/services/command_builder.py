@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Protocol
 from uuid import uuid4
 
 from encode_pipeline.platform.adapters import (
     COMMAND_CAPABILITY,
     CommandSpec,
     WorkflowAdapter,
+    WorkflowInputs,
     WorkspacePlan,
 )
 from encode_pipeline.platform.managed_containers import managed_container_scope
@@ -20,7 +21,19 @@ from encode_pipeline.platform.planning import (
     WorkspacePathPolicy,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.reference_profiles import BoundWorkflowReference
 from encode_pipeline.platform.results import Issue, Result
+
+
+class _ReferenceProfileRuntimeResolver(Protocol):
+    def resolve_run(
+        self,
+        run_id: str,
+        workflow_id: str,
+        inputs: WorkflowInputs,
+        *,
+        require_enabled: bool,
+    ) -> Result[BoundWorkflowReference | None]: ...
 
 
 def _bundled_snakefile_path(project_root: Path | None = None) -> Path:
@@ -37,6 +50,7 @@ class CommandBuilder:
         registry: WorkflowRegistry,
         *,
         project_root: Path | None = None,
+        reference_profile_resolver: _ReferenceProfileRuntimeResolver | None = None,
     ) -> None:
         """Initialize with an adapter registry for engine validation."""
         if not isinstance(registry, WorkflowRegistry):
@@ -48,13 +62,20 @@ class CommandBuilder:
         )
         if not isinstance(root, Path) or not root.is_absolute():
             raise ValueError("project_root must be an absolute pathlib.Path")
+        if reference_profile_resolver is not None and not callable(
+            getattr(reference_profile_resolver, "resolve_run", None)
+        ):
+            raise ValueError("reference_profile_resolver is invalid")
         self._registry = registry
         self._project_root = root
+        self._reference_profile_resolver = reference_profile_resolver
 
     def build_command(
         self,
         plan: ExecutionPlan,
         base_dir: Path,
+        *,
+        require_reference_enabled: bool = True,
     ) -> Result[ExecutionPlan]:
         """Build a controlled CommandSpec for ``plan`` under ``base_dir``."""
         if not isinstance(plan, ExecutionPlan):
@@ -123,6 +144,17 @@ class CommandBuilder:
                     )
                 ]
             )
+        registered_adapter = adapter
+
+        resolved_adapter = self._resolve_reference_profile(
+            plan,
+            adapter,
+            require_enabled=require_reference_enabled,
+        )
+        if resolved_adapter.is_failure:
+            return Result.failure(resolved_adapter.issues)
+        assert resolved_adapter.value is not None
+        adapter = resolved_adapter.value
 
         if COMMAND_CAPABILITY in adapter.capabilities.supports:
             return self._build_adapter_command(
@@ -131,7 +163,10 @@ class CommandBuilder:
                 base_dir=base_dir,
             )
 
-        if not self._registry.uses_encode_execution_fallback(adapter):
+        if not (
+            self._registry.uses_encode_execution_fallback(adapter)
+            or self._registry.uses_encode_execution_fallback(registered_adapter)
+        ):
             return Result.failure(
                 [
                     Issue(
@@ -186,6 +221,64 @@ class CommandBuilder:
         )
 
         return Result.success(self._planned_plan(plan, command_spec))
+
+    def _resolve_reference_profile(
+        self,
+        plan: ExecutionPlan,
+        adapter: WorkflowAdapter,
+        *,
+        require_enabled: bool,
+    ) -> Result[WorkflowAdapter]:
+        resolver = self._reference_profile_resolver
+        if resolver is None:
+            return Result.success(adapter)
+        from encode_pipeline.services.planning import WorkspacePlanner
+
+        inputs_result = WorkspacePlanner._reconstruct_inputs(plan.inputs_snapshot)
+        if inputs_result.is_failure:
+            return self._reference_failure()
+        assert inputs_result.value is not None
+        try:
+            resolved = resolver.resolve_run(
+                plan.run_id,
+                plan.workflow_id,
+                inputs_result.value,
+                require_enabled=require_enabled,
+            )
+        except Exception:
+            return self._reference_failure()
+        if not isinstance(resolved, Result):
+            return self._reference_failure()
+        if resolved.is_failure:
+            return Result.failure(resolved.issues)
+        bound = resolved.value
+        if bound is None:
+            return Result.success(adapter)
+        if (
+            not isinstance(bound, BoundWorkflowReference)
+            or not isinstance(bound.inputs, WorkflowInputs)
+            or not isinstance(bound.adapter, WorkflowAdapter)
+            or bound.identity.workflow_id != plan.workflow_id
+            or bound.adapter.metadata.workflow_id != plan.workflow_id
+        ):
+            return self._reference_failure()
+        return Result.success(bound.adapter)
+
+    @staticmethod
+    def _reference_failure() -> Result[WorkflowAdapter]:
+        return Result.failure(
+            [
+                Issue(
+                    code="REFERENCE_PROFILE_BINDING_INVALID",
+                    message=(
+                        "The selected Reference Profile binding could not be verified."
+                    ),
+                    severity="error",
+                    path="reference_profile_revision_id",
+                    source="command_builder",
+                )
+            ]
+        )
 
     def _build_adapter_command(
         self,

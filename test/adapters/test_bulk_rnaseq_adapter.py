@@ -278,7 +278,7 @@ def test_schema_is_complete_versioned_stable_and_fresh():
     second_dict = second.to_dict()
 
     assert first is not second
-    assert first.schema_version == SCHEMA_VERSION == "1.0.0"
+    assert first.schema_version == SCHEMA_VERSION == "1.1.0"
     assert first.coverage.to_dict() == {
         "config": "complete",
         "samples": "complete",
@@ -299,7 +299,7 @@ def test_schema_is_complete_versioned_stable_and_fresh():
     )
     for name in ("config_schema", "sample_schema", "option_schema"):
         jsonschema.Draft202012Validator.check_schema(first_dict[name])
-        assert first_dict[name]["$id"].endswith("/1.0.0")
+        assert first_dict[name]["$id"].endswith("/1.1.0")
 
     first.config_schema["properties"].clear()
     assert "standard" in adapter.schema().config_schema["properties"]
@@ -317,6 +317,8 @@ def test_public_schema_closes_all_surfaces_and_does_not_seed_advanced_defaults()
 
     assert config["additionalProperties"] is False
     assert config["properties"]["standard"]["additionalProperties"] is False
+    assert "reference" not in config["properties"]["standard"]["properties"]
+    assert "reference" not in config["properties"]["standard"]["required"]
     assert advanced["additionalProperties"] is False
     assert set(advanced["properties"]) == set(ADVANCED_NATIVE_PARAMETERS)
     assert all("default" not in value for value in advanced["properties"].values())
@@ -342,9 +344,9 @@ def test_public_schema_closes_all_surfaces_and_does_not_seed_advanced_defaults()
     )
     assert options == {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://helixweave.org/schemas/bulk-rnaseq/options/1.0.0",
+        "$id": "https://helixweave.org/schemas/bulk-rnaseq/options/1.1.0",
         "title": "HelixWeave bulk RNA-seq adapter options",
-        "description": "No caller-owned platform options are defined in schema 1.0.0.",
+        "description": "No caller-owned platform options are defined in schema 1.1.0.",
         "type": "object",
         "properties": {},
         "additionalProperties": False,

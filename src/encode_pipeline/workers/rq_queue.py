@@ -32,6 +32,7 @@ from encode_pipeline.workers.settings import WorkerSettings, load_worker_setting
 
 RESULT_TTL_SECONDS = 86_400
 FAILURE_TTL_SECONDS = 604_800
+RQ_JOB_STARTUP_ALLOWANCE_SECONDS = 300
 RQ_JOB_CLEANUP_GRACE_SECONDS = 30
 STOPPED_CALLBACK_PATH = "encode_pipeline.workers.jobs.handle_execution_stopped"
 STOPPED_CALLBACK_TIMEOUT_SECONDS = 30
@@ -46,8 +47,19 @@ REUSABLE_JOB_STATUSES = frozenset(
 
 
 def rq_job_timeout_seconds(workflow_timeout_seconds: int) -> int:
-    """Leave a fixed outer window for durable failure mapping and cleanup."""
-    return workflow_timeout_seconds + RQ_JOB_CLEANUP_GRACE_SECONDS
+    """Bound startup, workflow execution, and durable cleanup independently.
+
+    RQ starts this outer deadline when it enters the job's execution body,
+    before the platform has resolved the runtime and spawned ``ProcessRunner``.
+    The fixed startup allowance prevents normal bounded pre-spawn work from
+    consuming the configured workflow deadline or its cleanup grace while the
+    complete sum remains a finite worker backstop.
+    """
+    return (
+        RQ_JOB_STARTUP_ALLOWANCE_SECONDS
+        + workflow_timeout_seconds
+        + RQ_JOB_CLEANUP_GRACE_SECONDS
+    )
 
 
 def create_api_redis_connection(settings: WorkerSettings) -> Redis:

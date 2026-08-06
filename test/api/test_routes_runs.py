@@ -14,7 +14,6 @@ import fastapi.routing
 import pytest
 from sqlalchemy import text
 
-from encode_pipeline.api.main import create_app
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunStatus
@@ -60,10 +59,9 @@ def joined_test_threadpool(monkeypatch):
 
 
 @pytest.fixture
-def client() -> Iterator[ApiTestClient]:
+def client(reference_ready_app) -> Iterator[ApiTestClient]:
     """Default app wired to the bundled ENCODE-style adapter."""
-    app = create_app()
-    with ApiTestClient(app) as tc:
+    with ApiTestClient(reference_ready_app) as tc:
         yield tc
 
 
@@ -83,8 +81,6 @@ def _valid_inline_inputs() -> dict:
                 "assay": "chipseq",
                 "target": "CTCF",
                 "peak_mode": "narrow",
-                "genome": "hs",
-                "bowtie2_index": "/tmp/indices/hs",
             }
         ],
         "options": {},
@@ -98,7 +94,12 @@ def _create_snapshot(
 ) -> str:
     response = client.post(
         f"/api/v1/workflows/{workflow_id}/validate",
-        json=inputs or _valid_inline_inputs(),
+        json={
+            **(inputs or _valid_inline_inputs()),
+            "reference_profile_revision_id": (
+                client.app.state.test_reference_profile.revision_id
+            ),
+        },
     )
     assert response.status_code == 200
     assert response.json()["ok"] is True
@@ -163,14 +164,11 @@ def test_create_and_get_run_redact_private_legacy_inputs(
                 tmp_path / "private-inputs" / f"{private_environment_value}.R1.fastq.gz"
             ).resolve()
         ),
-        "layout": "SE",
+        "fastq_2": str((tmp_path / "operator-private" / "indices" / "hs").resolve()),
+        "layout": "PE",
         "assay": "chipseq",
         "target": private_exception_text,
         "peak_mode": "narrow",
-        "genome": "hs",
-        "bowtie2_index": str(
-            (tmp_path / "operator-private" / "indices" / "hs").resolve()
-        ),
     }
     inputs = {
         "config": {"outdir": relative_output_path},
@@ -194,7 +192,7 @@ def test_create_and_get_run_redact_private_legacy_inputs(
         private_exception_text,
         row["sample"],
         row["fastq_1"],
-        row["bowtie2_index"],
+        row["fastq_2"],
     ):
         assert private_value not in response.text
 
@@ -211,7 +209,7 @@ def test_create_and_get_run_redact_private_legacy_inputs(
         private_exception_text,
         row["sample"],
         row["fastq_1"],
-        row["bowtie2_index"],
+        row["fastq_2"],
     ):
         assert private_value not in get_response.text
 
@@ -425,15 +423,15 @@ def test_create_run_stale_build_identity_fails_without_run(
 ) -> None:
     snapshot_id = _create_snapshot(client, workflow_id)
     provider = client.app.state.build_identity_provider
-    current = provider.capture(workflow_id).value
-    assert current is not None
+    current = client.app.state.run_service.get_validated_input_snapshot(
+        snapshot_id
+    ).workflow_build_identity
     monkeypatch.setattr(
         provider,
-        "capture",
-        lambda requested_workflow_id: Result.success(
+        "capture_resolved_executable",
+        lambda _adapter: Result.success(
             replace(
                 current,
-                workflow_id=requested_workflow_id,
                 digest="b" * 64,
                 captured_at=current.captured_at + timedelta(seconds=1),
             )
@@ -446,7 +444,11 @@ def test_create_run_stale_build_identity_fails_without_run(
     )
 
     assert response.status_code == 409
-    assert response.json()["issues"][0]["code"] == "VALIDATED_SNAPSHOT_STALE"
+    issue = response.json()["issues"][0]
+    assert issue["code"] == "VALIDATED_SNAPSHOT_STALE"
+    assert issue["message"] == (
+        "Validated execution identity changed after validation. Validate again."
+    )
     assert client.app.state.run_service.list_runs() == ()
 
 

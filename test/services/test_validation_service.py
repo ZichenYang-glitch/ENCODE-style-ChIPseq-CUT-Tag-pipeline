@@ -90,6 +90,32 @@ def test_service_delegates_to_registered_validation_capable_adapter():
     assert adapter.received_inputs is inputs
 
 
+def test_service_can_validate_with_an_exact_run_scoped_adapter():
+    registered = FakeAdapter(result=Result.success({"registered": True}))
+    bound_result = Result.success({"bound": True})
+    bound = FakeAdapter(result=bound_result)
+    inputs = WorkflowInputs(config={"reference": "resolved"})
+    service = ValidationService(registry=WorkflowRegistry(adapters=[registered]))
+
+    result = service.validate_adapter(bound, inputs)
+
+    assert result is bound_result
+    assert bound.validate_called
+    assert bound.received_inputs is inputs
+    assert not registered.validate_called
+
+
+def test_service_rejects_run_scoped_adapter_without_validation_capability():
+    bound = FakeAdapter(supports=("dag_preview",))
+    service = ValidationService(registry=WorkflowRegistry(adapters=[FakeAdapter()]))
+
+    result = service.validate_adapter(bound, WorkflowInputs(config={}))
+
+    assert result.is_failure
+    assert result.issues[0].code == "WORKFLOW_CAPABILITY_UNSUPPORTED"
+    assert not bound.validate_called
+
+
 def test_unknown_workflow_returns_workflow_not_found_issue():
     service = ValidationService(registry=WorkflowRegistry())
 

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
+from typing import cast
 from uuid import uuid4
 
 from encode_pipeline.platform.adapters import (
     VALIDATION_CAPABILITY,
     InputUseDeclaringAdapter,
+    ReferenceProfileBindingAdapter,
+    WorkflowAdapter,
     WorkflowInputs,
 )
 from encode_pipeline.platform.data_registry import (
@@ -24,6 +27,7 @@ from encode_pipeline.platform.input_registry import (
     build_input_use_binding_plan,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.reference_profiles import ReferenceProfileRevisionSummary
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.snapshots import (
     PAYLOAD_DIGEST_SCHEME,
@@ -36,10 +40,15 @@ from encode_pipeline.platform.snapshots import (
 from encode_pipeline.services.run_repositories import (
     InputBindingSelectionError,
     ProjectSampleSelectionError,
+    ReferenceBindingSelectionError,
     RunRepository,
     ValidatedSnapshotBuildMismatchError as RepositoryBuildMismatchError,
     ValidatedSnapshotExpiredError as RepositoryExpiredError,
     ValidatedSnapshotReplayConflictError as RepositoryReplayConflictError,
+)
+from encode_pipeline.services.reference_profiles import ReferenceProfileService
+from encode_pipeline.services.reference_profile_runtime import (
+    ReferenceProfileBindingService,
 )
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.validation import ValidationService
@@ -126,6 +135,8 @@ class ValidatedInputService:
         validation_service: ValidationService,
         build_identity_provider: WorkflowBuildIdentityProvider,
         repository: RunRepository,
+        reference_profile_binding_service: ReferenceProfileBindingService | None = None,
+        reference_profile_catalog: ReferenceProfileService | None = None,
         snapshot_id_factory: Callable[[], str] | None = None,
         clock: Callable[[], datetime] | None = None,
         snapshot_ttl: timedelta = DEFAULT_SNAPSHOT_TTL,
@@ -143,6 +154,8 @@ class ValidatedInputService:
         self._validation_service = validation_service
         self._build_identity_provider = build_identity_provider
         self._repository = repository
+        self._reference_profile_binding_service = reference_profile_binding_service
+        self._reference_profile_catalog = reference_profile_catalog
         self._snapshot_id_factory = snapshot_id_factory or (
             lambda: f"vsnap_{uuid4().hex}"
         )
@@ -156,6 +169,7 @@ class ValidatedInputService:
         *,
         project_sample_selection: ProjectSampleSelection | None = None,
         input_file_revision_selections: tuple[InputFileRevisionSelection, ...] = (),
+        reference_profile_revision_id: str | None = None,
     ) -> Result[ValidatedInputSnapshot | None]:
         """Return a durable snapshot only after stable successful validation."""
         input_file_revision_selections = tuple(input_file_revision_selections)
@@ -174,6 +188,62 @@ class ValidatedInputService:
         if VALIDATION_CAPABILITY not in adapter.capabilities.supports:
             result = self._validation_service.validate(workflow_id, inputs)
             return Result.failure(result.issues)
+        reference_evidence = None
+        validation_adapter = adapter
+        validation_inputs = inputs
+        if isinstance(adapter, ReferenceProfileBindingAdapter):
+            if reference_profile_revision_id is None:
+                return Result.failure(
+                    [
+                        Issue(
+                            code="REFERENCE_PROFILE_REQUIRED",
+                            message="A Reference Profile revision is required.",
+                            source="reference_profile",
+                            path="reference_profile_revision_id",
+                        )
+                    ]
+                )
+            if self._reference_profile_binding_service is None:
+                return Result.failure(
+                    [
+                        Issue(
+                            code="REFERENCE_PROFILE_UNAVAILABLE",
+                            message="The selected Reference Profile is unavailable.",
+                            source="reference_profile",
+                            path="reference_profile_revision_id",
+                        )
+                    ]
+                )
+            resolved_reference = (
+                self._reference_profile_binding_service.resolve_selection(
+                    workflow_id,
+                    reference_profile_revision_id,
+                    inputs,
+                    require_enabled=True,
+                )
+            )
+            if resolved_reference.is_failure or resolved_reference.value is None:
+                return Result.failure(resolved_reference.issues)
+            validation_adapter = cast(
+                WorkflowAdapter,
+                resolved_reference.value.bound_reference.adapter,
+            )
+            validation_inputs = resolved_reference.value.bound_reference.inputs
+            reference_evidence = resolved_reference.value.evidence
+        elif reference_profile_revision_id is not None:
+            return Result.failure(
+                [
+                    Issue(
+                        code="REFERENCE_PROFILE_INCOMPATIBLE",
+                        message=(
+                            "The selected Reference Profile is incompatible with "
+                            "this workflow."
+                        ),
+                        source="reference_profile",
+                        path="reference_profile_revision_id",
+                    )
+                ]
+            )
         if input_file_revision_selections and not isinstance(
             adapter,
             InputUseDeclaringAdapter,
@@ -206,10 +276,7 @@ class ValidatedInputService:
                 ]
             )
 
-        availability = resolve_workflow_availability(
-            adapter,
-            registry=self._registry,
-        )
+        availability = resolve_workflow_availability(adapter, registry=self._registry)
         if input_file_revision_selections and availability.execution != "available":
             return Result.failure(
                 [
@@ -229,12 +296,22 @@ class ValidatedInputService:
                 adapter.schema()
             except Exception:
                 return Result.failure([_schema_unavailable_issue()])
-            result = self._validation_service.validate(workflow_id, inputs)
+            result = self._validation_service.validate_adapter(
+                validation_adapter,
+                validation_inputs,
+            )
             if result.is_failure:
                 return Result.failure(result.issues)
             return Result.success(None, issues=result.issues)
 
-        before_result = self._build_identity_provider.capture_executable(workflow_id)
+        if reference_evidence is None:
+            before_result = self._build_identity_provider.capture_executable(
+                workflow_id
+            )
+        else:
+            before_result = self._build_identity_provider.capture_resolved_executable(
+                validation_adapter
+            )
         if before_result.is_failure or before_result.value is None:
             return Result.failure([_build_unavailable_issue()])
 
@@ -243,18 +320,21 @@ class ValidatedInputService:
         except Exception:
             return Result.failure([_schema_unavailable_issue()])
 
-        validation_result = self._validation_service.validate(workflow_id, inputs)
+        validation_result = self._validation_service.validate_adapter(
+            validation_adapter,
+            validation_inputs,
+        )
         if validation_result.is_failure:
             return Result.failure(validation_result.issues)
 
         input_use_binding_plan: InputUseBindingPlan | None = None
         if project_sample_selection is not None and isinstance(
-            adapter,
+            validation_adapter,
             InputUseDeclaringAdapter,
         ):
             try:
-                declaration_result = adapter.declare_input_uses(
-                    inputs,
+                declaration_result = validation_adapter.declare_input_uses(
+                    validation_inputs,
                     validation_result.value,
                 )
             except Exception:
@@ -307,7 +387,12 @@ class ValidatedInputService:
                     ]
                 )
 
-        after_result = self._build_identity_provider.capture_executable(workflow_id)
+        if reference_evidence is None:
+            after_result = self._build_identity_provider.capture_executable(workflow_id)
+        else:
+            after_result = self._build_identity_provider.capture_resolved_executable(
+                validation_adapter
+            )
         if after_result.is_failure or after_result.value is None:
             return Result.failure([_build_unavailable_issue()])
         if not before_result.value.matches(after_result.value):
@@ -327,8 +412,8 @@ class ValidatedInputService:
             now = _now_utc(self._clock)
             snapshot = ValidatedInputSnapshot(
                 snapshot_id=self._snapshot_id_factory(),
-                workflow_id=adapter.metadata.workflow_id,
-                adapter_version=adapter.metadata.version,
+                workflow_id=validation_adapter.metadata.workflow_id,
+                adapter_version=validation_adapter.metadata.version,
                 schema_version=schema.schema_version,
                 schema_dialect=schema.schema_dialect,
                 workflow_build_identity=after_result.value,
@@ -346,12 +431,14 @@ class ValidatedInputService:
                 persisted = self._repository.create_validated_input_snapshot(
                     snapshot,
                     project_sample_selection=project_sample_selection,
+                    reference_binding=reference_evidence,
                 )
             else:
                 persisted = self._repository.create_validated_input_snapshot(
                     snapshot,
                     project_sample_selection=project_sample_selection,
                     input_use_binding_plan=input_use_binding_plan,
+                    reference_binding=reference_evidence,
                 )
         except ProjectSampleSelectionError:
             return Result.failure(
@@ -378,6 +465,17 @@ class ValidatedInputService:
                         ),
                         source="input_registry",
                         path="input_selections",
+                    )
+                ]
+            )
+        except ReferenceBindingSelectionError:
+            return Result.failure(
+                [
+                    Issue(
+                        code="REFERENCE_PROFILE_STALE",
+                        message="The selected Reference Profile revision is stale.",
+                        source="reference_profile",
+                        path="reference_profile_revision_id",
                     )
                 ]
             )
@@ -408,6 +506,30 @@ class ValidatedInputService:
         """Return the safe immutable input-use evidence frozen with a snapshot."""
         return self._repository.get_validated_input_use_binding(snapshot_id)
 
+    def get_validated_reference_binding(self, snapshot_id: str):
+        """Return path-free exact Reference Profile evidence for one snapshot."""
+        return self._repository.get_validated_reference_binding(snapshot_id)
+
+    def get_validated_reference_summary(
+        self,
+        snapshot_id: str,
+    ) -> ReferenceProfileRevisionSummary | None:
+        """Project path-free catalog metadata for exact snapshot evidence."""
+        binding = self._repository.get_validated_reference_binding(snapshot_id)
+        if binding is None:
+            return None
+        if self._reference_profile_catalog is None:
+            raise ValueError("Reference Profile service is unavailable")
+        summary = self._reference_profile_catalog.get_revision_summary(
+            binding.revision_id
+        )
+        if (
+            summary.profile_id != binding.profile_id
+            or summary.public_identity_sha256 != binding.revision_public_identity_sha256
+        ):
+            raise ValueError("Reference Profile snapshot evidence differs")
+        return summary
+
 
 class ValidatedRunCreationService:
     """Create one durable run from a server-owned successful validation."""
@@ -417,6 +539,7 @@ class ValidatedRunCreationService:
         *,
         run_service: RunService,
         build_identity_provider: WorkflowBuildIdentityProvider,
+        reference_profile_binding_service: ReferenceProfileBindingService | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if not isinstance(run_service, RunService):
@@ -432,6 +555,7 @@ class ValidatedRunCreationService:
             )
         self._run_service = run_service
         self._build_identity_provider = build_identity_provider
+        self._reference_profile_binding_service = reference_profile_binding_service
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def create_run(
@@ -469,9 +593,50 @@ class ValidatedRunCreationService:
                 != "available"
             ):
                 raise ValidatedSnapshotExecutionUnavailableError
-            identity_result = self._build_identity_provider.capture_executable(
-                workflow_id
+            reference_binding = self._run_service.get_validated_reference_binding(
+                snapshot_id
             )
+            resolved_build_adapter = adapter
+            if isinstance(adapter, ReferenceProfileBindingAdapter):
+                if (
+                    reference_binding is None
+                    or self._reference_profile_binding_service is None
+                ):
+                    raise ValidatedSnapshotExecutionUnavailableError
+                reference_result = (
+                    self._reference_profile_binding_service.resolve_evidence(
+                        reference_binding,
+                        snapshot.to_workflow_inputs(),
+                        require_enabled=True,
+                    )
+                )
+                if reference_result.is_failure or reference_result.value is None:
+                    if any(
+                        issue.code
+                        in {
+                            "REFERENCE_PROFILE_STALE",
+                            "REFERENCE_PROFILE_IDENTITY_MISMATCH",
+                        }
+                        for issue in reference_result.issues
+                    ):
+                        raise ValidatedSnapshotStaleError
+                    raise ValidatedSnapshotExecutionUnavailableError
+                resolved_build_adapter = cast(
+                    WorkflowAdapter,
+                    reference_result.value.bound_reference.adapter,
+                )
+            elif reference_binding is not None:
+                raise ValidatedSnapshotExecutionUnavailableError
+            if reference_binding is None:
+                identity_result = self._build_identity_provider.capture_executable(
+                    workflow_id
+                )
+            else:
+                identity_result = (
+                    self._build_identity_provider.capture_resolved_executable(
+                        resolved_build_adapter
+                    )
+                )
             if identity_result.is_failure or identity_result.value is None:
                 raise ValidatedSnapshotBuildUnavailableError
             if not snapshot.workflow_build_identity.matches(identity_result.value):
@@ -494,5 +659,7 @@ class ValidatedRunCreationService:
             raise ValidatedSnapshotStaleError from None
         except RepositoryReplayConflictError:
             raise ValidatedSnapshotReplayConflictError from None
+        except ReferenceBindingSelectionError:
+            raise ValidatedSnapshotExecutionUnavailableError from None
         except (TypeError, ValueError):
             raise ValidatedSnapshotDataInvalidError from None

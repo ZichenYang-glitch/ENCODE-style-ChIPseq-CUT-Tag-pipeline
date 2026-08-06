@@ -8,7 +8,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
-from typing import cast
+from typing import Protocol, cast
 
 from encode_pipeline.platform.adapters import (
     MAX_SAMPLE_ROWS,
@@ -17,10 +17,13 @@ from encode_pipeline.platform.adapters import (
     QcSourceArtifact,
     QcSourceDocument,
     QcSummaryExtractingAdapter,
+    ReferenceProfileBindingAdapter,
     SamplePayload,
+    WorkflowAdapter,
     WorkflowInputs,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.reference_profiles import BoundWorkflowReference
 from encode_pipeline.platform.result_generations import (
     ARTIFACT_PATH_IDENTITY_METADATA_KEY,
     build_artifact_path_identity,
@@ -60,6 +63,32 @@ _ALLOWED_FLAGS = frozenset({"pass", "warning", "fail"})
 _SOURCE_METADATA_KEYS = ("scope", "sample_id", "experiment_id", "assay")
 
 
+def _reference_unavailable() -> Result:
+    return Result.failure(
+        [
+            Issue(
+                code="REFERENCE_PROFILE_UNAVAILABLE",
+                message="Reference Profile execution is unavailable.",
+            )
+        ]
+    )
+
+
+class _ReferenceProfileRuntimeResolver(Protocol):
+    def resolve_run(
+        self,
+        run_id: str,
+        workflow_id: str,
+        inputs: WorkflowInputs,
+        *,
+        require_enabled: bool,
+    ) -> Result[BoundWorkflowReference | None]: ...
+
+
+class _QcWorkflowAdapter(WorkflowAdapter, QcSummaryExtractingAdapter, Protocol):
+    """Workflow adapter intersection used after runtime capability checks."""
+
+
 class QcSummaryIndexingService:
     """Validate and persist a complete run-scoped numeric QC index."""
 
@@ -70,6 +99,7 @@ class QcSummaryIndexingService:
         registry: WorkflowRegistry,
         build_identity_provider: WorkflowBuildIdentityProvider,
         workspace_root: Path,
+        reference_profile_resolver: _ReferenceProfileRuntimeResolver | None = None,
     ) -> None:
         if not isinstance(run_service, RunService):
             raise ValueError("run_service must be a RunService")
@@ -83,10 +113,15 @@ class QcSummaryIndexingService:
             or any(part in {"", ".", ".."} for part in workspace_root.parts[1:])
         ):
             raise ValueError("workspace_root must be an absolute Path")
+        if reference_profile_resolver is not None and not callable(
+            getattr(reference_profile_resolver, "resolve_run", None)
+        ):
+            raise ValueError("reference_profile_resolver is invalid")
         self._run_service = run_service
         self._registry = registry
         self._build_identity_provider = build_identity_provider
         self._workspace_root = workspace_root
+        self._reference_profile_resolver = reference_profile_resolver
 
     def index(
         self,
@@ -134,13 +169,41 @@ class QcSummaryIndexingService:
                     attempt_id,
                     expected_artifact_generation,
                 )
-            if not self._build_matches(record.run_id, record.workflow_id):
+            adapter = cast(_QcWorkflowAdapter, adapter)
+            inputs = self._reconstruct_inputs(record.inputs)
+            execution_context = self._resolve_reference_profile(
+                record.run_id,
+                record.workflow_id,
+                adapter,
+                inputs,
+            )
+            if execution_context.is_failure:
+                return self._fail(
+                    run_id,
+                    "QC_INDEXING_REFERENCE_UNAVAILABLE",
+                    attempt_id,
+                    expected_artifact_generation,
+                )
+            assert execution_context.value is not None
+            adapter, inputs = execution_context.value
+            if not self._build_matches(record.run_id, adapter):
                 return self._fail(
                     run_id,
                     "QC_INDEXING_BUILD_MISMATCH",
                     attempt_id,
                     expected_artifact_generation,
                 )
+            if (
+                QC_SUMMARY_EXTRACT_CAPABILITY not in adapter.capabilities.supports
+                or not isinstance(adapter, QcSummaryExtractingAdapter)
+            ):
+                return self._fail(
+                    run_id,
+                    "QC_INDEXING_UNSUPPORTED",
+                    attempt_id,
+                    expected_artifact_generation,
+                )
+            adapter = cast(_QcWorkflowAdapter, adapter)
             expected_artifacts = self._validated_artifact_generation(run_id, artifacts)
             if expected_artifacts != tuple(
                 sorted(
@@ -171,7 +234,6 @@ class QcSummaryIndexingService:
                     attempt_id,
                     expected_artifact_generation,
                 )
-            inputs = self._reconstruct_inputs(record.inputs)
             candidate_result = adapter.extract_qc_metrics(inputs, documents)
             if candidate_result.is_failure:
                 return self._fail(
@@ -258,12 +320,82 @@ class QcSummaryIndexingService:
             expected_artifact_generation,
         )
 
-    def _build_matches(self, run_id: str, workflow_id: str) -> bool:
+    def _build_matches(self, run_id: str, adapter: WorkflowAdapter) -> bool:
         persisted = self._run_service.get_workflow_build_identity(run_id)
         if persisted is None:
             return False
-        current = self._build_identity_provider.capture_executable(workflow_id)
+        current = self._build_identity_provider.capture_resolved_executable(adapter)
         return current.is_success and persisted.matches(current.value)
+
+    def _resolve_reference_profile(
+        self,
+        run_id: str,
+        workflow_id: str,
+        adapter: WorkflowAdapter,
+        inputs: WorkflowInputs,
+    ) -> Result[tuple[WorkflowAdapter, WorkflowInputs]]:
+        resolver = self._reference_profile_resolver
+        if resolver is None:
+            if isinstance(adapter, ReferenceProfileBindingAdapter):
+                if self._run_service.get_run_reference_binding(run_id) is not None:
+                    return _reference_unavailable()
+                if not self._adapter_accepts_legacy_inputs(adapter, inputs):
+                    return _reference_unavailable()
+            return Result.success((adapter, inputs))
+        try:
+            resolved = resolver.resolve_run(
+                run_id,
+                workflow_id,
+                inputs,
+                require_enabled=False,
+            )
+        except Exception:
+            return _reference_unavailable()
+        if not isinstance(resolved, Result):
+            return _reference_unavailable()
+        if resolved.is_failure:
+            if self._is_valid_legacy_reference_run(adapter, inputs, resolved):
+                return Result.success((adapter, inputs))
+            return Result.failure(resolved.issues)
+        bound = resolved.value
+        if bound is None:
+            return Result.success((adapter, inputs))
+        if (
+            not isinstance(bound, BoundWorkflowReference)
+            or not isinstance(bound.inputs, WorkflowInputs)
+            or not isinstance(bound.adapter, WorkflowAdapter)
+            or not isinstance(bound.adapter, QcSummaryExtractingAdapter)
+            or bound.identity.workflow_id != workflow_id
+            or bound.adapter.metadata.workflow_id != workflow_id
+        ):
+            return _reference_unavailable()
+        return Result.success((bound.adapter, bound.inputs))
+
+    @staticmethod
+    def _is_valid_legacy_reference_run(
+        adapter: WorkflowAdapter,
+        inputs: WorkflowInputs,
+        resolved: Result[BoundWorkflowReference | None],
+    ) -> bool:
+        if not resolved.issues or any(
+            issue.code != "REFERENCE_PROFILE_REQUIRED" for issue in resolved.issues
+        ):
+            return False
+        return QcSummaryIndexingService._adapter_accepts_legacy_inputs(
+            adapter,
+            inputs,
+        )
+
+    @staticmethod
+    def _adapter_accepts_legacy_inputs(
+        adapter: WorkflowAdapter,
+        inputs: WorkflowInputs,
+    ) -> bool:
+        try:
+            validation = adapter.validate(inputs)
+        except Exception:
+            return False
+        return isinstance(validation, Result) and validation.is_success
 
     @staticmethod
     def _reconstruct_inputs(snapshot: Mapping[str, object]) -> WorkflowInputs:
@@ -351,6 +483,8 @@ class QcSummaryIndexingService:
             path_identity_value = artifact.metadata.get(
                 ARTIFACT_PATH_IDENTITY_METADATA_KEY
             )
+            if not isinstance(path_identity_value, str):
+                raise ValueError("QC source path identity is invalid")
             path_identity = validate_artifact_path_identity(path_identity_value)
             metadata = self._validated_source_metadata(artifact.metadata)
             prepared.append(
@@ -606,7 +740,9 @@ class QcSummaryIndexingService:
             raise
 
     @staticmethod
-    def _descriptor_identity(info: os.stat_result) -> tuple[int, ...]:
+    def _descriptor_identity(
+        info: os.stat_result,
+    ) -> tuple[int, int, int, int, int, int, int, int, int]:
         return (
             info.st_dev,
             info.st_ino,

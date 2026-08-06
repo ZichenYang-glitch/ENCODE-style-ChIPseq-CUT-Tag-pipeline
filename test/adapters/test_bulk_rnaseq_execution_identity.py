@@ -60,6 +60,7 @@ PRODUCTION_PERSISTENCE_PATHS = frozenset(
         "src/encode_pipeline/persistence/data_registry.py",
         "src/encode_pipeline/persistence/migrations.py",
         "src/encode_pipeline/persistence/models.py",
+        "src/encode_pipeline/persistence/reference_profiles.py",
         "src/encode_pipeline/persistence/repositories.py",
         "src/encode_pipeline/persistence/alembic/env.py",
         "src/encode_pipeline/persistence/alembic/versions/20260711_01_run_persistence.py",
@@ -70,7 +71,11 @@ PRODUCTION_PERSISTENCE_PATHS = frozenset(
         "src/encode_pipeline/persistence/alembic/versions/20260714_06_validated_input_snapshots.py",
         "src/encode_pipeline/persistence/alembic/versions/20260717_08_run_result_generations.py",
         "src/encode_pipeline/persistence/alembic/versions/20260726_09_project_sample_registry.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260803_11_reference_profiles.py",
         "src/encode_pipeline/platform/data_registry.py",
+        "src/encode_pipeline/platform/reference_profiles.py",
+        "src/encode_pipeline/services/private_reference_profiles.py",
+        "src/encode_pipeline/services/reference_profile_runtime.py",
         "src/encode_pipeline/services/data_registry_repositories.py",
     }
 )
@@ -88,6 +93,24 @@ PRODUCT_ONLY_RESULT_SURFACE_PATHS = frozenset(
         "src/encode_pipeline/api/routes/artifacts.py",
         "src/encode_pipeline/api/routes/qc_metrics.py",
         "src/encode_pipeline/services/artifact_downloads.py",
+    }
+)
+REFERENCE_PROFILE_CATALOG_PATHS = frozenset(
+    {
+        "src/encode_pipeline/cli/admin.py",
+        "src/encode_pipeline/services/reference_profile_repositories.py",
+        "src/encode_pipeline/services/reference_profiles.py",
+    }
+)
+REFERENCE_PROFILE_EXECUTION_PATHS = frozenset(
+    {
+        "src/encode_pipeline/adapters/bulk_rnaseq/reference_profiles.py",
+        "src/encode_pipeline/platform/reference_profiles.py",
+        "src/encode_pipeline/persistence/reference_profiles.py",
+        "src/encode_pipeline/services/private_reference_profiles.py",
+        "src/encode_pipeline/services/reference_profile_runtime.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260803_11_reference_profiles.py",
+        EXECUTION_PERSISTENCE_CONTRACT_PATH,
     }
 )
 
@@ -150,6 +173,11 @@ def test_product_only_result_surfaces_are_not_scientific_implementation_files():
     assert PRODUCT_ONLY_RESULT_SURFACE_PATHS.isdisjoint(EXECUTION_IMPLEMENTATION_PATHS)
 
 
+def test_reference_profile_catalog_crud_is_not_scientific_implementation():
+    assert REFERENCE_PROFILE_CATALOG_PATHS.isdisjoint(EXECUTION_IMPLEMENTATION_PATHS)
+    assert REFERENCE_PROFILE_EXECUTION_PATHS.issubset(EXECUTION_IMPLEMENTATION_PATHS)
+
+
 def test_committed_execution_manifest_is_exact_canonical_build():
     expected = canonical_execution_manifest_bytes(
         build_execution_implementation_manifest(PROJECT_ROOT)
@@ -182,7 +210,7 @@ def test_committed_source_qualification_is_canonical_path_free_and_exact():
     serialized = json.dumps(document)
     persistence = document["execution_implementation"]["persistence_contract"]
     assert persistence["path"] == EXECUTION_PERSISTENCE_CONTRACT_PATH
-    assert persistence["version"] == "1.1.0"
+    assert persistence["version"] == "1.2.0"
     assert set(persistence["schema_projection"]) == {"scheme", "sha256", "tables"}
     assert "required_schema" not in persistence
     assert str(PROJECT_ROOT) not in serialized
@@ -202,7 +230,7 @@ def test_persistence_contract_change_changes_identity_and_stales_qualification(
         *PurePosixPath(EXECUTION_PERSISTENCE_CONTRACT_PATH).parts
     )
     contract = json.loads(contract_path.read_bytes())
-    contract["contract_version"] = "1.1.1"
+    contract["contract_version"] = "1.2.1"
     contract_path.write_bytes(
         json.dumps(
             contract,
@@ -221,7 +249,7 @@ def test_persistence_contract_change_changes_identity_and_stales_qualification(
 
     assert changed.is_success
     assert changed.value.aggregate_sha256 != original.value.aggregate_sha256
-    assert changed.value.persistence_contract.contract_version == "1.1.1"
+    assert changed.value.persistence_contract.contract_version == "1.2.1"
     stale = load_default_execution_qualification(
         changed.value,
         content=QUALIFICATION_PATH.read_bytes(),
@@ -513,7 +541,7 @@ def test_unrelated_migration_revision_does_not_change_or_reject_identity(
         "from alembic import op\n"
         "import sqlalchemy as sa\n\n"
         "revision = '20990101_99'\n"
-        "down_revision = '20260726_10'\n"
+        "down_revision = '20260803_11'\n"
         "branch_labels = None\n"
         "depends_on = None\n\n"
         "def upgrade():\n"
@@ -562,6 +590,110 @@ def test_mock_agent_route_change_does_not_change_scientific_aggregate(
     assert changed.is_success
     assert changed.value.aggregate_sha256 == original.value.aggregate_sha256
     assert canonical_execution_manifest_bytes(changed_manifest) == original_bytes
+
+
+def test_reference_profile_catalog_crud_change_does_not_change_aggregate(
+    tmp_path: Path,
+):
+    original_bytes = MANIFEST_PATH.read_bytes()
+    original = verify_execution_implementation(manifest_bytes=original_bytes)
+    assert original.is_success
+
+    project = tmp_path / "catalog-only-change"
+    package_root = _copy_controlled_implementation(project)
+    catalog = package_root / "services/reference_profiles.py"
+    catalog.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(
+        PROJECT_ROOT / "src/encode_pipeline/services/reference_profiles.py",
+        catalog,
+    )
+    catalog.write_bytes(catalog.read_bytes() + b"\n# admin-only list change\n")
+
+    changed_manifest = build_execution_implementation_manifest(project)
+    changed = verify_execution_implementation(
+        manifest_bytes=canonical_execution_manifest_bytes(changed_manifest),
+        package_root=package_root,
+    )
+
+    assert changed.is_success
+    assert changed.value.aggregate_sha256 == original.value.aggregate_sha256
+    assert canonical_execution_manifest_bytes(changed_manifest) == original_bytes
+
+
+def test_reference_profile_runtime_projection_change_changes_identity_and_stales_qualification(
+    tmp_path: Path,
+):
+    original_bytes = MANIFEST_PATH.read_bytes()
+    original = verify_execution_implementation(manifest_bytes=original_bytes)
+    assert original.is_success
+
+    project = tmp_path / "changed-reference-profile-runtime-projection"
+    package_root = _copy_controlled_implementation(project)
+    repository = package_root / "persistence/reference_profiles.py"
+    repository.write_bytes(
+        repository.read_bytes() + b"\n# intentional execution projection change\n"
+    )
+
+    stale_install = verify_execution_implementation(
+        manifest_bytes=original_bytes,
+        package_root=package_root,
+    )
+    changed_manifest = build_execution_implementation_manifest(project)
+    changed = verify_execution_implementation(
+        manifest_bytes=canonical_execution_manifest_bytes(changed_manifest),
+        package_root=package_root,
+    )
+
+    assert stale_install.is_failure
+    assert changed.is_success
+    assert changed.value.aggregate_sha256 != original.value.aggregate_sha256
+    stale_qualification = load_default_execution_qualification(
+        changed.value,
+        content=QUALIFICATION_PATH.read_bytes(),
+    )
+    assert stale_qualification.is_failure
+    assert stale_qualification.errors[0].code == (
+        "BULK_RNASEQ_EXECUTION_QUALIFICATION_INVALID"
+    )
+
+
+def test_reference_profile_migration_change_changes_identity_and_stales_qualification(
+    tmp_path: Path,
+):
+    original_bytes = MANIFEST_PATH.read_bytes()
+    original = verify_execution_implementation(manifest_bytes=original_bytes)
+    assert original.is_success
+
+    project = tmp_path / "changed-reference-profile-migration"
+    package_root = _copy_controlled_implementation(project)
+    migration = (
+        package_root / "persistence/alembic/versions/20260803_11_reference_profiles.py"
+    )
+    migration.write_bytes(
+        migration.read_bytes() + b"\n# intentional binding contract change\n"
+    )
+
+    stale_install = verify_execution_implementation(
+        manifest_bytes=original_bytes,
+        package_root=package_root,
+    )
+    changed_manifest = build_execution_implementation_manifest(project)
+    changed = verify_execution_implementation(
+        manifest_bytes=canonical_execution_manifest_bytes(changed_manifest),
+        package_root=package_root,
+    )
+
+    assert stale_install.is_failure
+    assert changed.is_success
+    assert changed.value.aggregate_sha256 != original.value.aggregate_sha256
+    stale_qualification = load_default_execution_qualification(
+        changed.value,
+        content=QUALIFICATION_PATH.read_bytes(),
+    )
+    assert stale_qualification.is_failure
+    assert stale_qualification.errors[0].code == (
+        "BULK_RNASEQ_EXECUTION_QUALIFICATION_INVALID"
+    )
 
 
 def test_missing_listed_production_migration_revision_fails_closed(

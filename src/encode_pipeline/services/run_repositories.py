@@ -11,7 +11,7 @@ from hashlib import sha256
 import json
 import re
 from threading import RLock
-from typing import Any, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from encode_pipeline.platform.execution import (
     RunExecutionAssignment,
@@ -33,6 +33,7 @@ from encode_pipeline.platform.input_registry import (
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.results import Issue
+from encode_pipeline.platform.reference_profiles import ReferenceProfileRevisionBinding
 from encode_pipeline.platform.result_generations import (
     RunResultState,
     artifact_manifest_digest,
@@ -67,6 +68,11 @@ from encode_pipeline.services.input_registry_repositories import (
     InputRegistryConflictError,
     InputRegistryRepository,
 )
+
+if TYPE_CHECKING:
+    from encode_pipeline.services.reference_profile_repositories import (
+        ReferenceProfileRepository,
+    )
 
 
 _T = TypeVar("_T")
@@ -114,6 +120,10 @@ class InputBindingSelectionError(RuntimeError):
     """Raised when exact input-use revision evidence cannot be frozen."""
 
 
+class ReferenceBindingSelectionError(RuntimeError):
+    """Raised when exact Reference Profile evidence cannot be frozen."""
+
+
 @dataclass(frozen=True)
 class RunEventDraft:
     """Event data whose repository-owned identity has not been assigned yet."""
@@ -139,6 +149,7 @@ class RunRepository(Protocol):
         *,
         project_sample_selection: ProjectSampleSelection | None = None,
         input_use_binding_plan: InputUseBindingPlan | None = None,
+        reference_binding: ReferenceProfileRevisionBinding | None = None,
     ) -> ValidatedInputSnapshot: ...
 
     def get_validated_input_snapshot(
@@ -156,6 +167,11 @@ class RunRepository(Protocol):
         snapshot_id: str,
     ) -> InputUseBindingEnvelope: ...
 
+    def get_validated_reference_binding(
+        self,
+        snapshot_id: str,
+    ) -> ReferenceProfileRevisionBinding | None: ...
+
     def consume_validated_input_snapshot(
         self,
         snapshot_id: str,
@@ -172,6 +188,11 @@ class RunRepository(Protocol):
     def get_run_data_binding(self, run_id: str) -> ProjectSampleBinding: ...
 
     def get_run_input_use_binding(self, run_id: str) -> InputUseBindingEnvelope: ...
+
+    def get_run_reference_binding(
+        self,
+        run_id: str,
+    ) -> ReferenceProfileRevisionBinding | None: ...
 
     def list_runs(self) -> tuple[RunRecord, ...]: ...
 
@@ -425,10 +446,12 @@ class InMemoryRunRepository:
         *,
         data_registry_repository: DataRegistryRepository | None = None,
         input_registry_repository: InputRegistryRepository | None = None,
+        reference_profile_repository: ReferenceProfileRepository | None = None,
     ) -> None:
         self._lock = RLock()
         self._data_registry_repository = data_registry_repository
         self._input_registry_repository = input_registry_repository
+        self._reference_profile_repository = reference_profile_repository
         self._runs: dict[str, RunRecord] = {}
         self._events: dict[str, list[RunEvent]] = {}
         self._logs: dict[str, dict[str, list[RunLogChunk]]] = {}
@@ -442,8 +465,12 @@ class InMemoryRunRepository:
         self._validated_input_snapshots: dict[str, ValidatedInputSnapshot] = {}
         self._validated_input_bindings: dict[str, ProjectSampleBinding] = {}
         self._validated_input_use_bindings: dict[str, InputUseBindingEnvelope] = {}
+        self._validated_reference_bindings: dict[
+            str, ReferenceProfileRevisionBinding
+        ] = {}
         self._run_data_bindings: dict[str, ProjectSampleBinding] = {}
         self._run_input_use_bindings: dict[str, InputUseBindingEnvelope] = {}
+        self._run_reference_bindings: dict[str, ReferenceProfileRevisionBinding] = {}
 
     def contains_run(self, run_id: str) -> bool:
         with self._lock:
@@ -483,6 +510,7 @@ class InMemoryRunRepository:
         *,
         project_sample_selection: ProjectSampleSelection | None = None,
         input_use_binding_plan: InputUseBindingPlan | None = None,
+        reference_binding: ReferenceProfileRevisionBinding | None = None,
     ) -> ValidatedInputSnapshot:
         with self._lock:
             validated = _validated_snapshot_copy(snapshot)
@@ -507,6 +535,43 @@ class InMemoryRunRepository:
                     raise InputBindingSelectionError(
                         "an input registry repository is required for input selection"
                     )
+            if reference_binding is not None:
+                if not isinstance(reference_binding, ReferenceProfileRevisionBinding):
+                    raise ValueError(
+                        "reference_binding must be exact Reference Profile evidence"
+                    )
+                if reference_binding.workflow_id != validated.workflow_id:
+                    raise ValueError(
+                        "Reference Profile binding does not match validation workflow"
+                    )
+                if self._reference_profile_repository is not None:
+                    try:
+                        profile = self._reference_profile_repository.get_profile(
+                            reference_binding.profile_id
+                        )
+                        revision = self._reference_profile_repository.get_revision(
+                            reference_binding.revision_id
+                        )
+                        workflow_binding = revision.binding_for(
+                            reference_binding.workflow_id
+                        )
+                    except (KeyError, ValueError) as exc:
+                        raise ReferenceBindingSelectionError(
+                            "Reference Profile selection is not eligible"
+                        ) from exc
+                    if (
+                        profile.enabled_revision_id != reference_binding.revision_id
+                        or revision.profile_id != reference_binding.profile_id
+                        or revision.public_identity_sha256
+                        != reference_binding.revision_public_identity_sha256
+                        or workflow_binding.contract_version
+                        != reference_binding.adapter_contract_version
+                        or workflow_binding.identity_sha256
+                        != reference_binding.adapter_identity_sha256
+                    ):
+                        raise ReferenceBindingSelectionError(
+                            "Reference Profile selection is not eligible"
+                        )
 
             binding_context: AbstractContextManager[ProjectSampleBinding]
             if project_sample_selection is None:
@@ -539,6 +604,7 @@ class InMemoryRunRepository:
                             validated,
                             stored_binding,
                             input_binding,
+                            reference_binding,
                         )
                 else:
                     assert project_sample_selection is not None
@@ -565,8 +631,9 @@ class InMemoryRunRepository:
                                 validated,
                                 stored_binding,
                                 input_binding,
+                                reference_binding,
                             )
-            except InputBindingSelectionError:
+            except (InputBindingSelectionError, ReferenceBindingSelectionError):
                 raise
             except InputRegistryConflictError as exc:
                 raise InputBindingSelectionError(
@@ -595,6 +662,7 @@ class InMemoryRunRepository:
         snapshot: ValidatedInputSnapshot,
         data_binding: ProjectSampleBinding,
         input_binding: InputUseBindingEnvelope,
+        reference_binding: ReferenceProfileRevisionBinding | None,
     ) -> None:
         if (
             input_binding.project_id != data_binding.project_id
@@ -608,6 +676,10 @@ class InMemoryRunRepository:
         self._validated_input_use_bindings[snapshot.snapshot_id] = _input_binding_copy(
             input_binding
         )
+        if reference_binding is not None:
+            self._validated_reference_bindings[snapshot.snapshot_id] = (
+                _reference_binding_copy(reference_binding)
+            )
 
     def get_validated_input_snapshot(
         self,
@@ -632,6 +704,16 @@ class InMemoryRunRepository:
         with self._lock:
             return _input_binding_copy(self._validated_input_use_bindings[snapshot_id])
 
+    def get_validated_reference_binding(
+        self,
+        snapshot_id: str,
+    ) -> ReferenceProfileRevisionBinding | None:
+        with self._lock:
+            if snapshot_id not in self._validated_input_snapshots:
+                raise KeyError(snapshot_id)
+            binding = self._validated_reference_bindings.get(snapshot_id)
+            return None if binding is None else _reference_binding_copy(binding)
+
     def consume_validated_input_snapshot(
         self,
         snapshot_id: str,
@@ -652,6 +734,13 @@ class InMemoryRunRepository:
             snapshot_input_binding = _input_binding_copy(
                 self._validated_input_use_bindings[snapshot_id]
             )
+            snapshot_reference_binding = self._validated_reference_bindings.get(
+                snapshot_id
+            )
+            if snapshot_reference_binding is not None:
+                snapshot_reference_binding = _reference_binding_copy(
+                    snapshot_reference_binding
+                )
             if snapshot.workflow_id != workflow_id:
                 raise KeyError(snapshot_id)
             _validate_snapshot_consumption_candidate(
@@ -677,6 +766,13 @@ class InMemoryRunRepository:
                     run_input_binding = _input_binding_copy(
                         self._run_input_use_bindings[current.run_id]
                     )
+                    run_reference_binding = self._run_reference_bindings.get(
+                        current.run_id
+                    )
+                    if run_reference_binding is not None:
+                        run_reference_binding = _reference_binding_copy(
+                            run_reference_binding
+                        )
                 except (KeyError, ValueError) as exc:
                     raise ValidatedSnapshotReplayConflictError(
                         "validated snapshot replay binding evidence is invalid"
@@ -684,6 +780,7 @@ class InMemoryRunRepository:
                 if (
                     run_binding != snapshot_binding
                     or run_input_binding != snapshot_input_binding
+                    or run_reference_binding != snapshot_reference_binding
                 ):
                     raise ValidatedSnapshotReplayConflictError(
                         "validated snapshot replay binding evidence differs"
@@ -693,6 +790,25 @@ class InMemoryRunRepository:
                 raise ValidatedSnapshotExpiredError(
                     "validated snapshot expired before first use"
                 )
+            if (
+                snapshot_reference_binding is not None
+                and self._reference_profile_repository is not None
+            ):
+                try:
+                    profile = self._reference_profile_repository.get_profile(
+                        snapshot_reference_binding.profile_id
+                    )
+                except (KeyError, ValueError) as exc:
+                    raise ReferenceBindingSelectionError(
+                        "Reference Profile selection is not eligible"
+                    ) from exc
+                if (
+                    profile.enabled_revision_id
+                    != snapshot_reference_binding.revision_id
+                ):
+                    raise ReferenceBindingSelectionError(
+                        "Reference Profile selection is not eligible"
+                    )
             if record.run_id in self._runs:
                 raise ValueError(f"Duplicate run_id: {record.run_id!r}")
 
@@ -703,6 +819,10 @@ class InMemoryRunRepository:
             self._runs[record.run_id] = record
             self._run_data_bindings[record.run_id] = run_binding
             self._run_input_use_bindings[record.run_id] = run_input_binding
+            if snapshot_reference_binding is not None:
+                self._run_reference_bindings[record.run_id] = _reference_binding_copy(
+                    snapshot_reference_binding
+                )
             self._events[record.run_id] = [created_event]
             self._logs[record.run_id] = {}
             self._artifacts[record.run_id] = {}
@@ -722,6 +842,16 @@ class InMemoryRunRepository:
     def get_run_input_use_binding(self, run_id: str) -> InputUseBindingEnvelope:
         with self._lock:
             return _input_binding_copy(self._run_input_use_bindings[run_id])
+
+    def get_run_reference_binding(
+        self,
+        run_id: str,
+    ) -> ReferenceProfileRevisionBinding | None:
+        with self._lock:
+            if run_id not in self._runs:
+                raise KeyError(run_id)
+            binding = self._run_reference_bindings.get(run_id)
+            return None if binding is None else _reference_binding_copy(binding)
 
     def list_runs(self) -> tuple[RunRecord, ...]:
         with self._lock:
@@ -1481,6 +1611,23 @@ class InMemoryRunRepository:
                 raise ConcurrentRunUpdateError(
                     f"Run {assignment.run_id!r} is no longer assignable."
                 )
+            reference_binding = self._run_reference_bindings.get(assignment.run_id)
+            if (
+                reference_binding is not None
+                and self._reference_profile_repository is not None
+            ):
+                try:
+                    profile = self._reference_profile_repository.get_profile(
+                        reference_binding.profile_id
+                    )
+                except (KeyError, ValueError) as exc:
+                    raise ReferenceBindingSelectionError(
+                        "Reference Profile selection is not eligible"
+                    ) from exc
+                if profile.enabled_revision_id != reference_binding.revision_id:
+                    raise ReferenceBindingSelectionError(
+                        "Reference Profile selection is not eligible"
+                    )
             existing = self._execution_assignments.get(assignment.run_id)
             if existing is not None:
                 return existing
@@ -2065,6 +2212,14 @@ def _input_binding_copy(
 ) -> InputUseBindingEnvelope:
     if not isinstance(binding, InputUseBindingEnvelope):
         raise ValueError("binding must be an InputUseBindingEnvelope")
+    return replace(binding)
+
+
+def _reference_binding_copy(
+    binding: ReferenceProfileRevisionBinding,
+) -> ReferenceProfileRevisionBinding:
+    if not isinstance(binding, ReferenceProfileRevisionBinding):
+        raise ValueError("binding must be a ReferenceProfileRevisionBinding")
     return replace(binding)
 
 

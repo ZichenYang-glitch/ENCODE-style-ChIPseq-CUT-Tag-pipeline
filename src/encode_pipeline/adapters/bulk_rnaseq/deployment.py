@@ -35,11 +35,14 @@ MANAGED_DOCKER_EXECUTABLE_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE"
 MANAGED_DOCKER_SOCKET_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
 TRANSCRIPTOME_BINDING_SCHEMA_VERSION = "1.0.0"
 
-_COORDINATE_NAMES = (
+_REQUIRED_COORDINATE_NAMES = (
     RUNTIME_ROOT_ENV,
-    TRANSCRIPTOME_BINDING_MANIFEST_ENV,
     MANAGED_DOCKER_EXECUTABLE_ENV,
     MANAGED_DOCKER_SOCKET_ENV,
+)
+_COORDINATE_NAMES = (
+    *_REQUIRED_COORDINATE_NAMES,
+    TRANSCRIPTOME_BINDING_MANIFEST_ENV,
 )
 _TRANSCRIPTOME_FIELDS = {
     "schema_version",
@@ -77,7 +80,7 @@ def load_default_bulk_rnaseq_adapter(
     configured_keys = frozenset(source).intersection(_COORDINATE_NAMES)
     if not configured_keys:
         return BulkRnaSeqWorkflowAdapter()
-    if len(configured_keys) != len(_COORDINATE_NAMES):
+    if not frozenset(_REQUIRED_COORDINATE_NAMES).issubset(configured_keys):
         return _unavailable_adapter()
     implementation = verify_execution_implementation()
     if implementation.is_failure:
@@ -88,22 +91,24 @@ def load_default_bulk_rnaseq_adapter(
 
     try:
         runtime_root = _canonical_absolute_path(source[RUNTIME_ROOT_ENV])
-        manifest_path = _canonical_absolute_path(
-            source[TRANSCRIPTOME_BINDING_MANIFEST_ENV]
-        )
         docker_executable = _canonical_absolute_path(
             source[MANAGED_DOCKER_EXECUTABLE_ENV]
         )
         docker_socket = _canonical_absolute_path(source[MANAGED_DOCKER_SOCKET_ENV])
-        transcriptome = _load_transcriptome_binding(manifest_path)
+        transcriptome = None
+        if TRANSCRIPTOME_BINDING_MANIFEST_ENV in configured_keys:
+            manifest_path = _canonical_absolute_path(
+                source[TRANSCRIPTOME_BINDING_MANIFEST_ENV]
+            )
+            transcriptome = _load_transcriptome_binding(manifest_path)
         binding = BulkRnaSeqExecutionBinding(
             assets=RuntimeAssetBinding(
                 root=runtime_root,
                 docker_executable=docker_executable,
                 docker_socket=docker_socket,
             ),
-            transcriptome=transcriptome,
             implementation_qualification=qualification.value.implementation,
+            transcriptome=transcriptome,
         )
         adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
     except Exception:

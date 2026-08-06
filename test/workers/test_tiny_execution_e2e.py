@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import os
 from pathlib import Path
 import shutil
@@ -11,7 +12,6 @@ from uuid import uuid4
 import pytest
 import httpx
 from redis import Redis
-import yaml
 
 from encode_pipeline.api.main import create_app
 from encode_pipeline.persistence.runtime import open_run_persistence
@@ -23,11 +23,19 @@ from encode_pipeline.services.defaults import (
 from encode_pipeline.workers.rq_queue import RqRunQueue
 from encode_pipeline.workers.settings import (
     QUEUE_NAME_ENV,
+    REFERENCE_PROFILE_CONFIG_ENV,
     REDIS_URL_ENV,
     WORKSPACE_ROOT_ENV,
     WorkerSettings,
 )
 
+from .conftest import (
+    cleanup_reference_profile_fixture,
+    reference_neutral_worker_inputs,
+    register_enabled_reference_profile,
+    worker_settings,
+    write_reference_neutral_samples,
+)
 from .process_helpers import run_burst_worker
 
 
@@ -35,7 +43,6 @@ pytestmark = pytest.mark.platform_real_execution
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-PROFILE_ROOT = REPOSITORY_ROOT / "test" / "profiles" / "platform_worker_tiny"
 TEST_REDIS_URL_ENV = "ENCODE_PIPELINE_TEST_REDIS_URL"
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 
@@ -109,8 +116,17 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
         pytest.skip("snakemake is not available on PATH")
 
     queue_name = f"encode-pipeline-e2e-{uuid4().hex}"
-    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
-    workspace_root = tmp_path / "workspaces"
+    configured = replace(
+        worker_settings(tmp_path, queue_name),
+        redis_url=redis_url,
+    )
+    database_url = configured.database_url
+    workspace_root = configured.workspace_root
+    reference_profile_config = configured.reference_profile_config
+    assert reference_profile_config is not None
+    request.addfinalizer(
+        lambda: cleanup_reference_profile_fixture(reference_profile_config)
+    )
     run_identity: dict[str, str | None] = {"run_id": None}
     request.addfinalizer(
         lambda: _cleanup_redis_queue(
@@ -124,22 +140,29 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
     monkeypatch.setenv("ENCODE_PIPELINE_DATABASE_URL", database_url)
     monkeypatch.setenv(REDIS_URL_ENV, redis_url)
     monkeypatch.setenv(QUEUE_NAME_ENV, queue_name)
+    monkeypatch.setenv(
+        REFERENCE_PROFILE_CONFIG_ENV,
+        str(reference_profile_config),
+    )
     monkeypatch.setenv(WORKSPACE_ROOT_ENV, str(workspace_root))
 
-    config = yaml.safe_load((PROFILE_ROOT / "config.yaml").read_text(encoding="utf-8"))
-    samples_path = (PROFILE_ROOT / "samples.tsv").resolve()
-    config["samples"] = str(samples_path)
+    inputs = reference_neutral_worker_inputs()
+    samples_path = write_reference_neutral_samples(tmp_path)
 
     app = create_app(database_url=database_url, workspace_root=workspace_root)
     try:
+        reference_revision = register_enabled_reference_profile(
+            app.state.reference_profile_service
+        )
         validation_response = _request(
             app,
             "POST",
             f"/api/v1/workflows/{WORKFLOW_ID}/validate",
             json={
-                "config": config,
+                "config": inputs.config,
                 "samples": str(samples_path),
                 "options": {},
+                "reference_profile_revision_id": reference_revision.revision_id,
             },
         )
         assert validation_response.status_code == 200
@@ -198,6 +221,7 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
             "ENCODE_PIPELINE_DATABASE_URL": database_url,
             REDIS_URL_ENV: redis_url,
             QUEUE_NAME_ENV: queue_name,
+            REFERENCE_PROFILE_CONFIG_ENV: str(reference_profile_config),
             WORKSPACE_ROOT_ENV: str(workspace_root),
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONPATH": str(REPOSITORY_ROOT / "src"),
@@ -209,6 +233,8 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
         timeout_seconds=60,
     )
     assert completed.returncode == 0, completed.stderr
+    assert "operator-reference-profile" not in completed.stdout
+    assert "operator-reference-profile" not in completed.stderr
 
     persistence = open_run_persistence(database_url)
     try:

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from encode_pipeline.platform.adapters import VALIDATION_CAPABILITY, WorkflowInputs
+from encode_pipeline.platform.adapters import (
+    VALIDATION_CAPABILITY,
+    WorkflowAdapter,
+    WorkflowInputs,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 
@@ -32,6 +36,16 @@ class ValidationService:
                 ]
             )
 
+        return self.validate_adapter(adapter, inputs)
+
+    def validate_adapter(
+        self,
+        adapter: WorkflowAdapter,
+        inputs: WorkflowInputs,
+    ) -> Result[object]:
+        """Validate with one exact, already-resolved adapter instance."""
+        if not isinstance(adapter, WorkflowAdapter):
+            raise ValueError("adapter must satisfy WorkflowAdapter")
         if VALIDATION_CAPABILITY not in adapter.capabilities.supports:
             return Result.failure(
                 [
@@ -41,7 +55,7 @@ class ValidationService:
                         source="registry",
                         path="workflow.capabilities",
                         context={
-                            "workflow_id": workflow_id,
+                            "workflow_id": adapter.metadata.workflow_id,
                             "capability": VALIDATION_CAPABILITY,
                         },
                     )

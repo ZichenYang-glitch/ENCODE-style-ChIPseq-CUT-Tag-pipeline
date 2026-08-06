@@ -289,6 +289,62 @@ function renderPanel(props: Partial<Parameters<typeof RunProgressPanel>[0]> = {}
 }
 
 describe('RunProgressPanel', () => {
+  it('shows the immutable reference revision bound to a run', async () => {
+    const runId = 'run-reference-profile';
+    const baseClient = createMockRunClient();
+    const runClient: RunApiClient = {
+      ...baseClient,
+      getRun: vi.fn(async () => ({
+        ok: true,
+        run: {
+          run_id: runId,
+          workflow_id: WORKFLOW_ID,
+          status: 'succeeded',
+          created_at: '2026-08-03T00:00:00.000Z',
+          updated_at: '2026-08-03T00:10:00.000Z',
+          started_at: '2026-08-03T00:01:00.000Z',
+          ended_at: '2026-08-03T00:10:00.000Z',
+          current_stage: 'complete',
+          cancellation_reason: null,
+          error: null,
+          tags: {},
+          reference_profile: {
+            profile_id: `refp_${'1'.repeat(32)}`,
+            revision_id: `refpr_${'3'.repeat(32)}`,
+            revision_number: 3,
+            display_name: 'Human GRCh38',
+            organism: 'Homo sapiens',
+            assembly: 'GRCh38',
+            identity_sha256: 'a'.repeat(64),
+          },
+        },
+        issues: [],
+      })),
+      listRunEvents: vi.fn(async () => ({
+        ok: true,
+        run_id: runId,
+        events: [],
+        next_cursor: null,
+        issues: [],
+      })),
+      listRunLogs: vi.fn(async (_id, options = {}) => ({
+        ok: true,
+        run_id: runId,
+        stream_name: options.streamName ?? 'stdout',
+        chunks: [],
+        next_cursor: null,
+        issues: [],
+      })),
+    };
+
+    renderPanel({ runId, runClient });
+
+    expect(await screen.findByText('Human GRCh38')).toBeVisible();
+    expect(screen.getByText(/Homo sapiens · GRCh38/)).toBeVisible();
+    expect(screen.getByText(/Revision 3/)).toBeVisible();
+    expect(screen.getByText('a'.repeat(64))).toBeVisible();
+  });
+
   it('marks active polling stale only after the bounded observation window', () => {
     const startedAt = 1_000;
 

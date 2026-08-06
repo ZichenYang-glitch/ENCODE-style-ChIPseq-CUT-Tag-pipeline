@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from copy import deepcopy
 import csv
-from dataclasses import dataclass
-import json
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
 import sys
 
-from encode_pipeline.adapters.bulk_rnaseq.deployment import (
-    TRANSCRIPTOME_BINDING_MANIFEST_ENV,
-    TRANSCRIPTOME_BINDING_SCHEMA_VERSION,
-)
 from encode_pipeline.services.defaults import create_default_workflow_registry
 from encode_pipeline.services.workflow_info import WorkflowInfoService
 
@@ -44,10 +40,11 @@ _SAMPLE_FIELDS = (
 
 @dataclass(frozen=True)
 class BulkProductBrowserRuntime:
-    """Browser-visible fixture fields and one private deployment coordinate."""
+    """Browser-visible fields plus one operator-private reference binding."""
 
     manifest_fields: Mapping[str, object]
     deployment_environment: Mapping[str, str]
+    reference_profile_binding: Mapping[str, object] = field(repr=False)
 
 
 def prepare_bulk_product_browser_runtime(
@@ -81,14 +78,31 @@ def prepare_bulk_product_browser_runtime(
     product_root.mkdir(mode=0o700)
     samples_path = product_root / "samples.tsv"
     _write_samples(samples_path, fixture)
-    binding_manifest = product_root / "transcriptome-binding.json"
-    _write_binding_manifest(binding_manifest, fixture)
 
     inputs = fixture.workflow_inputs.to_dict()
+    public_config = deepcopy(inputs["config"])
+    standard = public_config.get("standard")
+    if not isinstance(standard, dict):
+        raise ValueError("acceptance config standard section is invalid")
+    reference = standard.pop("reference", None)
+    if not isinstance(reference, dict):
+        raise ValueError("acceptance reference binding is unavailable")
+    transcriptome = fixture.transcriptome
+    reference_profile_binding = {
+        "schema_version": "bulk-rnaseq-reference-binding-v1",
+        "reference": reference,
+        "transcriptome": {
+            "reference_id": transcriptome.reference_id,
+            "fasta_sha256": transcriptome.fasta_sha256,
+            "gtf_sha256": transcriptome.gtf_sha256,
+            "transcript_fasta": str(transcriptome.transcript_fasta),
+            "transcript_fasta_sha256": transcriptome.transcript_fasta_sha256,
+        },
+    }
     manifest_fields = {
         "bulkWorkflowId": "bulk-rnaseq",
         "bulkSamplesPath": str(samples_path),
-        "bulkConfig": inputs["config"],
+        "bulkConfig": public_config,
         "bulkOptions": inputs["options"],
         "bulkExpectedExecution": "available",
         "bulkRequiredArtifactOutputTypes": list(fixture.required_artifact_output_types),
@@ -104,12 +118,11 @@ def prepare_bulk_product_browser_runtime(
             list(value) for value in fixture.required_qc_sample_metric_values
         ],
     }
-    deployment_environment = {TRANSCRIPTOME_BINDING_MANIFEST_ENV: str(binding_manifest)}
-    combined_environment = {**source, **deployment_environment}
-    (admission_probe or _require_product_available)(combined_environment)
+    (admission_probe or _require_product_available)(source)
     return BulkProductBrowserRuntime(
         manifest_fields=manifest_fields,
-        deployment_environment=deployment_environment,
+        deployment_environment={},
+        reference_profile_binding=reference_profile_binding,
     )
 
 
@@ -164,18 +177,3 @@ def _write_samples(path: Path, fixture: AcceptanceFixture) -> None:
         )
         writer.writeheader()
         writer.writerows(samples)
-
-
-def _write_binding_manifest(path: Path, fixture: AcceptanceFixture) -> None:
-    transcriptome = fixture.transcriptome
-    payload = {
-        "schema_version": TRANSCRIPTOME_BINDING_SCHEMA_VERSION,
-        "reference_id": transcriptome.reference_id,
-        "fasta_sha256": transcriptome.fasta_sha256,
-        "gtf_sha256": transcriptome.gtf_sha256,
-        "transcript_fasta": str(transcriptome.transcript_fasta),
-        "transcript_fasta_sha256": transcriptome.transcript_fasta_sha256,
-    }
-    with path.open("x", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=True, sort_keys=True)
-        handle.write("\n")

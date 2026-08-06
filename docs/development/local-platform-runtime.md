@@ -346,37 +346,62 @@ database and workspace coordinates before starting either process.
 
 ### Optional Bulk RNA-seq execution binding
 
-`bulk-rnaseq` input authoring and adapter validation require no local scientific
-runtime. To create or start a run, both API and worker processes must receive
-the same complete server-owned binding:
+`bulk-rnaseq` input authoring requires no local scientific runtime. The API and
+worker receive the same pinned runtime coordinates plus the same private
+Reference Profile configuration:
 
 ```bash
 export HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT="/absolute/pinned-runtime"
-export HELIXWEAVE_BULK_RNASEQ_TRANSCRIPTOME_BINDING_MANIFEST="/absolute/transcriptome-binding.json"
 export ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE="/usr/bin/docker"
 export ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET="/var/run/docker.sock"
+export ENCODE_PIPELINE_REFERENCE_PROFILE_CONFIG="/operator/private/reference-profiles.yaml"
 ```
 
-The manifest is small operator metadata, not reference payload:
+The runtime binding is deliberately reference-unbound. An administrator uses
+the existing CLI to register an append-only revision, verify it without
+mutation, and enable one exact revision for new validations and runs:
 
-```json
-{
-  "schema_version": "1.0.0",
-  "reference_id": "operator-reference-id",
-  "fasta_sha256": "<64 lowercase hex>",
-  "gtf_sha256": "<64 lowercase hex>",
-  "transcript_fasta": "/absolute/transcripts.fa",
-  "transcript_fasta_sha256": "<64 lowercase hex>"
-}
+```bash
+DATABASE_URL="sqlite:////absolute/path/platform.db"
+REFERENCE_CONFIG="/operator/private/reference-profiles.yaml"
+
+helixweave admin --database-url "$DATABASE_URL" \
+  --reference-profile-config "$REFERENCE_CONFIG" \
+  reference-profile register \
+  --safe-key grch38 --display-name "GRCh38" \
+  --organism "Homo sapiens" --assembly GRCh38 \
+  --config-key grch38-prepared
+
+helixweave admin --database-url "$DATABASE_URL" \
+  --reference-profile-config "$REFERENCE_CONFIG" \
+  reference-profile verify <revision-id>
+helixweave admin --database-url "$DATABASE_URL" \
+  --reference-profile-config "$REFERENCE_CONFIG" \
+  reference-profile enable <profile-id> --revision-id <revision-id>
 ```
+
+The private YAML/JSON document uses schema
+`helixweave-reference-profiles-v1`; each `profiles.<config-key>.bindings` entry
+contains one or both adapter-owned `encode-style` and `bulk-rnaseq` binding
+payloads. Those payloads hold absolute paths and expected SHA-256 identities.
+Operators may prepare those assets outside HelixWeave with tools such as
+genomepy; the platform does not download, build, discover, or upgrade them.
+They remain operator-private and are never projected through the HTTP API.
+`reference-profile list` returns path-free catalog metadata, `disable` blocks
+new validation/create/start operations, and historical snapshots and runs keep
+their exact immutable revision evidence. The legacy
+`HELIXWEAVE_BULK_RNASEQ_TRANSCRIPTOME_BINDING_MANIFEST` coordinate remains an
+optional compatibility input; it is not a user-selectable reference and does
+not replace an enabled Reference Profile for a new run.
 
 The runtime must be the fixed nf-core/rnaseq 3.26.0 closure: immutable source
 commit `e7ca46272c8f9d5ceee3f71759f4ba551d3217a4`, Nextflow 25.04.3, Amazon
 Corretto 21.0.7.6.1, nf-schema 2.5.1, admitted OCI images, reference/STAR/Salmon
 indexes, and any configured SortMeRNA database/index. Execution stays offline
 with the adapter-owned hard config and no-pull/no-network Docker controls.
-Partial, malformed, missing, or drifted coordinates keep execution unavailable;
-their values and paths are not returned by the API.
+Partial or drifted runtime coordinates, an unavailable/disabled profile, or a
+drifted private binding keep new execution unavailable; their values and paths
+are not returned by the API.
 
 OCI archives, JDKs, references, indexes, and fixture payloads are deployment
 assets and must not be committed. The controlled tiny fixture proves execution,
@@ -402,7 +427,18 @@ normal local worker stays running.
 
 `ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS` is the workflow deadline enforced by the
 worker's `ProcessRunner` (seven days by default); it is not the outer RQ timeout.
-RQ sets its job timeout to that deadline plus a fixed 30-second cleanup grace.
+RQ sets its job timeout to a fixed 300-second startup allowance, plus that
+workflow deadline, plus a fixed 30-second cleanup grace. RQ starts this outer
+timer immediately around `Job.perform`, so the startup segment covers bounded
+platform work inside the job before `ProcessRunner` has spawned the workflow:
+runtime composition, persistence/reference revalidation, workspace and command
+construction, and process startup. It does not include queue wait, worker-fork,
+or RQ's `prepare_job_execution` step. The 300-second value is a platform-owned,
+finite single-host allowance, not a user workflow setting or a performance
+benchmark. It bounds the protected single-host startup windows observed across
+the successful and slowed Gate runs (the slowed pre-container window approached
+five minutes) without changing the workflow's own timeout.
+
 The production `encode-worker` uses a phase-aware `DurableWorker`. Its
 death-penalty adapter leaves RQ's configured exception unchanged and converts a
 `JobTimeoutException` to `WorkerHardTimeout` only when the timeout signal is
@@ -423,10 +459,11 @@ independent-process SIGALRM and process-cancellation tests.
 Any RQ minor upgrade must deliberately update that guard and pass the real
 signal test before the supported range is widened.
 
-When the workflow deadline expires, that outer window lets the worker terminate
-the directly spawned Snakemake process, perform a best-effort drain of output
-that is immediately available, and persist the durable failure before RQ
-applies its own timeout. The post-termination drain stops at the first of
+When the workflow deadline expires, the separate cleanup segment in that outer
+window lets the worker terminate the directly spawned Snakemake process, perform
+a best-effort drain of output that is immediately available, and persist the
+durable failure before RQ applies its own timeout. The post-termination drain
+stops at the first of
 256 KiB, eight non-blocking selector iterations, or 50 milliseconds; a
 descendant that keeps a pipe open cannot extend that bounded drain.
 

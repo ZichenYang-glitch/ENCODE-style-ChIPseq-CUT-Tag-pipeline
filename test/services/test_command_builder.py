@@ -92,6 +92,116 @@ def test_command_builder_requires_execution_plan(tmp_path):
     assert issue.severity.value == "error"
 
 
+def test_command_builder_reverifies_reference_and_uses_bound_adapter(tmp_path):
+    from encode_pipeline.platform.adapters import CommandSpec, WorkflowInputs
+    from encode_pipeline.platform.reference_profiles import (
+        AdapterReferenceBindingIdentity,
+        BoundWorkflowReference,
+    )
+    from encode_pipeline.platform.registry import WorkflowRegistry
+    from encode_pipeline.platform.results import Result
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    base_adapter = _CommandAdapter(
+        lambda _plan, _workspace: (_ for _ in ()).throw(
+            AssertionError("base adapter must not build the bound command")
+        )
+    )
+    private_inputs = WorkflowInputs(
+        config={"reference": "/operator/private/reference.fa"},
+        samples=None,
+        options={},
+    )
+    bound_adapter = _CommandAdapter(
+        lambda _plan, workspace: Result.success(
+            CommandSpec(argv=("opaque-engine",), cwd=str(workspace))
+        )
+    )
+
+    class _Resolver:
+        def __init__(self):
+            self.calls = []
+
+        def resolve_run(self, run_id, workflow_id, inputs, *, require_enabled):
+            self.calls.append((run_id, workflow_id, inputs, require_enabled))
+            return Result.success(
+                BoundWorkflowReference(
+                    inputs=private_inputs,
+                    adapter=bound_adapter,
+                    identity=AdapterReferenceBindingIdentity(
+                        workflow_id="delegated-command",
+                        contract_version="delegated-reference-v1",
+                        identity_sha256="a" * 64,
+                    ),
+                )
+            )
+
+    resolver = _Resolver()
+    snapshot = {"config": {"public": "value"}, "samples": None, "options": {}}
+    plan = _make_pending_plan(
+        workflow_id="delegated-command",
+        inputs_snapshot=snapshot,
+    )
+    result = CommandBuilder(
+        registry=WorkflowRegistry([base_adapter]),
+        reference_profile_resolver=resolver,
+    ).build_command(plan, tmp_path.resolve())
+
+    assert result.is_success
+    assert result.value.command_spec.argv == ("opaque-engine",)
+    assert result.value.inputs_snapshot == snapshot
+    assert "/operator/private/reference.fa" not in repr(result.value.inputs_snapshot)
+    assert resolver.calls[0][:2] == ("run-1", "delegated-command")
+    assert resolver.calls[0][2].to_dict() == snapshot
+    assert resolver.calls[0][3] is True
+
+
+def test_command_builder_preserves_registered_encode_fallback_authority(tmp_path):
+    from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
+    from encode_pipeline.platform.adapters import WorkflowInputs
+    from encode_pipeline.platform.reference_profiles import (
+        AdapterReferenceBindingIdentity,
+        BoundWorkflowReference,
+    )
+    from encode_pipeline.platform.registry import WorkflowRegistry
+    from encode_pipeline.platform.results import Result
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    registered = EncodeStyleWorkflowAdapter()
+    bound = EncodeStyleWorkflowAdapter()
+    registry = WorkflowRegistry(
+        [registered],
+        legacy_execution_fallbacks=(registered,),
+    )
+
+    class _Resolver:
+        def resolve_run(self, _run_id, _workflow_id, _inputs, *, require_enabled):
+            assert require_enabled is True
+            return Result.success(
+                BoundWorkflowReference(
+                    inputs=WorkflowInputs(config={}),
+                    adapter=bound,
+                    identity=AdapterReferenceBindingIdentity(
+                        workflow_id=_WORKFLOW_ID,
+                        contract_version="encode-reference-binding-v1",
+                        identity_sha256="a" * 64,
+                    ),
+                )
+            )
+
+    plan = _make_pending_plan(
+        workflow_id=_WORKFLOW_ID,
+        inputs_snapshot={"config": {}, "samples": None, "options": {}},
+    )
+    result = CommandBuilder(
+        registry=registry,
+        reference_profile_resolver=_Resolver(),
+    ).build_command(plan, tmp_path.resolve())
+
+    assert result.is_success
+    assert result.value.command_spec.argv[0] == "snakemake"
+
+
 def test_command_builder_requires_absolute_base_dir():
     from encode_pipeline.services.command_builder import CommandBuilder
 

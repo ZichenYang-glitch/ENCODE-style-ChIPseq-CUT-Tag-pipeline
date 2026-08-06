@@ -33,6 +33,7 @@ from platform_runtime import (
     cleanup_owned_runtime_root,
     prepare_bulk_authoring_fixture,
     prepare_owned_runtime_root,
+    prepare_reference_profile_runtime,
     write_manifest,
 )
 
@@ -1577,6 +1578,34 @@ def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
     runtime_root.mkdir()
     inputs = prepare_results_visibility_fixture(runtime_root / "project")
     bulk_authoring = prepare_bulk_authoring_fixture(runtime_root)
+    observed_admin_commands: list[list[str]] = []
+
+    def fake_helixweave(arguments):
+        observed_admin_commands.append(list(arguments))
+        command = arguments[arguments.index("reference-profile") + 1]
+        if command == "register":
+            number = 1 + sum(
+                item[item.index("reference-profile") + 1] == "register"
+                for item in observed_admin_commands[:-1]
+            )
+            print(
+                json.dumps(
+                    {
+                        "profile_id": f"refp_{number:032x}",
+                        "revision_id": f"refpr_{number:032x}",
+                    }
+                )
+            )
+        else:
+            print("{}")
+        return 0
+
+    inputs, reference_environment = prepare_reference_profile_runtime(
+        runtime_root,
+        inputs,
+        bulk_binding=None,
+        cli_command=fake_helixweave,
+    )
 
     write_manifest(runtime_root, "browser-queue", inputs, bulk_authoring)
 
@@ -1607,6 +1636,21 @@ def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
     assert raw["emptyConfig"] == inputs.empty_config
     assert raw["malformedConfig"] == inputs.malformed_config
     assert raw["expectedQcSummary"] == inputs.expected_qc_summary
+    assert len(observed_admin_commands) == 6
+    assert [
+        command[command.index("reference-profile") + 1]
+        for command in observed_admin_commands
+    ] == ["register", "verify", "enable", "register", "verify", "enable"]
+    reference_config_path = Path(
+        reference_environment["ENCODE_PIPELINE_REFERENCE_PROFILE_CONFIG"]
+    )
+    assert reference_config_path.is_file()
+    assert reference_config_path.stat().st_mode & 0o777 == 0o600
+    private_config = json.loads(reference_config_path.read_text(encoding="utf-8"))
+    assert set(private_config["profiles"]) == {
+        "browser-grch38-private",
+        "browser-mm10-private",
+    }
     assert all(raw[name] == value for name, value in bulk_authoring.items())
     assert raw["bulkWorkflowId"] == "bulk-rnaseq"
     assert raw["bulkOptions"] == {}
@@ -1637,6 +1681,7 @@ def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
     assert bulk_standard["trimming"] == {"enabled": True, "tool": "fastp"}
     assert bulk_standard["umi"]["mode"] == "read_name"
     assert bulk_standard["ribosomal_rna_removal"]["tool"] == "sortmerna"
+    assert "reference" not in bulk_standard
     assert all(
         "samples" not in raw[name]
         for name in (
@@ -1647,9 +1692,39 @@ def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
         )
     )
     serialized = json.dumps(raw)
+    assert "genome_resources" not in serialized
+    header = inputs.samples_path.read_text(encoding="utf-8").splitlines()[0]
+    assert "genome" not in header.split("\t")
+    assert "bowtie2_index" not in header.split("\t")
+    assert str(reference_config_path) not in serialized
     assert "sqlite:" not in serialized
     assert "redis:" not in serialized
     assert "ENCODE_PIPELINE_" not in serialized
+
+
+def test_playwright_reference_fixture_uses_real_admin_cli_and_sqlite(tmp_path):
+    runtime_root = (tmp_path / "runtime").resolve()
+    runtime_root.mkdir()
+    inputs = prepare_results_visibility_fixture(runtime_root / "project")
+
+    public_inputs, environment = prepare_reference_profile_runtime(
+        runtime_root,
+        inputs,
+        bulk_binding=None,
+    )
+
+    from encode_pipeline.persistence.runtime import open_run_persistence
+
+    persistence = open_run_persistence(f"sqlite:///{runtime_root / 'platform.db'}")
+    try:
+        enabled = persistence.reference_profile_repository.list_enabled_for_workflow(
+            "encode-style-chipseq-cuttag-atac-mnase"
+        )
+    finally:
+        persistence.close()
+    assert [revision.assembly for _, revision in enabled] == ["GRCh38", "mm10"]
+    assert "genome_resources" not in public_inputs.results_config
+    assert Path(environment["ENCODE_PIPELINE_REFERENCE_PROFILE_CONFIG"]).is_file()
 
 
 def test_launcher_defaults_remain_ordinary_platform_runtime():

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -52,8 +53,21 @@ from encode_pipeline.services.defaults import (
 )
 from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
 from encode_pipeline.services.local_execution import LocalExecutionService
+from encode_pipeline.services.private_reference_profiles import (
+    load_private_reference_profile_config,
+)
 from encode_pipeline.services.process_runner import ProcessRunner
 from encode_pipeline.services.qc_summary_indexing import QcSummaryIndexingService
+from encode_pipeline.services.reference_profile_runtime import (
+    ReferenceProfileBindingService,
+)
+from encode_pipeline.services.reference_profiles import ReferenceProfileService
+from encode_pipeline.services.runs import RunService
+from encode_pipeline.services.validated_inputs import (
+    ValidatedInputService,
+    ValidatedRunCreationService,
+)
+from encode_pipeline.services.validation import ValidationService
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 from encode_pipeline.workers.jobs import (
     handle_execution_stopped,
@@ -63,6 +77,7 @@ from encode_pipeline.workers.rq_queue import RqRunQueue
 from encode_pipeline.workers.runtime import open_worker_runtime
 from encode_pipeline.workers.settings import (
     QUEUE_NAME_ENV,
+    REFERENCE_PROFILE_CONFIG_ENV,
     REDIS_URL_ENV,
     WORKSPACE_ROOT_ENV,
 )
@@ -177,6 +192,11 @@ def _configure_worker_environment(
     monkeypatch.setenv(REDIS_URL_ENV, configured.redis_url)
     monkeypatch.setenv(QUEUE_NAME_ENV, configured.queue_name)
     monkeypatch.setenv(WORKSPACE_ROOT_ENV, str(configured.workspace_root))
+    assert configured.reference_profile_config is not None
+    monkeypatch.setenv(
+        REFERENCE_PROFILE_CONFIG_ENV,
+        str(configured.reference_profile_config),
+    )
     executable_dir = configured.workspace_root.parent / "test-bin"
     executable_dir.mkdir(parents=True, exist_ok=True)
     qc_commands = ""
@@ -494,15 +514,106 @@ def test_bulk_binding_survives_durable_worker_reconstruction_and_admission(
     assert api_identity.is_success
     assert worker_identity.is_success
     assert api_identity.value.matches(worker_identity.value)
+    reference = dict(inputs.config["standard"]["reference"])
+    transcriptome = {
+        "reference_id": reference["reference_id"],
+        "fasta_sha256": reference["fasta_sha256"],
+        "gtf_sha256": reference["gtf_sha256"],
+        "transcript_fasta": str(transcript_fasta),
+        "transcript_fasta_sha256": hashlib.sha256(
+            transcript_fasta.read_bytes()
+        ).hexdigest(),
+    }
+    private_config_path = (tmp_path / "bulk-reference-profile.json").resolve()
+    private_config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "helixweave-reference-profiles-v1",
+                "profiles": {
+                    "bulk-test-reference": {
+                        "bindings": {
+                            "bulk-rnaseq": {
+                                "schema_version": "bulk-rnaseq-reference-binding-v1",
+                                "reference": reference,
+                                "transcriptome": transcriptome,
+                            }
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    configured = replace(
+        configured,
+        reference_profile_config=private_config_path,
+    )
     persistence = open_run_persistence(configured.database_url)
     try:
-        service = create_default_run_service(
-            registry=api_registry,
+
+        def private_config_provider():
+            return load_private_reference_profile_config(private_config_path)
+
+        profiles = ReferenceProfileService(
+            repository=persistence.reference_profile_repository,
+            private_config_provider=private_config_provider,
+            adapter_provider=api_registry.get,
+        )
+        registered = profiles.register(
+            safe_key="bulk-test-reference",
+            display_name="Bulk test reference",
+            organism="Test organism",
+            assembly="tiny",
+            config_key="bulk-test-reference",
+        )
+        enabled = profiles.enable(
+            registered.profile_id,
+            revision_id=registered.revision_id,
+        )
+        bindings = ReferenceProfileBindingService(
+            repository=persistence.reference_profile_repository,
+            private_config_provider=private_config_provider,
+            adapter_provider=api_registry.get,
+        )
+        service = RunService(
+            api_registry,
+            id_factory=lambda: "bulk-worker-run",
             repository=persistence.repository,
         )
-        record = service.create_run("bulk-rnaseq", inputs)
+        standard = dict(inputs.config["standard"])
+        standard.pop("reference")
+        unbound_inputs = WorkflowInputs(
+            config={**inputs.config, "standard": standard},
+            samples=inputs.samples,
+            options=inputs.options,
+        )
+        snapshot_result = ValidatedInputService(
+            registry=api_registry,
+            validation_service=ValidationService(api_registry),
+            build_identity_provider=api_provider,
+            repository=persistence.repository,
+            reference_profile_binding_service=bindings,
+            reference_profile_catalog=profiles,
+        ).validate(
+            "bulk-rnaseq",
+            unbound_inputs,
+            reference_profile_revision_id=enabled.revision_id,
+        )
+        assert snapshot_result.is_success and snapshot_result.value is not None
+        record = (
+            ValidatedRunCreationService(
+                run_service=service,
+                build_identity_provider=api_provider,
+                reference_profile_binding_service=bindings,
+            )
+            .create_run("bulk-rnaseq", snapshot_result.value.snapshot_id)
+            .record
+        )
         service.transition_run(record.run_id, RunStatus.VALIDATING)
-        service.complete_preflight(record.run_id, api_identity.value)
+        service.complete_preflight(
+            record.run_id,
+            snapshot_result.value.workflow_build_identity,
+        )
         assignment = service.ensure_execution_assignment(
             record.run_id,
             queue_name=configured.queue_name,
@@ -640,6 +751,62 @@ def test_rq_worker_fails_legacy_planned_run_without_build_before_claim(
     assert record == before_record
     assert events == before_events
     assert persisted_assignment == before_assignment
+    assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
+
+
+def test_rq_worker_rejects_legacy_reference_run_without_revision_evidence(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    persistence = open_run_persistence(configured.database_url)
+    try:
+        registry = create_default_workflow_registry()
+        service = RunService(
+            registry,
+            id_factory=lambda: "legacy-reference-run",
+            repository=persistence.repository,
+        )
+        record = service.create_run(
+            "encode-style-chipseq-cuttag-atac-mnase",
+            WorkflowInputs(config={}),
+        )
+        service.transition_run(record.run_id, RunStatus.VALIDATING)
+        build = WorkflowBuildIdentityProvider(registry).capture_executable(
+            record.workflow_id
+        )
+        assert build.is_success and build.value is not None
+        service.complete_preflight(record.run_id, build.value)
+        assignment = service.ensure_execution_assignment(
+            record.run_id,
+            queue_name=configured.queue_name,
+        )
+    finally:
+        persistence.close()
+
+    with open_worker_runtime(configured) as runtime:
+        admission = worker_jobs._capture_current_workflow_build(runtime, record)
+    assert admission.is_failure
+    assert admission.issues[0].code == "RUN_WORKFLOW_BUILD_IDENTITY_UNAVAILABLE"
+
+    _configure_worker_environment(monkeypatch, configured)
+    monkeypatch.setattr(ProcessRunner, "run", _fail_if_process_starts)
+    connection = fakeredis.FakeRedis()
+    run_queue = RqRunQueue(configured, connection=connection)
+    run_queue.enqueue_execution(assignment)
+
+    assert _run_burst(connection, run_queue) is True
+
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    failed, events, persisted_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert job is not None and job.is_failed
+    assert failed.status is RunStatus.PLANNED
+    assert failed.error is None
+    assert persisted_assignment is not None
+    assert persisted_assignment.claimed_at is None
     assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
 
 
@@ -833,7 +1000,7 @@ def test_rq_worker_fails_closed_when_local_build_cannot_be_fingerprinted(
     assert assignment is not None
     _configure_worker_environment(monkeypatch, configured)
 
-    def unavailable(_self, _workflow_id):
+    def unavailable(_self, _adapter):
         return Result.failure(
             [
                 Issue(
@@ -845,7 +1012,11 @@ def test_rq_worker_fails_closed_when_local_build_cannot_be_fingerprinted(
             ]
         )
 
-    monkeypatch.setattr(WorkflowBuildIdentityProvider, "capture", unavailable)
+    monkeypatch.setattr(
+        WorkflowBuildIdentityProvider,
+        "capture_resolved_executable",
+        unavailable,
+    )
     monkeypatch.setattr(ProcessRunner, "run", _fail_if_process_starts)
     connection = fakeredis.FakeRedis()
     run_queue = RqRunQueue(configured, connection=connection)

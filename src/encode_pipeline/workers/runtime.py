@@ -19,7 +19,15 @@ from encode_pipeline.services.managed_input_verification import (
 from encode_pipeline.services.materialization import WorkspaceMaterializer
 from encode_pipeline.services.planning import ExecutionPlanner, WorkspacePlanner
 from encode_pipeline.services.preflight import LocalPreflightService
+from encode_pipeline.services.private_reference_profiles import (
+    PrivateReferenceProfileConfigError,
+    load_private_reference_profile_config,
+)
 from encode_pipeline.services.qc_summary_indexing import QcSummaryIndexingService
+from encode_pipeline.services.reference_profile_runtime import (
+    ReferenceProfileBindingService,
+    ReferenceProfileRuntimeResolver,
+)
 from encode_pipeline.services.process_runner import ProcessRunner
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
@@ -35,6 +43,8 @@ class WorkerRuntime:
     persistence: RunPersistence
     registry: WorkflowRegistry
     run_service: RunService
+    reference_profile_binding_service: ReferenceProfileBindingService
+    reference_profile_resolver: ReferenceProfileRuntimeResolver
     build_identity_provider: WorkflowBuildIdentityProvider
     execution_planner: ExecutionPlanner
     workspace_planner: WorkspacePlanner
@@ -93,18 +103,14 @@ def open_worker_runtime(
     override either dependency.
     """
     from encode_pipeline.services.defaults import (
-        create_default_command_builder,
-        create_default_artifact_extraction_service,
         create_default_execution_planner,
         create_default_local_execution_service,
         create_default_local_run_driver,
         create_default_managed_container_cleaner,
         create_default_process_runner,
-        create_default_qc_summary_indexing_service,
         create_default_run_service,
         create_default_workflow_registry,
         create_default_workspace_materializer,
-        create_default_workspace_planner,
         create_default_workflow_build_identity_provider,
     )
 
@@ -155,12 +161,33 @@ def open_worker_runtime(
             registry=registry,
             repository=persistence.repository,
         )
+
+        def _private_reference_config():
+            config_path = resolved_settings.reference_profile_config
+            if config_path is None:
+                raise PrivateReferenceProfileConfigError
+            return load_private_reference_profile_config(config_path)
+
+        reference_profile_binding_service = ReferenceProfileBindingService(
+            repository=persistence.reference_profile_repository,
+            private_config_provider=_private_reference_config,
+            adapter_provider=registry.get,
+        )
+        reference_profile_resolver = ReferenceProfileRuntimeResolver(
+            persistence.repository,
+            registry,
+            reference_profile_binding_service,
+        )
         execution_planner = create_default_execution_planner(run_service)
-        workspace_planner = create_default_workspace_planner(registry=registry)
+        workspace_planner = WorkspacePlanner(
+            registry=registry,
+            reference_profile_resolver=reference_profile_resolver,
+        )
         materializer = create_default_workspace_materializer()
-        command_builder = create_default_command_builder(
+        command_builder = CommandBuilder(
             registry=registry,
             project_root=source_project_root,
+            reference_profile_resolver=reference_profile_resolver,
         )
         managed_container_cleaner = create_default_managed_container_cleaner(
             resolved_settings
@@ -194,17 +221,19 @@ def open_worker_runtime(
             local_run_driver=local_run_driver,
             managed_input_verifier=managed_input_verifier,
         )
-        artifact_extraction_service = create_default_artifact_extraction_service(
+        artifact_extraction_service = ArtifactExtractionService(
             run_service=run_service,
             registry=registry,
             build_identity_provider=build_identity_provider,
             workspace_root=resolved_settings.workspace_root,
+            reference_profile_resolver=reference_profile_resolver,
         )
-        qc_summary_indexing_service = create_default_qc_summary_indexing_service(
+        qc_summary_indexing_service = QcSummaryIndexingService(
             run_service=run_service,
             registry=registry,
             build_identity_provider=build_identity_provider,
             workspace_root=resolved_settings.workspace_root,
+            reference_profile_resolver=reference_profile_resolver,
         )
         preflight_service = LocalPreflightService(
             run_service=run_service,
@@ -212,12 +241,15 @@ def open_worker_runtime(
             workspace_planner=workspace_planner,
             local_run_driver=local_run_driver,
             build_identity_provider=build_identity_provider,
+            reference_profile_resolver=reference_profile_resolver,
         )
         return WorkerRuntime(
             settings=resolved_settings,
             persistence=persistence,
             registry=registry,
             run_service=run_service,
+            reference_profile_binding_service=reference_profile_binding_service,
+            reference_profile_resolver=reference_profile_resolver,
             build_identity_provider=build_identity_provider,
             execution_planner=execution_planner,
             workspace_planner=workspace_planner,

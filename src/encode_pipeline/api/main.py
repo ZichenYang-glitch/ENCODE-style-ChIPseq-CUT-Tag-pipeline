@@ -39,6 +39,15 @@ from encode_pipeline.services.defaults import (
 from encode_pipeline.services.artifact_downloads import ArtifactDownloadService
 from encode_pipeline.services.planning import ExecutionPlanner
 from encode_pipeline.services.preflight import LocalPreflightService
+from encode_pipeline.services.private_reference_profiles import (
+    PrivateReferenceProfileConfigError,
+    load_private_reference_profile_config,
+)
+from encode_pipeline.services.reference_profile_runtime import (
+    ReferenceProfileBindingService,
+    ReferenceProfileRuntimeResolver,
+)
+from encode_pipeline.services.reference_profiles import ReferenceProfileService
 from encode_pipeline.services.run_cancellation import RunCancellationService
 from encode_pipeline.services.run_submission import RunSubmissionService
 from encode_pipeline.services.validated_inputs import (
@@ -97,20 +106,46 @@ def create_app(
         repository=persistence.repository,
     )
     validation_service = create_default_validation_service(registry=registry)
+
+    def _private_reference_config():
+        config_path = worker_settings.reference_profile_config
+        if config_path is None:
+            raise PrivateReferenceProfileConfigError
+        return load_private_reference_profile_config(config_path)
+
+    reference_profile_service = ReferenceProfileService(
+        repository=persistence.reference_profile_repository,
+        private_config_provider=_private_reference_config,
+        adapter_provider=registry.get,
+    )
+    reference_profile_binding_service = ReferenceProfileBindingService(
+        repository=persistence.reference_profile_repository,
+        private_config_provider=_private_reference_config,
+        adapter_provider=registry.get,
+    )
+    reference_profile_resolver = ReferenceProfileRuntimeResolver(
+        persistence.repository,
+        registry,
+        reference_profile_binding_service,
+    )
     validated_input_service = ValidatedInputService(
         registry=registry,
         validation_service=validation_service,
         build_identity_provider=build_identity_provider,
         repository=persistence.repository,
+        reference_profile_binding_service=reference_profile_binding_service,
+        reference_profile_catalog=reference_profile_service,
     )
     validated_run_creation_service = ValidatedRunCreationService(
         run_service=run_service,
         build_identity_provider=build_identity_provider,
+        reference_profile_binding_service=reference_profile_binding_service,
     )
     run_submission_service = RunSubmissionService(
         run_service=run_service,
         run_queue=run_queue,
         build_identity_provider=build_identity_provider,
+        reference_profile_resolver=reference_profile_resolver,
     )
     run_cancellation_service = RunCancellationService(
         run_service=run_service,
@@ -120,6 +155,7 @@ def create_app(
     command_builder = create_default_command_builder(
         registry=registry,
         project_root=project_root,
+        reference_profile_resolver=reference_profile_resolver,
     )
     local_run_driver = create_default_local_run_driver(
         run_service=run_service,
@@ -133,9 +169,13 @@ def create_app(
     preflight_service = LocalPreflightService(
         run_service=run_service,
         execution_planner=ExecutionPlanner(run_service=run_service),
-        workspace_planner=create_default_workspace_planner(registry=registry),
+        workspace_planner=create_default_workspace_planner(
+            registry=registry,
+            reference_profile_resolver=reference_profile_resolver,
+        ),
         local_run_driver=local_run_driver,
         build_identity_provider=build_identity_provider,
+        reference_profile_resolver=reference_profile_resolver,
     )
 
     app.state.registry = registry
@@ -147,6 +187,9 @@ def create_app(
     app.state.recovered_run_ids = tuple(run.run_id for run in recovered_runs)
     app.state.validation_service = validation_service
     app.state.validated_input_service = validated_input_service
+    app.state.reference_profile_service = reference_profile_service
+    app.state.reference_profile_binding_service = reference_profile_binding_service
+    app.state.reference_profile_resolver = reference_profile_resolver
     app.state.validated_run_creation_service = validated_run_creation_service
     app.state.agent_service = create_default_agent_service(registry=registry)
     app.state.run_service = run_service

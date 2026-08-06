@@ -12,7 +12,7 @@ import {
   isSampleColumnNameSafe,
 } from './sampleValidation';
 
-const SUPPORTED_SCHEMA_VERSIONS = new Set(['1.0.0', '1.1.0']);
+const SCHEMA_VERSION = /^[1-9]\d*\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
 const SUPPORTED_SCHEMA_DIALECT =
   'https://json-schema.org/draft/2020-12/schema';
 
@@ -203,7 +203,7 @@ export function readWorkbenchSchema(
   contract: WorkflowSchemaResponse,
 ): WorkbenchSchemaResult {
   if (
-    !SUPPORTED_SCHEMA_VERSIONS.has(contract.schema_version) ||
+    !SCHEMA_VERSION.test(contract.schema_version) ||
     contract.schema_dialect !== SUPPORTED_SCHEMA_DIALECT ||
     !hasMode(contract.authoring_modes.config, 'schema_form') ||
     !hasMode(contract.authoring_modes.config, 'yaml') ||

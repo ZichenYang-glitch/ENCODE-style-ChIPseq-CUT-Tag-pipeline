@@ -33,7 +33,7 @@ def _close_app(app) -> None:
     app.state.persistence.close()
 
 
-def _valid_snapshot_request() -> dict[str, object]:
+def _valid_snapshot_request(reference_profile_revision_id: str) -> dict[str, object]:
     return {
         "config": {},
         "samples": [
@@ -44,11 +44,10 @@ def _valid_snapshot_request() -> dict[str, object]:
                 "assay": "chipseq",
                 "target": "CTCF",
                 "peak_mode": "narrow",
-                "genome": "hs",
-                "bowtie2_index": "/tmp/indices/hs",
             }
         ],
         "options": {},
+        "reference_profile_revision_id": reference_profile_revision_id,
     }
 
 
@@ -123,13 +122,17 @@ def test_api_run_is_visible_after_app_factory_restart(tmp_path):
     second_app.state.persistence.close()
 
 
-def test_validated_snapshot_survives_restart_and_replays_canonical_run(tmp_path):
+def test_validated_snapshot_survives_restart_and_replays_canonical_run(
+    tmp_path,
+    reference_ready_app,
+):
     database_url = _database_url(tmp_path)
-    first_app = create_app(database_url=database_url)
+    first_app = reference_ready_app
+    reference_profile_revision_id = first_app.state.test_reference_profile.revision_id
     with ApiTestClient(first_app) as client:
         validation = client.post(
             f"/api/v1/workflows/{WORKFLOW_ID}/validate",
-            json=_valid_snapshot_request(),
+            json=_valid_snapshot_request(reference_profile_revision_id),
         )
     assert validation.status_code == 200
     snapshot_id = validation.json()["snapshot"]["snapshot_id"]

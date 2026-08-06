@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -23,7 +24,6 @@ from rq import Queue
 from rq.job import JobStatus
 from rq.registry import FailedJobRegistry
 from rq.serializers import JSONSerializer
-import yaml
 
 from encode_pipeline.api.main import create_app
 from encode_pipeline.persistence.runtime import open_run_persistence
@@ -34,10 +34,18 @@ from encode_pipeline.services.defaults import (
 )
 from encode_pipeline.workers.settings import (
     QUEUE_NAME_ENV,
+    REFERENCE_PROFILE_CONFIG_ENV,
     REDIS_URL_ENV,
     WORKSPACE_ROOT_ENV,
 )
 
+from .conftest import (
+    cleanup_reference_profile_fixture,
+    reference_neutral_worker_inputs,
+    register_enabled_reference_profile,
+    worker_settings,
+    write_reference_neutral_samples,
+)
 from .process_helpers import terminate_rq_worker
 
 
@@ -45,7 +53,6 @@ pytestmark = pytest.mark.platform_real_execution
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-PROFILE_ROOT = REPOSITORY_ROOT / "test" / "profiles" / "platform_worker_tiny"
 TEST_REDIS_URL_ENV = "ENCODE_PIPELINE_TEST_REDIS_URL"
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 
@@ -95,6 +102,7 @@ async def _run_in_joined_test_thread(function, *args, **kwargs):
 def test_real_worker_cancels_long_snakemake_process_group_truthfully(
     tmp_path,
     monkeypatch,
+    request,
 ):
     redis_url = os.getenv(TEST_REDIS_URL_ENV)
     if redis_url is None:
@@ -119,11 +127,24 @@ def test_real_worker_cancels_long_snakemake_process_group_truthfully(
     )
 
     queue_name = f"encode-pipeline-cancel-{uuid4().hex}"
-    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
-    workspace_root = tmp_path / "workspaces"
+    configured = replace(
+        worker_settings(tmp_path, queue_name),
+        redis_url=redis_url,
+    )
+    database_url = configured.database_url
+    workspace_root = configured.workspace_root
+    reference_profile_config = configured.reference_profile_config
+    assert reference_profile_config is not None
+    request.addfinalizer(
+        lambda: cleanup_reference_profile_fixture(reference_profile_config)
+    )
     monkeypatch.setenv("ENCODE_PIPELINE_DATABASE_URL", database_url)
     monkeypatch.setenv(REDIS_URL_ENV, redis_url)
     monkeypatch.setenv(QUEUE_NAME_ENV, queue_name)
+    monkeypatch.setenv(
+        REFERENCE_PROFILE_CONFIG_ENV,
+        str(reference_profile_config),
+    )
     monkeypatch.setenv(WORKSPACE_ROOT_ENV, str(workspace_root))
     monkeypatch.setenv("TMPDIR", str(marker_root))
     monkeypatch.setenv(
@@ -149,19 +170,20 @@ def test_real_worker_cancels_long_snakemake_process_group_truthfully(
     recorded_pids: tuple[int, ...] = ()
     try:
         assert connection.ping() is True
-        config = yaml.safe_load(
-            (PROFILE_ROOT / "config.yaml").read_text(encoding="utf-8")
+        reference_revision = register_enabled_reference_profile(
+            app.state.reference_profile_service
         )
-        samples_path = (PROFILE_ROOT / "samples.tsv").resolve()
-        config["samples"] = str(samples_path)
+        inputs = reference_neutral_worker_inputs()
+        samples_path = write_reference_neutral_samples(tmp_path)
         validation = _request(
             app,
             "POST",
             f"/api/v1/workflows/{WORKFLOW_ID}/validate",
             json={
-                "config": config,
+                "config": inputs.config,
                 "samples": str(samples_path),
                 "options": {},
+                "reference_profile_revision_id": reference_revision.revision_id,
             },
         )
         assert validation.status_code == 200
@@ -190,6 +212,7 @@ def test_real_worker_cancels_long_snakemake_process_group_truthfully(
                 "ENCODE_PIPELINE_DATABASE_URL": database_url,
                 REDIS_URL_ENV: redis_url,
                 QUEUE_NAME_ENV: queue_name,
+                REFERENCE_PROFILE_CONFIG_ENV: str(reference_profile_config),
                 WORKSPACE_ROOT_ENV: str(workspace_root),
                 "TMPDIR": str(marker_root),
                 "PYTHONDONTWRITEBYTECODE": "1",
@@ -256,6 +279,8 @@ def test_real_worker_cancels_long_snakemake_process_group_truthfully(
 
         stdout, stderr = worker_process.communicate(timeout=20)
         assert worker_process.returncode == 0, (stdout, stderr)
+        assert "operator-reference-profile" not in stdout
+        assert "operator-reference-profile" not in stderr
         _wait_until(
             lambda: _read_status(database_url, run_id) is RunStatus.CANCELLED,
             description="SQLite cancellation acknowledgement",

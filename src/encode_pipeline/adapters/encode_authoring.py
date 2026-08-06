@@ -17,7 +17,7 @@ from encode_pipeline.platform.adapters import (
 )
 
 
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
 _SCHEMA_ID_ROOT = (
     "https://encode-pipeline.org/schemas/encode-style-chipseq-cuttag-atac-mnase"
 )
@@ -164,38 +164,6 @@ def _config_schema() -> dict[str, object]:
                 ),
                 default=False,
             ),
-            "genome_resources": {
-                "type": "object",
-                "default": {},
-                "additionalProperties": {
-                    "type": "object",
-                    "properties": {
-                        "effective_genome_size": {
-                            "oneOf": [
-                                {"type": "string", "enum": ["hs", "mm"]},
-                                {"type": "integer", "minimum": 1},
-                            ]
-                        },
-                        "chrom_sizes": {
-                            "type": "string",
-                            "maxLength": MAX_SAMPLE_CELL_LENGTH,
-                        },
-                        "blacklist": {
-                            "type": "string",
-                            "maxLength": MAX_SAMPLE_CELL_LENGTH,
-                        },
-                        "gtf": {
-                            "type": "string",
-                            "maxLength": MAX_SAMPLE_CELL_LENGTH,
-                        },
-                        "reference_fasta": {
-                            "type": "string",
-                            "maxLength": MAX_SAMPLE_CELL_LENGTH,
-                        },
-                    },
-                    "additionalProperties": False,
-                },
-            },
             "qc": {
                 "type": "object",
                 "default": {},
@@ -238,11 +206,6 @@ def _sample_schema() -> dict[str, object]:
             "type": "string",
             "enum": ["narrow", "broad", "nucleosome"],
         },
-        "genome": deepcopy(required_text),
-        "bowtie2_index": {
-            **required_text,
-            "description": "Absolute Bowtie2 index prefix.",
-        },
         "control_bam": deepcopy(text),
         "role": {
             "type": "string",
@@ -279,8 +242,6 @@ def _sample_schema() -> dict[str, object]:
                 "assay",
                 "target",
                 "peak_mode",
-                "genome",
-                "bowtie2_index",
             ],
             "properties": properties,
             "additionalProperties": False,

@@ -281,6 +281,82 @@ describe('generated client adapters', () => {
     expect(response).toEqual({ ok: true, run: null, issues: [] });
   });
 
+  it('preserves a verified generated reference projection on run detail', async () => {
+    const referenceProfile = {
+      profile_id: `refp_${'1'.repeat(32)}`,
+      revision_id: `refpr_${'2'.repeat(32)}`,
+      revision_number: 3,
+      display_name: 'Human GRCh38',
+      organism: 'Homo sapiens',
+      assembly: 'GRCh38',
+      identity_sha256: 'a'.repeat(64),
+    };
+    vi.mocked(getRun).mockResolvedValue({
+      ok: true,
+      run: {
+        run_id: 'run-reference-1',
+        workflow_id: 'encode',
+        status: 'succeeded',
+        created_at: '2026-08-03T00:00:00Z',
+        updated_at: '2026-08-03T00:01:00Z',
+        started_at: '2026-08-03T00:00:10Z',
+        ended_at: '2026-08-03T00:01:00Z',
+        current_stage: null,
+        cancellation_reason: null,
+        reference_profile: referenceProfile,
+      },
+      issues: [],
+    });
+
+    const response = await createGeneratedRunClient().getRun('run-reference-1');
+
+    expect(response.run?.reference_profile).toEqual(referenceProfile);
+  });
+
+  it('allows an absent legacy reference projection but rejects malformed data', async () => {
+    const legacyRun = {
+      run_id: 'run-legacy-1',
+      workflow_id: 'encode',
+      status: 'succeeded',
+      created_at: '2026-08-03T00:00:00Z',
+      updated_at: '2026-08-03T00:01:00Z',
+      started_at: null,
+      ended_at: null,
+      current_stage: null,
+      cancellation_reason: null,
+    };
+    vi.mocked(getRun).mockResolvedValue({
+      ok: true,
+      run: legacyRun,
+      issues: [],
+    });
+
+    const legacy = await createGeneratedRunClient().getRun('run-legacy-1');
+
+    expect(legacy.run).not.toHaveProperty('reference_profile');
+
+    vi.mocked(getRun).mockResolvedValue({
+      ok: true,
+      run: {
+        ...legacyRun,
+        reference_profile: {
+          profile_id: 'refp_not-an-opaque-id',
+          revision_id: `refpr_${'2'.repeat(32)}`,
+          revision_number: 1,
+          display_name: 'Human GRCh38',
+          organism: 'Homo sapiens',
+          assembly: 'GRCh38',
+          identity_sha256: 'a'.repeat(64),
+        },
+      },
+      issues: [],
+    } as never);
+
+    await expect(
+      createGeneratedRunClient().getRun('run-legacy-1'),
+    ).rejects.toThrow('Run reference profile projection is invalid.');
+  });
+
   it('converts safe ApiError details into a run issue envelope', async () => {
     vi.mocked(getRun).mockRejectedValue(
       new ApiError(404, 'RUN_NOT_FOUND', 'Run was not found.', [
