@@ -79,6 +79,22 @@ def _summary(
     )
 
 
+def _summary_with_invalid_run_sample_binding() -> ArtifactPublicationSummary:
+    summary = _summary("run-a")
+    object.__setattr__(summary, "run_sample_binding", object())
+    return summary
+
+
+def _summary_with_invalid_associated_sample() -> ArtifactPublicationSummary:
+    summary = _summary("run-a")
+    object.__setattr__(
+        summary.run_sample_binding,
+        "associated_run_samples",
+        (object(),),
+    )
+    return summary
+
+
 def _matches(item: ArtifactPublicationSummary, filters: ArtifactPublicationFilters):
     return (
         (filters.project_id is None or filters.project_id == item.project_id)
@@ -137,6 +153,24 @@ class _Repository:
             ):
                 return item
         raise KeyError("publication missing")
+
+
+class _RaisingRepository(_Repository):
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self.error = error
+
+    def list_artifact_publications(self, *, filters, after, limit):
+        raise self.error
+
+    def get_artifact_publication(
+        self,
+        *,
+        run_id,
+        artifact_id,
+        artifact_generation,
+    ):
+        raise self.error
 
 
 def _rewrite_cursor(cursor: str, transform) -> str:
@@ -290,7 +324,7 @@ class _InvalidRepository(_Repository):
 
 
 class _StaticListRepository(_Repository):
-    def __init__(self, result: tuple[ArtifactPublicationSummary, ...]) -> None:
+    def __init__(self, result: tuple[object, ...]) -> None:
         super().__init__()
         self.result = result
 
@@ -298,11 +332,77 @@ class _StaticListRepository(_Repository):
         return self.result
 
 
+@pytest.mark.parametrize(
+    ("entrypoint", "repository_error"),
+    [
+        pytest.param(
+            "list",
+            KeyError("unexpected repository key"),
+            id="list-key-error-without-cursor",
+        ),
+        pytest.param(
+            "detail",
+            TypeError("invalid repository row"),
+            id="detail-type-error",
+        ),
+        pytest.param(
+            "detail",
+            ValueError("invalid repository row"),
+            id="detail-value-error",
+        ),
+    ],
+)
+def test_service_fails_closed_for_repository_errors(
+    entrypoint,
+    repository_error: Exception,
+) -> None:
+    service = ArtifactPublicationQueryService(_RaisingRepository(repository_error))
+
+    with pytest.raises(ArtifactPublicationDataInvalidError) as exc_info:
+        if entrypoint == "list":
+            service.list_artifact_publications()
+        else:
+            service.get_artifact_publication(
+                run_id="run-a",
+                artifact_id="artifact-a",
+                artifact_generation=GENERATION_A,
+            )
+
+    assert exc_info.value.__cause__ is repository_error
+
+
 def test_service_fails_closed_for_invalid_repository_collection() -> None:
     service = ArtifactPublicationQueryService(_InvalidRepository())
 
     with pytest.raises(ArtifactPublicationDataInvalidError):
         service.list_artifact_publications()
+
+
+@pytest.mark.parametrize(
+    "candidate_factory",
+    [
+        pytest.param(object, id="not-artifact-publication-summary"),
+        pytest.param(
+            _summary_with_invalid_run_sample_binding,
+            id="invalid-run-sample-binding",
+        ),
+        pytest.param(
+            _summary_with_invalid_associated_sample,
+            id="invalid-associated-run-sample-member",
+        ),
+    ],
+)
+def test_service_fails_closed_for_invalid_repository_publications(
+    candidate_factory,
+) -> None:
+    service = ArtifactPublicationQueryService(
+        _StaticListRepository((candidate_factory(),))
+    )
+
+    with pytest.raises(ArtifactPublicationDataInvalidError) as exc_info:
+        service.list_artifact_publications()
+
+    assert isinstance(exc_info.value.__cause__, ValueError)
 
 
 @pytest.mark.parametrize(
