@@ -13,6 +13,14 @@ import re
 from threading import RLock
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
+from encode_pipeline.platform.artifact_publications import (
+    ArtifactPublicationCursorPosition,
+    ArtifactPublicationFilters,
+    ArtifactPublicationRunSampleBinding,
+    ArtifactPublicationSummary,
+    AssociatedRunSample,
+    normalize_artifact_publication_output_type,
+)
 from encode_pipeline.platform.execution import (
     RunExecutionAssignment,
     RunExecutionCancellationRequest,
@@ -136,6 +144,18 @@ class RunEventDraft:
     issue: Issue | None = None
 
 
+@dataclass(frozen=True)
+class _InMemoryArtifactPublication:
+    """Minimal append-only evidence mirrored by the SQL publication row."""
+
+    run_id: str
+    artifact_id: str
+    artifact_generation: str
+    artifact_revision: str
+    output_type: str
+    published_at: datetime
+
+
 class RunRepository(Protocol):
     """Persistence contract consumed by :class:`RunService`."""
 
@@ -204,6 +224,22 @@ class RunRepository(Protocol):
         workflow_id: str | None = None,
         status: RunStatus | None = None,
     ) -> tuple[RunSummary, ...]: ...
+
+    def list_artifact_publications(
+        self,
+        *,
+        filters: ArtifactPublicationFilters,
+        after: ArtifactPublicationCursorPosition | None,
+        limit: int,
+    ) -> tuple[ArtifactPublicationSummary, ...]: ...
+
+    def get_artifact_publication(
+        self,
+        *,
+        run_id: str,
+        artifact_id: str,
+        artifact_generation: str,
+    ) -> ArtifactPublicationSummary: ...
 
     def update_run(
         self,
@@ -456,6 +492,9 @@ class InMemoryRunRepository:
         self._events: dict[str, list[RunEvent]] = {}
         self._logs: dict[str, dict[str, list[RunLogChunk]]] = {}
         self._artifacts: dict[str, dict[str, RunArtifactRef]] = {}
+        self._artifact_publications: dict[
+            tuple[str, str, str], _InMemoryArtifactPublication
+        ] = {}
         self._qc_metrics: dict[str, dict[str, RunQcMetric]] = {}
         self._result_states: dict[str, RunResultState] = {}
         self._result_attempts: dict[str, tuple[str, str, str | None]] = {}
@@ -908,6 +947,84 @@ class InMemoryRunRepository:
             )
             return tuple(selected[:limit])
 
+    def list_artifact_publications(
+        self,
+        *,
+        filters: ArtifactPublicationFilters,
+        after: ArtifactPublicationCursorPosition | None,
+        limit: int,
+    ) -> tuple[ArtifactPublicationSummary, ...]:
+        if not isinstance(filters, ArtifactPublicationFilters):
+            raise ValueError("artifact publication filters are invalid")
+        if after is not None and not isinstance(
+            after, ArtifactPublicationCursorPosition
+        ):
+            raise ValueError("artifact publication cursor position is invalid")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise ValueError("artifact publication limit must be a positive integer")
+
+        with self._lock:
+            if after is not None:
+                boundary = self._artifact_publications.get(
+                    (after.run_id, after.artifact_id, after.artifact_generation)
+                )
+                if boundary is None or boundary.published_at != after.published_at:
+                    raise KeyError(after.key)
+                boundary = _in_memory_artifact_publication_summary(
+                    boundary,
+                    runs=self._runs,
+                    bindings=self._run_data_bindings,
+                    data_registry_repository=self._data_registry_repository,
+                    result_states=self._result_states,
+                )
+                if not _artifact_publication_matches(boundary, filters):
+                    raise KeyError(after.key)
+
+            selected: list[ArtifactPublicationSummary] = []
+            binding_cache: dict[str, ArtifactPublicationRunSampleBinding] = {}
+            for publication in self._artifact_publications.values():
+                summary = _in_memory_artifact_publication_summary(
+                    publication,
+                    runs=self._runs,
+                    bindings=self._run_data_bindings,
+                    data_registry_repository=self._data_registry_repository,
+                    result_states=self._result_states,
+                    binding_cache=binding_cache,
+                )
+                if not _artifact_publication_matches(summary, filters):
+                    continue
+                if after is not None and summary.cursor_position.key >= after.key:
+                    continue
+                selected.append(summary)
+            selected.sort(
+                key=lambda summary: summary.cursor_position.key,
+                reverse=True,
+            )
+            return tuple(selected[:limit])
+
+    def get_artifact_publication(
+        self,
+        *,
+        run_id: str,
+        artifact_id: str,
+        artifact_generation: str,
+    ) -> ArtifactPublicationSummary:
+        validate_artifact_generation(artifact_generation)
+        with self._lock:
+            try:
+                publication = self._artifact_publications[
+                    (run_id, artifact_id, artifact_generation)
+                ]
+            except KeyError:
+                raise KeyError((run_id, artifact_id, artifact_generation)) from None
+            return _in_memory_artifact_publication_summary(
+                publication,
+                runs=self._runs,
+                bindings=self._run_data_bindings,
+                data_registry_repository=self._data_registry_repository,
+                result_states=self._result_states,
+            )
+
     def update_run(
         self,
         record: RunRecord,
@@ -1151,6 +1268,10 @@ class InMemoryRunRepository:
         event: RunEventDraft,
     ) -> RunEvent | None:
         validate_result_attempt_id(attempt_id)
+        if expected_status is not RunStatus.SUCCEEDED:
+            raise ConcurrentRunUpdateError(
+                "artifact publication requires a succeeded run"
+            )
         with self._lock:
             current = self._runs[run_id]
             if current.status is not expected_status:
@@ -1234,9 +1355,34 @@ class InMemoryRunRepository:
                 )
                 prepared_events.append(result_event)
 
+            prepared_publications: tuple[_InMemoryArtifactPublication, ...] = ()
+            if changed:
+                if result_event is None or state.artifact_generation is None:
+                    raise ValueError("artifact publication outcome event is missing")
+                prepared_publications = tuple(
+                    _in_memory_artifact_publication(
+                        run_id=run_id,
+                        artifact_generation=state.artifact_generation,
+                        published_at=result_event.timestamp,
+                        artifact=artifact,
+                    )
+                    for artifact in sorted_replacement
+                )
+                for publication in prepared_publications:
+                    identity = _artifact_publication_identity(publication)
+                    if identity in self._artifact_publications:
+                        raise ValueError("artifact publication identity already exists")
+
             if changed:
                 self._artifacts[run_id] = replacement
                 self._qc_metrics[run_id] = {}
+                self._artifact_publications.update(
+                    (
+                        _artifact_publication_identity(publication),
+                        publication,
+                    )
+                    for publication in prepared_publications
+                )
             self._result_states[run_id] = state
             self._events[run_id].extend(prepared_events)
             return result_event
@@ -1986,6 +2132,161 @@ def _summary_is_after(summary: RunSummary, cursor: RunHistoryCursor) -> bool:
     return (summary.created_at, summary.run_id) < (
         cursor.created_at,
         cursor.run_id,
+    )
+
+
+def _artifact_publication_output_type(artifact: RunArtifactRef) -> str:
+    if "output_type" in artifact.metadata:
+        candidate = artifact.metadata["output_type"]
+    else:
+        candidate = artifact.artifact_type
+    if not isinstance(candidate, str):
+        raise ValueError("artifact publication output_type is invalid")
+    normalized = normalize_artifact_publication_output_type(candidate)
+    if normalized is None or normalized != candidate:
+        raise ValueError("artifact publication output_type is invalid")
+    return normalized
+
+
+def _in_memory_publication_run_sample_binding(
+    binding: ProjectSampleBinding,
+    data_registry_repository: DataRegistryRepository | None,
+) -> ArtifactPublicationRunSampleBinding:
+    if not isinstance(binding, ProjectSampleBinding):
+        raise ValueError("artifact publication Run binding is invalid")
+    samples: list[AssociatedRunSample] = []
+    if binding.sample_revisions and data_registry_repository is None:
+        raise ValueError("artifact publication SampleRevision evidence is unavailable")
+    for ordinal, ref in enumerate(binding.sample_revisions):
+        assert data_registry_repository is not None
+        revision = data_registry_repository.get_sample_revision(ref.sample_revision_id)
+        if (
+            revision.project_id != binding.project_id
+            or revision.payload_digest != ref.payload_digest
+        ):
+            raise ValueError("artifact publication SampleRevision evidence differs")
+        samples.append(
+            AssociatedRunSample(
+                sample_id=revision.sample_id,
+                sample_revision_id=revision.sample_revision_id,
+                revision_number=revision.revision_number,
+                ordinal=ordinal,
+            )
+        )
+    return ArtifactPublicationRunSampleBinding(
+        binding_mode=binding.binding_mode,
+        provenance=binding.provenance,
+        associated_run_samples=tuple(samples),
+    )
+
+
+def _artifact_publication_identity(
+    publication: _InMemoryArtifactPublication,
+) -> tuple[str, str, str]:
+    return (
+        publication.run_id,
+        publication.artifact_id,
+        publication.artifact_generation,
+    )
+
+
+def _in_memory_artifact_publication(
+    *,
+    run_id: str,
+    artifact_generation: str,
+    published_at: datetime,
+    artifact: RunArtifactRef,
+) -> _InMemoryArtifactPublication:
+    ArtifactPublicationCursorPosition(
+        published_at=published_at,
+        run_id=run_id,
+        artifact_generation=artifact_generation,
+        artifact_id=artifact.artifact_id,
+    )
+    return _InMemoryArtifactPublication(
+        run_id=run_id,
+        artifact_id=artifact.artifact_id,
+        artifact_generation=artifact_generation,
+        artifact_revision=artifact.revision,
+        output_type=_artifact_publication_output_type(artifact),
+        published_at=published_at,
+    )
+
+
+def _in_memory_artifact_publication_summary(
+    publication: _InMemoryArtifactPublication,
+    *,
+    runs: Mapping[str, RunRecord],
+    bindings: Mapping[str, ProjectSampleBinding],
+    data_registry_repository: DataRegistryRepository | None,
+    result_states: Mapping[str, RunResultState],
+    binding_cache: dict[str, ArtifactPublicationRunSampleBinding] | None = None,
+) -> ArtifactPublicationSummary:
+    record = runs.get(publication.run_id)
+    binding = bindings.get(publication.run_id)
+    state = result_states.get(publication.run_id)
+    if (
+        record is None
+        or binding is None
+        or state is None
+        or state.artifact_generation is None
+    ):
+        raise ValueError("artifact publication Run evidence is unavailable")
+    run_sample_binding = (
+        None if binding_cache is None else binding_cache.get(publication.run_id)
+    )
+    if run_sample_binding is None:
+        run_sample_binding = _in_memory_publication_run_sample_binding(
+            binding,
+            data_registry_repository,
+        )
+        if binding_cache is not None:
+            binding_cache[publication.run_id] = run_sample_binding
+    return ArtifactPublicationSummary(
+        run_id=publication.run_id,
+        project_id=binding.project_id,
+        workflow_id=record.workflow_id,
+        artifact_id=publication.artifact_id,
+        output_type=publication.output_type,
+        artifact_generation=publication.artifact_generation,
+        artifact_revision=publication.artifact_revision,
+        published_at=publication.published_at,
+        current_artifact_generation=state.artifact_generation,
+        run_sample_binding=run_sample_binding,
+    )
+
+
+def _artifact_publication_matches(
+    publication: ArtifactPublicationSummary,
+    filters: ArtifactPublicationFilters,
+) -> bool:
+    return (
+        (filters.project_id is None or publication.project_id == filters.project_id)
+        and (filters.run_id is None or publication.run_id == filters.run_id)
+        and (
+            filters.workflow_id is None
+            or publication.workflow_id == filters.workflow_id
+        )
+        and (
+            filters.output_type is None
+            or publication.output_type == filters.output_type
+        )
+        and (
+            filters.associated_run_sample_revision_id is None
+            or any(
+                sample.sample_revision_id == filters.associated_run_sample_revision_id
+                for sample in publication.run_sample_binding.associated_run_samples
+            )
+        )
+        and (
+            filters.published_from is None
+            or publication.published_at >= filters.published_from
+        )
+        and (
+            filters.published_before is None
+            or publication.published_at < filters.published_before
+        )
+        and (not filters.current_only or publication.generation_status == "current")
     )
 
 

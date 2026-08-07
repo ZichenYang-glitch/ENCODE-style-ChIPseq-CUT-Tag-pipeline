@@ -24,11 +24,11 @@ from encode_pipeline.platform.results import Issue, Result
 EXECUTION_IMPLEMENTATION_MANIFEST_FILE = "execution-implementation-manifest-1.0.0.json"
 EXECUTION_IMPLEMENTATION_SCHEMA_VERSION = "1.0.0"
 EXECUTION_IMPLEMENTATION_SCHEME = "sha256-framed-execution-implementation-v1"
-EXECUTION_PERSISTENCE_CONTRACT_FILE = "execution-persistence-contract-1.2.0.json"
+EXECUTION_PERSISTENCE_CONTRACT_FILE = "execution-persistence-contract-1.3.0.json"
 EXECUTION_PERSISTENCE_CONTRACT_PATH = (
     f"src/encode_pipeline/contracts/nfcore_rnaseq/{EXECUTION_PERSISTENCE_CONTRACT_FILE}"
 )
-EXECUTION_PERSISTENCE_CONTRACT_SCHEMA_VERSION = "1.2.0"
+EXECUTION_PERSISTENCE_CONTRACT_SCHEMA_VERSION = "1.3.0"
 EXECUTION_PERSISTENCE_CONTRACT_ID = "bulk-rnaseq-execution-persistence"
 
 # Only migrations that establish or change a capability used by Bulk execution
@@ -45,6 +45,7 @@ EXECUTION_MIGRATION_REVISION_PATHS = (
     "src/encode_pipeline/persistence/alembic/versions/20260726_09_project_sample_registry.py",
     "src/encode_pipeline/persistence/alembic/versions/20260726_10_input_registry.py",
     "src/encode_pipeline/persistence/alembic/versions/20260803_11_reference_profiles.py",
+    "src/encode_pipeline/persistence/alembic/versions/20260807_12_artifact_publications.py",
 )
 EXECUTION_PERSISTENCE_REQUIRED_REVISIONS = (
     "20260711_01",
@@ -57,6 +58,7 @@ EXECUTION_PERSISTENCE_REQUIRED_REVISIONS = (
     "20260726_09",
     "20260726_10",
     "20260803_11",
+    "20260807_12",
 )
 EXECUTION_PERSISTENCE_CAPABILITIES = (
     "sqlite.run-aggregate/v1",
@@ -66,6 +68,7 @@ EXECUTION_PERSISTENCE_CAPABILITIES = (
     "sqlite.project-sample-binding/v1",
     "sqlite.compatibility-input-binding/v1",
     "sqlite.reference-profile-revision-binding/v1",
+    "sqlite.artifact-publication/v1",
 )
 
 # This is an exact allowlist, not a recursive glob. A new execution dependency
@@ -91,6 +94,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/adapters/bulk_rnaseq/validation.py",
     "src/encode_pipeline/platform/__init__.py",
     "src/encode_pipeline/platform/adapters.py",
+    "src/encode_pipeline/platform/artifact_publications.py",
     "src/encode_pipeline/platform/builds.py",
     "src/encode_pipeline/platform/data_registry.py",
     "src/encode_pipeline/platform/execution.py",

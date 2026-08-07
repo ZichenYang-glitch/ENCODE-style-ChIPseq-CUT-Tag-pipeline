@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from encode_pipeline.persistence.models import (
+    ArtifactPublicationRow,
     ProjectRow,
     ReferenceProfileRow,
     RunReferenceBindingRow,
@@ -40,6 +41,13 @@ from encode_pipeline.persistence.models import (
 )
 from encode_pipeline.persistence.input_registry import (
     resolve_input_use_binding_plan_in_session,
+)
+from encode_pipeline.platform.artifact_publications import (
+    ArtifactPublicationCursorPosition,
+    ArtifactPublicationFilters,
+    ArtifactPublicationRunSampleBinding,
+    ArtifactPublicationSummary,
+    AssociatedRunSample,
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.data_registry import (
@@ -103,6 +111,7 @@ from encode_pipeline.services.run_repositories import (
     RunEventDraft,
     ValidatedSnapshotExpiredError,
     ValidatedSnapshotReplayConflictError,
+    _artifact_publication_output_type,
     _event_with_context,
     _legacy_run_inputs_digest,
     _require_current_attempt,
@@ -585,6 +594,73 @@ class SqlAlchemyRunRepository:
             ).all()
             return tuple(_summary_from_selected_row(row) for row in rows)
 
+    def list_artifact_publications(
+        self,
+        *,
+        filters: ArtifactPublicationFilters,
+        after: ArtifactPublicationCursorPosition | None,
+        limit: int,
+    ) -> tuple[ArtifactPublicationSummary, ...]:
+        if not isinstance(filters, ArtifactPublicationFilters):
+            raise ValueError("artifact publication filters are invalid")
+        if after is not None and not isinstance(
+            after, ArtifactPublicationCursorPosition
+        ):
+            raise ValueError("artifact publication cursor position is invalid")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise ValueError("artifact publication limit must be a positive integer")
+
+        with self._session_factory() as session:
+            _begin_consistent_read(session)
+            statement = _artifact_publication_select().where(
+                *_artifact_publication_filter_conditions(filters)
+            )
+            if after is not None:
+                boundary = session.execute(
+                    statement.where(
+                        ArtifactPublicationRow.run_id == after.run_id,
+                        ArtifactPublicationRow.artifact_id == after.artifact_id,
+                        ArtifactPublicationRow.artifact_generation
+                        == after.artifact_generation,
+                        ArtifactPublicationRow.published_at == after.published_at,
+                    )
+                ).one_or_none()
+                if boundary is None:
+                    raise KeyError(after.key)
+                statement = statement.where(
+                    _artifact_publication_after_condition(after)
+                )
+            rows = session.execute(
+                statement.order_by(
+                    ArtifactPublicationRow.published_at.desc(),
+                    ArtifactPublicationRow.run_id.desc(),
+                    ArtifactPublicationRow.artifact_generation.desc(),
+                    ArtifactPublicationRow.artifact_id.desc(),
+                ).limit(limit)
+            ).all()
+            return _artifact_publication_summaries_from_rows(session, rows)
+
+    def get_artifact_publication(
+        self,
+        *,
+        run_id: str,
+        artifact_id: str,
+        artifact_generation: str,
+    ) -> ArtifactPublicationSummary:
+        validate_artifact_generation(artifact_generation)
+        with self._session_factory() as session:
+            _begin_consistent_read(session)
+            row = session.execute(
+                _artifact_publication_select().where(
+                    ArtifactPublicationRow.run_id == run_id,
+                    ArtifactPublicationRow.artifact_id == artifact_id,
+                    ArtifactPublicationRow.artifact_generation == artifact_generation,
+                )
+            ).one_or_none()
+            if row is None:
+                raise KeyError((run_id, artifact_id, artifact_generation))
+            return _artifact_publication_summaries_from_rows(session, (row,))[0]
+
     def update_run(
         self,
         record: RunRecord,
@@ -924,6 +1000,10 @@ class SqlAlchemyRunRepository:
         event: RunEventDraft,
     ) -> RunEvent | None:
         validate_result_attempt_id(attempt_id)
+        if expected_status is not RunStatus.SUCCEEDED:
+            raise ConcurrentRunUpdateError(
+                "artifact publication requires a succeeded run"
+            )
         try:
             with self._lock, self._session_factory.begin() as session:
                 _begin_write(session)
@@ -1015,7 +1095,7 @@ class SqlAlchemyRunRepository:
                     session.flush()
                 if not should_emit:
                     return None
-                return self._insert_event(
+                result_event = self._insert_event(
                     session,
                     run_id,
                     _event_with_context(
@@ -1025,6 +1105,21 @@ class SqlAlchemyRunRepository:
                         artifact_count=len(sorted_replacement),
                     ),
                 )
+                if changed:
+                    if state.artifact_generation is None:
+                        raise ValueError("artifact publication generation is missing")
+                    session.add_all(
+                        [
+                            _artifact_publication_row(
+                                artifact,
+                                artifact_generation=state.artifact_generation,
+                                published_at=result_event.timestamp,
+                            )
+                            for artifact in sorted_replacement
+                        ]
+                    )
+                    session.flush()
+                return result_event
         except IntegrityError as exc:
             raise ValueError("artifact replacement could not be persisted") from exc
 
@@ -2508,6 +2603,192 @@ def _run_summary_select():
     )
 
 
+def _artifact_publication_select():
+    return (
+        select(
+            ArtifactPublicationRow,
+            RunRow.workflow_id,
+            RunProjectBindingRow.project_id,
+            RunProjectBindingRow.binding_mode,
+            RunProjectBindingRow.provenance,
+            RunResultStateRow.artifact_generation,
+        )
+        .join(RunRow, RunRow.run_id == ArtifactPublicationRow.run_id)
+        .join(
+            RunProjectBindingRow,
+            RunProjectBindingRow.run_id == ArtifactPublicationRow.run_id,
+        )
+        .join(
+            RunResultStateRow,
+            RunResultStateRow.run_id == ArtifactPublicationRow.run_id,
+        )
+    )
+
+
+def _artifact_publication_filter_conditions(
+    filters: ArtifactPublicationFilters,
+) -> tuple[object, ...]:
+    conditions: list[object] = []
+    if filters.project_id is not None:
+        conditions.append(RunProjectBindingRow.project_id == filters.project_id)
+    if filters.run_id is not None:
+        conditions.append(ArtifactPublicationRow.run_id == filters.run_id)
+    if filters.workflow_id is not None:
+        conditions.append(RunRow.workflow_id == filters.workflow_id)
+    if filters.output_type is not None:
+        conditions.append(ArtifactPublicationRow.output_type == filters.output_type)
+    if filters.associated_run_sample_revision_id is not None:
+        conditions.append(
+            select(1)
+            .select_from(RunSampleRow)
+            .where(
+                RunSampleRow.run_id == ArtifactPublicationRow.run_id,
+                RunSampleRow.sample_revision_id
+                == filters.associated_run_sample_revision_id,
+            )
+            .exists()
+        )
+    if filters.published_from is not None:
+        conditions.append(ArtifactPublicationRow.published_at >= filters.published_from)
+    if filters.published_before is not None:
+        conditions.append(
+            ArtifactPublicationRow.published_at < filters.published_before
+        )
+    if filters.current_only:
+        conditions.append(
+            ArtifactPublicationRow.artifact_generation
+            == RunResultStateRow.artifact_generation
+        )
+    return tuple(conditions)
+
+
+def _artifact_publication_after_condition(
+    after: ArtifactPublicationCursorPosition,
+):
+    return or_(
+        ArtifactPublicationRow.published_at < after.published_at,
+        and_(
+            ArtifactPublicationRow.published_at == after.published_at,
+            ArtifactPublicationRow.run_id < after.run_id,
+        ),
+        and_(
+            ArtifactPublicationRow.published_at == after.published_at,
+            ArtifactPublicationRow.run_id == after.run_id,
+            ArtifactPublicationRow.artifact_generation < after.artifact_generation,
+        ),
+        and_(
+            ArtifactPublicationRow.published_at == after.published_at,
+            ArtifactPublicationRow.run_id == after.run_id,
+            ArtifactPublicationRow.artifact_generation == after.artifact_generation,
+            ArtifactPublicationRow.artifact_id < after.artifact_id,
+        ),
+    )
+
+
+def _artifact_publication_summaries_from_rows(
+    session: Session,
+    rows: Iterable[object],
+) -> tuple[ArtifactPublicationSummary, ...]:
+    selected_rows = tuple(rows)
+    if not selected_rows:
+        return ()
+    run_ids: set[str] = set()
+    for row in selected_rows:
+        try:
+            publication = row[0]  # type: ignore[index]
+        except (IndexError, TypeError) as exc:
+            raise ValueError("persisted artifact publication row is invalid") from exc
+        if not isinstance(publication, ArtifactPublicationRow):
+            raise ValueError("persisted artifact publication row is invalid")
+        run_ids.add(publication.run_id)
+
+    sample_rows = session.execute(
+        select(RunSampleRow, SampleRevisionRow)
+        .outerjoin(
+            SampleRevisionRow,
+            and_(
+                SampleRevisionRow.project_id == RunSampleRow.project_id,
+                SampleRevisionRow.sample_revision_id == RunSampleRow.sample_revision_id,
+                SampleRevisionRow.payload_digest == RunSampleRow.payload_digest,
+            ),
+        )
+        .where(RunSampleRow.run_id.in_(run_ids))
+        .order_by(RunSampleRow.run_id, RunSampleRow.ordinal)
+    ).all()
+    samples_by_run: dict[str, list[AssociatedRunSample]] = {}
+    for run_sample, revision in sample_rows:
+        if revision is None:
+            raise ValueError("artifact publication SampleRevision evidence is missing")
+        samples_by_run.setdefault(run_sample.run_id, []).append(
+            AssociatedRunSample(
+                sample_id=revision.sample_id,
+                sample_revision_id=revision.sample_revision_id,
+                revision_number=revision.revision_number,
+                ordinal=run_sample.ordinal,
+            )
+        )
+
+    summaries: list[ArtifactPublicationSummary] = []
+    bindings_by_run: dict[
+        str, tuple[str, str, str, ArtifactPublicationRunSampleBinding]
+    ] = {}
+    for row in selected_rows:
+        try:
+            (
+                publication,
+                workflow_id,
+                project_id,
+                binding_mode,
+                provenance,
+                current_artifact_generation,
+            ) = row  # type: ignore[misc]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("persisted artifact publication row is invalid") from exc
+        cached = bindings_by_run.get(publication.run_id)
+        if cached is None:
+            run_sample_binding = ArtifactPublicationRunSampleBinding(
+                binding_mode=binding_mode,
+                provenance=provenance,
+                associated_run_samples=tuple(
+                    samples_by_run.get(publication.run_id, ())
+                ),
+            )
+            bindings_by_run[publication.run_id] = (
+                workflow_id,
+                project_id,
+                current_artifact_generation,
+                run_sample_binding,
+            )
+        else:
+            (
+                cached_workflow_id,
+                cached_project_id,
+                cached_generation,
+                run_sample_binding,
+            ) = cached
+            if (
+                cached_workflow_id != workflow_id
+                or cached_project_id != project_id
+                or cached_generation != current_artifact_generation
+            ):
+                raise ValueError("artifact publication Run evidence is inconsistent")
+        summaries.append(
+            ArtifactPublicationSummary(
+                run_id=publication.run_id,
+                project_id=project_id,
+                workflow_id=workflow_id,
+                artifact_id=publication.artifact_id,
+                output_type=publication.output_type,
+                artifact_generation=publication.artifact_generation,
+                artifact_revision=publication.artifact_revision,
+                published_at=_as_utc(publication.published_at),
+                current_artifact_generation=current_artifact_generation,
+                run_sample_binding=run_sample_binding,
+            )
+        )
+    return tuple(summaries)
+
+
 def _summary_from_selected_row(row: object) -> RunSummary:
     mapping = getattr(row, "_mapping", None)
     if mapping is None:
@@ -2639,6 +2920,28 @@ def _artifact_row(artifact: RunArtifactRef) -> RunArtifactRow:
         produced_at=artifact.produced_at,
         revision=artifact.revision,
         artifact_metadata=artifact.to_dict()["metadata"],
+    )
+
+
+def _artifact_publication_row(
+    artifact: RunArtifactRef,
+    *,
+    artifact_generation: str,
+    published_at: datetime,
+) -> ArtifactPublicationRow:
+    ArtifactPublicationCursorPosition(
+        published_at=published_at,
+        run_id=artifact.run_id,
+        artifact_generation=artifact_generation,
+        artifact_id=artifact.artifact_id,
+    )
+    return ArtifactPublicationRow(
+        run_id=artifact.run_id,
+        artifact_id=artifact.artifact_id,
+        artifact_generation=artifact_generation,
+        artifact_revision=artifact.revision,
+        output_type=_artifact_publication_output_type(artifact),
+        published_at=published_at,
     )
 
 

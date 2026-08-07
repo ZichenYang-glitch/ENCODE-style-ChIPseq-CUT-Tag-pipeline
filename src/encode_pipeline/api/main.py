@@ -12,6 +12,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from encode_pipeline.api.models import (
+    ArtifactPublicationDetailResponse,
+    ArtifactPublicationIssueResponse,
+    ArtifactPublicationListResponse,
     RunArtifactDetailResponse,
     RunArtifactDownloadErrorResponse,
     RunArtifactsResponse,
@@ -37,6 +40,9 @@ from encode_pipeline.services.defaults import (
     create_default_workflow_registry,
 )
 from encode_pipeline.services.artifact_downloads import ArtifactDownloadService
+from encode_pipeline.services.artifact_publications import (
+    ArtifactPublicationQueryService,
+)
 from encode_pipeline.services.planning import ExecutionPlanner
 from encode_pipeline.services.preflight import LocalPreflightService
 from encode_pipeline.services.private_reference_profiles import (
@@ -103,6 +109,9 @@ def create_app(
     )
     run_service = create_default_run_service(
         registry=registry,
+        repository=persistence.repository,
+    )
+    artifact_publication_service = ArtifactPublicationQueryService(
         repository=persistence.repository,
     )
     validation_service = create_default_validation_service(registry=registry)
@@ -193,6 +202,7 @@ def create_app(
     app.state.validated_run_creation_service = validated_run_creation_service
     app.state.agent_service = create_default_agent_service(registry=registry)
     app.state.run_service = run_service
+    app.state.artifact_publication_service = artifact_publication_service
     app.state.artifact_download_service = ArtifactDownloadService(
         run_service=run_service,
         workspace_root=worker_settings.workspace_root,
@@ -234,6 +244,41 @@ async def _handle_request_validation_error(
 ) -> JSONResponse:
     """Return 400 with the PR84 API_REQUEST_INVALID envelope."""
     route = request.scope.get("route")
+    if getattr(route, "operation_id", None) == "listArtifactPublications":
+        issue = ArtifactPublicationIssueResponse(
+            code="API_REQUEST_INVALID",
+            message="Artifact publication query parameters are invalid.",
+            severity="error",
+            path="query",
+            source="api",
+            hint="Use the filters and pagination bounds documented by this endpoint.",
+        )
+        body = ArtifactPublicationListResponse(
+            ok=False,
+            publications=[],
+            next_cursor=None,
+            issues=[issue],
+        )
+        content = body.model_dump(mode="json", exclude_none=True)
+        content["next_cursor"] = None
+        return JSONResponse(status_code=400, content=content)
+    if getattr(route, "operation_id", None) == "getArtifactPublication":
+        issue = ArtifactPublicationIssueResponse(
+            code="API_REQUEST_INVALID",
+            message="Artifact publication identity is invalid.",
+            severity="error",
+            path="query",
+            source="api",
+            hint="Use an exact generation returned by the publication list endpoint.",
+        )
+        body = ArtifactPublicationDetailResponse(
+            ok=False,
+            publication=None,
+            issues=[issue],
+        )
+        content = body.model_dump(mode="json", exclude_none=True)
+        content["publication"] = None
+        return JSONResponse(status_code=400, content=content)
     if getattr(route, "operation_id", None) == "listRunArtifacts":
         run_id = request.path_params.get("run_id", "")
         issue = Issue(
@@ -374,6 +419,41 @@ async def _handle_internal_server_error(
 ) -> JSONResponse:
     """Return 500 with the PR84 INTERNAL_SERVER_ERROR envelope."""
     route = request.scope.get("route")
+    if getattr(route, "operation_id", None) == "listArtifactPublications":
+        issue = ArtifactPublicationIssueResponse(
+            code="INTERNAL_SERVER_ERROR",
+            message="Artifact publications are temporarily unavailable.",
+            severity="error",
+            path="publications",
+            source="runtime",
+            hint=None,
+        )
+        body = ArtifactPublicationListResponse(
+            ok=False,
+            publications=[],
+            next_cursor=None,
+            issues=[issue],
+        )
+        content = body.model_dump(mode="json", exclude_none=True)
+        content["next_cursor"] = None
+        return JSONResponse(status_code=500, content=content)
+    if getattr(route, "operation_id", None) == "getArtifactPublication":
+        issue = ArtifactPublicationIssueResponse(
+            code="INTERNAL_SERVER_ERROR",
+            message="Artifact publication is temporarily unavailable.",
+            severity="error",
+            path="publication",
+            source="runtime",
+            hint=None,
+        )
+        body = ArtifactPublicationDetailResponse(
+            ok=False,
+            publication=None,
+            issues=[issue],
+        )
+        content = body.model_dump(mode="json", exclude_none=True)
+        content["publication"] = None
+        return JSONResponse(status_code=500, content=content)
     if getattr(route, "operation_id", None) == "listRuns":
         issue = Issue(
             code="INTERNAL_SERVER_ERROR",

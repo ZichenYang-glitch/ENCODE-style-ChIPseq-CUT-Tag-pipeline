@@ -43,6 +43,11 @@ from encode_pipeline.platform.input_registry import (
     InputProvenanceMode,
     InputUseBindingEnvelope,
 )
+from encode_pipeline.platform.artifact_publications import (
+    ArtifactPublicationRunSampleBinding,
+    ArtifactPublicationSummary,
+    AssociatedRunSample,
+)
 from encode_pipeline.platform.run_history import RunSummary
 from encode_pipeline.platform.reference_profiles import ReferenceProfileRevisionSummary
 from encode_pipeline.services.run_repositories import canonical_decimal_text
@@ -78,6 +83,7 @@ JsonValue = TypeAliasType(
 )
 
 ProjectId = Annotated[str, Field(pattern=r"^prj_[0-9a-f]{32}$", max_length=36)]
+SampleId = Annotated[str, Field(pattern=r"^smp_[0-9a-f]{32}$", max_length=36)]
 SampleRevisionId = Annotated[
     str,
     Field(pattern=r"^smpr_[0-9a-f]{32}$", max_length=37),
@@ -632,6 +638,187 @@ class RunHistoryResponse(BaseModel):
     runs: list[RunSummaryResponse]
     next_cursor: str | None = Field(max_length=1024)
     issues: list[IssueResponse]
+
+
+class AssociatedRunSampleResponse(BaseModel):
+    """One ordered sample associated with the publication's Run.
+
+    This is Run-level binding evidence and does not attribute the artifact to
+    an individual sample.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    sample_id: SampleId
+    sample_revision_id: SampleRevisionId
+    revision_number: int = Field(ge=1, strict=True)
+    ordinal: int = Field(ge=0, strict=True)
+
+
+class ArtifactPublicationRunSampleBindingResponse(BaseModel):
+    """Allowlisted Run-wide sample context, not per-artifact attribution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    binding_mode: BindingMode
+    provenance: BindingProvenance
+    associated_run_samples: list[AssociatedRunSampleResponse] = Field(
+        description=(
+            "Ordered samples associated with the Run; this is not evidence that "
+            "any individual sample contributed to this artifact."
+        )
+    )
+
+    @model_validator(mode="after")
+    def validate_binding(self) -> "ArtifactPublicationRunSampleBindingResponse":
+        ArtifactPublicationRunSampleBinding(
+            binding_mode=self.binding_mode,
+            provenance=self.provenance,
+            associated_run_samples=tuple(
+                AssociatedRunSample(
+                    sample_id=item.sample_id,
+                    sample_revision_id=item.sample_revision_id,
+                    revision_number=item.revision_number,
+                    ordinal=item.ordinal,
+                )
+                for item in self.associated_run_samples
+            ),
+        )
+        return self
+
+
+class ArtifactPublicationResponse(BaseModel):
+    """Strict path-free projection of one indexed artifact publication."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+    project_id: ProjectId
+    workflow_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$")
+    artifact_id: str = Field(pattern=_LOGICAL_ID_PATTERN, max_length=128)
+    output_type: str = Field(pattern=_LOGICAL_ID_PATTERN, max_length=128)
+    artifact_generation: str = Field(
+        pattern=r"^artifactgen-[0-9a-f]{64}$",
+        max_length=76,
+    )
+    artifact_revision: str = Field(
+        pattern=r"^artifactrev-[0-9a-f]{64}$",
+        max_length=76,
+    )
+    published_at: datetime
+    current_artifact_generation: str = Field(
+        pattern=r"^artifactgen-[0-9a-f]{64}$",
+        max_length=76,
+    )
+    generation_status: Literal["current", "superseded"]
+    run_sample_binding: ArtifactPublicationRunSampleBindingResponse
+
+    @field_validator("published_at")
+    @classmethod
+    def normalize_published_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("publication published_at must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def validate_publication(self) -> "ArtifactPublicationResponse":
+        binding = ArtifactPublicationRunSampleBinding(
+            binding_mode=self.run_sample_binding.binding_mode,
+            provenance=self.run_sample_binding.provenance,
+            associated_run_samples=tuple(
+                AssociatedRunSample(
+                    sample_id=item.sample_id,
+                    sample_revision_id=item.sample_revision_id,
+                    revision_number=item.revision_number,
+                    ordinal=item.ordinal,
+                )
+                for item in self.run_sample_binding.associated_run_samples
+            ),
+        )
+        summary = ArtifactPublicationSummary(
+            run_id=self.run_id,
+            project_id=self.project_id,
+            workflow_id=self.workflow_id,
+            artifact_id=self.artifact_id,
+            output_type=self.output_type,
+            artifact_generation=self.artifact_generation,
+            artifact_revision=self.artifact_revision,
+            published_at=self.published_at,
+            current_artifact_generation=self.current_artifact_generation,
+            run_sample_binding=binding,
+        )
+        if summary.generation_status != self.generation_status:
+            raise ValueError("generation_status does not match generation evidence")
+        return self
+
+    @classmethod
+    def from_summary(
+        cls,
+        summary: ArtifactPublicationSummary,
+    ) -> "ArtifactPublicationResponse":
+        """Project a validated domain row without consulting private fields."""
+        if not isinstance(summary, ArtifactPublicationSummary):
+            raise ValueError("summary must be an ArtifactPublicationSummary")
+        binding = summary.run_sample_binding
+        return cls(
+            run_id=summary.run_id,
+            project_id=summary.project_id,
+            workflow_id=summary.workflow_id,
+            artifact_id=summary.artifact_id,
+            output_type=summary.output_type,
+            artifact_generation=summary.artifact_generation,
+            artifact_revision=summary.artifact_revision,
+            published_at=summary.published_at,
+            current_artifact_generation=summary.current_artifact_generation,
+            generation_status=summary.generation_status,
+            run_sample_binding=ArtifactPublicationRunSampleBindingResponse(
+                binding_mode=binding.binding_mode,
+                provenance=binding.provenance,
+                associated_run_samples=[
+                    AssociatedRunSampleResponse(
+                        sample_id=item.sample_id,
+                        sample_revision_id=item.sample_revision_id,
+                        revision_number=item.revision_number,
+                        ordinal=item.ordinal,
+                    )
+                    for item in binding.associated_run_samples
+                ],
+            ),
+        )
+
+
+class ArtifactPublicationIssueResponse(BaseModel):
+    """Minimal public issue shape for publication query failures."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{0,127}$", max_length=128)
+    message: str = Field(min_length=1, max_length=255)
+    severity: Literal["error"] = "error"
+    path: str | None = Field(default=None, min_length=1, max_length=128)
+    source: Literal["api", "runtime"]
+    hint: str | None = Field(default=None, min_length=1, max_length=255)
+
+
+class ArtifactPublicationListResponse(BaseModel):
+    """Envelope for GET /api/v1/artifact-publications."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    publications: list[ArtifactPublicationResponse]
+    next_cursor: str | None = Field(max_length=1024)
+    issues: list[ArtifactPublicationIssueResponse]
+
+
+class ArtifactPublicationDetailResponse(BaseModel):
+    """Envelope for one exact artifact publication identity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    publication: ArtifactPublicationResponse | None
+    issues: list[ArtifactPublicationIssueResponse]
 
 
 class RunEventResponse(BaseModel):

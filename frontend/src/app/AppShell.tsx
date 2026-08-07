@@ -1,4 +1,4 @@
-import { Dna, FilePenLine, History, ListTree } from 'lucide-react';
+import { Dna, FileArchive, FilePenLine, History, ListTree } from 'lucide-react';
 import { Link, matchPath, Outlet, useLocation } from 'react-router-dom';
 import { Button } from '../components/Button';
 
@@ -25,10 +25,20 @@ export function AppShell() {
     { path: '/runs/:runId', end: true },
     pathname,
   );
+  const artifactIndexRoute = matchPath(
+    { path: '/artifacts', end: true },
+    pathname,
+  );
+  const artifactDetailRoute = matchPath(
+    { path: '/artifacts/:runId/:artifactId', end: true },
+    pathname,
+  );
   const workflowId = workflowRoute?.params.workflowId;
   const workflowsCurrent =
     workflowCatalogRoute !== null || workflowDetailRoute !== null;
   const runsCurrent = runHistoryRoute !== null || runDetailRoute !== null;
+  const artifactsCurrent =
+    artifactIndexRoute !== null || artifactDetailRoute !== null;
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg)] text-[var(--color-text)]">
@@ -71,6 +81,19 @@ export function AppShell() {
               >
                 <History aria-hidden="true" size={16} />
                 Runs
+              </Link>
+            </Button>
+            <Button
+              asChild
+              className="gap-1.5"
+              variant={artifactsCurrent ? 'primary' : 'secondary'}
+            >
+              <Link
+                aria-current={artifactsCurrent ? 'page' : undefined}
+                to="/artifacts"
+              >
+                <FileArchive aria-hidden="true" size={16} />
+                Artifacts
               </Link>
             </Button>
             {workflowId && (
