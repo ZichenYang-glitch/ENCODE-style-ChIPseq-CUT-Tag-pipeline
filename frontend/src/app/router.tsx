@@ -24,6 +24,18 @@ const RunHistoryPage = lazy(() =>
   })),
 );
 
+const ArtifactPublicationsPage = lazy(() =>
+  import('../routes/artifacts').then((module) => ({
+    default: module.ArtifactPublicationsPage,
+  })),
+);
+
+const ArtifactPublicationDetailPage = lazy(() =>
+  import('../routes/artifacts').then((module) => ({
+    default: module.ArtifactPublicationDetailPage,
+  })),
+);
+
 function WorkflowDetailRoute() {
   const { workflowId } = useParams<{ workflowId: string }>();
   if (!workflowId) {
@@ -82,6 +94,22 @@ export const appRoutes: RouteObject[] = [
         ),
       },
       { path: 'runs/:runId', element: <RunDetailPage /> },
+      {
+        path: 'artifacts',
+        element: (
+          <Suspense fallback={<ArtifactPublicationsRouteLoading />}>
+            <ArtifactPublicationsPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'artifacts/:runId/:artifactId',
+        element: (
+          <Suspense fallback={<ArtifactPublicationsRouteLoading />}>
+            <ArtifactPublicationDetailPage />
+          </Suspense>
+        ),
+      },
       { path: '*', element: <NotFoundPage /> },
     ],
   },
@@ -99,6 +127,19 @@ function RunHistoryRouteLoading() {
     >
       <div className="h-5 w-40 rounded bg-slate-200" />
       <div className="mt-4 h-10 rounded bg-slate-100" />
+      <div className="mt-4 h-64 rounded bg-slate-100" />
+    </section>
+  );
+}
+
+function ArtifactPublicationsRouteLoading() {
+  return (
+    <section
+      className="min-h-[30rem] min-w-0 flex-1 animate-pulse rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+      aria-label="Loading artifact publications page"
+    >
+      <div className="h-5 w-48 rounded bg-slate-200" />
+      <div className="mt-4 h-24 rounded bg-slate-100" />
       <div className="mt-4 h-64 rounded bg-slate-100" />
     </section>
   );

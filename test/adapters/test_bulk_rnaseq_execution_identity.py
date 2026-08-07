@@ -72,6 +72,8 @@ PRODUCTION_PERSISTENCE_PATHS = frozenset(
         "src/encode_pipeline/persistence/alembic/versions/20260717_08_run_result_generations.py",
         "src/encode_pipeline/persistence/alembic/versions/20260726_09_project_sample_registry.py",
         "src/encode_pipeline/persistence/alembic/versions/20260803_11_reference_profiles.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260807_12_artifact_publications.py",
+        "src/encode_pipeline/platform/artifact_publications.py",
         "src/encode_pipeline/platform/data_registry.py",
         "src/encode_pipeline/platform/reference_profiles.py",
         "src/encode_pipeline/services/private_reference_profiles.py",
@@ -91,7 +93,9 @@ PRODUCT_ONLY_RESULT_SURFACE_PATHS = frozenset(
     {
         "src/encode_pipeline/api/routes/agent.py",
         "src/encode_pipeline/api/routes/artifacts.py",
+        "src/encode_pipeline/api/routes/artifact_publications.py",
         "src/encode_pipeline/api/routes/qc_metrics.py",
+        "src/encode_pipeline/services/artifact_publications.py",
         "src/encode_pipeline/services/artifact_downloads.py",
     }
 )
@@ -110,6 +114,13 @@ REFERENCE_PROFILE_EXECUTION_PATHS = frozenset(
         "src/encode_pipeline/services/private_reference_profiles.py",
         "src/encode_pipeline/services/reference_profile_runtime.py",
         "src/encode_pipeline/persistence/alembic/versions/20260803_11_reference_profiles.py",
+        EXECUTION_PERSISTENCE_CONTRACT_PATH,
+    }
+)
+ARTIFACT_PUBLICATION_EXECUTION_PATHS = frozenset(
+    {
+        "src/encode_pipeline/platform/artifact_publications.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260807_12_artifact_publications.py",
         EXECUTION_PERSISTENCE_CONTRACT_PATH,
     }
 )
@@ -173,6 +184,10 @@ def test_product_only_result_surfaces_are_not_scientific_implementation_files():
     assert PRODUCT_ONLY_RESULT_SURFACE_PATHS.isdisjoint(EXECUTION_IMPLEMENTATION_PATHS)
 
 
+def test_artifact_publication_persistence_contract_is_scientific_implementation():
+    assert ARTIFACT_PUBLICATION_EXECUTION_PATHS.issubset(EXECUTION_IMPLEMENTATION_PATHS)
+
+
 def test_reference_profile_catalog_crud_is_not_scientific_implementation():
     assert REFERENCE_PROFILE_CATALOG_PATHS.isdisjoint(EXECUTION_IMPLEMENTATION_PATHS)
     assert REFERENCE_PROFILE_EXECUTION_PATHS.issubset(EXECUTION_IMPLEMENTATION_PATHS)
@@ -210,7 +225,7 @@ def test_committed_source_qualification_is_canonical_path_free_and_exact():
     serialized = json.dumps(document)
     persistence = document["execution_implementation"]["persistence_contract"]
     assert persistence["path"] == EXECUTION_PERSISTENCE_CONTRACT_PATH
-    assert persistence["version"] == "1.2.0"
+    assert persistence["version"] == "1.3.0"
     assert set(persistence["schema_projection"]) == {"scheme", "sha256", "tables"}
     assert "required_schema" not in persistence
     assert str(PROJECT_ROOT) not in serialized
@@ -230,7 +245,7 @@ def test_persistence_contract_change_changes_identity_and_stales_qualification(
         *PurePosixPath(EXECUTION_PERSISTENCE_CONTRACT_PATH).parts
     )
     contract = json.loads(contract_path.read_bytes())
-    contract["contract_version"] = "1.2.1"
+    contract["contract_version"] = "1.3.1"
     contract_path.write_bytes(
         json.dumps(
             contract,
@@ -249,13 +264,55 @@ def test_persistence_contract_change_changes_identity_and_stales_qualification(
 
     assert changed.is_success
     assert changed.value.aggregate_sha256 != original.value.aggregate_sha256
-    assert changed.value.persistence_contract.contract_version == "1.2.1"
+    assert changed.value.persistence_contract.contract_version == "1.3.1"
     stale = load_default_execution_qualification(
         changed.value,
         content=QUALIFICATION_PATH.read_bytes(),
     )
     assert stale.is_failure
     assert stale.errors[0].code == "BULK_RNASEQ_EXECUTION_QUALIFICATION_INVALID"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("schema-version", "missing-capability", "missing-revision"),
+)
+def test_persistence_contract_coordinate_mutation_fails_closed(
+    tmp_path: Path,
+    mutation: str,
+):
+    project = tmp_path / mutation
+    package_root = _copy_controlled_implementation(project)
+    contract_path = project.joinpath(
+        *PurePosixPath(EXECUTION_PERSISTENCE_CONTRACT_PATH).parts
+    )
+    contract = json.loads(contract_path.read_bytes())
+    if mutation == "schema-version":
+        contract["schema_version"] = "1.2.0"
+    elif mutation == "missing-capability":
+        contract["capabilities"].remove("sqlite.artifact-publication/v1")
+    else:
+        contract["required_revisions"].remove("20260807_12")
+    contract_path.write_bytes(
+        json.dumps(
+            contract,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        + b"\n"
+    )
+    manifest = build_execution_implementation_manifest(project)
+
+    result = verify_execution_implementation(
+        manifest_bytes=canonical_execution_manifest_bytes(manifest),
+        package_root=package_root,
+    )
+
+    assert result.is_failure
+    assert result.errors[0].code == "BULK_RNASEQ_EXECUTION_IMPLEMENTATION_INVALID"
+    assert result.errors[0].technical_message is None
+    assert result.errors[0].context == {}
 
 
 def test_source_qualification_rejects_stale_malformed_or_extended_documents():
@@ -541,7 +598,7 @@ def test_unrelated_migration_revision_does_not_change_or_reject_identity(
         "from alembic import op\n"
         "import sqlalchemy as sa\n\n"
         "revision = '20990101_99'\n"
-        "down_revision = '20260803_11'\n"
+        "down_revision = '20260807_12'\n"
         "branch_labels = None\n"
         "depends_on = None\n\n"
         "def upgrade():\n"
@@ -592,6 +649,40 @@ def test_mock_agent_route_change_does_not_change_scientific_aggregate(
     assert canonical_execution_manifest_bytes(changed_manifest) == original_bytes
 
 
+@pytest.mark.parametrize(
+    "logical_path",
+    (
+        "src/encode_pipeline/api/routes/artifact_publications.py",
+        "src/encode_pipeline/services/artifact_publications.py",
+    ),
+)
+def test_artifact_publication_query_surface_change_does_not_change_aggregate(
+    tmp_path: Path,
+    logical_path: str,
+):
+    original_bytes = MANIFEST_PATH.read_bytes()
+    original = verify_execution_implementation(manifest_bytes=original_bytes)
+    assert original.is_success
+
+    project = tmp_path / "product-only-artifact-publication-change"
+    package_root = _copy_controlled_implementation(project)
+    source = PROJECT_ROOT.joinpath(*PurePosixPath(logical_path).parts)
+    target = project.joinpath(*PurePosixPath(logical_path).parts)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    target.write_bytes(target.read_bytes() + b"\n# product-only query change\n")
+
+    changed_manifest = build_execution_implementation_manifest(project)
+    changed = verify_execution_implementation(
+        manifest_bytes=canonical_execution_manifest_bytes(changed_manifest),
+        package_root=package_root,
+    )
+
+    assert changed.is_success
+    assert changed.value.aggregate_sha256 == original.value.aggregate_sha256
+    assert canonical_execution_manifest_bytes(changed_manifest) == original_bytes
+
+
 def test_reference_profile_catalog_crud_change_does_not_change_aggregate(
     tmp_path: Path,
 ):
@@ -618,6 +709,51 @@ def test_reference_profile_catalog_crud_change_does_not_change_aggregate(
     assert changed.is_success
     assert changed.value.aggregate_sha256 == original.value.aggregate_sha256
     assert canonical_execution_manifest_bytes(changed_manifest) == original_bytes
+
+
+@pytest.mark.parametrize(
+    "logical_path",
+    (
+        "src/encode_pipeline/platform/artifact_publications.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260807_12_artifact_publications.py",
+    ),
+)
+def test_artifact_publication_execution_contract_change_stales_identity(
+    tmp_path: Path,
+    logical_path: str,
+):
+    original_bytes = MANIFEST_PATH.read_bytes()
+    original = verify_execution_implementation(manifest_bytes=original_bytes)
+    assert original.is_success
+
+    project = tmp_path / "changed-artifact-publication-execution-contract"
+    package_root = _copy_controlled_implementation(project)
+    implementation_file = project.joinpath(*PurePosixPath(logical_path).parts)
+    implementation_file.write_bytes(
+        implementation_file.read_bytes() + b"\n# intentional contract change\n"
+    )
+
+    stale_install = verify_execution_implementation(
+        manifest_bytes=original_bytes,
+        package_root=package_root,
+    )
+    changed_manifest = build_execution_implementation_manifest(project)
+    changed = verify_execution_implementation(
+        manifest_bytes=canonical_execution_manifest_bytes(changed_manifest),
+        package_root=package_root,
+    )
+
+    assert stale_install.is_failure
+    assert changed.is_success
+    assert changed.value.aggregate_sha256 != original.value.aggregate_sha256
+    stale_qualification = load_default_execution_qualification(
+        changed.value,
+        content=QUALIFICATION_PATH.read_bytes(),
+    )
+    assert stale_qualification.is_failure
+    assert stale_qualification.errors[0].code == (
+        "BULK_RNASEQ_EXECUTION_QUALIFICATION_INVALID"
+    )
 
 
 def test_reference_profile_runtime_projection_change_changes_identity_and_stales_qualification(

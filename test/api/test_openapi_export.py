@@ -50,6 +50,14 @@ EXPECTED_OPERATIONS = {
     ("POST", "/api/v1/workflows/{workflow_id}/validate"): "validateWorkflow",
     ("POST", "/api/v1/workflows/{workflow_id}/runs"): "createRun",
     ("GET", "/api/v1/runs"): "listRuns",
+    (
+        "GET",
+        "/api/v1/artifact-publications",
+    ): "listArtifactPublications",
+    (
+        "GET",
+        "/api/v1/artifact-publications/{run_id}/{artifact_id}",
+    ): "getArtifactPublication",
     ("GET", "/api/v1/runs/{run_id}"): "getRun",
     ("POST", "/api/v1/runs/{run_id}/start"): "startRun",
     ("POST", "/api/v1/runs/{run_id}/cancel"): "cancelRun",
@@ -174,6 +182,91 @@ def test_openapi_operations_match_expected_contract(tmp_path):
     assert len(operation_ids) == len(set(operation_ids)), "duplicate operation_id found"
 
     assert operations == EXPECTED_OPERATIONS
+
+
+def test_artifact_publication_openapi_is_strict_path_free_and_has_no_422(tmp_path):
+    schema = _isolated_app_schema(tmp_path, "artifact-publications")
+    list_operation = schema["paths"]["/api/v1/artifact-publications"]["get"]
+    detail_operation = schema["paths"][
+        "/api/v1/artifact-publications/{run_id}/{artifact_id}"
+    ]["get"]
+
+    assert list_operation["operationId"] == "listArtifactPublications"
+    assert detail_operation["operationId"] == "getArtifactPublication"
+    assert "422" not in list_operation["responses"]
+    assert "422" not in detail_operation["responses"]
+    assert "4XX" in list_operation["responses"]
+    assert "4XX" in detail_operation["responses"]
+
+    parameters = {item["name"]: item for item in list_operation["parameters"]}
+    assert set(parameters) == {
+        "project_id",
+        "run_id",
+        "workflow_id",
+        "output_type",
+        "associated_run_sample_revision_id",
+        "published_from",
+        "published_before",
+        "current_only",
+        "after",
+        "limit",
+    }
+    assert parameters["current_only"]["schema"]["default"] is True
+    assert parameters["published_from"]["description"] == (
+        "Inclusive UTC publication timestamp lower bound."
+    )
+    assert parameters["published_before"]["description"] == (
+        "Exclusive UTC publication timestamp upper bound."
+    )
+    assert parameters["limit"]["schema"] == {
+        "default": 50,
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer",
+    }
+    detail_parameters = {item["name"]: item for item in detail_operation["parameters"]}
+    assert detail_parameters["generation"]["required"] is True
+
+    issue = schema["components"]["schemas"]["ArtifactPublicationIssueResponse"]
+    assert issue["additionalProperties"] is False
+    assert set(issue["properties"]) == {
+        "code",
+        "message",
+        "severity",
+        "path",
+        "source",
+        "hint",
+    }
+    assert "technical_message" not in issue["properties"]
+    assert "context" not in issue["properties"]
+
+    publication = schema["components"]["schemas"]["ArtifactPublicationResponse"]
+    assert publication["additionalProperties"] is False
+    assert set(publication["properties"]) == {
+        "run_id",
+        "project_id",
+        "workflow_id",
+        "artifact_id",
+        "output_type",
+        "artifact_generation",
+        "artifact_revision",
+        "published_at",
+        "current_artifact_generation",
+        "generation_status",
+        "run_sample_binding",
+    }
+    forbidden = {
+        "path",
+        "uri",
+        "name",
+        "mime_type",
+        "metadata",
+        "config",
+        "environment",
+        "display_name",
+    }
+    assert forbidden.isdisjoint(publication["properties"])
 
 
 def test_workflow_authoring_contract_is_typed_versioned_and_bounded(tmp_path):

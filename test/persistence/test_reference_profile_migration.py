@@ -58,7 +58,7 @@ def test_rev10_to_rev11_adds_reference_catalog_without_legacy_backfill(
         )
     engine.dispose()
 
-    upgrade_database(database_url)
+    upgrade_database(database_url, "20260803_11")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
 

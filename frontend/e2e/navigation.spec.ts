@@ -60,17 +60,23 @@ test('global navigation exposes authoring before developer schemas on desktop @d
     name: 'Workflows',
   });
   const runsLink = primaryNavigation.getByRole('link', { name: 'Runs' });
+  const artifactsLink = primaryNavigation.getByRole('link', {
+    name: 'Artifacts',
+  });
   const newAnalysisLink = primaryNavigation.getByRole('link', {
     name: 'New analysis',
   });
   await expect(primaryNavigation.getByRole('link')).toHaveText([
     'Workflows',
     'Runs',
+    'Artifacts',
     'New analysis',
   ]);
   await expect(workflowsLink).toHaveAttribute('aria-current', 'page');
   await expect(runsLink).not.toHaveAttribute('aria-current');
   await expect(runsLink).toHaveAttribute('href', '/runs');
+  await expect(artifactsLink).not.toHaveAttribute('aria-current');
+  await expect(artifactsLink).toHaveAttribute('href', '/artifacts');
   await expect(newAnalysisLink).toHaveAttribute(
     'href',
     `/workflows/${workflowId}/new-run`,
