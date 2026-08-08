@@ -2,6 +2,13 @@
 
 Status: Accepted for the data-foundation milestone
 
+Publication note: the storage-move, private-storage-reference, and
+per-artifact-contributor portions of this document describe a deferred design.
+The implemented first publication surface is governed by the
+[Artifact Publication and Provenance Decision](artifact-publication-provenance-decision.md):
+one append-only SQLite table, existing run storage, and associated run Sample
+scope derived from immutable bindings.
+
 ## Context
 
 HelixWeave currently records immutable validation snapshots, run lifecycle,

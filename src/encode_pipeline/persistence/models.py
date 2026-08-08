@@ -1355,6 +1355,73 @@ class RunArtifactRow(Base):
     artifact_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
 
 
+class ArtifactPublicationRow(Base):
+    __tablename__ = "artifact_publications"
+    __table_args__ = (
+        CheckConstraint(
+            "length(artifact_id) BETWEEN 1 AND 128 AND "
+            "substr(artifact_id, 1, 1) GLOB '[A-Za-z]' AND "
+            "artifact_id NOT GLOB '*[^A-Za-z0-9_.-]*'",
+            name="ck_artifact_publications_artifact_id",
+        ),
+        CheckConstraint(
+            "length(artifact_generation) = 76 AND "
+            "substr(artifact_generation, 1, 12) = 'artifactgen-' AND "
+            "substr(artifact_generation, 13) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_artifact_publications_generation",
+        ),
+        CheckConstraint(
+            "length(artifact_revision) = 76 AND "
+            "substr(artifact_revision, 1, 12) = 'artifactrev-' AND "
+            "substr(artifact_revision, 13) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_artifact_publications_revision",
+        ),
+        CheckConstraint(
+            "length(output_type) BETWEEN 1 AND 128 AND "
+            "substr(output_type, 1, 1) GLOB '[A-Za-z]' AND "
+            "output_type NOT GLOB '*[^A-Za-z0-9_.-]*'",
+            name="ck_artifact_publications_output_type",
+        ),
+        ForeignKeyConstraint(
+            ["run_id"],
+            ["runs.run_id"],
+            name="fk_artifact_publications_run",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_artifact_publications_published",
+            "published_at",
+            "run_id",
+            "artifact_generation",
+            "artifact_id",
+        ),
+        Index(
+            "ix_artifact_publications_run_published",
+            "run_id",
+            "published_at",
+            "artifact_generation",
+            "artifact_id",
+        ),
+        Index(
+            "ix_artifact_publications_output_type_published",
+            "output_type",
+            "published_at",
+            "run_id",
+            "artifact_generation",
+            "artifact_id",
+        ),
+    )
+
+    run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    artifact_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    artifact_generation: Mapped[str] = mapped_column(String(76), primary_key=True)
+    artifact_revision: Mapped[str] = mapped_column(String(76), nullable=False)
+    output_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    published_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
 class RunResultStateRow(Base):
     __tablename__ = "run_result_states"
     __table_args__ = (

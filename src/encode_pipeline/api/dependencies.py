@@ -12,6 +12,9 @@ from encode_pipeline.services.validation import ValidationService
 if TYPE_CHECKING:
     from encode_pipeline.services.agent import AgentService
     from encode_pipeline.services.artifact_downloads import ArtifactDownloadService
+    from encode_pipeline.services.artifact_publications import (
+        ArtifactPublicationQueryService,
+    )
     from encode_pipeline.services.preflight import LocalPreflightService
     from encode_pipeline.services.run_submission import RunSubmissionService
     from encode_pipeline.services.run_cancellation import RunCancellationService
@@ -67,6 +70,13 @@ async def get_artifact_download_service(
 ) -> "ArtifactDownloadService":
     """Return the descriptor-safe artifact download service."""
     return request.app.state.artifact_download_service
+
+
+async def get_artifact_publication_service(
+    request: Request,
+) -> "ArtifactPublicationQueryService":
+    """Return the disclosure-safe publication query service."""
+    return request.app.state.artifact_publication_service
 
 
 async def get_run_submission_service(request: Request) -> "RunSubmissionService":

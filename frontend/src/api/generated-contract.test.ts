@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type {
+  ArtifactPublicationDetailResponse,
+  ArtifactPublicationListResponse,
   JsonValueInput,
   JsonValueOutput,
   SchemaResponse,
@@ -49,6 +51,19 @@ const generatedSchemaResponseFixture = {
   issues: [],
 } satisfies SchemaResponse;
 
+const generatedArtifactPublicationListFixture = {
+  ok: true,
+  publications: [],
+  next_cursor: null,
+  issues: [],
+} satisfies ArtifactPublicationListResponse;
+
+const generatedArtifactPublicationDetailFixture = {
+  ok: false,
+  publication: null,
+  issues: [],
+} satisfies ArtifactPublicationDetailResponse;
+
 // @ts-expect-error Date is not a JSON value.
 const invalidDateValue: JsonValueInput = new Date();
 
@@ -67,6 +82,8 @@ describe('generated OpenAPI client coverage', () => {
     expect(recursiveSchemaJson).toHaveProperty('properties');
     expect(generatedValidationFixture.config.nullable).toBeNull();
     expect(generatedSchemaResponseFixture.schema).toBeNull();
+    expect(generatedArtifactPublicationListFixture.next_cursor).toBeNull();
+    expect(generatedArtifactPublicationDetailFixture.publication).toBeNull();
     expect(invalidDateValue).toBeInstanceOf(Date);
     expect(missingSchemaResponse.ok).toBe(true);
     expect(paths).toContain('/api/v1/workflows/');
@@ -80,5 +97,9 @@ describe('generated OpenAPI client coverage', () => {
     expect(paths).toContain('/api/v1/runs/{run_id}/events');
     expect(paths).toContain('/api/v1/runs/{run_id}/logs');
     expect(paths).toContain('/api/v1/runs/{run_id}/preflight');
+    expect(paths).toContain('/api/v1/artifact-publications');
+    expect(paths).toContain(
+      '/api/v1/artifact-publications/{run_id}/{artifact_id}',
+    );
   });
 });

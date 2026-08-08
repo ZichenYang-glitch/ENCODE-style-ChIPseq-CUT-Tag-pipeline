@@ -27,7 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_PATH = (
     PROJECT_ROOT
     / "src/encode_pipeline/contracts/nfcore_rnaseq"
-    / "execution-persistence-contract-1.2.0.json"
+    / "execution-persistence-contract-1.3.0.json"
 )
 EXPECTED_TOP_LEVEL_KEYS = {
     "schema_version",
@@ -46,6 +46,7 @@ EXPECTED_CAPABILITIES = [
     "sqlite.project-sample-binding/v1",
     "sqlite.compatibility-input-binding/v1",
     "sqlite.reference-profile-revision-binding/v1",
+    "sqlite.artifact-publication/v1",
 ]
 EXPECTED_REQUIRED_REVISIONS = [
     "20260711_01",
@@ -58,8 +59,17 @@ EXPECTED_REQUIRED_REVISIONS = [
     "20260726_09",
     "20260726_10",
     "20260803_11",
+    "20260807_12",
 ]
 EXPECTED_REQUIRED_SCHEMA = {
+    "artifact_publications": [
+        "artifact_generation",
+        "artifact_id",
+        "artifact_revision",
+        "output_type",
+        "published_at",
+        "run_id",
+    ],
     "projects": [
         "kind",
         "project_id",
@@ -424,9 +434,13 @@ def test_bulk_rnaseq_persistence_contract_is_exact_canonical_and_path_free():
     spec = _projection_spec(contract)
 
     assert set(contract) == EXPECTED_TOP_LEVEL_KEYS
-    assert contract["schema_version"] == "1.2.0"
+    assert CONTRACT_PATH.name == "execution-persistence-contract-1.3.0.json"
+    assert not CONTRACT_PATH.with_name(
+        "execution-persistence-contract-1.2.0.json"
+    ).exists()
+    assert contract["schema_version"] == "1.3.0"
     assert contract["contract_id"] == "bulk-rnaseq-execution-persistence"
-    assert contract["contract_version"] == "1.2.0"
+    assert contract["contract_version"] == "1.3.0"
     assert contract["minimum_supported_revision"] == "20260714_07"
     assert contract["capabilities"] == EXPECTED_CAPABILITIES
     assert contract["required_revisions"] == EXPECTED_REQUIRED_REVISIONS
@@ -439,6 +453,50 @@ def test_bulk_rnaseq_persistence_contract_is_exact_canonical_and_path_free():
         assert not value.startswith(("/", "\\", "./", "../", "~"))
         assert not re.match(r"^[A-Za-z]:[\\/]", value)
         assert "://" not in value
+
+
+def test_artifact_publication_projection_declares_exact_execution_semantics():
+    _, contract = _load_contract()
+    projection = contract["schema_projection"]
+    assert isinstance(projection, dict)
+    tables = projection["tables"]
+    assert isinstance(tables, dict)
+
+    assert tables["artifact_publications"] == {
+        "check_constraints": [
+            "ck_artifact_publications_artifact_id",
+            "ck_artifact_publications_generation",
+            "ck_artifact_publications_output_type",
+            "ck_artifact_publications_revision",
+        ],
+        "columns": [
+            "artifact_generation",
+            "artifact_id",
+            "artifact_revision",
+            "output_type",
+            "published_at",
+            "run_id",
+        ],
+        "foreign_keys": [
+            {
+                "columns": ["run_id"],
+                "referred_columns": ["run_id"],
+                "referred_table": "runs",
+            }
+        ],
+        "indexes": [
+            "ix_artifact_publications_output_type_published",
+            "ix_artifact_publications_published",
+            "ix_artifact_publications_run_published",
+        ],
+        "primary_key": True,
+        "table_options": ["strict", "without_rowid"],
+        "triggers": [
+            "trg_artifact_publications_no_delete",
+            "trg_artifact_publications_no_update",
+        ],
+        "unique_constraints": [],
+    }
 
 
 def test_reference_profile_projection_excludes_catalog_only_components():
@@ -581,6 +639,123 @@ def test_schema_capability_projection_binds_bulk_semantics_not_unrelated_tables(
     finally:
         migrated_engine.dispose()
         modeled_engine.dispose()
+
+
+def test_artifact_publication_projection_binds_storage_contract(tmp_path: Path):
+    _, contract = _load_contract()
+    spec = _projection_spec(contract)
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'platform.db'}")
+    upgrade_database(str(engine.url))
+    try:
+        table = schema_capability_projection(engine, spec)["tables"][
+            "artifact_publications"
+        ]
+
+        assert [column["name"] for column in table["columns"]] == (
+            EXPECTED_REQUIRED_SCHEMA["artifact_publications"]
+        )
+        assert table["primary_key"]["columns"] == [
+            "run_id",
+            "artifact_id",
+            "artifact_generation",
+        ]
+        assert table["foreign_keys"] == [
+            {
+                "columns": ["run_id"],
+                "options": {
+                    "deferrable": None,
+                    "initially": None,
+                    "match": "NONE",
+                    "on_delete": "RESTRICT",
+                    "on_update": "NO ACTION",
+                },
+                "referred_columns": ["run_id"],
+                "referred_table": "runs",
+            }
+        ]
+        assert [item["name"] for item in table["check_constraints"]] == [
+            "ck_artifact_publications_artifact_id",
+            "ck_artifact_publications_generation",
+            "ck_artifact_publications_output_type",
+            "ck_artifact_publications_revision",
+        ]
+        assert [item["name"] for item in table["indexes"]] == [
+            "ix_artifact_publications_output_type_published",
+            "ix_artifact_publications_published",
+            "ix_artifact_publications_run_published",
+        ]
+        assert [item["name"] for item in table["triggers"]] == [
+            "trg_artifact_publications_no_delete",
+            "trg_artifact_publications_no_update",
+        ]
+    finally:
+        engine.dispose()
+
+
+def test_artifact_publication_trigger_drift_stales_projection(tmp_path: Path):
+    _, contract = _load_contract()
+    spec = _projection_spec(contract)
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'platform.db'}")
+    upgrade_database(str(engine.url))
+    try:
+        before = schema_projection_sha256(engine, spec)
+        with engine.begin() as connection:
+            connection.execute(text("DROP TRIGGER trg_artifact_publications_no_update"))
+            connection.execute(
+                text(
+                    "CREATE TRIGGER trg_artifact_publications_no_update "
+                    "BEFORE UPDATE ON artifact_publications "
+                    "BEGIN SELECT RAISE(ABORT, 'changed append-only guard'); END"
+                )
+            )
+
+        assert schema_projection_sha256(engine, spec) != before
+    finally:
+        engine.dispose()
+
+
+def test_artifact_publication_index_drift_stales_projection(tmp_path: Path):
+    _, contract = _load_contract()
+    spec = _projection_spec(contract)
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'platform.db'}")
+    upgrade_database(str(engine.url))
+    try:
+        before = schema_projection_sha256(engine, spec)
+        with engine.begin() as connection:
+            connection.execute(
+                text("DROP INDEX ix_artifact_publications_run_published")
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX ix_artifact_publications_run_published "
+                    "ON artifact_publications "
+                    "(run_id, published_at DESC, artifact_generation, artifact_id)"
+                )
+            )
+
+        assert schema_projection_sha256(engine, spec) != before
+    finally:
+        engine.dispose()
+
+
+def test_artifact_publication_column_drift_fails_closed(tmp_path: Path):
+    _, contract = _load_contract()
+    spec = _projection_spec(contract)
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'platform.db'}")
+    upgrade_database(str(engine.url))
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE artifact_publications "
+                    "RENAME COLUMN output_type TO publication_type"
+                )
+            )
+
+        with pytest.raises(PersistenceProjectionError):
+            schema_projection_sha256(engine, spec)
+    finally:
+        engine.dispose()
 
 
 def test_reference_binding_workflow_guard_change_stales_projection(tmp_path: Path):

@@ -1306,6 +1306,334 @@
         }
       }
     },
+    "/api/v1/artifact-publications": {
+      "get": {
+        "tags": [
+          "artifact-publications"
+        ],
+        "summary": "List Artifact Publications",
+        "description": "List indexed publications with relational filters and stable pagination.",
+        "operationId": "listArtifactPublications",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 36,
+                  "maxLength": 36,
+                  "pattern": "^prj_[0-9a-f]{32}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "workflow_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "output_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Output Type"
+            }
+          },
+          {
+            "name": "associated_run_sample_revision_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 37,
+                  "maxLength": 37,
+                  "pattern": "^smpr_[0-9a-f]{32}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Associated Run Sample Revision Id"
+            }
+          },
+          {
+            "name": "published_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive UTC publication timestamp lower bound.",
+              "title": "Published From"
+            },
+            "description": "Inclusive UTC publication timestamp lower bound."
+          },
+          {
+            "name": "published_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive UTC publication timestamp upper bound.",
+              "title": "Published Before"
+            },
+            "description": "Exclusive UTC publication timestamp upper bound."
+          },
+          {
+            "name": "current_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Current Only"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 16,
+                  "maxLength": 1024,
+                  "pattern": "^artifactpubcur_[A-Za-z0-9_-]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactPublicationListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactPublicationListResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactPublicationListResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactPublicationListResponse"
+                }
+              }
+            },
+            "description": "Client Error"
+          }
+        }
+      }
+    },
+    "/api/v1/artifact-publications/{run_id}/{artifact_id}": {
+      "get": {
+        "tags": [
+          "artifact-publications"
+        ],
+        "summary": "Get Artifact Publication",
+        "description": "Return one exact run/artifact/generation publication identity.",
+        "operationId": "getArtifactPublication",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+              "title": "Artifact Id"
+            }
+          },
+          {
+            "name": "generation",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 76,
+              "maxLength": 76,
+              "pattern": "^artifactgen-[0-9a-f]{64}$",
+              "title": "Generation"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactPublicationDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactPublicationDetailResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactPublicationDetailResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactPublicationDetailResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactPublicationDetailResponse"
+                }
+              }
+            },
+            "description": "Client Error"
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}/qc-metrics": {
       "get": {
         "tags": [
@@ -1861,6 +2189,259 @@
         "title": "ArtifactMetadataResponse",
         "description": "Whitelisted adapter metadata safe for the public read API."
       },
+      "ArtifactPublicationDetailResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "publication": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactPublicationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactPublicationIssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "publication",
+          "issues"
+        ],
+        "title": "ArtifactPublicationDetailResponse",
+        "description": "Envelope for one exact artifact publication identity."
+      },
+      "ArtifactPublicationIssueResponse": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Z][A-Z0-9_]{0,127}$",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Message"
+          },
+          "severity": {
+            "type": "string",
+            "const": "error",
+            "title": "Severity",
+            "default": "error"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "api",
+              "runtime"
+            ],
+            "title": "Source"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "source"
+        ],
+        "title": "ArtifactPublicationIssueResponse",
+        "description": "Minimal public issue shape for publication query failures."
+      },
+      "ArtifactPublicationListResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "publications": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactPublicationResponse"
+            },
+            "type": "array",
+            "title": "Publications"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1024
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactPublicationIssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "publications",
+          "next_cursor",
+          "issues"
+        ],
+        "title": "ArtifactPublicationListResponse",
+        "description": "Envelope for GET /api/v1/artifact-publications."
+      },
+      "ArtifactPublicationResponse": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+            "title": "Run Id"
+          },
+          "project_id": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^prj_[0-9a-f]{32}$",
+            "title": "Project Id"
+          },
+          "workflow_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$",
+            "title": "Workflow Id"
+          },
+          "artifact_id": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,127}$",
+            "title": "Artifact Id"
+          },
+          "output_type": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,127}$",
+            "title": "Output Type"
+          },
+          "artifact_generation": {
+            "type": "string",
+            "maxLength": 76,
+            "pattern": "^artifactgen-[0-9a-f]{64}$",
+            "title": "Artifact Generation"
+          },
+          "artifact_revision": {
+            "type": "string",
+            "maxLength": 76,
+            "pattern": "^artifactrev-[0-9a-f]{64}$",
+            "title": "Artifact Revision"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Published At"
+          },
+          "current_artifact_generation": {
+            "type": "string",
+            "maxLength": 76,
+            "pattern": "^artifactgen-[0-9a-f]{64}$",
+            "title": "Current Artifact Generation"
+          },
+          "generation_status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "superseded"
+            ],
+            "title": "Generation Status"
+          },
+          "run_sample_binding": {
+            "$ref": "#/components/schemas/ArtifactPublicationRunSampleBindingResponse"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "run_id",
+          "project_id",
+          "workflow_id",
+          "artifact_id",
+          "output_type",
+          "artifact_generation",
+          "artifact_revision",
+          "published_at",
+          "current_artifact_generation",
+          "generation_status",
+          "run_sample_binding"
+        ],
+        "title": "ArtifactPublicationResponse",
+        "description": "Strict path-free projection of one indexed artifact publication."
+      },
+      "ArtifactPublicationRunSampleBindingResponse": {
+        "properties": {
+          "binding_mode": {
+            "$ref": "#/components/schemas/BindingMode"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/BindingProvenance"
+          },
+          "associated_run_samples": {
+            "items": {
+              "$ref": "#/components/schemas/AssociatedRunSampleResponse"
+            },
+            "type": "array",
+            "title": "Associated Run Samples",
+            "description": "Ordered samples associated with the Run; this is not evidence that any individual sample contributed to this artifact."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "binding_mode",
+          "provenance",
+          "associated_run_samples"
+        ],
+        "title": "ArtifactPublicationRunSampleBindingResponse",
+        "description": "Allowlisted Run-wide sample context, not per-artifact attribution."
+      },
       "ArtifactReferenceResponse": {
         "properties": {
           "artifact_id": {
@@ -1947,6 +2528,60 @@
         ],
         "title": "ArtifactReferenceResponse",
         "description": "Disclosure-safe API projection of a persisted RunArtifactRef."
+      },
+      "AssociatedRunSampleResponse": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^smp_[0-9a-f]{32}$",
+            "title": "Sample Id"
+          },
+          "sample_revision_id": {
+            "type": "string",
+            "maxLength": 37,
+            "pattern": "^smpr_[0-9a-f]{32}$",
+            "title": "Sample Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision Number"
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Ordinal"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_id",
+          "sample_revision_id",
+          "revision_number",
+          "ordinal"
+        ],
+        "title": "AssociatedRunSampleResponse",
+        "description": "One ordered sample associated with the publication's Run.\n\nThis is Run-level binding evidence and does not attribute the artifact to\nan individual sample."
+      },
+      "BindingMode": {
+        "type": "string",
+        "enum": [
+          "legacy_v1",
+          "bound_v1"
+        ],
+        "title": "BindingMode",
+        "description": "Compatibility mode for one immutable snapshot/run data binding."
+      },
+      "BindingProvenance": {
+        "type": "string",
+        "enum": [
+          "resolved",
+          "unresolved"
+        ],
+        "title": "BindingProvenance",
+        "description": "Whether exact SampleRevision provenance is present."
       },
       "HTTPValidationError": {
         "properties": {

@@ -57,6 +57,13 @@ provenance are governed by the
 defines the conservative Legacy Project boundary for records that predate
 provable catalog bindings.
 
+The first implemented cross-run publication surface is intentionally narrower:
+it keeps artifact bytes in their existing run storage and derives Project and
+associated run Sample scope from immutable bindings. See the
+[artifact publication and provenance decision](artifact-publication-provenance-decision.md)
+for the authoritative publication contract and the publication-specific parts
+of the earlier design that it supersedes.
+
 ## Canonical state and execution
 
 SQLite is the canonical store for run identity, lifecycle, events, logs, and

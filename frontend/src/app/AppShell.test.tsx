@@ -21,6 +21,11 @@ const routes: RouteObject[] = [
       },
       { path: 'runs', element: <p>Run history</p> },
       { path: 'runs/:runId', element: <p>Run detail</p> },
+      { path: 'artifacts', element: <p>Artifact publications</p> },
+      {
+        path: 'artifacts/:runId/:artifactId',
+        element: <p>Artifact publication detail</p>,
+      },
       { path: '*', element: <p>Unknown route</p> },
     ],
   },
@@ -134,6 +139,33 @@ describe('AppShell navigation', () => {
     });
 
     expect(screen.getByRole('link', { name: 'Runs' })).not.toHaveAttribute(
+      'aria-current',
+    );
+  });
+
+  it('marks Artifacts current only on the exact list and two-segment detail', () => {
+    const first = renderWithRouter(routes, {
+      initialEntries: ['/artifacts'],
+    });
+    expect(screen.getByRole('link', { name: 'Artifacts' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    first.unmount();
+
+    const detail = renderWithRouter(routes, {
+      initialEntries: ['/artifacts/run-a/artifact-a'],
+    });
+    expect(screen.getByRole('link', { name: 'Artifacts' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    detail.unmount();
+
+    renderWithRouter(routes, {
+      initialEntries: ['/artifacts/run-a/artifact-a/unknown'],
+    });
+    expect(screen.getByRole('link', { name: 'Artifacts' })).not.toHaveAttribute(
       'aria-current',
     );
   });
