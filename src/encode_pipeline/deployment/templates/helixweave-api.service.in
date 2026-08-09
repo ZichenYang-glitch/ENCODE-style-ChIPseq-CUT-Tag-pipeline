@@ -1,0 +1,47 @@
+[Unit]
+Description=HelixWeave local platform API and static frontend
+Requires=helixweave-db-prepare.service helixweave-redis.service
+After=helixweave-db-prepare.service helixweave-redis.service
+PartOf=helixweave.target
+
+[Service]
+Type=exec
+User=helixweave
+Group=helixweave
+UMask=0027
+WorkingDirectory=/var/lib/helixweave
+Environment=PYTHONNOUSERSITE=1
+EnvironmentFile=/etc/helixweave/platform.env
+ExecStart=@PLATFORM_PYTHON@ -I -m uvicorn encode_pipeline.deployment.frontend:create_app --factory --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=90s
+TimeoutStopSec=45s
+KillMode=mixed
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=read-only
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/helixweave/database /var/lib/helixweave/workspaces /var/lib/helixweave/artifacts
+InaccessiblePaths=/var/lib/helixweave/operator /run/helixweave/services
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helixweave-api
+
+[Install]
+WantedBy=helixweave.target

@@ -1,0 +1,17 @@
+User_Alias HELIXWEAVE_OPERATORS = %helixweave-operators
+
+Cmnd_Alias HELIXWEAVE_OPERATOR = \
+    /usr/libexec/helixweave-operator stage *, \
+    /usr/libexec/helixweave-operator activate *, \
+    /usr/libexec/helixweave-operator rollback *, \
+    /usr/libexec/helixweave-operator start *, \
+    /usr/libexec/helixweave-operator status *, \
+    /usr/libexec/helixweave-operator stop *, \
+    /usr/libexec/helixweave-operator cleanup *, \
+    /usr/libexec/helixweave-operator uninstall *
+
+Cmnd_Alias HELIXWEAVE_GATE_CLEANUP = \
+    /usr/libexec/helixweave-gate-cleanup cleanup --task-id * --plan-id * --executor-id * --closure-id * --backend-id *
+
+Defaults!HELIXWEAVE_OPERATOR,HELIXWEAVE_GATE_CLEANUP env_reset, !setenv, use_pty, secure_path=/usr/sbin\:/usr/bin\:/sbin\:/bin
+HELIXWEAVE_OPERATORS ALL=(root) NOPASSWD: HELIXWEAVE_OPERATOR, HELIXWEAVE_GATE_CLEANUP

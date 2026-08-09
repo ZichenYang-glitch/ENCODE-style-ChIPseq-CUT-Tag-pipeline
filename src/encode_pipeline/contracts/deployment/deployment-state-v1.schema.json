@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://helixweave.local/contracts/deployment-state-v1.schema.json",
+  "title": "HelixWeave deployment slot state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "identity",
+    "generation",
+    "created_at",
+    "components"
+  ],
+  "properties": {
+    "schema_version": {"const": "helixweave-deployment-state-v1"},
+    "identity": {"$ref": "#/$defs/contentIdentity"},
+    "generation": {"type": "integer", "minimum": 0},
+    "created_at": {"type": "string", "format": "date-time", "maxLength": 64},
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "encode-runtime", "bulk-rnaseq-runtime"],
+      "properties": {
+        "platform": {"$ref": "#/$defs/slots"},
+        "encode-runtime": {"$ref": "#/$defs/slots"},
+        "bulk-rnaseq-runtime": {"$ref": "#/$defs/slots"}
+      }
+    }
+  },
+  "$defs": {
+    "contentIdentity": {
+      "type": "string",
+      "pattern": "^sha256-[0-9a-f]{64}$"
+    },
+    "nullableIdentity": {
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/contentIdentity"}]
+    },
+    "slots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active", "previous", "staged"],
+      "properties": {
+        "active": {"$ref": "#/$defs/nullableIdentity"},
+        "previous": {"$ref": "#/$defs/nullableIdentity"},
+        "staged": {"$ref": "#/$defs/nullableIdentity"}
+      }
+    }
+  }
+}

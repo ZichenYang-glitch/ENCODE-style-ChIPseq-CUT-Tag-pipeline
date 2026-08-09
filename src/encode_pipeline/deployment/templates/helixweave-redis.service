@@ -1,0 +1,41 @@
+[Unit]
+Description=HelixWeave dedicated Redis queue
+Before=helixweave-api.service helixweave-worker.service
+PartOf=helixweave.target
+
+[Service]
+Type=notify
+User=helixweave
+Group=helixweave
+UMask=0027
+ExecStart=/usr/bin/redis-server /etc/helixweave/redis.conf --supervised systemd
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=30s
+TimeoutStopSec=30s
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/helixweave/redis /run/helixweave/redis
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helixweave-redis
+
+[Install]
+WantedBy=helixweave.target
