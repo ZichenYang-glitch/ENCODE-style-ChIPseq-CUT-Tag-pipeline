@@ -25,6 +25,7 @@ Repository = "https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-
 [project.optional-dependencies]
 api = [
     "alembic>=1.13,<2",
+    "argon2-cffi>=25.1,<26",
     "fastapi",
     "uvicorn[standard]",
     "httpx",
