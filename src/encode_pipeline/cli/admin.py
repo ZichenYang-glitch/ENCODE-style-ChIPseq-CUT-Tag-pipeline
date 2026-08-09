@@ -507,8 +507,8 @@ def _open_run_recovery(
         repository = SqlAlchemyRunRepository(create_session_factory(engine))
         settings = load_worker_settings(settings_environment)
         queue = RqRunQueue(settings)
-        if read_only or settings.managed_docker_executable is None:
-            cleanup = None if read_only else lambda _run_id: True
+        if settings.managed_docker_executable is None:
+            cleanup = None
         else:
             workspace_policy = WorkspacePathPolicy(base_dir=settings.workspace_root)
             cleaner = ManagedContainerCleaner(

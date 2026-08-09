@@ -114,6 +114,7 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/platform/snapshots.py",
     EXECUTION_PERSISTENCE_CONTRACT_PATH,
     "src/encode_pipeline/contracts/nfcore_rnaseq/results-contract-3.26.0.json",
+    "src/encode_pipeline/cli/admin.py",
     "src/encode_pipeline/api/__init__.py",
     "src/encode_pipeline/api/dependencies.py",
     "src/encode_pipeline/api/main.py",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -14,9 +14,32 @@ from types import SimpleNamespace
 import pytest
 
 from encode_pipeline.cli import admin
+from encode_pipeline.cli.local_platform import (
+    RecoveryDoctorStatus,
+    run_recovery_doctor,
+)
+from encode_pipeline.persistence import (
+    SqlAlchemyRunRepository,
+    create_database_engine,
+    create_session_factory,
+)
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import RunExecutionAssignment
-from encode_pipeline.platform.runs import RunStatus
+from encode_pipeline.platform.run_recovery import (
+    ExecutionQueueEvidenceState,
+    RunExecutionQueueEvidence,
+)
+from encode_pipeline.platform.runs import RunRecord, RunStatus
 from encode_pipeline.persistence.migrations import upgrade_database
+from encode_pipeline.services.run_repositories import RunEventDraft
+from encode_pipeline.workers import rq_queue as rq_queue_module
+from encode_pipeline.workers.settings import (
+    MANAGED_DOCKER_EXECUTABLE_ENV,
+    MANAGED_DOCKER_SOCKET_ENV,
+    REDIS_URL_ENV,
+    WORKSPACE_ROOT_ENV,
+    WorkerSettings,
+)
 
 
 DATABASE_URL = "sqlite:////tmp/helixweave-run-recovery-test.db"
@@ -391,3 +414,200 @@ def test_real_run_diagnose_missing_database_does_not_create_parent(
         "RUN_RECOVERY_DATA_INVALID"
     )
     assert not database_path.parent.exists()
+
+
+def test_real_run_cleanup_gap_refuses_fail_without_managed_cleaner(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    database_path = tmp_path / "private" / "platform.db"
+    database_path.parent.mkdir()
+    database_url = f"sqlite:///{database_path}"
+    private_input = str(tmp_path / "private" / "sample.csv")
+    private_workspace = str(tmp_path / "private" / "workspaces")
+    private_redis_url = "redis://operator:secret@private-redis.invalid:6379/0"
+    now = datetime(2026, 8, 9, 8, 0, tzinfo=timezone.utc)
+    validating = RunRecord(
+        run_id=RUN_ID,
+        workflow_id="bulk-rnaseq",
+        inputs={"samples": private_input},
+        status=RunStatus.VALIDATING,
+        created_at=now,
+        updated_at=now,
+        started_at=None,
+        ended_at=None,
+        current_stage="validation",
+        cancellation_reason=None,
+        error=None,
+    )
+    upgrade_database(database_url)
+    setup_engine = create_database_engine(database_url)
+    try:
+        repository = SqlAlchemyRunRepository(create_session_factory(setup_engine))
+        repository.create_run(
+            validating,
+            RunEventDraft(
+                event_type="run_created",
+                message="Run created.",
+                status=RunStatus.VALIDATING,
+            ),
+        )
+        planned = replace(
+            validating,
+            status=RunStatus.PLANNED,
+            current_stage="planning",
+        )
+        repository.complete_preflight(
+            planned,
+            WorkflowBuildIdentity(
+                workflow_id="bulk-rnaseq",
+                adapter_version="1.0.0",
+                scheme="sha256-tree-v1",
+                logical_entrypoint="main.nf",
+                digest="a" * 64,
+                captured_at=now,
+            ),
+            expected_status=RunStatus.VALIDATING,
+            event=RunEventDraft(
+                event_type="preflight_completed",
+                message="Preflight completed.",
+                status=RunStatus.PLANNED,
+            ),
+        )
+        running = replace(
+            planned,
+            status=RunStatus.RUNNING,
+            started_at=now,
+            current_stage="execution",
+        )
+        repository.update_run(
+            running,
+            expected_status=RunStatus.PLANNED,
+            event=RunEventDraft(
+                event_type="status_changed",
+                message="Run started.",
+                status=RunStatus.RUNNING,
+            ),
+        )
+        repository.ensure_execution_assignment(
+            _assignment(),
+            expected_status=RunStatus.RUNNING,
+        )
+    finally:
+        setup_engine.dispose()
+
+    class ExactTerminalRunQueue:
+        def __init__(self, settings: WorkerSettings) -> None:
+            assert settings.queue_name == "encode-pipeline-demo"
+
+        def inspect_execution(
+            self,
+            _assignment: RunExecutionAssignment,
+        ) -> RunExecutionQueueEvidence:
+            return RunExecutionQueueEvidence(state=ExecutionQueueEvidenceState.FINISHED)
+
+        def requeue_execution(self, _assignment: RunExecutionAssignment) -> str:
+            pytest.fail("cleanup-gap recovery must not enqueue")
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(rq_queue_module, "RqRunQueue", ExactTerminalRunQueue)
+    monkeypatch.delenv(MANAGED_DOCKER_EXECUTABLE_ENV, raising=False)
+    monkeypatch.delenv(MANAGED_DOCKER_SOCKET_ENV, raising=False)
+    monkeypatch.setenv(WORKSPACE_ROOT_ENV, private_workspace)
+    monkeypatch.setenv(REDIS_URL_ENV, private_redis_url)
+
+    def persisted_state():
+        engine = create_database_engine(database_url)
+        try:
+            repository = SqlAlchemyRunRepository(create_session_factory(engine))
+            return (
+                repository.get_run(RUN_ID),
+                repository.get_execution_assignment(RUN_ID),
+                repository.list_events(RUN_ID),
+                repository.get_result_state(RUN_ID),
+            )
+        finally:
+            engine.dispose()
+
+    before = persisted_state()
+    assert (
+        admin.main(
+            [
+                "--database-url",
+                database_url,
+                "run",
+                "diagnose",
+                RUN_ID,
+                "--queue-name",
+                "encode-pipeline-demo",
+            ]
+        )
+        == 0
+    )
+    diagnosis_output = capsys.readouterr()
+    diagnosis = json.loads(diagnosis_output.out)
+    assert diagnosis_output.err == ""
+    assert diagnosis["queue"] == {"state": "finished"}
+    assert diagnosis["cleanup"] == "blocked"
+    assert diagnosis["gaps"] == ["callback", "cleanup"]
+    assert diagnosis["allowed_actions"] == []
+
+    doctor = run_recovery_doctor(
+        database_url=database_url,
+        redis_url=private_redis_url,
+        queue_name="encode-pipeline-demo",
+    )
+    assert doctor.status is RecoveryDoctorStatus.ATTENTION_REQUIRED
+    assert doctor.reason_code == "RUN_RECOVERY_ATTENTION_REQUIRED"
+    assert doctor.counts.runs_examined == 1
+    assert doctor.counts.database_gaps == 0
+    assert doctor.counts.queue_gaps == 0
+    assert doctor.counts.callback_gaps == 1
+    assert doctor.counts.result_indexing_gaps == 0
+    assert doctor.counts.cleanup_gaps == 1
+
+    exit_code = admin.main(
+        [
+            "--database-url",
+            database_url,
+            "run",
+            "fail",
+            RUN_ID,
+            "--expected-status",
+            "running",
+            "--job-id",
+            JOB_ID,
+            "--backend",
+            "rq",
+            "--queue-name",
+            "encode-pipeline-demo",
+        ]
+    )
+
+    failure_output = capsys.readouterr()
+    assert exit_code == 1
+    assert failure_output.out == ""
+    assert json.loads(failure_output.err) == {
+        "error": {
+            "code": "RUN_RECOVERY_NOT_SAFE",
+            "message": "Requested run recovery action is not safe.",
+        }
+    }
+    combined_output = diagnosis_output.out + diagnosis_output.err + failure_output.err
+    for private_value in (
+        private_input,
+        private_workspace,
+        private_redis_url,
+        "operator:secret",
+        "private-redis.invalid",
+        str(database_path),
+    ):
+        assert private_value not in combined_output
+    assert persisted_state() == before
+    assert all(
+        event.event_type != "run_failed_by_admin_recovery"
+        for event in persisted_state()[2]
+    )

@@ -102,7 +102,6 @@ PRODUCT_ONLY_RESULT_SURFACE_PATHS = frozenset(
 )
 REFERENCE_PROFILE_CATALOG_PATHS = frozenset(
     {
-        "src/encode_pipeline/cli/admin.py",
         "src/encode_pipeline/services/reference_profile_repositories.py",
         "src/encode_pipeline/services/reference_profiles.py",
     }
@@ -127,6 +126,7 @@ ARTIFACT_PUBLICATION_EXECUTION_PATHS = frozenset(
 )
 RUN_RECOVERY_EXECUTION_PATHS = frozenset(
     {
+        "src/encode_pipeline/cli/admin.py",
         "src/encode_pipeline/platform/run_recovery.py",
         "src/encode_pipeline/services/run_recovery.py",
         "src/encode_pipeline/persistence/alembic/versions/20260809_13_run_recovery_markers.py",
@@ -135,7 +135,6 @@ RUN_RECOVERY_EXECUTION_PATHS = frozenset(
 )
 RUN_RECOVERY_PRODUCT_ONLY_PATHS = frozenset(
     {
-        "src/encode_pipeline/cli/admin.py",
         "src/encode_pipeline/cli/local_platform.py",
     }
 )
@@ -779,6 +778,7 @@ def test_artifact_publication_execution_contract_change_stales_identity(
 @pytest.mark.parametrize(
     "logical_path",
     (
+        "src/encode_pipeline/cli/admin.py",
         "src/encode_pipeline/platform/run_recovery.py",
         "src/encode_pipeline/services/run_recovery.py",
         "src/encode_pipeline/persistence/alembic/versions/20260809_13_run_recovery_markers.py",
