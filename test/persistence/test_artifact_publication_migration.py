@@ -48,7 +48,7 @@ def test_rev11_to_rev12_adds_zero_backfill_append_only_publications(
         _insert_legacy_artifact(connection)
     engine.dispose()
 
-    upgrade_database(database_url)
+    upgrade_database(database_url, "20260807_12")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
 

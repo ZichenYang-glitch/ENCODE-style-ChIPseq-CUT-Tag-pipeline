@@ -62,6 +62,7 @@ from encode_pipeline.services.reference_profile_runtime import (
     ReferenceProfileBindingService,
 )
 from encode_pipeline.services.reference_profiles import ReferenceProfileService
+from encode_pipeline.services.run_repositories import RunEventDraft
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.validated_inputs import (
     ValidatedInputService,
@@ -264,6 +265,42 @@ def _read_run(configured, run_id):
             service.list_events(run_id, limit=100),
             service.get_execution_assignment(run_id),
         )
+    finally:
+        persistence.close()
+
+
+def _prepare_requeue(configured, assignment):
+    persistence = open_run_persistence(configured.database_url)
+    service = RunService(
+        create_default_workflow_registry(),
+        repository=persistence.repository,
+    )
+    try:
+        service.mark_execution_dispatched(
+            assignment.run_id,
+            job_id=assignment.job_id,
+        )
+        service.queue_dispatched_run(
+            assignment.run_id,
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+        current = service.get_execution_assignment(assignment.run_id)
+        assert current is not None
+        return persistence.repository.prepare_execution_requeue(
+            assignment.run_id,
+            expected_status=RunStatus.QUEUED,
+            expected_assignment=current,
+            requested_at=datetime.now(timezone.utc),
+            event=RunEventDraft(
+                event_type="run_requeue_requested_by_admin",
+                message="Run requeue requested by an administrator.",
+                status=RunStatus.QUEUED,
+                stage="execution",
+                context={"reason_code": "RUN_REQUEUED_BY_ADMIN_RECOVERY"},
+            ),
+        ).assignment
     finally:
         persistence.close()
 
@@ -691,6 +728,88 @@ def test_rq_worker_rejects_stale_job_identity_without_writing_handshake(
     assert job is not None
     assert job.is_failed
     assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
+
+
+def test_worker_entry_durably_confirms_pending_requeue_before_build_admission(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "pending-requeue-entry",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    prepared = _prepare_requeue(configured, assignment)
+    monkeypatch.setattr(
+        worker_jobs,
+        "_require_matching_workflow_build",
+        lambda *_args: False,
+    )
+
+    with open_worker_runtime(configured) as runtime:
+        acquired = worker_jobs._initialize_execution_with_runtime(
+            runtime,
+            SimpleNamespace(id=prepared.job_id, origin=prepared.queue_name),
+            prepared.run_id,
+        )
+
+        persisted = runtime.run_service.get_execution_assignment(prepared.run_id)
+        events = runtime.run_service.list_events(prepared.run_id, limit=100)
+
+    assert acquired is False
+    assert persisted is not None
+    assert persisted.claimed_at is None
+    assert persisted.requeue_requested_at == prepared.requeue_requested_at
+    assert persisted.requeue_confirmed_at is not None
+    assert events[-1].event_type == "run_requeue_delivery_observed_by_worker"
+    assert events[-1].context == {
+        "reason_code": "RUN_REQUEUED_BY_ADMIN_RECOVERY",
+        "confirmation_source": "worker_entry",
+    }
+
+
+def test_worker_requeue_confirmation_cas_failure_stops_before_build_or_claim(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "pending-requeue-cas-failure",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    prepared = _prepare_requeue(configured, assignment)
+
+    with open_worker_runtime(configured) as runtime:
+        monkeypatch.setattr(
+            runtime.run_service,
+            "confirm_execution_requeue_observed",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("private persistence failure")
+            ),
+        )
+        monkeypatch.setattr(
+            worker_jobs,
+            "_require_matching_workflow_build",
+            lambda *_args: (_ for _ in ()).throw(
+                AssertionError("build admission must not run")
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match="private persistence failure"):
+            worker_jobs._initialize_execution_with_runtime(
+                runtime,
+                SimpleNamespace(id=prepared.job_id, origin=prepared.queue_name),
+                prepared.run_id,
+            )
+
+        persisted = runtime.run_service.get_execution_assignment(prepared.run_id)
+    assert persisted is not None
+    assert persisted.claimed_at is None
+    assert persisted.requeue_confirmed_at is None
 
 
 def test_rq_worker_rejects_missing_durable_assignment(tmp_path, monkeypatch):
@@ -1916,12 +2035,13 @@ def test_worker_composition_failure_is_public_safe_and_durably_failed(
         assign_queue=configured.queue_name,
     )
     assert assignment is not None
+    prepared = _prepare_requeue(configured, assignment)
     _configure_worker_environment(monkeypatch, configured)
     monkeypatch.setattr(
         worker_jobs,
         "get_current_job",
         lambda: SimpleNamespace(
-            id=assignment.job_id,
+            id=prepared.job_id,
             origin=configured.queue_name,
         ),
     )
@@ -1936,7 +2056,7 @@ def test_worker_composition_failure_is_public_safe_and_durably_failed(
 
     assert "private/path" not in str(raised.value)
     assert raised.value.__cause__ is None
-    record, _events, persisted_assignment = _read_run(
+    record, events, persisted_assignment = _read_run(
         configured,
         "composition-failure-run",
     )
@@ -1945,6 +2065,11 @@ def test_worker_composition_failure_is_public_safe_and_durably_failed(
     assert record.error.context == {"reason_code": "WORKER_INITIALIZATION_FAILED"}
     assert persisted_assignment is not None
     assert persisted_assignment.dispatched_at is not None
+    assert persisted_assignment.requeue_requested_at == prepared.requeue_requested_at
+    assert persisted_assignment.requeue_confirmed_at is not None
+    assert "run_requeue_delivery_observed_by_worker" in {
+        event.event_type for event in events
+    }
 
 
 @pytest.mark.parametrize("drift_field", ("job_id", "queue_name"))
@@ -1960,9 +2085,10 @@ def test_worker_composition_fallback_refuses_identity_drift_without_mutation(
         assign_queue=configured.queue_name,
     )
     assert assignment is not None
+    prepared = _prepare_requeue(configured, assignment)
     _configure_worker_environment(monkeypatch, configured)
     current_job = SimpleNamespace(
-        id="wrong-job" if drift_field == "job_id" else assignment.job_id,
+        id="wrong-job" if drift_field == "job_id" else prepared.job_id,
         origin="wrong-queue" if drift_field == "queue_name" else configured.queue_name,
     )
     monkeypatch.setattr(worker_jobs, "get_current_job", lambda: current_job)
@@ -1976,9 +2102,13 @@ def test_worker_composition_fallback_refuses_identity_drift_without_mutation(
         worker_jobs.run_execution_job(assignment.run_id)
 
     record, events, persisted_assignment = _read_run(configured, assignment.run_id)
-    assert record.status is RunStatus.PLANNED
-    assert persisted_assignment == assignment
-    assert all(event.status is not RunStatus.QUEUED for event in events)
+    assert record.status is RunStatus.QUEUED
+    assert persisted_assignment == prepared
+    assert persisted_assignment.requeue_confirmed_at is None
+    assert all(
+        event.event_type != "run_requeue_delivery_observed_by_worker"
+        for event in events
+    )
     assert all(event.status is not RunStatus.FAILED for event in events)
 
 
@@ -2284,6 +2414,32 @@ def test_work_horse_death_is_mapped_to_durable_failure(tmp_path, monkeypatch):
     assert persisted_assignment.dispatched_at is not None
 
 
+def test_work_horse_death_confirms_pending_requeue_before_terminal_failure(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "killed-pending-requeue",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    prepared = _prepare_requeue(configured, assignment)
+    _configure_worker_environment(monkeypatch, configured)
+
+    handle_work_horse_killed(_execution_job(prepared), 123, 9, object())
+
+    record, events, persisted = _read_run(configured, prepared.run_id)
+    assert record.status is RunStatus.FAILED
+    assert persisted is not None
+    assert persisted.claimed_at is None
+    assert persisted.requeue_confirmed_at is not None
+    assert "run_requeue_delivery_observed_by_worker" in {
+        event.event_type for event in events
+    }
+
+
 def test_work_horse_cleanup_failure_does_not_fabricate_terminal_failure(
     tmp_path,
     monkeypatch,
@@ -2468,6 +2624,32 @@ def test_stopped_callback_before_running_fails_truthfully(
     assert persisted.cancellation_acknowledged_at is None
     assert events[-1].event_type == "execution_stopped_unexpectedly"
     assert events[-1].context["previous_status"] == "queued"
+
+
+def test_stopped_callback_confirms_pending_requeue_before_terminal_failure(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "stopped-pending-requeue",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    prepared = _prepare_requeue(configured, assignment)
+    _configure_worker_environment(monkeypatch, configured)
+
+    handle_execution_stopped(_execution_job(prepared), fakeredis.FakeRedis())
+
+    record, events, persisted = _read_run(configured, prepared.run_id)
+    assert record.status is RunStatus.FAILED
+    assert persisted is not None
+    assert persisted.claimed_at is None
+    assert persisted.requeue_confirmed_at is not None
+    assert "run_requeue_delivery_observed_by_worker" in {
+        event.event_type for event in events
+    }
 
 
 def test_stopped_callback_before_dispatch_fails_planned_truthfully(

@@ -132,6 +132,12 @@ def _initialize_execution_with_runtime(runtime, current_job, run_id: str) -> boo
         runtime.settings.queue_name,
     )
     _require_durable_assignment_identity(runtime, current_job, run_id)
+    runtime.run_service.confirm_execution_requeue_observed(
+        run_id,
+        job_id=current_job.id,
+        backend="rq",
+        queue_name=runtime.settings.queue_name,
+    )
     if not _require_matching_workflow_build(runtime, record):
         return False
     try:
@@ -408,6 +414,12 @@ def _record_initialization_failure_fallback(
             or assignment.queue_name != queue_name
         ):
             return
+        run_service.confirm_execution_requeue_observed(
+            run_id,
+            job_id=job_id,
+            backend="rq",
+            queue_name=queue_name,
+        )
         current = run_service.get_run(run_id)
         if current.status not in {
             RunStatus.PLANNED,
@@ -558,6 +570,12 @@ def handle_work_horse_killed(job, _retpid, _ret_val, _rusage) -> None:
                 or assignment.queue_name != runtime.settings.queue_name
             ):
                 return
+            runtime.run_service.confirm_execution_requeue_observed(
+                run_id,
+                job_id=job.id,
+                backend="rq",
+                queue_name=runtime.settings.queue_name,
+            )
             if not _cleanup_runtime_managed_containers(runtime, run_id):
                 return
             runtime.run_service.mark_execution_dispatched(
@@ -624,6 +642,12 @@ def handle_execution_stopped(job, _connection) -> None:
             or assignment.queue_name != queue_name
         ):
             return
+        run_service.confirm_execution_requeue_observed(
+            run_id,
+            job_id=job_id,
+            backend="rq",
+            queue_name=queue_name,
+        )
         if not _cleanup_settings_managed_containers(
             settings,
             run_id,

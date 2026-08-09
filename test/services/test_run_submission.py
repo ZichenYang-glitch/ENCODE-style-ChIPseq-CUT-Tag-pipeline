@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import datetime, timezone
 
 import pytest
 
@@ -34,7 +35,11 @@ from encode_pipeline.services.run_submission import (
     RunSubmissionUnavailableError,
     RunWorkflowBuildChangedError,
 )
-from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
+from encode_pipeline.services.run_repositories import (
+    ConcurrentRunUpdateError,
+    InMemoryRunRepository,
+    RunEventDraft,
+)
 from encode_pipeline.services.runs import RunService
 
 
@@ -128,11 +133,7 @@ def test_start_run_dispatches_and_queues_exactly_once():
 
     assert first.status is RunStatus.QUEUED
     assert second == first
-    assert len(queue.assignments) == 2
-    assert queue.assignments[0].run_id == queue.assignments[1].run_id
-    assert queue.assignments[0].job_id == queue.assignments[1].job_id
-    assert queue.assignments[0].backend == queue.assignments[1].backend
-    assert queue.assignments[0].queue_name == queue.assignments[1].queue_name
+    assert len(queue.assignments) == 1
     assignment = run_service.get_execution_assignment("run-1")
     assert assignment is not None
     assert assignment.dispatched_at is not None
@@ -142,6 +143,40 @@ def test_start_run_dispatches_and_queues_exactly_once():
         len([event for event in events_after_first if event.status is RunStatus.QUEUED])
         == 1
     )
+
+
+def test_start_retry_never_republishes_a_confirmed_queued_assignment():
+    repository = InMemoryRunRepository()
+    run_service = RunService(
+        registry=create_default_workflow_registry(),
+        id_factory=lambda: "run-1",
+        repository=repository,
+    )
+    _planned_run(run_service)
+    queue = RecordingRunQueue()
+    submission = _submission(run_service, queue)
+    queued = submission.start_run("run-1")
+    assignment = run_service.get_execution_assignment("run-1")
+    assert assignment is not None
+    prepared = repository.prepare_execution_requeue(
+        "run-1",
+        expected_status=RunStatus.QUEUED,
+        expected_assignment=assignment,
+        requested_at=datetime.now(timezone.utc),
+        event=RunEventDraft(
+            event_type="run_requeue_requested_by_admin",
+            message="Run requeue requested by an administrator.",
+            status=RunStatus.QUEUED,
+        ),
+    ).assignment
+    queue.error = RunQueueUnavailableError("ordinary submission must not enqueue")
+
+    retried = submission.start_run("run-1")
+
+    assert retried == queued
+    assert len(queue.assignments) == 1
+    assert queue.assignments[0].job_id == assignment.job_id
+    assert run_service.get_execution_assignment("run-1") == prepared
 
 
 def test_start_rejects_legacy_planned_run_without_build_identity():
@@ -393,6 +428,9 @@ def test_unreusable_backend_job_is_a_start_conflict():
 
     assert raised.value.record.status is RunStatus.PLANNED
     assert run_service.get_run("run-1").status is RunStatus.PLANNED
+    assignment = run_service.get_execution_assignment("run-1")
+    assert assignment is not None
+    assert assignment.dispatched_at is None
 
 
 def test_start_requires_planned_run_and_confirmed_terminal_dispatch():
@@ -732,7 +770,7 @@ def test_assignment_reservation_race_reuses_confirmed_matching_dispatch(
     result = submission.start_run("run-1")
 
     assert result.status is RunStatus.QUEUED
-    assert len(queue.assignments) == 1
+    assert queue.assignments == []
 
 
 def test_assignment_reservation_race_without_dispatch_is_a_conflict(

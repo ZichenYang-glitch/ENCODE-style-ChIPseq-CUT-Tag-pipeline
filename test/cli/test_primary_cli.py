@@ -59,6 +59,24 @@ def test_primary_cli_help_covers_doctor_and_demo(capsys) -> None:
     assert "--input-authoring-demo" in output
 
 
+def test_primary_cli_exposes_the_admin_run_recovery_commands(capsys) -> None:
+    with pytest.raises(SystemExit, match="0"):
+        app.main(
+            [
+                "admin",
+                "--database-url",
+                "sqlite:////tmp/platform.db",
+                "run",
+                "--help",
+            ]
+        )
+
+    output = capsys.readouterr().out
+    assert "diagnose" in output
+    assert "fail" in output
+    assert "requeue" in output
+
+
 def test_module_and_compatibility_script_share_exact_help(tmp_path: Path) -> None:
     environment = {
         **os.environ,

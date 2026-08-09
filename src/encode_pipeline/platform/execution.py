@@ -31,6 +31,8 @@ class RunExecutionAssignment:
     cancellation_requested_at: datetime | None = None
     cancellation_reason: str | None = None
     cancellation_acknowledged_at: datetime | None = None
+    requeue_requested_at: datetime | None = None
+    requeue_confirmed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("run_id", "job_id", "backend", "queue_name"):
@@ -44,6 +46,8 @@ class RunExecutionAssignment:
             "claimed_at",
             "cancellation_requested_at",
             "cancellation_acknowledged_at",
+            "requeue_requested_at",
+            "requeue_confirmed_at",
         ):
             value = getattr(self, field_name)
             if value is not None and not isinstance(value, datetime):
@@ -68,6 +72,21 @@ class RunExecutionAssignment:
             and self.cancellation_requested_at is None
         ):
             raise ValueError("cancellation acknowledgement requires a request")
+        if self.requeue_requested_at is not None and self.dispatched_at is None:
+            raise ValueError("requeue request requires dispatched_at")
+        if self.requeue_confirmed_at is not None:
+            if self.requeue_requested_at is None:
+                raise ValueError("requeue confirmation requires a request")
+            try:
+                confirmation_precedes_request = (
+                    self.requeue_confirmed_at < self.requeue_requested_at
+                )
+            except TypeError as exc:
+                raise ValueError(
+                    "requeue request and confirmation timestamps are incompatible"
+                ) from exc
+            if confirmation_precedes_request:
+                raise ValueError("requeue confirmation cannot precede request")
 
 
 @dataclass(frozen=True)
@@ -116,6 +135,20 @@ class RunExecutionStopAcknowledgement:
             raise ValueError("record must be a RunRecord")
         if not isinstance(self.transitioned, bool):
             raise ValueError("transitioned must be a bool")
+
+
+@dataclass(frozen=True)
+class RunExecutionRequeuePreparation:
+    """Canonical result of atomically preparing one administrator requeue."""
+
+    assignment: RunExecutionAssignment
+    created: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.assignment, RunExecutionAssignment):
+            raise ValueError("assignment must be a RunExecutionAssignment")
+        if not isinstance(self.created, bool):
+            raise ValueError("created must be a bool")
 
 
 def build_execution_job_id(run_id: str) -> str:

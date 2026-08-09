@@ -1232,6 +1232,19 @@ class RunExecutionAssignmentRow(Base):
             "OR cancellation_requested_at IS NOT NULL",
             name="ck_run_execution_assignments_ack_requires_request",
         ),
+        CheckConstraint(
+            "requeue_requested_at IS NULL OR dispatched_at IS NOT NULL",
+            name="ck_run_execution_assignments_requeue_requires_dispatch",
+        ),
+        CheckConstraint(
+            "requeue_confirmed_at IS NULL OR requeue_requested_at IS NOT NULL",
+            name="ck_run_execution_assignments_requeue_confirm_requires_request",
+        ),
+        CheckConstraint(
+            "requeue_confirmed_at IS NULL "
+            "OR requeue_confirmed_at >= requeue_requested_at",
+            name="ck_run_execution_assignments_requeue_confirmation_order",
+        ),
     )
 
     run_id: Mapped[str] = mapped_column(
@@ -1252,6 +1265,12 @@ class RunExecutionAssignmentRow(Base):
     )
     cancellation_reason: Mapped[str | None] = mapped_column(Text)
     cancellation_acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    requeue_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    requeue_confirmed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
 
