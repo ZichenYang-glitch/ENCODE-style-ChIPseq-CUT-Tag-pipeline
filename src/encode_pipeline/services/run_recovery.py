@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timezone
+import re
 from typing import NoReturn
 
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
@@ -95,6 +96,7 @@ class RunRecoveryService:
         queue: RunRecoveryQueue,
         *,
         cleanup: Callable[[str], bool] | None = None,
+        cleanup_endpoint_identity: str | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if repository is None:
@@ -103,11 +105,21 @@ class RunRecoveryService:
             raise ValueError("queue is required")
         if cleanup is not None and not callable(cleanup):
             raise ValueError("cleanup must be callable or None")
+        if (cleanup is None) != (cleanup_endpoint_identity is None):
+            raise ValueError(
+                "cleanup and cleanup_endpoint_identity must be configured together"
+            )
+        if cleanup_endpoint_identity is not None and (
+            not isinstance(cleanup_endpoint_identity, str)
+            or re.fullmatch(r"[0-9a-f]{64}", cleanup_endpoint_identity) is None
+        ):
+            raise ValueError("cleanup_endpoint_identity is invalid")
         if clock is not None and not callable(clock):
             raise ValueError("clock must be callable or None")
         self._repository = repository
         self._queue = queue
         self._cleanup = cleanup
+        self._cleanup_endpoint_identity = cleanup_endpoint_identity
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def diagnose(self, run_id: str) -> RunRecoveryDiagnostic:
@@ -219,23 +231,6 @@ class RunRecoveryService:
                     gaps=gaps,
                     actions=actions,
                 )
-                if assignment.claimed_at is not None:
-                    if queue_evidence.is_exact_terminal:
-                        cleanup = (
-                            RunRecoveryCleanupState.PENDING
-                            if self._cleanup is not None
-                            else RunRecoveryCleanupState.BLOCKED
-                        )
-                        gaps.add(RunRecoveryGap.CLEANUP)
-                    elif queue_evidence.state in {
-                        ExecutionQueueEvidenceState.MISSING,
-                        ExecutionQueueEvidenceState.STARTED_UNPROVEN,
-                        ExecutionQueueEvidenceState.UNKNOWN,
-                        ExecutionQueueEvidenceState.IDENTITY_DRIFT,
-                        ExecutionQueueEvidenceState.UNAVAILABLE,
-                    }:
-                        cleanup = RunRecoveryCleanupState.BLOCKED
-                        gaps.add(RunRecoveryGap.CLEANUP)
         elif (
             record.status.is_terminal
             and assignment is not None
@@ -267,6 +262,49 @@ class RunRecoveryService:
             else:
                 gaps.add(RunRecoveryGap.QUEUE)
                 issue_codes.append("RUN_RECOVERY_OWNER_UNPROVEN")
+
+        if assignment is not None and assignment.claimed_at is not None:
+            cleanup_binding_issue = self._cleanup_binding_issue(assignment)
+            cleanup_ownership_unresolved = (
+                record.status in _ACTIVE_STATUSES
+                and queue_evidence.state
+                in {
+                    ExecutionQueueEvidenceState.MISSING,
+                    ExecutionQueueEvidenceState.STARTED_UNPROVEN,
+                    ExecutionQueueEvidenceState.UNKNOWN,
+                    ExecutionQueueEvidenceState.IDENTITY_DRIFT,
+                    ExecutionQueueEvidenceState.UNAVAILABLE,
+                }
+            )
+            cleanup_action_requested = bool(
+                actions.intersection(
+                    {RunRecoveryAction.FAIL, RunRecoveryAction.REQUEUE}
+                )
+            )
+            if queue_evidence.is_exact_terminal and record.status in _ACTIVE_STATUSES:
+                gaps.add(RunRecoveryGap.CLEANUP)
+                cleanup = (
+                    RunRecoveryCleanupState.PENDING
+                    if cleanup_binding_issue is None
+                    else RunRecoveryCleanupState.BLOCKED
+                )
+            elif cleanup_ownership_unresolved:
+                gaps.add(RunRecoveryGap.CLEANUP)
+                cleanup = RunRecoveryCleanupState.BLOCKED
+            if cleanup_binding_issue is not None and (
+                cleanup_action_requested
+                or cleanup_ownership_unresolved
+                or (
+                    queue_evidence.is_exact_terminal
+                    and record.status in _ACTIVE_STATUSES
+                )
+            ):
+                issue_codes.append(cleanup_binding_issue)
+                gaps.add(RunRecoveryGap.CLEANUP)
+                cleanup = RunRecoveryCleanupState.BLOCKED
+                actions.difference_update(
+                    {RunRecoveryAction.FAIL, RunRecoveryAction.REQUEUE}
+                )
 
         if record.status is RunStatus.SUCCEEDED:
             if result_indexing.state is not RunResultIndexingState.QC_INDEXED:
@@ -398,10 +436,13 @@ class RunRecoveryService:
             self._raise_unsafe_diagnostic(diagnostic)
 
         if expected_assignment.claimed_at is not None:
-            if self._cleanup is None:
+            if self._cleanup_binding_issue(expected_assignment) is not None:
                 raise RunRecoveryError("RUN_RECOVERY_CLEANUP_FAILED")
+            cleanup_scope = expected_assignment.managed_container_scope
+            assert cleanup_scope is not None
+            assert self._cleanup is not None
             try:
-                cleanup_succeeded = self._cleanup(normalized_run_id)
+                cleanup_succeeded = self._cleanup(cleanup_scope)
             except Exception:
                 raise RunRecoveryError("RUN_RECOVERY_CLEANUP_FAILED") from None
             if cleanup_succeeded is not True:
@@ -660,11 +701,7 @@ class RunRecoveryService:
             if evidence.is_exact_terminal:
                 gaps.add(RunRecoveryGap.CALLBACK)
                 issue_codes.append("RUN_RECOVERY_TERMINAL_CALLBACK_PENDING")
-                if (
-                    database_consistent
-                    and not cancellation_pending
-                    and self._cleanup is not None
-                ):
+                if database_consistent and not cancellation_pending:
                     actions.add(RunRecoveryAction.FAIL)
             elif evidence.state in _SCHEDULABLE_QUEUE_STATES:
                 gaps.add(RunRecoveryGap.QUEUE)
@@ -682,6 +719,20 @@ class RunRecoveryService:
                 )
             ):
                 actions.add(RunRecoveryAction.REQUEUE)
+
+    def _cleanup_binding_issue(
+        self,
+        assignment: RunExecutionAssignment,
+    ) -> str | None:
+        scope = assignment.managed_container_scope
+        endpoint_identity = assignment.managed_container_endpoint_identity
+        if scope is None or endpoint_identity is None:
+            return "RUN_RECOVERY_CLEANUP_BINDING_MISSING"
+        if self._cleanup is None or self._cleanup_endpoint_identity is None:
+            return "RUN_RECOVERY_CLEANUP_UNAVAILABLE"
+        if endpoint_identity != self._cleanup_endpoint_identity:
+            return "RUN_RECOVERY_CLEANUP_ENDPOINT_MISMATCH"
+        return None
 
     def _read_run(self, run_id: str) -> RunRecord:
         try:
@@ -951,6 +1002,13 @@ def _diagnosis_code(
         or "RUN_RECOVERY_OWNER_UNPROVEN" in issue_codes
     ):
         return "RUN_RECOVERY_OWNER_UNPROVEN"
+    for cleanup_code in (
+        "RUN_RECOVERY_CLEANUP_BINDING_MISSING",
+        "RUN_RECOVERY_CLEANUP_ENDPOINT_MISMATCH",
+        "RUN_RECOVERY_CLEANUP_UNAVAILABLE",
+    ):
+        if cleanup_code in issue_codes:
+            return cleanup_code
     if "RUN_RECOVERY_TERMINAL_CALLBACK_PENDING" in issue_codes:
         return "RUN_RECOVERY_TERMINAL_CALLBACK_PENDING"
     if "RUN_RECOVERY_JOB_MISSING_BEFORE_CLAIM" in issue_codes:

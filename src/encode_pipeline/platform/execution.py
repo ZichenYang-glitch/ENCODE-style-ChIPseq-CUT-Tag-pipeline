@@ -6,8 +6,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from hashlib import sha256
+import re
 
 from encode_pipeline.platform.runs import RunRecord
+
+
+_MANAGED_CONTAINER_IDENTITY = re.compile(r"^[0-9a-f]{64}$")
 
 
 class RunExecutionOwnership(str, Enum):
@@ -26,6 +30,8 @@ class RunExecutionAssignment:
     backend: str
     queue_name: str
     created_at: datetime
+    managed_container_scope: str | None = None
+    managed_container_endpoint_identity: str | None = None
     dispatched_at: datetime | None = None
     claimed_at: datetime | None = None
     cancellation_requested_at: datetime | None = None
@@ -41,6 +47,24 @@ class RunExecutionAssignment:
                 raise ValueError(f"{field_name} must be a non-empty string")
         if not isinstance(self.created_at, datetime):
             raise ValueError("created_at must be a datetime")
+        for field_name in (
+            "managed_container_scope",
+            "managed_container_endpoint_identity",
+        ):
+            value = getattr(self, field_name)
+            if value is not None and (
+                not isinstance(value, str)
+                or _MANAGED_CONTAINER_IDENTITY.fullmatch(value) is None
+            ):
+                raise ValueError(
+                    f"{field_name} must be a lowercase SHA-256 hex digest or None"
+                )
+        if (self.managed_container_scope is None) != (
+            self.managed_container_endpoint_identity is None
+        ):
+            raise ValueError(
+                "managed container scope and endpoint identity must be paired"
+            )
         for field_name in (
             "dispatched_at",
             "claimed_at",

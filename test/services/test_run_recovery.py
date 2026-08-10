@@ -43,6 +43,9 @@ from encode_pipeline.services.run_repositories import (
 
 
 NOW = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
+CLEANUP_SCOPE = "3" * 64
+CLEANUP_ENDPOINT_IDENTITY = "4" * 64
+OTHER_CLEANUP_ENDPOINT_IDENTITY = "5" * 64
 
 
 class _Queue:
@@ -77,10 +80,10 @@ class _Queue:
 class _Cleanup:
     def __init__(self, succeeds: bool = True) -> None:
         self.succeeds = succeeds
-        self.run_ids: list[str] = []
+        self.scopes: list[str] = []
 
-    def __call__(self, run_id: str) -> bool:
-        self.run_ids.append(run_id)
+    def __call__(self, scope: str) -> bool:
+        self.scopes.append(scope)
         return self.succeeds
 
 
@@ -555,6 +558,7 @@ def test_diagnosis_distinguishes_owner_and_coordination_states(
         repository,
         _Queue(queue_state),
         cleanup=cleanup,
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
     )
 
@@ -564,7 +568,7 @@ def test_diagnosis_distinguishes_owner_and_coordination_states(
     assert set(diagnostic.gaps) == expected_gaps
     assert set(diagnostic.allowed_actions) == expected_actions
     assert diagnostic.cleanup is expected_cleanup
-    assert cleanup.run_ids == []
+    assert cleanup.scopes == []
 
 
 @pytest.mark.parametrize(
@@ -624,6 +628,7 @@ def test_queued_claim_is_a_real_transient_owner_not_database_corruption(
         repository,
         _Queue(queue_state),
         cleanup=_Cleanup(),
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
     )
 
@@ -671,6 +676,7 @@ def test_claimed_assignment_with_schedulable_job_reports_status_queue_mismatch(
         repository,
         _Queue(queue_state),
         cleanup=_Cleanup(),
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
     )
 
@@ -741,7 +747,13 @@ def test_terminal_worker_race_can_close_only_the_pending_requeue_audit():
     assert pending is not None
     assert pending != prepared
     queue = _Queue(ExecutionQueueEvidenceState.FINISHED)
-    service = RunRecoveryService(repository, queue, clock=lambda: NOW)
+    service = RunRecoveryService(
+        repository,
+        queue,
+        cleanup=_Cleanup(),
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
+        clock=lambda: NOW,
+    )
 
     diagnostic = service.diagnose("run-1")
     assert diagnostic.diagnosis_code == "RUN_RECOVERY_REQUEUE_CONFIRMATION_PENDING"
@@ -786,7 +798,13 @@ def test_claimed_pending_requeue_confirms_after_active_queue_evidence_expires():
         ),
     ).assignment
     queue = _Queue(ExecutionQueueEvidenceState.MISSING)
-    service = RunRecoveryService(repository, queue, clock=lambda: NOW)
+    service = RunRecoveryService(
+        repository,
+        queue,
+        cleanup=_Cleanup(),
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
+        clock=lambda: NOW,
+    )
 
     diagnostic = service.diagnose("run-1")
     assert diagnostic.can_requeue is True
@@ -850,7 +868,13 @@ def test_claimed_terminal_pending_requeue_confirms_without_redis_proof(queue_sta
         ),
     )
     queue = _Queue(queue_state)
-    service = RunRecoveryService(repository, queue, clock=lambda: NOW)
+    service = RunRecoveryService(
+        repository,
+        queue,
+        cleanup=_Cleanup(),
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
+        clock=lambda: NOW,
+    )
 
     diagnostic = service.diagnose("run-1")
     assert diagnostic.can_requeue is True
@@ -1040,6 +1064,7 @@ def test_claimed_failure_refuses_unproven_or_live_queue_evidence(
         repository,
         _Queue(queue_state),
         cleanup=cleanup,
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
     )
 
@@ -1052,7 +1077,7 @@ def test_claimed_failure_refuses_unproven_or_live_queue_evidence(
 
     assert error.value.code == expected_code
     assert repository.get_run("run-1").status is RunStatus.RUNNING
-    assert cleanup.run_ids == []
+    assert cleanup.scopes == []
 
 
 def test_claimed_terminal_failure_cleans_then_atomically_fails_without_result_writes():
@@ -1063,6 +1088,7 @@ def test_claimed_terminal_failure_cleans_then_atomically_fails_without_result_wr
         repository,
         _Queue(ExecutionQueueEvidenceState.FAILED),
         cleanup=cleanup,
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
     )
 
@@ -1077,7 +1103,7 @@ def test_claimed_terminal_failure_cleans_then_atomically_fails_without_result_wr
     assert record.status is RunStatus.FAILED
     assert record.error is not None
     assert record.error.code == RUN_RECOVERY_FAIL_REASON_CODE
-    assert cleanup.run_ids == ["run-1"]
+    assert cleanup.scopes == [CLEANUP_SCOPE]
     assert repository.get_result_state("run-1") == initial_result_state
     event = repository.list_events("run-1")[-1]
     assert event.event_type == RUN_RECOVERY_FAIL_EVENT
@@ -1088,12 +1114,100 @@ def test_claimed_terminal_failure_cleans_then_atomically_fails_without_result_wr
     }
 
 
+def test_claimed_failure_cleans_only_the_durable_scope_for_the_matching_endpoint():
+    repository, assignment = _running_repository(managed_binding=True)
+    cleanup = _Cleanup()
+    service = RunRecoveryService(
+        repository,
+        _Queue(ExecutionQueueEvidenceState.FAILED),
+        cleanup=cleanup,
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
+        clock=lambda: NOW,
+    )
+
+    diagnostic = service.diagnose("run-1")
+    result = service.fail_run(
+        "run-1",
+        expected_status=RunStatus.RUNNING,
+        expected_assignment=assignment,
+    )
+
+    assert diagnostic.cleanup is RunRecoveryCleanupState.PENDING
+    assert diagnostic.can_fail is True
+    assert result.status is RunStatus.FAILED
+    assert cleanup.scopes == [CLEANUP_SCOPE]
+
+
+def test_cleanup_endpoint_drift_blocks_even_a_cleaner_that_would_report_success():
+    repository, assignment = _running_repository(managed_binding=True)
+    cleanup = _Cleanup()
+    before_events = repository.list_events("run-1")
+    service = RunRecoveryService(
+        repository,
+        _Queue(ExecutionQueueEvidenceState.FAILED),
+        cleanup=cleanup,
+        cleanup_endpoint_identity=OTHER_CLEANUP_ENDPOINT_IDENTITY,
+        clock=lambda: NOW,
+    )
+
+    diagnostic = service.diagnose("run-1")
+    with pytest.raises(RunRecoveryError) as error:
+        service.fail_run(
+            "run-1",
+            expected_status=RunStatus.RUNNING,
+            expected_assignment=assignment,
+        )
+
+    assert diagnostic.cleanup is RunRecoveryCleanupState.BLOCKED
+    assert RunRecoveryGap.CLEANUP in diagnostic.gaps
+    assert RunRecoveryAction.FAIL not in diagnostic.allowed_actions
+    assert "RUN_RECOVERY_CLEANUP_ENDPOINT_MISMATCH" in diagnostic.issue_codes
+    assert error.value.code == "RUN_RECOVERY_NOT_SAFE"
+    assert cleanup.scopes == []
+    assert repository.get_run("run-1").status is RunStatus.RUNNING
+    assert repository.list_events("run-1") == before_events
+
+
+def test_legacy_claimed_assignment_without_cleanup_binding_refuses_fail_and_requeue():
+    repository, assignment = _running_repository(managed_binding=False)
+    cleanup = _Cleanup()
+    before_events = repository.list_events("run-1")
+    service = RunRecoveryService(
+        repository,
+        _Queue(ExecutionQueueEvidenceState.FAILED),
+        cleanup=cleanup,
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
+        clock=lambda: NOW,
+    )
+
+    diagnostic = service.diagnose("run-1")
+    assert diagnostic.cleanup is RunRecoveryCleanupState.BLOCKED
+    assert RunRecoveryGap.CLEANUP in diagnostic.gaps
+    assert diagnostic.allowed_actions == ()
+    assert "RUN_RECOVERY_CLEANUP_BINDING_MISSING" in diagnostic.issue_codes
+
+    for action in (service.fail_run, service.requeue_run):
+        with pytest.raises(RunRecoveryError) as error:
+            action(
+                "run-1",
+                expected_status=RunStatus.RUNNING,
+                expected_assignment=assignment,
+            )
+        assert error.value.code == "RUN_RECOVERY_NOT_SAFE"
+
+    assert cleanup.scopes == []
+    assert repository.get_run("run-1").status is RunStatus.RUNNING
+    assert repository.get_execution_assignment("run-1") == assignment
+    assert repository.list_events("run-1") == before_events
+
+
 def test_cancellation_intent_refuses_admin_failure_even_with_terminal_evidence():
     repository, assignment = _running_repository(cancellation_requested=True)
     service = RunRecoveryService(
         repository,
         _Queue(ExecutionQueueEvidenceState.STOPPED),
         cleanup=_Cleanup(),
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
     )
 
@@ -1135,6 +1249,7 @@ def test_cancellation_race_wins_the_final_failure_cas():
         repository,
         queue,
         cleanup=cleanup,
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
     )
 
@@ -1151,7 +1266,7 @@ def test_cancellation_race_wins_the_final_failure_cas():
     assert RUN_RECOVERY_FAIL_EVENT not in {
         event.event_type for event in repository.list_events("run-1")
     }
-    assert cleanup.run_ids == ["run-1"]
+    assert cleanup.scopes == [CLEANUP_SCOPE]
 
 
 def test_terminal_callback_race_wins_before_failure_commit():
@@ -1182,6 +1297,7 @@ def test_terminal_callback_race_wins_before_failure_commit():
         repository,
         queue,
         cleanup=_Cleanup(),
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
     )
 
@@ -1206,6 +1322,7 @@ def test_cleanup_failure_refuses_claimed_failure_without_lifecycle_mutation():
         repository,
         _Queue(ExecutionQueueEvidenceState.STOPPED),
         cleanup=cleanup,
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
     )
 
@@ -1333,6 +1450,7 @@ def test_natural_terminal_winner_does_not_leave_a_false_cancellation_gap():
         repository,
         _Queue(ExecutionQueueEvidenceState.STOPPED),
         cleanup=_Cleanup(),
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
     )
 
@@ -1380,6 +1498,7 @@ def test_terminal_cleanup_failure_remains_visible_without_a_mutation_action():
         repository,
         _Queue(ExecutionQueueEvidenceState.FAILED),
         cleanup=_Cleanup(),
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
     )
 
@@ -1446,6 +1565,7 @@ def test_succeeded_result_indexing_distinguishes_live_worker_from_lost_owner(
         repository,
         _Queue(queue_state),
         cleanup=_Cleanup(),
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
     )
 
@@ -1616,6 +1736,30 @@ def test_recovery_service_rejects_invalid_dependencies(invalid_field):
 
     with pytest.raises(ValueError):
         RunRecoveryService(repository, queue, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("cleanup", "endpoint_identity"),
+    [
+        (_Cleanup(), None),
+        (None, CLEANUP_ENDPOINT_IDENTITY),
+        (_Cleanup(), "A" * 64),
+        (_Cleanup(), "not-a-private-endpoint-identity"),
+    ],
+)
+def test_recovery_service_requires_a_valid_paired_cleaner_endpoint_identity(
+    cleanup,
+    endpoint_identity,
+):
+    repository, _assignment = _queued_repository()
+
+    with pytest.raises(ValueError, match="cleanup"):
+        RunRecoveryService(
+            repository,
+            _Queue(ExecutionQueueEvidenceState.QUEUED),
+            cleanup=cleanup,
+            cleanup_endpoint_identity=endpoint_identity,
+        )
 
 
 def test_recovery_error_rejects_unknown_public_codes():
@@ -1851,13 +1995,14 @@ def test_invalid_clock_refuses_requeue_before_recording_an_intent():
 def test_cleanup_exception_refuses_failure_without_exposing_operator_details():
     repository, assignment = _running_repository()
 
-    def fail_cleanup(_run_id: str) -> bool:
+    def fail_cleanup(_scope: str) -> bool:
         raise RuntimeError("/private/container/runtime")
 
     service = RunRecoveryService(
         repository,
         _Queue(ExecutionQueueEvidenceState.STOPPED),
         cleanup=fail_cleanup,
+        cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
     )
 
@@ -2074,7 +2219,10 @@ def test_admin_failure_maps_repository_cas_errors_without_lifecycle_mutation(
     assert repository.get_run("run-1").status is RunStatus.QUEUED
 
 
-def _queued_repository() -> tuple[InMemoryRunRepository, RunExecutionAssignment]:
+def _queued_repository(
+    *,
+    managed_binding: bool = True,
+) -> tuple[InMemoryRunRepository, RunExecutionAssignment]:
     repository = InMemoryRunRepository()
     _create_execution_ready_run(repository, RunStatus.QUEUED)
     assignment = RunExecutionAssignment(
@@ -2084,6 +2232,10 @@ def _queued_repository() -> tuple[InMemoryRunRepository, RunExecutionAssignment]
         queue_name="default",
         created_at=NOW,
         dispatched_at=NOW,
+        managed_container_scope=CLEANUP_SCOPE if managed_binding else None,
+        managed_container_endpoint_identity=(
+            CLEANUP_ENDPOINT_IDENTITY if managed_binding else None
+        ),
     )
     repository.ensure_execution_assignment(
         assignment,
@@ -2095,6 +2247,7 @@ def _queued_repository() -> tuple[InMemoryRunRepository, RunExecutionAssignment]
 def _running_repository(
     *,
     cancellation_requested: bool = False,
+    managed_binding: bool = True,
 ) -> tuple[InMemoryRunRepository, RunExecutionAssignment]:
     repository = InMemoryRunRepository()
     _create_execution_ready_run(repository, RunStatus.RUNNING)
@@ -2109,6 +2262,10 @@ def _running_repository(
         cancellation_requested_at=NOW if cancellation_requested else None,
         cancellation_reason=(
             "User requested cancellation." if cancellation_requested else None
+        ),
+        managed_container_scope=CLEANUP_SCOPE if managed_binding else None,
+        managed_container_endpoint_identity=(
+            CLEANUP_ENDPOINT_IDENTITY if managed_binding else None
         ),
     )
     repository.ensure_execution_assignment(

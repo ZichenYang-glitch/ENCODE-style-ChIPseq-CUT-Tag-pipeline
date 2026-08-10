@@ -414,6 +414,38 @@ class RunService:
         with self._lock:
             return self._repository.get_execution_assignment(run_id)
 
+    def bind_execution_cleanup_identity(
+        self,
+        run_id: str,
+        *,
+        expected_assignment: RunExecutionAssignment,
+        managed_container_scope: str | None,
+        managed_container_endpoint_identity: str | None,
+    ) -> RunExecutionAssignment:
+        """Bind the rebuilt command's path-safe cleanup identity before execution."""
+        with self._lock:
+            current = self._repository.get_run(run_id)
+            if current.status is not RunStatus.QUEUED:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer eligible for cleanup binding."
+                )
+            assignment = self._repository.get_execution_assignment(run_id)
+            if assignment is None or assignment != expected_assignment:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} execution assignment changed before cleanup binding."
+                )
+            if assignment.claimed_at is None:
+                raise ValueError("execution assignment has not been claimed")
+            return self._repository.bind_execution_cleanup_identity(
+                run_id,
+                expected_status=RunStatus.QUEUED,
+                expected_assignment=assignment,
+                managed_container_scope=managed_container_scope,
+                managed_container_endpoint_identity=(
+                    managed_container_endpoint_identity
+                ),
+            )
+
     def confirm_execution_requeue_observed(
         self,
         run_id: str,

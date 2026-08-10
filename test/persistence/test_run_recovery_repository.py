@@ -30,6 +30,8 @@ REQUESTED_AT = CREATED_AT + timedelta(minutes=3)
 CONFIRMED_AT = CREATED_AT + timedelta(minutes=4)
 FAILED_AT = CREATED_AT + timedelta(minutes=5)
 RESULT_ATTEMPT_ID = "resultattempt-" + "a" * 64
+CLEANUP_SCOPE = "b" * 64
+CLEANUP_ENDPOINT_IDENTITY = "c" * 64
 
 
 @pytest.fixture(params=("memory", "sql"), ids=("in-memory", "sql"))
@@ -111,6 +113,126 @@ def test_sql_and_memory_prepare_and_confirm_are_atomic_and_idempotent(
         "requeue_confirmed",
     ]
     assert repository.get_result_state("run-1") == initial_result_state
+
+
+def test_sql_and_memory_bind_cleanup_identity_is_atomic_and_idempotent(
+    repository_case,
+) -> None:
+    repository, _kind = repository_case
+    unclaimed = _create_active_run(repository, status=RunStatus.QUEUED)
+    claimed = repository.claim_execution_assignment(
+        "run-1",
+        job_id=unclaimed.job_id,
+        backend=unclaimed.backend,
+        queue_name=unclaimed.queue_name,
+        claimed_at=CLAIMED_AT,
+        allowed_statuses=frozenset({RunStatus.QUEUED}),
+        event=_recovery_event("execution_claimed", RunStatus.QUEUED),
+    ).assignment
+    events_after_claim = repository.list_events("run-1")
+
+    assert (
+        repository.bind_execution_cleanup_identity(
+            "run-1",
+            expected_status=RunStatus.QUEUED,
+            expected_assignment=claimed,
+            managed_container_scope=None,
+            managed_container_endpoint_identity=None,
+        )
+        == claimed
+    )
+
+    bound = repository.bind_execution_cleanup_identity(
+        "run-1",
+        expected_status=RunStatus.QUEUED,
+        expected_assignment=claimed,
+        managed_container_scope=CLEANUP_SCOPE,
+        managed_container_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
+    )
+    assert bound == replace(
+        claimed,
+        managed_container_scope=CLEANUP_SCOPE,
+        managed_container_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
+    )
+    assert repository.get_execution_assignment("run-1") == bound
+    assert (
+        repository.bind_execution_cleanup_identity(
+            "run-1",
+            expected_status=RunStatus.QUEUED,
+            expected_assignment=bound,
+            managed_container_scope=CLEANUP_SCOPE,
+            managed_container_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
+        )
+        == bound
+    )
+    assert repository.list_events("run-1") == events_after_claim
+
+
+def test_sql_and_memory_bind_cleanup_identity_requires_queued_status(
+    repository_case,
+) -> None:
+    repository, _kind = repository_case
+    assignment = _create_active_run(repository, status=RunStatus.RUNNING)
+
+    with pytest.raises(ValueError, match="only be bound while queued"):
+        repository.bind_execution_cleanup_identity(
+            "run-1",
+            expected_status=RunStatus.RUNNING,
+            expected_assignment=assignment,
+            managed_container_scope=CLEANUP_SCOPE,
+            managed_container_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
+        )
+
+    assert repository.get_execution_assignment("run-1") == assignment
+
+
+def test_sql_and_memory_bind_cleanup_identity_rejects_stale_or_drifting_cas(
+    repository_case,
+) -> None:
+    repository, _kind = repository_case
+    unclaimed = _create_active_run(repository, status=RunStatus.QUEUED)
+
+    with pytest.raises(ValueError, match="must be claimed"):
+        repository.bind_execution_cleanup_identity(
+            "run-1",
+            expected_status=RunStatus.QUEUED,
+            expected_assignment=unclaimed,
+            managed_container_scope=CLEANUP_SCOPE,
+            managed_container_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
+        )
+
+    claimed = repository.claim_execution_assignment(
+        "run-1",
+        job_id=unclaimed.job_id,
+        backend=unclaimed.backend,
+        queue_name=unclaimed.queue_name,
+        claimed_at=CLAIMED_AT,
+        allowed_statuses=frozenset({RunStatus.QUEUED}),
+        event=_recovery_event("execution_claimed", RunStatus.QUEUED),
+    ).assignment
+    bound = repository.bind_execution_cleanup_identity(
+        "run-1",
+        expected_status=RunStatus.QUEUED,
+        expected_assignment=claimed,
+        managed_container_scope=CLEANUP_SCOPE,
+        managed_container_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
+    )
+
+    for expected, scope, endpoint in (
+        (claimed, CLEANUP_SCOPE, CLEANUP_ENDPOINT_IDENTITY),
+        (bound, "d" * 64, CLEANUP_ENDPOINT_IDENTITY),
+        (bound, CLEANUP_SCOPE, "e" * 64),
+    ):
+        with pytest.raises(ConcurrentRunUpdateError):
+            repository.bind_execution_cleanup_identity(
+                "run-1",
+                expected_status=RunStatus.QUEUED,
+                expected_assignment=expected,
+                managed_container_scope=scope,
+                managed_container_endpoint_identity=endpoint,
+            )
+
+    assert repository.get_execution_assignment("run-1") == bound
 
 
 def test_sql_and_memory_failure_is_atomic_and_preserves_non_lifecycle_evidence(
@@ -278,6 +400,13 @@ def test_sql_and_memory_confirmation_preserves_a_monotonic_worker_race(
         allowed_statuses=frozenset({RunStatus.QUEUED}),
         event=_recovery_event("execution_claimed", RunStatus.QUEUED),
     ).assignment
+    claimed = repository.bind_execution_cleanup_identity(
+        "run-1",
+        expected_status=RunStatus.QUEUED,
+        expected_assignment=claimed,
+        managed_container_scope=CLEANUP_SCOPE,
+        managed_container_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
+    )
     queued = repository.get_run("run-1")
     repository.update_run(
         replace(

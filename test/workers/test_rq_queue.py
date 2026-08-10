@@ -52,7 +52,13 @@ def test_rq_run_queue_enqueues_only_run_id_with_canonical_job_identity(tmp_path)
     connection = fakeredis.FakeRedis()
     configured = worker_settings(tmp_path)
     run_queue = RqRunQueue(configured, connection=connection)
-    assignment = _assignment(configured.queue_name)
+    cleanup_scope = "a" * 64
+    cleanup_endpoint_identity = "b" * 64
+    assignment = replace(
+        _assignment(configured.queue_name),
+        managed_container_scope=cleanup_scope,
+        managed_container_endpoint_identity=cleanup_endpoint_identity,
+    )
 
     returned_job_id = run_queue.enqueue_execution(assignment)
     job = run_queue._queue.fetch_job(assignment.job_id)
@@ -63,6 +69,8 @@ def test_rq_run_queue_enqueues_only_run_id_with_canonical_job_identity(tmp_path)
     assert job.func_name == "encode_pipeline.workers.jobs.run_execution_job"
     assert job.args == [assignment.run_id]
     assert job.kwargs == {}
+    assert cleanup_scope not in repr((job.args, job.kwargs, job.meta))
+    assert cleanup_endpoint_identity not in repr((job.args, job.kwargs, job.meta))
     assert job.id == assignment.job_id
     assert job.origin == configured.queue_name
     assert job.serializer is JSONSerializer

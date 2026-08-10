@@ -33,7 +33,12 @@ LEGACY_ASSIGNMENT_COLUMNS = {
     "cancellation_reason",
     "cancellation_acknowledged_at",
 }
-RECOVERY_COLUMNS = {"requeue_requested_at", "requeue_confirmed_at"}
+RECOVERY_COLUMNS = {
+    "managed_container_scope",
+    "managed_container_endpoint_identity",
+    "requeue_requested_at",
+    "requeue_confirmed_at",
+}
 LEGACY_ASSIGNMENT_CONSTRAINTS = {
     "ck_run_execution_assignments_ack_requires_request",
     "ck_run_execution_assignments_claim_requires_dispatch",
@@ -41,6 +46,9 @@ LEGACY_ASSIGNMENT_CONSTRAINTS = {
     "ck_run_execution_assignments_request_requires_claim",
 }
 RECOVERY_CONSTRAINTS = {
+    "ck_run_execution_assignments_cleanup_endpoint_format",
+    "ck_run_execution_assignments_cleanup_identity_pair",
+    "ck_run_execution_assignments_cleanup_scope_format",
     "ck_run_execution_assignments_requeue_requires_dispatch",
     "ck_run_execution_assignments_requeue_confirm_requires_request",
     "ck_run_execution_assignments_requeue_confirmation_order",
@@ -83,6 +91,7 @@ def test_rev12_to_rev13_zero_backfills_and_preserves_assignment_evidence(
                     "SELECT run_id, job_id, backend, queue_name, created_at, "
                     "dispatched_at, claimed_at, cancellation_requested_at, "
                     "cancellation_reason, cancellation_acknowledged_at, "
+                    "managed_container_scope, managed_container_endpoint_identity, "
                     "requeue_requested_at, requeue_confirmed_at "
                     "FROM run_execution_assignments ORDER BY run_id"
                 )
@@ -107,12 +116,16 @@ def test_rev12_to_rev13_zero_backfills_and_preserves_assignment_evidence(
         "cancellation_requested_at": "2026-08-09 10:03:00",
         "cancellation_reason": "operator request",
         "cancellation_acknowledged_at": "2026-08-09 10:04:00",
+        "managed_container_scope": None,
+        "managed_container_endpoint_identity": None,
         "requeue_requested_at": None,
         "requeue_confirmed_at": None,
     }
     assert queued["job_id"] == "queued-job"
     assert queued["dispatched_at"] == "2026-08-09 10:01:00"
     assert queued["claimed_at"] is None
+    assert queued["managed_container_scope"] is None
+    assert queued["managed_container_endpoint_identity"] is None
     assert queued["requeue_requested_at"] is None
     assert queued["requeue_confirmed_at"] is None
     engine.dispose()
@@ -136,6 +149,8 @@ def test_rev13_is_the_sole_head_and_enforces_requeue_marker_constraints(
         for column in inspector.get_columns("run_execution_assignments")
         if column["name"] in RECOVERY_COLUMNS
     } == {
+        "managed_container_scope": True,
+        "managed_container_endpoint_identity": True,
         "requeue_requested_at": True,
         "requeue_confirmed_at": True,
     }
@@ -147,9 +162,47 @@ def test_rev13_is_the_sole_head_and_enforces_requeue_marker_constraints(
 
     invalid_assignments = (
         {
+            "run_id": "scope-without-endpoint",
+            "job_id": "job-scope-without-endpoint",
+            "dispatched_at": "2026-08-09 11:00:00",
+            "scope": "a" * 64,
+            "endpoint": None,
+            "requeue_requested_at": None,
+            "requeue_confirmed_at": None,
+        },
+        {
+            "run_id": "endpoint-without-scope",
+            "job_id": "job-endpoint-without-scope",
+            "dispatched_at": "2026-08-09 11:00:00",
+            "scope": None,
+            "endpoint": "b" * 64,
+            "requeue_requested_at": None,
+            "requeue_confirmed_at": None,
+        },
+        {
+            "run_id": "short-scope",
+            "job_id": "job-short-scope",
+            "dispatched_at": "2026-08-09 11:00:00",
+            "scope": "a" * 63,
+            "endpoint": "b" * 64,
+            "requeue_requested_at": None,
+            "requeue_confirmed_at": None,
+        },
+        {
+            "run_id": "uppercase-endpoint",
+            "job_id": "job-uppercase-endpoint",
+            "dispatched_at": "2026-08-09 11:00:00",
+            "scope": "a" * 64,
+            "endpoint": "B" * 64,
+            "requeue_requested_at": None,
+            "requeue_confirmed_at": None,
+        },
+        {
             "run_id": "request-without-dispatch",
             "job_id": "job-request-without-dispatch",
             "dispatched_at": None,
+            "scope": None,
+            "endpoint": None,
             "requeue_requested_at": "2026-08-09 11:01:00",
             "requeue_confirmed_at": None,
         },
@@ -157,6 +210,8 @@ def test_rev13_is_the_sole_head_and_enforces_requeue_marker_constraints(
             "run_id": "confirmation-without-request",
             "job_id": "job-confirmation-without-request",
             "dispatched_at": "2026-08-09 11:00:00",
+            "scope": None,
+            "endpoint": None,
             "requeue_requested_at": None,
             "requeue_confirmed_at": "2026-08-09 11:01:00",
         },
@@ -164,6 +219,8 @@ def test_rev13_is_the_sole_head_and_enforces_requeue_marker_constraints(
             "run_id": "confirmation-before-request",
             "job_id": "job-confirmation-before-request",
             "dispatched_at": "2026-08-09 11:00:00",
+            "scope": None,
+            "endpoint": None,
             "requeue_requested_at": "2026-08-09 11:02:00",
             "requeue_confirmed_at": "2026-08-09 11:01:00",
         },
@@ -179,10 +236,11 @@ def test_rev13_is_the_sole_head_and_enforces_requeue_marker_constraints(
                     text(
                         "INSERT INTO run_execution_assignments "
                         "(run_id, job_id, backend, queue_name, created_at, "
-                        "dispatched_at, requeue_requested_at, "
+                        "dispatched_at, managed_container_scope, "
+                        "managed_container_endpoint_identity, requeue_requested_at, "
                         "requeue_confirmed_at) VALUES "
                         "(:run_id, :job_id, 'rq', 'default', "
-                        "'2026-08-09 11:00:00', :dispatched_at, "
+                        "'2026-08-09 11:00:00', :dispatched_at, :scope, :endpoint, "
                         ":requeue_requested_at, :requeue_confirmed_at)"
                     ),
                     assignment,
@@ -199,7 +257,7 @@ def test_rev13_is_the_sole_head_and_enforces_requeue_marker_constraints(
     engine.dispose()
 
 
-def test_rev13_downgrade_removes_only_requeue_markers(tmp_path) -> None:
+def test_rev13_downgrade_removes_only_recovery_fields(tmp_path) -> None:
     database_url = f"sqlite:///{tmp_path / 'platform.db'}"
     upgrade_database(database_url)
     engine = create_database_engine(database_url)
@@ -441,6 +499,83 @@ def test_rev13_refuses_exact_batch_shape_when_it_contains_unique_data(
         assert connection.execute(
             text('SELECT run_id, job_id FROM "_alembic_tmp_run_execution_assignments"')
         ).one() == ("temp-only-run", "temp-only-job")
+    engine.dispose()
+
+
+def test_rev13_refuses_batch_residue_with_cleanup_identity_evidence(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
+    upgrade_database(database_url, PRIOR_REVISION)
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        _insert_run(connection, "queued-run", status="queued")
+        _insert_assignment(
+            connection,
+            run_id="queued-run",
+            job_id="queued-job",
+            dispatched_at="2026-08-09 16:01:00",
+        )
+    engine.dispose()
+
+    original_batch_alter_table = alembic_op.batch_alter_table
+
+    @contextmanager
+    def fail_after_batch_rebuild(*args, **kwargs):
+        with original_batch_alter_table(*args, **kwargs) as batch_op:
+            yield batch_op
+        raise RuntimeError("injected post-DDL migration failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            alembic_op,
+            "batch_alter_table",
+            fail_after_batch_rebuild,
+        )
+        with pytest.raises(RuntimeError, match="injected post-DDL"):
+            upgrade_database(database_url)
+
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                'INSERT INTO "_alembic_tmp_run_execution_assignments" '
+                "(run_id, job_id, backend, queue_name, created_at, dispatched_at, "
+                "managed_container_scope, managed_container_endpoint_identity) "
+                "VALUES ('queued-run', 'queued-job', 'rq', 'default', "
+                "'2026-08-09 10:00:00', '2026-08-09 16:01:00', "
+                ":scope, :endpoint)"
+            ),
+            {"scope": "a" * 64, "endpoint": "b" * 64},
+        )
+        assert connection.execute(
+            text(
+                "SELECT managed_container_scope, "
+                "managed_container_endpoint_identity "
+                'FROM "_alembic_tmp_run_execution_assignments" '
+                "WHERE run_id = 'queued-run'"
+            )
+        ).one() == ("a" * 64, "b" * 64)
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="ambiguous batch table"):
+        upgrade_database(database_url)
+
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            PRIOR_REVISION
+        )
+        staged = connection.execute(
+            text(
+                "SELECT managed_container_scope, "
+                "managed_container_endpoint_identity "
+                'FROM "_alembic_tmp_run_execution_assignments" '
+                "WHERE run_id = 'queued-run'"
+            )
+        ).one()
+        assert staged == ("a" * 64, "b" * 64)
     engine.dispose()
 
 

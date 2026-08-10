@@ -25,6 +25,10 @@ from encode_pipeline.persistence import (
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import RunExecutionAssignment
+from encode_pipeline.platform.managed_containers import (
+    managed_container_endpoint_identity,
+    managed_container_scope,
+)
 from encode_pipeline.platform.run_recovery import (
     ExecutionQueueEvidenceState,
     RunExecutionQueueEvidence,
@@ -32,6 +36,7 @@ from encode_pipeline.platform.run_recovery import (
 from encode_pipeline.platform.runs import RunRecord, RunStatus
 from encode_pipeline.persistence.migrations import upgrade_database
 from encode_pipeline.services.run_repositories import RunEventDraft
+from encode_pipeline.services import managed_containers as managed_containers_module
 from encode_pipeline.workers import rq_queue as rq_queue_module
 from encode_pipeline.workers.settings import (
     MANAGED_DOCKER_EXECUTABLE_ENV,
@@ -147,6 +152,133 @@ def _invoke(arguments, *, service, observed_urls):
         ["--database-url", DATABASE_URL, "run", *arguments],
         run_recovery_factory=_factory(service, observed_urls),
     )
+
+
+def _persist_real_running_run(
+    database_url: str,
+    *,
+    assignment: RunExecutionAssignment,
+    private_input: str,
+) -> None:
+    now = datetime(2026, 8, 9, 8, 0, tzinfo=timezone.utc)
+    validating = RunRecord(
+        run_id=RUN_ID,
+        workflow_id="bulk-rnaseq",
+        inputs={"samples": private_input},
+        status=RunStatus.VALIDATING,
+        created_at=now,
+        updated_at=now,
+        started_at=None,
+        ended_at=None,
+        current_stage="validation",
+        cancellation_reason=None,
+        error=None,
+    )
+    upgrade_database(database_url)
+    engine = create_database_engine(database_url)
+    try:
+        repository = SqlAlchemyRunRepository(create_session_factory(engine))
+        repository.create_run(
+            validating,
+            RunEventDraft(
+                event_type="run_created",
+                message="Run created.",
+                status=RunStatus.VALIDATING,
+            ),
+        )
+        planned = replace(
+            validating,
+            status=RunStatus.PLANNED,
+            current_stage="planning",
+        )
+        repository.complete_preflight(
+            planned,
+            WorkflowBuildIdentity(
+                workflow_id="bulk-rnaseq",
+                adapter_version="1.0.0",
+                scheme="sha256-tree-v1",
+                logical_entrypoint="main.nf",
+                digest="a" * 64,
+                captured_at=now,
+            ),
+            expected_status=RunStatus.VALIDATING,
+            event=RunEventDraft(
+                event_type="preflight_completed",
+                message="Preflight completed.",
+                status=RunStatus.PLANNED,
+            ),
+        )
+        running = replace(
+            planned,
+            status=RunStatus.RUNNING,
+            started_at=now,
+            current_stage="execution",
+        )
+        repository.update_run(
+            running,
+            expected_status=RunStatus.PLANNED,
+            event=RunEventDraft(
+                event_type="status_changed",
+                message="Run started.",
+                status=RunStatus.RUNNING,
+            ),
+        )
+        repository.ensure_execution_assignment(
+            assignment,
+            expected_status=RunStatus.RUNNING,
+        )
+    finally:
+        engine.dispose()
+
+
+class _ExactTerminalRunQueue:
+    def __init__(self, settings: WorkerSettings) -> None:
+        assert settings.queue_name == "encode-pipeline-demo"
+
+    def inspect_execution(
+        self,
+        _assignment: RunExecutionAssignment,
+    ) -> RunExecutionQueueEvidence:
+        return RunExecutionQueueEvidence(state=ExecutionQueueEvidenceState.FINISHED)
+
+    def requeue_execution(self, _assignment: RunExecutionAssignment) -> str:
+        pytest.fail("claimed recovery must not enqueue")
+
+    def close(self) -> None:
+        return None
+
+
+class _AlwaysSuccessfulCleaner:
+    cleanup_scopes: list[str] = []
+
+    def __init__(self, *, executable: Path, unix_socket: Path) -> None:
+        self.endpoint_identity = managed_container_endpoint_identity(
+            executable,
+            unix_socket,
+        )
+
+    def cleanup(self, scope: str):
+        type(self).cleanup_scopes.append(scope)
+        return SimpleNamespace(is_success=True)
+
+
+class _UnavailableCleaner:
+    def __init__(self, *, executable: Path, unix_socket: Path) -> None:
+        raise OSError(f"unavailable endpoint: {executable} {unix_socket}")
+
+
+def _real_recovery_state(database_url: str):
+    engine = create_database_engine(database_url)
+    try:
+        repository = SqlAlchemyRunRepository(create_session_factory(engine))
+        return (
+            repository.get_run(RUN_ID),
+            repository.get_execution_assignment(RUN_ID),
+            repository.list_events(RUN_ID),
+            repository.get_result_state(RUN_ID),
+        )
+    finally:
+        engine.dispose()
 
 
 def test_run_diagnose_emits_only_the_fixed_safe_projection(capsys) -> None:
@@ -427,93 +559,13 @@ def test_real_run_cleanup_gap_refuses_fail_without_managed_cleaner(
     private_input = str(tmp_path / "private" / "sample.csv")
     private_workspace = str(tmp_path / "private" / "workspaces")
     private_redis_url = "redis://operator:secret@private-redis.invalid:6379/0"
-    now = datetime(2026, 8, 9, 8, 0, tzinfo=timezone.utc)
-    validating = RunRecord(
-        run_id=RUN_ID,
-        workflow_id="bulk-rnaseq",
-        inputs={"samples": private_input},
-        status=RunStatus.VALIDATING,
-        created_at=now,
-        updated_at=now,
-        started_at=None,
-        ended_at=None,
-        current_stage="validation",
-        cancellation_reason=None,
-        error=None,
+    _persist_real_running_run(
+        database_url,
+        assignment=_assignment(),
+        private_input=private_input,
     )
-    upgrade_database(database_url)
-    setup_engine = create_database_engine(database_url)
-    try:
-        repository = SqlAlchemyRunRepository(create_session_factory(setup_engine))
-        repository.create_run(
-            validating,
-            RunEventDraft(
-                event_type="run_created",
-                message="Run created.",
-                status=RunStatus.VALIDATING,
-            ),
-        )
-        planned = replace(
-            validating,
-            status=RunStatus.PLANNED,
-            current_stage="planning",
-        )
-        repository.complete_preflight(
-            planned,
-            WorkflowBuildIdentity(
-                workflow_id="bulk-rnaseq",
-                adapter_version="1.0.0",
-                scheme="sha256-tree-v1",
-                logical_entrypoint="main.nf",
-                digest="a" * 64,
-                captured_at=now,
-            ),
-            expected_status=RunStatus.VALIDATING,
-            event=RunEventDraft(
-                event_type="preflight_completed",
-                message="Preflight completed.",
-                status=RunStatus.PLANNED,
-            ),
-        )
-        running = replace(
-            planned,
-            status=RunStatus.RUNNING,
-            started_at=now,
-            current_stage="execution",
-        )
-        repository.update_run(
-            running,
-            expected_status=RunStatus.PLANNED,
-            event=RunEventDraft(
-                event_type="status_changed",
-                message="Run started.",
-                status=RunStatus.RUNNING,
-            ),
-        )
-        repository.ensure_execution_assignment(
-            _assignment(),
-            expected_status=RunStatus.RUNNING,
-        )
-    finally:
-        setup_engine.dispose()
 
-    class ExactTerminalRunQueue:
-        def __init__(self, settings: WorkerSettings) -> None:
-            assert settings.queue_name == "encode-pipeline-demo"
-
-        def inspect_execution(
-            self,
-            _assignment: RunExecutionAssignment,
-        ) -> RunExecutionQueueEvidence:
-            return RunExecutionQueueEvidence(state=ExecutionQueueEvidenceState.FINISHED)
-
-        def requeue_execution(self, _assignment: RunExecutionAssignment) -> str:
-            pytest.fail("cleanup-gap recovery must not enqueue")
-
-        def close(self) -> None:
-            return None
-
-    monkeypatch.setattr(rq_queue_module, "RqRunQueue", ExactTerminalRunQueue)
+    monkeypatch.setattr(rq_queue_module, "RqRunQueue", _ExactTerminalRunQueue)
     monkeypatch.delenv(MANAGED_DOCKER_EXECUTABLE_ENV, raising=False)
     monkeypatch.delenv(MANAGED_DOCKER_SOCKET_ENV, raising=False)
     monkeypatch.setenv(WORKSPACE_ROOT_ENV, private_workspace)
@@ -611,3 +663,261 @@ def test_real_run_cleanup_gap_refuses_fail_without_managed_cleaner(
         event.event_type != "run_failed_by_admin_recovery"
         for event in persisted_state()[2]
     )
+
+    requeue_exit_code = admin.main(
+        [
+            "--database-url",
+            database_url,
+            "run",
+            "requeue",
+            RUN_ID,
+            "--expected-status",
+            "running",
+            "--job-id",
+            JOB_ID,
+            "--backend",
+            "rq",
+            "--queue-name",
+            "encode-pipeline-demo",
+        ]
+    )
+    requeue_output = capsys.readouterr()
+    assert requeue_exit_code == 1
+    assert requeue_output.out == ""
+    assert json.loads(requeue_output.err)["error"]["code"] == ("RUN_RECOVERY_NOT_SAFE")
+    assert persisted_state() == before
+
+
+@pytest.mark.parametrize("endpoint_matches", [True, False])
+def test_real_cli_binds_cleanup_to_durable_scope_and_endpoint(
+    endpoint_matches: bool,
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    database_path = tmp_path / "private" / "platform.db"
+    database_path.parent.mkdir()
+    database_url = f"sqlite:///{database_path}"
+    original_workspace = (tmp_path / "private" / "original-workspaces").resolve()
+    original_executable = (tmp_path / "private" / "original" / "docker").resolve()
+    original_socket = (tmp_path / "private" / "original.sock").resolve()
+    admin_workspace = (tmp_path / "private" / "admin-workspaces").resolve()
+    if endpoint_matches:
+        admin_executable = original_executable
+        admin_socket = original_socket
+    else:
+        admin_executable = (tmp_path / "private" / "admin" / "docker").resolve()
+        admin_socket = (tmp_path / "private" / "admin.sock").resolve()
+    private_input = str(tmp_path / "private" / "sample.csv")
+    private_redis_url = "redis://operator:secret@private-redis.invalid:6379/0"
+    durable_scope = managed_container_scope(original_workspace / RUN_ID)
+    assignment = replace(
+        _assignment(),
+        managed_container_scope=durable_scope,
+        managed_container_endpoint_identity=managed_container_endpoint_identity(
+            original_executable,
+            original_socket,
+        ),
+    )
+    _persist_real_running_run(
+        database_url,
+        assignment=assignment,
+        private_input=private_input,
+    )
+    before = _real_recovery_state(database_url)
+    _AlwaysSuccessfulCleaner.cleanup_scopes = []
+    monkeypatch.setattr(rq_queue_module, "RqRunQueue", _ExactTerminalRunQueue)
+    monkeypatch.setattr(
+        managed_containers_module,
+        "ManagedContainerCleaner",
+        _AlwaysSuccessfulCleaner,
+    )
+    monkeypatch.setenv(MANAGED_DOCKER_EXECUTABLE_ENV, str(admin_executable))
+    monkeypatch.setenv(MANAGED_DOCKER_SOCKET_ENV, str(admin_socket))
+    monkeypatch.setenv(WORKSPACE_ROOT_ENV, str(admin_workspace))
+    monkeypatch.setenv(REDIS_URL_ENV, private_redis_url)
+
+    diagnose_exit = admin.main(
+        [
+            "--database-url",
+            database_url,
+            "run",
+            "diagnose",
+            RUN_ID,
+            "--queue-name",
+            "encode-pipeline-demo",
+        ]
+    )
+    diagnose_output = capsys.readouterr()
+    diagnosis = json.loads(diagnose_output.out)
+    assert diagnose_exit == 0
+    assert diagnose_output.err == ""
+    assert diagnosis["cleanup"] == ("pending" if endpoint_matches else "blocked")
+    assert diagnosis["allowed_actions"] == (["fail"] if endpoint_matches else [])
+    if not endpoint_matches:
+        doctor = run_recovery_doctor(
+            database_url=database_url,
+            redis_url=private_redis_url,
+            queue_name="encode-pipeline-demo",
+        )
+        assert doctor.status is RecoveryDoctorStatus.ATTENTION_REQUIRED
+        assert doctor.counts.cleanup_gaps == 1
+
+    fail_exit = admin.main(
+        [
+            "--database-url",
+            database_url,
+            "run",
+            "fail",
+            RUN_ID,
+            "--expected-status",
+            "running",
+            "--job-id",
+            JOB_ID,
+            "--backend",
+            "rq",
+            "--queue-name",
+            "encode-pipeline-demo",
+        ]
+    )
+    fail_output = capsys.readouterr()
+    if endpoint_matches:
+        assert fail_exit == 0
+        assert fail_output.err == ""
+        assert json.loads(fail_output.out)["status"] == "failed"
+        assert _AlwaysSuccessfulCleaner.cleanup_scopes == [durable_scope]
+        after = _real_recovery_state(database_url)
+        assert after[0].status is RunStatus.FAILED
+        assert after[2][-1].event_type == "run_failed_by_admin_recovery"
+    else:
+        assert fail_exit == 1
+        assert fail_output.out == ""
+        assert json.loads(fail_output.err)["error"]["code"] == ("RUN_RECOVERY_NOT_SAFE")
+        assert _AlwaysSuccessfulCleaner.cleanup_scopes == []
+        assert _real_recovery_state(database_url) == before
+        assert all(
+            event.event_type != "run_failed_by_admin_recovery" for event in before[2]
+        )
+
+    assert managed_container_scope(admin_workspace / RUN_ID) != durable_scope
+
+    combined_output = diagnose_output.out + diagnose_output.err + fail_output.err
+    for private_value in (
+        private_input,
+        str(original_workspace),
+        str(original_executable),
+        str(original_socket),
+        str(admin_executable),
+        str(admin_socket),
+        str(admin_workspace),
+        private_redis_url,
+        "operator:secret",
+        "private-redis.invalid",
+        str(database_path),
+    ):
+        assert private_value not in combined_output
+
+
+def test_real_cli_reports_configured_but_unavailable_cleaner_as_blocked(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    database_path = tmp_path / "private" / "platform.db"
+    database_path.parent.mkdir()
+    database_url = f"sqlite:///{database_path}"
+    private_workspace = (tmp_path / "private" / "original-workspaces").resolve()
+    private_executable = (tmp_path / "private" / "missing" / "docker").resolve()
+    private_socket = (tmp_path / "private" / "missing.sock").resolve()
+    private_input = str(tmp_path / "private" / "sample.csv")
+    private_redis_url = "redis://operator:secret@private-redis.invalid:6379/0"
+    assignment = replace(
+        _assignment(),
+        managed_container_scope=managed_container_scope(private_workspace / RUN_ID),
+        managed_container_endpoint_identity=managed_container_endpoint_identity(
+            private_executable,
+            private_socket,
+        ),
+    )
+    _persist_real_running_run(
+        database_url,
+        assignment=assignment,
+        private_input=private_input,
+    )
+    before = _real_recovery_state(database_url)
+    monkeypatch.setattr(rq_queue_module, "RqRunQueue", _ExactTerminalRunQueue)
+    monkeypatch.setattr(
+        managed_containers_module,
+        "ManagedContainerCleaner",
+        _UnavailableCleaner,
+    )
+    monkeypatch.setenv(MANAGED_DOCKER_EXECUTABLE_ENV, str(private_executable))
+    monkeypatch.setenv(MANAGED_DOCKER_SOCKET_ENV, str(private_socket))
+    monkeypatch.setenv(WORKSPACE_ROOT_ENV, str(tmp_path / "private" / "admin"))
+    monkeypatch.setenv(REDIS_URL_ENV, private_redis_url)
+
+    diagnose_exit = admin.main(
+        [
+            "--database-url",
+            database_url,
+            "run",
+            "diagnose",
+            RUN_ID,
+            "--queue-name",
+            "encode-pipeline-demo",
+        ]
+    )
+    diagnose_output = capsys.readouterr()
+    diagnosis = json.loads(diagnose_output.out)
+    assert diagnose_exit == 0
+    assert diagnose_output.err == ""
+    assert diagnosis["cleanup"] == "blocked"
+    assert diagnosis["gaps"] == ["callback", "cleanup"]
+    assert diagnosis["allowed_actions"] == []
+
+    doctor = run_recovery_doctor(
+        database_url=database_url,
+        redis_url=private_redis_url,
+        queue_name="encode-pipeline-demo",
+    )
+    assert doctor.status is RecoveryDoctorStatus.ATTENTION_REQUIRED
+    assert doctor.counts.cleanup_gaps == 1
+
+    fail_exit = admin.main(
+        [
+            "--database-url",
+            database_url,
+            "run",
+            "fail",
+            RUN_ID,
+            "--expected-status",
+            "running",
+            "--job-id",
+            JOB_ID,
+            "--backend",
+            "rq",
+            "--queue-name",
+            "encode-pipeline-demo",
+        ]
+    )
+    fail_output = capsys.readouterr()
+    assert fail_exit == 1
+    assert fail_output.out == ""
+    assert json.loads(fail_output.err)["error"]["code"] == "RUN_RECOVERY_NOT_SAFE"
+    assert _real_recovery_state(database_url) == before
+    assert all(
+        event.event_type != "run_failed_by_admin_recovery" for event in before[2]
+    )
+
+    combined_output = diagnose_output.out + diagnose_output.err + fail_output.err
+    for private_value in (
+        private_input,
+        str(private_workspace),
+        str(private_executable),
+        str(private_socket),
+        private_redis_url,
+        "operator:secret",
+        "private-redis.invalid",
+        str(database_path),
+    ):
+        assert private_value not in combined_output

@@ -664,10 +664,17 @@ strand an accepted request. A claimed or running run is never requeued.
 
 Administrator failure allows an unclaimed queued assignment only when its job
 is missing or exact-terminal. A claimed run requires exact-terminal evidence
-and configured managed-container cleanup before the SQLite status and audit
-event commit atomically. A missing claimed job, a live or unproven started
-owner, identity drift, queue unavailability, pending cancellation
-acknowledgement, or cleanup failure is diagnostic-only and refuses mutation.
+and an assignment-bound managed-container scope whose endpoint identity exactly
+matches the configured cleaner. The worker records that opaque pair from the
+final `CommandSpec` only under its newly acquired exact claim and before
+starting the scientific process; recovery uses the
+persisted scope rather than recomputing it from the administrator's current
+workspace. Legacy claimed assignments without that binding, endpoint drift,
+cleaner unavailability, or cleanup failure are diagnostic-only and refuse
+mutation. The same is true for a missing claimed job, a live or unproven
+started owner, queue identity drift, queue unavailability, or pending
+cancellation acknowledgement. Only after cleanup succeeds may the SQLite
+status and public-safe audit event commit atomically.
 No operation can create succeeded state, result generations, QC, artifact
 publications, or other scientific evidence.
 

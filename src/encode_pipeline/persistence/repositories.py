@@ -113,6 +113,7 @@ from encode_pipeline.services.run_repositories import (
     ValidatedSnapshotExpiredError,
     ValidatedSnapshotReplayConflictError,
     _artifact_publication_output_type,
+    _assignment_with_bound_cleanup_identity,
     _event_with_context,
     _legacy_run_inputs_digest,
     _require_current_attempt,
@@ -1562,6 +1563,10 @@ class SqlAlchemyRunRepository:
                     ),
                     requeue_requested_at=assignment.requeue_requested_at,
                     requeue_confirmed_at=assignment.requeue_confirmed_at,
+                    managed_container_scope=assignment.managed_container_scope,
+                    managed_container_endpoint_identity=(
+                        assignment.managed_container_endpoint_identity
+                    ),
                 )
                 session.add(row)
                 session.flush()
@@ -1600,6 +1605,44 @@ class SqlAlchemyRunRepository:
         with self._session_factory() as session:
             row = session.get(RunExecutionAssignmentRow, run_id)
             return _execution_assignment_from_row(row) if row is not None else None
+
+    def bind_execution_cleanup_identity(
+        self,
+        run_id: str,
+        *,
+        expected_status: RunStatus,
+        expected_assignment: RunExecutionAssignment,
+        managed_container_scope: str | None,
+        managed_container_endpoint_identity: str | None,
+    ) -> RunExecutionAssignment:
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, run_id)
+            row = session.get(RunExecutionAssignmentRow, run_id)
+            if row is None:
+                raise KeyError(run_id)
+            assignment = _execution_assignment_from_row(row)
+            _require_recovery_row_expectation(
+                run_id=run_id,
+                current=current,
+                assignment=assignment,
+                expected_status=expected_status,
+                expected_assignment=expected_assignment,
+            )
+            updated_assignment = _assignment_with_bound_cleanup_identity(
+                assignment,
+                expected_status=expected_status,
+                managed_container_scope=managed_container_scope,
+                managed_container_endpoint_identity=(
+                    managed_container_endpoint_identity
+                ),
+            )
+            row.managed_container_scope = updated_assignment.managed_container_scope
+            row.managed_container_endpoint_identity = (
+                updated_assignment.managed_container_endpoint_identity
+            )
+            session.flush()
+            return _execution_assignment_from_row(row)
 
     def mark_execution_dispatched(
         self,
@@ -3161,6 +3204,8 @@ def _execution_assignment_from_row(
         cancellation_acknowledged_at=_optional_utc(row.cancellation_acknowledged_at),
         requeue_requested_at=_optional_utc(row.requeue_requested_at),
         requeue_confirmed_at=_optional_utc(row.requeue_confirmed_at),
+        managed_container_scope=row.managed_container_scope,
+        managed_container_endpoint_identity=row.managed_container_endpoint_identity,
     )
 
 
@@ -3265,6 +3310,12 @@ def _assignment_is_confirmation_advance(
     ):
         return False
     if expected.claimed_at is not None and current.claimed_at != expected.claimed_at:
+        return False
+    if expected.managed_container_scope is not None and (
+        current.managed_container_scope != expected.managed_container_scope
+        or current.managed_container_endpoint_identity
+        != expected.managed_container_endpoint_identity
+    ):
         return False
     if expected.cancellation_requested_at is not None and (
         current.cancellation_requested_at != expected.cancellation_requested_at

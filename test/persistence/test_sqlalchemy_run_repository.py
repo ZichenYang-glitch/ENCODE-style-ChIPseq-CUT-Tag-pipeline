@@ -688,6 +688,101 @@ def test_execution_assignment_round_trips_and_returns_canonical_existing(
     assert repository.get_execution_assignment("run-1") == original
 
 
+def test_execution_cleanup_identity_round_trips_across_repository_restart(
+    database_url,
+):
+    upgrade_database(database_url)
+    first_engine = create_database_engine(database_url)
+    first_repository = SqlAlchemyRunRepository(create_session_factory(first_engine))
+    queued = replace(_record("run-1"), status=RunStatus.QUEUED)
+    first_repository.create_run(queued, _created_event())
+    assignment = first_repository.ensure_execution_assignment(
+        replace(
+            _assignment("run-1", "job-1"),
+            dispatched_at=queued.created_at,
+            claimed_at=queued.created_at,
+        ),
+        expected_status=RunStatus.QUEUED,
+    )
+    bound = first_repository.bind_execution_cleanup_identity(
+        "run-1",
+        expected_status=RunStatus.QUEUED,
+        expected_assignment=assignment,
+        managed_container_scope="a" * 64,
+        managed_container_endpoint_identity="b" * 64,
+    )
+    first_engine.dispose()
+
+    second_engine = create_database_engine(database_url)
+    try:
+        second_repository = SqlAlchemyRunRepository(
+            create_session_factory(second_engine)
+        )
+        assert second_repository.get_execution_assignment("run-1") == bound
+    finally:
+        second_engine.dispose()
+
+
+def test_execution_cleanup_identity_concurrent_cas_binds_one_pair(database_url):
+    upgrade_database(database_url)
+    setup_engine = create_database_engine(database_url)
+    setup_repository = SqlAlchemyRunRepository(create_session_factory(setup_engine))
+    queued = replace(_record("run-1"), status=RunStatus.QUEUED)
+    setup_repository.create_run(queued, _created_event())
+    assignment = setup_repository.ensure_execution_assignment(
+        replace(
+            _assignment("run-1", "job-1"),
+            dispatched_at=queued.created_at,
+            claimed_at=queued.created_at,
+        ),
+        expected_status=RunStatus.QUEUED,
+    )
+    setup_engine.dispose()
+
+    first_engine = create_database_engine(database_url)
+    second_engine = create_database_engine(database_url)
+    first_repository = SqlAlchemyRunRepository(create_session_factory(first_engine))
+    second_repository = SqlAlchemyRunRepository(create_session_factory(second_engine))
+    barrier = Barrier(2)
+
+    def bind(repository, scope):
+        barrier.wait(timeout=5)
+        try:
+            return repository.bind_execution_cleanup_identity(
+                "run-1",
+                expected_status=RunStatus.QUEUED,
+                expected_assignment=assignment,
+                managed_container_scope=scope,
+                managed_container_endpoint_identity="c" * 64,
+            )
+        except ConcurrentRunUpdateError as error:
+            return error
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = (
+                pool.submit(bind, first_repository, "a" * 64),
+                pool.submit(bind, second_repository, "b" * 64),
+            )
+            outcomes = tuple(future.result() for future in futures)
+        bindings = [
+            outcome
+            for outcome in outcomes
+            if isinstance(outcome, RunExecutionAssignment)
+        ]
+        conflicts = [
+            outcome
+            for outcome in outcomes
+            if isinstance(outcome, ConcurrentRunUpdateError)
+        ]
+        assert len(bindings) == 1
+        assert len(conflicts) == 1
+        assert first_repository.get_execution_assignment("run-1") == bindings[0]
+    finally:
+        first_engine.dispose()
+        second_engine.dispose()
+
+
 def test_dispatch_mark_is_idempotent_after_status_changes(repository):
     record = _record("run-1")
     repository.create_run(record, _created_event())

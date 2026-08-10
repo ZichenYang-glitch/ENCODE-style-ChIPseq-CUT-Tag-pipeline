@@ -46,12 +46,25 @@ durable assignment identity. Repositories compare those values and all
 monotonic markers under the SQLite write transaction before changing lifecycle
 or appending the public-safe audit event.
 
+The worker also binds the final `CommandSpec` managed-container scope and
+endpoint identity to that assignment only from the exact newly acquired claim,
+before the lifecycle can enter running or a scientific process can start. A
+pre-claimed legacy assignment cannot be resumed or rebound. Both values are opaque
+SHA-256 identities, are either present together or absent together, and are
+immutable once bound. An abnormal callback or administrator cleanup uses the
+durable scope directly and requires the current cleaner's endpoint identity to
+match exactly; it never reconstructs the original scope from the current
+workspace setting. An upgraded assignment that was already claimed without
+this evidence remains legacy-unknown and cannot authorize administrator fail
+or requeue.
+
 An administrator fail is allowed only when no live owner remains:
 
 - a dispatched, unclaimed queued assignment may be failed when its exact job
   is missing or terminal; and
 - a claimed assignment may be failed only when its exact RQ job is terminal
-  and configured managed-container cleanup succeeds.
+  and the durable cleanup binding matches the configured cleaner endpoint and
+  cleanup succeeds.
 
 Queue unavailability, identity drift, a live owner, an unproven started owner,
 a missing claimed job, or pending cancellation intent refuses the operation.
@@ -89,6 +102,8 @@ inconsistent state.
 
 - SQLite remains the only source of lifecycle truth.
 - Dispatch, claim, cancellation, and requeue markers remain monotonic.
+- Managed-container cleanup authority is assignment-bound before process start;
+  configuration drift cannot select a replacement scope or endpoint.
 - RQ and process observations only narrow what an administrator may do.
 - Requeue cannot duplicate a claimed execution.
 - Result indexing and cleanup gaps are visible without being reclassified as

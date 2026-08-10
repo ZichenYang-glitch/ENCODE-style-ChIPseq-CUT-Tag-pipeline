@@ -419,6 +419,16 @@ class RunRepository(Protocol):
         run_id: str,
     ) -> RunExecutionAssignment | None: ...
 
+    def bind_execution_cleanup_identity(
+        self,
+        run_id: str,
+        *,
+        expected_status: RunStatus,
+        expected_assignment: RunExecutionAssignment,
+        managed_container_scope: str | None,
+        managed_container_endpoint_identity: str | None,
+    ) -> RunExecutionAssignment: ...
+
     def mark_execution_dispatched(
         self,
         run_id: str,
@@ -1825,6 +1835,36 @@ class InMemoryRunRepository:
         with self._lock:
             return self._execution_assignments.get(run_id)
 
+    def bind_execution_cleanup_identity(
+        self,
+        run_id: str,
+        *,
+        expected_status: RunStatus,
+        expected_assignment: RunExecutionAssignment,
+        managed_container_scope: str | None,
+        managed_container_endpoint_identity: str | None,
+    ) -> RunExecutionAssignment:
+        with self._lock:
+            current = self._runs[run_id]
+            assignment = self._execution_assignments[run_id]
+            _require_recovery_expectation(
+                run_id=run_id,
+                current=current,
+                assignment=assignment,
+                expected_status=expected_status,
+                expected_assignment=expected_assignment,
+            )
+            updated_assignment = _assignment_with_bound_cleanup_identity(
+                assignment,
+                expected_status=expected_status,
+                managed_container_scope=managed_container_scope,
+                managed_container_endpoint_identity=(
+                    managed_container_endpoint_identity
+                ),
+            )
+            self._execution_assignments[run_id] = updated_assignment
+            return updated_assignment
+
     def mark_execution_dispatched(
         self,
         run_id: str,
@@ -2315,6 +2355,12 @@ def _assignment_is_confirmation_advance(
         or current.requeue_requested_at != expected.requeue_requested_at
     ):
         return False
+    if expected.managed_container_scope is not None and (
+        current.managed_container_scope != expected.managed_container_scope
+        or current.managed_container_endpoint_identity
+        != expected.managed_container_endpoint_identity
+    ):
+        return False
     if expected.claimed_at is not None and current.claimed_at != expected.claimed_at:
         return False
     if expected.cancellation_requested_at is not None and (
@@ -2334,6 +2380,39 @@ def _assignment_is_confirmation_advance(
     ):
         return False
     return True
+
+
+def _assignment_with_bound_cleanup_identity(
+    assignment: RunExecutionAssignment,
+    *,
+    expected_status: RunStatus,
+    managed_container_scope: str | None,
+    managed_container_endpoint_identity: str | None,
+) -> RunExecutionAssignment:
+    if expected_status is not RunStatus.QUEUED:
+        raise ValueError("cleanup identity can only be bound while queued")
+    if assignment.claimed_at is None:
+        raise ValueError("execution assignment must be claimed before cleanup binding")
+    requested = replace(
+        assignment,
+        managed_container_scope=managed_container_scope,
+        managed_container_endpoint_identity=managed_container_endpoint_identity,
+    )
+    current_identity = (
+        assignment.managed_container_scope,
+        assignment.managed_container_endpoint_identity,
+    )
+    requested_identity = (
+        managed_container_scope,
+        managed_container_endpoint_identity,
+    )
+    if current_identity == (None, None):
+        return requested
+    if current_identity != requested_identity:
+        raise ConcurrentRunUpdateError(
+            f"Run {assignment.run_id!r} cleanup identity is already bound."
+        )
+    return assignment
 
 
 def _require_recovery_failure_record(

@@ -196,6 +196,9 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
     } == {
         "ck_run_execution_assignments_ack_requires_request",
         "ck_run_execution_assignments_claim_requires_dispatch",
+        "ck_run_execution_assignments_cleanup_endpoint_format",
+        "ck_run_execution_assignments_cleanup_identity_pair",
+        "ck_run_execution_assignments_cleanup_scope_format",
         "ck_run_execution_assignments_request_reason_pair",
         "ck_run_execution_assignments_request_requires_claim",
         "ck_run_execution_assignments_requeue_requires_dispatch",

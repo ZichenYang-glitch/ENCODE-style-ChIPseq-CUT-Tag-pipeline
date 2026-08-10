@@ -1,4 +1,4 @@
-"""Add one-shot administrator requeue request and confirmation markers.
+"""Add run recovery markers and durable managed-container cleanup identity.
 
 Revision ID: 20260809_13
 Revises: 20260807_12
@@ -31,6 +31,8 @@ _LEGACY_COLUMNS = (
     ("cancellation_acknowledged_at", "DATETIME", True, None, 0),
 )
 _RECOVERY_COLUMNS = _LEGACY_COLUMNS + (
+    ("managed_container_scope", "VARCHAR(64)", True, None, 0),
+    ("managed_container_endpoint_identity", "VARCHAR(64)", True, None, 0),
     ("requeue_requested_at", "DATETIME", True, None, 0),
     ("requeue_confirmed_at", "DATETIME", True, None, 0),
 )
@@ -55,6 +57,25 @@ _LEGACY_CHECKS = {
     ),
 }
 _RECOVERY_CHECKS = _LEGACY_CHECKS | {
+    (
+        "ck_run_execution_assignments_cleanup_identity_pair",
+        "(managed_container_scope IS NULL AND "
+        "managed_container_endpoint_identity IS NULL) OR "
+        "(managed_container_scope IS NOT NULL AND "
+        "managed_container_endpoint_identity IS NOT NULL)",
+    ),
+    (
+        "ck_run_execution_assignments_cleanup_scope_format",
+        "managed_container_scope IS NULL OR "
+        "(length(managed_container_scope) = 64 AND "
+        "managed_container_scope NOT GLOB '*[^0-9a-f]*')",
+    ),
+    (
+        "ck_run_execution_assignments_cleanup_endpoint_format",
+        "managed_container_endpoint_identity IS NULL OR "
+        "(length(managed_container_endpoint_identity) = 64 AND "
+        "managed_container_endpoint_identity NOT GLOB '*[^0-9a-f]*')",
+    ),
     (
         "ck_run_execution_assignments_requeue_requires_dispatch",
         "requeue_requested_at IS NULL OR dispatched_at IS NOT NULL",
@@ -165,6 +186,8 @@ def _batch_rows_are_redundant(
         f'staged."{name}" IS durable."{name}"' for name in legacy_names
     )
     marker_guard = (
+        'staged."managed_container_scope" IS NOT NULL OR '
+        'staged."managed_container_endpoint_identity" IS NOT NULL OR '
         'staged."requeue_requested_at" IS NOT NULL OR '
         'staged."requeue_confirmed_at" IS NOT NULL OR '
         if temp_has_recovery_columns
@@ -235,6 +258,20 @@ def upgrade() -> None:
     with op.batch_alter_table("run_execution_assignments") as batch_op:
         batch_op.add_column(
             sa.Column(
+                "managed_container_scope",
+                sa.String(length=64),
+                nullable=True,
+            )
+        )
+        batch_op.add_column(
+            sa.Column(
+                "managed_container_endpoint_identity",
+                sa.String(length=64),
+                nullable=True,
+            )
+        )
+        batch_op.add_column(
+            sa.Column(
                 "requeue_requested_at",
                 sa.DateTime(timezone=True),
                 nullable=True,
@@ -246,6 +283,25 @@ def upgrade() -> None:
                 sa.DateTime(timezone=True),
                 nullable=True,
             )
+        )
+        batch_op.create_check_constraint(
+            "ck_run_execution_assignments_cleanup_identity_pair",
+            "(managed_container_scope IS NULL AND "
+            "managed_container_endpoint_identity IS NULL) OR "
+            "(managed_container_scope IS NOT NULL AND "
+            "managed_container_endpoint_identity IS NOT NULL)",
+        )
+        batch_op.create_check_constraint(
+            "ck_run_execution_assignments_cleanup_scope_format",
+            "managed_container_scope IS NULL OR "
+            "(length(managed_container_scope) = 64 AND "
+            "managed_container_scope NOT GLOB '*[^0-9a-f]*')",
+        )
+        batch_op.create_check_constraint(
+            "ck_run_execution_assignments_cleanup_endpoint_format",
+            "managed_container_endpoint_identity IS NULL OR "
+            "(length(managed_container_endpoint_identity) = 64 AND "
+            "managed_container_endpoint_identity NOT GLOB '*[^0-9a-f]*')",
         )
         batch_op.create_check_constraint(
             "ck_run_execution_assignments_requeue_requires_dispatch",
@@ -272,6 +328,18 @@ def downgrade() -> None:
     )
     with op.batch_alter_table("run_execution_assignments") as batch_op:
         batch_op.drop_constraint(
+            "ck_run_execution_assignments_cleanup_endpoint_format",
+            type_="check",
+        )
+        batch_op.drop_constraint(
+            "ck_run_execution_assignments_cleanup_scope_format",
+            type_="check",
+        )
+        batch_op.drop_constraint(
+            "ck_run_execution_assignments_cleanup_identity_pair",
+            type_="check",
+        )
+        batch_op.drop_constraint(
             "ck_run_execution_assignments_requeue_confirmation_order",
             type_="check",
         )
@@ -285,3 +353,5 @@ def downgrade() -> None:
         )
         batch_op.drop_column("requeue_confirmed_at")
         batch_op.drop_column("requeue_requested_at")
+        batch_op.drop_column("managed_container_endpoint_identity")
+        batch_op.drop_column("managed_container_scope")

@@ -432,8 +432,6 @@ def _open_run_recovery(
         DATABASE_URL_ENV,
         resolve_database_url,
     )
-    from encode_pipeline.platform.managed_containers import managed_container_scope
-    from encode_pipeline.platform.planning import WorkspacePathPolicy
     from encode_pipeline.services.managed_containers import ManagedContainerCleaner
     from encode_pipeline.services.run_recovery import RunRecoveryService
     from encode_pipeline.workers.rq_queue import RqRunQueue
@@ -507,25 +505,32 @@ def _open_run_recovery(
         repository = SqlAlchemyRunRepository(create_session_factory(engine))
         settings = load_worker_settings(settings_environment)
         queue = RqRunQueue(settings)
-        if settings.managed_docker_executable is None:
-            cleanup = None
-        else:
-            workspace_policy = WorkspacePathPolicy(base_dir=settings.workspace_root)
-            cleaner = ManagedContainerCleaner(
-                executable=settings.managed_docker_executable,
-                unix_socket=settings.managed_docker_socket,
-            )
+        cleanup = None
+        cleanup_endpoint_identity = None
+        cleaner = None
+        if settings.managed_docker_executable is not None:
+            try:
+                cleaner = ManagedContainerCleaner(
+                    executable=settings.managed_docker_executable,
+                    unix_socket=settings.managed_docker_socket,
+                )
+            except (OSError, ValueError):
+                cleaner = None
+        if cleaner is not None:
+            cleanup_endpoint_identity = cleaner.endpoint_identity
 
-            def cleanup(run_id: str) -> bool:
+            def cleanup(scope: str) -> bool:
                 try:
-                    workspace = workspace_policy.resolve(run_id)
-                    return cleaner.cleanup(
-                        managed_container_scope(workspace)
-                    ).is_success
+                    return cleaner.cleanup(scope).is_success
                 except (OSError, RuntimeError, ValueError):
                     return False
 
-        yield RunRecoveryService(repository, queue, cleanup=cleanup)
+        yield RunRecoveryService(
+            repository,
+            queue,
+            cleanup=cleanup,
+            cleanup_endpoint_identity=cleanup_endpoint_identity,
+        )
     finally:
         if queue is not None:
             try:

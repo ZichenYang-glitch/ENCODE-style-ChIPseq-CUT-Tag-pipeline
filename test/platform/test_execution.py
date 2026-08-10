@@ -129,6 +129,50 @@ def test_execution_assignment_accepts_one_shot_requeue_evidence():
     assert assignment.requeue_confirmed_at is confirmed_at
 
 
+def test_execution_assignment_accepts_paired_managed_container_binding():
+    assignment = RunExecutionAssignment(
+        run_id="run-1",
+        job_id="job-1",
+        backend="rq",
+        queue_name="default",
+        created_at=datetime.now(timezone.utc),
+        managed_container_scope="a" * 64,
+        managed_container_endpoint_identity="b" * 64,
+    )
+
+    assert assignment.managed_container_scope == "a" * 64
+    assert assignment.managed_container_endpoint_identity == "b" * 64
+
+
+@pytest.mark.parametrize(
+    ("scope", "endpoint"),
+    [
+        ("a" * 64, None),
+        (None, "b" * 64),
+        ("a" * 63, "b" * 64),
+        ("A" * 64, "b" * 64),
+        ("g" * 64, "b" * 64),
+        ("a" * 64, "b" * 65),
+        ("a" * 64, "B" * 64),
+        ("a" * 64, "z" * 64),
+    ],
+)
+def test_execution_assignment_rejects_unpaired_or_invalid_cleanup_binding(
+    scope,
+    endpoint,
+):
+    with pytest.raises(ValueError, match=r"managed[_ ]container"):
+        RunExecutionAssignment(
+            run_id="run-1",
+            job_id="job-1",
+            backend="rq",
+            queue_name="default",
+            created_at=datetime.now(timezone.utc),
+            managed_container_scope=scope,
+            managed_container_endpoint_identity=endpoint,
+        )
+
+
 @pytest.mark.parametrize(
     ("requested_at", "confirmed_at", "message"),
     [
