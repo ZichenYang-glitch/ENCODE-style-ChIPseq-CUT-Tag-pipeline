@@ -420,3 +420,231 @@ def test_invalid_usage_never_echoes_the_rejected_argument() -> None:
     assert exit_code == EXIT_USAGE
     assert "/private" not in errors.getvalue()
     assert "secret" not in errors.getvalue()
+
+
+@pytest.mark.parametrize("argv", ("status", b"status"))
+def test_command_parser_rejects_scalar_sequence_lookalikes(argv: object) -> None:
+    with pytest.raises(DeploymentError) as caught:
+        parse_command(argv)  # type: ignore[arg-type]
+    assert caught.value.issue.code == "DEPLOYMENT_COMMAND_INVALID"
+
+
+def test_public_result_rejects_non_document_values_and_unknown_exit_codes() -> None:
+    with pytest.raises(DeploymentError) as non_document:
+        PublicCommandResult(object())  # type: ignore[arg-type]
+    assert non_document.value.issue.code == "DEPLOYMENT_RESULT_INVALID"
+
+    with pytest.raises(DeploymentError) as unknown_exit:
+        PublicCommandResult(_status_result(), 71)
+    assert unknown_exit.value.issue.code == "DEPLOYMENT_RESULT_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_call"),
+    (
+        (
+            (
+                "install",
+                "--component",
+                "platform",
+                "--bundle",
+                "/srv/releases/platform.tar",
+            ),
+            ("install", "platform", Path("/srv/releases/platform.tar")),
+        ),
+        (
+            (
+                "upgrade",
+                "--component",
+                "encode-runtime",
+                "--bundle",
+                "/srv/releases/encode.tar",
+            ),
+            ("upgrade", "encode-runtime", Path("/srv/releases/encode.tar")),
+        ),
+        (
+            (
+                "rollback",
+                "--component",
+                "bulk-rnaseq-runtime",
+                "--identity",
+                IDENTITY,
+            ),
+            ("rollback", "bulk-rnaseq-runtime", IDENTITY),
+        ),
+    ),
+)
+def test_mutation_commands_dispatch_exact_arguments_and_publish_bound_json(
+    argv: tuple[str, ...],
+    expected_call: tuple[object, ...],
+) -> None:
+    backend = RecordingBackend()
+    output = io.StringIO()
+
+    assert main(argv, backend=backend, stdout=output) == EXIT_OK
+
+    receipt = json.loads(output.getvalue())
+    assert receipt["command"] == argv[0]
+    assert receipt["status"] == "ok"
+    assert receipt["result"]["operation"] == argv[0]
+    assert backend.called == expected_call
+
+
+def test_backend_must_return_the_public_result_contract() -> None:
+    class InvalidResultBackend(RecordingBackend):
+        def status(self) -> object:
+            return {"schema_version": STATUS_RESULT_SCHEMA}
+
+    output = io.StringIO()
+    errors = io.StringIO()
+
+    exit_code = main(
+        ("status",),
+        backend=InvalidResultBackend(),
+        stdout=output,
+        stderr=errors,
+    )
+
+    assert exit_code == EXIT_OPERATION
+    assert output.getvalue() == ""
+    assert json.loads(errors.getvalue())["issue"]["code"] == (
+        "DEPLOYMENT_RESULT_INVALID"
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("depth", "integer", "text", "mapping-size", "key", "sequence-size", "object"),
+)
+def test_final_json_publication_revalidates_mutated_backend_values(
+    mutation: str,
+) -> None:
+    value = _status_result()
+    result = PublicCommandResult(value)
+    if mutation == "depth":
+        nested: object = None
+        for _index in range(18):
+            nested = [nested]
+        value["components"] = nested
+    elif mutation == "integer":
+        value["generation"] = 2**63
+    elif mutation == "text":
+        value["state_identity"] = "/private/token"
+    elif mutation == "mapping-size":
+        value["components"] = {f"component_{index}": None for index in range(257)}
+    elif mutation == "key":
+        value["components"] = {"secret_value": None}
+    elif mutation == "sequence-size":
+        value["components"] = [None] * 10_001
+    else:
+        value["components"] = object()
+    output = io.StringIO()
+    errors = io.StringIO()
+
+    exit_code = main(
+        ("status",),
+        backend=RecordingBackend(result=result),
+        stdout=output,
+        stderr=errors,
+    )
+
+    assert exit_code == EXIT_OPERATION
+    assert output.getvalue() == ""
+    error = json.loads(errors.getvalue())
+    assert error["issue"]["code"] == "DEPLOYMENT_RESULT_INVALID"
+    assert "private" not in errors.getvalue()
+    assert "secret" not in errors.getvalue()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "operation",
+        "slot",
+        "status",
+        "count",
+        "operator-counts",
+        "service-state",
+        "service-identity",
+        "doctor-summary",
+        "doctor-order",
+        "verify",
+    ),
+)
+def test_result_contract_rejects_semantically_inconsistent_documents(
+    mutation: str,
+) -> None:
+    if mutation == "operation":
+        value = _operation_result("install", "platform")
+        value["state"] = "activated"
+    elif mutation in {
+        "slot",
+        "status",
+        "count",
+        "operator-counts",
+        "service-state",
+        "service-identity",
+    }:
+        value = _status_result()
+        if mutation == "slot":
+            value["components"]["platform"]["active"] = {"identity": "invalid"}
+        elif mutation == "status":
+            value["generation"] = -1
+        elif mutation == "count":
+            value["pending_transaction_count"] = -1
+        elif mutation == "operator-counts":
+            value["operator_pending_transaction_count"] = 1
+            value["operator_recovery_required_count"] = 1
+        elif mutation == "service-state":
+            value["services"]["api"]["state"] = "unknown"
+        else:
+            value["services"]["api"] = {"state": "running", "identity": None}
+    elif mutation in {"doctor-summary", "doctor-order"}:
+        value = _doctor_result(healthy=True)
+        if mutation == "doctor-summary":
+            value["ready"] = False
+        else:
+            value["checks"][0], value["checks"][1] = (
+                value["checks"][1],
+                value["checks"][0],
+            )
+    else:
+        value = {
+            "schema_version": VERIFY_RESULT_SCHEMA,
+            "verified": "yes",
+            "deployment": _status_result(),
+            "frontend_identity": IDENTITY,
+            "database_schema_identity": None,
+        }
+
+    with pytest.raises(DeploymentError) as caught:
+        PublicCommandResult(value)
+    assert caught.value.issue.code == "DEPLOYMENT_RESULT_INVALID"
+
+
+@pytest.mark.parametrize("mismatch", ("schema", "operation"))
+def test_command_result_must_be_bound_to_the_requested_operation(mismatch: str) -> None:
+    if mismatch == "schema":
+        argv = ("status",)
+        result = PublicCommandResult(_doctor_result(healthy=True))
+    else:
+        argv = (
+            "install",
+            "--component",
+            "platform",
+            "--bundle",
+            "/srv/releases/platform.tar",
+        )
+        result = PublicCommandResult(_operation_result("upgrade", "platform"))
+    errors = io.StringIO()
+
+    exit_code = main(
+        argv,
+        backend=RecordingBackend(result=result),
+        stderr=errors,
+    )
+
+    assert exit_code == EXIT_OPERATION
+    assert json.loads(errors.getvalue())["issue"]["code"] == (
+        "DEPLOYMENT_RESULT_INVALID"
+    )

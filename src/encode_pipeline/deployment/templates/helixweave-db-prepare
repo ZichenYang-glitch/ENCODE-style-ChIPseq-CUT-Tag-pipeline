@@ -35,6 +35,19 @@ def _unique(pairs):
     return value
 
 
+def _canonical_json_bytes(value):
+    return (
+        json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
 def _read_request():
     descriptor = os.open(
         REQUEST,
@@ -126,8 +139,7 @@ def _read_request():
         or not heads
         or heads != sorted(set(heads))
         or any(not isinstance(head, str) or HEAD.fullmatch(head) is None for head in heads)
-        or json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-        != content
+        or _canonical_json_bytes(value) != content
     ):
         raise ValueError
     return value
@@ -212,7 +224,7 @@ def main(argv=None):
             output.seek(0)
             content = output.read(MAXIMUM + 1)
         document = json.loads(content, object_pairs_hook=_unique)
-        if json.dumps(document, sort_keys=True, separators=(",", ":")).encode() != content:
+        if _canonical_json_bytes(document) != content:
             return 65
         _write_receipt(content)
     except (OSError, ValueError, UnicodeError, json.JSONDecodeError, subprocess.SubprocessError):

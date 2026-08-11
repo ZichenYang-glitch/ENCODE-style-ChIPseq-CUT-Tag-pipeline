@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from hashlib import sha256
 import hashlib
 import os
@@ -10,14 +11,23 @@ import pytest
 
 import encode_pipeline.deployment.bundle_builder as builder_module
 import encode_pipeline.deployment.native_contracts as native_module
+from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
+    RUNTIME_IDENTITY_SHA256,
+    VerifiedRuntimeAssets,
+)
 from encode_pipeline.deployment.bundle import BundleStore
 from encode_pipeline.deployment.bundle_builder import (
+    build_bulk_rnaseq_runtime_bundle,
     build_encode_runtime_bundle,
     build_platform_bundle,
 )
 from encode_pipeline.deployment.errors import DeploymentError
 from encode_pipeline.deployment.layout import DeploymentLayout
-from encode_pipeline.deployment.models import ENCODE_RUNTIME, PLATFORM
+from encode_pipeline.deployment.models import (
+    BULK_RNASEQ_RUNTIME,
+    ENCODE_RUNTIME,
+    PLATFORM,
+)
 from encode_pipeline.deployment.native_contracts import (
     ENCODE_MICROMAMBA_PATH,
     ENCODE_PACKAGE_ARCHIVE_ROOT,
@@ -40,6 +50,7 @@ from encode_pipeline.deployment.platform_runtime import (
     PlatformRuntimeFile,
     PlatformWheelLock,
 )
+from encode_pipeline.platform.results import Issue, Result
 
 
 def _platform_inputs(
@@ -105,6 +116,47 @@ def _static_elf() -> bytes:
     content[56:58] = (1).to_bytes(2, "little")
     content[64:68] = (1).to_bytes(4, "little")
     return bytes(content)
+
+
+def _bulk_inputs(tmp_path: Path) -> tuple[Path, VerifiedRuntimeAssets]:
+    root = tmp_path / "bulk-runtime"
+    files = {
+        "source/rnaseq/main.nf": b"workflow rnaseq {}\n",
+        "nextflow/nextflow": b"#!/bin/sh\n",
+        "jdk/runtime.tar.gz": b"jdk archive",
+        "plugins/plugin.zip": b"plugin archive",
+        "containers/image.tar": b"container archive",
+    }
+    for relative, content in files.items():
+        path = root.joinpath(*Path(relative).parts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        path.chmod(0o555 if relative == "nextflow/nextflow" else 0o444)
+    assets = VerifiedRuntimeAssets(
+        root=root,
+        source_tree=root / "source/rnaseq",
+        nextflow_executable=root / "nextflow/nextflow",
+        jdk_archive=root / "jdk/runtime.tar.gz",
+        jdk_tree=root / "jdk/runtime",
+        java_executable=root / "jdk/runtime/bin/java",
+        plugin_root=root / "plugins",
+        plugin_archive=root / "plugins/plugin.zip",
+        plugin_meta=root / "plugins/plugin.json",
+        plugin_tree=root / "plugins/plugin",
+        container_lock=root / "containers/availability-lock.json",
+        containers=(),
+        source_tree_sha256="1" * 64,
+        runtime_identity_sha256=RUNTIME_IDENTITY_SHA256,
+        nextflow_sha256="2" * 64,
+        jdk_archive_sha256="3" * 64,
+        jdk_tree_sha256="4" * 64,
+        java_executable_sha256="5" * 64,
+        plugin_archive_sha256="6" * 64,
+        plugin_tree_sha256="7" * 64,
+        container_inventory_sha256="8" * 64,
+        container_lock_sha256="9" * 64,
+    )
+    return root, assets
 
 
 def _explicit_lock(
@@ -220,6 +272,121 @@ def test_encode_builder_accepts_a_real_conda_leading_underscore_basename(
         record.path.endswith("/_openmp_mutex-4.5-20_gnu.conda")
         for record in manifest.files
     )
+
+
+def test_bulk_builder_is_canonical_and_indexes_only_verified_runtime_bytes(
+    tmp_path: Path,
+) -> None:
+    root, assets = _bulk_inputs(tmp_path)
+    observed_roots: list[Path] = []
+
+    def verify(binding):
+        observed_roots.append(binding.root)
+        return Result.success(assets)
+
+    first = tmp_path / "bulk-a.tar"
+    second = tmp_path / "bulk-b.tar"
+    manifest_a = build_bulk_rnaseq_runtime_bundle(
+        root,
+        first,
+        runtime_verifier=verify,
+    )
+    manifest_b = build_bulk_rnaseq_runtime_bundle(
+        root,
+        second,
+        runtime_verifier=verify,
+    )
+
+    assert manifest_a == manifest_b
+    assert first.read_bytes() == second.read_bytes()
+    assert manifest_a.component == BULK_RNASEQ_RUNTIME
+    assert observed_roots == [root, root]
+    assert {record.path for record in manifest_a.files} == {
+        native_module.BULK_RUNTIME_IDENTITY_PATH,
+        "payload/runtime/source/rnaseq/main.nf",
+        "payload/runtime/nextflow/nextflow",
+        "payload/runtime/jdk/runtime.tar.gz",
+        "payload/runtime/plugins/plugin.zip",
+        "payload/runtime/containers/image.tar",
+    }
+    assert (
+        BundleStore(DeploymentLayout.isolated(tmp_path / "bulk-host")).inspect(first)
+        == manifest_a
+    )
+
+
+@pytest.mark.parametrize("fault", ("exception", "failure", "wrong-identity"))
+def test_bulk_builder_rejects_unverified_runtime_closure(
+    tmp_path: Path,
+    fault: str,
+) -> None:
+    root, assets = _bulk_inputs(tmp_path)
+
+    def verify(_binding):
+        if fault == "exception":
+            raise RuntimeError(str(tmp_path))
+        if fault == "failure":
+            return Result.failure((Issue("RUNTIME_INVALID", "Runtime is invalid."),))
+        return Result.success(replace(assets, runtime_identity_sha256="f" * 64))
+
+    output = tmp_path / f"bulk-{fault}.tar"
+    with pytest.raises(DeploymentError) as caught:
+        build_bulk_rnaseq_runtime_bundle(root, output, runtime_verifier=verify)
+
+    assert caught.value.issue.code == "DEPLOYMENT_BUNDLE_SOURCE_INVALID"
+    assert str(tmp_path) not in str(caught.value)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("fault", ("extra-root", "symlink-root", "source-drift"))
+def test_bulk_builder_rejects_unverified_tree_changes(
+    tmp_path: Path,
+    fault: str,
+) -> None:
+    root, assets = _bulk_inputs(tmp_path)
+    if fault == "extra-root":
+        (root / "unexpected").mkdir()
+    elif fault == "symlink-root":
+        source = root / "source"
+        relocated = tmp_path / "source-real"
+        source.rename(relocated)
+        source.symlink_to(relocated, target_is_directory=True)
+
+    def verify(_binding):
+        if fault == "source-drift":
+            (root / "containers/image.tar").chmod(0o666)
+        return Result.success(assets)
+
+    output = tmp_path / f"bulk-tree-{fault}.tar"
+    with pytest.raises(DeploymentError) as caught:
+        build_bulk_rnaseq_runtime_bundle(root, output, runtime_verifier=verify)
+
+    assert caught.value.issue.code == "DEPLOYMENT_BUNDLE_SOURCE_INVALID"
+    assert not output.exists()
+
+
+def test_bulk_builder_never_overwrites_an_existing_output(
+    tmp_path: Path,
+) -> None:
+    root, assets = _bulk_inputs(tmp_path)
+    output = tmp_path / "bulk.tar"
+    build_bulk_rnaseq_runtime_bundle(
+        root,
+        output,
+        runtime_verifier=lambda _binding: Result.success(assets),
+    )
+    original = output.read_bytes()
+
+    with pytest.raises(DeploymentError) as caught:
+        build_bulk_rnaseq_runtime_bundle(
+            root,
+            output,
+            runtime_verifier=lambda _binding: Result.success(assets),
+        )
+
+    assert caught.value.issue.code == "DEPLOYMENT_BUNDLE_OUTPUT_EXISTS"
+    assert output.read_bytes() == original
+    assert not tuple(tmp_path.glob("*.partial"))
 
 
 def test_platform_builder_indexes_only_authoritative_candidate_bytes(

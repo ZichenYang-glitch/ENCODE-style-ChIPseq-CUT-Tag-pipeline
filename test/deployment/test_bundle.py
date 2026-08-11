@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import errno
 import hashlib
 import inspect
 import os
@@ -31,6 +32,16 @@ from .support import (
     manifest_for,
     write_bundle,
 )
+
+
+def _descriptor_count() -> int:
+    return len(os.listdir("/proc/self/fd"))
+
+
+def _assert_descriptor_closed(descriptor: int) -> None:
+    with pytest.raises(OSError) as captured:
+        os.fstat(descriptor)
+    assert captured.value.errno == errno.EBADF
 
 
 def test_bundle_stages_and_verifies_immutable_content(tmp_path: Path) -> None:
@@ -105,6 +116,146 @@ def test_bundle_rejects_noncanonical_header_or_padding(
     with pytest.raises(DeploymentError) as caught:
         BundleStore(layout).stage(bundle)
     assert caught.value.issue.code == "DEPLOYMENT_BUNDLE_INVALID"
+
+
+@pytest.mark.parametrize("archive_failure", ("tar-error", "os-error"))
+@pytest.mark.parametrize("operation", ("inspect", "stage"))
+def test_malformed_bundle_admission_closes_every_descriptor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    archive_failure: str,
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path / "host")
+    bundle = tmp_path / "malformed.tar"
+    bundle.write_bytes(b"not-a-tar".ljust(tarfile.RECORDSIZE, b"X"))
+    bundle.chmod(0o644)
+    store = BundleStore(layout)
+    parent_descriptors: list[int] = []
+    bundle_descriptors: list[int] = []
+    closed_parent_descriptors: list[int] = []
+    active_parent_descriptors: set[int] = set()
+    original_open = bundle_module.os.open
+    original_close = bundle_module.os.close
+
+    def failing_tar_open(*_args, **_kwargs):
+        raise OSError("injected archive open failure")
+
+    def tracked_open(path, flags, mode=0o777, *, dir_fd=None):
+        if dir_fd is None:
+            descriptor = original_open(path, flags, mode)
+        else:
+            descriptor = original_open(path, flags, mode, dir_fd=dir_fd)
+        if dir_fd is None and path == bundle.parent:
+            parent_descriptors.append(descriptor)
+            active_parent_descriptors.add(descriptor)
+        elif dir_fd is not None and path == bundle.name:
+            bundle_descriptors.append(descriptor)
+        return descriptor
+
+    def tracked_close(descriptor: int) -> None:
+        original_close(descriptor)
+        if descriptor in active_parent_descriptors:
+            active_parent_descriptors.remove(descriptor)
+            closed_parent_descriptors.append(descriptor)
+
+    before = _descriptor_count()
+    with monkeypatch.context() as scoped:
+        scoped.setattr(bundle_module.os, "open", tracked_open)
+        scoped.setattr(bundle_module.os, "close", tracked_close)
+        if archive_failure == "os-error":
+            scoped.setattr(bundle_module.tarfile, "open", failing_tar_open)
+        action = store.inspect if operation == "inspect" else store.stage
+        for _attempt in range(32):
+            with pytest.raises(DeploymentError) as captured:
+                action(bundle)
+            assert captured.value.issue.code == "DEPLOYMENT_BUNDLE_INVALID"
+            assert not active_parent_descriptors
+            _assert_descriptor_closed(parent_descriptors[-1])
+            _assert_descriptor_closed(bundle_descriptors[-1])
+
+    assert _descriptor_count() == before
+    assert len(parent_descriptors) == 32
+    assert len(bundle_descriptors) == 32
+    assert closed_parent_descriptors == parent_descriptors
+
+
+@pytest.mark.parametrize(
+    "failing_resource", ("archive", "file-object", "file-object-construction")
+)
+def test_cleanup_failure_still_closes_remaining_bundle_resources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failing_resource: str,
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path / "host")
+    manifest, payload = manifest_for(ENCODE_RUNTIME)
+    bundle = write_bundle(tmp_path / "encode.tar", manifest, payload)
+    parent_descriptors: list[int] = []
+    bundle_descriptors: list[int] = []
+    original_open = bundle_module.os.open
+    original_tar_open = bundle_module.tarfile.open
+    original_fdopen = bundle_module.os.fdopen
+
+    def tracked_open(path, flags, mode=0o777, *, dir_fd=None):
+        if dir_fd is None:
+            descriptor = original_open(path, flags, mode)
+        else:
+            descriptor = original_open(path, flags, mode, dir_fd=dir_fd)
+        if dir_fd is None and path == bundle.parent:
+            parent_descriptors.append(descriptor)
+        elif dir_fd is not None and path == bundle.name:
+            bundle_descriptors.append(descriptor)
+        return descriptor
+
+    class FailingArchiveClose:
+        def __init__(self, archive) -> None:
+            self._archive = archive
+
+        def __getattr__(self, name):
+            return getattr(self._archive, name)
+
+        def close(self) -> None:
+            self._archive.close()
+            raise OSError("injected archive close failure")
+
+    class FailingFileClose:
+        def __init__(self, file_object) -> None:
+            self._file_object = file_object
+
+        def __getattr__(self, name):
+            return getattr(self._file_object, name)
+
+        def close(self) -> None:
+            self._file_object.close()
+            raise OSError("injected file-object close failure")
+
+    def failing_tar_open(*args, **kwargs):
+        return FailingArchiveClose(original_tar_open(*args, **kwargs))
+
+    def failing_fdopen(*args, **kwargs):
+        return FailingFileClose(original_fdopen(*args, **kwargs))
+
+    def failing_fdopen_construction(*_args, **_kwargs):
+        raise OSError("injected file-object-construction close failure")
+
+    before = _descriptor_count()
+    with monkeypatch.context() as scoped:
+        scoped.setattr(bundle_module.os, "open", tracked_open)
+        if failing_resource == "archive":
+            scoped.setattr(bundle_module.tarfile, "open", failing_tar_open)
+        elif failing_resource == "file-object":
+            scoped.setattr(bundle_module.os, "fdopen", failing_fdopen)
+        else:
+            scoped.setattr(bundle_module.os, "fdopen", failing_fdopen_construction)
+        with pytest.raises(OSError, match=f"injected {failing_resource} close"):
+            BundleStore(layout).inspect(bundle)
+        _assert_descriptor_closed(parent_descriptors[0])
+        _assert_descriptor_closed(bundle_descriptors[0])
+
+    assert _descriptor_count() == before
+    assert len(parent_descriptors) == 1
+    assert len(bundle_descriptors) == 1
 
 
 def test_bundle_rejects_group_writable_ingress_and_tampered_install(

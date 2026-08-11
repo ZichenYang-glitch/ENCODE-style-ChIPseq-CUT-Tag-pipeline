@@ -53,10 +53,10 @@ def _receipt(**values: object) -> bytes:
     )
 
 
-def _service() -> ServiceIdentity:
+def _service(*, deployment_identity: str = IDENTITY) -> ServiceIdentity:
     return ServiceIdentity.create(
         unit="helixweave-worker.service",
-        deployment_identity=IDENTITY,
+        deployment_identity=deployment_identity,
         task_identity=SERVICE_TASK,
         main_pid=1234,
         process_start_ticks=42,
@@ -72,6 +72,7 @@ def _service() -> ServiceIdentity:
 
 def _verification(
     *,
+    status: str = "observed",
     native_platform_identity: str | None = IDENTITY,
     database_identity: str = OTHER_IDENTITY,
     frontend_identity: str = IDENTITY,
@@ -103,7 +104,7 @@ def _verification(
     readiness.update(readiness_overrides or {})
     return DeploymentActionReceipt.create(
         request_identity=IDENTITY,
-        status="observed",
+        status=status,
         compatibility="compatible",
         database_after_identity=database_identity,
         accepted_schema_heads=("schema-v1",),
@@ -172,6 +173,142 @@ def test_operator_client_rejects_extra_or_mismatched_receipt_fields() -> None:
         client.stage(PLATFORM, IDENTITY, TASK)
 
     assert caught.value.issue.code == "DEPLOYMENT_OPERATOR_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    ("failure", "recoverable"),
+    (
+        ("exception", True),
+        ("wrong-type", False),
+        ("exit-unavailable", True),
+        ("stderr", False),
+        ("empty", False),
+        ("invalid-json", False),
+        ("duplicate-key", False),
+        ("noncanonical", False),
+        ("oversized", False),
+    ),
+)
+def test_operator_client_fails_closed_on_untrusted_execution_results(
+    failure: str,
+    recoverable: bool,
+) -> None:
+    def run(_arguments: tuple[str, ...]) -> object:
+        if failure == "exception":
+            raise OSError("/private/operator token=secret")
+        if failure == "wrong-type":
+            return object()
+        if failure == "exit-unavailable":
+            return OperatorExecution(69, b"", b"")
+        if failure == "stderr":
+            return OperatorExecution(0, b"{}\n", b"private stderr")
+        if failure == "empty":
+            return OperatorExecution(0, b"", b"")
+        if failure == "invalid-json":
+            return OperatorExecution(0, b"not-json\n", b"")
+        if failure == "duplicate-key":
+            return OperatorExecution(
+                0,
+                b'{"schema_version":"one","schema_version":"two"}\n',
+                b"",
+            )
+        if failure == "noncanonical":
+            return OperatorExecution(0, b"{ }\n", b"")
+        return OperatorExecution(
+            0,
+            b"x" * (backend_module._MAX_OPERATOR_RECEIPT_BYTES + 1),
+            b"",
+        )
+
+    client = SudoOperatorClient(runner=run)  # type: ignore[arg-type]
+    with pytest.raises(DeploymentError) as caught:
+        client.stage(PLATFORM, IDENTITY, TASK)
+
+    assert caught.value.issue.code == "DEPLOYMENT_OPERATOR_UNAVAILABLE"
+    assert caught.value.issue.recoverable is recoverable
+    assert "private" not in str(caught.value)
+    assert "secret" not in str(caught.value)
+
+
+def test_operator_client_accepts_stopped_services_and_exact_mutation_receipts() -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def run(arguments: tuple[str, ...]) -> OperatorExecution:
+        calls.append(arguments)
+        operation = arguments[0]
+        if operation == "status":
+            unit, deployment_identity, task = arguments[1:]
+            return OperatorExecution(
+                0,
+                _receipt(
+                    schema_version=OPERATOR_RECEIPT_SCHEMA,
+                    operation="status",
+                    state="stopped",
+                    task_identity=task,
+                    deployment_identity=deployment_identity,
+                    unit=unit,
+                ),
+                b"",
+            )
+        component, deployment_identity, task = arguments[1:]
+        return OperatorExecution(
+            0,
+            _receipt(
+                schema_version=OPERATOR_RECEIPT_SCHEMA,
+                operation=operation,
+                state={"activate": "activated", "rollback": "rolled-back"}[operation],
+                task_identity=task,
+                deployment_identity=deployment_identity,
+                component=component,
+            ),
+            b"",
+        )
+
+    client = SudoOperatorClient(runner=run)
+    client.activate(PLATFORM, IDENTITY, TASK)
+    client.rollback(PLATFORM, IDENTITY, TASK)
+    assert client.status_service("helixweave-api.service", IDENTITY, TASK) == (
+        ServiceObservation("stopped")
+    )
+    assert calls == [
+        ("activate", PLATFORM, IDENTITY, TASK),
+        ("rollback", PLATFORM, IDENTITY, TASK),
+        ("status", "helixweave-api.service", IDENTITY, TASK),
+    ]
+
+
+def test_operator_service_observation_rejects_invalid_unit_and_identity_evidence() -> (
+    None
+):
+    client = SudoOperatorClient(
+        runner=lambda _arguments: OperatorExecution(0, b"{}\n", b"")
+    )
+    with pytest.raises(DeploymentError) as invalid_unit:
+        client.status_service("caller-selected.service", IDENTITY, TASK)
+    assert invalid_unit.value.issue.code == "DEPLOYMENT_SERVICE_OBSERVATION_INVALID"
+
+    def running_receipt(service_identity: object) -> OperatorExecution:
+        return OperatorExecution(
+            0,
+            _receipt(
+                schema_version=OPERATOR_RECEIPT_SCHEMA,
+                operation="status",
+                state="running",
+                task_identity=TASK,
+                deployment_identity=IDENTITY,
+                unit="helixweave-worker.service",
+                service_identity=service_identity,
+            ),
+            b"",
+        )
+
+    for evidence in ({}, _service(deployment_identity=OTHER_IDENTITY).to_dict()):
+        malformed = SudoOperatorClient(
+            runner=lambda _arguments, evidence=evidence: running_receipt(evidence)
+        )
+        with pytest.raises(DeploymentError) as caught:
+            malformed.status_service("helixweave-worker.service", IDENTITY, TASK)
+        assert caught.value.issue.code == "DEPLOYMENT_OPERATOR_UNAVAILABLE"
 
 
 def test_operator_observation_uses_the_fixed_state_bound_grammar() -> None:
@@ -491,6 +628,86 @@ def test_upgrade_composes_ingress_operator_and_root_state_reread(
         ("stage", PLATFORM, manifest.identity, stage_task),
         ("activate", PLATFORM, manifest.identity, activate_task),
     ]
+
+
+def test_install_stages_exactly_the_inspected_and_published_bundle(
+    tmp_path: Path,
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path / "host")
+    manager = manager_for(layout)
+    manifest, payload = manifest_for(PLATFORM)
+    bundle = write_bundle(tmp_path / "platform.tar", manifest, payload)
+    ingress = _Ingress([])
+    operator = _Operator(manager, bundle)
+    backend = ProductionCommandBackend(
+        layout=layout,
+        manager=manager,
+        operator=operator,
+        ingress=ingress,
+        task_factory=lambda: TASK,
+    )
+
+    result = backend.install(PLATFORM, bundle)
+
+    assert result.value == {
+        "schema_version": OPERATION_RESULT_SCHEMA,
+        "operation": "install",
+        "state": "staged",
+        "component": PLATFORM,
+        "deployment_identity": manifest.identity,
+        "state_identity": manager.status().state.identity,
+    }
+    assert ingress.calls == [(bundle, manifest, TASK)]
+    assert operator.calls == [("stage", PLATFORM, manifest.identity, TASK)]
+    assert manager.status().state.components[PLATFORM].active is None
+
+
+def test_rollback_requires_and_activates_the_exact_previous_identity(
+    tmp_path: Path,
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path / "host")
+    manager = manager_for(layout)
+    previous, previous_payload = manifest_for(PLATFORM, version="1.0.0")
+    active, active_payload = manifest_for(PLATFORM, version="2.0.0")
+    previous_bundle = write_bundle(
+        tmp_path / "platform-previous.tar",
+        previous,
+        previous_payload,
+    )
+    active_bundle = write_bundle(
+        tmp_path / "platform-active.tar",
+        active,
+        active_payload,
+    )
+    manager.stage(previous_bundle)
+    manager.activate(PLATFORM, expected_staged_identity=previous.identity)
+    manager.stage(active_bundle)
+    manager.activate(PLATFORM, expected_staged_identity=active.identity)
+    operator = _Operator(manager, active_bundle)
+    backend = ProductionCommandBackend(
+        layout=layout,
+        manager=manager,
+        operator=operator,
+        ingress=_Ingress([]),
+        task_factory=lambda: TASK,
+    )
+
+    result = backend.rollback(PLATFORM, previous.identity)
+
+    assert result.value == {
+        "schema_version": OPERATION_RESULT_SCHEMA,
+        "operation": "rollback",
+        "state": "rolled-back",
+        "component": PLATFORM,
+        "deployment_identity": previous.identity,
+        "state_identity": manager.status().state.identity,
+    }
+    assert operator.calls == [("rollback", PLATFORM, previous.identity, TASK)]
+    assert manager.status().state.components[PLATFORM].active == previous.identity
+    with pytest.raises(DeploymentError) as mismatch:
+        backend.rollback(PLATFORM, OTHER_IDENTITY)
+    assert mismatch.value.issue.code == "DEPLOYMENT_PREVIOUS_IDENTITY_MISMATCH"
+    assert operator.calls == [("rollback", PLATFORM, previous.identity, TASK)]
 
 
 def test_status_uses_root_observation_when_the_local_database_is_unreadable(

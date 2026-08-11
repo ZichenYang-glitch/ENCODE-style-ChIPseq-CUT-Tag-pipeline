@@ -117,6 +117,48 @@ class _BoundaryObserver:
         return observed
 
 
+def _install_docker_response(
+    monkeypatch: pytest.MonkeyPatch,
+    response: bytes,
+    *,
+    socket_error: bool = False,
+) -> list[tuple[object, ...]]:
+    remaining = bytearray(response)
+    calls: list[tuple[object, ...]] = []
+
+    class FakeSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def settimeout(self, value):
+            calls.append(("timeout", value))
+
+        def connect(self, path):
+            calls.append(("connect", path))
+            if socket_error:
+                raise OSError("private socket failure")
+
+        def sendall(self, content):
+            calls.append(("request", content))
+
+        def recv(self, _maximum):
+            if not remaining:
+                return b""
+            content = bytes(remaining)
+            remaining.clear()
+            return content
+
+    def socket_factory(family, kind):
+        calls.append(("socket", family, kind))
+        return FakeSocket()
+
+    monkeypatch.setattr(materializer_module.socket, "socket", socket_factory)
+    return calls
+
+
 def _not_ready() -> Result[VerifiedRuntimeAssets]:
     return Result.failure((Issue("DOCKER_UNAVAILABLE", "Docker is unavailable."),))
 
@@ -421,6 +463,68 @@ def test_production_image_state_probe_is_exact_and_af_unix_only(
     assert not any(b"tcp://" in call[1] for call in calls if call[0] == "request")
 
 
+@pytest.mark.parametrize(
+    ("fault", "response"),
+    (
+        ("invalid-binding", b""),
+        ("socket-error", b""),
+        ("empty", b""),
+        ("missing-separator", b"HTTP/1.0 200 OK\r\n"),
+        ("bad-status", b"FTP/1.0 200 OK\r\n\r\n{}"),
+        (
+            "duplicate-header",
+            b"HTTP/1.0 200 OK\r\nX-Test: one\r\nx-test: two\r\n\r\n{}",
+        ),
+        (
+            "transfer-encoding",
+            b"HTTP/1.0 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n{}",
+        ),
+        (
+            "length-mismatch",
+            b"HTTP/1.0 200 OK\r\nContent-Length: 9\r\n\r\n{}",
+        ),
+        (
+            "duplicate-json-key",
+            b'HTTP/1.0 200 OK\r\n\r\n{"Id":1,"Id":2}',
+        ),
+        (
+            "wrong-missing-message",
+            b'HTTP/1.0 404 Missing\r\n\r\n{"message":"different image"}',
+        ),
+    ),
+)
+def test_production_image_probe_rejects_malformed_or_ambiguous_daemon_responses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
+    response: bytes,
+) -> None:
+    image = f"sha256:{'1' * 64}"
+    layers = (f"sha256:{'2' * 64}",)
+    calls = _install_docker_response(
+        monkeypatch,
+        response,
+        socket_error=fault == "socket-error",
+    )
+    docker_executable = (
+        tmp_path / "docker" if fault == "invalid-binding" else DOCKER_EXECUTABLE
+    )
+    binding = RuntimeAssetBinding(
+        root=tmp_path.resolve(),
+        docker_executable=docker_executable,
+        docker_socket=materializer_module.DOCKER_SOCKET,
+    )
+
+    observed = probe_bulk_docker_image_state(binding, image, layers)
+
+    assert observed == IMAGE_INVALID
+    if fault == "invalid-binding":
+        assert calls == []
+    else:
+        assert calls[0] == ("socket", socket.AF_UNIX, socket.SOCK_STREAM)
+        assert not any(b"tcp://" in call[1] for call in calls if call[0] == "request")
+
+
 def test_materializer_uses_archive_fd_and_exact_offline_docker_command(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -583,6 +687,83 @@ def test_canary_failure_with_missing_image_causes_zero_load(
     assert caught.value.issue.code == "BULK_RUNTIME_CANARY_INVALID"
     assert runner.calls == []
     assert full.calls == 0
+
+
+@pytest.mark.parametrize(
+    ("fault", "expected_code"),
+    (
+        ("boundary-exception", "BULK_RUNTIME_DOCKER_BOUNDARY_INVALID"),
+        ("canary-exception", "BULK_RUNTIME_CANARY_INVALID"),
+        ("canary-mismatch", "BULK_RUNTIME_CANARY_INVALID"),
+        ("state-exception", "BULK_RUNTIME_IMAGE_STATE_INVALID"),
+        ("state-unknown", "BULK_RUNTIME_IMAGE_STATE_INVALID"),
+        ("full-exception", "BULK_RUNTIME_POST_LOAD_INVALID"),
+        ("runner-exception", "BULK_RUNTIME_IMAGE_LOAD_FAILED"),
+    ),
+)
+def test_materializer_maps_boundary_verifier_and_runner_faults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
+    expected_code: str,
+) -> None:
+    prepared = _prepared(tmp_path, monkeypatch)
+    image = prepared.assets.containers[0].runtime_image
+
+    def raise_private(*_args, **_kwargs):
+        raise RuntimeError(str(tmp_path))
+
+    def raise_process(*_args, **_kwargs):
+        raise OSError(str(tmp_path))
+
+    runner = raise_process if fault == "runner-exception" else _DockerRunner()
+    full_verifier = (
+        raise_private
+        if fault == "full-exception"
+        else _FullVerifier(Result.success(prepared.assets))
+    )
+    boundary_observer = (
+        raise_private
+        if fault == "boundary-exception"
+        else _BoundaryObserver(prepared.boundary)
+    )
+    if fault == "canary-exception":
+        canary_verifier = raise_private
+    elif fault == "canary-mismatch":
+        changed = replace(prepared.assets, nextflow_sha256="f" * 64)
+
+        def changed_canary(_binding):
+            return Result.success(changed)
+
+        canary_verifier = changed_canary
+    else:
+        canary_verifier = None
+    if fault == "state-exception":
+        state_probe = raise_private
+    elif fault == "state-unknown":
+
+        def unknown_state(*_args):
+            return "unexpected"
+
+        state_probe = unknown_state
+    elif fault == "full-exception":
+        state_probe = _StateProbe({image: [IMAGE_EXACT_READY]})
+    else:
+        state_probe = None
+
+    with pytest.raises(DeploymentError) as caught:
+        _materializer(
+            prepared,
+            runner,
+            full_verifier,
+            state_probe=state_probe,
+            boundary_observer=boundary_observer,
+            canary_verifier=canary_verifier,
+        ).prepare(prepared.request)
+
+    assert caught.value.issue.code == expected_code
+    assert caught.value.issue.recoverable is True
+    assert str(tmp_path) not in str(caught.value)
 
 
 def test_endpoint_change_after_missing_probe_causes_zero_load(
@@ -794,6 +975,74 @@ def test_read_only_materialized_verifier_returns_path_free_exact_evidence(
     serialized = json.dumps(verified.__dict__, sort_keys=True)
     assert str(tmp_path) not in serialized
     assert "path" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("fault", "expected_code"),
+    (
+        ("static-root", "BULK_RUNTIME_SOURCE_INVALID"),
+        ("boundary-exception", "BULK_RUNTIME_DOCKER_BOUNDARY_INVALID"),
+        ("canary-exception", "BULK_RUNTIME_CANARY_INVALID"),
+        ("canary-mismatch", "BULK_RUNTIME_CANARY_INVALID"),
+        ("probe-exception", "BULK_RUNTIME_IMAGE_STATE_INVALID"),
+    ),
+)
+def test_read_only_verifier_maps_dependency_faults_to_stable_contract_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
+    expected_code: str,
+) -> None:
+    prepared = _prepared(tmp_path, monkeypatch)
+    image = prepared.assets.containers[0].runtime_image
+
+    def raise_private(*_args):
+        raise RuntimeError(str(tmp_path))
+
+    static = (
+        replace(prepared.assets, root=tmp_path / "wrong-root")
+        if fault == "static-root"
+        else prepared.assets
+    )
+    canary = (
+        replace(prepared.assets, nextflow_sha256="f" * 64)
+        if fault == "canary-mismatch"
+        else prepared.assets
+    )
+    observer = (
+        raise_private
+        if fault == "boundary-exception"
+        else _BoundaryObserver(prepared.boundary)
+    )
+    canary_verifier = (
+        raise_private
+        if fault == "canary-exception"
+        else lambda _binding: Result.success(canary)
+    )
+    image_probe = (
+        raise_private
+        if fault == "probe-exception"
+        else _StateProbe({image: [IMAGE_EXACT_READY]})
+    )
+
+    with pytest.raises(DeploymentError) as caught:
+        verify_materialized_bulk_runtime(
+            prepared.layout,
+            BULK_IDENTITY,
+            expected_daemon_uid=prepared.request.docker_daemon_uid,
+            expected_daemon_gid=prepared.request.docker_daemon_gid,
+            expected_client_identity=CLIENT_IDENTITY,
+            expected_endpoint_identity=ENDPOINT_IDENTITY,
+            installed_owner_uid=os.getuid(),
+            installed_owner_gid=os.getgid(),
+            _static_verifier=lambda _binding: Result.success(static),
+            _canary_verifier=canary_verifier,
+            _boundary_observer=observer,
+            _image_state_probe=image_probe,
+        )
+
+    assert caught.value.issue.code == expected_code
+    assert str(tmp_path) not in str(caught.value)
 
 
 @pytest.mark.parametrize(

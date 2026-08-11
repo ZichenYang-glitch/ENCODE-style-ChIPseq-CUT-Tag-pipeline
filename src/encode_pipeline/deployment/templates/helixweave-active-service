@@ -303,12 +303,12 @@ def main(argv=None):
     try:
         platform_identity, platform_environment = _active_generation()
         binary = _launcher(platform_identity)
+        environment = dict(os.environ)
+        environment.update(platform_environment)
+        environment["PYTHONNOUSERSITE"] = "1"
+        os.execve(binary, (str(binary), values[0]), environment)
     except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
         return 69
-    environment = dict(os.environ)
-    environment.update(platform_environment)
-    environment["PYTHONNOUSERSITE"] = "1"
-    os.execve(binary, (str(binary), values[0]), environment)
     return 70
 
 

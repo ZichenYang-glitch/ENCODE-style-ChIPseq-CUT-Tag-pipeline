@@ -16,6 +16,7 @@ import encode_pipeline.deployment.native_contracts as native_module
 import encode_pipeline.deployment.operator_action as operator_action_module
 from encode_pipeline.deployment.bundle import BundleStore
 from encode_pipeline.deployment.bundle_builder import build_encode_runtime_bundle
+from encode_pipeline.deployment.canonical import canonical_json_bytes
 from encode_pipeline.deployment.encode_runtime_materializer import (
     CONDA_COMPAT_RELATIVE_PATH,
     MICROMAMBA_RELATIVE_PATH,
@@ -732,6 +733,106 @@ def test_prepare_never_quarantines_before_the_unit_is_terminal(
     else:
         assert "quarantine" not in events
         assert caught.value.issue.code == "ENCODE_RUNTIME_RECOVERY_REQUIRED"
+
+
+def test_systemd_materializer_prepares_then_rejects_tampered_reuse_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared = _prepared_runtime(tmp_path, monkeypatch)
+    prepared.destination.rmdir()
+    prepared.destination.parent.chmod(0o555)
+    boundary = prepared.layout.encode_runtime_prepare_root
+    boundary.mkdir(parents=True)
+    boundary.chmod(0o750)
+    records = prepared.layout.data_root / "operator" / "runtime-materializations"
+    records.mkdir(parents=True)
+    records.chmod(0o700)
+    runner = _SyntheticRunner(safe_symlink=True)
+    commands: list[tuple[str, ...]] = []
+
+    def dispatch(argv: tuple[str, ...]) -> int:
+        commands.append(argv)
+        request = EncodeRuntimePrepareRequest.from_dict(
+            json.loads(prepared.layout.encode_runtime_prepare_request.read_bytes())
+        )
+        receipt = _materializer(prepared, runner).prepare(request)
+        prepared.layout.encode_runtime_prepare_receipt.write_bytes(
+            canonical_json_bytes(receipt.to_dict())
+        )
+        prepared.layout.encode_runtime_prepare_receipt.chmod(0o600)
+        return 0
+
+    preparer = SystemdEncodeRuntimePreparer(
+        prepared.layout,
+        service_uid=os.getuid(),
+        service_gid=os.getgid(),
+        root_uid=os.getuid(),
+        root_gid=os.getgid(),
+        command_runner=dispatch,
+    )
+    original_mkdir = operator_action_module.os.mkdir
+
+    def privileged_destination_mkdir(path, mode=0o777, *, dir_fd=None):
+        if Path(path) == prepared.destination and dir_fd is None:
+            prepared.destination.parent.chmod(0o755)
+            try:
+                return original_mkdir(path, mode)
+            finally:
+                prepared.destination.parent.chmod(0o555)
+        if dir_fd is None:
+            return original_mkdir(path, mode)
+        return original_mkdir(path, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(
+        operator_action_module.os,
+        "mkdir",
+        privileged_destination_mkdir,
+    )
+
+    receipt = preparer.prepare(prepared.request)
+
+    record = prepared.layout.encode_runtime_materialization_receipt(
+        prepared.request.deployment_identity
+    )
+    inventory_path = prepared.destination / RUNTIME_INVENTORY_FILENAME
+    assert receipt.request_identity == prepared.request.identity
+    assert commands == [
+        (
+            "/usr/bin/systemctl",
+            "--no-ask-password",
+            "start",
+            "--",
+            ENCODE_RUNTIME_PREPARE_UNIT,
+        )
+    ]
+    assert stat.S_IMODE(prepared.destination.stat().st_mode) == 0o555
+    assert stat.S_IMODE(inventory_path.stat().st_mode) == 0o444
+    assert stat.S_IMODE(record.stat().st_mode) == 0o400
+    assert json.loads(record.read_bytes())["identity"] == receipt.identity
+
+    record.chmod(0o600)
+    record.write_bytes(b"{}\n")
+    record.chmod(0o400)
+    reuse_request = EncodeRuntimePrepareRequest.create(
+        task_identity=f"task-{'e' * 32}",
+        deployment_identity=prepared.request.deployment_identity,
+        authority_platform_identity=prepared.request.authority_platform_identity,
+        prior_state_identity=prepared.request.prior_state_identity,
+        candidate_state_identity=prepared.request.candidate_state_identity,
+    )
+
+    with pytest.raises(DeploymentError) as caught:
+        preparer.prepare(reuse_request)
+
+    assert caught.value.issue.code == "ENCODE_RUNTIME_RECOVERY_REQUIRED"
+    assert caught.value.issue.recoverable is True
+    assert len(commands) == 1
+    assert prepared.layout.encode_runtime_prepare_request.read_bytes() == (
+        canonical_json_bytes(prepared.request.to_dict())
+    )
+    assert prepared.destination.is_dir()
+    assert inventory_path.is_file()
 
 
 def test_local_locks_bind_each_indexed_archive_hash(

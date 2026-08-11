@@ -6,12 +6,18 @@ import inspect
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import sys
+import tempfile
+from types import SimpleNamespace
 
 import pytest
 
-from encode_pipeline.deployment.canonical import canonical_identity
+from encode_pipeline.deployment.canonical import (
+    canonical_identity,
+    canonical_json_bytes,
+)
 from encode_pipeline.deployment.errors import DeploymentError, fail
 from encode_pipeline.deployment.gate import (
     CLEANUP_PLAN_IDENTITY_SCHEME,
@@ -75,6 +81,17 @@ def _mkdir(path: Path) -> Path:
     path.mkdir(parents=True, mode=0o700, exist_ok=True)
     path.chmod(0o700)
     return path
+
+
+def _write_control(path: Path, value: object) -> None:
+    _mkdir(path.parent)
+    path.write_bytes(canonical_json_bytes(value))
+    path.chmod(0o600)
+
+
+def _proc_stat(pid: int, name: str, start_ticks: int) -> bytes:
+    fields = [b"S", *(b"1" for _ in range(18)), str(start_ticks).encode("ascii")]
+    return f"{pid} ({name}) ".encode("ascii") + b" ".join(fields) + b"\n"
 
 
 def _paths(policy: GatePolicy) -> None:
@@ -447,6 +464,154 @@ def test_filesystem_observer_fails_closed_when_fixed_material_is_missing_or_unsa
     with pytest.raises(DeploymentError) as symlink:
         FilesystemGateObserver().observe(policy, TASK_IDENTITY)
     assert symlink.value.issue.code == "GATE_OBSERVATION_INVALID"
+
+
+def test_filesystem_observer_derives_complete_evidence_from_fixed_host_state(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    short_root = Path(tempfile.mkdtemp(prefix="hw-gate-", dir="/tmp"))
+    request.addfinalizer(lambda: shutil.rmtree(short_root, ignore_errors=True))
+    policy = _policy(short_root)
+    _paths(policy)
+    task_root = policy.task_root(TASK_IDENTITY)
+    _write_control(
+        task_root / "identities.json",
+        {
+            "schema_version": "helixweave-gate-identities-v1",
+            "head_sha": HEAD_SHA,
+            "release_identity": RELEASE_IDENTITY,
+            "runtime_identities": [
+                {"component": component, "identity": identity}
+                for component, identity in (
+                    (BULK_RNASEQ_RUNTIME, BULK_IDENTITY),
+                    (ENCODE_RUNTIME, ENCODE_IDENTITY),
+                )
+            ],
+        },
+    )
+    _write_control(
+        task_root / "venv" / "install.json",
+        {
+            "schema_version": "helixweave-gate-environment-v1",
+            "install_mode": "wheel",
+            "editable": False,
+            "identity": ENVIRONMENT_IDENTITY,
+        },
+    )
+    for index, kind in enumerate(REQUIRED_CACHE_KINDS, start=1):
+        identity = f"sha256-{index + 100:064x}"
+        cache_root = _mkdir(policy.gate_root / "cache" / kind)
+        active = cache_root / "active.identity"
+        active.write_text(f"{identity}\n", encoding="ascii")
+        active.chmod(0o600)
+        _mkdir(cache_root / "objects" / identity)
+
+    socket_paths = {
+        "dockerd": task_root / "docker" / "docker.sock",
+        "redis": task_root / "redis" / "redis.sock",
+    }
+    socket_witnesses = {
+        path: SimpleNamespace(
+            st_mode=stat.S_IFSOCK | 0o600,
+            st_uid=os.getuid(),
+            st_gid=os.getgid(),
+            st_nlink=1,
+            st_dev=70 + index,
+            st_ino=80 + index,
+            st_size=0,
+            st_mtime_ns=1,
+            st_ctime_ns=1,
+        )
+        for index, path in enumerate(socket_paths.values(), start=1)
+    }
+
+    proc_root = _mkdir(short_root / "proc")
+    proc_net_unix = proc_root / "net" / "unix"
+    _mkdir(proc_net_unix.parent)
+    unix_lines = ["Num RefCount Protocol Flags Type St Inode Path\n"]
+    expected_starts: dict[str, int] = {}
+    for index, name in enumerate(PROCESS_NAMES, start=1):
+        pid = 2000 + index
+        start_ticks = 8000 + index
+        expected_starts[name] = start_ticks
+        process_root = _mkdir(proc_root / str(pid))
+        fd_root = _mkdir(process_root / "fd")
+        (process_root / "stat").write_bytes(_proc_stat(pid, name, start_ticks))
+        (process_root / "exe").write_bytes(f"{name}-executable\n".encode("ascii"))
+        (process_root / "cmdline").write_bytes(
+            f"/fixed/{name}".encode("ascii")
+            + b"\0"
+            + TASK_IDENTITY.encode("ascii")
+            + b"\0"
+        )
+        pid_file = task_root / "pids" / f"{name}.pid"
+        pid_file.write_text(f"{pid}\n", encoding="ascii")
+        pid_file.chmod(0o600)
+        if name != "runner":
+            kernel_inode = 90_000 + index
+            (fd_root / "3").symlink_to(f"socket:[{kernel_inode}]")
+            unix_lines.append(
+                "00000000: 00000002 00000000 00010000 "
+                f"0001 01 {kernel_inode} {socket_paths[name]}\n"
+            )
+    proc_net_unix.write_text("".join(unix_lines), encoding="utf-8")
+
+    monkeypatch.setattr(gate_contract, "_PROC_ROOT", proc_root)
+    monkeypatch.setattr(gate_contract, "_PROC_NET_UNIX", proc_net_unix)
+    monkeypatch.setattr(
+        gate_contract,
+        "_owned_socket",
+        lambda path, _uid, _gid: socket_witnesses[path],
+    )
+    monkeypatch.setattr(
+        gate_contract,
+        "_kernel_socket_owner",
+        lambda proc, path, *, proc_net_unix: int(
+            (proc / "fd" / "3").readlink().name.removeprefix("socket:[")[:-1]
+        ),
+    )
+    monkeypatch.setattr(
+        gate_contract.os,
+        "statvfs",
+        lambda _path: SimpleNamespace(
+            f_bavail=policy.disk_required_bytes * 2,
+            f_frsize=1,
+        ),
+    )
+    monkeypatch.setattr(gate_contract.os, "getloadavg", lambda: (0.25, 0.0, 0.0))
+    monkeypatch.setattr(gate_contract.os, "cpu_count", lambda: 2)
+
+    observed = FilesystemGateObserver().observe(policy, TASK_IDENTITY)
+
+    assert observed.task_identity == TASK_IDENTITY
+    assert observed.head_sha == HEAD_SHA
+    assert observed.release_identity == RELEASE_IDENTITY
+    assert {item.component: item.identity for item in observed.runtime_identities} == {
+        BULK_RNASEQ_RUNTIME: BULK_IDENTITY,
+        ENCODE_RUNTIME: ENCODE_IDENTITY,
+    }
+    assert tuple(item.kind for item in observed.resources) == tuple(
+        sorted(
+            {
+                *policy.delete_paths(TASK_IDENTITY),
+                *policy.retain_paths(),
+            }
+        )
+    )
+    assert {item.name: item.process_start_ticks for item in observed.processes} == (
+        expected_starts
+    )
+    assert all(
+        item.socket_kernel_inode is not None
+        for item in observed.processes
+        if item.name != "runner"
+    )
+    assert tuple(item.kind for item in observed.caches) == REQUIRED_CACHE_KINDS
+    assert observed.cleanup_executor.backend_identity.startswith("sha256-")
+    assert observed.disk_free_bytes == policy.disk_required_bytes * 2
+    assert observed.load_milli == 250
+    assert observed.load_limit_milli == 200_000
 
 
 def test_kernel_socket_owner_binds_proc_fd_to_the_fixed_listening_path(

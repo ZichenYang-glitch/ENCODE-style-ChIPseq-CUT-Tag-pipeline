@@ -298,6 +298,13 @@ def _rewrite_plan(layout: dict[str, object]) -> None:
     plan_path.chmod(0o600)
 
 
+def _reidentify_process(record: dict[str, object]) -> None:
+    record["identity"] = canonical_identity(
+        {key: value for key, value in record.items() if key != "identity"},
+        scheme=GATE_PROCESS_IDENTITY_SCHEME,
+    )
+
+
 def _close_sockets(layout: dict[str, object]) -> None:
     for value in layout["sockets"]:
         if value is not None:
@@ -400,6 +407,88 @@ def test_launcher_exec_failure_is_canonical_path_free_and_unavailable(
     assert "OSError" not in captured.err
 
 
+@pytest.mark.parametrize(
+    ("failure", "expected_status", "expected_code"),
+    (
+        ("privilege", 77, "GATE_CLEANUP_PRIVILEGE_REQUIRED"),
+        ("request", 64, "GATE_CLEANUP_REQUEST_INVALID"),
+        ("executor", 65, "GATE_CLEANUP_EXECUTOR_MISMATCH"),
+        ("unexpected", 70, "GATE_CLEANUP_FAILED"),
+    ),
+)
+def test_cleanup_main_fails_closed_at_each_public_authority_boundary(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    failure: str,
+    expected_status: int,
+    expected_code: str,
+) -> None:
+    layout = _layout(tmp_path)
+    namespace = _module(layout)
+    globals_ = namespace["main"].__globals__
+    arguments = list(_arguments(layout))
+    if failure == "privilege":
+        globals_["GETEUID"] = lambda: 1
+    elif failure == "request":
+        arguments = ["cleanup"]
+    elif failure == "executor":
+        arguments[-1] = OBSERVATION
+    else:
+        globals_["_installed_evidence"] = lambda: (_ for _ in ()).throw(
+            RuntimeError("/private/executor token=secret")
+        )
+
+    environment = dict(os.environ)
+    try:
+        assert namespace["main"](tuple(arguments)) == expected_status
+    finally:
+        os.environ.clear()
+        os.environ.update(environment)
+        _close_sockets(layout)
+
+    captured = capsys.readouterr()
+    error = json.loads(captured.err)
+    assert captured.out == ""
+    assert error["issue"]["code"] == expected_code
+    assert "private" not in captured.err
+    assert "secret" not in captured.err
+    assert (Path(layout["task_root"]) / "checkout/owned-evidence").exists()
+
+
+@pytest.mark.parametrize("failure", ("outside-root", "wrong-name", "wrong-mode"))
+def test_cleanup_rejects_untrusted_installed_executor_evidence_before_signals(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    failure: str,
+) -> None:
+    layout = _layout(tmp_path)
+    namespace = _module(layout)
+    globals_ = namespace["main"].__globals__
+    calls: list[tuple[int, signal.Signals]] = []
+    globals_["KILL"] = lambda pid, sig: calls.append((pid, sig))
+    if failure == "outside-root":
+        globals_["SELECTED_BACKEND"] = Path(layout["host"]) / "outside/backend"
+    elif failure == "wrong-name":
+        globals_["SELECTED_BACKEND"] = Path(layout["selected_backend"]).with_name(
+            "caller-selected"
+        )
+    else:
+        Path(layout["executor"]).chmod(0o755)
+
+    environment = dict(os.environ)
+    try:
+        assert namespace["main"](_arguments(layout)) == 65
+    finally:
+        os.environ.clear()
+        os.environ.update(environment)
+        _close_sockets(layout)
+
+    error = json.loads(capsys.readouterr().err)
+    assert error["issue"]["code"] == "GATE_CLEANUP_EXECUTOR_MISMATCH"
+    assert calls == []
+    assert (Path(layout["task_root"]) / "checkout/owned-evidence").exists()
+
+
 def test_process_identity_mismatch_emits_no_signal_and_deletes_nothing(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -421,6 +510,80 @@ def test_process_identity_mismatch_emits_no_signal_and_deletes_nothing(
     assert error["issue"]["code"] == "GATE_CLEANUP_PROCESS_MISMATCH"
     assert calls == []
     assert (Path(layout["task_root"]) / "checkout/owned-evidence").exists()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ("missing-close", "short-stat", "zero-start", "missing-pid-file", "invalid-fd"),
+)
+def test_cleanup_rejects_unobservable_process_identity_before_signals(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    failure: str,
+) -> None:
+    layout = _layout(tmp_path)
+    namespace = _module(layout)
+    calls: list[tuple[int, signal.Signals]] = []
+    namespace["main"].__globals__["KILL"] = lambda pid, sig: calls.append((pid, sig))
+    process_root = Path(layout["proc_root"]) / "1001"
+    if failure == "missing-close":
+        (process_root / "stat").write_bytes(b"1001 dockerd S 1 1 1\n")
+    elif failure == "short-stat":
+        (process_root / "stat").write_bytes(b"1001 (dockerd) S 1\n")
+    elif failure == "zero-start":
+        (process_root / "stat").write_bytes(_proc_stat(1001, "dockerd", 0))
+    elif failure == "missing-pid-file":
+        (Path(layout["task_root"]) / "pids/dockerd.pid").unlink()
+    else:
+        (process_root / "fd/not-a-number").write_bytes(b"untrusted fd entry\n")
+
+    environment = dict(os.environ)
+    try:
+        assert namespace["main"](_arguments(layout)) == 65
+    finally:
+        os.environ.clear()
+        os.environ.update(environment)
+        _close_sockets(layout)
+
+    error = json.loads(capsys.readouterr().err)
+    assert error["issue"]["code"] == "GATE_CLEANUP_PROCESS_MISMATCH"
+    assert calls == []
+    assert (Path(layout["task_root"]) / "checkout/owned-evidence").exists()
+
+
+def test_cleanup_allows_owned_socket_to_disappear_after_process_stop(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    layout = _layout(tmp_path)
+    namespace = _module(layout)
+    calls: list[tuple[int, signal.Signals]] = []
+
+    def stop(pid: int, selected_signal: signal.Signals) -> None:
+        calls.append((pid, selected_signal))
+        shutil.rmtree(Path(layout["proc_root"]) / str(pid))
+        if pid == 1001:
+            (Path(layout["task_root"]) / "docker/docker.sock").unlink()
+
+    namespace["main"].__globals__["KILL"] = stop
+    environment = dict(os.environ)
+    try:
+        assert namespace["main"](_arguments(layout)) == 0
+    finally:
+        os.environ.clear()
+        os.environ.update(environment)
+        _close_sockets(layout)
+
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "cleaned"
+    assert calls == [
+        (1003, signal.SIGTERM),
+        (1002, signal.SIGTERM),
+        (1001, signal.SIGTERM),
+    ]
+    assert not (Path(layout["task_root"]) / "checkout").exists()
+    assert (Path(layout["docker_data"]) / "retained").exists()
+    assert (Path(layout["history"]) / "retained").exists()
 
 
 def test_fallback_treats_identity_drift_as_alive_and_kills_the_same_instance(
@@ -552,6 +715,110 @@ def test_target_alias_in_a_canonical_plan_fails_before_signals(
     assert json.loads(capsys.readouterr().err)["issue"]["code"] == (
         "GATE_CLEANUP_PLAN_INVALID"
     )
+    assert calls == []
+    assert (Path(layout["task_root"]) / "checkout/owned-evidence").exists()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "plan-shape",
+        "plan-binding",
+        "target-count",
+        "target-shape",
+        "target-value",
+        "process-count",
+        "process-shape",
+        "process-value",
+        "process-socket-shape",
+        "process-identity",
+        "process-order",
+        "duplicate-pid",
+        "socket-target-binding",
+        "executor-shape",
+        "executor-binding",
+        "plan-identity",
+    ),
+)
+def test_canonical_plan_validation_rejects_unbound_cleanup_authority(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    mutation: str,
+) -> None:
+    layout = _layout(tmp_path)
+    namespace = _module(layout)
+    calls: list[tuple[int, signal.Signals]] = []
+    namespace["main"].__globals__["KILL"] = lambda pid, sig: calls.append((pid, sig))
+    plan = layout["plan"]
+    assert isinstance(plan, dict)
+    targets = plan["targets"]
+    processes = plan["processes"]
+    executor = plan["executor"]
+    assert isinstance(targets, list)
+    assert isinstance(processes, list)
+    assert isinstance(executor, dict)
+
+    rewrite_identity = True
+    if mutation == "plan-shape":
+        plan["unexpected"] = "caller-selected"
+    elif mutation == "plan-binding":
+        plan["task_identity"] = f"task-{'f' * 32}"
+    elif mutation == "target-count":
+        targets.pop()
+    elif mutation == "target-shape":
+        targets[0]["unexpected"] = "caller-selected"
+    elif mutation == "target-value":
+        targets[0]["inode"] = 0
+    elif mutation == "process-count":
+        processes.pop()
+    elif mutation == "process-shape":
+        processes[0]["unexpected"] = "caller-selected"
+    elif mutation == "process-value":
+        processes[0]["pid"] = 0
+        _reidentify_process(processes[0])
+    elif mutation == "process-socket-shape":
+        processes[2]["socket_device"] = 1
+        processes[2]["socket_inode"] = 1
+        processes[2]["socket_kernel_inode"] = 1
+        _reidentify_process(processes[2])
+    elif mutation == "process-identity":
+        processes[0]["identity"] = OBSERVATION
+    elif mutation == "process-order":
+        processes[0], processes[1] = processes[1], processes[0]
+    elif mutation == "duplicate-pid":
+        processes[1]["pid"] = processes[0]["pid"]
+        _reidentify_process(processes[1])
+    elif mutation == "socket-target-binding":
+        processes[0]["socket_inode"] += 1
+        _reidentify_process(processes[0])
+    elif mutation == "executor-shape":
+        executor.pop("backend_inode")
+    elif mutation == "executor-binding":
+        executor["backend_device"] += 1
+    else:
+        plan["identity"] = OBSERVATION
+        rewrite_identity = False
+
+    if rewrite_identity:
+        _rewrite_plan(layout)
+    else:
+        plan_path = Path(layout["plan_path"])
+        plan_path.write_bytes(canonical_json_bytes(plan))
+        plan_path.chmod(0o600)
+
+    environment = dict(os.environ)
+    try:
+        assert namespace["main"](_arguments(layout)) == 65
+    finally:
+        os.environ.clear()
+        os.environ.update(environment)
+        _close_sockets(layout)
+
+    error = json.loads(capsys.readouterr().err)
+    assert error["issue"] == {
+        "code": "GATE_CLEANUP_PLAN_INVALID",
+        "message": "Gate cleanup plan is invalid.",
+    }
     assert calls == []
     assert (Path(layout["task_root"]) / "checkout/owned-evidence").exists()
 

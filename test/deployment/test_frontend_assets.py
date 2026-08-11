@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 from pathlib import Path
 import runpy
 
@@ -14,6 +15,7 @@ import pytest
 from encode_pipeline.deployment.errors import DeploymentError
 from encode_pipeline.deployment.frontend import (
     API_CONTRACT_ENVIRONMENT,
+    ENCODE_RUNTIME_ROOT_ENVIRONMENT,
     ManifestStaticApplication,
     create_app as create_deployed_app,
 )
@@ -73,6 +75,43 @@ def _request(app, method: str, path: str, **kwargs) -> httpx.Response:
             return response
 
     return asyncio.run(run())
+
+
+def _asgi_messages(app, scope: dict[str, object]) -> list[dict[str, object]]:
+    async def run() -> list[dict[str, object]]:
+        messages: list[dict[str, object]] = []
+
+        async def receive() -> dict[str, object]:
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict[str, object]) -> None:
+            messages.append(message)
+
+        await app(scope, receive, send)
+        return messages
+
+    return asyncio.run(run())
+
+
+def _runtime_root(root: Path) -> Path:
+    runtime = (
+        root
+        / "runtimes"
+        / "encode"
+        / f"sha256-{'a' * 64}"
+        / "payload"
+        / "contracts"
+        / "encode-runtime"
+    )
+    (runtime / "workflow").mkdir(parents=True)
+    (runtime / "workflow" / "Snakefile").write_text("# fixed workflow\n")
+    (runtime / "profiles" / "default").mkdir(parents=True)
+    (runtime / "scripts").mkdir()
+    (runtime / "docs" / "architecture").mkdir(parents=True)
+    (runtime / "docs" / "architecture" / "artifact-inventory.yaml").write_text(
+        "artifacts: []\n"
+    )
+    return runtime
 
 
 def test_manifest_is_canonical_complete_and_content_addressed(tmp_path: Path) -> None:
@@ -337,6 +376,63 @@ def test_manifest_static_application_serves_only_verified_bytes_and_spa_routes(
     assert _request(app, "GET", "/").content == index.content
 
 
+def test_static_application_rejects_non_http_and_malformed_route_scopes(
+    tmp_path: Path,
+) -> None:
+    app = ManifestStaticApplication(_verified(tmp_path / "dist"))
+
+    assert _asgi_messages(app, {"type": "websocket"}) == [
+        {"type": "websocket.close", "code": 1008}
+    ]
+    assert _asgi_messages(app, {"type": "lifespan"}) == []
+
+    invalid_paths: tuple[object, ...] = (
+        None,
+        "/runs/control\x1f",
+        "//runs/id",
+        "/runs/id/",
+        "/runs/../private",
+    )
+    for path in invalid_paths:
+        messages = _asgi_messages(
+            app,
+            {
+                "type": "http",
+                "method": "GET",
+                "path": path,
+                "headers": (),
+            },
+        )
+        assert messages[0]["status"] == 404
+        assert messages[1] == {
+            "type": "http.response.body",
+            "body": b"Not found.\n",
+        }
+
+
+def test_static_application_supports_only_bounded_navigation_shapes_and_cache(
+    tmp_path: Path,
+) -> None:
+    app = ManifestStaticApplication(_verified(tmp_path / "dist"))
+
+    for path in ("/runs", "/workflows", "/artifacts/run-1/file-2"):
+        response = _request(app, "GET", path, headers={"accept": "text/html"})
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+    assert (
+        _request(
+            app,
+            "GET",
+            "/runs/caller selected",
+            headers={"accept": "text/html"},
+        ).status_code
+        == 404
+    )
+    favicon = _request(app, "GET", "/favicon.svg")
+    assert favicon.status_code == 200
+    assert favicon.headers["cache-control"] == "public, max-age=3600"
+
+
 def test_deployed_factory_preserves_api_routes_and_serves_frontend_same_origin(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -405,6 +501,91 @@ def test_deployed_factory_preserves_api_routes_and_serves_frontend_same_origin(
     finally:
         app.state.run_queue.close()
         app.state.persistence.close()
+
+
+def test_deployed_factory_uses_the_fixed_environment_runtime_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import FastAPI
+    import encode_pipeline.api.main as api_main
+    import encode_pipeline.services.defaults as service_defaults
+
+    runtime_root = _runtime_root(tmp_path)
+    assets = _verified(tmp_path / "dist")
+    registry = object()
+    captured: dict[str, object] = {}
+
+    def create_registry(**kwargs):
+        captured["registry_project_root"] = kwargs["project_root"]
+        captured["registry_environ"] = kwargs["environ"]
+        return registry
+
+    def create_test_api(**kwargs) -> FastAPI:
+        captured.update(kwargs)
+        return FastAPI()
+
+    monkeypatch.setenv(ENCODE_RUNTIME_ROOT_ENVIRONMENT, str(runtime_root))
+    monkeypatch.setattr(
+        service_defaults,
+        "create_default_workflow_registry",
+        create_registry,
+    )
+    monkeypatch.setattr(api_main, "create_app", create_test_api)
+
+    app = create_deployed_app(
+        verified_assets=assets,
+        api_contract_sha256=assets.manifest.api_contract_sha256,
+    )
+
+    assert captured["registry_project_root"] == runtime_root
+    assert captured["registry_environ"] is os.environ
+    assert captured["project_root"] == runtime_root
+    assert captured["registry"] is registry
+    assert app.state.frontend_asset_identity == assets.manifest.identity
+
+
+@pytest.mark.parametrize(
+    "runtime", ("missing", "relative", "incomplete", "missing-required")
+)
+def test_deployed_factory_rejects_untrusted_runtime_root_before_api_side_effects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime: str,
+) -> None:
+    import encode_pipeline.api.main as api_main
+
+    assets = _verified(tmp_path / "dist")
+    invoked = False
+
+    def create_test_api(**_kwargs):
+        nonlocal invoked
+        invoked = True
+        raise AssertionError("API factory must not be invoked")
+
+    monkeypatch.setattr(api_main, "create_app", create_test_api)
+    if runtime == "missing":
+        monkeypatch.delenv(ENCODE_RUNTIME_ROOT_ENVIRONMENT, raising=False)
+    elif runtime == "relative":
+        monkeypatch.setenv(ENCODE_RUNTIME_ROOT_ENVIRONMENT, "relative/runtime")
+    elif runtime == "incomplete":
+        incomplete = tmp_path / "incomplete-runtime"
+        incomplete.mkdir()
+        monkeypatch.setenv(ENCODE_RUNTIME_ROOT_ENVIRONMENT, str(incomplete))
+    else:
+        incomplete = _runtime_root(tmp_path / "incomplete")
+        (incomplete / "workflow" / "Snakefile").unlink()
+        monkeypatch.setenv(ENCODE_RUNTIME_ROOT_ENVIRONMENT, str(incomplete))
+
+    with pytest.raises(DeploymentError) as caught:
+        create_deployed_app(
+            verified_assets=assets,
+            api_contract_sha256=assets.manifest.api_contract_sha256,
+        )
+
+    assert caught.value.issue.code == "ENCODE_RUNTIME_UNAVAILABLE"
+    assert str(tmp_path) not in caught.value.issue.message
+    assert invoked is False
 
 
 def test_repository_package_assets_are_verified() -> None:

@@ -4,6 +4,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from encode_pipeline.deployment.admission import DeferredNativeContractResolver
 from encode_pipeline.deployment.doctor import (
@@ -14,10 +17,12 @@ from encode_pipeline.deployment.doctor import (
     DeploymentDoctor,
     DeploymentSnapshot,
     DeploymentStateProbe,
+    DoctorReport,
     ProbeResult,
     RuntimeProbe,
     fixed_probe,
 )
+from encode_pipeline.deployment.errors import DeploymentError, fail
 from encode_pipeline.deployment.layout import DeploymentLayout
 from encode_pipeline.deployment.manager import DeploymentManager, DeploymentOwnership
 from encode_pipeline.deployment.models import ENCODE_RUNTIME, PLATFORM
@@ -45,6 +50,43 @@ def test_doctor_report_has_one_stable_check_inventory_and_status() -> None:
         check_id for check_id, _category in CHECKS
     ]
     assert report.to_dict()["schema_version"] == "helixweave-deployment-doctor-v1"
+
+
+def test_doctor_validates_probe_results_inventory_and_healthy_status() -> None:
+    with pytest.raises(DeploymentError) as invalid_result:
+        ProbeResult("unknown", "READY")
+    assert invalid_result.value.issue.code == "DOCTOR_RESULT_INVALID"
+
+    with pytest.raises(DeploymentError) as invalid_report:
+        DoctorReport.create(())
+    assert invalid_report.value.issue.code == "DOCTOR_RESULT_INVALID"
+
+    with pytest.raises(DeploymentError) as invalid_inventory:
+        DeploymentDoctor({})
+    assert invalid_inventory.value.issue.code == "DOCTOR_PROBES_INVALID"
+
+    report = DeploymentDoctor(_probes()).run()
+    assert report.status == "healthy"
+    assert report.ready is True
+
+
+def test_doctor_maps_private_and_wrong_type_probe_failures_to_public_reasons() -> None:
+    def private_failure() -> ProbeResult:
+        raise fail("PRIVATE_PROBE_FAILURE", "/private/path token=secret")
+
+    probes = _probes()
+    probes["database"] = private_failure
+    probes["redis"] = lambda: object()  # type: ignore[assignment]
+
+    report = DeploymentDoctor(probes).run()
+    checks = {item.check_id: item for item in report.checks}
+
+    assert checks["database"].state == FAIL
+    assert checks["database"].reason_code == "DOCTOR_CHECK_FAILED"
+    assert checks["redis"].state == FAIL
+    assert checks["redis"].reason_code == "DOCTOR_RESULT_INVALID"
+    assert "private" not in json.dumps(report.to_dict())
+    assert "secret" not in json.dumps(report.to_dict())
 
 
 def test_doctor_fails_closed_and_redacts_unexpected_probe_errors(
@@ -123,6 +165,52 @@ def test_deployment_and_runtime_probes_share_one_lightweight_snapshot(
     RuntimeProbe(snapshot, "bulk-rnaseq-runtime")()
 
     assert calls == 1
+
+
+def test_deployment_state_probe_reports_interrupted_state_without_live_checks() -> None:
+    snapshot = SimpleNamespace(
+        read=lambda: SimpleNamespace(
+            interrupted=True,
+            state=SimpleNamespace(identity=IDENTITY),
+        )
+    )
+
+    result = DeploymentStateProbe(snapshot)  # type: ignore[arg-type]
+
+    assert result().state == WARNING
+    assert result().reason_code == "DEPLOYMENT_INTERRUPTED"
+    assert result().evidence_identity == IDENTITY
+
+
+def test_runtime_probe_admits_active_contract_once_and_rejects_invalid_scope(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(DeploymentError) as invalid_component:
+        RuntimeProbe(SimpleNamespace(), PLATFORM)  # type: ignore[arg-type]
+    assert invalid_component.value.issue.code == "DOCTOR_PROBES_INVALID"
+
+    layout = DeploymentLayout.isolated(tmp_path / "host")
+    manager = manager_for(layout)
+    manifest, payload = manifest_for(ENCODE_RUNTIME)
+    manager.stage(write_bundle(tmp_path / "runtime.tar", manifest, payload))
+    manager.activate(ENCODE_RUNTIME, expected_staged_identity=manifest.identity)
+    snapshot = DeploymentSnapshot(manager)
+
+    first = snapshot.admit(ENCODE_RUNTIME)
+    second = snapshot.admit(ENCODE_RUNTIME)
+    result = RuntimeProbe(snapshot, ENCODE_RUNTIME)()
+
+    assert second is first
+    assert result == ProbeResult(PASS, "RUNTIME_READY", manifest.identity)
+
+    empty_manager = manager_for(DeploymentLayout.isolated(tmp_path / "empty"))
+    empty_manager.stage(
+        write_bundle(tmp_path / "inactive-runtime.tar", manifest, payload)
+    )
+    empty = DeploymentSnapshot(empty_manager)
+    with pytest.raises(DeploymentError) as inactive:
+        empty.admit(ENCODE_RUNTIME)
+    assert inactive.value.issue.code == "RUNTIME_NOT_ACTIVE"
 
 
 def test_runtime_probe_requires_native_contract_admission(tmp_path: Path) -> None:

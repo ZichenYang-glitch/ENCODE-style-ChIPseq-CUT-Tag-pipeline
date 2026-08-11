@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import errno
 import importlib.util
 import hashlib
 import json
@@ -20,6 +21,7 @@ import encode_pipeline.deployment.database as database_module
 import encode_pipeline.deployment.operator as operator_module
 from encode_pipeline.deployment.bundle import BundleStore
 from encode_pipeline.deployment.bulk_docker_boundary import BulkDockerBoundary
+from encode_pipeline.deployment.canonical import canonical_json_bytes
 from encode_pipeline.deployment.errors import DeploymentError, fail
 from encode_pipeline.deployment.database import (
     database_content_identity,
@@ -1656,25 +1658,34 @@ def test_systemd_bulk_preparer_uses_fixed_canonical_exchange_and_unit(
     assert stat.S_IMODE((root / "operation.lock").stat().st_mode) == 0o600
 
 
-def test_database_prepare_dispatcher_accepts_fresh_database_request(
+@pytest.mark.parametrize(
+    ("operation", "database_mode", "backup_receipt_identity"),
+    (
+        ("activate", "fresh-candidate", None),
+        ("activate", "existing-live", OLD_PLATFORM_IDENTITY),
+        ("rollback", "existing-live", OLD_PLATFORM_IDENTITY),
+    ),
+)
+def test_database_prepare_dispatcher_accepts_canonical_request(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    database_mode: str,
+    backup_receipt_identity: str | None,
 ) -> None:
     request = DatabasePrepareRequest.create(
-        operation="activate",
-        database_mode="fresh-candidate",
+        operation=operation,
+        database_mode=database_mode,
         task_identity=TASK_IDENTITY,
         deployment_identity=IDENTITY,
         prior_state_identity=SERVICE_IDENTITY,
         candidate_state_identity=THIRD_IDENTITY,
         action_receipt_identity=IDENTITY,
-        backup_receipt_identity=None,
+        backup_receipt_identity=backup_receipt_identity,
         target_schema_heads=("schema-v1",),
     )
     request_path = tmp_path / "prepare.json"
-    request_path.write_bytes(
-        json.dumps(request.to_dict(), sort_keys=True, separators=(",", ":")).encode()
-    )
+    request_path.write_bytes(canonical_json_bytes(request.to_dict()))
     request_path.chmod(0o640)
     namespace = runpy.run_path(str(TEMPLATES / "helixweave-db-prepare"))
     read_request = namespace["_read_request"]
@@ -1695,12 +1706,168 @@ def test_database_prepare_dispatcher_accepts_fresh_database_request(
             st_ctime_ns=observed.st_ctime_ns,
         )
 
-    monkeypatch.setattr(read_request.__globals__["os"], "fstat", root_owned_fstat)
+    with monkeypatch.context() as scoped:
+        scoped.setattr(read_request.__globals__["os"], "fstat", root_owned_fstat)
+        observed = read_request()
 
-    observed = read_request()
+    assert observed == request.to_dict()
 
-    assert observed["identity"] == request.identity
-    assert observed["backup_receipt_identity"] is None
+
+@pytest.mark.parametrize("encoding", ("missing-newline", "extra-newline", "pretty"))
+def test_database_prepare_dispatcher_rejects_noncanonical_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    encoding: str,
+) -> None:
+    request = DatabasePrepareRequest.create(
+        operation="rollback",
+        database_mode="existing-live",
+        task_identity=TASK_IDENTITY,
+        deployment_identity=IDENTITY,
+        prior_state_identity=SERVICE_IDENTITY,
+        candidate_state_identity=THIRD_IDENTITY,
+        action_receipt_identity=IDENTITY,
+        backup_receipt_identity=OLD_PLATFORM_IDENTITY,
+        target_schema_heads=("schema-v1",),
+    )
+    if encoding == "missing-newline":
+        content = canonical_json_bytes(request.to_dict())[:-1]
+    elif encoding == "extra-newline":
+        content = canonical_json_bytes(request.to_dict()) + b"\n"
+    else:
+        content = (
+            json.dumps(request.to_dict(), indent=2, sort_keys=True) + "\n"
+        ).encode()
+    request_path = tmp_path / "prepare.json"
+    request_path.write_bytes(content)
+    request_path.chmod(0o640)
+    namespace = runpy.run_path(str(TEMPLATES / "helixweave-db-prepare"))
+    read_request = namespace["_read_request"]
+    read_request.__globals__["REQUEST"] = request_path
+    original_fstat = os.fstat
+
+    def root_owned_fstat(descriptor: int):
+        observed = original_fstat(descriptor)
+        return SimpleNamespace(
+            st_mode=observed.st_mode,
+            st_nlink=observed.st_nlink,
+            st_uid=0,
+            st_gid=os.getegid(),
+            st_size=observed.st_size,
+            st_dev=observed.st_dev,
+            st_ino=observed.st_ino,
+            st_mtime_ns=observed.st_mtime_ns,
+            st_ctime_ns=observed.st_ctime_ns,
+        )
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(read_request.__globals__["os"], "fstat", root_owned_fstat)
+        with pytest.raises(ValueError):
+            read_request()
+
+
+@pytest.mark.parametrize(
+    ("encoding", "expected_exit"),
+    (
+        ("canonical", 0),
+        ("missing-newline", 65),
+        ("extra-newline", 65),
+        ("pretty", 65),
+    ),
+)
+def test_database_prepare_dispatcher_validates_canonical_child_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    encoding: str,
+    expected_exit: int,
+) -> None:
+    request = DatabasePrepareRequest.create(
+        operation="activate",
+        database_mode="existing-live",
+        task_identity=TASK_IDENTITY,
+        deployment_identity=IDENTITY,
+        prior_state_identity=SERVICE_IDENTITY,
+        candidate_state_identity=THIRD_IDENTITY,
+        action_receipt_identity=IDENTITY,
+        backup_receipt_identity=OLD_PLATFORM_IDENTITY,
+        target_schema_heads=("schema-v1",),
+    )
+    receipt = DatabasePrepareReceipt.create(
+        request_identity=request.identity,
+        database_before_identity=SERVICE_IDENTITY,
+        database_after_identity=THIRD_IDENTITY,
+        schema_heads=("schema-v1",),
+    )
+    if encoding == "canonical":
+        content = canonical_json_bytes(receipt.to_dict())
+    elif encoding == "missing-newline":
+        content = canonical_json_bytes(receipt.to_dict())[:-1]
+    elif encoding == "extra-newline":
+        content = canonical_json_bytes(receipt.to_dict()) + b"\n"
+    else:
+        content = (
+            json.dumps(receipt.to_dict(), indent=2, sort_keys=True) + "\n"
+        ).encode()
+    namespace = runpy.run_path(str(TEMPLATES / "helixweave-db-prepare"))
+    main = namespace["main"]
+    written: list[bytes] = []
+
+    def run(_argv, *, stdout, **_kwargs):
+        stdout.write(content)
+        return SimpleNamespace(returncode=0)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(main.__globals__["os"], "environ", {})
+        scoped.setattr(main.__globals__["subprocess"], "run", run)
+        scoped.setitem(main.__globals__, "_read_request", request.to_dict)
+        scoped.setitem(main.__globals__, "_launcher", lambda _identity: Path("/fixed"))
+        scoped.setitem(main.__globals__, "_write_receipt", written.append)
+        observed_exit = main([])
+
+    assert observed_exit == expected_exit
+    assert written == ([content] if expected_exit == 0 else [])
+
+
+def test_database_prepare_dispatcher_canonical_renderer_matches_authority() -> None:
+    namespace = runpy.run_path(str(TEMPLATES / "helixweave-db-prepare"))
+    render = namespace["_canonical_json_bytes"]
+    value = {"unicode": "核", "nested": {"b": 2, "a": 1}}
+
+    assert render(value) == canonical_json_bytes(value)
+    with pytest.raises(ValueError):
+        render({"invalid": float("nan")})
+
+
+def test_database_prepare_dispatcher_loads_in_isolated_stdlib_python() -> None:
+    program = (
+        "import json,runpy,sys\n"
+        "namespace=runpy.run_path(sys.argv[1])\n"
+        "value={'unicode':'核','nested':{'b':2,'a':1}}\n"
+        "expected=(json.dumps(value,allow_nan=False,ensure_ascii=False,"
+        "separators=(',',':'),sort_keys=True)+'\\n').encode('utf-8')\n"
+        "raise SystemExit(0 if namespace['_canonical_json_bytes'](value)==expected else 1)\n"
+    )
+
+    completed = subprocess.run(
+        (
+            "/usr/bin/python3",
+            "-I",
+            "-S",
+            "-c",
+            program,
+            str(TEMPLATES / "helixweave-db-prepare"),
+        ),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd="/",
+        env={"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/bin"},
+        timeout=10,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert completed.stdout == b""
+    assert completed.stderr == b""
 
 
 @dataclass
@@ -3871,6 +4038,80 @@ def test_active_service_accepts_only_the_generation_bound_environment() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "error",
+    (
+        OSError(errno.ENOENT, "missing", "/private/release/bin/service"),
+        OSError(errno.EACCES, "denied", "/private/release/bin/service"),
+        OSError(errno.ENOMEM, "token=secret"),
+    ),
+)
+def test_active_service_redacts_execve_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    error: OSError,
+) -> None:
+    namespace = runpy.run_path(str(TEMPLATES / "helixweave-active-service"))
+    main = namespace["main"]
+    binary = Path("/private/release/bin/helixweave-service")
+
+    def fail_execve(*_args) -> None:
+        raise error
+
+    with monkeypatch.context() as scoped:
+        scoped.setitem(
+            main.__globals__,
+            "_active_generation",
+            lambda: (IDENTITY, {"PRIVATE_COORDINATE": "/private/value"}),
+        )
+        scoped.setitem(main.__globals__, "_launcher", lambda _identity: binary)
+        scoped.setattr(main.__globals__["os"], "environ", {"PRIVATE_TOKEN": "secret"})
+        scoped.setattr(main.__globals__["os"], "execve", fail_execve)
+        observed = main(("api",))
+
+    captured = capsys.readouterr()
+    assert observed == 69
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_active_service_retains_abnormal_execve_return_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = runpy.run_path(str(TEMPLATES / "helixweave-active-service"))
+    main = namespace["main"]
+    binary = Path("/opt/helixweave/releases/platform/identity/bin/service")
+    calls: list[tuple[object, ...]] = []
+
+    with monkeypatch.context() as scoped:
+        scoped.setitem(
+            main.__globals__,
+            "_active_generation",
+            lambda: (IDENTITY, {"HELIXWEAVE_DEPLOYMENT_IDENTITY": IDENTITY}),
+        )
+        scoped.setitem(main.__globals__, "_launcher", lambda _identity: binary)
+        scoped.setattr(main.__globals__["os"], "environ", {})
+        scoped.setattr(
+            main.__globals__["os"],
+            "execve",
+            lambda *arguments: calls.append(arguments),
+        )
+
+        observed = main(("worker",))
+
+    assert observed == 70
+    assert calls == [
+        (
+            binary,
+            (str(binary), "worker"),
+            {
+                "HELIXWEAVE_DEPLOYMENT_IDENTITY": IDENTITY,
+                "PYTHONNOUSERSITE": "1",
+            },
+        )
+    ]
+
+
 def test_sudoers_and_helper_templates_do_not_expose_a_shell_or_environment() -> None:
     policy = (TEMPLATES / "helixweave-operator.sudoers").read_text()
     helper = (TEMPLATES / "helixweave-operator").read_text()
@@ -4735,3 +4976,410 @@ def test_bootstrap_update_refuses_to_mix_a_new_stable_boundary_with_old_bytes(
     with pytest.raises(bootstrap.BootstrapFailure) as reinstall:
         backend.apply(operation="install", invoking_user="labadmin")
     assert reinstall.value.code == "BOOTSTRAP_ALREADY_INSTALLED"
+
+
+def _recovery_service_identity(
+    *,
+    deployment_identity: str,
+    task_identity: str = TASK_IDENTITY,
+    unit: str = "helixweave-worker.service",
+) -> ServiceIdentity:
+    return ServiceIdentity.create(
+        unit=unit,
+        deployment_identity=deployment_identity,
+        task_identity=task_identity,
+        main_pid=4321,
+        process_start_ticks=8765,
+        executable_device=31,
+        executable_inode=41,
+        cmdline_identity=IDENTITY,
+        boot_identity=SERVICE_IDENTITY,
+        invocation_identity=THIRD_IDENTITY,
+        cgroup_identity=OLD_PLATFORM_IDENTITY,
+        sockets=(),
+    )
+
+
+@dataclass
+class _RecoveryProbe:
+    service: ServiceIdentity
+    running: bool
+    calls: list[tuple[str, str, str]]
+
+    def observe(
+        self,
+        *,
+        unit: str,
+        deployment_identity: str,
+        task_identity: str,
+    ) -> ServiceIdentity | None:
+        self.calls.append((unit, deployment_identity, task_identity))
+        if not self.running:
+            return None
+        assert unit == self.service.unit
+        assert deployment_identity == self.service.deployment_identity
+        assert task_identity == self.service.task_identity
+        return self.service
+
+
+@dataclass
+class _RecoverySystemctl:
+    probe: _RecoveryProbe
+    calls: list[tuple[str, str]]
+
+    def control(self, action: str, unit: str) -> None:
+        self.calls.append((action, unit))
+        if action == "start":
+            self.probe.running = True
+        elif action == "stop":
+            self.probe.running = False
+        else:
+            assert action == "reset-failed"
+
+
+def _systemd_recovery_controller(
+    layout: DeploymentLayout,
+    *,
+    service: ServiceIdentity,
+    running: bool,
+) -> tuple[SystemdServiceController, _RecoveryProbe, _RecoverySystemctl]:
+    layout.service_identities.mkdir(parents=True, mode=0o700)
+    layout.service_identities.chmod(0o700)
+    probe = _RecoveryProbe(service, running, [])
+    systemctl = _RecoverySystemctl(probe, [])
+    controller = SystemdServiceController(
+        layout,
+        systemctl=systemctl,
+        probe=probe,
+        owner_uid=os.getuid(),
+        owner_gid=os.getgid(),
+    )
+    return controller, probe, systemctl
+
+
+@pytest.mark.parametrize("already_running", (False, True))
+def test_direct_start_recovery_uses_systemd_identity_boundary_idempotently(
+    tmp_path: Path,
+    already_running: bool,
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path / str(already_running))
+    owner_uid = os.getuid()
+    owner_gid = os.getgid()
+    states, state = _state_with_active_components(
+        layout,
+        owner_uid=owner_uid,
+        owner_gid=owner_gid,
+    )
+    service = _recovery_service_identity(deployment_identity=OLD_PLATFORM_IDENTITY)
+    services, probe, systemctl = _systemd_recovery_controller(
+        layout,
+        service=service,
+        running=already_running,
+    )
+    active = {
+        component: state.components[component].active
+        for component in ("platform", "encode-runtime", "bulk-rnaseq-runtime")
+    }
+    record = OperatorTransaction.create(
+        request_identity=IDENTITY,
+        operation="start",
+        task_identity=TASK_IDENTITY,
+        deployment_identity=OLD_PLATFORM_IDENTITY,
+        component=None,
+        unit=service.unit,
+        phase="recovery-required",
+        failure_phase="service-starting",
+        point_of_no_return=True,
+        restart_units=(service.unit,),
+        prior_active=active,
+        candidate_active=active,
+        prior_state_identity=state.identity,
+        candidate_state_identity=state.identity,
+    )
+    controller = HostDeploymentActionController(
+        layout,
+        states=states,
+        services=services,
+        root_uid=owner_uid,
+        root_gid=owner_gid,
+    )
+
+    recovered = controller.recover(record)
+
+    assert recovered.phase == "complete"
+    assert probe.running
+    assert systemctl.calls == ([] if already_running else [("start", service.unit)])
+    identity_path = layout.service_identities / f"{service.unit}.json"
+    assert ServiceIdentity.from_dict(json.loads(identity_path.read_text())) == service
+    assert stat.S_IMODE(identity_path.stat().st_mode) == 0o600
+
+
+def test_direct_cleanup_recovery_finishes_a_live_systemd_stop(
+    tmp_path: Path,
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path / "cleanup")
+    owner_uid = os.getuid()
+    owner_gid = os.getgid()
+    states, state = _state_with_active_components(
+        layout,
+        owner_uid=owner_uid,
+        owner_gid=owner_gid,
+    )
+    service = _recovery_service_identity(deployment_identity=OLD_PLATFORM_IDENTITY)
+    services, probe, systemctl = _systemd_recovery_controller(
+        layout,
+        service=service,
+        running=True,
+    )
+    assert (
+        services.recover_observe(
+            OperatorRequest(
+                operation="status",
+                task_identity=TASK_IDENTITY,
+                deployment_identity=OLD_PLATFORM_IDENTITY,
+                unit=service.unit,
+            )
+        )
+        == service
+    )
+    probe.calls.clear()
+    systemctl.calls.clear()
+    active = {
+        component: state.components[component].active
+        for component in ("platform", "encode-runtime", "bulk-rnaseq-runtime")
+    }
+    record = OperatorTransaction.create(
+        request_identity=IDENTITY,
+        operation="cleanup",
+        task_identity=TASK_IDENTITY,
+        deployment_identity=OLD_PLATFORM_IDENTITY,
+        component=None,
+        unit=service.unit,
+        phase="recovery-required",
+        failure_phase="service-stopping",
+        restart_units=(service.unit,),
+        prior_running_units=(service.unit,),
+        prior_active=active,
+        candidate_active=active,
+        prior_state_identity=state.identity,
+        candidate_state_identity=state.identity,
+        evidence={"service_identity": service.identity},
+    )
+    controller = HostDeploymentActionController(
+        layout,
+        states=states,
+        services=services,
+        root_uid=owner_uid,
+        root_gid=owner_gid,
+    )
+
+    recovered = controller.recover(record)
+
+    assert recovered.phase == "complete"
+    assert not probe.running
+    assert systemctl.calls == [
+        ("stop", service.unit),
+        ("reset-failed", service.unit),
+    ]
+    assert len(probe.calls) == 3
+
+
+def test_pre_ponr_recovery_adopts_and_stops_unpersisted_candidate_service(
+    tmp_path: Path,
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path / "candidate")
+    owner_uid = os.getuid()
+    owner_gid = os.getgid()
+    states, prior = _state_with_active_components(
+        layout,
+        owner_uid=owner_uid,
+        owner_gid=owner_gid,
+    )
+    candidate = prior.stage("platform", IDENTITY).activate("platform")
+    service = _recovery_service_identity(deployment_identity=IDENTITY)
+    services, probe, systemctl = _systemd_recovery_controller(
+        layout,
+        service=service,
+        running=True,
+    )
+    prior_active = {
+        component: prior.components[component].active
+        for component in ("platform", "encode-runtime", "bulk-rnaseq-runtime")
+    }
+    candidate_active = {
+        component: candidate.components[component].active
+        for component in ("platform", "encode-runtime", "bulk-rnaseq-runtime")
+    }
+    record = OperatorTransaction.create(
+        request_identity=SERVICE_IDENTITY,
+        operation="activate",
+        task_identity=TASK_IDENTITY,
+        deployment_identity=IDENTITY,
+        component="platform",
+        unit=None,
+        phase="recovery-required",
+        failure_phase="writers-stopped",
+        write_fence=True,
+        restart_units=(service.unit,),
+        prior_active=prior_active,
+        candidate_active=candidate_active,
+        prior_state_identity=prior.identity,
+        candidate_state_identity=candidate.identity,
+    )
+    controller = HostDeploymentActionController(
+        layout,
+        states=states,
+        services=services,
+        root_uid=owner_uid,
+        root_gid=owner_gid,
+    )
+
+    recovered = controller.recover(record)
+
+    assert recovered.phase == "aborted"
+    assert states.read() == prior
+    assert not probe.running
+    assert systemctl.calls == [("stop", service.unit)]
+    identity_path = layout.service_identities / f"{service.unit}.json"
+    assert ServiceIdentity.from_dict(json.loads(identity_path.read_text())) == service
+
+
+def test_stage_recovery_falls_back_when_candidate_generation_was_not_written(
+    tmp_path: Path,
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path / "stage")
+    owner_uid = os.getuid()
+    owner_gid = os.getgid()
+    states = _supported_state_store(layout, owner_uid, owner_gid)
+    prior = states.initialize(
+        expected_owner_uid=owner_uid,
+        expected_owner_gid=owner_gid,
+    )
+    candidate = prior.stage("platform", IDENTITY)
+
+    def interrupt(point: str) -> None:
+        if point == "transaction-prepared":
+            raise RuntimeError("candidate generation was not written")
+
+    with pytest.raises(RuntimeError, match="candidate generation was not written"):
+        states.commit(
+            candidate,
+            operation="stage-platform",
+            expected_current_identity=prior.identity,
+            expected_owner_uid=owner_uid,
+            expected_owner_gid=owner_gid,
+            fault=interrupt,
+        )
+    prior_active = {
+        component: prior.components[component].active
+        for component in ("platform", "encode-runtime", "bulk-rnaseq-runtime")
+    }
+    record = OperatorTransaction.create(
+        request_identity=THIRD_IDENTITY,
+        operation="stage",
+        task_identity=TASK_IDENTITY,
+        deployment_identity=IDENTITY,
+        component="platform",
+        unit=None,
+        phase="recovery-required",
+        failure_phase="candidate-selected",
+        prior_active=prior_active,
+        candidate_active=prior_active,
+        prior_state_identity=prior.identity,
+        candidate_state_identity=candidate.identity,
+    )
+    controller = HostDeploymentActionController(
+        layout,
+        states=states,
+        services=FakeServiceController(),
+        root_uid=owner_uid,
+        root_gid=owner_gid,
+    )
+
+    recovered = controller.recover(record)
+
+    assert recovered.phase == "aborted"
+    assert states.read() == prior
+    assert states.pending_transactions() == ()
+    assert len(tuple(layout.state_transactions.glob("*.recovered.json"))) == 1
+    assert not (layout.state_generations / candidate.identity).exists()
+
+
+@pytest.mark.parametrize("daemon_reload_status", (0, 1))
+def test_uninstall_recovery_restores_real_pending_boundary_before_reload(
+    tmp_path: Path,
+    daemon_reload_status: int,
+) -> None:
+    root = tmp_path / str(daemon_reload_status)
+    layout = DeploymentLayout.isolated(root)
+    owner_uid = os.getuid()
+    owner_gid = os.getgid()
+    states, state = _state_with_active_components(
+        layout,
+        owner_uid=owner_uid,
+        owner_gid=owner_gid,
+    )
+    for logical in UNINSTALL_BOUNDARY_FILES:
+        path = root / str(logical).lstrip("/")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        linked_target = UNINSTALL_LINKED_BOUNDARY_TARGETS.get(logical)
+        if linked_target is None:
+            path.write_bytes(f"boundary:{logical}\n".encode())
+            path.chmod(0o444)
+        else:
+            path.symlink_to(linked_target)
+        if logical not in {
+            Path("/usr/libexec/helixweave-operator"),
+            Path("/etc/sudoers.d/helixweave-operator"),
+        }:
+            os.replace(
+                path,
+                path.with_name(f".{path.name}.helixweave-uninstall-pending"),
+            )
+    executor = RecordingCommandExecutor(CommandResult(daemon_reload_status), [])
+    uninstaller = HostBoundaryUninstaller(
+        owner_uid=owner_uid,
+        owner_gid=owner_gid,
+        executor=executor,
+        root_prefix=root,
+    )
+    active = {
+        component: state.components[component].active
+        for component in ("platform", "encode-runtime", "bulk-rnaseq-runtime")
+    }
+    record = OperatorTransaction.create(
+        request_identity=IDENTITY,
+        operation="uninstall",
+        task_identity=TASK_IDENTITY,
+        deployment_identity=state.identity,
+        component=None,
+        unit=None,
+        phase="recovery-required",
+        failure_phase="writers-stopped",
+        write_fence=True,
+        prior_active=active,
+        candidate_active=active,
+        prior_state_identity=state.identity,
+        candidate_state_identity=state.identity,
+    )
+    controller = HostDeploymentActionController(
+        layout,
+        states=states,
+        services=_TrackingServices({}, []),
+        boundary_uninstaller=uninstaller,
+        root_uid=owner_uid,
+        root_gid=owner_gid,
+    )
+
+    if daemon_reload_status == 0:
+        assert controller.recover(record).phase == "aborted"
+    else:
+        with pytest.raises(DeploymentError) as captured:
+            controller.recover(record)
+        assert captured.value.issue.code == "OPERATOR_UNINSTALL_FAILED"
+
+    assert executor.calls == [(("/usr/bin/systemctl", "daemon-reload"), 15.0)]
+    for logical in UNINSTALL_BOUNDARY_FILES:
+        path = root / str(logical).lstrip("/")
+        assert path.exists() or path.is_symlink()
+        assert not path.with_name(f".{path.name}.helixweave-uninstall-pending").exists()

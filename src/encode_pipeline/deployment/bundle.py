@@ -561,54 +561,61 @@ class BundleStore:
             observed.st_mtime_ns,
             observed.st_ctime_ns,
         )
-        file_object = os.fdopen(descriptor, "rb", closefd=True)
+        file_object = None
         try:
-            archive = tarfile.open(fileobj=file_object, mode="r:")
-        except (OSError, tarfile.TarError):
-            file_object.close()
-            raise fail(
-                "DEPLOYMENT_BUNDLE_INVALID", "Deployment bundle is invalid."
-            ) from None
-        try:
-            yield archive
-            after_stat = os.fstat(file_object.fileno())
-            after = (
-                after_stat.st_dev,
-                after_stat.st_ino,
-                after_stat.st_size,
-                after_stat.st_mtime_ns,
-                after_stat.st_ctime_ns,
-            )
-            if after != before:
+            file_object = os.fdopen(descriptor, "rb", closefd=True)
+            try:
+                archive = tarfile.open(fileobj=file_object, mode="r:")
+            except (OSError, tarfile.TarError):
+                raise fail(
+                    "DEPLOYMENT_BUNDLE_INVALID", "Deployment bundle is invalid."
+                ) from None
+            try:
+                yield archive
+                after_stat = os.fstat(file_object.fileno())
+                after = (
+                    after_stat.st_dev,
+                    after_stat.st_ino,
+                    after_stat.st_size,
+                    after_stat.st_mtime_ns,
+                    after_stat.st_ctime_ns,
+                )
+                if after != before:
+                    raise fail(
+                        "DEPLOYMENT_BUNDLE_RACE",
+                        "Deployment bundle changed during verification.",
+                        recoverable=True,
+                    )
+                path_after = os.stat(
+                    bundle_path.name,
+                    dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+                if (path_after.st_dev, path_after.st_ino) != (
+                    after_stat.st_dev,
+                    after_stat.st_ino,
+                ):
+                    raise fail(
+                        "DEPLOYMENT_BUNDLE_RACE",
+                        "Deployment bundle changed during verification.",
+                        recoverable=True,
+                    )
+            except FileNotFoundError:
                 raise fail(
                     "DEPLOYMENT_BUNDLE_RACE",
                     "Deployment bundle changed during verification.",
                     recoverable=True,
-                )
-            path_after = os.stat(
-                bundle_path.name,
-                dir_fd=directory_descriptor,
-                follow_symlinks=False,
-            )
-            if (path_after.st_dev, path_after.st_ino) != (
-                after_stat.st_dev,
-                after_stat.st_ino,
-            ):
-                raise fail(
-                    "DEPLOYMENT_BUNDLE_RACE",
-                    "Deployment bundle changed during verification.",
-                    recoverable=True,
-                )
-        except FileNotFoundError:
-            raise fail(
-                "DEPLOYMENT_BUNDLE_RACE",
-                "Deployment bundle changed during verification.",
-                recoverable=True,
-            ) from None
+                ) from None
+            finally:
+                archive.close()
         finally:
-            archive.close()
-            file_object.close()
-            os.close(directory_descriptor)
+            try:
+                if file_object is None:
+                    os.close(descriptor)
+                else:
+                    file_object.close()
+            finally:
+                os.close(directory_descriptor)
 
     @staticmethod
     def _read_manifest(archive: tarfile.TarFile) -> tuple[BundleManifest, bytes]:

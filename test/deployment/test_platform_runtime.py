@@ -21,7 +21,7 @@ from encode_pipeline.deployment.admission import (
 )
 from encode_pipeline.deployment.canonical import canonical_json_bytes
 from encode_pipeline.deployment.database import fresh_database_candidate_path
-from encode_pipeline.deployment.errors import DeploymentError
+from encode_pipeline.deployment.errors import DeploymentError, fail
 from encode_pipeline.deployment.layout import DeploymentLayout
 from encode_pipeline.deployment.models import ContractIdentity, ContractRequirement
 from encode_pipeline.deployment.operator_action import (
@@ -753,6 +753,32 @@ def _database_request(
     )
 
 
+def _encode_prepare_request() -> EncodeRuntimePrepareRequest:
+    return EncodeRuntimePrepareRequest.create(
+        task_identity=TASK,
+        deployment_identity=IDENTITY_B,
+        authority_platform_identity=IDENTITY_A,
+        prior_state_identity=IDENTITY_C,
+        candidate_state_identity=IDENTITY_B,
+    )
+
+
+def _bulk_prepare_request() -> BulkRuntimePrepareRequest:
+    return BulkRuntimePrepareRequest.create(
+        operation="activate",
+        task_identity=TASK,
+        candidate_bulk_identity=IDENTITY_B,
+        authority_platform_identity=IDENTITY_A,
+        prior_state_identity=IDENTITY_C,
+        candidate_state_identity=IDENTITY_B,
+        docker_service_identity=IDENTITY_A,
+        docker_client_identity=IDENTITY_B,
+        docker_endpoint_identity=IDENTITY_C,
+        docker_daemon_uid=os.getuid(),
+        docker_daemon_gid=os.getgid(),
+    )
+
+
 def test_database_prepare_runs_candidate_inventory_and_returns_canonical_receipt(
     tmp_path: Path,
 ) -> None:
@@ -837,6 +863,101 @@ def test_database_prepare_mode_is_explicit_and_path_free(tmp_path: Path) -> None
         )
     assert caught.value.issue.code == "DB_PREPARE_FAILED"
     assert not candidate.exists()
+
+
+def test_fresh_database_prepare_retry_returns_existing_candidate_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path)
+    layout.database.parent.mkdir(parents=True)
+    request = _database_request()
+    candidate = fresh_database_candidate_path(layout, TASK)
+    first = prepare_candidate_database(
+        request,
+        layout=layout,
+        expected_database_uid=os.getuid(),
+        expected_database_gid=os.getgid(),
+    )
+    before = candidate.stat()
+    monkeypatch.setattr(
+        runtime_module,
+        "_supported_database_ownership",
+        lambda: (os.getuid(), os.getgid()),
+    )
+
+    resumed = prepare_candidate_database(request, layout=layout)
+
+    after = candidate.stat()
+    assert resumed == first
+    assert (after.st_dev, after.st_ino, after.st_mtime_ns, after.st_size) == (
+        before.st_dev,
+        before.st_ino,
+        before.st_mtime_ns,
+        before.st_size,
+    )
+    assert not layout.database.exists()
+
+
+@pytest.mark.parametrize("fault", ("request", "layout", "missing-existing"))
+def test_database_prepare_rejects_invalid_public_coordinates(
+    tmp_path: Path,
+    fault: str,
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path)
+    layout.database.parent.mkdir(parents=True)
+    request: object = _database_request()
+    selected_layout: object = layout
+    expected = "DB_PREPARE_FAILED"
+    if fault == "request":
+        request = object()
+        expected = "DB_PREPARE_REQUEST_INVALID"
+    elif fault == "layout":
+        selected_layout = object()
+    else:
+        request = _database_request(database_mode="existing-live")
+
+    with pytest.raises(DeploymentError) as caught:
+        prepare_candidate_database(
+            request,
+            layout=selected_layout,
+            expected_database_uid=os.getuid(),
+            expected_database_gid=os.getgid(),
+        )
+
+    assert caught.value.issue.code == expected
+    assert not layout.database.exists()
+    assert str(tmp_path) not in str(caught.value)
+
+
+def test_database_prepare_preserves_schema_incompatibility_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import encode_pipeline.deployment.database as database_module
+    import encode_pipeline.persistence.migrations as migrations_module
+
+    layout = DeploymentLayout.isolated(tmp_path)
+    layout.database.parent.mkdir(parents=True)
+    request = _database_request()
+    monkeypatch.setattr(migrations_module, "upgrade_database", lambda _url: None)
+    monkeypatch.setattr(
+        database_module,
+        "inspect_database",
+        lambda *_args, **_kwargs: SimpleNamespace(schema_heads=("unexpected",)),
+    )
+
+    with pytest.raises(DeploymentError) as caught:
+        prepare_candidate_database(
+            request,
+            layout=layout,
+            expected_database_uid=os.getuid(),
+            expected_database_gid=os.getgid(),
+        )
+
+    assert caught.value.issue.code == "DATABASE_SCHEMA_INCOMPATIBLE"
+    assert caught.value.issue.recoverable is False
+    assert not fresh_database_candidate_path(layout, TASK).exists()
 
 
 def test_contract_compatibility_distinguishes_missing_and_present_mismatch() -> None:
@@ -1212,6 +1333,218 @@ def test_candidate_service_dispatch_is_a_closed_enumeration(
     captured = capsys.readouterr()
     assert "PLATFORM_SERVICE_ACTION_INVALID" in captured.err
     assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_code"),
+    (
+        ("encode-runtime-prepare", "ENCODE_RUNTIME_PREPARE_REQUEST_MISMATCH"),
+        ("bulk-runtime-prepare", "BULK_RUNTIME_PREPARE_REQUEST_MISMATCH"),
+        ("db-prepare", "DB_PREPARE_REQUEST_MISMATCH"),
+        ("operator-action", "OPERATOR_ACTION_REQUEST_MISMATCH"),
+    ),
+)
+def test_candidate_service_rejects_requests_for_another_release(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mode: str,
+    expected_code: str,
+) -> None:
+    requests = {
+        "encode-runtime-prepare": _encode_prepare_request(),
+        "bulk-runtime-prepare": _bulk_prepare_request(),
+        "db-prepare": _database_request(),
+        "operator-action": _action_request(),
+    }
+    request = requests[mode]
+    monkeypatch.setattr(
+        runtime_module,
+        "_read_root_request",
+        lambda _path: canonical_json_bytes(request.to_dict()),
+    )
+
+    exit_code = candidate_service_main(
+        (mode,),
+        release_root=Path(f"/tmp/{IDENTITY_C}"),
+    )
+
+    captured = capsys.readouterr()
+    error = json.loads(captured.err)
+    assert exit_code == 65
+    assert captured.out == ""
+    assert error["issue"]["code"] == expected_code
+    assert error["issue"]["recoverable"] is False
+    assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_code"),
+    (
+        ("encode-runtime-prepare", "ENCODE_RUNTIME_PREPARE_RECEIPT_INVALID"),
+        ("bulk-runtime-prepare", "BULK_RUNTIME_PREPARE_RECEIPT_INVALID"),
+        ("operator-action", "OPERATOR_ACTION_RECEIPT_INVALID"),
+    ),
+)
+def test_candidate_service_rejects_invalid_child_receipts(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mode: str,
+    expected_code: str,
+) -> None:
+    action_probe = None
+    if mode == "encode-runtime-prepare":
+        from encode_pipeline.deployment import encode_runtime_materializer
+
+        request = _encode_prepare_request()
+        monkeypatch.setattr(
+            encode_runtime_materializer.OfflineEncodeRuntimeMaterializer,
+            "prepare",
+            lambda *_args: object(),
+        )
+    elif mode == "bulk-runtime-prepare":
+        from encode_pipeline.deployment import bulk_runtime_materializer
+
+        request = _bulk_prepare_request()
+        monkeypatch.setattr(
+            bulk_runtime_materializer.OfflineBulkRuntimeMaterializer,
+            "prepare",
+            lambda *_args: object(),
+        )
+    else:
+        request = _action_request()
+
+        def invalid_action_probe(*_args):
+            return object()
+
+        action_probe = invalid_action_probe
+    monkeypatch.setattr(
+        runtime_module,
+        "_read_root_request",
+        lambda _path: canonical_json_bytes(request.to_dict()),
+    )
+
+    exit_code = candidate_service_main(
+        (mode,),
+        release_root=Path(f"/tmp/{IDENTITY_A}"),
+        action_probe=action_probe,
+    )
+
+    captured = capsys.readouterr()
+    error = json.loads(captured.err)
+    assert exit_code == 65
+    assert captured.out == ""
+    assert error["issue"]["code"] == expected_code
+    assert error["issue"]["recoverable"] is False
+
+
+def test_candidate_service_emits_database_prepare_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    request = _database_request()
+    receipt = DatabasePrepareReceipt.create(
+        request_identity=request.identity,
+        database_before_identity=None,
+        database_after_identity=IDENTITY_B,
+        schema_heads=request.target_schema_heads,
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "_read_root_request",
+        lambda _path: canonical_json_bytes(request.to_dict()),
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "prepare_candidate_database",
+        lambda observed: receipt if observed == request else None,
+    )
+
+    assert (
+        candidate_service_main(
+            ("db-prepare",),
+            release_root=Path(f"/tmp/{IDENTITY_A}"),
+        )
+        == 0
+    )
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert DatabasePrepareReceipt.from_dict(json.loads(captured.out)) == receipt
+
+
+@pytest.mark.parametrize(
+    ("failure", "exit_code", "expected_code", "recoverable"),
+    (
+        ("deployment", 69, "CANDIDATE_DEPENDENCY_UNAVAILABLE", True),
+        ("unexpected", 70, "PLATFORM_SERVICE_FAILED", False),
+    ),
+)
+def test_candidate_service_maps_failures_to_stable_public_errors(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    failure: str,
+    exit_code: int,
+    expected_code: str,
+    recoverable: bool,
+) -> None:
+    def runner() -> int:
+        if failure == "deployment":
+            raise fail(
+                "CANDIDATE_DEPENDENCY_UNAVAILABLE",
+                "Candidate dependency is unavailable.",
+                recoverable=True,
+            )
+        raise RuntimeError(str(tmp_path))
+
+    assert (
+        candidate_service_main(
+            ("api",),
+            release_root=Path(f"/tmp/{IDENTITY_A}"),
+            api_runner=runner,
+        )
+        == exit_code
+    )
+    captured = capsys.readouterr()
+    error = json.loads(captured.err)
+    assert captured.out == ""
+    assert error["issue"] == {
+        "code": expected_code,
+        "message": error["issue"]["message"],
+        "recoverable": recoverable,
+    }
+    assert str(tmp_path) not in captured.err
+    assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize("fault", ("invalid-document", "relative-request-path"))
+def test_candidate_database_service_rejects_untrusted_request_documents(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    fault: str,
+) -> None:
+    kwargs = {}
+    if fault == "invalid-document":
+        monkeypatch.setattr(
+            runtime_module,
+            "_read_root_request",
+            lambda _path: canonical_json_bytes({"unexpected": True}),
+        )
+        expected = "DATABASE_PREPARE_REQUEST_INVALID"
+    else:
+        kwargs["database_request_path"] = Path("relative/request.json")
+        expected = "PLATFORM_SERVICE_REQUEST_UNTRUSTED"
+
+    assert (
+        candidate_service_main(
+            ("db-prepare",),
+            release_root=Path(f"/tmp/{IDENTITY_A}"),
+            **kwargs,
+        )
+        == 65
+    )
+    captured = capsys.readouterr()
+    error = json.loads(captured.err)
+    assert captured.out == ""
+    assert error["issue"]["code"] == expected
 
 
 def test_candidate_service_runs_the_fixed_offline_encode_materializer(
