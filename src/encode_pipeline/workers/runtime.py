@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
 
-from encode_pipeline.persistence.runtime import RunPersistence, open_run_persistence
+from encode_pipeline.persistence.runtime import (
+    RunPersistence,
+    open_existing_run_persistence,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.command_builder import CommandBuilder
 from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
@@ -118,19 +121,33 @@ def open_worker_runtime(
     if not isinstance(resolved_settings, WorkerSettings):
         raise ValueError("settings must be a WorkerSettings instance or None")
 
-    persistence = open_run_persistence(resolved_settings.database_url)
+    resolved_project_root = (
+        resolved_settings.encode_runtime_root if project_root is None else project_root
+    )
+    if (
+        project_root is not None
+        and resolved_settings.encode_runtime_root is not None
+        and project_root != resolved_settings.encode_runtime_root
+    ):
+        raise ValueError("project_root must match the admitted ENCODE runtime root")
+    if build_identity_provider is not None and not isinstance(
+        build_identity_provider,
+        WorkflowBuildIdentityProvider,
+    ):
+        raise ValueError(
+            "build_identity_provider must be a WorkflowBuildIdentityProvider"
+        )
+    if registry is not None and not isinstance(registry, WorkflowRegistry):
+        raise ValueError("registry must be a WorkflowRegistry instance or None")
+    if process_runner is not None and not isinstance(process_runner, ProcessRunner):
+        raise ValueError("process_runner must be a ProcessRunner instance or None")
+
+    persistence = open_existing_run_persistence(resolved_settings.database_url)
     try:
-        if build_identity_provider is not None and not isinstance(
-            build_identity_provider,
-            WorkflowBuildIdentityProvider,
-        ):
-            raise ValueError(
-                "build_identity_provider must be a WorkflowBuildIdentityProvider"
-            )
         source_hint = (
             build_identity_provider.project_root
             if build_identity_provider is not None
-            else project_root
+            else resolved_project_root
         )
         if registry is None:
             registry = (
@@ -138,20 +155,16 @@ def open_worker_runtime(
                 if build_identity_provider is not None
                 else create_default_workflow_registry(project_root=source_hint)
             )
-        elif not isinstance(registry, WorkflowRegistry):
-            raise ValueError("registry must be a WorkflowRegistry instance or None")
-        if process_runner is not None and not isinstance(process_runner, ProcessRunner):
-            raise ValueError("process_runner must be a ProcessRunner instance or None")
         if build_identity_provider is None:
             build_identity_provider = create_default_workflow_build_identity_provider(
                 registry=registry,
-                project_root=project_root,
+                project_root=resolved_project_root,
             )
         elif build_identity_provider.registry is not registry:
             raise ValueError("registry must be the build_identity_provider registry")
         elif (
-            project_root is not None
-            and build_identity_provider.project_root != project_root
+            resolved_project_root is not None
+            and build_identity_provider.project_root != resolved_project_root
         ):
             raise ValueError(
                 "project_root must match build_identity_provider.project_root"
@@ -188,6 +201,12 @@ def open_worker_runtime(
             registry=registry,
             project_root=source_project_root,
             reference_profile_resolver=reference_profile_resolver,
+            snakemake_executable=(
+                None
+                if resolved_settings.encode_runner_root is None
+                else resolved_settings.encode_runner_root / "bin" / "snakemake"
+            ),
+            conda_prefix=resolved_settings.encode_conda_prefix,
         )
         managed_container_cleaner = create_default_managed_container_cleaner(
             resolved_settings

@@ -17,13 +17,16 @@ from encode_pipeline.persistence.reference_profiles import (
 )
 from encode_pipeline.persistence.runtime import (
     DATABASE_URL_ENV,
+    DatabaseSchemaNotReadyError,
     RunPersistence,
+    open_existing_run_persistence,
     open_run_persistence,
     resolve_database_url,
 )
 
 __all__ = [
     "DATABASE_URL_ENV",
+    "DatabaseSchemaNotReadyError",
     "RunPersistence",
     "SqlAlchemyDataRegistryRepository",
     "SqlAlchemyInputRegistryRepository",
@@ -32,6 +35,7 @@ __all__ = [
     "create_database_engine",
     "create_session_factory",
     "open_run_persistence",
+    "open_existing_run_persistence",
     "resolve_database_url",
     "upgrade_database",
 ]

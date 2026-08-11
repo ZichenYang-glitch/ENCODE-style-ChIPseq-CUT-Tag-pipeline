@@ -14,10 +14,10 @@ import sys
 from encode_pipeline.deployment.canonical import canonical_json_bytes
 from encode_pipeline.deployment.errors import DeploymentError, fail
 from encode_pipeline.deployment.gate import (
+    FilesystemGateObserver,
     GateObserver,
     GatePolicy,
     GateRequest,
-    UnavailableGateObserver,
     prepare_gate_request,
 )
 from encode_pipeline.deployment.models import BULK_RNASEQ_RUNTIME, ENCODE_RUNTIME
@@ -198,7 +198,7 @@ def main(
         arguments = _parser().parse_args(argv)
         request = prepare(
             arguments,
-            observer=UnavailableGateObserver() if observer is None else observer,
+            observer=FilesystemGateObserver() if observer is None else observer,
             policy=GatePolicy.supported() if policy is None else policy,
             fault=fault,
         )

@@ -72,6 +72,10 @@ class DeploymentLayout:
         return self.immutable_root / "runtimes" / "encode"
 
     @property
+    def encode_runtime_materialized(self) -> Path:
+        return self.data_root / "scientific" / "encode"
+
+    @property
     def bulk_rnaseq_runtimes(self) -> Path:
         return self.immutable_root / "runtimes" / "bulk-rnaseq"
 
@@ -90,31 +94,122 @@ class DeploymentLayout:
 
     @property
     def state_generations(self) -> Path:
-        return self.data_root / "operator" / "state" / "generations"
+        return self.data_root / "deployment" / "generations"
 
     @property
     def current_state_link(self) -> Path:
-        return self.data_root / "operator" / "state" / "current"
+        return self.data_root / "deployment" / "current"
 
     @property
     def state_lock(self) -> Path:
         return self.data_root / "operator" / "state" / "operation.lock"
 
     @property
-    def transactions(self) -> Path:
+    def state_transactions(self) -> Path:
+        return self.data_root / "operator" / "state" / "transactions"
+
+    @property
+    def operator_transactions(self) -> Path:
         return self.data_root / "operator" / "transactions"
+
+    @property
+    def operator_transaction_active(self) -> Path:
+        return self.operator_transactions / "active.json"
+
+    @property
+    def operator_transaction_history(self) -> Path:
+        return self.operator_transactions / "history"
+
+    @property
+    def operator_transaction_lock(self) -> Path:
+        return self.operator_transactions / "operator.lock"
+
+    @property
+    def operator_action_root(self) -> Path:
+        return self.run_root / "operator" / "action"
+
+    @property
+    def operator_action_request(self) -> Path:
+        return self.operator_action_root / "request.json"
+
+    @property
+    def operator_action_receipt(self) -> Path:
+        return self.operator_action_root / "receipt.json"
+
+    @property
+    def database_prepare_root(self) -> Path:
+        return self.run_root / "database"
+
+    @property
+    def database_prepare_request(self) -> Path:
+        return self.database_prepare_root / "prepare.json"
+
+    @property
+    def database_prepare_receipt(self) -> Path:
+        return self.database_prepare_root / "prepare-receipt.json"
+
+    @property
+    def encode_runtime_prepare_root(self) -> Path:
+        return self.run_root / "operator" / "encode-runtime"
+
+    @property
+    def encode_runtime_prepare_request(self) -> Path:
+        return self.encode_runtime_prepare_root / "request.json"
+
+    @property
+    def encode_runtime_prepare_receipt(self) -> Path:
+        return self.encode_runtime_prepare_root / "receipt.json"
+
+    @property
+    def bulk_runtime_prepare_root(self) -> Path:
+        return self.run_root / "operator" / "bulk-runtime"
+
+    @property
+    def bulk_runtime_prepare_request(self) -> Path:
+        return self.bulk_runtime_prepare_root / "request.json"
+
+    @property
+    def bulk_runtime_prepare_receipt(self) -> Path:
+        return self.bulk_runtime_prepare_root / "receipt.json"
+
+    def encode_runtime_failed(self, identity: str, task_identity: str) -> Path:
+        return self.encode_runtime_materialized / f".failed.{identity}.{task_identity}"
+
+    def encode_runtime_active_root(self, identity: str) -> Path:
+        return self.encode_runtime_materialized / identity
+
+    def encode_runtime_materialization_receipt(self, identity: str) -> Path:
+        return (
+            self.data_root
+            / "operator"
+            / "runtime-materializations"
+            / f"{identity}.json"
+        )
+
+    @property
+    def transactions(self) -> Path:
+        """Compatibility name for the root-only operator journal directory."""
+        return self.operator_transactions
+
+    @property
+    def service_identities(self) -> Path:
+        return self.run_root / "services"
 
     @property
     def ingress(self) -> Path:
         return self.data_root / "operator" / "ingress"
 
+    def ingress_bundle(self, component: str, identity: str) -> Path:
+        """Return the fixed, flat ingress coordinate for one admitted bundle."""
+        return self.ingress / component / f"{identity}.tar"
+
     @property
     def database(self) -> Path:
-        return self.data_root / "database" / "platform.db"
+        return self.data_root / "database" / "live" / "platform.db"
 
     @property
     def database_backups(self) -> Path:
-        return self.data_root / "database" / "backups"
+        return self.data_root / "operator" / "database-backups"
 
     @property
     def workspaces(self) -> Path:

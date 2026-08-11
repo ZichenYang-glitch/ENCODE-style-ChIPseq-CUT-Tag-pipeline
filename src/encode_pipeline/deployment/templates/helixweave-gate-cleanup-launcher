@@ -36,8 +36,21 @@ if (
 
 backend = f"{BACKEND_ROOT}/{sys.argv[9]}/bin/helixweave-gate-cleanup"
 
-os.execve(
-    PYTHON,
-    (PYTHON, "-I", "-S", "-E", "-B", backend, *sys.argv[1:]),
-    ENVIRONMENT,
-)
+try:
+    os.execve(
+        PYTHON,
+        (PYTHON, "-I", "-S", "-E", "-B", backend, *sys.argv[1:]),
+        ENVIRONMENT,
+    )
+except OSError:
+    receipt = {
+        "schema_version": "helixweave-deployment-gate-cleanup-receipt-v1",
+        "status": "error",
+        "issue": {
+            "code": "GATE_CLEANUP_BACKEND_UNAVAILABLE",
+            "message": "Gate cleanup backend is unavailable.",
+        },
+    }
+    sys.stderr.write(json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n")
+    sys.stderr.flush()
+    raise SystemExit(69) from None

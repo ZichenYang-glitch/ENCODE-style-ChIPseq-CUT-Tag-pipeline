@@ -32,6 +32,7 @@ REQUIRED_PROVIDERS = {
         {
             "helixweave.platform.distribution",
             "helixweave.platform.python-wheel",
+            "helixweave.platform.python-runtime",
             "helixweave.platform.frontend-assets",
             "helixweave.platform.database-migrations",
             "helixweave.platform.reference-compatibility",

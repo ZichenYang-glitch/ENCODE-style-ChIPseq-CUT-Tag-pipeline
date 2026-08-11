@@ -25,6 +25,7 @@ from encode_pipeline.deployment.models import (
     FileRecord,
     REQUIRED_PROVIDERS,
 )
+from encode_pipeline.deployment.state import render_platform_environment
 
 
 FIXTURE_CONTRACT_SCHEME = "helixweave-test-native-contract-v1"
@@ -179,6 +180,11 @@ def manager_for(layout) -> DeploymentManager:
         ownership=DeploymentOwnership(os.getuid(), os.getgid()),
         contract_resolver=FixtureNativeContractResolver(),
         schema_observer=FixtureDatabaseSchemaObserver(),
+        platform_environment_renderer=lambda state: render_platform_environment(
+            layout,
+            state,
+            api_contract_sha256="a" * 64,
+        ),
     )
 
 

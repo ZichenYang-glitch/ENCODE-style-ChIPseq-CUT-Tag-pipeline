@@ -8,7 +8,9 @@ Cmnd_Alias HELIXWEAVE_OPERATOR = \
     /usr/libexec/helixweave-operator status *, \
     /usr/libexec/helixweave-operator stop *, \
     /usr/libexec/helixweave-operator cleanup *, \
-    /usr/libexec/helixweave-operator uninstall *
+    /usr/libexec/helixweave-operator uninstall *, \
+    /usr/libexec/helixweave-operator observe *, \
+    /usr/libexec/helixweave-operator verify *
 
 Cmnd_Alias HELIXWEAVE_GATE_CLEANUP = \
     /usr/libexec/helixweave-gate-cleanup cleanup --task-id * --plan-id * --executor-id * --closure-id * --backend-id *

@@ -53,7 +53,10 @@ def _status_result() -> dict[str, object]:
         "partial_staging_count": 0,
         "pending_transaction_count": 0,
         "orphaned_deployment_count": 0,
+        "operator_pending_transaction_count": 0,
+        "operator_recovery_required_count": 0,
         "database_schema_identity": None,
+        "database_schema_reason_code": "DATABASE_UNAVAILABLE",
         "services": _services(),
     }
 
@@ -77,6 +80,7 @@ def _doctor_result(*, healthy: bool) -> dict[str, object]:
         ("permissions", "host"),
         ("database", "database"),
         ("redis", "queue"),
+        ("api", "platform"),
         ("worker", "queue"),
         ("frontend", "platform"),
         ("encode-runtime", "runtime"),
@@ -337,6 +341,14 @@ def test_result_state_and_exit_code_must_agree(
             ),
             EXIT_UNAVAILABLE,
         ),
+        (
+            fail(
+                "OPERATOR_OBSERVATION_UNAVAILABLE",
+                "/private/operator observation unavailable",
+                recoverable=True,
+            ),
+            EXIT_UNAVAILABLE,
+        ),
     ],
 )
 def test_errors_are_redacted_and_have_stable_exit_classes(
@@ -382,15 +394,22 @@ def test_backend_cannot_publish_paths_secrets_or_arbitrary_objects() -> None:
         assert caught.value.issue.code == "DEPLOYMENT_RESULT_INVALID"
 
 
-def test_phase_a_default_backend_fails_closed_without_host_action() -> None:
-    errors = io.StringIO()
+def test_default_selects_the_production_backend_composition(monkeypatch) -> None:
+    from encode_pipeline.deployment.backend import ProductionCommandBackend
 
-    exit_code = main(("status",), stderr=errors)
-
-    assert exit_code == EXIT_UNAVAILABLE
-    assert json.loads(errors.getvalue())["issue"]["code"] == (
-        "DEPLOYMENT_INTEGRATION_DEFERRED"
+    backend = RecordingBackend()
+    monkeypatch.setattr(
+        ProductionCommandBackend,
+        "supported",
+        classmethod(lambda cls: backend),
     )
+    output = io.StringIO()
+
+    exit_code = main(("status",), stdout=output)
+
+    assert exit_code == EXIT_OK
+    assert json.loads(output.getvalue())["result"] == _status_result()
+    assert backend.called == ("status",)
 
 
 def test_invalid_usage_never_echoes_the_rejected_argument() -> None:

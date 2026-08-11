@@ -1,0 +1,150 @@
+#!/usr/bin/python3.12 -I
+"""Fixed candidate-release dispatcher; installed root-owned mode 0555."""
+
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+
+
+PYTHON = "/usr/bin/python3.12"
+IDENTITY = re.compile(r"sha256-[0-9a-f]{64}\Z")
+COMMANDS = {
+    "api",
+    "worker",
+    "db-prepare",
+    "operator-action",
+    "encode-runtime-prepare",
+    "bulk-runtime-prepare",
+}
+COMMON_SERVICE_ENVIRONMENT = {
+    "ENCODE_PIPELINE_DATABASE_URL",
+    "ENCODE_PIPELINE_WORKSPACE_ROOT",
+    "ENCODE_PIPELINE_REDIS_URL",
+    "ENCODE_PIPELINE_QUEUE_NAME",
+    "ENCODE_PIPELINE_REFERENCE_PROFILE_CONFIG",
+    "ENCODE_PIPELINE_REDIS_CONNECT_TIMEOUT_SECONDS",
+    "ENCODE_PIPELINE_REDIS_API_READ_TIMEOUT_SECONDS",
+    "HELIXWEAVE_ENCODE_RUNTIME_ROOT",
+    "HELIXWEAVE_ENCODE_RUNNER_ROOT",
+    "HELIXWEAVE_ENCODE_CONDA_PREFIX",
+    "HELIXWEAVE_DEPLOYMENT_IDENTITY",
+    "HELIXWEAVE_ACTIVE_PLATFORM_IDENTITY",
+    "HELIXWEAVE_ACTIVE_API_CONTRACT_SHA256",
+    "HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT",
+    "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE",
+    "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET",
+}
+API_SERVICE_ENVIRONMENT = {
+    "ENCODE_AGENT_LLM_PROVIDER",
+    "ENCODE_AGENT_LLM_API_KEY",
+    "ENCODE_AGENT_LLM_MODEL",
+}
+
+
+def _fixed_release():
+    launcher = Path(__file__).absolute()
+    release = launcher.parents[3]
+    if (
+        launcher != release / "payload" / "platform" / "bin" / "helixweave-service"
+        or IDENTITY.fullmatch(release.name) is None
+    ):
+        raise OSError
+    for ancestor in (
+        release.parent,
+        release.parent.parent,
+        release.parent.parent.parent,
+    ):
+        observed = ancestor.stat(follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(observed.st_mode)
+            or observed.st_uid != 0
+            or observed.st_gid != 0
+            or observed.st_mode & 0o022
+        ):
+            raise OSError
+    fixed = (
+        release,
+        release / "payload",
+        release / "payload" / "platform",
+        release / "payload" / "platform" / "bin",
+        release / "payload" / "platform" / "lib",
+        release / "payload" / "platform" / "lib" / "python3.12",
+        release / "payload" / "platform" / "lib" / "python3.12" / "site-packages",
+    )
+    for path in fixed:
+        observed = path.stat(follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(observed.st_mode)
+            or observed.st_uid != 0
+            or observed.st_gid != 0
+            or stat.S_IMODE(observed.st_mode) != 0o555
+        ):
+            raise OSError
+    observed = launcher.stat(follow_symlinks=False)
+    if (
+        not stat.S_ISREG(observed.st_mode)
+        or observed.st_nlink != 1
+        or observed.st_uid != 0
+        or observed.st_gid != 0
+        or stat.S_IMODE(observed.st_mode) != 0o555
+    ):
+        raise OSError
+    return release, fixed[-1]
+
+
+def _environment(command):
+    selected = {
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "PATH": "/usr/bin:/bin",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONNOUSERSITE": "1",
+    }
+    allowed = COMMON_SERVICE_ENVIRONMENT | (
+        API_SERVICE_ENVIRONMENT if command == "api" else set()
+    )
+    for key in allowed:
+        value = os.environ.get(key)
+        if value is not None:
+            if "\x00" in value or "\n" in value or "\r" in value:
+                raise ValueError
+            selected[key] = value
+    return selected
+
+
+def main(argv=None):
+    values = tuple(sys.argv[1:] if argv is None else argv)
+    if len(values) != 1 or values[0] not in COMMANDS:
+        return 64
+    try:
+        release, site_packages = _fixed_release()
+        observed_python = Path(PYTHON).stat(follow_symlinks=False)
+        if (
+            not stat.S_ISREG(observed_python.st_mode)
+            or observed_python.st_uid != 0
+            or observed_python.st_mode & 0o022
+        ):
+            raise OSError
+        command = values[0]
+        bootstrap = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(site_packages)!r})\n"
+            "from pathlib import Path\n"
+            "from encode_pipeline.deployment.platform_runtime import candidate_service_main\n"
+            f"raise SystemExit(candidate_service_main(({command!r},), "
+            f"release_root=Path({str(release)!r})))\n"
+        )
+        os.execve(
+            PYTHON,
+            (PYTHON, "-I", "-S", "-c", bootstrap),
+            _environment(command),
+        )
+    except (OSError, ValueError):
+        return 69
+    return 70
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

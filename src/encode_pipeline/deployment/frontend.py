@@ -14,11 +14,13 @@ from encode_pipeline.frontend_assets import (
     VerifiedFrontendAssets,
     load_packaged_frontend_assets,
 )
+from encode_pipeline.workers.settings import ENCODE_RUNTIME_ROOT_ENV
 
 
 _SAFE_ROUTE_SEGMENT = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._~:@+-]{0,255}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 API_CONTRACT_ENVIRONMENT = "HELIXWEAVE_ACTIVE_API_CONTRACT_SHA256"
+ENCODE_RUNTIME_ROOT_ENVIRONMENT = ENCODE_RUNTIME_ROOT_ENV
 _CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".gif": "image/gif",
@@ -242,11 +244,21 @@ def create_app(
         )
 
     from encode_pipeline.api.main import create_app as create_api_app
+    from encode_pipeline.persistence import open_existing_run_persistence
+    from encode_pipeline.services.defaults import create_default_workflow_registry
+
+    runtime_root = _encode_runtime_root(project_root)
+    registry = create_default_workflow_registry(
+        project_root=runtime_root,
+        environ=os.environ,
+    )
 
     app = create_api_app(
         database_url=database_url,
         workspace_root=workspace_root,
-        project_root=project_root,
+        project_root=runtime_root,
+        persistence_opener=open_existing_run_persistence,
+        registry=registry,
     )
     app.state.frontend_asset_identity = assets.manifest.identity
     app.state.frontend_api_contract_sha256 = observed_contract
@@ -254,8 +266,68 @@ def create_app(
     return app
 
 
+def _encode_runtime_root(explicit: Path | None) -> Path:
+    from_environment = explicit is None
+    raw: object = (
+        os.environ.get(ENCODE_RUNTIME_ROOT_ENVIRONMENT)
+        if explicit is None
+        else explicit
+    )
+    try:
+        if isinstance(raw, Path):
+            root = raw
+        elif isinstance(raw, str):
+            root = Path(raw)
+        else:
+            raise ValueError
+        rendered = str(root)
+        parents = root.parents
+        if (
+            not root.is_absolute()
+            or rendered != str(Path(rendered))
+            or root.is_symlink()
+            or not root.is_dir()
+            or root.resolve(strict=True) != root
+            or (
+                from_environment
+                and (
+                    len(parents) < 5
+                    or root.name != "encode-runtime"
+                    or parents[0].name != "contracts"
+                    or parents[1].name != "payload"
+                    or re.fullmatch(r"sha256-[0-9a-f]{64}", parents[2].name) is None
+                    or parents[3].name != "encode"
+                    or parents[4].name != "runtimes"
+                )
+            )
+            or any(character in rendered for character in ("\x00", "\n", "\r"))
+        ):
+            raise ValueError
+        required = (
+            (root / "workflow" / "Snakefile", False),
+            (root / "profiles" / "default", True),
+            (root / "scripts", True),
+            (root / "docs" / "architecture" / "artifact-inventory.yaml", False),
+        )
+        if any(
+            path.is_symlink() or not (path.is_dir() if directory else path.is_file())
+            for path, directory in required
+        ):
+            raise ValueError
+    except (OSError, TypeError, ValueError):
+        from encode_pipeline.deployment.errors import fail
+
+        raise fail(
+            "ENCODE_RUNTIME_UNAVAILABLE",
+            "The active ENCODE runtime is unavailable.",
+            recoverable=True,
+        ) from None
+    return root
+
+
 __all__ = [
     "API_CONTRACT_ENVIRONMENT",
+    "ENCODE_RUNTIME_ROOT_ENVIRONMENT",
     "ManifestStaticApplication",
     "create_app",
 ]

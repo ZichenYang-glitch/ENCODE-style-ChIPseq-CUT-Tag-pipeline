@@ -1,65 +1,37 @@
 #!/usr/bin/python3 -I
-"""Self-contained root operator closure; Phase A deliberately has no backend."""
+"""Root-owned closure entrypoint for the fixed deployment operator."""
 
-import json
 import os
-import re
+from pathlib import Path
+import stat
 import sys
 
 
-SCHEMA = "helixweave-operator-receipt-v1"
-COMPONENTS = {"platform", "encode-runtime", "bulk-rnaseq-runtime"}
-UNITS = {
-    "helixweave-api.service",
-    "helixweave-worker.service",
-    "helixweave-redis.service",
-    "helixweave-docker-rootless.service",
-}
-IDENTITY = re.compile(r"sha256-[0-9a-f]{64}\Z")
-TASK = re.compile(r"task-[0-9a-f]{32}\Z")
+def _load_main():
+    closure = Path(__file__).resolve().parents[1]
+    library = closure / "lib"
+    for path in (closure, library, library / "encode_pipeline"):
+        observed = path.stat(follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(observed.st_mode)
+            or observed.st_uid != os.geteuid()
+            or observed.st_gid != os.getegid()
+            or stat.S_IMODE(observed.st_mode) != 0o555
+        ):
+            raise RuntimeError("operator closure is not trusted")
+    sys.path.insert(0, str(library))
+    from encode_pipeline.deployment.operator import main
 
-
-def _valid(argv):
-    if any(not isinstance(item, str) or not item or len(item) > 256 for item in argv):
-        return False
-    if len(argv) == 4 and argv[0] in {"stage", "activate", "rollback"}:
-        return argv[1] in COMPONENTS and bool(IDENTITY.fullmatch(argv[2])) and bool(TASK.fullmatch(argv[3]))
-    if len(argv) == 4 and argv[0] == "start":
-        return argv[1] in UNITS and bool(IDENTITY.fullmatch(argv[2])) and bool(TASK.fullmatch(argv[3]))
-    if len(argv) == 5 and argv[0] in {"status", "stop", "cleanup"}:
-        return argv[1] in UNITS and bool(IDENTITY.fullmatch(argv[2])) and bool(TASK.fullmatch(argv[3])) and bool(IDENTITY.fullmatch(argv[4]))
-    if len(argv) == 3 and argv[0] == "uninstall":
-        return bool(IDENTITY.fullmatch(argv[1])) and bool(TASK.fullmatch(argv[2]))
-    return False
-
-
-def _write(code, message, recoverable=False):
-    value = {
-        "schema_version": SCHEMA,
-        "status": "error",
-        "issue": {
-            "code": code,
-            "message": message,
-            "recoverable": recoverable,
-        },
-    }
-    sys.stderr.write(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
-    sys.stderr.flush()
-
-
-def main(argv=None):
-    values = tuple(sys.argv[1:] if argv is None else argv)
-    os.environ.clear()
-    os.environ.update({"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"})
-    if os.geteuid() != 0:
-        _write("OPERATOR_PRIVILEGE_REQUIRED", "Operator helper must run as root.")
-        return 77
-    if not _valid(values):
-        _write("OPERATOR_REQUEST_INVALID", "Operator request is invalid.")
-        return 64
-    _write("OPERATOR_OPERATION_FAILED", "Operator action failed.", recoverable=True)
-    return 69
+    return main
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    os.environ.clear()
+    os.environ.update(
+        {
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+        }
+    )
+    raise SystemExit(_load_main()())

@@ -47,11 +47,19 @@ class BundleStore:
         *,
         expected_owner_uid: int | None = None,
         expected_owner_gid: int | None = None,
+        expected_mode: int | None = None,
+        expected_parent_uid: int | None = None,
+        expected_parent_gid: int | None = None,
+        expected_parent_mode: int | None = None,
     ) -> BundleManifest:
         with self._open_bundle(
             bundle_path,
             expected_owner_uid=expected_owner_uid,
             expected_owner_gid=expected_owner_gid,
+            expected_mode=expected_mode,
+            expected_parent_uid=expected_parent_uid,
+            expected_parent_gid=expected_parent_gid,
+            expected_parent_mode=expected_parent_mode,
         ) as archive:
             manifest, _raw = self._read_manifest(archive)
             self._verify_member_inventory(archive, manifest)
@@ -63,6 +71,12 @@ class BundleStore:
         *,
         expected_owner_uid: int | None = None,
         expected_owner_gid: int | None = None,
+        expected_mode: int | None = None,
+        expected_parent_uid: int | None = None,
+        expected_parent_gid: int | None = None,
+        expected_parent_mode: int | None = None,
+        expected_component: str | None = None,
+        expected_identity: str | None = None,
         installed_owner_uid: int | None = None,
         installed_owner_gid: int | None = None,
         fault: FaultInjector | None = None,
@@ -71,8 +85,30 @@ class BundleStore:
             bundle_path,
             expected_owner_uid=expected_owner_uid,
             expected_owner_gid=expected_owner_gid,
+            expected_mode=expected_mode,
+            expected_parent_uid=expected_parent_uid,
+            expected_parent_gid=expected_parent_gid,
+            expected_parent_mode=expected_parent_mode,
         ) as archive:
             manifest, raw_manifest = self._read_manifest(archive)
+            if (
+                expected_component is not None
+                and manifest.component != expected_component
+            ) or (
+                expected_identity is not None and manifest.identity != expected_identity
+            ):
+                raise fail(
+                    "DEPLOYMENT_BUNDLE_IDENTITY_MISMATCH",
+                    "Deployment bundle does not match the requested identity.",
+                    component=expected_component
+                    if expected_component
+                    in {
+                        "platform",
+                        "encode-runtime",
+                        "bulk-rnaseq-runtime",
+                    }
+                    else None,
+                )
             members = self._verify_member_inventory(archive, manifest)
             store = self._prepare_store(
                 manifest.component,
@@ -446,16 +482,55 @@ class BundleStore:
         *,
         expected_owner_uid: int | None,
         expected_owner_gid: int | None,
+        expected_mode: int | None,
+        expected_parent_uid: int | None,
+        expected_parent_gid: int | None,
+        expected_parent_mode: int | None,
     ):
         if not isinstance(bundle_path, Path) or not bundle_path.is_absolute():
             raise fail(
                 "DEPLOYMENT_BUNDLE_PATH_INVALID", "Deployment bundle path is invalid."
             )
+        directory_flags = (
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
         flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        directory_descriptor: int | None = None
         try:
-            descriptor = os.open(bundle_path, flags)
+            parent_before = bundle_path.parent.lstat()
+            if (
+                not stat.S_ISDIR(parent_before.st_mode)
+                or stat.S_ISLNK(parent_before.st_mode)
+                or stat.S_IMODE(parent_before.st_mode) & 0o002
+                or (
+                    expected_parent_uid is not None
+                    and parent_before.st_uid != expected_parent_uid
+                )
+                or (
+                    expected_parent_gid is not None
+                    and parent_before.st_gid != expected_parent_gid
+                )
+                or (
+                    expected_parent_mode is not None
+                    and stat.S_IMODE(parent_before.st_mode) != expected_parent_mode
+                )
+            ):
+                raise OSError
+            directory_descriptor = os.open(bundle_path.parent, directory_flags)
+            parent_anchored = os.fstat(directory_descriptor)
+            if (parent_before.st_dev, parent_before.st_ino) != (
+                parent_anchored.st_dev,
+                parent_anchored.st_ino,
+            ):
+                raise OSError
+            descriptor = os.open(bundle_path.name, flags, dir_fd=directory_descriptor)
             observed = os.fstat(descriptor)
         except OSError:
+            if directory_descriptor is not None:
+                os.close(directory_descriptor)
             raise fail(
                 "DEPLOYMENT_BUNDLE_UNAVAILABLE", "Deployment bundle is unavailable."
             ) from None
@@ -466,6 +541,10 @@ class BundleStore:
             or observed.st_size % tarfile.RECORDSIZE != 0
             or stat.S_IMODE(observed.st_mode) & 0o022
             or (
+                expected_mode is not None
+                and stat.S_IMODE(observed.st_mode) != expected_mode
+            )
+            or (
                 expected_owner_uid is not None and observed.st_uid != expected_owner_uid
             )
             or (
@@ -473,6 +552,7 @@ class BundleStore:
             )
         ):
             os.close(descriptor)
+            os.close(directory_descriptor)
             raise fail("DEPLOYMENT_BUNDLE_INVALID", "Deployment bundle is invalid.")
         before = (
             observed.st_dev,
@@ -505,9 +585,30 @@ class BundleStore:
                     "Deployment bundle changed during verification.",
                     recoverable=True,
                 )
+            path_after = os.stat(
+                bundle_path.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if (path_after.st_dev, path_after.st_ino) != (
+                after_stat.st_dev,
+                after_stat.st_ino,
+            ):
+                raise fail(
+                    "DEPLOYMENT_BUNDLE_RACE",
+                    "Deployment bundle changed during verification.",
+                    recoverable=True,
+                )
+        except FileNotFoundError:
+            raise fail(
+                "DEPLOYMENT_BUNDLE_RACE",
+                "Deployment bundle changed during verification.",
+                recoverable=True,
+            ) from None
         finally:
             archive.close()
             file_object.close()
+            os.close(directory_descriptor)
 
     @staticmethod
     def _read_manifest(archive: tarfile.TarFile) -> tuple[BundleManifest, bytes]:

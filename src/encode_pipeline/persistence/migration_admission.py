@@ -87,6 +87,81 @@ class VerifiedMigrationExecutionInventory:
     heads: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class MigrationInventoryTrustAnchor:
+    """Literal size/hash coordinates carried by one platform release."""
+
+    size_bytes: int
+    sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.size_bytes, int)
+            or isinstance(self.size_bytes, bool)
+            or not 0 < self.size_bytes <= _MAXIMUM_INVENTORY_BYTES
+            or not isinstance(self.sha256, str)
+            or _SHA256.fullmatch(self.sha256) is None
+        ):
+            raise MigrationAdmissionError("MIGRATION_EXECUTION_TRUST_ANCHOR_INVALID")
+
+
+def migration_inventory_trust_anchor_from_source(
+    source_bytes: bytes,
+) -> MigrationInventoryTrustAnchor:
+    """Extract only the two reviewed literal anchors from candidate source.
+
+    Deployment admission uses this to validate a newer wheel without importing
+    or executing that wheel.  The outer wheel/bundle identity remains the
+    release trust boundary; this parser only preserves the inventory's existing
+    two-file review contract across platform versions.
+    """
+    try:
+        content = _bounded_bytes(
+            source_bytes,
+            maximum_bytes=_MAXIMUM_MIGRATION_BYTES,
+            reason_code="MIGRATION_EXECUTION_TRUST_ANCHOR_INVALID",
+        )
+        tree = ast.parse(content, filename="migration_admission.py")
+        values: dict[str, object] = {}
+        expected = {
+            "MIGRATION_EXECUTION_INVENTORY_SIZE_BYTES",
+            "MIGRATION_EXECUTION_INVENTORY_SHA256",
+        }
+        for statement in tree.body:
+            if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = (
+                statement.targets
+                if isinstance(statement, ast.Assign)
+                else [statement.target]
+            )
+            names = [target.id for target in targets if isinstance(target, ast.Name)]
+            selected = [name for name in names if name in expected]
+            if not selected:
+                continue
+            if len(selected) != 1 or selected[0] in values:
+                raise _AdmissionFailure("MIGRATION_EXECUTION_TRUST_ANCHOR_INVALID")
+            value_node = statement.value
+            if value_node is None:
+                raise _AdmissionFailure("MIGRATION_EXECUTION_TRUST_ANCHOR_INVALID")
+            value = ast.literal_eval(value_node)
+            values[selected[0]] = value
+        if set(values) != expected:
+            raise _AdmissionFailure("MIGRATION_EXECUTION_TRUST_ANCHOR_INVALID")
+        return MigrationInventoryTrustAnchor(
+            size_bytes=values["MIGRATION_EXECUTION_INVENTORY_SIZE_BYTES"],
+            sha256=values["MIGRATION_EXECUTION_INVENTORY_SHA256"],
+        )
+    except MigrationAdmissionError:
+        raise
+    except _AdmissionFailure as error:
+        raise MigrationAdmissionError(error.reason_code) from None
+    except (SyntaxError, TypeError, UnicodeError, ValueError):
+        raise MigrationAdmissionError(
+            "MIGRATION_EXECUTION_TRUST_ANCHOR_INVALID"
+        ) from None
+
+
 class _DuplicateJsonKey(ValueError):
     pass
 
@@ -101,6 +176,7 @@ def verify_migration_execution_inventory(
     *,
     persistence_root: Path | None = None,
     inventory_bytes: bytes | None = None,
+    trust_anchor: MigrationInventoryTrustAnchor | None = None,
 ) -> VerifiedMigrationExecutionInventory:
     """Verify and capture every source-owned Alembic env/revision script.
 
@@ -111,6 +187,16 @@ def verify_migration_execution_inventory(
     """
 
     try:
+        anchor = (
+            MigrationInventoryTrustAnchor(
+                MIGRATION_EXECUTION_INVENTORY_SIZE_BYTES,
+                MIGRATION_EXECUTION_INVENTORY_SHA256,
+            )
+            if trust_anchor is None
+            else trust_anchor
+        )
+        if not isinstance(anchor, MigrationInventoryTrustAnchor):
+            raise _AdmissionFailure("MIGRATION_EXECUTION_TRUST_ANCHOR_INVALID")
         root = (
             Path(os.path.abspath(__file__)).parent
             if persistence_root is None
@@ -132,9 +218,8 @@ def verify_migration_execution_inventory(
                 )
             )
             if (
-                len(raw_inventory) != MIGRATION_EXECUTION_INVENTORY_SIZE_BYTES
-                or hashlib.sha256(raw_inventory).hexdigest()
-                != MIGRATION_EXECUTION_INVENTORY_SHA256
+                len(raw_inventory) != anchor.size_bytes
+                or hashlib.sha256(raw_inventory).hexdigest() != anchor.sha256
             ):
                 raise _AdmissionFailure("MIGRATION_EXECUTION_INVENTORY_INVALID")
             parsed = _parse_inventory(raw_inventory)

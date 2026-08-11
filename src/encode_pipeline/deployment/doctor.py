@@ -1,10 +1,4 @@
-"""Stable, path-free diagnostics for the supported single-host deployment.
-
-The doctor coordinates read-only probes.  Concrete Redis, worker, database, and
-reference probes are connected only after the PR #172 runtime composition is
-available; this module fixes their public contract without opening or mutating
-those systems itself.
-"""
+"""Stable, path-free diagnostics for the supported single-host deployment."""
 
 from __future__ import annotations
 
@@ -13,10 +7,12 @@ from dataclasses import dataclass
 import re
 from typing import Protocol
 
+from encode_pipeline.deployment.admission import ResolvedContractFacts
 from encode_pipeline.deployment.errors import DeploymentError, fail
 from encode_pipeline.deployment.manager import DeploymentManager
 from encode_pipeline.deployment.manager import DeploymentStatus
 from encode_pipeline.deployment.models import COMPONENTS
+from encode_pipeline.deployment.models import PLATFORM
 from encode_pipeline.frontend_assets import load_packaged_frontend_assets
 
 
@@ -33,6 +29,7 @@ CHECKS = (
     ("permissions", "host"),
     ("database", "database"),
     ("redis", "queue"),
+    ("api", "platform"),
     ("worker", "queue"),
     ("frontend", "platform"),
     ("encode-runtime", "runtime"),
@@ -47,6 +44,7 @@ PUBLIC_REASON_CODES = frozenset(
         "READY",
         "REFERENCES_INCOMPLETE",
         "DEPLOYMENT_INTERRUPTED",
+        "DEPLOYMENT_RECOVERY_REQUIRED",
         "DEPLOYMENT_STATE_READY",
         "DEPLOYMENT_STATE_INVALID",
         "DEPLOYMENT_STATE_UNAVAILABLE",
@@ -55,10 +53,27 @@ PUBLIC_REASON_CODES = frozenset(
         "RUNTIME_READY",
         "DEPLOYMENT_CONTRACT_ADMISSION_DEFERRED",
         "DEPLOYMENT_CONTRACT_ADMISSION_FAILED",
+        "CONFIGURATION_READY",
+        "CONFIGURATION_INVALID",
+        "CONFIGURATION_UNAVAILABLE",
+        "PERMISSIONS_READY",
+        "PERMISSIONS_INVALID",
+        "OPERATOR_UNAVAILABLE",
+        "DATABASE_READY",
+        "DATABASE_UNAVAILABLE",
+        "DATABASE_SCHEMA_INCOMPATIBLE",
+        "REDIS_READY",
+        "REDIS_UNAVAILABLE",
+        "API_READY",
+        "API_UNAVAILABLE",
+        "WORKER_READY",
+        "WORKER_UNAVAILABLE",
         "FRONTEND_READY",
         "FRONTEND_ASSET_MANIFEST_INVALID",
         "FRONTEND_ASSET_PACKAGE_INVALID",
         "FRONTEND_ASSET_INTEGRITY_FAILED",
+        "REFERENCES_READY",
+        "REFERENCES_INVALID",
         "DOCTOR_CHECK_FAILED",
         "DOCTOR_RESULT_INVALID",
     }
@@ -227,6 +242,61 @@ class RuntimeProbe:
         return ProbeResult(PASS, "RUNTIME_READY", active.identity)
 
 
+class ActiveFrontendProbe:
+    """Admit the active platform and report its native frontend identity."""
+
+    def __init__(self, snapshot: "DeploymentSnapshot") -> None:
+        self._snapshot = snapshot
+
+    def __call__(self) -> ProbeResult:
+        status = self._snapshot.read()
+        if status.manifests[PLATFORM]["active"] is None:
+            return ProbeResult(FAIL, "RUNTIME_NOT_ACTIVE")
+        facts = self._snapshot.admit(PLATFORM)
+        identities = tuple(
+            item.identity
+            for item in facts.contracts
+            if item.contract == "helixweave.platform.frontend-assets"
+        )
+        if len(identities) != 1:
+            raise fail(
+                "DEPLOYMENT_CONTRACT_ADMISSION_FAILED",
+                "Deployment contract admission failed.",
+                component=PLATFORM,
+            )
+        return ProbeResult(PASS, "FRONTEND_READY", identities[0])
+
+
+class DatabaseProbe:
+    """Compare the observed sole SQLite head with the active native inventory."""
+
+    def __init__(
+        self,
+        snapshot: "DeploymentSnapshot",
+        manager: DeploymentManager,
+    ) -> None:
+        self._snapshot = snapshot
+        self._manager = manager
+
+    def __call__(self) -> ProbeResult:
+        status = self._snapshot.read()
+        if status.manifests[PLATFORM]["active"] is None:
+            return ProbeResult(FAIL, "DATABASE_UNAVAILABLE")
+        facts = self._snapshot.admit(PLATFORM)
+        observation = self._manager.observe_database_schema(status.state)
+        if (
+            len(observation.heads) != 1
+            or len(facts.database_heads) != 1
+            or observation.heads != facts.database_heads
+        ):
+            return ProbeResult(
+                FAIL,
+                "DATABASE_SCHEMA_INCOMPATIBLE",
+                observation.identity,
+            )
+        return ProbeResult(PASS, "DATABASE_READY", observation.identity)
+
+
 class DeploymentSnapshot:
     """One lightweight state/manifest metadata read shared by doctor probes.
 
@@ -240,21 +310,22 @@ class DeploymentSnapshot:
     ) -> None:
         self._manager = manager
         self._value: DeploymentStatus | None = None
-        self._admitted: set[str] = set()
+        self._admitted: dict[str, ResolvedContractFacts] = {}
 
     def read(self) -> DeploymentStatus:
         if self._value is None:
             self._value = self._manager.status()
         return self._value
 
-    def admit(self, component: str) -> None:
+    def admit(self, component: str) -> ResolvedContractFacts:
         if component in self._admitted:
-            return
+            return self._admitted[component]
         manifest = self.read().manifests[component]["active"]
         if manifest is None:
             raise fail("RUNTIME_NOT_ACTIVE", "Scientific runtime is not active.")
-        self._manager.admit_manifest(manifest)
-        self._admitted.add(component)
+        facts = self._manager.admit_manifest(manifest)
+        self._admitted[component] = facts
+        return facts
 
 
 def frontend_probe() -> ProbeResult:
@@ -278,9 +349,11 @@ def fixed_probe(
 
 
 __all__ = [
+    "ActiveFrontendProbe",
     "CHECKS",
     "CHECK_STATES",
     "DOCTOR_REPORT_SCHEMA",
+    "DatabaseProbe",
     "FAIL",
     "PASS",
     "PUBLIC_REASON_CODES",

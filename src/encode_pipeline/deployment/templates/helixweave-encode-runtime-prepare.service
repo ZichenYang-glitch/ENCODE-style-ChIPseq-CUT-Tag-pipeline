@@ -1,0 +1,42 @@
+[Unit]
+Description=HelixWeave offline ENCODE runtime materialization
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=helixweave-candidate
+Group=helixweave-candidate
+UMask=0077
+Environment=PYTHONNOUSERSITE=1
+ExecStart=/usr/libexec/helixweave-encode-runtime-prepare
+TimeoutStartSec=1800s
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadOnlyPaths=/opt/helixweave/releases /opt/helixweave/runtimes/encode
+ReadOnlyPaths=/run/helixweave/operator/encode-runtime/request.json
+ReadWritePaths=/var/lib/helixweave/scientific/encode
+ReadWritePaths=/run/helixweave/operator/encode-runtime/receipt.json
+InaccessiblePaths=/etc/helixweave /var/lib/helixweave/operator /var/lib/helixweave/database /run/helixweave/services
+InaccessiblePaths=/var/lib/helixweave/workspaces /var/lib/helixweave/artifacts /var/lib/helixweave/redis
+InaccessiblePaths=/var/lib/helixweave/docker-rootless /var/lib/helixweave/service-home /run/helixweave/redis /run/helixweave/docker
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helixweave-encode-runtime-prepare

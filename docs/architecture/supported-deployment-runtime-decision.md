@@ -1,7 +1,6 @@
 # Supported Deployment and Runtime Management Decision
 
-Status: Accepted for PR #173 staging; shared CLI, migration, recovery, and
-execution-identity wiring is deferred until PR #172 is merged.
+Status: Accepted for PR #173.
 
 ## Context
 
@@ -12,10 +11,10 @@ installation or upgrade boundary. The bulk RNA-seq adapter already has a
 strict offline Nextflow/Docker runtime contract, while the ENCODE workflow and
 platform source are still coupled by the existing workflow build identity.
 
-PR #172 is changing run recovery, administrator operations, the migration
-head, and bulk execution qualification. PR #173 therefore stages independent
-deployment code on the last merged baseline and must not invent final values
-for those contracts.
+PR #172 established the current run-recovery migration inventory and bulk
+execution qualification before this decision was finalized. PR #173 consumes
+those native contracts without creating a migration head, persistence
+capability, or competing version authority.
 
 ## Decision
 
@@ -28,8 +27,12 @@ with systemd enabled:
   dedicated Redis 7 process;
 - FastAPI serves the precompiled React application from the installed wheel on
   the same origin as `/api`; target hosts do not need Node, npm, Vite, Nginx,
-  or a source checkout;
-- the ENCODE Snakemake closure is an independently versioned immutable runtime;
+  or a source checkout. Service activation never invokes pip: a release
+  producer expands a hash-locked, wheel-only CPython 3.12/Linux x86_64
+  dependency closure before bundling it;
+- the ENCODE Snakemake closure is an independently versioned immutable runtime
+  containing the workflow source, a static micromamba frontend, and every
+  package archive named by the checked-in explicit environment locks;
 - the bulk RNA-seq source, Nextflow, JDK, plugin, and container closure remains
   governed by the existing pinned runtime contract and uses a dedicated
   rootless Docker daemon/socket owned by the service account; and
@@ -64,7 +67,7 @@ Existing contracts remain authoritative:
 | distribution/version and wheel | built wheel metadata plus bundle file index |
 | frontend and API compatibility | packaged frontend asset manifest and canonical OpenAPI digest |
 | database graph | admitted migration execution inventory |
-| ENCODE execution | existing workflow build/execution identity after PR #172 integration |
+| ENCODE execution | `sha256-tree-v1` over the independently packaged workflow, profile, script, and artifact inventory closure |
 | bulk runtime, nf-core, Nextflow, containers | existing bulk runtime identity and qualification resources |
 | reference compatibility | adapter-owned reference binding contract versions |
 
@@ -89,12 +92,21 @@ The helper admits only these fixed roots:
   runtimes/bulk-rnaseq/<identity>/
   operator/                         # helper environment, updated interactively
 /etc/helixweave/
-  platform.env
   secrets.env
   reference-profiles.yaml           # external coordinates, never in manifests
 /var/lib/helixweave/
-  operator/{ingress,state/generations,transactions}/
-  database/{platform.db,backups/}
+  deployment/
+    current                         # one relative generation pointer
+    generations/<state-identity>/
+      deployment-state.json
+      platform.env
+  operator/
+    ingress/
+    state/{operation.lock,transactions/}
+    transactions/{active.json,history/}
+    database-backups/
+  database/live/platform.db
+  scientific/encode/<runtime-identity>/{runner,conda-envs,mamba-root}/
   workspaces/
   artifacts/
   docker-rootless/
@@ -103,11 +115,11 @@ The helper admits only these fixed roots:
 ```
 
 Release and runtime directories are root-owned and immutable. Configuration,
-secrets, SQLite, workspaces/artifacts, logs, runtime state, and database
-backups are outside releases. Activation and rollback never move or delete
-user data. Bulk runtime bindings receive the resolved version directory,
-because the current bulk path-admission contract correctly rejects symlink
-ancestry.
+secrets, SQLite, materialized scientific environments, workspaces/artifacts,
+logs, runtime state, and database backups are outside releases. Activation and
+rollback never move or delete user data. Bulk runtime bindings receive the
+resolved version directory, because the current bulk path-admission contract
+correctly rejects symlink ancestry.
 
 ### Privileged operator boundary
 
@@ -115,8 +127,11 @@ The administrator runs the bootstrap locally through interactive sudo only
 when installing or updating the helper. The bootstrap never invokes sudo and
 never reads a password. It installs a self-contained, content-addressed,
 root-owned operator closure with fixed systemd and tmpfiles templates and an
-uninstall boundary. A stable root-owned launcher and sudoers allowlist are
-installed before one relative `current` pointer atomically selects the fully
+uninstall boundary. The stdlib-only bootstrap and its exact sources are shipped
+inside the verified sdist release asset, so this step needs neither a Git
+checkout nor an installed HelixWeave package. A stable root-owned launcher and
+sudoers allowlist are installed before one relative `current` pointer
+atomically selects the fully
 verified closure; product Python packages are never imported by the privileged
 launcher.
 
@@ -127,24 +142,37 @@ derived from component and content identity beneath fixed ingress.
 
 Service operations bind the allowlisted unit to deployment and task identity,
 systemd MainPID/cgroup, executable device/inode, exact command-line digest,
-and named socket device/inode. Status, stop, and cleanup must present the
-previous service identity. The regular administrator is not added to the
-host Docker group; bulk uses the dedicated service account's rootless socket.
-
-The phase-A backend deliberately fails closed. Host systemctl, migration, and
-recovery composition is connected only after PR #172 is merged.
+and named socket device/inode. Status is a bounded observation that can report
+a stopped unit or its newly observed identity after an automatic restart;
+stop and cleanup require the prior identity and revalidate it before acting.
+The regular administrator is not added to the host Docker group; bulk uses the
+dedicated service account's rootless socket.
 
 The same closure installs a fixed `/usr/libexec/helixweave-gate-cleanup`
 launcher and a narrow `sudo -n` grammar. Every cleanup plan binds both that
 stable launcher and the exact root-owned content-addressed closure/backend it
 selects, so a concurrent helper update cannot silently change cleanup
 semantics. The stable launcher resolves the backend from the plan's validated
-closure identity, not from the mutable `current` pointer. Its phase-A
-implementation validates the closed
-task/plan/executor/closure/backend identity grammar and then fails closed; process
-revalidation and bounded deletion are connected only with the post-merge Gate
-backend. This ensures the cleanup boundary is present without pretending that
-an unimplemented host mutation succeeded.
+closure identity, not from the mutable `current` pointer. The backend opens the
+root-owned canonical plan through fixed directory descriptors, revalidates the
+bound PID start time, executable, command line, PID file, and socket identities,
+then performs bounded TERM/KILL through pidfds where available. Any mismatch or
+non-terminal process stops cleanup before deletion. Successful cleanup removes
+only the fixed task descendants named by the verified plan and preserves the
+Docker data root, images, and historical evidence.
+
+The API, scientific worker/database preparer, and candidate action/materializer
+use distinct system identities. Only the API identity can read
+`secrets.env`; the API and worker share the narrow data group needed for SQLite,
+workspaces, artifacts, and Redis. The candidate identity is not a member of that
+group and its units hide configuration, references, the live database, Redis,
+Docker, workspaces, artifacts, and secrets. Candidate receipts therefore
+describe candidate-native facts only; the root closure derives the observed
+schema and migration decision after the writers have stopped. Root otherwise
+only selects fixed content-addressed candidates, writes identity-bound requests,
+checks bounded canonical receipts, freezes admitted trees, switches state, and
+controls the allowlisted units. Neither the root helper nor its launcher imports
+or executes a candidate wheel or scientific binary as root.
 
 ### Frontend delivery
 
@@ -162,10 +190,13 @@ contract digest, and the wrapper rejects a missing or mismatched digest before
 calling the API factory, so compatibility failure cannot trigger migration or
 recovery writes.
 
-A restrictive production Content Security Policy is deferred until a nonce
-strategy for CodeMirror's generated styles has a real browser smoke test. The
-staging wrapper keeps the non-CSP response hardening headers and does not add
-`unsafe-inline` or `unsafe-eval` merely to make the current editor render.
+A restrictive production Content Security Policy is deferred until the current
+AJV runtime schema compilation is replaced or precompiled and covered by a real
+browser smoke test. The controlled frontend bundle currently uses dynamic code
+generation for the New Run schema validator, so a policy without
+`unsafe-eval` would break that supported flow. The deployment wrapper keeps the
+non-CSP response hardening headers and does not add `unsafe-inline` or
+`unsafe-eval` merely to claim a policy is present.
 
 ### Upgrade, rollback, and database boundary
 
@@ -182,23 +213,65 @@ the active platform does not admit is rejected. Previous content, runtime
 closures, evidence, and backups are retained until an explicit future
 retention action; this milestone provides no automatic pruning.
 
-Before any database migration, the final operator backend must verify API and
-worker write services are stopped, create and verify a mode-0600 SQLite backup,
-run the admitted migration graph, recheck integrity/head compatibility, and
-only then start the new deployment. Rollback is allowed only when the observed
-schema and active runtime combination is declared compatible. An irreversible
-migration requires restoration of its controlled backup; it is never described
-as a lossless Alembic downgrade.
+An ENCODE runtime is materialized offline directly at its final
+content-addressed prefix, because conda packages may embed that absolute
+prefix in shebangs or binary metadata. The service account consumes only the
+bundled package index and local archives; network access is disabled. On
+success the root boundary revalidates a bounded canonical tree inventory,
+breaks external hard-link authority, permits only internal relative symlinks,
+and freezes the tree root-owned. On failure the entire final-prefix tree is
+renamed to task-scoped retained evidence rather than deleted or reused.
 
-Phase A only performs pinned-file-descriptor, read-only SQLite inspection. It
-rejects symlinked, multiply linked, group/world-writable, foreign-owned, or
-non-quiescent WAL/SHM inputs. Even with a root-owned write-stop witness and an
-identity-bound schema admission provider, backup creation remains unavailable
-until the privileged backend can atomically consume the one-use witness.
+Materialization uses the indexed micromamba binary only to create the locked
+runner and full-address-hash rule environments. The frozen runtime retains that
+binary as evidence and exposes a generated, read-only `conda` compatibility
+command limited to Snakemake 8.30's information, version, and channel-priority
+probes, plus an activator that accepts only an existing 32-character full-hash
+environment beneath the admitted prefix. Environment creation and all other
+caller-selected conda operations are rejected during workflow execution.
+
+Bulk RNA-seq admission is split the same way. Static runtime verification is
+bytes-only and does not contact Docker. During activation the root boundary
+binds the dedicated rootless Docker service identity, fixed client bytes, and
+fixed socket/kernel identity into a path-free request. The unprivileged bulk
+preparer verifies the canary and each expected image, loads only images that
+are missing through an already verified archive file descriptor, then repeats
+the complete identity check. An invalid, unavailable, or identity-mismatched
+image fails before loading any archive; a retry loads only the still-missing
+set. The operator never removes or prunes images or the Docker data root.
+
+The supported API and worker open only an existing database at the exact sole
+head admitted by the packaged migration inventory; they never invoke Alembic.
+Migration is a separate operator transaction with this fixed order:
+
+1. stop API and worker writers and prove their bound PID/cgroup/socket
+   identities are gone;
+2. consume the one-use root-owned write-stop witness and create a verified,
+   root-owned immutable SQLite backup slot (mode `0500`) and file (mode
+   `0400`);
+3. run only the admitted migration graph as the unprivileged service account;
+4. recheck database integrity and the exact target head;
+5. atomically select the verified state/config generation; and
+6. start the services and bind their new identities.
+
+The durable transaction journal is fsynced before each side effect. Before a
+new writer is started, a failed migration may restore the verified backup and
+restart the old compatible release. Starting any new writer is the point of no
+return: automatic backup restoration is then forbidden because it could lose
+new writes. A later rollback is accepted only when the observed schema and
+runtime combination is declared compatible; otherwise services remain stopped
+with recovery required. An irreversible migration is never represented as a
+lossless Alembic downgrade.
+
+Database inspection and backup pin the live file by descriptor, reject
+symlinked, multiply linked, group/world-writable, foreign-owned, or
+non-quiescent WAL, SHM, and rollback-journal inputs, and bind the backup and
+receipt to the consumed witness and source inode. Backups, failed transaction
+evidence, and the original database are not automatically deleted.
 
 ### CLI and diagnostics
 
-The installed command surface will be `install`, `status`, `doctor`, `verify`,
+The installed command surface is `install`, `status`, `doctor`, `verify`,
 `upgrade`, and `rollback`, with canonical JSON envelopes, stable exit classes,
 and path/secret/exception redaction. `upgrade` always names exactly one of
 platform, ENCODE runtime, or bulk RNA-seq runtime. `rollback` selects an
@@ -207,8 +280,11 @@ explicit compatible previous identity.
 `status` reports selected identities and service state. `doctor` performs
 bounded read-only configuration, permission, SQLite, Redis, worker, frontend,
 runtime, and reference-readiness checks. `verify` performs full ownership,
-mode, file hash, contract, and compatibility verification. It does not silently
-repair state.
+mode, file hash, native-contract, configuration, schema, and compatibility
+verification. Static verification does not require API, worker, Redis, or
+Docker to be running and does not treat an externally prepared reference that
+has not yet been registered as corrupt deployment content; those operational
+conditions belong to `doctor`. Neither command silently repairs state.
 
 ### Deployment Gate operator flow
 
@@ -221,34 +297,24 @@ socket witnesses. One dispatch consumes one approval and stops at the first
 failed stage. The redacted receipt names that stage. Cleanup preserves the
 task Docker data-root/images and historical evidence.
 
-During staging, the public preparation command uses an unavailable observer,
-so caller-supplied identities cannot become verified Gate evidence. The final
-observer and stage verifier must derive Git HEAD, deployment identities, and
-runtime/qualification identities from the canonical checkout, verified bundle
-manifests, and the contracts merged with PR #172; root-owned marker files are
-not an additional version authority.
-
-## Deferred integration boundary
-
-Until PR #172 is merged, this staging branch does not change:
-
-- `src/encode_pipeline/cli/admin.py`, `cli/local_platform.py`, or the primary
-  dispatcher;
-- migration inventory, Alembic head, run-recovery persistence/services, or
-  worker recovery composition; or
-- bulk execution identity, persistence contract, qualification, or scientific
-  workflow behavior.
-
-After merge, the latest `main` is merged into staging without rebasing. Final
-CLI/doctor/service composition, database-head policy, ENCODE runtime identity,
-bulk qualification, packaging trials, and Gate dispatch are then derived from
-that merged baseline.
+The preparation command uses a fixed filesystem observer. It derives Git HEAD,
+installed-wheel provenance, deployment identities, process/socket witnesses,
+cache objects, cleanup executor identity, and runtime/qualification identities
+from the canonical checkout, root-owned policy, verified bundles, and native
+contracts. Caller-supplied PID, path, cache, or performance evidence is not
+accepted. The cleanup backend is part of the installed operator closure and is
+covered by fault-injection tests; actual one-use runner dispatch, human
+approval, rootless Docker, Redis, cleanup execution against real processes, and
+real-host receipts remain Protected Gate evidence and are not emulated by local
+unit tests.
 
 ## Consequences
 
 The topology is intentionally narrow and locally operable. It removes Node and
-source checkout requirements from target hosts, keeps scientific closures
+source checkout requirements from target services, keeps scientific closures
 independently replaceable, and gives automation a noninteractive but bounded
-operator surface. It also means unsupported hosts/topologies fail early, bulk
-requires rootless Docker prerequisites, and schema-incompatible rollback may
+operator surface. It also means hosts without the admitted CPython 3.12 ABI
+(at or above the supported 3.12.3 security-patch floor),
+Linux x86_64/glibc boundary, systemd, or WSL2 systemd support fail early; bulk
+requires rootless Docker prerequisites; and schema-incompatible rollback may
 require an explicit database restore rather than a pointer switch.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncIterator, Callable
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -25,9 +25,14 @@ from encode_pipeline.api.models import (
 )
 from encode_pipeline.api.request_limits import AuthoringRequestLimitMiddleware
 from encode_pipeline.api.routes import api_v1_router
-from encode_pipeline.persistence import DATABASE_URL_ENV, open_run_persistence
+from encode_pipeline.persistence import (
+    DATABASE_URL_ENV,
+    RunPersistence,
+    open_run_persistence,
+)
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.adapters import MAX_AUTHORING_REQUEST_BYTES
+from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.defaults import (
     create_default_agent_service,
     create_default_command_builder,
@@ -72,6 +77,8 @@ def create_app(
     database_url: str | None = None,
     workspace_root: Path | None = None,
     project_root: Path | None = None,
+    persistence_opener: Callable[[str | None], RunPersistence] | None = None,
+    registry: WorkflowRegistry | None = None,
 ) -> FastAPI:
     """Return a configured FastAPI app with default platform services."""
     settings_environment = dict(os.environ)
@@ -80,8 +87,14 @@ def create_app(
     if workspace_root is not None:
         settings_environment[WORKSPACE_ROOT_ENV] = str(workspace_root)
     worker_settings = load_worker_settings(settings_environment)
-    persistence = open_run_persistence(worker_settings.database_url)
+    opener = open_run_persistence if persistence_opener is None else persistence_opener
+    if not callable(opener):
+        raise ValueError("persistence_opener must be callable")
+    persistence = opener(worker_settings.database_url)
     run_queue = RqRunQueue(worker_settings)
+    resolved_project_root = (
+        worker_settings.encode_runtime_root if project_root is None else project_root
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -102,10 +115,18 @@ def create_app(
         max_request_bytes=MAX_AUTHORING_REQUEST_BYTES,
     )
 
-    registry = create_default_workflow_registry(environ=settings_environment)
+    registry = (
+        create_default_workflow_registry(environ=settings_environment)
+        if registry is None
+        else registry
+    )
+    if not isinstance(registry, WorkflowRegistry):
+        persistence.close()
+        run_queue.close()
+        raise ValueError("registry must be a WorkflowRegistry")
     build_identity_provider = create_default_workflow_build_identity_provider(
         registry=registry,
-        project_root=project_root,
+        project_root=resolved_project_root,
     )
     run_service = create_default_run_service(
         registry=registry,
@@ -163,8 +184,14 @@ def create_app(
     recovered_runs = run_service.recover_interrupted_runs()
     command_builder = create_default_command_builder(
         registry=registry,
-        project_root=project_root,
+        project_root=resolved_project_root,
         reference_profile_resolver=reference_profile_resolver,
+        snakemake_executable=(
+            None
+            if worker_settings.encode_runner_root is None
+            else worker_settings.encode_runner_root / "bin" / "snakemake"
+        ),
+        conda_prefix=worker_settings.encode_conda_prefix,
     )
     local_run_driver = create_default_local_run_driver(
         run_service=run_service,

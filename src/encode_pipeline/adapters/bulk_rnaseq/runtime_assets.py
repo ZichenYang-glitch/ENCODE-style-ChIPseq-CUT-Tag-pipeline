@@ -422,19 +422,18 @@ class _RuntimeAssetContract:
     container_process_audit: Mapping[str, Any]
 
 
-def verify_runtime_assets(
+def verify_runtime_asset_closure(
     binding: RuntimeAssetBinding,
     *,
     _contract: _RuntimeAssetContract | None = None,
-    _docker_probe: Callable[[RuntimeAssetBinding, tuple[str, ...]], bytes]
-    | None = None,
-    _runtime_probe: Callable[
-        [RuntimeAssetBinding, Mapping[str, Any], tuple[VerifiedContainerAsset, ...]],
-        None,
-    ]
-    | None = None,
 ) -> Result[VerifiedRuntimeAssets]:
-    """Verify every required runtime asset without fetching or repairing it."""
+    """Verify the complete immutable closure without contacting Docker.
+
+    This is the deployment-admission seam.  It validates every source,
+    executable, archive, expanded tree, lock and host network-isolation byte,
+    but deliberately performs neither Docker inspection nor the execution
+    canary.
+    """
     if _contract is None:
         try:
             contract = _load_runtime_contract()
@@ -444,12 +443,24 @@ def verify_runtime_assets(
                 contract.container_inventory,
                 contract.container_process_audit,
             )
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
-            del exc
+        except (OSError, ValueError, json.JSONDecodeError):
             return Result.failure((_issue("contract", "invalid"),))
     else:
         contract = _contract
+    return _verify_runtime_asset_closure(
+        binding,
+        contract,
+        include_network_isolation=_contract is None,
+    )
 
+
+def _verify_runtime_asset_closure(
+    binding: RuntimeAssetBinding,
+    contract: _RuntimeAssetContract,
+    *,
+    include_network_isolation: bool,
+) -> Result[VerifiedRuntimeAssets]:
+    """Verify static bytes against one already selected contract."""
     identity = contract.identity
     source_manifest = contract.source_manifest
     container_schema = contract.container_schema
@@ -524,23 +535,14 @@ def verify_runtime_assets(
         return Result.failure((_issue("contract", "invalid"),))
     network_isolation_executable_sha256 = NETWORK_ISOLATION_EXECUTABLE_SHA256
     network_isolation_version_output_sha256 = NETWORK_ISOLATION_VERSION_OUTPUT_SHA256
-    if _contract is None:
+    if include_network_isolation:
         try:
             (
                 network_isolation_executable_sha256,
                 network_isolation_version_output_sha256,
-            ) = _verify_network_isolation_asset(binding, identity)
+            ) = _verify_network_isolation_bytes(binding, identity)
         except _AssetFault as fault:
             return Result.failure((_issue(fault.component, fault.reason),))
-    try:
-        _verify_docker_availability(
-            binding,
-            containers,
-            probe=_docker_probe,
-        )
-    except _AssetFault as fault:
-        return Result.failure((_issue(fault.component, fault.reason),))
-
     verified = VerifiedRuntimeAssets(
         root=binding.root,
         source_tree=binding.root / binding.source_tree,
@@ -574,11 +576,125 @@ def verify_runtime_assets(
             network_isolation_version_output_sha256
         ),
     )
+    return Result.success(verified)
+
+
+def verify_runtime_assets(
+    binding: RuntimeAssetBinding,
+    *,
+    _contract: _RuntimeAssetContract | None = None,
+    _docker_probe: Callable[[RuntimeAssetBinding, tuple[str, ...]], bytes]
+    | None = None,
+    _runtime_probe: Callable[
+        [RuntimeAssetBinding, Mapping[str, Any], tuple[VerifiedContainerAsset, ...]],
+        None,
+    ]
+    | None = None,
+) -> Result[VerifiedRuntimeAssets]:
+    """Verify static closure, local Docker availability and runtime canary."""
+    if _contract is None:
+        try:
+            contract = _load_runtime_contract()
+            _validate_embedded_contracts(
+                contract.identity,
+                contract.source_manifest,
+                contract.container_inventory,
+                contract.container_process_audit,
+            )
+        except (OSError, ValueError, json.JSONDecodeError):
+            return Result.failure((_issue("contract", "invalid"),))
+    else:
+        contract = _contract
+    result = _verify_runtime_asset_closure(
+        binding,
+        contract,
+        include_network_isolation=_contract is None,
+    )
+    if result.is_failure or result.value is None:
+        return result
+    verified = result.value
+    if _contract is None:
+        try:
+            network_identity = _verify_network_isolation_asset(
+                binding, contract.identity
+            )
+        except _AssetFault as fault:
+            return Result.failure((_issue(fault.component, fault.reason),))
+        if network_identity != (
+            verified.network_isolation_executable_sha256,
+            verified.network_isolation_version_output_sha256,
+        ):
+            return Result.failure((_issue("network_isolation", "race"),))
+    try:
+        _verify_docker_availability(
+            binding,
+            verified.containers,
+            probe=_docker_probe,
+        )
+    except _AssetFault as fault:
+        return Result.failure((_issue(fault.component, fault.reason),))
     try:
         if _runtime_probe is not None:
-            _runtime_probe(binding, identity, containers)
+            _runtime_probe(binding, contract.identity, verified.containers)
         elif _contract is None:
-            _verify_runtime_canary(binding, identity, containers)
+            _verify_runtime_canary(binding, contract.identity, verified.containers)
+    except _AssetFault as fault:
+        return Result.failure((_issue(fault.component, fault.reason),))
+    except (OSError, UnicodeError, ValueError):
+        return Result.failure((_issue("runtime", "unavailable"),))
+    return Result.success(verified)
+
+
+def verify_runtime_asset_canary(
+    binding: RuntimeAssetBinding,
+    *,
+    _contract: _RuntimeAssetContract | None = None,
+    _runtime_probe: Callable[
+        [RuntimeAssetBinding, Mapping[str, Any], tuple[VerifiedContainerAsset, ...]],
+        None,
+    ]
+    | None = None,
+) -> Result[VerifiedRuntimeAssets]:
+    """Verify the immutable closure and runtime canary without contacting Docker."""
+
+    if _contract is None:
+        try:
+            contract = _load_runtime_contract()
+            _validate_embedded_contracts(
+                contract.identity,
+                contract.source_manifest,
+                contract.container_inventory,
+                contract.container_process_audit,
+            )
+        except (OSError, ValueError, json.JSONDecodeError):
+            return Result.failure((_issue("contract", "invalid"),))
+    else:
+        contract = _contract
+    result = _verify_runtime_asset_closure(
+        binding,
+        contract,
+        include_network_isolation=_contract is None,
+    )
+    if result.is_failure or result.value is None:
+        return result
+    verified = result.value
+    if _contract is None:
+        try:
+            network_identity = _verify_network_isolation_asset(
+                binding, contract.identity
+            )
+        except _AssetFault as fault:
+            return Result.failure((_issue(fault.component, fault.reason),))
+        if network_identity != (
+            verified.network_isolation_executable_sha256,
+            verified.network_isolation_version_output_sha256,
+        ):
+            return Result.failure((_issue("network_isolation", "race"),))
+    try:
+        if _runtime_probe is not None:
+            _runtime_probe(binding, contract.identity, verified.containers)
+        elif _contract is None:
+            _verify_runtime_canary(binding, contract.identity, verified.containers)
     except _AssetFault as fault:
         return Result.failure((_issue(fault.component, fault.reason),))
     except (OSError, UnicodeError, ValueError):
@@ -1472,11 +1588,7 @@ def _parse_docker_archive(
                 not isinstance(config_path, str)
                 or not isinstance(layer_paths, list)
                 or not all(isinstance(path, str) for path in layer_paths)
-                or repo_tags is not None
-                and (
-                    not isinstance(repo_tags, list)
-                    or not all(isinstance(tag, str) for tag in repo_tags)
-                )
+                or repo_tags not in (None, [])
             ):
                 raise _AssetFault("containers", "contract")
             _validate_relative_path(config_path)
@@ -1594,11 +1706,11 @@ def _hash_open_descriptor(
     return digest.hexdigest()
 
 
-def _verify_network_isolation_asset(
+def _verify_network_isolation_bytes(
     binding: RuntimeAssetBinding,
     identity: Mapping[str, Any],
 ) -> tuple[str, str]:
-    """Verify the fixed host launcher and its exact version output."""
+    """Verify only fixed host launcher metadata and bytes."""
 
     expected = identity.get("host_network_isolation")
     if not isinstance(expected, Mapping):
@@ -1652,6 +1764,23 @@ def _verify_network_isolation_asset(
         os.close(descriptor)
     if executable_sha256 != expected_sha256:
         raise _AssetFault("network_isolation", "identity")
+    return executable_sha256, expected_version_sha256
+
+
+def _verify_network_isolation_asset(
+    binding: RuntimeAssetBinding,
+    identity: Mapping[str, Any],
+) -> tuple[str, str]:
+    """Verify fixed host launcher bytes and its exact version output."""
+
+    executable_sha256, expected_version_sha256 = _verify_network_isolation_bytes(
+        binding, identity
+    )
+    path = binding.network_isolation_executable
+    try:
+        before = os.lstat(path)
+    except OSError as exc:
+        raise _AssetFault("network_isolation", "unavailable") from exc
     try:
         completed = subprocess.run(
             (str(path), "--version"),

@@ -14,6 +14,9 @@ from encode_pipeline.workers.settings import (
     DEFAULT_JOB_TIMEOUT_SECONDS,
     DEFAULT_QUEUE_NAME,
     DEFAULT_REDIS_URL,
+    ENCODE_CONDA_PREFIX_ENV,
+    ENCODE_RUNNER_ROOT_ENV,
+    ENCODE_RUNTIME_ROOT_ENV,
     JOB_TIMEOUT_SECONDS_ENV,
     MANAGED_DOCKER_EXECUTABLE_ENV,
     MANAGED_DOCKER_SOCKET_ENV,
@@ -30,6 +33,19 @@ from encode_pipeline.workers.settings import (
 def test_load_worker_settings_reads_shared_environment(tmp_path):
     database_url = f"sqlite:///{tmp_path / 'platform.db'}"
     workspace_root = tmp_path / "workspaces"
+    deployment_identity = "sha256-" + "a" * 64
+    encode_runtime_root = (
+        tmp_path
+        / "runtimes"
+        / "encode"
+        / deployment_identity
+        / "payload"
+        / "contracts"
+        / "encode-runtime"
+    )
+    scientific_root = tmp_path / "scientific" / "encode" / deployment_identity
+    encode_runner_root = scientific_root / "runner"
+    encode_conda_prefix = scientific_root / "conda-envs"
 
     configured = load_worker_settings(
         {
@@ -40,6 +56,9 @@ def test_load_worker_settings_reads_shared_environment(tmp_path):
             JOB_TIMEOUT_SECONDS_ENV: "3600",
             REDIS_CONNECT_TIMEOUT_SECONDS_ENV: "1.25",
             REDIS_API_READ_TIMEOUT_SECONDS_ENV: "4.5",
+            ENCODE_RUNTIME_ROOT_ENV: str(encode_runtime_root),
+            ENCODE_RUNNER_ROOT_ENV: str(encode_runner_root),
+            ENCODE_CONDA_PREFIX_ENV: str(encode_conda_prefix),
         }
     )
 
@@ -51,6 +70,9 @@ def test_load_worker_settings_reads_shared_environment(tmp_path):
         job_timeout_seconds=3600,
         redis_connect_timeout_seconds=1.25,
         redis_api_read_timeout_seconds=4.5,
+        encode_runtime_root=encode_runtime_root,
+        encode_runner_root=encode_runner_root,
+        encode_conda_prefix=encode_conda_prefix,
     )
 
 
@@ -68,6 +90,9 @@ def test_load_worker_settings_uses_local_defaults(tmp_path, monkeypatch):
     assert configured.job_timeout_seconds == DEFAULT_JOB_TIMEOUT_SECONDS
     assert configured.managed_docker_executable is None
     assert configured.managed_docker_socket == Path("/var/run/docker.sock")
+    assert configured.encode_runtime_root is None
+    assert configured.encode_runner_root is None
+    assert configured.encode_conda_prefix is None
     assert (
         configured.redis_connect_timeout_seconds
         == DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS
@@ -85,6 +110,74 @@ def test_worker_settings_requires_absolute_workspace(tmp_path):
             redis_url=DEFAULT_REDIS_URL,
             queue_name=DEFAULT_QUEUE_NAME,
             workspace_root=Path("relative/workspaces"),
+        )
+
+
+def test_worker_settings_requires_absolute_encode_runtime_root(tmp_path):
+    with pytest.raises(ValueError, match="encode_runtime_root"):
+        WorkerSettings(
+            database_url=f"sqlite:///{tmp_path / 'platform.db'}",
+            redis_url=DEFAULT_REDIS_URL,
+            queue_name=DEFAULT_QUEUE_NAME,
+            workspace_root=tmp_path / "workspaces",
+            encode_runtime_root=Path("relative/runtime"),
+        )
+
+
+def test_worker_settings_rejects_encode_runtime_without_content_identity(tmp_path):
+    with pytest.raises(ValueError, match="immutable deployment"):
+        WorkerSettings(
+            database_url=f"sqlite:///{tmp_path / 'platform.db'}",
+            redis_url=DEFAULT_REDIS_URL,
+            queue_name=DEFAULT_QUEUE_NAME,
+            workspace_root=tmp_path / "workspaces",
+            encode_runtime_root=(
+                tmp_path
+                / "runtimes"
+                / "encode"
+                / "current"
+                / "payload"
+                / "contracts"
+                / "encode-runtime"
+            ),
+        )
+
+
+def test_worker_settings_requires_complete_scientific_runtime_coordinates(tmp_path):
+    values = {
+        "database_url": f"sqlite:///{tmp_path / 'platform.db'}",
+        "redis_url": DEFAULT_REDIS_URL,
+        "queue_name": DEFAULT_QUEUE_NAME,
+        "workspace_root": tmp_path / "workspaces",
+    }
+
+    with pytest.raises(ValueError, match="must be configured together"):
+        WorkerSettings(
+            **values,
+            encode_runner_root=tmp_path / "scientific" / "runner-current",
+        )
+    with pytest.raises(ValueError, match="encode_conda_prefix"):
+        WorkerSettings(
+            **values,
+            encode_runner_root=tmp_path / "scientific" / "runner-current",
+            encode_conda_prefix=Path("relative/conda-envs"),
+        )
+
+    runtime = (
+        tmp_path
+        / "runtimes"
+        / "encode"
+        / ("sha256-" + "a" * 64)
+        / "payload"
+        / "contracts"
+        / "encode-runtime"
+    )
+    with pytest.raises(ValueError, match="must match encode_runtime_root"):
+        WorkerSettings(
+            **values,
+            encode_runtime_root=runtime,
+            encode_runner_root=tmp_path / "scientific" / "other" / "runner",
+            encode_conda_prefix=tmp_path / "scientific" / "other" / "conda-envs",
         )
 
 

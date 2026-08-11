@@ -22,14 +22,16 @@ from encode_pipeline.deployment.errors import DeploymentError, fail
 from encode_pipeline.deployment.layout import DeploymentLayout
 from encode_pipeline.deployment.models import (
     COMPONENTS,
+    PLATFORM,
     BundleManifest,
     ComponentSlots,
     DeploymentState,
 )
-from encode_pipeline.deployment.state import StateStore
+from encode_pipeline.deployment.state import PlatformEnvironment, StateStore
 
 
 FaultInjector = Callable[[str], None]
+PlatformEnvironmentRenderer = Callable[[DeploymentState], PlatformEnvironment]
 
 
 @dataclass(frozen=True)
@@ -110,11 +112,20 @@ class DeploymentManager:
         ownership: DeploymentOwnership,
         contract_resolver: NativeContractResolver | None = None,
         schema_observer: DatabaseSchemaObserver | None = None,
+        state_reader_gid: int | None = None,
+        state_service_gid: int | None = None,
+        state_environment_content_verification: bool = True,
+        platform_environment_renderer: PlatformEnvironmentRenderer | None = None,
     ) -> None:
         self.layout = layout
         self.ownership = ownership
         self.bundles = BundleStore(layout)
-        self.states = StateStore(layout)
+        self.states = StateStore(
+            layout,
+            reader_gid=state_reader_gid,
+            service_gid=state_service_gid,
+            verify_environment_content=state_environment_content_verification,
+        )
         self.contract_resolver = (
             DeferredNativeContractResolver()
             if contract_resolver is None
@@ -125,6 +136,7 @@ class DeploymentManager:
             if schema_observer is None
             else schema_observer
         )
+        self.platform_environment_renderer = platform_environment_renderer
 
     def stage(
         self,
@@ -195,6 +207,7 @@ class DeploymentManager:
                 candidate,
                 operation=f"activate-{component}",
                 expected_current_identity=state.identity,
+                platform_environment=self._platform_environment(candidate),
                 fault=fault,
             )
             return candidate
@@ -233,6 +246,7 @@ class DeploymentManager:
                 candidate,
                 operation=f"rollback-{component}",
                 expected_current_identity=state.identity,
+                platform_environment=self._platform_environment(candidate),
                 fault=fault,
             )
             return candidate
@@ -242,12 +256,21 @@ class DeploymentManager:
         return self._snapshot(full_verification=False)
 
     def verify(self) -> DeploymentStatus:
+        """Fully verify releases with this manager's configured authorities."""
         return self._snapshot(full_verification=True)
+
+    def verify_storage(self) -> DeploymentStatus:
+        """Verify state plus immutable bytes without crossing private runtimes."""
+        return self._snapshot(
+            full_verification=True,
+            contract_verification=False,
+        )
 
     def _snapshot(
         self,
         *,
         full_verification: bool,
+        contract_verification: bool = True,
     ) -> DeploymentStatus:
         with self.states.transaction(
             exclusive=False,
@@ -262,8 +285,9 @@ class DeploymentManager:
                     component,
                     slots,
                     full_verification=full_verification,
+                    contract_verification=contract_verification,
                 )
-            if full_verification:
+            if full_verification and contract_verification:
                 self._verify_compatibility(
                     state,
                     base_state=state,
@@ -343,6 +367,7 @@ class DeploymentManager:
         slots: ComponentSlots,
         *,
         full_verification: bool,
+        contract_verification: bool = True,
     ) -> dict[str, BundleManifest | None]:
         values: dict[str, BundleManifest | None] = {}
         for slot in ("active", "previous", "staged"):
@@ -361,7 +386,7 @@ class DeploymentManager:
                 expected_owner_uid=self.ownership.uid,
                 expected_owner_gid=self.ownership.gid,
             )
-            if full_verification:
+            if full_verification and contract_verification:
                 assert values[slot] is not None
                 self._resolve_contracts(values[slot])
         return values
@@ -393,6 +418,13 @@ class DeploymentManager:
         """Resolve one snapshot manifest without hashing unrelated payloads."""
         return self._resolve_contracts(manifest)
 
+    def observe_database_schema(
+        self,
+        state: DeploymentState,
+    ) -> DatabaseSchemaObservation:
+        """Return one state-bound, read-only database schema observation."""
+        return self._observe_database_schema(state)
+
     def _observe_database_schema(
         self,
         state: DeploymentState,
@@ -420,6 +452,28 @@ class DeploymentManager:
                 "An interrupted deployment operation requires recovery.",
                 recoverable=True,
             )
+
+    def _platform_environment(
+        self,
+        state: DeploymentState,
+    ) -> PlatformEnvironment | None:
+        if state.components[PLATFORM].active is None:
+            return None
+        if self.platform_environment_renderer is None:
+            raise fail(
+                "DEPLOYMENT_CONFIGURATION_REQUIRED",
+                "Deployment configuration is required for activation.",
+                recoverable=True,
+            )
+        try:
+            return self.platform_environment_renderer(state)
+        except DeploymentError:
+            raise
+        except Exception:
+            raise fail(
+                "DEPLOYMENT_CONFIGURATION_INVALID",
+                "Deployment configuration is invalid.",
+            ) from None
 
 
 def _prefixed_fault(

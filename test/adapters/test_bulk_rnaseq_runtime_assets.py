@@ -56,6 +56,8 @@ from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
     _validate_embedded_contracts,
     _verify_docker_availability,
     doctor_runtime_assets,
+    verify_runtime_asset_canary,
+    verify_runtime_asset_closure,
     verify_runtime_assets,
 )
 
@@ -142,7 +144,7 @@ def _docker_image_fixture(
         [
             {
                 "Config": f"{config_digest.removeprefix('sha256:')}.json",
-                "RepoTags": ["quay.io/helixweave/star:test"],
+                "RepoTags": [],
                 "Layers": ["layer/layer.tar"],
             }
         ]
@@ -755,6 +757,98 @@ def test_tiny_closed_asset_set_verifies_deterministically(tmp_path: Path) -> Non
         _contract=fixture.contract,
         _docker_probe=fixture.docker_probe,
     ).ready
+
+
+def test_static_closure_verifier_never_contacts_docker_or_runs_canary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("static closure must not invoke a runtime probe")
+
+    monkeypatch.setattr(runtime_assets_module, "_verify_docker_availability", forbidden)
+    monkeypatch.setattr(runtime_assets_module, "_verify_runtime_canary", forbidden)
+
+    result = verify_runtime_asset_closure(
+        fixture.binding,
+        _contract=fixture.contract,
+    )
+
+    assert result.is_success
+    assert result.value is not None
+    assert result.value.containers[0].local_asset == fixture.container_asset
+
+
+def test_production_shape_static_closure_executes_no_subprocess(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    executable = tmp_path / "bin/unshare"
+    executable.parent.mkdir()
+    content = b"synthetic fixed unshare"
+    executable.write_bytes(content)
+    executable.chmod(0o755)
+    identity = deepcopy(fixture.contract.identity)
+    identity["host_network_isolation"] = {
+        "size_bytes": len(content),
+        "sha256": _sha256(content),
+        "version_output_sha256": "f" * 64,
+    }
+    contract = replace(fixture.contract, identity=identity)
+    binding = replace(
+        fixture.binding,
+        network_isolation_executable=executable.resolve(),
+    )
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("static closure must execute no subprocess")
+
+    monkeypatch.setattr(
+        runtime_assets_module, "_load_runtime_contract", lambda: contract
+    )
+    monkeypatch.setattr(
+        runtime_assets_module,
+        "_validate_embedded_contracts",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(runtime_assets_module.subprocess, "run", forbidden)
+    monkeypatch.setattr(runtime_assets_module.subprocess, "Popen", forbidden)
+
+    result = verify_runtime_asset_closure(binding)
+
+    assert result.is_success
+    assert result.value is not None
+    assert result.value.network_isolation_executable_sha256 == _sha256(content)
+
+
+def test_runtime_canary_seam_never_contacts_docker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _tiny_assets(tmp_path)
+    calls = 0
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("runtime canary must not contact Docker")
+
+    def runtime_probe(*_args, **_kwargs) -> None:
+        nonlocal calls
+        calls += 1
+
+    monkeypatch.setattr(runtime_assets_module, "_verify_docker_availability", forbidden)
+
+    result = verify_runtime_asset_canary(
+        fixture.binding,
+        _contract=fixture.contract,
+        _runtime_probe=runtime_probe,
+    )
+
+    assert result.is_success
+    assert result.value is not None
+    assert calls == 1
 
 
 @pytest.mark.parametrize(
@@ -1508,6 +1602,23 @@ def test_docker_archive_rejects_multiple_images(tmp_path: Path) -> None:
         fixture.binding,
         _contract=fixture.contract,
         _docker_probe=fixture.docker_probe,
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "BULK_RNASEQ_RUNTIME_ASSET_CONTRACT"
+
+
+def test_docker_archive_rejects_any_repo_tag_side_effect(tmp_path: Path) -> None:
+    fixture = _tiny_assets(tmp_path)
+    files = _tar_file_contents(fixture.container_asset.read_bytes())
+    manifest = json.loads(files["manifest.json"])
+    manifest[0]["RepoTags"] = ["attacker.invalid/repoint:latest"]
+    files["manifest.json"] = _json_bytes(manifest)
+    _replace_archive(fixture, _tar_bytes(files))
+
+    result = verify_runtime_asset_closure(
+        fixture.binding,
+        _contract=fixture.contract,
     )
 
     assert result.is_failure

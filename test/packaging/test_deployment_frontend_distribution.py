@@ -28,6 +28,11 @@ def _build_distributions(tmp_path: Path) -> tuple[Path, Path]:
     source.mkdir()
     for filename in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
         shutil.copy2(REPOSITORY_ROOT / filename, source / filename)
+    (source / "scripts").mkdir()
+    shutil.copy2(
+        REPOSITORY_ROOT / "scripts" / "bootstrap_helixweave_operator.py",
+        source / "scripts" / "bootstrap_helixweave_operator.py",
+    )
     shutil.copytree(
         REPOSITORY_ROOT / "src",
         source / "src",
@@ -50,6 +55,7 @@ def _build_distributions(tmp_path: Path) -> tuple[Path, Path]:
         capture_output=True,
         text=True,
         check=False,
+        timeout=20,
     )
     assert completed.returncode == 0, completed.stderr
     wheels = tuple(destination.glob("helixweave-*.whl"))
@@ -164,3 +170,132 @@ print(json.dumps({
     assert receipt["version"] == "0.3.0"
     assert "index.html" in receipt["files"]
     assert all("node_modules" not in path for path in receipt["files"])
+
+
+def test_extracted_wheel_serves_frontend_and_api_without_node_or_checkout(
+    tmp_path: Path,
+    frontend_distributions: tuple[Path, Path],
+) -> None:
+    wheel, _sdist = frontend_distributions
+    installed = tmp_path / "installed"
+    with zipfile.ZipFile(wheel) as archive:
+        archive.extractall(installed)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    runtime = (
+        tmp_path
+        / "runtimes"
+        / "encode"
+        / ("sha256-" + "a" * 64)
+        / "payload"
+        / "contracts"
+        / "encode-runtime"
+    )
+    shutil.copytree(REPOSITORY_ROOT / "workflow", runtime / "workflow")
+    shutil.copytree(
+        REPOSITORY_ROOT / "profiles" / "default",
+        runtime / "profiles" / "default",
+    )
+    shutil.copytree(REPOSITORY_ROOT / "scripts", runtime / "scripts")
+    (runtime / "docs" / "architecture").mkdir(parents=True)
+    shutil.copy2(
+        REPOSITORY_ROOT / "docs" / "architecture" / "artifact-inventory.yaml",
+        runtime / "docs" / "architecture" / "artifact-inventory.yaml",
+    )
+    state_root = tmp_path / "state"
+    state_root.mkdir()
+    database = state_root / "platform.db"
+    from encode_pipeline.persistence.runtime import open_run_persistence
+
+    prepared = open_run_persistence(f"sqlite:///{database}")
+    prepared.close()
+    code = f"""
+import asyncio
+import json
+from pathlib import Path
+import sys
+
+import httpx
+
+repository = Path({str(REPOSITORY_ROOT)!r}).resolve()
+installed = Path({str(installed)!r}).resolve()
+checkout_entries = {{repository, repository / "src"}}
+sys.path[:] = [
+    str(installed),
+    *[
+        item
+        for item in sys.path
+        if item and Path(item).resolve() not in checkout_entries
+    ],
+]
+
+import encode_pipeline
+import encode_pipeline.api.main as api_main
+from encode_pipeline.deployment.frontend import create_app
+from encode_pipeline.frontend_assets import load_packaged_frontend_assets
+
+assert Path(encode_pipeline.__file__).resolve().is_relative_to(installed)
+assert Path(api_main.__file__).resolve().is_relative_to(installed)
+assets = load_packaged_frontend_assets()
+app = create_app()
+
+async def verify():
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://helixweave.invalid",
+    ) as client:
+        index = await client.get("/", headers={{"accept": "text/html"}})
+        javascript_path = next(
+            path for path in sorted(assets.content) if path.endswith(".js")
+        )
+        script = await client.get("/" + javascript_path)
+        api = await client.get(
+            "/api/v1/workflows/encode-style-chipseq-cuttag-atac-mnase/schema",
+            headers={{"accept": "application/json"}},
+        )
+    assert index.status_code == script.status_code == api.status_code == 200
+    assert index.content == assets.content["index.html"]
+    assert script.content == assets.content[javascript_path]
+    assert api.json()["workflow_id"] == "encode-style-chipseq-cuttag-atac-mnase"
+    assert api.json()["schema"]["schema_version"]
+
+try:
+    asyncio.run(verify())
+finally:
+    app.state.run_queue.close()
+    app.state.persistence.close()
+
+print(json.dumps({{
+    "api_status": 200,
+    "frontend_identity": assets.manifest.identity,
+}}, sort_keys=True))
+"""
+    environment = {
+        "ENCODE_PIPELINE_DATABASE_URL": f"sqlite:///{database}",
+        "ENCODE_PIPELINE_REDIS_URL": "redis://127.0.0.1:1/15",
+        "ENCODE_PIPELINE_WORKSPACE_ROOT": str(state_root / "workspaces"),
+        "HELIXWEAVE_ACTIVE_API_CONTRACT_SHA256": (
+            load_packaged_frontend_assets().manifest.api_contract_sha256
+        ),
+        "HELIXWEAVE_ENCODE_RUNTIME_ROOT": str(runtime),
+        "PATH": "/node-and-npm-are-intentionally-unavailable",
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", code],
+        cwd=outside,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    receipt = json.loads(completed.stdout)
+    assert receipt == {
+        "api_status": 200,
+        "frontend_identity": load_packaged_frontend_assets().manifest.identity,
+    }

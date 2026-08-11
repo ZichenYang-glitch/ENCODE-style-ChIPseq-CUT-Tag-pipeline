@@ -1,8 +1,8 @@
 """Fail-closed contracts for the single supported deployment release Gate.
 
-Requests are prepared only from a trusted, read-only observer.  The production
-observer is unavailable during Phase A; consequently the public preparation
-CLI cannot turn caller assertions into verified evidence or dispatch a Gate.
+Requests are prepared only from the fixed trusted, read-only host observer.
+Caller assertions can never substitute for observed process, socket, cache,
+checkout, wheel-install, cleanup-executor, capacity, or ownership evidence.
 """
 
 from __future__ import annotations
@@ -27,15 +27,15 @@ from encode_pipeline.deployment.errors import DeploymentError, fail
 from encode_pipeline.deployment.models import BULK_RNASEQ_RUNTIME, ENCODE_RUNTIME
 
 
-CLEANUP_PLAN_SCHEMA = "helixweave-deployment-gate-cleanup-plan-v3"
-GATE_OBSERVATION_SCHEMA = "helixweave-deployment-gate-observation-v2"
+CLEANUP_PLAN_SCHEMA = "helixweave-deployment-gate-cleanup-plan-v4"
+GATE_OBSERVATION_SCHEMA = "helixweave-deployment-gate-observation-v3"
 GATE_REQUEST_SCHEMA = "helixweave-deployment-gate-request-v3"
 GATE_STAGE_VERIFICATION_SCHEMA = "helixweave-deployment-gate-stage-verification-v1"
 GATE_STAGE_RECEIPT_SCHEMA = "helixweave-deployment-gate-stage-receipt-v2"
-CLEANUP_PLAN_IDENTITY_SCHEME = "helixweave-deployment-gate-cleanup-plan-identity-v3"
-GATE_OBSERVATION_IDENTITY_SCHEME = "helixweave-deployment-gate-observation-identity-v2"
+CLEANUP_PLAN_IDENTITY_SCHEME = "helixweave-deployment-gate-cleanup-plan-identity-v4"
+GATE_OBSERVATION_IDENTITY_SCHEME = "helixweave-deployment-gate-observation-identity-v3"
 GATE_REQUEST_IDENTITY_SCHEME = "helixweave-deployment-gate-request-identity-v3"
-GATE_PROCESS_IDENTITY_SCHEME = "helixweave-deployment-gate-process-identity-v2"
+GATE_PROCESS_IDENTITY_SCHEME = "helixweave-deployment-gate-process-identity-v3"
 GATE_STAGE_VERIFICATION_IDENTITY_SCHEME = (
     "helixweave-deployment-gate-stage-verification-identity-v1"
 )
@@ -90,6 +90,11 @@ _SAFE_REASON = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _MAX_DISK_BYTES = 100 * 1024**4
 _MAX_LOAD_MILLI = 1_000_000
 _MAX_CONTROL_FILE_BYTES = 64 * 1024
+_MAX_PROC_FDS = 4096
+_MAX_PROC_NET_UNIX_BYTES = 1024 * 1024
+_SO_ACCEPTCON = 0x00010000
+_PROC_ROOT = Path("/proc")
+_PROC_NET_UNIX = Path("/proc/net/unix")
 
 
 def _document(raw: object, *, code: str) -> dict[str, Any]:
@@ -338,6 +343,7 @@ class GateProcessIdentity:
     cmdline_identity: str
     socket_device: int | None
     socket_inode: int | None
+    socket_kernel_inode: int | None
 
     @classmethod
     def create(
@@ -352,6 +358,7 @@ class GateProcessIdentity:
         cmdline_identity: str,
         socket_device: int | None = None,
         socket_inode: int | None = None,
+        socket_kernel_inode: int | None = None,
     ) -> "GateProcessIdentity":
         value: dict[str, object] = {
             "name": name,
@@ -363,6 +370,7 @@ class GateProcessIdentity:
             "cmdline_identity": cmdline_identity,
             "socket_device": socket_device,
             "socket_inode": socket_inode,
+            "socket_kernel_inode": socket_kernel_inode,
         }
         value["identity"] = canonical_identity(
             value, scheme=GATE_PROCESS_IDENTITY_SCHEME
@@ -386,6 +394,7 @@ class GateProcessIdentity:
                 "cmdline_identity",
                 "socket_device",
                 "socket_inode",
+                "socket_kernel_inode",
             }
             or value["name"] not in PROCESS_NAMES
         ):
@@ -397,9 +406,13 @@ class GateProcessIdentity:
         executable_device = _positive_integer(value["executable_device"], code=code)
         executable_inode = _positive_integer(value["executable_inode"], code=code)
         cmdline = _identity(value["cmdline_identity"], code=code)
-        sockets = value["socket_device"], value["socket_inode"]
+        sockets = (
+            value["socket_device"],
+            value["socket_inode"],
+            value["socket_kernel_inode"],
+        )
         if pid > 2**31 - 1 or (
-            (value["name"] == "runner" and sockets != (None, None))
+            (value["name"] == "runner" and sockets != (None, None, None))
             or (
                 value["name"] != "runner"
                 and any(
@@ -427,6 +440,7 @@ class GateProcessIdentity:
             cmdline,
             value["socket_device"],
             value["socket_inode"],
+            value["socket_kernel_inode"],
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -441,6 +455,7 @@ class GateProcessIdentity:
             "cmdline_identity": self.cmdline_identity,
             "socket_device": self.socket_device,
             "socket_inode": self.socket_inode,
+            "socket_kernel_inode": self.socket_kernel_inode,
         }
 
 
@@ -1556,7 +1571,7 @@ def _observe_process(
         raise fail("GATE_OBSERVATION_INVALID", "Gate observation is invalid.") from None
     if not 0 < pid <= 2**31 - 1:
         raise fail("GATE_OBSERVATION_INVALID", "Gate observation is invalid.")
-    proc_root = Path("/proc") / str(pid)
+    proc_root = _PROC_ROOT / str(pid)
     try:
         start_before = _process_start_ticks(proc_root / "stat")
         executable = (proc_root / "exe").stat()
@@ -1570,14 +1585,29 @@ def _observe_process(
         raise fail("GATE_OBSERVATION_INVALID", "Gate observation is invalid.")
     socket_device: int | None = None
     socket_inode: int | None = None
+    socket_kernel_inode: int | None = None
     if name != "runner":
         socket_path = root / (
             "redis/redis.sock" if name == "redis" else "docker/docker.sock"
         )
-        socket_stat = _owned_socket(
+        socket_before = _owned_socket(
             socket_path, policy.operator_uid, policy.operator_gid
         )
-        socket_device, socket_inode = socket_stat.st_dev, socket_stat.st_ino
+        socket_kernel_inode = _kernel_socket_owner(
+            proc_root,
+            socket_path,
+            proc_net_unix=_PROC_NET_UNIX,
+        )
+        socket_after = _owned_socket(
+            socket_path, policy.operator_uid, policy.operator_gid
+        )
+        final_start = _process_start_ticks(proc_root / "stat")
+        if (
+            _file_witness(socket_before) != _file_witness(socket_after)
+            or final_start != start_before
+        ):
+            raise fail("GATE_OBSERVATION_INVALID", "Gate observation is invalid.")
+        socket_device, socket_inode = socket_after.st_dev, socket_after.st_ino
     return GateProcessIdentity.create(
         name=name,
         task_identity=task_identity,
@@ -1588,7 +1618,51 @@ def _observe_process(
         cmdline_identity=f"sha256-{hashlib.sha256(cmdline).hexdigest()}",
         socket_device=socket_device,
         socket_inode=socket_inode,
+        socket_kernel_inode=socket_kernel_inode,
     )
+
+
+def _kernel_socket_owner(
+    proc_root: Path,
+    socket_path: Path,
+    *,
+    proc_net_unix: Path,
+) -> int:
+    try:
+        owned: set[int] = set()
+        count = 0
+        with os.scandir(proc_root / "fd") as entries:
+            for entry in entries:
+                count += 1
+                if count > _MAX_PROC_FDS or not entry.name.isdigit():
+                    raise OSError
+                target = os.readlink(entry.path)
+                match = re.fullmatch(r"socket:\[([1-9][0-9]*)\]", target)
+                if match is not None:
+                    owned.add(int(match.group(1)))
+        content = _read_proc_file(proc_net_unix, _MAX_PROC_NET_UNIX_BYTES)
+        rendered_path = str(socket_path)
+        matches: list[int] = []
+        for raw_line in content.splitlines()[1:]:
+            fields = raw_line.decode("utf-8").split(maxsplit=7)
+            if len(fields) != 8 or fields[7] != rendered_path:
+                continue
+            flags = int(fields[3], 16)
+            kernel_inode = int(fields[6], 10)
+            if (
+                fields[4] != "0001"
+                or fields[5] != "01"
+                or not flags & _SO_ACCEPTCON
+                or not 0 < kernel_inode <= 2**63 - 1
+                or kernel_inode not in owned
+            ):
+                raise OSError
+            matches.append(kernel_inode)
+        if len(matches) != 1:
+            raise OSError
+        return matches[0]
+    except (OSError, UnicodeError, ValueError):
+        raise fail("GATE_OBSERVATION_INVALID", "Gate observation is invalid.") from None
 
 
 def _observe_cache(policy: GatePolicy, kind: str) -> CacheEvidence:

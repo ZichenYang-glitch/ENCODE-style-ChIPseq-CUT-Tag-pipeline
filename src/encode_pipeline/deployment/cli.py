@@ -1,8 +1,8 @@
 """Scriptable JSON command contract for supported deployment operations.
 
-This module is intentionally not wired into ``encode_pipeline.cli.app`` until
-PR #172 is merged.  Mutating commands can only reach an injected backend; the
-phase-A default fails closed and never invokes sudo or changes the host.
+The production default is composed lazily so this contract module remains
+independent from the fixed operator client.  Tests may inject a backend, but a
+normal invocation always selects the supported host composition.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ EXIT_USAGE = 64
 _BACKEND_EXIT_CODES = {EXIT_OK, EXIT_DATA, EXIT_UNAVAILABLE, EXIT_INCOMPATIBLE}
 
 OPERATION_RESULT_SCHEMA = "helixweave-deployment-operation-v1"
-STATUS_RESULT_SCHEMA = "helixweave-deployment-status-v1"
+STATUS_RESULT_SCHEMA = "helixweave-deployment-status-v2"
 VERIFY_RESULT_SCHEMA = "helixweave-deployment-verify-v1"
 DOCTOR_RESULT_SCHEMA = DOCTOR_REPORT_SCHEMA
 
@@ -84,6 +84,9 @@ _PUBLIC_ISSUE_EXIT_CODES = {
     "DEPLOYMENT_BUNDLE_UNAVAILABLE": EXIT_UNAVAILABLE,
     "DEPLOYMENT_RELEASE_UNAVAILABLE": EXIT_UNAVAILABLE,
     "DEPLOYMENT_STATE_UNAVAILABLE": EXIT_UNAVAILABLE,
+    "DEPLOYMENT_OPERATOR_UNAVAILABLE": EXIT_UNAVAILABLE,
+    "OPERATOR_OBSERVATION_UNAVAILABLE": EXIT_UNAVAILABLE,
+    "DEPLOYMENT_INGRESS_UNAVAILABLE": EXIT_UNAVAILABLE,
     "DEPLOYMENT_INTEGRATION_DEFERRED": EXIT_UNAVAILABLE,
     "DEPLOYMENT_CONTRACT_ADMISSION_DEFERRED": EXIT_UNAVAILABLE,
     "DEPLOYMENT_SCHEMA_OBSERVATION_DEFERRED": EXIT_UNAVAILABLE,
@@ -94,7 +97,15 @@ _PUBLIC_ISSUE_EXIT_CODES = {
     "DEPLOYMENT_SCHEMA_INCOMPATIBLE": EXIT_INCOMPATIBLE,
     "DEPLOYMENT_STAGED_IDENTITY_MISMATCH": EXIT_INCOMPATIBLE,
     "DEPLOYMENT_PREVIOUS_IDENTITY_MISMATCH": EXIT_INCOMPATIBLE,
+    "DEPLOYMENT_BUNDLE_COMPONENT_MISMATCH": EXIT_INCOMPATIBLE,
     "FRONTEND_API_INCOMPATIBLE": EXIT_INCOMPATIBLE,
+    "DEPLOYMENT_BUNDLE_SOURCE_INVALID": EXIT_DATA,
+    "DEPLOYMENT_BUNDLE_SOURCE_CHANGED": EXIT_DATA,
+    "DEPLOYMENT_BUNDLE_OUTPUT_INVALID": EXIT_DATA,
+    "DEPLOYMENT_BUNDLE_OUTPUT_EXISTS": EXIT_DATA,
+    "DEPLOYMENT_BUNDLE_BUILD_FAILED": EXIT_OPERATION,
+    "DEPLOYMENT_COMPONENT_INVALID": EXIT_USAGE,
+    "DEPLOYMENT_TASK_IDENTITY_INVALID": EXIT_OPERATION,
     "DEPLOYMENT_PRIVILEGE_REQUIRED": EXIT_PERMISSION,
     "DEPLOYMENT_PERMISSION_DENIED": EXIT_PERMISSION,
 }
@@ -154,7 +165,7 @@ class CommandBackend(Protocol):
 
 
 class UnavailableCommandBackend:
-    """Phase-A default that cannot mutate or inspect the supported host."""
+    """Explicit fail-closed backend retained for contract-level callers."""
 
     @staticmethod
     def _unavailable() -> PublicCommandResult:
@@ -393,7 +404,10 @@ def _validate_status_result(value: Mapping[str, object]) -> None:
             "partial_staging_count",
             "pending_transaction_count",
             "orphaned_deployment_count",
+            "operator_pending_transaction_count",
+            "operator_recovery_required_count",
             "database_schema_identity",
+            "database_schema_reason_code",
             "services",
         },
     )
@@ -405,16 +419,32 @@ def _validate_status_result(value: Mapping[str, object]) -> None:
         or document["generation"] < 0
         or not isinstance(document["interrupted"], bool)
         or not _identity_or_none(document["database_schema_identity"])
+        or document["database_schema_reason_code"]
+        not in {"DATABASE_READY", "DATABASE_UNAVAILABLE"}
+        or (
+            (document["database_schema_identity"] is not None)
+            != (document["database_schema_reason_code"] == "DATABASE_READY")
+        )
     ):
         raise fail("DEPLOYMENT_RESULT_INVALID", "Deployment result is invalid.")
     for key in (
         "partial_staging_count",
         "pending_transaction_count",
         "orphaned_deployment_count",
+        "operator_pending_transaction_count",
+        "operator_recovery_required_count",
     ):
         count = document[key]
         if not isinstance(count, int) or isinstance(count, bool) or count < 0:
             raise fail("DEPLOYMENT_RESULT_INVALID", "Deployment result is invalid.")
+    if (
+        document["operator_pending_transaction_count"] not in {0, 1}
+        or document["operator_recovery_required_count"] not in {0, 1}
+        or document["operator_pending_transaction_count"]
+        + document["operator_recovery_required_count"]
+        > 1
+    ):
+        raise fail("DEPLOYMENT_RESULT_INVALID", "Deployment result is invalid.")
     components = _exact_mapping(document["components"], set(COMPONENTS))
     for component in COMPONENTS:
         slots = _exact_mapping(components[component], {"active", "previous", "staged"})
@@ -584,9 +614,16 @@ def main(
     request: CommandRequest | None = None
     try:
         request = parse_command(arguments)
+        selected_backend = backend
+        if selected_backend is None:
+            # The lazy import avoids a module cycle: the production backend
+            # consumes the public result contract defined above.
+            from encode_pipeline.deployment.backend import ProductionCommandBackend
+
+            selected_backend = ProductionCommandBackend.supported()
         result = execute_command(
             request,
-            backend=UnavailableCommandBackend() if backend is None else backend,
+            backend=selected_backend,
         )
         envelope = success_envelope(request, result)
     except DeploymentError as error:

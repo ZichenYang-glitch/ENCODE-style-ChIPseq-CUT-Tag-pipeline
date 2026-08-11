@@ -31,6 +31,7 @@ from encode_pipeline.deployment.gate import (
     GateRequest,
     GateStageVerification,
     ResourceEvidence,
+    UnavailableGateObserver,
     prepare_gate_request,
     verify_cleanup_script,
 )
@@ -146,6 +147,7 @@ def _process(name: str) -> GateProcessIdentity:
         cmdline_identity=f"sha256-{40 + index:064x}",
         socket_device=None if name == "runner" else 50 + index,
         socket_inode=None if name == "runner" else 60 + index,
+        socket_kernel_inode=None if name == "runner" else 70 + index,
     )
 
 
@@ -243,7 +245,13 @@ def _arguments() -> list[str]:
 def test_public_cli_rejects_caller_reported_process_cache_paths_and_thresholds(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert prepare_module.main(_arguments()) == 70
+    assert (
+        prepare_module.main(
+            _arguments(),
+            observer=UnavailableGateObserver(),
+        )
+        == 70
+    )
     unavailable = json.loads(capsys.readouterr().err)
     assert unavailable["issue"]["code"] == "GATE_OBSERVER_UNAVAILABLE"
 
@@ -439,6 +447,44 @@ def test_filesystem_observer_fails_closed_when_fixed_material_is_missing_or_unsa
     with pytest.raises(DeploymentError) as symlink:
         FilesystemGateObserver().observe(policy, TASK_IDENTITY)
     assert symlink.value.issue.code == "GATE_OBSERVATION_INVALID"
+
+
+def test_kernel_socket_owner_binds_proc_fd_to_the_fixed_listening_path(
+    tmp_path: Path,
+) -> None:
+    proc_root = _mkdir(tmp_path / "proc/123")
+    fd_root = _mkdir(proc_root / "fd")
+    (fd_root / "7").symlink_to("socket:[4567]")
+    socket_path = tmp_path / "gate/tasks/task/docker/docker.sock"
+    proc_net_unix = tmp_path / "proc/net/unix"
+    proc_net_unix.parent.mkdir(parents=True)
+    proc_net_unix.write_text(
+        "Num RefCount Protocol Flags Type St Inode Path\n"
+        f"00000000: 00000002 00000000 00010000 0001 01 4567 {socket_path}\n",
+        encoding="utf-8",
+    )
+
+    assert (
+        gate_contract._kernel_socket_owner(
+            proc_root,
+            socket_path,
+            proc_net_unix=proc_net_unix,
+        )
+        == 4567
+    )
+
+    proc_net_unix.write_text(
+        "Num RefCount Protocol Flags Type St Inode Path\n"
+        f"00000000: 00000002 00000000 00000000 0001 01 4567 {socket_path}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(DeploymentError) as not_listening:
+        gate_contract._kernel_socket_owner(
+            proc_root,
+            socket_path,
+            proc_net_unix=proc_net_unix,
+        )
+    assert not_listening.value.issue.code == "GATE_OBSERVATION_INVALID"
 
 
 @pytest.mark.parametrize(

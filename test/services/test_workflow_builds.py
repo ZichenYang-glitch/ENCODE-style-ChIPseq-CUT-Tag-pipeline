@@ -109,7 +109,9 @@ def _project(root: Path, *, marker: str = "same") -> Path:
         "docs/architecture/artifact-inventory.yaml": "artifacts: []\n",
         "src/encode_pipeline/runtime.py": f"VALUE = {marker!r}\n",
         "src/encode_pipeline/adapters/encode_qc.py": f"CATALOG = {marker!r}\n",
-        "workflow/Snakefile": f"# {marker}\nrule all:\n    input: []\n",
+        "workflow/Snakefile": (
+            f"# {marker}\n# scripts/tool.py scripts/tool.sh\nrule all:\n    input: []\n"
+        ),
         "workflow/rules/main.smk": f"# {marker}\n",
         "workflow/schemas/config.schema.json": '{"type":"object"}\n',
         "workflow/envs/tool.lock": f"# {marker}\n",
@@ -277,12 +279,12 @@ def test_build_identity_sanitizes_adapter_exception(tmp_path):
     assert secret not in str(result.issues[0].to_dict())
 
 
-def test_encode_build_digest_remains_byte_for_byte_compatible(tmp_path):
+def test_encode_runtime_build_digest_remains_byte_for_byte_compatible(tmp_path):
     result = _capture(_project(tmp_path / "project"))
 
     assert result.is_success
     assert result.value.digest == (
-        "e51ab94092d85f50baf11ec67056b034b98c05e101fcf0c9c30bd0d3bfdcbd07"
+        "4f0e84e3421178d3156cd48fa2669bc3699fb3a5d8ed98d0aee2d140fc99fc4e"
     )
 
 
@@ -324,7 +326,7 @@ def test_build_digest_changes_when_artifact_inventory_changes(tmp_path):
     assert not before.value.matches(after.value)
 
 
-def test_build_digest_changes_when_qc_parser_catalog_changes(tmp_path):
+def test_build_digest_does_not_mix_platform_python_into_runtime_identity(tmp_path):
     root = _project(tmp_path / "project")
     before = _capture(root)
     (root / "src/encode_pipeline/adapters/encode_qc.py").write_text(
@@ -335,7 +337,20 @@ def test_build_digest_changes_when_qc_parser_catalog_changes(tmp_path):
 
     assert before.is_success
     assert after.is_success
-    assert not before.value.matches(after.value)
+    assert before.value.matches(after.value)
+
+
+def test_build_digest_does_not_mix_operator_scripts_into_runtime_identity(tmp_path):
+    root = _project(tmp_path / "project")
+    operator_script = root / "scripts" / "bootstrap_helixweave_operator.py"
+    operator_script.write_text("VALUE = 'first'\n", encoding="utf-8")
+    before = _capture(root)
+    operator_script.write_text("VALUE = 'second'\n", encoding="utf-8")
+    after = _capture(root)
+
+    assert before.is_success
+    assert after.is_success
+    assert before.value.matches(after.value)
 
 
 def test_build_digest_covers_workflow_files_without_known_suffixes(tmp_path):
@@ -355,7 +370,7 @@ def test_build_digest_covers_workflow_files_without_known_suffixes(tmp_path):
 def test_build_digest_ignores_cache_and_pyc_files(tmp_path):
     root = _project(tmp_path / "project")
     before = _capture(root)
-    cache = root / "src" / "encode_pipeline" / "__pycache__"
+    cache = root / "workflow" / "__pycache__"
     cache.mkdir()
     (cache / "runtime.cpython-313.pyc").write_bytes(b"generated")
     after = _capture(root)
@@ -403,11 +418,33 @@ def test_build_capture_rejects_missing_required_source(tmp_path):
     assert str(root) not in str(result.issues[0].to_dict())
 
 
+def test_build_capture_rejects_missing_referenced_runtime_script(tmp_path):
+    root = _project(tmp_path / "project")
+    (root / "scripts" / "tool.py").unlink()
+
+    result = _capture(root)
+
+    assert result.is_failure
+    assert result.issues[0].code == "WORKFLOW_BUILD_SOURCE_UNAVAILABLE"
+
+
+def test_build_capture_rejects_nested_runtime_script_reference(tmp_path):
+    root = _project(tmp_path / "project")
+    with (root / "workflow" / "Snakefile").open("a", encoding="utf-8") as handle:
+        handle.write("# scripts/internal/helper.py\n")
+
+    result = _capture(root)
+
+    assert result.is_failure
+    assert result.issues[0].code == "WORKFLOW_BUILD_SOURCE_UNAVAILABLE"
+
+
 def test_build_capture_rejects_symlinked_source(tmp_path):
     root = _project(tmp_path / "project")
     target = root / "scripts" / "tool.py"
-    link = root / "scripts" / "linked.py"
-    link.symlink_to(target)
+    backing = root / "scripts" / "tool-target.py"
+    target.rename(backing)
+    target.symlink_to(backing)
 
     result = _capture(root)
 

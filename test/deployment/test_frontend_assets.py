@@ -351,7 +351,10 @@ def test_deployed_factory_preserves_api_routes_and_serves_frontend_same_origin(
         def close(self) -> None:
             self.closed = True
 
-    def create_test_api(**_kwargs) -> FastAPI:
+    captured: dict[str, object] = {}
+
+    def create_test_api(**kwargs) -> FastAPI:
+        captured.update(kwargs)
         api = FastAPI(title="HelixWeave API", version="0.3.0")
 
         @api.get("/api/v1/ping")
@@ -393,6 +396,12 @@ def test_deployed_factory_preserves_api_routes_and_serves_frontend_same_origin(
             app.state.frontend_api_contract_sha256
             == assets.manifest.api_contract_sha256
         )
+        from encode_pipeline.persistence import open_existing_run_persistence
+        from encode_pipeline.platform.registry import WorkflowRegistry
+
+        assert captured["persistence_opener"] is open_existing_run_persistence
+        assert isinstance(captured["registry"], WorkflowRegistry)
+        assert captured["project_root"] == REPOSITORY_ROOT
     finally:
         app.state.run_queue.close()
         app.state.persistence.close()
@@ -413,6 +422,48 @@ def test_repository_package_assets_are_verified() -> None:
             (REPOSITORY_ROOT / "frontend" / "package-lock.json").read_bytes()
         ).hexdigest()
     )
+
+
+def test_deployed_factory_rejects_old_schema_without_running_migrations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sqlite3
+
+    from encode_pipeline.persistence import runtime as persistence_runtime
+    from encode_pipeline.persistence.runtime import (
+        DatabaseSchemaNotReadyError,
+        open_run_persistence,
+    )
+
+    database = tmp_path / "platform.db"
+    prepared = open_run_persistence(f"sqlite:///{database}")
+    prepared.close()
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE alembic_version SET version_num = ?", ("old",))
+    monkeypatch.setattr(
+        persistence_runtime,
+        "upgrade_database",
+        lambda _database_url: (_ for _ in ()).throw(
+            AssertionError("supported service must not run Alembic")
+        ),
+    )
+    assets = load_packaged_frontend_assets()
+
+    with pytest.raises(DatabaseSchemaNotReadyError) as raised:
+        create_deployed_app(
+            database_url=f"sqlite:///{database}",
+            workspace_root=tmp_path / "workspaces",
+            project_root=REPOSITORY_ROOT,
+            verified_assets=assets,
+            api_contract_sha256=assets.manifest.api_contract_sha256,
+        )
+
+    assert raised.value.reason_code == "DATABASE_SCHEMA_NOT_CURRENT"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("old",)
 
 
 @pytest.mark.parametrize("configured", (None, "0" * 64))

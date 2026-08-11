@@ -4,7 +4,9 @@ The deployment manifest only binds native contract identities to indexed files.
 It is not allowed to restate distribution versions, migration heads, runtime
 locks, or reference compatibility.  A component-specific resolver must derive
 those facts from their existing authoritative documents before verification or
-activation.  Phase A deliberately supplies only the fail-closed resolver.
+activation.  The deferred resolver remains an explicit metadata-reader fallback;
+bundle production and the fixed operator candidate action inject the production
+candidate-byte resolver at their respective trust boundaries.
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
-from typing import Protocol
+from typing import Literal, Protocol
 
 from encode_pipeline.deployment.canonical import canonical_identity
 from encode_pipeline.deployment.errors import fail
@@ -31,6 +33,7 @@ _HEAD = re.compile(r"^[a-z0-9][a-z0-9._+-]{0,127}$")
 DATABASE_SCHEMA_OBSERVATION_IDENTITY_SCHEME = (
     "helixweave-database-schema-observation-identity-v1"
 )
+CompatibilityStatus = Literal["compatible", "incomplete", "incompatible"]
 
 
 @dataclass(frozen=True)
@@ -72,7 +75,7 @@ class NativeContractResolver(Protocol):
 
 
 class DeferredNativeContractResolver:
-    """Fail closed until PR #172's final facts can be wired from latest main."""
+    """Explicit fail-closed resolver for incomplete/bootstrap composition."""
 
     def resolve(
         self,
@@ -196,19 +199,37 @@ def validate_schema_observation(
         )
 
 
-def compatible_resolved_facts(facts: tuple[ResolvedContractFacts, ...]) -> bool:
-    """Check requirements derived from native contracts, never bundle claims."""
+def resolved_facts_compatibility(
+    facts: tuple[ResolvedContractFacts, ...],
+) -> CompatibilityStatus:
+    """Classify only provider/requirement facts derived from native contracts.
+
+    A requirement without a provider is the sole incomplete case.  Once a
+    provider is present, duplicate or unaccepted identities are incompatible;
+    they can never be treated as partial assembly.
+    """
+
     provided: dict[str, str] = {}
     for component in facts:
         for item in component.contracts:
             if item.contract in provided and provided[item.contract] != item.identity:
-                return False
+                return "incompatible"
             provided[item.contract] = item.identity
-    return all(
-        provided.get(requirement.contract) in requirement.accepted_identities
-        for component in facts
-        for requirement in component.requirements
-    )
+    missing_provider = False
+    for component in facts:
+        for requirement in component.requirements:
+            identity = provided.get(requirement.contract)
+            if identity is None:
+                missing_provider = True
+            elif identity not in requirement.accepted_identities:
+                return "incompatible"
+    return "incomplete" if missing_provider else "compatible"
+
+
+def compatible_resolved_facts(facts: tuple[ResolvedContractFacts, ...]) -> bool:
+    """Compatibility-only wrapper retained for existing non-receipt callers."""
+
+    return resolved_facts_compatibility(facts) == "compatible"
 
 
 __all__ = [
@@ -217,9 +238,11 @@ __all__ = [
     "DatabaseSchemaObserver",
     "DeferredDatabaseSchemaObserver",
     "DeferredNativeContractResolver",
+    "CompatibilityStatus",
     "NativeContractResolver",
     "ResolvedContractFacts",
     "compatible_resolved_facts",
+    "resolved_facts_compatibility",
     "validate_resolved_facts",
     "validate_schema_observation",
 ]

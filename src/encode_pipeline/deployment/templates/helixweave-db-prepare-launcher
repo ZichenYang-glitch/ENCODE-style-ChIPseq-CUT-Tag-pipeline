@@ -1,0 +1,21 @@
+#!/usr/bin/python3 -I
+"""Stable launcher for the atomically selected DB preparation boundary."""
+
+import os
+import sys
+
+
+PYTHON = "/usr/bin/python3"
+HELPER = "/opt/helixweave/operator/current/bin/helixweave-db-prepare"
+ENVIRONMENT = {
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+}
+
+
+os.execve(
+    PYTHON,
+    (PYTHON, "-I", "-S", "-E", "-B", HELPER),
+    ENVIRONMENT,
+)

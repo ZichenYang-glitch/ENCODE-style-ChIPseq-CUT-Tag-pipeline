@@ -1,18 +1,17 @@
 [Unit]
 Description=HelixWeave RQ scientific workflow worker
-Requires=helixweave-db-prepare.service helixweave-redis.service
-After=helixweave-db-prepare.service helixweave-redis.service
+Requires=helixweave-redis.service helixweave-docker-rootless.service
+After=helixweave-redis.service helixweave-docker-rootless.service
 PartOf=helixweave.target
 
 [Service]
 Type=exec
 User=helixweave
 Group=helixweave
-UMask=0027
+UMask=0007
 WorkingDirectory=/var/lib/helixweave
 Environment=PYTHONNOUSERSITE=1
-EnvironmentFile=/etc/helixweave/platform.env
-ExecStart=@PLATFORM_PYTHON@ -I -m encode_pipeline.workers.cli
+ExecStart=/usr/libexec/helixweave-active-service worker
 Restart=on-failure
 RestartSec=2s
 TimeoutStartSec=90s
@@ -28,8 +27,8 @@ ProtectKernelLogs=yes
 ProtectKernelModules=yes
 ProtectKernelTunables=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/helixweave/database /var/lib/helixweave/workspaces /var/lib/helixweave/artifacts
-InaccessiblePaths=/var/lib/helixweave/operator /run/helixweave/services
+ReadWritePaths=/var/lib/helixweave/database/live /var/lib/helixweave/workspaces /var/lib/helixweave/artifacts
+InaccessiblePaths=/etc/helixweave/secrets.env /var/lib/helixweave/operator /run/helixweave/services
 RemoveIPC=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictRealtime=yes
