@@ -577,11 +577,12 @@ def test_database_owner_mismatch_fails_before_sqlite_or_backup_output(
         sqlite_entered = True
         raise AssertionError("SQLite must not be entered for an untrusted database")
 
-    monkeypatch.setattr(database_module.os, "fstat", mismatched_database_owner)
-    monkeypatch.setattr(database_module.sqlite3, "connect", forbidden_connect)
+    with monkeypatch.context() as scoped:
+        scoped.setattr(database_module.os, "fstat", mismatched_database_owner)
+        scoped.setattr(database_module.sqlite3, "connect", forbidden_connect)
 
-    with pytest.raises(DeploymentError) as captured:
-        _backup(layout)
+        with pytest.raises(DeploymentError) as captured:
+            _backup(layout)
 
     assert captured.value.issue.code == "DATABASE_INVALID"
     assert sqlite_entered is False
