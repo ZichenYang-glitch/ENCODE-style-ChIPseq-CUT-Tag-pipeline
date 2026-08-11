@@ -625,6 +625,63 @@ Re-running recovery is idempotent. A claim marker proves the hand-off occurred;
 it does not prove that a worker is still alive. Worker crash/heartbeat
 reconciliation is deliberately not guessed by the API process.
 
+## Explicit administrator recovery
+
+`helixweave admin run` provides a local, authenticated-by-host-access operator
+surface while the browser administration and role boundary remains deferred.
+Each command requires an explicit file-backed SQLite URL. Mutations additionally
+require the expected lifecycle status and the exact opaque job, backend, and
+queue identity printed by diagnosis:
+
+```bash
+helixweave admin --database-url sqlite:////var/lib/helixweave/platform.db \
+  run diagnose RUN_ID
+
+helixweave admin --database-url sqlite:////var/lib/helixweave/platform.db \
+  run fail RUN_ID --expected-status running \
+  --job-id JOB_ID --backend rq --queue-name QUEUE_NAME
+
+helixweave admin --database-url sqlite:////var/lib/helixweave/platform.db \
+  run requeue RUN_ID --expected-status queued \
+  --job-id JOB_ID --backend rq --queue-name QUEUE_NAME
+```
+
+Diagnosis opens SQLite read-only and reports only lifecycle, opaque assignment
+identity, marker booleans, bounded queue evidence, result-indexing state, and
+stable reason codes. It never prints run inputs, workspace or database paths,
+Redis connection details, worker/process identities, environment values, or
+raw exceptions.
+
+Requeue is deliberately narrower than retry. It republishes the same stable
+assignment only when the run is queued, dispatch is durable, no worker has ever
+claimed the assignment, cancellation is absent, and the exact RQ job is missing
+or terminal. SQLite records the one-time request before Redis is changed and
+records confirmation afterward, so a crash retries the same identity without
+clearing monotonic markers. The exact replacement carries a request-bound,
+path-free RQ marker, and exact worker entry or terminal callbacks durably close
+the confirmation before pre-claim failure; Redis TTL expiry therefore cannot
+strand an accepted request. A claimed or running run is never requeued.
+
+Administrator failure allows an unclaimed queued assignment only when its job
+is missing or exact-terminal. A claimed run requires exact-terminal evidence
+and an assignment-bound managed-container scope whose endpoint identity exactly
+matches the configured cleaner. The worker records that opaque pair from the
+final `CommandSpec` only under its newly acquired exact claim and before
+starting the scientific process; recovery uses the
+persisted scope rather than recomputing it from the administrator's current
+workspace. Legacy claimed assignments without that binding, endpoint drift,
+cleaner unavailability, or cleanup failure are diagnostic-only and refuse
+mutation. The same is true for a missing claimed job, a live or unproven
+started owner, queue identity drift, queue unavailability, or pending
+cancellation acknowledgement. Only after cleanup succeeds may the SQLite
+status and public-safe audit event commit atomically.
+No operation can create succeeded state, result generations, QC, artifact
+publications, or other scientific evidence.
+
+For a machine-readable health summary, `helixweave --doctor --json` adds
+path-free counts for database/assignment, queue, terminal callback, result
+indexing, and cleanup gaps. The normal prose doctor remains unchanged.
+
 ## Persistent process logs and environment isolation
 
 The process runner drains stdout and stderr concurrently and appends bounded

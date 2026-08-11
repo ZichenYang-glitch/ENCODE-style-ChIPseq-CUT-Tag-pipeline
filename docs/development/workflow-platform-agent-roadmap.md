@@ -112,6 +112,15 @@ documentation-only boundary and does not change product or execution behavior.
 Add explicit administrator recovery and reconciliation operations around the
 already durable restart-recovery and lifecycle contracts.
 
+- Diagnose active ownership, queue identity, callback, result-indexing, and
+  cleanup gaps without treating Redis as lifecycle truth.
+- Allow exact-identity administrator failure only after ownership loss and
+  required cleanup are proven.
+- Requeue only the same dispatched, never-claimed assignment through a
+  one-time durable request; never reset claim markers or cycle run status.
+- Keep mutation on the local administrator CLI until the authentication and
+  role boundary in PR #174 exists.
+
 ### PR #173: deployment and runtime management CLI
 
 - Provide `install`, `doctor`, `verify`, `upgrade`, and `rollback` operations.

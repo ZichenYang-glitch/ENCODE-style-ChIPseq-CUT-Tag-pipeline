@@ -66,6 +66,7 @@ from encode_pipeline.platform.execution import (
     RunExecutionCancellationRequest,
     RunExecutionClaim,
     RunExecutionOwnership,
+    RunExecutionRequeuePreparation,
     RunExecutionStopAcknowledgement,
 )
 from encode_pipeline.platform.input_registry import (
@@ -112,6 +113,7 @@ from encode_pipeline.services.run_repositories import (
     ValidatedSnapshotExpiredError,
     ValidatedSnapshotReplayConflictError,
     _artifact_publication_output_type,
+    _assignment_with_bound_cleanup_identity,
     _event_with_context,
     _legacy_run_inputs_digest,
     _require_current_attempt,
@@ -1559,6 +1561,12 @@ class SqlAlchemyRunRepository:
                     cancellation_acknowledged_at=(
                         assignment.cancellation_acknowledged_at
                     ),
+                    requeue_requested_at=assignment.requeue_requested_at,
+                    requeue_confirmed_at=assignment.requeue_confirmed_at,
+                    managed_container_scope=assignment.managed_container_scope,
+                    managed_container_endpoint_identity=(
+                        assignment.managed_container_endpoint_identity
+                    ),
                 )
                 session.add(row)
                 session.flush()
@@ -1597,6 +1605,44 @@ class SqlAlchemyRunRepository:
         with self._session_factory() as session:
             row = session.get(RunExecutionAssignmentRow, run_id)
             return _execution_assignment_from_row(row) if row is not None else None
+
+    def bind_execution_cleanup_identity(
+        self,
+        run_id: str,
+        *,
+        expected_status: RunStatus,
+        expected_assignment: RunExecutionAssignment,
+        managed_container_scope: str | None,
+        managed_container_endpoint_identity: str | None,
+    ) -> RunExecutionAssignment:
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, run_id)
+            row = session.get(RunExecutionAssignmentRow, run_id)
+            if row is None:
+                raise KeyError(run_id)
+            assignment = _execution_assignment_from_row(row)
+            _require_recovery_row_expectation(
+                run_id=run_id,
+                current=current,
+                assignment=assignment,
+                expected_status=expected_status,
+                expected_assignment=expected_assignment,
+            )
+            updated_assignment = _assignment_with_bound_cleanup_identity(
+                assignment,
+                expected_status=expected_status,
+                managed_container_scope=managed_container_scope,
+                managed_container_endpoint_identity=(
+                    managed_container_endpoint_identity
+                ),
+            )
+            row.managed_container_scope = updated_assignment.managed_container_scope
+            row.managed_container_endpoint_identity = (
+                updated_assignment.managed_container_endpoint_identity
+            )
+            session.flush()
+            return _execution_assignment_from_row(row)
 
     def mark_execution_dispatched(
         self,
@@ -1873,6 +1919,122 @@ class SqlAlchemyRunRepository:
                 record=updated,
                 transitioned=True,
             )
+
+    def prepare_execution_requeue(
+        self,
+        run_id: str,
+        *,
+        expected_status: RunStatus,
+        expected_assignment: RunExecutionAssignment,
+        requested_at: datetime,
+        event: RunEventDraft,
+    ) -> RunExecutionRequeuePreparation:
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, run_id)
+            row = session.get(RunExecutionAssignmentRow, run_id)
+            if row is None:
+                raise KeyError(run_id)
+            assignment = _execution_assignment_from_row(row)
+            _require_recovery_row_expectation(
+                run_id=run_id,
+                current=current,
+                assignment=assignment,
+                expected_status=expected_status,
+                expected_assignment=expected_assignment,
+            )
+            if assignment.requeue_requested_at is not None:
+                return RunExecutionRequeuePreparation(
+                    assignment=assignment,
+                    created=False,
+                )
+            _require_sql_requeue_candidate(
+                assignment,
+                expected_status=expected_status,
+            )
+            row.requeue_requested_at = requested_at
+            self._insert_event(session, run_id, event)
+            session.flush()
+            return RunExecutionRequeuePreparation(
+                assignment=_execution_assignment_from_row(row),
+                created=True,
+            )
+
+    def confirm_execution_requeue(
+        self,
+        run_id: str,
+        *,
+        expected_status: RunStatus,
+        expected_assignment: RunExecutionAssignment,
+        confirmed_at: datetime,
+        event: RunEventDraft,
+    ) -> RunExecutionAssignment:
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, run_id)
+            row = session.get(RunExecutionAssignmentRow, run_id)
+            if row is None:
+                raise KeyError(run_id)
+            assignment = _execution_assignment_from_row(row)
+            _require_requeue_confirmation_row_expectation(
+                run_id=run_id,
+                current=current,
+                assignment=assignment,
+                expected_status=expected_status,
+                expected_assignment=expected_assignment,
+            )
+            if assignment.requeue_requested_at is None:
+                raise ValueError("execution requeue has not been requested")
+            if assignment.requeue_confirmed_at is not None:
+                return assignment
+            if confirmed_at < assignment.requeue_requested_at:
+                raise ValueError("requeue confirmation cannot precede request")
+            row.requeue_confirmed_at = confirmed_at
+            self._insert_event(session, run_id, event)
+            session.flush()
+            return _execution_assignment_from_row(row)
+
+    def fail_run_by_recovery(
+        self,
+        record: RunRecord,
+        *,
+        expected_status: RunStatus,
+        expected_assignment: RunExecutionAssignment,
+        event: RunEventDraft,
+    ) -> bool:
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            current = self._require_run(session, record.run_id)
+            row = session.get(RunExecutionAssignmentRow, record.run_id)
+            if row is None:
+                raise KeyError(record.run_id)
+            assignment = _execution_assignment_from_row(row)
+            _require_recovery_row_expectation(
+                run_id=record.run_id,
+                current=current,
+                assignment=assignment,
+                expected_status=expected_status,
+                expected_assignment=expected_assignment,
+            )
+            _require_sql_recovery_failure_record(
+                _record_from_row(current),
+                record,
+                expected_status=expected_status,
+            )
+            result = session.execute(
+                update(RunRow)
+                .where(
+                    RunRow.run_id == record.run_id,
+                    RunRow.status == expected_status.value,
+                )
+                .values(**_run_values(record))
+            )
+            if result.rowcount != 1:
+                raise ConcurrentRunUpdateError(
+                    f"Run {record.run_id!r} changed while recovery was committed."
+                )
+            self._insert_event(session, record.run_id, event)
+            return True
 
     @staticmethod
     def _require_run(session: Session, run_id: str) -> RunRow:
@@ -3040,6 +3202,10 @@ def _execution_assignment_from_row(
         cancellation_requested_at=_optional_utc(row.cancellation_requested_at),
         cancellation_reason=row.cancellation_reason,
         cancellation_acknowledged_at=_optional_utc(row.cancellation_acknowledged_at),
+        requeue_requested_at=_optional_utc(row.requeue_requested_at),
+        requeue_confirmed_at=_optional_utc(row.requeue_confirmed_at),
+        managed_container_scope=row.managed_container_scope,
+        managed_container_endpoint_identity=row.managed_container_endpoint_identity,
     )
 
 
@@ -3065,6 +3231,148 @@ def _require_assignment_row_identity(
 ) -> None:
     if row.job_id != job_id or row.backend != backend or row.queue_name != queue_name:
         raise ValueError("execution assignment identity does not match")
+
+
+def _require_recovery_row_expectation(
+    *,
+    run_id: str,
+    current: RunRow,
+    assignment: RunExecutionAssignment,
+    expected_status: RunStatus,
+    expected_assignment: RunExecutionAssignment,
+) -> None:
+    if expected_assignment.run_id != run_id:
+        raise ValueError("expected execution assignment does not match run_id")
+    if (
+        RunStatus(current.status) is not expected_status
+        or assignment != expected_assignment
+    ):
+        raise ConcurrentRunUpdateError(
+            f"Run {run_id!r} changed while recovery was being committed."
+        )
+
+
+def _require_requeue_confirmation_row_expectation(
+    *,
+    run_id: str,
+    current: RunRow,
+    assignment: RunExecutionAssignment,
+    expected_status: RunStatus,
+    expected_assignment: RunExecutionAssignment,
+) -> None:
+    if (
+        expected_assignment.run_id != run_id
+        or expected_assignment.requeue_requested_at is None
+        or not _recovery_status_is_same_or_advanced(
+            expected_status,
+            RunStatus(current.status),
+        )
+        or not _assignment_is_confirmation_advance(
+            expected_assignment,
+            assignment,
+        )
+    ):
+        raise ConcurrentRunUpdateError(
+            f"Run {run_id!r} changed while recovery was being confirmed."
+        )
+
+
+def _recovery_status_is_same_or_advanced(
+    expected: RunStatus,
+    current: RunStatus,
+) -> bool:
+    if current is expected:
+        return True
+    if expected is RunStatus.QUEUED:
+        return current in {
+            RunStatus.RUNNING,
+            RunStatus.SUCCEEDED,
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+        }
+    if expected is RunStatus.RUNNING:
+        return current.is_terminal
+    return False
+
+
+def _assignment_is_confirmation_advance(
+    expected: RunExecutionAssignment,
+    current: RunExecutionAssignment,
+) -> bool:
+    if (
+        current.run_id != expected.run_id
+        or current.job_id != expected.job_id
+        or current.backend != expected.backend
+        or current.queue_name != expected.queue_name
+        or current.created_at != expected.created_at
+        or current.dispatched_at != expected.dispatched_at
+        or current.requeue_requested_at != expected.requeue_requested_at
+    ):
+        return False
+    if expected.claimed_at is not None and current.claimed_at != expected.claimed_at:
+        return False
+    if expected.managed_container_scope is not None and (
+        current.managed_container_scope != expected.managed_container_scope
+        or current.managed_container_endpoint_identity
+        != expected.managed_container_endpoint_identity
+    ):
+        return False
+    if expected.cancellation_requested_at is not None and (
+        current.cancellation_requested_at != expected.cancellation_requested_at
+        or current.cancellation_reason != expected.cancellation_reason
+    ):
+        return False
+    if (
+        expected.cancellation_acknowledged_at is not None
+        and current.cancellation_acknowledged_at
+        != expected.cancellation_acknowledged_at
+    ):
+        return False
+    if (
+        expected.requeue_confirmed_at is not None
+        and current.requeue_confirmed_at != expected.requeue_confirmed_at
+    ):
+        return False
+    return True
+
+
+def _require_sql_recovery_failure_record(
+    current: RunRecord,
+    failed: RunRecord,
+    *,
+    expected_status: RunStatus,
+) -> None:
+    if expected_status not in {RunStatus.QUEUED, RunStatus.RUNNING}:
+        raise ValueError("only active runs can be failed by recovery")
+    if (
+        failed.status is not RunStatus.FAILED
+        or failed.run_id != current.run_id
+        or failed.workflow_id != current.workflow_id
+        or failed.inputs != current.inputs
+        or failed.created_at != current.created_at
+        or failed.started_at != current.started_at
+        or failed.current_stage != current.current_stage
+        or failed.cancellation_reason != current.cancellation_reason
+        or failed.tags != current.tags
+        or failed.error is None
+        or failed.ended_at is None
+    ):
+        raise ValueError("recovery failure record changes immutable run evidence")
+
+
+def _require_sql_requeue_candidate(
+    assignment: RunExecutionAssignment,
+    *,
+    expected_status: RunStatus,
+) -> None:
+    if expected_status is not RunStatus.QUEUED:
+        raise ValueError("only queued runs can be requeued")
+    if assignment.dispatched_at is None:
+        raise ValueError("execution assignment has not been dispatched")
+    if assignment.claimed_at is not None:
+        raise ValueError("claimed execution assignments cannot be requeued")
+    if assignment.cancellation_requested_at is not None:
+        raise ValueError("cancelling execution assignments cannot be requeued")
 
 
 def _assignment_row_has_ownership(

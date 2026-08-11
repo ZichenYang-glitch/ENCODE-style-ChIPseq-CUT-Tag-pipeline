@@ -12,10 +12,9 @@ from encode_pipeline.platform.adapters import (
     WorkflowAdapter,
     WorkflowInputs,
 )
+from encode_pipeline.platform.execution import RunExecutionClaim
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.reference_profiles import BoundWorkflowReference
-from encode_pipeline.platform.managed_containers import managed_container_scope
-from encode_pipeline.platform.planning import WorkspacePathError, WorkspacePathPolicy
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.platform.result_generations import new_result_attempt_id
@@ -59,7 +58,7 @@ def run_execution_job(run_id: str) -> None:
             )
         with open_worker_runtime() as runtime:
             try:
-                acquired = _initialize_execution_with_runtime(
+                claim = _initialize_execution_with_runtime(
                     runtime,
                     current_job,
                     run_id,
@@ -76,17 +75,18 @@ def run_execution_job(run_id: str) -> None:
                 raise WorkerExecutionError(
                     "durable local workflow execution could not be initialized"
                 ) from None
-            if not acquired:
+            if claim is None:
                 return
             try:
-                _execute_claimed_run(runtime, run_id)
+                _execute_claimed_run(runtime, run_id, claim)
             except WorkerHardTimeout:
                 _handle_runtime_hard_timeout_safely(runtime, run_id)
                 raise
             except WorkerExecutionError:
                 raise
             except Exception:
-                _record_unexpected_failure_safely(runtime.run_service, run_id)
+                if _cleanup_runtime_managed_containers(runtime, run_id):
+                    _record_unexpected_failure_safely(runtime.run_service, run_id)
                 raise WorkerExecutionError(
                     "durable local workflow execution failed unexpectedly"
                 ) from None
@@ -116,7 +116,11 @@ def run_execution_job(run_id: str) -> None:
         ) from None
 
 
-def _initialize_execution_with_runtime(runtime, current_job, run_id: str) -> bool:
+def _initialize_execution_with_runtime(
+    runtime,
+    current_job,
+    run_id: str,
+) -> RunExecutionClaim | None:
     try:
         record = runtime.run_service.get_run(run_id)
     except KeyError:
@@ -132,8 +136,14 @@ def _initialize_execution_with_runtime(runtime, current_job, run_id: str) -> boo
         runtime.settings.queue_name,
     )
     _require_durable_assignment_identity(runtime, current_job, run_id)
+    runtime.run_service.confirm_execution_requeue_observed(
+        run_id,
+        job_id=current_job.id,
+        backend="rq",
+        queue_name=runtime.settings.queue_name,
+    )
     if not _require_matching_workflow_build(runtime, record):
-        return False
+        return None
     try:
         runtime.run_service.mark_execution_dispatched(
             run_id,
@@ -155,15 +165,15 @@ def _initialize_execution_with_runtime(runtime, current_job, run_id: str) -> boo
     except (ConcurrentRunUpdateError, KeyError, ValueError):
         try:
             if runtime.run_service.get_run(run_id).status is RunStatus.CANCELLED:
-                return False
+                return None
         except KeyError:
             pass
         raise WorkerJobIdentityError(
             "stale execution job does not own durable workflow state"
         ) from None
     if not claim.acquired:
-        return False
-    return True
+        return None
+    return claim
 
 
 def _require_durable_assignment_identity(runtime, current_job, run_id: str) -> None:
@@ -289,8 +299,12 @@ def _fail_workflow_build_identity(
     raise WorkerExecutionError("durable workflow build identity check failed")
 
 
-def _execute_claimed_run(runtime, run_id: str) -> None:
-    execution_result = runtime.local_execution_service.execute(run_id)
+def _execute_claimed_run(
+    runtime,
+    run_id: str,
+    claim: RunExecutionClaim,
+) -> None:
+    execution_result = runtime.local_execution_service.execute(run_id, claim)
     if execution_result.is_success:
         artifact_attempt_id = new_result_attempt_id()
         try:
@@ -394,7 +408,10 @@ def _record_initialization_failure_fallback(
 
     persistence = None
     try:
-        persistence = open_run_persistence()
+        settings = load_worker_settings()
+        if queue_name != settings.queue_name:
+            return
+        persistence = open_run_persistence(settings.database_url)
         run_service = RunService(
             WorkflowRegistry(),
             repository=persistence.repository,
@@ -408,6 +425,18 @@ def _record_initialization_failure_fallback(
             or assignment.queue_name != queue_name
         ):
             return
+        if not _cleanup_settings_managed_containers(
+            settings,
+            run_id,
+            run_service,
+        ):
+            return
+        run_service.confirm_execution_requeue_observed(
+            run_id,
+            job_id=job_id,
+            backend="rq",
+            queue_name=queue_name,
+        )
         current = run_service.get_run(run_id)
         if current.status not in {
             RunStatus.PLANNED,
@@ -452,14 +481,17 @@ def _require_identity(label: str, actual: object, expected: object) -> None:
 def _handle_runtime_hard_timeout_safely(runtime, run_id: str) -> None:
     """Preserve the active P0 signal while recording only public-safe evidence."""
     try:
-        _cleanup_runtime_managed_containers(runtime, run_id)
+        cleanup_succeeded = _cleanup_runtime_managed_containers(runtime, run_id)
     except WorkerHardTimeout:
-        pass
+        return
     except Exception:
         try:
             _record_cleanup_failure_safely(runtime.run_service, run_id)
         except WorkerHardTimeout:
             pass
+        return
+    if not cleanup_succeeded:
+        return
     try:
         _record_unexpected_failure_safely(
             runtime.run_service,
@@ -471,17 +503,11 @@ def _handle_runtime_hard_timeout_safely(runtime, run_id: str) -> None:
 
 
 def _cleanup_runtime_managed_containers(runtime, run_id: str) -> bool:
-    cleaner = runtime.managed_container_cleaner
-    if cleaner is None:
-        return True
-    try:
-        workspace = runtime.local_run_driver.derive_workspace_dir(run_id)
-        result = cleaner.cleanup(managed_container_scope(workspace))
-    except (OSError, ValueError, WorkspacePathError):
-        return _record_cleanup_failure_safely(runtime.run_service, run_id)
-    if result.is_failure:
-        return _record_cleanup_failure_safely(runtime.run_service, run_id)
-    return True
+    return _cleanup_durable_managed_containers(
+        runtime.run_service,
+        run_id,
+        runtime.managed_container_cleaner,
+    )
 
 
 def _cleanup_settings_managed_containers(
@@ -490,18 +516,53 @@ def _cleanup_settings_managed_containers(
     run_service,
 ) -> bool:
     executable = settings.managed_docker_executable
-    if executable is None:
-        return True
+    cleaner = None
     try:
-        workspace = WorkspacePathPolicy(base_dir=settings.workspace_root).resolve(
-            run_id
-        )
-        cleaner = ManagedContainerCleaner(
-            executable=executable,
-            unix_socket=settings.managed_docker_socket,
-        )
-        result = cleaner.cleanup(managed_container_scope(workspace))
-    except (OSError, ValueError, WorkspacePathError):
+        if executable is not None:
+            cleaner = ManagedContainerCleaner(
+                executable=executable,
+                unix_socket=settings.managed_docker_socket,
+            )
+    except (OSError, ValueError):
+        return _record_cleanup_failure_safely(run_service, run_id)
+    return _cleanup_durable_managed_containers(
+        run_service,
+        run_id,
+        cleaner,
+    )
+
+
+def _cleanup_durable_managed_containers(
+    run_service,
+    run_id: str,
+    cleaner,
+) -> bool:
+    """Clean only the endpoint and opaque scope bound to the claimed assignment."""
+    try:
+        assignment = run_service.get_execution_assignment(run_id)
+    except WorkerHardTimeout:
+        raise
+    except Exception:
+        return _record_cleanup_failure_safely(run_service, run_id)
+    if assignment is None:
+        return _record_cleanup_failure_safely(run_service, run_id)
+    if assignment.claimed_at is None:
+        return True
+    scope = assignment.managed_container_scope
+    endpoint_identity = assignment.managed_container_endpoint_identity
+    if scope is None and endpoint_identity is None:
+        if cleaner is None:
+            return True
+        return _record_cleanup_failure_safely(run_service, run_id)
+    if scope is None or endpoint_identity is None or cleaner is None:
+        return _record_cleanup_failure_safely(run_service, run_id)
+    try:
+        if cleaner.endpoint_identity != endpoint_identity:
+            return _record_cleanup_failure_safely(run_service, run_id)
+        result = cleaner.cleanup(scope)
+    except WorkerHardTimeout:
+        raise
+    except (OSError, RuntimeError, TypeError, ValueError):
         return _record_cleanup_failure_safely(run_service, run_id)
     if result.is_failure:
         return _record_cleanup_failure_safely(run_service, run_id)
@@ -560,6 +621,12 @@ def handle_work_horse_killed(job, _retpid, _ret_val, _rusage) -> None:
                 return
             if not _cleanup_runtime_managed_containers(runtime, run_id):
                 return
+            runtime.run_service.confirm_execution_requeue_observed(
+                run_id,
+                job_id=job.id,
+                backend="rq",
+                queue_name=runtime.settings.queue_name,
+            )
             runtime.run_service.mark_execution_dispatched(
                 run_id,
                 job_id=job.id,
@@ -630,6 +697,12 @@ def handle_execution_stopped(job, _connection) -> None:
             run_service,
         ):
             return
+        run_service.confirm_execution_requeue_observed(
+            run_id,
+            job_id=job_id,
+            backend="rq",
+            queue_name=queue_name,
+        )
         run_service.acknowledge_execution_stop(
             run_id,
             job_id=job_id,

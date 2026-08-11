@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
 from enum import Enum
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Protocol, cast
@@ -104,12 +105,50 @@ class ReferenceProfileAdmin(Protocol):
     def disable(self, profile_id: str) -> object: ...
 
 
+class RunRecoveryAdmin(Protocol):
+    """Narrow administrator-only surface for explicit run recovery."""
+
+    def diagnose(self, run_id: str) -> object: ...
+
+    def summarize(self) -> object: ...
+
+    def fail_run(
+        self,
+        run_id: str,
+        *,
+        expected_status: object,
+        expected_assignment: object,
+    ) -> object: ...
+
+    def requeue_run(
+        self,
+        run_id: str,
+        *,
+        expected_status: object,
+        expected_assignment: object,
+    ) -> object: ...
+
+
 class _ReferenceProfileCliError(RuntimeError):
     """Stable, path-free error for CLI-only admission failures."""
 
     def __init__(self, reason_code: str, message: str) -> None:
         self.reason_code = reason_code
         super().__init__(message)
+
+
+class _RunRecoveryCliError(RuntimeError):
+    """Fixed, disclosure-safe administrator recovery failure."""
+
+    def __init__(self, reason_code: str) -> None:
+        self.reason_code = reason_code
+        super().__init__(_RUN_RECOVERY_ERROR_MESSAGES[reason_code])
+
+
+class _RunRecoveryDatabaseUnavailable(RuntimeError):
+    """Internal marker for a read-only database admission failure."""
+
+    code = "RUN_RECOVERY_DATA_INVALID"
 
 
 class _DataRegistryServiceLike(Protocol):
@@ -146,6 +185,28 @@ ReferenceProfileFactory = Callable[
     [str, Path | None, bool],
     AbstractContextManager[ReferenceProfileAdmin],
 ]
+RunRecoveryFactory = Callable[..., AbstractContextManager[RunRecoveryAdmin]]
+
+
+_RUN_STATUS_VALUES = (
+    "created",
+    "validating",
+    "planned",
+    "queued",
+    "running",
+    "succeeded",
+    "failed",
+    "cancelled",
+)
+_RUN_RECOVERY_ERROR_MESSAGES = {
+    "RUN_RECOVERY_NOT_FOUND": "Run was not found.",
+    "RUN_RECOVERY_CONFLICT": "Run recovery preconditions did not match.",
+    "RUN_RECOVERY_NOT_SAFE": "Requested run recovery action is not safe.",
+    "RUN_RECOVERY_QUEUE_UNAVAILABLE": "Run recovery queue is unavailable.",
+    "RUN_RECOVERY_CLEANUP_FAILED": "Run recovery cleanup failed.",
+    "RUN_RECOVERY_DATA_INVALID": "Run recovery data is invalid.",
+    "RUN_RECOVERY_INTERNAL_ERROR": "Run recovery command failed.",
+}
 
 
 class _ServiceRegistryAdmin:
@@ -344,12 +405,148 @@ def _open_reference_profiles(
         engine.dispose()
 
 
+@contextmanager
+def _open_run_recovery(
+    database_url: str,
+    *,
+    read_only: bool,
+    redis_url: str | None = None,
+    queue_name: str | None = None,
+) -> Iterator[RunRecoveryAdmin]:
+    """Compose recovery lazily without letting diagnosis migrate or create state."""
+    import sqlite3
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine import make_url
+
+    from encode_pipeline.persistence.database import (
+        create_database_engine,
+        create_session_factory,
+    )
+    from encode_pipeline.persistence.migration_admission import (
+        verify_migration_execution_inventory,
+    )
+    from encode_pipeline.persistence.migrations import upgrade_database
+    from encode_pipeline.persistence.repositories import SqlAlchemyRunRepository
+    from encode_pipeline.persistence.runtime import (
+        DATABASE_URL_ENV,
+        resolve_database_url,
+    )
+    from encode_pipeline.services.managed_containers import ManagedContainerCleaner
+    from encode_pipeline.services.run_recovery import RunRecoveryService
+    from encode_pipeline.workers.rq_queue import RqRunQueue
+    from encode_pipeline.workers.settings import (
+        QUEUE_NAME_ENV,
+        REDIS_URL_ENV,
+        load_worker_settings,
+    )
+
+    resolved_url = resolve_database_url(database_url)
+    if read_only:
+        try:
+            inventory = verify_migration_execution_inventory()
+            if len(inventory.heads) != 1:
+                raise ValueError("migration inventory has multiple heads")
+            database_path = Path(cast(str, make_url(resolved_url).database))
+            if not database_path.is_file():
+                raise FileNotFoundError("database is unavailable")
+        except Exception:
+            raise _RunRecoveryDatabaseUnavailable(
+                "Run recovery database is unavailable."
+            ) from None
+
+        def open_read_only_database():
+            connection = sqlite3.connect(
+                f"{database_path.as_uri()}?mode=ro",
+                uri=True,
+                check_same_thread=False,
+                timeout=30,
+            )
+            connection.execute("PRAGMA query_only=ON")
+            connection.execute("PRAGMA foreign_keys=ON")
+            return connection
+
+        engine = create_engine(
+            "sqlite://",
+            creator=open_read_only_database,
+            future=True,
+        )
+        try:
+            with engine.connect() as connection:
+                observed_heads = tuple(
+                    sorted(
+                        connection.exec_driver_sql(
+                            "SELECT version_num FROM alembic_version"
+                        ).scalars()
+                    )
+                )
+        except Exception:
+            engine.dispose()
+            raise _RunRecoveryDatabaseUnavailable(
+                "Run recovery database is unavailable."
+            ) from None
+        if observed_heads != inventory.heads:
+            engine.dispose()
+            raise _RunRecoveryDatabaseUnavailable(
+                "Run recovery database is unavailable."
+            )
+    else:
+        upgrade_database(resolved_url)
+        engine = create_database_engine(resolved_url)
+
+    settings_environment = dict(os.environ)
+    settings_environment[DATABASE_URL_ENV] = resolved_url
+    if redis_url is not None:
+        settings_environment[REDIS_URL_ENV] = redis_url
+    if queue_name is not None:
+        settings_environment[QUEUE_NAME_ENV] = queue_name
+    queue = None
+    try:
+        repository = SqlAlchemyRunRepository(create_session_factory(engine))
+        settings = load_worker_settings(settings_environment)
+        queue = RqRunQueue(settings)
+        cleanup = None
+        cleanup_endpoint_identity = None
+        cleaner = None
+        if settings.managed_docker_executable is not None:
+            try:
+                cleaner = ManagedContainerCleaner(
+                    executable=settings.managed_docker_executable,
+                    unix_socket=settings.managed_docker_socket,
+                )
+            except (OSError, ValueError):
+                cleaner = None
+        if cleaner is not None:
+            cleanup_endpoint_identity = cleaner.endpoint_identity
+
+            def cleanup(scope: str) -> bool:
+                try:
+                    return cleaner.cleanup(scope).is_success
+                except (OSError, RuntimeError, ValueError):
+                    return False
+
+        yield RunRecoveryService(
+            repository,
+            queue,
+            cleanup=cleanup,
+            cleanup_endpoint_identity=cleanup_endpoint_identity,
+        )
+    finally:
+        if queue is not None:
+            try:
+                queue.close()
+            except Exception:
+                pass
+        engine.dispose()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="helixweave admin",
         description=(
-            "Manage the local HelixWeave data catalog. These commands mutate only "
-            "the explicitly selected SQLite database."
+            "Manage the local HelixWeave data catalog and run recovery. Catalog "
+            "mutations target the explicitly selected SQLite database; recovery "
+            "coordinates its configured local queue and cleanup boundary."
         ),
     )
     parser.add_argument(
@@ -479,6 +676,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable new use without deleting history.",
     )
     reference_disable.add_argument("profile_id")
+
+    run = resource_parsers.add_parser(
+        "run",
+        help="Diagnose and explicitly recover durable Runs.",
+    )
+    run_commands = run.add_subparsers(dest="run_command", required=True)
+    run_diagnose = run_commands.add_parser(
+        "diagnose",
+        help="Inspect one run and its exact queue identity without mutation.",
+    )
+    run_diagnose.add_argument("run_id")
+    run_diagnose.add_argument(
+        "--queue-name",
+        help="Select the configured local queue without exposing its endpoint.",
+    )
+    for command, help_text in (
+        ("fail", "Fail one recoverable run after exact precondition checks."),
+        ("requeue", "Requeue one recoverable run exactly once."),
+    ):
+        mutation = run_commands.add_parser(command, help=help_text)
+        mutation.add_argument("run_id")
+        mutation.add_argument(
+            "--expected-status",
+            required=True,
+            choices=_RUN_STATUS_VALUES,
+        )
+        mutation.add_argument("--job-id", required=True)
+        mutation.add_argument("--backend", required=True)
+        mutation.add_argument("--queue-name", required=True)
     return parser
 
 
@@ -603,12 +829,130 @@ def _write_command_error(error: Exception) -> None:
     sys.stderr.write("\n")
 
 
+def _value(value: object) -> object:
+    """Return one explicit scalar enum value for a fixed CLI projection."""
+    if isinstance(value, Enum):
+        return value.value
+    return value
+
+
+def _state_value(value: object) -> object:
+    state = getattr(value, "state", value)
+    return _value(state)
+
+
+def _run_recovery_diagnostic_payload(diagnostic: object) -> dict[str, object]:
+    """Project only the reviewed public recovery fields."""
+    assignment = getattr(diagnostic, "assignment")
+    assignment_payload: dict[str, object] | None = None
+    if assignment is not None:
+        assignment_payload = {
+            "job_id": getattr(assignment, "job_id"),
+            "backend": getattr(assignment, "backend"),
+            "queue_name": getattr(assignment, "queue_name"),
+            "dispatched": getattr(assignment, "dispatched_at") is not None,
+            "claimed": getattr(assignment, "claimed_at") is not None,
+            "cancellation_requested": (
+                getattr(assignment, "cancellation_requested_at") is not None
+            ),
+            "cancellation_acknowledged": (
+                getattr(assignment, "cancellation_acknowledged_at") is not None
+            ),
+            "requeue_requested": (
+                getattr(assignment, "requeue_requested_at", None) is not None
+            ),
+            "requeue_confirmed": (
+                getattr(assignment, "requeue_confirmed_at", None) is not None
+            ),
+        }
+    return {
+        "run_id": getattr(diagnostic, "run_id"),
+        "workflow_id": getattr(diagnostic, "workflow_id"),
+        "status": _value(getattr(diagnostic, "status")),
+        "diagnosis_code": getattr(diagnostic, "diagnosis_code"),
+        "assignment": assignment_payload,
+        "queue": {
+            "state": _state_value(getattr(diagnostic, "queue_evidence")),
+        },
+        "result_indexing": _state_value(getattr(diagnostic, "result_indexing")),
+        "cleanup": _state_value(getattr(diagnostic, "cleanup")),
+        "gaps": sorted(_value(item) for item in getattr(diagnostic, "gaps")),
+        "allowed_actions": sorted(
+            _value(item) for item in getattr(diagnostic, "allowed_actions")
+        ),
+    }
+
+
+def _run_recovery_action_payload(
+    result: object,
+    *,
+    action: str,
+    previous_status: object,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "action": action,
+        "run_id": getattr(result, "run_id"),
+        "status": _value(getattr(result, "status")),
+        "reason_code": getattr(result, "reason_code"),
+        "changed": getattr(result, "changed"),
+    }
+    if action == "fail":
+        payload["previous_status"] = _value(
+            getattr(result, "previous_status", previous_status)
+        )
+        return payload
+    assignment = getattr(result, "assignment")
+    payload.update(
+        {
+            "job_id": getattr(assignment, "job_id"),
+            "requeue_requested": (
+                getattr(assignment, "requeue_requested_at", None) is not None
+            ),
+            "requeue_confirmed": (
+                getattr(assignment, "requeue_confirmed_at", None) is not None
+            ),
+        }
+    )
+    return payload
+
+
+def _recovery_preconditions_match(
+    diagnostic: object,
+    *,
+    expected_status: object,
+    job_id: str,
+    backend: str,
+    queue_name: str,
+) -> bool:
+    assignment = getattr(diagnostic, "assignment", None)
+    return bool(
+        _value(getattr(diagnostic, "status", None)) == _value(expected_status)
+        and assignment is not None
+        and getattr(assignment, "job_id", None) == job_id
+        and getattr(assignment, "backend", None) == backend
+        and getattr(assignment, "queue_name", None) == queue_name
+    )
+
+
+def _write_run_recovery_error(error: Exception) -> None:
+    candidate = getattr(error, "code", None)
+    if candidate not in _RUN_RECOVERY_ERROR_MESSAGES:
+        candidate = getattr(error, "reason_code", None)
+    code = (
+        candidate
+        if candidate in _RUN_RECOVERY_ERROR_MESSAGES
+        else "RUN_RECOVERY_INTERNAL_ERROR"
+    )
+    _write_command_error(_RunRecoveryCliError(cast(str, code)))
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
     registry_factory: RegistryFactory = _open_registry,
     input_registry_factory: InputRegistryFactory = _open_input_registry,
     reference_profile_factory: ReferenceProfileFactory = _open_reference_profiles,
+    run_recovery_factory: RunRecoveryFactory | None = None,
 ) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -627,7 +971,51 @@ def main(
         parser.error(str(exc))
 
     try:
-        if args.resource == "reference-profile":
+        if args.resource == "run":
+            if run_recovery_factory is None:
+                run_recovery_factory = _open_run_recovery
+            read_only = args.run_command == "diagnose"
+            recovery_factory_options: dict[str, object] = {"read_only": read_only}
+            if args.queue_name is not None:
+                recovery_factory_options["queue_name"] = args.queue_name
+            with run_recovery_factory(
+                args.database_url,
+                **recovery_factory_options,
+            ) as recovery:
+                diagnostic = recovery.diagnose(args.run_id)
+                if args.run_command == "diagnose":
+                    result = _run_recovery_diagnostic_payload(diagnostic)
+                else:
+                    from encode_pipeline.platform.runs import RunStatus
+
+                    expected_status = RunStatus(args.expected_status)
+                    if not _recovery_preconditions_match(
+                        diagnostic,
+                        expected_status=expected_status,
+                        job_id=args.job_id,
+                        backend=args.backend,
+                        queue_name=args.queue_name,
+                    ):
+                        raise _RunRecoveryCliError("RUN_RECOVERY_CONFLICT")
+                    assignment = getattr(diagnostic, "assignment")
+                    if args.run_command == "fail":
+                        action_result = recovery.fail_run(
+                            args.run_id,
+                            expected_status=expected_status,
+                            expected_assignment=assignment,
+                        )
+                    else:
+                        action_result = recovery.requeue_run(
+                            args.run_id,
+                            expected_status=expected_status,
+                            expected_assignment=assignment,
+                        )
+                    result = _run_recovery_action_payload(
+                        action_result,
+                        action=args.run_command,
+                        previous_status=expected_status,
+                    )
+        elif args.resource == "reference-profile":
             if (
                 args.reference_profile_command in {"register", "verify", "enable"}
                 and args.reference_profile_config is None
@@ -716,6 +1104,9 @@ def main(
                         attributes=attributes,
                     )
     except Exception as exc:
+        if args.resource == "run":
+            _write_run_recovery_error(exc)
+            return 1
         if args.resource == "reference-profile":
             if not isinstance(getattr(exc, "reason_code", None), str):
                 exc = _ReferenceProfileCliError(

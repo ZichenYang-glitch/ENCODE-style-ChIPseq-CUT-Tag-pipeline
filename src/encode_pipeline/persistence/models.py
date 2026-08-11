@@ -1232,6 +1232,38 @@ class RunExecutionAssignmentRow(Base):
             "OR cancellation_requested_at IS NOT NULL",
             name="ck_run_execution_assignments_ack_requires_request",
         ),
+        CheckConstraint(
+            "requeue_requested_at IS NULL OR dispatched_at IS NOT NULL",
+            name="ck_run_execution_assignments_requeue_requires_dispatch",
+        ),
+        CheckConstraint(
+            "requeue_confirmed_at IS NULL OR requeue_requested_at IS NOT NULL",
+            name="ck_run_execution_assignments_requeue_confirm_requires_request",
+        ),
+        CheckConstraint(
+            "requeue_confirmed_at IS NULL "
+            "OR requeue_confirmed_at >= requeue_requested_at",
+            name="ck_run_execution_assignments_requeue_confirmation_order",
+        ),
+        CheckConstraint(
+            "(managed_container_scope IS NULL AND "
+            "managed_container_endpoint_identity IS NULL) OR "
+            "(managed_container_scope IS NOT NULL AND "
+            "managed_container_endpoint_identity IS NOT NULL)",
+            name="ck_run_execution_assignments_cleanup_identity_pair",
+        ),
+        CheckConstraint(
+            "managed_container_scope IS NULL OR "
+            "(length(managed_container_scope) = 64 AND "
+            "managed_container_scope NOT GLOB '*[^0-9a-f]*')",
+            name="ck_run_execution_assignments_cleanup_scope_format",
+        ),
+        CheckConstraint(
+            "managed_container_endpoint_identity IS NULL OR "
+            "(length(managed_container_endpoint_identity) = 64 AND "
+            "managed_container_endpoint_identity NOT GLOB '*[^0-9a-f]*')",
+            name="ck_run_execution_assignments_cleanup_endpoint_format",
+        ),
     )
 
     run_id: Mapped[str] = mapped_column(
@@ -1245,6 +1277,8 @@ class RunExecutionAssignmentRow(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+    managed_container_scope: Mapped[str | None] = mapped_column(String(64))
+    managed_container_endpoint_identity: Mapped[str | None] = mapped_column(String(64))
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancellation_requested_at: Mapped[datetime | None] = mapped_column(
@@ -1252,6 +1286,12 @@ class RunExecutionAssignmentRow(Base):
     )
     cancellation_reason: Mapped[str | None] = mapped_column(Text)
     cancellation_acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    requeue_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    requeue_confirmed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
 

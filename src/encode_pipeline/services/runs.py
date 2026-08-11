@@ -414,6 +414,92 @@ class RunService:
         with self._lock:
             return self._repository.get_execution_assignment(run_id)
 
+    def bind_execution_cleanup_identity(
+        self,
+        run_id: str,
+        *,
+        expected_assignment: RunExecutionAssignment,
+        managed_container_scope: str | None,
+        managed_container_endpoint_identity: str | None,
+    ) -> RunExecutionAssignment:
+        """Bind the rebuilt command's path-safe cleanup identity before execution."""
+        with self._lock:
+            current = self._repository.get_run(run_id)
+            if current.status is not RunStatus.QUEUED:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} is no longer eligible for cleanup binding."
+                )
+            assignment = self._repository.get_execution_assignment(run_id)
+            if assignment is None or assignment != expected_assignment:
+                raise ConcurrentRunUpdateError(
+                    f"Run {run_id!r} execution assignment changed before cleanup binding."
+                )
+            if assignment.claimed_at is None:
+                raise ValueError("execution assignment has not been claimed")
+            return self._repository.bind_execution_cleanup_identity(
+                run_id,
+                expected_status=RunStatus.QUEUED,
+                expected_assignment=assignment,
+                managed_container_scope=managed_container_scope,
+                managed_container_endpoint_identity=(
+                    managed_container_endpoint_identity
+                ),
+            )
+
+    def confirm_execution_requeue_observed(
+        self,
+        run_id: str,
+        *,
+        job_id: str,
+        backend: str,
+        queue_name: str,
+    ) -> RunExecutionAssignment:
+        """Durably confirm a pending requeue at exact worker entry.
+
+        A worker that has already proven the stable assignment identity is
+        stronger delivery evidence than an expiring RQ record. Normal initial
+        executions and already-confirmed retries remain mutation-free.
+        """
+        with self._lock:
+            current = self._repository.get_run(run_id)
+            assignment = self._repository.get_execution_assignment(run_id)
+            if assignment is None or (
+                assignment.run_id != run_id
+                or assignment.job_id != job_id
+                or assignment.backend != backend
+                or assignment.queue_name != queue_name
+            ):
+                raise ValueError("execution assignment identity does not match")
+            if (
+                assignment.requeue_requested_at is None
+                or assignment.requeue_confirmed_at is not None
+            ):
+                return assignment
+            if current.status not in {
+                RunStatus.QUEUED,
+                RunStatus.RUNNING,
+                RunStatus.SUCCEEDED,
+                RunStatus.FAILED,
+                RunStatus.CANCELLED,
+            }:
+                raise ValueError("pending execution requeue status is invalid")
+            return self._repository.confirm_execution_requeue(
+                run_id,
+                expected_status=current.status,
+                expected_assignment=assignment,
+                confirmed_at=datetime.now(timezone.utc),
+                event=RunEventDraft(
+                    event_type="run_requeue_delivery_observed_by_worker",
+                    message="Worker observed the exact administrator requeue.",
+                    status=None,
+                    stage="execution",
+                    context={
+                        "reason_code": "RUN_REQUEUED_BY_ADMIN_RECOVERY",
+                        "confirmation_source": "worker_entry",
+                    },
+                ),
+            )
+
     def mark_execution_dispatched(
         self,
         run_id: str,

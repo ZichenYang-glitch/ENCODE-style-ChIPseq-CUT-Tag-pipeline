@@ -144,7 +144,27 @@ def _prepared_service(
         workspace_dir,
     ).is_success
     run_service.transition_run("run-1", RunStatus.PLANNED, stage="preflight")
-    run_service.transition_run("run-1", RunStatus.QUEUED, stage="execution")
+    assignment = run_service.ensure_execution_assignment(
+        "run-1",
+        queue_name="local-execution-tests",
+    )
+    run_service.mark_execution_dispatched(
+        "run-1",
+        job_id=assignment.job_id,
+    )
+    run_service.queue_dispatched_run(
+        "run-1",
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+    )
+    claim = run_service.claim_execution_assignment(
+        "run-1",
+        job_id=assignment.job_id,
+        backend=assignment.backend,
+        queue_name=assignment.queue_name,
+    )
+    assert claim.acquired is True
 
     execution_service = LocalExecutionService(
         run_service=run_service,
@@ -158,7 +178,7 @@ def _prepared_service(
             else ControlledManagedInputVerifier()
         ),
     )
-    return execution_service, run_service, workspace_dir
+    return execution_service, run_service, workspace_dir, claim
 
 
 def _service_failure(code: str = "CONTROLLED_SERVICE_FAILURE") -> Result:
@@ -195,9 +215,9 @@ def _verification_plan(
 
 def test_local_execution_rebuilds_existing_workspace_and_succeeds(tmp_path):
     runner = ControlledRunner()
-    service, run_service, _workspace = _prepared_service(tmp_path, runner)
+    service, run_service, _workspace, claim = _prepared_service(tmp_path, runner)
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_success
     assert result.value.status is RunStatus.SUCCEEDED
@@ -213,6 +233,164 @@ def test_local_execution_rebuilds_existing_workspace_and_succeeds(tmp_path):
     assert run_service.list_logs("run-1", "stderr")[0].lines == ("warning",)
 
 
+@pytest.mark.parametrize(
+    "invalid_kind",
+    (
+        "not-acquired",
+        "other-run",
+        "unclaimed",
+        "already-bound",
+        "durable-mismatch",
+    ),
+)
+def test_local_execution_rejects_invalid_invocation_claim_without_side_effects(
+    tmp_path,
+    monkeypatch,
+    invalid_kind,
+):
+    runner = ControlledRunner()
+    service, run_service, _workspace, claim = _prepared_service(tmp_path, runner)
+    invalid_claim = claim
+    if invalid_kind == "not-acquired":
+        invalid_claim = replace(claim, acquired=False)
+    elif invalid_kind == "other-run":
+        invalid_claim = replace(
+            claim,
+            assignment=replace(claim.assignment, run_id="other-run"),
+        )
+    elif invalid_kind == "unclaimed":
+        invalid_claim = replace(
+            claim,
+            assignment=replace(claim.assignment, claimed_at=None),
+        )
+    elif invalid_kind in {"already-bound", "durable-mismatch"}:
+        bound = run_service.bind_execution_cleanup_identity(
+            "run-1",
+            expected_assignment=claim.assignment,
+            managed_container_scope="c" * 64,
+            managed_container_endpoint_identity="d" * 64,
+        )
+        if invalid_kind == "already-bound":
+            invalid_claim = replace(claim, assignment=bound)
+
+    before_record = run_service.get_run("run-1")
+    before_events = run_service.list_events("run-1", limit=100)
+    before_assignment = run_service.get_execution_assignment("run-1")
+
+    def fail_if_rebuild_starts(_run_id):
+        raise AssertionError("invalid claims must stop before execution rebuild")
+
+    monkeypatch.setattr(service, "_rebuild_plan", fail_if_rebuild_starts)
+
+    result = service.execute("run-1", invalid_claim)
+
+    assert result.is_failure
+    assert result.errors[0].code == "LOCAL_EXECUTION_CLAIM_INVALID"
+    assert runner.specs == []
+    assert run_service.get_run("run-1") == before_record
+    assert run_service.list_events("run-1", limit=100) == before_events
+    assert run_service.get_execution_assignment("run-1") == before_assignment
+
+
+def test_local_execution_binds_rebuilt_managed_cleanup_identity_before_process(
+    tmp_path,
+    monkeypatch,
+):
+    runner = ControlledRunner()
+    service, run_service, _workspace, claim = _prepared_service(tmp_path, runner)
+    original_rebuild = service._rebuild_plan
+    original_bind = run_service.bind_execution_cleanup_identity
+    expected_assignments = []
+
+    def rebuild_with_managed_identity(run_id):
+        result = original_rebuild(run_id)
+        assert result.is_success
+        plan = result.value
+        assert plan.command_spec is not None
+        return Result.success(
+            replace(
+                plan,
+                command_spec=replace(
+                    plan.command_spec,
+                    managed_container_scope="a" * 64,
+                    managed_container_endpoint_identity="b" * 64,
+                ),
+            )
+        )
+
+    monkeypatch.setattr(service, "_rebuild_plan", rebuild_with_managed_identity)
+
+    def observe_binding(run_id, *, expected_assignment, **kwargs):
+        expected_assignments.append(expected_assignment)
+        return original_bind(
+            run_id,
+            expected_assignment=expected_assignment,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        run_service,
+        "bind_execution_cleanup_identity",
+        observe_binding,
+    )
+
+    result = service.execute("run-1", claim)
+
+    assert result.is_success
+    assert expected_assignments == [claim.assignment]
+    assignment = run_service.get_execution_assignment("run-1")
+    assert assignment is not None
+    assert assignment.managed_container_scope == "a" * 64
+    assert assignment.managed_container_endpoint_identity == "b" * 64
+    assert len(runner.specs) == 1
+    assert runner.specs[0].managed_container_scope == "a" * 64
+
+
+def test_local_execution_refuses_durable_cleanup_identity_drift_before_process(
+    tmp_path,
+    monkeypatch,
+):
+    runner = ControlledRunner()
+    service, run_service, _workspace, claim = _prepared_service(tmp_path, runner)
+    original_rebuild = service._rebuild_plan
+
+    def rebuild_with_drifted_identity(run_id):
+        result = original_rebuild(run_id)
+        assert result.is_success
+        assignment = run_service.get_execution_assignment(run_id)
+        assert assignment is not None
+        run_service.bind_execution_cleanup_identity(
+            run_id,
+            expected_assignment=assignment,
+            managed_container_scope="c" * 64,
+            managed_container_endpoint_identity="d" * 64,
+        )
+        plan = result.value
+        assert plan.command_spec is not None
+        return Result.success(
+            replace(
+                plan,
+                command_spec=replace(
+                    plan.command_spec,
+                    managed_container_scope="a" * 64,
+                    managed_container_endpoint_identity="b" * 64,
+                ),
+            )
+        )
+
+    monkeypatch.setattr(service, "_rebuild_plan", rebuild_with_drifted_identity)
+
+    result = service.execute("run-1", claim)
+
+    assert result.is_failure
+    assert result.errors[0].code == "LOCAL_EXECUTION_CLEANUP_BINDING_INVALID"
+    assert runner.specs == []
+    persisted = run_service.get_execution_assignment("run-1")
+    assert persisted is not None
+    assert persisted.managed_container_scope == "c" * 64
+    assert persisted.managed_container_endpoint_identity == "d" * 64
+
+
 def test_local_execution_reverifies_dispatched_reference_without_enabled_gate(
     tmp_path,
 ):
@@ -225,14 +403,14 @@ def test_local_execution_reverifies_dispatched_reference_without_enabled_gate(
             return Result.success(None)
 
     resolver = _Resolver()
-    service, _run_service, _workspace = _prepared_service(
+    service, _run_service, _workspace, claim = _prepared_service(
         tmp_path,
         ControlledRunner(),
         reference_profile_resolver=resolver,
     )
     resolver.calls.clear()
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_success
     assert [call[3] for call in resolver.calls] == [False, False]
@@ -241,9 +419,9 @@ def test_local_execution_reverifies_dispatched_reference_without_enabled_gate(
 
 def test_local_execution_maps_nonzero_exit_to_failed_run(tmp_path):
     runner = ControlledRunner(exit_code=17)
-    service, run_service, _workspace = _prepared_service(tmp_path, runner)
+    service, run_service, _workspace, claim = _prepared_service(tmp_path, runner)
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_failure
     record = run_service.get_run("run-1")
@@ -256,9 +434,9 @@ def test_local_execution_maps_nonzero_exit_to_failed_run(tmp_path):
 
 def test_local_execution_persists_and_propagates_output_truncation_warning(tmp_path):
     runner = ControlledRunner(output_truncated=True)
-    service, run_service, _workspace = _prepared_service(tmp_path, runner)
+    service, run_service, _workspace, claim = _prepared_service(tmp_path, runner)
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_success
     assert [issue.code for issue in result.issues] == [
@@ -274,12 +452,12 @@ def test_local_execution_persists_and_propagates_output_truncation_warning(tmp_p
 
 
 def test_local_execution_maps_runner_infrastructure_failure(tmp_path):
-    service, run_service, _workspace = _prepared_service(
+    service, run_service, _workspace, claim = _prepared_service(
         tmp_path,
         ControlledRunner(fail=True),
     )
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_failure
     record = run_service.get_run("run-1")
@@ -288,12 +466,12 @@ def test_local_execution_maps_runner_infrastructure_failure(tmp_path):
 
 
 def test_local_execution_persists_the_process_runner_timeout_reason(tmp_path):
-    service, run_service, _workspace = _prepared_service(
+    service, run_service, _workspace, claim = _prepared_service(
         tmp_path,
         ControlledRunner(fail=True, failure_code="PROCESS_RUNNER_TIMEOUT"),
     )
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_failure
     record = run_service.get_run("run-1")
@@ -305,13 +483,13 @@ def test_local_execution_persists_the_process_runner_timeout_reason(tmp_path):
 
 def test_local_execution_rejects_changed_preflight_workspace(tmp_path):
     runner = ControlledRunner()
-    service, run_service, workspace = _prepared_service(tmp_path, runner)
+    service, run_service, workspace, claim = _prepared_service(tmp_path, runner)
     (workspace / "config" / "config.yaml").write_text(
         "changed: true\n",
         encoding="utf-8",
     )
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_failure
     assert runner.specs == []
@@ -336,13 +514,13 @@ def test_local_execution_rejects_unqualified_managed_execution_before_process(
             ]
         )
     )
-    service, run_service, _workspace = _prepared_service(
+    service, run_service, _workspace, claim = _prepared_service(
         tmp_path,
         runner,
         managed_input_verifier=verifier,
     )
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_failure
     assert verifier.calls == ["run-1"]
@@ -360,7 +538,7 @@ def test_local_execution_does_not_start_process_when_queued_cancel_wins(
     monkeypatch,
 ):
     runner = ControlledRunner()
-    service, run_service, _workspace = _prepared_service(tmp_path, runner)
+    service, run_service, _workspace, claim = _prepared_service(tmp_path, runner)
     original_transition = run_service.transition_run
     cancelled = False
 
@@ -373,7 +551,7 @@ def test_local_execution_does_not_start_process_when_queued_cancel_wins(
 
     monkeypatch.setattr(run_service, "transition_run", cancel_before_running)
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_failure
     assert result.issues[0].code == "LOCAL_EXECUTION_CANCELLED"
@@ -390,10 +568,10 @@ def test_local_execution_propagates_rq_timeout_to_worker_boundary(tmp_path):
         raise WorkerHardTimeout("RQ deadline reached")
 
     runner = ControlledRunner(callback=timeout)
-    service, run_service, _workspace = _prepared_service(tmp_path, runner)
+    service, run_service, _workspace, claim = _prepared_service(tmp_path, runner)
 
     with pytest.raises(WorkerHardTimeout, match="RQ deadline reached"):
-        service.execute("run-1")
+        service.execute("run-1", claim)
 
     assert run_service.get_run("run-1").status is RunStatus.RUNNING
 
@@ -401,28 +579,28 @@ def test_local_execution_propagates_rq_timeout_to_worker_boundary(tmp_path):
 def test_local_execution_rejects_missing_cancelled_and_nonqueued_work(
     tmp_path,
 ) -> None:
-    service, run_service, _workspace = _prepared_service(
+    service, run_service, _workspace, claim = _prepared_service(
         tmp_path,
         ControlledRunner(),
     )
 
-    missing = service.execute("missing")
+    missing = service.execute("missing", claim)
     assert missing.is_failure
     assert missing.errors[0].code == "LOCAL_EXECUTION_RUN_NOT_FOUND"
 
     run_service.cancel_run("run-1", reason="cancelled before worker claim")
-    cancelled = service.execute("run-1")
+    cancelled = service.execute("run-1", claim)
     assert cancelled.is_failure
     assert cancelled.errors[0].code == "LOCAL_EXECUTION_CANCELLED"
 
     second_root = tmp_path / "second"
     second_root.mkdir()
-    second_service, second_runs, _workspace = _prepared_service(
+    second_service, second_runs, _workspace, second_claim = _prepared_service(
         second_root,
         ControlledRunner(),
     )
     second_runs.transition_run("run-1", RunStatus.RUNNING)
-    nonqueued = second_service.execute("run-1")
+    nonqueued = second_service.execute("run-1", second_claim)
     assert nonqueued.is_failure
     assert nonqueued.errors[0].code == "LOCAL_EXECUTION_NOT_QUEUED"
     assert nonqueued.errors[0].context == {"current_status": "running"}
@@ -449,7 +627,7 @@ def test_local_execution_rechecks_lifecycle_after_rebuilding_dependencies(
     race_status,
     expected_code,
 ) -> None:
-    service, run_service, _workspace = _prepared_service(
+    service, run_service, _workspace, claim = _prepared_service(
         tmp_path,
         ControlledRunner(),
     )
@@ -466,7 +644,7 @@ def test_local_execution_rechecks_lifecycle_after_rebuilding_dependencies(
 
     monkeypatch.setattr(service, "_rebuild_plan", rebuild_then_race)
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_failure
     assert result.errors[0].code == expected_code
@@ -477,7 +655,7 @@ def test_local_execution_rejects_nonrunning_transition_race(
     tmp_path,
     monkeypatch,
 ) -> None:
-    service, run_service, _workspace = _prepared_service(
+    service, run_service, _workspace, claim = _prepared_service(
         tmp_path,
         ControlledRunner(),
     )
@@ -490,7 +668,7 @@ def test_local_execution_rejects_nonrunning_transition_race(
 
     monkeypatch.setattr(run_service, "transition_run", fail_before_running)
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_failure
     assert result.errors[0].code == "LOCAL_EXECUTION_STATE_CHANGED"
@@ -518,7 +696,7 @@ def test_local_execution_rechecks_lifecycle_after_driver_returns(
     race_status,
     expected_code,
 ) -> None:
-    service, run_service, _workspace = _prepared_service(
+    service, run_service, _workspace, claim = _prepared_service(
         tmp_path,
         ControlledRunner(),
     )
@@ -542,7 +720,7 @@ def test_local_execution_rechecks_lifecycle_after_driver_returns(
     monkeypatch.setattr(service._local_run_driver, "run", run_then_race)
     monkeypatch.setattr(run_service, "get_run", observe_race)
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_failure
     assert result.errors[0].code == expected_code
@@ -578,7 +756,7 @@ def test_local_execution_reconciles_terminal_success_commit_races(
     expected_success,
     expected_code,
 ) -> None:
-    service, run_service, _workspace = _prepared_service(
+    service, run_service, _workspace, claim = _prepared_service(
         tmp_path,
         ControlledRunner(),
     )
@@ -611,7 +789,7 @@ def test_local_execution_reconciles_terminal_success_commit_races(
     monkeypatch.setattr(run_service, "transition_run", race_success_commit)
     monkeypatch.setattr(run_service, "get_run", observe_terminal_race)
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_success is expected_success
     if expected_code is not None:
@@ -631,7 +809,7 @@ def test_local_execution_persists_rebuild_boundary_failures(
     monkeypatch,
     failing_boundary,
 ) -> None:
-    service, run_service, _workspace = _prepared_service(
+    service, run_service, _workspace, claim = _prepared_service(
         tmp_path,
         ControlledRunner(),
     )
@@ -658,7 +836,7 @@ def test_local_execution_persists_rebuild_boundary_failures(
             ),
         )
 
-    result = service.execute("run-1")
+    result = service.execute("run-1", claim)
 
     assert result.is_failure
     assert run_service.get_run("run-1").status is RunStatus.FAILED
@@ -722,7 +900,7 @@ def test_local_execution_synthesizes_empty_driver_failure_and_retries_state_writ
     tmp_path,
     monkeypatch,
 ) -> None:
-    service, run_service, _workspace = _prepared_service(
+    service, run_service, _workspace, _claim = _prepared_service(
         tmp_path,
         ControlledRunner(),
     )
@@ -762,7 +940,7 @@ def test_failure_persistence_never_overwrites_newer_lifecycle_state(
     failure_state,
     expected_code,
 ) -> None:
-    service, run_service, _workspace = _prepared_service(
+    service, run_service, _workspace, _claim = _prepared_service(
         tmp_path,
         ControlledRunner(),
     )
