@@ -6,8 +6,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from hashlib import sha256
+import re
 
 from encode_pipeline.platform.runs import RunRecord
+
+
+_MANAGED_CONTAINER_IDENTITY = re.compile(r"^[0-9a-f]{64}$")
 
 
 class RunExecutionOwnership(str, Enum):
@@ -26,11 +30,15 @@ class RunExecutionAssignment:
     backend: str
     queue_name: str
     created_at: datetime
+    managed_container_scope: str | None = None
+    managed_container_endpoint_identity: str | None = None
     dispatched_at: datetime | None = None
     claimed_at: datetime | None = None
     cancellation_requested_at: datetime | None = None
     cancellation_reason: str | None = None
     cancellation_acknowledged_at: datetime | None = None
+    requeue_requested_at: datetime | None = None
+    requeue_confirmed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("run_id", "job_id", "backend", "queue_name"):
@@ -40,10 +48,30 @@ class RunExecutionAssignment:
         if not isinstance(self.created_at, datetime):
             raise ValueError("created_at must be a datetime")
         for field_name in (
+            "managed_container_scope",
+            "managed_container_endpoint_identity",
+        ):
+            value = getattr(self, field_name)
+            if value is not None and (
+                not isinstance(value, str)
+                or _MANAGED_CONTAINER_IDENTITY.fullmatch(value) is None
+            ):
+                raise ValueError(
+                    f"{field_name} must be a lowercase SHA-256 hex digest or None"
+                )
+        if (self.managed_container_scope is None) != (
+            self.managed_container_endpoint_identity is None
+        ):
+            raise ValueError(
+                "managed container scope and endpoint identity must be paired"
+            )
+        for field_name in (
             "dispatched_at",
             "claimed_at",
             "cancellation_requested_at",
             "cancellation_acknowledged_at",
+            "requeue_requested_at",
+            "requeue_confirmed_at",
         ):
             value = getattr(self, field_name)
             if value is not None and not isinstance(value, datetime):
@@ -68,6 +96,21 @@ class RunExecutionAssignment:
             and self.cancellation_requested_at is None
         ):
             raise ValueError("cancellation acknowledgement requires a request")
+        if self.requeue_requested_at is not None and self.dispatched_at is None:
+            raise ValueError("requeue request requires dispatched_at")
+        if self.requeue_confirmed_at is not None:
+            if self.requeue_requested_at is None:
+                raise ValueError("requeue confirmation requires a request")
+            try:
+                confirmation_precedes_request = (
+                    self.requeue_confirmed_at < self.requeue_requested_at
+                )
+            except TypeError as exc:
+                raise ValueError(
+                    "requeue request and confirmation timestamps are incompatible"
+                ) from exc
+            if confirmation_precedes_request:
+                raise ValueError("requeue confirmation cannot precede request")
 
 
 @dataclass(frozen=True)
@@ -116,6 +159,20 @@ class RunExecutionStopAcknowledgement:
             raise ValueError("record must be a RunRecord")
         if not isinstance(self.transitioned, bool):
             raise ValueError("transitioned must be a bool")
+
+
+@dataclass(frozen=True)
+class RunExecutionRequeuePreparation:
+    """Canonical result of atomically preparing one administrator requeue."""
+
+    assignment: RunExecutionAssignment
+    created: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.assignment, RunExecutionAssignment):
+            raise ValueError("assignment must be a RunExecutionAssignment")
+        if not isinstance(self.created, bool):
+            raise ValueError("created must be a bool")
 
 
 def build_execution_job_id(run_id: str) -> str:

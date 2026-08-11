@@ -208,6 +208,11 @@ class RunSubmissionService:
                 "Run changed before execution submission could begin.",
                 record=current,
             )
+        if current.status is RunStatus.QUEUED:
+            # The exact durable dispatch is already the canonical submission
+            # result. Republish beyond this boundary belongs only to explicit
+            # administrator recovery and its one-shot durable intent markers.
+            return current
 
         try:
             backend_job_id = self._run_queue.enqueue_execution(assignment)

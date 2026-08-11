@@ -163,8 +163,7 @@ def test_start_run_returns_202_and_durable_queued_state(client_and_queue):
     assert response.json()["run"]["status"] == "queued"
     assert repeated.status_code == 202
     assert repeated.json()["run"]["status"] == "queued"
-    assert len(queue.assignments) == 2
-    assert queue.assignments[0].job_id == queue.assignments[1].job_id
+    assert len(queue.assignments) == 1
     events = client.get(f"/api/v1/runs/{run_id}/events").json()["events"]
     assert len([event for event in events if event["status"] == "queued"]) == 1
 

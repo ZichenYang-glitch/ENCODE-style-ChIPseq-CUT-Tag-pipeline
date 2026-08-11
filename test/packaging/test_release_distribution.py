@@ -263,8 +263,11 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(tmp_path: Path) -> Non
             assert f"{name} = {target}" in entry_points
         assert "encode_pipeline/__main__.py" in names
         assert "encode_pipeline/cli/app.py" in names
+        assert "encode_pipeline/cli/admin.py" in names
         assert "encode_pipeline/cli/local_platform.py" in names
         assert "encode_pipeline/cli/results_visibility_fixture.py" in names
+        assert "encode_pipeline/platform/run_recovery.py" in names
+        assert "encode_pipeline/services/run_recovery.py" in names
         assert "encode_pipeline/artifacts/artifact-inventory.yaml" in names
         assert "encode_pipeline/persistence/alembic/script.py.mako" in names
         assert (
@@ -283,11 +286,15 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(tmp_path: Path) -> Non
             "20260807_12_artifact_publications.py"
         ) in names
         assert (
+            "encode_pipeline/persistence/alembic/versions/"
+            "20260809_13_run_recovery_markers.py"
+        ) in names
+        assert (
             sum(
                 "/persistence/alembic/versions/" in name and name.endswith(".py")
                 for name in names
             )
-            == 13
+            == 14
         )
         assert not any(name.startswith("test/") for name in names)
 

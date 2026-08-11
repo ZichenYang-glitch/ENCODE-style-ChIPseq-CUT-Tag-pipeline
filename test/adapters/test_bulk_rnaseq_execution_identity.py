@@ -73,6 +73,7 @@ PRODUCTION_PERSISTENCE_PATHS = frozenset(
         "src/encode_pipeline/persistence/alembic/versions/20260726_09_project_sample_registry.py",
         "src/encode_pipeline/persistence/alembic/versions/20260803_11_reference_profiles.py",
         "src/encode_pipeline/persistence/alembic/versions/20260807_12_artifact_publications.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260809_13_run_recovery_markers.py",
         "src/encode_pipeline/platform/artifact_publications.py",
         "src/encode_pipeline/platform/data_registry.py",
         "src/encode_pipeline/platform/reference_profiles.py",
@@ -101,7 +102,6 @@ PRODUCT_ONLY_RESULT_SURFACE_PATHS = frozenset(
 )
 REFERENCE_PROFILE_CATALOG_PATHS = frozenset(
     {
-        "src/encode_pipeline/cli/admin.py",
         "src/encode_pipeline/services/reference_profile_repositories.py",
         "src/encode_pipeline/services/reference_profiles.py",
     }
@@ -122,6 +122,20 @@ ARTIFACT_PUBLICATION_EXECUTION_PATHS = frozenset(
         "src/encode_pipeline/platform/artifact_publications.py",
         "src/encode_pipeline/persistence/alembic/versions/20260807_12_artifact_publications.py",
         EXECUTION_PERSISTENCE_CONTRACT_PATH,
+    }
+)
+RUN_RECOVERY_EXECUTION_PATHS = frozenset(
+    {
+        "src/encode_pipeline/cli/admin.py",
+        "src/encode_pipeline/platform/run_recovery.py",
+        "src/encode_pipeline/services/run_recovery.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260809_13_run_recovery_markers.py",
+        EXECUTION_PERSISTENCE_CONTRACT_PATH,
+    }
+)
+RUN_RECOVERY_PRODUCT_ONLY_PATHS = frozenset(
+    {
+        "src/encode_pipeline/cli/local_platform.py",
     }
 )
 
@@ -188,6 +202,11 @@ def test_artifact_publication_persistence_contract_is_scientific_implementation(
     assert ARTIFACT_PUBLICATION_EXECUTION_PATHS.issubset(EXECUTION_IMPLEMENTATION_PATHS)
 
 
+def test_run_recovery_mutation_contract_is_scientific_implementation():
+    assert RUN_RECOVERY_EXECUTION_PATHS.issubset(EXECUTION_IMPLEMENTATION_PATHS)
+    assert RUN_RECOVERY_PRODUCT_ONLY_PATHS.isdisjoint(EXECUTION_IMPLEMENTATION_PATHS)
+
+
 def test_reference_profile_catalog_crud_is_not_scientific_implementation():
     assert REFERENCE_PROFILE_CATALOG_PATHS.isdisjoint(EXECUTION_IMPLEMENTATION_PATHS)
     assert REFERENCE_PROFILE_EXECUTION_PATHS.issubset(EXECUTION_IMPLEMENTATION_PATHS)
@@ -225,7 +244,7 @@ def test_committed_source_qualification_is_canonical_path_free_and_exact():
     serialized = json.dumps(document)
     persistence = document["execution_implementation"]["persistence_contract"]
     assert persistence["path"] == EXECUTION_PERSISTENCE_CONTRACT_PATH
-    assert persistence["version"] == "1.3.0"
+    assert persistence["version"] == "1.4.0"
     assert set(persistence["schema_projection"]) == {"scheme", "sha256", "tables"}
     assert "required_schema" not in persistence
     assert str(PROJECT_ROOT) not in serialized
@@ -288,11 +307,11 @@ def test_persistence_contract_coordinate_mutation_fails_closed(
     )
     contract = json.loads(contract_path.read_bytes())
     if mutation == "schema-version":
-        contract["schema_version"] = "1.2.0"
+        contract["schema_version"] = "1.3.0"
     elif mutation == "missing-capability":
-        contract["capabilities"].remove("sqlite.artifact-publication/v1")
+        contract["capabilities"].remove("sqlite.run-recovery-administration/v1")
     else:
-        contract["required_revisions"].remove("20260807_12")
+        contract["required_revisions"].remove("20260809_13")
     contract_path.write_bytes(
         json.dumps(
             contract,
@@ -598,7 +617,7 @@ def test_unrelated_migration_revision_does_not_change_or_reject_identity(
         "from alembic import op\n"
         "import sqlalchemy as sa\n\n"
         "revision = '20990101_99'\n"
-        "down_revision = '20260807_12'\n"
+        "down_revision = '20260809_13'\n"
         "branch_labels = None\n"
         "depends_on = None\n\n"
         "def upgrade():\n"
@@ -754,6 +773,50 @@ def test_artifact_publication_execution_contract_change_stales_identity(
     assert stale_qualification.errors[0].code == (
         "BULK_RNASEQ_EXECUTION_QUALIFICATION_INVALID"
     )
+
+
+@pytest.mark.parametrize(
+    "logical_path",
+    (
+        "src/encode_pipeline/cli/admin.py",
+        "src/encode_pipeline/platform/run_recovery.py",
+        "src/encode_pipeline/services/run_recovery.py",
+        "src/encode_pipeline/persistence/alembic/versions/20260809_13_run_recovery_markers.py",
+    ),
+)
+def test_run_recovery_execution_contract_change_stales_identity(
+    tmp_path: Path,
+    logical_path: str,
+):
+    original_bytes = MANIFEST_PATH.read_bytes()
+    original = verify_execution_implementation(manifest_bytes=original_bytes)
+    assert original.is_success
+
+    project = tmp_path / "changed-run-recovery-execution-contract"
+    package_root = _copy_controlled_implementation(project)
+    implementation_file = project.joinpath(*PurePosixPath(logical_path).parts)
+    implementation_file.write_bytes(
+        implementation_file.read_bytes() + b"\n# intentional contract change\n"
+    )
+
+    stale_install = verify_execution_implementation(
+        manifest_bytes=original_bytes,
+        package_root=package_root,
+    )
+    changed_manifest = build_execution_implementation_manifest(project)
+    changed = verify_execution_implementation(
+        manifest_bytes=canonical_execution_manifest_bytes(changed_manifest),
+        package_root=package_root,
+    )
+
+    assert stale_install.is_failure
+    assert changed.is_success
+    assert changed.value.aggregate_sha256 != original.value.aggregate_sha256
+    stale_qualification = load_default_execution_qualification(
+        changed.value,
+        content=QUALIFICATION_PATH.read_bytes(),
+    )
+    assert stale_qualification.is_failure
 
 
 def test_reference_profile_runtime_projection_change_changes_identity_and_stales_qualification(

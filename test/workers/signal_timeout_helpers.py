@@ -28,7 +28,7 @@ def run_execution_with_blocking_exception_handler(run_id: str) -> None:
     """
     original_execute = LocalExecutionService.execute
 
-    def block_until_rq_timeout(self, current_run_id: str):
+    def block_until_rq_timeout(self, current_run_id: str, _claim):
         if current_run_id != run_id:
             raise RuntimeError("timeout helper received the wrong run identity")
         _marker_path(ENTERED_MARKER_ENV).write_text("entered\n", encoding="utf-8")
