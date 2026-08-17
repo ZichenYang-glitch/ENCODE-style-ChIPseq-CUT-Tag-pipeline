@@ -1,0 +1,36 @@
+[Unit]
+Description=HelixWeave dedicated rootless Docker daemon for bulk RNA-seq
+PartOf=helixweave.target
+
+[Service]
+Type=simple
+User=helixweave
+Group=helixweave
+Environment=HOME=/var/lib/helixweave/service-home
+Environment=XDG_RUNTIME_DIR=/run/helixweave/docker
+ExecStart=/usr/bin/dockerd-rootless.sh --host=unix:///run/helixweave/docker/docker.sock --data-root=/var/lib/helixweave/docker-rootless --exec-root=/run/helixweave/docker/exec --pidfile=/run/helixweave/docker/docker.pid --bridge=none --iptables=false --ip-forward=false --ip-masq=false
+Restart=on-failure
+RestartSec=3s
+TimeoutStartSec=120s
+TimeoutStopSec=90s
+KillMode=mixed
+Delegate=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/helixweave/docker-rootless /var/lib/helixweave/service-home /run/helixweave/docker
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helixweave-docker-rootless
+
+[Install]
+WantedBy=helixweave.target

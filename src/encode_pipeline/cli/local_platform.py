@@ -30,7 +30,7 @@ RESULTS_VISIBILITY_QUEUE_NAME = "encode-pipeline-results-demo"
 LOCKED_PYTHON_VERSION = (3, 12)
 LOCKED_SNAKEMAKE_VERSION = (8, 30, 0)
 MINIMUM_REDIS_MAJOR = 7
-MINIMUM_NODE_MAJOR = 20
+MINIMUM_NODE_MAJOR = 22
 RUNTIME_IMPORTS = (
     "fastapi",
     "sqlalchemy",
@@ -337,10 +337,10 @@ def run_environment_doctor(
     node_version = _parse_version(
         node_output,
         r"\bv(\d+)\.(\d+)\.(\d+)\b",
-        requirement="Node.js 20 or newer is required",
+        requirement="Node.js 22 or newer is required",
     )
     if node_version[0] < MINIMUM_NODE_MAJOR:
-        raise RuntimeError("Node.js 20 or newer is required")
+        raise RuntimeError("Node.js 22 or newer is required")
 
     npm_output = _read_tool_version("npm", ("--version",))
     npm_version = _parse_version(

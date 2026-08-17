@@ -1,0 +1,7 @@
+[Unit]
+Description=HelixWeave supported single-host platform
+Requires=helixweave-redis.service helixweave-docker-rootless.service helixweave-api.service helixweave-worker.service
+After=helixweave-redis.service helixweave-docker-rootless.service
+
+[Install]
+WantedBy=multi-user.target

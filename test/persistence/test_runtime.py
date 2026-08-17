@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from encode_pipeline.persistence import runtime
 from encode_pipeline.persistence.runtime import (
     DATABASE_URL_ENV,
+    DatabaseSchemaNotReadyError,
+    open_existing_run_persistence,
     open_run_persistence,
     resolve_database_url,
 )
@@ -59,3 +63,62 @@ def test_open_run_persistence_creates_missing_parent_and_migrates(tmp_path):
     assert persistence.database_url == f"sqlite:///{database_path}"
     assert persistence.repository.list_runs() == ()
     persistence.close()
+
+
+def test_open_existing_persistence_accepts_exact_admitted_head(tmp_path, monkeypatch):
+    database_path = tmp_path / "platform.db"
+    database_url = f"sqlite:///{database_path}"
+    prepared = open_run_persistence(database_url)
+    prepared.close()
+    monkeypatch.setattr(
+        runtime,
+        "upgrade_database",
+        lambda _database_url: (_ for _ in ()).throw(
+            AssertionError("service open must not run Alembic")
+        ),
+    )
+
+    persistence = open_existing_run_persistence(database_url)
+
+    assert persistence.repository.list_runs() == ()
+    persistence.close()
+
+
+def test_open_existing_persistence_rejects_missing_database_without_creating_it(
+    tmp_path,
+):
+    database_path = tmp_path / "missing" / "platform.db"
+
+    with pytest.raises(DatabaseSchemaNotReadyError) as raised:
+        open_existing_run_persistence(f"sqlite:///{database_path}")
+
+    assert raised.value.reason_code == "DATABASE_SCHEMA_UNAVAILABLE"
+    assert not database_path.parent.exists()
+
+
+def test_open_existing_persistence_rejects_prior_head_without_migrating(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "platform.db"
+    database_url = f"sqlite:///{database_path}"
+    prepared = open_run_persistence(database_url)
+    prepared.close()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("UPDATE alembic_version SET version_num = ?", ("old",))
+    monkeypatch.setattr(
+        runtime,
+        "upgrade_database",
+        lambda _database_url: (_ for _ in ()).throw(
+            AssertionError("service open must not run Alembic")
+        ),
+    )
+
+    with pytest.raises(DatabaseSchemaNotReadyError) as raised:
+        open_existing_run_persistence(database_url)
+
+    assert raised.value.reason_code == "DATABASE_SCHEMA_NOT_CURRENT"
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("old",)

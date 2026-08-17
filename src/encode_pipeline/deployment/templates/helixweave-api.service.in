@@ -1,0 +1,50 @@
+[Unit]
+Description=HelixWeave local platform API and static frontend
+Requires=helixweave-redis.service
+After=helixweave-redis.service
+PartOf=helixweave.target
+
+[Service]
+Type=exec
+User=helixweave-api
+Group=helixweave
+SupplementaryGroups=helixweave-api
+UMask=0007
+WorkingDirectory=/var/lib/helixweave
+Environment=PYTHONNOUSERSITE=1
+EnvironmentFile=-/etc/helixweave/secrets.env
+ExecStart=/usr/libexec/helixweave-active-service api
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=90s
+TimeoutStopSec=45s
+KillMode=mixed
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=read-only
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/helixweave/database/live /var/lib/helixweave/workspaces /var/lib/helixweave/artifacts
+InaccessiblePaths=/var/lib/helixweave/operator /run/helixweave/services
+InaccessiblePaths=/var/lib/helixweave/docker-rootless /var/lib/helixweave/service-home /run/helixweave/docker
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helixweave-api
+
+[Install]
+WantedBy=helixweave.target

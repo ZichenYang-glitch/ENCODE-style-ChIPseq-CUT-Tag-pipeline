@@ -1,0 +1,1354 @@
+#!/usr/bin/python3 -I
+"""Fixed privileged Gate cleanup bound to one root-owned canonical plan."""
+
+import errno
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import select
+import signal
+import stat
+import sys
+import time
+
+
+SCHEMA = "helixweave-deployment-gate-cleanup-receipt-v1"
+PLAN_SCHEMA = "helixweave-deployment-gate-cleanup-plan-v4"
+PLAN_IDENTITY_SCHEME = "helixweave-deployment-gate-cleanup-plan-identity-v4"
+PROCESS_IDENTITY_SCHEME = "helixweave-deployment-gate-process-identity-v3"
+RESOURCE_PATH_IDENTITY_SCHEME = "helixweave-deployment-gate-resource-path-v1"
+EXECUTOR_PATH_IDENTITY_SCHEME = "helixweave-deployment-gate-cleanup-executor-path-v1"
+RECEIPT_IDENTITY_SCHEME = "helixweave-deployment-gate-cleanup-receipt-identity-v1"
+TASK = re.compile(r"task-[0-9a-f]{32}\Z")
+IDENTITY = re.compile(r"sha256-[0-9a-f]{64}\Z")
+
+HOST_ROOT = Path("/")
+GATE_ROOT = Path("/var/lib/helixweave/operator/deployment-gates")
+EXECUTOR = Path("/usr/libexec/helixweave-gate-cleanup")
+OPERATOR_ROOT = Path("/opt/helixweave/operator")
+SELECTED_BACKEND = Path(__file__).absolute()
+PROC_ROOT = Path("/proc")
+ROOT_UID = 0
+ROOT_GID = 0
+MAXIMUM_PLAN_BYTES = 64 * 1024
+MAXIMUM_EXECUTABLE_BYTES = 16 * 1024**2
+TERM_TIMEOUT_SECONDS = 10.0
+KILL_TIMEOUT_SECONDS = 5.0
+POLL_SECONDS = 0.05
+MAXIMUM_PROC_FDS = 4096
+MAXIMUM_PROC_NET_UNIX_BYTES = 1024 * 1024
+MAXIMUM_DELETE_NODES = 2_000_000
+MAXIMUM_DELETE_DEPTH = 128
+MAXIMUM_DELETE_BYTES = 1024**4
+SO_ACCEPTCON = 0x00010000
+PIDFD_OPEN = getattr(os, "pidfd_open", None)
+PIDFD_SEND_SIGNAL = getattr(signal, "pidfd_send_signal", None)
+KILL = os.kill
+GETEUID = os.geteuid
+MONOTONIC = time.monotonic
+SLEEP = time.sleep
+SOCKET_MATCHER = stat.S_ISSOCK
+MOUNT_ID = None
+PIDFD_WAIT = None
+CLOSE_FD = os.close
+
+DELETE_RELATIVE_PATHS = {
+    "checkout": ("checkout",),
+    "dockerd-socket": ("docker", "docker.sock"),
+    "process-state": ("pids",),
+    "redis-state": ("redis",),
+    "runner-state": ("runner",),
+    "venv": ("venv",),
+}
+RETAIN_RELATIVE_PATHS = {
+    "docker-data-root": ("docker-data",),
+    "docker-images": ("docker-data",),
+    "historical-evidence": ("evidence", "history"),
+}
+RESOURCE_KINDS = tuple(sorted((*DELETE_RELATIVE_PATHS, *RETAIN_RELATIVE_PATHS)))
+PROCESS_NAMES = ("dockerd", "redis", "runner")
+
+
+class CleanupFailure(Exception):
+    def __init__(self, code, message, exit_code):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.exit_code = exit_code
+
+
+class TraversalLimitExceeded(OSError):
+    pass
+
+
+def _canonical_bytes(value):
+    return (
+        json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _canonical_identity(value, scheme):
+    digest = hashlib.sha256()
+    for item in (scheme.encode("ascii"), _canonical_bytes(value)):
+        digest.update(len(item).to_bytes(8, byteorder="big", signed=False))
+        digest.update(item)
+    return f"sha256-{digest.hexdigest()}"
+
+
+def _unique(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError
+        value[key] = item
+    return value
+
+
+def _positive(value):
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and 0 < value <= 2**63 - 1
+    )
+
+
+def _identity(value):
+    return isinstance(value, str) and IDENTITY.fullmatch(value) is not None
+
+
+def _valid(argv):
+    return (
+        len(argv) == 11
+        and argv[0] == "cleanup"
+        and argv[1] == "--task-id"
+        and isinstance(argv[2], str)
+        and TASK.fullmatch(argv[2]) is not None
+        and argv[3] == "--plan-id"
+        and _identity(argv[4])
+        and argv[5] == "--executor-id"
+        and _identity(argv[6])
+        and argv[7] == "--closure-id"
+        and _identity(argv[8])
+        and argv[9] == "--backend-id"
+        and _identity(argv[10])
+    )
+
+
+def _write_error(code, message):
+    value = {
+        "schema_version": SCHEMA,
+        "status": "error",
+        "issue": {"code": code, "message": message},
+    }
+    sys.stderr.write(_canonical_bytes(value).decode("utf-8"))
+    sys.stderr.flush()
+
+
+def _write_receipt(plan):
+    value = {
+        "schema_version": SCHEMA,
+        "status": "cleaned",
+        "task_identity": plan["task_identity"],
+        "plan_identity": plan["identity"],
+        "terminated_process_identities": [
+            item["identity"] for item in plan["processes"]
+        ],
+        "deleted_kinds": sorted(DELETE_RELATIVE_PATHS),
+        "retained_kinds": sorted(RETAIN_RELATIVE_PATHS),
+    }
+    value["identity"] = _canonical_identity(value, RECEIPT_IDENTITY_SCHEME)
+    sys.stdout.write(_canonical_bytes(value).decode("utf-8"))
+    sys.stdout.flush()
+
+
+def _directory_flags():
+    return (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+
+
+def _file_flags():
+    return os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+
+
+def _path_flags():
+    if not hasattr(os, "O_PATH"):
+        raise OSError
+    return os.O_PATH | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+
+
+def _owned_directory(observed):
+    return (
+        stat.S_ISDIR(observed.st_mode)
+        and observed.st_uid == ROOT_UID
+        and observed.st_gid == ROOT_GID
+        and not stat.S_IMODE(observed.st_mode) & 0o022
+    )
+
+
+def _open_rooted_directory(path):
+    if not isinstance(path, Path) or not path.is_absolute():
+        raise OSError
+    try:
+        relative = path.relative_to(HOST_ROOT)
+    except ValueError:
+        raise OSError from None
+    descriptor = os.open(HOST_ROOT, _directory_flags())
+    try:
+        if not _owned_directory(os.fstat(descriptor)):
+            raise OSError
+        for part in relative.parts:
+            if part in ("", ".", ".."):
+                raise OSError
+            following = os.open(part, _directory_flags(), dir_fd=descriptor)
+            try:
+                observed = os.fstat(following)
+                at_path = os.stat(part, dir_fd=descriptor, follow_symlinks=False)
+                if not _owned_directory(observed) or (
+                    observed.st_dev,
+                    observed.st_ino,
+                ) != (at_path.st_dev, at_path.st_ino):
+                    raise OSError
+            except Exception:
+                os.close(following)
+                raise
+            os.close(descriptor)
+            descriptor = following
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def _open_directory_at(parent, name):
+    if not isinstance(name, str) or name in ("", ".", "..") or "/" in name:
+        raise OSError
+    descriptor = os.open(name, _directory_flags(), dir_fd=parent)
+    try:
+        observed = os.fstat(descriptor)
+        at_path = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if not _owned_directory(observed) or (observed.st_dev, observed.st_ino) != (
+            at_path.st_dev,
+            at_path.st_ino,
+        ):
+            raise OSError
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def _read_fd(descriptor, maximum):
+    chunks = []
+    remaining = maximum + 1
+    while remaining:
+        chunk = os.read(descriptor, min(64 * 1024, remaining))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    content = b"".join(chunks)
+    if len(content) > maximum:
+        raise OSError
+    return content
+
+
+def _default_mount_id(descriptor):
+    fdinfo = os.open(
+        f"/proc/self/fdinfo/{descriptor}",
+        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        content = _read_fd(fdinfo, 4096)
+    finally:
+        os.close(fdinfo)
+    fields = []
+    for line in content.splitlines():
+        parts = line.split()
+        if parts and parts[0] == b"mnt_id:":
+            fields.append(parts)
+    if (
+        len(fields) != 1
+        or len(fields[0]) != 2
+        or not fields[0][1].isdigit()
+        or not _positive(int(fields[0][1]))
+    ):
+        raise OSError
+    return int(fields[0][1])
+
+
+def _mount_id(descriptor):
+    provider = _default_mount_id if MOUNT_ID is None else MOUNT_ID
+    value = provider(descriptor)
+    if not _positive(value):
+        raise OSError
+    return value
+
+
+def _require_mount(descriptor, expected_mount_id):
+    if _mount_id(descriptor) != expected_mount_id:
+        raise OSError
+
+
+def _budget_add(budget, observed, depth):
+    if depth > MAXIMUM_DELETE_DEPTH:
+        raise TraversalLimitExceeded
+    budget["nodes"] += 1
+    budget["bytes"] += max(0, observed.st_size)
+    if budget["nodes"] > MAXIMUM_DELETE_NODES or budget["bytes"] > MAXIMUM_DELETE_BYTES:
+        raise TraversalLimitExceeded
+
+
+def _open_path_at(parent, name, mount_id):
+    if not isinstance(name, str) or name in ("", ".", "..") or "/" in name:
+        raise OSError
+    descriptor = os.open(name, _path_flags(), dir_fd=parent)
+    try:
+        observed = os.fstat(descriptor)
+        at_path = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if (observed.st_dev, observed.st_ino, observed.st_mode) != (
+            at_path.st_dev,
+            at_path.st_ino,
+            at_path.st_mode,
+        ):
+            raise OSError
+        _require_mount(descriptor, mount_id)
+        return descriptor, observed
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def _read_owned_file_at(parent, name, mode, maximum):
+    descriptor = os.open(name, _file_flags(), dir_fd=parent)
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_uid != ROOT_UID
+            or before.st_gid != ROOT_GID
+            or stat.S_IMODE(before.st_mode) != mode
+            or not 0 < before.st_size <= maximum
+        ):
+            raise OSError
+        content = _read_fd(descriptor, maximum)
+        after = os.fstat(descriptor)
+        at_path = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if (
+            _witness(before) != _witness(after)
+            or (after.st_dev, after.st_ino) != (at_path.st_dev, at_path.st_ino)
+            or len(content) != before.st_size
+        ):
+            raise OSError
+        return content, after
+    finally:
+        os.close(descriptor)
+
+
+def _read_plan(task):
+    gate = tasks = task_root = runner = prepared = None
+    try:
+        gate = _open_rooted_directory(GATE_ROOT)
+        tasks = _open_directory_at(gate, "tasks")
+        task_root = _open_directory_at(tasks, task)
+        runner = _open_directory_at(task_root, "runner")
+        prepared = _open_directory_at(runner, "prepared")
+        content, _observed = _read_owned_file_at(
+            prepared, "cleanup-plan.json", 0o600, MAXIMUM_PLAN_BYTES
+        )
+    except OSError:
+        raise CleanupFailure(
+            "GATE_CLEANUP_PLAN_INVALID", "Gate cleanup plan is invalid.", 65
+        ) from None
+    finally:
+        for descriptor in (prepared, runner, task_root, tasks, gate):
+            if descriptor is not None:
+                os.close(descriptor)
+    try:
+        value = json.loads(
+            content,
+            object_pairs_hook=_unique,
+            parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()),
+        )
+        if not isinstance(value, dict) or _canonical_bytes(value) != content:
+            raise ValueError
+    except (UnicodeError, ValueError, json.JSONDecodeError, RecursionError):
+        raise CleanupFailure(
+            "GATE_CLEANUP_PLAN_INVALID", "Gate cleanup plan is invalid.", 65
+        ) from None
+    return value
+
+
+def _path_identity(kind, path):
+    return _canonical_identity(
+        {"kind": kind, "absolute_path": str(path)}, RESOURCE_PATH_IDENTITY_SCHEME
+    )
+
+
+def _executor_path_identity(path):
+    return _canonical_identity(
+        {"absolute_path": str(path)}, EXECUTOR_PATH_IDENTITY_SCHEME
+    )
+
+
+def _expected_targets(task):
+    task_root = GATE_ROOT / "tasks" / task
+    values = {
+        kind: ("delete", task_root.joinpath(*parts))
+        for kind, parts in DELETE_RELATIVE_PATHS.items()
+    }
+    values.update(
+        {
+            kind: ("retain", GATE_ROOT.joinpath(*parts))
+            for kind, parts in RETAIN_RELATIVE_PATHS.items()
+        }
+    )
+    return values
+
+
+def _validate_process_record(raw, task):
+    if not isinstance(raw, dict) or set(raw) != {
+        "identity",
+        "name",
+        "task_identity",
+        "pid",
+        "process_start_ticks",
+        "executable_device",
+        "executable_inode",
+        "cmdline_identity",
+        "socket_device",
+        "socket_inode",
+        "socket_kernel_inode",
+    }:
+        raise ValueError
+    if (
+        raw["name"] not in PROCESS_NAMES
+        or raw["task_identity"] != task
+        or not _positive(raw["pid"])
+        or raw["pid"] > 2**31 - 1
+        or not _positive(raw["process_start_ticks"])
+        or not _positive(raw["executable_device"])
+        or not _positive(raw["executable_inode"])
+        or not _identity(raw["cmdline_identity"])
+        or not _identity(raw["identity"])
+    ):
+        raise ValueError
+    sockets = (
+        raw["socket_device"],
+        raw["socket_inode"],
+        raw["socket_kernel_inode"],
+    )
+    if (raw["name"] == "runner" and sockets != (None, None, None)) or (
+        raw["name"] != "runner" and not all(_positive(item) for item in sockets)
+    ):
+        raise ValueError
+    expected = _canonical_identity(
+        {key: value for key, value in raw.items() if key != "identity"},
+        PROCESS_IDENTITY_SCHEME,
+    )
+    if raw["identity"] != expected:
+        raise ValueError
+
+
+def _validate_executor(raw, arguments, installed):
+    if not isinstance(raw, dict) or set(raw) != {
+        "path_identity",
+        "file_identity",
+        "device",
+        "inode",
+        "closure_identity",
+        "backend_identity",
+        "backend_device",
+        "backend_inode",
+    }:
+        raise ValueError
+    expected = {
+        "path_identity": _executor_path_identity(EXECUTOR),
+        "file_identity": arguments[6],
+        "device": installed["executor_device"],
+        "inode": installed["executor_inode"],
+        "closure_identity": arguments[8],
+        "backend_identity": arguments[10],
+        "backend_device": installed["backend_device"],
+        "backend_inode": installed["backend_inode"],
+    }
+    if raw != expected:
+        raise ValueError
+
+
+def _validate_plan(plan, arguments, installed):
+    if (
+        set(plan)
+        != {
+            "schema_version",
+            "identity",
+            "task_identity",
+            "observation_identity",
+            "targets",
+            "processes",
+            "executor_path",
+            "executor",
+        }
+        or plan["schema_version"] != PLAN_SCHEMA
+    ):
+        raise ValueError
+    task = arguments[2]
+    if (
+        plan["task_identity"] != task
+        or plan["identity"] != arguments[4]
+        or not _identity(plan["identity"])
+        or not _identity(plan["observation_identity"])
+        or plan["executor_path"] != str(EXECUTOR)
+        or not isinstance(plan["targets"], list)
+        or not isinstance(plan["processes"], list)
+    ):
+        raise ValueError
+    expected_targets = _expected_targets(task)
+    if len(plan["targets"]) != len(RESOURCE_KINDS):
+        raise ValueError
+    for raw, kind in zip(plan["targets"], RESOURCE_KINDS, strict=True):
+        if not isinstance(raw, dict) or set(raw) != {
+            "kind",
+            "disposition",
+            "absolute_path",
+            "path_identity",
+            "device",
+            "inode",
+        }:
+            raise ValueError
+        disposition, path = expected_targets[kind]
+        if (
+            raw["kind"] != kind
+            or raw["disposition"] != disposition
+            or raw["absolute_path"] != str(path)
+            or raw["path_identity"] != _path_identity(kind, path)
+            or not _positive(raw["device"])
+            or not _positive(raw["inode"])
+        ):
+            raise ValueError
+    aliases = {}
+    for raw in plan["targets"]:
+        witness = raw["device"], raw["inode"]
+        previous = aliases.get(witness)
+        if previous is not None and not (
+            previous["disposition"] == raw["disposition"] == "retain"
+            and previous["absolute_path"] == raw["absolute_path"]
+        ):
+            raise ValueError
+        aliases[witness] = raw
+    if len(plan["processes"]) != len(PROCESS_NAMES):
+        raise ValueError
+    for raw, name in zip(plan["processes"], PROCESS_NAMES, strict=True):
+        _validate_process_record(raw, task)
+        if raw["name"] != name:
+            raise ValueError
+    if len({item["pid"] for item in plan["processes"]}) != len(PROCESS_NAMES):
+        raise ValueError
+    dockerd = plan["processes"][0]
+    dockerd_target = next(
+        item for item in plan["targets"] if item["kind"] == "dockerd-socket"
+    )
+    if (
+        dockerd["socket_device"],
+        dockerd["socket_inode"],
+    ) != (dockerd_target["device"], dockerd_target["inode"]):
+        raise ValueError
+    _validate_executor(plan["executor"], arguments, installed)
+    calculated = _canonical_identity(
+        {key: value for key, value in plan.items() if key != "identity"},
+        PLAN_IDENTITY_SCHEME,
+    )
+    if plan["identity"] != calculated:
+        raise ValueError
+
+
+def _file_evidence(path):
+    parent = descriptor = None
+    try:
+        parent = _open_rooted_directory(path.parent)
+        descriptor = os.open(path.name, _file_flags(), dir_fd=parent)
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_uid != ROOT_UID
+            or before.st_gid != ROOT_GID
+            or stat.S_IMODE(before.st_mode) != 0o555
+            or not 0 < before.st_size <= MAXIMUM_EXECUTABLE_BYTES
+        ):
+            raise OSError
+        content = _read_fd(descriptor, MAXIMUM_EXECUTABLE_BYTES)
+        after = os.fstat(descriptor)
+        at_path = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+        if (
+            _witness(before) != _witness(after)
+            or (after.st_dev, after.st_ino) != (at_path.st_dev, at_path.st_ino)
+            or len(content) != before.st_size
+        ):
+            raise OSError
+        return f"sha256-{hashlib.sha256(content).hexdigest()}", after
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if parent is not None:
+            os.close(parent)
+
+
+def _installed_evidence():
+    selected = SELECTED_BACKEND
+    try:
+        relative = selected.relative_to(OPERATOR_ROOT)
+    except ValueError:
+        return None
+    if (
+        len(relative.parts) != 3
+        or relative.parts[1:] != ("bin", "helixweave-gate-cleanup")
+        or not _identity(relative.parts[0])
+    ):
+        return None
+    try:
+        executor_identity, executor = _file_evidence(EXECUTOR)
+        backend_identity, backend = _file_evidence(selected)
+    except OSError:
+        return None
+    return {
+        "executor_identity": executor_identity,
+        "executor_device": executor.st_dev,
+        "executor_inode": executor.st_ino,
+        "closure_identity": relative.parts[0],
+        "backend_identity": backend_identity,
+        "backend_device": backend.st_dev,
+        "backend_inode": backend.st_ino,
+    }
+
+
+def _witness(value):
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_nlink,
+        value.st_uid,
+        value.st_gid,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _read_proc(path, maximum):
+    descriptor = os.open(path, _file_flags())
+    try:
+        return _read_fd(descriptor, maximum)
+    finally:
+        os.close(descriptor)
+
+
+def _start_ticks(path):
+    content = _read_proc(path, 4096)
+    closing = content.rfind(b")")
+    if closing < 0:
+        raise OSError
+    fields = content[closing + 2 :].split()
+    if len(fields) < 20:
+        raise OSError
+    value = int(fields[19])
+    if not _positive(value):
+        raise OSError
+    return value
+
+
+def _socket_path(task, name):
+    root = GATE_ROOT / "tasks" / task
+    return root / ("redis/redis.sock" if name == "redis" else "docker/docker.sock")
+
+
+def _socket_matches(record):
+    if record["name"] == "runner":
+        return True
+    process = PROC_ROOT / str(record["pid"])
+    socket_path = _socket_path(record["task_identity"], record["name"])
+    try:
+        start_before = _start_ticks(process / "stat")
+        socket_before = os.stat(socket_path, follow_symlinks=False)
+        owned = set()
+        count = 0
+        with os.scandir(process / "fd") as entries:
+            for entry in entries:
+                count += 1
+                if count > MAXIMUM_PROC_FDS or not entry.name.isdigit():
+                    raise OSError
+                target = os.readlink(entry.path)
+                match = re.fullmatch(r"socket:\[([1-9][0-9]*)\]", target)
+                if match is not None:
+                    owned.add(int(match.group(1)))
+        content = _read_proc(PROC_ROOT / "net/unix", MAXIMUM_PROC_NET_UNIX_BYTES)
+        matches = []
+        for raw_line in content.splitlines()[1:]:
+            fields = raw_line.decode("utf-8").split(maxsplit=7)
+            if len(fields) != 8 or fields[7] != str(socket_path):
+                continue
+            flags = int(fields[3], 16)
+            kernel_inode = int(fields[6], 10)
+            if (
+                fields[4] != "0001"
+                or fields[5] != "01"
+                or not flags & SO_ACCEPTCON
+                or kernel_inode not in owned
+                or kernel_inode != record["socket_kernel_inode"]
+            ):
+                raise OSError
+            matches.append(kernel_inode)
+        socket_after = os.stat(socket_path, follow_symlinks=False)
+        start_after = _start_ticks(process / "stat")
+    except (OSError, UnicodeError, ValueError):
+        return False
+    return (
+        len(matches) == 1
+        and start_before == start_after == record["process_start_ticks"]
+        and _witness(socket_before) == _witness(socket_after)
+        and SOCKET_MATCHER(socket_after.st_mode)
+        and socket_after.st_nlink == 1
+        and socket_after.st_uid == ROOT_UID
+        and socket_after.st_gid == ROOT_GID
+        and socket_after.st_dev == record["socket_device"]
+        and socket_after.st_ino == record["socket_inode"]
+    )
+
+
+def _pid_file_matches(record):
+    root = pids = None
+    try:
+        root = _open_rooted_directory(GATE_ROOT / "tasks" / record["task_identity"])
+        pids = _open_directory_at(root, "pids")
+        content, _observed = _read_owned_file_at(
+            pids, f"{record['name']}.pid", 0o600, 32
+        )
+        return content == f"{record['pid']}\n".encode("ascii")
+    except OSError:
+        return False
+    finally:
+        if pids is not None:
+            os.close(pids)
+        if root is not None:
+            os.close(root)
+
+
+def _process_core_matches(record):
+    process = PROC_ROOT / str(record["pid"])
+    try:
+        before = _start_ticks(process / "stat")
+        executable = (process / "exe").stat()
+        cmdline = _read_proc(process / "cmdline", 64 * 1024)
+        after = _start_ticks(process / "stat")
+    except (OSError, ValueError):
+        return False
+    return (
+        before == after == record["process_start_ticks"]
+        and executable.st_dev == record["executable_device"]
+        and executable.st_ino == record["executable_inode"]
+        and f"sha256-{hashlib.sha256(cmdline).hexdigest()}"
+        == record["cmdline_identity"]
+        and record["task_identity"].encode("ascii") in cmdline.split(b"\0")
+        and _pid_file_matches(record)
+    )
+
+
+def _process_matches(record):
+    return _process_core_matches(record) and _socket_matches(record)
+
+
+def _open_pidfd(pid):
+    if PIDFD_OPEN is None or PIDFD_SEND_SIGNAL is None:
+        return None
+    try:
+        return PIDFD_OPEN(pid, 0)
+    except OSError as error:
+        if error.errno in (errno.ENOSYS, errno.EINVAL, errno.EPERM):
+            return None
+        raise
+
+
+def _default_pidfd_wait(pidfd):
+    poller = select.poll()
+    poller.register(
+        pidfd,
+        select.POLLIN
+        | select.POLLHUP
+        | select.POLLERR
+        | getattr(select, "POLLNVAL", 0),
+    )
+    events = poller.poll(0)
+    terminal = select.POLLIN | select.POLLHUP
+    invalid = select.POLLERR | getattr(select, "POLLNVAL", 0)
+    if any(mask & invalid and not mask & terminal for _fd, mask in events):
+        raise OSError
+    return any(mask & terminal for _fd, mask in events)
+
+
+def _pidfd_exited(pidfd):
+    waiter = _default_pidfd_wait if PIDFD_WAIT is None else PIDFD_WAIT
+    try:
+        result = waiter(pidfd)
+    except OSError:
+        raise CleanupFailure(
+            "GATE_CLEANUP_PROCESS_STOP_FAILED",
+            "Gate cleanup process state is uncertain.",
+            69,
+        ) from None
+    if not isinstance(result, bool):
+        raise CleanupFailure(
+            "GATE_CLEANUP_PROCESS_STOP_FAILED",
+            "Gate cleanup process state is uncertain.",
+            69,
+        )
+    return result
+
+
+def _instance_state(record):
+    process = PROC_ROOT / str(record["pid"])
+    try:
+        process.stat(follow_symlinks=False)
+    except FileNotFoundError:
+        return "exited"
+    except OSError:
+        return "uncertain"
+    try:
+        start = _start_ticks(process / "stat")
+    except FileNotFoundError:
+        return "exited"
+    except (OSError, ValueError):
+        return "uncertain"
+    return "alive" if start == record["process_start_ticks"] else "uncertain"
+
+
+def _preflight_processes(records):
+    handles = []
+    try:
+        for record in records:
+            try:
+                pidfd = _open_pidfd(record["pid"])
+            except OSError:
+                raise CleanupFailure(
+                    "GATE_CLEANUP_PROCESS_MISMATCH",
+                    "Gate cleanup process identity does not match.",
+                    65,
+                ) from None
+            if not _process_matches(record):
+                if pidfd is not None:
+                    CLOSE_FD(pidfd)
+                raise CleanupFailure(
+                    "GATE_CLEANUP_PROCESS_MISMATCH",
+                    "Gate cleanup process identity does not match.",
+                    65,
+                )
+            handles.append((record, pidfd))
+        return handles
+    except Exception:
+        for _record, pidfd in handles:
+            if pidfd is not None:
+                CLOSE_FD(pidfd)
+        raise
+
+
+def _pre_signal_revalidate(handles):
+    if any(not _process_matches(record) for record, _pidfd in handles):
+        raise CleanupFailure(
+            "GATE_CLEANUP_PROCESS_MISMATCH",
+            "Gate cleanup process identity does not match.",
+            65,
+        )
+
+
+def _send(handle, selected_signal):
+    record, pidfd = handle
+    try:
+        if pidfd is not None:
+            PIDFD_SEND_SIGNAL(pidfd, selected_signal, None, 0)
+            return
+        state = _instance_state(record)
+        if state != "alive":
+            raise CleanupFailure(
+                "GATE_CLEANUP_PROCESS_STOP_FAILED",
+                "Gate cleanup process state is uncertain.",
+                69,
+            )
+        KILL(record["pid"], selected_signal)
+    except ProcessLookupError:
+        return
+    except OSError:
+        raise CleanupFailure(
+            "GATE_CLEANUP_PROCESS_STOP_FAILED",
+            "Gate cleanup process state is uncertain.",
+            69,
+        ) from None
+
+
+def _handle_state(handle):
+    record, pidfd = handle
+    if pidfd is not None:
+        return "exited" if _pidfd_exited(pidfd) else "alive"
+    return _instance_state(record)
+
+
+def _wait(handles, timeout):
+    deadline = MONOTONIC() + timeout
+    remaining = list(handles)
+    while remaining and MONOTONIC() < deadline:
+        following = []
+        for handle in remaining:
+            state = _handle_state(handle)
+            if state == "uncertain":
+                raise CleanupFailure(
+                    "GATE_CLEANUP_PROCESS_STOP_FAILED",
+                    "Gate cleanup process state is uncertain.",
+                    69,
+                )
+            if state == "alive":
+                following.append(handle)
+        remaining = following
+        if remaining:
+            SLEEP(POLL_SECONDS)
+    return remaining
+
+
+def _terminate(handles):
+    ordered = sorted(
+        handles,
+        key=lambda item: {"runner": 0, "redis": 1, "dockerd": 2}[item[0]["name"]],
+    )
+    _pre_signal_revalidate(ordered)
+    for handle in ordered:
+        _send(handle, signal.SIGTERM)
+    remaining = _wait(ordered, TERM_TIMEOUT_SECONDS)
+    for handle in remaining:
+        _send(handle, signal.SIGKILL)
+    if _wait(remaining, KILL_TIMEOUT_SECONDS):
+        raise CleanupFailure(
+            "GATE_CLEANUP_PROCESS_STOP_FAILED",
+            "Gate cleanup process could not be stopped.",
+            69,
+        )
+
+
+def _target_stat(path):
+    try:
+        return os.stat(path, follow_symlinks=False)
+    except OSError:
+        return None
+
+
+def _target_matches(raw):
+    observed = _target_stat(Path(raw["absolute_path"]))
+    if observed is None:
+        return False
+    expected_type = SOCKET_MATCHER if raw["kind"] == "dockerd-socket" else stat.S_ISDIR
+    return (
+        expected_type(observed.st_mode)
+        and observed.st_uid == ROOT_UID
+        and observed.st_gid == ROOT_GID
+        and (
+            raw["kind"] == "dockerd-socket"
+            or not stat.S_IMODE(observed.st_mode) & 0o022
+        )
+        and observed.st_dev == raw["device"]
+        and observed.st_ino == raw["inode"]
+        and (raw["kind"] != "dockerd-socket" or observed.st_nlink == 1)
+    )
+
+
+def _preflight_targets(targets):
+    if not all(_target_matches(raw) for raw in targets):
+        raise CleanupFailure(
+            "GATE_CLEANUP_TARGET_MISMATCH",
+            "Gate cleanup target identity does not match.",
+            65,
+        )
+
+
+def _validate_tree(descriptor, device, mount_id, budget, depth):
+    observed = os.fstat(descriptor)
+    _require_mount(descriptor, mount_id)
+    if not _owned_directory(observed) or observed.st_dev != device:
+        raise OSError
+    _budget_add(budget, observed, depth)
+    with os.scandir(descriptor) as entries:
+        for entry in entries:
+            name = entry.name
+            path_descriptor, child = _open_path_at(descriptor, name, mount_id)
+            try:
+                if (
+                    child.st_uid != ROOT_UID
+                    or child.st_gid != ROOT_GID
+                    or child.st_dev != device
+                ):
+                    raise OSError
+                if stat.S_ISDIR(child.st_mode):
+                    nested = _open_directory_at(descriptor, name)
+                    try:
+                        nested_stat = os.fstat(nested)
+                        if (nested_stat.st_dev, nested_stat.st_ino) != (
+                            child.st_dev,
+                            child.st_ino,
+                        ):
+                            raise OSError
+                        _validate_tree(
+                            nested,
+                            device,
+                            mount_id,
+                            budget,
+                            depth + 1,
+                        )
+                    finally:
+                        os.close(nested)
+                else:
+                    _budget_add(budget, child, depth + 1)
+            finally:
+                os.close(path_descriptor)
+
+
+def _delete_tree(descriptor, device, mount_id, budget, depth):
+    current_directory = os.fstat(descriptor)
+    _require_mount(descriptor, mount_id)
+    _budget_add(budget, current_directory, depth)
+    with os.scandir(descriptor) as entries:
+        for entry in entries:
+            name = entry.name
+            path_descriptor, observed = _open_path_at(descriptor, name, mount_id)
+            try:
+                if (
+                    observed.st_uid != ROOT_UID
+                    or observed.st_gid != ROOT_GID
+                    or observed.st_dev != device
+                ):
+                    raise OSError
+                if stat.S_ISDIR(observed.st_mode):
+                    nested = _open_directory_at(descriptor, name)
+                    try:
+                        nested_stat = os.fstat(nested)
+                        if (nested_stat.st_dev, nested_stat.st_ino) != (
+                            observed.st_dev,
+                            observed.st_ino,
+                        ):
+                            raise OSError
+                        _delete_tree(
+                            nested,
+                            device,
+                            mount_id,
+                            budget,
+                            depth + 1,
+                        )
+                    finally:
+                        os.close(nested)
+                    current = os.stat(
+                        name,
+                        dir_fd=descriptor,
+                        follow_symlinks=False,
+                    )
+                    if (current.st_dev, current.st_ino) != (
+                        observed.st_dev,
+                        observed.st_ino,
+                    ):
+                        raise OSError
+                    os.rmdir(name, dir_fd=descriptor)
+                else:
+                    _budget_add(budget, observed, depth + 1)
+                    current = os.stat(
+                        name,
+                        dir_fd=descriptor,
+                        follow_symlinks=False,
+                    )
+                    if (current.st_dev, current.st_ino, current.st_mode) != (
+                        observed.st_dev,
+                        observed.st_ino,
+                        observed.st_mode,
+                    ):
+                        raise OSError
+                    os.unlink(name, dir_fd=descriptor)
+                os.fsync(descriptor)
+            finally:
+                os.close(path_descriptor)
+
+
+def _open_target_parent(task_descriptor, parts, mount_id):
+    parent = os.dup(task_descriptor)
+    try:
+        _require_mount(parent, mount_id)
+        for part in parts[:-1]:
+            following = _open_directory_at(parent, part)
+            _require_mount(following, mount_id)
+            os.close(parent)
+            parent = following
+        return parent
+    except Exception:
+        os.close(parent)
+        raise
+
+
+def _validate_delete_target(
+    task_descriptor,
+    raw,
+    mount_id,
+    budget,
+    *,
+    allow_missing_socket,
+):
+    kind = raw["kind"]
+    parts = DELETE_RELATIVE_PATHS[kind]
+    parent = _open_target_parent(task_descriptor, parts, mount_id)
+    try:
+        name = parts[-1]
+        try:
+            observed = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            if kind == "dockerd-socket" and allow_missing_socket:
+                return
+            raise
+        if (observed.st_dev, observed.st_ino) != (raw["device"], raw["inode"]):
+            raise OSError
+        if kind == "dockerd-socket":
+            descriptor, current = _open_path_at(parent, name, mount_id)
+            try:
+                if (
+                    not SOCKET_MATCHER(current.st_mode)
+                    or current.st_uid != ROOT_UID
+                    or current.st_gid != ROOT_GID
+                    or current.st_nlink != 1
+                    or (current.st_dev, current.st_ino) != (raw["device"], raw["inode"])
+                ):
+                    raise OSError
+                _budget_add(budget, current, 1)
+            finally:
+                os.close(descriptor)
+        else:
+            descriptor = _open_directory_at(parent, name)
+            try:
+                _validate_tree(descriptor, observed.st_dev, mount_id, budget, 1)
+            finally:
+                os.close(descriptor)
+    finally:
+        os.close(parent)
+
+
+def _delete_target(task_descriptor, raw, mount_id, budget):
+    kind = raw["kind"]
+    parts = DELETE_RELATIVE_PATHS[kind]
+    parent = _open_target_parent(task_descriptor, parts, mount_id)
+    try:
+        name = parts[-1]
+        try:
+            observed = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            if kind == "dockerd-socket":
+                return
+            raise
+        if (observed.st_dev, observed.st_ino) != (raw["device"], raw["inode"]):
+            raise OSError
+        if kind == "dockerd-socket":
+            descriptor, current = _open_path_at(parent, name, mount_id)
+            try:
+                if (
+                    not SOCKET_MATCHER(current.st_mode)
+                    or current.st_uid != ROOT_UID
+                    or current.st_gid != ROOT_GID
+                    or current.st_nlink != 1
+                    or (current.st_dev, current.st_ino) != (raw["device"], raw["inode"])
+                ):
+                    raise OSError
+                _budget_add(budget, current, 1)
+                os.unlink(name, dir_fd=parent)
+            finally:
+                os.close(descriptor)
+        else:
+            descriptor = _open_directory_at(parent, name)
+            try:
+                _delete_tree(descriptor, observed.st_dev, mount_id, budget, 1)
+            finally:
+                os.close(descriptor)
+            current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != (observed.st_dev, observed.st_ino):
+                raise OSError
+            os.rmdir(name, dir_fd=parent)
+        os.fsync(parent)
+    finally:
+        os.close(parent)
+
+
+DELETION_ORDER = (
+    "checkout",
+    "dockerd-socket",
+    "process-state",
+    "redis-state",
+    "venv",
+    "runner-state",
+)
+
+
+def _open_task_descriptors(task):
+    gate = tasks = task_root = None
+    try:
+        gate = _open_rooted_directory(GATE_ROOT)
+        tasks = _open_directory_at(gate, "tasks")
+        task_root = _open_directory_at(tasks, task)
+        return gate, tasks, task_root
+    except Exception:
+        for descriptor in (task_root, tasks, gate):
+            if descriptor is not None:
+                os.close(descriptor)
+        raise
+
+
+def _preflight_deletion(plan):
+    gate = tasks = task_root = None
+    try:
+        gate, tasks, task_root = _open_task_descriptors(plan["task_identity"])
+        mount_id = _mount_id(task_root)
+        budget = {"nodes": 0, "bytes": 0}
+        targets = {item["kind"]: item for item in plan["targets"]}
+        for kind in DELETION_ORDER:
+            _validate_delete_target(
+                task_root,
+                targets[kind],
+                mount_id,
+                budget,
+                allow_missing_socket=False,
+            )
+        return mount_id
+    except TraversalLimitExceeded:
+        raise CleanupFailure(
+            "GATE_CLEANUP_LIMIT_EXCEEDED",
+            "Gate cleanup target traversal exceeds limits.",
+            65,
+        ) from None
+    except OSError:
+        raise CleanupFailure(
+            "GATE_CLEANUP_TARGET_MISMATCH",
+            "Gate cleanup target identity does not match.",
+            65,
+        ) from None
+    finally:
+        for descriptor in (task_root, tasks, gate):
+            if descriptor is not None:
+                os.close(descriptor)
+
+
+def _delete_targets(plan, expected_mount_id):
+    gate = tasks = task_root = None
+    try:
+        gate, tasks, task_root = _open_task_descriptors(plan["task_identity"])
+        _require_mount(task_root, expected_mount_id)
+        targets = {item["kind"]: item for item in plan["targets"]}
+        validation_budget = {"nodes": 0, "bytes": 0}
+        for kind in DELETION_ORDER:
+            _validate_delete_target(
+                task_root,
+                targets[kind],
+                expected_mount_id,
+                validation_budget,
+                allow_missing_socket=True,
+            )
+        deletion_budget = {"nodes": 0, "bytes": 0}
+        for kind in DELETION_ORDER:
+            _delete_target(
+                task_root,
+                targets[kind],
+                expected_mount_id,
+                deletion_budget,
+            )
+        os.fsync(task_root)
+        os.fsync(tasks)
+        os.fsync(gate)
+    except TraversalLimitExceeded:
+        raise CleanupFailure(
+            "GATE_CLEANUP_LIMIT_EXCEEDED",
+            "Gate cleanup target traversal exceeds limits.",
+            69,
+        ) from None
+    except OSError:
+        raise CleanupFailure(
+            "GATE_CLEANUP_DELETE_FAILED",
+            "Gate cleanup targets could not be deleted.",
+            69,
+        ) from None
+    finally:
+        for descriptor in (task_root, tasks, gate):
+            if descriptor is not None:
+                os.close(descriptor)
+
+
+def main(argv=None):
+    values = tuple(sys.argv[1:] if argv is None else argv)
+    os.environ.clear()
+    os.environ.update(
+        {
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+        }
+    )
+    handles = []
+    try:
+        if GETEUID() != 0:
+            raise CleanupFailure(
+                "GATE_CLEANUP_PRIVILEGE_REQUIRED",
+                "Gate cleanup helper must run as root.",
+                77,
+            )
+        if not _valid(values):
+            raise CleanupFailure(
+                "GATE_CLEANUP_REQUEST_INVALID",
+                "Gate cleanup request is invalid.",
+                64,
+            )
+        installed = _installed_evidence()
+        if installed is None or (
+            installed["executor_identity"],
+            installed["closure_identity"],
+            installed["backend_identity"],
+        ) != (values[6], values[8], values[10]):
+            raise CleanupFailure(
+                "GATE_CLEANUP_EXECUTOR_MISMATCH",
+                "Gate cleanup executor identity does not match.",
+                65,
+            )
+        plan = _read_plan(values[2])
+        try:
+            _validate_plan(plan, values, installed)
+        except (TypeError, ValueError):
+            raise CleanupFailure(
+                "GATE_CLEANUP_PLAN_INVALID", "Gate cleanup plan is invalid.", 65
+            ) from None
+        _preflight_targets(plan["targets"])
+        expected_mount_id = _preflight_deletion(plan)
+        handles = _preflight_processes(plan["processes"])
+        _terminate(handles)
+        _delete_targets(plan, expected_mount_id)
+        _write_receipt(plan)
+        return 0
+    except CleanupFailure as error:
+        _write_error(error.code, error.message)
+        return error.exit_code
+    except Exception:
+        _write_error("GATE_CLEANUP_FAILED", "Gate cleanup failed.")
+        return 70
+    finally:
+        for _record, pidfd in handles:
+            if pidfd is not None:
+                CLOSE_FD(pidfd)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

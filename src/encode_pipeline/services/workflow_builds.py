@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
+import re
 
 from encode_pipeline.platform.adapters import (
     WorkflowAdapter,
@@ -18,6 +19,8 @@ from encode_pipeline.platform.results import Issue, Result
 BUILD_IDENTITY_SCHEME = "sha256-tree-v1"
 ENCODE_LOGICAL_ENTRYPOINT = "workflow/Snakefile"
 _CACHE_DIRECTORY_NAMES = frozenset({"__pycache__", ".mypy_cache", ".pytest_cache"})
+_SCRIPT_REFERENCE = re.compile(rb"(?<![0-9A-Za-z_.-])scripts/([^\x00\s'\"`\\|;&()<>]+)")
+_SCRIPT_NAME = re.compile(r"^[0-9A-Za-z][0-9A-Za-z_.-]{0,254}$")
 
 
 class WorkflowBuildIdentityProvider:
@@ -50,6 +53,10 @@ class WorkflowBuildIdentityProvider:
     def registry(self) -> WorkflowRegistry:
         """Return the exact registry whose adapters provide build identities."""
         return self._registry
+
+    def source_manifest(self) -> tuple[tuple[str, bytes], ...]:
+        """Return the controlled ENCODE runtime bytes in canonical path order."""
+        return self._source_manifest()
 
     def capture(self, workflow_id: str) -> Result[WorkflowBuildIdentity]:
         """Return the current build identity without leaking local paths."""
@@ -195,20 +202,15 @@ class WorkflowBuildIdentityProvider:
         return Result.success(identity)
 
     def _source_manifest(self) -> tuple[tuple[str, bytes], ...]:
+        """Capture only the independently switchable ENCODE runtime closure."""
         root = self._project_root
         if not root.is_dir() or root.is_symlink():
             raise ValueError("project root is unavailable")
 
         entries: dict[str, bytes] = {}
-        self._add_required_file(entries, root / "pyproject.toml")
         self._add_required_file(
             entries,
             root / "docs" / "architecture" / "artifact-inventory.yaml",
-        )
-        self._add_tree(
-            entries,
-            root / "src" / "encode_pipeline",
-            suffixes=frozenset({".py"}),
         )
         self._add_tree(entries, root / "workflow", suffixes=None)
         self._add_tree(
@@ -216,16 +218,32 @@ class WorkflowBuildIdentityProvider:
             root / "profiles" / "default",
             suffixes=None,
         )
-        self._add_tree(
-            entries,
-            root / "scripts",
-            suffixes=None,
-            recursive=False,
-        )
+        for script_name in self._referenced_runtime_scripts(entries):
+            self._add_required_file(entries, root / "scripts" / script_name)
         entrypoint = ENCODE_LOGICAL_ENTRYPOINT
         if entrypoint not in entries:
             raise ValueError("workflow entrypoint is missing")
         return tuple(sorted(entries.items()))
+
+    @staticmethod
+    def _referenced_runtime_scripts(entries: dict[str, bytes]) -> tuple[str, ...]:
+        """Return the exact top-level scripts named by workflow/profile bytes."""
+        names: set[str] = set()
+        for logical_path, content in entries.items():
+            if not (
+                logical_path.startswith("workflow/")
+                or logical_path.startswith("profiles/default/")
+            ):
+                continue
+            for match in _SCRIPT_REFERENCE.finditer(content):
+                try:
+                    name = match.group(1).decode("ascii")
+                except UnicodeDecodeError as exc:
+                    raise ValueError("runtime script reference is invalid") from exc
+                if _SCRIPT_NAME.fullmatch(name) is None:
+                    raise ValueError("runtime script reference is invalid")
+                names.add(name)
+        return tuple(sorted(names))
 
     def _add_tree(
         self,

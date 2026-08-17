@@ -5,9 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 import traceback
+from dataclasses import replace
 
 import pytest
 
+from encode_pipeline.persistence.runtime import open_run_persistence
 from encode_pipeline.persistence.repositories import SqlAlchemyRunRepository
 from encode_pipeline.persistence.input_registry import (
     SqlAlchemyInputRegistryRepository,
@@ -29,6 +31,11 @@ from encode_pipeline.workers.runtime import WorkerRuntime, open_worker_runtime
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
 
 from .conftest import WORKFLOW_ID, create_planned_run, worker_settings
+
+
+def _prepare_database(configured) -> None:
+    persistence = open_run_persistence(configured.database_url)
+    persistence.close()
 
 
 def test_open_worker_runtime_reopens_sqlite_and_full_execution_dependencies(tmp_path):
@@ -110,6 +117,7 @@ def test_open_worker_runtime_aligns_command_and_identity_project_roots(tmp_path)
     )
 
     configured = worker_settings(tmp_path)
+    _prepare_database(configured)
     project_root = (tmp_path / "source").resolve()
     inventory = project_root / "docs/architecture/artifact-inventory.yaml"
     inventory.parent.mkdir(parents=True)
@@ -131,12 +139,45 @@ def test_open_worker_runtime_aligns_command_and_identity_project_roots(tmp_path)
         assert runtime.local_run_driver._command_builder is runtime.command_builder
 
 
+def test_open_worker_runtime_uses_settings_admitted_encode_runtime_root(tmp_path):
+    configured = worker_settings(tmp_path)
+    _prepare_database(configured)
+    runtime_root = (
+        tmp_path
+        / "runtimes"
+        / "encode"
+        / ("sha256-" + "a" * 64)
+        / "payload"
+        / "contracts"
+        / "encode-runtime"
+    ).resolve()
+    inventory = runtime_root / "docs" / "architecture" / "artifact-inventory.yaml"
+    inventory.parent.mkdir(parents=True)
+    shutil.copy2(
+        Path(__file__).resolve().parents[2]
+        / "docs/architecture/artifact-inventory.yaml",
+        inventory,
+    )
+    (runtime_root / "workflow").mkdir()
+    (runtime_root / "workflow" / "Snakefile").write_text("rule all:\n    input: []\n")
+    (runtime_root / "profiles" / "default").mkdir(parents=True)
+    (runtime_root / "profiles" / "default" / "config.yaml").write_text("cores: 1\n")
+    (runtime_root / "scripts").mkdir()
+    (runtime_root / "scripts" / "runtime.py").write_text("# controlled\n")
+    configured = replace(configured, encode_runtime_root=runtime_root)
+
+    with open_worker_runtime(configured) as runtime:
+        assert runtime.build_identity_provider.project_root == runtime_root
+        assert runtime.command_builder._project_root == runtime_root
+
+
 def test_open_worker_runtime_accepts_only_deployment_owned_registry_and_runner(
     tmp_path,
 ):
     from encode_pipeline.services.defaults import create_default_workflow_registry
 
     configured = worker_settings(tmp_path)
+    _prepare_database(configured)
     registry = create_default_workflow_registry()
     runner = ProcessRunner(
         allowed_executables=("/opt/helixweave/nextflow",),
@@ -159,6 +200,7 @@ def test_open_worker_runtime_uses_provider_registry_and_rejects_mismatch(tmp_pat
     from encode_pipeline.platform.registry import WorkflowRegistry
 
     configured = worker_settings(tmp_path)
+    _prepare_database(configured)
     selected = WorkflowRegistry()
     provider = WorkflowBuildIdentityProvider(
         selected,
@@ -211,7 +253,7 @@ def test_open_worker_runtime_closes_persistence_if_composition_fails(
             closed = True
 
     monkeypatch.setattr(
-        "encode_pipeline.workers.runtime.open_run_persistence",
+        "encode_pipeline.workers.runtime.open_existing_run_persistence",
         lambda _database_url: BrokenPersistence(),
     )
     monkeypatch.setattr(

@@ -23,6 +23,7 @@ CLI_MODULES = [
     "encode_pipeline.cli.app",
     "encode_pipeline.cli.admin",
     "encode_pipeline.cli.local_platform",
+    "encode_pipeline.deployment.cli",
     "encode_pipeline.cli.results_visibility_fixture",
     "encode_pipeline.cli.validate",
     "encode_pipeline.cli.manifest",

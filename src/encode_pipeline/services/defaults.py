@@ -142,7 +142,11 @@ def create_default_process_runner(
             disable_local_execution(adapter)
         configurations = []
     allowed_executables = [
-        "snakemake",
+        (
+            str(settings.encode_runner_root / "bin" / "snakemake")
+            if settings.encode_runner_root is not None
+            else "snakemake"
+        ),
         *(str(configuration.executable) for _, configuration in configurations),
     ]
     return ProcessRunner(
@@ -373,6 +377,8 @@ def create_default_command_builder(
     *,
     project_root: Path | None = None,
     reference_profile_resolver: ReferenceProfileRuntimeResolver | None = None,
+    snakemake_executable: Path | None = None,
+    conda_prefix: Path | None = None,
 ) -> "CommandBuilder":
     """Return a fresh command builder wired to the default registry.
 
@@ -391,4 +397,6 @@ def create_default_command_builder(
         registry=registry,
         project_root=project_root,
         reference_profile_resolver=reference_profile_resolver,
+        snakemake_executable=snakemake_executable,
+        conda_prefix=conda_prefix,
     )

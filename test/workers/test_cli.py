@@ -5,6 +5,7 @@ from __future__ import annotations
 from rq import Worker
 
 from encode_pipeline.persistence.migration_admission import MigrationAdmissionError
+from encode_pipeline.persistence.runtime import DatabaseSchemaNotReadyError
 from encode_pipeline.workers import cli
 from encode_pipeline.workers.timeouts import WorkerUnixSignalDeathPenalty
 
@@ -44,6 +45,11 @@ def test_worker_cli_starts_named_json_worker_in_burst_mode(tmp_path, monkeypatch
     monkeypatch.setattr(cli, "load_worker_settings", lambda: configured)
     monkeypatch.setattr(
         cli,
+        "open_existing_run_persistence",
+        lambda _database_url: type("Prepared", (), {"close": lambda self: None})(),
+    )
+    monkeypatch.setattr(
+        cli,
         "create_worker_redis_connection",
         lambda _settings: connection,
     )
@@ -75,6 +81,11 @@ def test_worker_cli_closes_redis_if_worker_construction_fails(tmp_path, monkeypa
             connection_closed = True
 
     monkeypatch.setattr(cli, "load_worker_settings", lambda: configured)
+    monkeypatch.setattr(
+        cli,
+        "open_existing_run_persistence",
+        lambda _database_url: type("Prepared", (), {"close": lambda self: None})(),
+    )
     monkeypatch.setattr(
         cli,
         "create_worker_redis_connection",
@@ -127,6 +138,35 @@ def test_worker_cli_rejects_migration_inventory_before_settings_or_redis(
     assert capsys.readouterr().err == (
         "migration execution admission failed [MIGRATION_REVISION_UNKNOWN]\n"
     )
+
+
+def test_worker_cli_rejects_unprepared_schema_before_redis(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    configured = worker_settings(tmp_path)
+    redis_opened = False
+
+    monkeypatch.setattr(cli, "load_worker_settings", lambda: configured)
+    monkeypatch.setattr(
+        cli,
+        "open_existing_run_persistence",
+        lambda _database_url: (_ for _ in ()).throw(
+            DatabaseSchemaNotReadyError("DATABASE_SCHEMA_NOT_CURRENT")
+        ),
+    )
+
+    def open_redis(_settings):
+        nonlocal redis_opened
+        redis_opened = True
+        raise AssertionError("Redis must not open for an unprepared database")
+
+    monkeypatch.setattr(cli, "create_worker_redis_connection", open_redis)
+
+    assert cli.main(["--burst"]) == 2
+    assert redis_opened is False
+    assert "DATABASE_SCHEMA_NOT_CURRENT" in capsys.readouterr().err
 
 
 def test_durable_worker_uses_hard_timeout_death_penalty():

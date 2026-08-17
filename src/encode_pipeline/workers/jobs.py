@@ -6,7 +6,10 @@ from rq import get_current_job
 from rq.timeouts import JobTimeoutException
 
 from encode_pipeline.persistence.migration_admission import MigrationAdmissionError
-from encode_pipeline.persistence.runtime import open_run_persistence
+from encode_pipeline.persistence.runtime import (
+    DatabaseSchemaNotReadyError,
+    open_existing_run_persistence,
+)
 from encode_pipeline.platform.adapters import (
     ReferenceProfileBindingAdapter,
     WorkflowAdapter,
@@ -101,6 +104,11 @@ def run_execution_job(run_id: str) -> None:
             pass
         raise timeout from None
     except MigrationAdmissionError as error:
+        raise WorkerExecutionError(
+            str(error),
+            reason_code=error.reason_code,
+        ) from None
+    except DatabaseSchemaNotReadyError as error:
         raise WorkerExecutionError(
             str(error),
             reason_code=error.reason_code,
@@ -411,7 +419,7 @@ def _record_initialization_failure_fallback(
         settings = load_worker_settings()
         if queue_name != settings.queue_name:
             return
-        persistence = open_run_persistence(settings.database_url)
+        persistence = open_existing_run_persistence(settings.database_url)
         run_service = RunService(
             WorkflowRegistry(),
             repository=persistence.repository,
@@ -677,7 +685,7 @@ def handle_execution_stopped(job, _connection) -> None:
         settings = load_worker_settings()
         if queue_name != settings.queue_name:
             return
-        persistence = open_run_persistence(settings.database_url)
+        persistence = open_existing_run_persistence(settings.database_url)
         run_service = RunService(
             WorkflowRegistry(),
             repository=persistence.repository,

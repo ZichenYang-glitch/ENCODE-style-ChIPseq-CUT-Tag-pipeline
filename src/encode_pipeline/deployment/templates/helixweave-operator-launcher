@@ -1,0 +1,21 @@
+#!/usr/bin/python3 -I
+"""Stable launcher for the atomically selected root-owned operator closure."""
+
+import os
+import sys
+
+
+PYTHON = "/usr/bin/python3"
+OPERATOR = "/opt/helixweave/operator/current/bin/helixweave-operator"
+ENVIRONMENT = {
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+}
+
+
+os.execve(
+    PYTHON,
+    (PYTHON, "-I", "-S", "-E", "-B", OPERATOR, *sys.argv[1:]),
+    ENVIRONMENT,
+)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,9 @@ REFERENCE_PROFILE_CONFIG_ENV = "ENCODE_PIPELINE_REFERENCE_PROFILE_CONFIG"
 JOB_TIMEOUT_SECONDS_ENV = "ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS"
 MANAGED_DOCKER_EXECUTABLE_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE"
 MANAGED_DOCKER_SOCKET_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
+ENCODE_RUNTIME_ROOT_ENV = "HELIXWEAVE_ENCODE_RUNTIME_ROOT"
+ENCODE_RUNNER_ROOT_ENV = "HELIXWEAVE_ENCODE_RUNNER_ROOT"
+ENCODE_CONDA_PREFIX_ENV = "HELIXWEAVE_ENCODE_CONDA_PREFIX"
 
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS = 2.0
@@ -33,6 +37,7 @@ DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS = 5.0
 DEFAULT_QUEUE_NAME = "encode-pipeline"
 DEFAULT_JOB_TIMEOUT_SECONDS = 604_800
 DEFAULT_MANAGED_DOCKER_SOCKET = Path("/var/run/docker.sock")
+_DEPLOYMENT_IDENTITY = re.compile(r"^sha256-[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -45,6 +50,9 @@ class WorkerSettings:
     workspace_root: Path
     storage_pool_config: Path | None = field(default=None, repr=False)
     reference_profile_config: Path | None = field(default=None, repr=False)
+    encode_runtime_root: Path | None = field(default=None, repr=False)
+    encode_runner_root: Path | None = field(default=None, repr=False)
+    encode_conda_prefix: Path | None = field(default=None, repr=False)
     job_timeout_seconds: int = DEFAULT_JOB_TIMEOUT_SECONDS
     redis_connect_timeout_seconds: float = DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS
     redis_api_read_timeout_seconds: float = DEFAULT_REDIS_API_READ_TIMEOUT_SECONDS
@@ -92,6 +100,57 @@ class WorkerSettings:
                 reference_profile_config,
                 "reference_profile_config",
             )
+        encode_runtime_root = self.encode_runtime_root
+        if encode_runtime_root is not None:
+            encode_runtime_root = _absolute_path(
+                encode_runtime_root,
+                "encode_runtime_root",
+            )
+            runtime_parents = encode_runtime_root.parents
+            if (
+                len(runtime_parents) < 5
+                or encode_runtime_root.name != "encode-runtime"
+                or encode_runtime_root.parent.name != "contracts"
+                or encode_runtime_root.parent.parent.name != "payload"
+                or _DEPLOYMENT_IDENTITY.fullmatch(
+                    encode_runtime_root.parent.parent.parent.name
+                )
+                is None
+                or encode_runtime_root.parent.parent.parent.parent.name != "encode"
+                or encode_runtime_root.parent.parent.parent.parent.parent.name
+                != "runtimes"
+            ):
+                raise ValueError(
+                    "encode_runtime_root must identify an immutable deployment"
+                )
+        encode_runner_root = self.encode_runner_root
+        if encode_runner_root is not None:
+            encode_runner_root = _absolute_path(
+                encode_runner_root,
+                "encode_runner_root",
+            )
+        encode_conda_prefix = self.encode_conda_prefix
+        if encode_conda_prefix is not None:
+            encode_conda_prefix = _absolute_path(
+                encode_conda_prefix,
+                "encode_conda_prefix",
+            )
+        if (encode_runner_root is None) != (encode_conda_prefix is None):
+            raise ValueError(
+                "encode_runner_root and encode_conda_prefix must be configured together"
+            )
+        if encode_runner_root is not None and (
+            encode_runtime_root is None
+            or encode_runner_root.name != "runner"
+            or encode_conda_prefix is None
+            or encode_conda_prefix.name != "conda-envs"
+            or encode_runner_root.parent != encode_conda_prefix.parent
+            or encode_runner_root.parent.name
+            != encode_runtime_root.parent.parent.parent.name
+        ):
+            raise ValueError(
+                "scientific runtime coordinates must match encode_runtime_root"
+            )
         managed_docker_executable = self.managed_docker_executable
         if managed_docker_executable is not None:
             managed_docker_executable = _absolute_path(
@@ -113,6 +172,9 @@ class WorkerSettings:
             "reference_profile_config",
             reference_profile_config,
         )
+        object.__setattr__(self, "encode_runtime_root", encode_runtime_root)
+        object.__setattr__(self, "encode_runner_root", encode_runner_root)
+        object.__setattr__(self, "encode_conda_prefix", encode_conda_prefix)
         object.__setattr__(
             self,
             "managed_docker_executable",
@@ -162,6 +224,21 @@ def load_worker_settings(
             None
             if source.get(REFERENCE_PROFILE_CONFIG_ENV) is None
             else Path(source[REFERENCE_PROFILE_CONFIG_ENV])
+        ),
+        encode_runtime_root=(
+            None
+            if source.get(ENCODE_RUNTIME_ROOT_ENV) is None
+            else Path(source[ENCODE_RUNTIME_ROOT_ENV])
+        ),
+        encode_runner_root=(
+            None
+            if source.get(ENCODE_RUNNER_ROOT_ENV) is None
+            else Path(source[ENCODE_RUNNER_ROOT_ENV])
+        ),
+        encode_conda_prefix=(
+            None
+            if source.get(ENCODE_CONDA_PREFIX_ENV) is None
+            else Path(source[ENCODE_CONDA_PREFIX_ENV])
         ),
         job_timeout_seconds=_positive_int(
             source.get(

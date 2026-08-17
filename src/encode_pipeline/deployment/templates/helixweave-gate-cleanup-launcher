@@ -1,0 +1,56 @@
+#!/usr/bin/python3 -I
+"""Stable launcher for the atomically selected Gate-cleanup backend."""
+
+import json
+import os
+import re
+import sys
+
+
+PYTHON = "/usr/bin/python3"
+BACKEND_ROOT = "/opt/helixweave/operator"
+IDENTITY = re.compile(r"sha256-[0-9a-f]{64}\Z")
+ENVIRONMENT = {
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+}
+
+
+if (
+    len(sys.argv) != 12
+    or sys.argv[8] != "--closure-id"
+    or IDENTITY.fullmatch(sys.argv[9]) is None
+):
+    receipt = {
+        "schema_version": "helixweave-deployment-gate-cleanup-receipt-v1",
+        "status": "error",
+        "issue": {
+            "code": "GATE_CLEANUP_REQUEST_INVALID",
+            "message": "Gate cleanup request is invalid.",
+        },
+    }
+    sys.stderr.write(json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n")
+    sys.stderr.flush()
+    raise SystemExit(64)
+
+backend = f"{BACKEND_ROOT}/{sys.argv[9]}/bin/helixweave-gate-cleanup"
+
+try:
+    os.execve(
+        PYTHON,
+        (PYTHON, "-I", "-S", "-E", "-B", backend, *sys.argv[1:]),
+        ENVIRONMENT,
+    )
+except OSError:
+    receipt = {
+        "schema_version": "helixweave-deployment-gate-cleanup-receipt-v1",
+        "status": "error",
+        "issue": {
+            "code": "GATE_CLEANUP_BACKEND_UNAVAILABLE",
+            "message": "Gate cleanup backend is unavailable.",
+        },
+    }
+    sys.stderr.write(json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n")
+    sys.stderr.flush()
+    raise SystemExit(69) from None
