@@ -15,6 +15,7 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "jsonschema>=4.23,<5",
+    "packaging>=24.2,<27",
     "pyyaml",
 ]
 
@@ -64,6 +65,13 @@ where = ["src"]
 ]
 "encode_pipeline.contracts.omics_intake" = ["*.schema.json"]
 "encode_pipeline.contracts.nfcore_rnaseq" = ["*.json", "*.txt"]
+"encode_pipeline.contracts.deployment" = ["*.json"]
+"encode_pipeline.deployment.templates" = ["*"]
+"encode_pipeline.frontend_assets" = [
+    "asset-manifest.json",
+    "static/*",
+    "static/assets/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

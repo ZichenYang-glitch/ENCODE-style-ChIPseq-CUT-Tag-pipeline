@@ -1,0 +1,37 @@
+#!/usr/bin/python3 -I
+"""Root-owned closure entrypoint for the fixed deployment operator."""
+
+import os
+from pathlib import Path
+import stat
+import sys
+
+
+def _load_main():
+    closure = Path(__file__).resolve().parents[1]
+    library = closure / "lib"
+    for path in (closure, library, library / "encode_pipeline"):
+        observed = path.stat(follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(observed.st_mode)
+            or observed.st_uid != os.geteuid()
+            or observed.st_gid != os.getegid()
+            or stat.S_IMODE(observed.st_mode) != 0o555
+        ):
+            raise RuntimeError("operator closure is not trusted")
+    sys.path.insert(0, str(library))
+    from encode_pipeline.deployment.operator import main
+
+    return main
+
+
+if __name__ == "__main__":
+    os.environ.clear()
+    os.environ.update(
+        {
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+        }
+    )
+    raise SystemExit(_load_main()())

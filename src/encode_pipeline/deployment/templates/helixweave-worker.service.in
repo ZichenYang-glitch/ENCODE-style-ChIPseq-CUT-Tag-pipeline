@@ -1,0 +1,45 @@
+[Unit]
+Description=HelixWeave RQ scientific workflow worker
+Requires=helixweave-redis.service helixweave-docker-rootless.service
+After=helixweave-redis.service helixweave-docker-rootless.service
+PartOf=helixweave.target
+
+[Service]
+Type=exec
+User=helixweave
+Group=helixweave
+UMask=0007
+WorkingDirectory=/var/lib/helixweave
+Environment=PYTHONNOUSERSITE=1
+ExecStart=/usr/libexec/helixweave-active-service worker
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=90s
+TimeoutStopSec=90s
+KillMode=mixed
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=read-only
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/helixweave/database/live /var/lib/helixweave/workspaces /var/lib/helixweave/artifacts
+InaccessiblePaths=/etc/helixweave/secrets.env /var/lib/helixweave/operator /run/helixweave/services
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helixweave-worker
+
+[Install]
+WantedBy=helixweave.target

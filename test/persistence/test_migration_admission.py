@@ -23,6 +23,7 @@ from encode_pipeline.persistence.migration_admission import (
     admitted_migration_script_location,
     build_migration_execution_inventory,
     canonical_migration_execution_inventory_bytes,
+    migration_inventory_trust_anchor_from_source,
     verify_migration_execution_inventory,
 )
 from encode_pipeline.persistence.migrations import upgrade_database
@@ -64,6 +65,63 @@ def downgrade() -> None:
 
 def test_migration_runner_does_not_expose_a_raw_config_builder() -> None:
     assert not hasattr(migration_runner, "alembic_config")
+
+
+def test_candidate_source_literals_anchor_a_newer_canonical_inventory(tmp_path) -> None:
+    persistence_root = _copy_persistence(tmp_path / "candidate")
+    child = persistence_root / "alembic/versions/20990101_99_reviewed_child.py"
+    child.write_text(UNKNOWN_CHILD, encoding="utf-8")
+    inventory = canonical_migration_execution_inventory_bytes(
+        build_migration_execution_inventory(persistence_root)
+    )
+    source = (
+        "MIGRATION_EXECUTION_INVENTORY_SIZE_BYTES = "
+        f"{len(inventory)}\n"
+        "MIGRATION_EXECUTION_INVENTORY_SHA256 = "
+        f"{hashlib.sha256(inventory).hexdigest()!r}\n"
+    ).encode()
+
+    anchor = migration_inventory_trust_anchor_from_source(source)
+    verified = verify_migration_execution_inventory(
+        persistence_root=persistence_root,
+        inventory_bytes=inventory,
+        trust_anchor=anchor,
+    )
+
+    assert verified.heads == ("20990101_99",)
+    with pytest.raises(MigrationAdmissionError) as caught:
+        verify_migration_execution_inventory(
+            persistence_root=persistence_root,
+            inventory_bytes=inventory,
+        )
+    assert caught.value.reason_code == "MIGRATION_EXECUTION_INVENTORY_INVALID"
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        b"MIGRATION_EXECUTION_INVENTORY_SIZE_BYTES = dynamic()\n"
+        b"MIGRATION_EXECUTION_INVENTORY_SHA256 = '" + b"a" * 64 + b"'\n",
+        b"MIGRATION_EXECUTION_INVENTORY_SIZE_BYTES = 1\n",
+        b"MIGRATION_EXECUTION_INVENTORY_SIZE_BYTES = 1\n"
+        b"MIGRATION_EXECUTION_INVENTORY_SIZE_BYTES = 2\n"
+        b"MIGRATION_EXECUTION_INVENTORY_SHA256 = '" + b"a" * 64 + b"'\n",
+    ),
+)
+def test_candidate_inventory_trust_anchor_rejects_nonliteral_or_ambiguous_source(
+    source: bytes,
+) -> None:
+    with pytest.raises(MigrationAdmissionError) as caught:
+        migration_inventory_trust_anchor_from_source(source)
+
+    assert caught.value.reason_code == "MIGRATION_EXECUTION_TRUST_ANCHOR_INVALID"
+
+
+def test_inventory_verifier_rejects_an_untyped_external_anchor() -> None:
+    with pytest.raises(MigrationAdmissionError) as caught:
+        verify_migration_execution_inventory(trust_anchor=object())  # type: ignore[arg-type]
+
+    assert caught.value.reason_code == "MIGRATION_EXECUTION_TRUST_ANCHOR_INVALID"
 
 
 def test_maximum_linear_revision_graph_validates_without_recursion() -> None:
@@ -258,6 +316,25 @@ else:
     return json.loads(completed.stdout.splitlines()[-1])
 
 
+def _expected_startup_rejection(
+    entrypoint: str,
+    migration_reason: str,
+) -> dict[str, str]:
+    if entrypoint == "worker":
+        return {
+            "status": "rejected",
+            "reason_code": "DATABASE_SCHEMA_ADMISSION_FAILED",
+            "message": (
+                "database schema admission failed [DATABASE_SCHEMA_ADMISSION_FAILED]"
+            ),
+        }
+    return {
+        "status": "rejected",
+        "reason_code": migration_reason,
+        "message": f"migration execution admission failed [{migration_reason}]",
+    }
+
+
 @pytest.mark.parametrize("entrypoint", ("api", "worker"))
 def test_unknown_child_is_rejected_before_api_or_worker_database_mutation(
     tmp_path: Path,
@@ -286,12 +363,10 @@ def test_unknown_child_is_rejected_before_api_or_worker_database_mutation(
         "revision_imported": marker.exists(),
         "database_unchanged": after == before,
     } == {
-        "startup": {
-            "status": "rejected",
-            "reason_code": "MIGRATION_REVISION_UNKNOWN",
-            "message": "migration execution admission failed "
-            "[MIGRATION_REVISION_UNKNOWN]",
-        },
+        "startup": _expected_startup_rejection(
+            entrypoint,
+            "MIGRATION_REVISION_UNKNOWN",
+        ),
         "revision_imported": False,
         "database_unchanged": True,
     }
@@ -316,13 +391,10 @@ def test_unknown_child_rejection_does_not_create_database_parent(
         entrypoint=entrypoint,
     )
 
-    assert result == {
-        "status": "rejected",
-        "reason_code": "MIGRATION_REVISION_UNKNOWN",
-        "message": (
-            "migration execution admission failed [MIGRATION_REVISION_UNKNOWN]"
-        ),
-    }
+    assert result == _expected_startup_rejection(
+        entrypoint,
+        "MIGRATION_REVISION_UNKNOWN",
+    )
     assert marker.exists() is False
     assert database_path.parent.exists() is False
     assert database_path.exists() is False
@@ -347,14 +419,10 @@ def test_fifo_inventory_is_rejected_before_api_or_worker_database_creation(
         entrypoint=entrypoint,
     )
 
-    assert result == {
-        "status": "rejected",
-        "reason_code": "MIGRATION_EXECUTION_INVENTORY_INVALID",
-        "message": (
-            "migration execution admission failed "
-            "[MIGRATION_EXECUTION_INVENTORY_INVALID]"
-        ),
-    }
+    assert result == _expected_startup_rejection(
+        entrypoint,
+        "MIGRATION_EXECUTION_INVENTORY_INVALID",
+    )
     assert marker.exists() is False
     assert database_path.parent.exists() is False
     assert database_path.exists() is False

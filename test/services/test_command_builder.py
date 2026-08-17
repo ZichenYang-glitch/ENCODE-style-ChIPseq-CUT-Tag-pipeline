@@ -460,6 +460,119 @@ def test_command_builder_command_spec_has_expected_argv(tmp_path):
     assert "workflow" in snakefile_path.parts
 
 
+def test_supported_command_uses_admitted_scientific_runtime(tmp_path):
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    runtime_root = tmp_path / "scientific" / "runtime-identity"
+    runner_root = runtime_root / "runner"
+    executable = runner_root / "bin" / "snakemake"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"#!/bin/sh\nexit 0\n")
+    executable.chmod(0o555)
+    conda_executable = runner_root / "bin" / "conda"
+    conda_executable.write_bytes(b"#!/bin/sh\nexit 64\n")
+    conda_executable.chmod(0o555)
+    micromamba = runner_root / "libexec" / "micromamba"
+    micromamba.parent.mkdir()
+    micromamba.write_bytes(b"micromamba")
+    micromamba.chmod(0o555)
+    mamba_root = runtime_root / "mamba-root"
+    activate = mamba_root / "bin" / "activate"
+    activate.parent.mkdir(parents=True)
+    activate.write_bytes(b"#!/bin/sh\n")
+    activate.chmod(0o555)
+    conda_prefix = runtime_root / "conda-envs"
+    conda_prefix.mkdir()
+    for directory in (
+        runner_root / "bin",
+        runner_root / "libexec",
+        runner_root,
+        mamba_root / "bin",
+        mamba_root,
+        conda_prefix,
+        runtime_root,
+    ):
+        directory.chmod(0o555)
+
+    result = CommandBuilder(
+        registry=_make_registry(),
+        snakemake_executable=executable,
+        conda_prefix=conda_prefix,
+    ).build_command(_make_pending_plan(), tmp_path.resolve())
+
+    assert result.is_success
+    command = result.value.command_spec
+    assert command is not None
+    assert command.argv[0] == str(executable)
+    assert command.argv[-7:] == (
+        "--use-conda",
+        "--conda-prefix",
+        str(conda_prefix),
+        "--conda-base-path",
+        str(mamba_root),
+        "--conda-frontend",
+        "conda",
+    )
+    assert command.preflight_argv == command.argv + ("-n",)
+    assert command.env == {
+        "PATH": f"{executable.parent}:/usr/sbin:/usr/bin:/sbin:/bin",
+        "CONDA_DEFAULT_ENV": "",
+        "CONDA_EXE": str(conda_executable),
+        "CONDA_PREFIX": "",
+        "CONDA_SHLVL": "0",
+        "HOME": str(tmp_path.resolve()),
+        "MAMBA_ROOT_PREFIX": str(mamba_root),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONNOUSERSITE": "1",
+        "TMPDIR": str(tmp_path.resolve()),
+        "XDG_CACHE_HOME": str(tmp_path.resolve() / ".snakemake"),
+        "_CONDA_EXE": str(conda_executable),
+        "_CONDA_ROOT": str(mamba_root),
+    }
+
+
+def test_supported_command_fails_closed_without_the_activation_seam(tmp_path):
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    runtime_root = tmp_path / "scientific" / "runtime-identity"
+    executable = runtime_root / "runner" / "bin" / "snakemake"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"#!/bin/sh\n")
+    executable.chmod(0o555)
+    conda = executable.parent / "conda"
+    conda.write_bytes(b"#!/bin/sh\n")
+    conda.chmod(0o555)
+    micromamba = runtime_root / "runner" / "libexec" / "micromamba"
+    micromamba.parent.mkdir()
+    micromamba.write_bytes(b"micromamba")
+    micromamba.chmod(0o555)
+    (runtime_root / "mamba-root").mkdir()
+    conda_prefix = runtime_root / "conda-envs"
+    conda_prefix.mkdir()
+
+    result = CommandBuilder(
+        registry=_make_registry(),
+        snakemake_executable=executable,
+        conda_prefix=conda_prefix,
+    ).build_command(_make_pending_plan(), tmp_path.resolve())
+
+    assert result.is_failure
+    assert result.issues[0].code == "COMMAND_BUILD_SCIENTIFIC_RUNTIME_UNAVAILABLE"
+
+
+def test_supported_command_fails_closed_when_runtime_is_missing(tmp_path):
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    result = CommandBuilder(
+        registry=_make_registry(),
+        snakemake_executable=tmp_path / "runner" / "bin" / "snakemake",
+        conda_prefix=tmp_path / "conda-envs",
+    ).build_command(_make_pending_plan(), tmp_path.resolve())
+
+    assert result.is_failure
+    assert result.issues[0].code == "COMMAND_BUILD_SCIENTIFIC_RUNTIME_UNAVAILABLE"
+
+
 def test_command_builder_legacy_command_declares_exact_dry_run_preflight(tmp_path):
     from encode_pipeline.services.command_builder import CommandBuilder
 

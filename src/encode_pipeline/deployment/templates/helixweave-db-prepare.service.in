@@ -1,0 +1,42 @@
+[Unit]
+Description=HelixWeave controlled SQLite backup and migration admission
+Before=helixweave-api.service helixweave-worker.service
+
+[Service]
+Type=oneshot
+User=helixweave
+Group=helixweave
+UMask=0007
+Environment=PYTHONNOUSERSITE=1
+ExecStart=/usr/libexec/helixweave-db-prepare
+TimeoutStartSec=300s
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=read-only
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadOnlyPaths=/opt/helixweave/releases /run/helixweave/database/prepare.json
+ReadWritePaths=/var/lib/helixweave/database/live /run/helixweave/database/prepare-receipt.json
+InaccessiblePaths=/etc/helixweave/secrets.env /var/lib/helixweave/operator /run/helixweave/services
+InaccessiblePaths=/var/lib/helixweave/workspaces /var/lib/helixweave/artifacts /var/lib/helixweave/redis
+InaccessiblePaths=/var/lib/helixweave/docker-rootless /var/lib/helixweave/service-home /run/helixweave/redis /run/helixweave/docker
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helixweave-db-prepare
+
+[Install]
+WantedBy=helixweave.target

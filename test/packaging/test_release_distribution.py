@@ -17,6 +17,7 @@ import zipfile
 
 import pytest
 import yaml
+from packaging.requirements import Requirement
 
 from encode_pipeline import __version__
 from encode_pipeline.api.main import create_app
@@ -40,6 +41,11 @@ def _build_wheel(tmp_path: Path) -> Path:
     build_root.mkdir()
     for filename in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
         shutil.copy2(REPO_ROOT / filename, build_root / filename)
+    (build_root / "scripts").mkdir()
+    shutil.copy2(
+        REPO_ROOT / "scripts" / "bootstrap_helixweave_operator.py",
+        build_root / "scripts" / "bootstrap_helixweave_operator.py",
+    )
     shutil.copytree(
         REPO_ROOT / "src",
         build_root / "src",
@@ -74,6 +80,11 @@ def _build_sdist(tmp_path: Path) -> Path:
     build_root.mkdir()
     for filename in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
         shutil.copy2(REPO_ROOT / filename, build_root / filename)
+    (build_root / "scripts").mkdir()
+    shutil.copy2(
+        REPO_ROOT / "scripts" / "bootstrap_helixweave_operator.py",
+        build_root / "scripts" / "bootstrap_helixweave_operator.py",
+    )
     shutil.copytree(
         REPO_ROOT / "src",
         build_root / "src",
@@ -107,6 +118,14 @@ def _install_in_clean_room(tmp_path: Path, artifact: Path) -> Path:
     python = environment_root / (
         "Scripts/python.exe" if os.name == "nt" else "bin/python"
     )
+    site_packages = (
+        environment_root / "Lib" / "site-packages"
+        if os.name == "nt"
+        else environment_root
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
     environment = {
         key: value
         for key, value in os.environ.items()
@@ -114,10 +133,12 @@ def _install_in_clean_room(tmp_path: Path, artifact: Path) -> Path:
     }
     installed = subprocess.run(
         [
-            str(python),
+            sys.executable,
             "-m",
             "pip",
             "install",
+            "--target",
+            str(site_packages),
             "--ignore-installed",
             "--no-index",
             "--no-deps",
@@ -259,6 +280,21 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(tmp_path: Path) -> Non
         assert metadata["Summary"].startswith("HelixWeave")
         assert metadata["Description-Content-Type"] == "text/markdown"
         assert "\n# HelixWeave\n" in metadata_text
+        requirements = tuple(
+            Requirement(raw) for raw in metadata.get_all("Requires-Dist", [])
+        )
+        runtime_requirements = {
+            requirement.name: requirement
+            for requirement in requirements
+            if requirement.marker is None
+        }
+        assert str(runtime_requirements["packaging"].specifier) == "<27,>=24.2"
+        (openai_requirement,) = tuple(
+            requirement for requirement in requirements if requirement.name == "openai"
+        )
+        assert openai_requirement.marker is not None
+        assert openai_requirement.marker.evaluate({"extra": "llm-openai"})
+        assert not openai_requirement.marker.evaluate({"extra": "api"})
         for name, target in EXPECTED_CONSOLE_SCRIPTS.items():
             assert f"{name} = {target}" in entry_points
         assert "encode_pipeline/__main__.py" in names
@@ -266,6 +302,20 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(tmp_path: Path) -> Non
         assert "encode_pipeline/cli/admin.py" in names
         assert "encode_pipeline/cli/local_platform.py" in names
         assert "encode_pipeline/cli/results_visibility_fixture.py" in names
+        assert "encode_pipeline/deployment/cli.py" in names
+        assert "encode_pipeline/deployment/frontend.py" in names
+        expected_deployment_resources = {
+            "encode_pipeline/contracts/deployment/deployment-bundle-v1.schema.json",
+            "encode_pipeline/contracts/deployment/deployment-state-v1.schema.json",
+            *{
+                f"encode_pipeline/deployment/templates/{path.name}"
+                for path in (
+                    REPO_ROOT / "src/encode_pipeline/deployment/templates"
+                ).iterdir()
+                if path.is_file() and path.name != "__init__.py"
+            },
+        }
+        assert expected_deployment_resources.issubset(names)
         assert "encode_pipeline/platform/run_recovery.py" in names
         assert "encode_pipeline/services/run_recovery.py" in names
         assert "encode_pipeline/artifacts/artifact-inventory.yaml" in names
@@ -304,6 +354,11 @@ def test_pep517_build_produces_bounded_wheel_and_sdist(tmp_path: Path) -> None:
     build_root.mkdir()
     for filename in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
         shutil.copy2(REPO_ROOT / filename, build_root / filename)
+    (build_root / "scripts").mkdir()
+    shutil.copy2(
+        REPO_ROOT / "scripts" / "bootstrap_helixweave_operator.py",
+        build_root / "scripts" / "bootstrap_helixweave_operator.py",
+    )
     shutil.copytree(
         REPO_ROOT / "src",
         build_root / "src",
@@ -338,7 +393,85 @@ def test_pep517_build_produces_bounded_wheel_and_sdist(tmp_path: Path) -> None:
     assert (
         "helixweave-0.3.0/src/encode_pipeline/artifacts/artifact-inventory.yaml"
     ) in names
+    assert (
+        "helixweave-0.3.0/src/encode_pipeline/contracts/deployment/"
+        "deployment-bundle-v1.schema.json"
+    ) in names
+    assert (
+        "helixweave-0.3.0/src/encode_pipeline/deployment/templates/"
+        "helixweave-api.service.in"
+    ) in names
+    assert (
+        "helixweave-0.3.0/src/encode_pipeline/frontend_assets/asset-manifest.json"
+    ) in names
+    assert ("helixweave-0.3.0/scripts/bootstrap_helixweave_operator.py") in names
     assert not any(name.startswith("helixweave-0.3.0/test/") for name in names)
+
+
+def test_sdist_bootstrap_asset_is_self_contained_outside_a_checkout(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "release"
+    source.mkdir()
+    sdist = _build_sdist(source)
+    extracted = tmp_path / "extracted"
+    with tarfile.open(sdist, "r:gz") as archive:
+        archive.extractall(extracted, filter="data")
+    release_root = extracted / "helixweave-0.3.0"
+    host_root = tmp_path / "host"
+    host_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    code = """
+import importlib.util
+import json
+import os
+from pathlib import Path
+import sys
+
+script = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("helixweave_bootstrap_asset", script)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+backend = module.HostBootstrapBackend(
+    root_prefix=Path(sys.argv[2]),
+    owner_uid=os.getuid(),
+    owner_gid=os.getgid(),
+    command_runner=lambda _command: True,
+    sudoers_validator=lambda _path: True,
+)
+result = backend.apply(operation="install", invoking_user="operator")
+print(json.dumps({"count": result.installed_files, "identity": result.closure_identity}))
+"""
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"PYTHONHOME", "PYTHONPATH"}
+    }
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-S",
+            "-c",
+            code,
+            str(release_root / "scripts" / "bootstrap_helixweave_operator.py"),
+            str(host_root),
+        ],
+        cwd=outside,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    receipt = json.loads(completed.stdout)
+    assert receipt["count"] > 20
+    assert receipt["identity"].startswith("sha256-")
+    assert (host_root / "usr" / "libexec" / "helixweave-operator").is_file()
 
 
 def test_extracted_wheel_supports_registry_and_openapi_outside_source_tree(

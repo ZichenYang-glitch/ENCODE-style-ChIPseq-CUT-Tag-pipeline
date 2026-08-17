@@ -1,0 +1,208 @@
+#!/usr/bin/python3 -I
+"""Unprivileged fixed dispatcher for one content-addressed platform action."""
+
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+
+
+REQUEST = Path("/run/helixweave/operator/action/request.json")
+RECEIPT = Path("/run/helixweave/operator/action/receipt.json")
+RELEASES = Path("/opt/helixweave/releases/platform")
+IDENTITY = re.compile(r"sha256-[0-9a-f]{64}\Z")
+TASK = re.compile(r"task-[0-9a-f]{32}\Z")
+MAXIMUM = 1024 * 1024
+ENVIRONMENT = {
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+    "PYTHONNOUSERSITE": "1",
+}
+
+
+def _unique(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError
+        value[key] = item
+    return value
+
+
+def _request():
+    descriptor = os.open(
+        REQUEST,
+        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_uid != 0
+            or before.st_gid != os.getegid()
+            or stat.S_IMODE(before.st_mode) != 0o640
+            or not 0 < before.st_size <= MAXIMUM
+        ):
+            raise OSError
+        content = os.read(descriptor, MAXIMUM + 1)
+        after = os.fstat(descriptor)
+        if len(content) != before.st_size or (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+            before.st_ctime_ns,
+        ) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        ):
+            raise OSError
+    finally:
+        os.close(descriptor)
+    value = json.loads(content, object_pairs_hook=_unique)
+    required = {
+        "schema_version",
+        "identity",
+        "phase",
+        "operation",
+        "component",
+        "task_identity",
+        "deployment_identity",
+        "authority_platform_identity",
+        "prior_state_identity",
+        "candidate_state_identity",
+        "candidate_active",
+    }
+    if (
+        not isinstance(value, dict)
+        or set(value) != required
+        or value["schema_version"] != "helixweave-operator-action-request-v1"
+        or value["phase"] not in {"admit", "observe"}
+        or value["operation"] not in {"activate", "rollback", "observe"}
+        or value["component"]
+        not in {"platform", "encode-runtime", "bulk-rnaseq-runtime"}
+        or not isinstance(value["candidate_active"], dict)
+        or set(value["candidate_active"])
+        != {"platform", "encode-runtime", "bulk-rnaseq-runtime"}
+        or any(
+            item is not None
+            and (not isinstance(item, str) or IDENTITY.fullmatch(item) is None)
+            for item in value["candidate_active"].values()
+        )
+        or not isinstance(value["task_identity"], str)
+        or TASK.fullmatch(value["task_identity"]) is None
+        or any(
+            not isinstance(value[name], str) or IDENTITY.fullmatch(value[name]) is None
+            for name in (
+                "identity",
+                "deployment_identity",
+                "authority_platform_identity",
+                "prior_state_identity",
+                "candidate_state_identity",
+            )
+        )
+        or json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+        != content
+    ):
+        raise ValueError
+    return value
+
+
+def _launcher(authority):
+    release = RELEASES / authority
+    payload = release / "payload"
+    platform = payload / "platform"
+    binary = platform / "bin" / "helixweave-service"
+    for path, mode, directory in (
+        (RELEASES, 0o555, True),
+        (release, 0o555, True),
+        (payload, 0o555, True),
+        (platform, 0o555, True),
+        (platform / "bin", 0o555, True),
+        (binary, 0o555, False),
+    ):
+        observed = path.stat(follow_symlinks=False)
+        if (
+            (stat.S_ISDIR(observed.st_mode) if directory else stat.S_ISREG(observed.st_mode))
+            is False
+            or observed.st_uid != 0
+            or observed.st_gid != 0
+            or stat.S_IMODE(observed.st_mode) != mode
+        ):
+            raise OSError
+    return binary
+
+
+def _write_receipt(content):
+    descriptor = os.open(
+        RECEIPT,
+        os.O_WRONLY
+        | os.O_TRUNC
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        observed = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(observed.st_mode)
+            or observed.st_nlink != 1
+            or observed.st_uid != os.geteuid()
+            or observed.st_gid != os.getegid()
+            or stat.S_IMODE(observed.st_mode) != 0o600
+            or not 0 < len(content) <= MAXIMUM
+        ):
+            raise OSError
+        offset = 0
+        while offset < len(content):
+            written = os.write(descriptor, content[offset:])
+            if written <= 0:
+                raise OSError
+            offset += written
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def main(argv=None):
+    if tuple(sys.argv[1:] if argv is None else argv):
+        return 64
+    os.environ.clear()
+    os.environ.update(ENVIRONMENT)
+    try:
+        request = _request()
+        launcher = _launcher(request["authority_platform_identity"])
+        with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+            completed = subprocess.run(
+                (str(launcher), "operator-action"),
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=errors,
+                env=ENVIRONMENT,
+                close_fds=True,
+                timeout=240,
+                check=False,
+            )
+            if completed.returncode != 0 or errors.tell() or not 0 < output.tell() <= MAXIMUM:
+                return 69
+            output.seek(0)
+            content = output.read(MAXIMUM + 1)
+        document = json.loads(content, object_pairs_hook=_unique)
+        if json.dumps(document, sort_keys=True, separators=(",", ":")).encode() != content:
+            return 65
+        _write_receipt(content)
+    except (OSError, ValueError, UnicodeError, json.JSONDecodeError, subprocess.SubprocessError):
+        return 69
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

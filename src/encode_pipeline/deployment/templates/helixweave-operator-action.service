@@ -1,0 +1,40 @@
+[Unit]
+Description=HelixWeave unprivileged candidate deployment action
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=helixweave-candidate
+Group=helixweave-candidate
+UMask=0077
+Environment=PYTHONNOUSERSITE=1
+ExecStart=/usr/libexec/helixweave-operator-action
+TimeoutStartSec=300s
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadOnlyPaths=/opt/helixweave/releases /var/lib/helixweave/scientific/encode /run/helixweave/operator/action/request.json
+ReadWritePaths=/run/helixweave/operator/action/receipt.json
+InaccessiblePaths=/etc/helixweave /var/lib/helixweave/operator /var/lib/helixweave/database /run/helixweave/services
+InaccessiblePaths=/var/lib/helixweave/workspaces /var/lib/helixweave/artifacts /var/lib/helixweave/redis
+InaccessiblePaths=/var/lib/helixweave/docker-rootless /var/lib/helixweave/service-home /run/helixweave/redis /run/helixweave/docker
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helixweave-operator-action

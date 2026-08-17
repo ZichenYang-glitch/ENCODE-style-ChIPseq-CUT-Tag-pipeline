@@ -327,6 +327,12 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      - name: Verify packaged frontend asset closure
+        run: |
+          python3 scripts/package_frontend_assets.py
+          git diff --exit-code -- src/encode_pipeline/frontend_assets/
+          test -z "$(git ls-files --others --exclude-standard -- src/encode_pipeline/frontend_assets/)"
+
       - name: Report frontend wall time
         if: always()
         run: |

@@ -30,7 +30,7 @@ def test_primary_cli_delegates_existing_arguments_to_local_platform(
     assert observed == [["--doctor"]]
 
 
-def test_primary_cli_dispatches_only_the_admin_namespace(monkeypatch) -> None:
+def test_primary_cli_dispatches_the_admin_namespace(monkeypatch) -> None:
     observed: list[list[str]] = []
     monkeypatch.setattr(
         app.admin,
@@ -40,6 +40,55 @@ def test_primary_cli_dispatches_only_the_admin_namespace(monkeypatch) -> None:
 
     assert app.main(["admin", "--database-url", "sqlite:////tmp/platform.db"]) == 19
     assert observed == [["--database-url", "sqlite:////tmp/platform.db"]]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        [
+            "install",
+            "--component",
+            "platform",
+            "--bundle",
+            "/srv/helixweave/platform.tar",
+        ],
+        ["status"],
+        ["doctor"],
+        ["verify"],
+        [
+            "upgrade",
+            "--component",
+            "encode-runtime",
+            "--bundle",
+            "/srv/helixweave/encode-runtime.tar",
+        ],
+        [
+            "rollback",
+            "--component",
+            "bulk-rnaseq-runtime",
+            "--identity",
+            f"sha256-{'a' * 64}",
+        ],
+    ],
+)
+def test_primary_cli_dispatches_supported_deployment_commands(
+    monkeypatch,
+    arguments: list[str],
+) -> None:
+    observed: list[list[str]] = []
+    monkeypatch.setattr(
+        app.deployment_cli,
+        "main",
+        lambda values: observed.append(list(values)) or 23,
+    )
+    monkeypatch.setattr(
+        local_platform,
+        "main",
+        lambda _values: pytest.fail("deployment command reached compatibility CLI"),
+    )
+
+    assert app.main(arguments) == 23
+    assert observed == [arguments]
 
 
 def test_primary_cli_rejects_unknown_commands(capsys) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 from uuid import uuid4
@@ -51,6 +52,8 @@ class CommandBuilder:
         *,
         project_root: Path | None = None,
         reference_profile_resolver: _ReferenceProfileRuntimeResolver | None = None,
+        snakemake_executable: Path | None = None,
+        conda_prefix: Path | None = None,
     ) -> None:
         """Initialize with an adapter registry for engine validation."""
         if not isinstance(registry, WorkflowRegistry):
@@ -66,9 +69,34 @@ class CommandBuilder:
             getattr(reference_profile_resolver, "resolve_run", None)
         ):
             raise ValueError("reference_profile_resolver is invalid")
+        if (snakemake_executable is None) != (conda_prefix is None):
+            raise ValueError(
+                "snakemake_executable and conda_prefix must be configured together"
+            )
+        if snakemake_executable is not None:
+            if (
+                not isinstance(snakemake_executable, Path)
+                or not snakemake_executable.is_absolute()
+                or snakemake_executable.name != "snakemake"
+                or any(
+                    character in str(snakemake_executable)
+                    for character in ("\x00", "\n", "\r")
+                )
+            ):
+                raise ValueError("snakemake_executable is invalid")
+            if (
+                not isinstance(conda_prefix, Path)
+                or not conda_prefix.is_absolute()
+                or any(
+                    character in str(conda_prefix) for character in ("\x00", "\n", "\r")
+                )
+            ):
+                raise ValueError("conda_prefix is invalid")
         self._registry = registry
         self._project_root = root
         self._reference_profile_resolver = reference_profile_resolver
+        self._snakemake_executable = snakemake_executable
+        self._conda_prefix = conda_prefix
 
     def build_command(
         self,
@@ -202,8 +230,12 @@ class CommandBuilder:
             return cores_result
         cores = cores_result
 
+        runtime = self._scientific_runtime(base_dir)
+        if isinstance(runtime, Result):
+            return runtime
+        executable, runtime_arguments, environment = runtime
         argv = (
-            "snakemake",
+            executable,
             "--snakefile",
             str(snakefile),
             "--directory",
@@ -212,15 +244,102 @@ class CommandBuilder:
             str(config_path),
             "--cores",
             str(cores),
+            *runtime_arguments,
         )
         command_spec = CommandSpec(
             argv=argv,
             cwd=None,
-            env={},
+            env=environment,
             preflight_argv=argv + ("-n",),
         )
 
         return Result.success(self._planned_plan(plan, command_spec))
+
+    def _scientific_runtime(
+        self,
+        workspace: Path,
+    ) -> tuple[str, tuple[str, ...], dict[str, str]] | Result[ExecutionPlan]:
+        executable = self._snakemake_executable
+        prefix = self._conda_prefix
+        if executable is None or prefix is None:
+            return "snakemake", (), {}
+        runtime_root = executable.parent.parent.parent
+        mamba_root = runtime_root / "mamba-root"
+        conda_executable = executable.parent / "conda"
+        activate = mamba_root / "bin" / "activate"
+        micromamba = runtime_root / "runner" / "libexec" / "micromamba"
+        try:
+            observed_files = tuple(
+                (path, path.lstat())
+                for path in (executable, conda_executable, activate, micromamba)
+            )
+            observed_directories = tuple(
+                (path, path.lstat()) for path in (runtime_root, mamba_root, prefix)
+            )
+            if (
+                executable.parent.parent != runtime_root / "runner"
+                or prefix != runtime_root / "conda-envs"
+                or any(
+                    path.is_symlink()
+                    or not path.is_file()
+                    or not os.access(path, os.X_OK)
+                    or witness.st_mode & 0o022
+                    for path, witness in observed_files
+                )
+                or any(
+                    path.is_symlink() or not path.is_dir() or witness.st_mode & 0o022
+                    for path, witness in observed_directories
+                )
+            ):
+                raise OSError
+        except OSError:
+            return Result.failure(
+                [
+                    Issue(
+                        code="COMMAND_BUILD_SCIENTIFIC_RUNTIME_UNAVAILABLE",
+                        message="The admitted scientific runtime is unavailable.",
+                        severity="error",
+                        path="workflow",
+                        source="command_builder",
+                    )
+                ]
+            )
+        path = ":".join(
+            (
+                str(executable.parent),
+                "/usr/sbin",
+                "/usr/bin",
+                "/sbin",
+                "/bin",
+            )
+        )
+        return (
+            str(executable),
+            (
+                "--use-conda",
+                "--conda-prefix",
+                str(prefix),
+                "--conda-base-path",
+                str(mamba_root),
+                "--conda-frontend",
+                "conda",
+            ),
+            {
+                "PATH": path,
+                "CONDA_DEFAULT_ENV": "",
+                "CONDA_EXE": str(conda_executable),
+                "CONDA_PREFIX": "",
+                "CONDA_SHLVL": "0",
+                "HOME": str(workspace),
+                "MAMBA_ROOT_PREFIX": str(mamba_root),
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONNOUSERSITE": "1",
+                "TMPDIR": str(workspace),
+                "XDG_CACHE_HOME": str(workspace / ".snakemake"),
+                "_CONDA_EXE": str(conda_executable),
+                "_CONDA_ROOT": str(mamba_root),
+            },
+        )
 
     def _resolve_reference_profile(
         self,

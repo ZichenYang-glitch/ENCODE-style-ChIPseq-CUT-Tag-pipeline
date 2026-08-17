@@ -1,0 +1,44 @@
+[Unit]
+Description=HelixWeave offline Bulk RNA-seq runtime preparation
+After=local-fs.target helixweave-docker-rootless.service
+
+[Service]
+Type=oneshot
+User=helixweave
+Group=helixweave
+UMask=0077
+ExecStart=/usr/libexec/helixweave-bulk-runtime-prepare
+TimeoutStartSec=14600s
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadOnlyPaths=/opt/helixweave/releases/platform
+ReadOnlyPaths=/opt/helixweave/runtimes/bulk-rnaseq
+ReadOnlyPaths=/usr/bin/docker
+ReadOnlyPaths=/run/helixweave/operator/bulk-runtime/request.json
+ReadOnlyPaths=/run/helixweave/docker/docker.sock
+ReadWritePaths=/run/helixweave/operator/bulk-runtime/receipt.json
+InaccessiblePaths=/etc/helixweave /var/lib/helixweave/operator /var/lib/helixweave/database /run/helixweave/services
+InaccessiblePaths=/var/lib/helixweave/workspaces /var/lib/helixweave/artifacts /var/lib/helixweave/redis /run/helixweave/redis
+InaccessiblePaths=/var/lib/helixweave/docker-rootless /var/lib/helixweave/service-home /var/lib/helixweave/scientific/encode
+InaccessiblePaths=-/run/helixweave/docker/exec -/run/helixweave/docker/docker.pid
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helixweave-bulk-runtime-prepare
