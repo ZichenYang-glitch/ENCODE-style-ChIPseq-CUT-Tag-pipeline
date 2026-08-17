@@ -568,7 +568,7 @@ def test_reachable_redis_version_rejects_malformed_info_and_closes_connection(
             },
             "Redis server 7.x",
         ),
-        ({"node": "v18.20.0\n"}, "Node.js 20 or newer"),
+        ({"node": "v20.20.2\n"}, "Node.js 22 or newer"),
     ],
 )
 def test_environment_doctor_rejects_incompatible_tools(

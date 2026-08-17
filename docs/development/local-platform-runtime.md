@@ -62,9 +62,9 @@ has no frontend or workflow tree and therefore fails closed with an actionable
 prerequisite message if asked to start the complete product.
 
 The doctor checks Python 3.12, runtime and API imports, Snakemake 8.30.0, Redis
-server 7 or newer, Node.js 20 or newer, npm, the locked frontend install, and
-the default registry shape. It reports safe availability reason codes for both
-registered workflows. A missing optional Bulk RNA-seq binding is reported as
+server 7 or newer, the Node.js version pinned in `.nvmrc` (22.x), npm, the
+locked frontend install, and the default registry shape. It reports safe
+availability reason codes for both registered workflows. A missing optional Bulk RNA-seq binding is reported as
 `not_configured` or `unavailable` but does not make the core platform doctor
 fail: Bulk RNA-seq authoring and validation remain available while execution
 stays fail-closed. A missing required platform dependency, malformed registry,
