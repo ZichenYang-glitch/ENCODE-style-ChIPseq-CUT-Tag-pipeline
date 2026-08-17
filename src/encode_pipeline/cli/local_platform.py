@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from enum import Enum
 import importlib
 import json
 import os
@@ -57,6 +58,51 @@ class WorkflowCheck:
     authoring: str
     execution: str
     reason_code: str
+
+
+class RecoveryDoctorStatus(str, Enum):
+    READY = "ready"
+    ATTENTION_REQUIRED = "attention_required"
+    NOT_CONFIGURED = "not_configured"
+    UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True)
+class RecoveryDoctorCounts:
+    runs_examined: int = 0
+    database_gaps: int = 0
+    queue_gaps: int = 0
+    callback_gaps: int = 0
+    result_indexing_gaps: int = 0
+    cleanup_gaps: int = 0
+
+    def __post_init__(self) -> None:
+        for name in (
+            "runs_examined",
+            "database_gaps",
+            "queue_gaps",
+            "callback_gaps",
+            "result_indexing_gaps",
+            "cleanup_gaps",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError("run recovery doctor counts must be nonnegative")
+
+
+@dataclass(frozen=True)
+class RecoveryDoctorCheck:
+    status: RecoveryDoctorStatus
+    reason_code: str
+    counts: RecoveryDoctorCounts
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, RecoveryDoctorStatus):
+            raise ValueError("run recovery doctor status is invalid")
+        if not isinstance(self.reason_code, str) or not self.reason_code:
+            raise ValueError("run recovery doctor reason_code is invalid")
+        if not isinstance(self.counts, RecoveryDoctorCounts):
+            raise ValueError("run recovery doctor counts are invalid")
 
 
 @dataclass(frozen=True)
@@ -125,6 +171,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--doctor",
         action="store_true",
         help="Check the complete local runtime toolchain without starting services.",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the doctor report as compact, machine-readable JSON.",
     )
     parser.add_argument(
         "--cleanup-service-pids",
@@ -360,6 +411,233 @@ def run_workflow_doctor(
             reason_code=descriptor.availability.reason_code,
         )
         for descriptor in descriptors
+    )
+
+
+def run_recovery_doctor(
+    *,
+    database_url: str,
+    redis_url: str,
+    queue_name: str,
+) -> RecoveryDoctorCheck:
+    """Return aggregate recovery visibility without creating runtime state."""
+    from sqlalchemy.engine import make_url
+
+    from redis.connection import parse_url
+
+    from encode_pipeline.cli.admin import (
+        _RunRecoveryDatabaseUnavailable,
+        _open_run_recovery,
+    )
+    from encode_pipeline.persistence.runtime import resolve_database_url
+    from encode_pipeline.services.run_queue import RunQueueError
+
+    empty = RecoveryDoctorCounts()
+    try:
+        resolved_url = resolve_database_url(database_url)
+        database_path = Path(str(make_url(resolved_url).database))
+    except Exception:
+        return RecoveryDoctorCheck(
+            RecoveryDoctorStatus.UNAVAILABLE,
+            "RUN_RECOVERY_DATABASE_UNAVAILABLE",
+            empty,
+        )
+    if not database_path.is_file():
+        return RecoveryDoctorCheck(
+            RecoveryDoctorStatus.NOT_CONFIGURED,
+            "RUN_RECOVERY_DATABASE_NOT_CONFIGURED",
+            empty,
+        )
+    try:
+        parse_url(redis_url)
+        if not isinstance(queue_name, str) or not queue_name.strip():
+            raise ValueError("queue name is invalid")
+    except (TypeError, ValueError):
+        return RecoveryDoctorCheck(
+            RecoveryDoctorStatus.UNAVAILABLE,
+            "RUN_RECOVERY_QUEUE_UNAVAILABLE",
+            empty,
+        )
+
+    try:
+        with _open_run_recovery(
+            resolved_url,
+            read_only=True,
+            redis_url=redis_url,
+            queue_name=queue_name,
+        ) as recovery:
+            summary = recovery.summarize()
+        counts = RecoveryDoctorCounts(
+            runs_examined=summary.runs_examined,
+            database_gaps=summary.database_gaps,
+            queue_gaps=summary.queue_gaps,
+            callback_gaps=summary.callback_gaps,
+            result_indexing_gaps=summary.result_indexing_gaps,
+            cleanup_gaps=summary.cleanup_gaps,
+        )
+    except _RunRecoveryDatabaseUnavailable:
+        return RecoveryDoctorCheck(
+            RecoveryDoctorStatus.UNAVAILABLE,
+            "RUN_RECOVERY_DATABASE_UNAVAILABLE",
+            empty,
+        )
+    except RunQueueError:
+        return RecoveryDoctorCheck(
+            RecoveryDoctorStatus.UNAVAILABLE,
+            "RUN_RECOVERY_QUEUE_UNAVAILABLE",
+            empty,
+        )
+    except Exception as error:
+        code = getattr(error, "code", None)
+        if code == "RUN_RECOVERY_QUEUE_UNAVAILABLE":
+            reason_code = "RUN_RECOVERY_QUEUE_UNAVAILABLE"
+        elif code == "RUN_RECOVERY_DATA_INVALID":
+            reason_code = "RUN_RECOVERY_DATABASE_UNAVAILABLE"
+        else:
+            reason_code = "RUN_RECOVERY_INTERNAL_ERROR"
+        return RecoveryDoctorCheck(
+            RecoveryDoctorStatus.UNAVAILABLE,
+            reason_code,
+            empty,
+        )
+    if summary.queue_unavailable:
+        return RecoveryDoctorCheck(
+            RecoveryDoctorStatus.UNAVAILABLE,
+            "RUN_RECOVERY_QUEUE_UNAVAILABLE",
+            counts,
+        )
+    if any(
+        (
+            counts.database_gaps,
+            counts.queue_gaps,
+            counts.callback_gaps,
+            counts.result_indexing_gaps,
+            counts.cleanup_gaps,
+        )
+    ):
+        return RecoveryDoctorCheck(
+            RecoveryDoctorStatus.ATTENTION_REQUIRED,
+            "RUN_RECOVERY_ATTENTION_REQUIRED",
+            counts,
+        )
+    return RecoveryDoctorCheck(
+        RecoveryDoctorStatus.READY,
+        "RUN_RECOVERY_READY",
+        counts,
+    )
+
+
+def _doctor_scalar(value: object) -> object:
+    return getattr(value, "value", value)
+
+
+def _doctor_json_payload(
+    environment_checks: Sequence[EnvironmentCheck],
+    workflow_checks: Sequence[WorkflowCheck],
+    recovery_check: object,
+    *,
+    errors: Sequence[Mapping[str, str]] = (),
+) -> dict[str, object]:
+    """Return only the reviewed, path-free doctor report fields."""
+    counts = getattr(recovery_check, "counts")
+    payload: dict[str, object] = {
+        "schema_version": "1.0.0",
+        "environment": [
+            {"name": check.name, "version": check.version}
+            for check in environment_checks
+        ],
+        "workflows": [
+            {
+                "workflow_id": check.workflow_id,
+                "name": check.name,
+                "authoring": check.authoring,
+                "execution": check.execution,
+                "reason_code": check.reason_code,
+            }
+            for check in workflow_checks
+        ],
+        "run_recovery": {
+            "status": _doctor_scalar(getattr(recovery_check, "status")),
+            "reason_code": getattr(recovery_check, "reason_code"),
+            "counts": {
+                "runs_examined": getattr(counts, "runs_examined"),
+                "database_gaps": getattr(counts, "database_gaps"),
+                "queue_gaps": getattr(counts, "queue_gaps"),
+                "callback_gaps": getattr(counts, "callback_gaps"),
+                "result_indexing_gaps": getattr(counts, "result_indexing_gaps"),
+                "cleanup_gaps": getattr(counts, "cleanup_gaps"),
+            },
+        },
+    }
+    if errors:
+        payload["errors"] = [dict(error) for error in errors]
+    return payload
+
+
+def _write_compact_json(payload: object) -> None:
+    json.dump(
+        payload,
+        sys.stdout,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    sys.stdout.write("\n")
+
+
+def _run_json_doctor(args: argparse.Namespace) -> int:
+    errors: list[dict[str, str]] = []
+    try:
+        environment_checks = run_environment_doctor(
+            args.frontend_root,
+            redis_url=args.redis_url,
+        )
+    except Exception:
+        environment_checks = ()
+        errors.append(
+            {
+                "component": "environment",
+                "reason_code": "ENVIRONMENT_CHECK_FAILED",
+            }
+        )
+    try:
+        workflow_checks = run_workflow_doctor(
+            (args.project_root or REPOSITORY_ROOT),
+            environ=os.environ,
+        )
+    except Exception:
+        workflow_checks = ()
+        errors.append(
+            {
+                "component": "workflows",
+                "reason_code": "WORKFLOW_CHECK_FAILED",
+            }
+        )
+    try:
+        config = config_from_args(args)
+        recovery_check = run_recovery_doctor(
+            database_url=config.database_url,
+            redis_url=config.redis_url,
+            queue_name=config.queue_name,
+        )
+    except Exception:
+        recovery_check = RecoveryDoctorCheck(
+            RecoveryDoctorStatus.UNAVAILABLE,
+            "RUN_RECOVERY_INTERNAL_ERROR",
+            RecoveryDoctorCounts(),
+        )
+    _write_compact_json(
+        _doctor_json_payload(
+            environment_checks,
+            workflow_checks,
+            recovery_check,
+            errors=errors,
+        )
+    )
+    return int(
+        bool(errors)
+        or _doctor_scalar(recovery_check.status)
+        == RecoveryDoctorStatus.UNAVAILABLE.value
     )
 
 
@@ -821,9 +1099,14 @@ def _port_available(host: str, port: int) -> bool:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.json and not args.doctor:
+        parser.error("--json requires --doctor")
     if args.cleanup_service_pids is not None:
         return cleanup_service_sessions(args.cleanup_service_pids.resolve())
+    if args.doctor and args.json:
+        return _run_json_doctor(args)
     try:
         environment_checks = run_environment_doctor(
             args.frontend_root,

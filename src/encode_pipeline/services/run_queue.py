@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from encode_pipeline.platform.execution import RunExecutionAssignment
+from encode_pipeline.platform.run_recovery import RunExecutionQueueEvidence
 
 
 class RunQueueError(RuntimeError):
@@ -57,3 +58,30 @@ class RunStopQueue(Protocol):
 
     def request_stop(self, assignment: RunExecutionAssignment) -> None:
         """Send the backend stop command or raise a bounded queue error."""
+
+
+@runtime_checkable
+class RunQueueInspector(Protocol):
+    """Read bounded backend evidence for one durable execution identity."""
+
+    @property
+    def backend(self) -> str:
+        """Return the durable backend identity."""
+
+    @property
+    def queue_name(self) -> str:
+        """Return the durable queue identity."""
+
+    def inspect_execution(
+        self,
+        assignment: RunExecutionAssignment,
+    ) -> RunExecutionQueueEvidence:
+        """Return redacted queue evidence without mutating backend state."""
+
+
+@runtime_checkable
+class RunRecoveryQueue(RunQueueInspector, Protocol):
+    """Requeue an explicitly authorized durable execution assignment."""
+
+    def requeue_execution(self, assignment: RunExecutionAssignment) -> str:
+        """Requeue one exact assignment or raise a bounded queue error."""

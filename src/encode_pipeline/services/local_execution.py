@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from encode_pipeline.platform.execution import RunExecutionClaim
 from encode_pipeline.platform.planning import WorkspacePathError, WorkspacePathPolicy
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunRecord, RunStatus
@@ -66,7 +67,11 @@ class LocalExecutionService:
         self._local_run_driver = local_run_driver
         self._managed_input_verifier = managed_input_verifier
 
-    def execute(self, run_id: str) -> Result[RunRecord]:
+    def execute(
+        self,
+        run_id: str,
+        claim: RunExecutionClaim,
+    ) -> Result[RunRecord]:
         """Execute one claimed QUEUED run and persist its terminal outcome."""
         try:
             current = self._run_service.get_run(run_id)
@@ -99,9 +104,27 @@ class LocalExecutionService:
                 ]
             )
 
+        claim_validation = self._validate_execution_claim(run_id, claim)
+        if claim_validation.is_failure:
+            return Result.failure(claim_validation.issues)
+
         rebuilt = self._rebuild_plan(run_id)
         if rebuilt.is_failure:
             return self._fail(run_id, rebuilt.issues)
+
+        current = self._run_service.get_run(run_id)
+        if current.status is RunStatus.CANCELLED:
+            return self._cancelled_result()
+        if current.status is not RunStatus.QUEUED:
+            return self._state_changed_result(current)
+
+        cleanup_binding = self._bind_execution_cleanup_identity(
+            run_id,
+            rebuilt.value,
+            claim,
+        )
+        if cleanup_binding.is_failure:
+            return self._fail(run_id, cleanup_binding.issues)
 
         current = self._run_service.get_run(run_id)
         if current.status is RunStatus.CANCELLED:
@@ -194,6 +217,86 @@ class LocalExecutionService:
         if command_result.is_failure:
             return command_result
         return command_result
+
+    def _bind_execution_cleanup_identity(
+        self,
+        run_id: str,
+        plan: "ExecutionPlan",
+        claim: RunExecutionClaim,
+    ) -> Result[None]:
+        """Persist and verify the exact command-owned cleanup pair before Popen."""
+        command_spec = plan.command_spec
+        if command_spec is None:
+            return self._cleanup_binding_failure()
+        try:
+            bound = self._run_service.bind_execution_cleanup_identity(
+                run_id,
+                expected_assignment=claim.assignment,
+                managed_container_scope=command_spec.managed_container_scope,
+                managed_container_endpoint_identity=(
+                    command_spec.managed_container_endpoint_identity
+                ),
+            )
+        except (ConcurrentRunUpdateError, KeyError, TypeError, ValueError):
+            return self._cleanup_binding_failure()
+        if (
+            bound.managed_container_scope != command_spec.managed_container_scope
+            or bound.managed_container_endpoint_identity
+            != command_spec.managed_container_endpoint_identity
+        ):
+            return self._cleanup_binding_failure()
+        return Result.success(None)
+
+    def _validate_execution_claim(
+        self,
+        run_id: str,
+        claim: RunExecutionClaim,
+    ) -> Result[None]:
+        """Require this invocation's newly acquired, exact durable assignment."""
+        if (
+            not isinstance(claim, RunExecutionClaim)
+            or not claim.acquired
+            or claim.assignment.run_id != run_id
+            or claim.assignment.claimed_at is None
+            or claim.assignment.managed_container_scope is not None
+            or claim.assignment.managed_container_endpoint_identity is not None
+        ):
+            return self._execution_claim_failure()
+        try:
+            assignment = self._run_service.get_execution_assignment(run_id)
+        except (KeyError, TypeError, ValueError):
+            return self._execution_claim_failure()
+        if assignment != claim.assignment:
+            return self._execution_claim_failure()
+        return Result.success(None)
+
+    @staticmethod
+    def _execution_claim_failure() -> Result[None]:
+        return Result.failure(
+            [
+                Issue(
+                    code="LOCAL_EXECUTION_CLAIM_INVALID",
+                    message="Execution claim could not be verified.",
+                    severity="error",
+                    path="execution.claim",
+                    source="local_execution_service",
+                )
+            ]
+        )
+
+    @staticmethod
+    def _cleanup_binding_failure() -> Result[None]:
+        return Result.failure(
+            [
+                Issue(
+                    code="LOCAL_EXECUTION_CLEANUP_BINDING_INVALID",
+                    message="Execution cleanup identity could not be verified.",
+                    severity="error",
+                    path="execution.cleanup",
+                    source="local_execution_service",
+                )
+            ]
+        )
 
     @staticmethod
     def _managed_input_failure() -> Result[None]:

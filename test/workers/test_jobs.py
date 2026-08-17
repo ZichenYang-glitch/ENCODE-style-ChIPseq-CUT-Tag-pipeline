@@ -38,7 +38,10 @@ from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
 )
 from encode_pipeline.persistence.runtime import open_run_persistence
 from encode_pipeline.platform.adapters import WorkflowInputs
-from encode_pipeline.platform.execution import RunExecutionAssignment
+from encode_pipeline.platform.execution import RunExecutionAssignment, RunExecutionClaim
+from encode_pipeline.platform.managed_containers import (
+    managed_container_endpoint_identity,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.result_generations import (
@@ -62,6 +65,7 @@ from encode_pipeline.services.reference_profile_runtime import (
     ReferenceProfileBindingService,
 )
 from encode_pipeline.services.reference_profiles import ReferenceProfileService
+from encode_pipeline.services.run_repositories import RunEventDraft
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.validated_inputs import (
     ValidatedInputService,
@@ -76,6 +80,8 @@ from encode_pipeline.workers.jobs import (
 from encode_pipeline.workers.rq_queue import RqRunQueue
 from encode_pipeline.workers.runtime import open_worker_runtime
 from encode_pipeline.workers.settings import (
+    MANAGED_DOCKER_EXECUTABLE_ENV,
+    MANAGED_DOCKER_SOCKET_ENV,
     QUEUE_NAME_ENV,
     REFERENCE_PROFILE_CONFIG_ENV,
     REDIS_URL_ENV,
@@ -87,6 +93,22 @@ from .conftest import create_planned_run, worker_settings
 
 
 ARTIFACT_GENERATION = f"artifactgen-{'a' * 64}"
+
+
+def _acquired_claim(run_id: str = "run-1") -> RunExecutionClaim:
+    claimed_at = datetime.now(timezone.utc)
+    return RunExecutionClaim(
+        assignment=RunExecutionAssignment(
+            run_id=run_id,
+            job_id=f"job-{run_id}",
+            backend="rq",
+            queue_name="test-queue",
+            created_at=claimed_at,
+            dispatched_at=claimed_at,
+            claimed_at=claimed_at,
+        ),
+        acquired=True,
+    )
 
 
 def _verified_bulk_runtime_assets(root: Path) -> VerifiedRuntimeAssets:
@@ -268,6 +290,42 @@ def _read_run(configured, run_id):
         persistence.close()
 
 
+def _prepare_requeue(configured, assignment):
+    persistence = open_run_persistence(configured.database_url)
+    service = RunService(
+        create_default_workflow_registry(),
+        repository=persistence.repository,
+    )
+    try:
+        service.mark_execution_dispatched(
+            assignment.run_id,
+            job_id=assignment.job_id,
+        )
+        service.queue_dispatched_run(
+            assignment.run_id,
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+        current = service.get_execution_assignment(assignment.run_id)
+        assert current is not None
+        return persistence.repository.prepare_execution_requeue(
+            assignment.run_id,
+            expected_status=RunStatus.QUEUED,
+            expected_assignment=current,
+            requested_at=datetime.now(timezone.utc),
+            event=RunEventDraft(
+                event_type="run_requeue_requested_by_admin",
+                message="Run requeue requested by an administrator.",
+                status=RunStatus.QUEUED,
+                stage="execution",
+                context={"reason_code": "RUN_REQUEUED_BY_ADMIN_RECOVERY"},
+            ),
+        ).assignment
+    finally:
+        persistence.close()
+
+
 def _read_results(configured, run_id):
     persistence = open_run_persistence(configured.database_url)
     service = create_default_run_service(
@@ -284,7 +342,7 @@ def _read_results(configured, run_id):
         persistence.close()
 
 
-def _complete_workflow_successfully(execution_service, run_id):
+def _complete_workflow_successfully(execution_service, run_id, _claim):
     execution_service._run_service.transition_run(
         run_id,
         RunStatus.RUNNING,
@@ -400,6 +458,74 @@ def test_rq_worker_rebuilds_dependencies_and_persists_handshake_event(
     assert [event.event_type for event in events_after_retry].count(
         "worker_dependencies_rebuilt"
     ) == 1
+
+
+def test_rq_worker_does_not_resume_preclaimed_legacy_null_cleanup_assignment(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "preclaimed-legacy-run",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    persistence = open_run_persistence(configured.database_url)
+    try:
+        service = create_default_run_service(
+            registry=create_default_workflow_registry(),
+            repository=persistence.repository,
+        )
+        service.mark_execution_dispatched(
+            assignment.run_id,
+            job_id=assignment.job_id,
+        )
+        service.queue_dispatched_run(
+            assignment.run_id,
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+        claim = service.claim_execution_assignment(
+            assignment.run_id,
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+        assert claim.acquired is True
+        assert claim.assignment.managed_container_scope is None
+        assert claim.assignment.managed_container_endpoint_identity is None
+    finally:
+        persistence.close()
+
+    before_record, before_events, before_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+
+    def fail_if_execution_starts(*_args, **_kwargs):
+        raise AssertionError("pre-claimed jobs must stop before execution rebuild")
+
+    monkeypatch.setattr(LocalExecutionService, "execute", fail_if_execution_starts)
+    monkeypatch.setattr(ProcessRunner, "run", _fail_if_process_starts)
+    _configure_worker_environment(monkeypatch, configured)
+    connection = fakeredis.FakeRedis()
+    run_queue = RqRunQueue(configured, connection=connection)
+    run_queue.enqueue_execution(claim.assignment)
+
+    assert _run_burst(connection, run_queue) is True
+
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    record, events, persisted_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert job is not None
+    assert job.is_finished
+    assert record == before_record
+    assert events == before_events
+    assert persisted_assignment == before_assignment
 
 
 def test_rq_worker_persists_nonempty_qc_metrics_for_new_sqlite_reader(
@@ -633,7 +759,7 @@ def test_bulk_binding_survives_durable_worker_reconstruction_and_admission(
         )
         assert reconstructed.is_success
         assert api_identity.value.matches(reconstructed.value)
-        acquired = worker_jobs._initialize_execution_with_runtime(
+        claim = worker_jobs._initialize_execution_with_runtime(
             runtime,
             SimpleNamespace(
                 id=assignment.job_id,
@@ -641,13 +767,15 @@ def test_bulk_binding_survives_durable_worker_reconstruction_and_admission(
             ),
             assignment.run_id,
         )
-        assert acquired is True
+        assert claim is not None
+        assert claim.acquired is True
         assert runtime.run_service.get_run(assignment.run_id).status is RunStatus.QUEUED
         persisted_assignment = runtime.run_service.get_execution_assignment(
             assignment.run_id
         )
         assert persisted_assignment is not None
         assert persisted_assignment.claimed_at is not None
+        assert claim.assignment == persisted_assignment
         events = runtime.run_service.list_events(assignment.run_id)
         assert events[-1].event_type == "worker_dependencies_rebuilt"
         assert events[-1].context["workflow_id"] == "bulk-rnaseq"
@@ -691,6 +819,88 @@ def test_rq_worker_rejects_stale_job_identity_without_writing_handshake(
     assert job is not None
     assert job.is_failed
     assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
+
+
+def test_worker_entry_durably_confirms_pending_requeue_before_build_admission(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "pending-requeue-entry",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    prepared = _prepare_requeue(configured, assignment)
+    monkeypatch.setattr(
+        worker_jobs,
+        "_require_matching_workflow_build",
+        lambda *_args: False,
+    )
+
+    with open_worker_runtime(configured) as runtime:
+        claim = worker_jobs._initialize_execution_with_runtime(
+            runtime,
+            SimpleNamespace(id=prepared.job_id, origin=prepared.queue_name),
+            prepared.run_id,
+        )
+
+        persisted = runtime.run_service.get_execution_assignment(prepared.run_id)
+        events = runtime.run_service.list_events(prepared.run_id, limit=100)
+
+    assert claim is None
+    assert persisted is not None
+    assert persisted.claimed_at is None
+    assert persisted.requeue_requested_at == prepared.requeue_requested_at
+    assert persisted.requeue_confirmed_at is not None
+    assert events[-1].event_type == "run_requeue_delivery_observed_by_worker"
+    assert events[-1].context == {
+        "reason_code": "RUN_REQUEUED_BY_ADMIN_RECOVERY",
+        "confirmation_source": "worker_entry",
+    }
+
+
+def test_worker_requeue_confirmation_cas_failure_stops_before_build_or_claim(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "pending-requeue-cas-failure",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    prepared = _prepare_requeue(configured, assignment)
+
+    with open_worker_runtime(configured) as runtime:
+        monkeypatch.setattr(
+            runtime.run_service,
+            "confirm_execution_requeue_observed",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("private persistence failure")
+            ),
+        )
+        monkeypatch.setattr(
+            worker_jobs,
+            "_require_matching_workflow_build",
+            lambda *_args: (_ for _ in ()).throw(
+                AssertionError("build admission must not run")
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match="private persistence failure"):
+            worker_jobs._initialize_execution_with_runtime(
+                runtime,
+                SimpleNamespace(id=prepared.job_id, origin=prepared.queue_name),
+                prepared.run_id,
+            )
+
+        persisted = runtime.run_service.get_execution_assignment(prepared.run_id)
+    assert persisted is not None
+    assert persisted.claimed_at is None
+    assert persisted.requeue_confirmed_at is None
 
 
 def test_rq_worker_rejects_missing_durable_assignment(tmp_path, monkeypatch):
@@ -1145,7 +1355,7 @@ def test_rq_worker_sanitizes_unexpected_execution_exception(tmp_path, monkeypatc
     assert assignment is not None
     _configure_worker_environment(monkeypatch, configured)
 
-    def explode(_self, _run_id):
+    def explode(_self, _run_id, _claim):
         raise RuntimeError("redis://private-password@internal:6379/0")
 
     monkeypatch.setattr(LocalExecutionService, "execute", explode)
@@ -1178,7 +1388,7 @@ def test_rq_worker_persists_and_reraises_job_timeout(tmp_path, monkeypatch):
     assert assignment is not None
     _configure_worker_environment(monkeypatch, configured)
 
-    def timeout(_self, _run_id):
+    def timeout(_self, _run_id, _claim):
         raise WorkerHardTimeout("RQ deadline reached")
 
     monkeypatch.setattr(LocalExecutionService, "execute", timeout)
@@ -1397,7 +1607,7 @@ def test_rq_worker_generalizes_failure_when_durable_mapping_itself_fails(
     assert assignment is not None
     _configure_worker_environment(monkeypatch, configured)
 
-    def execution_failure(_self, _run_id):
+    def execution_failure(_self, _run_id, _claim):
         raise RuntimeError("redis://execution-secret@internal:6379/0")
 
     def mapping_failure(*_args, **_kwargs):
@@ -1448,12 +1658,12 @@ def test_post_success_artifact_exception_does_not_fail_execution_job():
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=Extraction(),
     )
 
-    worker_jobs._execute_claimed_run(runtime, "run-1")
+    worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
 
     assert len(recorded) == 1
     assert recorded[0][0] == "run-1"
@@ -1473,7 +1683,7 @@ def test_post_success_artifact_hard_timeout_is_recorded_and_reraised():
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=Extraction(),
     )
@@ -1482,7 +1692,7 @@ def test_post_success_artifact_hard_timeout_is_recorded_and_reraised():
         WorkerHardTimeout,
         match="artifact indexing exceeded the RQ deadline",
     ):
-        worker_jobs._execute_claimed_run(runtime, "run-1")
+        worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
 
     assert len(recorded) == 1
     assert recorded[0][0] == "run-1"
@@ -1517,13 +1727,13 @@ def test_post_success_artifact_timeout_survives_failure_callback_fault(
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=Extraction(),
     )
 
     with pytest.raises(WorkerHardTimeout, match=expected_message) as raised:
-        worker_jobs._execute_claimed_run(runtime, "run-1")
+        worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
 
     formatted = "".join(traceback.format_exception(raised.value))
     assert "/private/artifact-timeout-evidence" not in formatted
@@ -1541,7 +1751,7 @@ def test_post_success_artifact_failure_callback_reraises_hard_timeout():
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=Extraction(),
     )
@@ -1550,7 +1760,7 @@ def test_post_success_artifact_failure_callback_reraises_hard_timeout():
         WorkerHardTimeout,
         match="deadline during artifact failure evidence",
     ) as raised:
-        worker_jobs._execute_claimed_run(runtime, "run-1")
+        worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
 
     formatted = "".join(traceback.format_exception(raised.value))
     assert "/private/workspace" not in formatted
@@ -1568,12 +1778,12 @@ def test_post_success_artifact_failure_callback_exception_remains_nonfatal():
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=Extraction(),
     )
 
-    assert worker_jobs._execute_claimed_run(runtime, "run-1") is None
+    assert worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim()) is None
 
 
 def test_post_success_result_state_hard_timeout_stops_before_qc():
@@ -1581,7 +1791,7 @@ def test_post_success_result_state_hard_timeout_stops_before_qc():
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
             extract=lambda _run_id, **_kwargs: Result.success(())
@@ -1600,7 +1810,7 @@ def test_post_success_result_state_hard_timeout_stops_before_qc():
         WorkerHardTimeout,
         match="deadline while reading artifact generation",
     ):
-        worker_jobs._execute_claimed_run(runtime, "run-1")
+        worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
 
     assert qc_calls == []
 
@@ -1610,7 +1820,7 @@ def test_post_success_result_state_exception_stops_before_qc():
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
             extract=lambda _run_id, **_kwargs: Result.success(())
@@ -1625,7 +1835,7 @@ def test_post_success_result_state_exception_stops_before_qc():
         ),
     )
 
-    assert worker_jobs._execute_claimed_run(runtime, "run-1") is None
+    assert worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim()) is None
     assert qc_calls == []
 
 
@@ -1637,7 +1847,7 @@ def test_post_success_result_wrapper_hard_timeout_stops_before_qc():
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
             extract=lambda _run_id, **_kwargs: TimedOutArtifactResult()
@@ -1648,7 +1858,7 @@ def test_post_success_result_wrapper_hard_timeout_stops_before_qc():
         WorkerHardTimeout,
         match="deadline while reading artifact result",
     ):
-        worker_jobs._execute_claimed_run(runtime, "run-1")
+        worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
 
 
 def test_post_success_qc_receives_only_successful_complete_artifact_set():
@@ -1657,7 +1867,7 @@ def test_post_success_qc_receives_only_successful_complete_artifact_set():
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
             extract=lambda _run_id, **_kwargs: Result.success(artifacts)
@@ -1674,7 +1884,7 @@ def test_post_success_qc_receives_only_successful_complete_artifact_set():
         ),
     )
 
-    worker_jobs._execute_claimed_run(runtime, "run-1")
+    worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
 
     assert len(calls) == 1
     assert calls[0][:2] == ("run-1", artifacts)
@@ -1694,7 +1904,7 @@ def test_post_success_qc_exception_is_recorded_without_failing_execution():
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
             extract=lambda _run_id, **_kwargs: Result.success(())
@@ -1707,7 +1917,7 @@ def test_post_success_qc_exception_is_recorded_without_failing_execution():
         qc_summary_indexing_service=QcIndexing(),
     )
 
-    worker_jobs._execute_claimed_run(runtime, "run-1")
+    worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
 
     assert len(recorded) == 1
     assert recorded[0][0] == "run-1"
@@ -1727,7 +1937,7 @@ def test_post_success_qc_hard_timeout_is_recorded_and_reraised():
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
             extract=lambda _run_id, **_kwargs: Result.success(())
@@ -1744,7 +1954,7 @@ def test_post_success_qc_hard_timeout_is_recorded_and_reraised():
         WorkerHardTimeout,
         match="QC indexing exceeded the RQ deadline",
     ):
-        worker_jobs._execute_claimed_run(runtime, "run-1")
+        worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
 
     assert len(recorded) == 1
     assert recorded[0][0] == "run-1"
@@ -1779,7 +1989,7 @@ def test_post_success_qc_timeout_survives_failure_callback_fault(
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
             extract=lambda _run_id, **_kwargs: Result.success(())
@@ -1793,7 +2003,7 @@ def test_post_success_qc_timeout_survives_failure_callback_fault(
     )
 
     with pytest.raises(WorkerHardTimeout, match=expected_message) as raised:
-        worker_jobs._execute_claimed_run(runtime, "run-1")
+        worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
 
     formatted = "".join(traceback.format_exception(raised.value))
     assert "/private/qc-timeout-evidence" not in formatted
@@ -1810,7 +2020,7 @@ def test_post_success_qc_failure_callback_reraises_hard_timeout():
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
             extract=lambda _run_id, **_kwargs: Result.success(())
@@ -1827,7 +2037,7 @@ def test_post_success_qc_failure_callback_reraises_hard_timeout():
         WorkerHardTimeout,
         match="deadline during QC failure evidence",
     ) as raised:
-        worker_jobs._execute_claimed_run(runtime, "run-1")
+        worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
 
     formatted = "".join(traceback.format_exception(raised.value))
     assert "/private/qc/workspace" not in formatted
@@ -1844,7 +2054,7 @@ def test_post_success_qc_failure_callback_exception_remains_nonfatal():
 
     runtime = SimpleNamespace(
         local_execution_service=SimpleNamespace(
-            execute=lambda _run_id: Result.success(object())
+            execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
             extract=lambda _run_id, **_kwargs: Result.success(())
@@ -1857,7 +2067,7 @@ def test_post_success_qc_failure_callback_exception_remains_nonfatal():
         qc_summary_indexing_service=QcIndexing(),
     )
 
-    assert worker_jobs._execute_claimed_run(runtime, "run-1") is None
+    assert worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim()) is None
 
 
 def test_failure_mapping_does_not_swallow_rq_timeout():
@@ -1916,12 +2126,13 @@ def test_worker_composition_failure_is_public_safe_and_durably_failed(
         assign_queue=configured.queue_name,
     )
     assert assignment is not None
+    prepared = _prepare_requeue(configured, assignment)
     _configure_worker_environment(monkeypatch, configured)
     monkeypatch.setattr(
         worker_jobs,
         "get_current_job",
         lambda: SimpleNamespace(
-            id=assignment.job_id,
+            id=prepared.job_id,
             origin=configured.queue_name,
         ),
     )
@@ -1936,7 +2147,7 @@ def test_worker_composition_failure_is_public_safe_and_durably_failed(
 
     assert "private/path" not in str(raised.value)
     assert raised.value.__cause__ is None
-    record, _events, persisted_assignment = _read_run(
+    record, events, persisted_assignment = _read_run(
         configured,
         "composition-failure-run",
     )
@@ -1945,6 +2156,11 @@ def test_worker_composition_failure_is_public_safe_and_durably_failed(
     assert record.error.context == {"reason_code": "WORKER_INITIALIZATION_FAILED"}
     assert persisted_assignment is not None
     assert persisted_assignment.dispatched_at is not None
+    assert persisted_assignment.requeue_requested_at == prepared.requeue_requested_at
+    assert persisted_assignment.requeue_confirmed_at is not None
+    assert "run_requeue_delivery_observed_by_worker" in {
+        event.event_type for event in events
+    }
 
 
 @pytest.mark.parametrize("drift_field", ("job_id", "queue_name"))
@@ -1960,9 +2176,10 @@ def test_worker_composition_fallback_refuses_identity_drift_without_mutation(
         assign_queue=configured.queue_name,
     )
     assert assignment is not None
+    prepared = _prepare_requeue(configured, assignment)
     _configure_worker_environment(monkeypatch, configured)
     current_job = SimpleNamespace(
-        id="wrong-job" if drift_field == "job_id" else assignment.job_id,
+        id="wrong-job" if drift_field == "job_id" else prepared.job_id,
         origin="wrong-queue" if drift_field == "queue_name" else configured.queue_name,
     )
     monkeypatch.setattr(worker_jobs, "get_current_job", lambda: current_job)
@@ -1976,9 +2193,13 @@ def test_worker_composition_fallback_refuses_identity_drift_without_mutation(
         worker_jobs.run_execution_job(assignment.run_id)
 
     record, events, persisted_assignment = _read_run(configured, assignment.run_id)
-    assert record.status is RunStatus.PLANNED
-    assert persisted_assignment == assignment
-    assert all(event.status is not RunStatus.QUEUED for event in events)
+    assert record.status is RunStatus.QUEUED
+    assert persisted_assignment == prepared
+    assert persisted_assignment.requeue_confirmed_at is None
+    assert all(
+        event.event_type != "run_requeue_delivery_observed_by_worker"
+        for event in events
+    )
     assert all(event.status is not RunStatus.FAILED for event in events)
 
 
@@ -2284,6 +2505,32 @@ def test_work_horse_death_is_mapped_to_durable_failure(tmp_path, monkeypatch):
     assert persisted_assignment.dispatched_at is not None
 
 
+def test_work_horse_death_confirms_pending_requeue_before_terminal_failure(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "killed-pending-requeue",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    prepared = _prepare_requeue(configured, assignment)
+    _configure_worker_environment(monkeypatch, configured)
+
+    handle_work_horse_killed(_execution_job(prepared), 123, 9, object())
+
+    record, events, persisted = _read_run(configured, prepared.run_id)
+    assert record.status is RunStatus.FAILED
+    assert persisted is not None
+    assert persisted.claimed_at is None
+    assert persisted.requeue_confirmed_at is not None
+    assert "run_requeue_delivery_observed_by_worker" in {
+        event.event_type for event in events
+    }
+
+
 def test_work_horse_cleanup_failure_does_not_fabricate_terminal_failure(
     tmp_path,
     monkeypatch,
@@ -2386,6 +2633,72 @@ def test_stopped_cleanup_failure_leaves_cancellation_unacknowledged(
     assert persisted.cancellation_acknowledged_at is None
 
 
+@pytest.mark.parametrize("endpoint_matches", (True, False))
+def test_stopped_callback_uses_only_the_durable_cleanup_binding(
+    tmp_path,
+    monkeypatch,
+    endpoint_matches,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        f"cancel-bound-cleanup-{endpoint_matches}",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    _configure_worker_environment(monkeypatch, configured)
+    executable = (tmp_path / "admin-bin" / "docker").resolve()
+    socket = (tmp_path / "admin-docker.sock").resolve()
+    current_endpoint = managed_container_endpoint_identity(executable, socket)
+    durable_endpoint = current_endpoint if endpoint_matches else "f" * 64
+    durable_scope = "e" * 64
+    claimed = _prepare_running_assignment(
+        configured,
+        assignment,
+        request_cancel=True,
+        managed_container_scope=durable_scope,
+        managed_container_endpoint_identity=durable_endpoint,
+    )
+    monkeypatch.setenv(MANAGED_DOCKER_EXECUTABLE_ENV, str(executable))
+    monkeypatch.setenv(MANAGED_DOCKER_SOCKET_ENV, str(socket))
+    cleanup_scopes = []
+
+    class Cleaner:
+        def __init__(self, *, executable, unix_socket):
+            self.endpoint_identity = managed_container_endpoint_identity(
+                executable,
+                unix_socket,
+            )
+
+        def cleanup(self, scope):
+            cleanup_scopes.append(scope)
+            return Result.success(None)
+
+    monkeypatch.setattr(worker_jobs, "ManagedContainerCleaner", Cleaner)
+    before_record, before_events, before_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+
+    handle_execution_stopped(_execution_job(claimed), fakeredis.FakeRedis())
+
+    record, events, persisted = _read_run(configured, assignment.run_id)
+    if endpoint_matches:
+        assert cleanup_scopes == [durable_scope]
+        assert record.status is RunStatus.CANCELLED
+        assert persisted is not None
+        assert persisted.cancellation_acknowledged_at is not None
+    else:
+        assert cleanup_scopes == []
+        assert record == before_record
+        assert persisted == before_assignment
+        assert [event.event_type for event in events[:-1]] == [
+            event.event_type for event in before_events
+        ]
+        assert events[-1].event_type == "execution_cleanup_failed"
+        assert all(event.event_type != "cancellation_acknowledged" for event in events)
+
+
 def test_stopped_callback_without_user_intent_fails_truthfully(
     tmp_path,
     monkeypatch,
@@ -2468,6 +2781,32 @@ def test_stopped_callback_before_running_fails_truthfully(
     assert persisted.cancellation_acknowledged_at is None
     assert events[-1].event_type == "execution_stopped_unexpectedly"
     assert events[-1].context["previous_status"] == "queued"
+
+
+def test_stopped_callback_confirms_pending_requeue_before_terminal_failure(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "stopped-pending-requeue",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    prepared = _prepare_requeue(configured, assignment)
+    _configure_worker_environment(monkeypatch, configured)
+
+    handle_execution_stopped(_execution_job(prepared), fakeredis.FakeRedis())
+
+    record, events, persisted = _read_run(configured, prepared.run_id)
+    assert record.status is RunStatus.FAILED
+    assert persisted is not None
+    assert persisted.claimed_at is None
+    assert persisted.requeue_confirmed_at is not None
+    assert "run_requeue_delivery_observed_by_worker" in {
+        event.event_type for event in events
+    }
 
 
 def test_stopped_callback_before_dispatch_fails_planned_truthfully(
@@ -2586,7 +2925,14 @@ def test_stopped_callback_does_not_swallow_rq_callback_timeout(monkeypatch):
         )
 
 
-def _prepare_running_assignment(configured, assignment, *, request_cancel=False):
+def _prepare_running_assignment(
+    configured,
+    assignment,
+    *,
+    request_cancel=False,
+    managed_container_scope=None,
+    managed_container_endpoint_identity=None,
+):
     persistence = open_run_persistence(configured.database_url)
     try:
         service = create_default_run_service(
@@ -2609,6 +2955,20 @@ def _prepare_running_assignment(configured, assignment, *, request_cancel=False)
             backend=assignment.backend,
             queue_name=assignment.queue_name,
         )
+        claimed = service.get_execution_assignment(assignment.run_id)
+        assert claimed is not None
+        if (
+            managed_container_scope is not None
+            or managed_container_endpoint_identity is not None
+        ):
+            claimed = service.bind_execution_cleanup_identity(
+                assignment.run_id,
+                expected_assignment=claimed,
+                managed_container_scope=managed_container_scope,
+                managed_container_endpoint_identity=(
+                    managed_container_endpoint_identity
+                ),
+            )
         service.transition_run(assignment.run_id, RunStatus.RUNNING)
         claimed = service.get_execution_assignment(assignment.run_id)
         assert claimed is not None

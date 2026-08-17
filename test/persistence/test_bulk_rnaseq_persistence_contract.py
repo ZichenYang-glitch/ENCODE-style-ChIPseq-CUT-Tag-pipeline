@@ -27,7 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_PATH = (
     PROJECT_ROOT
     / "src/encode_pipeline/contracts/nfcore_rnaseq"
-    / "execution-persistence-contract-1.3.0.json"
+    / "execution-persistence-contract-1.4.0.json"
 )
 EXPECTED_TOP_LEVEL_KEYS = {
     "schema_version",
@@ -47,6 +47,7 @@ EXPECTED_CAPABILITIES = [
     "sqlite.compatibility-input-binding/v1",
     "sqlite.reference-profile-revision-binding/v1",
     "sqlite.artifact-publication/v1",
+    "sqlite.run-recovery-administration/v1",
 ]
 EXPECTED_REQUIRED_REVISIONS = [
     "20260711_01",
@@ -60,6 +61,7 @@ EXPECTED_REQUIRED_REVISIONS = [
     "20260726_10",
     "20260803_11",
     "20260807_12",
+    "20260809_13",
 ]
 EXPECTED_REQUIRED_SCHEMA = {
     "artifact_publications": [
@@ -125,7 +127,11 @@ EXPECTED_REQUIRED_SCHEMA = {
         "created_at",
         "dispatched_at",
         "job_id",
+        "managed_container_endpoint_identity",
+        "managed_container_scope",
         "queue_name",
+        "requeue_confirmed_at",
+        "requeue_requested_at",
         "run_id",
     ],
     "run_input_bindings": [
@@ -434,13 +440,13 @@ def test_bulk_rnaseq_persistence_contract_is_exact_canonical_and_path_free():
     spec = _projection_spec(contract)
 
     assert set(contract) == EXPECTED_TOP_LEVEL_KEYS
-    assert CONTRACT_PATH.name == "execution-persistence-contract-1.3.0.json"
+    assert CONTRACT_PATH.name == "execution-persistence-contract-1.4.0.json"
     assert not CONTRACT_PATH.with_name(
-        "execution-persistence-contract-1.2.0.json"
+        "execution-persistence-contract-1.3.0.json"
     ).exists()
-    assert contract["schema_version"] == "1.3.0"
+    assert contract["schema_version"] == "1.4.0"
     assert contract["contract_id"] == "bulk-rnaseq-execution-persistence"
-    assert contract["contract_version"] == "1.3.0"
+    assert contract["contract_version"] == "1.4.0"
     assert contract["minimum_supported_revision"] == "20260714_07"
     assert contract["capabilities"] == EXPECTED_CAPABILITIES
     assert contract["required_revisions"] == EXPECTED_REQUIRED_REVISIONS
@@ -497,6 +503,31 @@ def test_artifact_publication_projection_declares_exact_execution_semantics():
         ],
         "unique_constraints": [],
     }
+
+
+def test_run_recovery_projection_declares_exact_monotonic_markers():
+    _, contract = _load_contract()
+    projection = contract["schema_projection"]
+    assert isinstance(projection, dict)
+    tables = projection["tables"]
+    assert isinstance(tables, dict)
+
+    assignment = tables["run_execution_assignments"]
+    assert assignment["check_constraints"] == [
+        "ck_run_execution_assignments_ack_requires_request",
+        "ck_run_execution_assignments_claim_requires_dispatch",
+        "ck_run_execution_assignments_cleanup_endpoint_format",
+        "ck_run_execution_assignments_cleanup_identity_pair",
+        "ck_run_execution_assignments_cleanup_scope_format",
+        "ck_run_execution_assignments_request_reason_pair",
+        "ck_run_execution_assignments_request_requires_claim",
+        "ck_run_execution_assignments_requeue_confirm_requires_request",
+        "ck_run_execution_assignments_requeue_confirmation_order",
+        "ck_run_execution_assignments_requeue_requires_dispatch",
+    ]
+    assert (
+        assignment["columns"] == EXPECTED_REQUIRED_SCHEMA["run_execution_assignments"]
+    )
 
 
 def test_reference_profile_projection_excludes_catalog_only_components():
