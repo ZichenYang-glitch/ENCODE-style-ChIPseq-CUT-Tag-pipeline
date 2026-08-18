@@ -48,8 +48,11 @@ class AuthenticationRepository(Protocol):
         self,
         session: SessionRecord,
         *,
+        updated_account: UserAccount | None = None,
         audit: SecurityAuditEvent | None = None,
     ) -> None: ...
+
+    def record_security_audit(self, event: SecurityAuditEvent) -> None: ...
 
     def get_session(self, session_digest: str) -> SessionRecord: ...
 

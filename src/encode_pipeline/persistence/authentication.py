@@ -124,13 +124,7 @@ class SqlAlchemyAuthenticationRepository:
                 row = session.get(UserAccountRow, account.user_id)
                 if row is None:
                     raise KeyError("unknown user account")
-                row.username = account.username
-                row.role = account.role.value
-                row.status = account.status.value
-                row.password_hash = account.password_hash
-                row.created_at = account.created_at
-                row.updated_at = account.updated_at
-                row.password_changed_at = account.password_changed_at
+                _apply_account_update(row, account)
                 session.flush()
                 revoked = 0
                 if reason is not None:
@@ -157,17 +151,32 @@ class SqlAlchemyAuthenticationRepository:
         self,
         session: SessionRecord,
         *,
+        updated_account: UserAccount | None = None,
         audit: SecurityAuditEvent | None = None,
     ) -> None:
         if not isinstance(session, SessionRecord):
             raise ValueError("session must be a SessionRecord")
+        if updated_account is not None:
+            _validate_account(updated_account)
         _validate_audit(audit)
         with self._session_factory.begin() as write_session:
             _begin_write(write_session)
+            if updated_account is not None:
+                row = write_session.get(UserAccountRow, updated_account.user_id)
+                if row is None:
+                    raise KeyError("unknown user account")
+                _apply_account_update(row, updated_account)
+                write_session.flush()
             write_session.add(_session_row(session))
             write_session.flush()
             if audit is not None:
                 insert_security_audit_event(write_session, audit)
+
+    def record_security_audit(self, event: SecurityAuditEvent) -> None:
+        _validate_audit(event)
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            insert_security_audit_event(session, event)
 
     def get_session(self, session_digest: str) -> SessionRecord:
         with self._session_factory() as session:
@@ -267,6 +276,16 @@ def _write_time(value: datetime) -> datetime:
     ):
         raise ValueError("revoked_at must be timezone-aware")
     return value.astimezone(timezone.utc)
+
+
+def _apply_account_update(row: UserAccountRow, account: UserAccount) -> None:
+    row.username = account.username
+    row.role = account.role.value
+    row.status = account.status.value
+    row.password_hash = account.password_hash
+    row.created_at = account.created_at
+    row.updated_at = account.updated_at
+    row.password_changed_at = account.password_changed_at
 
 
 def _account_row(account: UserAccount) -> UserAccountRow:

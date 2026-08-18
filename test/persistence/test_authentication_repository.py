@@ -376,3 +376,77 @@ def test_failed_login_audit_round_trip_keeps_closed_shape(repository) -> None:
     assert event.actor_user_id is None
     assert event.resource is None
     assert event.reason_code is AuditReasonCode.INVALID_CREDENTIALS
+
+
+def test_create_session_upgrades_account_hash_in_one_transaction(repository) -> None:
+    account = _account()
+    repository.create_account(account)
+    rehashed = _account(
+        password_hash=REPLACEMENT_PASSWORD_HASH,
+        updated_at=LATER,
+    )
+    login = _audit_event(
+        action=AuditAction.LOGIN,
+        actor_kind=AuditActorKind.USER,
+        actor_user_id=USER_ID,
+        resource=None,
+    )
+    repository.create_session(_session(), updated_account=rehashed, audit=login)
+
+    assert repository.get_account_by_id(USER_ID) == rehashed
+    assert repository.get_session(SESSION_DIGEST) == _session()
+    assert repository.list_security_audit_events() == (login,)
+
+
+def test_create_session_rejects_unknown_account_without_persisting(
+    repository,
+) -> None:
+    with pytest.raises(KeyError):
+        repository.create_session(
+            _session(),
+            updated_account=_account(user_id=UNKNOWN_USER_ID),
+        )
+    with pytest.raises(KeyError):
+        repository.get_session(SESSION_DIGEST)
+
+
+def test_create_session_rolls_back_account_upgrade_with_audit_failure(
+    repository,
+) -> None:
+    account = _account()
+    repository.create_account(account)
+    duplicate = _audit_event()
+    repository.record_security_audit(duplicate)
+    with pytest.raises(IntegrityError):
+        repository.create_session(
+            _session(),
+            updated_account=_account(
+                password_hash=REPLACEMENT_PASSWORD_HASH,
+                updated_at=LATER,
+            ),
+            audit=duplicate,
+        )
+    assert repository.get_account_by_id(USER_ID) == account
+    with pytest.raises(KeyError):
+        repository.get_session(SESSION_DIGEST)
+    assert repository.list_security_audit_events() == (duplicate,)
+
+
+def test_record_security_audit_appends_without_business_write(repository) -> None:
+    failed_login = _audit_event(
+        action=AuditAction.LOGIN,
+        outcome=AuditOutcome.FAILED,
+        actor_kind=AuditActorKind.UNAUTHENTICATED,
+        actor_user_id=None,
+        resource=None,
+        reason_code=AuditReasonCode.INVALID_CREDENTIALS,
+    )
+    repository.record_security_audit(failed_login)
+    repository.record_security_audit(_audit_event(event_id=new_audit_event_id()))
+    events = repository.list_security_audit_events()
+    assert len(events) == 2
+    assert failed_login in events
+    assert any(event.action is AuditAction.ACCOUNT_CREATE for event in events)
+
+    with pytest.raises(ValueError):
+        repository.record_security_audit(None)  # type: ignore[arg-type]
