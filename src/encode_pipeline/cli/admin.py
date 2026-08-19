@@ -13,7 +13,12 @@ import json
 import os
 from pathlib import Path
 import sys
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Protocol, cast
+
+if TYPE_CHECKING:
+    from encode_pipeline.services.authentication_service import (
+        AccountAdministrationService,
+    )
 
 
 @dataclass(frozen=True)
@@ -295,6 +300,50 @@ def _open_registry(database_url: str) -> Iterator[RegistryAdmin]:
         )
     finally:
         engine.dispose()
+
+
+@contextmanager
+def _open_account_administration(
+    database_url: str,
+) -> Iterator["AccountAdministrationService"]:
+    """Compose the local account administration service for operator commands."""
+    from encode_pipeline.persistence.authentication import (
+        SqlAlchemyAuthenticationRepository,
+    )
+    from encode_pipeline.persistence.database import (
+        create_database_engine,
+        create_session_factory,
+    )
+    from encode_pipeline.persistence.migrations import upgrade_database
+    from encode_pipeline.persistence.runtime import resolve_database_url
+    from encode_pipeline.services.authentication_service import (
+        AccountAdministrationService,
+    )
+
+    resolved_url = resolve_database_url(database_url)
+    upgrade_database(resolved_url)
+    engine = create_database_engine(resolved_url)
+    try:
+        repository = SqlAlchemyAuthenticationRepository(create_session_factory(engine))
+        yield AccountAdministrationService(repository=repository)
+    finally:
+        engine.dispose()
+
+
+def _read_interactive_password(
+    reader: Callable[[str], str],
+    *,
+    prompt: str = "Password: ",
+    confirmation_prompt: str = "Confirm password: ",
+) -> str:
+    """Read a password interactively without echo, argv, or environment leaks."""
+    first = reader(prompt)
+    if not isinstance(first, str) or not first:
+        raise ValueError("password must not be empty")
+    second = reader(confirmation_prompt)
+    if first != second:
+        raise ValueError("passwords do not match")
+    return first
 
 
 @contextmanager
@@ -677,6 +726,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     reference_disable.add_argument("profile_id")
 
+    account = resource_parsers.add_parser(
+        "account",
+        help="Bootstrap and recover local user accounts.",
+    )
+    account_commands = account.add_subparsers(dest="account_command", required=True)
+    account_bootstrap = account_commands.add_parser(
+        "bootstrap",
+        help="Create the unique first administrator (interactive password).",
+    )
+    account_bootstrap.add_argument("--username", required=True)
+    account_reset = account_commands.add_parser(
+        "reset-password",
+        help="Reset one account password interactively and revoke its sessions.",
+    )
+    account_reset.add_argument("--username", required=True)
+    account_commands.add_parser(
+        "list",
+        help="List safe account summaries without secret material.",
+    )
+
     run = resource_parsers.add_parser(
         "run",
         help="Diagnose and explicitly recover durable Runs.",
@@ -953,6 +1022,10 @@ def main(
     input_registry_factory: InputRegistryFactory = _open_input_registry,
     reference_profile_factory: ReferenceProfileFactory = _open_reference_profiles,
     run_recovery_factory: RunRecoveryFactory | None = None,
+    account_administration_factory: (
+        "Callable[[str], AbstractContextManager[object]] | None"
+    ) = None,
+    password_reader: Callable[[str], str] | None = None,
 ) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -971,7 +1044,35 @@ def main(
         parser.error(str(exc))
 
     try:
-        if args.resource == "run":
+        if args.resource == "account":
+            if account_administration_factory is None:
+                account_administration_factory = _open_account_administration
+            reader = password_reader
+            if reader is None:
+                import getpass
+
+                reader = getpass.getpass
+            with account_administration_factory(args.database_url) as administration:
+                if args.account_command == "bootstrap":
+                    password = _read_interactive_password(reader)
+                    account = administration.bootstrap_initial_administrator(
+                        args.username,
+                        password,
+                    )
+                    result = account.to_public_summary()
+                elif args.account_command == "reset-password":
+                    password = _read_interactive_password(reader)
+                    account = administration.reset_password_for_username(
+                        args.username,
+                        password,
+                    )
+                    result = account.to_public_summary()
+                else:
+                    result = [
+                        account.to_public_summary()
+                        for account in administration.list_accounts()
+                    ]
+        elif args.resource == "run":
             if run_recovery_factory is None:
                 run_recovery_factory = _open_run_recovery
             read_only = args.run_command == "diagnose"

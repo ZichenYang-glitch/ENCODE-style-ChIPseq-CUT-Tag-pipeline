@@ -388,6 +388,23 @@ class AccountAdministrationService:
         )
         return updated
 
+    def reset_password_for_username(
+        self,
+        username: object,
+        new_password: object,
+    ) -> UserAccount:
+        """Reset one account by login name as a local operator operation."""
+
+        try:
+            account = self._repository.get_account_by_username(username)
+        except KeyError:
+            raise AuthenticationError("RESOURCE_NOT_FOUND") from None
+        return self.reset_password(
+            AuthenticationActor.local_operator(),
+            account.user_id,
+            new_password,
+        )
+
     def revoke_sessions(
         self,
         actor: AuthenticationActor,
