@@ -35,6 +35,7 @@ from encode_pipeline.platform.snapshots import (
     build_workflow_inputs_digest,
     canonical_workflow_inputs_json,
 )
+from conftest import seed_test_authentication
 
 
 PROJECT_ID = "prj_11111111111111111111111111111111"
@@ -108,6 +109,7 @@ def test_duplicate_input_revision_ids_return_request_error_not_server_error(
         database_url=f"sqlite:///{tmp_path / 'platform.db'}",
         workspace_root=tmp_path / "workspaces",
     )
+    seed_test_authentication(app)
     selection = _selection()
     selection["input_file_revision_ids"] = [
         INPUT_FILE_REVISION_ID,

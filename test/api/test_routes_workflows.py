@@ -24,6 +24,7 @@ from encode_pipeline.services.validation import ValidationService
 from encode_pipeline.services.validated_inputs import ValidatedInputService
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 from api_test_client import ApiTestClient
+from conftest import seed_test_authentication
 
 fastapi = pytest.importorskip("fastapi")
 
@@ -105,6 +106,7 @@ def unsupported_capability_client() -> Iterator[ApiTestClient]:
     service = ValidationService(registry=registry)
 
     app = create_app()
+    seed_test_authentication(app)
     app.state.registry = registry
     app.state.validation_service = service
     app.state.validated_input_service = ValidatedInputService(

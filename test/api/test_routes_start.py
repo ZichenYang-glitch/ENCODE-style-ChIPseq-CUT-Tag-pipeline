@@ -23,7 +23,8 @@ from encode_pipeline.workers.settings import (
     REDIS_CONNECT_TIMEOUT_SECONDS_ENV,
     REDIS_URL_ENV,
 )
-from api_test_client import ApiTestClient
+from api_test_client import ApiTestClient, seeded_auth_async_client
+from conftest import seed_test_authentication
 
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
@@ -233,6 +234,7 @@ def test_start_run_returns_sanitized_503_and_keeps_planned(client_and_queue):
 
 def test_start_run_submission_does_not_block_the_api_event_loop(tmp_path):
     app = create_app(database_url=f"sqlite:///{tmp_path / 'platform.db'}")
+    seed_test_authentication(app)
     service = app.state.run_service
     record = service.create_run(WORKFLOW_ID, WorkflowInputs(config={}))
     service.transition_run(record.run_id, RunStatus.VALIDATING)
@@ -256,7 +258,8 @@ def test_start_run_submission_does_not_block_the_api_event_loop(tmp_path):
 
     async def exercise() -> tuple[httpx.Response, httpx.Response, float]:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
+        async with seeded_auth_async_client(
+            app,
             transport=transport,
             base_url="http://testserver",
         ) as client:
@@ -327,6 +330,7 @@ def test_start_run_real_redis_read_timeout_is_bounded_and_sanitized(
     monkeypatch.setenv(REDIS_CONNECT_TIMEOUT_SECONDS_ENV, "0.2")
     monkeypatch.setenv(REDIS_API_READ_TIMEOUT_SECONDS_ENV, "0.15")
     app = create_app(database_url=f"sqlite:///{tmp_path / 'platform.db'}")
+    seed_test_authentication(app)
     app.state.test_reference_profile = reference_ready_app.state.test_reference_profile
     try:
         with ApiTestClient(app) as client:

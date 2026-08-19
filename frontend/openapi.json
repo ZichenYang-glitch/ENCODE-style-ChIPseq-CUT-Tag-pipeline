@@ -6,6 +6,313 @@
     "version": "0.3.0"
   },
   "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "description": "Authenticate one bounded login and issue browser session cookies.",
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Logout",
+        "description": "Revoke the current session and clear both cookies.",
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/session": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Session State",
+        "description": "Report non-sensitive setup and current-session state.",
+        "operationId": "session_state",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/accounts": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "List Accounts",
+        "description": "List safe account summaries for administrators.",
+        "operationId": "list_accounts",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Create Member Account",
+        "description": "Create one member account; administrators only.",
+        "operationId": "create_member_account",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountMutationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/accounts/{user_id}/status": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Set Account Status",
+        "description": "Enable or disable one account; administrators only.",
+        "operationId": "set_account_status",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountStatusRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountMutationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/accounts/{user_id}/password": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Reset Account Password",
+        "description": "Reset one account password and revoke its sessions; administrators only.",
+        "operationId": "reset_account_password",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountPasswordResetRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountMutationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/accounts/{user_id}/sessions/revoke": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Revoke Account Sessions",
+        "description": "Revoke every session of one account; administrators only.",
+        "operationId": "revoke_account_sessions",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountSessionsRevokeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workflows/": {
       "get": {
         "tags": [
@@ -1768,6 +2075,193 @@
   },
   "components": {
     "schemas": {
+      "AccountCreateRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 66,
+            "minLength": 1,
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "AccountCreateRequest"
+      },
+      "AccountListResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AccountSummaryResponse"
+            },
+            "type": "array",
+            "title": "Accounts"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "accounts",
+          "issues"
+        ],
+        "title": "AccountListResponse"
+      },
+      "AccountMutationResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "account": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccountSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "account",
+          "issues"
+        ],
+        "title": "AccountMutationResponse"
+      },
+      "AccountPasswordResetRequest": {
+        "properties": {
+          "password": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "title": "AccountPasswordResetRequest"
+      },
+      "AccountSessionsRevokeResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "revoked_count": {
+            "type": "integer",
+            "title": "Revoked Count"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "revoked_count",
+          "issues"
+        ],
+        "title": "AccountSessionsRevokeResponse"
+      },
+      "AccountStatusRequest": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "AccountStatusRequest"
+      },
+      "AccountSummaryResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "password_changed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Password Changed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "username",
+          "role",
+          "status",
+          "created_at",
+          "updated_at",
+          "password_changed_at"
+        ],
+        "title": "AccountSummaryResponse",
+        "description": "Safe public projection of one local account."
+      },
       "AgentContext": {
         "properties": {
           "current_issues": {
@@ -2565,6 +3059,27 @@
         "title": "AssociatedRunSampleResponse",
         "description": "One ordered sample associated with the publication's Run.\n\nThis is Run-level binding evidence and does not attribute the artifact to\nan individual sample."
       },
+      "AuthErrorResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok",
+            "default": false
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "issues"
+        ],
+        "title": "AuthErrorResponse"
+      },
       "BindingMode": {
         "type": "string",
         "enum": [
@@ -2876,6 +3391,86 @@
             "type": "null"
           }
         ]
+      },
+      "LoginRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 66,
+            "minLength": 1,
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "description": "Bounded login payload; the password policy is enforced server-side."
+      },
+      "LoginResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "principal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrincipalResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "principal",
+          "issues"
+        ],
+        "title": "LoginResponse"
+      },
+      "PrincipalResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "username",
+          "role"
+        ],
+        "title": "PrincipalResponse",
+        "description": "Safe public projection of the authenticated account."
       },
       "QcMetricResponse": {
         "properties": {
@@ -3851,6 +4446,48 @@
         ],
         "title": "SchemaResponse",
         "description": "Envelope for GET /api/v1/workflows/{workflow_id}/schema."
+      },
+      "SessionStateResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "setup_required": {
+            "type": "boolean",
+            "title": "Setup Required"
+          },
+          "authenticated": {
+            "type": "boolean",
+            "title": "Authenticated"
+          },
+          "principal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrincipalResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "setup_required",
+          "authenticated",
+          "principal",
+          "issues"
+        ],
+        "title": "SessionStateResponse"
       },
       "ValidatedInputSnapshotResponse": {
         "properties": {

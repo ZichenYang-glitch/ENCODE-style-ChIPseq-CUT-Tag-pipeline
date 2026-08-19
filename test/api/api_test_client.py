@@ -42,11 +42,47 @@ class ApiTestClient:
 
     async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         transport = httpx.ASGITransport(app=self.app)
+        tokens = getattr(self.app.state, "test_auth_tokens", None)
+        cookies = None
+        if tokens is not None:
+            policy = self.app.state.auth_cookie_policy
+            cookies = httpx.Cookies()
+            cookies.set(policy.session_cookie.name, tokens[0])
+            cookies.set(policy.csrf_cookie.name, tokens[1])
+            headers = dict(kwargs.pop("headers", {}) or {})
+            headers.setdefault("X-CSRF-Token", tokens[1])
+            kwargs["headers"] = headers
         async with httpx.AsyncClient(
             transport=transport,
             base_url="http://testserver",
             follow_redirects=True,
+            cookies=cookies,
         ) as client:
             response = await client.request(method, url, **kwargs)
             await response.aread()
             return response
+
+
+def seeded_auth_cookies(app: Any) -> httpx.Cookies | None:
+    """Return the seeded auth cookie jar for raw AsyncClient constructions."""
+
+    tokens = getattr(app.state, "test_auth_tokens", None)
+    if tokens is None:
+        return None
+    policy = app.state.auth_cookie_policy
+    cookies = httpx.Cookies()
+    cookies.set(policy.session_cookie.name, tokens[0])
+    cookies.set(policy.csrf_cookie.name, tokens[1])
+    return cookies
+
+
+def seeded_auth_async_client(app: Any, **kwargs: Any) -> httpx.AsyncClient:
+    """Return an AsyncClient carrying the seeded session cookie jar and CSRF header."""
+
+    tokens = getattr(app.state, "test_auth_tokens", None)
+    if tokens is not None:
+        kwargs.setdefault("cookies", seeded_auth_cookies(app))
+        headers = dict(kwargs.pop("headers", {}) or {})
+        headers.setdefault("X-CSRF-Token", tokens[1])
+        kwargs["headers"] = headers
+    return httpx.AsyncClient(**kwargs)

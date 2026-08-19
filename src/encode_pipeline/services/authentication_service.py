@@ -187,6 +187,11 @@ class AuthenticationService:
             ),
         )
 
+    def setup_complete(self) -> bool:
+        """Return whether any enabled administrator exists in the deployment."""
+
+        return self._repository.has_enabled_administrator()
+
     def resolve_session(self, session_token: object) -> AuthenticatedPrincipal | None:
         """Resolve one browser session to its current enabled principal."""
 
@@ -281,6 +286,11 @@ class AccountAdministrationService:
         self._audit_event_id_factory = audit_event_id_factory
         self._user_id_factory = user_id_factory
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
+
+    def list_accounts(self) -> tuple[UserAccount, ...]:
+        """Return safe account projections for administrator surfaces."""
+
+        return self._repository.list_accounts()
 
     def bootstrap_initial_administrator(
         self,

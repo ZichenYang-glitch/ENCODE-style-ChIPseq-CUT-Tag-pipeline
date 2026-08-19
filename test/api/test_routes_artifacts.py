@@ -17,7 +17,8 @@ from encode_pipeline.platform.result_generations import (
     encode_artifact_cursor,
 )
 from encode_pipeline.platform.runs import RunArtifactRef, RunStatus
-from api_test_client import ApiTestClient
+from api_test_client import ApiTestClient, seeded_auth_async_client
+from conftest import seed_test_authentication
 
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
@@ -31,6 +32,7 @@ def client(tmp_path) -> Iterator[ApiTestClient]:
         database_url=f"sqlite:///{tmp_path / 'platform.db'}",
         workspace_root=tmp_path / "workspaces",
     )
+    seed_test_authentication(app)
     with ApiTestClient(app) as test_client:
         yield test_client
 
@@ -522,7 +524,8 @@ def test_unexpected_artifact_repository_failure_uses_declared_safe_envelope(
             app=client.app,
             raise_app_exceptions=False,
         )
-        async with httpx.AsyncClient(
+        async with seeded_auth_async_client(
+            client.app,
             transport=transport,
             base_url="http://testserver",
         ) as async_client:
@@ -555,12 +558,14 @@ def test_artifacts_survive_sqlite_reopen(tmp_path):
     database_url = f"sqlite:///{tmp_path / 'platform.db'}"
     workspace_root = tmp_path / "workspaces"
     first_app = create_app(database_url=database_url, workspace_root=workspace_root)
+    seed_test_authentication(first_app)
     with ApiTestClient(first_app) as first_client:
         run_id = _create_run(first_client)
         artifact = _artifact(run_id, "artifact-persisted")
         _record(first_client, artifact)
 
     second_app = create_app(database_url=database_url, workspace_root=workspace_root)
+    seed_test_authentication(second_app)
     with ApiTestClient(second_app) as second_client:
         response = second_client.get(
             f"/api/v1/runs/{run_id}/artifacts/{artifact.artifact_id}",
