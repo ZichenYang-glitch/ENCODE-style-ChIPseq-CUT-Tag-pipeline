@@ -1099,17 +1099,24 @@ def main(
                     ):
                         raise _RunRecoveryCliError("RUN_RECOVERY_CONFLICT")
                     assignment = getattr(diagnostic, "assignment")
+                    from encode_pipeline.services.authentication_service import (
+                        AuthenticationActor,
+                    )
+
+                    operator = AuthenticationActor.local_operator()
                     if args.run_command == "fail":
                         action_result = recovery.fail_run(
                             args.run_id,
                             expected_status=expected_status,
                             expected_assignment=assignment,
+                            security_audit_actor=operator,
                         )
                     else:
                         action_result = recovery.requeue_run(
                             args.run_id,
                             expected_status=expected_status,
                             expected_assignment=assignment,
+                            security_audit_actor=operator,
                         )
                     result = _run_recovery_action_payload(
                         action_result,
@@ -1130,6 +1137,11 @@ def main(
                 args.reference_profile_config,
                 args.reference_profile_command in {"register", "enable", "disable"},
             ) as profiles:
+                from encode_pipeline.services.authentication_service import (
+                    AuthenticationActor,
+                )
+
+                operator = AuthenticationActor.local_operator()
                 if args.reference_profile_command == "register":
                     result = profiles.register(
                         safe_key=args.safe_key,
@@ -1137,6 +1149,7 @@ def main(
                         organism=args.organism,
                         assembly=args.assembly,
                         config_key=args.config_key,
+                        security_audit_actor=operator,
                     )
                 elif args.reference_profile_command == "verify":
                     result = profiles.verify(args.revision_id)
@@ -1146,9 +1159,13 @@ def main(
                     result = profiles.enable(
                         args.profile_id,
                         revision_id=args.revision_id,
+                        security_audit_actor=operator,
                     )
                 else:
-                    result = profiles.disable(args.profile_id)
+                    result = profiles.disable(
+                        args.profile_id,
+                        security_audit_actor=operator,
+                    )
         elif args.resource in {"storage-pool", "input-file"} or (
             args.resource == "project" and args.project_command == "bind-storage-pool"
         ):
@@ -1163,9 +1180,14 @@ def main(
                 args.storage_pool_config,
             ) as input_registry:
                 if args.resource == "storage-pool":
+                    from encode_pipeline.services.authentication_service import (
+                        AuthenticationActor,
+                    )
+
                     result = input_registry.register_storage_pool(
                         display_name=args.display_name,
                         config_key=args.config_key,
+                        security_audit_actor=AuthenticationActor.local_operator(),
                     )
                 elif args.resource == "project":
                     result = input_registry.bind_project_storage_pool(

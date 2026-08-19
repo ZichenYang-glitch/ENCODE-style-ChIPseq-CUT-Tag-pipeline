@@ -41,6 +41,8 @@ def test_audit_action_vocabulary_covers_only_current_and_auth_owned_actions() ->
         "account.disable",
         "account.password_reset",
         "account.sessions_revoke",
+        "run.fail",
+        "run.requeue",
     }
 
 

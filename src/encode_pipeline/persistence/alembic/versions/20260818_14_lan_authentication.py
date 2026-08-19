@@ -123,7 +123,7 @@ def upgrade() -> None:
             "'reference.enable', 'reference.disable', 'storage.register', "
             "'storage.archive', 'account.create', 'account.enable', "
             "'account.disable', 'account.password_reset', "
-            "'account.sessions_revoke')",
+            "'account.sessions_revoke', 'run.fail', 'run.requeue')",
             name="ck_security_audit_events_action",
         ),
         sa.CheckConstraint(

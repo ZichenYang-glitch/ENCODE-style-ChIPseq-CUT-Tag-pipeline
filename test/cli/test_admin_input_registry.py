@@ -7,6 +7,9 @@ import json
 from pathlib import Path
 
 from encode_pipeline.cli import admin
+from encode_pipeline.services.authentication_service import (
+    AuthenticationActor,
+)
 
 
 DATABASE_URL = "sqlite:////tmp/helixweave-input-registry-test.db"
@@ -21,11 +24,16 @@ class RecordingInputRegistry:
         *,
         display_name: str,
         config_key: str,
+        security_audit_actor=None,
     ) -> dict[str, str]:
         self.calls.append(
             (
                 "register_storage_pool",
-                {"display_name": display_name, "config_key": config_key},
+                {
+                    "display_name": display_name,
+                    "config_key": config_key,
+                    "security_audit_actor": security_audit_actor,
+                },
             )
         )
         return {"storage_pool_id": "stgp_" + "1" * 32}
@@ -114,6 +122,7 @@ def test_storage_pool_registration_requires_explicit_private_config(
             {
                 "display_name": "Approved ingress",
                 "config_key": "ingress-primary",
+                "security_audit_actor": AuthenticationActor.local_operator(),
             },
         )
     ]

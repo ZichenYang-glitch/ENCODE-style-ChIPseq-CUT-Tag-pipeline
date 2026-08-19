@@ -14,6 +14,9 @@ from types import SimpleNamespace
 import pytest
 
 from encode_pipeline.cli import admin
+from encode_pipeline.services.authentication_service import (
+    AuthenticationActor,
+)
 from encode_pipeline.cli.local_platform import (
     RecoveryDoctorStatus,
     run_recovery_doctor,
@@ -102,8 +105,25 @@ class RecordingRecoveryService:
         self.calls.append(("diagnose", run_id))
         return self.diagnostic
 
-    def fail_run(self, run_id, *, expected_status, expected_assignment):
-        self.calls.append(("fail_run", (run_id, expected_status, expected_assignment)))
+    def fail_run(
+        self,
+        run_id,
+        *,
+        expected_status,
+        expected_assignment,
+        security_audit_actor=None,
+    ):
+        self.calls.append(
+            (
+                "fail_run",
+                (
+                    run_id,
+                    expected_status,
+                    expected_assignment,
+                    security_audit_actor,
+                ),
+            )
+        )
         return _ActionResult(
             action="fail",
             run_id=run_id,
@@ -113,9 +133,24 @@ class RecordingRecoveryService:
             changed=True,
         )
 
-    def requeue_run(self, run_id, *, expected_status, expected_assignment):
+    def requeue_run(
+        self,
+        run_id,
+        *,
+        expected_status,
+        expected_assignment,
+        security_audit_actor=None,
+    ):
         self.calls.append(
-            ("requeue_run", (run_id, expected_status, expected_assignment))
+            (
+                "requeue_run",
+                (
+                    run_id,
+                    expected_status,
+                    expected_assignment,
+                    security_audit_actor,
+                ),
+            )
         )
         return _ActionResult(
             action="requeue",
@@ -365,7 +400,15 @@ def test_run_fail_uses_diagnosed_full_assignment_and_compact_result(capsys) -> N
     )
     assert service.calls == [
         ("diagnose", RUN_ID),
-        ("fail_run", (RUN_ID, RunStatus.RUNNING, _assignment())),
+        (
+            "fail_run",
+            (
+                RUN_ID,
+                RunStatus.RUNNING,
+                _assignment(),
+                AuthenticationActor.local_operator(),
+            ),
+        ),
     ]
     assert observed_urls == [(DATABASE_URL, False, "encode-pipeline-demo")]
 

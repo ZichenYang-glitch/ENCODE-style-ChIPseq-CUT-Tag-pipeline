@@ -141,8 +141,13 @@ def test_login_creates_a_session_and_writes_the_audit(
     assert record.user_id == administrator.user_id
     assert record.active_at(NOW) is True
 
-    (event,) = _audit_events(repository)[1:]
-    assert event.action is AuditAction.LOGIN
+    logins = [
+        event
+        for event in _audit_events(repository)
+        if event.action is AuditAction.LOGIN
+    ]
+    assert len(logins) == 1
+    event = logins[0]
     assert event.outcome is AuditOutcome.SUCCEEDED
     assert event.actor_kind is AuditActorKind.USER
     assert event.actor_user_id == administrator.user_id

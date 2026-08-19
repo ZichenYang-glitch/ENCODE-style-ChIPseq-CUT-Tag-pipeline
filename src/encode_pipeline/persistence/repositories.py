@@ -1959,7 +1959,9 @@ class SqlAlchemyRunRepository:
         expected_assignment: RunExecutionAssignment,
         requested_at: datetime,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunExecutionRequeuePreparation:
+        _validate_security_audit(security_audit)
         with self._session_factory.begin() as session:
             _begin_write(session)
             current = self._require_run(session, run_id)
@@ -1985,6 +1987,8 @@ class SqlAlchemyRunRepository:
             )
             row.requeue_requested_at = requested_at
             self._insert_event(session, run_id, event)
+            if security_audit is not None:
+                insert_security_audit_event(session, security_audit)
             session.flush()
             return RunExecutionRequeuePreparation(
                 assignment=_execution_assignment_from_row(row),
@@ -1999,7 +2003,9 @@ class SqlAlchemyRunRepository:
         expected_assignment: RunExecutionAssignment,
         confirmed_at: datetime,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunExecutionAssignment:
+        _validate_security_audit(security_audit)
         with self._session_factory.begin() as session:
             _begin_write(session)
             current = self._require_run(session, run_id)
@@ -2022,6 +2028,8 @@ class SqlAlchemyRunRepository:
                 raise ValueError("requeue confirmation cannot precede request")
             row.requeue_confirmed_at = confirmed_at
             self._insert_event(session, run_id, event)
+            if security_audit is not None:
+                insert_security_audit_event(session, security_audit)
             session.flush()
             return _execution_assignment_from_row(row)
 
@@ -2032,7 +2040,9 @@ class SqlAlchemyRunRepository:
         expected_status: RunStatus,
         expected_assignment: RunExecutionAssignment,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> bool:
+        _validate_security_audit(security_audit)
         with self._session_factory.begin() as session:
             _begin_write(session)
             current = self._require_run(session, record.run_id)
@@ -2065,6 +2075,8 @@ class SqlAlchemyRunRepository:
                     f"Run {record.run_id!r} changed while recovery was committed."
                 )
             self._insert_event(session, record.run_id, event)
+            if security_audit is not None:
+                insert_security_audit_event(session, security_audit)
             return True
 
     @staticmethod

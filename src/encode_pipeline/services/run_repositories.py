@@ -281,6 +281,7 @@ class RunRepository(Protocol):
         expected_status: RunStatus,
         required_ownership: RunExecutionOwnership | None,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> bool: ...
 
     def add_event(self, run_id: str, event: RunEventDraft) -> RunEvent: ...
@@ -504,6 +505,7 @@ class RunRepository(Protocol):
         expected_assignment: RunExecutionAssignment,
         requested_at: datetime,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunExecutionRequeuePreparation: ...
 
     def confirm_execution_requeue(
@@ -514,6 +516,7 @@ class RunRepository(Protocol):
         expected_assignment: RunExecutionAssignment,
         confirmed_at: datetime,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunExecutionAssignment: ...
 
     def fail_run_by_recovery(
@@ -523,6 +526,7 @@ class RunRepository(Protocol):
         expected_status: RunStatus,
         expected_assignment: RunExecutionAssignment,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> bool: ...
 
 
@@ -2147,6 +2151,7 @@ class InMemoryRunRepository:
         expected_assignment: RunExecutionAssignment,
         requested_at: datetime,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunExecutionRequeuePreparation:
         with self._lock:
             current = self._runs[run_id]
@@ -2175,6 +2180,8 @@ class InMemoryRunRepository:
             )
             self._execution_assignments[run_id] = updated_assignment
             self._events[run_id].append(created_event)
+            if security_audit is not None:
+                self._security_audits.append(security_audit)
             return RunExecutionRequeuePreparation(
                 assignment=updated_assignment,
                 created=True,
@@ -2188,6 +2195,7 @@ class InMemoryRunRepository:
         expected_assignment: RunExecutionAssignment,
         confirmed_at: datetime,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunExecutionAssignment:
         with self._lock:
             current = self._runs[run_id]
@@ -2216,6 +2224,8 @@ class InMemoryRunRepository:
             )
             self._execution_assignments[run_id] = updated_assignment
             self._events[run_id].append(created_event)
+            if security_audit is not None:
+                self._security_audits.append(security_audit)
             return updated_assignment
 
     def fail_run_by_recovery(
@@ -2225,6 +2235,7 @@ class InMemoryRunRepository:
         expected_status: RunStatus,
         expected_assignment: RunExecutionAssignment,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> bool:
         with self._lock:
             current = self._runs[record.run_id]
@@ -2248,6 +2259,8 @@ class InMemoryRunRepository:
             )
             self._runs[record.run_id] = record
             self._events[record.run_id].append(created_event)
+            if security_audit is not None:
+                self._security_audits.append(security_audit)
             return True
 
     def _append_event(self, run_id: str, draft: RunEventDraft) -> RunEvent:

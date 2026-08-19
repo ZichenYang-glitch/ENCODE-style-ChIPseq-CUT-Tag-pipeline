@@ -18,6 +18,10 @@ from encode_pipeline.platform.reference_profiles import (
     ReferenceProfileRevision,
     ReferenceProfileWorkflowBinding,
 )
+from encode_pipeline.persistence.authentication import (
+    insert_security_audit_event,
+)
+from encode_pipeline.platform.security_audit import SecurityAuditEvent
 from encode_pipeline.services.reference_profile_repositories import (
     ReferenceProfileConflictError,
 )
@@ -35,7 +39,10 @@ class SqlAlchemyReferenceProfileRepository:
         self,
         profile: ReferenceProfile,
         initial_revision: ReferenceProfileRevision,
+        *,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> tuple[ReferenceProfile, ReferenceProfileRevision]:
+        _validate_security_audit(security_audit)
         _validate_initial(profile, initial_revision)
         try:
             with self._session_factory.begin() as session:
@@ -46,6 +53,8 @@ class SqlAlchemyReferenceProfileRepository:
                 session.flush()
                 session.add_all(_binding_rows(initial_revision))
                 session.flush()
+                if security_audit is not None:
+                    insert_security_audit_event(session, security_audit)
         except IntegrityError as exc:
             raise ReferenceProfileConflictError(
                 "reference profile identity already exists"
@@ -116,7 +125,9 @@ class SqlAlchemyReferenceProfileRepository:
         revision: ReferenceProfileRevision,
         *,
         expected_previous_revision_number: int,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> ReferenceProfileRevision:
+        _validate_security_audit(security_audit)
         if not isinstance(revision, ReferenceProfileRevision):
             raise ValueError("revision must be a ReferenceProfileRevision")
         if (
@@ -153,6 +164,8 @@ class SqlAlchemyReferenceProfileRepository:
                 session.flush()
                 session.add_all(_binding_rows(revision))
                 session.flush()
+                if security_audit is not None:
+                    insert_security_audit_event(session, security_audit)
         except IntegrityError as exc:
             raise ReferenceProfileConflictError(
                 "reference revision identity already exists"
@@ -163,7 +176,10 @@ class SqlAlchemyReferenceProfileRepository:
         self,
         profile_id: str,
         revision_id: str | None,
+        *,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> ReferenceProfile:
+        _validate_security_audit(security_audit)
         try:
             with self._session_factory.begin() as session:
                 _begin_write(session)
@@ -176,6 +192,8 @@ class SqlAlchemyReferenceProfileRepository:
                         raise ValueError("enabled revision does not belong to profile")
                 profile.enabled_revision_id = revision_id
                 session.flush()
+                if security_audit is not None:
+                    insert_security_audit_event(session, security_audit)
                 result = _profile_from_row(profile)
         except IntegrityError as exc:
             raise ReferenceProfileConflictError(
@@ -216,6 +234,11 @@ class SqlAlchemyReferenceProfileRepository:
                 (_profile_from_row(profile), _revision_from_row(session, revision))
                 for profile, revision in rows
             )
+
+
+def _validate_security_audit(event: SecurityAuditEvent | None) -> None:
+    if event is not None and not isinstance(event, SecurityAuditEvent):
+        raise ValueError("security_audit must be a SecurityAuditEvent or None")
 
 
 def _validate_initial(

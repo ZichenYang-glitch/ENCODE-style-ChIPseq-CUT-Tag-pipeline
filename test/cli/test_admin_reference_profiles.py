@@ -11,6 +11,9 @@ import sqlite3
 import pytest
 
 from encode_pipeline.cli import admin
+from encode_pipeline.services.authentication_service import (
+    AuthenticationActor,
+)
 from encode_pipeline.persistence.migrations import upgrade_database
 from encode_pipeline.services.reference_profiles import ReferenceProfileAdminError
 
@@ -38,14 +41,35 @@ class RecordingReferenceProfiles:
         self.calls.append(("list", {}))
         return ()
 
-    def enable(self, profile_id: str, *, revision_id: str | None = None):
+    def enable(
+        self,
+        profile_id: str,
+        *,
+        revision_id: str | None = None,
+        security_audit_actor=None,
+    ):
         self.calls.append(
-            ("enable", {"profile_id": profile_id, "revision_id": revision_id})
+            (
+                "enable",
+                {
+                    "profile_id": profile_id,
+                    "revision_id": revision_id,
+                    "security_audit_actor": security_audit_actor,
+                },
+            )
         )
         return {"profile_id": profile_id, "revision_id": revision_id, "enabled": True}
 
-    def disable(self, profile_id: str):
-        self.calls.append(("disable", {"profile_id": profile_id}))
+    def disable(self, profile_id: str, *, security_audit_actor=None):
+        self.calls.append(
+            (
+                "disable",
+                {
+                    "profile_id": profile_id,
+                    "security_audit_actor": security_audit_actor,
+                },
+            )
+        )
         return {"profile_id": profile_id, "enabled": False}
 
 
@@ -103,6 +127,7 @@ def test_reference_profile_register_uses_explicit_private_config_and_safe_output
                 "organism": "Homo sapiens",
                 "assembly": "GRCh38",
                 "config_key": "grch38-private",
+                "security_audit_actor": AuthenticationActor.local_operator(),
             },
         )
     ]
@@ -143,11 +168,24 @@ def test_reference_profile_commands_have_exact_mutation_surface(
                 "--revision-id",
                 revision_id,
             ],
-            ("enable", {"profile_id": profile_id, "revision_id": revision_id}),
+            (
+                "enable",
+                {
+                    "profile_id": profile_id,
+                    "revision_id": revision_id,
+                    "security_audit_actor": AuthenticationActor.local_operator(),
+                },
+            ),
         ),
         (
             ["reference-profile", "disable", profile_id],
-            ("disable", {"profile_id": profile_id}),
+            (
+                "disable",
+                {
+                    "profile_id": profile_id,
+                    "security_audit_actor": AuthenticationActor.local_operator(),
+                },
+            ),
         ),
     )
     for command, expected in commands:

@@ -10,6 +10,7 @@ from threading import RLock
 from typing import Protocol
 
 from encode_pipeline.platform.data_registry import LEGACY_PROJECT_ID, Project
+from encode_pipeline.platform.security_audit import SecurityAuditEvent
 from encode_pipeline.platform.input_registry import (
     InputFile,
     InputFileRevision,
@@ -35,7 +36,12 @@ class InputRegistryConflictError(RuntimeError):
 class InputRegistryRepository(Protocol):
     """Atomic persistence contract consumed by :class:`InputRegistryService`."""
 
-    def create_storage_pool(self, storage_pool: StoragePool) -> StoragePool: ...
+    def create_storage_pool(
+        self,
+        storage_pool: StoragePool,
+        *,
+        security_audit: SecurityAuditEvent | None = None,
+    ) -> StoragePool: ...
 
     def get_storage_pool(self, storage_pool_id: str) -> StoragePool: ...
 
@@ -150,9 +156,15 @@ class InMemoryInputRegistryRepository:
         self._input_file_id_by_stable_key: dict[tuple[str, str], str] = {}
         self._revisions: dict[str, InputFileRevision] = {}
         self._revision_ids_by_input_file: dict[str, list[str]] = {}
+        self._security_audits: list[SecurityAuditEvent] = []
         self._lock = RLock()
 
-    def create_storage_pool(self, storage_pool: StoragePool) -> StoragePool:
+    def create_storage_pool(
+        self,
+        storage_pool: StoragePool,
+        *,
+        security_audit: SecurityAuditEvent | None = None,
+    ) -> StoragePool:
         if not isinstance(storage_pool, StoragePool):
             raise ValueError("storage_pool must be a StoragePool")
         with self._lock:
@@ -168,6 +180,8 @@ class InMemoryInputRegistryRepository:
             self._storage_pool_id_by_config_key[storage_pool.config_key] = (
                 storage_pool.storage_pool_id
             )
+            if security_audit is not None:
+                self._security_audits.append(security_audit)
             return storage_pool
 
     def get_storage_pool(self, storage_pool_id: str) -> StoragePool:

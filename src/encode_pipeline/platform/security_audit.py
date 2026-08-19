@@ -40,6 +40,8 @@ class AuditAction(str, Enum):
     ACCOUNT_DISABLE = "account.disable"
     ACCOUNT_PASSWORD_RESET = "account.password_reset"
     ACCOUNT_SESSIONS_REVOKE = "account.sessions_revoke"
+    RUN_FAIL = "run.fail"
+    RUN_REQUEUE = "run.requeue"
 
 
 class AuditOutcome(str, Enum):
@@ -261,6 +263,12 @@ _ACTION_ACTORS = {
     AuditAction.ACCOUNT_SESSIONS_REVOKE: frozenset(
         {AuditActorKind.USER, AuditActorKind.LOCAL_OPERATOR}
     ),
+    AuditAction.RUN_FAIL: frozenset(
+        {AuditActorKind.USER, AuditActorKind.LOCAL_OPERATOR}
+    ),
+    AuditAction.RUN_REQUEUE: frozenset(
+        {AuditActorKind.USER, AuditActorKind.LOCAL_OPERATOR}
+    ),
 }
 
 _ACTION_RESOURCE_KINDS = {
@@ -278,6 +286,8 @@ _ACTION_RESOURCE_KINDS = {
     AuditAction.ACCOUNT_DISABLE: AuditResourceKind.ACCOUNT,
     AuditAction.ACCOUNT_PASSWORD_RESET: AuditResourceKind.ACCOUNT,
     AuditAction.ACCOUNT_SESSIONS_REVOKE: AuditResourceKind.ACCOUNT,
+    AuditAction.RUN_FAIL: AuditResourceKind.RUN,
+    AuditAction.RUN_REQUEUE: AuditResourceKind.RUN,
 }
 
 _LOGIN_FAILURE_REASONS = frozenset(

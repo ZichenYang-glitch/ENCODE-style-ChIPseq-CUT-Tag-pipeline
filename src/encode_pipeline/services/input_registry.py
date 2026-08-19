@@ -20,6 +20,11 @@ from encode_pipeline.platform.input_registry import (
     build_input_file_revision,
     validate_input_file_stable_key,
 )
+from encode_pipeline.platform.security_audit import AuditAction
+from encode_pipeline.services.admin_security_audit import (
+    build_storage_action_event,
+)
+from encode_pipeline.services.authentication_service import AuthenticationActor
 from encode_pipeline.services.input_file_access import FileObservation
 from encode_pipeline.services.input_file_access import InputFileAccess
 from encode_pipeline.services.input_registry_repositories import (
@@ -97,6 +102,7 @@ class InputRegistryService:
         *,
         display_name: str,
         config_key: str,
+        security_audit_actor: AuthenticationActor | None = None,
     ) -> StoragePool:
         """Create one approved logical pool without accepting a physical root."""
         with self._lock:
@@ -106,7 +112,19 @@ class InputRegistryService:
                 display_name=display_name,
                 created_at=self._now_factory(),
             )
-            return self._repository.create_storage_pool(pool)
+            return self._repository.create_storage_pool(
+                pool,
+                security_audit=(
+                    None
+                    if security_audit_actor is None
+                    else build_storage_action_event(
+                        AuditAction.STORAGE_REGISTER,
+                        security_audit_actor,
+                        pool.storage_pool_id,
+                        occurred_at=pool.created_at,
+                    )
+                ),
+            )
 
     def get_storage_pool(self, storage_pool_id: str) -> StoragePool:
         """Return allowlisted logical pool metadata."""
@@ -371,6 +389,7 @@ class InputRegistryAdminService:
         *,
         display_name: str,
         config_key: str,
+        security_audit_actor: AuthenticationActor | None = None,
     ) -> StoragePool:
         """Approve a key only when the private mapping contains its root."""
         config = self._require_private_config()
@@ -378,6 +397,7 @@ class InputRegistryAdminService:
         return self._service.create_storage_pool(
             display_name=display_name,
             config_key=config_key,
+            security_audit_actor=security_audit_actor,
         )
 
     def bind_project_storage_pool(

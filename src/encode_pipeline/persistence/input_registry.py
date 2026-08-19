@@ -11,6 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from encode_pipeline.persistence.authentication import (
+    insert_security_audit_event,
+)
+from encode_pipeline.platform.security_audit import SecurityAuditEvent
 from encode_pipeline.persistence.models import (
     InputFileRevisionRow,
     InputFileRow,
@@ -48,7 +52,12 @@ class SqlAlchemyInputRegistryRepository:
             raise ValueError("session_factory must be a SQLAlchemy sessionmaker")
         self._session_factory = session_factory
 
-    def create_storage_pool(self, storage_pool: StoragePool) -> StoragePool:
+    def create_storage_pool(
+        self,
+        storage_pool: StoragePool,
+        *,
+        security_audit: SecurityAuditEvent | None = None,
+    ) -> StoragePool:
         if not isinstance(storage_pool, StoragePool):
             raise ValueError("storage_pool must be a StoragePool")
         try:
@@ -56,6 +65,8 @@ class SqlAlchemyInputRegistryRepository:
                 _begin_write(session)
                 session.add(_storage_pool_row(storage_pool))
                 session.flush()
+                if security_audit is not None:
+                    insert_security_audit_event(session, security_audit)
         except IntegrityError as exc:
             raise InputRegistryConflictError(
                 "StoragePool ID or config_key already exists"
