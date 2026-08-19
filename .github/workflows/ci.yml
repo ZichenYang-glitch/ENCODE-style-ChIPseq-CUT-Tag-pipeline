@@ -119,27 +119,7 @@ jobs:
             --cov-fail-under=0 \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
-            --cov-report=json:coverage.json \
-            --ignore=test/deployment/test_command_and_native_contracts.py \
-            --ignore=test/deployment/test_evidence_document_rejection.py \
-            --ignore=test/deployment/test_gate_document_rejection.py \
-            --ignore=test/deployment/test_operator_action_document_rejection.py \
-            --ignore=test/deployment/test_operator_document_rejection.py \
-            --ignore=test/deployment/test_primitives_behavior.py \
-            --ignore=test/deployment/test_state_document_rejection.py \
-            --ignore=test/deployment/test_systemd_action_runners.py
-          echo "=== SHARD 1 (without new files) DONE ==="
-          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
-            test/deployment/test_command_and_native_contracts.py \
-            test/deployment/test_evidence_document_rejection.py \
-            test/deployment/test_gate_document_rejection.py \
-            test/deployment/test_operator_action_document_rejection.py \
-            test/deployment/test_operator_document_rejection.py \
-            test/deployment/test_primitives_behavior.py \
-            test/deployment/test_state_document_rejection.py \
-            test/deployment/test_systemd_action_runners.py \
-            -ra -m "$marker" --durations=25 --durations-min=1.0 -p no:cacheprovider
-          echo "=== SHARD 2 (new files only) DONE ==="
+            --cov-report=json:coverage.json
           test -z "$(find "$coverage_migration_root" -mindepth 1 -print -quit)"
           rmdir -- "$coverage_migration_root"
           trap - EXIT
