@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientProvider } from '../../api/client-context';
+import { AuthProvider } from '../../app/auth';
 import { appRoutes } from '../../app/router';
 import { createAuthoringSchemaFixture } from '../../features/input-workbench/test-fixtures';
 import {
@@ -116,7 +117,9 @@ function renderProductPath() {
   render(
     <QueryClientProvider client={queryClient}>
       <ClientProvider>
-        <RouterProvider router={router} />
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
       </ClientProvider>
     </QueryClientProvider>,
   );

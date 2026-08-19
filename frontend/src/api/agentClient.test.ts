@@ -56,7 +56,7 @@ describe('createAgentApiClient', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sampleRequest),
-        credentials: 'omit',
+        credentials: 'same-origin',
       }),
     );
     expect(response.message).toBe('Deterministic mock explanation.');

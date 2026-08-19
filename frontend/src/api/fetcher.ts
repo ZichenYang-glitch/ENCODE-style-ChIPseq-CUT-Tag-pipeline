@@ -26,6 +26,8 @@ export class ApiError extends Error {
   }
 }
 
+import { csrfHeader } from './authClient';
+
 function getApiBaseUrl(): string {
   const envBase = import.meta.env?.VITE_API_BASE_URL;
   if (typeof envBase !== 'string' || envBase.trim() === '') {
@@ -112,7 +114,8 @@ async function request<T>(
 
   const response = await fetch(fullUrl, {
     ...init,
-    credentials: 'omit',
+    headers: { ...csrfHeader(), ...(init.headers ?? {}) },
+    credentials: 'same-origin',
   });
 
   if (!response.ok) {

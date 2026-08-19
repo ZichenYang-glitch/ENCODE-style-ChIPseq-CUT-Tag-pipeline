@@ -1,4 +1,9 @@
 import {
+import { login } from './auth';
+
+test.beforeEach(async ({ page }) => {
+  await login(page);
+});
   expect,
   test,
   type Locator,

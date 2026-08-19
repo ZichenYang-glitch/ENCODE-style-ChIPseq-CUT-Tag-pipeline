@@ -1,9 +1,19 @@
-import { Dna, FileArchive, FilePenLine, History, ListTree } from 'lucide-react';
-import { Link, matchPath, Outlet, useLocation } from 'react-router-dom';
+import {
+  Dna,
+  FileArchive,
+  FilePenLine,
+  History,
+  ListTree,
+  LogOut,
+} from 'lucide-react';
+import { Link, matchPath, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '../components/Button';
+import { useAuth } from './auth';
 
 export function AppShell() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const { principal, logout } = useAuth();
   const workflowRoute = matchPath(
     { path: '/workflows/:workflowId/*', end: false },
     pathname,
@@ -110,6 +120,21 @@ export function AppShell() {
                   New analysis
                 </Link>
               </Button>
+            )}
+            {principal !== null && (
+              <span className="ml-2 flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+                <span data-testid="current-username">{principal.username}</span>
+                <Button
+                  className="gap-1.5"
+                  variant="secondary"
+                  onClick={() => {
+                    void logout().then(() => navigate('/login'));
+                  }}
+                >
+                  <LogOut aria-hidden="true" size={16} />
+                  Sign out
+                </Button>
+              </span>
             )}
           </nav>
         </div>

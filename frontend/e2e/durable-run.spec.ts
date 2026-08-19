@@ -1,6 +1,11 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { login } from './auth';
+
+test.beforeEach(async ({ page }) => {
+  await login(page);
+});
 
 interface RuntimeManifest {
   workflowId: string;

@@ -1,4 +1,5 @@
 import type { Issue } from './types';
+import { csrfHeader } from './authClient';
 import type {
   RunCreateRequest,
   RunRecordResponse,
@@ -35,16 +36,16 @@ function getBaseUrl(): string {
 }
 
 async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { method: 'GET', credentials: 'omit' });
+  const response = await fetch(url, { method: 'GET', credentials: 'same-origin' });
   return parseResponse<T>(response);
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeader() },
     body: JSON.stringify(body),
-    credentials: 'omit',
+    credentials: 'same-origin',
   });
   return parseResponse<T>(response);
 }
