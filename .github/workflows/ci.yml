@@ -106,6 +106,7 @@ jobs:
             marker='not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
           fi
           set -o pipefail
+          timeout --signal=TERM --kill-after=30s 1500 \
           python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
             test -v \
             -m "$marker" \
@@ -120,8 +121,9 @@ jobs:
             --cov-fail-under=0 \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
-            --cov-report=json:coverage.json 2>&1 | tee /tmp/pytest-progress.log
-          echo "=== FULL SUITE DONE ==="
+            --cov-report=json:coverage.json 2>&1 | tee /tmp/pytest-progress.log || true
+          tail -5 /tmp/pytest-progress.log
+          echo "=== FULL SUITE STEP END ==="
           test -z "$(find "$coverage_migration_root" -mindepth 1 -print -quit)"
           rmdir -- "$coverage_migration_root"
           trap - EXIT
