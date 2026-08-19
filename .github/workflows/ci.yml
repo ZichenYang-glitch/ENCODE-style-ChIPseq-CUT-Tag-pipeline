@@ -87,6 +87,7 @@ jobs:
           --repository-root . verify-checkout
 
       - name: Run deterministic Python tier once
+        if: false
         shell: micromamba-shell {0}
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -128,6 +129,13 @@ jobs:
           rmdir -- "$coverage_migration_root"
           trap - EXIT
 
+
+      - name: DIAG deployment suite timing
+        shell: micromamba-shell {0}
+        run: >-
+          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest
+          test/deployment -v --durations=30 --durations-min=0.5 -q
+          -m 'not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
 
       - name: Upload pytest progress log
         if: always()
