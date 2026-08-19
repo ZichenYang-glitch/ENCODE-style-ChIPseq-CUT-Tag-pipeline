@@ -54,6 +54,7 @@ from encode_pipeline.platform.result_generations import (
     validate_result_attempt_id,
 )
 from encode_pipeline.platform.run_history import RunHistoryCursor, RunSummary
+from encode_pipeline.platform.security_audit import SecurityAuditEvent
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
     RunEvent,
@@ -163,7 +164,13 @@ class RunRepository(Protocol):
 
     def contains_run(self, run_id: str) -> bool: ...
 
-    def create_run(self, record: RunRecord, event: RunEventDraft) -> RunEvent: ...
+    def create_run(
+        self,
+        record: RunRecord,
+        event: RunEventDraft,
+        *,
+        security_audit: SecurityAuditEvent | None = None,
+    ) -> RunEvent: ...
 
     def create_validated_input_snapshot(
         self,
@@ -203,6 +210,7 @@ class RunRepository(Protocol):
         record: RunRecord,
         consumed_at: datetime,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> ValidatedSnapshotRunCreation: ...
 
     def get_run(self, run_id: str) -> RunRecord: ...
@@ -249,6 +257,7 @@ class RunRepository(Protocol):
         *,
         expected_status: RunStatus,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunEvent: ...
 
     def complete_preflight(
@@ -447,6 +456,7 @@ class RunRepository(Protocol):
         backend: str,
         queue_name: str,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> bool: ...
 
     def claim_execution_assignment(
@@ -471,6 +481,7 @@ class RunRepository(Protocol):
         requested_at: datetime,
         reason: str,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunExecutionCancellationRequest: ...
 
     def acknowledge_execution_stop(
@@ -539,6 +550,7 @@ class InMemoryRunRepository:
         self._qc_metrics: dict[str, dict[str, RunQcMetric]] = {}
         self._result_states: dict[str, RunResultState] = {}
         self._result_attempts: dict[str, tuple[str, str, str | None]] = {}
+        self._security_audits: list[SecurityAuditEvent] = []
         self._execution_assignments: dict[str, RunExecutionAssignment] = {}
         self._execution_run_ids_by_job: dict[str, str] = {}
         self._workflow_build_identities: dict[str, WorkflowBuildIdentity] = {}
@@ -556,7 +568,13 @@ class InMemoryRunRepository:
         with self._lock:
             return run_id in self._runs
 
-    def create_run(self, record: RunRecord, event: RunEventDraft) -> RunEvent:
+    def create_run(
+        self,
+        record: RunRecord,
+        event: RunEventDraft,
+        *,
+        security_audit: SecurityAuditEvent | None = None,
+    ) -> RunEvent:
         with self._lock:
             if record.run_id in self._runs:
                 raise ValueError(f"Duplicate run_id: {record.run_id!r}")
@@ -582,6 +600,8 @@ class InMemoryRunRepository:
             self._artifacts[record.run_id] = {}
             self._qc_metrics[record.run_id] = {}
             self._result_states[record.run_id] = RunResultState(run_id=record.run_id)
+            if security_audit is not None:
+                self._security_audits.append(security_audit)
             return created_event
 
     def create_validated_input_snapshot(
@@ -803,6 +823,7 @@ class InMemoryRunRepository:
         record: RunRecord,
         consumed_at: datetime,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> ValidatedSnapshotRunCreation:
         with self._lock:
             snapshot = _validated_snapshot_copy(
@@ -909,6 +930,8 @@ class InMemoryRunRepository:
             self._qc_metrics[record.run_id] = {}
             self._result_states[record.run_id] = RunResultState(run_id=record.run_id)
             self._validated_input_snapshots[snapshot_id] = consumed
+            if security_audit is not None:
+                self._security_audits.append(security_audit)
             return ValidatedSnapshotRunCreation(record=record, created=True)
 
     def get_run(self, run_id: str) -> RunRecord:
@@ -1072,6 +1095,7 @@ class InMemoryRunRepository:
         *,
         expected_status: RunStatus,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunEvent:
         with self._lock:
             current = self._runs[record.run_id]
@@ -1086,6 +1110,8 @@ class InMemoryRunRepository:
             )
             self._runs[record.run_id] = record
             self._events[record.run_id].append(updated_event)
+            if security_audit is not None:
+                self._security_audits.append(security_audit)
             return updated_event
 
     def complete_preflight(
@@ -1897,6 +1923,7 @@ class InMemoryRunRepository:
         backend: str,
         queue_name: str,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> bool:
         """Queue a dispatched planned run and append exactly one event."""
         with self._lock:
@@ -1925,6 +1952,8 @@ class InMemoryRunRepository:
             )
             self._runs[record.run_id] = record
             self._events[record.run_id].append(queued_event)
+            if security_audit is not None:
+                self._security_audits.append(security_audit)
             return True
 
     def claim_execution_assignment(
@@ -1975,6 +2004,7 @@ class InMemoryRunRepository:
         requested_at: datetime,
         reason: str,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunExecutionCancellationRequest:
         with self._lock:
             current = self._runs[run_id]
@@ -2014,6 +2044,8 @@ class InMemoryRunRepository:
             )
             self._execution_assignments[run_id] = updated_assignment
             self._events[run_id].append(created_event)
+            if security_audit is not None:
+                self._security_audits.append(security_audit)
             return RunExecutionCancellationRequest(
                 assignment=updated_assignment,
                 record=current,

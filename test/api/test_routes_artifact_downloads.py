@@ -33,6 +33,30 @@ from api_test_client import ApiTestClient
 from conftest import seed_test_authentication
 
 
+
+
+def _route_kwargs(client) -> dict:
+    from encode_pipeline.platform.authentication import (
+        AuthenticatedPrincipal,
+        UserRole,
+    )
+
+    scope = {
+        "type": "http",
+        "app": client.app,
+        "headers": [],
+        "method": "GET",
+        "path": "/",
+        "query_string": b"",
+        "client": ("127.0.0.1", 1),
+    }
+    principal = AuthenticatedPrincipal(
+        user_id="usr_" + "0" * 32,
+        username="test-admin",
+        role=UserRole.ADMINISTRATOR,
+    )
+    return {"request": Request(scope), "principal": principal}
+
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 ARTIFACT_REVISION = f"artifactrev-{'0' * 64}"
 
@@ -159,6 +183,7 @@ def _invoke(client: ApiTestClient, run_id: str, artifact_id: str):
         generation=generation,
         revision=revision,
         download_service=client.app.state.artifact_download_service,
+        **_route_kwargs(client),
     )
 
 
@@ -565,6 +590,7 @@ def test_route_closes_prepared_plan_when_response_construction_raises(
             ).artifact_generation,
             revision=artifact.revision,
             download_service=PreparedService(),
+            **_route_kwargs(client),
         )
     assert plan.closed is True
 
@@ -597,6 +623,7 @@ def test_download_error_projects_only_allowlisted_context(client):
         generation="artifactgen-" + "a" * 64,
         revision=ARTIFACT_REVISION,
         download_service=MaliciousService(),
+        **_route_kwargs(client),
     )
 
     assert response.status_code == 409

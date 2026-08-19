@@ -305,3 +305,43 @@ def test_seeded_member_session_works_with_test_client(seeded_app) -> None:
             account["user_id"] == TEST_AUTH_USER_ID
             for account in accounts.json()["accounts"]
         )
+
+
+def test_artifact_download_is_audited_with_actor_and_target(seeded_app) -> None:
+    from types import SimpleNamespace
+
+    from encode_pipeline.platform.results import Result
+    from encode_pipeline.platform.security_audit import AuditAction, AuditResourceKind
+
+    plan = SimpleNamespace(
+        iter_bytes=lambda: iter((b"artifact-bytes",)),
+        close=lambda: None,
+        media_type="application/octet-stream",
+        content_disposition='attachment; filename="artifact.bin"',
+        size_bytes=15,
+    )
+
+    class StubDownloadService:
+        def prepare(self, run_id, artifact_id, **kwargs):
+            return Result.success(plan)
+
+    seeded_app.state.artifact_download_service = StubDownloadService()
+    with ApiTestClient(seeded_app) as client:
+        response = client.get(
+            "/api/v1/runs/run-1/artifacts/artifact-1/download"
+            "?generation="
+            + "artifactgen-"
+            + "a" * 64
+            + "&revision="
+            + "artifactrev-"
+            + "b" * 64
+        )
+        assert response.status_code == 200
+        assert response.content == b"artifact-bytes"
+
+    (event,) = seeded_app.state.authentication_repository.list_security_audit_events()
+    assert event.action is AuditAction.ARTIFACT_DOWNLOAD
+    assert event.actor_user_id == TEST_AUTH_USER_ID
+    assert event.resource is not None
+    assert event.resource.kind is AuditResourceKind.ARTIFACT
+    assert "run-1" not in event.resource.resource_id

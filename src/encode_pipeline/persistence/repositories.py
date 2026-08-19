@@ -39,6 +39,9 @@ from encode_pipeline.persistence.models import (
     SnapshotSampleRevisionRow,
     ValidatedInputSnapshotRow,
 )
+from encode_pipeline.persistence.authentication import (
+    insert_security_audit_event,
+)
 from encode_pipeline.persistence.input_registry import (
     resolve_input_use_binding_plan_in_session,
 )
@@ -91,6 +94,7 @@ from encode_pipeline.platform.result_generations import (
     validate_result_attempt_id,
 )
 from encode_pipeline.platform.run_history import RunHistoryCursor, RunSummary
+from encode_pipeline.platform.security_audit import SecurityAuditEvent
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
     RunEvent,
@@ -145,7 +149,14 @@ class SqlAlchemyRunRepository:
                 is not None
             )
 
-    def create_run(self, record: RunRecord, event: RunEventDraft) -> RunEvent:
+    def create_run(
+        self,
+        record: RunRecord,
+        event: RunEventDraft,
+        *,
+        security_audit: SecurityAuditEvent | None = None,
+    ) -> RunEvent:
+        _validate_security_audit(security_audit)
         with self._lock:
             try:
                 with self._session_factory.begin() as session:
@@ -176,7 +187,10 @@ class SqlAlchemyRunRepository:
                         created_at=record.created_at,
                     )
                     session.flush()
-                    return self._insert_event(session, record.run_id, event)
+                    inserted = self._insert_event(session, record.run_id, event)
+                    if security_audit is not None:
+                        insert_security_audit_event(session, security_audit)
+                    return inserted
             except IntegrityError as exc:
                 raise ValueError(f"Duplicate run_id: {record.run_id!r}") from exc
 
@@ -355,7 +369,9 @@ class SqlAlchemyRunRepository:
         record: RunRecord,
         consumed_at: datetime,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> ValidatedSnapshotRunCreation:
+        _validate_security_audit(security_audit)
         try:
             with self._lock, self._session_factory.begin() as session:
                 _begin_write(session)
@@ -494,6 +510,8 @@ class SqlAlchemyRunRepository:
                 row.consumed_run_id = record.run_id
                 row.consumed_at = consumed_at
                 session.flush()
+                if security_audit is not None:
+                    insert_security_audit_event(session, security_audit)
                 return ValidatedSnapshotRunCreation(record=record, created=True)
         except IntegrityError as exc:
             raise ValueError("validated snapshot could not create a run") from exc
@@ -669,7 +687,9 @@ class SqlAlchemyRunRepository:
         *,
         expected_status: RunStatus,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunEvent:
+        _validate_security_audit(security_audit)
         with self._lock, self._session_factory.begin() as session:
             _begin_write(session)
             result = session.execute(
@@ -691,7 +711,10 @@ class SqlAlchemyRunRepository:
                 raise ConcurrentRunUpdateError(
                     f"Run {record.run_id!r} changed while it was being updated."
                 )
-            return self._insert_event(session, record.run_id, event)
+            inserted = self._insert_event(session, record.run_id, event)
+            if security_audit is not None:
+                insert_security_audit_event(session, security_audit)
+            return inserted
 
     def complete_preflight(
         self,
@@ -1679,8 +1702,10 @@ class SqlAlchemyRunRepository:
         backend: str,
         queue_name: str,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> bool:
         """Queue a dispatched planned run and append exactly one event."""
+        _validate_security_audit(security_audit)
         if expected_status is not RunStatus.PLANNED:
             raise ValueError("expected_status must be planned")
         if record.status is not RunStatus.QUEUED:
@@ -1716,6 +1741,8 @@ class SqlAlchemyRunRepository:
                     f"Run {record.run_id!r} changed while it was being queued."
                 )
             self._insert_event(session, record.run_id, event)
+            if security_audit is not None:
+                insert_security_audit_event(session, security_audit)
             return True
 
     def claim_execution_assignment(
@@ -1773,7 +1800,9 @@ class SqlAlchemyRunRepository:
         requested_at: datetime,
         reason: str,
         event: RunEventDraft,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunExecutionCancellationRequest:
+        _validate_security_audit(security_audit)
         with self._session_factory.begin() as session:
             _begin_write(session)
             current = self._require_run(session, run_id)
@@ -1808,6 +1837,8 @@ class SqlAlchemyRunRepository:
             row.cancellation_requested_at = requested_at
             row.cancellation_reason = reason
             self._insert_event(session, run_id, event)
+            if security_audit is not None:
+                insert_security_audit_event(session, security_audit)
             session.flush()
             return RunExecutionCancellationRequest(
                 assignment=_execution_assignment_from_row(row),
@@ -2700,6 +2731,11 @@ def _project_sample_binding_from_values(
         digest_scheme=digest_scheme,
         digest=digest,
     )
+
+
+def _validate_security_audit(event: SecurityAuditEvent | None) -> None:
+    if event is not None and not isinstance(event, SecurityAuditEvent):
+        raise ValueError("security_audit must be a SecurityAuditEvent or None")
 
 
 def _begin_write(session: Session) -> None:

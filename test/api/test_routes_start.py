@@ -243,7 +243,7 @@ def test_start_run_submission_does_not_block_the_api_event_loop(tmp_path):
     release = Event()
 
     class BlockingSubmissionService:
-        def start_run(self, run_id):
+        def start_run(self, run_id, **_kwargs):
             assert run_id == planned.run_id
             entered.set()
             if not release.wait(timeout=2):  # pragma: no cover - test deadlock guard

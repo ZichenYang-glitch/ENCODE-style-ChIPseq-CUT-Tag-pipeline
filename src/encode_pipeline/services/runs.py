@@ -37,6 +37,8 @@ from encode_pipeline.platform.run_history import (
     normalize_run_history_status,
     normalize_run_history_workflow_filter,
 )
+from encode_pipeline.platform.authentication import AuthenticatedPrincipal
+from encode_pipeline.platform.security_audit import AuditAction, SecurityAuditEvent
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
     RunEvent,
@@ -45,6 +47,9 @@ from encode_pipeline.platform.runs import (
     RunRecord,
     RunStatus,
     require_transition,
+)
+from encode_pipeline.services.run_security_audit import (
+    build_run_action_event,
 )
 from encode_pipeline.platform.snapshots import (
     ValidatedInputSnapshot,
@@ -115,6 +120,7 @@ class RunService:
         workflow_id: str,
         inputs: WorkflowInputs,
         tags: Mapping[str, str] | None = None,
+        security_audit_actor: AuthenticatedPrincipal | None = None,
     ) -> RunRecord:
         """Create a new run in the created state."""
         with self._lock:
@@ -138,6 +144,16 @@ class RunService:
                 error=None,
                 tags=tags or {},
             )
+            security_audit = (
+                None
+                if security_audit_actor is None
+                else build_run_action_event(
+                    AuditAction.RUN_CREATE,
+                    security_audit_actor,
+                    run_id,
+                    occurred_at=now,
+                )
+            )
             self._repository.create_run(
                 record,
                 RunEventDraft(
@@ -149,6 +165,7 @@ class RunService:
                         "new_status": RunStatus.CREATED.value,
                     },
                 ),
+                security_audit=security_audit,
             )
             return record
 
@@ -176,6 +193,7 @@ class RunService:
         expected_build_identity: WorkflowBuildIdentity,
         consumed_at: datetime,
         tags: Mapping[str, str] | None = None,
+        security_audit_actor: AuthenticatedPrincipal | None = None,
     ) -> ValidatedSnapshotRunCreation:
         """Atomically consume one validated snapshot and create its run."""
         with self._lock:
@@ -197,6 +215,16 @@ class RunService:
                 error=None,
                 tags=tags or {},
             )
+            security_audit = (
+                None
+                if security_audit_actor is None
+                else build_run_action_event(
+                    AuditAction.RUN_CREATE,
+                    security_audit_actor,
+                    run_id,
+                    occurred_at=consumed_at,
+                )
+            )
             return self._repository.consume_validated_input_snapshot(
                 snapshot_id,
                 workflow_id=workflow_id,
@@ -212,6 +240,7 @@ class RunService:
                         "new_status": RunStatus.CREATED.value,
                     },
                 ),
+                security_audit=security_audit,
             )
 
     def add_event(
@@ -528,6 +557,7 @@ class RunService:
         job_id: str,
         backend: str,
         queue_name: str,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunRecord:
         """Atomically move a dispatched planned run into the worker queue."""
         with self._lock:
@@ -578,6 +608,7 @@ class RunService:
                 job_id=job_id,
                 backend=backend,
                 queue_name=queue_name,
+                security_audit=security_audit,
                 event=RunEventDraft(
                     event_type="status_changed",
                     message="Run submitted for worker execution.",
@@ -839,6 +870,7 @@ class RunService:
         event_type: str = "status_changed",
         context: Mapping[str, Any] | None = None,
         issue: Issue | None = None,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunRecord:
         """Transition a run to a new status, enforcing the PR99 graph."""
         with self._lock:
@@ -897,6 +929,7 @@ class RunService:
                     context=event_context,
                     issue=issue,
                 ),
+                security_audit=security_audit,
             )
             return updated
 
@@ -908,6 +941,7 @@ class RunService:
         backend: str,
         queue_name: str,
         reason: str,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunExecutionCancellationRequest:
         """Atomically persist user intent without claiming process termination."""
         if not isinstance(reason, str) or not reason.strip():
@@ -931,6 +965,7 @@ class RunService:
                         "queue_name": queue_name,
                     },
                 ),
+                security_audit=security_audit,
             )
 
     def acknowledge_execution_stop(
@@ -990,6 +1025,8 @@ class RunService:
         self,
         run_id: str,
         reason: str | None = None,
+        *,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> RunRecord:
         """Cancel a pre-running run, or return an already-terminal run unchanged.
 
@@ -1038,6 +1075,7 @@ class RunService:
                             },
                             issue=None,
                         ),
+                        security_audit=security_audit,
                     )
                 except ConcurrentRunUpdateError:
                     # Another API/worker process advanced the monotonic state.
