@@ -87,7 +87,6 @@ jobs:
           --repository-root . verify-checkout
 
       - name: Run deterministic Python tier once
-        if: false
         shell: micromamba-shell {0}
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -124,65 +123,6 @@ jobs:
           test -z "$(find "$coverage_migration_root" -mindepth 1 -print -quit)"
           rmdir -- "$coverage_migration_root"
           trap - EXIT
-
-      - name: DIAG A full suite without coverage
-        shell: micromamba-shell {0}
-        run: >-
-          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest
-          test -q
-          -m 'not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
-          --deselect test/ci/test_workflow_contracts.py
-
-      - name: DIAG B full suite with coverage, without new files
-        shell: micromamba-shell {0}
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PYTHONDONTWRITEBYTECODE: "1"
-        run: |
-          coverage_migration_root="$RUNNER_TEMP/helixweave-coverage-migrations-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          test ! -e "$coverage_migration_root"
-          mkdir -m 700 -- "$coverage_migration_root"
-          export HELIXWEAVE_COVERAGE_MIGRATION_ROOT="$coverage_migration_root"
-          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
-            test -q \
-            -m 'not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution' \
-            --cov=src/encode_pipeline --cov=scripts --cov=workflow/lib --cov=containers \
-            --cov="$coverage_migration_root" \
-            --cov-config=pyproject.toml --cov-context=test --cov-fail-under=0 --cov-report= \
-            --deselect test/ci/test_workflow_contracts.py \
-            --ignore=test/deployment/test_command_and_native_contracts.py \
-            --ignore=test/deployment/test_evidence_document_rejection.py \
-            --ignore=test/deployment/test_gate_document_rejection.py \
-            --ignore=test/deployment/test_operator_action_document_rejection.py \
-            --ignore=test/deployment/test_operator_document_rejection.py \
-            --ignore=test/deployment/test_primitives_behavior.py \
-            --ignore=test/deployment/test_state_document_rejection.py \
-            --ignore=test/deployment/test_systemd_action_runners.py
-
-      - name: DIAG C new files only, with coverage
-        shell: micromamba-shell {0}
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PYTHONDONTWRITEBYTECODE: "1"
-        run: |
-          coverage_migration_root="$RUNNER_TEMP/helixweave-coverage-migrations-C-$GITHUB_RUN_ID"
-          test ! -e "$coverage_migration_root"
-          mkdir -m 700 -- "$coverage_migration_root"
-          export HELIXWEAVE_COVERAGE_MIGRATION_ROOT="$coverage_migration_root"
-          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
-            test/deployment/test_command_and_native_contracts.py \
-            test/deployment/test_evidence_document_rejection.py \
-            test/deployment/test_gate_document_rejection.py \
-            test/deployment/test_operator_action_document_rejection.py \
-            test/deployment/test_operator_document_rejection.py \
-            test/deployment/test_primitives_behavior.py \
-            test/deployment/test_state_document_rejection.py \
-            test/deployment/test_systemd_action_runners.py \
-            -q \
-            -m 'not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution' \
-            --cov=src/encode_pipeline --cov=scripts --cov=workflow/lib --cov=containers \
-            --cov="$coverage_migration_root" \
-            --cov-config=pyproject.toml --cov-context=test --cov-fail-under=0 --cov-report=
 
       - name: Require passing, zero-skip Python outcomes
         if: always()
