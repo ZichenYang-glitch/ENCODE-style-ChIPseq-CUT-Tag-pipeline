@@ -87,7 +87,6 @@ jobs:
           --repository-root . verify-checkout
 
       - name: Run deterministic Python tier once
-        if: false
         shell: micromamba-shell {0}
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -106,10 +105,8 @@ jobs:
           else
             marker='not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
           fi
-          set -o pipefail
-          timeout --signal=TERM --kill-after=30s 1500 \
           python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
-            test -v \
+            test -ra \
             -m "$marker" \
             --durations=25 --durations-min=1.0 \
             --junitxml=pytest-report.xml \
@@ -122,87 +119,10 @@ jobs:
             --cov-fail-under=0 \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
-            --cov-report=json:coverage.json 2>&1 | tee /tmp/pytest-progress.log || true
-          tail -5 /tmp/pytest-progress.log
-          echo "=== FULL SUITE STEP END ==="
+            --cov-report=json:coverage.json
           test -z "$(find "$coverage_migration_root" -mindepth 1 -print -quit)"
           rmdir -- "$coverage_migration_root"
           trap - EXIT
-
-
-
-      - name: DIAG no-test_command_and_native_contracts
-        shell: micromamba-shell {0}
-        run: >-
-          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest
-          test/deployment -q --durations=5
-          -m 'not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
-          --ignore=test/deployment/test_command_and_native_contracts.py
-
-      - name: DIAG no-test_evidence_document_rejection
-        shell: micromamba-shell {0}
-        run: >-
-          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest
-          test/deployment -q --durations=5
-          -m 'not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
-          --ignore=test/deployment/test_evidence_document_rejection.py
-
-      - name: DIAG no-test_gate_document_rejection
-        shell: micromamba-shell {0}
-        run: >-
-          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest
-          test/deployment -q --durations=5
-          -m 'not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
-          --ignore=test/deployment/test_gate_document_rejection.py
-
-      - name: DIAG no-test_operator_action_document_rejection
-        shell: micromamba-shell {0}
-        run: >-
-          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest
-          test/deployment -q --durations=5
-          -m 'not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
-          --ignore=test/deployment/test_operator_action_document_rejection.py
-
-      - name: DIAG no-test_operator_document_rejection
-        shell: micromamba-shell {0}
-        run: >-
-          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest
-          test/deployment -q --durations=5
-          -m 'not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
-          --ignore=test/deployment/test_operator_document_rejection.py
-
-      - name: DIAG no-test_primitives_behavior
-        shell: micromamba-shell {0}
-        run: >-
-          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest
-          test/deployment -q --durations=5
-          -m 'not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
-          --ignore=test/deployment/test_primitives_behavior.py
-
-      - name: DIAG no-test_state_document_rejection
-        shell: micromamba-shell {0}
-        run: >-
-          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest
-          test/deployment -q --durations=5
-          -m 'not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
-          --ignore=test/deployment/test_state_document_rejection.py
-
-      - name: DIAG no-test_systemd_action_runners
-        shell: micromamba-shell {0}
-        run: >-
-          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest
-          test/deployment -q --durations=5
-          -m 'not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
-          --ignore=test/deployment/test_systemd_action_runners.py
-
-      - name: Upload pytest progress log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytest-progress-log
-          path: /tmp/pytest-progress.log
-          retention-days: 1
-          if-no-files-found: ignore
 
       - name: Require passing, zero-skip Python outcomes
         if: always()
