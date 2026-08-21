@@ -131,6 +131,7 @@ jobs:
           python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest
           test -q
           -m 'not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
+          --deselect test/ci/test_workflow_contracts.py
 
       - name: DIAG B full suite with coverage, without new files
         shell: micromamba-shell {0}
