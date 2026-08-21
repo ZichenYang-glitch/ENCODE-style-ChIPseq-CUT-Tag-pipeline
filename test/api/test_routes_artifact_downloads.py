@@ -33,8 +33,6 @@ from api_test_client import ApiTestClient
 from conftest import seed_test_authentication
 
 
-
-
 def _route_kwargs(client) -> dict:
     from encode_pipeline.platform.authentication import (
         AuthenticatedPrincipal,
@@ -56,6 +54,7 @@ def _route_kwargs(client) -> dict:
         role=UserRole.ADMINISTRATOR,
     )
     return {"request": Request(scope), "principal": principal}
+
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 ARTIFACT_REVISION = f"artifactrev-{'0' * 64}"

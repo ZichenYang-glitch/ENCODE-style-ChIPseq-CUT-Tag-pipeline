@@ -212,6 +212,7 @@ def test_extracted_wheel_serves_frontend_and_api_without_node_or_checkout(
     code = f"""
 import asyncio
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -233,10 +234,30 @@ import encode_pipeline
 import encode_pipeline.api.main as api_main
 from encode_pipeline.deployment.frontend import create_app
 from encode_pipeline.frontend_assets import load_packaged_frontend_assets
+from encode_pipeline.persistence.authentication import (
+    SqlAlchemyAuthenticationRepository,
+)
+from encode_pipeline.persistence.database import (
+    create_database_engine,
+    create_session_factory,
+)
+from encode_pipeline.services.authentication_service import (
+    AccountAdministrationService,
+)
 
 assert Path(encode_pipeline.__file__).resolve().is_relative_to(installed)
 assert Path(api_main.__file__).resolve().is_relative_to(installed)
 assets = load_packaged_frontend_assets()
+engine = create_database_engine(os.environ["ENCODE_PIPELINE_DATABASE_URL"])
+try:
+    AccountAdministrationService(
+        repository=SqlAlchemyAuthenticationRepository(create_session_factory(engine))
+    ).bootstrap_initial_administrator(
+        "packaging-admin",
+        "packaging admin password",
+    )
+finally:
+    engine.dispose()
 app = create_app()
 
 async def verify():
@@ -250,6 +271,14 @@ async def verify():
             path for path in sorted(assets.content) if path.endswith(".js")
         )
         script = await client.get("/" + javascript_path)
+        login = await client.post(
+            "/api/v1/auth/login",
+            json={{
+                "username": "packaging-admin",
+                "password": "packaging admin password",
+            }},
+        )
+        assert login.status_code == 200
         api = await client.get(
             "/api/v1/workflows/encode-style-chipseq-cuttag-atac-mnase/schema",
             headers={{"accept": "application/json"}},
