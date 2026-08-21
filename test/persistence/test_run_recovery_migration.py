@@ -10,9 +10,6 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
 from encode_pipeline.persistence import create_database_engine
-from encode_pipeline.persistence.migration_admission import (
-    verify_migration_execution_inventory,
-)
 from encode_pipeline.persistence.migrations import (
     downgrade_database,
     upgrade_database,
@@ -82,7 +79,7 @@ def test_rev12_to_rev13_zero_backfills_and_preserves_assignment_evidence(
         )
     engine.dispose()
 
-    upgrade_database(database_url)
+    upgrade_database(database_url, RECOVERY_REVISION)
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         rows = (
@@ -131,16 +128,12 @@ def test_rev12_to_rev13_zero_backfills_and_preserves_assignment_evidence(
     engine.dispose()
 
 
-def test_rev13_is_the_sole_head_and_enforces_requeue_marker_constraints(
-    tmp_path,
-) -> None:
+def test_rev13_enforces_requeue_marker_constraints(tmp_path) -> None:
     database_url = f"sqlite:///{tmp_path / 'platform.db'}"
-    upgrade_database(database_url)
+    upgrade_database(database_url, RECOVERY_REVISION)
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
 
-    inventory = verify_migration_execution_inventory()
-    assert inventory.heads == (RECOVERY_REVISION,)
     assert {
         column["name"] for column in inspector.get_columns("run_execution_assignments")
     } == LEGACY_ASSIGNMENT_COLUMNS | RECOVERY_COLUMNS
@@ -259,7 +252,7 @@ def test_rev13_is_the_sole_head_and_enforces_requeue_marker_constraints(
 
 def test_rev13_downgrade_removes_only_recovery_fields(tmp_path) -> None:
     database_url = f"sqlite:///{tmp_path / 'platform.db'}"
-    upgrade_database(database_url)
+    upgrade_database(database_url, RECOVERY_REVISION)
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         _insert_run(connection, "queued-run", status="queued")
@@ -365,7 +358,7 @@ def test_rev13_upgrade_failure_rolls_back_and_retries_only_redundant_residue(
         ).one() == ("queued-run", "queued-job", "2026-08-09 13:01:00")
     engine.dispose()
 
-    upgrade_database(database_url)
+    upgrade_database(database_url, RECOVERY_REVISION)
     engine = create_database_engine(database_url)
     assert (
         "_alembic_tmp_run_execution_assignments"

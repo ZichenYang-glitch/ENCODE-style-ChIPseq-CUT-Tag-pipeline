@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from encode_pipeline.platform.authentication import AuthenticatedPrincipal
+from encode_pipeline.platform.security_audit import AuditAction
+from encode_pipeline.services.run_security_audit import (
+    build_run_action_event,
+)
+
 from dataclasses import dataclass
 
 from encode_pipeline.platform.runs import RunRecord, RunStatus
@@ -58,6 +66,7 @@ class RunCancellationService:
         run_id: str,
         *,
         reason: str,
+        security_audit_actor: AuthenticatedPrincipal | None = None,
     ) -> RunCancellationResult:
         """Cancel before execution, or request a truthful RQ stop while running."""
         if not isinstance(reason, str) or not reason.strip():
@@ -68,7 +77,20 @@ class RunCancellationService:
             return RunCancellationResult(record=current, stop_requested=False)
         if current.status is not RunStatus.RUNNING:
             try:
-                cancelled = self._run_service.cancel_run(run_id, reason=reason.strip())
+                cancelled = self._run_service.cancel_run(
+                    run_id,
+                    reason=reason.strip(),
+                    security_audit=(
+                        None
+                        if security_audit_actor is None
+                        else build_run_action_event(
+                            AuditAction.RUN_CANCEL,
+                            security_audit_actor,
+                            run_id,
+                            occurred_at=datetime.now(timezone.utc),
+                        )
+                    ),
+                )
             except RunCancellationNotAvailableError as exc:
                 current = exc.record
             else:
@@ -94,6 +116,16 @@ class RunCancellationService:
                 backend=assignment.backend,
                 queue_name=assignment.queue_name,
                 reason=reason.strip(),
+                security_audit=(
+                    None
+                    if security_audit_actor is None
+                    else build_run_action_event(
+                        AuditAction.RUN_CANCEL,
+                        security_audit_actor,
+                        run_id,
+                        occurred_at=datetime.now(timezone.utc),
+                    )
+                ),
             )
         except (KeyError, ValueError) as exc:
             raise RunCancellationConflictError(

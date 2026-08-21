@@ -541,6 +541,39 @@ def prepare_owned_runtime_root(runtime_value: str, runtime_owner: str) -> Path:
     return runtime_root
 
 
+E2E_ADMIN_USERNAME = "e2e-admin"
+E2E_ADMIN_PASSWORD = "e2e playwright admin password"
+
+
+def prepare_auth_admin(runtime_root: Path) -> None:
+    """Create the browser runtime's unique administrator before services start."""
+    from encode_pipeline.persistence.database import (
+        create_database_engine,
+        create_session_factory,
+    )
+    from encode_pipeline.persistence.authentication import (
+        SqlAlchemyAuthenticationRepository,
+    )
+    from encode_pipeline.persistence.migrations import upgrade_database
+    from encode_pipeline.services.authentication_service import (
+        AccountAdministrationService,
+    )
+
+    database_url = f"sqlite:///{runtime_root / 'platform.db'}"
+    upgrade_database(database_url)
+    engine = create_database_engine(database_url)
+    try:
+        repository = SqlAlchemyAuthenticationRepository(create_session_factory(engine))
+        AccountAdministrationService(
+            repository=repository
+        ).bootstrap_initial_administrator(
+            E2E_ADMIN_USERNAME,
+            E2E_ADMIN_PASSWORD,
+        )
+    finally:
+        engine.dispose()
+
+
 def main() -> None:
     runtime_value = os.environ.get("ENCODE_PIPELINE_E2E_ROOT")
     runtime_owner = os.environ.get("ENCODE_PIPELINE_E2E_OWNER")
@@ -561,6 +594,7 @@ def main() -> None:
     )
     deployment_environment.update(reference_environment)
     queue_name = f"encode-pipeline-browser-{uuid4().hex}"
+    prepare_auth_admin(runtime_root)
     write_manifest(runtime_root, queue_name, inputs, bulk_authoring)
     redis_url = os.environ.get(
         "ENCODE_PIPELINE_E2E_REDIS_URL", "redis://127.0.0.1:6380/0"

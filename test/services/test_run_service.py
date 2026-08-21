@@ -350,7 +350,7 @@ def test_cancel_run_rechecks_worker_start_after_compare_and_swap_loss():
     original_update = repository.update_run
     worker_won = False
 
-    def race_with_worker(record, *, expected_status, event):
+    def race_with_worker(record, *, expected_status, event, **kwargs):
         nonlocal worker_won
         if record.status is RunStatus.CANCELLED and not worker_won:
             worker_won = True
@@ -364,6 +364,7 @@ def test_cancel_run_rechecks_worker_start_after_compare_and_swap_loss():
             record,
             expected_status=expected_status,
             event=event,
+            **kwargs,
         )
 
     repository.update_run = race_with_worker  # type: ignore[method-assign]

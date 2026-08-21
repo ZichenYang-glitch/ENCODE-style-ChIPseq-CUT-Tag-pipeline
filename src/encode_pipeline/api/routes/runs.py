@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from encode_pipeline.api.dependencies import (
     get_reference_profile_service,
+    require_principal,
     get_run_cancellation_service,
     get_run_service,
     get_run_submission_service,
@@ -28,6 +29,7 @@ from encode_pipeline.api.models import (
     RunResponse,
     RunSummaryResponse,
 )
+from encode_pipeline.platform.authentication import AuthenticatedPrincipal
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.run_cancellation import (
     RunCancellationConflictError,
@@ -302,6 +304,7 @@ def _run_history_content(response: RunHistoryResponse) -> dict[str, Any]:
 def create_run(
     workflow_id: str,
     request_body: RunCreateRequest,
+    principal: AuthenticatedPrincipal = Depends(require_principal),
     creation_service: ValidatedRunCreationService = Depends(
         get_validated_run_creation_service
     ),
@@ -316,6 +319,7 @@ def create_run(
             workflow_id,
             request_body.snapshot_id,
             tags=request_body.tags,
+            security_audit_actor=principal,
         )
     except ValidatedSnapshotNotFoundError:
         return JSONResponse(
@@ -617,11 +621,12 @@ async def get_run(
 )
 def start_run(
     run_id: str,
+    principal: AuthenticatedPrincipal = Depends(require_principal),
     submission_service: RunSubmissionService = Depends(get_run_submission_service),
 ) -> RunResponse | JSONResponse:
     """Explicitly submit a planned run for durable worker execution."""
     try:
-        record = submission_service.start_run(run_id)
+        record = submission_service.start_run(run_id, security_audit_actor=principal)
     except KeyError:
         return JSONResponse(
             status_code=404,
@@ -704,6 +709,7 @@ def start_run(
 )
 def cancel_run(
     run_id: str,
+    principal: AuthenticatedPrincipal = Depends(require_principal),
     cancellation_service: RunCancellationService = Depends(
         get_run_cancellation_service
     ),
@@ -713,6 +719,7 @@ def cancel_run(
         result = cancellation_service.cancel_run(
             run_id,
             reason="User requested cancellation.",
+            security_audit_actor=principal,
         )
     except KeyError:
         return JSONResponse(

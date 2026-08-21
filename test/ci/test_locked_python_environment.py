@@ -16,6 +16,7 @@ WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 
 REQUIRED_DIRECT_DEPENDENCIES = {
     "alembic",
+    "argon2-cffi",
     "coverage",
     "diff-cover",
     "fakeredis",
@@ -59,6 +60,7 @@ def test_ci_environment_declares_build_runtime_test_and_gate_dependencies():
 
     assert REQUIRED_DIRECT_DEPENDENCIES <= names
     assert "coverage >=7.10.6,<8" in specifications
+    assert "argon2-cffi >=25.1,<26" in specifications
     assert "diff-cover >=9,<10" in specifications
     assert "pytest-cov >=7,<8" in specifications
     assert "python-build >=1.2,<2" in specifications

@@ -104,7 +104,7 @@ describe('createRunApiClient', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sampleCreateRequest),
-        credentials: 'omit',
+        credentials: 'same-origin',
       }),
     );
     expect(response.ok).toBe(true);
@@ -128,7 +128,7 @@ describe('createRunApiClient', () => {
       `/api/v1/runs/${RUN_ID}`,
       expect.objectContaining({
         method: 'GET',
-        credentials: 'omit',
+        credentials: 'same-origin',
       }),
     );
     expect(response.ok).toBe(true);
@@ -154,7 +154,7 @@ describe('createRunApiClient', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
-        credentials: 'omit',
+        credentials: 'same-origin',
       }),
     );
     expect(response.ok).toBe(true);
@@ -177,7 +177,7 @@ describe('createRunApiClient', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
-        credentials: 'omit',
+        credentials: 'same-origin',
       }),
     );
     expect(response.ok).toBe(true);
@@ -200,7 +200,7 @@ describe('createRunApiClient', () => {
       `/api/v1/runs/${RUN_ID}/events?after=evt-0&limit=10`,
       expect.objectContaining({
         method: 'GET',
-        credentials: 'omit',
+        credentials: 'same-origin',
       }),
     );
     expect(response.ok).toBe(true);
@@ -228,7 +228,7 @@ describe('createRunApiClient', () => {
       `/api/v1/runs/${RUN_ID}/logs?stream_name=stderr&after=chunk-0&limit=25`,
       expect.objectContaining({
         method: 'GET',
-        credentials: 'omit',
+        credentials: 'same-origin',
       }),
     );
     expect(response.ok).toBe(true);
@@ -254,7 +254,7 @@ describe('createRunApiClient', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
-        credentials: 'omit',
+        credentials: 'same-origin',
       }),
     );
     expect(response.ok).toBe(true);

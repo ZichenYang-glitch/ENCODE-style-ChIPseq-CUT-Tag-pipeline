@@ -21,6 +21,11 @@ from encode_pipeline.services.private_reference_profiles import (
     PrivateReferenceProfileConfig,
     PrivateReferenceProfileConfigError,
 )
+from encode_pipeline.platform.security_audit import AuditAction
+from encode_pipeline.services.admin_security_audit import (
+    build_reference_action_event,
+)
+from encode_pipeline.services.authentication_service import AuthenticationActor
 from encode_pipeline.services.reference_profile_repositories import (
     InMemoryReferenceProfileRepository,
     ReferenceProfileConflictError,
@@ -105,6 +110,7 @@ class ReferenceProfileService:
         organism: str,
         assembly: str,
         config_key: str,
+        security_audit_actor: AuthenticationActor | None = None,
     ) -> ReferenceProfileRevisionSummary:
         """Create a stable profile or append a verified immutable revision."""
         config = self._load_config_for_admin()
@@ -133,7 +139,20 @@ class ReferenceProfileService:
                 created_at=now,
             )
             try:
-                self._repository.create_profile(profile, revision)
+                self._repository.create_profile(
+                    profile,
+                    revision,
+                    security_audit=(
+                        None
+                        if security_audit_actor is None
+                        else build_reference_action_event(
+                            AuditAction.REFERENCE_REGISTER,
+                            security_audit_actor,
+                            profile.profile_id,
+                            occurred_at=now,
+                        )
+                    ),
+                )
             except ReferenceProfileConflictError as exc:
                 raise ReferenceProfileAdminError(
                     "REFERENCE_PROFILE_UNAVAILABLE"
@@ -161,6 +180,16 @@ class ReferenceProfileService:
                 self._repository.append_revision(
                     revision,
                     expected_previous_revision_number=current.revision_number,
+                    security_audit=(
+                        None
+                        if security_audit_actor is None
+                        else build_reference_action_event(
+                            AuditAction.REFERENCE_REGISTER,
+                            security_audit_actor,
+                            profile.profile_id,
+                            occurred_at=self._now_factory(),
+                        )
+                    ),
                 )
             except ReferenceProfileConflictError as exc:
                 raise ReferenceProfileAdminError(
@@ -216,6 +245,7 @@ class ReferenceProfileService:
         profile_id: str,
         *,
         revision_id: str | None = None,
+        security_audit_actor: AuthenticationActor | None = None,
     ) -> ReferenceProfileRevisionSummary:
         """Verify and enable an exact revision; never mutate verification state."""
         try:
@@ -233,13 +263,44 @@ class ReferenceProfileService:
         verified = self._verify_revision(target)
         if verified.is_failure:
             raise ReferenceProfileAdminError(verified.issues[0].code)
-        profile = self._repository.set_enabled_revision(profile_id, target.revision_id)
+        profile = self._repository.set_enabled_revision(
+            profile_id,
+            target.revision_id,
+            security_audit=(
+                None
+                if security_audit_actor is None
+                else build_reference_action_event(
+                    AuditAction.REFERENCE_ENABLE,
+                    security_audit_actor,
+                    profile_id,
+                    occurred_at=self._now_factory(),
+                )
+            ),
+        )
         return target.public_summary(safe_key=profile.safe_key, enabled=True)
 
-    def disable(self, profile_id: str) -> ReferenceProfileRevisionSummary:
+    def disable(
+        self,
+        profile_id: str,
+        *,
+        security_audit_actor: AuthenticationActor | None = None,
+    ) -> ReferenceProfileRevisionSummary:
         """Disable new validation/create/start while preserving revision history."""
         try:
-            profile = self._repository.set_enabled_revision(profile_id, None)
+            profile = self._repository.set_enabled_revision(
+                profile_id,
+                None,
+                security_audit=(
+                    None
+                    if security_audit_actor is None
+                    else build_reference_action_event(
+                        AuditAction.REFERENCE_DISABLE,
+                        security_audit_actor,
+                        profile_id,
+                        occurred_at=self._now_factory(),
+                    )
+                ),
+            )
             revisions = self._repository.list_revisions(profile_id)
         except (IndexError, KeyError) as exc:
             raise ReferenceProfileAdminError("REFERENCE_PROFILE_UNAVAILABLE") from exc

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from 'react-router-dom';
+import { AuthProvider } from './auth';
 import {
   ClientProvider,
   type ClientProviderProps,
@@ -23,7 +24,9 @@ export function Providers({
   return (
     <QueryClientProvider client={queryClient}>
       <ClientProvider clients={clients}>
-        <RouterProvider router={router} />
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
       </ClientProvider>
     </QueryClientProvider>
   );

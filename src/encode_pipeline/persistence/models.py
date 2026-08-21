@@ -1969,3 +1969,178 @@ class RunReferenceBindingRow(Base):
     binding_digest_scheme: Mapped[str] = mapped_column(String(64), nullable=False)
     binding_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     bound_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class UserAccountRow(Base):
+    """Durable LAN account state behind the authentication repository."""
+
+    __tablename__ = "user_accounts"
+    __table_args__ = (
+        CheckConstraint(
+            "length(user_id) = 36 AND substr(user_id, 1, 4) = 'usr_'",
+            name="ck_user_accounts_id",
+        ),
+        CheckConstraint(
+            "length(username) BETWEEN 3 AND 64",
+            name="ck_user_accounts_username",
+        ),
+        CheckConstraint(
+            "role IN ('administrator', 'member')",
+            name="ck_user_accounts_role",
+        ),
+        CheckConstraint(
+            "status IN ('enabled', 'disabled')",
+            name="ck_user_accounts_status",
+        ),
+        CheckConstraint(
+            "updated_at >= created_at",
+            name="ck_user_accounts_update_order",
+        ),
+        CheckConstraint(
+            "password_changed_at >= created_at AND password_changed_at <= updated_at",
+            name="ck_user_accounts_password_change_order",
+        ),
+        UniqueConstraint("username", name="uq_user_accounts_username"),
+    )
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    password_changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class AuthSessionRow(Base):
+    """Server-side record for one opaque browser-session credential."""
+
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "length(session_digest) = 64 AND session_digest NOT GLOB '*[^0-9a-f]*'",
+            name="ck_auth_sessions_id",
+        ),
+        CheckConstraint(
+            "length(csrf_digest) = 64 AND csrf_digest NOT GLOB '*[^0-9a-f]*'",
+            name="ck_auth_sessions_csrf_digest",
+        ),
+        CheckConstraint(
+            "expires_at > created_at",
+            name="ck_auth_sessions_expiry_order",
+        ),
+        CheckConstraint(
+            "revocation_reason IS NULL OR revocation_reason IN "
+            "('logout', 'all_sessions', 'account_disabled', 'password_reset')",
+            name="ck_auth_sessions_revocation_reason",
+        ),
+        CheckConstraint(
+            "(revoked_at IS NULL AND revocation_reason IS NULL) OR "
+            "(revoked_at IS NOT NULL AND revocation_reason IS NOT NULL)",
+            name="ck_auth_sessions_revocation_pair",
+        ),
+        CheckConstraint(
+            "revoked_at IS NULL OR revoked_at >= created_at",
+            name="ck_auth_sessions_revocation_order",
+        ),
+        ForeignKeyConstraint(
+            ["user_id"],
+            ["user_accounts.user_id"],
+            name="fk_auth_sessions_user",
+            ondelete="CASCADE",
+        ),
+        Index("ix_auth_sessions_user", "user_id"),
+    )
+
+    session_digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    csrf_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revocation_reason: Mapped[str | None] = mapped_column(String(32))
+
+
+class SecurityAuditEventRow(Base):
+    """Append-only ledger row for closed, disclosure-safe security events."""
+
+    __tablename__ = "security_audit_events"
+    __table_args__ = (
+        CheckConstraint(
+            "length(event_id) = 37 AND substr(event_id, 1, 5) = 'aevt_'",
+            name="ck_security_audit_events_id",
+        ),
+        CheckConstraint(
+            "action IN ('auth.login', 'auth.logout', 'run.create', 'run.start', "
+            "'run.cancel', 'artifact.download', 'reference.register', "
+            "'reference.enable', 'reference.disable', 'storage.register', "
+            "'storage.archive', 'account.create', 'account.enable', "
+            "'account.disable', 'account.password_reset', "
+            "'account.sessions_revoke')",
+            name="ck_security_audit_events_action",
+        ),
+        CheckConstraint(
+            "outcome IN ('succeeded', 'denied', 'failed')",
+            name="ck_security_audit_events_outcome",
+        ),
+        CheckConstraint(
+            "actor_kind IN ('user', 'local_operator', 'unauthenticated')",
+            name="ck_security_audit_events_actor_kind",
+        ),
+        CheckConstraint(
+            "(actor_kind = 'user' AND actor_user_id IS NOT NULL) OR "
+            "(actor_kind != 'user' AND actor_user_id IS NULL)",
+            name="ck_security_audit_events_actor_pair",
+        ),
+        CheckConstraint(
+            "resource_kind IS NULL OR resource_kind IN "
+            "('account', 'run', 'artifact', 'reference', 'storage')",
+            name="ck_security_audit_events_resource_kind",
+        ),
+        CheckConstraint(
+            "(resource_kind IS NULL AND resource_id IS NULL) OR "
+            "(resource_kind IS NOT NULL AND resource_id IS NOT NULL)",
+            name="ck_security_audit_events_resource_pair",
+        ),
+        CheckConstraint(
+            "reason_code IS NULL OR reason_code IN "
+            "('INVALID_CREDENTIALS', 'LOGIN_RATE_LIMITED', "
+            "'AUTHENTICATION_REQUIRED', 'SESSION_INVALID', 'CSRF_INVALID', "
+            "'ADMINISTRATOR_REQUIRED', 'ACCOUNT_DISABLED', 'SETUP_REQUIRED', "
+            "'OPERATION_CONFLICT', 'RESOURCE_NOT_FOUND', 'INTERNAL_FAILURE')",
+            name="ck_security_audit_events_reason_code",
+        ),
+        CheckConstraint(
+            "(outcome = 'succeeded' AND reason_code IS NULL) OR "
+            "(outcome != 'succeeded' AND reason_code IS NOT NULL)",
+            name="ck_security_audit_events_outcome_reason_pair",
+        ),
+        Index(
+            "ix_security_audit_events_occurred",
+            "occurred_at",
+            "event_id",
+        ),
+    )
+
+    event_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor_kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    actor_user_id: Mapped[str | None] = mapped_column(String(36))
+    resource_kind: Mapped[str | None] = mapped_column(String(24))
+    resource_id: Mapped[str | None] = mapped_column(String(88))
+    reason_code: Mapped[str | None] = mapped_column(String(40))

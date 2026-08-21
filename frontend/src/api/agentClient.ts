@@ -1,4 +1,5 @@
 import type { AgentApiError, AgentRequest, AgentResponse } from './types';
+import { csrfHeader } from './authClient';
 
 export interface AgentApiClient {
   chat(workflowId: string, request: AgentRequest): Promise<AgentResponse>;
@@ -20,9 +21,10 @@ export function createAgentApiClient(baseUrl?: string): AgentApiClient {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...csrfHeader(),
         },
         body: JSON.stringify(request),
-        credentials: 'omit',
+        credentials: 'same-origin',
       });
 
       if (!response.ok) {

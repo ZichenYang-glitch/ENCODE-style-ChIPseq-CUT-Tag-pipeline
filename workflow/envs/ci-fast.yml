@@ -12,6 +12,7 @@ dependencies:
   - packaging <26
   - pyyaml
   - alembic >=1.13,<2
+  - argon2-cffi >=25.1,<26
   - fastapi
   - uvicorn
   - httptools

@@ -11,7 +11,7 @@ import httpx
 from pydantic import ValidationError
 import pytest
 
-from api_test_client import ApiTestClient
+from api_test_client import ApiTestClient, seeded_auth_async_client
 from encode_pipeline.api.main import create_app
 from encode_pipeline.api.models import ArtifactPublicationResponse
 from encode_pipeline.api.routes.artifact_publications import (
@@ -33,6 +33,7 @@ from encode_pipeline.services.artifact_publications import (
     ArtifactPublicationDataInvalidError,
     ArtifactPublicationNotFoundError,
 )
+from conftest import seed_test_authentication
 
 
 NOW = datetime(2026, 8, 7, 8, 0, tzinfo=timezone.utc)
@@ -47,6 +48,7 @@ REVISION = f"artifactrev-{'c' * 64}"
 @pytest.fixture
 def client():
     app = create_app()
+    seed_test_authentication(app)
     with ApiTestClient(app) as test_client:
         yield test_client
 
@@ -359,7 +361,8 @@ def test_unexpected_failure_uses_route_specific_safe_500(client, url) -> None:
             app=client.app,
             raise_app_exceptions=False,
         )
-        async with httpx.AsyncClient(
+        async with seeded_auth_async_client(
+            client.app,
             transport=transport,
             base_url="http://testserver",
         ) as async_client:
@@ -387,6 +390,7 @@ def test_sqlite_publications_survive_reopen_and_cursor_boundary_must_still_match
 ) -> None:
     database_url = f"sqlite:///{tmp_path / 'platform.db'}"
     first_app = create_app(database_url=database_url)
+    seed_test_authentication(first_app)
     run_id = _create_succeeded_run(first_app)
     original = (
         _persisted_artifact(run_id, "artifact-a", revision=REVISION),
@@ -401,6 +405,7 @@ def test_sqlite_publications_survive_reopen_and_cursor_boundary_must_still_match
     first_app.state.persistence.close()
 
     reopened_app = create_app(database_url=database_url)
+    seed_test_authentication(reopened_app)
     with ApiTestClient(reopened_app) as reopened_client:
         first_page = reopened_client.get(
             "/api/v1/artifact-publications",

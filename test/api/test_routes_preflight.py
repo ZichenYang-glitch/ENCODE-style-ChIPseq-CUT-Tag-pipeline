@@ -7,6 +7,8 @@ from pathlib import Path
 
 import httpx
 
+from api_test_client import seeded_auth_async_client
+
 from encode_pipeline.platform.results import Result
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.command_builder import CommandBuilder
@@ -74,7 +76,8 @@ def _test_app(app, tmp_path: Path):
 
 
 def _client(app, tmp_path: Path) -> httpx.AsyncClient:
-    return httpx.AsyncClient(
+    return seeded_auth_async_client(
+        app,
         transport=httpx.ASGITransport(app=_test_app(app, tmp_path)),
         base_url="http://testserver",
         follow_redirects=True,
@@ -191,7 +194,8 @@ def test_trigger_preflight_returns_409_when_another_request_wins_transition(
             raise ConcurrentRunUpdateError("another request won")
 
         monkeypatch.setattr(run_service, "transition_run", concurrent_transition)
-        async with httpx.AsyncClient(
+        async with seeded_auth_async_client(
+            app,
             transport=httpx.ASGITransport(app=app),
             base_url="http://testserver",
         ) as client:

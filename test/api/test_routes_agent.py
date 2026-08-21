@@ -17,6 +17,7 @@ from encode_pipeline.services.llm_client import MockLLMClient
 from encode_pipeline.services.validation import ValidationService
 from encode_pipeline.services.workflow_info import WorkflowInfoService
 from api_test_client import ApiTestClient
+from conftest import seed_test_authentication
 
 fastapi = pytest.importorskip("fastapi")
 
@@ -30,6 +31,7 @@ DEFAULT_MOCK_RESPONSE = (
 def client() -> Iterator[ApiTestClient]:
     """Default app wired to the bundled ENCODE-style adapter and mock LLM."""
     app = create_app()
+    seed_test_authentication(app)
     with ApiTestClient(app) as tc:
         yield tc
 
@@ -38,6 +40,7 @@ def client() -> Iterator[ApiTestClient]:
 def deterministic_client() -> Iterator[ApiTestClient]:
     """App with a deterministic mock LLM client for reproducibility checks."""
     app = create_app()
+    seed_test_authentication(app)
     registry = app.state.registry
     workflow_info = WorkflowInfoService(registry=registry)
     validation_service = ValidationService(registry=registry)

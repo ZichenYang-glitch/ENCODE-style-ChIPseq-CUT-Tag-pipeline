@@ -21,6 +21,7 @@ from encode_pipeline.adapters.bulk_rnaseq.deployment import (  # noqa: E402
     TRANSCRIPTOME_BINDING_MANIFEST_ENV,
 )
 from encode_pipeline.services.workflow_info import WorkflowInfoService  # noqa: E402
+from conftest import seed_test_authentication  # noqa: E402
 from encode_pipeline.workers.rq_queue import RqRunQueue  # noqa: E402
 from encode_pipeline.workers.settings import (  # noqa: E402
     QUEUE_NAME_ENV,
@@ -31,6 +32,7 @@ from encode_pipeline.workers.settings import (  # noqa: E402
 
 def test_create_app_builds_expected_app() -> None:
     app = create_app()
+    seed_test_authentication(app)
     assert app.title == "HelixWeave API"
     assert app.version == __version__
     assert app.description == "Reproducible omics workflows, from inputs to evidence."
@@ -68,6 +70,7 @@ def _collect_route_endpoints(routes, prefix: str = "") -> list[tuple[str, object
 
 def test_expected_routes_are_registered() -> None:
     app = create_app()
+    seed_test_authentication(app)
     paths = {path.rstrip("/") for path in _collect_route_paths(app.routes)}
     assert "/api/v1/workflows" in paths
     assert "/api/v1/workflows/{workflow_id}/schema" in paths
@@ -83,6 +86,13 @@ def test_expected_routes_are_registered() -> None:
     assert "/api/v1/runs/{run_id}/artifacts/{artifact_id}/download" in paths
     assert "/api/v1/artifact-publications" in paths
     assert "/api/v1/artifact-publications/{run_id}/{artifact_id}" in paths
+    assert "/api/v1/auth/login" in paths
+    assert "/api/v1/auth/logout" in paths
+    assert "/api/v1/auth/session" in paths
+    assert "/api/v1/auth/accounts" in paths
+    assert "/api/v1/auth/accounts/{user_id}/status" in paths
+    assert "/api/v1/auth/accounts/{user_id}/password" in paths
+    assert "/api/v1/auth/accounts/{user_id}/sessions/revoke" in paths
 
 
 def test_api_dependencies_are_async_to_avoid_testclient_threadpool_hang() -> None:
@@ -104,6 +114,7 @@ def test_api_dependencies_are_async_to_avoid_testclient_threadpool_hang() -> Non
 
 def test_create_app_exposes_preflight_service_and_local_run_driver() -> None:
     app = create_app()
+    seed_test_authentication(app)
     assert hasattr(app.state, "run_submission_service")
     assert hasattr(app.state, "run_cancellation_service")
     assert hasattr(app.state, "preflight_service")
@@ -119,6 +130,7 @@ def test_create_app_aligns_command_and_identity_project_roots(tmp_path: Path) ->
         database_url=f"sqlite:///{tmp_path / 'platform.db'}",
         project_root=project_root,
     )
+    seed_test_authentication(app)
 
     assert app.state.build_identity_provider.project_root == project_root
     assert app.state.local_run_driver._command_builder._project_root == project_root
@@ -138,6 +150,7 @@ def test_create_app_composes_shared_api_and_worker_settings(
     monkeypatch.setenv(WORKSPACE_ROOT_ENV, str(workspace_root))
 
     app = create_app(database_url=database_url)
+    seed_test_authentication(app)
 
     assert app.state.database_url == database_url
     assert app.state.workspace_root == workspace_root
@@ -189,6 +202,7 @@ def test_create_app_keeps_bulk_authoring_when_configured_docker_is_unavailable(
     monkeypatch.setenv(MANAGED_DOCKER_SOCKET_ENV, str(missing_socket))
 
     app = create_app(database_url=f"sqlite:///{tmp_path / 'platform.db'}")
+    seed_test_authentication(app)
 
     descriptor = WorkflowInfoService(app.state.registry).get_descriptor("bulk-rnaseq")
     assert descriptor.is_success
@@ -208,6 +222,7 @@ def test_create_app_keeps_bulk_authoring_when_configured_docker_is_unavailable(
 
 def test_only_explicit_blocking_routes_use_fastapi_threadpool() -> None:
     app = create_app()
+    seed_test_authentication(app)
     route_handlers = [
         (path.rstrip("/"), endpoint)
         for path, endpoint in _collect_route_endpoints(app.routes)
@@ -229,6 +244,13 @@ def test_only_explicit_blocking_routes_use_fastapi_threadpool() -> None:
             "/api/v1/runs/{run_id}/artifacts/{artifact_id}/download",
             "/api/v1/artifact-publications",
             "/api/v1/artifact-publications/{run_id}/{artifact_id}",
+            "/api/v1/auth/login",
+            "/api/v1/auth/logout",
+            "/api/v1/auth/session",
+            "/api/v1/auth/accounts",
+            "/api/v1/auth/accounts/{user_id}/status",
+            "/api/v1/auth/accounts/{user_id}/password",
+            "/api/v1/auth/accounts/{user_id}/sessions/revoke",
         }:
             assert not inspect.iscoroutinefunction(endpoint), endpoint
         else:

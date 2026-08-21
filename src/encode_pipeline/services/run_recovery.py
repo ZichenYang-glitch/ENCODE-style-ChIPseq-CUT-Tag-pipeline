@@ -31,6 +31,11 @@ from encode_pipeline.services.run_queue import (
     RunQueueUnavailableError,
     RunRecoveryQueue,
 )
+from encode_pipeline.platform.security_audit import AuditAction
+from encode_pipeline.services.admin_security_audit import (
+    build_recovery_action_event,
+)
+from encode_pipeline.services.authentication_service import AuthenticationActor
 from encode_pipeline.services.run_repositories import (
     ConcurrentRunUpdateError,
     RunEventDraft,
@@ -418,6 +423,7 @@ class RunRecoveryService:
         *,
         expected_status: RunStatus,
         expected_assignment: RunExecutionAssignment,
+        security_audit_actor: AuthenticationActor | None = None,
     ) -> RunRecoveryActionResult:
         """Fail one exact stuck run after final ownership and cleanup checks."""
         normalized_run_id = _run_id(run_id)
@@ -486,6 +492,16 @@ class RunRecoveryService:
                 failed,
                 expected_status=expected_status,
                 expected_assignment=expected_assignment,
+                security_audit=(
+                    None
+                    if security_audit_actor is None
+                    else build_recovery_action_event(
+                        AuditAction.RUN_FAIL,
+                        security_audit_actor,
+                        normalized_run_id,
+                        occurred_at=now,
+                    )
+                ),
                 event=RunEventDraft(
                     event_type=RUN_RECOVERY_FAIL_EVENT,
                     message="Run failed by explicit administrator recovery.",
@@ -519,6 +535,7 @@ class RunRecoveryService:
         *,
         expected_status: RunStatus,
         expected_assignment: RunExecutionAssignment,
+        security_audit_actor: AuthenticationActor | None = None,
     ) -> RunRecoveryActionResult:
         """Requeue one never-claimed assignment or close its pending handshake."""
         normalized_run_id = _run_id(run_id)
@@ -550,6 +567,16 @@ class RunRecoveryService:
                     expected_status=expected_status,
                     expected_assignment=expected_assignment,
                     requested_at=requested_at,
+                    security_audit=(
+                        None
+                        if security_audit_actor is None
+                        else build_recovery_action_event(
+                            AuditAction.RUN_REQUEUE,
+                            security_audit_actor,
+                            normalized_run_id,
+                            occurred_at=requested_at,
+                        )
+                    ),
                     event=RunEventDraft(
                         event_type=RUN_RECOVERY_REQUEUE_REQUESTED_EVENT,
                         message="Run requeue requested by an administrator.",
@@ -611,6 +638,16 @@ class RunRecoveryService:
                 expected_status=expected_status,
                 expected_assignment=prepared,
                 confirmed_at=confirmed_at,
+                security_audit=(
+                    None
+                    if security_audit_actor is None or preparation_created
+                    else build_recovery_action_event(
+                        AuditAction.RUN_REQUEUE,
+                        security_audit_actor,
+                        normalized_run_id,
+                        occurred_at=confirmed_at,
+                    )
+                ),
                 event=RunEventDraft(
                     event_type=RUN_RECOVERY_REQUEUE_CONFIRMED_EVENT,
                     message="Run requeue confirmed by the execution queue.",

@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 from starlette.types import Receive, Scope, Send
 
 from encode_pipeline.api.dependencies import (
+    require_principal,
     get_artifact_download_service,
     get_run_service,
 )
@@ -28,7 +30,11 @@ from encode_pipeline.platform.result_generations import (
     decode_artifact_cursor,
     encode_artifact_cursor,
 )
+from encode_pipeline.platform.authentication import AuthenticatedPrincipal
 from encode_pipeline.services.artifact_downloads import ArtifactDownloadService
+from encode_pipeline.services.run_security_audit import (
+    build_artifact_download_event,
+)
 from encode_pipeline.services.run_repositories import ResultGenerationChangedError
 from encode_pipeline.services.runs import RunService
 
@@ -357,6 +363,7 @@ async def get_run_artifact(
 def download_run_artifact(
     run_id: str,
     artifact_id: str,
+    request: Request,
     generation: str = Query(
         pattern=r"^artifactgen-[0-9a-f]{64}$",
         max_length=76,
@@ -365,6 +372,7 @@ def download_run_artifact(
         pattern=r"^artifactrev-[0-9a-f]{64}$",
         max_length=76,
     ),
+    principal: AuthenticatedPrincipal = Depends(require_principal),
     download_service: ArtifactDownloadService = Depends(get_artifact_download_service),
 ) -> StreamingResponse | JSONResponse:
     """Stream one persisted run-scoped artifact through a safe descriptor."""
@@ -401,6 +409,14 @@ def download_run_artifact(
         )
 
     plan = result.value
+    request.app.state.authentication_repository.record_security_audit(
+        build_artifact_download_event(
+            principal,
+            run_id,
+            artifact_id,
+            occurred_at=datetime.now(timezone.utc),
+        )
+    )
     try:
         return _ArtifactStreamingResponse(
             plan.iter_bytes(),

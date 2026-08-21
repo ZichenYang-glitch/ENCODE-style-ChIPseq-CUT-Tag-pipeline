@@ -706,7 +706,7 @@ describe('schema input workbench route', () => {
       initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
     });
 
-    expect(screen.getByTestId('input-workbench-loading')).toBeInTheDocument();
+    expect(await screen.findByTestId('input-workbench-loading')).toBeInTheDocument();
     await act(async () => pending.resolve(successResponse()));
     expect(
       await screen.findByRole('heading', { name: 'Input workbench' }),
