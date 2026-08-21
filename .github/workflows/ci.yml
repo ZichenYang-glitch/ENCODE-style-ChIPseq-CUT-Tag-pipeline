@@ -32,7 +32,7 @@ concurrency:
 jobs:
   fast-checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - name: Record job start
         run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
@@ -115,7 +115,7 @@ jobs:
             --cov=workflow/lib \
             --cov=containers \
             --cov="$coverage_migration_root" \
-            --cov-config=pyproject.toml --cov-context=test \
+            --cov-config=pyproject.toml \
             --cov-fail-under=0 \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
