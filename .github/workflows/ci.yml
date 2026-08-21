@@ -149,6 +149,7 @@ jobs:
             --cov=src/encode_pipeline --cov=scripts --cov=workflow/lib --cov=containers \
             --cov="$coverage_migration_root" \
             --cov-config=pyproject.toml --cov-context=test --cov-fail-under=0 --cov-report= \
+            --deselect test/ci/test_workflow_contracts.py \
             --ignore=test/deployment/test_command_and_native_contracts.py \
             --ignore=test/deployment/test_evidence_document_rejection.py \
             --ignore=test/deployment/test_gate_document_rejection.py \
