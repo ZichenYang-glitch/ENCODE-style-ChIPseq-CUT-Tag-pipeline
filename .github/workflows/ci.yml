@@ -115,7 +115,7 @@ jobs:
             --cov=workflow/lib \
             --cov=containers \
             --cov="$coverage_migration_root" \
-            --cov-config=pyproject.toml --cov-context=test \
+            --cov-config=pyproject.toml \
             --cov-fail-under=0 \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
