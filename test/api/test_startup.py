@@ -21,13 +21,13 @@ from encode_pipeline.adapters.bulk_rnaseq.deployment import (  # noqa: E402
     TRANSCRIPTOME_BINDING_MANIFEST_ENV,
 )
 from encode_pipeline.services.workflow_info import WorkflowInfoService  # noqa: E402
+from conftest import seed_test_authentication  # noqa: E402
 from encode_pipeline.workers.rq_queue import RqRunQueue  # noqa: E402
 from encode_pipeline.workers.settings import (  # noqa: E402
     QUEUE_NAME_ENV,
     REDIS_URL_ENV,
     WORKSPACE_ROOT_ENV,
 )
-from conftest import seed_test_authentication
 
 
 def test_create_app_builds_expected_app() -> None:

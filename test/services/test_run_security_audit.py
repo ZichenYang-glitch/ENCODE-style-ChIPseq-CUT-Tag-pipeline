@@ -88,7 +88,7 @@ def test_build_artifact_download_event_uses_the_two_part_target() -> None:
 
 def test_create_run_records_the_audit_in_memory(service) -> None:
     run_service, repository = service
-    record = run_service.create_run(
+    run_service.create_run(
         WORKFLOW_ID,
         WorkflowInputs(config={}, samples=None, options={}),
         security_audit_actor=PRINCIPAL,
