@@ -143,6 +143,7 @@ def test_encode_runtime_index_accepts_the_canonical_closure() -> None:
         b"not json",
         b"[1]",
     ],
+    ids=["empty", "over-size-limit", "not-json", "non-object"],
 )
 def test_encode_runtime_index_rejects_unreadable_content(content: bytes) -> None:
     with pytest.raises(native_module._NativeContractFault):
