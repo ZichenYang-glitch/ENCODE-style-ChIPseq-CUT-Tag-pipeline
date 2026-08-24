@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { AUTH_STORAGE_PATH } from './e2e/auth';
+
 const noProxy = [process.env.NO_PROXY, '127.0.0.1', 'localhost', '::1']
   .filter(Boolean)
   .join(',');
@@ -45,14 +47,28 @@ export default defineConfig({
   },
   projects: [
     {
+      name: 'setup',
+      testMatch: /auth\.setup\.ts/,
+    },
+    {
       name: 'desktop-success',
       grep: /@desktop/,
-      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1440, height: 900 },
+        storageState: AUTH_STORAGE_PATH,
+      },
     },
     {
       name: 'mobile-cancel',
       grep: /@mobile/,
-      use: { ...devices['Pixel 5'], viewport: { width: 390, height: 844 } },
+      dependencies: ['setup'],
+      use: {
+        ...devices['Pixel 5'],
+        viewport: { width: 390, height: 844 },
+        storageState: AUTH_STORAGE_PATH,
+      },
     },
   ],
 });

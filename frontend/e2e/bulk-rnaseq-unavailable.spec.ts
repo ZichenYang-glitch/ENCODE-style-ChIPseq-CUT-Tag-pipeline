@@ -8,11 +8,6 @@ import {
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { login } from './auth';
-
-test.beforeEach(async ({ page }) => {
-  await login(page);
-});
 
 interface RuntimeManifest {
   bulkWorkflowId: string;
