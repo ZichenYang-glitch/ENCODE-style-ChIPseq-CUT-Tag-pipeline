@@ -1231,7 +1231,7 @@ def test_supervisor_readiness_checks_api_worker_then_frontend(tmp_path, monkeypa
 
     assert descriptions == ["FastAPI", "RQ worker", "frontend"]
     assert urls == [
-        "http://127.0.0.1:8010/api/v1/workflows/",
+        "http://127.0.0.1:8010/api/v1/auth/session",
         "http://127.0.0.1:4173",
     ]
 
