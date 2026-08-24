@@ -70,3 +70,47 @@ def test_rejects_failures_errors_empty_and_malformed_reports(tmp_path, monkeypat
     assert main([str(failing)]) == 1
     assert main([str(empty)]) == 1
     assert main([str(malformed)]) == 1
+
+
+def test_aggregates_multiple_shard_reports_as_one_logical_suite(tmp_path):
+    first = tmp_path / "pytest-report-shard-1.xml"
+    second = tmp_path / "pytest-report-shard-2.xml"
+    summary = tmp_path / "summary.md"
+    _write_report(
+        first,
+        '<testcase classname="test_a" name="test_one" time="0.5" />',
+    )
+    _write_report(
+        second,
+        """
+        <testcase classname="test_b" name="test_two" time="1.0" />
+        <testcase classname="test_b" name="test_three" time="2.5" />
+        """,
+    )
+
+    assert (
+        main(
+            [
+                str(first),
+                str(second),
+                "--label",
+                "aggregate",
+                "--summary-file",
+                str(summary),
+            ]
+        )
+        == 0
+    )
+    markdown = summary.read_text(encoding="utf-8")
+    assert "aggregate pytest outcomes" in markdown
+    assert "| 3 | 3 | 0 | 0 | 0 | 0 | 4.00s |" in markdown
+
+
+def test_aggregation_rejects_a_late_shard_failure(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    passing = tmp_path / "pytest-report-shard-1.xml"
+    failing = tmp_path / "pytest-report-shard-2.xml"
+    _write_report(passing, '<testcase name="test_ok" time="0.1" />')
+    _write_report(failing, '<testcase name="test_bad"><failure /></testcase>')
+
+    assert main([str(passing), str(failing)]) == 1
