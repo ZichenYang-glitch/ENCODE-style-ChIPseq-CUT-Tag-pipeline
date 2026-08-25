@@ -21,7 +21,11 @@ from rq.job import JobStatus
 from encode_pipeline.adapters.bulk_rnaseq.reference_profiles import (
     BULK_RNASEQ_REFERENCE_BINDING_CONTRACT,
 )
-from encode_pipeline.persistence import DATABASE_URL_ENV, open_run_persistence
+from encode_pipeline.persistence import (
+    DATABASE_URL_ENV,
+    open_existing_run_persistence,
+    open_run_persistence,
+)
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.managed_containers import managed_container_scope
 from encode_pipeline.platform.runs import RunStatus
@@ -190,6 +194,19 @@ class TerminalLifecycleEvidence:
         }
 
 
+def prepare_acceptance_database(database_url: str) -> None:
+    """Migrate the harness-owned fresh database exactly once.
+
+    This is the harness's operator-equivalent preparation step. It must run
+    before any worker runtime or existing-only service composition opens the
+    database; every later harness access uses ``open_existing_run_persistence``
+    so a missing preparation fails closed instead of being masked by an
+    implicit migration.
+    """
+    persistence = open_run_persistence(database_url)
+    persistence.close()
+
+
 class PlatformAcceptanceHarness:
     """Own one isolated queue, SQLite database, workspace root, and worker set."""
 
@@ -264,6 +281,7 @@ class PlatformAcceptanceHarness:
 
     def __enter__(self) -> PlatformAcceptanceHarness:
         self.temporary_root.mkdir(parents=True, exist_ok=True)
+        prepare_acceptance_database(self.database_url)
         connection = create_api_redis_connection(self.worker_settings)
         try:
             if connection.ping() is not True:
@@ -353,7 +371,7 @@ class PlatformAcceptanceHarness:
         job = None
         cleaner = None
 
-        persistence = open_run_persistence(self.database_url)
+        persistence = open_existing_run_persistence(self.database_url)
         try:
             from encode_pipeline.services.runs import RunService
 
@@ -466,7 +484,7 @@ class PlatformAcceptanceHarness:
         """Persist cancellation intent and publish the real RQ stop command."""
         if submitted not in self._submitted:
             raise ValueError("submitted run is not owned by this acceptance harness")
-        persistence = open_run_persistence(self.database_url)
+        persistence = open_existing_run_persistence(self.database_url)
         try:
             from encode_pipeline.services.runs import RunService
 
@@ -536,7 +554,7 @@ class PlatformAcceptanceHarness:
         ):
             raise AssertionError("accepted fixture changed after durable submission")
 
-        persistence = open_run_persistence(self.database_url)
+        persistence = open_existing_run_persistence(self.database_url)
         try:
             from encode_pipeline.services.runs import RunService
 
@@ -590,7 +608,7 @@ class PlatformAcceptanceHarness:
         ):
             raise AssertionError("accepted RQ job lacks a non-success terminal state")
 
-        persistence = open_run_persistence(self.database_url)
+        persistence = open_existing_run_persistence(self.database_url)
         try:
             from encode_pipeline.services.runs import RunService
 

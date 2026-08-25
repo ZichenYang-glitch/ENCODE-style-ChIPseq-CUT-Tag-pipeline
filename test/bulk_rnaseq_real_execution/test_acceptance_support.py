@@ -933,6 +933,53 @@ def test_platform_harness_rejects_an_unbounded_worker_timeout(
         )
 
 
+def test_harness_prepare_upgrades_fresh_database_before_existing_only_open(
+    tmp_path: Path,
+) -> None:
+    import sqlite3
+
+    from encode_pipeline.persistence import (
+        DatabaseSchemaNotReadyError,
+        open_existing_run_persistence,
+    )
+    from encode_pipeline.persistence.migration_admission import (
+        verify_migration_execution_inventory,
+    )
+
+    from .platform_harness import prepare_acceptance_database
+
+    database_path = (tmp_path / "acceptance" / "platform.db").resolve()
+    database_path.parent.mkdir()
+    database_url = f"sqlite:///{database_path.as_posix()}"
+
+    # The existing-only opener must fail closed while the fresh database has
+    # not been prepared; the harness must never rely on an implicit migration.
+    with pytest.raises(
+        DatabaseSchemaNotReadyError, match="DATABASE_SCHEMA_UNAVAILABLE"
+    ):
+        open_existing_run_persistence(database_url)
+
+    prepare_acceptance_database(database_url)
+
+    (sole_head,) = verify_migration_execution_inventory().heads
+    connection = sqlite3.connect(
+        f"file:{database_path.as_posix()}?mode=ro",
+        uri=True,
+    )
+    try:
+        rows = connection.execute(
+            "SELECT version_num FROM alembic_version ORDER BY version_num"
+        ).fetchall()
+    finally:
+        connection.close()
+    assert rows == [(sole_head,)]
+
+    # After preparation the existing-only opener used by API/worker services
+    # opens the harness database without performing any migration.
+    persistence = open_existing_run_persistence(database_url)
+    persistence.close()
+
+
 @pytest.mark.parametrize("tested_head", ("a" * 39, "a" * 41, "A" * 40))
 def test_acceptance_evidence_rejects_an_invalid_git_commit_identity(
     tested_head: str,

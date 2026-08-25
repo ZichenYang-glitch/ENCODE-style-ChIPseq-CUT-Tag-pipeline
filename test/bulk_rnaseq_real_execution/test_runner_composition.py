@@ -91,7 +91,7 @@ def _private_config_harness(
             build_identity_provider=object(),
         ),
     )
-    return platform_harness.PlatformAcceptanceHarness(
+    harness = platform_harness.PlatformAcceptanceHarness(
         gate_settings=GateSettings(
             runtime_root=(tmp_path / "runtime").resolve(),
             fixture_manifest=(tmp_path / "fixture.json").resolve(),
@@ -103,6 +103,11 @@ def _private_config_harness(
         temporary_root=(tmp_path / "acceptance").resolve(),
         job_timeout_seconds=41,
     )
+    # Mirror the harness execution-stage entry: prepare the fresh database
+    # once before any existing-only persistence access.
+    harness.temporary_root.mkdir(parents=True, exist_ok=True)
+    platform_harness.prepare_acceptance_database(harness.database_url)
+    return harness
 
 
 def _write_full_trace(path: Path, processes: tuple[str, ...]) -> None:
@@ -703,6 +708,8 @@ def test_platform_submission_injects_the_acceptance_process_runner(
         temporary_root=(tmp_path / "acceptance").resolve(),
         job_timeout_seconds=41,
     )
+    harness.temporary_root.mkdir(parents=True, exist_ok=True)
+    platform_harness.prepare_acceptance_database(harness.database_url)
     harness._run_queue = object()
 
     runner = object()
