@@ -49,7 +49,12 @@ def _summary_markdown(label: str, counts: dict[str, int | float]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("report", type=Path)
+    parser.add_argument(
+        "report",
+        type=Path,
+        nargs="+",
+        help="one or more JUnit reports forming a single logical suite",
+    )
     parser.add_argument("--label", default="Python tier")
     parser.add_argument(
         "--summary-file",
@@ -58,11 +63,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    try:
-        counts = summarize(args.report)
-    except (OSError, ET.ParseError, ValueError) as error:
-        print(f"Unable to read JUnit report {args.report}: {error}", file=sys.stderr)
-        return 1
+    counts = {
+        "collected": 0,
+        "passed": 0,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "seconds": 0.0,
+    }
+    for report in args.report:
+        try:
+            partial = summarize(report)
+        except (OSError, ET.ParseError, ValueError) as error:
+            print(f"Unable to read JUnit report {report}: {error}", file=sys.stderr)
+            return 1
+        for key in counts:
+            counts[key] += partial[key]
 
     markdown = _summary_markdown(args.label, counts)
     print(markdown, end="")
