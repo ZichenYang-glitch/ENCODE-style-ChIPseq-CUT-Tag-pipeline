@@ -15,10 +15,16 @@ python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
 python3 -m pip check
 ```
 
-CI has two deterministic selections, and each event executes its selection
-once.
+CI has two deterministic selections. Each event executes its selection as one
+logical suite in two mutually exclusive and exhaustive physical shards:
+`scripts/split_deterministic_shards.py` assigns every collected `test_*.py`
+file by `SHA-256(relative POSIX path) % 2`, each shard runs only its own
+files and records an unrendered `.coverage.shard-N`, and the `fast-checks`
+aggregate combines both data files into one canonical measurement. Local runs
+may still execute either selection in a single process.
 
-Pull requests run the fast unit, contract, validator, and DAG-smoke selection:
+Pull requests run the fast unit, contract, validator, and DAG-smoke selection
+(per shard, with the shard's file list in place of `test`):
 
 ```bash
 python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest test -ra \
@@ -50,11 +56,11 @@ python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest test -ra 
 
 The reports cover `src/encode_pipeline`, the Python files in `scripts`, the
 workflow compatibility library in `workflow/lib`, and authored container
-tooling in `containers`, with branch measurement enabled. CI retains
-`.coverage`, XML, JSON, and the JUnit report. These files are run artifacts and
-local scratch output; they are ignored by Git and must not be committed. A
-downstream `coverage` job reads the artifact produced by the single pytest run;
-it never runs pytest again.
+tooling in `containers`, with branch measurement enabled. CI retains the
+combined `.coverage`, XML, JSON, and both shard JUnit reports. These files are
+run artifacts and local scratch output; they are ignored by Git and must not be
+committed. A downstream `coverage` job reads the canonical artifact combined
+from the two shard data files; it never runs pytest again.
 
 Coverage.py's supported `patch = ["subprocess"]` mechanism measures Python
 children that inherit the test environment. This includes packaged CLI and

@@ -175,9 +175,10 @@ runner.
 GitHub Actions keeps deterministic and real execution separate:
 
 - `fast-checks` uses `workflow/envs/ci-fast.lock`. Pull requests run one fast
-  unit/contract/validator/DAG-smoke pytest selection. Pushes to `main`, manual
-  dispatches, nightly schedules, and releases run one complete deterministic
-  selection in the same environment.
+  unit/contract/validator/DAG-smoke pytest selection as two deterministic
+  path-hash shards combined into one coverage artifact. Pushes to `main`,
+  manual dispatches, nightly schedules, and releases run one complete
+  deterministic selection in the same sharded form and environment.
 - `platform-real-execution` uses `workflow/envs/ci-fast.lock` plus a real Redis
   service for Redis/RQ, SIGALRM, cancellation, and tiny Snakemake contracts.
 - `real-execution` uses `workflow/envs/chipseq.lock` for the complete

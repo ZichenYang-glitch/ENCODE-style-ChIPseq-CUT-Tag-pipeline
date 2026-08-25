@@ -46,6 +46,7 @@ def test_all_workflows_parse_and_required_jobs_keep_stable_ids():
     }
     assert workflows
     assert {
+        "fast-checks-shard",
         "fast-checks",
         "coverage",
         "frontend",
@@ -114,12 +115,17 @@ def test_non_pr_jobs_checkout_the_exact_event_sha_without_a_head_fallback():
             assert "pull_request.head.sha" not in checkout["with"]["ref"]
 
 
-def test_fast_checks_is_the_only_deterministic_pytest_coverage_producer():
+def test_deterministic_suite_is_two_disjoint_shards_with_one_canonical_consumer():
+    """One logical suite: two exhaustive shards, one combined coverage artifact."""
     jobs = _load("ci.yml")["jobs"]
-    producer = _runs(jobs["fast-checks"])
+    shard_job = jobs["fast-checks-shard"]
+    aggregate = jobs["fast-checks"]
     consumer = _runs(jobs["coverage"])
 
-    assert jobs["fast-checks"]["timeout-minutes"] == 25
+    assert shard_job["strategy"]["matrix"]["shard"] == [1, 2]
+    assert shard_job["strategy"]["fail-fast"] is False
+    assert shard_job["timeout-minutes"] == 25
+    producer = _runs(shard_job)
     assert "budget=300" in producer
     assert "budget=1200" in producer
     assert (
@@ -128,6 +134,8 @@ def test_fast_checks_is_the_only_deterministic_pytest_coverage_producer():
         )
         == 1
     )
+    assert "split_deterministic_shards.py" in producer
+    assert "--root test --shard ${{ matrix.shard }} --of 2" in producer
     assert (
         "not full_main and not platform_real_execution and not real_execution "
         "and not bulk_rnaseq_real_execution" in producer
@@ -137,48 +145,93 @@ def test_fast_checks_is_the_only_deterministic_pytest_coverage_producer():
         "and not bulk_rnaseq_real_execution" in producer
     )
     assert "--cov-fail-under=0" in producer
-    assert "--junitxml=pytest-report.xml" in producer
-    assert "check_junit_outcomes.py pytest-report.xml" in producer
+    assert "--cov-report=" in producer
+    assert "--cov-report=xml" not in producer
+    assert "--cov-report=json" not in producer
+    assert "--cov-report=term" not in producer
+    assert "--junitxml=pytest-report-shard-${{ matrix.shard }}.xml" in producer
+    assert (
+        "check_junit_outcomes.py" in producer
+        and "pytest-report-shard-${{ matrix.shard }}.xml" in producer
+    )
+    shard_envs = [
+        step.get("env", {})
+        for step in shard_job["steps"]
+        if step.get("name") == "Run deterministic Python shard"
+    ]
+    assert shard_envs[0]["COVERAGE_FILE"] == ".coverage.shard-${{ matrix.shard }}"
+
+    assert aggregate["needs"] == "fast-checks-shard"
+    assert "always()" in aggregate["if"]
+    assert aggregate["timeout-minutes"] == 10
+    aggregate_runs = _runs(aggregate)
+    assert "checkout_bootstrap.py --repository-root . pytest" not in aggregate_runs
+    assert "coverage combine" in aggregate_runs
+    assert "python-coverage-shard-*-${{ github.run_id }}" in str(aggregate)
+    for evidence in (
+        ".coverage.shard-1",
+        ".coverage.shard-2",
+        "pytest-report-shard-1.xml",
+        "pytest-report-shard-2.xml",
+    ):
+        assert evidence in aggregate_runs
+    assert (
+        "check_junit_outcomes.py" in aggregate_runs
+        and "pytest-report-shard-1.xml pytest-report-shard-2.xml" in aggregate_runs
+    )
     assert "pytest" not in consumer
     assert jobs["coverage"]["needs"] == "fast-checks"
     assert "always()" in jobs["coverage"]["if"]
 
 
 def test_fast_checks_proves_python_provenance_before_importing_product():
-    steps = _load("ci.yml")["jobs"]["fast-checks"]["steps"]
-    provenance_index = next(
+    shard_steps = _load("ci.yml")["jobs"]["fast-checks-shard"]["steps"]
+    shard_provenance_index = next(
         index
-        for index, step in enumerate(steps)
+        for index, step in enumerate(shard_steps)
         if step.get("name") == "Verify current-checkout Python provenance"
     )
-    pytest_index = next(
+    shard_pytest_index = next(
         index
-        for index, step in enumerate(steps)
-        if step.get("name") == "Run deterministic Python tier once"
+        for index, step in enumerate(shard_steps)
+        if step.get("name") == "Run deterministic Python shard"
     )
-    script_validation_index = next(
+    assert shard_provenance_index < shard_pytest_index
+    for step_name in (
+        "Verify current-checkout Python provenance",
+        "Run deterministic Python shard",
+    ):
+        run = str(
+            next(step for step in shard_steps if step.get("name") == step_name)["run"]
+        )
+        assert "python3 -I -S scripts/checkout_bootstrap.py" in run
+        assert "--repository-root ." in run
+
+    aggregate_steps = _load("ci.yml")["jobs"]["fast-checks"]["steps"]
+    aggregate_provenance_index = next(
         index
-        for index, step in enumerate(steps)
+        for index, step in enumerate(aggregate_steps)
+        if step.get("name") == "Verify current-checkout Python provenance"
+    )
+    validation_index = next(
+        index
+        for index, step in enumerate(aggregate_steps)
         if step.get("name") == "Validate default config"
     )
     local_platform_index = next(
         index
-        for index, step in enumerate(steps)
+        for index, step in enumerate(aggregate_steps)
         if step.get("name") == "Verify local platform CLI through clean bootstrap"
     )
-    provenance = str(steps[provenance_index]["run"])
-    pytest_run = str(steps[pytest_index]["run"])
-    validation = str(steps[script_validation_index]["run"])
-    local_platform = str(steps[local_platform_index]["run"])
-
-    assert provenance_index < pytest_index
-    assert provenance_index < script_validation_index
-    assert provenance_index < local_platform_index
-    for command in (provenance, pytest_run, validation, local_platform):
+    assert aggregate_provenance_index < validation_index
+    assert aggregate_provenance_index < local_platform_index
+    provenance = str(aggregate_steps[aggregate_provenance_index]["run"])
+    validation = str(aggregate_steps[validation_index]["run"])
+    local_platform = str(aggregate_steps[local_platform_index]["run"])
+    for command in (provenance, validation, local_platform):
         assert "python3 -I -S scripts/checkout_bootstrap.py" in command
         assert "--repository-root ." in command
     assert " verify-checkout" in provenance
-    assert " pytest" in pytest_run
     assert " validate" in validation
     assert " local-platform --help" in local_platform
 
@@ -186,7 +239,7 @@ def test_fast_checks_proves_python_provenance_before_importing_product():
 def test_protected_pytest_tiers_use_only_the_checkout_bootstrap():
     jobs = _load("ci.yml")["jobs"]
     protected_jobs = (
-        "fast-checks",
+        "fast-checks-shard",
         "platform-real-execution",
         "real-execution",
         "bulk-rnaseq-real-execution",
@@ -243,7 +296,8 @@ def test_documented_python_timing_budgets_match_the_workflow():
     harness = (REPO_ROOT / "docs" / "development" / "harness.md").read_text(
         encoding="utf-8"
     )
-    assert "| PR `fast-checks` | 5 min | 25 min |" in harness
+    assert "| PR `fast-checks` shards | 5 min | 25 min |" in harness
+    assert "| PR `fast-checks` aggregate | 1 min | 10 min |" in harness
     assert "| Full-main Python | 20 min | 25 min |" in harness
 
 
@@ -261,7 +315,13 @@ def test_coverage_artifact_and_ratchets_are_stable_and_nonduplicative():
     assert settings["include-hidden-files"] is True
     assert settings["overwrite"] is True
     assert settings["if-no-files-found"] == "error"
-    for artifact in (".coverage", "coverage.xml", "coverage.json", "pytest-report.xml"):
+    for artifact in (
+        ".coverage",
+        "coverage.xml",
+        "coverage.json",
+        "pytest-report-shard-1.xml",
+        "pytest-report-shard-2.xml",
+    ):
         assert artifact in settings["path"]
 
     coverage_runs = _runs(jobs["coverage"])
@@ -281,13 +341,13 @@ def test_coverage_artifact_and_ratchets_are_stable_and_nonduplicative():
 
 def test_migration_snapshot_coverage_is_attributed_without_omitting_sources():
     jobs = _load("ci.yml")["jobs"]
-    producer_runs = _runs(jobs["fast-checks"])
+    producer_runs = _runs(jobs["fast-checks-shard"])
     coverage_runs = _runs(jobs["coverage"])
 
     assert (
         'coverage_migration_root="$RUNNER_TEMP/'
-        'helixweave-coverage-migrations-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"'
-        in producer_runs
+        "helixweave-coverage-migrations-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+        '-shard-${{ matrix.shard }}"' in producer_runs
     )
     assert 'mkdir -m 700 -- "$coverage_migration_root"' in producer_runs
     assert (
@@ -328,8 +388,19 @@ def test_migration_snapshot_coverage_is_attributed_without_omitting_sources():
 
 def test_all_pytest_tiers_enforce_zero_skip_junit_outcomes():
     jobs = _load("ci.yml")["jobs"]
+    shard_runs = _runs(jobs["fast-checks-shard"])
+    shard_report = "pytest-report-shard-${{ matrix.shard }}.xml"
+    assert f"--junitxml={shard_report}" in shard_runs
+    assert "check_junit_outcomes.py" in shard_runs
+    assert shard_report in shard_runs
+
+    aggregate_runs = _runs(jobs["fast-checks"])
+    assert (
+        "check_junit_outcomes.py" in aggregate_runs
+        and "pytest-report-shard-1.xml pytest-report-shard-2.xml" in aggregate_runs
+    )
+
     for job_id, report in (
-        ("fast-checks", "pytest-report.xml"),
         ("platform-real-execution", "platform-real-report.xml"),
         ("real-execution", "scientific-real-report.xml"),
     ):

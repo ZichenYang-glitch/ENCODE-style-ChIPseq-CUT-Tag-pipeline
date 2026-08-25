@@ -30,9 +30,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  fast-checks:
+  fast-checks-shard:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - name: Record job start
         run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
@@ -58,10 +62,11 @@ jobs:
           fi
           pr_head_sha=${PR_HEAD_SHA:-n/a}
           pr_base_sha=${PR_BASE_SHA:-n/a}
-          echo "event=$EVENT_NAME tier=$tier tested-sha=$actual_sha pr-head-sha=$pr_head_sha pr-base-sha=$pr_base_sha"
+          echo "event=$EVENT_NAME tier=$tier shard=${{ matrix.shard }} tested-sha=$actual_sha pr-head-sha=$pr_head_sha pr-base-sha=$pr_base_sha"
           echo "### CI identity" >> "$GITHUB_STEP_SUMMARY"
           echo "- Event: \`$EVENT_NAME\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tier: \`$tier\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Shard: \`${{ matrix.shard }} of 2\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tested SHA: \`$actual_sha\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PR head SHA: \`$pr_head_sha\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PR base SHA: \`$pr_base_sha\`" >> "$GITHUB_STEP_SUMMARY"
@@ -86,13 +91,23 @@ jobs:
           python3 -I -S scripts/checkout_bootstrap.py
           --repository-root . verify-checkout
 
-      - name: Run deterministic Python tier once
+      - name: Select deterministic shard files
+        shell: micromamba-shell {0}
+        run: |
+          python3 scripts/split_deterministic_shards.py \
+            --root test --shard ${{ matrix.shard }} --of 2 > shard-files.txt
+          test -s shard-files.txt
+          echo "shard ${{ matrix.shard }} owns $(wc -l < shard-files.txt) test files"
+          echo "shard ${{ matrix.shard }} owns $(wc -l < shard-files.txt) test files" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run deterministic Python shard
         shell: micromamba-shell {0}
         env:
           EVENT_NAME: ${{ github.event_name }}
           PYTHONDONTWRITEBYTECODE: "1"
+          COVERAGE_FILE: .coverage.shard-${{ matrix.shard }}
         run: |
-          coverage_migration_root="$RUNNER_TEMP/helixweave-coverage-migrations-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          coverage_migration_root="$RUNNER_TEMP/helixweave-coverage-migrations-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-shard-${{ matrix.shard }}"
           test ! -e "$coverage_migration_root"
           mkdir -m 700 -- "$coverage_migration_root"
           cleanup_coverage_migration_root() {
@@ -105,11 +120,12 @@ jobs:
           else
             marker='not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
           fi
+          mapfile -t shard_files < shard-files.txt
           python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
-            test -ra \
+            "${shard_files[@]}" -ra \
             -m "$marker" \
             --durations=25 --durations-min=1.0 \
-            --junitxml=pytest-report.xml \
+            --junitxml=pytest-report-shard-${{ matrix.shard }}.xml \
             --cov=src/encode_pipeline \
             --cov=scripts \
             --cov=workflow/lib \
@@ -117,34 +133,172 @@ jobs:
             --cov="$coverage_migration_root" \
             --cov-config=pyproject.toml --cov-context=test \
             --cov-fail-under=0 \
-            --cov-report=term-missing \
-            --cov-report=xml:coverage.xml \
-            --cov-report=json:coverage.json
+            --cov-report=
           test -z "$(find "$coverage_migration_root" -mindepth 1 -print -quit)"
           rmdir -- "$coverage_migration_root"
           trap - EXIT
 
-      - name: Require passing, zero-skip Python outcomes
+      - name: Require passing, zero-skip shard outcomes
         if: always()
         shell: micromamba-shell {0}
         run: >-
-          python3 scripts/check_junit_outcomes.py pytest-report.xml
+          python3 scripts/check_junit_outcomes.py
+          pytest-report-shard-${{ matrix.shard }}.xml
+          --label "deterministic ${{ github.event_name }} shard ${{ matrix.shard }}"
+
+      - name: Upload shard test and coverage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage-shard-${{ matrix.shard }}-${{ github.run_id }}
+          path: |
+            .coverage.shard-${{ matrix.shard }}
+            pytest-report-shard-${{ matrix.shard }}.xml
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+      - name: Report shard wall time
+        if: always()
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          elapsed=$(( $(date +%s) - JOB_STARTED ))
+          if [ "$EVENT_NAME" = "pull_request" ]; then budget=300; else budget=1200; fi
+          echo "### fast-checks shard ${{ matrix.shard }} timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Soft budget: ${budget}s (informational)" >> "$GITHUB_STEP_SUMMARY"
+
+  fast-checks:
+    needs: fast-checks-shard
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Record job start
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Require successful deterministic shards
+        env:
+          PRODUCER_RESULT: ${{ needs.fast-checks-shard.result }}
+        run: |
+          echo "fast-checks-shard result: $PRODUCER_RESULT"
+          test "$PRODUCER_RESULT" = "success"
+
+      - uses: actions/checkout@v5
+        if: needs.fast-checks-shard.result == 'success'
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Confirm exact checkout and tier
+        if: needs.fast-checks-shard.result == 'success'
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          actual_sha=$(git rev-parse HEAD)
+          test "$actual_sha" = "$EXPECTED_SHA"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            tier="pr-fast"
+          else
+            tier="full-main"
+          fi
+          pr_head_sha=${PR_HEAD_SHA:-n/a}
+          pr_base_sha=${PR_BASE_SHA:-n/a}
+          echo "event=$EVENT_NAME tier=$tier-aggregate tested-sha=$actual_sha pr-head-sha=$pr_head_sha pr-base-sha=$pr_base_sha"
+          echo "### CI identity" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Event: \`$EVENT_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tier: \`$tier aggregate\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tested SHA: \`$actual_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR head SHA: \`$pr_head_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR base SHA: \`$pr_base_sha\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup micromamba
+        if: needs.fast-checks-shard.result == 'success'
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/ci-fast.lock
+          environment-name: ci-fast
+          cache-environment: true
+          cache-environment-key: ci-fast-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.lock') }}
+
+      - name: Install HelixWeave test dependencies
+        if: needs.fast-checks-shard.result == 'success'
+        shell: micromamba-shell {0}
+        run: |
+          python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
+          python3 -m pip check
+
+      - name: Verify current-checkout Python provenance
+        if: needs.fast-checks-shard.result == 'success'
+        shell: micromamba-shell {0}
+        run: >-
+          python3 -I -S scripts/checkout_bootstrap.py
+          --repository-root . verify-checkout
+
+      - name: Download shard test and coverage evidence
+        if: needs.fast-checks-shard.result == 'success'
+        uses: actions/download-artifact@v5
+        with:
+          pattern: python-coverage-shard-*-${{ github.run_id }}
+          path: .
+          merge-multiple: true
+
+      - name: Require the exact two-shard evidence set
+        if: needs.fast-checks-shard.result == 'success'
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          for expected in \
+            .coverage.shard-1 .coverage.shard-2 \
+            pytest-report-shard-1.xml pytest-report-shard-2.xml; do
+            test -f "$expected"
+          done
+          shopt -s nullglob
+          coverage_shards=(.coverage.shard-*)
+          junit_shards=(pytest-report-shard-*.xml)
+          test "${#coverage_shards[@]}" -eq 2
+          test "${#junit_shards[@]}" -eq 2
+
+      - name: Require passing, zero-skip aggregated outcomes
+        if: needs.fast-checks-shard.result == 'success'
+        shell: micromamba-shell {0}
+        run: >-
+          python3 scripts/check_junit_outcomes.py
+          pytest-report-shard-1.xml pytest-report-shard-2.xml
           --label "deterministic ${{ github.event_name }} tier"
 
+      - name: Combine shard coverage into the canonical reports
+        if: needs.fast-checks-shard.result == 'success'
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          python3 -m coverage combine
+          test -f .coverage
+          python3 -m coverage report --fail-under=0
+          python3 -m coverage xml -o coverage.xml --fail-under=0
+          python3 -m coverage json -o coverage.json --fail-under=0
+
       - name: Validate default config
+        if: needs.fast-checks-shard.result == 'success'
         shell: micromamba-shell {0}
         run: >-
           python3 -I -S scripts/checkout_bootstrap.py
           --repository-root . validate --config config/config.yaml
 
       - name: Verify local platform CLI through clean bootstrap
+        if: needs.fast-checks-shard.result == 'success'
         shell: micromamba-shell {0}
         run: >-
           python3 -I -S scripts/checkout_bootstrap.py
           --repository-root . local-platform --help
 
       - name: Upload Python test and coverage evidence
-        if: always()
+        if: needs.fast-checks-shard.result == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: python-coverage-${{ github.run_id }}
@@ -152,7 +306,8 @@ jobs:
             .coverage
             coverage.xml
             coverage.json
-            pytest-report.xml
+            pytest-report-shard-1.xml
+            pytest-report-shard-2.xml
           include-hidden-files: true
           if-no-files-found: error
           overwrite: true
@@ -160,14 +315,11 @@ jobs:
 
       - name: Report fast-checks wall time
         if: always()
-        env:
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           elapsed=$(( $(date +%s) - JOB_STARTED ))
-          if [ "$EVENT_NAME" = "pull_request" ]; then budget=300; else budget=1200; fi
-          echo "### fast-checks timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "### fast-checks aggregate timing" >> "$GITHUB_STEP_SUMMARY"
           echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Soft budget: ${budget}s (informational)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Soft budget: 60s (informational)" >> "$GITHUB_STEP_SUMMARY"
 
   coverage:
     needs: fast-checks
