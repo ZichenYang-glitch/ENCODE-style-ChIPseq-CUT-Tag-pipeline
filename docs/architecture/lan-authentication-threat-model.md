@@ -37,7 +37,7 @@ external identity-provider compromise are outside this feature's guarantees.
 | Session database disclosure | Persist only a domain-separated SHA-256 digest of a high-entropy opaque value; never include raw values in repr/API/audit/logs | A live bearer stolen from the browser remains usable until expiry or revocation |
 | Replay after logout, reset, disable, or expiry | Server-side revocation and absolute expiry; load current user status on every request; revoke all sessions on reset/disable | Concurrent requests already authorized before a transaction commits may finish |
 | LAN interception or cookie theft | HTTPS, host-only `Secure; HttpOnly; SameSite=Lax; Path=/` session cookie, no URL/JSON/storage exposure | A plain-HTTP LAN deployment is explicitly unsafe and must not be presented as protected |
-| CSRF, including login CSRF | Unsafe authenticated requests require cookie + custom header + stored digest; exact Origin/Referer and JSON login checks in Stage B; rotate on login | XSS in the same origin can read the CSRF cookie and act as the user |
+| CSRF, including login CSRF | Unsafe authenticated requests require cookie + custom header + stored digest; v1 is a same-origin deployment, so login additionally relies on JSON-only request parsing (form submissions cannot create a session), the browser same-origin policy, CORS disabled by default, and the `SameSite=Lax` session cookie; rotate on login | XSS in the same origin can read the CSRF cookie and act as the user; v1 has no exact Origin/Referer allowlist, so these guarantees hold only while the deployment keeps the frontend and API on one browser origin |
 | XSS-driven credential persistence | Session value is HttpOnly and never placed in `localStorage`; frontend renders existing typed data paths | XSS can issue same-origin actions during the active browser session |
 | Frontend-only authorization bypass | Backend member/admin dependencies plus service-layer checks; parameterized route matrix covers anonymous/member/admin | Incorrectly classified new routes remain a review risk; router inventory is a release gate |
 | Disabled-account or stale-role use | Resolve account status and role from SQLite for every session; do not trust role in a cookie | SQLite availability is required for authenticated traffic, by design |
@@ -46,7 +46,7 @@ external identity-provider compromise are outside this feature's guarantees.
 | Audit/log exfiltration | Closed allowlisted audit schema and reason codes; target identities are domain-separated digests of validated public resource coordinates; no arbitrary exception/request context; append-only SQL protections; generic error envelope | Stable user and opaque target identities remain intentionally visible to authorized operators |
 | Path/header/request injection | Fixed-length ASCII identifiers, normalized login names, bounded Unicode passwords, strict bounded Argon2id PHC parsing before KDF work, closed reason codes, no raw headers or private paths | Stage B adapters must not bypass constructors with unvalidated ORM rows |
 | Migration or upgrade failure | Revision from the actual sole merged head; atomic migration; zero fabricated users/secrets; prior-schema preservation and downgrade tests | Rollback of installed binaries/configuration is owned by PR #173 |
-| Proxy spoofing | Use the directly connected peer unless PR #173 explicitly establishes trusted proxies; exact configured origin | Source identity is weak on shared NAT/proxy networks and is not authorization evidence |
+| Proxy spoofing | Use the directly connected peer; v1 has no trusted-proxy or canonical public-origin configuration, so no forwarded identity or origin header is trusted | Source identity is weak on shared NAT/proxy networks and is not authorization evidence |
 
 ## Security invariants
 
@@ -71,6 +71,11 @@ external identity-provider compromise are outside this feature's guarantees.
   exceptions never enter public errors or security audit.
 - There is no default administrator, role inheritance, project ACL, tenant key,
   bearer API token, or anonymous password-reset token.
+- Version one supports only a same-origin Web deployment: the browser reaches
+  the frontend and the API under one scheme, host, and port. CORS is not
+  enabled, and there is no Origin allowlist, trusted-proxy, or canonical
+  public-origin configuration; those are future design work if multi-origin
+  deployment is ever supported.
 
 ## Stage A evidence and Stage B gates
 

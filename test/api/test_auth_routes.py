@@ -183,6 +183,76 @@ def test_mutations_require_csrf_and_logout_revokes(app) -> None:
         assert after.status_code == 401
 
 
+def test_login_same_origin_json_contract(app) -> None:
+    """v1 supports a same-origin JSON login only.
+
+    A same-origin JSON login creates a session; form-urlencoded and text/plain
+    submissions cannot create one; responses carry no CORS reflection.
+    """
+    _bootstrap_admin(app)
+    policy = app.state.auth_cookie_policy
+    session_cookie_prefix = f"{policy.session_cookie.name}="
+    with ApiTestClient(app) as client:
+        same_origin = client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "root-admin",
+                "password": "correct horse battery staple",
+            },
+            headers={"Origin": "http://testserver"},
+        )
+        assert same_origin.status_code == 200
+        assert same_origin.json()["ok"] is True
+        assert any(
+            header.startswith(session_cookie_prefix)
+            for header in same_origin.headers.get_list("set-cookie")
+        )
+        assert "access-control-allow-origin" not in same_origin.headers
+
+        for kwargs in (
+            {
+                "data": {
+                    "username": "root-admin",
+                    "password": "correct horse battery staple",
+                }
+            },
+            {
+                "content": (
+                    '{"username": "root-admin", '
+                    '"password": "correct horse battery staple"}'
+                ),
+                "headers": {"Content-Type": "text/plain"},
+            },
+        ):
+            rejected = client.post("/api/v1/auth/login", **kwargs)
+            assert rejected.status_code == 400
+            assert not any(
+                header.startswith(session_cookie_prefix)
+                for header in rejected.headers.get_list("set-cookie")
+            )
+
+
+def test_cross_origin_preflight_gets_no_permissive_cors(app) -> None:
+    """CORS is not configured: a cross-origin preflight must not receive a
+    permissive Access-Control-Allow-Origin."""
+    _bootstrap_admin(app)
+    with ApiTestClient(app) as client:
+        preflight = client.request(
+            "OPTIONS",
+            "/api/v1/auth/login",
+            headers={
+                "Origin": "https://attacker.example",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        allow_origin = preflight.headers.get("access-control-allow-origin")
+        assert allow_origin is None or allow_origin not in (
+            "*",
+            "https://attacker.example",
+        )
+
+
 def test_member_cannot_reach_admin_account_routes(app) -> None:
     _bootstrap_admin(app)
     with ApiTestClient(app) as client:

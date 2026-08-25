@@ -92,10 +92,20 @@ The authentication cookie is host-only, `HttpOnly`, `Path=/`, and
 `SameSite=Lax`; its companion CSRF cookie is readable by the frontend but has no
 authentication authority. Every cookie-authenticated unsafe method requires the
 CSRF cookie, the identical custom `X-CSRF-Token` header, and the server-side
-digest to agree. Stage B will also enforce the exact configured Origin/Referer;
-the trusted origin and proxy boundary are owned by PR #173. Login accepts only
-the intended JSON/custom-header flow and receives equivalent origin protection
-to prevent login CSRF.
+digest to agree.
+
+Version one supports only a same-origin Web deployment: the browser reaches the
+frontend and the API under one scheme, host, and port. A reverse proxy such as
+Nginx may serve the frontend and forward `/api`, but the browser still sees a
+single origin; multiple independent Web origins are not supported. There is no
+canonical public-origin, trusted-proxy, or CORS allowlist configuration in this
+version, and the implementation deliberately does not claim an exact configured
+Origin/Referer check. Login accepts only the JSON request-body flow, and the
+same-origin contract is enforced by the combination of JSON-only login parsing
+(non-JSON submissions cannot create a session), the browser same-origin policy,
+CORS remaining disabled by default, and the `SameSite=Lax` session cookie. An
+explicit Origin allowlist and trusted-proxy model is future design work to be
+done only if multi-origin deployment is ever supported.
 
 An HTTPS deployment must use `Secure` cookies (and the `__Host-` name variant);
 a separately named non-`Secure` policy exists only for loopback development.
