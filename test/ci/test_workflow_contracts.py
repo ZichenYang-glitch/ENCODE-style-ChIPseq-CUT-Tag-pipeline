@@ -263,13 +263,16 @@ def test_protected_pytest_tiers_use_only_the_checkout_bootstrap():
         assert "-p no:cacheprovider" not in suite, job_name
 
 
-def test_scientific_real_separates_the_test_runner_from_the_locked_toolchain():
+def test_scientific_real_separates_the_test_runner_from_locked_toolchains():
     steps = _load("ci.yml")["jobs"]["real-execution"]["steps"]
     python_setup = next(
         step for step in steps if step.get("name") == "Setup Python test environment"
     )
-    toolchain_setup = next(
+    scientific_setup = next(
         step for step in steps if step.get("name") == "Setup scientific toolchain"
+    )
+    multiqc_setup = next(
+        step for step in steps if step.get("name") == "Setup MultiQC toolchain"
     )
     install = next(
         step
@@ -281,15 +284,32 @@ def test_scientific_real_separates_the_test_runner_from_the_locked_toolchain():
     )
 
     assert python_setup["with"]["environment-file"] == "workflow/envs/ci-fast.lock"
-    assert toolchain_setup["with"]["environment-file"] == "workflow/envs/chipseq.lock"
-    assert toolchain_setup["with"]["init-shell"] == "none"
-    assert toolchain_setup["with"]["generate-run-shell"] is False
+    assert scientific_setup["with"]["environment-file"] == "workflow/envs/chipseq.lock"
+    assert scientific_setup["with"]["environment-name"] == "chipseq"
+    assert multiqc_setup["with"]["environment-file"] == "workflow/envs/multiqc.lock"
+    assert multiqc_setup["with"]["environment-name"] == "chipseq-multiqc"
+    for setup in (scientific_setup, multiqc_setup):
+        assert setup["with"]["init-shell"] == "none"
+        assert setup["with"]["generate-run-shell"] is False
     assert (
-        steps.index(python_setup) < steps.index(install) < steps.index(toolchain_setup)
+        steps.index(python_setup)
+        < steps.index(install)
+        < steps.index(scientific_setup)
+        < steps.index(multiqc_setup)
+        < steps.index(suite)
     )
     assert "micromamba run -n ci-fast" in suite["run"]
-    assert 'SNAKEMAKE="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/snakemake"' in suite["run"]
-    assert 'SAMTOOLS="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/samtools"' in suite["run"]
+    for variable, environment, executable in (
+        ("SNAKEMAKE", "chipseq", "snakemake"),
+        ("SAMTOOLS", "chipseq", "samtools"),
+        ("FASTQC", "chipseq", "fastqc"),
+        ("TRIM_GALORE", "chipseq", "trim_galore"),
+        ("MULTIQC", "chipseq-multiqc", "multiqc"),
+    ):
+        assert (
+            f'{variable}="$MAMBA_ROOT_PREFIX/envs/{environment}/bin/{executable}"'
+            in suite["run"]
+        )
 
 
 def test_documented_python_timing_budgets_match_the_workflow():

@@ -9,7 +9,7 @@ deterministic suite and are selected by explicit markers or entry points.
 | Tier / CI job | Trigger | Environment | Purpose |
 | --- | --- | --- | --- |
 | `platform-real-execution` | Manual `workflow_dispatch`, nightly `schedule`, published `release` | `workflow/envs/ci-fast.lock` plus Redis 7 | Redis/RQ worker, SIGALRM timeout, process-group cancellation, and tiny real Snakemake execution. |
-| `real-execution` | Manual `workflow_dispatch`, nightly `schedule`, published `release` | `workflow/envs/chipseq.lock` | Complete scientific real-tool suite, including focused samtools contracts and the tiny end-to-end preprocessing run. |
+| `real-execution` | Manual `workflow_dispatch`, nightly `schedule`, published `release` | `workflow/envs/chipseq.lock` + `workflow/envs/multiqc.lock` | Complete scientific real-tool suite, including focused samtools contracts, staged FastQC/MultiQC, and the tiny end-to-end preprocessing run. |
 | `bulk-rnaseq-real-execution` | Explicit manual `workflow_dispatch` opt-in | Protected self-hosted Linux/x64 runner with pre-staged immutable runtime, controlled fixture, Redis, and local Docker | Runtime admission, rapid quantification, full STAR+Salmon/SortMeRNA, cancellation, and timeout through canonical platform paths. |
 | `container-smoke` | Manual `workflow_dispatch`, nightly `schedule`, published `release` | Docker runner image plus `profiles/default` | Build and smoke-test the runner image without pushing it. |
 | Local container smoke | Developer opt-in | Docker, Apptainer, or SingularityCE plus `profiles/default` | Check mounts, Conda prefix, runner tools, and a workflow dry-run. |
@@ -34,6 +34,8 @@ The nightly cron is `17 19 * * *` UTC (03:17 the next day in Asia/Shanghai).
 - `test/workers/test_cancellation_e2e.py` covers process-group cancellation.
 - `test/real_execution/test_scientific_tiny_preprocessing.py` is the tiny
   scientific end-to-end run.
+- `test/real_execution/test_staged_fastqc_multiqc.py` verifies staged FastQC
+  outputs and the native MultiQC 1.35 report contract.
 - `test/real_execution/test_pseudoreplicate_splitting.py` and
   `test/real_execution/test_cuttag_fragment_size.py` are focused real-tool
   contracts that require `samtools`.
@@ -72,8 +74,11 @@ synthetic data through real tools:
 python3 -m pytest -m real_execution test/real_execution -ra -v
 ```
 
-The default pytest selection excludes this marker. The `chipseq` lock includes
-pytest and every executable used by the tier. CI sets
+The default pytest selection excludes this marker. The `ci-fast` lock supplies
+the pytest runner, `chipseq.lock` supplies Snakemake, Samtools, FastQC, and Trim
+Galore, and `multiqc.lock` supplies MultiQC 1.35 in the separate
+`chipseq-multiqc` environment. CI passes their absolute executable paths to the
+suite instead of relying on the runner PATH. It also sets
 `HELIXWEAVE_REQUIRE_REAL_EXECUTION=1`; a missing executable therefore fails
 instead of becoming an all-skipped success. Its JUnit report must also contain
 zero skips and zero xfails.

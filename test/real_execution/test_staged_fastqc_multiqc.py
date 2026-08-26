@@ -2,7 +2,6 @@
 
 import os
 from pathlib import Path
-import shutil
 import subprocess
 
 import pytest
@@ -10,6 +9,7 @@ import pytest
 from _tool_resolver import require_external_tools, resolve_tool
 from test_fastqc_multiqc_stages import (
     REPO_ROOT,
+    SNAKEMAKE,
     TSV_HEADER,
     _fingerprint,
     _run_snakemake,
@@ -19,20 +19,30 @@ from test_fastqc_multiqc_stages import (
 
 
 MULTIQC_CONFIG = REPO_ROOT / "workflow" / "multiqc_config.yaml"
+FASTQC = resolve_tool("fastqc", "FASTQC")
+TRIM_GALORE = resolve_tool("trim_galore", "TRIM_GALORE")
 MULTIQC = resolve_tool("multiqc", "MULTIQC")
 
 pytestmark = pytest.mark.real_execution
 
 
 def test_staged_fastqc_and_multiqc_135_report_contract(tmp_path):
-    tool_bin = str(Path(MULTIQC).resolve().parent)
+    tools = {
+        "snakemake": SNAKEMAKE,
+        "fastqc": FASTQC,
+        "trim_galore": TRIM_GALORE,
+        "multiqc": MULTIQC,
+    }
     env = os.environ.copy()
-    env["PATH"] = tool_bin + os.pathsep + env.get("PATH", "")
+    tool_dirs = dict.fromkeys(
+        str(Path(path).resolve().parent) for path in tools.values()
+    )
+    env["PATH"] = os.pathsep.join((*tool_dirs, env.get("PATH", "")))
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     missing = [
-        tool
-        for tool in ("snakemake", "fastqc", "trim_galore", "multiqc")
-        if not shutil.which(tool, path=env["PATH"])
+        name
+        for name, path in tools.items()
+        if not (Path(path).is_file() and os.access(path, os.X_OK))
     ]
     require_external_tools(missing, "staged FastQC / MultiQC real execution")
 
