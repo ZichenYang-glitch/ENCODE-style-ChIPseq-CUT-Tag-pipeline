@@ -18,6 +18,7 @@ from encode_pipeline.persistence.migrations import (
 
 PRIOR_REVISION = "20260809_13"
 AUTHENTICATION_REVISION = "20260818_14"
+CURRENT_REVISION = "20260827_15"
 AUTHENTICATION_TABLES = {
     "auth_sessions",
     "security_audit_events",
@@ -149,7 +150,7 @@ INVALID_AUDIT_EVENTS = (
 )
 
 
-def test_rev14_is_the_sole_head_and_creates_empty_authentication_schema(
+def test_rev14_creates_empty_authentication_schema_under_the_current_head(
     tmp_path,
 ) -> None:
     database_url = f"sqlite:///{tmp_path / 'platform.db'}"
@@ -166,12 +167,12 @@ def test_rev14_is_the_sole_head_and_creates_empty_authentication_schema(
         )
     engine.dispose()
 
-    upgrade_database(database_url)
+    upgrade_database(database_url, AUTHENTICATION_REVISION)
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
 
     inventory = verify_migration_execution_inventory()
-    assert inventory.heads == (AUTHENTICATION_REVISION,)
+    assert inventory.heads == (CURRENT_REVISION,)
     assert AUTHENTICATION_TABLES <= set(inspector.get_table_names())
     assert {
         column["name"] for column in inspector.get_columns("user_accounts")
@@ -328,7 +329,7 @@ def test_rev14_downgrade_drops_authentication_schema_and_upgrades_again(
     assert AUTHENTICATION_TABLES <= set(inspect(engine).get_table_names())
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            AUTHENTICATION_REVISION
+            CURRENT_REVISION
         )
         assert connection.scalar(text("SELECT count(*) FROM user_accounts")) == 0
         assert connection.scalar(text("SELECT count(*) FROM auth_sessions")) == 0
