@@ -11,10 +11,13 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from encode_pipeline.api.dependencies import AuthApiError
 from encode_pipeline.api.models import (
     ArtifactPublicationDetailResponse,
     ArtifactPublicationIssueResponse,
     ArtifactPublicationListResponse,
+    AuthErrorResponse,
+    IssueResponse,
     RunArtifactDetailResponse,
     RunArtifactDownloadErrorResponse,
     RunArtifactsResponse,
@@ -28,11 +31,20 @@ from encode_pipeline.api.routes import api_v1_router
 from encode_pipeline.persistence import (
     DATABASE_URL_ENV,
     RunPersistence,
+    create_session_factory,
     open_run_persistence,
+)
+from encode_pipeline.persistence.authentication import (
+    SqlAlchemyAuthenticationRepository,
 )
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.adapters import MAX_AUTHORING_REQUEST_BYTES
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.services.authentication import BrowserSessionCookiePolicy
+from encode_pipeline.services.authentication_service import (
+    AccountAdministrationService,
+    AuthenticationService,
+)
 from encode_pipeline.services.defaults import (
     create_default_agent_service,
     create_default_command_builder,
@@ -70,6 +82,9 @@ from encode_pipeline.workers.settings import (
     WORKSPACE_ROOT_ENV,
     load_worker_settings,
 )
+
+
+AUTH_SECURE_COOKIES_ENV = "ENCODE_PIPELINE_AUTH_SECURE_COOKIES"
 
 
 def create_app(
@@ -241,11 +256,47 @@ def create_app(
     app.state.preflight_service = preflight_service
     # Stub driver is intentionally not attached in production.
 
+    authentication_repository = SqlAlchemyAuthenticationRepository(
+        create_session_factory(persistence.engine)
+    )
+    app.state.authentication_repository = authentication_repository
+    app.state.authentication_service = AuthenticationService(
+        repository=authentication_repository
+    )
+    app.state.account_administration_service = AccountAdministrationService(
+        repository=authentication_repository
+    )
+    app.state.auth_cookie_policy = BrowserSessionCookiePolicy(
+        secure=settings_environment.get(AUTH_SECURE_COOKIES_ENV) == "1"
+    )
+
     app.include_router(api_v1_router, prefix="/api/v1")
     app.add_exception_handler(RequestValidationError, _handle_request_validation_error)
+    app.add_exception_handler(AuthApiError, _handle_auth_api_error)
     app.add_exception_handler(Exception, _handle_internal_server_error)
 
     return app
+
+
+async def _handle_auth_api_error(
+    request: Request,
+    exc: AuthApiError,
+) -> JSONResponse:
+    """Return the stable authentication/authorization failure envelope."""
+    del request
+    body = AuthErrorResponse(
+        issues=[
+            IssueResponse(
+                code=exc.code,
+                message=exc.message,
+                source="api",
+            )
+        ]
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=body.model_dump(mode="json"),
+    )
 
 
 def _issue_from_request_validation_error(

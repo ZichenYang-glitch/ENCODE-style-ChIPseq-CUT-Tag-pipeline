@@ -37,6 +37,7 @@ from encode_pipeline.workers.settings import (
     REDIS_URL_ENV,
     WORKSPACE_ROOT_ENV,
 )
+from conftest import seed_test_authentication
 
 
 EXPECTED_OPERATIONS = {
@@ -75,6 +76,17 @@ EXPECTED_OPERATIONS = {
     ): "downloadRunArtifact",
     ("POST", "/api/v1/runs/{run_id}/preflight"): "triggerPreflight",
     ("POST", "/api/v1/workflows/{workflow_id}/agent/chat"): "chatWithWorkflowAgent",
+    ("POST", "/api/v1/auth/login"): "login",
+    ("POST", "/api/v1/auth/logout"): "logout",
+    ("GET", "/api/v1/auth/session"): "session_state",
+    ("GET", "/api/v1/auth/accounts"): "list_accounts",
+    ("POST", "/api/v1/auth/accounts"): "create_member_account",
+    ("POST", "/api/v1/auth/accounts/{user_id}/status"): "set_account_status",
+    ("POST", "/api/v1/auth/accounts/{user_id}/password"): "reset_account_password",
+    (
+        "POST",
+        "/api/v1/auth/accounts/{user_id}/sessions/revoke",
+    ): "revoke_account_sessions",
 }
 
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
@@ -106,6 +118,7 @@ def _isolated_app_schema(tmp_path: Path, name: str) -> dict:
         database_url=f"sqlite:///{runtime_root / 'platform.db'}",
         workspace_root=runtime_root / "workspaces",
     )
+    seed_test_authentication(app)
     try:
         return app.openapi()
     finally:

@@ -14,6 +14,7 @@ from encode_pipeline.platform.adapters import (
     WorkflowAdapter,
     WorkflowInputs,
 )
+from encode_pipeline.platform.authentication import AuthenticatedPrincipal
 from encode_pipeline.platform.data_registry import (
     ProjectSampleBinding,
     ProjectSampleSelection,
@@ -564,6 +565,7 @@ class ValidatedRunCreationService:
         snapshot_id: str,
         *,
         tags: Mapping[str, str] | None = None,
+        security_audit_actor: AuthenticatedPrincipal | None = None,
     ) -> ValidatedSnapshotRunCreation:
         """Consume a snapshot once; identical retries return its canonical run."""
         try:
@@ -650,6 +652,7 @@ class ValidatedRunCreationService:
                 expected_build_identity=expected_identity,
                 consumed_at=now,
                 tags=tags,
+                security_audit_actor=security_audit_actor,
             )
         except KeyError:
             raise ValidatedSnapshotNotFoundError from None

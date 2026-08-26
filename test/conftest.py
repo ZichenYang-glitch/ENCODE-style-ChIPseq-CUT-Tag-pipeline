@@ -125,6 +125,7 @@ def reference_ready_app(tmp_path, monkeypatch):
         revision_id=summary.revision_id,
     )
     app.state.test_reference_profile = enabled
+    seed_test_authentication(app)
     return app
 
 
@@ -537,3 +538,64 @@ def idr_paths_namespace_chipseq_se(idr_paths_file):
         sample_map={"S1": {"layout": "SE", "genome": "mm10"}},
         treatment_samples_by_experiment={"EXP2": ["S1"]},
     )
+
+
+TEST_AUTH_PASSWORD_HASH = (
+    "$argon2id$v=19$m=65536,t=3,p=4$"
+    "pGLQVK/BOQLC0oPSA8RQTg$TdiQWUP9gwBAI8iAXUT7oEtjOPqKjJhqyW0JS8ye/Ag"
+)
+TEST_AUTH_SESSION_TOKEN = "a" * 43
+TEST_AUTH_CSRF_TOKEN = "b" * 43
+TEST_AUTH_USER_ID = "usr_" + "0" * 32
+
+
+def seed_test_authentication(app, monkeypatch=None):
+    """Seed one administrator and session so API tests keep their own focus."""
+    from datetime import datetime, timedelta, timezone
+
+    from encode_pipeline.platform.authentication import (
+        UserAccount,
+        UserRole,
+        UserStatus,
+    )
+    from encode_pipeline.services.authentication import (
+        SessionSecrets,
+        new_session_record,
+    )
+
+    repository = app.state.authentication_repository
+    now = datetime.now(timezone.utc)
+    account = UserAccount(
+        user_id=TEST_AUTH_USER_ID,
+        username="test-admin",
+        role=UserRole.ADMINISTRATOR,
+        status=UserStatus.ENABLED,
+        password_hash=TEST_AUTH_PASSWORD_HASH,
+        created_at=now,
+        updated_at=now,
+        password_changed_at=now,
+    )
+    from encode_pipeline.services.authentication_repositories import (
+        AuthenticationAccountConflictError,
+    )
+
+    try:
+        repository.create_account(account)
+    except AuthenticationAccountConflictError:
+        pass
+    secrets = SessionSecrets._from_generated(
+        TEST_AUTH_SESSION_TOKEN,
+        TEST_AUTH_CSRF_TOKEN,
+    )
+    record = new_session_record(
+        user_id=account.user_id,
+        secrets=secrets,
+        created_at=now,
+        lifetime=timedelta(hours=8),
+    )
+    try:
+        repository.get_session(record.session_digest)
+    except KeyError:
+        repository.create_session(record)
+    app.state.test_auth_tokens = (TEST_AUTH_SESSION_TOKEN, TEST_AUTH_CSRF_TOKEN)
+    return account

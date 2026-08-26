@@ -1214,3 +1214,88 @@ class RunLogsResponse(BaseModel):
     chunks: list[RunLogChunkResponse] = Field(default_factory=list)
     next_cursor: str | None = None
     issues: list[IssueResponse] = Field(default_factory=list)
+
+
+class PrincipalResponse(BaseModel):
+    """Safe public projection of the authenticated account."""
+
+    user_id: str
+    username: str
+    role: str
+
+
+class AccountSummaryResponse(BaseModel):
+    """Safe public projection of one local account."""
+
+    user_id: str
+    username: str
+    role: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    password_changed_at: datetime
+
+
+class LoginRequest(BaseModel):
+    """Bounded login payload; the password policy is enforced server-side."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    username: str = Field(min_length=1, max_length=66)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class LoginResponse(BaseModel):
+    ok: bool
+    principal: PrincipalResponse | None
+    issues: list[IssueResponse]
+
+
+class SessionStateResponse(BaseModel):
+    ok: bool
+    setup_required: bool
+    authenticated: bool
+    principal: PrincipalResponse | None
+    issues: list[IssueResponse]
+
+
+class AuthErrorResponse(BaseModel):
+    ok: bool = False
+    issues: list[IssueResponse]
+
+
+class AccountListResponse(BaseModel):
+    ok: bool
+    accounts: list[AccountSummaryResponse]
+    issues: list[IssueResponse]
+
+
+class AccountCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str = Field(min_length=1, max_length=66)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class AccountStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
+class AccountPasswordResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class AccountMutationResponse(BaseModel):
+    ok: bool
+    account: AccountSummaryResponse | None
+    issues: list[IssueResponse]
+
+
+class AccountSessionsRevokeResponse(BaseModel):
+    ok: bool
+    revoked_count: int
+    issues: list[IssueResponse]

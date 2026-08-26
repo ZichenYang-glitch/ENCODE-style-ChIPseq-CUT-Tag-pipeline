@@ -6,6 +6,7 @@ from dataclasses import replace
 from threading import RLock
 from typing import Protocol
 
+from encode_pipeline.platform.security_audit import SecurityAuditEvent
 from encode_pipeline.platform.reference_profiles import (
     ReferenceProfile,
     ReferenceProfileRevision,
@@ -23,6 +24,8 @@ class ReferenceProfileRepository(Protocol):
         self,
         profile: ReferenceProfile,
         initial_revision: ReferenceProfileRevision,
+        *,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> tuple[ReferenceProfile, ReferenceProfileRevision]: ...
 
     def get_profile(self, profile_id: str) -> ReferenceProfile: ...
@@ -45,12 +48,15 @@ class ReferenceProfileRepository(Protocol):
         revision: ReferenceProfileRevision,
         *,
         expected_previous_revision_number: int,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> ReferenceProfileRevision: ...
 
     def set_enabled_revision(
         self,
         profile_id: str,
         revision_id: str | None,
+        *,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> ReferenceProfile: ...
 
     def list_enabled_for_workflow(
@@ -67,12 +73,15 @@ class InMemoryReferenceProfileRepository:
         self._profile_id_by_safe_key: dict[str, str] = {}
         self._revisions: dict[str, ReferenceProfileRevision] = {}
         self._revision_ids_by_profile: dict[str, list[str]] = {}
+        self._security_audits: list[SecurityAuditEvent] = []
         self._lock = RLock()
 
     def create_profile(
         self,
         profile: ReferenceProfile,
         initial_revision: ReferenceProfileRevision,
+        *,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> tuple[ReferenceProfile, ReferenceProfileRevision]:
         if not isinstance(profile, ReferenceProfile):
             raise ValueError("profile must be a ReferenceProfile")
@@ -99,6 +108,8 @@ class InMemoryReferenceProfileRepository:
             self._revision_ids_by_profile[profile.profile_id] = [
                 initial_revision.revision_id
             ]
+            if security_audit is not None:
+                self._security_audits.append(security_audit)
             return profile, initial_revision
 
     def get_profile(self, profile_id: str) -> ReferenceProfile:
@@ -151,6 +162,7 @@ class InMemoryReferenceProfileRepository:
         revision: ReferenceProfileRevision,
         *,
         expected_previous_revision_number: int,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> ReferenceProfileRevision:
         if not isinstance(revision, ReferenceProfileRevision):
             raise ValueError("revision must be a ReferenceProfileRevision")
@@ -178,12 +190,16 @@ class InMemoryReferenceProfileRepository:
             self._revision_ids_by_profile[profile.profile_id].append(
                 revision.revision_id
             )
+            if security_audit is not None:
+                self._security_audits.append(security_audit)
             return revision
 
     def set_enabled_revision(
         self,
         profile_id: str,
         revision_id: str | None,
+        *,
+        security_audit: SecurityAuditEvent | None = None,
     ) -> ReferenceProfile:
         with self._lock:
             profile = self.get_profile(profile_id)
@@ -193,6 +209,8 @@ class InMemoryReferenceProfileRepository:
                     raise ValueError("enabled revision does not belong to profile")
             updated = replace(profile, enabled_revision_id=revision_id)
             self._profiles[profile_id] = updated
+            if security_audit is not None:
+                self._security_audits.append(security_audit)
             return updated
 
     def list_enabled_for_workflow(

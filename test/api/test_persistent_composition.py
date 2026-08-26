@@ -12,6 +12,7 @@ from encode_pipeline.persistence import RunPersistence, SqlAlchemyRunRepository
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.workers.rq_queue import RqRunQueue
+from conftest import seed_test_authentication
 
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
@@ -58,6 +59,7 @@ def test_default_api_composition_uses_environment_configured_sqlite(
     monkeypatch.setenv("ENCODE_PIPELINE_DATABASE_URL", database_url)
 
     app = create_app()
+    seed_test_authentication(app)
 
     assert app.state.database_url == database_url
     assert isinstance(app.state.persistence.repository, SqlAlchemyRunRepository)
@@ -66,6 +68,7 @@ def test_default_api_composition_uses_environment_configured_sqlite(
 
 def test_api_lifespan_closes_owned_persistence(tmp_path, monkeypatch):
     app = create_app(database_url=_database_url(tmp_path))
+    seed_test_authentication(app)
     closed_urls: list[str] = []
     closed_queues: list[str] = []
     original_close = RunPersistence.close
@@ -95,6 +98,7 @@ def test_api_lifespan_closes_owned_persistence(tmp_path, monkeypatch):
 def test_api_run_is_visible_after_app_factory_restart(tmp_path):
     database_url = _database_url(tmp_path)
     first_app = create_app(database_url=database_url)
+    seed_test_authentication(first_app)
     with ApiTestClient(first_app) as client:
         run_id = _create_run(client)
     first_app.state.run_service.add_event(run_id, "checkpoint", "Before restart.")
@@ -102,6 +106,7 @@ def test_api_run_is_visible_after_app_factory_restart(tmp_path):
     first_app.state.persistence.close()
 
     second_app = create_app(database_url=database_url)
+    seed_test_authentication(second_app)
     with ApiTestClient(second_app) as client:
         response = client.get(f"/api/v1/runs/{run_id}")
         events_response = client.get(f"/api/v1/runs/{run_id}/events")
@@ -139,6 +144,7 @@ def test_validated_snapshot_survives_restart_and_replays_canonical_run(
     _close_app(first_app)
 
     second_app = create_app(database_url=database_url)
+    seed_test_authentication(second_app)
     with ApiTestClient(second_app) as client:
         created = client.post(
             f"/api/v1/workflows/{WORKFLOW_ID}/runs",
@@ -149,6 +155,7 @@ def test_validated_snapshot_survives_restart_and_replays_canonical_run(
     _close_app(second_app)
 
     third_app = create_app(database_url=database_url)
+    seed_test_authentication(third_app)
     with ApiTestClient(third_app) as client:
         replay = client.post(
             f"/api/v1/workflows/{WORKFLOW_ID}/runs",
@@ -167,6 +174,7 @@ def test_validated_snapshot_survives_restart_and_replays_canonical_run(
 def test_api_restart_fails_api_owned_validation_with_public_safe_failure(tmp_path):
     database_url = _database_url(tmp_path)
     first_app = create_app(database_url=database_url)
+    seed_test_authentication(first_app)
     created = first_app.state.run_service.create_run(
         WORKFLOW_ID,
         WorkflowInputs(config={"samples": "private/input.tsv"}),
@@ -179,6 +187,7 @@ def test_api_restart_fails_api_owned_validation_with_public_safe_failure(tmp_pat
     first_app.state.persistence.close()
 
     restarted_app = create_app(database_url=database_url)
+    seed_test_authentication(restarted_app)
     with ApiTestClient(restarted_app) as client:
         run_response = client.get(f"/api/v1/runs/{created.run_id}")
         events_response = client.get(f"/api/v1/runs/{created.run_id}/events")
@@ -209,6 +218,7 @@ def test_api_restart_fails_unassigned_worker_state_as_orphan(
 ):
     database_url = _database_url(tmp_path)
     first_app = create_app(database_url=database_url)
+    seed_test_authentication(first_app)
     created = first_app.state.run_service.create_run(
         WORKFLOW_ID,
         WorkflowInputs(config={"samples": "private/input.tsv"}),
@@ -220,6 +230,7 @@ def test_api_restart_fails_unassigned_worker_state_as_orphan(
     first_app.state.persistence.close()
 
     restarted_app = create_app(database_url=database_url)
+    seed_test_authentication(restarted_app)
     with ApiTestClient(restarted_app) as client:
         run_response = client.get(f"/api/v1/runs/{created.run_id}")
         events_response = client.get(f"/api/v1/runs/{created.run_id}/events")
@@ -246,6 +257,7 @@ def test_api_restarts_preserve_worker_owned_active_run_without_recovery_noise(
 ):
     database_url = _database_url(tmp_path)
     first_app = create_app(database_url=database_url)
+    seed_test_authentication(first_app)
     created = first_app.state.run_service.create_run(
         WORKFLOW_ID,
         WorkflowInputs(config={"samples": "samples.tsv"}),
@@ -274,6 +286,7 @@ def test_api_restarts_preserve_worker_owned_active_run_without_recovery_noise(
     first_app.state.persistence.close()
 
     second_app = create_app(database_url=database_url)
+    seed_test_authentication(second_app)
     with ApiTestClient(second_app) as client:
         second_run_response = client.get(f"/api/v1/runs/{created.run_id}")
         second_events_response = client.get(f"/api/v1/runs/{created.run_id}/events")
@@ -287,6 +300,7 @@ def test_api_restarts_preserve_worker_owned_active_run_without_recovery_noise(
     second_app.state.persistence.close()
 
     third_app = create_app(database_url=database_url)
+    seed_test_authentication(third_app)
     with ApiTestClient(third_app) as client:
         third_run_response = client.get(f"/api/v1/runs/{created.run_id}")
         third_events_response = client.get(f"/api/v1/runs/{created.run_id}/events")
@@ -300,6 +314,7 @@ def test_api_restarts_preserve_worker_owned_active_run_without_recovery_noise(
 def test_api_restart_preserves_planned_run_for_future_execution(tmp_path):
     database_url = _database_url(tmp_path)
     first_app = create_app(database_url=database_url)
+    seed_test_authentication(first_app)
     created = first_app.state.run_service.create_run(
         WORKFLOW_ID,
         WorkflowInputs(config={"samples": "samples.tsv"}),
@@ -311,6 +326,7 @@ def test_api_restart_preserves_planned_run_for_future_execution(tmp_path):
     first_app.state.persistence.close()
 
     restarted_app = create_app(database_url=database_url)
+    seed_test_authentication(restarted_app)
     with ApiTestClient(restarted_app) as client:
         response = client.get(f"/api/v1/runs/{created.run_id}")
 

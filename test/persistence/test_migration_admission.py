@@ -45,7 +45,7 @@ Path(os.environ["HELIXWEAVE_MIGRATION_IMPORT_MARKER"]).write_text(
 )
 
 revision = "20990101_99"
-down_revision = "20260809_13"
+down_revision = "20260818_14"
 branch_labels = None
 depends_on = None
 
@@ -1229,7 +1229,7 @@ def test_inventory_contract_has_an_independent_source_anchor(
     child = persistence_root / "alembic/versions/20990101_99_review_catalog.py"
     child.write_text(
         "revision = '20990101_99'\n"
-        "down_revision = '20260809_13'\n"
+        "down_revision = '20260818_14'\n"
         "branch_labels = None\n"
         "depends_on = None\n",
         encoding="utf-8",
@@ -1259,7 +1259,7 @@ def test_reviewed_unrelated_revision_executes_after_explicit_inventory_anchor_up
         "from alembic import op\n"
         "import sqlalchemy as sa\n"
         "revision = '20990101_99'\n"
-        "down_revision = '20260809_13'\n"
+        "down_revision = '20260818_14'\n"
         "branch_labels = None\n"
         "depends_on = None\n"
         "def upgrade():\n"
@@ -1372,7 +1372,7 @@ def test_percent_in_snapshot_parent_is_a_legal_private_path(
         [revision] = connection.execute(
             "SELECT version_num FROM alembic_version"
         ).fetchone()
-    assert revision == "20260809_13"
+    assert revision == "20260818_14"
 
 
 @pytest.mark.parametrize(
@@ -1491,7 +1491,7 @@ def test_validated_revision_modules_are_not_reloaded_for_execution(
         [revision] = connection.execute(
             "SELECT version_num FROM alembic_version"
         ).fetchone()
-    assert revision == "20260809_13"
+    assert revision == "20260818_14"
 
 
 def test_inventory_generator_is_byte_identical_and_does_not_import_revisions(
@@ -1559,6 +1559,6 @@ def test_verified_snapshot_excludes_later_source_replacement(
             "SELECT count(*) FROM sqlite_master "
             "WHERE type='table' AND name='unknown_revision_mutation'"
         ).fetchone()[0]
-    assert revision == verified_heads[0] == "20260809_13"
+    assert revision == verified_heads[0] == "20260818_14"
     assert unknown_table == 0
     assert marker.exists() is False

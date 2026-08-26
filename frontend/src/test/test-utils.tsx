@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { render } from '@testing-library/react';
 import { ClientProvider, type ClientContextValue } from '../api/client-context';
+import { AuthProvider } from '../app/auth';
 import { createStubWorkflowClient } from '../api/client';
 import { createStubRunApiClient } from '../api/runClient';
 import type { AgentApiClient } from '../api/agentClient';
@@ -47,7 +48,9 @@ export function renderWithRouter(
     ...render(
       <QueryClientProvider client={queryClient}>
         <ClientProvider clients={clients}>
-          <RouterProvider router={router} />
+          <AuthProvider>
+            <RouterProvider router={router} />
+          </AuthProvider>
         </ClientProvider>
       </QueryClientProvider>,
     ),

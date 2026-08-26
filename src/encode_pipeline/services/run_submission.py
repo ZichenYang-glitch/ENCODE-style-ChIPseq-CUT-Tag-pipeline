@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from encode_pipeline.platform.adapters import (
     ReferenceProfileBindingAdapter,
     WorkflowAdapter,
     WorkflowInputs,
 )
+from encode_pipeline.platform.authentication import AuthenticatedPrincipal
 from encode_pipeline.platform.execution import RunExecutionAssignment
 from encode_pipeline.platform.reference_profiles import BoundWorkflowReference
 from encode_pipeline.platform.runs import RunRecord, RunStatus
+from encode_pipeline.platform.security_audit import AuditAction
 from encode_pipeline.services.run_queue import (
     RunQueue,
     RunQueueError,
@@ -19,6 +23,9 @@ from encode_pipeline.services.run_queue import (
 from encode_pipeline.services.run_repositories import (
     ConcurrentRunUpdateError,
     ReferenceBindingSelectionError,
+)
+from encode_pipeline.services.run_security_audit import (
+    build_run_action_event,
 )
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
@@ -86,7 +93,12 @@ class RunSubmissionService:
         self._build_identity_provider = build_identity_provider
         self._reference_profile_resolver = reference_profile_resolver
 
-    def start_run(self, run_id: str) -> RunRecord:
+    def start_run(
+        self,
+        run_id: str,
+        *,
+        security_audit_actor: AuthenticatedPrincipal | None = None,
+    ) -> RunRecord:
         """Submit a planned run, converging retries on one durable job ID.
 
         A successful return means the backend accepted the stable job identity
@@ -252,11 +264,22 @@ class RunSubmissionService:
                 run_id,
                 job_id=assignment.job_id,
             )
+            security_audit = (
+                None
+                if security_audit_actor is None
+                else build_run_action_event(
+                    AuditAction.RUN_START,
+                    security_audit_actor,
+                    run_id,
+                    occurred_at=datetime.now(timezone.utc),
+                )
+            )
             return self._run_service.queue_dispatched_run(
                 run_id,
                 job_id=assignment.job_id,
                 backend=self._run_queue.backend,
                 queue_name=self._run_queue.queue_name,
+                security_audit=security_audit,
             )
         except ConcurrentRunUpdateError:
             raced = self._run_service.get_run(run_id)

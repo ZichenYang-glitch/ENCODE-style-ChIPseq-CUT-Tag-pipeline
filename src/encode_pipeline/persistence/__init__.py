@@ -1,5 +1,8 @@
 """SQL persistence adapters for the workflow platform."""
 
+from encode_pipeline.persistence.authentication import (
+    SqlAlchemyAuthenticationRepository,
+)
 from encode_pipeline.persistence.database import (
     create_database_engine,
     create_session_factory,
@@ -28,6 +31,7 @@ __all__ = [
     "DATABASE_URL_ENV",
     "DatabaseSchemaNotReadyError",
     "RunPersistence",
+    "SqlAlchemyAuthenticationRepository",
     "SqlAlchemyDataRegistryRepository",
     "SqlAlchemyInputRegistryRepository",
     "SqlAlchemyReferenceProfileRepository",

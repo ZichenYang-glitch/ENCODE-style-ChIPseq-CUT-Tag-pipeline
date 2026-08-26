@@ -2,10 +2,14 @@ import { lazy, Suspense } from 'react';
 import {
   createBrowserRouter,
   Navigate,
+  Outlet,
+  useLocation,
   useParams,
   type RouteObject,
 } from 'react-router-dom';
 import { AppShell } from './AppShell';
+import { useAuth } from './auth';
+import { LoginPage } from '../routes/login';
 import { NotFoundPage } from '../routes/not-found';
 import { WorkflowsLayout } from '../routes/workflows/layout';
 import { WorkflowsIndexPage } from '../routes/workflows/index';
@@ -70,10 +74,36 @@ function WorkbenchRouteLoading() {
   );
 }
 
+function RequireAuth() {
+  const { loading, principal } = useAuth();
+  const location = useLocation();
+  if (loading) {
+    return (
+      <div
+        role="status"
+        aria-label="Checking session"
+        className="flex min-h-screen items-center justify-center bg-[var(--color-bg)] text-sm text-[var(--color-text-muted)]"
+      >
+        Checking session…
+      </div>
+    );
+  }
+  if (principal === null) {
+    return (
+      <Navigate to="/login" replace state={{ from: location.pathname }} />
+    );
+  }
+  return <Outlet />;
+}
+
 export const appRoutes: RouteObject[] = [
+  { path: '/login', element: <LoginPage /> },
   {
-    path: '/',
-    element: <AppShell />,
+    element: <RequireAuth />,
+    children: [
+      {
+        path: '/',
+        element: <AppShell />,
     children: [
       { index: true, element: <Navigate to="/workflows" replace /> },
       {
@@ -110,7 +140,9 @@ export const appRoutes: RouteObject[] = [
           </Suspense>
         ),
       },
-      { path: '*', element: <NotFoundPage /> },
+          { path: '*', element: <NotFoundPage /> },
+        ],
+      },
     ],
   },
 ];

@@ -47,6 +47,7 @@ from .conftest import (
     write_reference_neutral_samples,
 )
 from .process_helpers import terminate_rq_worker
+from conftest import seed_test_authentication
 
 
 pytestmark = pytest.mark.platform_real_execution
@@ -60,10 +61,21 @@ WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 def _request(app, method: str, url: str, **kwargs) -> httpx.Response:
     async def send() -> httpx.Response:
         transport = httpx.ASGITransport(app=app)
+        tokens = getattr(app.state, "test_auth_tokens", None)
+        cookies = None
+        if tokens is not None:
+            policy = app.state.auth_cookie_policy
+            cookies = httpx.Cookies()
+            cookies.set(policy.session_cookie.name, tokens[0])
+            cookies.set(policy.csrf_cookie.name, tokens[1])
+            headers = dict(kwargs.pop("headers", {}) or {})
+            headers.setdefault("X-CSRF-Token", tokens[1])
+            kwargs["headers"] = headers
         async with httpx.AsyncClient(
             transport=transport,
             base_url="http://testserver",
             follow_redirects=True,
+            cookies=cookies,
         ) as client:
             response = await client.request(method, url, **kwargs)
             await response.aread()
@@ -165,6 +177,7 @@ def test_real_worker_cancels_long_snakemake_process_group_truthfully(
         workspace_root=workspace_root,
         project_root=project_root,
     )
+    seed_test_authentication(app)
     run_id: str | None = None
     process_group: int | None = None
     recorded_pids: tuple[int, ...] = ()

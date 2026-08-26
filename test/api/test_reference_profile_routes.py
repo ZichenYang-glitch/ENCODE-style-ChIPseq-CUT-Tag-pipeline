@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from api_test_client import ApiTestClient
+from conftest import seed_test_authentication
 from encode_pipeline.api.main import create_app
 from encode_pipeline.platform.adapters import (
     CommandSpec,
@@ -140,6 +141,7 @@ class _ApiHarness:
             workspace_root=(tmp_path / "workspaces").resolve(),
             project_root=tmp_path.resolve(),
         )
+        seed_test_authentication(self.app)
         self.adapter = _ApiReferenceAdapter()
         self.registry = WorkflowRegistry([self.adapter])
         self.builds = WorkflowBuildIdentityProvider(

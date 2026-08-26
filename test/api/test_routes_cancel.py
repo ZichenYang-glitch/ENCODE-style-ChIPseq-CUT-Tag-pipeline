@@ -25,6 +25,7 @@ from encode_pipeline.workers.settings import (
     REDIS_URL_ENV,
 )
 from api_test_client import ApiTestClient
+from conftest import seed_test_authentication
 
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
@@ -86,6 +87,7 @@ class RecordingStopQueue:
 @pytest.fixture
 def client_and_queue(tmp_path) -> Iterator[tuple[ApiTestClient, RecordingStopQueue]]:
     app = create_app(database_url=f"sqlite:///{tmp_path / 'platform.db'}")
+    seed_test_authentication(app)
     queue = RecordingStopQueue(app.state.worker_settings.queue_name)
     app.state.run_cancellation_service = RunCancellationService(
         app.state.run_service,
@@ -229,6 +231,7 @@ def test_cancel_real_redis_read_timeout_is_bounded_and_sanitized(
     monkeypatch.setenv(REDIS_CONNECT_TIMEOUT_SECONDS_ENV, "0.2")
     monkeypatch.setenv(REDIS_API_READ_TIMEOUT_SECONDS_ENV, "0.15")
     app = create_app(database_url=f"sqlite:///{tmp_path / 'platform.db'}")
+    seed_test_authentication(app)
     try:
         with ApiTestClient(app) as client:
             assignment = _create_running_run(

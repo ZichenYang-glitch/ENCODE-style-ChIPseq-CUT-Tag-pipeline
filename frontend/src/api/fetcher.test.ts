@@ -25,7 +25,7 @@ describe('fetcher', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8000/api/v1/workflows/',
-      expect.objectContaining({ credentials: 'omit' }),
+      expect.objectContaining({ credentials: 'same-origin' }),
     );
   });
 
@@ -41,7 +41,7 @@ describe('fetcher', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/workflows/',
-      expect.objectContaining({ credentials: 'omit' }),
+      expect.objectContaining({ credentials: 'same-origin' }),
     );
   });
 
@@ -57,7 +57,7 @@ describe('fetcher', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8000/api/v1/workflows/',
-      expect.objectContaining({ credentials: 'omit' }),
+      expect.objectContaining({ credentials: 'same-origin' }),
     );
   });
 

@@ -156,7 +156,11 @@ evidence without widening either workflow's scientific contract.
 An IGV.js artifact browser, further Agent capabilities, PostgreSQL, Slurm or
 cloud execution, Singularity/Apptainer, and additional maintenance trimming are
 deliberately optional. They do not block the laboratory single-host delivery
-sequence above.
+sequence above. One recorded trimming candidate is separating the scientific
+execution closure from the shared platform product closure in the bulk RNA-seq
+execution manifest, so that authentication, API, persistence, and lifecycle
+changes stop requalifying unchanged scientific implementation files; this is
+deferred and must not fold qualification redesign into unrelated PRs.
 
 ## Agent direction
 

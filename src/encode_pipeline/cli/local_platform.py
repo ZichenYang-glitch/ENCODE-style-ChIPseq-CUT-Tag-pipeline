@@ -895,9 +895,12 @@ class PlatformSupervisor:
         )
 
     def _wait_backend_ready(self) -> None:
+        # The session-state route is public by contract; workflow routes now
+        # require an authenticated member and cannot prove liveness.
         _wait_until(
             lambda: _http_ready(
-                f"http://{self.config.api_host}:{self.config.api_port}/api/v1/workflows/"
+                f"http://{self.config.api_host}:{self.config.api_port}"
+                "/api/v1/auth/session"
             ),
             self.config.readiness_timeout,
             "FastAPI",

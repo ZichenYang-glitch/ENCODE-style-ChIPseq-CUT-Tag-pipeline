@@ -11,12 +11,13 @@ import pytest
 import httpx
 from sqlalchemy import delete, update
 
-from api_test_client import ApiTestClient
+from api_test_client import ApiTestClient, seeded_auth_async_client
 from encode_pipeline.api.main import create_app
 from encode_pipeline.api.routes.runs import list_runs
 from encode_pipeline.persistence.models import RunRow
 from encode_pipeline.platform.runs import RunRecord, RunStatus
 from encode_pipeline.services.run_repositories import RunEventDraft
+from conftest import seed_test_authentication
 
 
 NOW = datetime(2026, 7, 14, 8, 0, tzinfo=timezone.utc)
@@ -25,6 +26,7 @@ NOW = datetime(2026, 7, 14, 8, 0, tzinfo=timezone.utc)
 @pytest.fixture
 def client():
     app = create_app()
+    seed_test_authentication(app)
     with ApiTestClient(app) as test_client:
         yield test_client
 
@@ -267,7 +269,8 @@ def test_unexpected_failure_uses_history_specific_safe_envelope(
             app=client.app,
             raise_app_exceptions=False,
         )
-        async with httpx.AsyncClient(
+        async with seeded_auth_async_client(
+            client.app,
             transport=transport,
             base_url="http://testserver",
         ) as async_client:
