@@ -8,36 +8,63 @@
 
 
 # ---------------------------------------------------------------------------
-# 1. FastQC — sentinel-based output, layout-aware input list
+# 1. FastQC — stage/read-aware reports + compatibility sentinel
 # ---------------------------------------------------------------------------
 
 
-def _fastqc_inputs(wildcards):
-    """Return [fq1] for SE, [fq1, fq2] for PE.  Never returns empty string."""
+def _fastqc_stage_input(wildcards):
+    """Resolve one raw or trimmed FASTQ for a stage/read FastQC job."""
     s = SAMPLE_MAP[wildcards.sample]
-    if s["layout"] == "PE" and s.get("fq2"):
-        return [s["fq1"], s["fq2"]]
-    return [s["fq1"]]
+    if wildcards.read == "R2" and not (s["layout"] == "PE" and s.get("fq2")):
+        raise ValueError(f"Sample {wildcards.sample!r} has no R2 FASTQ")
+
+    if wildcards.stage == "raw":
+        return s["fq2"] if wildcards.read == "R2" else s["fq1"]
+    if wildcards.stage == "trimmed":
+        suffix = "R2_val_2" if wildcards.read == "R2" else "R1_val_1"
+        return f"{OUTDIR}/{wildcards.sample}/00_raw/{wildcards.sample}_{suffix}.fq.gz"
+    raise ValueError(f"Unsupported FastQC stage: {wildcards.stage!r}")
 
 
-rule fastqc:
+rule fastqc_stage:
     input:
-        lambda wc: _fastqc_inputs(wc),
+        fastq=_fastqc_stage_input,
     output:
-        done=f"{OUTDIR}/{{sample}}/logs/{{sample}}.fastqc.done",
+        html=f"{OUTDIR}/{{sample}}/01_qc/fastqc/{{stage}}/{{sample}}.{{stage}}.{{read}}_fastqc.html",
+        zip=f"{OUTDIR}/{{sample}}/01_qc/fastqc/{{stage}}/{{sample}}.{{stage}}.{{read}}_fastqc.zip",
+    wildcard_constraints:
+        stage="raw|trimmed",
+        read="R1|R2",
     conda:
         "../envs/fastqc.yml"
     threads: THREADS
     params:
-        qcdir=lambda wc: f"{OUTDIR}/{wc.sample}/01_qc",
+        stem=lambda wc: f"{wc.sample}.{wc.stage}.{wc.read}",
+        fastq_name=lambda wc: f"{wc.sample}.{wc.stage}.{wc.read}.fastq.gz",
         extra=_tool_param("fastqc", "extra_args", ""),
     shell:
         """
         set -e -o pipefail
-        mkdir -p {params.qcdir}
-        set -- {input:q}
-        fastqc -t {threads} -o {params.qcdir:q} {params.extra} "$@"
-        touch {output.done}
+        TMPD=$(mktemp -d)
+        trap 'rm -rf "$TMPD"' EXIT
+        mkdir -p "$(dirname {output.html:q})"
+        ln -s "$(readlink -f {input.fastq:q})" "$TMPD"/{params.fastq_name:q}
+        fastqc -t {threads} -o "$TMPD" {params.extra} "$TMPD"/{params.fastq_name:q}
+        mv "$TMPD"/{params.stem:q}_fastqc.html {output.html:q}
+        mv "$TMPD"/{params.stem:q}_fastqc.zip {output.zip:q}
+        """
+
+
+rule fastqc:
+    input:
+        _fastqc_report_targets,
+    output:
+        done=f"{OUTDIR}/{{sample}}/logs/{{sample}}.fastqc.done",
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output.done:q})"
+        touch {output.done:q}
         """
 
 

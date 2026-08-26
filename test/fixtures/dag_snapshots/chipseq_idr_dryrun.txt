@@ -8,6 +8,7 @@ bamcoverage
 bowtie2_align
 duplicate_handling
 fastqc
+fastqc_stage
 idr_pooled_pseudoreps
 idr_self_pseudoreps
 idr_true_replicates

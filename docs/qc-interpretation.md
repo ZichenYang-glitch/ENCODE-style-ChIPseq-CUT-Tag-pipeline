@@ -7,11 +7,28 @@ library complexity, sequencing depth, and biological context.
 
 ## FastQC / Trim Galore
 
-**Outputs:** `fastqc/` directory (HTML + zip per FASTQ), `*_trimming_report.txt`
+**Outputs:**
+`results/<sample>/01_qc/fastqc/raw/<sample>.raw.R{1,2}_fastqc.{html,zip}`,
+conditional
+`results/<sample>/01_qc/fastqc/trimmed/<sample>.trimmed.R{1,2}_fastqc.{html,zip}`,
+and `*_trimming_report.txt`
 
 FastQC reports per-base quality, GC content, adapter contamination, k-mer
 over-representation, and sequence duplication levels. Trim Galore reports
 record adapter trimming and quality filtering statistics.
+
+The raw stage always scans the real input FASTQ. The trimmed stage scans the
+real Trim Galore output only when `trim: true`; when trimming is disabled, the
+workflow does not rescan the alignment-input symlink. Paired-end samples retain
+separate R1 and R2 rows, while single-end samples have R1 only. FASTQ-based
+control samples follow the same rules, and an external control BAM has no
+FastQC stage.
+
+There is deliberately no filtered FastQC section. Filtering in this workflow
+operates on BAM alignments (MAPQ/flags, duplicate policy, and optional
+blacklist handling) and does not create a filtered FASTQ. MultiQC therefore
+uses separate **Samtools (aligned, pre-filter)** and **Samtools (final
+alignment)** sections to show the relevant before/after alignment counts.
 
 **Interpretation:**
 - **Per-base quality:** trailing bases with Q < 20-25 are expected and handled
@@ -37,7 +54,9 @@ record adapter trimming and quality filtering statistics.
   50% warrant investigation of reference genome mismatch, contamination, or
   low library quality.
 - **MAPQ filtering:** the pipeline filters to MAPQ >= 30 by default
-  (configurable via `mapq`). Final flagstat shows post-filter read counts.
+  (configurable via `mapq`). In MultiQC, the pre-filter Samtools instance shows
+  the initial sorted-BAM flagstat and idxstats; the final instance shows
+  post-filter and assay-specific duplicate-handling counts.
 - **idxstats:** per-chromosome mapping. Expect uniform coverage across
   chromosomes proportional to chromosome size. Spikes in mitochondrial DNA
   (chrM) or unplaced contigs may occur and are generally not problematic for

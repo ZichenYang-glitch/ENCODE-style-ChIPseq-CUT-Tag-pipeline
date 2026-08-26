@@ -8,6 +8,7 @@ bamcoverage
 bowtie2_align
 duplicate_handling
 fastqc
+fastqc_stage
 macs3_callpeak
 pipeline_done
 samtools_filter
