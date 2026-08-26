@@ -742,6 +742,16 @@ jobs:
           cache-environment: true
           cache-environment-key: chipseq-${{ runner.os }}-${{ hashFiles('workflow/envs/chipseq.lock') }}
 
+      - name: Setup MultiQC toolchain
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/multiqc.lock
+          environment-name: chipseq-multiqc
+          init-shell: none
+          generate-run-shell: false
+          cache-environment: true
+          cache-environment-key: chipseq-multiqc-${{ runner.os }}-${{ hashFiles('workflow/envs/multiqc.lock') }}
+
       - name: Scientific real-execution suite
         shell: micromamba-shell {0}
         env:
@@ -749,6 +759,9 @@ jobs:
         run: |
           export SNAKEMAKE="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/snakemake"
           export SAMTOOLS="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/samtools"
+          export FASTQC="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/fastqc"
+          export TRIM_GALORE="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/trim_galore"
+          export MULTIQC="$MAMBA_ROOT_PREFIX/envs/chipseq-multiqc/bin/multiqc"
           micromamba run -n ci-fast \
             python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
             -m real_execution test/real_execution -ra \

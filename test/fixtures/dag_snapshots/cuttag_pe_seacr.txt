@@ -9,6 +9,7 @@ bowtie2_align
 cuttag_fragment_size
 duplicate_handling
 fastqc
+fastqc_stage
 macs3_callpeak
 pipeline_done
 samtools_filter

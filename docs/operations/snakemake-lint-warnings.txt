@@ -106,7 +106,7 @@ Lints for snakefile workflow/rules/report.smk:
       Also see:
       https://snakemake.readthedocs.io/en/latest/snakefiles/modularization.html#includes
 
-Lints for rule fastqc (line 23, workflow/rules/common.smk):
+Lints for rule fastqc_stage (line 29, workflow/rules/common.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -115,7 +115,22 @@ Lints for rule fastqc (line 23, workflow/rules/common.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule trim_galore (line 57, workflow/rules/common.smk):
+Lints for rule fastqc (line 58, workflow/rules/common.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+    * Specify a conda environment or container for each rule.:
+      This way, the used software for each specific step is documented, and the
+      workflow can be executed on any machine without prerequisites.
+      Also see:
+      https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#integrated-package-management
+      https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#running-jobs-in-containers
+
+Lints for rule trim_galore (line 84, workflow/rules/common.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -124,7 +139,7 @@ Lints for rule trim_galore (line 57, workflow/rules/common.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule samtools_index_sorted (line 169, workflow/rules/common.smk):
+Lints for rule samtools_index_sorted (line 196, workflow/rules/common.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -133,7 +148,7 @@ Lints for rule samtools_index_sorted (line 169, workflow/rules/common.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule samtools_filter (line 186, workflow/rules/common.smk):
+Lints for rule samtools_filter (line 213, workflow/rules/common.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -142,7 +157,7 @@ Lints for rule samtools_filter (line 186, workflow/rules/common.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule samtools_index_filt (line 210, workflow/rules/common.smk):
+Lints for rule samtools_index_filt (line 237, workflow/rules/common.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -151,7 +166,7 @@ Lints for rule samtools_index_filt (line 210, workflow/rules/common.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule duplicate_handling (line 227, workflow/rules/common.smk):
+Lints for rule duplicate_handling (line 254, workflow/rules/common.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -160,7 +175,7 @@ Lints for rule duplicate_handling (line 227, workflow/rules/common.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule samtools_flagstat (line 294, workflow/rules/common.smk):
+Lints for rule samtools_flagstat (line 321, workflow/rules/common.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -169,7 +184,7 @@ Lints for rule samtools_flagstat (line 294, workflow/rules/common.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule samtools_flagstat_final (line 311, workflow/rules/common.smk):
+Lints for rule samtools_flagstat_final (line 338, workflow/rules/common.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -178,7 +193,7 @@ Lints for rule samtools_flagstat_final (line 311, workflow/rules/common.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule samtools_idxstats (line 328, workflow/rules/common.smk):
+Lints for rule samtools_idxstats (line 355, workflow/rules/common.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -502,7 +517,7 @@ Lints for rule pipeline_done (line 20, workflow/rules/report.smk):
       https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#integrated-package-management
       https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#running-jobs-in-containers
 
-Lints for rule cross_correlation_summary (line 119, workflow/rules/report.smk):
+Lints for rule cross_correlation_summary (line 120, workflow/rules/report.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -511,7 +526,7 @@ Lints for rule cross_correlation_summary (line 119, workflow/rules/report.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule multiqc (line 141, workflow/rules/report.smk):
+Lints for rule multiqc (line 142, workflow/rules/report.smk):
     * Param multiqc_dir is a prefix of input or output file but hardcoded:
       If this is meant to represent a file path prefix, it will fail when
       running workflow in environments without a shared filesystem. Instead,
@@ -521,7 +536,7 @@ Lints for rule multiqc (line 141, workflow/rules/report.smk):
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
       https://snakemake.readthedocs.io/en/stable/tutorial/advanced.html#tutorial-input-functions
 
-Lints for rule result_manifest (line 207, workflow/rules/report.smk):
+Lints for rule result_manifest (line 211, workflow/rules/report.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.

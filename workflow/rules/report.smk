@@ -27,6 +27,7 @@ rule pipeline_done:
             if _is_not_mnase(wc) else []
         ),
         fastqc   = f"{OUTDIR}/{{sample}}/logs/{{sample}}.fastqc.done",
+        fastqc_reports = _fastqc_report_targets,
         trim     = f"{OUTDIR}/{{sample}}/logs/{{sample}}.trim.done",
         bai      = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam.bai",
         flagstat = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.flagstat.txt",
@@ -151,6 +152,9 @@ if MULTIQC:
              for sid in CONTROL_SAMPLE_IDS] if USE_CONTROL else [],
             [f"{OUTDIR}/{sid}/logs/{sid}.fastqc.done"
              for sid in CONTROL_SAMPLE_IDS] if USE_CONTROL else [],
+            # Concrete reports close incremental rebuilds even when an older
+            # aggregate sentinel or pipeline.done already exists.
+            _fastqc_reports_for_samples(ACTIVE_SAMPLE_IDS),
             [f"{OUTDIR}/{sid}/01_qc/{sid}.flagstat.txt"
              for sid in CONTROL_SAMPLE_IDS] if USE_CONTROL else [],
             [f"{OUTDIR}/{sid}/01_qc/{sid}.final.flagstat.txt"

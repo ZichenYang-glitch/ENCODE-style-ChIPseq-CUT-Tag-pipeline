@@ -3,6 +3,29 @@
 # ---------------------------------------------------------------------------
 
 
+def _fastqc_report_paths(sample):
+    """Return concrete raw/trimmed FastQC reports for one FASTQ sample."""
+    s = SAMPLE_MAP[sample]
+    reads = ["R1", "R2"] if s["layout"] == "PE" and s.get("fq2") else ["R1"]
+    stages = ["raw", "trimmed"] if TRIM == "true" else ["raw"]
+    return [
+        f"{OUTDIR}/{sample}/01_qc/fastqc/{stage}/" f"{sample}.{stage}.{read}_fastqc.{extension}"
+        for stage in stages
+        for read in reads
+        for extension in ("html", "zip")
+    ]
+
+
+def _fastqc_report_targets(wildcards):
+    """Snakemake input-function wrapper for a sample wildcard."""
+    return _fastqc_report_paths(wildcards.sample)
+
+
+def _fastqc_reports_for_samples(sample_ids):
+    """Flatten concrete FastQC reports across active FASTQ samples."""
+    return [path for sample in sample_ids for path in _fastqc_report_paths(sample)]
+
+
 def _base_targets():
     """Core pipeline outputs: done markers, CPM BigWig, peaks, MultiQC."""
     targets = []
@@ -16,6 +39,9 @@ def _base_targets():
         outdir=OUTDIR,
         sample=ACTIVE_SAMPLE_IDS,
     )
+    # Keep individual FastQC reports in the default DAG closure so deleting a
+    # report rebuilds it even when compatibility sentinels already exist.
+    targets += _fastqc_reports_for_samples(ACTIVE_SAMPLE_IDS)
     targets += expand(
         "{outdir}/{sample}/04_peaks/{sample}",
         outdir=OUTDIR,

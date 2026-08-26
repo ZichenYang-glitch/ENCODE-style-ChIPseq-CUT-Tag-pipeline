@@ -14,7 +14,7 @@ gating. This page is the maintained configuration reference; the
 | `mapq` | `30` | integer >= 0 | Minimum MAPQ for samtools filtering. |
 | `binsize` | `10` | positive integer | Bin size in bp for bamCoverage BigWig. |
 | `remove_dup` | `"auto"` | `"auto"`, `"yes"`, `"no"` | Duplicate removal mode. See below. |
-| `trim` | `true` | boolean | Enable Trim Galore adapter/quality trimming. |
+| `trim` | `true` | boolean | Enable Trim Galore adapter/quality trimming and trimmed-read FastQC. Raw-input FastQC always runs. |
 | `extend_reads` | `"auto"` | `"auto"`, `"yes"`, `"no"` | Extend SE reads to fragment size. |
 | `use_control` | `false` | boolean | Enable control sample resolution. |
 | `multiqc` | `true` | boolean | Enable MultiQC report aggregation. |
@@ -76,6 +76,14 @@ When `true`, treatment rows may reference a control via `control_sample`
 
 When `true`, MultiQC aggregates QC artifacts from all active samples into
 `results/multiqc/multiqc_report.html`.
+
+FastQC is reported in native `FastQC (raw input)` and, when `trim: true`,
+`FastQC (trimmed reads)` sections. PE samples keep R1/R2 identities and SE
+samples have R1 only. `trim: false` does not rescan the alignment-input
+symlink. No filtered FastQC section is created because filtering produces BAM,
+not FASTQ; native `Samtools (aligned, pre-filter)` and `Samtools (final
+alignment)` sections report that transition instead. These behaviors require
+no additional configuration keys.
 
 MultiQC runs in `workflow/envs/multiqc.yml` when Snakemake is invoked with
 `--use-conda`, keeping reporting dependencies out of the core runtime.

@@ -8,6 +8,7 @@ bamcoverage
 bowtie2_align
 duplicate_handling
 fastqc
+fastqc_stage
 merge_biorep_bam
 mnase_dyad_bigwig
 mnase_mono_bigwig
