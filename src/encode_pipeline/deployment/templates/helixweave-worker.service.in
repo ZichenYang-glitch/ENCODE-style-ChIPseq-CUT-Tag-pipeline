@@ -11,6 +11,7 @@ Group=helixweave
 UMask=0007
 WorkingDirectory=/var/lib/helixweave
 Environment=PYTHONNOUSERSITE=1
+EnvironmentFile=-/etc/helixweave/notifications.env
 ExecStart=/usr/libexec/helixweave-active-service worker
 Restart=on-failure
 RestartSec=2s
@@ -29,6 +30,7 @@ ProtectKernelTunables=yes
 ProtectSystem=strict
 ReadWritePaths=/var/lib/helixweave/database/live /var/lib/helixweave/workspaces /var/lib/helixweave/artifacts
 InaccessiblePaths=/etc/helixweave/secrets.env /var/lib/helixweave/operator /run/helixweave/services
+InaccessiblePaths=/etc/helixweave/notifications.env
 RemoveIPC=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictRealtime=yes

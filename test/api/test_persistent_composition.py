@@ -7,6 +7,7 @@ import asyncio
 import pytest
 
 from api_test_client import ApiTestClient
+from encode_pipeline.api import main as api_main
 from encode_pipeline.api.main import create_app
 from encode_pipeline.persistence import RunPersistence, SqlAlchemyRunRepository
 from encode_pipeline.platform.adapters import WorkflowInputs
@@ -171,7 +172,22 @@ def test_validated_snapshot_survives_restart_and_replays_canonical_run(
     _close_app(third_app)
 
 
-def test_api_restart_fails_api_owned_validation_with_public_safe_failure(tmp_path):
+def test_api_restart_fails_api_owned_validation_with_public_safe_failure(
+    tmp_path,
+    monkeypatch,
+):
+    notification_calls = []
+
+    class Notifier:
+        def notify_terminal_run(self, run_id, status, *, include_qc=False):
+            notification_calls.append((run_id, status, include_qc))
+
+    notifier = Notifier()
+    monkeypatch.setattr(
+        api_main,
+        "compose_terminal_run_notifier",
+        lambda **_kwargs: notifier,
+    )
     database_url = _database_url(tmp_path)
     first_app = create_app(database_url=database_url)
     seed_test_authentication(first_app)
@@ -208,6 +224,7 @@ def test_api_restart_fails_api_owned_validation_with_public_safe_failure(tmp_pat
         "reason_code": "API_RESTART_INTERRUPTED",
     }
     assert "private/input.tsv" not in str(recovery_event)
+    assert notification_calls == [(created.run_id, RunStatus.FAILED, False)]
     restarted_app.state.persistence.close()
 
 

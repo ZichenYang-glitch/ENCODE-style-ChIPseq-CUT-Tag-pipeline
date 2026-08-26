@@ -169,6 +169,7 @@ class RunRepository(Protocol):
         record: RunRecord,
         event: RunEventDraft,
         *,
+        requested_by_user_id: str | None = None,
         security_audit: SecurityAuditEvent | None = None,
     ) -> RunEvent: ...
 
@@ -210,10 +211,13 @@ class RunRepository(Protocol):
         record: RunRecord,
         consumed_at: datetime,
         event: RunEventDraft,
+        requested_by_user_id: str | None = None,
         security_audit: SecurityAuditEvent | None = None,
     ) -> ValidatedSnapshotRunCreation: ...
 
     def get_run(self, run_id: str) -> RunRecord: ...
+
+    def get_run_requester_user_id(self, run_id: str) -> str | None: ...
 
     def get_run_data_binding(self, run_id: str) -> ProjectSampleBinding: ...
 
@@ -406,6 +410,14 @@ class RunRepository(Protocol):
         limit: int | None = None,
     ) -> tuple[str | None, tuple[RunQcMetric, ...]]: ...
 
+    def list_qc_metrics_for_terminal_notification(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str,
+        limit: int,
+    ) -> tuple[int, tuple[RunQcMetric, ...]]: ...
+
     def record_qc_metrics_failure(
         self,
         run_id: str,
@@ -545,6 +557,7 @@ class InMemoryRunRepository:
         self._input_registry_repository = input_registry_repository
         self._reference_profile_repository = reference_profile_repository
         self._runs: dict[str, RunRecord] = {}
+        self._run_requester_user_ids: dict[str, str | None] = {}
         self._events: dict[str, list[RunEvent]] = {}
         self._logs: dict[str, dict[str, list[RunLogChunk]]] = {}
         self._artifacts: dict[str, dict[str, RunArtifactRef]] = {}
@@ -577,6 +590,7 @@ class InMemoryRunRepository:
         record: RunRecord,
         event: RunEventDraft,
         *,
+        requested_by_user_id: str | None = None,
         security_audit: SecurityAuditEvent | None = None,
     ) -> RunEvent:
         with self._lock:
@@ -595,6 +609,7 @@ class InMemoryRunRepository:
                 workflow_inputs_digest=stored_binding.workflow_inputs_digest,
             )
             self._runs[record.run_id] = record
+            self._run_requester_user_ids[record.run_id] = requested_by_user_id
             self._run_data_bindings[record.run_id] = stored_binding
             self._run_input_use_bindings[record.run_id] = _input_binding_copy(
                 input_binding
@@ -827,6 +842,7 @@ class InMemoryRunRepository:
         record: RunRecord,
         consumed_at: datetime,
         event: RunEventDraft,
+        requested_by_user_id: str | None = None,
         security_audit: SecurityAuditEvent | None = None,
     ) -> ValidatedSnapshotRunCreation:
         with self._lock:
@@ -922,6 +938,7 @@ class InMemoryRunRepository:
             run_binding = _data_binding_copy(snapshot_binding)
             run_input_binding = _input_binding_copy(snapshot_input_binding)
             self._runs[record.run_id] = record
+            self._run_requester_user_ids[record.run_id] = requested_by_user_id
             self._run_data_bindings[record.run_id] = run_binding
             self._run_input_use_bindings[record.run_id] = run_input_binding
             if snapshot_reference_binding is not None:
@@ -941,6 +958,12 @@ class InMemoryRunRepository:
     def get_run(self, run_id: str) -> RunRecord:
         with self._lock:
             return self._runs[run_id]
+
+    def get_run_requester_user_id(self, run_id: str) -> str | None:
+        with self._lock:
+            if run_id not in self._runs:
+                raise KeyError(run_id)
+            return self._run_requester_user_ids.get(run_id)
 
     def get_run_data_binding(self, run_id: str) -> ProjectSampleBinding:
         with self._lock:
@@ -1749,6 +1772,40 @@ class InMemoryRunRepository:
                 )
                 selected.append(metric)
             return state.qc_generation, tuple(selected)
+
+    def list_qc_metrics_for_terminal_notification(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str,
+        limit: int,
+    ) -> tuple[int, tuple[RunQcMetric, ...]]:
+        validate_qc_generation(expected_generation)
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+            raise ValueError("limit must be positive")
+        with self._lock:
+            self._runs[run_id]
+            state = self._result_states[run_id]
+            if (
+                state.qc_generation != expected_generation
+                or state.qc_outcome != "succeeded"
+            ):
+                raise ResultGenerationChangedError("QC generation changed")
+            metrics = tuple(self._qc_metrics[run_id].values())
+            flag_order = {"fail": 0, "warning": 1, "pass": 2, None: 3}
+            scope_order = {"run": 0, "experiment": 1, "sample": 2}
+            ordered = sorted(
+                metrics,
+                key=lambda metric: (
+                    flag_order[metric.qc_flag],
+                    scope_order[metric.scope],
+                    metric.experiment_id or metric.sample_id or "",
+                    metric.display_name.casefold(),
+                    metric.metric_key,
+                    metric.metric_id,
+                ),
+            )
+            return len(ordered), tuple(ordered[:limit])
 
     def record_qc_metrics_failure(
         self,

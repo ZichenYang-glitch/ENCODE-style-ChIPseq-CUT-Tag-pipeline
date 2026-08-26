@@ -141,6 +141,41 @@ def test_save_account_persists_state_and_requires_existing_account(
         repository.save_account(_account(user_id=UNKNOWN_USER_ID))
 
 
+def test_private_notification_state_round_trips_and_is_not_unique(repository) -> None:
+    repository.create_account(_account())
+    repository.create_account(_account(user_id=OTHER_USER_ID, username="bob"))
+
+    addressed = repository.set_notification_email(
+        USER_ID,
+        "Alice@Example.ORG",
+        LATER,
+    )
+    repository.set_notification_email(
+        OTHER_USER_ID,
+        "alice@example.org",
+        LATER,
+    )
+    opted_out = repository.set_terminal_email_enabled(USER_ID, False, LATEST)
+
+    assert addressed.notification_email == "alice@example.org"
+    assert opted_out.notification_email == "alice@example.org"
+    assert opted_out.terminal_email_enabled is False
+    assert repository.get_account_by_id(USER_ID) == opted_out
+    assert repository.get_account_by_id(OTHER_USER_ID).notification_email == (
+        "alice@example.org"
+    )
+
+    cleared = repository.set_notification_email(USER_ID, None, LATEST)
+    assert cleared.notification_email is None
+    assert cleared.terminal_email_enabled is False
+    with pytest.raises(KeyError):
+        repository.set_notification_email(
+            UNKNOWN_USER_ID,
+            "unknown@example.org",
+            LATEST,
+        )
+
+
 def test_create_account_rejects_duplicate_identity_and_username(repository) -> None:
     repository.create_account(_account())
     with pytest.raises(AuthenticationAccountConflictError):

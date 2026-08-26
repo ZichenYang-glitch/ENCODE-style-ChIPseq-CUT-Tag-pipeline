@@ -13,7 +13,11 @@ from encode_pipeline.persistence import (
     create_session_factory,
 )
 from encode_pipeline.platform.security_audit import AuditAction, AuditActorKind
-from encode_pipeline.services.authentication_service import AuthenticationService
+from encode_pipeline.services.authentication_service import (
+    AccountAdministrationService,
+    AuthenticationActor,
+    AuthenticationService,
+)
 
 
 def _database_url(tmp_path) -> str:
@@ -237,3 +241,68 @@ def test_account_list_emits_only_safe_summaries(tmp_path, capsys) -> None:
     assert [account["username"] for account in payload] == ["root-admin"]
     assert "password_hash" not in output
     assert "initial password phrase" not in output
+
+
+def test_operator_sets_and_clears_private_member_notification_address(
+    tmp_path,
+    capsys,
+) -> None:
+    database_url = _database_url(tmp_path)
+    admin.main(
+        [
+            "--database-url",
+            database_url,
+            "account",
+            "bootstrap",
+            "--username",
+            "root-admin",
+        ],
+        password_reader=_reader("initial password phrase"),
+    )
+    capsys.readouterr()
+    repository = _auth_repository(database_url)
+    AccountAdministrationService(repository=repository).create_member(
+        AuthenticationActor.local_operator(),
+        "lab-member",
+        "member password phrase",
+    )
+
+    address = "member@example.test"
+    assert (
+        admin.main(
+            [
+                "--database-url",
+                database_url,
+                "account",
+                "set-notification-email",
+                "--username",
+                "lab-member",
+                "--email",
+                address,
+            ]
+        )
+        == 0
+    )
+    set_output = capsys.readouterr().out
+    assert json.loads(set_output)["address_configured"] is True
+    assert address not in set_output
+    assert (
+        repository.get_account_by_username("lab-member").notification_email == address
+    )
+
+    assert (
+        admin.main(
+            [
+                "--database-url",
+                database_url,
+                "account",
+                "clear-notification-email",
+                "--username",
+                "lab-member",
+            ]
+        )
+        == 0
+    )
+    clear_output = capsys.readouterr().out
+    assert json.loads(clear_output)["address_configured"] is False
+    assert repository.get_account_by_username("lab-member").notification_email is None

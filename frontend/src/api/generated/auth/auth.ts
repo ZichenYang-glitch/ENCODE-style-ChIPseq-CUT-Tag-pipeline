@@ -14,7 +14,9 @@ import type {
   AccountStatusRequest,
   LoginRequest,
   LoginResponse,
-  SessionStateResponse
+  SessionStateResponse,
+  TerminalEmailPreferenceRequest,
+  TerminalEmailPreferenceResponse
 } from '.././models';
 
 import { fetcher } from '../../fetcher';
@@ -88,6 +90,55 @@ export const sessionState = async ( options?: RequestInit): Promise<SessionState
     method: 'GET'
 
 
+  }
+);}
+
+
+/**
+ * Return the member's address-free terminal-email preference.
+ * @summary Get Terminal Email Preference
+ */
+export const getGetTerminalEmailPreferenceUrl = () => {
+
+
+
+
+  return `/api/v1/auth/preferences/terminal-email`
+}
+
+export const getTerminalEmailPreference = async ( options?: RequestInit): Promise<TerminalEmailPreferenceResponse> => {
+
+  return fetcher<TerminalEmailPreferenceResponse>(getGetTerminalEmailPreferenceUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * Update only the member's terminal-email opt-out flag.
+ * @summary Set Terminal Email Preference
+ */
+export const getSetTerminalEmailPreferenceUrl = () => {
+
+
+
+
+  return `/api/v1/auth/preferences/terminal-email`
+}
+
+export const setTerminalEmailPreference = async (terminalEmailPreferenceRequest: TerminalEmailPreferenceRequest, options?: RequestInit): Promise<TerminalEmailPreferenceResponse> => {
+
+  return fetcher<TerminalEmailPreferenceResponse>(getSetTerminalEmailPreferenceUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      terminalEmailPreferenceRequest,)
   }
 );}
 

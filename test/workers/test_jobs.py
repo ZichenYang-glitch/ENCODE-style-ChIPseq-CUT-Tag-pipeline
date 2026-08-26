@@ -42,6 +42,7 @@ from encode_pipeline.platform.execution import RunExecutionAssignment, RunExecut
 from encode_pipeline.platform.managed_containers import (
     managed_container_endpoint_identity,
 )
+from encode_pipeline.platform.notifications import DisabledTerminalRunNotifier
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.result_generations import (
@@ -93,6 +94,7 @@ from .conftest import create_planned_run, worker_settings
 
 
 ARTIFACT_GENERATION = f"artifactgen-{'a' * 64}"
+QC_GENERATION = f"qcgen-{'b' * 64}"
 
 
 def _acquired_claim(run_id: str = "run-1") -> RunExecutionClaim:
@@ -109,6 +111,53 @@ def _acquired_claim(run_id: str = "run-1") -> RunExecutionClaim:
         ),
         acquired=True,
     )
+
+
+def _post_success_runtime(**services):
+    terminal_notifier = services.pop(
+        "terminal_notifier",
+        DisabledTerminalRunNotifier(),
+    )
+    return SimpleNamespace(
+        terminal_notifier=terminal_notifier,
+        **services,
+    )
+
+
+class _ResultStateTracker:
+    def __init__(self):
+        self.artifact_attempt_id = None
+        self.artifact_attempt_status = None
+        self.artifact_outcome = None
+        self.artifact_generation = None
+        self.qc_attempt_id = None
+        self.qc_attempt_status = None
+        self.qc_attempt_artifact_generation = None
+        self.qc_artifact_generation = None
+        self.qc_generation = None
+        self.qc_outcome = None
+
+    def complete_artifact(self, attempt_id, result, *, status="succeeded"):
+        self.artifact_attempt_id = attempt_id
+        self.artifact_attempt_status = status
+        self.artifact_outcome = status
+        if status == "succeeded":
+            self.artifact_generation = ARTIFACT_GENERATION
+        return result
+
+    def complete_qc(
+        self, attempt_id, artifact_generation, result=None, *, status="succeeded"
+    ):
+        self.qc_attempt_id = attempt_id
+        self.qc_attempt_status = status
+        self.qc_attempt_artifact_generation = artifact_generation
+        self.qc_artifact_generation = artifact_generation
+        self.qc_generation = QC_GENERATION
+        self.qc_outcome = status
+        return result
+
+    def get_result_state(self, _run_id):
+        return self
 
 
 def _verified_bulk_runtime_assets(root: Path) -> VerifiedRuntimeAssets:
@@ -1312,7 +1361,10 @@ def test_rq_worker_treats_queued_cancellation_as_clean_noop_without_process(
         persistence.close()
 
 
-def test_rq_worker_persists_nonzero_execution_failure(tmp_path, monkeypatch):
+def test_rq_worker_persists_nonzero_failure_when_notification_hits_deadline(
+    tmp_path,
+    monkeypatch,
+):
     configured = worker_settings(tmp_path)
     assignment = create_planned_run(
         configured,
@@ -1321,6 +1373,17 @@ def test_rq_worker_persists_nonzero_execution_failure(tmp_path, monkeypatch):
     )
     assert assignment is not None
     _configure_worker_environment(monkeypatch, configured)
+    notification_calls = []
+
+    class DeadlineNotifier:
+        def notify_terminal_run(self, run_id, status, *, include_qc=False):
+            notification_calls.append((run_id, status, include_qc))
+            raise WorkerHardTimeout("deadline during failed-run terminal email")
+
+    monkeypatch.setattr(
+        "encode_pipeline.workers.runtime.compose_terminal_run_notifier",
+        lambda **_kwargs: DeadlineNotifier(),
+    )
     snakemake = configured.workspace_root.parent / "test-bin" / "snakemake"
     snakemake.write_text(
         "#!/bin/sh\nprintf 'before failure\\n'\nprintf 'safe error\\n' >&2\nexit 9\n",
@@ -1337,12 +1400,19 @@ def test_rq_worker_persists_nonzero_execution_failure(tmp_path, monkeypatch):
     record, _events, persisted_assignment = _read_run(configured, "nonzero-run")
     assert job is not None
     assert job.is_failed
+    failure = job.latest_result()
+    assert failure is not None
+    assert "WorkerExecutionError" in (failure.exc_string or "")
+    assert "WorkerHardTimeout" not in (failure.exc_string or "")
     assert record.status is RunStatus.FAILED
     assert record.error is not None
     assert record.error.code == "RUN_EXECUTION_FAILED"
     assert record.error.context == {"reason_code": "LOCAL_RUN_EXECUTION_FAILED"}
     assert persisted_assignment is not None
     assert persisted_assignment.claimed_at is not None
+    assert notification_calls == [
+        (assignment.run_id, RunStatus.FAILED, False),
+    ]
 
 
 def test_rq_worker_sanitizes_unexpected_execution_exception(tmp_path, monkeypatch):
@@ -1656,7 +1726,7 @@ def test_post_success_artifact_exception_does_not_fail_execution_job():
         def record_unexpected_failure(self, run_id, *, attempt_id):
             recorded.append((run_id, attempt_id))
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
@@ -1681,7 +1751,7 @@ def test_post_success_artifact_hard_timeout_is_recorded_and_reraised():
         def record_unexpected_failure(self, run_id, *, attempt_id):
             recorded.append((run_id, attempt_id))
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
@@ -1725,7 +1795,7 @@ def test_post_success_artifact_timeout_survives_failure_callback_fault(
             validate_result_attempt_id(attempt_id)
             raise callback_error
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
@@ -1749,7 +1819,7 @@ def test_post_success_artifact_failure_callback_reraises_hard_timeout():
             validate_result_attempt_id(attempt_id)
             raise WorkerHardTimeout("deadline during artifact failure evidence")
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
@@ -1767,6 +1837,8 @@ def test_post_success_artifact_failure_callback_reraises_hard_timeout():
 
 
 def test_post_success_artifact_failure_callback_exception_remains_nonfatal():
+    notification_calls = []
+
     class Extraction:
         def extract(self, _run_id, *, attempt_id):
             validate_result_attempt_id(attempt_id)
@@ -1776,20 +1848,26 @@ def test_post_success_artifact_failure_callback_exception_remains_nonfatal():
             validate_result_attempt_id(attempt_id)
             raise RuntimeError("/private/artifact-failure-evidence")
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=Extraction(),
+        terminal_notifier=SimpleNamespace(
+            notify_terminal_run=lambda *_args, **_kwargs: notification_calls.append(
+                "notify"
+            )
+        ),
     )
 
     assert worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim()) is None
+    assert notification_calls == []
 
 
 def test_post_success_result_state_hard_timeout_stops_before_qc():
     qc_calls = []
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
@@ -1818,7 +1896,7 @@ def test_post_success_result_state_hard_timeout_stops_before_qc():
 def test_post_success_result_state_exception_stops_before_qc():
     qc_calls = []
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
@@ -1840,18 +1918,24 @@ def test_post_success_result_state_exception_stops_before_qc():
 
 
 def test_post_success_result_wrapper_hard_timeout_stops_before_qc():
+    state = _ResultStateTracker()
+
     class TimedOutArtifactResult:
         @property
         def is_failure(self):
             raise WorkerHardTimeout("deadline while reading artifact result")
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
-            extract=lambda _run_id, **_kwargs: TimedOutArtifactResult()
+            extract=lambda _run_id, attempt_id: state.complete_artifact(
+                attempt_id,
+                TimedOutArtifactResult(),
+            )
         ),
+        run_service=state,
     )
 
     with pytest.raises(
@@ -1864,23 +1948,27 @@ def test_post_success_result_wrapper_hard_timeout_stops_before_qc():
 def test_post_success_qc_receives_only_successful_complete_artifact_set():
     artifacts = (object(), object())
     calls = []
+    state = _ResultStateTracker()
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
-            extract=lambda _run_id, **_kwargs: Result.success(artifacts)
-        ),
-        run_service=SimpleNamespace(
-            get_result_state=lambda _run_id: SimpleNamespace(
-                artifact_generation=ARTIFACT_GENERATION
+            extract=lambda _run_id, attempt_id: state.complete_artifact(
+                attempt_id,
+                Result.success(artifacts),
             )
         ),
+        run_service=state,
         qc_summary_indexing_service=SimpleNamespace(
-            index=lambda run_id, values, **kwargs: calls.append(
-                (run_id, values, kwargs)
-            )
+            index=lambda run_id, values, **kwargs: (
+                calls.append((run_id, values, kwargs)),
+                state.complete_qc(
+                    kwargs["attempt_id"],
+                    kwargs["expected_artifact_generation"],
+                ),
+            )[1]
         ),
     )
 
@@ -1892,8 +1980,183 @@ def test_post_success_qc_receives_only_successful_complete_artifact_set():
     validate_result_attempt_id(calls[0][2]["attempt_id"])
 
 
+def test_success_notification_runs_only_after_qc_finalizer_returns():
+    calls = []
+    state = _ResultStateTracker()
+
+    class Notifier:
+        def notify_terminal_run(self, run_id, status, *, include_qc=False):
+            calls.append(("notify", run_id, status, include_qc))
+
+    runtime = _post_success_runtime(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id, _claim: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda _run_id, attempt_id: (
+                calls.append(("artifact",)),
+                state.complete_artifact(attempt_id, Result.success(())),
+            )[1]
+        ),
+        run_service=state,
+        qc_summary_indexing_service=SimpleNamespace(
+            index=lambda *_args, **kwargs: (
+                calls.append(("qc",)),
+                state.complete_qc(
+                    kwargs["attempt_id"],
+                    kwargs["expected_artifact_generation"],
+                ),
+            )[1]
+        ),
+        terminal_notifier=Notifier(),
+    )
+
+    worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
+
+    assert calls == [
+        ("artifact",),
+        ("qc",),
+        ("notify", "run-1", RunStatus.SUCCEEDED, True),
+    ]
+
+
+def test_artifact_failure_without_durable_outcome_skips_success_notification():
+    state = _ResultStateTracker()
+    notifications = []
+
+    def unresolved_failure(_run_id, attempt_id):
+        state.artifact_attempt_id = attempt_id
+        state.artifact_attempt_status = "pending"
+        return Result.failure(
+            [
+                Issue(
+                    code="ARTIFACT_INDEXING_FAILED",
+                    message="Artifact indexing failed.",
+                    source="test",
+                )
+            ]
+        )
+
+    runtime = _post_success_runtime(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id, _claim: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(extract=unresolved_failure),
+        run_service=state,
+        terminal_notifier=SimpleNamespace(
+            notify_terminal_run=lambda *_args, **_kwargs: notifications.append("notify")
+        ),
+    )
+
+    worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
+
+    assert notifications == []
+
+
+def test_qc_failure_without_durable_outcome_skips_success_notification():
+    state = _ResultStateTracker()
+    notifications = []
+
+    def unresolved_failure(_run_id, _artifacts, **kwargs):
+        state.qc_attempt_id = kwargs["attempt_id"]
+        state.qc_attempt_status = "pending"
+        state.qc_attempt_artifact_generation = kwargs["expected_artifact_generation"]
+        return Result.failure(
+            [
+                Issue(
+                    code="QC_INDEXING_FAILED",
+                    message="QC indexing failed.",
+                    source="test",
+                )
+            ]
+        )
+
+    runtime = _post_success_runtime(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id, _claim: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda _run_id, attempt_id: state.complete_artifact(
+                attempt_id,
+                Result.success(()),
+            )
+        ),
+        run_service=state,
+        qc_summary_indexing_service=SimpleNamespace(index=unresolved_failure),
+        terminal_notifier=SimpleNamespace(
+            notify_terminal_run=lambda *_args, **_kwargs: notifications.append("notify")
+        ),
+    )
+
+    worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
+
+    assert notifications == []
+
+
+def test_losing_success_cas_skips_result_indexing_and_notification():
+    calls = []
+    runtime = _post_success_runtime(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id, _claim: Result.success(
+                SimpleNamespace(terminal_transition_won=False)
+            )
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda *_args, **_kwargs: calls.append("artifact")
+        ),
+        terminal_notifier=SimpleNamespace(
+            notify_terminal_run=lambda *_args, **_kwargs: calls.append("notify")
+        ),
+    )
+
+    worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim())
+
+    assert calls == []
+
+
+def test_success_notification_hard_timeout_does_not_change_worker_result():
+    calls = []
+    state = _ResultStateTracker()
+
+    class Notifier:
+        def notify_terminal_run(self, _run_id, _status, *, include_qc=False):
+            assert include_qc is True
+            calls.append("notify")
+            raise WorkerHardTimeout("deadline during terminal email")
+
+    runtime = _post_success_runtime(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id, _claim: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda _run_id, attempt_id: (
+                calls.append("artifact"),
+                state.complete_artifact(
+                    attempt_id,
+                    Result.failure(
+                        [
+                            Issue(
+                                code="ARTIFACT_INDEXING_FAILED",
+                                message="Artifact indexing failed.",
+                                source="test",
+                            )
+                        ]
+                    ),
+                    status="failed",
+                ),
+            )[1]
+        ),
+        run_service=state,
+        terminal_notifier=Notifier(),
+    )
+
+    assert worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim()) is None
+    assert calls == ["artifact", "notify"]
+
+
 def test_post_success_qc_exception_is_recorded_without_failing_execution():
     recorded = []
+    state = _ResultStateTracker()
 
     class QcIndexing:
         def index(self, _run_id, _artifacts, **_kwargs):
@@ -1901,19 +2164,23 @@ def test_post_success_qc_exception_is_recorded_without_failing_execution():
 
         def record_unexpected_failure(self, run_id, **kwargs):
             recorded.append((run_id, kwargs))
+            state.complete_qc(
+                kwargs["attempt_id"],
+                kwargs["expected_artifact_generation"],
+                status="failed",
+            )
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
-            extract=lambda _run_id, **_kwargs: Result.success(())
-        ),
-        run_service=SimpleNamespace(
-            get_result_state=lambda _run_id: SimpleNamespace(
-                artifact_generation=ARTIFACT_GENERATION
+            extract=lambda _run_id, attempt_id: state.complete_artifact(
+                attempt_id,
+                Result.success(()),
             )
         ),
+        run_service=state,
         qc_summary_indexing_service=QcIndexing(),
     )
 
@@ -1927,6 +2194,7 @@ def test_post_success_qc_exception_is_recorded_without_failing_execution():
 
 def test_post_success_qc_hard_timeout_is_recorded_and_reraised():
     recorded = []
+    state = _ResultStateTracker()
 
     class QcIndexing:
         def index(self, _run_id, _artifacts, **_kwargs):
@@ -1935,18 +2203,17 @@ def test_post_success_qc_hard_timeout_is_recorded_and_reraised():
         def record_unexpected_failure(self, run_id, **kwargs):
             recorded.append((run_id, kwargs))
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
-            extract=lambda _run_id, **_kwargs: Result.success(())
-        ),
-        run_service=SimpleNamespace(
-            get_result_state=lambda _run_id: SimpleNamespace(
-                artifact_generation=ARTIFACT_GENERATION
+            extract=lambda _run_id, attempt_id: state.complete_artifact(
+                attempt_id,
+                Result.success(()),
             )
         ),
+        run_service=state,
         qc_summary_indexing_service=QcIndexing(),
     )
 
@@ -1979,6 +2246,8 @@ def test_post_success_qc_timeout_survives_failure_callback_fault(
     callback_error,
     expected_message,
 ):
+    state = _ResultStateTracker()
+
     class QcIndexing:
         def index(self, _run_id, _artifacts, **_kwargs):
             raise WorkerHardTimeout("QC indexing exceeded the RQ deadline")
@@ -1987,18 +2256,17 @@ def test_post_success_qc_timeout_survives_failure_callback_fault(
             validate_result_attempt_id(kwargs["attempt_id"])
             raise callback_error
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
-            extract=lambda _run_id, **_kwargs: Result.success(())
-        ),
-        run_service=SimpleNamespace(
-            get_result_state=lambda _run_id: SimpleNamespace(
-                artifact_generation=ARTIFACT_GENERATION
+            extract=lambda _run_id, attempt_id: state.complete_artifact(
+                attempt_id,
+                Result.success(()),
             )
         ),
+        run_service=state,
         qc_summary_indexing_service=QcIndexing(),
     )
 
@@ -2010,6 +2278,8 @@ def test_post_success_qc_timeout_survives_failure_callback_fault(
 
 
 def test_post_success_qc_failure_callback_reraises_hard_timeout():
+    state = _ResultStateTracker()
+
     class QcIndexing:
         def index(self, _run_id, _artifacts, **_kwargs):
             raise RuntimeError("/private/qc/workspace")
@@ -2018,18 +2288,17 @@ def test_post_success_qc_failure_callback_reraises_hard_timeout():
             validate_result_attempt_id(kwargs["attempt_id"])
             raise WorkerHardTimeout("deadline during QC failure evidence")
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
-            extract=lambda _run_id, **_kwargs: Result.success(())
-        ),
-        run_service=SimpleNamespace(
-            get_result_state=lambda _run_id: SimpleNamespace(
-                artifact_generation=ARTIFACT_GENERATION
+            extract=lambda _run_id, attempt_id: state.complete_artifact(
+                attempt_id,
+                Result.success(()),
             )
         ),
+        run_service=state,
         qc_summary_indexing_service=QcIndexing(),
     )
 
@@ -2044,6 +2313,9 @@ def test_post_success_qc_failure_callback_reraises_hard_timeout():
 
 
 def test_post_success_qc_failure_callback_exception_remains_nonfatal():
+    notification_calls = []
+    state = _ResultStateTracker()
+
     class QcIndexing:
         def index(self, _run_id, _artifacts, **_kwargs):
             raise RuntimeError("/private/qc/workspace")
@@ -2052,22 +2324,27 @@ def test_post_success_qc_failure_callback_exception_remains_nonfatal():
             validate_result_attempt_id(kwargs["attempt_id"])
             raise RuntimeError("/private/qc-failure-evidence")
 
-    runtime = SimpleNamespace(
+    runtime = _post_success_runtime(
         local_execution_service=SimpleNamespace(
             execute=lambda _run_id, _claim: Result.success(object())
         ),
         artifact_extraction_service=SimpleNamespace(
-            extract=lambda _run_id, **_kwargs: Result.success(())
-        ),
-        run_service=SimpleNamespace(
-            get_result_state=lambda _run_id: SimpleNamespace(
-                artifact_generation=ARTIFACT_GENERATION
+            extract=lambda _run_id, attempt_id: state.complete_artifact(
+                attempt_id,
+                Result.success(()),
             )
         ),
+        run_service=state,
         qc_summary_indexing_service=QcIndexing(),
+        terminal_notifier=SimpleNamespace(
+            notify_terminal_run=lambda *_args, **_kwargs: notification_calls.append(
+                "notify"
+            )
+        ),
     )
 
     assert worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim()) is None
+    assert notification_calls == []
 
 
 def test_failure_mapping_does_not_swallow_rq_timeout():
@@ -2161,6 +2438,44 @@ def test_worker_composition_failure_is_public_safe_and_durably_failed(
     assert "run_requeue_delivery_observed_by_worker" in {
         event.event_type for event in events
     }
+
+
+def test_invalid_enabled_notification_config_still_durably_fails_run(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    assignment = create_planned_run(
+        configured,
+        "invalid-notification-config-run",
+        assign_queue=configured.queue_name,
+    )
+    assert assignment is not None
+    prepared = _prepare_requeue(configured, assignment)
+    _configure_worker_environment(monkeypatch, configured)
+    monkeypatch.setenv("HELIXWEAVE_TERMINAL_EMAIL_ENABLED", "true")
+    monkeypatch.setattr(
+        worker_jobs,
+        "get_current_job",
+        lambda: SimpleNamespace(
+            id=prepared.job_id,
+            origin=configured.queue_name,
+        ),
+    )
+
+    with pytest.raises(worker_jobs.WorkerExecutionError) as raised:
+        worker_jobs.run_execution_job(assignment.run_id)
+
+    assert "could not be initialized" in str(raised.value)
+    record, _events, persisted_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert record.status is RunStatus.FAILED
+    assert record.error is not None
+    assert record.error.context == {"reason_code": "WORKER_INITIALIZATION_FAILED"}
+    assert persisted_assignment is not None
+    assert persisted_assignment.requeue_confirmed_at is not None
 
 
 @pytest.mark.parametrize("drift_field", ("job_id", "queue_name"))
@@ -2577,6 +2892,17 @@ def test_stopped_callback_acknowledges_user_intent_after_horse_exit(
     )
     assert assignment is not None
     _configure_worker_environment(monkeypatch, configured)
+    notification_calls = []
+
+    class Notifier:
+        def notify_terminal_run(self, run_id, status, *, include_qc=False):
+            notification_calls.append((run_id, status, include_qc))
+
+    monkeypatch.setattr(
+        worker_jobs,
+        "compose_terminal_run_notifier",
+        lambda **_kwargs: Notifier(),
+    )
     claimed = _prepare_running_assignment(configured, assignment, request_cancel=True)
     job = _execution_job(claimed)
 
@@ -2599,6 +2925,9 @@ def test_stopped_callback_acknowledges_user_intent_after_horse_exit(
     )
     assert repeated_events == events
     assert repeated_assignment == persisted
+    assert notification_calls == [
+        (assignment.run_id, RunStatus.CANCELLED, False),
+    ]
 
 
 def test_stopped_cleanup_failure_leaves_cancellation_unacknowledged(

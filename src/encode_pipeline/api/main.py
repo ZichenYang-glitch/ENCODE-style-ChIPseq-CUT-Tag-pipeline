@@ -56,6 +56,9 @@ from encode_pipeline.services.defaults import (
     create_default_workspace_planner,
     create_default_workflow_registry,
 )
+from encode_pipeline.services.terminal_notifications import (
+    compose_terminal_run_notifier,
+)
 from encode_pipeline.services.artifact_downloads import ArtifactDownloadService
 from encode_pipeline.services.artifact_publications import (
     ArtifactPublicationQueryService,
@@ -143,9 +146,23 @@ def create_app(
         registry=registry,
         project_root=resolved_project_root,
     )
+    authentication_repository = SqlAlchemyAuthenticationRepository(
+        create_session_factory(persistence.engine)
+    )
+    try:
+        terminal_notifier = compose_terminal_run_notifier(
+            environ=settings_environment,
+            run_repository=persistence.repository,
+            authentication_repository=authentication_repository,
+        )
+    except Exception:
+        persistence.close()
+        run_queue.close()
+        raise
     run_service = create_default_run_service(
         registry=registry,
         repository=persistence.repository,
+        terminal_notifier=terminal_notifier,
     )
     artifact_publication_service = ArtifactPublicationQueryService(
         repository=persistence.repository,
@@ -256,9 +273,6 @@ def create_app(
     app.state.preflight_service = preflight_service
     # Stub driver is intentionally not attached in production.
 
-    authentication_repository = SqlAlchemyAuthenticationRepository(
-        create_session_factory(persistence.engine)
-    )
     app.state.authentication_repository = authentication_repository
     app.state.authentication_service = AuthenticationService(
         repository=authentication_repository

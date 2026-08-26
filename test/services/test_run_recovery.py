@@ -87,6 +87,20 @@ class _Cleanup:
         return self.succeeds
 
 
+class _TerminalNotifier:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, RunStatus, bool]] = []
+
+    def notify_terminal_run(
+        self,
+        run_id: str,
+        status: RunStatus,
+        *,
+        include_qc: bool = False,
+    ) -> None:
+        self.calls.append((run_id, status, include_qc))
+
+
 class _CallbackQueue(_Queue):
     def __init__(
         self,
@@ -1083,6 +1097,7 @@ def test_claimed_failure_refuses_unproven_or_live_queue_evidence(
 def test_claimed_terminal_failure_cleans_then_atomically_fails_without_result_writes():
     repository, assignment = _running_repository()
     cleanup = _Cleanup()
+    notifier = _TerminalNotifier()
     initial_result_state = repository.get_result_state("run-1")
     service = RunRecoveryService(
         repository,
@@ -1090,6 +1105,7 @@ def test_claimed_terminal_failure_cleans_then_atomically_fails_without_result_wr
         cleanup=cleanup,
         cleanup_endpoint_identity=CLEANUP_ENDPOINT_IDENTITY,
         clock=lambda: NOW,
+        terminal_notifier=notifier,
     )
 
     result = service.fail_run(
@@ -1105,6 +1121,7 @@ def test_claimed_terminal_failure_cleans_then_atomically_fails_without_result_wr
     assert record.error.code == RUN_RECOVERY_FAIL_REASON_CODE
     assert cleanup.scopes == [CLEANUP_SCOPE]
     assert repository.get_result_state("run-1") == initial_result_state
+    assert notifier.calls == [("run-1", RunStatus.FAILED, False)]
     event = repository.list_events("run-1")[-1]
     assert event.event_type == RUN_RECOVERY_FAIL_EVENT
     assert event.context == {

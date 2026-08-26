@@ -40,6 +40,7 @@ from encode_pipeline.platform.runs import RunRecord, RunStatus
 from encode_pipeline.persistence.migrations import upgrade_database
 from encode_pipeline.services.run_repositories import RunEventDraft
 from encode_pipeline.services import managed_containers as managed_containers_module
+from encode_pipeline.services import terminal_notifications
 from encode_pipeline.workers import rq_queue as rq_queue_module
 from encode_pipeline.workers.settings import (
     MANAGED_DOCKER_EXECUTABLE_ENV,
@@ -53,6 +54,65 @@ from encode_pipeline.workers.settings import (
 DATABASE_URL = "sqlite:////tmp/helixweave-run-recovery-test.db"
 RUN_ID = "run_11111111111111111111111111111111"
 JOB_ID = "run-execution-" + "2" * 64
+FAKE_NOTIFICATIONS_ENV = Path("/tmp/helixweave-test-notifications.env")
+
+
+def test_mutating_admin_recovery_composes_the_terminal_notifier(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'composition.db'}"
+
+    class Notifier:
+        def notify_terminal_run(self, _run_id, _status, *, include_qc=False):
+            del include_qc
+
+    notifier = Notifier()
+    observed = []
+    notifications_environment = tmp_path / "notifications.env"
+    notifications_environment.write_text(
+        "\n".join(
+            (
+                "HELIXWEAVE_TERMINAL_EMAIL_ENABLED=true",
+                "HELIXWEAVE_TERMINAL_EMAIL_ADMIN_RECIPIENTS=admin@example.test",
+                "HELIXWEAVE_TERMINAL_EMAIL_FROM=helixweave@example.test",
+                "HELIXWEAVE_TERMINAL_EMAIL_APPLICATION_BASE_URL=https://example.test",
+                "HELIXWEAVE_SMTP_HOST=127.0.0.1",
+                "HELIXWEAVE_SMTP_PORT=2525",
+                "HELIXWEAVE_SMTP_TLS_MODE=local_plaintext",
+                "HELIXWEAVE_SMTP_TIMEOUT_SECONDS=1",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    notifications_environment.chmod(0o600)
+
+    def compose(**kwargs):
+        observed.append(kwargs)
+        return notifier
+
+    monkeypatch.setattr(
+        terminal_notifications,
+        "compose_terminal_run_notifier",
+        compose,
+    )
+
+    with admin._open_run_recovery(
+        database_url,
+        read_only=False,
+        notifications_environment_path=notifications_environment,
+    ) as recovery:
+        assert recovery._terminal_notifier is notifier
+
+    assert len(observed) == 1
+    assert set(observed[0]) == {
+        "environ",
+        "run_repository",
+        "authentication_repository",
+    }
+    assert observed[0]["environ"]["HELIXWEAVE_TERMINAL_EMAIL_ENABLED"] == "true"
+    assert observed[0]["environ"]["HELIXWEAVE_SMTP_HOST"] == "127.0.0.1"
 
 
 def _assignment(*, claimed: bool = True) -> RunExecutionAssignment:
@@ -175,7 +235,14 @@ class RecordingRecoveryService:
 
 def _factory(service, observed_urls):
     @contextmanager
-    def factory(database_url: str, *, read_only: bool, queue_name: str | None = None):
+    def factory(
+        database_url: str,
+        *,
+        read_only: bool,
+        queue_name: str | None = None,
+        notifications_environment_path: Path | None = None,
+    ):
+        del notifications_environment_path
         observed_urls.append((database_url, read_only, queue_name))
         yield service
 
@@ -187,6 +254,16 @@ def _invoke(arguments, *, service, observed_urls):
         ["--database-url", DATABASE_URL, "run", *arguments],
         run_recovery_factory=_factory(service, observed_urls),
     )
+
+
+def _disabled_notifications_environment(tmp_path: Path) -> Path:
+    path = (tmp_path / "notifications.env").resolve()
+    path.write_text(
+        "HELIXWEAVE_TERMINAL_EMAIL_ENABLED=false\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o600)
+    return path
 
 
 def _persist_real_running_run(
@@ -364,6 +441,8 @@ def test_run_mutations_require_complete_explicit_cas_identity(command, capsys) -
     error = capsys.readouterr().err
     for option in ("--expected-status", "--job-id", "--backend", "--queue-name"):
         assert option in error
+    if command == "fail":
+        assert "--notifications-env-file" in error
     assert observed_urls == []
     assert service.calls == []
 
@@ -385,6 +464,8 @@ def test_run_fail_uses_diagnosed_full_assignment_and_compact_result(capsys) -> N
                 "rq",
                 "--queue-name",
                 "encode-pipeline-demo",
+                "--notifications-env-file",
+                str(FAKE_NOTIFICATIONS_ENV),
             ],
             service=service,
             observed_urls=observed_urls,
@@ -411,6 +492,60 @@ def test_run_fail_uses_diagnosed_full_assignment_and_compact_result(capsys) -> N
         ),
     ]
     assert observed_urls == [(DATABASE_URL, False, "encode-pipeline-demo")]
+
+
+def test_run_fail_forwards_private_notification_environment_path(
+    tmp_path,
+    capsys,
+) -> None:
+    service = RecordingRecoveryService()
+    environment_path = (tmp_path / "notifications.env").resolve()
+    observed = []
+
+    @contextmanager
+    def factory(
+        database_url: str,
+        *,
+        read_only: bool,
+        queue_name: str | None = None,
+        notifications_environment_path: Path | None = None,
+    ):
+        observed.append(
+            (
+                database_url,
+                read_only,
+                queue_name,
+                notifications_environment_path,
+            )
+        )
+        yield service
+
+    exit_code = admin.main(
+        [
+            "--database-url",
+            DATABASE_URL,
+            "run",
+            "fail",
+            RUN_ID,
+            "--expected-status",
+            "running",
+            "--job-id",
+            JOB_ID,
+            "--backend",
+            "rq",
+            "--queue-name",
+            "encode-pipeline-demo",
+            "--notifications-env-file",
+            str(environment_path),
+        ],
+        run_recovery_factory=factory,
+    )
+
+    assert exit_code == 0
+    assert capsys.readouterr().err == ""
+    assert observed == [
+        (DATABASE_URL, False, "encode-pipeline-demo", environment_path),
+    ]
 
 
 def test_run_requeue_emits_only_safe_confirmation_markers(capsys) -> None:
@@ -471,6 +606,8 @@ def test_run_mutation_identity_mismatch_is_a_stable_safe_conflict(capsys) -> Non
             "rq",
             "--queue-name",
             "encode-pipeline-demo",
+            "--notifications-env-file",
+            str(FAKE_NOTIFICATIONS_ENV),
         ],
         service=service,
         observed_urls=observed_urls,
@@ -599,6 +736,7 @@ def test_real_run_cleanup_gap_refuses_fail_without_managed_cleaner(
     database_path = tmp_path / "private" / "platform.db"
     database_path.parent.mkdir()
     database_url = f"sqlite:///{database_path}"
+    notifications_environment = _disabled_notifications_environment(tmp_path)
     private_input = str(tmp_path / "private" / "sample.csv")
     private_workspace = str(tmp_path / "private" / "workspaces")
     private_redis_url = "redis://operator:secret@private-redis.invalid:6379/0"
@@ -679,6 +817,8 @@ def test_real_run_cleanup_gap_refuses_fail_without_managed_cleaner(
             "rq",
             "--queue-name",
             "encode-pipeline-demo",
+            "--notifications-env-file",
+            str(notifications_environment),
         ]
     )
 
@@ -741,6 +881,7 @@ def test_real_cli_binds_cleanup_to_durable_scope_and_endpoint(
     database_path = tmp_path / "private" / "platform.db"
     database_path.parent.mkdir()
     database_url = f"sqlite:///{database_path}"
+    notifications_environment = _disabled_notifications_environment(tmp_path)
     original_workspace = (tmp_path / "private" / "original-workspaces").resolve()
     original_executable = (tmp_path / "private" / "original" / "docker").resolve()
     original_socket = (tmp_path / "private" / "original.sock").resolve()
@@ -821,6 +962,8 @@ def test_real_cli_binds_cleanup_to_durable_scope_and_endpoint(
             "rq",
             "--queue-name",
             "encode-pipeline-demo",
+            "--notifications-env-file",
+            str(notifications_environment),
         ]
     )
     fail_output = capsys.readouterr()
@@ -869,6 +1012,7 @@ def test_real_cli_reports_configured_but_unavailable_cleaner_as_blocked(
     database_path = tmp_path / "private" / "platform.db"
     database_path.parent.mkdir()
     database_url = f"sqlite:///{database_path}"
+    notifications_environment = _disabled_notifications_environment(tmp_path)
     private_workspace = (tmp_path / "private" / "original-workspaces").resolve()
     private_executable = (tmp_path / "private" / "missing" / "docker").resolve()
     private_socket = (tmp_path / "private" / "missing.sock").resolve()
@@ -941,6 +1085,8 @@ def test_real_cli_reports_configured_but_unavailable_cleaner_as_blocked(
             "rq",
             "--queue-name",
             "encode-pipeline-demo",
+            "--notifications-env-file",
+            str(notifications_environment),
         ]
     )
     fail_output = capsys.readouterr()

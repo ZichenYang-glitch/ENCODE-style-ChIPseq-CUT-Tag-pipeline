@@ -81,6 +81,20 @@ class FakeAdapter:
         return Result.success(())
 
 
+class RecordingTerminalNotifier:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, RunStatus, bool]] = []
+
+    def notify_terminal_run(
+        self,
+        run_id: str,
+        status: RunStatus,
+        *,
+        include_qc: bool = False,
+    ) -> None:
+        self.calls.append((run_id, status, include_qc))
+
+
 def _succeed_run(service: RunService, run_id: str) -> None:
     for status in (
         RunStatus.VALIDATING,
@@ -313,6 +327,62 @@ def test_cancel_run_is_idempotent_for_terminal_run():
     assert record.status is RunStatus.FAILED
     assert record.cancellation_reason is None
     assert service.list_events("run-1") == before_events
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected_calls"),
+    (
+        ("actual_failed_winner", [("run-1", RunStatus.FAILED, False)]),
+        ("already_terminal_cancel", []),
+        ("losing_succeeded_cas", []),
+    ),
+)
+def test_terminal_notification_requires_the_actual_terminal_cas_winner(
+    scenario: str,
+    expected_calls: list[tuple[str, RunStatus, bool]],
+) -> None:
+    registry = WorkflowRegistry(adapters=[FakeAdapter()])
+    repository = InMemoryRunRepository()
+    notifier = RecordingTerminalNotifier()
+    service = RunService(
+        registry=registry,
+        id_factory=lambda: "run-1",
+        repository=repository,
+        terminal_notifier=notifier,
+    )
+    service.create_run("fake", WorkflowInputs(config={}))
+    service.transition_run("run-1", RunStatus.VALIDATING)
+
+    if scenario == "actual_failed_winner":
+        service.transition_run("run-1", RunStatus.FAILED)
+    elif scenario == "already_terminal_cancel":
+        service.transition_run("run-1", RunStatus.FAILED)
+        notifier.calls.clear()
+        service.cancel_run("run-1", reason="already terminal")
+    else:
+        for status in (
+            RunStatus.PLANNED,
+            RunStatus.QUEUED,
+            RunStatus.RUNNING,
+        ):
+            service.transition_run("run-1", status)
+        original_update = repository.update_run
+
+        def lose_success_cas(record, *, expected_status, event, **kwargs):
+            if record.status is RunStatus.SUCCEEDED:
+                raise ConcurrentRunUpdateError("success CAS lost")
+            return original_update(
+                record,
+                expected_status=expected_status,
+                event=event,
+                **kwargs,
+            )
+
+        repository.update_run = lose_success_cas  # type: ignore[method-assign]
+        with pytest.raises(ConcurrentRunUpdateError, match="success CAS lost"):
+            service.transition_run("run-1", RunStatus.SUCCEEDED)
+
+    assert notifier.calls == expected_calls
 
 
 def test_cancel_run_refuses_running_without_mutating_run_or_events():
@@ -925,7 +995,12 @@ def test_recover_interrupted_runs_preserves_quiescent_and_terminal_states():
 
 def test_recover_interrupted_runs_is_idempotent_after_terminal_transition():
     registry = WorkflowRegistry(adapters=[FakeAdapter()])
-    service = RunService(registry=registry, id_factory=lambda: "run-1")
+    notifier = RecordingTerminalNotifier()
+    service = RunService(
+        registry=registry,
+        id_factory=lambda: "run-1",
+        terminal_notifier=notifier,
+    )
     service.create_run("fake", WorkflowInputs(config={}))
     service.transition_run("run-1", RunStatus.VALIDATING)
 
@@ -936,6 +1011,7 @@ def test_recover_interrupted_runs_is_idempotent_after_terminal_transition():
     assert len(first) == 1
     assert second == ()
     assert service.list_events("run-1") == events_after_first
+    assert notifier.calls == [("run-1", RunStatus.FAILED, False)]
 
 
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"

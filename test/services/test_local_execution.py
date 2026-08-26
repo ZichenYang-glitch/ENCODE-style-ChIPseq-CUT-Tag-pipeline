@@ -220,9 +220,10 @@ def test_local_execution_rebuilds_existing_workspace_and_succeeds(tmp_path):
     result = service.execute("run-1", claim)
 
     assert result.is_success
-    assert result.value.status is RunStatus.SUCCEEDED
-    assert result.value.started_at is not None
-    assert result.value.ended_at is not None
+    assert result.value.terminal_transition_won is True
+    assert result.value.record.status is RunStatus.SUCCEEDED
+    assert result.value.record.started_at is not None
+    assert result.value.record.ended_at is not None
     assert len(runner.specs) == 1
     assert "-n" not in runner.specs[0].argv
     assert "--dry-run" not in runner.specs[0].argv
@@ -792,6 +793,8 @@ def test_local_execution_reconciles_terminal_success_commit_races(
     result = service.execute("run-1", claim)
 
     assert result.is_success is expected_success
+    if race_status is RunStatus.SUCCEEDED:
+        assert result.value.terminal_transition_won is False
     if expected_code is not None:
         assert result.errors[0].code == expected_code
 

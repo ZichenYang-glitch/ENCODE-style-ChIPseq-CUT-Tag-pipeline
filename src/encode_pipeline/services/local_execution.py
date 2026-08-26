@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -23,6 +24,14 @@ class ManagedInputVerifier(Protocol):
     """Worker-side exact managed input revalidation boundary."""
 
     def verify_run(self, run_id: str) -> Result[None]: ...
+
+
+@dataclass(frozen=True)
+class LocalExecutionOutcome:
+    """Distinguish the terminal CAS winner from an idempotent observation."""
+
+    record: RunRecord
+    terminal_transition_won: bool
 
 
 class LocalExecutionService:
@@ -71,7 +80,7 @@ class LocalExecutionService:
         self,
         run_id: str,
         claim: RunExecutionClaim,
-    ) -> Result[RunRecord]:
+    ) -> Result[LocalExecutionOutcome]:
         """Execute one claimed QUEUED run and persist its terminal outcome."""
         try:
             current = self._run_service.get_run(run_id)
@@ -170,9 +179,21 @@ class LocalExecutionService:
             if current.status is RunStatus.CANCELLED:
                 return self._cancelled_result()
             if current.status is RunStatus.SUCCEEDED:
-                return Result.success(current, issues=execution_result.issues)
+                return Result.success(
+                    LocalExecutionOutcome(
+                        record=current,
+                        terminal_transition_won=False,
+                    ),
+                    issues=execution_result.issues,
+                )
             return self._state_changed_result(current)
-        return Result.success(completed, issues=execution_result.issues)
+        return Result.success(
+            LocalExecutionOutcome(
+                record=completed,
+                terminal_transition_won=True,
+            ),
+            issues=execution_result.issues,
+        )
 
     def _rebuild_plan(self, run_id: str) -> Result["ExecutionPlan"]:
         """Rebuild the command from SQLite inputs and verify existing files."""
@@ -368,7 +389,7 @@ class LocalExecutionService:
         self,
         run_id: str,
         issues: tuple[Issue, ...] | list[Issue],
-    ) -> Result[RunRecord]:
+    ) -> Result[LocalExecutionOutcome]:
         issue_list = list(issues)
         if not issue_list:
             issue_list.append(
@@ -421,7 +442,7 @@ class LocalExecutionService:
         return Result.failure(issue_list)
 
     @staticmethod
-    def _cancelled_result() -> Result[RunRecord]:
+    def _cancelled_result() -> Result[LocalExecutionOutcome]:
         return Result.failure(
             [
                 Issue(
@@ -435,7 +456,7 @@ class LocalExecutionService:
         )
 
     @staticmethod
-    def _state_changed_result(current: RunRecord) -> Result[RunRecord]:
+    def _state_changed_result(current: RunRecord) -> Result[LocalExecutionOutcome]:
         return Result.failure(
             [
                 Issue(

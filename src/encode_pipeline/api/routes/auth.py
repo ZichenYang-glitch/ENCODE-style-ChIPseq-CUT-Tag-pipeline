@@ -6,11 +6,13 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 
 from encode_pipeline.api.dependencies import (
+    AuthApiError,
     enforce_csrf,
     get_account_administration_service,
     get_auth_cookie_policy,
     get_authentication_service,
     require_administrator,
+    require_principal,
 )
 from encode_pipeline.api.models import (
     AccountCreateRequest,
@@ -26,10 +28,13 @@ from encode_pipeline.api.models import (
     LoginResponse,
     PrincipalResponse,
     SessionStateResponse,
+    TerminalEmailPreferenceRequest,
+    TerminalEmailPreferenceResponse,
 )
 from encode_pipeline.platform.authentication import (
     AuthenticatedPrincipal,
     UserAccount,
+    UserRole,
     validate_user_id,
 )
 from encode_pipeline.services.authentication import BrowserSessionCookiePolicy
@@ -72,6 +77,15 @@ def _principal_response(principal: AuthenticatedPrincipal) -> PrincipalResponse:
 def _account_summary(account: UserAccount) -> AccountSummaryResponse:
     summary = account.to_public_summary()
     return AccountSummaryResponse(**summary)
+
+
+def _require_member(principal: AuthenticatedPrincipal) -> None:
+    if principal.role is not UserRole.MEMBER:
+        raise AuthApiError(
+            403,
+            "MEMBER_REQUIRED",
+            "Terminal email preference is available to members.",
+        )
 
 
 def _service_error_body(error: AuthenticationError) -> JSONResponse:
@@ -180,6 +194,55 @@ def session_state(
         authenticated=principal is not None,
         principal=None if principal is None else _principal_response(principal),
         issues=[],
+    )
+
+
+@router.get(
+    "/preferences/terminal-email",
+    operation_id="get_terminal_email_preference",
+    response_model=TerminalEmailPreferenceResponse,
+    responses={401: {"model": AuthErrorResponse}, 403: {"model": AuthErrorResponse}},
+)
+def get_terminal_email_preference(
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    authentication: AuthenticationService = Depends(get_authentication_service),
+) -> TerminalEmailPreferenceResponse | JSONResponse:
+    """Return the member's address-free terminal-email preference."""
+    _require_member(principal)
+    try:
+        preference = authentication.get_terminal_email_preference(principal)
+    except AuthenticationError as error:
+        return _service_error_body(error)
+    return TerminalEmailPreferenceResponse(
+        terminal_email_enabled=preference.terminal_email_enabled,
+        address_configured=preference.address_configured,
+    )
+
+
+@router.patch(
+    "/preferences/terminal-email",
+    operation_id="set_terminal_email_preference",
+    response_model=TerminalEmailPreferenceResponse,
+    dependencies=[Depends(enforce_csrf)],
+    responses={401: {"model": AuthErrorResponse}, 403: {"model": AuthErrorResponse}},
+)
+def set_terminal_email_preference(
+    payload: TerminalEmailPreferenceRequest,
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    authentication: AuthenticationService = Depends(get_authentication_service),
+) -> TerminalEmailPreferenceResponse | JSONResponse:
+    """Update only the member's terminal-email opt-out flag."""
+    _require_member(principal)
+    try:
+        preference = authentication.set_terminal_email_enabled(
+            principal,
+            payload.terminal_email_enabled,
+        )
+    except AuthenticationError as error:
+        return _service_error_body(error)
+    return TerminalEmailPreferenceResponse(
+        terminal_email_enabled=preference.terminal_email_enabled,
+        address_configured=preference.address_configured,
     )
 
 

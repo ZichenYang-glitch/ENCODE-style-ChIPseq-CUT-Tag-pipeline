@@ -102,6 +102,108 @@
         }
       }
     },
+    "/api/v1/auth/preferences/terminal-email": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Get Terminal Email Preference",
+        "description": "Return the member's address-free terminal-email preference.",
+        "operationId": "get_terminal_email_preference",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerminalEmailPreferenceResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Set Terminal Email Preference",
+        "description": "Update only the member's terminal-email opt-out flag.",
+        "operationId": "set_terminal_email_preference",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminalEmailPreferenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerminalEmailPreferenceResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/accounts": {
       "get": {
         "tags": [
@@ -4488,6 +4590,41 @@
           "issues"
         ],
         "title": "SessionStateResponse"
+      },
+      "TerminalEmailPreferenceRequest": {
+        "properties": {
+          "terminal_email_enabled": {
+            "type": "boolean",
+            "title": "Terminal Email Enabled"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "terminal_email_enabled"
+        ],
+        "title": "TerminalEmailPreferenceRequest",
+        "description": "The complete member-owned terminal-email preference mutation."
+      },
+      "TerminalEmailPreferenceResponse": {
+        "properties": {
+          "terminal_email_enabled": {
+            "type": "boolean",
+            "title": "Terminal Email Enabled"
+          },
+          "address_configured": {
+            "type": "boolean",
+            "title": "Address Configured"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "terminal_email_enabled",
+          "address_configured"
+        ],
+        "title": "TerminalEmailPreferenceResponse",
+        "description": "Address-free self projection for terminal-email preference."
       },
       "ValidatedInputSnapshotResponse": {
         "properties": {

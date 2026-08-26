@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -1130,10 +1131,19 @@ class RunRow(Base):
             "created_at",
             "run_id",
         ),
+        Index("ix_runs_requested_by_user", "requested_by_user_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    requested_by_user_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "user_accounts.user_id",
+            name="fk_runs_requester_user",
+            ondelete="RESTRICT",
+        ),
+    )
     workflow_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     inputs: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
@@ -2008,6 +2018,13 @@ class UserAccountRow(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    notification_email: Mapped[str | None] = mapped_column(String(254))
+    terminal_email_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="1",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

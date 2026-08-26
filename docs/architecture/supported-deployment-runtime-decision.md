@@ -93,6 +93,7 @@ The helper admits only these fixed roots:
   operator/                         # helper environment, updated interactively
 /etc/helixweave/
   secrets.env
+  notifications.env                 # root:root 0600; API/worker plus explicit admin fail
   reference-profiles.yaml           # external coordinates, never in manifests
 /var/lib/helixweave/
   deployment/
@@ -162,9 +163,15 @@ only the fixed task descendants named by the verified plan and preserves the
 Docker data root, images, and historical evidence.
 
 The API, scientific worker/database preparer, and candidate action/materializer
-use distinct system identities. Only the API identity can read
-`secrets.env`; the API and worker share the narrow data group needed for SQLite,
-workspaces, artifacts, and Redis. The candidate identity is not a member of that
+use distinct system identities. Only the API identity can read `secrets.env`.
+systemd reads root-owned `notifications.env` before dropping privileges for
+the API and worker; both units then hide the file, and the fixed launcher
+forwards its closed variable set only to those two commands. An explicitly
+authorized local `admin run fail` may read the same file directly for its one
+terminal mutation. Scientific child processes inherit none of the notification
+or SMTP values. The API and worker
+share the narrow data group needed for SQLite, workspaces, artifacts, and Redis.
+The candidate identity is not a member of that
 group and its units hide configuration, references, the live database, Redis,
 Docker, workspaces, artifacts, and secrets. Candidate receipts therefore
 describe candidate-native facts only; the root closure derives the observed

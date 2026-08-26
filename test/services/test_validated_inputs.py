@@ -901,17 +901,23 @@ def test_snapshot_only_creation_is_idempotent_and_reuses_canonical_inputs() -> N
         "workflow-a",
         validated.snapshot_id,
         tags={"owner": "lab"},
+        requested_by_user_id="usr_11111111111111111111111111111111",
     )
     replay = creation.create_run(
         "workflow-a",
         validated.snapshot_id,
         tags={"owner": "lab"},
+        requested_by_user_id="usr_22222222222222222222222222222222",
     )
 
     assert first.created is True
     assert replay.created is False
     assert replay.record == first.record
     assert first.record.inputs == validated.to_workflow_inputs().to_dict()
+    assert (
+        repository.get_run_requester_user_id(first.record.run_id)
+        == "usr_11111111111111111111111111111111"
+    )
     assert len(repository.list_runs()) == 1
 
 

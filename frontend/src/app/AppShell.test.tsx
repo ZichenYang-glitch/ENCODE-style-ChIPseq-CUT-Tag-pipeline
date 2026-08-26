@@ -1,9 +1,19 @@
-import { describe, expect, it } from 'vitest';
-import { screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RouteObject } from 'react-router-dom';
 import { AppShell } from './AppShell';
 import { renderWithRouter } from '../test/test-utils';
+import { fetchSessionState } from '../api/authClient';
+import {
+  getTerminalEmailPreference,
+  setTerminalEmailPreference,
+} from '../api/generated/auth/auth';
+
+vi.mock('../api/generated/auth/auth', () => ({
+  getTerminalEmailPreference: vi.fn(),
+  setTerminalEmailPreference: vi.fn(),
+}));
 
 const routes: RouteObject[] = [
   {
@@ -32,6 +42,45 @@ const routes: RouteObject[] = [
 ];
 
 describe('AppShell navigation', () => {
+  it('lets a member opt out without exposing or editing the address', async () => {
+    vi.mocked(fetchSessionState).mockResolvedValueOnce({
+      ok: true,
+      setup_required: false,
+      authenticated: true,
+      principal: {
+        user_id: 'usr_11111111111111111111111111111111',
+        username: 'lab-member',
+        role: 'member',
+      },
+    });
+    vi.mocked(getTerminalEmailPreference).mockResolvedValueOnce({
+      terminal_email_enabled: true,
+      address_configured: true,
+    });
+    vi.mocked(setTerminalEmailPreference).mockResolvedValueOnce({
+      terminal_email_enabled: false,
+      address_configured: true,
+    });
+    const user = userEvent.setup();
+
+    renderWithRouter(routes, { initialEntries: ['/runs'] });
+
+    const preference = await screen.findByRole('checkbox', {
+      name: 'Email me when my runs finish',
+    });
+    expect(preference).toBeChecked();
+    expect(screen.queryByText(/@/)).not.toBeInTheDocument();
+
+    await user.click(preference);
+
+    await waitFor(() => {
+      expect(setTerminalEmailPreference).toHaveBeenCalledWith({
+        terminal_email_enabled: false,
+      });
+      expect(preference).not.toBeChecked();
+    });
+  });
+
   it('uses the brand as a link back to the workflow catalog', async () => {
     const user = userEvent.setup();
     const { router } = renderWithRouter(routes, {

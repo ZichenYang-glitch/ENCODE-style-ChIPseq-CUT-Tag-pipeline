@@ -406,6 +406,58 @@ def test_create_member_rejects_a_duplicate_username(
     )
 
 
+def test_operator_manages_private_member_contact_and_member_controls_only_opt_out(
+    repository,
+    auth_service,
+    admin_service,
+    administrator,
+    clock,
+) -> None:
+    actor = AuthenticationActor.local_operator()
+    member = admin_service.create_member(
+        actor,
+        "lab-member",
+        "member password phrase",
+    )
+    clock.now = NOW + timedelta(minutes=1)
+    addressed = admin_service.set_notification_email_for_username(
+        "lab-member",
+        "Member@Example.ORG",
+    )
+    assert addressed.notification_email == "member@example.org"
+
+    principal = auth_principal(repository, member.user_id)
+    preference = auth_service.get_terminal_email_preference(principal)
+    assert preference.terminal_email_enabled is True
+    assert preference.address_configured is True
+    assert not hasattr(preference, "notification_email")
+
+    clock.now = NOW + timedelta(minutes=2)
+    opted_out = auth_service.set_terminal_email_enabled(principal, False)
+    assert opted_out.terminal_email_enabled is False
+    assert opted_out.address_configured is True
+    persisted = repository.get_account_by_id(member.user_id)
+    assert persisted.notification_email == "member@example.org"
+    assert persisted.terminal_email_enabled is False
+
+    clock.now = NOW + timedelta(minutes=3)
+    cleared = admin_service.set_notification_email(actor, member.user_id, None)
+    assert cleared.notification_email is None
+    assert auth_service.get_terminal_email_preference(principal).address_configured is (
+        False
+    )
+
+    _reject(
+        admin_service.set_notification_email,
+        actor,
+        administrator.user_id,
+        "admin@example.org",
+        code="OPERATION_CONFLICT",
+    )
+    with pytest.raises(ValueError, match="boolean"):
+        auth_service.set_terminal_email_enabled(principal, "false")
+
+
 def test_disable_revokes_sessions_and_the_last_administrator_is_protected(
     repository, auth_service, admin_service, administrator, clock
 ) -> None:

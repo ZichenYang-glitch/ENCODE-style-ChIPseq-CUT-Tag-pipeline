@@ -319,6 +319,7 @@ def create_run(
             workflow_id,
             request_body.snapshot_id,
             tags=request_body.tags,
+            requested_by_user_id=principal.user_id,
             security_audit_actor=principal,
         )
     except ValidatedSnapshotNotFoundError:
