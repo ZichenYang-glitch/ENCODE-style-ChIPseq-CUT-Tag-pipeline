@@ -9,8 +9,7 @@ def _fastqc_report_paths(sample):
     reads = ["R1", "R2"] if s["layout"] == "PE" and s.get("fq2") else ["R1"]
     stages = ["raw", "trimmed"] if TRIM == "true" else ["raw"]
     return [
-        f"{OUTDIR}/{sample}/01_qc/fastqc/{stage}/"
-        f"{sample}.{stage}.{read}_fastqc.{extension}"
+        f"{OUTDIR}/{sample}/01_qc/fastqc/{stage}/" f"{sample}.{stage}.{read}_fastqc.{extension}"
         for stage in stages
         for read in reads
         for extension in ("html", "zip")
