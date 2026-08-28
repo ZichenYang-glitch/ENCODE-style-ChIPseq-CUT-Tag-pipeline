@@ -317,23 +317,25 @@ async function captureQcViewport(
   await expect(page.getByTestId('qc-metric-list')).toBeVisible({
     timeout: 60_000,
   });
-  await expect(
-    page.getByRole('button', {
-      name: 'Open source artifact for Total reads',
-    }),
-  ).toBeVisible();
   if (width >= 768) {
     const totalReadsRow = page
       .getByRole('table', { name: 'Indexed run QC metrics' })
       .getByRole('row')
       .filter({ hasText: 'Total reads' });
     await expect(totalReadsRow.getByText('1000', { exact: true })).toBeVisible();
+    await expect(totalReadsRow.getByRole('button', {
+      name: 'Open source artifact for Total reads',
+    })).toBeVisible();
   } else {
     const totalReadsItem = page
       .getByRole('list', { name: 'Indexed run QC metrics' })
       .getByRole('listitem')
       .filter({ hasText: 'Total reads' });
     await expect(totalReadsItem.getByText('1000', { exact: true })).toBeVisible();
+    await totalReadsItem.getByText('Technical metadata').click();
+    await expect(totalReadsItem.getByRole('button', {
+      name: 'Open source artifact for Total reads',
+    })).toBeVisible();
   }
   await expectNoHorizontalOverflow(page);
   const listBox = await page.getByTestId('qc-metric-list').boundingBox();
@@ -438,7 +440,10 @@ test('real run exposes QC source artifact and exact download @desktop', async ({
   const referenceEvidence = page.getByTestId('run-reference-profile');
   await expect(referenceEvidence).toContainText('GRCh38 browser tiny');
   await expect(referenceEvidence).toContainText('Homo sapiens · GRCh38');
-  await expect(referenceEvidence).toContainText(/Revision 1 · [0-9a-f]{64}/);
+  await expect(referenceEvidence.getByText('1', { exact: true })).toBeVisible();
+  await expect(referenceEvidence.getByRole('button', {
+    name: /Copy full reference identity digest [0-9a-f]{64}/,
+  })).toBeVisible();
 
   await verifyRunHistoryResultLinks(page, runId);
   await captureRunHistoryViewport(

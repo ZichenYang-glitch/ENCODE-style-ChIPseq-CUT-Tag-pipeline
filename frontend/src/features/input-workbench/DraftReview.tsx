@@ -34,8 +34,8 @@ export function DraftReview({ schema, draft }: DraftReviewProps) {
       <div
         className={`flex items-start gap-2 rounded border px-3 py-2 text-sm ${
           draft.reviewReady
-            ? 'border-[var(--color-success-border)] bg-[var(--color-success-bg)] text-[var(--color-success)]'
-            : 'border-[var(--color-warning-border)] bg-[var(--color-warning-bg)] text-[var(--color-warning)]'
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+            : 'border-amber-200 bg-[var(--color-warning-bg)] text-[var(--color-warning)]'
         }`}
         role="status"
       >

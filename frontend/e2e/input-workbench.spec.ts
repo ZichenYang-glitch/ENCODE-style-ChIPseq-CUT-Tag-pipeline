@@ -374,7 +374,10 @@ test('real workbench validates a server snapshot and creates one refresh-safe pl
   const referenceEvidence = page.getByTestId('run-reference-profile');
   await expect(referenceEvidence).toContainText('mm10 browser tiny');
   await expect(referenceEvidence).toContainText('Mus musculus · mm10');
-  await expect(referenceEvidence).toContainText(/Revision 1 · [0-9a-f]{64}/);
+  await expect(referenceEvidence.getByText('1', { exact: true })).toBeVisible();
+  await expect(referenceEvidence.getByRole('button', {
+    name: /Copy full reference identity digest [0-9a-f]{64}/,
+  })).toBeVisible();
 
   await page.reload();
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));

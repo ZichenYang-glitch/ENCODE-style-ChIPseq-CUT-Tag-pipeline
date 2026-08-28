@@ -120,8 +120,7 @@ export function AppShell() {
                 to={`/workflows/${encodeURIComponent(workflowId)}/new-run`}
               >
                   <FilePenLine aria-hidden="true" size={16} />
-                  <span className="sm:hidden">New</span>
-                  <span className="hidden sm:inline">New analysis</span>
+                  New analysis
               </Link>
             )}
           </nav>
