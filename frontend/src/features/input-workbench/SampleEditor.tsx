@@ -38,7 +38,7 @@ function SampleCell({
   const value = row.values[column.key] ?? '';
   const invalid = !isSampleCellSafe(value, maxCellLength);
   const className = `w-full min-w-32 rounded border bg-white px-2 py-1.5 text-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] ${
-    invalid ? 'border-red-400' : 'border-[var(--color-border)]'
+    invalid ? 'border-[var(--color-error)]' : 'border-[var(--color-border)]'
   }`;
   if (readOnly) {
     return (
@@ -234,7 +234,7 @@ export function SampleEditor({ schema, draft }: SampleEditorProps) {
       </div>
       {draft.state.sampleImportIssue && (
         <p
-          className="rounded border border-red-200 bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)]"
+          className="rounded-[4px] border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)]"
           role="alert"
         >
           {draft.state.sampleImportIssue.message}
@@ -255,7 +255,7 @@ export function SampleEditor({ schema, draft }: SampleEditorProps) {
         <p
           id="sample-transport-issue"
           data-testid="sample-transport-issue"
-          className="rounded border border-red-200 bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)]"
+          className="rounded-[4px] border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)]"
           role="alert"
         >
           {draft.sampleTransportIssue.message} Row {draft.sampleTransportIssue.row}.

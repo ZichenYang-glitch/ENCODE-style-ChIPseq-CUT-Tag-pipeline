@@ -34,7 +34,7 @@ export function ReferenceProfileSelector({
         <label className="min-w-0 flex-1 text-xs font-medium text-[var(--color-text-muted)]">
           Reference profile
           <select
-            className="mt-1 block w-full max-w-xl rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-2 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-1 block h-11 w-full max-w-xl rounded-[4px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-sm text-[var(--color-text)] outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:h-9"
             value={selectedRevisionId ?? ''}
             disabled={loading || profiles === null || empty}
             onChange={(event) => onSelect(event.target.value || null)}
@@ -50,7 +50,7 @@ export function ReferenceProfileSelector({
         </label>
         <Button
           type="button"
-          variant="secondary"
+          variant="quiet"
           className="gap-1.5 self-start sm:self-auto"
           disabled={refreshing}
           onClick={onRefresh}

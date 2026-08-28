@@ -41,12 +41,12 @@ export function NewRunWorkbenchPage({ workflowId }: NewRunWorkbenchPageProps) {
     return (
       <section
         data-testid="input-workbench-loading"
-        className="min-h-[38rem] min-w-0 flex-1 animate-pulse rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+        className="min-h-64 min-w-0 flex-1 animate-pulse rounded-[6px] border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
         aria-label="Loading input workbench"
       >
-        <div className="h-5 w-48 rounded bg-slate-200" />
-        <div className="mt-4 h-10 rounded bg-slate-100" />
-        <div className="mt-4 h-96 rounded bg-slate-100" />
+        <div className="h-5 w-48 rounded-[4px] bg-[var(--color-skeleton)]" />
+        <div className="mt-4 h-10 rounded-[4px] bg-[var(--color-skeleton)]" />
+        <div className="mt-4 h-64 rounded-[4px] bg-[var(--color-skeleton)]" />
       </section>
     );
   }
@@ -84,6 +84,7 @@ export function NewRunWorkbenchPage({ workflowId }: NewRunWorkbenchPageProps) {
     <InputWorkbench
       key={`${workflowId}:${parsed.value.contract.schema_version}`}
       workflowId={workflowId}
+      workflowName={detailQuery.data?.workflow?.metadata.name}
       schema={parsed.value}
       availability={detailQuery.data?.workflow?.availability ?? null}
       referenceProfiles={references.profiles}
@@ -147,7 +148,7 @@ function WorkbenchError({
   onRetry: () => void;
 }) {
   return (
-    <section className="min-h-[38rem] min-w-0 flex-1">
+    <section className="min-h-64 min-w-0 flex-1">
       <Panel title="Input workbench unavailable">
         <div className="space-y-3">
           <p className="text-sm text-[var(--color-error)]" role="alert">

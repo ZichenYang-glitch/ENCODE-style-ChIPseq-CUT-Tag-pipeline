@@ -23,7 +23,7 @@ export function ConfigEditor({
   onModeChange,
 }: ConfigEditorProps) {
   return (
-    <section className="min-w-0 space-y-3" aria-labelledby="config-editor-title">
+    <section className="min-w-0 max-w-5xl space-y-3" aria-labelledby="config-editor-title">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 id="config-editor-title" className="text-sm font-semibold">
@@ -74,7 +74,7 @@ export function ConfigEditor({
           ariaLabel="Workflow config form"
         />
       ) : (
-        <div className="min-w-0 overflow-hidden rounded border border-[var(--color-border)] bg-white">
+        <div className="min-w-0 overflow-hidden rounded-[4px] border border-[var(--color-border)] bg-[var(--color-surface)]">
           <CodeMirror
             value={draft.state.yamlText}
             height="28rem"
@@ -98,7 +98,7 @@ export function ConfigEditor({
       </p>
       {draft.state.yamlIssue && (
         <p
-          className="rounded border border-red-200 bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)]"
+          className="rounded-[4px] border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)]"
           role="alert"
         >
           {draft.state.yamlIssue.message}
@@ -107,7 +107,7 @@ export function ConfigEditor({
       {draft.state.configFormIssue && (
         <div
           data-testid="config-form-safety-issue"
-          className="flex flex-col gap-2 rounded border border-red-200 bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)] sm:flex-row sm:items-center sm:justify-between"
+          className="flex flex-col gap-2 rounded-[4px] border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)] sm:flex-row sm:items-center sm:justify-between"
           role="alert"
         >
           <span>{draft.state.configFormIssue.message}</span>

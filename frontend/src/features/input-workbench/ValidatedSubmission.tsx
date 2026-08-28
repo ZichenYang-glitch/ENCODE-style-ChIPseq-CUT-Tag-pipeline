@@ -369,8 +369,8 @@ export function ValidatedSubmission({
           <div
             className={`flex items-start gap-2 rounded border px-3 py-2 text-sm ${
               activeSnapshot !== null
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                : 'border-amber-200 bg-[var(--color-warning-bg)] text-[var(--color-warning)]'
+                ? 'border-[var(--color-success-border)] bg-[var(--color-success-bg)] text-[var(--color-success)]'
+                : 'border-[var(--color-warning-border)] bg-[var(--color-warning-bg)] text-[var(--color-warning)]'
             }`}
             role="status"
           >
@@ -392,7 +392,7 @@ export function ValidatedSubmission({
         )}
         {advisoryIssues.length > 0 && (
           <div
-            className="rounded border border-amber-200 bg-[var(--color-warning-bg)] px-3 py-2 text-sm text-[var(--color-warning)]"
+            className="rounded-[4px] border border-[var(--color-warning-border)] bg-[var(--color-warning-bg)] px-3 py-2 text-sm text-[var(--color-warning)]"
             role="status"
             data-testid="validation-advisories"
           >
@@ -416,7 +416,7 @@ export function ValidatedSubmission({
         )}
         {errorIssues.length > 0 && (
           <div
-            className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-[var(--color-error)]"
+            className="rounded-[4px] border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)]"
             role="alert"
           >
             <ul className="space-y-1">

@@ -12,14 +12,14 @@ export function WorkflowDetail({ workflow }: WorkflowDetailProps) {
     <div className="min-w-0 space-y-3 text-sm text-[var(--color-text-muted)]">
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="font-medium text-[var(--color-text)]">
+          <h2 className="text-xl font-semibold leading-7 text-[var(--color-text)]">
             {metadata.name}
-          </span>
+          </h2>
           <ExecutionAvailabilityBadge
             availability={workflow.availability.execution}
           />
         </div>
-        <code className="mt-1 block break-all text-xs">
+        <code className="mt-1 block truncate text-xs" title={metadata.workflow_id}>
           {metadata.workflow_id}
         </code>
         {metadata.description && (
@@ -79,10 +79,10 @@ export function DeveloperSchemaDetails({
 
   return (
     <details
-      className="group min-w-0 rounded border border-[var(--color-border)] bg-[var(--color-bg)]"
+      className="group min-w-0 rounded-[4px] border border-[var(--color-border)] bg-[var(--color-surface-subtle)]"
       data-testid="developer-schema-details"
     >
-      <summary className="flex cursor-pointer list-none items-center gap-2 rounded px-3 py-2 text-sm font-medium text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[var(--color-accent)] [&::-webkit-details-marker]:hidden">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-[4px] px-3 py-2 text-sm font-medium text-[var(--color-text)] [&::-webkit-details-marker]:hidden">
         <ChevronRight
           aria-hidden="true"
           className="shrink-0 transition-transform group-open:rotate-90"

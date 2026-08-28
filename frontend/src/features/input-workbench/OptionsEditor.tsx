@@ -28,7 +28,7 @@ export function OptionsEditor({ schema, draft }: OptionsEditorProps) {
       />
       {draft.state.optionsFormIssue && (
         <div
-          className="flex flex-col gap-2 rounded border border-red-200 bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)] sm:flex-row sm:items-center sm:justify-between"
+          className="flex flex-col gap-2 rounded-[4px] border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)] sm:flex-row sm:items-center sm:justify-between"
           role="alert"
         >
           <span>{draft.state.optionsFormIssue.message}</span>

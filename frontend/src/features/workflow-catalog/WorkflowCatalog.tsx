@@ -1,16 +1,15 @@
 import type { WorkflowSummary } from '../../api/types';
+import { Link } from 'react-router-dom';
 import { ExecutionAvailabilityBadge } from '../workflow-detail/WorkflowAvailability';
 
 interface WorkflowCatalogProps {
   workflows: WorkflowSummary[];
   selectedWorkflowId: string | null;
-  onSelect: (workflowId: string) => void;
 }
 
 export function WorkflowCatalog({
   workflows,
   selectedWorkflowId,
-  onSelect,
 }: WorkflowCatalogProps) {
   return (
     <div className="space-y-1">
@@ -18,13 +17,13 @@ export function WorkflowCatalog({
         const id = workflow.metadata.workflow_id;
         const isSelected = id === selectedWorkflowId;
         return (
-          <button
+          <Link
             key={id}
-            onClick={() => onSelect(id)}
-            className={`w-full rounded border p-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] ${
+            to={`/workflows/${encodeURIComponent(id)}`}
+            className={`block w-full rounded-[4px] border p-2 text-left transition-colors ${
               isSelected
-                ? 'border-[var(--color-accent)] bg-[var(--color-info-bg)]'
-                : 'border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-bg)]'
+                ? 'border-[var(--color-accent)] bg-[var(--color-surface-selected)]'
+                : 'border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-subtle)]'
             }`}
           >
             <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
@@ -35,10 +34,10 @@ export function WorkflowCatalog({
                 availability={workflow.availability.execution}
               />
             </div>
-            <div className="break-all text-xs text-[var(--color-text-muted)]">
+            <div className="truncate text-xs text-[var(--color-text-muted)]" title={id}>
               {id}
             </div>
-          </button>
+          </Link>
         );
       })}
     </div>

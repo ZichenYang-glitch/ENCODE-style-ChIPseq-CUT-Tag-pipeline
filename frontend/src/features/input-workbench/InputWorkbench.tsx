@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
-import { FileCode2, ListChecks, Settings2, TableProperties } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { ArrowLeft, FileCode2, ListChecks, Settings2, TableProperties } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import type { WorkflowAvailability } from '../../api/types';
 import type { ReferenceProfileSummary } from '../../api/runTypes';
@@ -39,6 +39,7 @@ function readMode(value: string | null): ConfigMode {
 
 interface InputWorkbenchProps {
   workflowId: string;
+  workflowName?: string;
   schema: WorkbenchSchema;
   availability: WorkflowAvailability | null;
   referenceProfiles: readonly ReferenceProfileSummary[] | null;
@@ -50,6 +51,7 @@ interface InputWorkbenchProps {
 
 export function InputWorkbench({
   workflowId,
+  workflowName,
   schema,
   availability,
   referenceProfiles,
@@ -130,13 +132,35 @@ export function InputWorkbench({
     setSearchParams(next);
   }
 
+  const stepReady: Record<WorkbenchStep, boolean> = {
+    config:
+      draft.configValid &&
+      draft.state.yamlIssue === null &&
+      draft.state.configFormIssue === null,
+    samples: draft.samplesValid,
+    options: draft.optionsValid && draft.state.optionsFormIssue === null,
+    review: draft.reviewReady,
+  };
+
   return (
     <section className="input-workbench min-w-0 flex-1">
       <Panel title="Input authoring" className="min-w-0 overflow-hidden">
         <header className="flex min-w-0 flex-col gap-2 border-b border-[var(--color-border)] pb-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold">Input workbench</h2>
-            <p className="mt-1 break-all font-mono text-xs text-[var(--color-text-muted)]">
+            <Link
+              className="inline-flex min-h-9 items-center gap-1 text-xs font-medium text-[var(--color-link)] hover:underline"
+              to={`/workflows/${encodeURIComponent(workflowId)}`}
+            >
+              <ArrowLeft aria-hidden="true" size={14} />
+              Workflow details
+            </Link>
+            <h2 className="text-xl font-semibold leading-7">Input workbench</h2>
+            {workflowName && (
+              <p className="mt-1 text-sm font-medium text-[var(--color-text)]">
+                {workflowName}
+              </p>
+            )}
+            <p className="mt-0.5 truncate font-mono text-xs text-[var(--color-text-faint)]" title={workflowId}>
               {workflowId}
             </p>
           </div>
@@ -144,7 +168,7 @@ export function InputWorkbench({
             <span className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1">
               Schema {schema.contract.schema_version}
             </span>
-            <span className="rounded border border-amber-200 bg-[var(--color-warning-bg)] px-2 py-1 text-[var(--color-warning)]">
+            <span className="rounded-[4px] border border-[var(--color-warning-border)] bg-[var(--color-warning-bg)] px-2 py-1 text-[var(--color-warning)]">
               Draft only · not scientifically validated
             </span>
           </div>
@@ -175,11 +199,25 @@ export function InputWorkbench({
               <Tabs.Trigger
                 key={value}
                 value={value}
+                aria-label={label}
                 disabled={value === 'review' && draft.state.yamlIssue !== null}
-                className="inline-flex min-w-0 items-center justify-center gap-1.5 border-b-2 border-transparent px-3 py-2 text-sm font-medium text-[var(--color-text-muted)] outline-none transition-colors hover:text-[var(--color-text)] focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] data-[state=active]:border-[var(--color-accent)] data-[state=active]:text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                aria-describedby={`workbench-step-${value}-status`}
+                className="inline-flex min-h-11 min-w-0 items-center justify-center gap-1.5 border-b-2 border-transparent px-3 py-2 text-sm font-medium text-[var(--color-text-muted)] outline-none transition-colors hover:text-[var(--color-text)] data-[state=active]:border-[var(--color-accent)] data-[state=active]:text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Icon aria-hidden="true" size={15} />
                 {label}
+                <span
+                  aria-hidden="true"
+                  className={`h-2 w-2 shrink-0 rounded-full border ${
+                    stepReady[value]
+                      ? 'border-[var(--color-success)] bg-[var(--color-success)]'
+                      : 'border-[var(--color-border-strong)] bg-[var(--color-surface)]'
+                  }`}
+                  title={stepReady[value] ? 'Ready' : 'Needs attention'}
+                />
+                <span id={`workbench-step-${value}-status`} className="sr-only">
+                  {stepReady[value] ? 'Ready' : 'Needs attention'}
+                </span>
               </Tabs.Trigger>
             ))}
           </Tabs.List>
