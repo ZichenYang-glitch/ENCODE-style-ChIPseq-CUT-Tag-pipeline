@@ -14,6 +14,7 @@ import type {
   WorkflowExecutionAvailability,
 } from '../../api/types';
 import { Button } from '../../components/Button';
+import { IdWithCopy } from '../../components/IdWithCopy';
 import { ArtifactBrowser } from '../run-artifacts/ArtifactBrowser';
 import {
   artifactExtractionOutcome,
@@ -639,40 +640,46 @@ export function RunProgressPanel({
 
       {run && (
         <div className="min-w-0 space-y-3">
-          <div className="flex min-w-0 flex-wrap items-center gap-3 text-sm">
-            <span className="font-medium text-[var(--color-text)]">Run ID:</span>
-            <code className="min-w-0 break-all text-xs text-[var(--color-text-muted)]">
-              {run.run_id}
-            </code>
-            <RunStatusBadge status={run.status} />
-          </div>
-          <div className="grid grid-cols-1 gap-2 text-xs text-[var(--color-text-muted)] sm:grid-cols-2">
-            <div>Created: {new Date(run.created_at).toLocaleString()}</div>
-            <div>Updated: {new Date(run.updated_at).toLocaleString()}</div>
-          </div>
-          {run.reference_profile && (
-            <div
-              className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-xs"
-              data-testid="run-reference-profile"
-            >
-              <div className="font-medium text-[var(--color-text)]">
-                {run.reference_profile.display_name}
+          <div className="grid min-w-0 gap-3 border-b border-[var(--color-border)] pb-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+            <div className="min-w-0 space-y-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="text-xs font-medium uppercase text-[var(--color-text-faint)]">Run</span>
+                <IdWithCopy value={run.run_id} label="run ID" />
+                <RunStatusBadge status={run.status} />
               </div>
-              <div className="mt-1 text-[var(--color-text-muted)]">
-                {run.reference_profile.organism} · {run.reference_profile.assembly}
-              </div>
-              <div className="mt-1 min-w-0 text-[var(--color-text-muted)]">
-                Revision {run.reference_profile.revision_number} ·{' '}
-                <code className="break-all">
-                  {run.reference_profile.identity_sha256}
-                </code>
+              <a
+                className="block truncate text-sm font-medium text-[var(--color-link)] hover:underline"
+                href={`/workflows/${encodeURIComponent(run.workflow_id)}`}
+                title={run.workflow_id}
+              >
+                {run.workflow_id}
+              </a>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-text-muted)] tabular-nums">
+                <span>Created <time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></span>
+                <span>Updated <time dateTime={run.updated_at}>{new Date(run.updated_at).toLocaleString()}</time></span>
+                {run.current_stage && <span>Stage {run.current_stage}</span>}
               </div>
             </div>
+          </div>
+          {run.reference_profile && (
+            <dl
+              className="grid min-w-0 gap-x-4 gap-y-1 border-b border-[var(--color-border)] pb-3 text-xs sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]"
+              data-testid="run-reference-profile"
+            >
+              <dt className="text-[var(--color-text-faint)]">Reference</dt>
+              <dd className="font-medium text-[var(--color-text)]">{run.reference_profile.display_name}</dd>
+              <dt className="text-[var(--color-text-faint)]">Organism / assembly</dt>
+              <dd>{run.reference_profile.organism} · {run.reference_profile.assembly}</dd>
+              <dt className="text-[var(--color-text-faint)]">Revision</dt>
+              <dd className="tabular-nums">{run.reference_profile.revision_number}</dd>
+              <dt className="text-[var(--color-text-faint)]">Identity digest</dt>
+              <dd className="min-w-0"><IdWithCopy value={run.reference_profile.identity_sha256} label="reference identity digest" /></dd>
+            </dl>
           )}
 
           {showCancellationRequested && (
             <div
-              className="rounded border border-yellow-300 bg-yellow-50 p-2 text-sm text-yellow-800"
+              className="border-l-[3px] border-[var(--color-warning)] bg-[var(--color-warning-bg)] px-3 py-2 text-sm text-[var(--color-warning)]"
               role="status"
               data-testid="cancellation-requested"
             >
@@ -719,7 +726,7 @@ export function RunProgressPanel({
               </Button>
             )}
             <Button
-              variant="secondary"
+              variant="quiet"
               onClick={() => void handleRefresh().catch(() => undefined)}
               disabled={runQuery.isFetching || executionActionPending}
               aria-label="Refresh run progress"
@@ -730,7 +737,7 @@ export function RunProgressPanel({
             </Button>
             {canCancelRun && (
               <Button
-                variant="secondary"
+                variant="danger"
                 onClick={() => cancelMutation.mutate(run.run_id)}
                 disabled={executionActionPending}
                 aria-label={showCancellationRequested ? 'Retry cancellation' : 'Cancel run'}
@@ -767,7 +774,7 @@ export function RunProgressPanel({
                   aria-selected={activeView === view}
                   aria-controls={`run-${view}-panel`}
                   tabIndex={activeView === view ? 0 : -1}
-                  className={`border-b-2 px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-inset ${
+                  className={`min-h-11 border-b-2 px-3 py-2 text-sm font-medium focus:outline-none ${
                     activeView === view
                       ? 'border-[var(--color-accent)] text-[var(--color-accent-hover)]'
                       : 'border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text)]'

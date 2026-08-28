@@ -12,14 +12,14 @@ export function WorkflowDetail({ workflow }: WorkflowDetailProps) {
     <div className="min-w-0 space-y-3 text-sm text-[var(--color-text-muted)]">
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="font-medium text-[var(--color-text)]">
+          <h2 className="text-xl font-semibold leading-7 text-[var(--color-text)]">
             {metadata.name}
-          </span>
+          </h2>
           <ExecutionAvailabilityBadge
             availability={workflow.availability.execution}
           />
         </div>
-        <code className="mt-1 block break-all text-xs">
+        <code className="mt-1 block truncate text-xs" title={metadata.workflow_id}>
           {metadata.workflow_id}
         </code>
         {metadata.description && (
@@ -52,10 +52,19 @@ export function WorkflowDetail({ workflow }: WorkflowDetailProps) {
           </code>
         </p>
       )}
-      <p className="min-w-0 break-words text-xs">
-        Input authoring is available. Execution status:{' '}
-        <code className="break-all">{workflow.availability.reason_code}</code>
-      </p>
+      <p className="text-xs">Input authoring is available.</p>
+      <div className="grid min-w-0 gap-1 border-t border-[var(--color-border)] pt-2 text-xs sm:grid-cols-[auto_minmax(0,1fr)] sm:items-baseline sm:gap-x-2">
+        <span className="font-medium text-[var(--color-text-faint)]">
+          Execution status
+        </span>
+        <code
+          className="block min-w-0 truncate text-[var(--color-text-muted)]"
+          aria-label={`Execution status code: ${workflow.availability.reason_code}`}
+          title={workflow.availability.reason_code}
+        >
+          {workflow.availability.reason_code}
+        </code>
+      </div>
     </div>
   );
 }
@@ -79,10 +88,10 @@ export function DeveloperSchemaDetails({
 
   return (
     <details
-      className="group min-w-0 rounded border border-[var(--color-border)] bg-[var(--color-bg)]"
+      className="group min-w-0 rounded-[4px] border border-[var(--color-border)] bg-[var(--color-surface-subtle)]"
       data-testid="developer-schema-details"
     >
-      <summary className="flex cursor-pointer list-none items-center gap-2 rounded px-3 py-2 text-sm font-medium text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[var(--color-accent)] [&::-webkit-details-marker]:hidden">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-[4px] px-3 py-2 text-sm font-medium text-[var(--color-text)] [&::-webkit-details-marker]:hidden">
         <ChevronRight
           aria-hidden="true"
           className="shrink-0 transition-transform group-open:rotate-90"

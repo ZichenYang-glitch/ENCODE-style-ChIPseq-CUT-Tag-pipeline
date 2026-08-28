@@ -65,6 +65,7 @@ describe('AppShell navigation', () => {
 
     renderWithRouter(routes, { initialEntries: ['/runs'] });
 
+    await user.click(await screen.findByRole('button', { name: /lab-member/ }));
     const preference = await screen.findByRole('checkbox', {
       name: 'Email me when my runs finish',
     });
@@ -140,6 +141,11 @@ describe('AppShell navigation', () => {
     const authoringLink = screen.getByRole('link', { name: 'New analysis' });
     expect(authoringLink).toHaveAttribute('href', '/workflows/rna-seq/new-run');
     expect(authoringLink).toHaveAttribute('aria-current', 'page');
+    expect(authoringLink).toHaveAttribute('title', 'New analysis');
+    expect(authoringLink.querySelector('.sm\\:hidden')).toHaveTextContent('New');
+    expect(authoringLink.querySelector('.sm\\:inline')).toHaveTextContent(
+      'New analysis',
+    );
     expect(screen.getByRole('link', { name: 'Workflows' })).not.toHaveAttribute(
       'aria-current',
     );

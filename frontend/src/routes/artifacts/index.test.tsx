@@ -112,13 +112,18 @@ describe('artifact publication routes', () => {
       ]),
     );
     renderWithRouter(appRoutes, { initialEntries: ['/artifacts'] });
-    expect(await screen.findAllByText('artifact-initial')).not.toHaveLength(0);
+    expect(await screen.findAllByRole('link', {
+      name: 'Open artifact ID artifact-initial',
+    })).not.toHaveLength(0);
     expect(screen.getAllByText('Associated run samples')).not.toHaveLength(0);
-    expect(screen.getAllByText(SAMPLE_REVISION_ID)).not.toHaveLength(0);
+    expect(screen.getAllByRole('button', {
+      name: `Copy full sample revision ID ${SAMPLE_REVISION_ID}`,
+    })).not.toHaveLength(0);
     expect(screen.getByText(
       'These are input samples associated with the run; they are not per-artifact sample attribution.',
     )).toBeInTheDocument();
 
+    await user.click(screen.getByText('Filters (0 active)'));
     await user.type(screen.getByLabelText('Project'), PROJECT_ID);
     await user.type(screen.getByLabelText('Run'), 'run-filtered');
     await user.type(screen.getByLabelText('Workflow'), 'workflow-filtered');
@@ -139,8 +144,12 @@ describe('artifact publication routes', () => {
     await user.selectOptions(screen.getByLabelText('Rows per page'), '100');
     await user.click(screen.getByRole('button', { name: 'Apply filters' }));
 
-    expect(screen.queryAllByText('artifact-initial')).toHaveLength(0);
-    expect(await screen.findAllByText('artifact-filtered')).not.toHaveLength(0);
+    expect(screen.queryAllByRole('link', {
+      name: 'Open artifact ID artifact-initial',
+    })).toHaveLength(0);
+    expect(await screen.findAllByRole('link', {
+      name: 'Open artifact ID artifact-filtered',
+    })).not.toHaveLength(0);
     expect(listPublicationsMock).toHaveBeenLastCalledWith({
       project_id: PROJECT_ID,
       run_id: 'run-filtered',
@@ -186,7 +195,9 @@ describe('artifact publication routes', () => {
     expect(screen.getByText(
       'These are input samples associated with the run; they are not per-artifact sample attribution.',
     )).toBeInTheDocument();
-    expect(screen.getByText(SAMPLE_REVISION_ID)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', {
+      name: `Copy full sample revision ID ${SAMPLE_REVISION_ID}`,
+    })).not.toHaveLength(0);
 
     await user.click(screen.getByRole('button', { name: 'Download artifact artifact-a' }));
     await waitFor(() => expect(saveBlobMock).toHaveBeenCalledWith(blob, 'artifact-a.download'));
@@ -252,8 +263,10 @@ describe('artifact publication routes', () => {
     });
     listPublicationsMock.mockResolvedValue(listResponse([superseded]));
     const list = renderWithRouter(appRoutes, { initialEntries: ['/artifacts'] });
-    expect(await screen.findAllByText(/Current generation:/)).not.toHaveLength(0);
-    expect(screen.getAllByText(new RegExp(GENERATION_B))).not.toHaveLength(0);
+    expect(await screen.findAllByText(/Current:/)).not.toHaveLength(0);
+    expect(screen.getAllByRole('button', {
+      name: `Copy full current artifact generation ${GENERATION_B}`,
+    })).not.toHaveLength(0);
     expect(screen.getAllByText('+1 more associated run samples')).not.toHaveLength(0);
     expect(screen.queryByText(sampleRevisionC)).not.toBeInTheDocument();
     list.unmount();
@@ -264,8 +277,12 @@ describe('artifact publication routes', () => {
     });
     expect(await screen.findByText('Superseded · historical metadata only')).toBeInTheDocument();
     expect(screen.getByText('Current generation')).toBeInTheDocument();
-    expect(screen.getByText(GENERATION_B)).toBeInTheDocument();
-    expect(screen.getByText(sampleRevisionC)).toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: `Copy full current artifact generation ${GENERATION_B}`,
+    })).toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: `Copy full sample revision ID ${sampleRevisionC}`,
+    })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Download artifact/ })).not.toBeInTheDocument();
     first.unmount();
 

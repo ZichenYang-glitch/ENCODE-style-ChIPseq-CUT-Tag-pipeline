@@ -148,6 +148,7 @@ describe('Router', () => {
   });
 
   it('keeps the legacy workspace closed until server-path support is explicit', async () => {
+    const user = userEvent.setup();
     const base = createStubWorkflowClient();
     const pendingSchema = deferred<
       Awaited<ReturnType<WorkflowApiClient['getWorkflowSchema']>>
@@ -181,6 +182,16 @@ describe('Router', () => {
       'href',
       `/workflows/${WORKFLOW_ID}/new-run`,
     );
+    expect(screen.getByTestId('advanced-validation-tools')).not.toHaveAttribute('open');
+    expect(
+      screen.getByRole('heading', { name: 'Validation workspace' }),
+    ).not.toBeVisible();
+    expect(
+      screen.getByRole('heading', { name: 'Run progress' }),
+    ).not.toBeVisible();
+
+    await user.click(screen.getByText('Advanced validation tools'));
+    expect(screen.getByTestId('advanced-validation-tools')).toHaveAttribute('open');
     expect(
       await screen.findByRole('heading', { name: 'Validation workspace' }),
     ).toBeVisible();
@@ -326,22 +337,22 @@ describe('Router', () => {
       clients: { runClient },
     });
 
-    expect(await screen.findByText('stub-run-1')).toBeInTheDocument();
+    expect(await screen.findByTitle('stub-run-1')).toBeInTheDocument();
     await user.click(screen.getByTestId('refresh-run-button'));
     await waitFor(() => expect(runClient.getRun).toHaveBeenCalledTimes(2));
 
     await act(async () => {
       await router.navigate('/runs/stub-run-2');
     });
-    expect(await screen.findByText('stub-run-2')).toBeInTheDocument();
+    expect(await screen.findByTitle('stub-run-2')).toBeInTheDocument();
 
     await act(async () => {
       delayedRefresh.resolve(delayedResponse);
       await delayedRefresh.promise;
     });
 
-    expect(screen.getByText('stub-run-2')).toBeInTheDocument();
-    expect(screen.queryByText('stub-run-1')).not.toBeInTheDocument();
+    expect(screen.getByTitle('stub-run-2')).toBeInTheDocument();
+    expect(screen.queryByTitle('stub-run-1')).not.toBeInTheDocument();
   });
 
   it('ignores a stale post-cancel refresh after navigating to another run', async () => {
@@ -353,22 +364,22 @@ describe('Router', () => {
       clients: { runClient },
     });
 
-    expect(await screen.findByText('stub-run-1')).toBeInTheDocument();
+    expect(await screen.findByTitle('stub-run-1')).toBeInTheDocument();
     await user.click(screen.getByTestId('cancel-run-button'));
     await waitFor(() => expect(runClient.getRun).toHaveBeenCalledTimes(2));
 
     await act(async () => {
       await router.navigate('/runs/stub-run-2');
     });
-    expect(await screen.findByText('stub-run-2')).toBeInTheDocument();
+    expect(await screen.findByTitle('stub-run-2')).toBeInTheDocument();
 
     await act(async () => {
       delayedRefresh.resolve(delayedResponse);
       await delayedRefresh.promise;
     });
 
-    expect(screen.getByText('stub-run-2')).toBeInTheDocument();
-    expect(screen.queryByText('stub-run-1')).not.toBeInTheDocument();
+    expect(screen.getByTitle('stub-run-2')).toBeInTheDocument();
+    expect(screen.queryByTitle('stub-run-1')).not.toBeInTheDocument();
   });
 
   it('renders a 404 page for unknown routes', async () => {

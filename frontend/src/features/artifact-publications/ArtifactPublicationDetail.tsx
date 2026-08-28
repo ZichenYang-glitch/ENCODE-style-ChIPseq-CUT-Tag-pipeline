@@ -6,7 +6,9 @@ import { getArtifactPublication } from '../../api/generated/artifact-publication
 import { downloadRunArtifact } from '../../api/generated/artifacts/artifacts';
 import type { ArtifactPublicationResponse } from '../../api/generated/models';
 import { ApiError } from '../../api/fetcher';
+import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
+import { IdWithCopy } from '../../components/IdWithCopy';
 import { Panel } from '../../components/Panel';
 import {
   safeArtifactDownloadFilename,
@@ -105,10 +107,10 @@ export function ArtifactPublicationDetail({
                   All artifacts
                 </Link>
               </Button>
-              <h2 className="break-all text-sm font-semibold">Artifact publication details</h2>
-              <p className="mt-1 break-all text-xs text-[var(--color-text-muted)]">
-                {artifactId}
-              </p>
+              <h2 className="break-words text-xl font-semibold leading-7">
+                {publication?.output_type ?? 'Artifact publication'}
+              </h2>
+              <IdWithCopy value={artifactId} label="artifact ID" className="mt-1" />
             </div>
             <Button
               variant="secondary"
@@ -147,25 +149,13 @@ export function ArtifactPublicationDetail({
                   Refresh failed. The last confirmed publication metadata is retained.
                 </div>
               )}
-              <div className="flex min-w-0 flex-wrap items-start justify-between gap-3 border-y border-[var(--color-border)] py-3">
-                <div className="min-w-0">
-                  <p className="break-all text-base font-semibold">{publication.output_type}</p>
-                  <p className="mt-1 break-all text-xs text-[var(--color-text-muted)]">
-                    {publication.artifact_id}
-                  </p>
-                </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  {staleGeneration ? (
-                    <span
-                      className="rounded-full border border-[var(--color-error)] bg-[var(--color-error-bg)] px-2 py-1 text-xs font-semibold text-[var(--color-error)]"
-                      role="status"
-                    >
+              <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 border-y border-[var(--color-border)] py-3">
+                {staleGeneration ? (
+                    <Badge tone="error" role="status">
                       Stale generation
-                    </span>
+                    </Badge>
                   ) : status === 'current' ? (
-                    <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
-                      Current
-                    </span>
+                    <Badge tone="success">Current</Badge>
                   ) : (
                     <span className="text-xs font-semibold text-[var(--color-text-muted)]">
                       Superseded · historical metadata only
@@ -182,7 +172,6 @@ export function ArtifactPublicationDetail({
                       {downloadMutation.isPending ? 'Downloading…' : 'Download'}
                     </Button>
                   )}
-                </div>
               </div>
 
               {downloadMutation.isError && !staleGeneration && (
@@ -206,9 +195,9 @@ function PublicationFacts({ publication }: { publication: ArtifactPublicationRes
   return (
     <dl className="grid min-w-0 grid-cols-[8rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs sm:grid-cols-[9rem_minmax(0,1fr)]">
       <dt className="text-[var(--color-text-muted)]">Project</dt>
-      <dd className="break-all">{publication.project_id}</dd>
+      <dd><IdWithCopy value={publication.project_id} label="project ID" /></dd>
       <dt className="text-[var(--color-text-muted)]">Run</dt>
-      <dd className="break-all">{publication.run_id}</dd>
+      <dd><IdWithCopy value={publication.run_id} label="run ID" to={`/runs/${encodeURIComponent(publication.run_id)}`} /></dd>
       <dt className="text-[var(--color-text-muted)]">Workflow</dt>
       <dd className="break-all">{publication.workflow_id}</dd>
       <dt className="text-[var(--color-text-muted)]">Artifact type</dt>
@@ -220,15 +209,13 @@ function PublicationFacts({ publication }: { publication: ArtifactPublicationRes
         </time>
       </dd>
       <dt className="text-[var(--color-text-muted)]">Generation</dt>
-      <dd className="break-all font-mono">{publication.artifact_generation}</dd>
+      <dd><IdWithCopy value={publication.artifact_generation} label="artifact generation" /></dd>
       <dt className="text-[var(--color-text-muted)]">Revision</dt>
-      <dd className="break-all font-mono">{publication.artifact_revision}</dd>
+      <dd><IdWithCopy value={publication.artifact_revision} label="artifact revision" /></dd>
       {status === 'superseded' && (
         <>
           <dt className="text-[var(--color-text-muted)]">Current generation</dt>
-          <dd className="break-all font-mono">
-            {publication.current_artifact_generation}
-          </dd>
+          <dd><IdWithCopy value={publication.current_artifact_generation} label="current artifact generation" /></dd>
         </>
       )}
       <dt className="text-[var(--color-text-muted)]">State</dt>
@@ -260,10 +247,8 @@ function AssociatedRunSamples({ publication }: { publication: ArtifactPublicatio
         <ol className="mt-3 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
           {binding.associated_run_samples.map((sample) => (
             <li key={sample.sample_revision_id} className="grid min-w-0 gap-1 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:gap-3">
-              <span className="break-all" title={sample.sample_id}>{sample.sample_id}</span>
-              <span className="break-all font-mono text-[var(--color-text-muted)]" title={sample.sample_revision_id}>
-                {sample.sample_revision_id}
-              </span>
+              <IdWithCopy value={sample.sample_id} label="sample ID" />
+              <IdWithCopy value={sample.sample_revision_id} label="sample revision ID" />
               <span className="text-[var(--color-text-muted)]">
                 Revision {sample.revision_number} · position {sample.ordinal + 1}
               </span>
@@ -298,9 +283,9 @@ function DetailState({
 function DetailSkeleton() {
   return (
     <div className="min-h-64 animate-pulse space-y-3" aria-label="Loading artifact publication">
-      <div className="h-14 rounded bg-slate-100" />
-      <div className="h-32 rounded bg-slate-100" />
-      <div className="h-24 rounded bg-slate-100" />
+      <div className="h-14 rounded-[4px] bg-[var(--color-skeleton)]" />
+      <div className="h-32 rounded-[4px] bg-[var(--color-skeleton)]" />
+      <div className="h-24 rounded-[4px] bg-[var(--color-skeleton)]" />
     </div>
   );
 }

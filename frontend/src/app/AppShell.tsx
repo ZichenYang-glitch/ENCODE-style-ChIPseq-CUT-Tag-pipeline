@@ -4,7 +4,6 @@ import {
   FilePenLine,
   History,
   ListTree,
-  LogOut,
 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, matchPath, Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -12,8 +11,8 @@ import {
   getTerminalEmailPreference,
   setTerminalEmailPreference,
 } from '../api/generated/auth/auth';
-import { Button } from '../components/Button';
 import { useAuth } from './auth';
+import { AccountMenu } from './AccountMenu';
 
 export function AppShell() {
   const { pathname } = useLocation();
@@ -74,11 +73,11 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg)] text-[var(--color-text)]">
-      <header className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
-        <div className="mx-auto flex w-full max-w-screen-2xl flex-wrap items-center justify-between gap-x-4 gap-y-2">
-          <h1 className="text-base font-semibold tracking-wide text-[var(--color-accent)]">
+      <header className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 sm:px-4">
+        <div className="mx-auto grid w-full max-w-screen-2xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-x-6">
+          <h1 className="min-w-0 text-base font-semibold text-[var(--color-accent)]">
             <Link
-              className="inline-flex items-center gap-2 rounded focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2"
+              className="inline-flex min-h-11 items-center gap-2 rounded-[4px] sm:min-h-9"
               to="/workflows"
             >
               <Dna aria-hidden="true" size={18} />
@@ -87,112 +86,64 @@ export function AppShell() {
           </h1>
           <nav
             aria-label="Primary"
-            className="flex min-w-0 flex-wrap items-center gap-2"
+            className="col-span-2 row-start-2 grid min-w-0 grid-flow-col auto-cols-fr items-center gap-1 md:col-span-1 md:col-start-2 md:row-start-1 md:flex"
           >
-            <Button
-              asChild
-              className="gap-1.5"
-              variant={workflowsCurrent ? 'primary' : 'secondary'}
+            <Link
+              className="primary-nav-link"
+              aria-current={workflowsCurrent ? 'page' : undefined}
+              to="/workflows"
             >
-              <Link
-                aria-current={workflowsCurrent ? 'page' : undefined}
-                to="/workflows"
-              >
-                <ListTree aria-hidden="true" size={16} />
-                Workflows
-              </Link>
-            </Button>
-            <Button
-              asChild
-              className="gap-1.5"
-              variant={runsCurrent ? 'primary' : 'secondary'}
+              <ListTree className="hidden sm:block" aria-hidden="true" size={16} />
+              Workflows
+            </Link>
+            <Link
+              className="primary-nav-link"
+              aria-current={runsCurrent ? 'page' : undefined}
+              to="/runs"
             >
-              <Link
-                aria-current={runsCurrent ? 'page' : undefined}
-                to="/runs"
-              >
-                <History aria-hidden="true" size={16} />
-                Runs
-              </Link>
-            </Button>
-            <Button
-              asChild
-              className="gap-1.5"
-              variant={artifactsCurrent ? 'primary' : 'secondary'}
+              <History className="hidden sm:block" aria-hidden="true" size={16} />
+              Runs
+            </Link>
+            <Link
+              className="primary-nav-link"
+              aria-current={artifactsCurrent ? 'page' : undefined}
+              to="/artifacts"
             >
-              <Link
-                aria-current={artifactsCurrent ? 'page' : undefined}
-                to="/artifacts"
-              >
-                <FileArchive aria-hidden="true" size={16} />
-                Artifacts
-              </Link>
-            </Button>
+              <FileArchive className="hidden sm:block" aria-hidden="true" size={16} />
+              Artifacts
+            </Link>
             {workflowId && (
-              <Button
-                asChild
-                className="gap-1.5"
-                variant={authoringRoute ? 'primary' : 'secondary'}
+              <Link
+                className="primary-nav-link"
+                aria-label="New analysis"
+                title="New analysis"
+                aria-current={authoringRoute ? 'page' : undefined}
+                to={`/workflows/${encodeURIComponent(workflowId)}/new-run`}
               >
-                <Link
-                  aria-current={authoringRoute ? 'page' : undefined}
-                  to={`/workflows/${encodeURIComponent(workflowId)}/new-run`}
-                >
-                  <FilePenLine aria-hidden="true" size={16} />
-                  New analysis
-                </Link>
-              </Button>
-            )}
-            {principal !== null && (
-              <span className="ml-2 flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
-                <span data-testid="current-username">{principal.username}</span>
-                {isMember && terminalEmailPreference.data && (
-                  <label className="inline-flex items-center gap-1.5">
-                    <input
-                      aria-label="Email me when my runs finish"
-                      checked={
-                        terminalEmailPreference.data.terminal_email_enabled
-                      }
-                      disabled={
-                        !terminalEmailPreference.data.address_configured ||
-                        updateTerminalEmailPreference.isPending
-                      }
-                      type="checkbox"
-                      onChange={(event) => {
-                        updateTerminalEmailPreference.mutate(
-                          event.currentTarget.checked,
-                        );
-                      }}
-                    />
-                    Terminal emails
-                    {!terminalEmailPreference.data.address_configured && (
-                      <span title="Ask the local operator to configure your notification address.">
-                        (address not configured)
-                      </span>
-                    )}
-                  </label>
-                )}
-                {principal.role === 'administrator' && (
-                  <span title="Administrator terminal emails are managed by the local operator.">
-                    Notifications: operator-managed
-                  </span>
-                )}
-                <Button
-                  className="gap-1.5"
-                  variant="secondary"
-                  onClick={() => {
-                    void logout().then(() => navigate('/login'));
-                  }}
-                >
-                  <LogOut aria-hidden="true" size={16} />
-                  Sign out
-                </Button>
-              </span>
+                <FilePenLine className="hidden sm:block" aria-hidden="true" size={16} />
+                <span className="sm:hidden">New</span>
+                <span className="hidden sm:inline">New analysis</span>
+              </Link>
             )}
           </nav>
+          {principal !== null && (
+            <div className="col-start-2 row-start-1 justify-self-end md:col-start-3">
+              <AccountMenu
+                principal={principal}
+                terminalEmailPreference={terminalEmailPreference.data}
+                preferencePending={updateTerminalEmailPreference.isPending}
+                onPreferenceChange={(enabled) =>
+                  updateTerminalEmailPreference.mutate(enabled)
+                }
+                onSignOut={() => {
+                  void logout().then(() => navigate('/login'));
+                }}
+              />
+            </div>
+          )}
         </div>
       </header>
-      <main className="mx-auto flex w-full max-w-screen-2xl flex-1 flex-col gap-3 p-3 lg:flex-row">
+      <main className="mx-auto flex w-full max-w-screen-2xl flex-1 flex-col gap-3 p-3 lg:flex-row lg:p-4">
         <Outlet />
       </main>
     </div>

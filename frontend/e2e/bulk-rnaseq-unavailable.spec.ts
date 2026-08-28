@@ -84,12 +84,13 @@ async function replaceCodeMirror(
 async function openBulkAuthoring(page: Page, fixture: RuntimeManifest) {
   await page.goto('/workflows');
   await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
-  const bulkCard = page.getByRole('button', { name: /Bulk RNA-seq/ });
-  await expect(bulkCard).toContainText('bulk-rnaseq');
-  await expect(bulkCard).toContainText(
+  const bulkLink = page.getByRole('link', { name: /Bulk RNA-seq/ });
+  const bulkItem = bulkLink.locator('xpath=ancestor::li');
+  await expect(bulkItem).toContainText('bulk-rnaseq');
+  await expect(bulkItem).toContainText(
     fixture.bulkExpectedExecution === 'available' ? 'Runnable' : 'Not configured',
   );
-  await bulkCard.click();
+  await bulkLink.click();
   await expect(page).toHaveURL(`/workflows/${fixture.bulkWorkflowId}`);
   await expect(
     page.getByText(/^Upstream: nf-core\/rnaseq 3\.26\.0/),

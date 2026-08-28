@@ -107,7 +107,7 @@ export function AgentSidebar({
   }
 
   return (
-    <div className="flex h-full flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-sm">
+    <div className="flex h-full flex-col rounded-[6px] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
       <header className="mb-3 border-b border-[var(--color-border)] pb-2">
         <h3 className="text-sm font-semibold text-[var(--color-text)]">
           Validation Assistant — Read Only

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { FilePenLine } from 'lucide-react';
+import { ChevronRight, FilePenLine, History } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useClients } from '../../api/client-context';
 import type {
@@ -294,12 +294,20 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
               <WorkflowDetail
                 workflow={workflow}
               />
-              <Button asChild variant="primary" className="gap-1.5">
-                <Link to={`/workflows/${workflow.metadata.workflow_id}/new-run`}>
-                  <FilePenLine aria-hidden="true" size={16} />
-                  Author inputs
-                </Link>
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild variant="primary" className="gap-1.5">
+                  <Link to={`/workflows/${encodeURIComponent(workflow.metadata.workflow_id)}/new-run`}>
+                    <FilePenLine aria-hidden="true" size={16} />
+                    Author inputs
+                  </Link>
+                </Button>
+                <Button asChild variant="quiet" className="gap-1.5">
+                  <Link to={`/runs?workflow_id=${encodeURIComponent(workflow.metadata.workflow_id)}`}>
+                    <History aria-hidden="true" size={16} />
+                    View runs
+                  </Link>
+                </Button>
+              </div>
               <DeveloperSchemaDetails
                 workflowId={workflow.metadata.workflow_id}
                 schemaHints={schemaHints}
@@ -308,51 +316,76 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
           </Panel>
         )}
         {workflow && supportsServerPathSamples && (
-          <Panel title="Validation workspace">
-            <ValidationWorkspace
-              workflowId={workflow.metadata.workflow_id}
-              configText={configText}
-              samplesText={samplesText}
-              optionsText={optionsText}
-              loading={loading}
-              onConfigChange={handleConfigChange}
-              onSamplesChange={handleSamplesChange}
-              onOptionsChange={handleOptionsChange}
-              onValidate={handleValidate}
-            />
-          </Panel>
-        )}
-        {workflow && supportsServerPathSamples && (
-          <Panel title="Run progress">
-            <RunProgressPanel
-              workflowId={workflow.metadata.workflow_id}
-              validationResult={validationResult}
-              runClient={runClient}
-              executionAvailability={workflow.availability.execution}
-              onRunCreated={handleRunCreated}
-            />
-          </Panel>
-        )}
-        {supportsServerPathSamples && (
-          <Panel title="Validation results">
-            <IssuePanel issues={displayedIssues} onAskAgent={handleAskAgent} />
-          </Panel>
+          <details
+            className="group min-w-0 rounded-[6px] border border-[var(--color-border)] bg-[var(--color-surface)]"
+            data-testid="advanced-validation-tools"
+          >
+            <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-3 text-base font-semibold leading-6 [&::-webkit-details-marker]:hidden">
+              <ChevronRight
+                aria-hidden="true"
+                className="shrink-0 transition-transform group-open:rotate-90"
+                size={18}
+              />
+              Advanced validation tools
+            </summary>
+            <div className="space-y-5 border-t border-[var(--color-border)] p-4">
+              <p className="text-sm text-[var(--color-text-muted)]">
+                Legacy server-path validation remains available for operator-managed inputs.
+              </p>
+              <section aria-labelledby="legacy-validation-heading">
+                <h3 id="legacy-validation-heading" className="mb-3 text-base font-semibold leading-6">
+                  Validation workspace
+                </h3>
+                <ValidationWorkspace
+                  workflowId={workflow.metadata.workflow_id}
+                  configText={configText}
+                  samplesText={samplesText}
+                  optionsText={optionsText}
+                  loading={loading}
+                  onConfigChange={handleConfigChange}
+                  onSamplesChange={handleSamplesChange}
+                  onOptionsChange={handleOptionsChange}
+                  onValidate={handleValidate}
+                />
+              </section>
+              <section className="border-t border-[var(--color-border)] pt-4" aria-labelledby="legacy-run-heading">
+                <h3 id="legacy-run-heading" className="mb-3 text-base font-semibold leading-6">
+                  Run progress
+                </h3>
+                <RunProgressPanel
+                  workflowId={workflow.metadata.workflow_id}
+                  validationResult={validationResult}
+                  runClient={runClient}
+                  executionAvailability={workflow.availability.execution}
+                  onRunCreated={handleRunCreated}
+                />
+              </section>
+              <section className="border-t border-[var(--color-border)] pt-4" aria-labelledby="legacy-results-heading">
+                <h3 id="legacy-results-heading" className="mb-3 text-base font-semibold leading-6">
+                  Validation results
+                </h3>
+                <IssuePanel issues={displayedIssues} onAskAgent={handleAskAgent} />
+              </section>
+              <details className="rounded-[4px] border border-[var(--color-border)] bg-[var(--color-surface-subtle)]">
+                <summary className="min-h-11 cursor-pointer px-3 py-3 text-sm font-medium">
+                  Assistant tools (read only)
+                </summary>
+                <div className="border-t border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                  <AgentSidebar
+                    workflowId={workflowId}
+                    issues={displayedIssues}
+                    agentClient={agentClient}
+                    draftMessage={agentDraftMessage || undefined}
+                    onDraftConsumed={handleAgentDraftConsumed}
+                    focusedIssue={agentFocusedIssue}
+                    onFocusedIssueConsumed={handleAgentFocusedIssueConsumed}
+                  />
+                </div>
+              </details>
+            </div>
+          </details>
         )}
       </section>
-
-      {supportsServerPathSamples && (
-        <aside className="flex w-full flex-col gap-3 lg:w-72">
-          <AgentSidebar
-            workflowId={workflowId}
-            issues={displayedIssues}
-            agentClient={agentClient}
-            draftMessage={agentDraftMessage || undefined}
-            onDraftConsumed={handleAgentDraftConsumed}
-            focusedIssue={agentFocusedIssue}
-            onFocusedIssueConsumed={handleAgentFocusedIssueConsumed}
-          />
-        </aside>
-      )}
     </>
   );
 }

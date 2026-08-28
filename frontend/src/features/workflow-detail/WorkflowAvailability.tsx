@@ -34,13 +34,13 @@ export function ExecutionAvailabilityBadge({
 }) {
   const className =
     availability === 'available'
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+      ? 'border-[var(--color-success-border)] bg-[var(--color-success-bg)] text-[var(--color-success)]'
       : availability === 'not_configured'
-        ? 'border-amber-200 bg-[var(--color-warning-bg)] text-[var(--color-warning)]'
-        : 'border-red-200 bg-[var(--color-error-bg)] text-[var(--color-error)]';
+        ? 'border-[var(--color-warning-border)] bg-[var(--color-warning-bg)] text-[var(--color-warning)]'
+        : 'border-[var(--color-error-border)] bg-[var(--color-error-bg)] text-[var(--color-error)]';
   return (
     <span
-      className={`inline-flex w-fit rounded border px-2 py-0.5 text-xs font-medium ${className}`}
+      className={`inline-flex w-fit rounded-[4px] border px-2 py-0.5 text-xs font-medium ${className}`}
       data-testid="execution-availability-badge"
     >
       {executionAvailabilityLabel(availability)}
@@ -63,10 +63,10 @@ export function ExecutionAvailabilityNotice({
   const ready = execution === 'available';
   return (
     <div
-      className={`rounded border px-3 py-2 text-sm ${
+      className={`border-l-[3px] px-3 py-2 text-sm ${
         ready
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-          : 'border-amber-200 bg-[var(--color-warning-bg)] text-[var(--color-warning)]'
+          ? 'border-[var(--color-success)] bg-[var(--color-success-bg)] text-[var(--color-success)]'
+          : 'border-[var(--color-warning)] bg-[var(--color-warning-bg)] text-[var(--color-warning)]'
       }`}
       role="status"
       data-testid="execution-availability-notice"

@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, type KeyboardEvent } from 'react';
 import type { RunLogChunkResponse } from '../../api/runTypes';
 
 interface RunLogPanelProps {
@@ -20,6 +20,15 @@ export function RunLogPanel({
   const panelId = `${baseId}-panel`;
   const chunks = activeStream === 'stdout' ? stdoutChunks : stderrChunks;
 
+  function handleTabKey(event: KeyboardEvent<HTMLButtonElement>) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const next =
+      event.key === 'ArrowLeft' || event.key === 'Home' ? 'stdout' : 'stderr';
+    onStreamChange(next);
+    document.getElementById(next === 'stdout' ? stdoutTabId : stderrTabId)?.focus();
+  }
+
   return (
     <div className="space-y-2" data-testid="run-log-panel">
       <div className="flex gap-1" role="tablist" aria-label="Log streams">
@@ -29,12 +38,14 @@ export function RunLogPanel({
           role="tab"
           aria-selected={activeStream === 'stdout'}
           aria-controls={panelId}
-          className={`rounded px-3 py-1 text-xs font-medium ${
+          tabIndex={activeStream === 'stdout' ? 0 : -1}
+          className={`min-h-9 rounded-[4px] px-3 py-1 text-xs font-medium ${
             activeStream === 'stdout'
               ? 'bg-[var(--color-accent)] text-white'
               : 'border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)]'
           }`}
           onClick={() => onStreamChange('stdout')}
+          onKeyDown={handleTabKey}
           data-testid="stdout-tab"
         >
           stdout
@@ -45,12 +56,14 @@ export function RunLogPanel({
           role="tab"
           aria-selected={activeStream === 'stderr'}
           aria-controls={panelId}
-          className={`rounded px-3 py-1 text-xs font-medium ${
+          tabIndex={activeStream === 'stderr' ? 0 : -1}
+          className={`min-h-9 rounded-[4px] px-3 py-1 text-xs font-medium ${
             activeStream === 'stderr'
               ? 'bg-[var(--color-accent)] text-white'
               : 'border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)]'
           }`}
           onClick={() => onStreamChange('stderr')}
+          onKeyDown={handleTabKey}
           data-testid="stderr-tab"
         >
           stderr
@@ -70,16 +83,19 @@ export function RunLogPanel({
             No log entries yet.
           </p>
         ) : (
-          <div className="min-w-0 space-y-2" data-testid="run-log-chunks">
+          <div
+            className="max-h-[28rem] min-w-0 overflow-auto rounded-[4px] border border-[var(--color-border)] bg-[var(--color-surface-subtle)]"
+            data-testid="run-log-chunks"
+          >
             {chunks.map((chunk) => (
               <div
                 key={chunk.chunk_id}
-                className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2"
+                className="border-b border-[var(--color-border)] p-3 last:border-b-0"
               >
-                <div className="mb-1 text-xs text-[var(--color-text-muted)]">
+                <div className="mb-1 text-xs text-[var(--color-text-faint)] tabular-nums">
                   {new Date(chunk.timestamp).toLocaleString()} — {chunk.stream_name}
                 </div>
-                <pre className="max-w-full overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-[var(--color-text)]">
+                <pre className="max-w-full whitespace-pre-wrap break-words font-mono text-xs leading-[1.125rem] text-[var(--color-text)]">
                   {chunk.lines.join('\n')}
                 </pre>
               </div>
