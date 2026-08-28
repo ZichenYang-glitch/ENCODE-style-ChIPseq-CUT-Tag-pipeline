@@ -67,6 +67,7 @@ function RunIdentity({ run }: { run: RunSummaryResponse }) {
         value={run.run_id}
         label="run ID"
         to={`/runs/${encodeURIComponent(run.run_id)}`}
+        linkAriaLabel={run.run_id}
       />
       <span
         className="mt-1 block truncate text-xs text-[var(--color-text-faint)]"

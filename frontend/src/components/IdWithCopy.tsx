@@ -8,6 +8,7 @@ interface IdWithCopyProps {
   label?: string;
   to?: string;
   shortLength?: number;
+  linkAriaLabel?: string;
   className?: string;
 }
 
@@ -15,7 +16,8 @@ export function IdWithCopy({
   value,
   label = 'ID',
   to,
-  shortLength = 8,
+  shortLength = 12,
+  linkAriaLabel,
   className = '',
 }: IdWithCopyProps) {
   const [copied, setCopied] = useState(false);
@@ -53,7 +55,7 @@ export function IdWithCopy({
         <Link
           className="inline-flex min-w-0 items-center gap-1 text-[var(--color-link)] hover:underline"
           to={to}
-          aria-label={`Open ${label} ${value}`}
+          aria-label={linkAriaLabel ?? `Open ${label} ${value}`}
           title={value}
         >
           {identity}

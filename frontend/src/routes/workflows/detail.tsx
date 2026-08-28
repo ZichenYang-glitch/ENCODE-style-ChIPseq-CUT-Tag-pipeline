@@ -368,7 +368,7 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
               </section>
               <details className="rounded-[4px] border border-[var(--color-border)] bg-[var(--color-surface-subtle)]">
                 <summary className="min-h-11 cursor-pointer px-3 py-3 text-sm font-medium">
-                  Validation Assistant (read only)
+                  Assistant tools (read only)
                 </summary>
                 <div className="border-t border-[var(--color-border)] bg-[var(--color-surface)] p-3">
                   <AgentSidebar
