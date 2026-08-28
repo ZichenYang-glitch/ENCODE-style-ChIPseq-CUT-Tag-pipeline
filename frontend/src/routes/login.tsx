@@ -42,10 +42,11 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--color-bg)] px-4">
+    <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--color-bg)] px-4 py-6">
       <section
         aria-labelledby="login-heading"
-        className="w-full max-w-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm"
+        aria-busy={loading || undefined}
+        className="w-full max-w-sm rounded-[6px] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm"
       >
         <h1
           id="login-heading"
@@ -54,11 +55,16 @@ export function LoginPage() {
           <Dna aria-hidden="true" size={20} />
           HelixWeave
         </h1>
+        {loading && (
+          <p className="mt-4 text-sm text-[var(--color-text-muted)]" role="status">
+            Checking session…
+          </p>
+        )}
         {setupRequired ? (
           <p className="mt-4 text-sm text-[var(--color-text-muted)]" role="status">
             No administrator exists yet. Create the first one from the operator
             console with{' '}
-            <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">
+            <code className="rounded-[4px] bg-[var(--color-surface-subtle)] px-1 py-0.5 text-xs">
               helixweave admin account bootstrap
             </code>
             , then sign in here.
@@ -82,7 +88,7 @@ export function LoginPage() {
                 maxLength={64}
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                className="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-white px-3 py-2 text-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+                className="mt-1 block h-11 w-full rounded-[4px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-sm focus:border-[var(--color-focus)] focus:outline-none sm:h-9"
               />
             </div>
             <div>
@@ -100,15 +106,23 @@ export function LoginPage() {
                 required
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                className="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-white px-3 py-2 text-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+                className="mt-1 block h-11 w-full rounded-[4px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-sm focus:border-[var(--color-focus)] focus:outline-none sm:h-9"
               />
             </div>
             {error !== null && (
-              <p role="alert" className="text-sm text-red-600">
+              <p
+                role="alert"
+                className="rounded-[4px] border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-3 py-2 text-sm text-[var(--color-error)]"
+              >
                 {error}
               </p>
             )}
-            <Button type="submit" disabled={submitting} className="w-full">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={submitting}
+              className="w-full"
+            >
               {submitting ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>

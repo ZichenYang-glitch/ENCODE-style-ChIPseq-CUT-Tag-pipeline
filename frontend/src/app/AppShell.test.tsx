@@ -65,6 +65,7 @@ describe('AppShell navigation', () => {
 
     renderWithRouter(routes, { initialEntries: ['/runs'] });
 
+    await user.click(await screen.findByRole('button', { name: /lab-member/ }));
     const preference = await screen.findByRole('checkbox', {
       name: 'Email me when my runs finish',
     });

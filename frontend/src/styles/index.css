@@ -3,19 +3,37 @@
 @tailwind utilities;
 
 :root {
-  --color-bg: #f3f4f6;
+  --color-bg: #f4f6f3;
   --color-surface: #ffffff;
-  --color-text: #111827;
-  --color-text-muted: #4b5563;
-  --color-border: #d1d5db;
-  --color-accent: #0d9488;
-  --color-accent-hover: #0f766e;
-  --color-error: #dc2626;
-  --color-error-bg: #fef2f2;
-  --color-warning: #b45309;
-  --color-warning-bg: #fffbeb;
-  --color-info: #0369a1;
-  --color-info-bg: #f0f9ff;
+  --color-surface-subtle: #eef2ee;
+  --color-surface-selected: #e7f0eb;
+  --color-inset: var(--color-surface-subtle);
+  --color-text: #17211b;
+  --color-text-muted: #4c5b52;
+  --color-text-faint: #68766d;
+  --color-border: #c9d1cb;
+  --color-border-strong: #9aa79e;
+  --color-accent: #2f6b55;
+  --color-accent-hover: #245441;
+  --color-accent-bg: var(--color-surface-selected);
+  --color-link: #1d5d8f;
+  --color-focus: #1d4ed8;
+  --color-success: #237a57;
+  --color-success-bg: #eaf6ef;
+  --color-success-border: #9dd1b8;
+  --color-warning: #8a5a00;
+  --color-warning-bg: #fff7e0;
+  --color-warning-border: #e7c56d;
+  --color-error: #b42318;
+  --color-error-bg: #fff1f0;
+  --color-error-border: #f0a19a;
+  --color-info: #1d5d8f;
+  --color-info-bg: #eff6fc;
+  --color-info-border: #b8d3e8;
+  --color-neutral: #45564d;
+  --color-neutral-bg: #eef1ef;
+  --color-neutral-border: #cbd2ce;
+  --color-skeleton: #e3e8e3;
   --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
@@ -25,14 +43,66 @@ html {
 }
 
 body {
+  margin: 0;
   background-color: var(--color-bg);
   color: var(--color-text);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  overflow-wrap: break-word;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-surface-selected);
+}
+
+a {
+  color: inherit;
 }
 
 pre,
 code,
 textarea.font-mono {
   font-family: var(--font-mono);
+}
+
+.tabular-nums,
+time,
+[data-technical-value] {
+  font-variant-numeric: tabular-nums;
+}
+
+.primary-nav-link {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border-bottom: 2px solid transparent;
+  padding: 0 0.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.primary-nav-link:hover {
+  color: var(--color-text);
+}
+
+.primary-nav-link[aria-current="page"] {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+@media (min-width: 640px) {
+  .primary-nav-link {
+    min-height: 2.25rem;
+  }
 }
 
 .input-workbench .schema-object-form .rjsf {
@@ -72,7 +142,7 @@ textarea.font-mono {
   max-width: 100%;
   border: 1px solid var(--color-border);
   border-radius: 0.25rem;
-  background: white;
+  background: var(--color-surface);
   padding: 0.375rem 0.5rem;
   font-size: 0.875rem;
 }
@@ -80,8 +150,8 @@ textarea.font-mono {
 .input-workbench .schema-object-form input:focus,
 .input-workbench .schema-object-form select:focus,
 .input-workbench .schema-object-form textarea:focus {
-  border-color: var(--color-accent);
-  outline: 2px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  border-color: var(--color-focus);
+  outline: 2px solid var(--color-focus);
   outline-offset: 1px;
 }
 
