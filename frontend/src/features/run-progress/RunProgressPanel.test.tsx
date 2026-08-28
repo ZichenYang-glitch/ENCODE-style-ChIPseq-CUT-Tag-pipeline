@@ -341,8 +341,11 @@ describe('RunProgressPanel', () => {
 
     expect(await screen.findByText('Human GRCh38')).toBeVisible();
     expect(screen.getByText(/Homo sapiens · GRCh38/)).toBeVisible();
-    expect(screen.getByText(/Revision 3/)).toBeVisible();
-    expect(screen.getByText('a'.repeat(64))).toBeVisible();
+    expect(screen.getByTestId('run-reference-profile')).toHaveTextContent(/Revision\s*3/);
+    expect(screen.getByTitle('a'.repeat(64))).toBeVisible();
+    expect(screen.getByRole('button', {
+      name: `Copy full reference identity digest ${'a'.repeat(64)}`,
+    })).toBeVisible();
   });
 
   it('marks active polling stale only after the bounded observation window', () => {
