@@ -23,7 +23,11 @@ function scalarFieldUiSchema(schema: RJSFSchema): UiSchema {
       'oneOf' in candidate ||
       'anyOf' in candidate ||
       'allOf' in candidate ||
-      '$ref' in candidate
+      '$ref' in candidate ||
+      'enum' in candidate ||
+      'format' in candidate ||
+      'contentMediaType' in candidate ||
+      'contentEncoding' in candidate
     ) {
       continue;
     }

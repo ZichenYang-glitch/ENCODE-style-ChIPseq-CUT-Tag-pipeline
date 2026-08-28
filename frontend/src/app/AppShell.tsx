@@ -86,41 +86,43 @@ export function AppShell() {
           </h1>
           <nav
             aria-label="Primary"
-            className="col-span-2 row-start-2 flex min-w-0 items-center gap-1 overflow-x-auto md:col-span-1 md:col-start-2 md:row-start-1"
+            className="col-span-2 row-start-2 grid min-w-0 grid-flow-col auto-cols-fr items-center gap-1 md:col-span-1 md:col-start-2 md:row-start-1 md:flex"
           >
             <Link
               className="primary-nav-link"
               aria-current={workflowsCurrent ? 'page' : undefined}
               to="/workflows"
             >
-                <ListTree aria-hidden="true" size={16} />
-                Workflows
+              <ListTree className="hidden sm:block" aria-hidden="true" size={16} />
+              Workflows
             </Link>
             <Link
               className="primary-nav-link"
               aria-current={runsCurrent ? 'page' : undefined}
               to="/runs"
             >
-                <History aria-hidden="true" size={16} />
-                Runs
+              <History className="hidden sm:block" aria-hidden="true" size={16} />
+              Runs
             </Link>
             <Link
               className="primary-nav-link"
               aria-current={artifactsCurrent ? 'page' : undefined}
               to="/artifacts"
             >
-                <FileArchive aria-hidden="true" size={16} />
-                Artifacts
+              <FileArchive className="hidden sm:block" aria-hidden="true" size={16} />
+              Artifacts
             </Link>
             {workflowId && (
               <Link
                 className="primary-nav-link"
                 aria-label="New analysis"
+                title="New analysis"
                 aria-current={authoringRoute ? 'page' : undefined}
                 to={`/workflows/${encodeURIComponent(workflowId)}/new-run`}
               >
-                  <FilePenLine aria-hidden="true" size={16} />
-                  New analysis
+                <FilePenLine className="hidden sm:block" aria-hidden="true" size={16} />
+                <span className="sm:hidden">New</span>
+                <span className="hidden sm:inline">New analysis</span>
               </Link>
             )}
           </nav>

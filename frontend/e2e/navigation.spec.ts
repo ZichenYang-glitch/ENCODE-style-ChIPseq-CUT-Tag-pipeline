@@ -26,6 +26,24 @@ async function expectNoHorizontalOverflow(page: Page) {
     .toBe(true);
 }
 
+async function expectNavigationLinksWithinViewport(page: Page) {
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+  const links = page
+    .getByRole('navigation', { name: 'Primary' })
+    .getByRole('link');
+  const count = await links.count();
+  expect(count).toBe(4);
+  for (let index = 0; index < count; index += 1) {
+    const link = links.nth(index);
+    await expect(link).toBeVisible();
+    const box = await link.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width);
+  }
+}
+
 async function capture(
   page: Page,
   testInfo: TestInfo,
@@ -66,12 +84,14 @@ test('global navigation exposes authoring before developer schemas on desktop @d
   const newAnalysisLink = primaryNavigation.getByRole('link', {
     name: 'New analysis',
   });
-  await expect(primaryNavigation.getByRole('link')).toHaveText([
-    'Workflows',
-    'Runs',
-    'Artifacts',
-    'New analysis',
-  ]);
+  await expect(primaryNavigation.getByRole('link')).toHaveCount(4);
+  await expect(workflowsLink).toHaveText('Workflows');
+  await expect(runsLink).toHaveText('Runs');
+  await expect(artifactsLink).toHaveText('Artifacts');
+  await expect(
+    newAnalysisLink.getByText('New analysis', { exact: true }),
+  ).toBeVisible();
+  await expect(newAnalysisLink.getByText('New', { exact: true })).toBeHidden();
   await expect(workflowsLink).toHaveAttribute('aria-current', 'page');
   await expect(runsLink).not.toHaveAttribute('aria-current');
   await expect(runsLink).toHaveAttribute('href', '/runs');
@@ -142,8 +162,15 @@ test('navigation and workflow authoring remain operable without mobile overflow 
     primaryNavigation.getByRole('link', { name: 'Workflows' }),
   ).toHaveAttribute('aria-current', 'page');
   const authorInputs = page.getByRole('link', { name: 'Author inputs' });
+  const executionStatusCode = page.getByLabel(/^Execution status code:/);
   await expect(authorInputs).toBeVisible();
   await expect(authorInputs).toBeInViewport();
+  await expect(executionStatusCode).toBeVisible();
+  await expect(executionStatusCode).toHaveAttribute(
+    'title',
+    'WORKFLOW_EXECUTION_READY',
+  );
+  await expect(executionStatusCode).toHaveCSS('white-space', 'nowrap');
   await expect(page.getByTestId('developer-schema-details')).not.toHaveAttribute(
     'open',
   );
@@ -155,6 +182,20 @@ test('navigation and workflow authoring remain operable without mobile overflow 
     390,
     844,
   );
+  await expectNavigationLinksWithinViewport(page);
+  await expect(
+    primaryNavigation.getByRole('link', { name: 'New analysis' }),
+  ).toHaveAttribute('title', 'New analysis');
+  await expect(
+    primaryNavigation
+      .getByRole('link', { name: 'New analysis' })
+      .getByText('New', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    primaryNavigation
+      .getByRole('link', { name: 'New analysis' })
+      .getByText('New analysis', { exact: true }),
+  ).toBeHidden();
   await capture(
     page,
     testInfo,
@@ -162,6 +203,7 @@ test('navigation and workflow authoring remain operable without mobile overflow 
     360,
     800,
   );
+  await expectNavigationLinksWithinViewport(page);
 
   await primaryNavigation.getByRole('link', { name: 'New analysis' }).click();
   await expect(page).toHaveURL(`/workflows/${workflowId}/new-run`);

@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SchemaResponse } from '../../api/generated/models';
@@ -6,6 +6,7 @@ import { ApiError } from '../../api/fetcher';
 import { createStubWorkflowClient } from '../../api/client';
 import { appRoutes } from '../../app/router';
 import { createAuthoringSchemaFixture, WORKFLOW_ID } from '../../features/input-workbench/test-fixtures';
+import { SchemaObjectForm } from '../../features/input-workbench/SchemaObjectForm';
 import { renderWithRouter } from '../../test/test-utils';
 
 const generatedMocks = vi.hoisted(() => ({
@@ -208,6 +209,62 @@ describe('schema input workbench route', () => {
       /stage4b|stage5/,
     );
     expect(screen.getByRole('button', { name: 'Validate current inputs' })).toBeDisabled();
+  });
+
+  it('uses two-column wrappers only for ordinary scalar config fields', async () => {
+    render(
+      <SchemaObjectForm
+        schema={{
+          type: 'object',
+          title: 'Grid classification',
+          description: 'Section help stays above the field grid.',
+          properties: {
+            plain_text: { type: 'string', title: 'Plain text' },
+            formatted_text: {
+              type: 'string',
+              format: 'uri',
+              title: 'Formatted text',
+            },
+            enum_choice: {
+              type: 'string',
+              enum: ['first', 'second'],
+              title: 'Enum choice',
+            },
+            nested: {
+              type: 'object',
+              title: 'Nested object',
+              properties: {
+                enabled: { type: 'boolean', title: 'Nested enabled' },
+              },
+            },
+            entries: {
+              type: 'array',
+              title: 'Entries',
+              items: { type: 'string' },
+            },
+            alternate: {
+              title: 'Alternate value',
+              oneOf: [{ type: 'string' }, { type: 'number' }],
+            },
+          },
+        }}
+        value={{}}
+        resetRevision={0}
+        onChange={vi.fn()}
+        ariaLabel="Grid classification form"
+      />,
+    );
+    const form = screen.getByLabelText('Grid classification form');
+    const wrapperFor = (fieldId: string) =>
+      form.querySelector(`#root_${fieldId}`)?.closest('.form-group');
+
+    expect(wrapperFor('plain_text')).toHaveClass('hw-scalar-field');
+    expect(wrapperFor('formatted_text')).not.toHaveClass('hw-scalar-field');
+    expect(wrapperFor('enum_choice')).not.toHaveClass('hw-scalar-field');
+    expect(wrapperFor('nested')).not.toHaveClass('hw-scalar-field');
+    expect(wrapperFor('entries')).not.toHaveClass('hw-scalar-field');
+    expect(wrapperFor('alternate')).not.toHaveClass('hw-scalar-field');
+    expect(screen.getByText('Section help stays above the field grid.')).toBeVisible();
   });
 
   it('freezes the selected GRCh38 revision and invalidates its snapshot after switching to mm10', async () => {

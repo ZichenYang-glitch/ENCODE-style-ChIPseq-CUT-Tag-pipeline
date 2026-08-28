@@ -1,6 +1,9 @@
 import { ChevronRight, Code2 } from 'lucide-react';
 import type { WorkflowSchema, WorkflowSummary } from '../../api/types';
-import { ExecutionAvailabilityBadge } from './WorkflowAvailability';
+import {
+  ExecutionAvailabilityBadge,
+  executionAvailabilityLabel,
+} from './WorkflowAvailability';
 
 interface WorkflowDetailProps {
   workflow: WorkflowSummary;
@@ -52,10 +55,22 @@ export function WorkflowDetail({ workflow }: WorkflowDetailProps) {
           </code>
         </p>
       )}
-      <p className="min-w-0 break-words text-xs">
-        Input authoring is available. Execution status:{' '}
-        <code className="break-all">{workflow.availability.reason_code}</code>
-      </p>
+      <p className="text-xs">Input authoring is available.</p>
+      <div className="grid min-w-0 gap-1 border-t border-[var(--color-border)] pt-2 text-xs sm:grid-cols-[auto_auto_minmax(0,1fr)] sm:items-baseline sm:gap-x-2">
+        <span className="font-medium text-[var(--color-text-faint)]">
+          Execution status
+        </span>
+        <span className="text-[var(--color-text)]">
+          {executionAvailabilityLabel(workflow.availability.execution)}
+        </span>
+        <code
+          className="block min-w-0 truncate text-[var(--color-text-muted)]"
+          aria-label={`Execution status code: ${workflow.availability.reason_code}`}
+          title={workflow.availability.reason_code}
+        >
+          {workflow.availability.reason_code}
+        </code>
+      </div>
     </div>
   );
 }
