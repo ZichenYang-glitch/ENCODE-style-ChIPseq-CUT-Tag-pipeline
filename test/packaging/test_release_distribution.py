@@ -344,11 +344,15 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(tmp_path: Path) -> Non
             "20260818_14_lan_authentication.py"
         ) in names
         assert (
+            "encode_pipeline/persistence/alembic/versions/"
+            "20260827_15_terminal_email_notifications.py"
+        ) in names
+        assert (
             sum(
                 "/persistence/alembic/versions/" in name and name.endswith(".py")
                 for name in names
             )
-            == 15
+            == 16
         )
         assert not any(name.startswith("test/") for name in names)
 

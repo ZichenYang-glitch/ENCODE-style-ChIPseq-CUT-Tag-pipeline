@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from types import TracebackType
 
@@ -10,6 +11,11 @@ from encode_pipeline.persistence.runtime import (
     RunPersistence,
     open_existing_run_persistence,
 )
+from encode_pipeline.persistence.authentication import (
+    SqlAlchemyAuthenticationRepository,
+)
+from encode_pipeline.persistence.database import create_session_factory
+from encode_pipeline.platform.notifications import TerminalRunNotifier
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.command_builder import CommandBuilder
 from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
@@ -33,8 +39,12 @@ from encode_pipeline.services.reference_profile_runtime import (
 )
 from encode_pipeline.services.process_runner import ProcessRunner
 from encode_pipeline.services.runs import RunService
+from encode_pipeline.services.terminal_notifications import (
+    compose_terminal_run_notifier,
+)
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 from encode_pipeline.workers.settings import WorkerSettings, load_worker_settings
+from encode_pipeline.workers.terminal_notifications import WorkerTerminalRunNotifier
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
 
 
@@ -46,6 +56,7 @@ class WorkerRuntime:
     persistence: RunPersistence
     registry: WorkflowRegistry
     run_service: RunService
+    terminal_notifier: TerminalRunNotifier
     reference_profile_binding_service: ReferenceProfileBindingService
     reference_profile_resolver: ReferenceProfileRuntimeResolver
     build_identity_provider: WorkflowBuildIdentityProvider
@@ -170,9 +181,20 @@ def open_worker_runtime(
                 "project_root must match build_identity_provider.project_root"
             )
         source_project_root = build_identity_provider.project_root
+        authentication_repository = SqlAlchemyAuthenticationRepository(
+            create_session_factory(persistence.engine)
+        )
+        terminal_notifier = WorkerTerminalRunNotifier(
+            compose_terminal_run_notifier(
+                environ=os.environ,
+                run_repository=persistence.repository,
+                authentication_repository=authentication_repository,
+            )
+        )
         run_service = create_default_run_service(
             registry=registry,
             repository=persistence.repository,
+            terminal_notifier=terminal_notifier,
         )
 
         def _private_reference_config():
@@ -267,6 +289,7 @@ def open_worker_runtime(
             persistence=persistence,
             registry=registry,
             run_service=run_service,
+            terminal_notifier=terminal_notifier,
             reference_profile_binding_service=reference_profile_binding_service,
             reference_profile_resolver=reference_profile_resolver,
             build_identity_provider=build_identity_provider,

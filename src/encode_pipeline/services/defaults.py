@@ -248,10 +248,14 @@ def create_default_agent_service(
     )
 
 
+_TERMINAL_NOTIFIER_UNSET = object()
+
+
 def create_default_run_service(
     registry: WorkflowRegistry | None = None,
     *,
     repository: "RunRepository | None" = None,
+    terminal_notifier=_TERMINAL_NOTIFIER_UNSET,
 ) -> "RunService":
     """Return a fresh run service wired to the default registry.
 
@@ -266,7 +270,17 @@ def create_default_run_service(
 
     if registry is None:
         registry = create_default_workflow_registry()
-    return RunService(registry=registry, repository=repository)
+    if terminal_notifier is _TERMINAL_NOTIFIER_UNSET:
+        from encode_pipeline.platform.notifications import DisabledTerminalRunNotifier
+
+        terminal_notifier = DisabledTerminalRunNotifier()
+    elif terminal_notifier is None:
+        raise ValueError("terminal_notifier must be explicitly composed")
+    return RunService(
+        registry=registry,
+        repository=repository,
+        terminal_notifier=terminal_notifier,
+    )
 
 
 def create_default_local_run_driver(

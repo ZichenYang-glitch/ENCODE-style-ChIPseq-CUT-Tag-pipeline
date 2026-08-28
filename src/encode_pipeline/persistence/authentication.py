@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -172,6 +173,49 @@ class SqlAlchemyAuthenticationRepository:
             if audit is not None:
                 insert_security_audit_event(write_session, audit)
 
+    def set_notification_email(
+        self,
+        user_id: str,
+        notification_email: str | None,
+        changed_at: datetime,
+    ) -> UserAccount:
+        return self._update_notification_account(
+            user_id,
+            lambda account: account.change_notification_email(
+                notification_email,
+                changed_at,
+            ),
+        )
+
+    def set_terminal_email_enabled(
+        self,
+        user_id: str,
+        enabled: bool,
+        changed_at: datetime,
+    ) -> UserAccount:
+        return self._update_notification_account(
+            user_id,
+            lambda account: account.change_terminal_email_enabled(
+                enabled,
+                changed_at,
+            ),
+        )
+
+    def _update_notification_account(
+        self,
+        user_id: str,
+        update_account: Callable[[UserAccount], UserAccount],
+    ) -> UserAccount:
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            row = session.get(UserAccountRow, user_id)
+            if row is None:
+                raise KeyError("unknown user account")
+            updated = update_account(_account_from_row(row))
+            _apply_account_update(row, updated)
+            session.flush()
+            return updated
+
     def record_security_audit(self, event: SecurityAuditEvent) -> None:
         _validate_audit(event)
         with self._session_factory.begin() as session:
@@ -286,6 +330,8 @@ def _apply_account_update(row: UserAccountRow, account: UserAccount) -> None:
     row.created_at = account.created_at
     row.updated_at = account.updated_at
     row.password_changed_at = account.password_changed_at
+    row.notification_email = account.notification_email
+    row.terminal_email_enabled = account.terminal_email_enabled
 
 
 def _account_row(account: UserAccount) -> UserAccountRow:
@@ -298,6 +344,8 @@ def _account_row(account: UserAccount) -> UserAccountRow:
         created_at=account.created_at,
         updated_at=account.updated_at,
         password_changed_at=account.password_changed_at,
+        notification_email=account.notification_email,
+        terminal_email_enabled=account.terminal_email_enabled,
     )
 
 
@@ -311,6 +359,8 @@ def _account_from_row(row: UserAccountRow) -> UserAccount:
         created_at=_as_utc(row.created_at),
         updated_at=_as_utc(row.updated_at),
         password_changed_at=_as_utc(row.password_changed_at),
+        notification_email=row.notification_email,
+        terminal_email_enabled=row.terminal_email_enabled,
     )
 
 

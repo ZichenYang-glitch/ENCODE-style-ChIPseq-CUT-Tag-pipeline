@@ -639,12 +639,18 @@ helixweave admin --database-url sqlite:////var/lib/helixweave/platform.db \
 
 helixweave admin --database-url sqlite:////var/lib/helixweave/platform.db \
   run fail RUN_ID --expected-status running \
-  --job-id JOB_ID --backend rq --queue-name QUEUE_NAME
+  --job-id JOB_ID --backend rq --queue-name QUEUE_NAME \
+  --notifications-env-file /etc/helixweave/notifications.env
 
 helixweave admin --database-url sqlite:////var/lib/helixweave/platform.db \
   run requeue RUN_ID --expected-status queued \
   --job-id JOB_ID --backend rq --queue-name QUEUE_NAME
 ```
+
+The supported deployed `run fail` invocation is run with the host authority
+needed to read the root-owned mode-`0600` notification environment. The CLI
+reads only the closed terminal-email key set for that one terminal mutation;
+it does not export those values, and diagnose/requeue never read the file.
 
 Diagnosis opens SQLite read-only and reports only lifecycle, opaque assignment
 identity, marker booleans, bounded queue evidence, result-indexing state, and

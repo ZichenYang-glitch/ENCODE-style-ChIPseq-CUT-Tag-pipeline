@@ -1259,6 +1259,23 @@ class SessionStateResponse(BaseModel):
     issues: list[IssueResponse]
 
 
+class TerminalEmailPreferenceRequest(BaseModel):
+    """The complete member-owned terminal-email preference mutation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    terminal_email_enabled: bool
+
+
+class TerminalEmailPreferenceResponse(BaseModel):
+    """Address-free self projection for terminal-email preference."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    terminal_email_enabled: bool
+    address_configured: bool
+
+
 class AuthErrorResponse(BaseModel):
     ok: bool = False
     issues: list[IssueResponse]

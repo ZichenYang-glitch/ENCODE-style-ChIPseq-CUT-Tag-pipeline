@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from threading import RLock
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -154,6 +154,7 @@ class SqlAlchemyRunRepository:
         record: RunRecord,
         event: RunEventDraft,
         *,
+        requested_by_user_id: str | None = None,
         security_audit: SecurityAuditEvent | None = None,
     ) -> RunEvent:
         _validate_security_audit(security_audit)
@@ -161,7 +162,12 @@ class SqlAlchemyRunRepository:
             try:
                 with self._session_factory.begin() as session:
                     _begin_write(session)
-                    session.add(_run_row(record))
+                    session.add(
+                        _run_row(
+                            record,
+                            requested_by_user_id=requested_by_user_id,
+                        )
+                    )
                     session.flush()
                     session.add(RunResultStateRow(run_id=record.run_id))
                     binding = build_legacy_project_sample_binding(
@@ -369,6 +375,7 @@ class SqlAlchemyRunRepository:
         record: RunRecord,
         consumed_at: datetime,
         event: RunEventDraft,
+        requested_by_user_id: str | None = None,
         security_audit: SecurityAuditEvent | None = None,
     ) -> ValidatedSnapshotRunCreation:
         _validate_security_audit(security_audit)
@@ -475,7 +482,12 @@ class SqlAlchemyRunRepository:
                             "Reference Profile selection is not eligible"
                         )
 
-                session.add(_run_row(record))
+                session.add(
+                    _run_row(
+                        record,
+                        requested_by_user_id=requested_by_user_id,
+                    )
+                )
                 session.flush()
                 session.add(RunResultStateRow(run_id=record.run_id))
                 _add_run_data_binding(
@@ -519,6 +531,15 @@ class SqlAlchemyRunRepository:
     def get_run(self, run_id: str) -> RunRecord:
         with self._session_factory() as session:
             return _record_from_row(self._require_run(session, run_id))
+
+    def get_run_requester_user_id(self, run_id: str) -> str | None:
+        """Return the immutable create-time requester without exposing it on a run."""
+
+        with self._session_factory() as session:
+            row = session.scalar(select(RunRow).where(RunRow.run_id == run_id))
+            if row is None:
+                raise KeyError(run_id)
+            return row.requested_by_user_id
 
     def get_run_data_binding(self, run_id: str) -> ProjectSampleBinding:
         with self._session_factory() as session:
@@ -1471,6 +1492,65 @@ class SqlAlchemyRunRepository:
             rows = session.scalars(statement).all()
             return state.qc_generation, tuple(_qc_metric_from_row(row) for row in rows)
 
+    def list_qc_metrics_for_terminal_notification(
+        self,
+        run_id: str,
+        *,
+        expected_generation: str,
+        limit: int,
+    ) -> tuple[int, tuple[RunQcMetric, ...]]:
+        """Read one bounded, stable projection of the current successful QC set."""
+
+        validate_qc_generation(expected_generation)
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise ValueError("terminal notification QC limit must be positive")
+        with self._session_factory() as session:
+            _begin_consistent_read(session)
+            self._require_run(session, run_id)
+            state = _result_state_from_row(self._require_result_state(session, run_id))
+            if (
+                state.qc_generation != expected_generation
+                or state.qc_outcome != "succeeded"
+            ):
+                raise ResultGenerationChangedError("QC generation changed")
+            total_count = session.scalar(
+                select(func.count())
+                .select_from(RunQcMetricRow)
+                .where(RunQcMetricRow.run_id == run_id)
+            )
+            flag_order = case(
+                (RunQcMetricRow.qc_flag == "fail", 0),
+                (RunQcMetricRow.qc_flag == "warning", 1),
+                (RunQcMetricRow.qc_flag == "pass", 2),
+                else_=3,
+            )
+            scope_order = case(
+                (RunQcMetricRow.scope == "run", 0),
+                (RunQcMetricRow.scope == "experiment", 1),
+                (RunQcMetricRow.scope == "sample", 2),
+                else_=3,
+            )
+            rows = session.scalars(
+                select(RunQcMetricRow)
+                .where(RunQcMetricRow.run_id == run_id)
+                .order_by(
+                    flag_order,
+                    scope_order,
+                    func.coalesce(
+                        RunQcMetricRow.experiment_id,
+                        RunQcMetricRow.sample_id,
+                        "",
+                    ),
+                    func.lower(RunQcMetricRow.display_name),
+                    RunQcMetricRow.metric_key,
+                    RunQcMetricRow.metric_id,
+                )
+                .limit(limit)
+            ).all()
+            return int(total_count or 0), tuple(
+                _qc_metric_from_row(row) for row in rows
+            )
+
     def record_qc_metrics_failure(
         self,
         run_id: str,
@@ -2146,8 +2226,16 @@ class SqlAlchemyRunRepository:
         )
 
 
-def _run_row(record: RunRecord) -> RunRow:
-    return RunRow(run_id=record.run_id, **_run_values(record))
+def _run_row(
+    record: RunRecord,
+    *,
+    requested_by_user_id: str | None = None,
+) -> RunRow:
+    return RunRow(
+        run_id=record.run_id,
+        requested_by_user_id=requested_by_user_id,
+        **_run_values(record),
+    )
 
 
 def _workflow_build_identity_row(

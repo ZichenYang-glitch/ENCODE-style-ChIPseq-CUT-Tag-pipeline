@@ -12,6 +12,7 @@ from enum import Enum
 import json
 import os
 from pathlib import Path
+import stat
 import sys
 from typing import TYPE_CHECKING, Protocol, cast
 
@@ -212,6 +213,54 @@ _RUN_RECOVERY_ERROR_MESSAGES = {
     "RUN_RECOVERY_DATA_INVALID": "Run recovery data is invalid.",
     "RUN_RECOVERY_INTERNAL_ERROR": "Run recovery command failed.",
 }
+_MAX_NOTIFICATIONS_ENV_BYTES = 64 * 1024
+
+
+def _read_private_notification_environment(path: Path) -> dict[str, str]:
+    """Read the closed notification env contract without exporting secrets."""
+
+    from encode_pipeline.platform.notifications import TERMINAL_EMAIL_ENV_NAMES
+
+    if not path.is_absolute():
+        raise ValueError("notification environment path must be absolute")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        observed = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(observed.st_mode)
+            or observed.st_nlink != 1
+            or stat.S_IMODE(observed.st_mode) & 0o077
+            or observed.st_size > _MAX_NOTIFICATIONS_ENV_BYTES
+        ):
+            raise ValueError("notification environment is not private")
+        content = os.read(descriptor, _MAX_NOTIFICATIONS_ENV_BYTES + 1)
+        if len(content) != observed.st_size:
+            raise ValueError("notification environment changed while reading")
+    finally:
+        os.close(descriptor)
+
+    values: dict[str, str] = {}
+    try:
+        lines = content.decode("utf-8").splitlines()
+    except UnicodeError as exc:
+        raise ValueError("notification environment is invalid") from exc
+    for line in lines:
+        candidate = line.strip()
+        if not candidate or candidate.startswith("#"):
+            continue
+        key, separator, raw_value = candidate.partition("=")
+        if (
+            not separator
+            or key not in TERMINAL_EMAIL_ENV_NAMES
+            or key in values
+            or "\x00" in raw_value
+            or "\r" in raw_value
+            or "\n" in raw_value
+        ):
+            raise ValueError("notification environment is invalid")
+        values[key] = raw_value.strip()
+    return values
 
 
 class _ServiceRegistryAdmin:
@@ -461,6 +510,7 @@ def _open_run_recovery(
     read_only: bool,
     redis_url: str | None = None,
     queue_name: str | None = None,
+    notifications_environment_path: Path | None = None,
 ) -> Iterator[RunRecoveryAdmin]:
     """Compose recovery lazily without letting diagnosis migrate or create state."""
     import sqlite3
@@ -468,6 +518,9 @@ def _open_run_recovery(
     from sqlalchemy import create_engine
     from sqlalchemy.engine import make_url
 
+    from encode_pipeline.persistence.authentication import (
+        SqlAlchemyAuthenticationRepository,
+    )
     from encode_pipeline.persistence.database import (
         create_database_engine,
         create_session_factory,
@@ -482,7 +535,11 @@ def _open_run_recovery(
         resolve_database_url,
     )
     from encode_pipeline.services.managed_containers import ManagedContainerCleaner
+    from encode_pipeline.platform.notifications import DisabledTerminalRunNotifier
     from encode_pipeline.services.run_recovery import RunRecoveryService
+    from encode_pipeline.services.terminal_notifications import (
+        compose_terminal_run_notifier,
+    )
     from encode_pipeline.workers.rq_queue import RqRunQueue
     from encode_pipeline.workers.settings import (
         QUEUE_NAME_ENV,
@@ -549,9 +606,24 @@ def _open_run_recovery(
         settings_environment[REDIS_URL_ENV] = redis_url
     if queue_name is not None:
         settings_environment[QUEUE_NAME_ENV] = queue_name
+    if notifications_environment_path is not None:
+        settings_environment.update(
+            _read_private_notification_environment(notifications_environment_path)
+        )
     queue = None
     try:
-        repository = SqlAlchemyRunRepository(create_session_factory(engine))
+        session_factory = create_session_factory(engine)
+        repository = SqlAlchemyRunRepository(session_factory)
+        authentication_repository = SqlAlchemyAuthenticationRepository(session_factory)
+        terminal_notifier = (
+            DisabledTerminalRunNotifier()
+            if read_only
+            else compose_terminal_run_notifier(
+                environ=settings_environment,
+                run_repository=repository,
+                authentication_repository=authentication_repository,
+            )
+        )
         settings = load_worker_settings(settings_environment)
         queue = RqRunQueue(settings)
         cleanup = None
@@ -579,6 +651,7 @@ def _open_run_recovery(
             queue,
             cleanup=cleanup,
             cleanup_endpoint_identity=cleanup_endpoint_identity,
+            terminal_notifier=terminal_notifier,
         )
     finally:
         if queue is not None:
@@ -741,6 +814,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reset one account password interactively and revoke its sessions.",
     )
     account_reset.add_argument("--username", required=True)
+    account_set_email = account_commands.add_parser(
+        "set-notification-email",
+        help="Set one member's private terminal-notification address.",
+    )
+    account_set_email.add_argument("--username", required=True)
+    account_set_email.add_argument("--email", required=True)
+    account_clear_email = account_commands.add_parser(
+        "clear-notification-email",
+        help="Clear one member's private terminal-notification address.",
+    )
+    account_clear_email.add_argument("--username", required=True)
     account_commands.add_parser(
         "list",
         help="List safe account summaries without secret material.",
@@ -774,6 +858,16 @@ def build_parser() -> argparse.ArgumentParser:
         mutation.add_argument("--job-id", required=True)
         mutation.add_argument("--backend", required=True)
         mutation.add_argument("--queue-name", required=True)
+        if command == "fail":
+            mutation.add_argument(
+                "--notifications-env-file",
+                type=Path,
+                required=True,
+                help=(
+                    "Private operator notification environment used only for "
+                    "this terminal recovery action."
+                ),
+            )
     return parser
 
 
@@ -1067,6 +1161,22 @@ def main(
                         password,
                     )
                     result = account.to_public_summary()
+                elif args.account_command in {
+                    "set-notification-email",
+                    "clear-notification-email",
+                }:
+                    account = administration.set_notification_email_for_username(
+                        args.username,
+                        (
+                            args.email
+                            if args.account_command == "set-notification-email"
+                            else None
+                        ),
+                    )
+                    result = {
+                        **account.to_public_summary(),
+                        "address_configured": account.notification_email is not None,
+                    }
                 else:
                     result = [
                         account.to_public_summary()
@@ -1079,6 +1189,10 @@ def main(
             recovery_factory_options: dict[str, object] = {"read_only": read_only}
             if args.queue_name is not None:
                 recovery_factory_options["queue_name"] = args.queue_name
+            if args.run_command == "fail" and args.notifications_env_file is not None:
+                recovery_factory_options["notifications_environment_path"] = (
+                    args.notifications_env_file
+                )
             with run_recovery_factory(
                 args.database_url,
                 **recovery_factory_options,

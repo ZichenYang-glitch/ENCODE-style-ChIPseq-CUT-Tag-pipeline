@@ -10,6 +10,7 @@ from encode_pipeline.platform.authentication import (
     AuthenticatedPrincipal,
     SessionRecord,
     SessionRevocationReason,
+    TerminalEmailPreference,
     UserAccount,
     UserRole,
     UserStatus,
@@ -195,6 +196,50 @@ def test_account_enable_disable_and_password_change_are_immutable() -> None:
     assert replacement.password_changed_at == changed_at + timedelta(minutes=3)
     assert replacement.updated_at == replacement.password_changed_at
     assert replacement.password_hash != account.password_hash
+
+
+def test_notification_contact_is_private_non_identity_state() -> None:
+    account = _account(notification_email="Lab.Member@Example.ORG")
+
+    assert account.notification_email == "lab.member@example.org"
+    assert account.terminal_email_enabled is True
+    assert "example.org" not in repr(account)
+    assert "notification_email" not in account.to_public_summary()
+    assert "terminal_email_enabled" not in account.to_public_summary()
+    principal = AuthenticatedPrincipal.from_account(account)
+    assert not hasattr(principal, "notification_email")
+
+    preference = TerminalEmailPreference.from_account(account)
+    assert preference.terminal_email_enabled is True
+    assert preference.address_configured is True
+    assert not hasattr(preference, "notification_email")
+
+
+def test_notification_contact_and_opt_out_changes_are_immutable() -> None:
+    account = _account()
+    changed_at = NOW + timedelta(minutes=1)
+    addressed = account.change_notification_email(
+        "member@example.org",
+        changed_at,
+    )
+    disabled = addressed.change_terminal_email_enabled(
+        False,
+        changed_at + timedelta(minutes=1),
+    )
+    cleared = disabled.change_notification_email(
+        None,
+        changed_at + timedelta(minutes=2),
+    )
+
+    assert account.notification_email is None
+    assert addressed.notification_email == "member@example.org"
+    assert disabled.terminal_email_enabled is False
+    assert cleared.notification_email is None
+    assert cleared.terminal_email_enabled is False
+    assert addressed.change_notification_email("member@example.org", NOW) is addressed
+    assert disabled.change_terminal_email_enabled(False, NOW) is disabled
+    with pytest.raises(ValueError, match="boolean"):
+        account.change_terminal_email_enabled(1, changed_at)
 
 
 def test_principal_can_only_be_created_from_an_enabled_account() -> None:

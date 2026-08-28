@@ -247,6 +247,7 @@ def test_only_explicit_blocking_routes_use_fastapi_threadpool() -> None:
             "/api/v1/auth/login",
             "/api/v1/auth/logout",
             "/api/v1/auth/session",
+            "/api/v1/auth/preferences/terminal-email",
             "/api/v1/auth/accounts",
             "/api/v1/auth/accounts/{user_id}/status",
             "/api/v1/auth/accounts/{user_id}/password",

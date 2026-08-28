@@ -41,6 +41,18 @@ API_SERVICE_ENVIRONMENT = {
     "ENCODE_AGENT_LLM_API_KEY",
     "ENCODE_AGENT_LLM_MODEL",
 }
+TERMINAL_EMAIL_SERVICE_ENVIRONMENT = {
+    "HELIXWEAVE_TERMINAL_EMAIL_ENABLED",
+    "HELIXWEAVE_TERMINAL_EMAIL_ADMIN_RECIPIENTS",
+    "HELIXWEAVE_TERMINAL_EMAIL_FROM",
+    "HELIXWEAVE_TERMINAL_EMAIL_APPLICATION_BASE_URL",
+    "HELIXWEAVE_SMTP_HOST",
+    "HELIXWEAVE_SMTP_PORT",
+    "HELIXWEAVE_SMTP_TLS_MODE",
+    "HELIXWEAVE_SMTP_USERNAME",
+    "HELIXWEAVE_SMTP_PASSWORD",
+    "HELIXWEAVE_SMTP_TIMEOUT_SECONDS",
+}
 
 
 def _fixed_release():
@@ -104,6 +116,10 @@ def _environment(command):
     }
     allowed = COMMON_SERVICE_ENVIRONMENT | (
         API_SERVICE_ENVIRONMENT if command == "api" else set()
+    ) | (
+        TERMINAL_EMAIL_SERVICE_ENVIRONMENT
+        if command in {"api", "worker"}
+        else set()
     )
     for key in allowed:
         value = os.environ.get(key)

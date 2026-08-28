@@ -565,6 +565,7 @@ class ValidatedRunCreationService:
         snapshot_id: str,
         *,
         tags: Mapping[str, str] | None = None,
+        requested_by_user_id: str | None = None,
         security_audit_actor: AuthenticatedPrincipal | None = None,
     ) -> ValidatedSnapshotRunCreation:
         """Consume a snapshot once; identical retries return its canonical run."""
@@ -652,6 +653,7 @@ class ValidatedRunCreationService:
                 expected_build_identity=expected_identity,
                 consumed_at=now,
                 tags=tags,
+                requested_by_user_id=requested_by_user_id,
                 security_audit_actor=security_audit_actor,
             )
         except KeyError:

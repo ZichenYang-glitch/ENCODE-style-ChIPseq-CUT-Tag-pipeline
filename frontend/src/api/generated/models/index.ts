@@ -146,6 +146,8 @@ export * from './schemaResponse';
 export * from './schemaResponseSchema';
 export * from './sessionStateResponse';
 export * from './sessionStateResponsePrincipal';
+export * from './terminalEmailPreferenceRequest';
+export * from './terminalEmailPreferenceResponse';
 export * from './validatedInputSnapshotResponse';
 export * from './validatedInputSnapshotResponseBindingMode';
 export * from './validatedInputSnapshotResponseProvenance';

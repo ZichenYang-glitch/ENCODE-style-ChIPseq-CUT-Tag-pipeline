@@ -13,6 +13,7 @@ UMask=0007
 WorkingDirectory=/var/lib/helixweave
 Environment=PYTHONNOUSERSITE=1
 EnvironmentFile=-/etc/helixweave/secrets.env
+EnvironmentFile=-/etc/helixweave/notifications.env
 ExecStart=/usr/libexec/helixweave-active-service api
 Restart=on-failure
 RestartSec=2s
@@ -31,6 +32,7 @@ ProtectKernelTunables=yes
 ProtectSystem=strict
 ReadWritePaths=/var/lib/helixweave/database/live /var/lib/helixweave/workspaces /var/lib/helixweave/artifacts
 InaccessiblePaths=/var/lib/helixweave/operator /run/helixweave/services
+InaccessiblePaths=/etc/helixweave/notifications.env
 InaccessiblePaths=/var/lib/helixweave/docker-rootless /var/lib/helixweave/service-home /run/helixweave/docker
 InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock
 RemoveIPC=yes

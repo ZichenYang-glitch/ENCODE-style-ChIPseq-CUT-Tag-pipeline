@@ -19,6 +19,10 @@ from encode_pipeline.platform.execution import (
     RunExecutionStopAcknowledgement,
     build_execution_job_id,
 )
+from encode_pipeline.platform.notifications import (
+    DisabledTerminalRunNotifier,
+    TerminalRunNotifier,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.result_generations import (
     RunResultState,
@@ -37,7 +41,10 @@ from encode_pipeline.platform.run_history import (
     normalize_run_history_status,
     normalize_run_history_workflow_filter,
 )
-from encode_pipeline.platform.authentication import AuthenticatedPrincipal
+from encode_pipeline.platform.authentication import (
+    AuthenticatedPrincipal,
+    validate_user_id,
+)
 from encode_pipeline.platform.security_audit import AuditAction, SecurityAuditEvent
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
@@ -98,6 +105,7 @@ class RunService:
         registry: WorkflowRegistry,
         id_factory: Callable[[], str] | None = None,
         repository: RunRepository | None = None,
+        terminal_notifier: TerminalRunNotifier = DisabledTerminalRunNotifier(),
     ) -> None:
         if not isinstance(registry, WorkflowRegistry):
             raise ValueError("RunService registry must be WorkflowRegistry")
@@ -108,6 +116,11 @@ class RunService:
         self._repository = (
             repository if repository is not None else InMemoryRunRepository()
         )
+        if terminal_notifier is None or not callable(
+            getattr(terminal_notifier, "notify_terminal_run", None)
+        ):
+            raise ValueError("terminal_notifier must be explicitly composed")
+        self._terminal_notifier = terminal_notifier
         self._lock = RLock()
 
     @property
@@ -120,10 +133,13 @@ class RunService:
         workflow_id: str,
         inputs: WorkflowInputs,
         tags: Mapping[str, str] | None = None,
+        requested_by_user_id: str | None = None,
         security_audit_actor: AuthenticatedPrincipal | None = None,
     ) -> RunRecord:
         """Create a new run in the created state."""
         with self._lock:
+            if requested_by_user_id is not None:
+                requested_by_user_id = validate_user_id(requested_by_user_id)
             adapter = self._registry.get(workflow_id)
             run_id = self._id_factory()
             if self._repository.contains_run(run_id):
@@ -165,6 +181,7 @@ class RunService:
                         "new_status": RunStatus.CREATED.value,
                     },
                 ),
+                requested_by_user_id=requested_by_user_id,
                 security_audit=security_audit,
             )
             return record
@@ -193,10 +210,13 @@ class RunService:
         expected_build_identity: WorkflowBuildIdentity,
         consumed_at: datetime,
         tags: Mapping[str, str] | None = None,
+        requested_by_user_id: str | None = None,
         security_audit_actor: AuthenticatedPrincipal | None = None,
     ) -> ValidatedSnapshotRunCreation:
         """Atomically consume one validated snapshot and create its run."""
         with self._lock:
+            if requested_by_user_id is not None:
+                requested_by_user_id = validate_user_id(requested_by_user_id)
             adapter = self._registry.get(workflow_id)
             snapshot = self._repository.get_validated_input_snapshot(snapshot_id)
             inputs = snapshot.to_workflow_inputs()
@@ -240,6 +260,7 @@ class RunService:
                         "new_status": RunStatus.CREATED.value,
                     },
                 ),
+                requested_by_user_id=requested_by_user_id,
                 security_audit=security_audit,
             )
 
@@ -770,7 +791,10 @@ class RunService:
                 if not was_recovered:
                     continue
                 recovered.append(updated)
-            return tuple(recovered)
+            recovered_runs = tuple(recovered)
+        for record in recovered_runs:
+            self._notify_terminal_safely(record.run_id, record.status)
+        return recovered_runs
 
     def _emit_event(
         self,
@@ -931,7 +955,9 @@ class RunService:
                 ),
                 security_audit=security_audit,
             )
-            return updated
+        if to_status in {RunStatus.FAILED, RunStatus.CANCELLED}:
+            self._notify_terminal_safely(run_id, to_status)
+        return updated
 
     def request_execution_cancellation(
         self,
@@ -987,7 +1013,7 @@ class RunService:
             context={"reason_code": "WORKER_STOP_WITHOUT_CANCELLATION"},
         )
         with self._lock:
-            return self._repository.acknowledge_execution_stop(
+            acknowledgement = self._repository.acknowledge_execution_stop(
                 run_id,
                 job_id=job_id,
                 backend=backend,
@@ -1020,6 +1046,12 @@ class RunService:
                     issue=issue,
                 ),
             )
+        if acknowledgement.transitioned:
+            self._notify_terminal_safely(
+                run_id,
+                acknowledgement.record.status,
+            )
+        return acknowledgement
 
     def cancel_run(
         self,
@@ -1081,7 +1113,17 @@ class RunService:
                     # Another API/worker process advanced the monotonic state.
                     # Re-read SQLite and re-apply the terminal/RUNNING policy.
                     continue
-                return updated
+                break
+        self._notify_terminal_safely(run_id, RunStatus.CANCELLED)
+        return updated
+
+    def _notify_terminal_safely(self, run_id: str, status: RunStatus) -> None:
+        """Keep best-effort notification isolated from durable lifecycle state."""
+
+        try:
+            self._terminal_notifier.notify_terminal_run(run_id, status)
+        except Exception:
+            return
 
     def replace_artifacts(
         self,

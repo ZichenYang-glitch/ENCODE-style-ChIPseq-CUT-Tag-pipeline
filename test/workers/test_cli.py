@@ -169,6 +169,38 @@ def test_worker_cli_rejects_unprepared_schema_before_redis(
     assert "DATABASE_SCHEMA_NOT_CURRENT" in capsys.readouterr().err
 
 
+def test_worker_cli_rejects_invalid_enabled_notifications_before_redis(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    configured = worker_settings(tmp_path)
+    persistence_opened = False
+    redis_opened = False
+    monkeypatch.setattr(cli, "load_worker_settings", lambda: configured)
+    monkeypatch.setenv("HELIXWEAVE_TERMINAL_EMAIL_ENABLED", "true")
+
+    def open_persistence(_database_url):
+        nonlocal persistence_opened
+        persistence_opened = True
+        raise AssertionError("SQLite must not open for invalid notification config")
+
+    def open_redis(_settings):
+        nonlocal redis_opened
+        redis_opened = True
+        raise AssertionError("Redis must not open for invalid notification config")
+
+    monkeypatch.setattr(cli, "open_existing_run_persistence", open_persistence)
+    monkeypatch.setattr(cli, "create_worker_redis_connection", open_redis)
+
+    assert cli.main(["--burst"]) == 2
+    assert persistence_opened is False
+    assert redis_opened is False
+    assert capsys.readouterr().err == (
+        "Worker notification configuration is invalid.\n"
+    )
+
+
 def test_durable_worker_uses_hard_timeout_death_penalty():
     assert issubclass(cli.DurableWorker, Worker)
     assert cli.DurableWorker.death_penalty_class is WorkerUnixSignalDeathPenalty

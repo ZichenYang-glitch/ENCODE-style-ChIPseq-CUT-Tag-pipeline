@@ -19,6 +19,21 @@ from encode_pipeline.services.runs import RunService
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
 REASON = "User requested cancellation."
+_NOTIFIER_UNSET = object()
+
+
+class RecordingTerminalNotifier:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, RunStatus, bool]] = []
+
+    def notify_terminal_run(
+        self,
+        run_id: str,
+        status: RunStatus,
+        *,
+        include_qc: bool = False,
+    ) -> None:
+        self.calls.append((run_id, status, include_qc))
 
 
 class RecordingStopQueue:
@@ -99,7 +114,8 @@ def test_repeated_running_cancellation_preserves_first_intent_and_event():
 
 
 def test_stop_acknowledgement_is_the_only_running_to_cancelled_path():
-    service, assignment = _running_service()
+    notifier = RecordingTerminalNotifier()
+    service, assignment = _running_service(terminal_notifier=notifier)
     service.request_execution_cancellation(
         "run-1",
         job_id=assignment.job_id,
@@ -138,6 +154,7 @@ def test_stop_acknowledgement_is_the_only_running_to_cancelled_path():
     assert repeated.record == acknowledged.record
     assert repeated.assignment == acknowledged.assignment
     assert service.list_events("run-1", limit=100) == events_after_first
+    assert notifier.calls == [("run-1", RunStatus.CANCELLED, False)]
 
 
 def test_generic_transition_cannot_bypass_stop_acknowledgement():
@@ -426,10 +443,17 @@ def test_cancellation_service_does_not_report_503_after_terminal_race():
     assert result.record.status is RunStatus.SUCCEEDED
 
 
-def _running_service() -> tuple[RunService, RunExecutionAssignment]:
+def _running_service(
+    *,
+    terminal_notifier=_NOTIFIER_UNSET,
+) -> tuple[RunService, RunExecutionAssignment]:
+    options = {}
+    if terminal_notifier is not _NOTIFIER_UNSET:
+        options["terminal_notifier"] = terminal_notifier
     service = RunService(
         create_default_workflow_registry(),
         id_factory=lambda: "run-1",
+        **options,
     )
     service.create_run(WORKFLOW_ID, WorkflowInputs(config={}))
     service.transition_run("run-1", RunStatus.VALIDATING)

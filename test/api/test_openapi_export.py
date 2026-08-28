@@ -79,6 +79,14 @@ EXPECTED_OPERATIONS = {
     ("POST", "/api/v1/auth/login"): "login",
     ("POST", "/api/v1/auth/logout"): "logout",
     ("GET", "/api/v1/auth/session"): "session_state",
+    (
+        "GET",
+        "/api/v1/auth/preferences/terminal-email",
+    ): "get_terminal_email_preference",
+    (
+        "PATCH",
+        "/api/v1/auth/preferences/terminal-email",
+    ): "set_terminal_email_preference",
     ("GET", "/api/v1/auth/accounts"): "list_accounts",
     ("POST", "/api/v1/auth/accounts"): "create_member_account",
     ("POST", "/api/v1/auth/accounts/{user_id}/status"): "set_account_status",

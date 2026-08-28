@@ -44,6 +44,20 @@ class AuthenticationRepository(Protocol):
         revoked_at: datetime | None = None,
     ) -> int: ...
 
+    def set_notification_email(
+        self,
+        user_id: str,
+        notification_email: str | None,
+        changed_at: datetime,
+    ) -> UserAccount: ...
+
+    def set_terminal_email_enabled(
+        self,
+        user_id: str,
+        enabled: bool,
+        changed_at: datetime,
+    ) -> UserAccount: ...
+
     def create_session(
         self,
         session: SessionRecord,

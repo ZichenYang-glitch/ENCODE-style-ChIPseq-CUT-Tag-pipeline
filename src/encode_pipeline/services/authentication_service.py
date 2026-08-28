@@ -10,11 +10,13 @@ from encode_pipeline.platform.authentication import (
     AuthenticatedPrincipal,
     SessionRecord,
     SessionRevocationReason,
+    TerminalEmailPreference,
     UserAccount,
     UserRole,
     UserStatus,
     authenticated_principal_for_session,
 )
+from encode_pipeline.platform.notifications import normalize_notification_email
 from encode_pipeline.platform.security_audit import (
     AuditAction,
     AuditActorKind,
@@ -217,6 +219,46 @@ class AuthenticationService:
             return False
         return csrf_request_is_valid(cookie_token, header_token, record.csrf_digest)
 
+    def get_terminal_email_preference(
+        self,
+        principal: AuthenticatedPrincipal,
+    ) -> TerminalEmailPreference:
+        """Return the caller's address-free terminal-email preference."""
+
+        account = self._account_for_principal(principal)
+        return TerminalEmailPreference.from_account(account)
+
+    def set_terminal_email_enabled(
+        self,
+        principal: AuthenticatedPrincipal,
+        enabled: object,
+    ) -> TerminalEmailPreference:
+        """Update only the caller's terminal-email opt-out flag."""
+
+        if not isinstance(enabled, bool):
+            raise ValueError("terminal_email_enabled must be boolean")
+        account = self._account_for_principal(principal)
+        updated = self._repository.set_terminal_email_enabled(
+            account.user_id,
+            enabled,
+            self._now(),
+        )
+        return TerminalEmailPreference.from_account(updated)
+
+    def _account_for_principal(
+        self,
+        principal: AuthenticatedPrincipal,
+    ) -> UserAccount:
+        if not isinstance(principal, AuthenticatedPrincipal):
+            raise ValueError("principal must be an AuthenticatedPrincipal")
+        try:
+            account = self._repository.get_account_by_id(principal.user_id)
+        except KeyError:
+            raise AuthenticationError("RESOURCE_NOT_FOUND") from None
+        if not account.enabled:
+            raise AuthenticationError("RESOURCE_NOT_FOUND")
+        return account
+
     def _record_for_token(self, session_token: object) -> SessionRecord | None:
         try:
             digest = digest_session_token(session_token)
@@ -403,6 +445,46 @@ class AccountAdministrationService:
             AuthenticationActor.local_operator(),
             account.user_id,
             new_password,
+        )
+
+    def set_notification_email(
+        self,
+        actor: AuthenticationActor,
+        user_id: str,
+        notification_email: object | None,
+    ) -> UserAccount:
+        """Set or clear a member's private non-identity notification address."""
+
+        self._require_administrator(actor)
+        account = self._account(user_id)
+        if account.role is not UserRole.MEMBER:
+            raise AuthenticationError("OPERATION_CONFLICT")
+        normalized_email = (
+            normalize_notification_email(notification_email)
+            if notification_email is not None
+            else None
+        )
+        return self._repository.set_notification_email(
+            account.user_id,
+            normalized_email,
+            self._now(),
+        )
+
+    def set_notification_email_for_username(
+        self,
+        username: object,
+        notification_email: object | None,
+    ) -> UserAccount:
+        """Set or clear a member contact from the local operator CLI."""
+
+        try:
+            account = self._repository.get_account_by_username(username)  # type: ignore[arg-type]
+        except (KeyError, ValueError):
+            raise AuthenticationError("RESOURCE_NOT_FOUND") from None
+        return self.set_notification_email(
+            AuthenticationActor.local_operator(),
+            account.user_id,
+            notification_email,
         )
 
     def revoke_sessions(

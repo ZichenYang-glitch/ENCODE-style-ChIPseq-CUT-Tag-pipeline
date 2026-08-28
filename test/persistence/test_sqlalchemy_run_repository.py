@@ -13,11 +13,13 @@ import pytest
 import encode_pipeline.persistence.repositories as repository_module
 
 from encode_pipeline.persistence import (
+    SqlAlchemyAuthenticationRepository,
     SqlAlchemyRunRepository,
     create_database_engine,
     create_session_factory,
     upgrade_database,
 )
+from encode_pipeline.platform.authentication import UserAccount, UserRole, UserStatus
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import RunExecutionAssignment
@@ -32,6 +34,11 @@ from encode_pipeline.services.runs import RunService
 
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
+REQUESTER_USER_ID = "usr_" + "8" * 32
+PASSWORD_HASH = (
+    "$argon2id$v=19$m=65536,t=3,p=4$"
+    "pGLQVK/BOQLC0oPSA8RQTg$TdiQWUP9gwBAI8iAXUT7oEtjOPqKjJhqyW0JS8ye/Ag"
+)
 
 
 def _artifact_revision(seed: str) -> str:
@@ -117,6 +124,41 @@ def test_repository_preserves_creation_and_sorts_artifacts_by_public_id(reposito
 
     assert [record.run_id for record in repository.list_runs()] == ["run-2", "run-1"]
     assert repository.list_artifacts("run-2") == (artifact_1, artifact_2)
+
+
+def test_repository_persists_requester_privately_at_run_creation(
+    repository,
+    database_url,
+):
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    now = datetime.now(timezone.utc)
+    SqlAlchemyAuthenticationRepository(session_factory).create_account(
+        UserAccount(
+            user_id=REQUESTER_USER_ID,
+            username="requester",
+            role=UserRole.MEMBER,
+            status=UserStatus.ENABLED,
+            password_hash=PASSWORD_HASH,
+            created_at=now,
+            updated_at=now,
+            password_changed_at=now,
+        )
+    )
+    engine.dispose()
+    record = _record("requested-run")
+
+    repository.create_run(
+        record,
+        _created_event(),
+        requested_by_user_id=REQUESTER_USER_ID,
+    )
+
+    assert repository.get_run_requester_user_id(record.run_id) == REQUESTER_USER_ID
+    assert repository.get_run(record.run_id) == record
+    assert not hasattr(repository.get_run(record.run_id), "requested_by_user_id")
+    with pytest.raises(KeyError):
+        repository.get_run_requester_user_id("missing-run")
 
 
 def test_repository_artifact_queries_are_paginated_and_run_scoped(repository):

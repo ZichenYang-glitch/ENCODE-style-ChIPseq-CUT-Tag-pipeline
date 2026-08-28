@@ -9,6 +9,10 @@ from typing import NoReturn
 
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.execution import RunExecutionAssignment
+from encode_pipeline.platform.notifications import (
+    DisabledTerminalRunNotifier,
+    TerminalRunNotifier,
+)
 from encode_pipeline.platform.result_generations import RunResultState
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.run_recovery import (
@@ -103,6 +107,7 @@ class RunRecoveryService:
         cleanup: Callable[[str], bool] | None = None,
         cleanup_endpoint_identity: str | None = None,
         clock: Callable[[], datetime] | None = None,
+        terminal_notifier: TerminalRunNotifier = DisabledTerminalRunNotifier(),
     ) -> None:
         if repository is None:
             raise ValueError("repository is required")
@@ -121,11 +126,16 @@ class RunRecoveryService:
             raise ValueError("cleanup_endpoint_identity is invalid")
         if clock is not None and not callable(clock):
             raise ValueError("clock must be callable or None")
+        if terminal_notifier is None or not callable(
+            getattr(terminal_notifier, "notify_terminal_run", None)
+        ):
+            raise ValueError("terminal_notifier must be explicitly composed")
         self._repository = repository
         self._queue = queue
         self._cleanup = cleanup
         self._cleanup_endpoint_identity = cleanup_endpoint_identity
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._terminal_notifier = terminal_notifier
 
     def diagnose(self, run_id: str) -> RunRecoveryDiagnostic:
         """Return one bounded diagnosis without mutating SQLite or the queue."""
@@ -519,7 +529,7 @@ class RunRecoveryService:
             raise RunRecoveryError("RUN_RECOVERY_CONFLICT") from None
         except (TypeError, ValueError):
             raise RunRecoveryError("RUN_RECOVERY_DATA_INVALID") from None
-        return RunRecoveryActionResult(
+        result = RunRecoveryActionResult(
             run_id=normalized_run_id,
             action=RunRecoveryAction.FAIL,
             previous_status=expected_status,
@@ -528,6 +538,15 @@ class RunRecoveryService:
             reason_code=RUN_RECOVERY_FAIL_REASON_CODE,
             changed=changed,
         )
+        if changed:
+            try:
+                self._terminal_notifier.notify_terminal_run(
+                    normalized_run_id,
+                    RunStatus.FAILED,
+                )
+            except Exception:
+                pass
+        return result
 
     def requeue_run(
         self,

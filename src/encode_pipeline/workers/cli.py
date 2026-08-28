@@ -12,6 +12,7 @@ from encode_pipeline.persistence.migration_admission import (
     MigrationAdmissionError,
     verify_migration_execution_inventory,
 )
+from encode_pipeline.platform.notifications import load_terminal_email_settings
 from encode_pipeline.persistence.runtime import (
     DatabaseSchemaNotReadyError,
     open_existing_run_persistence,
@@ -45,6 +46,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(error, file=sys.stderr)
         return 2
     settings = load_worker_settings()
+    try:
+        load_terminal_email_settings()
+    except (TypeError, ValueError):
+        print("Worker notification configuration is invalid.", file=sys.stderr)
+        return 2
     try:
         persistence = open_existing_run_persistence(settings.database_url)
         persistence.close()

@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import os
+
 from rq import get_current_job
 from rq.timeouts import JobTimeoutException
 
+from encode_pipeline.persistence.authentication import (
+    SqlAlchemyAuthenticationRepository,
+)
+from encode_pipeline.persistence.database import create_session_factory
 from encode_pipeline.persistence.migration_admission import MigrationAdmissionError
 from encode_pipeline.persistence.runtime import (
     DatabaseSchemaNotReadyError,
@@ -16,16 +22,21 @@ from encode_pipeline.platform.adapters import (
     WorkflowInputs,
 )
 from encode_pipeline.platform.execution import RunExecutionClaim
+from encode_pipeline.platform.notifications import DisabledTerminalRunNotifier
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.reference_profiles import BoundWorkflowReference
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.platform.result_generations import new_result_attempt_id
+from encode_pipeline.services.managed_containers import ManagedContainerCleaner
 from encode_pipeline.services.run_repositories import ConcurrentRunUpdateError
 from encode_pipeline.services.runs import RunService
-from encode_pipeline.services.managed_containers import ManagedContainerCleaner
+from encode_pipeline.services.terminal_notifications import (
+    compose_terminal_run_notifier,
+)
 from encode_pipeline.workers.runtime import open_worker_runtime
 from encode_pipeline.workers.settings import load_worker_settings
+from encode_pipeline.workers.terminal_notifications import WorkerTerminalRunNotifier
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
 
 
@@ -314,77 +325,27 @@ def _execute_claimed_run(
 ) -> None:
     execution_result = runtime.local_execution_service.execute(run_id, claim)
     if execution_result.is_success:
-        artifact_attempt_id = new_result_attempt_id()
+        if not getattr(
+            execution_result.value,
+            "terminal_transition_won",
+            True,
+        ):
+            return
+        if not _index_succeeded_run_results(runtime, run_id):
+            return
         try:
-            artifact_result = runtime.artifact_extraction_service.extract(
+            runtime.terminal_notifier.notify_terminal_run(
                 run_id,
-                attempt_id=artifact_attempt_id,
+                RunStatus.SUCCEEDED,
+                include_qc=True,
             )
         except WorkerHardTimeout:
-            try:
-                runtime.artifact_extraction_service.record_unexpected_failure(
-                    run_id,
-                    attempt_id=artifact_attempt_id,
-                )
-            except WorkerHardTimeout as timeout:
-                raise timeout from None
-            except Exception:
-                pass
-            raise
+            # The scientific result and durable indexes are already complete.
+            # A deadline interrupt in best-effort email cannot rewrite the RQ
+            # job outcome from success to failure.
+            return
         except Exception:
-            try:
-                runtime.artifact_extraction_service.record_unexpected_failure(
-                    run_id,
-                    attempt_id=artifact_attempt_id,
-                )
-            except WorkerHardTimeout as timeout:
-                raise timeout from None
-            except Exception:
-                pass
-            return
-        if artifact_result.is_failure:
-            return
-        try:
-            artifact_generation = runtime.run_service.get_result_state(
-                run_id
-            ).artifact_generation
-        except WorkerHardTimeout:
-            raise
-        except Exception:
-            return
-        if artifact_generation is None:
-            return
-        qc_attempt_id = new_result_attempt_id()
-        try:
-            runtime.qc_summary_indexing_service.index(
-                run_id,
-                artifact_result.value,
-                attempt_id=qc_attempt_id,
-                expected_artifact_generation=artifact_generation,
-            )
-        except WorkerHardTimeout:
-            try:
-                runtime.qc_summary_indexing_service.record_unexpected_failure(
-                    run_id,
-                    attempt_id=qc_attempt_id,
-                    expected_artifact_generation=artifact_generation,
-                )
-            except WorkerHardTimeout as timeout:
-                raise timeout from None
-            except Exception:
-                pass
-            raise
-        except Exception:
-            try:
-                runtime.qc_summary_indexing_service.record_unexpected_failure(
-                    run_id,
-                    attempt_id=qc_attempt_id,
-                    expected_artifact_generation=artifact_generation,
-                )
-            except WorkerHardTimeout as timeout:
-                raise timeout from None
-            except Exception:
-                pass
+            pass
         return
     current = runtime.run_service.get_run(run_id)
     if current.status is RunStatus.CANCELLED:
@@ -392,6 +353,123 @@ def _execute_claimed_run(
     if current.status is not RunStatus.FAILED:
         _record_unexpected_failure_safely(runtime.run_service, run_id)
     raise WorkerExecutionError("durable local workflow execution failed") from None
+
+
+def _index_succeeded_run_results(runtime, run_id: str) -> bool:
+    """Close artifact/QC outcomes and report a stable notification point."""
+
+    artifact_attempt_id = new_result_attempt_id()
+    artifact_result = None
+    try:
+        artifact_result = runtime.artifact_extraction_service.extract(
+            run_id,
+            attempt_id=artifact_attempt_id,
+        )
+    except WorkerHardTimeout:
+        try:
+            runtime.artifact_extraction_service.record_unexpected_failure(
+                run_id,
+                attempt_id=artifact_attempt_id,
+            )
+        except WorkerHardTimeout as timeout:
+            raise timeout from None
+        except Exception:
+            pass
+        raise
+    except Exception:
+        try:
+            runtime.artifact_extraction_service.record_unexpected_failure(
+                run_id,
+                attempt_id=artifact_attempt_id,
+            )
+        except WorkerHardTimeout as timeout:
+            raise timeout from None
+        except Exception:
+            pass
+    try:
+        artifact_state = runtime.run_service.get_result_state(run_id)
+    except WorkerHardTimeout:
+        raise
+    except Exception:
+        return False
+    if not _artifact_attempt_is_closed(artifact_state, artifact_attempt_id):
+        return False
+    if artifact_state.artifact_attempt_status == "failed":
+        return True
+    if artifact_result is None or artifact_result.is_failure:
+        return False
+    artifact_generation = artifact_state.artifact_generation
+    if artifact_generation is None:
+        return False
+    qc_attempt_id = new_result_attempt_id()
+    try:
+        runtime.qc_summary_indexing_service.index(
+            run_id,
+            artifact_result.value,
+            attempt_id=qc_attempt_id,
+            expected_artifact_generation=artifact_generation,
+        )
+    except WorkerHardTimeout:
+        try:
+            runtime.qc_summary_indexing_service.record_unexpected_failure(
+                run_id,
+                attempt_id=qc_attempt_id,
+                expected_artifact_generation=artifact_generation,
+            )
+        except WorkerHardTimeout as timeout:
+            raise timeout from None
+        except Exception:
+            pass
+        raise
+    except Exception:
+        try:
+            runtime.qc_summary_indexing_service.record_unexpected_failure(
+                run_id,
+                attempt_id=qc_attempt_id,
+                expected_artifact_generation=artifact_generation,
+            )
+        except WorkerHardTimeout as timeout:
+            raise timeout from None
+        except Exception:
+            pass
+    try:
+        qc_state = runtime.run_service.get_result_state(run_id)
+    except WorkerHardTimeout:
+        raise
+    except Exception:
+        return False
+    return _qc_attempt_is_closed(
+        qc_state,
+        qc_attempt_id,
+        artifact_generation,
+    )
+
+
+def _artifact_attempt_is_closed(state, attempt_id: str) -> bool:
+    status = getattr(state, "artifact_attempt_status", None)
+    return (
+        getattr(state, "artifact_attempt_id", None) == attempt_id
+        and status in {"succeeded", "failed"}
+        and getattr(state, "artifact_outcome", None) == status
+    )
+
+
+def _qc_attempt_is_closed(
+    state,
+    attempt_id: str,
+    artifact_generation: str,
+) -> bool:
+    status = getattr(state, "qc_attempt_status", None)
+    return (
+        getattr(state, "artifact_generation", None) == artifact_generation
+        and getattr(state, "qc_attempt_id", None) == attempt_id
+        and status in {"succeeded", "failed"}
+        and getattr(state, "qc_outcome", None) == status
+        and getattr(state, "qc_attempt_artifact_generation", None)
+        == artifact_generation
+        and getattr(state, "qc_artifact_generation", None) == artifact_generation
+        and getattr(state, "qc_generation", None) is not None
+    )
 
 
 def _record_initialization_failure_fallback(
@@ -420,9 +498,9 @@ def _record_initialization_failure_fallback(
         if queue_name != settings.queue_name:
             return
         persistence = open_existing_run_persistence(settings.database_url)
-        run_service = RunService(
-            WorkflowRegistry(),
-            repository=persistence.repository,
+        run_service = _run_service_with_terminal_notifier(
+            persistence,
+            allow_configuration_failure_fallback=True,
         )
         assignment = run_service.get_execution_assignment(run_id)
         if (
@@ -686,10 +764,7 @@ def handle_execution_stopped(job, _connection) -> None:
         if queue_name != settings.queue_name:
             return
         persistence = open_existing_run_persistence(settings.database_url)
-        run_service = RunService(
-            WorkflowRegistry(),
-            repository=persistence.repository,
-        )
+        run_service = _run_service_with_terminal_notifier(persistence)
         assignment = run_service.get_execution_assignment(run_id)
         if (
             assignment is None
@@ -731,6 +806,38 @@ def handle_execution_stopped(job, _connection) -> None:
                 raise
             except Exception:
                 pass
+
+
+def _run_service_with_terminal_notifier(
+    persistence,
+    *,
+    allow_configuration_failure_fallback: bool = False,
+) -> RunService:
+    """Compose the same strict notification boundary used by normal workers."""
+
+    authentication_repository = SqlAlchemyAuthenticationRepository(
+        create_session_factory(persistence.engine)
+    )
+    try:
+        terminal_notifier = WorkerTerminalRunNotifier(
+            compose_terminal_run_notifier(
+                environ=os.environ,
+                run_repository=persistence.repository,
+                authentication_repository=authentication_repository,
+            )
+        )
+    except Exception:
+        if not allow_configuration_failure_fallback:
+            raise
+        # The primary worker composition has already failed closed. This
+        # explicit no-op exists only so canonical SQLite can record that job
+        # failure instead of being stranded by the same invalid SMTP config.
+        terminal_notifier = WorkerTerminalRunNotifier(DisabledTerminalRunNotifier())
+    return RunService(
+        WorkflowRegistry(),
+        repository=persistence.repository,
+        terminal_notifier=terminal_notifier,
+    )
 
 
 def _record_unexpected_failure_safely(

@@ -119,6 +119,8 @@ def _metric(
     source_artifact_id="artifact-1",
     unit="count",
     produced_at=NOW,
+    display_name="Total reads",
+    qc_flag=None,
 ):
     return RunQcMetric(
         metric_id=build_qc_metric_id(
@@ -129,14 +131,14 @@ def _metric(
         ),
         run_id=run_id,
         metric_key=metric_key,
-        display_name="Total reads",
+        display_name=display_name,
         value=value,
         unit=unit,
         scope=scope,
         sample_id=sample_id,
         experiment_id=experiment_id,
         assay="chipseq",
-        qc_flag=None,
+        qc_flag=qc_flag,
         source_artifact_id=source_artifact_id,
         produced_at=produced_at,
     )
@@ -604,6 +606,83 @@ def test_qc_page_read_is_generation_bound_when_metric_ids_and_count_are_reused(
         expected_generation=second_generation,
         limit=10,
     ) == (second_generation, second_metrics)
+
+
+def test_terminal_notification_qc_read_is_generation_bound_sorted_and_bounded(
+    repository,
+):
+    artifacts = (_artifact("artifact-1"),)
+    _prepare(repository, artifacts)
+    metrics = (
+        _metric(
+            "run.none",
+            scope="run",
+            sample_id=None,
+            experiment_id=None,
+            display_name="No flag",
+        ),
+        _metric(
+            "sample.fail",
+            scope="sample",
+            sample_id="S2",
+            experiment_id=None,
+            display_name="Sample failure",
+            qc_flag="fail",
+        ),
+        _metric(
+            "run.fail",
+            scope="run",
+            sample_id=None,
+            experiment_id=None,
+            display_name="Run failure",
+            qc_flag="fail",
+        ),
+        _metric(
+            "experiment.warning",
+            scope="experiment",
+            sample_id=None,
+            experiment_id="EXP1",
+            display_name="Experiment warning",
+            qc_flag="warning",
+        ),
+        _metric(
+            "run.pass",
+            scope="run",
+            sample_id=None,
+            experiment_id=None,
+            display_name="Run passing",
+            qc_flag="pass",
+        ),
+    )
+    _replace_qc(repository, metrics, artifacts=artifacts)
+    generation = repository.get_result_state("run-1").qc_generation
+    assert generation is not None
+
+    total_count, selected = repository.list_qc_metrics_for_terminal_notification(
+        "run-1",
+        expected_generation=generation,
+        limit=3,
+    )
+
+    assert total_count == 5
+    assert [metric.metric_key for metric in selected] == [
+        "run.fail",
+        "sample.fail",
+        "experiment.warning",
+    ]
+    with pytest.raises(ResultGenerationChangedError):
+        repository.list_qc_metrics_for_terminal_notification(
+            "run-1",
+            expected_generation="qcgen-" + "f" * 64,
+            limit=3,
+        )
+    for invalid_limit in (0, -1, True):
+        with pytest.raises(ValueError, match="positive"):
+            repository.list_qc_metrics_for_terminal_notification(
+                "run-1",
+                expected_generation=generation,
+                limit=invalid_limit,
+            )
 
 
 def test_repositories_page_qc_metrics_in_stable_run_scoped_id_order(repository):

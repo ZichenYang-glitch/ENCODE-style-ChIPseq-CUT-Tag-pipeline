@@ -79,6 +79,34 @@ def _cookie_header(cookies: dict[str, str]) -> str:
     return "; ".join(f"{name}={value}" for name, value in cookies.items())
 
 
+def _member_session_headers(app, username: str) -> dict[str, str]:
+    from datetime import datetime, timedelta, timezone
+
+    from encode_pipeline.services.authentication import (
+        new_session_record,
+        new_session_secrets,
+    )
+
+    member = app.state.authentication_repository.get_account_by_username(username)
+    secrets = new_session_secrets()
+    app.state.authentication_repository.create_session(
+        new_session_record(
+            user_id=member.user_id,
+            secrets=secrets,
+            created_at=datetime.now(timezone.utc),
+            lifetime=timedelta(hours=1),
+        )
+    )
+    policy = app.state.auth_cookie_policy
+    return {
+        "Cookie": (
+            f"{policy.session_cookie.name}={secrets.session_token}; "
+            f"{policy.csrf_cookie.name}={secrets.csrf_token}"
+        ),
+        "X-CSRF-Token": secrets.csrf_token,
+    }
+
+
 def test_setup_required_until_the_first_administrator_exists(app) -> None:
     with ApiTestClient(app) as client:
         state = client.get("/api/v1/auth/session")
@@ -107,6 +135,7 @@ def test_anonymous_requests_fail_closed_on_business_and_admin_routes(
             ("get", "/api/v1/workflows"),
             ("get", "/api/v1/runs"),
             ("get", "/api/v1/auth/accounts"),
+            ("get", "/api/v1/auth/preferences/terminal-email"),
         ):
             response = getattr(client, method)(url)
             assert response.status_code == 401, url
@@ -266,30 +295,8 @@ def test_member_cannot_reach_admin_account_routes(app) -> None:
             headers=headers,
             json={"username": "lab-member", "password": "member password phrase"},
         )
-
-    from encode_pipeline.services.authentication import (
-        new_session_record,
-        new_session_secrets,
-    )
-    from datetime import datetime, timedelta, timezone
-
     member = app.state.authentication_repository.get_account_by_username("lab-member")
-    secrets = new_session_secrets()
-    record = new_session_record(
-        user_id=member.user_id,
-        secrets=secrets,
-        created_at=datetime.now(timezone.utc),
-        lifetime=timedelta(hours=1),
-    )
-    app.state.authentication_repository.create_session(record)
-    policy = app.state.auth_cookie_policy
-    member_headers = {
-        "Cookie": (
-            f"{policy.session_cookie.name}={secrets.session_token}; "
-            f"{policy.csrf_cookie.name}={secrets.csrf_token}"
-        ),
-        "X-CSRF-Token": secrets.csrf_token,
-    }
+    member_headers = _member_session_headers(app, "lab-member")
     with ApiTestClient(app) as client:
         allowed = client.get("/api/v1/workflows/", headers=member_headers)
         assert allowed.status_code == 200
@@ -306,6 +313,82 @@ def test_member_cannot_reach_admin_account_routes(app) -> None:
             response = getattr(client, method)(url, **kwargs)
             assert response.status_code == 403, url
             assert response.json()["issues"][0]["code"] == "ADMINISTRATOR_REQUIRED"
+
+
+def test_member_terminal_email_preference_is_address_free_and_csrf_protected(
+    app,
+) -> None:
+    _bootstrap_admin(app)
+    with ApiTestClient(app) as client:
+        admin_cookies = _login(client)
+        admin_headers = {
+            "Cookie": _cookie_header(admin_cookies),
+            "X-CSRF-Token": admin_cookies["helixweave_csrf"],
+        }
+        created = client.post(
+            "/api/v1/auth/accounts",
+            headers=admin_headers,
+            json={"username": "lab-member", "password": "member password phrase"},
+        )
+        assert created.status_code == 200
+
+        admin_preference = client.get(
+            "/api/v1/auth/preferences/terminal-email",
+            headers=admin_headers,
+        )
+        assert admin_preference.status_code == 403
+        assert admin_preference.json()["issues"][0]["code"] == "MEMBER_REQUIRED"
+
+    app.state.account_administration_service.set_notification_email_for_username(
+        "lab-member",
+        "member@example.test",
+    )
+    member_headers = _member_session_headers(app, "lab-member")
+    cookie_only = {"Cookie": member_headers["Cookie"]}
+    with ApiTestClient(app) as client:
+        current = client.get(
+            "/api/v1/auth/preferences/terminal-email",
+            headers=cookie_only,
+        )
+        assert current.status_code == 200
+        assert current.json() == {
+            "terminal_email_enabled": True,
+            "address_configured": True,
+        }
+        assert "member@example.test" not in current.text
+
+        rejected = client.request(
+            "PATCH",
+            "/api/v1/auth/preferences/terminal-email",
+            headers=cookie_only,
+            json={"terminal_email_enabled": False},
+        )
+        assert rejected.status_code == 403
+        assert rejected.json()["issues"][0]["code"] == "CSRF_INVALID"
+
+        updated = client.request(
+            "PATCH",
+            "/api/v1/auth/preferences/terminal-email",
+            headers=member_headers,
+            json={"terminal_email_enabled": False},
+        )
+        assert updated.status_code == 200
+        assert updated.json() == {
+            "terminal_email_enabled": False,
+            "address_configured": True,
+        }
+
+        extra = client.request(
+            "PATCH",
+            "/api/v1/auth/preferences/terminal-email",
+            headers=member_headers,
+            json={
+                "terminal_email_enabled": True,
+                "notification_email": "attacker@example.test",
+            },
+        )
+        assert extra.status_code == 400
+        assert "attacker@example.test" not in extra.text
 
 
 def test_admin_account_lifecycle_routes(app) -> None:

@@ -9,6 +9,8 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 import re
 
+from encode_pipeline.platform.notifications import normalize_notification_email
+
 
 USERNAME_MIN_LENGTH = 3
 USERNAME_MAX_LENGTH = 64
@@ -189,6 +191,8 @@ class UserAccount:
     created_at: datetime
     updated_at: datetime
     password_changed_at: datetime
+    notification_email: str | None = field(default=None, repr=False)
+    terminal_email_enabled: bool = True
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "user_id", validate_user_id(self.user_id))
@@ -213,6 +217,17 @@ class UserAccount:
         object.__setattr__(self, "created_at", created_at)
         object.__setattr__(self, "updated_at", updated_at)
         object.__setattr__(self, "password_changed_at", password_changed_at)
+        object.__setattr__(
+            self,
+            "notification_email",
+            (
+                normalize_notification_email(self.notification_email)
+                if self.notification_email is not None
+                else None
+            ),
+        )
+        if not isinstance(self.terminal_email_enabled, bool):
+            raise ValueError("terminal_email_enabled must be boolean")
 
     @property
     def enabled(self) -> bool:
@@ -251,6 +266,43 @@ class UserAccount:
             updated_at=normalized_time,
         )
 
+    def change_notification_email(
+        self,
+        notification_email: object | None,
+        changed_at: datetime,
+    ) -> UserAccount:
+        """Return a private non-identity contact update."""
+
+        normalized = (
+            normalize_notification_email(notification_email)
+            if notification_email is not None
+            else None
+        )
+        if normalized == self.notification_email:
+            return self
+        return replace(
+            self,
+            notification_email=normalized,
+            updated_at=self._change_time(changed_at),
+        )
+
+    def change_terminal_email_enabled(
+        self,
+        enabled: object,
+        changed_at: datetime,
+    ) -> UserAccount:
+        """Return the member-controlled terminal-email opt-out update."""
+
+        if not isinstance(enabled, bool):
+            raise ValueError("terminal_email_enabled must be boolean")
+        if enabled is self.terminal_email_enabled:
+            return self
+        return replace(
+            self,
+            terminal_email_enabled=enabled,
+            updated_at=self._change_time(changed_at),
+        )
+
     def to_public_summary(self) -> dict[str, object]:
         """Return the exact path-safe account fields suitable for operator output."""
 
@@ -269,6 +321,29 @@ class UserAccount:
         if changed_at < self.updated_at:
             raise ValueError("changed_at must not precede updated_at")
         return changed_at
+
+
+@dataclass(frozen=True)
+class TerminalEmailPreference:
+    """Safe self-service projection that never exposes the private address."""
+
+    terminal_email_enabled: bool
+    address_configured: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.terminal_email_enabled, bool):
+            raise ValueError("terminal_email_enabled must be boolean")
+        if not isinstance(self.address_configured, bool):
+            raise ValueError("address_configured must be boolean")
+
+    @classmethod
+    def from_account(cls, account: UserAccount) -> TerminalEmailPreference:
+        if not isinstance(account, UserAccount):
+            raise ValueError("account must be a UserAccount")
+        return cls(
+            terminal_email_enabled=account.terminal_email_enabled,
+            address_configured=account.notification_email is not None,
+        )
 
 
 @dataclass(frozen=True)
