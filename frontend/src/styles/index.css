@@ -105,6 +105,51 @@ time,
   }
 }
 
+[data-testid="run-history-page"] h2,
+[data-testid="artifact-publications-page"] h2 {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+}
+
+[data-testid="run-history-page"] label {
+  width: 100%;
+  max-width: 20rem;
+}
+
+[data-testid="run-event-feed"] {
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+[data-testid="run-event-feed"] > li {
+  margin-top: 0 !important;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.5rem 0;
+}
+
+[data-testid="run-event-feed"] > li:last-child {
+  border-bottom: 0;
+}
+
+[data-testid="artifact-list"] [data-selected] {
+  background: var(--color-surface-selected) !important;
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+[data-testid="run-history-page"] .bg-slate-100,
+[data-testid="artifact-publications-page"] .bg-slate-100,
+[data-testid="artifact-browser"] .bg-gray-50,
+[data-testid="artifact-browser"] .bg-gray-100,
+[data-testid="artifact-inspector"] .bg-gray-100,
+[data-testid="artifact-inspector"] .bg-gray-200,
+[data-testid="qc-workbench"] .bg-gray-50,
+[data-testid="qc-workbench"] .bg-gray-100 {
+  background-color: var(--color-skeleton) !important;
+}
+
 .input-workbench .schema-object-form .rjsf {
   min-width: 0;
 }

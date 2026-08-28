@@ -1,7 +1,8 @@
-import { ExternalLink, FileArchive, Gauge } from 'lucide-react';
+import { FileArchive, Gauge } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { RunSummaryResponse } from '../../api/generated/models';
 import { Button } from '../../components/Button';
+import { IdWithCopy } from '../../components/IdWithCopy';
 import { RunStatusBadge } from '../run-progress/RunStatusBadge';
 
 interface RunHistoryListProps {
@@ -40,7 +41,7 @@ function ResultLinks({ run }: { run: RunSummaryResponse }) {
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       <Link
-        className="inline-flex items-center gap-1 rounded text-xs font-medium text-[var(--color-accent-hover)] underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+        className="inline-flex min-h-9 items-center gap-1 rounded-[4px] text-xs font-medium text-[var(--color-link)] underline-offset-2 hover:underline"
         to={`${root}?view=qc`}
         aria-label={`Open QC for run ${run.run_id}`}
       >
@@ -48,7 +49,7 @@ function ResultLinks({ run }: { run: RunSummaryResponse }) {
         QC
       </Link>
       <Link
-        className="inline-flex items-center gap-1 rounded text-xs font-medium text-[var(--color-accent-hover)] underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+        className="inline-flex min-h-9 items-center gap-1 rounded-[4px] text-xs font-medium text-[var(--color-link)] underline-offset-2 hover:underline"
         to={`${root}?view=artifacts`}
         aria-label={`Open artifacts for run ${run.run_id}`}
       >
@@ -62,16 +63,13 @@ function ResultLinks({ run }: { run: RunSummaryResponse }) {
 function RunIdentity({ run }: { run: RunSummaryResponse }) {
   return (
     <div className="min-w-0">
-      <Link
-        className="inline-flex max-w-full items-center gap-1 rounded font-medium text-[var(--color-accent-hover)] underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+      <IdWithCopy
+        value={run.run_id}
+        label="run ID"
         to={`/runs/${encodeURIComponent(run.run_id)}`}
-        title={run.run_id}
-      >
-        <span className="min-w-0 break-all">{run.run_id}</span>
-        <ExternalLink className="shrink-0" aria-hidden="true" size={13} />
-      </Link>
+      />
       <span
-        className="mt-1 block break-all text-[11px] text-[var(--color-text-muted)]"
+        className="mt-1 block truncate text-xs text-[var(--color-text-faint)]"
         title={run.workflow_id}
       >
         {run.workflow_id}
@@ -111,10 +109,10 @@ export function RunHistoryList({
               >
                 <td className="min-w-0 px-2 py-2"><RunIdentity run={run} /></td>
                 <td className="px-2 py-2"><RunStatusBadge status={run.status} /></td>
-                <td className="px-2 py-2 text-[var(--color-text-muted)]">
+                <td className="px-2 py-2 text-[var(--color-text-muted)] tabular-nums">
                   <time dateTime={run.created_at}>{formatTimestamp(run.created_at)}</time>
                 </td>
-                <td className="px-2 py-2 text-[var(--color-text-muted)]">
+                <td className="px-2 py-2 text-[var(--color-text-muted)] tabular-nums">
                   {formatDuration(run)}
                   {run.ended_at && (
                     <time className="mt-1 block" dateTime={run.ended_at}>

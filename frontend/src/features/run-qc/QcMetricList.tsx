@@ -1,6 +1,8 @@
 import { ExternalLink } from 'lucide-react';
 import type { QcMetricResponse } from '../../api/generated/models';
+import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
+import { IdWithCopy } from '../../components/IdWithCopy';
 import { formatQcProducedTime } from './qcState';
 
 interface QcMetricListProps {
@@ -23,19 +25,14 @@ function sampleExperiment(metric: QcMetricResponse): string {
 
 function QcFlag({ value }: { value: QcMetricResponse['qc_flag'] }) {
   if (value === null) {
-    return <span className="text-[var(--color-text-muted)]">Not reported</span>;
+    return <Badge tone="neutral">Not reported</Badge>;
   }
   const tone = {
-    pass: 'border-[var(--color-accent)] text-[var(--color-accent-hover)]',
-    warning:
-      'border-[var(--color-warning)] bg-[var(--color-warning-bg)] text-[var(--color-warning)]',
-    fail: 'border-[var(--color-error)] bg-[var(--color-error-bg)] text-[var(--color-error)]',
+    pass: 'success' as const,
+    warning: 'warning' as const,
+    fail: 'error' as const,
   }[value];
-  return (
-    <span className={`inline-flex rounded border px-1.5 py-0.5 font-medium ${tone}`}>
-      {value}
-    </span>
-  );
+  return <Badge tone={tone}>{value}</Badge>;
 }
 
 function MetricIdentity({ metric }: { metric: QcMetricResponse }) {
@@ -63,15 +60,11 @@ function SourceArtifactAction({
 }) {
   return (
     <div className="min-w-0">
-      <code
-        className="block break-all text-[11px] text-[var(--color-text-muted)]"
-        title={metric.source_artifact_id}
-      >
-        {metric.source_artifact_id}
-      </code>
+      <IdWithCopy value={metric.source_artifact_id} label="source artifact ID" />
       <Button
-        className="mt-1 px-2 py-1 text-xs"
-        variant="secondary"
+        className="mt-1 gap-1.5"
+        variant="quiet"
+        size="sm"
         onClick={() => onOpen(metric.source_artifact_id)}
         aria-label={`Open source artifact for ${metric.display_name}`}
         title="Open source artifact"
@@ -116,7 +109,7 @@ export function QcMetricList({
                 <td className="min-w-0 px-2 py-2">
                   <MetricIdentity metric={metric} />
                 </td>
-                <td className="min-w-0 px-2 py-2">
+                <td className="min-w-0 px-2 py-2 text-right tabular-nums">
                   <code className="block break-all font-semibold" title={metric.value}>
                     {metric.value}
                   </code>
@@ -169,28 +162,19 @@ export function QcMetricList({
                 </code>{' '}
                 <span className="text-[var(--color-text-muted)]">{metric.unit}</span>
               </dd>
-              <dt className="text-[var(--color-text-muted)]">Scope</dt>
-              <dd className="break-words">{metric.scope}</dd>
-              <dt className="text-[var(--color-text-muted)]">Sample / exp.</dt>
-              <dd className="break-words">{sampleExperiment(metric)}</dd>
-              <dt className="text-[var(--color-text-muted)]">Assay</dt>
-              <dd className="break-words">{optionalText(metric.assay)}</dd>
               <dt className="text-[var(--color-text-muted)]">QC flag</dt>
               <dd><QcFlag value={metric.qc_flag} /></dd>
-              <dt className="text-[var(--color-text-muted)]">Source</dt>
-              <dd className="min-w-0">
-                <SourceArtifactAction
-                  metric={metric}
-                  onOpen={onOpenSourceArtifact}
-                />
-              </dd>
-              <dt className="text-[var(--color-text-muted)]">Produced</dt>
-              <dd>
-                <time dateTime={metric.produced_at}>
-                  {formatQcProducedTime(metric.produced_at)}
-                </time>
-              </dd>
             </dl>
+            <details className="mt-2 rounded-[4px] border border-[var(--color-border)] bg-[var(--color-surface-subtle)]">
+              <summary className="min-h-11 cursor-pointer px-3 py-3 text-xs font-medium">Technical metadata</summary>
+              <dl className="grid min-w-0 grid-cols-[6.5rem_minmax(0,1fr)] gap-x-2 gap-y-2 border-t border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-xs">
+                <dt className="text-[var(--color-text-muted)]">Scope</dt><dd className="break-words">{metric.scope}</dd>
+                <dt className="text-[var(--color-text-muted)]">Sample / exp.</dt><dd className="break-words">{sampleExperiment(metric)}</dd>
+                <dt className="text-[var(--color-text-muted)]">Assay</dt><dd className="break-words">{optionalText(metric.assay)}</dd>
+                <dt className="text-[var(--color-text-muted)]">Source</dt><dd className="min-w-0"><SourceArtifactAction metric={metric} onOpen={onOpenSourceArtifact} /></dd>
+                <dt className="text-[var(--color-text-muted)]">Produced</dt><dd><time dateTime={metric.produced_at}>{formatQcProducedTime(metric.produced_at)}</time></dd>
+              </dl>
+            </details>
           </li>
         ))}
       </ul>

@@ -81,8 +81,11 @@ export function ArtifactPublicationsPage() {
   const hasCachedPublications = publications.length > 0;
   const hasError = publicationsQuery.error !== null;
   const hasFilters = hasActiveArtifactPublicationFilters(filters);
+  const activeFilters = parsed.ok ? activeFilterEntries(filters) : [];
+  const [filtersOpen, setFiltersOpen] = useState(!parsed.ok || hasFilters);
 
   function resetFilters() {
+    setFiltersOpen(false);
     setSearchParams(new URLSearchParams(), { replace: true });
   }
 
@@ -96,6 +99,7 @@ export function ArtifactPublicationsPage() {
   }
 
   function applyFilters(nextFilters: ArtifactPublicationFilters) {
+    setFiltersOpen(hasActiveArtifactPublicationFilters(nextFilters));
     setSearchParams(artifactPublicationSearchParams({ ...nextFilters, after: null }));
   }
 
@@ -128,12 +132,50 @@ export function ArtifactPublicationsPage() {
           </div>
 
           {parsed.ok && (
-            <ArtifactPublicationFilterForm
-              key={searchParams.toString()}
-              filters={filters}
-              onApply={applyFilters}
-              onReset={resetFilters}
-            />
+            <div className="border-y border-[var(--color-border)]">
+              {activeFilters.length > 0 && (
+                <ul className="flex min-w-0 flex-wrap gap-1.5 border-b border-[var(--color-border)] py-2" aria-label="Active artifact filters">
+                  {activeFilters.map(([label, value]) => (
+                    <li
+                      key={label}
+                      className="max-w-full truncate rounded-[4px] border border-[var(--color-info-border)] bg-[var(--color-info-bg)] px-2 py-1 text-xs text-[var(--color-info)]"
+                      title={`${label}: ${value}`}
+                    >
+                      {label}: {value}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <details
+                key={searchParams.toString()}
+                open={filtersOpen}
+                onToggle={(event) => setFiltersOpen(event.currentTarget.open)}
+                data-testid="artifact-filter-disclosure"
+              >
+                <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 py-2 text-sm font-semibold">
+                  <span>Filters ({activeFilters.length} active)</span>
+                  <span className="text-xs font-normal text-[var(--color-text-muted)]">
+                    Apply and Reset keep URL filter semantics.
+                  </span>
+                </summary>
+                <ArtifactPublicationFilterForm
+                  filters={filters}
+                  onApply={applyFilters}
+                  onReset={resetFilters}
+                />
+              </details>
+            </div>
+          )}
+
+          {!parsed.ok && (
+            <details open className="border-y border-[var(--color-error-border)]" data-testid="artifact-filter-disclosure">
+              <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold text-[var(--color-error)]">
+                Filters (invalid URL)
+              </summary>
+              <p className="pb-2 text-xs text-[var(--color-text-muted)]">
+                The invalid URL filters must be reset before the form can be used.
+              </p>
+            </details>
           )}
 
           {!parsed.ok ? (
@@ -322,7 +364,7 @@ function ArtifactPublicationFilterForm({
 
   return (
     <form
-      className="border-y border-[var(--color-border)] py-3"
+      className="border-t border-[var(--color-border)] py-3"
       aria-label="Artifact publication filters"
       onSubmit={submit}
     >
@@ -396,7 +438,7 @@ function ArtifactPublicationFilterForm({
           <Button type="submit" variant="primary">Apply filters</Button>
         </div>
       </div>
-      <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
+      <p className="mt-2 text-xs text-[var(--color-text-muted)]">
         Publication times use timezone-aware RFC 3339 values. Identity filters are
         exact matches; the time interval includes Published from and excludes Published
         before.
@@ -472,4 +514,26 @@ function setDraftValue(
   value: string,
 ): void {
   if (value !== '') params.set(key, value);
+}
+
+function activeFilterEntries(
+  filters: ArtifactPublicationFilters,
+): Array<[string, string]> {
+  const entries: Array<[string, string | null]> = [
+    ['Project', filters.projectId],
+    ['Run', filters.runId],
+    ['Workflow', filters.workflowId],
+    ['Artifact type', filters.outputType],
+    ['Sample revision', filters.associatedRunSampleRevisionId],
+    ['Published from', filters.publishedFrom],
+    ['Published before', filters.publishedBefore],
+  ];
+  const active = entries.filter(
+    (entry): entry is [string, string] => entry[1] !== null,
+  );
+  if (!filters.currentOnly) active.push(['Publication state', 'all']);
+  if (filters.limit !== ARTIFACT_PUBLICATION_DEFAULT_PAGE_SIZE) {
+    active.push(['Rows per page', String(filters.limit)]);
+  }
+  return active;
 }

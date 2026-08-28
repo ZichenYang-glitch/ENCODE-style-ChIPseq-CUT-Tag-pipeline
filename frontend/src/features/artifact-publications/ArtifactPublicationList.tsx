@@ -1,7 +1,7 @@
-import { ExternalLink } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import type { ArtifactPublicationResponse } from '../../api/generated/models';
+import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
+import { IdWithCopy } from '../../components/IdWithCopy';
 import { derivedArtifactGenerationStatus } from './artifactPublicationState';
 
 interface ArtifactPublicationListProps {
@@ -26,29 +26,20 @@ function formatTimestamp(value: string): string {
 
 function PublicationLink({ publication }: { publication: ArtifactPublicationResponse }) {
   return (
-    <Link
-      className="inline-flex max-w-full items-center gap-1 rounded font-medium text-[var(--color-accent-hover)] underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+    <IdWithCopy
+      value={publication.artifact_id}
+      label="artifact ID"
       to={detailPath(publication)}
-      title={publication.artifact_id}
-    >
-      <span className="min-w-0 break-all">{publication.artifact_id}</span>
-      <ExternalLink className="shrink-0" aria-hidden="true" size={13} />
-    </Link>
+    />
   );
 }
 
 function GenerationState({ publication }: { publication: ArtifactPublicationResponse }) {
   const status = derivedArtifactGenerationStatus(publication);
   return (
-    <span
-      className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-        status === 'current'
-          ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-          : 'border-slate-300 bg-slate-100 text-slate-700'
-      }`}
-    >
+    <Badge tone={status === 'current' ? 'success' : 'neutral'}>
       {status === 'current' ? 'Current' : 'Superseded'}
-    </span>
+    </Badge>
   );
 }
 
@@ -71,15 +62,8 @@ function AssociatedRunSampleSummary({
     <ul className="space-y-1">
       {visibleSamples.map((sample) => (
         <li key={sample.sample_revision_id} className="min-w-0">
-          <span className="block break-all" title={sample.sample_id}>
-            {sample.sample_id}
-          </span>
-          <span
-            className="block break-all font-mono text-[11px] text-[var(--color-text-muted)]"
-            title={sample.sample_revision_id}
-          >
-            {sample.sample_revision_id}
-          </span>
+          <IdWithCopy value={sample.sample_id} label="sample ID" />
+          <IdWithCopy value={sample.sample_revision_id} label="sample revision ID" />
         </li>
       ))}
       {remaining > 0 && (
@@ -125,17 +109,17 @@ export function ArtifactPublicationList({
                 key={`${publication.run_id}:${publication.artifact_id}:${publication.artifact_generation}`}
                 className="border-b border-[var(--color-border)] align-top hover:bg-[var(--color-bg)]"
               >
-                <td className="break-all px-2 py-2" title={publication.project_id}>
-                  {publication.project_id}
+                <td className="px-2 py-2">
+                  <IdWithCopy value={publication.project_id} label="project ID" />
                 </td>
-                <td className="break-all px-2 py-2" title={publication.run_id}>
-                  {publication.run_id}
+                <td className="px-2 py-2">
+                  <IdWithCopy value={publication.run_id} label="run ID" to={`/runs/${encodeURIComponent(publication.run_id)}`} />
                 </td>
-                <td className="break-all px-2 py-2" title={publication.workflow_id}>
+                <td className="truncate px-2 py-2" title={publication.workflow_id}>
                   {publication.workflow_id}
                 </td>
                 <td className="min-w-0 px-2 py-2">
-                  <span className="block break-all text-[var(--color-text-muted)]">
+                  <span className="block truncate font-medium text-[var(--color-text)]" title={publication.output_type}>
                     {publication.output_type}
                   </span>
                   <PublicationLink publication={publication} />
@@ -145,17 +129,11 @@ export function ArtifactPublicationList({
                     {formatTimestamp(publication.published_at)}
                   </time>
                 </td>
-                <td className="px-2 py-2 font-mono text-[11px] text-[var(--color-text-muted)]">
-                  <span className="block break-all" title={publication.artifact_generation}>
-                    {publication.artifact_generation}
-                  </span>
-                  <span className="mt-1 block break-all" title={publication.artifact_revision}>
-                    {publication.artifact_revision}
-                  </span>
+                <td className="px-2 py-2 text-[var(--color-text-muted)]">
+                  <IdWithCopy value={publication.artifact_generation} label="artifact generation" />
+                  <IdWithCopy value={publication.artifact_revision} label="artifact revision" />
                   {derivedArtifactGenerationStatus(publication) === 'superseded' && (
-                    <span className="mt-1 block break-all" title={publication.current_artifact_generation}>
-                      Current generation: {publication.current_artifact_generation}
-                    </span>
+                    <span className="mt-1 block">Current: <IdWithCopy value={publication.current_artifact_generation} label="current artifact generation" /></span>
                   )}
                 </td>
                 <td className="px-2 py-2">
@@ -184,34 +162,21 @@ export function ArtifactPublicationList({
               </div>
               <GenerationState publication={publication} />
             </div>
-            <dl className="mt-2 grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
-              <dt className="text-[var(--color-text-muted)]">Project</dt>
-              <dd className="break-all">{publication.project_id}</dd>
-              <dt className="text-[var(--color-text-muted)]">Run</dt>
-              <dd className="break-all">{publication.run_id}</dd>
-              <dt className="text-[var(--color-text-muted)]">Workflow</dt>
-              <dd className="break-all">{publication.workflow_id}</dd>
-              <dt className="text-[var(--color-text-muted)]">Published</dt>
-              <dd>
-                <time dateTime={publication.published_at}>
-                  {formatTimestamp(publication.published_at)}
-                </time>
-              </dd>
-              <dt className="text-[var(--color-text-muted)]">Generation</dt>
-              <dd className="break-all font-mono text-[11px]">{publication.artifact_generation}</dd>
-              <dt className="text-[var(--color-text-muted)]">Revision</dt>
-              <dd className="break-all font-mono text-[11px]">{publication.artifact_revision}</dd>
-              {derivedArtifactGenerationStatus(publication) === 'superseded' && (
-                <>
-                  <dt className="text-[var(--color-text-muted)]">Current generation</dt>
-                  <dd className="break-all font-mono text-[11px]">
-                    {publication.current_artifact_generation}
-                  </dd>
-                </>
-              )}
-              <dt className="text-[var(--color-text-muted)]">Associated run samples</dt>
-              <dd><AssociatedRunSampleSummary publication={publication} /></dd>
-            </dl>
+            <p className="mt-2 text-xs text-[var(--color-text-muted)] tabular-nums">
+              <time dateTime={publication.published_at}>{formatTimestamp(publication.published_at)}</time>
+            </p>
+            <details className="mt-2 rounded-[4px] border border-[var(--color-border)] bg-[var(--color-surface-subtle)]">
+              <summary className="min-h-11 cursor-pointer px-3 py-3 text-xs font-medium">Technical metadata</summary>
+              <dl className="grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] gap-x-2 gap-y-2 border-t border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-xs">
+                <dt className="text-[var(--color-text-muted)]">Project</dt><dd><IdWithCopy value={publication.project_id} label="project ID" /></dd>
+                <dt className="text-[var(--color-text-muted)]">Run</dt><dd><IdWithCopy value={publication.run_id} label="run ID" to={`/runs/${encodeURIComponent(publication.run_id)}`} /></dd>
+                <dt className="text-[var(--color-text-muted)]">Workflow</dt><dd className="break-all">{publication.workflow_id}</dd>
+                <dt className="text-[var(--color-text-muted)]">Generation</dt><dd><IdWithCopy value={publication.artifact_generation} label="artifact generation" /></dd>
+                <dt className="text-[var(--color-text-muted)]">Revision</dt><dd><IdWithCopy value={publication.artifact_revision} label="artifact revision" /></dd>
+                {derivedArtifactGenerationStatus(publication) === 'superseded' && <><dt className="text-[var(--color-text-muted)]">Current generation</dt><dd><IdWithCopy value={publication.current_artifact_generation} label="current artifact generation" /></dd></>}
+                <dt className="text-[var(--color-text-muted)]">Associated samples</dt><dd><AssociatedRunSampleSummary publication={publication} /></dd>
+              </dl>
+            </details>
           </li>
         ))}
       </ul>
