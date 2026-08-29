@@ -3,7 +3,7 @@
  * Do not edit manually.
  * HelixWeave API
  * Reproducible omics workflows, from inputs to evidence.
- * OpenAPI spec version: 0.3.0
+ * OpenAPI spec version: 0.4.0
  */
 import type { WorkflowSchemaCoverageResponseConfig } from './workflowSchemaCoverageResponseConfig';
 import type { WorkflowSchemaCoverageResponseSamples } from './workflowSchemaCoverageResponseSamples';

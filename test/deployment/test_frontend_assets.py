@@ -591,7 +591,7 @@ def test_deployed_factory_rejects_untrusted_runtime_root_before_api_side_effects
 def test_repository_package_assets_are_verified() -> None:
     assets = load_packaged_frontend_assets()
 
-    assert assets.manifest.frontend_version == "0.3.0"
+    assert assets.manifest.frontend_version == "0.4.0"
     assert assets.content["index.html"].startswith(b"<!doctype html>")
     assert any(path.startswith("assets/") for path in assets.content)
     assert assets.manifest.api_contract_sha256 == canonical_json_sha256(

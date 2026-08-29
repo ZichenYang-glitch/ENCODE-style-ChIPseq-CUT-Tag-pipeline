@@ -28,10 +28,13 @@ def _build_distributions(tmp_path: Path) -> tuple[Path, Path]:
     source.mkdir()
     for filename in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
         shutil.copy2(REPOSITORY_ROOT / filename, source / filename)
-    (source / "scripts").mkdir()
+    shutil.copytree(REPOSITORY_ROOT / "scripts", source / "scripts")
+    shutil.copytree(REPOSITORY_ROOT / "workflow", source / "workflow")
+    shutil.copytree(REPOSITORY_ROOT / "profiles", source / "profiles")
+    (source / "docs" / "architecture").mkdir(parents=True)
     shutil.copy2(
-        REPOSITORY_ROOT / "scripts" / "bootstrap_helixweave_operator.py",
-        source / "scripts" / "bootstrap_helixweave_operator.py",
+        REPOSITORY_ROOT / "docs" / "architecture" / "artifact-inventory.yaml",
+        source / "docs" / "architecture" / "artifact-inventory.yaml",
     )
     shutil.copytree(
         REPOSITORY_ROOT / "src",
@@ -167,7 +170,7 @@ print(json.dumps({
     assert completed.returncode == 0, completed.stderr
     receipt = json.loads(completed.stdout)
     assert receipt["identity"].startswith("sha256-")
-    assert receipt["version"] == "0.3.0"
+    assert receipt["version"] == "0.4.0"
     assert "index.html" in receipt["files"]
     assert all("node_modules" not in path for path in receipt["files"])
 

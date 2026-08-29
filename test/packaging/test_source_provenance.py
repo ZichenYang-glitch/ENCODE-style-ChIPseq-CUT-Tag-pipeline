@@ -85,13 +85,13 @@ def _coverage_bootstrap() -> str:
 def _create_checkout(root: Path) -> Path:
     root.mkdir(parents=True)
     (root / "pyproject.toml").write_text(
-        '[project]\nname = "helixweave"\nversion = "0.3.0"\n',
+        '[project]\nname = "helixweave"\nversion = "0.4.0"\n',
         encoding="utf-8",
     )
     package = root / "src" / "encode_pipeline"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text(
-        '__version__ = "0.3.0"\n',
+        '__version__ = "0.4.0"\n',
         encoding="utf-8",
     )
     return root
@@ -106,7 +106,7 @@ def _write_distribution(
     *,
     source_root: Path,
     distribution_name: str = "helixweave",
-    version: str = "0.3.0",
+    version: str = "0.4.0",
     direct_root: Path | None = None,
     direct_url_text: str | None = None,
     metadata_directory: str | None = None,
@@ -229,12 +229,12 @@ def _write_installed_distribution(
     site_packages: Path,
     *,
     include_inventory: bool = True,
-    metadata_directory: str = "helixweave-0.3.0.dist-info",
+    metadata_directory: str = "helixweave-0.4.0.dist-info",
 ) -> None:
     package = site_packages / "encode_pipeline"
     package.mkdir(parents=True)
     package_files = {
-        "encode_pipeline/__init__.py": b'__version__ = "0.3.0"\n',
+        "encode_pipeline/__init__.py": b'__version__ = "0.4.0"\n',
         "encode_pipeline/runtime.py": b'ARTIFACT_KIND = "installed"\n',
     }
     for relative_path, raw in package_files.items():
@@ -242,7 +242,7 @@ def _write_installed_distribution(
     metadata = site_packages / metadata_directory
     metadata.mkdir()
     (metadata / "METADATA").write_text(
-        "Metadata-Version: 2.4\nName: helixweave\nVersion: 0.3.0\n",
+        "Metadata-Version: 2.4\nName: helixweave\nVersion: 0.4.0\n",
         encoding="utf-8",
     )
     (metadata / "top_level.txt").write_text(
@@ -253,7 +253,7 @@ def _write_installed_distribution(
         json.dumps(
             {
                 "archive_info": {"hash": "sha256=" + ("0" * 64)},
-                "url": "file:///artifact/helixweave-0.3.0-py3-none-any.whl",
+                "url": "file:///artifact/helixweave-0.4.0-py3-none-any.whl",
             }
         ),
         encoding="utf-8",
@@ -271,10 +271,10 @@ def _write_installed_distribution(
             "\n".join(
                 (
                     *package_records,
-                    "helixweave-0.3.0.dist-info/METADATA,,",
-                    "helixweave-0.3.0.dist-info/top_level.txt,,",
-                    "helixweave-0.3.0.dist-info/direct_url.json,,",
-                    "helixweave-0.3.0.dist-info/RECORD,,",
+                    "helixweave-0.4.0.dist-info/METADATA,,",
+                    "helixweave-0.4.0.dist-info/top_level.txt,,",
+                    "helixweave-0.4.0.dist-info/direct_url.json,,",
+                    "helixweave-0.4.0.dist-info/RECORD,,",
                 )
             )
             + "\n",
@@ -525,7 +525,7 @@ def test_audited_editable_mapping_cannot_hide_unknown_claimant_metadata(
             "Metadata-Version: 2.4\n"
             "Name: helixweave\n"
             "Name: conflicting-owner\n"
-            "Version: 0.3.0\n"
+            "Version: 0.4.0\n"
         ),
     ),
 )
@@ -651,7 +651,7 @@ def test_checkout_mode_rejects_two_physical_claimants_with_the_same_version(
         site_packages,
         source_root=current,
         distribution_name="HelixWeave",
-        metadata_directory="HELIXWEAVE-copy-0.3.0.dist-info",
+        metadata_directory="HELIXWEAVE-copy-0.4.0.dist-info",
     )
 
     result = _run_guard(site_packages, "checkout", repository_root=current)
@@ -1033,7 +1033,7 @@ def test_checkout_mode_rejects_a_pth_file_symlink_escape(tmp_path: Path) -> None
     current = _create_checkout(tmp_path / "current")
     site_packages = tmp_path / "site-packages"
     _write_distribution(site_packages, source_root=current)
-    pth = site_packages / "__editable__.helixweave-0.3.0.pth"
+    pth = site_packages / "__editable__.helixweave-0.4.0.pth"
     external_pth = tmp_path / "external-editable.pth"
     pth.replace(external_pth)
     pth.symlink_to(external_pth)
@@ -1305,10 +1305,10 @@ def test_checkout_mode_fails_stably_for_damaged_record(tmp_path: Path) -> None:
         f"{current / 'src'}\n",
         encoding="utf-8",
     )
-    metadata = site_packages / "helixweave-0.3.0.dist-info"
+    metadata = site_packages / "helixweave-0.4.0.dist-info"
     metadata.mkdir()
     (metadata / "METADATA").write_text(
-        "Metadata-Version: 2.4\nName: helixweave\nVersion: 0.3.0\n",
+        "Metadata-Version: 2.4\nName: helixweave\nVersion: 0.4.0\n",
         encoding="utf-8",
     )
     (metadata / "RECORD").write_bytes(b"\xff")
@@ -1341,7 +1341,7 @@ def test_checkout_mode_rejects_metadata_file_symlink_escape(
     current = _create_checkout(tmp_path / "current")
     site_packages = tmp_path / "site-packages"
     _write_distribution(site_packages, source_root=current)
-    metadata = site_packages / "helixweave-0.3.0.dist-info"
+    metadata = site_packages / "helixweave-0.4.0.dist-info"
     external_file = tmp_path / f"external-{metadata_name}"
     (metadata / metadata_name).replace(external_file)
     (metadata / metadata_name).symlink_to(external_file)
@@ -1359,7 +1359,7 @@ def test_checkout_mode_rejects_metadata_directory_symlink_escape(
     current = _create_checkout(tmp_path / "current")
     site_packages = tmp_path / "site-packages"
     _write_distribution(site_packages, source_root=current)
-    metadata = site_packages / "helixweave-0.3.0.dist-info"
+    metadata = site_packages / "helixweave-0.4.0.dist-info"
     external_metadata = tmp_path / "external-metadata"
     metadata.replace(external_metadata)
     metadata.symlink_to(external_metadata, target_is_directory=True)
@@ -1381,7 +1381,7 @@ def test_checkout_mode_rejects_source_metadata_pointing_to_sibling(
     source_metadata = current / "src" / "helixweave.egg-info"
     source_metadata.mkdir()
     (source_metadata / "PKG-INFO").write_text(
-        "Metadata-Version: 2.4\nName: helixweave\nVersion: 0.3.0\n",
+        "Metadata-Version: 2.4\nName: helixweave\nVersion: 0.4.0\n",
         encoding="utf-8",
     )
     (source_metadata / "top_level.txt").write_text(
@@ -1469,7 +1469,7 @@ def test_installed_mode_rejects_metadata_directory_symlink_escape(
 ) -> None:
     python, site_packages = _create_venv(tmp_path / "venv")
     _write_installed_distribution(site_packages)
-    metadata = site_packages / "helixweave-0.3.0.dist-info"
+    metadata = site_packages / "helixweave-0.4.0.dist-info"
     external_metadata = tmp_path / "external-metadata"
     metadata.replace(external_metadata)
     metadata.symlink_to(external_metadata, target_is_directory=True)
@@ -1518,7 +1518,7 @@ def test_installed_mode_accepts_a_canonical_recorded_console_script(
     script.write_bytes(raw)
     relative_script = Path(os.path.relpath(script, site_packages)).as_posix()
     digest = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).decode("ascii")
-    record = site_packages / "helixweave-0.3.0.dist-info" / "RECORD"
+    record = site_packages / "helixweave-0.4.0.dist-info" / "RECORD"
     with record.open("a", encoding="utf-8") as inventory:
         inventory.write(f"{relative_script},sha256={digest.rstrip('=')},{len(raw)}\n")
 
@@ -1601,7 +1601,7 @@ def test_installed_mode_rejects_an_invalid_record_structure(
 ) -> None:
     python, site_packages = _create_venv(tmp_path / "venv")
     _write_installed_distribution(site_packages)
-    record = site_packages / "helixweave-0.3.0.dist-info" / "RECORD"
+    record = site_packages / "helixweave-0.4.0.dist-info" / "RECORD"
     rows = record.read_text(encoding="utf-8").splitlines()
     package_row = next(
         row for row in rows if row.startswith("encode_pipeline/runtime.py,")
@@ -1675,7 +1675,7 @@ def test_installed_mode_rejects_noneditable_directory_install(
     source = _create_checkout(tmp_path / "source")
     python, site_packages = _create_venv(tmp_path / "venv")
     _write_installed_distribution(site_packages)
-    (site_packages / "helixweave-0.3.0.dist-info" / "direct_url.json").write_text(
+    (site_packages / "helixweave-0.4.0.dist-info" / "direct_url.json").write_text(
         json.dumps(
             {
                 "dir_info": {},
@@ -1744,7 +1744,7 @@ print(module._checkout_layout(Path({str(current)!r})).version)
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "0.3.0"
+    assert result.stdout.strip() == "0.4.0"
 
 
 def test_guard_cli_dispatch_and_public_failure_are_stable(

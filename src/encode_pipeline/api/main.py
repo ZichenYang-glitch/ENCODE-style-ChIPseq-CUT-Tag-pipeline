@@ -124,7 +124,7 @@ def create_app(
 
     app = FastAPI(
         title="HelixWeave API",
-        version="0.3.0",
+        version="0.4.0",
         description="Reproducible omics workflows, from inputs to evidence.",
         lifespan=lifespan,
     )
