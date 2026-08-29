@@ -141,6 +141,11 @@ def build_parser() -> argparse.ArgumentParser:
             "Start the HelixWeave local stack: Redis, FastAPI, one RQ worker, "
             "and the React frontend."
         ),
+        epilog=(
+            "Deployment commands: install, status, doctor, verify, upgrade, "
+            "rollback, and bundle. Run `helixweave bundle --help` to build "
+            "offline deployment transports."
+        ),
     )
     parser.add_argument("--project-root", type=Path)
     parser.add_argument(

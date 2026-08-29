@@ -307,6 +307,19 @@ def build_platform_wheel_lock(wheelhouse: Path) -> PlatformWheelLock:
     return lock
 
 
+def verify_platform_wheel_lock(
+    wheelhouse: Path,
+    lock_path: Path,
+) -> PlatformWheelLock:
+    """Verify one canonical lock against the complete local wheelhouse."""
+    lock_content = _read_regular_source(lock_path, _MAX_LOCK_BYTES)
+    observed = PlatformWheelLock.from_bytes(lock_content)
+    expected = build_platform_wheel_lock(wheelhouse)
+    if observed != expected:
+        raise _invalid_lock()
+    return observed
+
+
 def collect_platform_runtime_closure(
     wheelhouse: Path,
     lock_path: Path,
@@ -554,10 +567,14 @@ def _plan_wheel(locked: LockedWheel, source: Path) -> _WheelPlan:
                 for tag in declared_tags
             ):
                 raise ValueError
+            installed_members = (
+                (item.filename, _installed_member_path(item.filename)) for item in files
+            )
             members = tuple(
                 sorted(
-                    (item.filename, _installed_member_path(item.filename))
-                    for item in files
+                    (member, installed)
+                    for member, installed in installed_members
+                    if installed is not None
                 )
             )
             if any(path.endswith(".pth") for _member, path in members):
@@ -614,10 +631,12 @@ def _verify_dependency_closure(
         {
             "extra",
             "implementation_name",
+            "implementation_version",
             "os_name",
             "platform_machine",
             "platform_python_implementation",
             "platform_system",
+            "python_full_version",
             "python_version",
             "sys_platform",
         }
@@ -655,11 +674,24 @@ def _verify_dependency_closure(
             ).issubset(allowed_marker_variables):
                 raise _invalid_closure()
             marker_extras = ("", *sorted(extras))
-            if requirement.marker is not None and not any(
-                requirement.marker.evaluate({**environment, "extra": extra})
-                for extra in marker_extras
-            ):
-                continue
+            if requirement.marker is not None:
+                floor_results = tuple(
+                    requirement.marker.evaluate({**environment, "extra": extra})
+                    for extra in marker_extras
+                )
+                ceiling_environment = {
+                    **environment,
+                    "implementation_version": SUPPORTED_PYTHON_MARKER_CEILING,
+                    "python_full_version": SUPPORTED_PYTHON_MARKER_CEILING,
+                }
+                ceiling_results = tuple(
+                    requirement.marker.evaluate({**ceiling_environment, "extra": extra})
+                    for extra in marker_extras
+                )
+                if floor_results != ceiling_results:
+                    raise _invalid_closure()
+                if not any(floor_results):
+                    continue
             dependency = canonicalize_name(requirement.name)
             installed = distributions.get(dependency)
             if (
@@ -688,8 +720,17 @@ def _supports_all_python_312_patches(specifiers: object, version_type: object) -
 
     try:
         items = tuple(specifiers)
-        if any(item.operator in {"!=", "==="} for item in items):
+        if any(item.operator == "===" for item in items):
             return False
+        for item in items:
+            if item.operator != "!=":
+                continue
+            excluded = item.version.removesuffix(".*")
+            release = version_type(excluded).release
+            if release[:1] == (3,) and (
+                len(release) == 1 or release[:2] == SUPPORTED_PYTHON_VERSION
+            ):
+                return False
         floor = version_type(SUPPORTED_PYTHON_MARKER_FLOOR)
         ceiling = version_type(SUPPORTED_PYTHON_MARKER_CEILING)
         return floor in specifiers and ceiling in specifiers
@@ -833,9 +874,14 @@ def _verify_wheel_record(
             raise _invalid_closure()
 
 
-def _installed_member_path(member: str) -> str:
+def _installed_member_path(member: str) -> str | None:
     parts = _wheel_member_path(member).parts
     if len(parts) >= 3 and parts[0].endswith(".data"):
+        # Runtime closures retain the original, hash-locked wheel while
+        # deliberately omitting build-only C headers from the expanded
+        # site-packages tree.  Other wheel data schemes remain fail-closed.
+        if parts[1] == "headers":
+            return None
         if parts[1] not in {"purelib", "platlib"}:
             raise _invalid_closure()
         parts = parts[2:]
@@ -874,7 +920,7 @@ def _supported_wheel_tag(interpreter: str, abi: str, platform_tag: str) -> bool:
         return False
     if abi == "abi3":
         matched = re.fullmatch(r"cp3(\d+)", interpreter)
-        if matched is None or not 7 <= int(matched.group(1)) <= 12:
+        if matched is None or not 6 <= int(matched.group(1)) <= 12:
             return False
     if platform_tag in _LEGACY_MANYLINUX:
         return True
@@ -2317,4 +2363,5 @@ __all__ = [
     "inspect_platform_runtime_closure",
     "prepare_candidate_database",
     "verify_supported_python_runtime",
+    "verify_platform_wheel_lock",
 ]

@@ -268,7 +268,12 @@ def encode_environment_paths(
 
 
 def verify_static_micromamba(content: bytes) -> None:
-    """Require one static little-endian Linux x86_64 ELF executable."""
+    """Require one bounded Linux x86_64 ELF for the supported host ABI.
+
+    Official micromamba releases may either omit ``PT_INTERP`` or bind to the
+    fixed Linux x86_64 glibc loader used by the supported deployment host.
+    Other interpreter paths remain fail-closed.
+    """
     if (
         len(content) < 120
         or content[:7] != b"\x7fELF\x02\x01\x01"
@@ -285,19 +290,32 @@ def verify_static_micromamba(content: bytes) -> None:
         or program_offset + program_size * program_count > len(content)
     ):
         raise _NativeContractFault
-    program_types = {
-        int.from_bytes(
-            content[
-                program_offset + index * program_size : program_offset
-                + index * program_size
-                + 4
-            ],
-            "little",
-        )
+    program_headers = tuple(
+        content[
+            program_offset + index * program_size : program_offset
+            + (index + 1) * program_size
+        ]
         for index in range(program_count)
-    }
-    if 1 not in program_types or 3 in program_types:
+    )
+    program_types = tuple(
+        int.from_bytes(header[:4], "little") for header in program_headers
+    )
+    interpreters = tuple(
+        header for header, kind in zip(program_headers, program_types) if kind == 3
+    )
+    if 1 not in program_types or len(interpreters) > 1:
         raise _NativeContractFault
+    if interpreters:
+        interpreter = interpreters[0]
+        offset = int.from_bytes(interpreter[8:16], "little")
+        size = int.from_bytes(interpreter[32:40], "little")
+        if (
+            size != len(b"/lib64/ld-linux-x86-64.so.2\x00")
+            or offset < 64
+            or offset + size > len(content)
+            or content[offset : offset + size] != b"/lib64/ld-linux-x86-64.so.2\x00"
+        ):
+            raise _NativeContractFault
 
 
 def encode_runtime_index_bytes(

@@ -15,6 +15,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments[:1] == ["admin"]:
         return admin.main(arguments[1:])
+    if arguments[:1] == ["bundle"]:
+        from encode_pipeline.deployment import bundle_cli
+
+        return bundle_cli.main(arguments[1:])
     if arguments[:1] and arguments[0] in deployment_cli.COMMANDS:
         return deployment_cli.main(arguments)
     return local_platform.main(arguments)

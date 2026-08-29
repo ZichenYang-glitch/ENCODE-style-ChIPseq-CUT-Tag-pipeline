@@ -51,6 +51,7 @@ from encode_pipeline.deployment.platform_runtime import (
     collect_platform_runtime_closure,
     inspect_platform_runtime_closure,
     prepare_candidate_database,
+    verify_platform_wheel_lock,
     verify_supported_python_runtime,
 )
 
@@ -163,6 +164,22 @@ def test_lock_builder_is_offline_deterministic_and_validates_wheels(
     assert PlatformWheelLock.from_bytes(first.to_bytes()) == first
 
 
+def test_platform_wheel_lock_verifies_the_complete_wheelhouse(tmp_path: Path) -> None:
+    wheelhouse = tmp_path / "wheelhouse"
+    wheelhouse.mkdir()
+    wheel = _build_wheel(wheelhouse)
+    lock = build_platform_wheel_lock(wheelhouse)
+    lock_path = tmp_path / "platform-wheel-lock.json"
+    lock_path.write_bytes(lock.to_bytes())
+
+    assert verify_platform_wheel_lock(wheelhouse, lock_path) == lock
+
+    wheel.unlink()
+    _build_wheel(wheelhouse, version="1.0.1")
+    with pytest.raises(DeploymentError, match="PLATFORM_RUNTIME_LOCK_INVALID"):
+        verify_platform_wheel_lock(wheelhouse, lock_path)
+
+
 def test_lock_records_the_patch_neutral_supported_cpython_environment(
     tmp_path: Path,
 ) -> None:
@@ -211,6 +228,40 @@ def test_dependency_markers_use_exact_python_and_reject_kernel_facts(
     )
     with pytest.raises(DeploymentError) as caught:
         build_platform_wheel_lock(kernel_marker)
+    assert caught.value.issue.code == "PLATFORM_RUNTIME_CLOSURE_INVALID"
+
+
+def test_dependency_markers_accept_patch_predicates_constant_on_python_312(
+    tmp_path: Path,
+) -> None:
+    wheelhouse = tmp_path / "wheelhouse"
+    wheelhouse.mkdir()
+    _build_wheel(
+        wheelhouse,
+        requirements=('unneeded; python_full_version < "3.11.3"',),
+    )
+
+    lock = build_platform_wheel_lock(wheelhouse)
+
+    assert len(lock.wheels) == 1
+
+
+def test_requires_python_allows_only_exclusions_outside_python_312(
+    tmp_path: Path,
+) -> None:
+    compatible = tmp_path / "compatible"
+    compatible.mkdir()
+    _build_wheel(
+        compatible,
+        requires_python=">=3.10,!=3.0.*,!=3.1.*,!=3.2.*",
+    )
+    assert build_platform_wheel_lock(compatible).wheels
+
+    incompatible = tmp_path / "incompatible"
+    incompatible.mkdir()
+    _build_wheel(incompatible, requires_python=">=3.10,!=3.12.5")
+    with pytest.raises(DeploymentError) as caught:
+        build_platform_wheel_lock(incompatible)
     assert caught.value.issue.code == "PLATFORM_RUNTIME_CLOSURE_INVALID"
 
 
@@ -566,6 +617,7 @@ def test_collector_accepts_cp312_and_older_abi3_manylinux_tags(tmp_path: Path) -
         (
             "cp312-cp312-manylinux_2_17_x86_64",
             "cp39-abi3-manylinux2014_x86_64",
+            "cp36-abi3-manylinux_2_17_x86_64",
         )
     ):
         case = tmp_path / str(index)
@@ -581,6 +633,31 @@ def test_collector_accepts_cp312_and_older_abi3_manylinux_tags(tmp_path: Path) -
         )
 
         assert closure.files
+
+
+def test_collector_keeps_wheel_but_omits_build_only_headers(tmp_path: Path) -> None:
+    wheelhouse = tmp_path / "wheelhouse"
+    wheelhouse.mkdir()
+    wheel = _build_wheel(
+        wheelhouse,
+        name="greenlet",
+        tag="cp312-cp312-manylinux2014_x86_64",
+        files={"greenlet-1.0.0.data/headers/greenlet.h": b"/* build only */\n"},
+    )
+    platform_wheel = _build_wheel(
+        wheelhouse,
+        requirements=("greenlet==1.0.0",),
+    )
+    lock_path = tmp_path / "wheel-lock.json"
+    _write_lock(lock_path, (platform_wheel, wheel))
+
+    closure = collect_platform_runtime_closure(
+        wheelhouse, lock_path, tmp_path / "closure"
+    )
+
+    paths = {item.logical_path for item in closure.files}
+    assert any(path.endswith(f"/{wheel.name}") for path in paths)
+    assert not any(path.endswith("/greenlet.h") for path in paths)
 
 
 @pytest.mark.parametrize("missing", ("openai", "httpcore"))

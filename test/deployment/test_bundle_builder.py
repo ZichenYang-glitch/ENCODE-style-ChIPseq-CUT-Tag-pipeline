@@ -3,12 +3,14 @@ from __future__ import annotations
 from dataclasses import replace
 from hashlib import sha256
 import hashlib
+import inspect
 import os
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+import encode_pipeline.adapters.bulk_rnaseq.runtime_assets as runtime_assets_module
 import encode_pipeline.deployment.bundle_builder as builder_module
 import encode_pipeline.deployment.native_contracts as native_module
 from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
@@ -312,6 +314,15 @@ def test_bulk_builder_is_canonical_and_indexes_only_verified_runtime_bytes(
     assert (
         BundleStore(DeploymentLayout.isolated(tmp_path / "bulk-host")).inspect(first)
         == manifest_a
+    )
+
+
+def test_bulk_builder_default_verifier_is_static_admission() -> None:
+    assert (
+        inspect.signature(build_bulk_rnaseq_runtime_bundle)
+        .parameters["runtime_verifier"]
+        .default
+        is runtime_assets_module.verify_packaged_runtime_asset_closure
     )
 
 

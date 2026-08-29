@@ -454,6 +454,31 @@ def verify_runtime_asset_closure(
     )
 
 
+def verify_packaged_runtime_asset_closure(
+    binding: RuntimeAssetBinding,
+) -> Result[VerifiedRuntimeAssets]:
+    """Verify only bytes owned by an operator-prepared runtime root.
+
+    Bundle production is host-neutral: Docker, its socket and the host
+    network-isolation executable are admitted later by deployment activation.
+    """
+    try:
+        contract = _load_runtime_contract()
+        _validate_embedded_contracts(
+            contract.identity,
+            contract.source_manifest,
+            contract.container_inventory,
+            contract.container_process_audit,
+        )
+    except (OSError, ValueError, json.JSONDecodeError):
+        return Result.failure((_issue("contract", "invalid"),))
+    return _verify_runtime_asset_closure(
+        binding,
+        contract,
+        include_network_isolation=False,
+    )
+
+
 def _verify_runtime_asset_closure(
     binding: RuntimeAssetBinding,
     contract: _RuntimeAssetContract,

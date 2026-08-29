@@ -25,7 +25,7 @@ from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
     RUNTIME_IDENTITY_SHA256,
     RuntimeAssetBinding,
     VerifiedRuntimeAssets,
-    verify_runtime_assets,
+    verify_packaged_runtime_asset_closure,
 )
 from encode_pipeline.deployment.canonical import canonical_json_bytes
 from encode_pipeline.deployment.bundle import (
@@ -488,9 +488,9 @@ def build_bulk_rnaseq_runtime_bundle(
     *,
     docker_executable: Path = Path("/usr/bin/docker"),
     docker_socket: Path = Path("/run/helixweave/docker/docker.sock"),
-    runtime_verifier=verify_runtime_assets,
+    runtime_verifier=verify_packaged_runtime_asset_closure,
 ) -> BundleManifest:
-    """Build the verified fixed nf-core/Nextflow/Docker runtime closure."""
+    """Build the statically verified fixed nf-core/Nextflow runtime closure."""
     root = _source_directory(runtime_root)
     try:
         top_level = {path.name for path in root.iterdir()}

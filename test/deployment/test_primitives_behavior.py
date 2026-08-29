@@ -351,6 +351,19 @@ def test_file_record_rejects_invalid_size_and_mode() -> None:
         assert captured.value.issue.code == "DEPLOYMENT_MANIFEST_INVALID"
 
 
+def test_file_record_accepts_jvm_inner_class_runtime_paths() -> None:
+    record = FileRecord.from_dict(
+        {
+            "path": "payload/runtime/plugins/Validation$_closure.class",
+            "size_bytes": 1,
+            "sha256": "a" * 64,
+            "mode": 0o444,
+        }
+    )
+
+    assert record.path.endswith("Validation$_closure.class")
+
+
 def test_contract_identity_from_dict_round_trip_and_rejects_bad_keys() -> None:
     parsed = ContractIdentity.from_dict(
         {"contract": "helixweave.platform.distribution", "identity": IDENTITY_A}

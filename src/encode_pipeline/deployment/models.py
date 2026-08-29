@@ -45,7 +45,7 @@ REQUIRED_PROVIDERS = {
 _IDENTITY = re.compile(r"^sha256-[0-9a-f]{64}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _CONTRACT = re.compile(r"^[a-z0-9][a-z0-9._:/+-]{0,191}$")
-_RELATIVE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/+@=-]{0,511}$")
+_RELATIVE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/+@=$-]{0,511}$")
 
 
 def _object(value: object, *, code: str) -> dict[str, Any]:
