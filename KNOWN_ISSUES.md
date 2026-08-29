@@ -86,11 +86,14 @@ See [container usage](docs/container-usage.md),
 
 - The supported product boundary is local or small trusted teams with SQLite,
   Redis/RQ, and filesystem workspaces.
+- Trusted-LAN authentication supports administrator-managed member accounts,
+  sessions, CSRF protection, and audited privileged operations. It is not
+  multi-tenant isolation or a general-purpose authorization system.
 - The default registry contains the ENCODE-style epigenomics and Bulk RNA-seq
   adapters. An unavailable optional Bulk RNA-seq runtime does not prevent safe
   authoring or validation and does not make the base platform unavailable.
-- Authentication, multi-tenant isolation, PostgreSQL, object storage, HPC
-  schedulers, Kubernetes, and remote workspace semantics are not implemented.
+- Multi-tenant isolation, PostgreSQL, object storage, HPC schedulers,
+  Kubernetes, and remote workspace semantics are not implemented.
 - SQLite is canonical lifecycle and result-metadata state. Queue state must not
   be used as an alternative source of truth.
 - Artifact downloads are limited to indexed workspace artifacts; arbitrary
@@ -100,8 +103,9 @@ See [container usage](docs/container-usage.md),
 - Omics Intake integration is limited to a pinned, read-only Bundle 0.2
   inspection boundary for ENCODE authoring inputs. It does not import producer
   code, persist Bundle provenance, create a snapshot, or authorize execution.
-- v0.3.0 does not publish a HelixWeave application, ENCODE runner, or
-  Bulk RNA-seq container image.
+- v0.4.0 publishes the HelixWeave wheel, sdist, and their checksum file. It
+  does not publish an ENCODE runner, Bulk RNA-seq container image, deployment
+  bundle, reference payload, or operator database backup.
 
 See the [architecture overview](docs/architecture/platform-overview.md) for
 the durable ownership and safety boundaries.
@@ -124,16 +128,18 @@ operation outside repository content. See the
 
 ### Frontend dependency and bundle maintenance
 
-Against lock SHA-256
+The v0.4.0 lock changes only package-root version/engine metadata; its
+dependency graph, resolved coordinates, and integrity values are inherited
+from v0.3.0. Against the v0.3.0 lock SHA-256
 `3b2472cb4bf6201443f6aa64feb854369c398a25ba740196ff8f75c7aab2b49c`,
 the live npm advisory database reported 28 package-level findings on
-2026-07-25: three are in production dependency paths (`fast-uri`,
+2026-07-25: three were in production dependency paths (`fast-uri`,
 `react-router`, and `react-router-dom`), while 25 are confined to the Vite,
 Vitest, PostCSS, Orval, and OpenAPI-generation toolchain or are propagated
 effects in that toolchain. This aggregate is a time-stamped observation rather
 than a stable lockfile property: new PostCSS and `brace-expansion` advisories
 changed the count without changing `package.json` or the lockfile. The audit
-did not classify any finding as a v0.3.0 release blocker within the supported
+did not classify any finding as a release blocker within the supported
 single-workstation or trusted-team boundary: schema URI parsing is not used as
 a network allow/deny decision, navigation targets are internal and
 constrained, there is no server-side rendering, Vitest UI/API/browser mode is

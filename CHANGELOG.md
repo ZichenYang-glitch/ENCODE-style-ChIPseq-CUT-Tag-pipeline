@@ -6,7 +6,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No changes have been recorded since v0.3.0.
+### Added
+
+- Durable Project, Sample, input-file revision, storage-pool, and immutable
+  input-use provenance, plus administrator-managed revisioned Reference
+  Profiles bound to validated snapshots and runs.
+- Cross-run artifact publication and provenance, administrator run diagnosis,
+  exact-identity fail/requeue recovery, and terminal email notifications with
+  current-generation QC summaries.
+- A supported Linux x86_64 systemd deployment operator with install, status,
+  doctor, verify, upgrade, and rollback operations. The public offline bundle
+  producer composes platform, ENCODE, and Bulk RNA-seq transports from the
+  release artifacts and explicitly operator-supplied caches.
+- Trusted laboratory LAN authentication with administrator/member roles,
+  sessions, CSRF protection, account administration, audited privileged run
+  actions, and browser login/logout.
+- Raw and conditionally trimmed FastQC plus stage-specific MultiQC views for
+  the ENCODE-style workflow.
+
+### Changed
+
+- The compact Rosemary browser experience clarifies workflow authoring, run
+  activity and logs, artifact/QC inspection, mobile navigation, and long
+  technical identities without changing deep links or lifecycle contracts.
+- Wheel and sdist distributions carry the canonical precompiled frontend and
+  deployment resources. The sdist also carries the exact release-owned source
+  closure used to build the ENCODE runtime bundle; target services require no
+  Git checkout or Node toolchain.
+- Both bundled workflows share authenticated workflow-neutral lifecycle,
+  reference, artifact, QC, and recovery surfaces while retaining adapter-owned
+  scientific contracts.
+- Local and CI frontend authority is pinned to Node 22.23.1 and npm 10.9.8.
+
+### Fixed
+
+- Exact-checkout/install provenance, adapter execution admission, timeout
+  finalization, container cleanup, and Bulk qualification fail closed at their
+  owned boundaries.
+- Deterministic CI sharding and coverage aggregation no longer lose or
+  double-count evidence; Lint and Lock Check remain independent exact-commit
+  checks.
+- Mobile shell navigation, complex schema-form spans, and long execution
+  statuses no longer overflow or wrap unreadably.
+
+### Release boundary
+
+- HelixWeave remains a single-laboratory product for one Linux or systemd-enabled
+  WSL2 host on a trusted LAN. LAN authentication is not multi-tenancy or a
+  general RBAC system; TLS and proxy configuration remain operator concerns.
+- Official assets exclude references, indexes, FASTQ/results, database
+  backups, JDK, Nextflow, OCI layers, scientific environments, and secrets.
+  No Docker/OCI, Apptainer, or Singularity image is published.
+- Controlled tiny and synthetic acceptance proves installation, execution,
+  lifecycle, result, and offline contracts—not biological validity,
+  production-scale throughput, or public-dataset reproducibility.
 
 ## [0.3.0] - 2026-07-25
 

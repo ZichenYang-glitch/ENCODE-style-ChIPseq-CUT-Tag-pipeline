@@ -17,7 +17,7 @@ durable local run, and review logs, QC, and artifacts in the browser.
 HelixWeave is the product name, the Python distribution is `helixweave`, and
 the primary CLI is `helixweave`. The `encode_pipeline` import namespace,
 existing `encode-*` commands, workflow IDs, and repository slug remain
-compatibility identities for v0.3.0.
+compatibility identities for v0.4.0.
 
 ![HelixWeave artifact workbench showing a succeeded deterministic run, indexed artifacts, and safe download details](docs/assets/helixweave-artifact-workbench.png)
 
@@ -62,6 +62,8 @@ workflow.
 | Local execution | Redis/RQ hands a durable run identity to an independent worker that executes the adapter-selected Snakemake or Nextflow process. |
 | Run control | Preflight, explicit start, progress, live persisted logs, and acknowledged process-group cancellation. |
 | Evidence | Filterable run history, indexed artifacts, fail-closed downloads, and a QC workbench with source-artifact navigation. |
+| Laboratory access | Administrator-managed member accounts, trusted-LAN sessions, CSRF protection, and per-user terminal notification preferences. |
+| Operations | Reference Profiles, artifact publication, exact-identity run recovery, and offline systemd deployment install/verify/upgrade/rollback. |
 
 The default registry contains both bundled workflows. The platform contracts
 remain workflow-neutral; onboarding any additional workflow still requires an
@@ -76,9 +78,18 @@ ports, storage, process ownership, and cleanup behavior live in the
 [local runtime guide](docs/development/local-platform-runtime.md).
 
 The verified wheel exposes `helixweave --help` and the equivalent
-`python -m encode_pipeline --help`. A complete browser/scientific trial still
-requires the exact tagged source tree because the wheel intentionally does not
-bundle the frontend, workflow, references, or runtime assets.
+`python -m encode_pipeline --help`. It includes the canonical precompiled
+frontend and deployment operator resources. The sdist includes the exact
+release-owned ENCODE workflow/profile/script source closure used by the
+offline bundle producer. Scientific environments, reference data, indexes,
+Nextflow/JDK, and OCI images remain explicit operator inputs; neither artifact
+downloads them or requires a Git checkout.
+
+Use `helixweave bundle --help` to discover the public offline producer for
+platform, ENCODE runtime, and Bulk RNA-seq runtime deployment transports. The
+[local runtime guide](docs/development/local-platform-runtime.md) documents the
+required release artifacts and operator-prepared caches. Deployment bundles
+are local operator transports, not additional GitHub Release assets.
 
 After completing the checklist prerequisites, the maintained launcher checks
 the product environment and starts the deterministic input-to-results demo:

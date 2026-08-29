@@ -31,7 +31,8 @@ with systemd enabled:
   producer expands a hash-locked, wheel-only CPython 3.12/Linux x86_64
   dependency closure before bundling it;
 - the ENCODE Snakemake closure is an independently versioned immutable runtime
-  containing the workflow source, a static micromamba frontend, and every
+  containing the workflow source, a pinned Linux x86_64 micromamba frontend
+  admitted against the supported glibc loader, and every
   package archive named by the checked-in explicit environment locks;
 - the bulk RNA-seq source, Nextflow, JDK, plugin, and container closure remains
   governed by the existing pinned runtime contract and uses a dedicated
