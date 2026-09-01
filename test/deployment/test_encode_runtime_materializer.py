@@ -239,7 +239,7 @@ def test_materializer_uses_only_indexed_offline_coordinates_and_fixed_argv(
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.DEVNULL,
             "cwd": prepared.destination,
-            "env": {},
+            "env": {"HOME": str(prepared.destination / "mamba-root")},
             "close_fds": True,
             "timeout": 11.0,
             "check": False,
@@ -310,6 +310,30 @@ def test_materializer_uses_only_indexed_offline_coordinates_and_fixed_argv(
         == hashlib.sha256(_static_elf()).hexdigest()
     )
     assert stat.S_IMODE(inventory_path.stat().st_mode) == 0o600
+
+
+def test_materializer_provides_micromamba_a_deterministic_writable_home(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    prepared = _prepared_runtime(tmp_path, monkeypatch)
+
+    class HomeRequiringRunner(_SyntheticRunner):
+        def __call__(self, argv, **kwargs):
+            expected = prepared.destination / "mamba-root"
+            if kwargs.get("env") != {"HOME": str(expected)} or not expected.is_dir():
+                return SimpleNamespace(returncode=1)
+            return super().__call__(argv, **kwargs)
+
+    runner = HomeRequiringRunner()
+
+    _materializer(prepared, runner).prepare(prepared.request)
+
+    assert runner.calls
+    assert all(
+        options["env"] == {"HOME": str(prepared.destination / "mamba-root")}
+        for _arguments, options, _lock in runner.calls
+    )
 
 
 def test_materialized_conda_seam_supports_only_snakemake_830_read_only_probes(

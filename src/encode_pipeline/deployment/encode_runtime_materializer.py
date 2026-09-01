@@ -356,7 +356,7 @@ class OfflineEncodeRuntimeMaterializer:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 cwd=destination,
-                env={},
+                env={"HOME": str(destination / "mamba-root")},
                 close_fds=True,
                 timeout=remaining,
                 check=False,
