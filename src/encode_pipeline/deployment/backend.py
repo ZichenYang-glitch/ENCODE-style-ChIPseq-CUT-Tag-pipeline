@@ -354,7 +354,7 @@ class IngressPublisher:
             if (
                 not stat.S_ISDIR(opened.st_mode)
                 or stat.S_ISLNK(before.st_mode)
-                or stat.S_IMODE(opened.st_mode) != 0o2730
+                or stat.S_IMODE(opened.st_mode) != 0o2770
                 or opened.st_uid != self._directory_uid
                 or opened.st_gid != self._directory_gid
                 or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)

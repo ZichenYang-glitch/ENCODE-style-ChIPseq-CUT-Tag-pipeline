@@ -376,7 +376,7 @@ def _operator_ingress(layout: DeploymentLayout, component: str) -> Path:
     path.mkdir(parents=True)
     (layout.data_root / "operator").chmod(0o710)
     layout.ingress.chmod(0o750)
-    path.chmod(0o2730)
+    path.chmod(0o2770)
     return path
 
 
@@ -480,6 +480,32 @@ def test_host_backend_stages_only_the_requested_flat_manifest_identity(
     journal = layout.operator_transaction_history / f"{TASK_IDENTITY}.json"
     assert json.loads(journal.read_text())["phase"] == "complete"
     assert not layout.operator_transaction_active.exists()
+
+
+def test_host_backend_rejects_legacy_ingress_mode_before_staging(
+    tmp_path: Path,
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path / "host")
+    manifest, payload = manifest_for("encode-runtime")
+    ingress = _operator_ingress(layout, manifest.component)
+    ingress.chmod(0o2730)
+    bundle = write_bundle(
+        layout.ingress_bundle(manifest.component, manifest.identity),
+        manifest,
+        payload,
+    )
+    bundle.chmod(0o440)
+
+    with pytest.raises(DeploymentError) as captured:
+        _host_backend(layout).execute(
+            parse_request(
+                ("stage", manifest.component, manifest.identity, TASK_IDENTITY)
+            ),
+            bundle_path=bundle,
+        )
+
+    assert captured.value.issue.code == "OPERATOR_INGRESS_UNTRUSTED"
+    assert not (layout.component_store(manifest.component) / manifest.identity).exists()
 
 
 def test_host_backend_fsyncs_service_start_point_of_no_return_before_start(
@@ -4273,7 +4299,11 @@ def test_tmpfiles_separates_immutable_data_and_external_references() -> None:
     assert "/var/lib/helixweave/artifacts 2770 helixweave helixweave" in content
     assert "/operator/action 0750 root helixweave-candidate" in content
     assert "/operator/encode-runtime 0750 root helixweave-candidate" in content
-    assert "/operator/ingress/platform 2730 root helixweave-operators" in content
+    for component in ("platform", "encode-runtime", "bulk-rnaseq-runtime"):
+        assert (
+            f"/operator/ingress/{component} 2770 root helixweave-operators" in content
+        )
+    assert " 2730 root helixweave-operators" not in content
     assert "reference" not in content.lower()
 
     for unit_name in ("helixweave-api.service.in", "helixweave-worker.service.in"):

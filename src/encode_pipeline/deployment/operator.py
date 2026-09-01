@@ -4637,7 +4637,7 @@ class HostOperatorBackend:
                 expected_mode=0o440,
                 expected_parent_uid=self.root_uid,
                 expected_parent_gid=group_gid,
-                expected_parent_mode=0o2730,
+                expected_parent_mode=0o2770,
                 expected_component=request.component,
                 expected_identity=request.deployment_identity,
                 installed_owner_uid=self.root_uid,
@@ -4800,7 +4800,7 @@ class HostOperatorBackend:
             boundaries = (
                 (self.layout.data_root / "operator", group_gid, 0o710),
                 (self.layout.ingress, group_gid, 0o750),
-                (path, group_gid, 0o2730),
+                (path, group_gid, 0o2770),
             )
             observed_boundaries = tuple(
                 (boundary.lstat(), expected_gid, expected_mode)

@@ -487,7 +487,61 @@ def test_supported_composition_separates_state_reader_group_from_release_owner(
     )
 
 
-def test_ingress_publication_is_flat_atomic_and_reusable(tmp_path: Path) -> None:
+def test_ingress_publication_is_flat_atomic_durable_and_reusable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path / "host")
+    manifest, payload = manifest_for(PLATFORM)
+    source = write_bundle(tmp_path / "source.tar", manifest, payload)
+    component_directory = layout.ingress / PLATFORM
+    component_directory.mkdir(parents=True)
+    component_directory.chmod(0o2770)
+    publisher = IngressPublisher(
+        layout,
+        directory_uid=os.getuid(),
+        directory_gid=os.getgid(),
+        file_uid=os.getuid(),
+    )
+    fsync_targets: list[str] = []
+    links: list[tuple[str, str, bool]] = []
+    real_fsync = os.fsync
+    real_link = os.link
+
+    def recording_fsync(descriptor: int) -> None:
+        observed = os.fstat(descriptor)
+        fsync_targets.append("directory" if stat.S_ISDIR(observed.st_mode) else "file")
+        real_fsync(descriptor)
+
+    def recording_link(source_name: str, target_name: str, **kwargs) -> None:
+        links.append((source_name, target_name, kwargs.get("follow_symlinks", True)))
+        real_link(source_name, target_name, **kwargs)
+
+    monkeypatch.setattr(backend_module.os, "fsync", recording_fsync)
+    monkeypatch.setattr(backend_module.os, "link", recording_link)
+
+    published = publisher.publish(source, manifest, TASK)
+    same = publisher.publish(source, manifest, TASK)
+
+    assert published == component_directory / f"{manifest.identity}.tar"
+    assert same == published
+    observed = published.lstat()
+    assert stat.S_ISREG(observed.st_mode)
+    assert observed.st_nlink == 1
+    assert stat.S_IMODE(observed.st_mode) == 0o440
+    assert not tuple(component_directory.glob("*.partial"))
+    assert fsync_targets == ["file", "directory"]
+    assert links == [
+        (
+            f".{manifest.identity}.{TASK}.partial",
+            f"{manifest.identity}.tar",
+            False,
+        )
+    ]
+
+
+def test_ingress_publication_rejects_legacy_write_only_group_mode(
+    tmp_path: Path,
+) -> None:
     layout = DeploymentLayout.isolated(tmp_path / "host")
     manifest, payload = manifest_for(PLATFORM)
     source = write_bundle(tmp_path / "source.tar", manifest, payload)
@@ -501,16 +555,104 @@ def test_ingress_publication_is_flat_atomic_and_reusable(tmp_path: Path) -> None
         file_uid=os.getuid(),
     )
 
-    published = publisher.publish(source, manifest, TASK)
-    same = publisher.publish(source, manifest, TASK)
+    with pytest.raises(DeploymentError) as captured:
+        publisher.publish(source, manifest, TASK)
 
-    assert published == component_directory / f"{manifest.identity}.tar"
-    assert same == published
-    observed = published.lstat()
-    assert stat.S_ISREG(observed.st_mode)
-    assert observed.st_nlink == 1
-    assert stat.S_IMODE(observed.st_mode) == 0o440
-    assert not tuple(component_directory.glob("*.partial"))
+    assert captured.value.issue.code == "DEPLOYMENT_INGRESS_UNAVAILABLE"
+    assert not tuple(component_directory.iterdir())
+
+
+@pytest.mark.parametrize(
+    ("directory_uid", "directory_gid"),
+    ((os.getuid() + 1, os.getgid()), (os.getuid(), os.getgid() + 1)),
+)
+def test_ingress_publication_rejects_wrong_boundary_owner_or_group(
+    tmp_path: Path,
+    directory_uid: int,
+    directory_gid: int,
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path / "host")
+    manifest, payload = manifest_for(PLATFORM)
+    source = write_bundle(tmp_path / "source.tar", manifest, payload)
+    component_directory = layout.ingress / PLATFORM
+    component_directory.mkdir(parents=True)
+    component_directory.chmod(0o2770)
+    publisher = IngressPublisher(
+        layout,
+        directory_uid=directory_uid,
+        directory_gid=directory_gid,
+        file_uid=os.getuid(),
+    )
+
+    with pytest.raises(DeploymentError) as captured:
+        publisher.publish(source, manifest, TASK)
+
+    assert captured.value.issue.code == "DEPLOYMENT_INGRESS_UNAVAILABLE"
+    assert not tuple(component_directory.iterdir())
+
+
+def test_ingress_publication_rejects_directory_inode_swap(
+    tmp_path: Path, monkeypatch
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path / "host")
+    manifest, payload = manifest_for(PLATFORM)
+    source = write_bundle(tmp_path / "source.tar", manifest, payload)
+    component_directory = layout.ingress / PLATFORM
+    component_directory.mkdir(parents=True)
+    component_directory.chmod(0o2770)
+    publisher = IngressPublisher(
+        layout,
+        directory_uid=os.getuid(),
+        directory_gid=os.getgid(),
+        file_uid=os.getuid(),
+    )
+    real_open = os.open
+    swapped = False
+
+    def swapping_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal swapped
+        if Path(path) == component_directory and dir_fd is None and not swapped:
+            original = component_directory.with_name(f"{PLATFORM}-original")
+            component_directory.rename(original)
+            component_directory.mkdir()
+            component_directory.chmod(0o2770)
+            swapped = True
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(backend_module.os, "open", swapping_open)
+
+    with pytest.raises(DeploymentError) as captured:
+        publisher.publish(source, manifest, TASK)
+
+    assert captured.value.issue.code == "DEPLOYMENT_INGRESS_UNAVAILABLE"
+    assert swapped is True
+    assert not tuple(component_directory.iterdir())
+
+
+def test_ingress_publication_rejects_symlinked_component_directory(
+    tmp_path: Path,
+) -> None:
+    layout = DeploymentLayout.isolated(tmp_path / "host")
+    manifest, payload = manifest_for(PLATFORM)
+    source = write_bundle(tmp_path / "source.tar", manifest, payload)
+    layout.ingress.mkdir(parents=True)
+    real_directory = tmp_path / "real-ingress"
+    real_directory.mkdir()
+    real_directory.chmod(0o2770)
+    component_directory = layout.ingress / PLATFORM
+    component_directory.symlink_to(real_directory, target_is_directory=True)
+    publisher = IngressPublisher(
+        layout,
+        directory_uid=os.getuid(),
+        directory_gid=os.getgid(),
+        file_uid=os.getuid(),
+    )
+
+    with pytest.raises(DeploymentError) as captured:
+        publisher.publish(source, manifest, TASK)
+
+    assert captured.value.issue.code == "DEPLOYMENT_INGRESS_UNAVAILABLE"
+    assert not tuple(real_directory.iterdir())
 
 
 @dataclass
