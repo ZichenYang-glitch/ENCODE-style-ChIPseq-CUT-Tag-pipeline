@@ -34,6 +34,19 @@ def _unique(pairs):
     return value
 
 
+def _canonical_json_bytes(value):
+    return (
+        json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
 def _request():
     descriptor = os.open(
         REQUEST,
@@ -110,8 +123,7 @@ def _request():
                 "candidate_state_identity",
             )
         )
-        or json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-        != content
+        or _canonical_json_bytes(value) != content
     ):
         raise ValueError
     return value
@@ -132,7 +144,11 @@ def _launcher(authority):
     ):
         observed = path.stat(follow_symlinks=False)
         if (
-            (stat.S_ISDIR(observed.st_mode) if directory else stat.S_ISREG(observed.st_mode))
+            (
+                stat.S_ISDIR(observed.st_mode)
+                if directory
+                else stat.S_ISREG(observed.st_mode)
+            )
             is False
             or observed.st_uid != 0
             or observed.st_gid != 0
@@ -191,15 +207,25 @@ def main(argv=None):
                 timeout=240,
                 check=False,
             )
-            if completed.returncode != 0 or errors.tell() or not 0 < output.tell() <= MAXIMUM:
+            if (
+                completed.returncode != 0
+                or errors.tell()
+                or not 0 < output.tell() <= MAXIMUM
+            ):
                 return 69
             output.seek(0)
             content = output.read(MAXIMUM + 1)
         document = json.loads(content, object_pairs_hook=_unique)
-        if json.dumps(document, sort_keys=True, separators=(",", ":")).encode() != content:
+        if _canonical_json_bytes(document) != content:
             return 65
         _write_receipt(content)
-    except (OSError, ValueError, UnicodeError, json.JSONDecodeError, subprocess.SubprocessError):
+    except (
+        OSError,
+        ValueError,
+        UnicodeError,
+        json.JSONDecodeError,
+        subprocess.SubprocessError,
+    ):
         return 69
     return 0
 

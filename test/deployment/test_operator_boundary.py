@@ -69,6 +69,7 @@ from encode_pipeline.deployment.operator_action import (
     DatabasePrepareReceipt,
     DatabasePrepareRequest,
     DeploymentActionReceipt,
+    DeploymentActionRequest,
     EncodeRuntimeEntry,
     EncodeRuntimeInventory,
     EncodeRuntimePrepareReceipt,
@@ -1894,6 +1895,179 @@ def test_database_prepare_dispatcher_loads_in_isolated_stdlib_python() -> None:
     assert completed.returncode == 0
     assert completed.stdout == b""
     assert completed.stderr == b""
+
+
+_CANONICAL_LAUNCHERS = (
+    "helixweave-operator-action",
+    "helixweave-encode-runtime-prepare",
+)
+
+
+def _canonical_launcher_documents(
+    launcher: str,
+) -> tuple[dict[str, object], dict[str, object]]:
+    if launcher == "helixweave-operator-action":
+        request = DeploymentActionRequest.create(
+            phase="admit",
+            operation="activate",
+            component="platform",
+            task_identity=TASK_IDENTITY,
+            deployment_identity=IDENTITY,
+            authority_platform_identity=IDENTITY,
+            prior_state_identity=SERVICE_IDENTITY,
+            candidate_state_identity=THIRD_IDENTITY,
+            candidate_active={
+                "platform": IDENTITY,
+                "encode-runtime": SERVICE_IDENTITY,
+                "bulk-rnaseq-runtime": THIRD_IDENTITY,
+            },
+        )
+        receipt = DeploymentActionReceipt.create(
+            request_identity=request.identity,
+            status="admitted",
+            compatibility="compatible",
+            database_before_identity=IDENTITY,
+            accepted_schema_heads=("head",),
+            target_schema_heads=("head",),
+            migration_inventory_identity=SERVICE_IDENTITY,
+            known_schema_revisions=("ancestor",),
+            migration_required=False,
+            rollback_supported=True,
+            api_contract_sha256="a" * 64,
+            native_identities={
+                "platform": IDENTITY,
+                "encode-runtime": SERVICE_IDENTITY,
+                "bulk-rnaseq-runtime": THIRD_IDENTITY,
+            },
+            frontend_identity=IDENTITY,
+            reference_compatibility_identity=SERVICE_IDENTITY,
+            readiness={
+                check: ReadinessCheck("ready", "READY", IDENTITY)
+                for check in VERIFICATION_CHECKS
+            },
+        )
+        return request.to_dict(), receipt.to_dict()
+    if launcher == "helixweave-encode-runtime-prepare":
+        request = EncodeRuntimePrepareRequest.create(
+            task_identity=TASK_IDENTITY,
+            deployment_identity=IDENTITY,
+            authority_platform_identity=SERVICE_IDENTITY,
+            prior_state_identity=IDENTITY,
+            candidate_state_identity=SERVICE_IDENTITY,
+        )
+        receipt = EncodeRuntimePrepareReceipt.create(
+            request_identity=request.identity,
+            deployment_identity=IDENTITY,
+            inventory=_encode_runtime_inventory(),
+        )
+        return request.to_dict(), receipt.to_dict()
+    raise AssertionError(launcher)
+
+
+def _document_encoding(value: dict[str, object], encoding: str) -> bytes:
+    canonical = canonical_json_bytes(value)
+    if encoding == "canonical":
+        return canonical
+    if encoding == "missing-newline":
+        return canonical[:-1]
+    if encoding == "extra-newline":
+        return canonical + b"\n"
+    if encoding == "pretty":
+        return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
+    raise AssertionError(encoding)
+
+
+@pytest.mark.parametrize("launcher", _CANONICAL_LAUNCHERS)
+@pytest.mark.parametrize(
+    "encoding", ("canonical", "missing-newline", "extra-newline", "pretty")
+)
+def test_candidate_launcher_validates_canonical_request_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    launcher: str,
+    encoding: str,
+) -> None:
+    request, _receipt = _canonical_launcher_documents(launcher)
+    path = tmp_path / "request.json"
+    path.write_bytes(_document_encoding(request, encoding))
+    path.chmod(0o640)
+    namespace = runpy.run_path(str(TEMPLATES / launcher))
+    read_request = namespace["_request"]
+    read_request.__globals__["REQUEST"] = path
+    original_fstat = os.fstat
+
+    def root_owned_fstat(descriptor: int):
+        observed = original_fstat(descriptor)
+        return SimpleNamespace(
+            st_mode=observed.st_mode,
+            st_nlink=observed.st_nlink,
+            st_uid=0,
+            st_gid=os.getegid(),
+            st_size=observed.st_size,
+            st_dev=observed.st_dev,
+            st_ino=observed.st_ino,
+            st_mtime_ns=observed.st_mtime_ns,
+            st_ctime_ns=observed.st_ctime_ns,
+        )
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(read_request.__globals__["os"], "fstat", root_owned_fstat)
+        if encoding == "canonical":
+            assert read_request() == request
+        else:
+            with pytest.raises(ValueError):
+                read_request()
+
+
+@pytest.mark.parametrize("launcher", _CANONICAL_LAUNCHERS)
+@pytest.mark.parametrize(
+    ("encoding", "expected_exit"),
+    (
+        ("canonical", 0),
+        ("missing-newline", 65),
+        ("extra-newline", 65),
+        ("pretty", 65),
+    ),
+)
+def test_candidate_launcher_validates_canonical_child_receipt_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+    launcher: str,
+    encoding: str,
+    expected_exit: int,
+) -> None:
+    request, receipt = _canonical_launcher_documents(launcher)
+    content = _document_encoding(receipt, encoding)
+    namespace = runpy.run_path(str(TEMPLATES / launcher))
+    main = namespace["main"]
+    written: list[bytes] = []
+
+    def run(_argv, *, stdout, **_kwargs):
+        stdout.write(content)
+        return SimpleNamespace(returncode=0)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(main.__globals__["os"], "environ", {})
+        scoped.setattr(main.__globals__["subprocess"], "run", run)
+        scoped.setitem(main.__globals__, "_request", lambda: request)
+        scoped.setitem(main.__globals__, "_launcher", lambda _identity: Path("/fixed"))
+        scoped.setitem(main.__globals__, "_write_receipt", written.append)
+        observed_exit = main([])
+
+    assert observed_exit == expected_exit
+    assert written == ([content] if expected_exit == 0 else [])
+
+
+@pytest.mark.parametrize("launcher", _CANONICAL_LAUNCHERS)
+def test_candidate_launcher_canonical_renderer_matches_authority(
+    launcher: str,
+) -> None:
+    namespace = runpy.run_path(str(TEMPLATES / launcher))
+    render = namespace["_canonical_json_bytes"]
+    value = {"unicode": "核", "nested": {"b": 2, "a": 1}}
+
+    assert render(value) == canonical_json_bytes(value)
+    with pytest.raises(ValueError):
+        render({"invalid": float("nan")})
 
 
 @dataclass
