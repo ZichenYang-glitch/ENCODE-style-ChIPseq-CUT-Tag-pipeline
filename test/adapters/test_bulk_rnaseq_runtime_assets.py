@@ -41,7 +41,12 @@ from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
     JDK_VENDOR,
     JDK_VERSION,
     NEXTFLOW_OFFLINE_ENV,
+    NETWORK_ISOLATION_EXECUTABLE_SHA256,
+    NETWORK_ISOLATION_EXECUTABLE_SIZE_BYTES,
     NETWORK_ISOLATION_REQUIRED_ARGS,
+    NETWORK_ISOLATION_TOOL,
+    NETWORK_ISOLATION_VERSION,
+    NETWORK_ISOLATION_VERSION_OUTPUT_SHA256,
     NFCORE_RNASEQ_COMMIT,
     NF_SCHEMA_ARCHIVE_SHA256,
     NF_SCHEMA_VERSION,
@@ -625,6 +630,24 @@ def test_committed_runtime_contracts_are_immutable_and_offline() -> None:
         == "docker-archive+distribution-manifest"
     )
     assert NEXTFLOW_OFFLINE_ENV == {"NXF_OFFLINE": "true"}
+    assert contract.identity["host_network_isolation"] == {
+        "tool": NETWORK_ISOLATION_TOOL,
+        "version": NETWORK_ISOLATION_VERSION,
+        "default_absolute_path": "/usr/bin/unshare",
+        "size_bytes": NETWORK_ISOLATION_EXECUTABLE_SIZE_BYTES,
+        "sha256": NETWORK_ISOLATION_EXECUTABLE_SHA256,
+        "version_output_sha256": NETWORK_ISOLATION_VERSION_OUTPUT_SHA256,
+        "required_args": list(NETWORK_ISOLATION_REQUIRED_ARGS),
+    }
+    assert NETWORK_ISOLATION_TOOL == "util-linux unshare"
+    assert NETWORK_ISOLATION_VERSION == "2.39.3"
+    assert NETWORK_ISOLATION_EXECUTABLE_SIZE_BYTES == 43_624
+    assert NETWORK_ISOLATION_EXECUTABLE_SHA256 == (
+        "a23c8863860669003dc4660039fe642f5795c8c2195898ebc5d01afa1ac3d11c"
+    )
+    assert NETWORK_ISOLATION_VERSION_OUTPUT_SHA256 == (
+        "85b9aead4ac4d08a7d4023aaa2700ca2a14400c4490f12150c8b55d1adf854fc"
+    )
     assert NETWORK_ISOLATION_REQUIRED_ARGS == (
         "--user",
         "--map-current-user",
@@ -636,7 +659,10 @@ def test_committed_runtime_contracts_are_immutable_and_offline() -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
+        ("tool", "host unshare"),
         ("version", "2.40.0"),
+        ("default_absolute_path", "/usr/local/bin/unshare"),
+        ("size_bytes", 43_625),
         ("sha256", "0" * 64),
         ("version_output_sha256", "0" * 64),
         ("required_args", ["--net", "--"]),
@@ -1059,6 +1085,89 @@ def test_network_isolation_asset_verifies_exact_binary_and_version(
     assert calls[0][0] == (str(executable), "--version")
     assert calls[0][1]["shell"] is False
     assert calls[0][1]["env"] == {"HOME": "/", "LANG": "C", "LC_ALL": "C"}
+
+    executable.write_bytes(b"S" + content[1:])
+    with pytest.raises(runtime_assets_module._AssetFault) as byte_drift:
+        runtime_assets_module._verify_network_isolation_asset(binding, identity)
+    assert byte_drift.value.reason == "identity"
+
+    executable.write_bytes(content)
+    monkeypatch.setattr(
+        runtime_assets_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=b"unshare from util-linux changed\n",
+        ),
+    )
+    with pytest.raises(runtime_assets_module._AssetFault) as version_drift:
+        runtime_assets_module._verify_network_isolation_asset(binding, identity)
+    assert version_drift.value.reason == "version"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["symlink", "hardlink", "size", "non_executable", "writable", "foreign_owner"],
+)
+def test_network_isolation_asset_rejects_unsafe_file_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    executable = tmp_path / "bin/unshare"
+    executable.parent.mkdir()
+    content = b"synthetic fixed unshare"
+    executable.write_bytes(content)
+    executable.chmod(0o755)
+    if mutation == "symlink":
+        target = executable.with_name("fixed-unshare")
+        executable.rename(target)
+        executable.symlink_to(target.name)
+    elif mutation == "hardlink":
+        os.link(executable, executable.with_name("second-link"))
+    elif mutation == "size":
+        executable.write_bytes(content + b"!")
+    elif mutation == "non_executable":
+        executable.chmod(0o644)
+    elif mutation == "writable":
+        executable.chmod(0o775)
+    else:
+        real_lstat = runtime_assets_module.os.lstat
+
+        def lstat(path):
+            observed = real_lstat(path)
+            if Path(path) != executable:
+                return observed
+            return SimpleNamespace(
+                st_dev=observed.st_dev,
+                st_ino=observed.st_ino,
+                st_mode=observed.st_mode,
+                st_nlink=observed.st_nlink,
+                st_uid=os.geteuid() + 1,
+                st_gid=observed.st_gid,
+                st_size=observed.st_size,
+                st_mtime_ns=observed.st_mtime_ns,
+                st_ctime_ns=observed.st_ctime_ns,
+            )
+
+        monkeypatch.setattr(runtime_assets_module.os, "lstat", lstat)
+    binding = RuntimeAssetBinding(
+        root=(tmp_path / "runtime").resolve(),
+        network_isolation_executable=executable.absolute(),
+    )
+    identity = {
+        "host_network_isolation": {
+            "size_bytes": len(content),
+            "sha256": _sha256(content),
+            "version_output_sha256": "f" * 64,
+        }
+    }
+
+    with pytest.raises(runtime_assets_module._AssetFault) as raised:
+        runtime_assets_module._verify_network_isolation_bytes(binding, identity)
+
+    assert raised.value.component == "network_isolation"
+    assert raised.value.reason == "file_type"
 
 
 def test_network_isolation_binary_mutation_changes_admission_witness(

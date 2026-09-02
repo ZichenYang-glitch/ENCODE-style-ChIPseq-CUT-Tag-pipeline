@@ -19,6 +19,7 @@ release-ready; tagging and publication always require a separate authorization.
 | Database upgrade | released `20260717_08` to current `20260827_15` |
 | Frontend toolchain | Node 22.23.1 / npm 10.9.8 |
 | Bulk upstream | nf-core/rnaseq 3.26.0 |
+| Bulk host isolation | Ubuntu `util-linux` `2.39.3-9ubuntu6.6`; `/usr/bin/unshare` SHA-256 `a23c8863860669003dc4660039fe642f5795c8c2195898ebc5d01afa1ac3d11c` |
 
 The only GitHub Release assets are:
 
@@ -155,6 +156,10 @@ upgrade/rollback; perform one independent ENCODE transition/rollback; and for
 Bulk verify only admission, rootless Docker/service/socket identity, and
 existing runtime preservation. Do not repeat the full fault-injection matrix,
 switch Bulk merely for symmetry, use a second host, soak, or load test.
+The v0.4.0 Bulk qualification binds the supported Ubuntu host's
+`util-linux` package revision `2.39.3-9ubuntu6.6` and exact
+`/usr/bin/unshare` bytes. Do not downgrade the system package or substitute a
+temporary executable to satisfy this coordinate.
 
 ## Automated and protected evidence
 

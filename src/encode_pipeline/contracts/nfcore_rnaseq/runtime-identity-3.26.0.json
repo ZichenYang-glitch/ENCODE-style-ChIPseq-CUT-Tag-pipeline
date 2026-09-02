@@ -21,7 +21,7 @@
     "version": "2.39.3",
     "default_absolute_path": "/usr/bin/unshare",
     "size_bytes": 43624,
-    "sha256": "51bcc77ba5db162c80028f861f0a2770d728c1de80773816d863f28d7a817adb",
+    "sha256": "a23c8863860669003dc4660039fe642f5795c8c2195898ebc5d01afa1ac3d11c",
     "version_output_sha256": "85b9aead4ac4d08a7d4023aaa2700ca2a14400c4490f12150c8b55d1adf854fc",
     "required_args": [
       "--user",

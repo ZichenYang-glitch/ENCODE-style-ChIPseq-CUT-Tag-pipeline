@@ -40,6 +40,11 @@ with systemd enabled:
 - SQLite remains the canonical lifecycle and result-metadata store. Redis/RQ
   remains a queue boundary only.
 
+The v0.4.0 supported Ubuntu host coordinate binds `util-linux`
+`2.39.3-9ubuntu6.6` and the exact qualified `/usr/bin/unshare` bytes. Operators
+must not downgrade the system package or substitute a temporary executable to
+meet that coordinate.
+
 References are prepared outside HelixWeave by an administrator and registered
 through the existing private configuration/CLI contracts. Deployment code
 never downloads, copies, deletes, or publishes their paths.
