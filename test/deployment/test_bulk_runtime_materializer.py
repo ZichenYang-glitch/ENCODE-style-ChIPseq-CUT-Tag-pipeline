@@ -385,6 +385,92 @@ def test_boundary_observer_binds_client_bytes_and_socket_kernel_inode(
     assert changed_kernel_inode.endpoint_identity != first.endpoint_identity
 
 
+def test_boundary_observer_accepts_supported_modes_and_binds_full_mode(
+    tmp_path: Path,
+) -> None:
+    client = tmp_path / "docker"
+    client.write_bytes(b"fixed docker client")
+    client.chmod(0o755)
+    socket_path = tmp_path / "docker.sock"
+    proc = (
+        "Num RefCount Protocol Flags Type St Inode Path\n"
+        "00000000: 00000002 00000000 00010000 0001 01 "
+        f"91 {socket_path}\n"
+    ).encode()
+    endpoint_identities: dict[int, str] = {}
+
+    for mode in (0o600, 0o660, 0o1600, 0o1660):
+        socket_info = SimpleNamespace(
+            st_dev=11,
+            st_ino=12,
+            st_mode=stat.S_IFSOCK | mode,
+            st_nlink=1,
+            st_uid=os.getuid(),
+            st_gid=os.getgid(),
+            st_size=0,
+            st_mtime_ns=1,
+            st_ctime_ns=1,
+        )
+        observed = observe_bulk_docker_boundary(
+            os.getuid(),
+            os.getgid(),
+            _client_path=client,
+            _socket_path=socket_path,
+            _proc_unix_reader=lambda: proc,
+            _socket_lstat=lambda _path, value=socket_info: value,
+            _client_owner_uid=os.getuid(),
+            _client_owner_gid=os.getgid(),
+        )
+        endpoint_identities[mode] = observed.endpoint_identity
+
+    assert len(set(endpoint_identities.values())) == len(endpoint_identities)
+
+
+@pytest.mark.parametrize(
+    "mode",
+    (0o4600, 0o2600, 0o700, 0o604),
+    ids=("setuid", "setgid", "execute", "world-access"),
+)
+def test_boundary_observer_rejects_unsupported_socket_mode(
+    tmp_path: Path,
+    mode: int,
+) -> None:
+    client = tmp_path / "docker"
+    client.write_bytes(b"fixed docker client")
+    client.chmod(0o755)
+    socket_path = tmp_path / "docker.sock"
+    socket_info = SimpleNamespace(
+        st_dev=11,
+        st_ino=12,
+        st_mode=stat.S_IFSOCK | mode,
+        st_nlink=1,
+        st_uid=os.getuid(),
+        st_gid=os.getgid(),
+        st_size=0,
+        st_mtime_ns=1,
+        st_ctime_ns=1,
+    )
+    proc = (
+        "Num RefCount Protocol Flags Type St Inode Path\n"
+        "00000000: 00000002 00000000 00010000 0001 01 "
+        f"91 {socket_path}\n"
+    ).encode()
+
+    with pytest.raises(DeploymentError) as caught:
+        observe_bulk_docker_boundary(
+            os.getuid(),
+            os.getgid(),
+            _client_path=client,
+            _socket_path=socket_path,
+            _proc_unix_reader=lambda: proc,
+            _socket_lstat=lambda _path: socket_info,
+            _client_owner_uid=os.getuid(),
+            _client_owner_gid=os.getgid(),
+        )
+
+    assert caught.value.issue.code == "BULK_RUNTIME_DOCKER_BOUNDARY_INVALID"
+
+
 @pytest.mark.parametrize(
     ("status", "document", "expected"),
     (

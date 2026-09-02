@@ -8,7 +8,7 @@ User=helixweave
 Group=helixweave
 Environment=HOME=/var/lib/helixweave/service-home
 Environment=XDG_RUNTIME_DIR=/run/helixweave/docker
-ExecStart=/usr/bin/dockerd-rootless.sh --host=unix:///run/helixweave/docker/docker.sock --data-root=/var/lib/helixweave/docker-rootless --exec-root=/run/helixweave/docker/exec --pidfile=/run/helixweave/docker/docker.pid --bridge=none --iptables=false --ip-forward=false --ip-masq=false
+ExecStart=/usr/bin/dockerd-rootless.sh --host=unix:///run/helixweave/docker/docker.sock --data-root=/var/lib/helixweave/docker-rootless --exec-root=/run/helixweave/docker/exec --pidfile=/run/helixweave/docker/docker.pid --bridge=none --iptables=false --ip-forward=false --ip-masq=false --group=0
 Restart=on-failure
 RestartSec=3s
 TimeoutStartSec=120s

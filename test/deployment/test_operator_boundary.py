@@ -4192,6 +4192,19 @@ def test_templates_encode_one_bounded_hybrid_topology() -> None:
     assert "Delegate=yes" in docker
     assert "unix:///run/helixweave/docker/docker.sock" in docker
     assert "--data-root=/var/lib/helixweave/docker-rootless" in docker
+    docker_exec_start = next(
+        line for line in docker.splitlines() if line.startswith("ExecStart=")
+    )
+    assert docker_exec_start == (
+        "ExecStart=/usr/bin/dockerd-rootless.sh "
+        "--host=unix:///run/helixweave/docker/docker.sock "
+        "--data-root=/var/lib/helixweave/docker-rootless "
+        "--exec-root=/run/helixweave/docker/exec "
+        "--pidfile=/run/helixweave/docker/docker.pid "
+        "--bridge=none --iptables=false --ip-forward=false --ip-masq=false "
+        "--group=0"
+    )
+    assert docker.count("--group=0") == 1
     assert "/var/run/docker.sock" not in docker
     assert (
         "Requires=helixweave-redis.service helixweave-docker-rootless.service" in target

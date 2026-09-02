@@ -22,6 +22,13 @@ _MAX_DOCKER_CLIENT_BYTES = 256 * 1024 * 1024
 _MAX_PROC_NET_UNIX_BYTES = 4 * 1024 * 1024
 _READ_CHUNK_BYTES = 1024 * 1024
 _PROC_NET_UNIX = Path("/proc/net/unix")
+# Moby marks sockets inside XDG_RUNTIME_DIR sticky after creating them as 0660.
+_ALLOWED_DOCKER_SOCKET_MODES = {
+    0o600,
+    0o660,
+    stat.S_ISVTX | 0o600,
+    stat.S_ISVTX | 0o660,
+}
 
 
 @dataclass(frozen=True)
@@ -106,7 +113,7 @@ def observe_bulk_docker_boundary(
             or socket_before.st_nlink != 1
             or socket_before.st_uid != daemon_uid
             or socket_before.st_gid != daemon_gid
-            or socket_mode not in {0o600, 0o660}
+            or socket_mode not in _ALLOWED_DOCKER_SOCKET_MODES
         ):
             raise OSError
         proc_content = (
