@@ -160,12 +160,14 @@ class _SyntheticRunner:
         unsafe_symlink: bool = False,
         hardlinks: bool = False,
         safe_symlink: bool = False,
+        dangling_package_cache_symlink: bool = False,
     ) -> None:
         self.return_code = return_code
         self.exception = exception
         self.unsafe_symlink = unsafe_symlink
         self.hardlinks = hardlinks
         self.safe_symlink = safe_symlink
+        self.dangling_package_cache_symlink = dangling_package_cache_symlink
         self.calls: list[tuple[tuple[str, ...], dict[str, object], bytes]] = []
 
     def __call__(self, argv, **kwargs):
@@ -185,6 +187,19 @@ class _SyntheticRunner:
             (binary / "escape").symlink_to("../../../../../outside")
         if self.hardlinks:
             os.link(executable, binary / "hardlink")
+        if self.dangling_package_cache_symlink:
+            root_prefix = Path(arguments[arguments.index("--root-prefix") + 1])
+            cache_link = (
+                root_prefix
+                / "pkgs"
+                / "file"
+                / "python-package"
+                / "compiler_compat"
+                / "ld"
+            )
+            cache_link.parent.mkdir(parents=True, exist_ok=True)
+            if not cache_link.is_symlink():
+                cache_link.symlink_to("../bin/x86_64-conda-linux-gnu-ld")
         evidence = prefix / "command-evidence"
         evidence.write_text("preserve on failure\n", encoding="utf-8")
         if self.exception is not None:
@@ -333,6 +348,29 @@ def test_materializer_provides_micromamba_a_deterministic_writable_home(
     assert all(
         options["env"] == {"HOME": str(prepared.destination / "mamba-root")}
         for _arguments, options, _lock in runner.calls
+    )
+
+
+def test_materializer_discards_package_cache_before_strict_runtime_admission(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    prepared = _prepared_runtime(tmp_path, monkeypatch)
+    runner = _SyntheticRunner(dangling_package_cache_symlink=True)
+
+    receipt = _materializer(prepared, runner).prepare(prepared.request)
+
+    assert receipt.deployment_identity == prepared.request.deployment_identity
+    assert not (prepared.destination / "mamba-root" / "pkgs").exists()
+    assert (prepared.destination / "mamba-root" / "explicit-locks").is_dir()
+    assert prepared.destination.joinpath(
+        *Path(SNAKEMAKE_ACTIVATE_RELATIVE_PATH).parts
+    ).is_file()
+    inventory = EncodeRuntimeInventory.from_dict(
+        json.loads((prepared.destination / RUNTIME_INVENTORY_FILENAME).read_bytes())
+    )
+    assert not any(
+        item.path.startswith("mamba-root/pkgs/") for item in inventory.entries
     )
 
 
