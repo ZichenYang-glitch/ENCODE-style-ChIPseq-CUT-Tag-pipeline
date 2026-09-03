@@ -196,6 +196,30 @@ def _worker_service_identity() -> ServiceIdentity:
     )
 
 
+def _docker_service_identity() -> ServiceIdentity:
+    return ServiceIdentity.create(
+        unit="helixweave-docker-rootless.service",
+        deployment_identity=IDENTITY,
+        task_identity=TASK_IDENTITY,
+        main_pid=1234,
+        process_start_ticks=5678,
+        executable_device=42,
+        executable_inode=84,
+        cmdline_identity=f"sha256-{'d' * 64}",
+        boot_identity=f"sha256-{'e' * 64}",
+        invocation_identity=f"sha256-{'f' * 64}",
+        cgroup_identity=f"sha256-{'1' * 64}",
+        sockets=(
+            SocketWitness(
+                name="bulk-docker",
+                device=41,
+                inode=84,
+                kernel_inode=4567,
+            ),
+        ),
+    )
+
+
 @pytest.mark.parametrize(
     ("argv", "operation", "component", "unit", "service_identity"),
     [
@@ -816,6 +840,224 @@ def test_service_start_stops_synchronously_when_identity_persistence_fails(
     ]
 
 
+def test_rootless_docker_start_waits_for_full_service_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _docker_service_identity()
+
+    class PendingThenReadyProbe:
+        starting_calls = 0
+
+        def observe(self, **_kwargs):
+            return None
+
+        def observe_starting(self, **_kwargs):
+            self.starting_calls += 1
+            if self.starting_calls < 3:
+                raise operator_module._ServiceReadinessPending
+            return service
+
+    class RecordingSystemctl:
+        calls: list[tuple[str, str]] = []
+
+        def control(self, action: str, unit: str) -> None:
+            self.calls.append((action, unit))
+
+    now = [100.0]
+    sleeps: list[float] = []
+    monkeypatch.setattr(operator_module.time, "monotonic", lambda: now[0])
+
+    def advance(delay: float) -> None:
+        sleeps.append(delay)
+        now[0] += delay
+
+    monkeypatch.setattr(operator_module.time, "sleep", advance)
+    persisted: list[ServiceIdentity] = []
+    probe = PendingThenReadyProbe()
+    systemctl = RecordingSystemctl()
+    controller = SystemdServiceController(
+        DeploymentLayout.isolated(tmp_path / "host"),
+        systemctl=systemctl,
+        probe=probe,
+        owner_uid=os.getuid(),
+        owner_gid=os.getgid(),
+    )
+    monkeypatch.setattr(controller, "_write_identity", persisted.append)
+
+    observed = controller.start(
+        OperatorRequest(
+            operation="start",
+            unit="helixweave-docker-rootless.service",
+            deployment_identity=IDENTITY,
+            task_identity=TASK_IDENTITY,
+        )
+    )
+
+    assert observed == service
+    assert probe.starting_calls == 3
+    assert systemctl.calls == [("start", "helixweave-docker-rootless.service")]
+    assert sleeps == [0.1, 0.1]
+    assert persisted == [service]
+
+
+def test_rootless_docker_start_readiness_wait_is_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class PendingProbe:
+        starting_calls = 0
+
+        def observe(self, **_kwargs):
+            return None
+
+        def observe_starting(self, **_kwargs):
+            self.starting_calls += 1
+            raise operator_module._ServiceReadinessPending
+
+    class RecordingSystemctl:
+        calls: list[tuple[str, str]] = []
+
+        def control(self, action: str, unit: str) -> None:
+            self.calls.append((action, unit))
+            now[0] += 5.0
+
+    now = [0.0]
+    sleeps: list[float] = []
+    monkeypatch.setattr(operator_module.time, "monotonic", lambda: now[0])
+
+    def advance(delay: float) -> None:
+        sleeps.append(delay)
+        now[0] += delay
+
+    monkeypatch.setattr(operator_module.time, "sleep", advance)
+    persisted: list[ServiceIdentity] = []
+    probe = PendingProbe()
+    systemctl = RecordingSystemctl()
+    controller = SystemdServiceController(
+        DeploymentLayout.isolated(tmp_path / "host"),
+        systemctl=systemctl,
+        probe=probe,
+        owner_uid=os.getuid(),
+        owner_gid=os.getgid(),
+    )
+    monkeypatch.setattr(controller, "_write_identity", persisted.append)
+
+    with pytest.raises(DeploymentError) as captured:
+        controller.start(
+            OperatorRequest(
+                operation="start",
+                unit="helixweave-docker-rootless.service",
+                deployment_identity=IDENTITY,
+                task_identity=TASK_IDENTITY,
+            )
+        )
+
+    assert captured.value.issue.code == "OPERATOR_SERVICE_START_FAILED"
+    assert probe.starting_calls > 1
+    assert sum(sleeps) == pytest.approx(10.0)
+    assert now[0] == pytest.approx(15.0)
+    assert all(0 < delay <= 0.1 for delay in sleeps)
+    assert systemctl.calls == [("start", "helixweave-docker-rootless.service")]
+    assert persisted == []
+
+
+def test_rootless_docker_start_does_not_retry_hard_identity_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class HardFailureProbe:
+        starting_calls = 0
+
+        def observe(self, **_kwargs):
+            return None
+
+        def observe_starting(self, **_kwargs):
+            self.starting_calls += 1
+            raise fail(
+                "OPERATOR_SERVICE_OBSERVE_FAILED",
+                "Service identity could not be observed.",
+            )
+
+    probe = HardFailureProbe()
+    controller = SystemdServiceController(
+        DeploymentLayout.isolated(tmp_path / "host"),
+        systemctl=SimpleNamespace(control=lambda *_args: None),
+        probe=probe,
+        owner_uid=os.getuid(),
+        owner_gid=os.getgid(),
+    )
+    monkeypatch.setattr(
+        operator_module.time,
+        "sleep",
+        lambda _delay: pytest.fail("hard identity failure was retried"),
+    )
+    monkeypatch.setattr(
+        controller,
+        "_write_identity",
+        lambda _service: pytest.fail("invalid service identity was persisted"),
+    )
+
+    with pytest.raises(DeploymentError) as captured:
+        controller.start(
+            OperatorRequest(
+                operation="start",
+                unit="helixweave-docker-rootless.service",
+                deployment_identity=IDENTITY,
+                task_identity=TASK_IDENTITY,
+            )
+        )
+
+    assert captured.value.issue.code == "OPERATOR_SERVICE_OBSERVE_FAILED"
+    assert probe.starting_calls == 1
+
+
+def test_non_docker_service_start_keeps_single_observation_behavior(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _worker_service_identity()
+
+    class SequencedProbe:
+        observe_calls = 0
+
+        def observe(self, **_kwargs):
+            self.observe_calls += 1
+            return None if self.observe_calls == 1 else service
+
+        def observe_starting(self, **_kwargs):
+            pytest.fail("non-Docker start used readiness polling")
+
+    probe = SequencedProbe()
+    persisted: list[ServiceIdentity] = []
+    controller = SystemdServiceController(
+        DeploymentLayout.isolated(tmp_path / "host"),
+        systemctl=SimpleNamespace(control=lambda *_args: None),
+        probe=probe,
+        owner_uid=os.getuid(),
+        owner_gid=os.getgid(),
+    )
+    monkeypatch.setattr(controller, "_write_identity", persisted.append)
+    monkeypatch.setattr(
+        operator_module.time,
+        "sleep",
+        lambda _delay: pytest.fail("non-Docker start slept"),
+    )
+
+    observed = controller.start(
+        OperatorRequest(
+            operation="start",
+            unit="helixweave-worker.service",
+            deployment_identity=IDENTITY,
+            task_identity=TASK_IDENTITY,
+        )
+    )
+
+    assert observed == service
+    assert probe.observe_calls == 2
+    assert persisted == [service]
+
+
 def test_cleanup_recovery_resets_failed_unit_after_stop_already_completed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1322,6 +1564,34 @@ def test_linux_service_probe_binds_filesystem_and_kernel_socket_inodes(
     )
 
 
+@pytest.mark.parametrize("pending_boundary", ("socket", "listener"))
+def test_linux_service_start_probe_only_retries_absent_socket_or_listener(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pending_boundary: str,
+) -> None:
+    probe, _socket_path = _unix_socket_probe(tmp_path)
+    if pending_boundary == "socket":
+
+        def missing_socket(_path: Path) -> os.stat_result:
+            raise FileNotFoundError
+
+        monkeypatch.setattr(probe, "filesystem_socket_stat", missing_socket)
+    else:
+        (probe.proc_root / "net/unix").write_text(
+            "Num RefCount Protocol Flags Type St Inode Path\n",
+            encoding="utf-8",
+        )
+
+    with pytest.raises(operator_module._ServiceReadinessPending):
+        probe._socket_witnesses(
+            unit="helixweave-redis.service",
+            cgroup="/system.slice/helixweave-redis.service",
+            main_pid=123,
+            allow_socket_pending=True,
+        )
+
+
 def test_linux_service_probe_rejects_kernel_socket_owned_by_another_cgroup(
     tmp_path: Path,
 ) -> None:
@@ -1331,6 +1601,7 @@ def test_linux_service_probe_rejects_kernel_socket_owned_by_another_cgroup(
             unit="helixweave-redis.service",
             cgroup="/system.slice/helixweave-redis.service",
             main_pid=123,
+            allow_socket_pending=True,
         )
 
     assert caught.value.issue.code == "OPERATOR_SERVICE_OBSERVE_FAILED"
@@ -1345,6 +1616,7 @@ def test_linux_service_probe_rejects_stale_non_listening_proc_socket(
             unit="helixweave-redis.service",
             cgroup="/system.slice/helixweave-redis.service",
             main_pid=123,
+            allow_socket_pending=True,
         )
 
     assert caught.value.issue.code == "OPERATOR_SERVICE_OBSERVE_FAILED"
@@ -1379,6 +1651,7 @@ def test_linux_service_probe_rejects_filesystem_socket_swap(
             unit="helixweave-redis.service",
             cgroup="/system.slice/helixweave-redis.service",
             main_pid=123,
+            allow_socket_pending=True,
         )
 
     assert caught.value.issue.code == "OPERATOR_SERVICE_OBSERVE_FAILED"
