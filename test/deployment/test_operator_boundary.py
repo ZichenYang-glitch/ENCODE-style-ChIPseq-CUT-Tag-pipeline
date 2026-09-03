@@ -861,6 +861,65 @@ def test_cleanup_recovery_resets_failed_unit_after_stop_already_completed(
     assert systemctl.calls == [("reset-failed", "helixweave-worker.service")]
 
 
+def test_service_status_ignores_stale_identity_only_after_confirming_stopped(
+    tmp_path: Path,
+) -> None:
+    prior = _worker_service_identity()
+
+    class Probe:
+        running = False
+
+        def observe(
+            self,
+            *,
+            unit: str,
+            deployment_identity: str,
+            task_identity: str,
+        ) -> ServiceIdentity | None:
+            if not self.running:
+                return None
+            return ServiceIdentity.create(
+                unit=unit,
+                deployment_identity=deployment_identity,
+                task_identity=task_identity,
+                main_pid=1234,
+                process_start_ticks=5678,
+                executable_device=42,
+                executable_inode=84,
+                cmdline_identity=OLD_PLATFORM_IDENTITY,
+                boot_identity=OLD_ENCODE_IDENTITY,
+                invocation_identity=OLD_BULK_IDENTITY,
+                cgroup_identity=THIRD_IDENTITY,
+                sockets=(),
+            )
+
+    probe = Probe()
+    layout = DeploymentLayout.isolated(tmp_path / "host")
+    layout.service_identities.mkdir(parents=True, mode=0o700)
+    layout.service_identities.chmod(0o700)
+    controller = SystemdServiceController(
+        layout,
+        systemctl=SimpleNamespace(),
+        probe=probe,
+        owner_uid=os.getuid(),
+        owner_gid=os.getgid(),
+    )
+    controller._write_identity(prior)
+    request = OperatorRequest(
+        operation="status",
+        unit=prior.unit,
+        deployment_identity=OLD_PLATFORM_IDENTITY,
+        task_identity=f"task-{'d' * 32}",
+    )
+
+    assert controller.status(request) is None
+
+    probe.running = True
+    with pytest.raises(DeploymentError) as captured:
+        controller.status(request)
+    assert captured.value.issue.code == "OPERATOR_SERVICE_IDENTITY_MISMATCH"
+
+
 def test_uninstall_removes_only_fixed_boundary_and_preserves_data(
     tmp_path: Path,
 ) -> None:

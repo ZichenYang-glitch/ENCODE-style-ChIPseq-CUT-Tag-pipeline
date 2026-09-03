@@ -1690,14 +1690,6 @@ class SystemdServiceController:
     def status(self, request: OperatorRequest) -> ServiceIdentity | None:
         assert request.unit is not None
         prior = self._read_identity(request.unit, required=False)
-        if (
-            prior is not None
-            and prior.deployment_identity != request.deployment_identity
-        ):
-            raise fail(
-                "OPERATOR_SERVICE_IDENTITY_MISMATCH",
-                "Service identity does not match this deployment.",
-            )
         task = request.task_identity if prior is None else prior.task_identity
         service = self.probe.observe(
             unit=request.unit,
@@ -1710,6 +1702,11 @@ class SystemdServiceController:
             raise fail(
                 "OPERATOR_SERVICE_IDENTITY_UNAVAILABLE",
                 "Running service has no trusted operator identity.",
+            )
+        if prior.deployment_identity != request.deployment_identity:
+            raise fail(
+                "OPERATOR_SERVICE_IDENTITY_MISMATCH",
+                "Service identity does not match this deployment.",
             )
         if service.identity != prior.identity:
             raise fail(
