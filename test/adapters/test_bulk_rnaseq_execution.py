@@ -127,7 +127,7 @@ def composed_runtime(tmp_path: Path, monkeypatch):
             distribution_manifest=root / "containers/assets/fastqc.manifest.json",
             distribution_manifest_sha256="1" * 64,
             config_digest="sha256:" + "a" * 64,
-            runtime_image="sha256:" + "a" * 64,
+            runtime_image="sha256:" + "6" * 64,
             rootfs_diff_ids=("sha256:" + "b" * 64,),
         ),
         VerifiedContainerAsset(
@@ -140,7 +140,7 @@ def composed_runtime(tmp_path: Path, monkeypatch):
             distribution_manifest=root / "containers/assets/star.manifest.json",
             distribution_manifest_sha256="3" * 64,
             config_digest="sha256:" + "c" * 64,
-            runtime_image="sha256:" + "c" * 64,
+            runtime_image="sha256:" + "7" * 64,
             rootfs_diff_ids=("sha256:" + "d" * 64,),
         ),
         VerifiedContainerAsset(
@@ -159,7 +159,7 @@ def composed_runtime(tmp_path: Path, monkeypatch):
             ),
             distribution_manifest_sha256="e" * 64,
             config_digest="sha256:" + "1" * 64,
-            runtime_image="sha256:" + "1" * 64,
+            runtime_image="sha256:" + "8" * 64,
             rootfs_diff_ids=("sha256:" + "2" * 64,),
         ),
     )
@@ -1248,6 +1248,7 @@ def test_command_owns_nextflow_paths_profile_reports_and_no_pull(
     assert "tower.enabled = false" in config
     assert "withName: 'FASTQC'" in config
     assert verified.containers[0].runtime_image in config
+    assert verified.containers[0].config_digest not in config
     assert "docker.registry = ''" in config
     assert "docker.remove = true" in config
     assert "withLabel: '!helixweave_verified_container_v1'" in config

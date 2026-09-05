@@ -48,8 +48,8 @@ RUNTIME_EXPECTED = {
         "1774c6dfbdefbb8d03ca99a76ad88e893a07bc913d2534855911353d210fa636",
     ),
     "runtime-identity-3.26.0.json": (
-        5_786,
-        "d07834e4946850870d42986ae70e81b89b91c79a363be19876317842f391a513",
+        6_083,
+        "4c2f9c99bfe07141db39c0974d652bf006a5d596351e11caacf426da62699f9e",
     ),
     "results-contract-3.26.0.json": (
         26_889,

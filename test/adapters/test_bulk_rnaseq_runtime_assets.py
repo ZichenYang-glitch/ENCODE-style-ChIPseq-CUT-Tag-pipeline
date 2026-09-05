@@ -82,6 +82,7 @@ class _Fixture:
     container_asset: Path
     distribution_manifest: Path
     config_digest: str
+    runtime_image: str
     rootfs_diff_ids: tuple[str, ...]
     docker_probe: Callable[[RuntimeAssetBinding, tuple[str, ...]], bytes]
     lock_payload: dict[str, object]
@@ -126,6 +127,7 @@ class _DockerImageFixture:
     archive: bytes
     distribution_manifest: bytes
     config_digest: str
+    runtime_image: str
     layer_tar: bytes
     rootfs_diff_ids: tuple[str, ...]
 
@@ -145,22 +147,60 @@ def _docker_image_fixture(
         }
     )
     config_digest = f"sha256:{_sha256(config)}"
+    layer_digest = f"sha256:{_sha256(layer)}"
+    local_manifest = _json_bytes(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {
+                "mediaType": "application/vnd.oci.image.config.v1+json",
+                "size": len(config),
+                "digest": config_digest,
+            },
+            "layers": [
+                {
+                    "mediaType": "application/vnd.oci.image.layer.v1.tar",
+                    "size": len(layer),
+                    "digest": layer_digest,
+                }
+            ],
+        }
+    )
+    runtime_image = f"sha256:{_sha256(local_manifest)}"
+    index = _json_bytes(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [
+                {
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "size": len(local_manifest),
+                    "digest": runtime_image,
+                    "platform": {"architecture": "amd64", "os": "linux"},
+                }
+            ],
+        }
+    )
     archive_manifest = _json_bytes(
         [
             {
-                "Config": f"{config_digest.removeprefix('sha256:')}.json",
+                "Config": f"blobs/sha256/{config_digest.removeprefix('sha256:')}",
                 "RepoTags": [],
-                "Layers": ["layer/layer.tar"],
+                "Layers": [f"blobs/sha256/{layer_digest.removeprefix('sha256:')}"],
             }
         ]
     )
     archive = _tar_bytes(
         {
-            f"{config_digest.removeprefix('sha256:')}.json": config,
-            "layer/layer.tar": layer,
+            f"blobs/sha256/{config_digest.removeprefix('sha256:')}": config,
+            f"blobs/sha256/{layer_digest.removeprefix('sha256:')}": layer,
+            f"blobs/sha256/{runtime_image.removeprefix('sha256:')}": (local_manifest),
+            "index.json": index,
             "manifest.json": archive_manifest,
+            "oci-layout": _json_bytes({"imageLayoutVersion": "1.0.0"}),
         }
     )
+    registry_layer = b"fixed upstream compressed layer bytes"
     distribution_manifest = _json_bytes(
         {
             "schemaVersion": 2,
@@ -173,8 +213,8 @@ def _docker_image_fixture(
             "layers": [
                 {
                     "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
-                    "size": len(layer),
-                    "digest": f"sha256:{_sha256(layer)}",
+                    "size": len(registry_layer),
+                    "digest": f"sha256:{_sha256(registry_layer)}",
                 }
             ],
         }
@@ -183,6 +223,7 @@ def _docker_image_fixture(
         archive=archive,
         distribution_manifest=distribution_manifest,
         config_digest=config_digest,
+        runtime_image=runtime_image,
         layer_tar=layer,
         rootfs_diff_ids=(configured_diff_id,),
     )
@@ -440,11 +481,11 @@ def _tiny_assets(tmp_path: Path) -> _Fixture:
         _binding: RuntimeAssetBinding,
         images: tuple[str, ...],
     ) -> bytes:
-        assert images == (docker_image.config_digest,)
+        assert images == (docker_image.runtime_image,)
         return _json_bytes(
             [
                 {
-                    "Id": docker_image.config_digest,
+                    "Id": docker_image.runtime_image,
                     "RepoDigests": [],
                     "RootFS": {
                         "Type": "layers",
@@ -469,6 +510,7 @@ def _tiny_assets(tmp_path: Path) -> _Fixture:
         container_asset=container_asset,
         distribution_manifest=distribution_manifest,
         config_digest=docker_image.config_digest,
+        runtime_image=docker_image.runtime_image,
         rootfs_diff_ids=docker_image.rootfs_diff_ids,
         docker_probe=exact_docker_probe,
         lock_payload=lock_payload,
@@ -776,7 +818,10 @@ def test_tiny_closed_asset_set_verifies_deterministically(tmp_path: Path) -> Non
     assert first.value.source_tree == fixture.source
     assert first.value.nextflow_executable == fixture.nextflow
     assert tuple(item.process for item in first.value.containers) == ("STAR_ALIGN",)
-    assert first.value.containers[0].runtime_image == fixture.config_digest
+    assert first.value.containers[0].runtime_image == fixture.runtime_image
+    assert first.value.containers[0].config_digest == fixture.config_digest
+    assert first.value.containers[0].oci_digest != fixture.runtime_image
+    assert fixture.runtime_image != fixture.config_digest
     assert first.value.containers[0].rootfs_diff_ids == fixture.rootfs_diff_ids
     assert doctor_runtime_assets(
         fixture.binding,
@@ -983,7 +1028,7 @@ def test_runtime_canary_uses_exact_jdk_and_hard_config_with_poison_sources(
                     "manifest.nextflowVersion = '!>=25.04.3'",
                     "plugins = ['nf-schema@2.5.1']",
                     "shifter.enabled = false",
-                    fixture.config_digest,
+                    fixture.runtime_image,
                 )
             ).encode()
         elif argv_tuple[-1] == "-version" and any(
@@ -1640,34 +1685,38 @@ def test_distribution_manifest_bytes_must_equal_declared_oci_digest(
     assert result.issues[0].code == "BULK_RNASEQ_RUNTIME_ASSET_IDENTITY"
 
 
-def test_archive_config_blob_must_match_distribution_manifest(
+@pytest.mark.parametrize(
+    "broken_binding",
+    ["index_descriptor", "index_platform", "manifest_config", "layer_blob"],
+)
+def test_oci_archive_manifest_config_and_layer_bindings_fail_closed(
     tmp_path: Path,
+    broken_binding: str,
 ) -> None:
     fixture = _tiny_assets(tmp_path)
-    replacement = _docker_image_fixture(
-        layer_tar=_tar_bytes({"different.txt": b"different\n"})
-    )
-    _replace_archive(fixture, replacement.archive)
-
-    result = verify_runtime_assets(
-        fixture.binding,
-        _contract=fixture.contract,
-        _docker_probe=fixture.docker_probe,
-    )
-
-    assert result.is_failure
-    assert result.issues[0].code == "BULK_RNASEQ_RUNTIME_ASSET_IDENTITY"
-
-
-def test_archive_layer_hash_must_match_config_rootfs_diff_id(tmp_path: Path) -> None:
-    fixture = _tiny_assets(tmp_path)
-    original = _docker_image_fixture()
-    replacement = _docker_image_fixture(
-        layer_tar=_tar_bytes({"different.txt": b"different\n"}),
-        diff_id=f"sha256:{_sha256(original.layer_tar)}",
-    )
-    assert replacement.config_digest == fixture.config_digest
-    _replace_archive(fixture, replacement.archive)
+    files = _tar_file_contents(fixture.container_asset.read_bytes())
+    index = json.loads(files["index.json"])
+    descriptor = index["manifests"][0]
+    target_path = f"blobs/sha256/{descriptor['digest'].removeprefix('sha256:')}"
+    if broken_binding == "index_descriptor":
+        descriptor["size"] += 1
+    elif broken_binding == "index_platform":
+        descriptor["platform"]["architecture"] = "arm64"
+    elif broken_binding == "manifest_config":
+        target = json.loads(files.pop(target_path))
+        target["config"]["digest"] = f"sha256:{'f' * 64}"
+        target_content = _json_bytes(target)
+        descriptor["digest"] = f"sha256:{_sha256(target_content)}"
+        descriptor["size"] = len(target_content)
+        files[f"blobs/sha256/{descriptor['digest'].removeprefix('sha256:')}"] = (
+            target_content
+        )
+    else:
+        archive_manifest = json.loads(files["manifest.json"])
+        layer_path = archive_manifest[0]["Layers"][0]
+        files[layer_path] += b"tampered"
+    files["index.json"] = _json_bytes(index)
+    _replace_archive(fixture, _tar_bytes(files))
 
     result = verify_runtime_assets(
         fixture.binding,
@@ -1769,7 +1818,7 @@ def test_container_lock_cannot_enable_network_or_pulls(
 
 @pytest.mark.parametrize(
     "case",
-    ["missing", "wrong_config_digest", "wrong_rootfs", "no_repo_digests", "exact"],
+    ["missing", "wrong_runtime_image", "wrong_rootfs", "no_repo_digests", "exact"],
 )
 def test_doctor_requires_exact_image_in_local_daemon(
     tmp_path: Path,
@@ -1783,16 +1832,16 @@ def test_doctor_requires_exact_image_in_local_daemon(
     ) -> bytes:
         if case == "missing":
             raise OSError("daemon unavailable")
-        config_digest = fixture.config_digest
-        if case == "wrong_config_digest":
-            config_digest = f"sha256:{'f' * 64}"
+        runtime_image = fixture.runtime_image
+        if case == "wrong_runtime_image":
+            runtime_image = f"sha256:{'f' * 64}"
         rootfs_diff_ids = fixture.rootfs_diff_ids
         if case == "wrong_rootfs":
             rootfs_diff_ids = (f"sha256:{'e' * 64}",)
         return _json_bytes(
             [
                 {
-                    "Id": config_digest,
+                    "Id": runtime_image,
                     "RepoDigests": [] if case == "no_repo_digests" else ["ignored"],
                     "RootFS": {
                         "Type": "layers",
@@ -1813,13 +1862,14 @@ def test_doctor_requires_exact_image_in_local_daemon(
     assert report.ready is (case in {"exact", "no_repo_digests"})
     assert str(fixture.root) not in rendered
     assert fixture.config_digest not in rendered
-    if case in {"wrong_config_digest", "wrong_rootfs"}:
+    assert fixture.runtime_image not in rendered
+    if case in {"wrong_runtime_image", "wrong_rootfs"}:
         assert report.issues[0].code == "BULK_RNASEQ_RUNTIME_ASSET_IDENTITY"
     if case == "missing":
         assert report.issues[0].code == "BULK_RNASEQ_RUNTIME_ASSET_UNAVAILABLE"
 
 
-def test_doctor_probes_a_shared_config_image_id_only_once(tmp_path: Path) -> None:
+def test_doctor_probes_a_shared_runtime_manifest_only_once(tmp_path: Path) -> None:
     fixture = _tiny_assets(tmp_path)
     verified = verify_runtime_assets(
         fixture.binding,
@@ -1839,7 +1889,7 @@ def test_doctor_probes_a_shared_config_image_id_only_once(tmp_path: Path) -> Non
         return _json_bytes(
             [
                 {
-                    "Id": fixture.config_digest,
+                    "Id": fixture.runtime_image,
                     "RepoDigests": [],
                     "RootFS": {
                         "Type": "layers",
@@ -1851,7 +1901,7 @@ def test_doctor_probes_a_shared_config_image_id_only_once(tmp_path: Path) -> Non
 
     _verify_docker_availability(fixture.binding, containers, probe=probe)
 
-    assert observed == [(fixture.config_digest,)]
+    assert observed == [(fixture.runtime_image,)]
 
 
 def test_production_docker_probe_is_one_fixed_local_inspect_without_shell_or_fetch(
@@ -1878,7 +1928,7 @@ def test_production_docker_probe_is_one_fixed_local_inspect_without_shell_or_fet
             output = _json_bytes(
                 [
                     {
-                        "Id": fixture.config_digest,
+                        "Id": fixture.runtime_image,
                         "RepoDigests": [],
                         "RootFS": {
                             "Type": "layers",
@@ -1940,7 +1990,7 @@ def test_production_docker_probe_is_one_fixed_local_inspect_without_shell_or_fet
         f"unix://{socket_path}",
         "image",
         "inspect",
-        fixture.config_digest,
+        fixture.runtime_image,
     )
     assert kwargs["shell"] is False
     assert kwargs["stdin"] is subprocess.DEVNULL
@@ -1989,6 +2039,7 @@ def test_docker_inspect_command_failure_is_doctor_not_ready_and_redacted(
     assert report.issues[0].code == "BULK_RNASEQ_RUNTIME_ASSET_UNAVAILABLE"
     assert str(fixture.root) not in rendered
     assert fixture.config_digest not in rendered
+    assert fixture.runtime_image not in rendered
 
 
 def test_doctor_rejects_a_group_or_world_writable_docker_cli(
@@ -2048,7 +2099,7 @@ def test_doctor_rechecks_docker_endpoint_identity_after_inspect(
     output = _json_bytes(
         [
             {
-                "Id": fixture.config_digest,
+                "Id": fixture.runtime_image,
                 "RootFS": {
                     "Type": "layers",
                     "Layers": [*fixture.rootfs_diff_ids],

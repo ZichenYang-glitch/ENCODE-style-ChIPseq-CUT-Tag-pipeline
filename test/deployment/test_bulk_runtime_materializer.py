@@ -194,7 +194,7 @@ def _prepared(
                 distribution_manifest=archive_root / f"image-{index}.json",
                 distribution_manifest_sha256=f"{index + 2:064x}",
                 config_digest=f"sha256:{index + 3:064x}",
-                runtime_image=f"sha256:{index + 3:064x}",
+                runtime_image=f"sha256:{index + 5:064x}",
                 rootfs_diff_ids=(f"sha256:{index + 4:064x}",),
             )
         )

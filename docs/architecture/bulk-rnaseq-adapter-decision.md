@@ -89,19 +89,27 @@ digest-mismatched asset fails closed with a path-redacted doctor result.
   image ID. A pinned-engine priority canary proves that the later same-selector
   override wins. New or changed default config assignments fail the audit and
   require an explicit verified-image or deny decision.
-- Each supported image retains its upstream coordinate and raw distribution
-  manifest/OCI digest as provenance. Large images are not committed to Git. An
-  operator-owned availability lock must match the inventory exactly and bind
-  every process to a bounded Docker archive by size and SHA-256. The raw
-  manifest binds the image config; the config and every rootfs diff ID bind the
-  archive. Runtime execution uses the verified local config image ID because a
-  Docker save/load round trip does not preserve `RepoDigests` reliably.
+- Each supported image retains its upstream coordinate and raw registry
+  distribution manifest/OCI digest as provenance. Large images are not
+  committed to Git. An operator-owned availability lock must match the
+  inventory exactly and bind every process to a bounded Docker archive by size
+  and SHA-256. The raw registry manifest and the archive's unique OCI-index
+  target manifest must reference the same verified config. The target
+  descriptor, manifest/config blobs, ordered uncompressed layer blobs, legacy
+  `manifest.json`, and config rootfs diff IDs are bound by digest and size. The
+  registry's compressed layer blobs are not present in this archive, so their
+  digests remain registry-manifest provenance rather than a claim about the
+  local uncompressed layer bytes.
 - Runtime policy disables pipeline, plugin, and container fetching, Wave,
   Tower, Fusion, and alternative package/container engines. Docker is launched
   against one verified local Unix socket with `--pull=never`, `--network=none`,
-  and automatic removal; `docker.registry` is empty so Nextflow cannot qualify
-  a config image ID as a registry reference. A lock records availability but
-  never authorizes a load or pull.
+  and automatic removal. v0.4.0 supports Docker 29's containerd image store:
+  runtime execution and the Nextflow selector use the verified local OCI target
+  manifest digest, while Docker inspection must independently return that exact
+  ID and the config's ordered RootFS diff IDs. `docker.registry` is empty so
+  Nextflow cannot qualify the local digest as a registry reference. Classic
+  image-store semantics are outside this release boundary and fail closed. A
+  lock records availability but never authorizes a load or pull.
 
 The adapter build identity frames the adapter version, source manifest/tree,
 Nextflow distribution, JDK archive/tree/executable, plugin archive/tree,
@@ -115,7 +123,7 @@ metadata witness (`dev`, inode, mode, link count, size, mtime, and ctime), and
 reuses one immutable verified object across build capture, planning, command
 construction, and doctor calls. A cache hit reads no source/plugin/JDK/archive
 payload bytes: it compares bounded metadata before and after an exact Docker
-config/rootfs availability check. Any witness or Docker endpoint change drops
+manifest/rootfs availability check. Any witness or Docker endpoint change drops
 the evidence and triggers a complete new admission; a Docker liveness failure
 never falls back to stale evidence. PID changes also discard the cache, and a
 worker constructs a fresh admission from the raw operator binding rather than
