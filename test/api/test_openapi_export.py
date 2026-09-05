@@ -594,5 +594,5 @@ def test_export_ignores_invalid_environment_worker_settings(tmp_path):
     assert exported["info"] == {
         "title": "HelixWeave API",
         "description": "Reproducible omics workflows, from inputs to evidence.",
-        "version": "0.3.0",
+        "version": "0.4.0",
     }

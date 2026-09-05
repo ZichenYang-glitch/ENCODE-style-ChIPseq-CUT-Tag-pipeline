@@ -42,7 +42,7 @@ SOURCE_FILE_COUNT = 829
 
 RUNTIME_IDENTITY_FILE = "runtime-identity-3.26.0.json"
 RUNTIME_IDENTITY_SHA256 = (
-    "f105e45563b5f6db5a3d24ee88b74aedbd1b7398f73891561c770d4aa1e6d13e"
+    "4c2f9c99bfe07141db39c0974d652bf006a5d596351e11caacf426da62699f9e"
 )
 CONTAINER_LOCK_SCHEMA_FILE = "container-availability-lock-1.0.0.schema.json"
 CONTAINER_LOCK_SCHEMA_SHA256 = (
@@ -95,7 +95,7 @@ JAVA_VERSION_OUTPUT_SHA256 = (
 NETWORK_ISOLATION_TOOL = "util-linux unshare"
 NETWORK_ISOLATION_VERSION = "2.39.3"
 NETWORK_ISOLATION_EXECUTABLE_SHA256 = (
-    "51bcc77ba5db162c80028f861f0a2770d728c1de80773816d863f28d7a817adb"
+    "a23c8863860669003dc4660039fe642f5795c8c2195898ebc5d01afa1ac3d11c"
 )
 NETWORK_ISOLATION_VERSION_OUTPUT_SHA256 = (
     "85b9aead4ac4d08a7d4023aaa2700ca2a14400c4490f12150c8b55d1adf854fc"
@@ -141,6 +141,11 @@ _DOCKER_MANIFEST_MEDIA_TYPES = frozenset(
         "application/vnd.oci.image.manifest.v1+json",
     }
 )
+_OCI_LAYOUT_VERSION = "1.0.0"
+_OCI_INDEX_MEDIA_TYPE = "application/vnd.oci.image.index.v1+json"
+_OCI_MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
+_OCI_CONFIG_MEDIA_TYPE = "application/vnd.oci.image.config.v1+json"
+_OCI_LAYER_MEDIA_TYPE = "application/vnd.oci.image.layer.v1.tar"
 
 
 @dataclass(frozen=True)
@@ -451,6 +456,31 @@ def verify_runtime_asset_closure(
         binding,
         contract,
         include_network_isolation=_contract is None,
+    )
+
+
+def verify_packaged_runtime_asset_closure(
+    binding: RuntimeAssetBinding,
+) -> Result[VerifiedRuntimeAssets]:
+    """Verify only bytes owned by an operator-prepared runtime root.
+
+    Bundle production is host-neutral: Docker, its socket and the host
+    network-isolation executable are admitted later by deployment activation.
+    """
+    try:
+        contract = _load_runtime_contract()
+        _validate_embedded_contracts(
+            contract.identity,
+            contract.source_manifest,
+            contract.container_inventory,
+            contract.container_process_audit,
+        )
+    except (OSError, ValueError, json.JSONDecodeError):
+        return Result.failure((_issue("contract", "invalid"),))
+    return _verify_runtime_asset_closure(
+        binding,
+        contract,
+        include_network_isolation=False,
     )
 
 
@@ -1427,7 +1457,7 @@ def _verify_container_lock(
                     "sha256:"
                 ),
                 config_digest=closure.config_digest,
-                runtime_image=closure.config_digest,
+                runtime_image=closure.runtime_image,
                 rootfs_diff_ids=closure.layer_diff_ids,
             )
         )
@@ -1443,6 +1473,7 @@ class _DistributionManifest:
 
 @dataclass(frozen=True)
 class _ContainerArchiveClosure:
+    runtime_image: str
     config_digest: str
     layer_diff_ids: tuple[str, ...]
 
@@ -1569,6 +1600,113 @@ def _parse_docker_archive(
                     raise _AssetFault("containers", "bounds")
                 members[normalized] = member
 
+            layout_member = _required_regular_tar_member(members, "oci-layout")
+            layout = _strict_json_loads(
+                _read_tar_member(
+                    package,
+                    layout_member,
+                    maximum_bytes=_MAX_DISTRIBUTION_MANIFEST_BYTES,
+                )
+            )
+            if (
+                not isinstance(layout, Mapping)
+                or layout.get("imageLayoutVersion") != _OCI_LAYOUT_VERSION
+            ):
+                raise _AssetFault("containers", "contract")
+
+            index_member = _required_regular_tar_member(members, "index.json")
+            index = _strict_json_loads(
+                _read_tar_member(
+                    package,
+                    index_member,
+                    maximum_bytes=_MAX_DISTRIBUTION_MANIFEST_BYTES,
+                )
+            )
+            if (
+                not isinstance(index, Mapping)
+                or index.get("schemaVersion") != 2
+                or index.get("mediaType") != _OCI_INDEX_MEDIA_TYPE
+            ):
+                raise _AssetFault("containers", "contract")
+            index_manifests = index.get("manifests")
+            if not isinstance(index_manifests, list) or len(index_manifests) != 1:
+                raise _AssetFault("containers", "contract")
+            target_descriptor = index_manifests[0]
+            if not isinstance(target_descriptor, Mapping):
+                raise _AssetFault("containers", "contract")
+            runtime_image = target_descriptor.get("digest")
+            target_size = target_descriptor.get("size")
+            if (
+                target_descriptor.get("mediaType") != _OCI_MANIFEST_MEDIA_TYPE
+                or not _valid_digest(runtime_image)
+                or isinstance(target_size, bool)
+                or not isinstance(target_size, int)
+                or target_size <= 0
+                or target_size > _MAX_DISTRIBUTION_MANIFEST_BYTES
+            ):
+                raise _AssetFault("containers", "contract")
+            target_platform = target_descriptor.get("platform")
+            if target_platform is not None and not isinstance(target_platform, Mapping):
+                raise _AssetFault("containers", "contract")
+
+            assert isinstance(runtime_image, str)
+            target_path = f"blobs/sha256/{_digest_hex(runtime_image)}"
+            target_member = _required_regular_tar_member(members, target_path)
+            target_content = _read_tar_member(
+                package,
+                target_member,
+                maximum_bytes=_MAX_DISTRIBUTION_MANIFEST_BYTES,
+            )
+            if (
+                len(target_content) != target_size
+                or f"sha256:{hashlib.sha256(target_content).hexdigest()}"
+                != runtime_image
+            ):
+                raise _AssetFault("containers", "identity")
+            target_manifest = _strict_json_loads(target_content)
+            if (
+                not isinstance(target_manifest, Mapping)
+                or target_manifest.get("schemaVersion") != 2
+                or target_manifest.get("mediaType") != _OCI_MANIFEST_MEDIA_TYPE
+            ):
+                raise _AssetFault("containers", "contract")
+            target_config = target_manifest.get("config")
+            target_layers = target_manifest.get("layers")
+            if not isinstance(target_config, Mapping) or not isinstance(
+                target_layers, list
+            ):
+                raise _AssetFault("containers", "contract")
+            target_config_digest = target_config.get("digest")
+            target_config_size = target_config.get("size")
+            if (
+                target_config.get("mediaType") != _OCI_CONFIG_MEDIA_TYPE
+                or target_config_digest != distribution.config_digest
+                or isinstance(target_config_size, bool)
+                or target_config_size != distribution.config_size_bytes
+                or len(target_layers) != distribution.layer_count
+            ):
+                raise _AssetFault("containers", "identity")
+
+            local_layer_paths: list[str] = []
+            local_layer_sizes: list[int] = []
+            for layer in target_layers:
+                if not isinstance(layer, Mapping):
+                    raise _AssetFault("containers", "contract")
+                layer_digest = layer.get("digest")
+                layer_size = layer.get("size")
+                if (
+                    layer.get("mediaType") != _OCI_LAYER_MEDIA_TYPE
+                    or not _valid_digest(layer_digest)
+                    or isinstance(layer_size, bool)
+                    or not isinstance(layer_size, int)
+                    or layer_size < 0
+                    or layer_size > _MAX_CONTAINER_ARCHIVE_BYTES
+                ):
+                    raise _AssetFault("containers", "contract")
+                assert isinstance(layer_digest, str)
+                local_layer_paths.append(f"blobs/sha256/{_digest_hex(layer_digest)}")
+                local_layer_sizes.append(layer_size)
+
             manifest_member = _required_regular_tar_member(members, "manifest.json")
             manifest_content = _read_tar_member(
                 package,
@@ -1594,7 +1732,10 @@ def _parse_docker_archive(
             _validate_relative_path(config_path)
             for layer_path in layer_paths:
                 _validate_relative_path(layer_path)
-            if len(layer_paths) != distribution.layer_count:
+            expected_config_path = (
+                f"blobs/sha256/{_digest_hex(distribution.config_digest)}"
+            )
+            if config_path != expected_config_path or layer_paths != local_layer_paths:
                 raise _AssetFault("containers", "identity")
 
             config_member = _required_regular_tar_member(members, config_path)
@@ -1612,6 +1753,15 @@ def _parse_docker_archive(
             config = _strict_json_loads(config_content)
             if not isinstance(config, Mapping):
                 raise _AssetFault("containers", "contract")
+            architecture = config.get("architecture")
+            operating_system = config.get("os")
+            if architecture != "amd64" or operating_system != "linux":
+                raise _AssetFault("containers", "contract")
+            if target_platform is not None and (
+                target_platform.get("architecture") != architecture
+                or target_platform.get("os") != operating_system
+            ):
+                raise _AssetFault("containers", "identity")
             rootfs = config.get("rootfs")
             if not isinstance(rootfs, Mapping) or rootfs.get("type") != "layers":
                 raise _AssetFault("containers", "contract")
@@ -1622,20 +1772,27 @@ def _parse_docker_archive(
                 or not all(_valid_digest(value) for value in diff_ids)
             ):
                 raise _AssetFault("containers", "contract")
-            for layer_path, expected_diff_id in zip(
+            for layer_path, layer_size, expected_diff_id in zip(
                 layer_paths,
+                local_layer_sizes,
                 diff_ids,
                 strict=True,
             ):
                 layer_member = _required_regular_tar_member(members, layer_path)
+                if layer_member.size != layer_size:
+                    raise _AssetFault("containers", "identity")
                 actual_diff_id = f"sha256:{_hash_tar_member(package, layer_member)}"
-                if actual_diff_id != expected_diff_id:
+                if (
+                    actual_diff_id != f"sha256:{PurePosixPath(layer_path).name}"
+                    or actual_diff_id != expected_diff_id
+                ):
                     raise _AssetFault("containers", "identity")
     except _AssetFault:
         raise
     except (OSError, ValueError, json.JSONDecodeError, tarfile.TarError) as exc:
         raise _AssetFault("containers", "contract") from exc
     return _ContainerArchiveClosure(
+        runtime_image=runtime_image,
         config_digest=distribution.config_digest,
         layer_diff_ids=tuple(diff_ids),
     )
@@ -2021,21 +2178,22 @@ def _verify_docker_availability(
     *,
     probe: Callable[[RuntimeAssetBinding, tuple[str, ...]], bytes] | None,
 ) -> None:
-    expected: dict[str, tuple[str, ...]] = {}
+    expected: dict[str, tuple[str, tuple[str, ...]]] = {}
     for container in containers:
         if (
             not _valid_digest(container.config_digest)
-            or container.runtime_image != container.config_digest
+            or not _valid_digest(container.runtime_image)
             or not isinstance(container.rootfs_diff_ids, tuple)
             or not all(_valid_digest(value) for value in container.rootfs_diff_ids)
         ):
             raise _AssetFault("docker", "contract")
         assert isinstance(container.config_digest, str)
+        assert isinstance(container.runtime_image, str)
         previous = expected.setdefault(
-            container.config_digest,
-            container.rootfs_diff_ids,
+            container.runtime_image,
+            (container.config_digest, container.rootfs_diff_ids),
         )
-        if previous != container.rootfs_diff_ids:
+        if previous != (container.config_digest, container.rootfs_diff_ids):
             raise _AssetFault("docker", "identity")
     if not expected:
         raise _AssetFault("docker", "contract")
@@ -2066,7 +2224,7 @@ def _verify_docker_availability(
             or image_id in observed
             or not isinstance(rootfs, Mapping)
             or rootfs.get("Type") != "layers"
-            or rootfs.get("Layers") != list(expected[image_id])
+            or rootfs.get("Layers") != list(expected[image_id][1])
         ):
             raise _AssetFault("docker", "identity")
         observed.add(image_id)

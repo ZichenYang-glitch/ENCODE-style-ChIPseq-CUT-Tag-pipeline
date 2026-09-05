@@ -284,7 +284,7 @@ def test_encode_runtime_build_digest_remains_byte_for_byte_compatible(tmp_path):
 
     assert result.is_success
     assert result.value.digest == (
-        "4f0e84e3421178d3156cd48fa2669bc3699fb3a5d8ed98d0aee2d140fc99fc4e"
+        "7dbb24277494a040ae96db5abeeb32da88a46159b7fc587303515a7c44da5b38"
     )
 
 

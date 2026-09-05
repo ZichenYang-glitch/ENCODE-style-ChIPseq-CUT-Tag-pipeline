@@ -12,17 +12,19 @@ is reported instead of being treated as a successful enqueue.
 
 ## Distribution and trial asset boundary
 
-The `helixweave` wheel and sdist provide the `encode_pipeline` import package,
-the primary `helixweave` CLI, existing `encode-*` compatibility entry points,
-Alembic revisions, artifact catalog, and versioned adapter contracts. They are
-not a complete copy of the browser frontend or scientific workflow tree.
+The `helixweave` wheel and sdist provide the import package, primary and
+compatibility CLIs, migrations, contracts, deployment resources, and canonical
+precompiled frontend. The sdist also contains the exact release-owned
+workflow/profile/script source manifest consumed by the ENCODE runtime builder.
+Neither artifact bundles scientific environments, OCI images, JDK/Nextflow,
+references, indexes, FASTQ, caches, results, databases, or credentials.
 
-The v0.3.0 no-Git-checkout product trial uses the separately checksummed
-`helixweave-v0.3.0-source-trial.tar.gz` archive built from the exact release
-tree. It contains the committed frontend, workflow, scripts, documentation, and
-lock files needed by the local product path. It does not bundle installed
-environments, OCI images, JDKs, references, indexes, FASTQ data, caches, results,
-or credentials.
+The official v0.4.0 assets are the wheel, sdist, and `SHA256SUMS` only.
+`helixweave bundle --help` exposes the offline producer for the three existing
+deployment transports. It consumes the release artifacts plus explicit
+operator-prepared inputs and performs no sudo, download, host discovery, or
+private data read. Bundles remain local operator transports; see the
+[release checklist](../../RELEASE_CHECKLIST.md#public-offline-bundle-producer).
 
 See the [local trial checklist](../local-trial-checklist.md) for clean
 installation, both workflow journeys, browser viewports, evidence, and cleanup.
@@ -31,8 +33,7 @@ installation, both workflow journeys, browser viewports, evidence, and cleanup.
 
 ### One-command HelixWeave stack
 
-From either a verified source checkout or an extracted exact-tree source-trial
-archive, create the local locked environment once. The environment lives under
+From a verified source checkout, create the local locked environment once. The environment lives under
 the ignored `.local/` directory and is never part of a commit:
 
 ```bash
@@ -52,14 +53,14 @@ The provenance check must precede source-checkout validation. It rejects stale
 editable installs from sibling worktrees without changing or uninstalling
 anything; see [Python source provenance](source-provenance.md).
 
-The source-trial compatibility script and installed entry points still use the
+The source-checkout compatibility script and installed entry points still use the
 same package-owned implementation. From a trusted installed environment,
 `helixweave --doctor`, `python -m encode_pipeline --doctor`, and
 `python scripts/run_local_platform.py --doctor` remain equivalent. The
 maintained source-checkout verification command uses the clean bootstrap above
-so provenance is proven before the product import. A wheel-only installation
-has no frontend or workflow tree and therefore fails closed with an actionable
-prerequisite message if asked to start the complete product.
+so provenance is proven before the product import. A deployed wheel serves its
+packaged frontend without Node; scientific execution still requires a
+separately admitted ENCODE or Bulk runtime bundle.
 
 The doctor checks Python 3.12, runtime and API imports, Snakemake 8.30.0, Redis
 server 7 or newer, the Node.js version pinned in `.nvmrc` (22.x), npm, the
@@ -219,12 +220,11 @@ migration, API, and worker connections. Relative SQLite and workspace paths are
 also rejected so processes with different working directories cannot silently
 open different state.
 
-### v0.3.0 database upgrade
+### v0.3.0 to v0.4.0 database upgrade
 
-The v0.3.0 database head is Alembic revision `20260717_08`. Its supported
-pre-generation schema fixture is revision `20260714_07`. Earlier v0.2
-prereleases did not ship a supported platform SQLite database, so they do not
-add another in-place database-upgrade baseline.
+The released v0.3.0 database head is Alembic revision `20260717_08`; the v0.4.0
+head is `20260827_15`. Revision 08 is the only release-upgrade baseline.
+Earlier prerelease revisions do not add another supported coordinate.
 
 Before upgrading, stop the supervisor, API, and worker so no process can mutate
 the database. Set two explicit absolute paths. The source must already be a
@@ -232,7 +232,7 @@ regular, non-symlink file; the backup must not exist:
 
 ```bash
 PLATFORM_DB=/absolute/path/platform.db
-PLATFORM_BACKUP=/absolute/path/platform-v0.3.0-preupgrade.db
+PLATFORM_BACKUP=/absolute/path/platform-v0.3.0-schema08-backup.db
 python - "$PLATFORM_DB" "$PLATFORM_BACKUP" <<'PY'
 import os
 from pathlib import Path
@@ -268,7 +268,7 @@ try:
         revision = database.execute(
             "SELECT version_num FROM alembic_version"
         ).fetchone()
-        if revision not in {("20260714_07",), ("20260717_08",)}:
+        if revision != ("20260717_08",):
             raise RuntimeError("source schema revision is unsupported")
         with sqlite3.connect(backup) as destination:
             database.backup(destination)
@@ -313,11 +313,10 @@ with sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True) as database:
     before = database.execute(
         "SELECT version_num FROM alembic_version"
     ).fetchone()
-if before not in {("20260714_07",), ("20260717_08",)}:
+if before != ("20260717_08",):
     raise SystemExit("source schema revision is unsupported")
 
-if before == ("20260714_07",):
-    upgrade_database(f"sqlite:///{source}")
+upgrade_database(f"sqlite:///{source}")
 
 with sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True) as database:
     if database.execute("PRAGMA integrity_check").fetchone() != ("ok",):
@@ -325,24 +324,23 @@ with sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True) as database:
     after = database.execute(
         "SELECT version_num FROM alembic_version"
     ).fetchone()
-if after != ("20260717_08",):
-    raise SystemExit("database did not reach the v0.3.0 schema")
+if after != ("20260827_15",):
+    raise SystemExit("database did not reach the v0.4.0 schema")
 print(f"database upgrade verified: {before[0]} -> {after[0]}")
 PY
 ```
 
 The application factory also upgrades on startup, but the explicit operation
 keeps backup and migration evidence separate from service readiness. The
-supported fixture test proves preservation of workflow and run identity,
-lifecycle state, events and logs, queue assignment, build identity, validated
-snapshot, artifacts, and QC. Legacy result rows stay explicitly
-generation-unbound; migration does not invent artifact or QC revision evidence.
+release fixture proves the complete schema-08 product record survives schema
+15 without invented result revision evidence.
 
-There is no online downgrade contract. To roll back, stop every process again
-and restore the verified pre-upgrade database backup together with the matching
-application version. Do not use an Alembic downgrade against a live or newer
-database. After upgrade or restore, give the API and worker the same absolute
-database and workspace coordinates before starting either process.
+There is no online downgrade contract. A pre-PONR failure may restore the
+verified backup before a v0.4 writer starts. v0.3.0 predates deployment slots
+and is not a slot rollback target; compatible deployment rollback is proven
+only between schema-15 bundles. After a v0.4 writer starts, selecting the
+schema-08 backup with v0.4 must fail closed. Do not use Alembic downgrade
+against a live/newer database or describe this as lossless downgrade.
 
 ### Optional Bulk RNA-seq execution binding
 
@@ -627,8 +625,9 @@ reconciliation is deliberately not guessed by the API process.
 
 ## Explicit administrator recovery
 
-`helixweave admin run` provides a local, authenticated-by-host-access operator
-surface while the browser administration and role boundary remains deferred.
+`helixweave admin run` provides the local host-operator recovery surface. The
+browser/API also enforce the trusted-LAN administrator/member role boundary;
+that role model is not hosted multi-tenancy.
 Each command requires an explicit file-backed SQLite URL. Mutations additionally
 require the expected lifecycle status and the exact opaque job, backend, and
 queue identity printed by diagnosis:
@@ -807,6 +806,6 @@ the stopped callback cannot reach SQLite after the process group is gone, the
 run can remain `running` with a durable intent and requires operator diagnosis.
 Heartbeat/lease reconciliation is intentionally not invented here.
 
-Authentication, multi-tenancy, HPC scheduling, object storage, dynamic workflow
-discovery, and automatic QC thresholds/conclusions remain outside this local
-runtime.
+Multi-tenancy, high availability, HPC scheduling, object storage, dynamic
+workflow discovery, and automatic QC thresholds/conclusions remain outside
+this local runtime.

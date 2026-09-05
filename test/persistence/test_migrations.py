@@ -2199,9 +2199,9 @@ def test_result_generation_migration_keeps_legacy_results_explicitly_unbound(
 def test_v030_supported_prior_schema_upgrade_preserves_complete_product_record(
     tmp_path,
 ) -> None:
-    """Revision 07 is the supported pre-generation schema fixture."""
+    """The released v0.3.0 schema-08 fixture upgrades with its record intact."""
     database_url = f"sqlite:///{tmp_path / 'v030-upgrade.db'}"
-    upgrade_database(database_url, "20260714_07")
+    upgrade_database(database_url, "20260717_08")
     engine = create_database_engine(database_url)
     now = "2026-07-17 12:00:00"
     run_id = "release-upgrade-run"
@@ -2241,6 +2241,18 @@ def test_v030_supported_prior_schema_upgrade_preserves_complete_product_record(
                 "now": now,
                 "tags": '{"release_fixture":"v0.3.0"}',
             },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO run_result_states (
+                    run_id, artifact_revision, qc_revision
+                ) VALUES (
+                    :run_id, 0, 0
+                )
+                """
+            ),
+            {"run_id": run_id},
         )
         connection.execute(
             text(

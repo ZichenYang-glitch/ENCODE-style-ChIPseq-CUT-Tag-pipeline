@@ -31,13 +31,19 @@ with systemd enabled:
   producer expands a hash-locked, wheel-only CPython 3.12/Linux x86_64
   dependency closure before bundling it;
 - the ENCODE Snakemake closure is an independently versioned immutable runtime
-  containing the workflow source, a static micromamba frontend, and every
+  containing the workflow source, a pinned Linux x86_64 micromamba frontend
+  admitted against the supported glibc loader, and every
   package archive named by the checked-in explicit environment locks;
 - the bulk RNA-seq source, Nextflow, JDK, plugin, and container closure remains
   governed by the existing pinned runtime contract and uses a dedicated
   rootless Docker daemon/socket owned by the service account; and
 - SQLite remains the canonical lifecycle and result-metadata store. Redis/RQ
   remains a queue boundary only.
+
+The v0.4.0 supported Ubuntu host coordinate binds `util-linux`
+`2.39.3-9ubuntu6.6` and the exact qualified `/usr/bin/unshare` bytes. Operators
+must not downgrade the system package or substitute a temporary executable to
+meet that coordinate.
 
 References are prepared outside HelixWeave by an administrator and registered
 through the existing private configuration/CLI contracts. Deployment code

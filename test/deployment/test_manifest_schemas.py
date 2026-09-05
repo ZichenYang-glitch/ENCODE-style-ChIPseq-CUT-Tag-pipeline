@@ -18,6 +18,15 @@ def test_bundle_manifest_matches_the_packaged_machine_schema() -> None:
     assert list(validator.iter_errors(manifest.to_dict())) == []
 
 
+def test_bundle_machine_schema_accepts_jvm_inner_class_paths() -> None:
+    manifest, _payload = manifest_for(PLATFORM)
+    document = copy.deepcopy(manifest.to_dict())
+    document["files"][0]["path"] = "payload/runtime/plugins/Validation$_closure.class"
+    validator = Draft202012Validator(load_schema("deployment-bundle-v1.schema.json"))
+
+    assert list(validator.iter_errors(document)) == []
+
+
 @pytest.mark.parametrize(
     ("record", "path"),
     (

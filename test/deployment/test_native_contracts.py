@@ -240,7 +240,7 @@ def test_environment_discovery_fails_closed_on_untrusted_source_manifest(
 
 
 @pytest.mark.parametrize("fault", ("header", "table", "dynamic"))
-def test_static_micromamba_requires_a_bounded_static_linux_elf(fault: str) -> None:
+def test_micromamba_requires_a_bounded_supported_linux_elf(fault: str) -> None:
     content = bytearray(120)
     content[:7] = b"\x7fELF\x02\x01\x01"
     content[18:20] = (62).to_bytes(2, "little")
@@ -255,6 +255,29 @@ def test_static_micromamba_requires_a_bounded_static_linux_elf(fault: str) -> No
     else:
         content[64:68] = (3).to_bytes(4, "little")
 
+    with pytest.raises(native_module._NativeContractFault):
+        verify_static_micromamba(bytes(content))
+
+
+def test_micromamba_accepts_only_the_supported_glibc_loader() -> None:
+    interpreter = b"/lib64/ld-linux-x86-64.so.2\x00"
+    content = bytearray(192)
+    content[:7] = b"\x7fELF\x02\x01\x01"
+    content[18:20] = (62).to_bytes(2, "little")
+    content[32:40] = (64).to_bytes(8, "little")
+    content[54:56] = (56).to_bytes(2, "little")
+    content[56:58] = (2).to_bytes(2, "little")
+    content[64:68] = (1).to_bytes(4, "little")
+    content[120:124] = (3).to_bytes(4, "little")
+    content[128:136] = (160).to_bytes(8, "little")
+    content[152:160] = len(interpreter).to_bytes(8, "little")
+    content[160 : 160 + len(interpreter)] = interpreter
+
+    verify_static_micromamba(bytes(content))
+
+    content[160 : 160 + len(interpreter)] = b"/tmp/ld-linux-x86-64.so.2".ljust(
+        len(interpreter), b"\x00"
+    )
     with pytest.raises(native_module._NativeContractFault):
         verify_static_micromamba(bytes(content))
 

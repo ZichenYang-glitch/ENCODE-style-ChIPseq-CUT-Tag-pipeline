@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import date
 from email.parser import Parser
 import json
 import os
@@ -21,11 +20,12 @@ from packaging.requirements import Requirement
 
 from encode_pipeline import __version__
 from encode_pipeline.api.main import create_app
+from encode_pipeline.services.defaults import create_default_workflow_registry
+from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RELEASE_VERSION = "0.3.0"
-RELEASE_DATE = date(2026, 7, 25)
+RELEASE_VERSION = "0.4.0"
 EXPECTED_CONSOLE_SCRIPTS = {
     "encode-dag": "encode_pipeline.cli.dag:main",
     "encode-manifest": "encode_pipeline.cli.manifest:main",
@@ -36,21 +36,28 @@ EXPECTED_CONSOLE_SCRIPTS = {
 CHECKOUT_BOOTSTRAP = REPO_ROOT / "scripts" / "checkout_bootstrap.py"
 
 
-def _build_wheel(tmp_path: Path) -> Path:
-    build_root = tmp_path / "source"
-    build_root.mkdir()
+def _copy_release_source(build_root: Path) -> None:
     for filename in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
         shutil.copy2(REPO_ROOT / filename, build_root / filename)
-    (build_root / "scripts").mkdir()
+    shutil.copytree(REPO_ROOT / "scripts", build_root / "scripts")
+    shutil.copytree(REPO_ROOT / "workflow", build_root / "workflow")
+    shutil.copytree(REPO_ROOT / "profiles", build_root / "profiles")
+    (build_root / "docs" / "architecture").mkdir(parents=True)
     shutil.copy2(
-        REPO_ROOT / "scripts" / "bootstrap_helixweave_operator.py",
-        build_root / "scripts" / "bootstrap_helixweave_operator.py",
+        REPO_ROOT / "docs" / "architecture" / "artifact-inventory.yaml",
+        build_root / "docs" / "architecture" / "artifact-inventory.yaml",
     )
     shutil.copytree(
         REPO_ROOT / "src",
         build_root / "src",
         ignore=shutil.ignore_patterns("*.egg-info", "__pycache__", "*.pyc"),
     )
+
+
+def _build_wheel(tmp_path: Path) -> Path:
+    build_root = tmp_path / "source"
+    build_root.mkdir()
+    _copy_release_source(build_root)
     wheel_root = tmp_path / "wheel"
     completed = subprocess.run(
         [
@@ -78,18 +85,7 @@ def _build_wheel(tmp_path: Path) -> Path:
 def _build_sdist(tmp_path: Path) -> Path:
     build_root = tmp_path / "source"
     build_root.mkdir()
-    for filename in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
-        shutil.copy2(REPO_ROOT / filename, build_root / filename)
-    (build_root / "scripts").mkdir()
-    shutil.copy2(
-        REPO_ROOT / "scripts" / "bootstrap_helixweave_operator.py",
-        build_root / "scripts" / "bootstrap_helixweave_operator.py",
-    )
-    shutil.copytree(
-        REPO_ROOT / "src",
-        build_root / "src",
-        ignore=shutil.ignore_patterns("*.egg-info", "__pycache__", "*.pyc"),
-    )
+    _copy_release_source(build_root)
     distribution_root = tmp_path / "dist"
     completed = subprocess.run(
         [
@@ -245,9 +241,9 @@ def test_release_identity_is_consistent_across_public_metadata(
         assert frontend_lock["packages"][""]["version"] == RELEASE_VERSION
         assert citation["title"] == "HelixWeave"
         assert citation["version"] == RELEASE_VERSION
-        assert citation["date-released"] == RELEASE_DATE
+        assert "date-released" not in citation
         assert "## [Unreleased]\n" in changelog
-        assert f"## [{RELEASE_VERSION}] - {RELEASE_DATE.isoformat()}\n" in changelog
+        assert f"## [{RELEASE_VERSION}]" not in changelog
     finally:
         app.state.run_queue.close()
         app.state.persistence.close()
@@ -303,6 +299,7 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(tmp_path: Path) -> Non
         assert "encode_pipeline/cli/local_platform.py" in names
         assert "encode_pipeline/cli/results_visibility_fixture.py" in names
         assert "encode_pipeline/deployment/cli.py" in names
+        assert "encode_pipeline/deployment/bundle_cli.py" in names
         assert "encode_pipeline/deployment/frontend.py" in names
         expected_deployment_resources = {
             "encode_pipeline/contracts/deployment/deployment-bundle-v1.schema.json",
@@ -360,18 +357,7 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(tmp_path: Path) -> Non
 def test_pep517_build_produces_bounded_wheel_and_sdist(tmp_path: Path) -> None:
     build_root = tmp_path / "source"
     build_root.mkdir()
-    for filename in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
-        shutil.copy2(REPO_ROOT / filename, build_root / filename)
-    (build_root / "scripts").mkdir()
-    shutil.copy2(
-        REPO_ROOT / "scripts" / "bootstrap_helixweave_operator.py",
-        build_root / "scripts" / "bootstrap_helixweave_operator.py",
-    )
-    shutil.copytree(
-        REPO_ROOT / "src",
-        build_root / "src",
-        ignore=shutil.ignore_patterns("*.egg-info", "__pycache__", "*.pyc"),
-    )
+    _copy_release_source(build_root)
     distribution_root = tmp_path / "dist"
     completed = subprocess.run(
         [
@@ -392,28 +378,82 @@ def test_pep517_build_produces_bounded_wheel_and_sdist(tmp_path: Path) -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert {path.name for path in distribution_root.iterdir()} == {
-        "helixweave-0.3.0-py3-none-any.whl",
-        "helixweave-0.3.0.tar.gz",
+        "helixweave-0.4.0-py3-none-any.whl",
+        "helixweave-0.4.0.tar.gz",
     }
-    with tarfile.open(distribution_root / "helixweave-0.3.0.tar.gz", "r:gz") as archive:
+    with tarfile.open(distribution_root / "helixweave-0.4.0.tar.gz", "r:gz") as archive:
         names = archive.getnames()
-    assert "helixweave-0.3.0/README.md" in names
+    assert "helixweave-0.4.0/README.md" in names
     assert (
-        "helixweave-0.3.0/src/encode_pipeline/artifacts/artifact-inventory.yaml"
+        "helixweave-0.4.0/src/encode_pipeline/artifacts/artifact-inventory.yaml"
     ) in names
     assert (
-        "helixweave-0.3.0/src/encode_pipeline/contracts/deployment/"
+        "helixweave-0.4.0/src/encode_pipeline/contracts/deployment/"
         "deployment-bundle-v1.schema.json"
     ) in names
     assert (
-        "helixweave-0.3.0/src/encode_pipeline/deployment/templates/"
+        "helixweave-0.4.0/src/encode_pipeline/deployment/templates/"
         "helixweave-api.service.in"
     ) in names
     assert (
-        "helixweave-0.3.0/src/encode_pipeline/frontend_assets/asset-manifest.json"
+        "helixweave-0.4.0/src/encode_pipeline/frontend_assets/asset-manifest.json"
     ) in names
-    assert ("helixweave-0.3.0/scripts/bootstrap_helixweave_operator.py") in names
-    assert not any(name.startswith("helixweave-0.3.0/test/") for name in names)
+    assert ("helixweave-0.4.0/scripts/bootstrap_helixweave_operator.py") in names
+    assert not any(name.startswith("helixweave-0.4.0/test/") for name in names)
+
+
+def test_sdist_contains_the_exact_encode_runtime_source_manifest(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "release"
+    source.mkdir()
+    sdist = _build_sdist(source)
+    expected = dict(
+        WorkflowBuildIdentityProvider(
+            create_default_workflow_registry(environ={}),
+            project_root=REPO_ROOT,
+        ).source_manifest()
+    )
+
+    with tarfile.open(sdist, "r:gz") as archive:
+        files = {item.name: item for item in archive.getmembers() if item.isfile()}
+        prefix = next(iter(files)).split("/", 1)[0]
+        for relative, content in expected.items():
+            name = f"{prefix}/{relative}"
+            assert name in files
+            extracted = archive.extractfile(files[name])
+            assert extracted is not None
+            assert extracted.read() == content
+        source_members = {
+            name.removeprefix(f"{prefix}/")
+            for name in files
+            if name.startswith(
+                (
+                    f"{prefix}/workflow/",
+                    f"{prefix}/profiles/default/",
+                )
+            )
+            or name == f"{prefix}/docs/architecture/artifact-inventory.yaml"
+            or (
+                name.startswith(f"{prefix}/scripts/")
+                and not name.endswith("bootstrap_helixweave_operator.py")
+            )
+        }
+        assert source_members == set(expected)
+        assert not any(
+            forbidden in name
+            for name in files
+            for forbidden in (
+                "node_modules/",
+                "/.snakemake/",
+                "/.conda/",
+                "/.mamba/",
+                "/results/",
+                ".fastq",
+                ".bam",
+                ".sqlite",
+            )
+        )
 
 
 def test_sdist_bootstrap_asset_is_self_contained_outside_a_checkout(
@@ -425,7 +465,7 @@ def test_sdist_bootstrap_asset_is_self_contained_outside_a_checkout(
     extracted = tmp_path / "extracted"
     with tarfile.open(sdist, "r:gz") as archive:
         archive.extractall(extracted, filter="data")
-    release_root = extracted / "helixweave-0.3.0"
+    release_root = extracted / "helixweave-0.4.0"
     host_root = tmp_path / "host"
     host_root.mkdir()
     outside = tmp_path / "outside"
@@ -512,7 +552,7 @@ app = create_app(
 try:
     schema = app.openapi()
     assert schema["info"]["title"] == "HelixWeave API"
-    assert schema["info"]["version"] == "0.3.0"
+    assert schema["info"]["version"] == "0.4.0"
     assert "/api/v1/workflows/" in schema["paths"]
 finally:
     app.state.run_queue.close()

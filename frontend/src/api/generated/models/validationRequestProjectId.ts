@@ -3,7 +3,7 @@
  * Do not edit manually.
  * HelixWeave API
  * Reproducible omics workflows, from inputs to evidence.
- * OpenAPI spec version: 0.3.0
+ * OpenAPI spec version: 0.4.0
  */
 
 export type ValidationRequestProjectId = string | null;

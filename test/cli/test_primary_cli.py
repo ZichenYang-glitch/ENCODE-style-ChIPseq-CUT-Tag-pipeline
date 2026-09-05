@@ -11,6 +11,7 @@ import pytest
 
 from encode_pipeline.cli import app
 from encode_pipeline.cli import local_platform
+from encode_pipeline.deployment import bundle_cli
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +41,18 @@ def test_primary_cli_dispatches_the_admin_namespace(monkeypatch) -> None:
 
     assert app.main(["admin", "--database-url", "sqlite:////tmp/platform.db"]) == 19
     assert observed == [["--database-url", "sqlite:////tmp/platform.db"]]
+
+
+def test_primary_cli_dispatches_the_bundle_namespace(monkeypatch) -> None:
+    observed: list[list[str]] = []
+    monkeypatch.setattr(
+        bundle_cli,
+        "main",
+        lambda arguments: observed.append(list(arguments)) or 21,
+    )
+
+    assert app.main(["bundle", "--help"]) == 21
+    assert observed == [["--help"]]
 
 
 @pytest.mark.parametrize(
@@ -106,6 +119,7 @@ def test_primary_cli_help_covers_doctor_and_demo(capsys) -> None:
     assert "HelixWeave" in output
     assert "--doctor" in output
     assert "--input-authoring-demo" in output
+    assert "helixweave bundle --help" in output
 
 
 def test_primary_cli_exposes_the_admin_run_recovery_commands(capsys) -> None:

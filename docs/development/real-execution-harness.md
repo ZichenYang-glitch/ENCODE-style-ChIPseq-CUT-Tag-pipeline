@@ -90,15 +90,19 @@ The `bulk_rnaseq_real_execution` marker is selected only when the manual
 provide absolute runtime, fixture, Redis, Docker executable, and Docker socket
 coordinates. It must also provide the contract-pinned `/usr/bin/unshare`
 2.39.3 executable and allow unprivileged user/network namespaces in the same
-account that owns the worker. Admission hashes that launcher, verifies its
-exact version output, and executes the JDK, Nextflow, and local Docker probe
-inside a network namespace with no interface or route. Pipeline containers
-remain separately constrained by `--pull=never --network=none`. The job first
-runs the staging tool in read-only `verify` mode, then runs all rapid,
-full-platform, cancellation, and timeout gates. Missing assets, a stale
-closure, unavailable namespace isolation, a non-local Docker endpoint, any
-skip/xfail, or an unclean exact checkout fails the job. OCI archives, JDKs,
-references, indexes, and biological data remain outside Git.
+account that owns the worker. The v0.4.0 qualification coordinate is Ubuntu
+`util-linux` `2.39.3-9ubuntu6.6`, executable SHA-256
+`a23c8863860669003dc4660039fe642f5795c8c2195898ebc5d01afa1ac3d11c`;
+it does not authorize a package downgrade or temporary launcher replacement.
+Admission hashes that launcher, verifies its exact version output, and
+executes the JDK, Nextflow, and local Docker probe inside a network namespace
+with no interface or route. Pipeline containers remain separately constrained
+by `--pull=never --network=none`. The job first runs the staging tool in
+read-only `verify` mode, then runs all rapid, full-platform, cancellation, and
+timeout gates. Missing assets, a stale closure, unavailable namespace
+isolation, a non-local Docker endpoint, any skip/xfail, or an unclean exact
+checkout fails the job. OCI archives, JDKs, references, indexes, and biological
+data remain outside Git.
 
 ## Container smoke
 

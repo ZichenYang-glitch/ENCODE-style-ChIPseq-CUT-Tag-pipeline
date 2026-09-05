@@ -160,12 +160,14 @@ class _SyntheticRunner:
         unsafe_symlink: bool = False,
         hardlinks: bool = False,
         safe_symlink: bool = False,
+        dangling_package_cache_symlink: bool = False,
     ) -> None:
         self.return_code = return_code
         self.exception = exception
         self.unsafe_symlink = unsafe_symlink
         self.hardlinks = hardlinks
         self.safe_symlink = safe_symlink
+        self.dangling_package_cache_symlink = dangling_package_cache_symlink
         self.calls: list[tuple[tuple[str, ...], dict[str, object], bytes]] = []
 
     def __call__(self, argv, **kwargs):
@@ -185,6 +187,19 @@ class _SyntheticRunner:
             (binary / "escape").symlink_to("../../../../../outside")
         if self.hardlinks:
             os.link(executable, binary / "hardlink")
+        if self.dangling_package_cache_symlink:
+            root_prefix = Path(arguments[arguments.index("--root-prefix") + 1])
+            cache_link = (
+                root_prefix
+                / "pkgs"
+                / "file"
+                / "python-package"
+                / "compiler_compat"
+                / "ld"
+            )
+            cache_link.parent.mkdir(parents=True, exist_ok=True)
+            if not cache_link.is_symlink():
+                cache_link.symlink_to("../bin/x86_64-conda-linux-gnu-ld")
         evidence = prefix / "command-evidence"
         evidence.write_text("preserve on failure\n", encoding="utf-8")
         if self.exception is not None:
@@ -239,7 +254,7 @@ def test_materializer_uses_only_indexed_offline_coordinates_and_fixed_argv(
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.DEVNULL,
             "cwd": prepared.destination,
-            "env": {},
+            "env": {"HOME": str(prepared.destination / "mamba-root")},
             "close_fds": True,
             "timeout": 11.0,
             "check": False,
@@ -310,6 +325,53 @@ def test_materializer_uses_only_indexed_offline_coordinates_and_fixed_argv(
         == hashlib.sha256(_static_elf()).hexdigest()
     )
     assert stat.S_IMODE(inventory_path.stat().st_mode) == 0o600
+
+
+def test_materializer_provides_micromamba_a_deterministic_writable_home(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    prepared = _prepared_runtime(tmp_path, monkeypatch)
+
+    class HomeRequiringRunner(_SyntheticRunner):
+        def __call__(self, argv, **kwargs):
+            expected = prepared.destination / "mamba-root"
+            if kwargs.get("env") != {"HOME": str(expected)} or not expected.is_dir():
+                return SimpleNamespace(returncode=1)
+            return super().__call__(argv, **kwargs)
+
+    runner = HomeRequiringRunner()
+
+    _materializer(prepared, runner).prepare(prepared.request)
+
+    assert runner.calls
+    assert all(
+        options["env"] == {"HOME": str(prepared.destination / "mamba-root")}
+        for _arguments, options, _lock in runner.calls
+    )
+
+
+def test_materializer_discards_package_cache_before_strict_runtime_admission(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    prepared = _prepared_runtime(tmp_path, monkeypatch)
+    runner = _SyntheticRunner(dangling_package_cache_symlink=True)
+
+    receipt = _materializer(prepared, runner).prepare(prepared.request)
+
+    assert receipt.deployment_identity == prepared.request.deployment_identity
+    assert not (prepared.destination / "mamba-root" / "pkgs").exists()
+    assert (prepared.destination / "mamba-root" / "explicit-locks").is_dir()
+    assert prepared.destination.joinpath(
+        *Path(SNAKEMAKE_ACTIVATE_RELATIVE_PATH).parts
+    ).is_file()
+    inventory = EncodeRuntimeInventory.from_dict(
+        json.loads((prepared.destination / RUNTIME_INVENTORY_FILENAME).read_bytes())
+    )
+    assert not any(
+        item.path.startswith("mamba-root/pkgs/") for item in inventory.entries
+    )
 
 
 def test_materialized_conda_seam_supports_only_snakemake_830_read_only_probes(

@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shlex
+import shutil
 import stat
 import subprocess
 import time
@@ -167,6 +168,9 @@ class OfflineEncodeRuntimeMaterializer:
                 self._require_created_prefix(plan.prefix)
                 if plan.marker is not None:
                     self._write_new_file(plan.marker, b"", 0o600)
+            self._discard_package_cache(
+                destination / "mamba-root" / "pkgs", deadline=deadline
+            )
             self._require_before_deadline(deadline)
             self._install_runtime_execution_seam(
                 micromamba, destination, deadline=deadline
@@ -356,7 +360,7 @@ class OfflineEncodeRuntimeMaterializer:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 cwd=destination,
-                env={},
+                env={"HOME": str(destination / "mamba-root")},
                 close_fds=True,
                 timeout=remaining,
                 check=False,
@@ -405,6 +409,66 @@ class OfflineEncodeRuntimeMaterializer:
                 component=ENCODE_RUNTIME,
                 recoverable=True,
             )
+
+    def _discard_package_cache(self, cache: Path, *, deadline: float) -> None:
+        """Remove micromamba's disposable cache before runtime admission."""
+
+        self._require_before_deadline(deadline)
+        try:
+            observed = cache.lstat()
+        except FileNotFoundError:
+            return
+        except OSError:
+            raise fail(
+                "ENCODE_RUNTIME_OUTPUT_INVALID",
+                "ENCODE runtime output is invalid.",
+                component=ENCODE_RUNTIME,
+                recoverable=True,
+            ) from None
+        if (
+            not shutil.rmtree.avoids_symlink_attacks
+            or not stat.S_ISDIR(observed.st_mode)
+            or stat.S_ISLNK(observed.st_mode)
+            or observed.st_uid != self._service_uid
+            or observed.st_gid != self._service_gid
+        ):
+            raise fail(
+                "ENCODE_RUNTIME_OUTPUT_INVALID",
+                "ENCODE runtime output is invalid.",
+                component=ENCODE_RUNTIME,
+                recoverable=True,
+            )
+        try:
+            shutil.rmtree(cache)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            raise fail(
+                "ENCODE_RUNTIME_OUTPUT_INVALID",
+                "ENCODE runtime output is invalid.",
+                component=ENCODE_RUNTIME,
+                recoverable=True,
+            ) from None
+        try:
+            cache.lstat()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            raise fail(
+                "ENCODE_RUNTIME_OUTPUT_INVALID",
+                "ENCODE runtime output is invalid.",
+                component=ENCODE_RUNTIME,
+                recoverable=True,
+            ) from None
+        else:
+            raise fail(
+                "ENCODE_RUNTIME_OUTPUT_INVALID",
+                "ENCODE runtime output is invalid.",
+                component=ENCODE_RUNTIME,
+                recoverable=True,
+            )
+        fsync_directory(cache.parent)
+        self._require_before_deadline(deadline)
 
     def _install_runtime_execution_seam(
         self, source: Path, root: Path, *, deadline: float

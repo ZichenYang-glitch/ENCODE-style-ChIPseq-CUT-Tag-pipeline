@@ -22,6 +22,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Protocol
 
 from encode_pipeline.deployment.bundle import BundleStore
@@ -152,6 +153,7 @@ SAFE_ENVIRONMENT = {
     "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
 }
 _SYSTEMCTL_TIMEOUT_SECONDS = 15.0
+_ROOTLESS_DOCKER_READINESS_POLL_SECONDS = 0.1
 _BULK_RUNTIME_SYSTEMD_TIMEOUT_SECONDS = 14_700.0
 _MAX_COMMAND_OUTPUT = 64 * 1024
 _MAX_OPERATOR_DOCUMENT_BYTES = 1024 * 1024
@@ -1263,6 +1265,10 @@ class ServiceProbe(Protocol):
     ) -> ServiceIdentity | None: ...
 
 
+class _ServiceReadinessPending(Exception):
+    """A socket-bearing service is running but has not begun listening."""
+
+
 class LinuxServiceProbe:
     """Bind systemd, procfs, cgroup, executable, command line, and sockets."""
 
@@ -1315,6 +1321,43 @@ class LinuxServiceProbe:
         unit: str,
         deployment_identity: str,
         task_identity: str,
+    ) -> ServiceIdentity | None:
+        return self._observe(
+            unit=unit,
+            deployment_identity=deployment_identity,
+            task_identity=task_identity,
+            allow_socket_pending=False,
+        )
+
+    def observe_starting(
+        self,
+        *,
+        unit: str,
+        deployment_identity: str,
+        task_identity: str,
+    ) -> ServiceIdentity | None:
+        """Observe rootless Docker while distinguishing only absent readiness."""
+
+        if unit != "helixweave-docker-rootless.service":
+            return self.observe(
+                unit=unit,
+                deployment_identity=deployment_identity,
+                task_identity=task_identity,
+            )
+        return self._observe(
+            unit=unit,
+            deployment_identity=deployment_identity,
+            task_identity=task_identity,
+            allow_socket_pending=True,
+        )
+
+    def _observe(
+        self,
+        *,
+        unit: str,
+        deployment_identity: str,
+        task_identity: str,
+        allow_socket_pending: bool,
     ) -> ServiceIdentity | None:
         values = self.systemctl.show(unit)
         active = values["ActiveState"]
@@ -1374,6 +1417,7 @@ class LinuxServiceProbe:
             unit=unit,
             cgroup=expected_cgroup,
             main_pid=main_pid,
+            allow_socket_pending=allow_socket_pending,
         )
         try:
             final_values = self.systemctl.show(unit)
@@ -1420,6 +1464,7 @@ class LinuxServiceProbe:
         unit: str,
         cgroup: str,
         main_pid: int,
+        allow_socket_pending: bool = False,
     ) -> tuple[SocketWitness, ...]:
         names = SERVICE_SOCKET_NAMES[unit]
         if not names:
@@ -1436,26 +1481,33 @@ class LinuxServiceProbe:
             )
         path = self.unix_sockets[unit]
         try:
-            before = self.filesystem_socket_stat(path)
+            try:
+                before = self.filesystem_socket_stat(path)
+            except FileNotFoundError:
+                if allow_socket_pending:
+                    raise _ServiceReadinessPending from None
+                raise OSError from None
+            if not stat.S_ISSOCK(before.st_mode) or before.st_nlink != 1:
+                raise OSError
+            kernel_inode = self._listening_unix_socket_inode(
+                path,
+                allow_socket_pending=allow_socket_pending,
+            )
             pids_before = self._cgroup_pids(cgroup)
             if main_pid not in pids_before:
                 raise OSError
-            kernel_inode = self._listening_unix_socket_inode(path)
             if not self._pids_own_socket(pids_before, kernel_inode):
                 raise OSError
             pids_after = self._cgroup_pids(cgroup)
             after = self.filesystem_socket_stat(path)
+        except _ServiceReadinessPending:
+            raise
         except OSError:
             raise fail(
                 "OPERATOR_SERVICE_OBSERVE_FAILED",
                 "Service socket could not be observed.",
             ) from None
-        if (
-            not stat.S_ISSOCK(before.st_mode)
-            or before.st_nlink != 1
-            or _file_witness(before) != _file_witness(after)
-            or pids_before != pids_after
-        ):
+        if _file_witness(before) != _file_witness(after) or pids_before != pids_after:
             raise fail(
                 "OPERATOR_SERVICE_OBSERVE_FAILED",
                 "Service socket could not be observed.",
@@ -1501,7 +1553,12 @@ class LinuxServiceProbe:
             )
         return observed
 
-    def _listening_unix_socket_inode(self, socket_path: Path) -> int:
+    def _listening_unix_socket_inode(
+        self,
+        socket_path: Path,
+        *,
+        allow_socket_pending: bool = False,
+    ) -> int:
         try:
             content = _read_bounded_path(
                 self.proc_root / "net/unix",
@@ -1526,6 +1583,8 @@ class LinuxServiceProbe:
                 ):
                     raise OSError
                 matches.append(kernel_inode)
+            if not matches and allow_socket_pending:
+                raise _ServiceReadinessPending
             if len(matches) != 1:
                 raise OSError
             return matches[0]
@@ -1652,11 +1711,15 @@ class SystemdServiceController:
             raise fail(
                 "OPERATOR_SERVICE_ALREADY_RUNNING", "Service is already running."
             )
+        readiness_deadline = (
+            time.monotonic() + _SYSTEMCTL_TIMEOUT_SECONDS
+            if request.unit == "helixweave-docker-rootless.service"
+            else None
+        )
         self.systemctl.control("start", request.unit)
-        service = self.probe.observe(
-            unit=request.unit,
-            deployment_identity=request.deployment_identity,
-            task_identity=request.task_identity,
+        service = self._observe_started_service(
+            request,
+            readiness_deadline=readiness_deadline,
         )
         if service is None:
             raise fail(
@@ -1666,6 +1729,38 @@ class SystemdServiceController:
             )
         self._persist_started_service(service)
         return service
+
+    def _observe_started_service(
+        self,
+        request: OperatorRequest,
+        *,
+        readiness_deadline: float | None,
+    ) -> ServiceIdentity | None:
+        assert request.unit is not None
+        if request.unit != "helixweave-docker-rootless.service":
+            return self.probe.observe(
+                unit=request.unit,
+                deployment_identity=request.deployment_identity,
+                task_identity=request.task_identity,
+            )
+        observer = getattr(self.probe, "observe_starting", self.probe.observe)
+        assert readiness_deadline is not None
+        while True:
+            try:
+                return observer(
+                    unit=request.unit,
+                    deployment_identity=request.deployment_identity,
+                    task_identity=request.task_identity,
+                )
+            except _ServiceReadinessPending:
+                remaining = readiness_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise fail(
+                        "OPERATOR_SERVICE_START_FAILED",
+                        "Service did not enter the running state.",
+                        recoverable=True,
+                    ) from None
+                time.sleep(min(_ROOTLESS_DOCKER_READINESS_POLL_SECONDS, remaining))
 
     def recover_start(self, request: OperatorRequest) -> ServiceIdentity:
         """Adopt only this journal-bound start, or execute it idempotently."""
@@ -1690,14 +1785,6 @@ class SystemdServiceController:
     def status(self, request: OperatorRequest) -> ServiceIdentity | None:
         assert request.unit is not None
         prior = self._read_identity(request.unit, required=False)
-        if (
-            prior is not None
-            and prior.deployment_identity != request.deployment_identity
-        ):
-            raise fail(
-                "OPERATOR_SERVICE_IDENTITY_MISMATCH",
-                "Service identity does not match this deployment.",
-            )
         task = request.task_identity if prior is None else prior.task_identity
         service = self.probe.observe(
             unit=request.unit,
@@ -1710,6 +1797,11 @@ class SystemdServiceController:
             raise fail(
                 "OPERATOR_SERVICE_IDENTITY_UNAVAILABLE",
                 "Running service has no trusted operator identity.",
+            )
+        if prior.deployment_identity != request.deployment_identity:
+            raise fail(
+                "OPERATOR_SERVICE_IDENTITY_MISMATCH",
+                "Service identity does not match this deployment.",
             )
         if service.identity != prior.identity:
             raise fail(
@@ -4637,7 +4729,7 @@ class HostOperatorBackend:
                 expected_mode=0o440,
                 expected_parent_uid=self.root_uid,
                 expected_parent_gid=group_gid,
-                expected_parent_mode=0o2730,
+                expected_parent_mode=0o2770,
                 expected_component=request.component,
                 expected_identity=request.deployment_identity,
                 installed_owner_uid=self.root_uid,
@@ -4800,7 +4892,7 @@ class HostOperatorBackend:
             boundaries = (
                 (self.layout.data_root / "operator", group_gid, 0o710),
                 (self.layout.ingress, group_gid, 0o750),
-                (path, group_gid, 0o2730),
+                (path, group_gid, 0o2770),
             )
             observed_boundaries = tuple(
                 (boundary.lstat(), expected_gid, expected_mode)

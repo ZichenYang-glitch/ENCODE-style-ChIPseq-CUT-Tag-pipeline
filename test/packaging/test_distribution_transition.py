@@ -58,6 +58,7 @@ def _copy_build_source(destination: Path, *, legacy: bool) -> None:
         pyproject = destination / "pyproject.toml"
         content = pyproject.read_text(encoding="utf-8")
         content = content.replace('name = "helixweave"', 'name = "encode-pipeline"', 1)
+        content = content.replace('version = "0.4.0"', 'version = "0.3.0"', 1)
         content = content.replace(
             'helixweave = "encode_pipeline.cli.app:main"\n',
             "",
@@ -115,7 +116,7 @@ def test_legacy_candidate_must_be_uninstalled_before_helixweave(
     legacy_wheel = _build_wheel(legacy_source, tmp_path / "legacy-wheelhouse")
     current_wheel = _build_wheel(current_source, tmp_path / "current-wheelhouse")
     assert legacy_wheel.name == "encode_pipeline-0.3.0-py3-none-any.whl"
-    assert current_wheel.name == "helixweave-0.3.0-py3-none-any.whl"
+    assert current_wheel.name == "helixweave-0.4.0-py3-none-any.whl"
 
     unsafe_python = _create_venv(tmp_path / "unsafe")
     assert (
@@ -198,7 +199,7 @@ assert util.find_spec("encode_pipeline") is None
 import json
 from importlib import metadata, resources
 
-assert metadata.version("helixweave") == "0.3.0"
+assert metadata.version("helixweave") == "0.4.0"
 try:
     metadata.version("encode-pipeline")
 except metadata.PackageNotFoundError:

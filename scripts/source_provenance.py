@@ -29,7 +29,7 @@ from urllib.request import url2pathname
 
 
 DISTRIBUTION_NAME = "helixweave"
-DISTRIBUTION_VERSION = "0.3.0"
+DISTRIBUTION_VERSION = "0.4.0"
 IMPORT_NAMESPACE = "encode_pipeline"
 _KNOWN_DISTRIBUTION_NAMES = (
     "helixweave",

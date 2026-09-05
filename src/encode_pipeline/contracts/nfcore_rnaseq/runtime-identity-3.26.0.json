@@ -21,7 +21,7 @@
     "version": "2.39.3",
     "default_absolute_path": "/usr/bin/unshare",
     "size_bytes": 43624,
-    "sha256": "51bcc77ba5db162c80028f861f0a2770d728c1de80773816d863f28d7a817adb",
+    "sha256": "a23c8863860669003dc4660039fe642f5795c8c2195898ebc5d01afa1ac3d11c",
     "version_output_sha256": "85b9aead4ac4d08a7d4023aaa2700ca2a14400c4490f12150c8b55d1adf854fc",
     "required_args": [
       "--user",
@@ -110,7 +110,7 @@
     "default_config_container_assignments_sha256": "c407972e3fd7a293da2a1ebee45e0614ec6684a1140e58c5db41a57e08873c34",
     "reserved_default_deny_label": "helixweave_verified_container_v1",
     "asset_format": "docker-archive+distribution-manifest",
-    "identity_policy": "exact supported process set; complete included/excluded process audit; all pinned config container assignments audited and every default-loaded alias assignment explicitly overridden; raw distribution manifest sha256 equals OCI digest; manifest config digest binds the Docker archive config and every rootfs diff_id binds one layer.tar; runtime executes the verified config image ID and verifies the daemon RootFS diff IDs",
+    "identity_policy": "exact supported process set; complete included/excluded process audit; all pinned config container assignments audited and every default-loaded alias assignment explicitly overridden; raw registry distribution manifest sha256 equals OCI digest; the Docker 29 OCI index has one linux/amd64 target manifest whose config digest matches the registry manifest; target descriptor, manifest/config blobs, ordered uncompressed layer blobs, legacy manifest.json and rootfs diff IDs are digest/size bound; runtime executes the verified local OCI target manifest digest and independently verifies the daemon RootFS diff IDs; registry compressed layer digests remain provenance and are not compared with local uncompressed diff IDs",
     "blobs_vendored_in_git": false,
     "runtime_pull_allowed": false
   }

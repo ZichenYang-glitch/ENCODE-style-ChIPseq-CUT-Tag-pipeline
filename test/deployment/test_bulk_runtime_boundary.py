@@ -10,6 +10,9 @@ import sys
 
 import pytest
 
+from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import (
+    NETWORK_ISOLATION_REQUIRED_ARGS,
+)
 from encode_pipeline.deployment.canonical import canonical_json_bytes
 from encode_pipeline.deployment.operator_action import (
     BulkRuntimePrepareReceipt,
@@ -175,6 +178,30 @@ def test_bulk_runtime_oneshot_exposes_only_fixed_runtime_socket_and_receipt() ->
     assert "Environment=" not in content
     assert "ReadWritePaths=/opt" not in content
     assert "ReadWritePaths=/var/lib" not in content
+
+
+def test_bulk_runtime_oneshot_allows_only_canary_namespaces() -> None:
+    content = UNIT.read_text(encoding="utf-8")
+    namespace_directives = tuple(
+        line for line in content.splitlines() if line.startswith("RestrictNamespaces=")
+    )
+
+    assert namespace_directives == ("RestrictNamespaces=user net",)
+    assert NETWORK_ISOLATION_REQUIRED_ARGS == (
+        "--user",
+        "--map-current-user",
+        "--net",
+        "--",
+    )
+    allowed = frozenset(namespace_directives[0].split("=", 1)[1].split())
+    required = frozenset(
+        namespace
+        for option, namespace in (("--user", "user"), ("--net", "net"))
+        if option in NETWORK_ISOLATION_REQUIRED_ARGS
+    )
+
+    assert allowed == required == {"user", "net"}
+    assert {"cgroup", "ipc", "mnt", "pid", "uts"}.isdisjoint(allowed)
 
 
 def test_bulk_runtime_boundary_is_packaged_snapshotted_and_tmpfiles_owned() -> None:

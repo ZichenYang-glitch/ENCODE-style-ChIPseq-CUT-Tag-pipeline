@@ -1,4 +1,28 @@
 prune test
 include scripts/bootstrap_helixweave_operator.py
+include scripts/aggregate_qc_summary.py
+include scripts/assemble_qc_summary.py
+include scripts/calc_cuttag_fragment_size.py
+include scripts/calc_frip.py
+include scripts/calc_nrf_pbc.py
+include scripts/compute_consensus.py
+include scripts/gtf_to_tss_bed.py
+include scripts/idr_reproducibility_summary.py
+include scripts/make_manifest.py
+include scripts/mnase_qc_summary.py
+include scripts/parse_cross_correlation.py
+include scripts/parse_dup_metrics.py
+include scripts/pooled_qc_summary.py
+include scripts/split_pseudoreps.py
+include scripts/stage5b_summary.py
+include scripts/validate_samples.py
+include docs/architecture/artifact-inventory.yaml
+include profiles/default/config.yaml
+include workflow/Snakefile
+include workflow/multiqc_config.yaml
+recursive-include workflow/envs *.lock *.yml
+recursive-include workflow/lib *.py
+recursive-include workflow/rules *.smk
+recursive-include workflow/schemas *.json *.yaml
 include src/encode_pipeline/persistence/migration-execution-inventory-1.0.0.json
 global-exclude __pycache__ *.py[cod]
