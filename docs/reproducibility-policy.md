@@ -2,8 +2,8 @@
 
 **Status:** Current implemented policy
 
-The retained `stage4b` and `stage5` names below are public configuration keys,
-not delivery phases.
+`replicate_analysis` controls replicate pooling; `chipseq_idr` controls
+ChIP-seq narrow IDR. Both are public configuration keys.
 
 ## 1. Purpose
 
@@ -15,7 +15,7 @@ ChIP-seq / CUT&Tag / ATAC-seq pipeline. It establishes:
 - Which reproducibility methods apply to which assay/caller/mode combinations
 - Output path conventions
 - Configuration surface
-- How reproducibility interacts with the existing `stage5` ChIP-seq narrow IDR
+- How reproducibility interacts with the existing `chipseq_idr` ChIP-seq narrow IDR
 
 ## 2. Key Concepts
 
@@ -53,7 +53,7 @@ irreproducible discovery rate.
   scope for this policy version.
 - **Rank metric:** Configurable (default `p.value` from MACS3 narrowPeak
   column 8).
-- **Production-supported IDR:** ChIP-seq narrow (legacy `stage5`) and
+- **Production-supported IDR:** ChIP-seq narrow (`chipseq_idr`) and
   ATAC-seq narrow (`reproducibility.idr.atac_narrow`). IDR is final when
   enabled; consensus is secondary/report.
 - **Supported opt-in IDR:** CUT&Tag narrow (`reproducibility.idr.cuttag_narrow`).
@@ -66,21 +66,21 @@ irreproducible discovery rate.
 - **Not planned for IDR:** SEACR (BED format score scheme not directly
   compatible with IDR rank assumptions) and MNase.
 
-### 2.4 Legacy `stage5` IDR
+### 2.4 ChIP-seq narrow IDR (`chipseq_idr`)
 
-The existing `stage5: true` configuration enables ChIP-seq narrow IDR with
+The existing `chipseq_idr: true` configuration enables ChIP-seq narrow IDR with
 exactly 2 biological replicates. This behavior and its output paths are
 preserved exactly as-is. No new configuration may disable, rename, or move
-the `stage5` output paths.
+the `chipseq_idr` output paths.
 
-The `reproducibility` block is an **orthogonal** layer. `stage5` controls the
-legacy IDR path; `reproducibility` controls consensus and expanded IDR modes.
+The `reproducibility` block is an **orthogonal** layer. `chipseq_idr` controls the
+ChIP-seq narrow IDR path; `reproducibility` controls consensus and expanded IDR modes.
 
 ## 3. Reproducibility Strategy Matrix
 
 | # | Assay | Peak mode | Caller | Primary reproducibility | Secondary / report | Notes |
 |---|-------|-----------|--------|------------------------|-------------------|-------|
-| 1 | chipseq | narrow | MACS3 | IDR (legacy `stage5`) | Consensus | Legacy `stage5` behavior unchanged |
+| 1 | chipseq | narrow | MACS3 | IDR (`chipseq_idr`) | Consensus | `chipseq_idr` behavior unchanged |
 | 2 | chipseq | broad | MACS3 | IDR when experimental flag enabled; consensus otherwise | Consensus fallback/report | Experimental opt-in only |
 | 3 | cuttag | narrow | MACS3 | Consensus | IDR opt-in (supported) | IDR final when explicitly enabled; consensus otherwise |
 | 4 | cuttag | broad | MACS3 | IDR when experimental flag enabled; consensus otherwise | Consensus fallback/report | Experimental opt-in only |
@@ -106,7 +106,7 @@ results/experiments/<exp>/06_reproducibility/
     reproducibility_summary.tsv
 ```
 
-### 4.2 Legacy IDR Paths (Unchanged)
+### 4.2 ChIP-seq narrow IDR paths
 
 ```
 results/experiments/<exp>/06_idr/
@@ -142,7 +142,7 @@ results/experiments/<exp>/06_idr/
 
 | Assay | Caller | Peak mode | Primary method | Final output |
 |-------|--------|-----------|---------------|-------------|
-| chipseq | macs3 | narrow | IDR (legacy) | Use `06_idr/final/conservative.narrowPeak` |
+| chipseq | macs3 | narrow | ChIP-seq narrow IDR | Use `06_idr/final/conservative.narrowPeak` |
 | chipseq | macs3 | broad | IDR (when `reproducibility.idr.chipseq_broad_experimental: true`) | `<exp>.chipseq.macs3.broad.replicate_validated.idr.broadPeak` |
 | chipseq | macs3 | broad | Consensus (when broad IDR not enabled) | `<exp>.chipseq.macs3.broad.replicate_validated.consensus.broadPeak` |
 | cuttag | macs3 | narrow | IDR (when `reproducibility.idr.cuttag_narrow: true`) | `<exp>.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak` |
@@ -219,18 +219,18 @@ reproducibility:
     cuttag_broad_experimental: false
 ```
 
-### 5.2 Interaction with `stage5`
+### 5.2 Interaction with `chipseq_idr`
 
-| `stage5` | `reproducibility.enabled` | Result |
+| `chipseq_idr` | `reproducibility.enabled` | Result |
 |----------|--------------------------|--------|
 | false | false | No IDR, no reproducibility outputs |
-| true | false | Legacy ChIP-seq narrow IDR only |
-| true | true | Legacy IDR + new reproducibility outputs |
-| false | true | New reproducibility only (no legacy IDR) |
+| true | false | ChIP-seq narrow IDR only |
+| true | true | ChIP-seq narrow IDR + expanded reproducibility outputs |
+| false | true | Expanded reproducibility only (no ChIP-seq narrow IDR) |
 
-**Invariant:** `stage5: true` always keeps existing ChIP-seq narrow IDR
+**Invariant:** `chipseq_idr: true` always keeps existing ChIP-seq narrow IDR
 behavior. No `reproducibility` setting may break, disable, rename, or move
-existing `stage5` outputs.
+existing `chipseq_idr` outputs.
 
 ### 5.3 Validation Rules
 
@@ -240,14 +240,14 @@ When `reproducibility.enabled: true`:
 |-------|-----------|---------|
 | `consensus.min_replicates` | int ≥ 2 | 2 |
 | `consensus.reciprocal_overlap` | float in (0, 1] | 0.5 |
-| `idr.chipseq_narrow` | true / false / null | null (inferred from `stage5`) |
+| `idr.chipseq_narrow` | true / false / null | null (inferred from `chipseq_idr`) |
 | `idr.atac_narrow` | bool | false |
 | `idr.cuttag_narrow` | bool | false |
 | `idr.chipseq_broad_experimental` | bool | false |
 | `idr.cuttag_broad_experimental` | bool | false |
 
-- If `idr.chipseq_narrow: false` while `stage5: true`: emit config
-  contradiction warning, but legacy `stage5` still runs.
+- If `idr.chipseq_narrow: false` while `chipseq_idr: true`: emit config
+  contradiction warning, but `chipseq_idr` still runs.
 - If `*_experimental: true`: the validator emits an informational experimental
   warning. Its claim that consensus remains primary is stale; the current DAG
   and manifest select the eligible IDR artifact as final, as described above.
@@ -264,13 +264,13 @@ When `reproducibility.enabled: true`:
 4. No labeling pooled peaks as replicate-validated.
 5. No 3+ biorep IDR. Multi-replicate IDR requires separate pairwise-IDR or
    replicate-selection policy design.
-6. No replacing `stage5` with `reproducibility`.
+6. No replacing `chipseq_idr` with `reproducibility`.
 
 ## 7. Implementation status
 
 | Capability | Current state |
 | --- | --- |
-| ChIP-seq narrow IDR | Implemented through the legacy `stage5` path. |
+| ChIP-seq narrow IDR | Implemented through the `chipseq_idr` path. |
 | Replicate consensus | Implemented for eligible ChIP-seq, CUT&Tag, ATAC-seq, and SEACR outputs. |
 | ATAC-seq narrow IDR | Implemented when explicitly enabled. |
 | CUT&Tag narrow IDR | Implemented as an opt-in policy. |

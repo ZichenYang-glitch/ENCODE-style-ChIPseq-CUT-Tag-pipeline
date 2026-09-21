@@ -384,16 +384,18 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
     return rows
 
 
-def _build_experiment_rows(samples, outdir, signal_tracks, genomic_resources, stage4b):
+def _build_experiment_rows(
+    samples, outdir, signal_tracks, genomic_resources, replicate_analysis
+):
     """Per-experiment rows using validated sample dicts.
 
-    Matches Snakefile Stage 4b gating:
+    Matches Snakefile replicate analysis gating:
     - pooled outputs only for multi-biorep experiments (>=2 unique bio_rep values)
     - biorep rows follow _biorep_expand_pairs(): always for multi-biorep,
       or for single-biorep when that biorep has >=2 technical replicates
     """
     rows = []
-    if not stage4b:
+    if not replicate_analysis:
         return rows
 
     # Group treatment samples by experiment + count unique biological_replicates
@@ -746,16 +748,16 @@ def _build_experiment_rows(samples, outdir, signal_tracks, genomic_resources, st
     return rows
 
 
-def _build_idr_rows(samples, outdir, stage5):
-    """IDR rows using validated sample dicts + Stage 5 DAG gating logic.
+def _build_idr_rows(samples, outdir, chipseq_idr):
+    """IDR rows using validated sample dicts + ChIP-seq IDR DAG gating logic.
 
-    Matches Snakefile Stage 5 semantics:
-    - stage5: true
+    Matches Snakefile ChIP-seq IDR semantics:
+    - chipseq_idr: true
     - exactly 2 unique biological_replicate values (not sample rows)
     - assay: chipseq, peak_mode: narrow
     """
     rows = []
-    if not stage5:
+    if not chipseq_idr:
         return rows
 
     exp_bioreps: dict[str, set[int]] = {}
@@ -837,7 +839,7 @@ def _compute_reproducibility_eligibility(config, treatment_samples):
     consensus_cfg = repro.get("consensus", {})
     consensus_enabled = repro_enabled and consensus_cfg.get("enabled", True)
     idr_cfg = repro.get("idr", {})
-    stage4b = config.get("stage4b", True)
+    replicate_analysis = config.get("replicate_analysis", True)
     cuttag_cfg = config.get("cuttag", {})
     seacr_cfg = cuttag_cfg.get("seacr", {})
     seacr_enabled = (
@@ -877,7 +879,7 @@ def _compute_reproducibility_eligibility(config, treatment_samples):
         if len(bioreps) < 2:
             continue
 
-        # Consensus eligibility (≥2 bioreps needed, stage4b downstream)
+        # Consensus eligibility (≥2 bioreps needed, replicate_analysis downstream)
         if (assay, peak_mode) in [
             ("chipseq", "narrow"),
             ("chipseq", "broad"),
@@ -905,7 +907,7 @@ def _compute_reproducibility_eligibility(config, treatment_samples):
             cuttag_broad_idr_exps.append(exp)
 
     return {
-        "stage4b_enabled": stage4b,
+        "replicate_analysis_enabled": replicate_analysis,
         "repro_enabled": repro_enabled,
         "consensus_enabled": consensus_enabled,
         "atac_narrow_idr": atac_narrow_idr,
@@ -928,7 +930,7 @@ def _build_reproducibility_rows(samples, config, outdir):
 
     Only user-facing catalog outputs (consensus peak, consensus summary,
     final validated peak, IDR summary). No intermediate per-biorep files.
-    Omitted entirely for disabled modes and when stage4b is false.
+    Omitted entirely for disabled modes and when replicate_analysis is false.
 
     Uses _add_row() with literal output_type strings so Stage 49 AST
     contract can discover the full vocabulary.
@@ -937,7 +939,7 @@ def _build_reproducibility_rows(samples, config, outdir):
     treatment = [s for s in samples if s.get("role") == "treatment"]
     e = _compute_reproducibility_eligibility(config, treatment)
 
-    if not e["stage4b_enabled"]:
+    if not e["replicate_analysis_enabled"]:
         return rows
 
     def _exp_meta(exp_id):
@@ -1321,9 +1323,9 @@ def _build_project_rows(outdir, multiqc_enabled, has_peak_samples):
             "",
             "",
             "",
-            "stage3_qc_summary",
+            "project_qc_summary",
             "aggregate_qc_summary",
-            _resolve_path(outdir, "multiqc", "stage3_qc_summary.tsv"),
+            _resolve_path(outdir, "multiqc", "project_qc_summary.tsv"),
         )
     else:
         _add_row(
@@ -1333,7 +1335,7 @@ def _build_project_rows(outdir, multiqc_enabled, has_peak_samples):
             "",
             "",
             "",
-            "stage3_qc_summary",
+            "project_qc_summary",
             "aggregate_qc_summary",
             "",
             check_exists=False,
@@ -1379,8 +1381,8 @@ def build_manifest_rows(config, samples_path=None):
     outdir = config.get("outdir", "results")
     qc = config.get("qc", {})
     signal_tracks = qc.get("signal_tracks", True)
-    stage4b = config.get("stage4b", True)
-    stage5 = config.get("stage5", False)
+    replicate_analysis = config.get("replicate_analysis", True)
+    chipseq_idr = config.get("chipseq_idr", False)
     multiqc_enabled = config.get("multiqc", True)
     genomic_resources = config.get("genome_resources", {})
 
@@ -1388,7 +1390,7 @@ def build_manifest_rows(config, samples_path=None):
     samples = load_and_validate_samples(
         samples_path,
         use_control=config.get("use_control", False),
-        stage5_enabled=stage5,
+        chipseq_idr_enabled=chipseq_idr,
     )
     treatment_samples = [s for s in samples if s.get("role") == "treatment"]
     has_peak_samples = any(_is_mnase(s) is False for s in treatment_samples)
@@ -1399,10 +1401,14 @@ def build_manifest_rows(config, samples_path=None):
     )
     rows.extend(
         _build_experiment_rows(
-            treatment_samples, outdir, signal_tracks, genomic_resources, stage4b
+            treatment_samples,
+            outdir,
+            signal_tracks,
+            genomic_resources,
+            replicate_analysis,
         )
     )
-    rows.extend(_build_idr_rows(treatment_samples, outdir, stage5))
+    rows.extend(_build_idr_rows(treatment_samples, outdir, chipseq_idr))
     rows.extend(_build_reproducibility_rows(treatment_samples, config, outdir))
     rows.extend(_build_project_rows(outdir, multiqc_enabled, has_peak_samples))
 

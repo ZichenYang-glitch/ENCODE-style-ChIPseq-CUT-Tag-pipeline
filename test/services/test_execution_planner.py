@@ -336,7 +336,7 @@ def test_workspace_planner_resolves_private_reference_without_persisting_inputs(
     assert resolver.calls[0][2].to_dict() == original_snapshot
 
 
-def test_workspace_planner_preserves_one_adapter_deprecation_warning(tmp_path):
+def test_workspace_planner_semantic_config_has_only_completion_issue(tmp_path):
     adapter = EncodeStyleWorkflowAdapter()
     row = {
         "sample": "S1",
@@ -350,16 +350,14 @@ def test_workspace_planner_preserves_one_adapter_deprecation_warning(tmp_path):
         "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
     }
     plan = ExecutionPlan(
-        plan_id="plan-semantic-warning",
-        run_id="run-semantic-warning",
+        plan_id="plan-semantic-config",
+        run_id="run-semantic-config",
         workflow_id=adapter.metadata.workflow_id,
         status=PlanStatus.UNSUPPORTED,
         inputs_snapshot=WorkflowInputs(
             config={
                 "replicate_analysis": {"enabled": False},
-                "stage4b": False,
                 "chipseq_idr": {"enabled": False},
-                "stage5": "FALSE",
             },
             samples=[row],
         ).to_dict(),
@@ -376,11 +374,9 @@ def test_workspace_planner_preserves_one_adapter_deprecation_warning(tmp_path):
 
     assert result.is_success
     assert [issue.code for issue in result.issues] == [
-        "ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED",
         "ENCODE_WORKSPACE_PLANNING_COMPLETE",
     ]
     assert [issue.code for issue in result.value.issues] == [
-        "ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED",
         "ENCODE_WORKSPACE_PLANNING_COMPLETE",
     ]
 

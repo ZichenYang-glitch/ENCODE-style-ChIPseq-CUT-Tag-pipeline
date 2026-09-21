@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Stage 5b reproducibility QC summary and final peak set assembly.
+"""ChIP-seq IDR reproducibility QC summary and final peak set assembly.
 
 Reads IDR thresholded peak files, computes rescue ratio and self-consistency
 ratio, handles zero denominators, writes reproducibility_summary.tsv, and
 copies conservative/optimal peak sets.
 
 Usage:
-    python3 scripts/stage5b_summary.py \
+    python3 scripts/chipseq_idr_summary.py \
         --true-peaks true_replicates/idr.thresholded.narrowPeak \
         --pooled-peaks pooled_pseudoreps/idr.thresholded.narrowPeak \
         --self1-peaks self_pseudoreps/biorepA.idr.thresholded.narrowPeak \
@@ -42,7 +42,7 @@ def compute_ratio(numerator, denominator):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Stage 5b reproducibility summary")
+    parser = argparse.ArgumentParser(description="ChIP-seq IDR reproducibility summary")
     parser.add_argument("--true-peaks", required=True)
     parser.add_argument("--pooled-peaks", required=True)
     parser.add_argument("--self1-peaks", required=True)

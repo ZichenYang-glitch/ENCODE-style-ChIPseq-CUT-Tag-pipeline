@@ -6,6 +6,7 @@
 all
 bamcoverage
 bowtie2_align
+chipseq_idr_summary
 duplicate_handling
 fastqc
 fastqc_stage
@@ -27,5 +28,4 @@ samtools_idxstats
 samtools_index_filt
 samtools_index_sorted
 split_pseudoreps
-stage5b_summary
 trim_galore

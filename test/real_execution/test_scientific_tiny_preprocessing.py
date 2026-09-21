@@ -193,8 +193,8 @@ def write_config_and_samples(workdir):
         'extend_reads: "auto"\n'
         "use_control: false\n"
         "multiqc: false\n"
-        "stage4b: true\n"
-        "stage5: false\n"
+        "replicate_analysis: true\n"
+        "chipseq_idr: false\n"
         "genome_resources:\n"
         "  hs:\n"
         '    effective_genome_size: "hs"\n'

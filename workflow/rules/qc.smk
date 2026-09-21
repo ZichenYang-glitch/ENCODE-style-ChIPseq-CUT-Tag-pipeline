@@ -1,4 +1,4 @@
-# qc.smk — Stage 3 Single-Sample QC rules
+# qc.smk — Single-Sample QC rules
 # ========================================
 # Blacklist filtering (BAM + peaks), peak counts, FRiP, library complexity,
 # MACS3 signal tracks, and QC summary.
@@ -14,7 +14,7 @@
 #   signal_track_fe         → MACS3 bdgcmp FE bedGraph
 #   signal_track_ppois      → MACS3 bdgcmp ppois bedGraph
 #   qc_summary              → per-sample TSV assembly
-#   stage3_qc_summary       → project-level aggregated summary
+#   project_qc_summary       → project-level aggregated summary
 
 # Helper: peak file suffix for a sample
 def _peak_suffix(sample_id):
@@ -223,7 +223,7 @@ def _frip_inputs(wildcards):
 
 
 # ---------------------------------------------------------------------------
-# 5. Library complexity (Stage 3b-1)
+# 5. Library complexity (duplication metrics)
 # ---------------------------------------------------------------------------
 
 rule library_complexity:
@@ -247,7 +247,7 @@ rule library_complexity:
 
 
 # ---------------------------------------------------------------------------
-# 5a. NRF/PBC library complexity (Stage 3c-1)
+# 5a. NRF/PBC library complexity (BAM-derived metrics)
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -340,7 +340,7 @@ rule nrf_pbc:
 
 
 # ---------------------------------------------------------------------------
-# 6. MACS3 signal tracks (Stage 3b-2)
+# 6. MACS3 signal tracks (fold enrichment and p-value)
 # ---------------------------------------------------------------------------
 
 rule signal_track_fe:
@@ -909,9 +909,9 @@ rule tss_enrichment_profile:
 # 8. Project-level QC summary
 # ---------------------------------------------------------------------------
 
-rule stage3_qc_summary:
+rule project_qc_summary:
     output:
-        f"{OUTDIR}/multiqc/stage3_qc_summary.tsv",
+        f"{OUTDIR}/multiqc/project_qc_summary.tsv",
     input:
         [f"{OUTDIR}/{sid}/01_qc/{sid}.qc_summary.tsv"
          for sid in TREATMENT_SAMPLE_IDS],

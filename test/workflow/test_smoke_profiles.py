@@ -25,7 +25,7 @@ SCHEDULING_CHECKS = {
         "split_pseudoreps",
         "idr_self_pseudoreps",
         "idr_pooled_pseudoreps",
-        "stage5b_summary",
+        "chipseq_idr_summary",
     ],
 }
 

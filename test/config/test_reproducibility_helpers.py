@@ -13,7 +13,7 @@ class CustomError(Exception):
 
 
 def test_validate_reproducibility_expands_defaults():
-    validated = validate_reproducibility({"enabled": True}, {"stage5": False})
+    validated = validate_reproducibility({"enabled": True}, {"chipseq_idr": False})
     assert validated == {
         "enabled": True,
         "consensus": {"enabled": True, "min_replicates": 2, "reciprocal_overlap": 0.5},
@@ -31,7 +31,7 @@ def test_validate_reproducibility_uses_custom_error_class():
     with pytest.raises(CustomError, match="unknown key 'bad'"):
         validate_reproducibility(
             {"enabled": True, "idr": {"bad": True}},
-            {"stage5": False},
+            {"chipseq_idr": False},
             error_cls=CustomError,
         )
 

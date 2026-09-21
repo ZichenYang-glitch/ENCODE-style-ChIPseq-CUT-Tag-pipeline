@@ -45,8 +45,8 @@ def _dry_run(
         "outdir": str(tmp_path / "results"),
         "use_control": False,
         "threads": 1,
-        "stage4b": True,
-        "stage5": False,
+        "replicate_analysis": True,
+        "chipseq_idr": False,
         "qc": {"signal_tracks": signal_tracks},
     }
     _, config_path, _ = tmp_config(

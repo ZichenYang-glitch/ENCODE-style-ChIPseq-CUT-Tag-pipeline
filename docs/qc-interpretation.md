@@ -271,7 +271,7 @@ pipeline runs SEACR as a sidecar alongside MACS3.
 **Outputs:** `experiments/<exp>/` with pooled BAMs, pooled peaks, pooled
 signal tracks, and `pooled_qc_summary.tsv`
 
-When `stage4b: true` and the sample sheet defines experiments with >= 2
+When `replicate_analysis: true` and the sample sheet defines experiments with >= 2
 biological replicates:
 
 - **Pooled BAM:** all treatment biorep BAMs merged. Deeper effective coverage

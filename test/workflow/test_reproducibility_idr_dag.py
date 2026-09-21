@@ -124,8 +124,8 @@ def _base_config(tmp_path: Path) -> dict:
         "threads": 1,
         "trim": False,
         "multiqc": False,
-        "stage4b": True,
-        "stage5": False,
+        "replicate_analysis": True,
+        "chipseq_idr": False,
         "qc": {
             "blacklist_filter": False,
             "frip": False,
@@ -167,10 +167,10 @@ def _dry_run(
     sample_rows,
     reproducibility,
     idr=None,
-    stage5=False,
+    chipseq_idr=False,
 ):
     config = _base_config(tmp_path)
-    config["stage5"] = stage5
+    config["chipseq_idr"] = chipseq_idr
     config["reproducibility"] = reproducibility
     if idr is not None:
         config["idr"] = idr
@@ -410,10 +410,10 @@ def test_cuttag_idr_coexists_with_chipseq_narrow_idr(
             "consensus": {"enabled": False},
             "idr": {"cuttag_narrow": True},
         },
-        stage5=True,
+        chipseq_idr=True,
     )
 
     assert "idr_summary_cuttag_narrow" in rules
-    assert "stage5b_summary" in rules
+    assert "chipseq_idr_summary" in rules
     assert "experiments/cuttag_exp/06_reproducibility/idr/" in output
     assert "experiments/chip_exp/06_idr/" in output

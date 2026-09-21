@@ -272,7 +272,7 @@ def test_control_sample_must_belong_to_same_experiment():
 
 
 # ---------------------------------------------------------------------------
-# Stage 5 IDR eligibility
+# ChIP-seq IDR eligibility
 # ---------------------------------------------------------------------------
 
 
@@ -282,7 +282,7 @@ def test_chipseq_narrow_idr_two_bioreps_passes():
         _sample(sid="S2", biological_replicate=2),
     ]
     assert (
-        validate_replicate_groups(samples, use_control=False, stage5_enabled=True)
+        validate_replicate_groups(samples, use_control=False, chipseq_idr_enabled=True)
         is None
     )
 
@@ -302,9 +302,9 @@ def test_chipseq_narrow_idr_skips_other_assay_modes(assay, peak_mode):
     ]
     with pytest.raises(
         ValidationError,
-        match="stage5=true but no eligible ChIP-seq narrow experiments",
+        match="chipseq_idr=true but no eligible ChIP-seq narrow experiments",
     ):
-        validate_replicate_groups(samples, use_control=False, stage5_enabled=True)
+        validate_replicate_groups(samples, use_control=False, chipseq_idr_enabled=True)
 
 
 def test_chipseq_narrow_idr_wrong_biorep_count_rejected():
@@ -312,8 +312,8 @@ def test_chipseq_narrow_idr_wrong_biorep_count_rejected():
         _sample(sid="S1", biological_replicate=1),
         _sample(sid="S2", biological_replicate=1, technical_replicate=2),
     ]
-    with pytest.raises(ValidationError, match="Stage 5 IDR"):
-        validate_replicate_groups(samples, use_control=False, stage5_enabled=True)
+    with pytest.raises(ValidationError, match="ChIP-seq IDR"):
+        validate_replicate_groups(samples, use_control=False, chipseq_idr_enabled=True)
 
 
 def test_chipseq_narrow_idr_without_eligible_experiment_rejected():
@@ -323,9 +323,9 @@ def test_chipseq_narrow_idr_without_eligible_experiment_rejected():
     ]
     with pytest.raises(
         ValidationError,
-        match="stage5=true but no eligible ChIP-seq narrow experiments",
+        match="chipseq_idr=true but no eligible ChIP-seq narrow experiments",
     ):
-        validate_replicate_groups(samples, use_control=False, stage5_enabled=True)
+        validate_replicate_groups(samples, use_control=False, chipseq_idr_enabled=True)
 
 
 # ---------------------------------------------------------------------------
@@ -490,7 +490,7 @@ def test_all_idr_modes_validate_independently_in_one_mixed_sample_sheet():
         validate_replicate_groups(
             samples,
             use_control=False,
-            stage5_enabled=True,
+            chipseq_idr_enabled=True,
             reproducibility_idr_atac_narrow=True,
             reproducibility_idr_cuttag_narrow=True,
             reproducibility_idr_chipseq_broad=True,

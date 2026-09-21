@@ -22,8 +22,8 @@ def _dry_run(tmp_path, tmp_config, run_snakemake, tool_parameters=None):
         "outdir": str(tmp_path / "results"),
         "use_control": False,
         "threads": 1,
-        "stage4b": False,
-        "stage5": False,
+        "replicate_analysis": False,
+        "chipseq_idr": False,
     }
     if tool_parameters is not None:
         config["tool_parameters"] = tool_parameters

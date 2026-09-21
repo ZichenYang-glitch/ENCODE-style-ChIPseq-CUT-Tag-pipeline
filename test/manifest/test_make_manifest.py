@@ -54,8 +54,8 @@ def _base_config():
     return {
         "use_control": False,
         "multiqc": True,
-        "stage4b": True,
-        "stage5": False,
+        "replicate_analysis": True,
+        "chipseq_idr": False,
         "qc": {"signal_tracks": True, "summary": True},
         "genome_resources": {
             "hs": {"effective_genome_size": "hs", "chrom_sizes": ""},
@@ -146,7 +146,7 @@ def test_default_expected_output_types(manifest_case):
         "macs3_ppois_bdg",
         "macs3_fe_bw",
         "macs3_ppois_bw",
-        "stage3_qc_summary",
+        "project_qc_summary",
         "multiqc_report",
     }
     assert expected.issubset(types), f"Missing types: {expected - types}"
@@ -331,8 +331,8 @@ def test_custom_outdir_config_json(manifest_case):
         "outdir": custom_outdir,
         "use_control": False,
         "multiqc": True,
-        "stage4b": True,
-        "stage5": False,
+        "replicate_analysis": True,
+        "chipseq_idr": False,
         "qc": {"signal_tracks": True, "summary": True},
         "genome_resources": {"hs": {"effective_genome_size": "hs", "chrom_sizes": ""}},
     }
@@ -544,7 +544,7 @@ def test_idr_with_tech_reps(manifest_case):
     ]
     _, config_path, _, out = manifest_case(
         config_updates={
-            "stage5": True,
+            "chipseq_idr": True,
             "idr": {"seed": 42, "threshold": 0.05, "rank": "p.value"},
         },
         sample_rows=sample_rows,
@@ -812,7 +812,7 @@ def test_disabled_idr_modes_are_omitted_and_consensus_remains_primary(
         ),
         pytest.param(
             {
-                "stage4b": False,
+                "replicate_analysis": False,
                 "reproducibility": {
                     "enabled": True,
                     "consensus": {"enabled": True},
@@ -1016,7 +1016,7 @@ def test_mnase_pooled_rows(manifest_case):
             )
 
 
-def test_mnase_pure_no_stage3_qc_summary(manifest_case):
+def test_mnase_pure_no_project_qc_summary(manifest_case):
     columns, sample_rows = _mnase_samples()
     _, config_path, _, out = manifest_case(
         sample_rows=sample_rows,
@@ -1024,7 +1024,7 @@ def test_mnase_pure_no_stage3_qc_summary(manifest_case):
     )
     result, rows = _run_manifest(config_path, out)
     assert result.returncode == 0, result.stderr[-200:]
-    matching = [r for r in rows if r["output_type"] == "stage3_qc_summary"]
+    matching = [r for r in rows if r["output_type"] == "project_qc_summary"]
     assert len(matching) == 1
     assert matching[0]["status"] == "not_applicable"
 

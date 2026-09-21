@@ -64,7 +64,7 @@ rule macs3_callpeak:
 
 
 # ---------------------------------------------------------------------------
-# Pooled MACS3 peak calling (Stage 4b)
+# Pooled MACS3 peak calling (replicate analysis)
 # ---------------------------------------------------------------------------
 
 

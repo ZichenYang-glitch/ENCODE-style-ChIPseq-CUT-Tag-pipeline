@@ -150,7 +150,7 @@ def _single_sample_qc_targets():
             sample=PEAK_SAMPLE_IDS,
         )
     if QC_CONFIG.get("summary", True) and PEAK_SAMPLE_IDS:
-        targets += [f"{OUTDIR}/multiqc/stage3_qc_summary.tsv"]
+        targets += [f"{OUTDIR}/multiqc/project_qc_summary.tsv"]
     return targets
 
 
@@ -185,7 +185,7 @@ def _signal_targets():
             sample=SIGNAL_BW_SAMPLE_IDS,
         )
     # Stage 6a: pooled bedGraph
-    if STAGE4B and PEAK_MULTI_BIOREP_EXPERIMENTS and QC_CONFIG.get("signal_tracks", True):
+    if REPLICATE_ANALYSIS and PEAK_MULTI_BIOREP_EXPERIMENTS and QC_CONFIG.get("signal_tracks", True):
         targets += expand(
             "{outdir}/experiments/{experiment}/03_signal/{experiment}.pooled.FE.bdg",
             outdir=OUTDIR,
@@ -197,7 +197,7 @@ def _signal_targets():
             experiment=PEAK_MULTI_BIOREP_EXPERIMENTS,
         )
     # Stage 22: pooled BigWig (gated on signal_tracks + chrom_sizes)
-    if STAGE4B and SIGNAL_BW_EXPERIMENTS:
+    if REPLICATE_ANALYSIS and SIGNAL_BW_EXPERIMENTS:
         targets += expand(
             "{outdir}/experiments/{experiment}/03_signal/{experiment}.pooled.FE.bw",
             outdir=OUTDIR,
@@ -309,9 +309,9 @@ def _tss_targets():
 
 
 def _replicate_targets():
-    """Stage 4b/6b: pooled BAMs, biorep BAMs, pooled peaks, pooled QC summary."""
+    """Replicate analysis: pooled BAMs, biorep BAMs, pooled peaks, pooled QC summary."""
     targets = []
-    if STAGE4B and MULTI_BIOREP_EXPERIMENTS:
+    if REPLICATE_ANALYSIS and MULTI_BIOREP_EXPERIMENTS:
         targets += expand(
             "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.final.bam",
             outdir=OUTDIR,
@@ -322,7 +322,7 @@ def _replicate_targets():
             outdir=OUTDIR,
             experiment=MULTI_BIOREP_EXPERIMENTS,
         )
-    if STAGE4B and _EXP_LIST:
+    if REPLICATE_ANALYSIS and _EXP_LIST:
         targets += expand(
             "{outdir}/experiments/{experiment}/02_align/biorep{bio_rep}.final.bam",
             zip,
@@ -337,7 +337,7 @@ def _replicate_targets():
             experiment=_EXP_LIST,
             bio_rep=_BR_LIST,
         )
-    if STAGE4B and POOLED_CONTROL_EXPERIMENTS:
+    if REPLICATE_ANALYSIS and POOLED_CONTROL_EXPERIMENTS:
         targets += expand(
             "{outdir}/experiments/{experiment}/02_align/{experiment}.pooled.control.final.bam",
             outdir=OUTDIR,
@@ -348,13 +348,13 @@ def _replicate_targets():
             outdir=OUTDIR,
             experiment=POOLED_CONTROL_EXPERIMENTS,
         )
-    if STAGE4B and PEAK_MULTI_BIOREP_EXPERIMENTS:
+    if REPLICATE_ANALYSIS and PEAK_MULTI_BIOREP_EXPERIMENTS:
         targets += expand(
             "{outdir}/experiments/{experiment}/04_peaks/pooled/{experiment}_pooled_peaks",
             outdir=OUTDIR,
             experiment=PEAK_MULTI_BIOREP_EXPERIMENTS,
         )
-    if STAGE4B and PEAK_MULTI_BIOREP_EXPERIMENTS:
+    if REPLICATE_ANALYSIS and PEAK_MULTI_BIOREP_EXPERIMENTS:
         targets += expand(
             "{outdir}/experiments/{experiment}/01_qc/{experiment}.pooled_qc_summary.tsv",
             outdir=OUTDIR,
@@ -408,7 +408,7 @@ def _mnase_targets():
             sample=MNASE_SAMPLE_IDS,
         )
     # Pooled MNase outputs (>=2 biorep MNase experiments)
-    if STAGE4B and MNASE_MULTI_BIOREP_EXPERIMENTS:
+    if REPLICATE_ANALYSIS and MNASE_MULTI_BIOREP_EXPERIMENTS:
         targets += expand(
             mnase_pooled_fragment_bam("{experiment}", "mono"),
             experiment=MNASE_MULTI_BIOREP_EXPERIMENTS,
@@ -447,9 +447,9 @@ def _idr_target_list(enabled, experiments, *groups):
 
 
 def _idr_targets():
-    """Stage 5a/5b: IDR-ready peaks, true-replicate IDR, pseudoreplicate IDR, final outputs."""
+    """ChIP-seq IDR: ready peaks, true-replicate IDR, pseudoreplicate IDR, final outputs."""
     return _idr_target_list(
-        STAGE5,
+        CHIPSEQ_IDR,
         IDR_EXPERIMENTS,
         (
             f"{OUTDIR}/experiments/{{experiment}}/04_peaks/idr/"
@@ -518,7 +518,7 @@ def _idr_targets():
 
 
 def _atac_idr_targets():
-    """Stage 55: ATAC narrow IDR — biorep peaks, true-rep IDR, pseudorep IDR, final outputs."""
+    """ATAC narrow IDR — biorep peaks, true-rep IDR, pseudorep IDR, final outputs."""
     return _idr_target_list(
         ATAC_IDR_ENABLED,
         ATAC_IDR_EXPERIMENTS,
@@ -796,7 +796,7 @@ def _broad_idr_targets():
 def _consensus_targets():
     """Stage 62: Consensus peak targets for all MACS3 modes."""
     targets = []
-    if not (CONSENSUS_ENABLED and STAGE4B and CONSENSUS_EXPERIMENTS):
+    if not (CONSENSUS_ENABLED and REPLICATE_ANALYSIS and CONSENSUS_EXPERIMENTS):
         return targets
 
     for (assay, peak_mode), exps in CONSENSUS_EXPERIMENTS.items():

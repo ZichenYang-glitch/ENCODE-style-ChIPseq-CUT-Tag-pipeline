@@ -169,10 +169,10 @@ def test_consensus_reciprocal_overlap_rejects_invalid_values(tmp_path, raw):
 # ---------------------------------------------------------------------------
 
 
-def test_idr_settings_normalize_when_stage5_enabled(tmp_path):
+def test_idr_settings_normalize_when_chipseq_idr_enabled(tmp_path):
     validated = _validate(
         tmp_path,
-        stage5=True,
+        chipseq_idr=True,
         idr={"threshold": "0.01", "rank": "signal.value", "seed": "123"},
     )
     assert validated["idr"] == {
@@ -198,29 +198,29 @@ def test_idr_settings_ignored_when_no_idr_mode_enabled(tmp_path):
 
 def test_idr_settings_must_be_mapping_when_idr_mode_enabled(tmp_path):
     with pytest.raises(ValidationError, match="idr must be a mapping"):
-        _validate(tmp_path, stage5=True, idr="bad")
+        _validate(tmp_path, chipseq_idr=True, idr="bad")
 
 
 @pytest.mark.parametrize("raw", [True, 0, 1, 1.5, "bad"])
 def test_idr_threshold_rejects_invalid_values(tmp_path, raw):
     with pytest.raises(ValidationError, match="idr.threshold"):
-        _validate(tmp_path, stage5=True, idr={"threshold": raw})
+        _validate(tmp_path, chipseq_idr=True, idr={"threshold": raw})
 
 
 def test_idr_rank_rejects_invalid_value(tmp_path):
     with pytest.raises(ValidationError, match="idr.rank must be"):
-        _validate(tmp_path, stage5=True, idr={"rank": "score"})
+        _validate(tmp_path, chipseq_idr=True, idr={"rank": "score"})
 
 
 @pytest.mark.parametrize("raw", [True, 0, -1, "0", "-1", "abc", 1.5])
 def test_idr_seed_rejects_invalid_values(tmp_path, raw):
     with pytest.raises(ValidationError, match="idr.seed must be"):
-        _validate(tmp_path, stage5=True, idr={"seed": raw})
+        _validate(tmp_path, chipseq_idr=True, idr={"seed": raw})
 
 
 def test_idr_unknown_key_rejected_when_idr_mode_enabled(tmp_path):
     with pytest.raises(ValidationError, match="idr: unknown key 'bad'"):
-        _validate(tmp_path, stage5=True, idr={"bad": True})
+        _validate(tmp_path, chipseq_idr=True, idr={"bad": True})
 
 
 # ---------------------------------------------------------------------------
@@ -229,17 +229,22 @@ def test_idr_unknown_key_rejected_when_idr_mode_enabled(tmp_path):
 
 
 def test_chipseq_narrow_idr_requires_replicate_analysis(tmp_path):
-    with pytest.raises(ValidationError, match="stage5=true requires stage4b=true"):
-        _validate(tmp_path, stage4b=False, stage5=True)
+    with pytest.raises(
+        ValidationError, match="chipseq_idr=true requires replicate_analysis=true"
+    ):
+        _validate(tmp_path, replicate_analysis=False, chipseq_idr=True)
 
 
 @pytest.mark.parametrize(
     "flag,pattern",
     [
-        ("atac_narrow", "reproducibility.idr.atac_narrow=true requires stage4b=true"),
+        (
+            "atac_narrow",
+            "reproducibility.idr.atac_narrow=true requires replicate_analysis=true",
+        ),
         (
             "cuttag_narrow",
-            "reproducibility.idr.cuttag_narrow=true requires stage4b=true",
+            "reproducibility.idr.cuttag_narrow=true requires replicate_analysis=true",
         ),
         (
             "chipseq_broad_experimental",
@@ -251,7 +256,7 @@ def test_chipseq_narrow_idr_requires_replicate_analysis(tmp_path):
         ),
     ],
 )
-def test_reproducibility_idr_modes_require_stage4b(tmp_path, flag, pattern):
+def test_reproducibility_idr_modes_require_replicate_analysis(tmp_path, flag, pattern):
     broad_flags = {"chipseq_broad_experimental", "cuttag_broad_experimental"}
     warning_context = (
         pytest.warns(UserWarning, match="Experimental IDR flag enabled")
@@ -262,7 +267,7 @@ def test_reproducibility_idr_modes_require_stage4b(tmp_path, flag, pattern):
         with pytest.raises(ValidationError, match=re.escape(pattern)):
             _validate(
                 tmp_path,
-                stage4b=False,
+                replicate_analysis=False,
                 reproducibility={"enabled": True, "idr": {flag: True}},
             )
 
@@ -339,7 +344,7 @@ def test_chipseq_narrow_idr_compatibility_switch_warns_on_conflict(tmp_path):
     with pytest.warns(UserWarning, match="Config contradiction"):
         validated = _validate(
             tmp_path,
-            stage5=True,
+            chipseq_idr=True,
             reproducibility={
                 "enabled": True,
                 "idr": {"chipseq_narrow": False},

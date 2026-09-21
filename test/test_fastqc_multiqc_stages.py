@@ -32,8 +32,8 @@ def _write_config(workdir, samples_path, *, trim):
         'extend_reads: "auto"\n'
         "use_control: false\n"
         "multiqc: false\n"
-        "stage4b: false\n"
-        "stage5: false\n"
+        "replicate_analysis: false\n"
+        "chipseq_idr: false\n"
         "genome_resources:\n"
         "  hs:\n"
         '    effective_genome_size: "hs"\n'

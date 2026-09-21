@@ -1,4 +1,4 @@
-# replicates.smk — Stage 4b replicate-aware grouped outputs
+# replicates.smk — Replicate-aware grouped outputs
 # ===========================================================
 # Produces biological-replicate BAMs, pooled treatment BAMs, and
 # pooled control BAMs. All rules run after per-sample final.bam.

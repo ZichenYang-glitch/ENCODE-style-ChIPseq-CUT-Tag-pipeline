@@ -43,11 +43,11 @@ Supported via `use_control: true` with either `control_sample` (FASTQ row) or `c
 
 ### Reproducibility
 
-The legacy `stage5` path supports ChIP-seq narrow IDR with exactly two
+The `chipseq_idr` path supports ChIP-seq narrow IDR with exactly two
 treatment biological replicates. The separate `reproducibility` block provides
 replicate consensus and experimental opt-in broad IDR under the maintained
 [reproducibility policy](reproducibility-policy.md). See the
-[legacy IDR contract](idr-contract.md) for `stage5` details.
+[ChIP-seq narrow IDR contract](idr-contract.md) for `chipseq_idr` details.
 
 ---
 
@@ -142,7 +142,7 @@ Replicate consensus and opt-in narrow IDR are implemented under the
 
 ### Replicate model
 
-- `stage4b: true` (default) enables replicate-aware outputs.
+- `replicate_analysis: true` (default) enables replicate-aware outputs.
 - Technical replicates (`technical_replicate`) are merged into biological-replicate BAMs.
 - Pooled outputs only for experiments with >=2 unique `biological_replicate` values.
 - Pooled controls are produced when a multi-biorep treatment experiment has controls referenced.
@@ -157,7 +157,7 @@ Replicate consensus and opt-in narrow IDR are implemented under the
 ### Summary and manifest
 
 - Per-sample `qc_summary.tsv` (37 columns) is assembled by `scripts/assemble_qc_summary.py`.
-- Project-level `stage3_qc_summary.tsv` is aggregated by `scripts/aggregate_qc_summary.py`.
+- Project-level `project_qc_summary.tsv` is aggregated by `scripts/aggregate_qc_summary.py`.
 - `result_manifest.tsv` records core output existence with 10-column TSV, using `validate_samples` for DAG-consistent gating.
 - MNase samples do not produce `qc_summary.tsv` (no peaks); instead they produce `mnase_qc_summary.tsv`.
 
@@ -222,7 +222,7 @@ stratification metadata, read counts, and caller configuration status.
 For MNase experiments with >=2 biological replicates, pooled outputs are produced:
 `<e>.pooled.mono.bam`, `<e>.pooled.dyad.CPM.bw`, `<e>.pooled.mono.CPM.bw`.
 
-Pooled BAMs reuse the existing `stage4b` replicate merge logic
+Pooled BAMs reuse the existing `replicate_analysis` replicate merge logic
 (assay-agnostic).
 
 ### Controls

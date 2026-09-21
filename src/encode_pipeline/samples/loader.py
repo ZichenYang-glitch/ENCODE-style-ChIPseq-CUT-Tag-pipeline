@@ -18,7 +18,7 @@ def load_and_validate_samples(
     sample_tsv: str,
     *,
     use_control: bool = False,
-    stage5_enabled: bool = False,
+    chipseq_idr_enabled: bool = False,
     strict_inputs: bool = False,
     reproducibility_idr_atac_narrow: bool = False,
     reproducibility_idr_cuttag_narrow: bool = False,
@@ -81,11 +81,11 @@ def load_and_validate_samples(
                         f"has role={cs_row['role']!r}, expected role=control"
                     )
 
-    # --- Pass 3: replicate group validation (Stage 4b) ---
+    # --- Pass 3: replicate group validation ---
     replicates_validation.validate_replicate_groups(
         samples,
         use_control,
-        stage5_enabled,
+        chipseq_idr_enabled,
         reproducibility_idr_atac_narrow=reproducibility_idr_atac_narrow,
         reproducibility_idr_cuttag_narrow=reproducibility_idr_cuttag_narrow,
         reproducibility_idr_chipseq_broad=reproducibility_idr_chipseq_broad,

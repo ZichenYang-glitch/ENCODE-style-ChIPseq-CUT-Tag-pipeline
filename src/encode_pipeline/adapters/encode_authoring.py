@@ -17,7 +17,7 @@ from encode_pipeline.platform.adapters import (
 )
 
 
-SCHEMA_VERSION = "1.3.0"
+SCHEMA_VERSION = "2.0.0"
 MAX_CORES = 1024
 _SCHEMA_ID_ROOT = (
     "https://encode-pipeline.org/schemas/encode-style-chipseq-cuttag-atac-mnase"

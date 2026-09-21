@@ -3,7 +3,7 @@
 # Replaces the assay-specific rule files idr_atac.smk, idr_cuttag.smk, and
 # idr_broad.smk with a single parameterized file.
 #
-# The legacy Stage 5 ChIP-seq IDR rules in idr.smk are intentionally kept
+# The ChIP-seq narrow IDR rules in idr.smk are intentionally kept
 # separate because they live in the 06_idr/ namespace and use a different
 # filename convention.
 #

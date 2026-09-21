@@ -83,7 +83,7 @@ Project-level rows use empty `sample_id` and `experiment_id` fields.
 | `pooled_ppois_bw` | bedGraphToBigWig | pooled_signal_track_ppois_bw | `results/experiments/<exp>/03_signal/<exp>.pooled.ppois.bw` | implemented |
 | `pooled_qc_summary` | pooled_qc_summary.py | pooled_experiment_qc_summary | `results/experiments/<exp>/01_qc/<exp>.pooled_qc_summary.tsv` | stable |
 
-### Legacy `stage5` IDR outputs (TF ChIP-seq narrowPeak only)
+### ChIP-seq narrow IDR (`chipseq_idr`) outputs (TF ChIP-seq narrowPeak only)
 
 | output_type | method | rule | path | status |
 | :--- | :--- | :--- | :--- | :--- |
@@ -91,9 +91,9 @@ Project-level rows use empty `sample_id` and `experiment_id` fields.
 | `idr_true_replicate_thresh` | idr | idr_true_replicates | `results/experiments/<exp>/06_idr/true_replicates/idr.thresholded.narrowPeak` | stable |
 | `idr_self_raw` | idr | idr_self_pseudoreps | `results/experiments/<exp>/06_idr/self_pseudoreplicates/biorep<N>.idr.txt` | stable |
 | `idr_pooled_raw` | idr | idr_pooled_pseudoreps | `results/experiments/<exp>/06_idr/pooled_pseudoreplicates/idr.txt` | stable |
-| `idr_conservative` | idr filter | stage5b_summary | `results/experiments/<exp>/06_idr/final/conservative.narrowPeak` | stable |
-| `idr_optimal` | idr filter | stage5b_summary | `results/experiments/<exp>/06_idr/final/optimal.narrowPeak` | stable |
-| `idr_reproducibility_summary` | (script) | stage5b_summary | `results/experiments/<exp>/06_idr/final/reproducibility_summary.tsv` | stable |
+| `idr_conservative` | idr filter | chipseq_idr_summary | `results/experiments/<exp>/06_idr/final/conservative.narrowPeak` | stable |
+| `idr_optimal` | idr filter | chipseq_idr_summary | `results/experiments/<exp>/06_idr/final/optimal.narrowPeak` | stable |
+| `idr_reproducibility_summary` | (script) | chipseq_idr_summary | `results/experiments/<exp>/06_idr/final/reproducibility_summary.tsv` | stable |
 
 ### Reproducibility outputs (per experiment)
 
@@ -146,7 +146,7 @@ Project-level rows use empty `sample_id` and `experiment_id` fields.
 | output_type | method | rule | path | status |
 | :--- | :--- | :--- | :--- | :--- |
 | `multiqc_report` | MultiQC | (report.smk) | `results/multiqc/multiqc_report.html` | stable |
-| `stage3_qc_summary` | aggregate_qc_summary | stage3_qc_summary | `results/multiqc/stage3_qc_summary.tsv` | implemented |
+| `project_qc_summary` | aggregate_qc_summary | project_qc_summary | `results/multiqc/project_qc_summary.tsv` | implemented |
 | `result_manifest` | make_manifest.py | result_manifest | `results/multiqc/result_manifest.tsv` | implemented |
 | `cross_correlation_summary` | cross_correlation_summary.py | (report.smk) | `results/multiqc/cross_correlation_summary.tsv` | stable |
 | `tss_bed` | gtf_to_tss_bed.py | tss_bed_from_gtf | `results/reference/<genome>.tss.bed` | stable |
@@ -178,8 +178,8 @@ sample_id	experiment_id	assay	target	genome	output_type	method	path	status	qc_fl
 | :--- | :--- |
 | `macs3_fe_bdg`, `macs3_ppois_bdg` | `qc.signal_tracks: true` |
 | `macs3_fe_bw`, `macs3_ppois_bw` | `qc.signal_tracks: true` + non-empty `genome_resources.<genome>.chrom_sizes` |
-| `pooled_fe_bdg`, `pooled_ppois_bdg` | `stage4b: true` + `qc.signal_tracks: true` + multi-biorep experiment |
-| `pooled_fe_bw`, `pooled_ppois_bw` | `stage4b: true` + `qc.signal_tracks: true` + multi-biorep experiment + `chrom_sizes` |
+| `pooled_fe_bdg`, `pooled_ppois_bdg` | `replicate_analysis: true` + `qc.signal_tracks: true` + multi-biorep experiment |
+| `pooled_fe_bw`, `pooled_ppois_bw` | `replicate_analysis: true` + `qc.signal_tracks: true` + multi-biorep experiment + `chrom_sizes` |
 | `blacklist_filtered_bam` | `qc.blacklist_filter: true` + non-empty `genome_resources.<genome>.blacklist` |
 | `cross_correlation` | `qc.cross_correlation: true` |
 | `preseq` | `qc.preseq_complexity: true` |
@@ -187,11 +187,11 @@ sample_id	experiment_id	assay	target	genome	output_type	method	path	status	qc_fl
 | `tss_*` | `qc.tss_enrichment: true` + `genome_resources.<genome>.gtf` |
 | `cuttag_fragment_size` | `qc.cuttag_fragment_size: true` + `assay: cuttag` |
 | `seacr_*` | `cuttag.seacr.enabled: true` + `assay: cuttag` + `layout: PE` |
-| `pooled_mnase_*` | `stage4b: true` + `>=2 MNase treatment bioreps` |
-| `idr_*` | `stage5: true` + `chipseq` + `narrow` + exactly 2 treatment bioreps |
-| `*_consensus_peak`, `*_consensus_summary` | `reproducibility.enabled: true` + `reproducibility.consensus.enabled: true` + `stage4b: true` + ≥2 treatment bioreps + assay/peak_mode match |
-| `*_idr_final_peak`, `*_idr_summary` | `reproducibility.enabled: true` + `stage4b: true` + respective IDR config flag + assay/peak_mode match + exactly 2 treatment bioreps |
-| `*_consensus_final_peak` | `reproducibility.enabled: true` + `reproducibility.consensus.enabled: true` + `stage4b: true` + respective IDR NOT enabled for that mode + ≥2 treatment bioreps |
+| `pooled_mnase_*` | `replicate_analysis: true` + `>=2 MNase treatment bioreps` |
+| `idr_*` | `chipseq_idr: true` + `chipseq` + `narrow` + exactly 2 treatment bioreps |
+| `*_consensus_peak`, `*_consensus_summary` | `reproducibility.enabled: true` + `reproducibility.consensus.enabled: true` + `replicate_analysis: true` + ≥2 treatment bioreps + assay/peak_mode match |
+| `*_idr_final_peak`, `*_idr_summary` | `reproducibility.enabled: true` + `replicate_analysis: true` + respective IDR config flag + assay/peak_mode match + exactly 2 treatment bioreps |
+| `*_consensus_final_peak` | `reproducibility.enabled: true` + `reproducibility.consensus.enabled: true` + `replicate_analysis: true` + respective IDR NOT enabled for that mode + ≥2 treatment bioreps |
 | `multiqc_report` | `multiqc: true` |
 
 ## Known Assumptions

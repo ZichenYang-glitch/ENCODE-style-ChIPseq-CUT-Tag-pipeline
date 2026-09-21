@@ -7,7 +7,7 @@ thresholded peak files, computes rescue/self-consistency ratios, and writes a
 is copied as the final validated peak output.
 
 This script backs the ATAC, CUT&Tag narrow, and broad-peak IDR workflows.
-Legacy Stage 5 ChIP-seq IDR continues to use scripts/stage5b_summary.py.
+ChIP-seq narrow IDR uses scripts/chipseq_idr_summary.py.
 
 Usage:
   python3 scripts/idr_reproducibility_summary.py \

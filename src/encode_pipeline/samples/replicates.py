@@ -1,4 +1,4 @@
-"""Cross-replicate validation for Stage 4b replicate-aware outputs."""
+"""Cross-replicate validation for replicate-aware outputs."""
 
 from encode_pipeline.errors import ValidationError
 
@@ -89,14 +89,14 @@ def _validate_control_consistency(exp, rows, all_samples, error_cls):
 def validate_replicate_groups(
     samples,
     use_control,
-    stage5_enabled=False,
+    chipseq_idr_enabled=False,
     reproducibility_idr_atac_narrow=False,
     reproducibility_idr_cuttag_narrow=False,
     reproducibility_idr_chipseq_broad=False,
     reproducibility_idr_cuttag_broad=False,
     error_cls=ValidationError,
 ):
-    """Pass 3: cross-replicate validation for Stage 4b replicate-aware outputs.
+    """Pass 3: cross-replicate validation for replicate-aware outputs.
 
     Raises *error_cls* on:
     - Inconsistent assay/target/genome/peak_mode/layout within an experiment
@@ -124,8 +124,8 @@ def validate_replicate_groups(
 
         _validate_control_consistency(exp, rows, samples, error_cls)
 
-    # --- Stage 5 IDR eligibility (only when stage5_enabled) ---
-    if stage5_enabled:
+    # --- ChIP-seq IDR eligibility (only when chipseq_idr_enabled) ---
+    if chipseq_idr_enabled:
         chipseq_narrow_exps = []
         for exp, rows in exp_treatments.items():
             if len(rows) == 0:
@@ -141,15 +141,15 @@ def validate_replicate_groups(
             bio_reps = _biological_replicates(rows)
             if len(bio_reps) != 2:
                 raise error_cls(
-                    f"Stage 5 IDR: experiment {exp!r} has "
+                    f"ChIP-seq IDR: experiment {exp!r} has "
                     f"{len(bio_reps)} biological replicate(s) ({bio_reps}). "
-                    f"Stage 5 requires exactly 2."
+                    f"ChIP-seq IDR requires exactly 2."
                 )
             chipseq_narrow_exps.append(exp)
 
         if not chipseq_narrow_exps:
             raise error_cls(
-                "stage5=true but no eligible ChIP-seq narrow experiments were found."
+                "chipseq_idr=true but no eligible ChIP-seq narrow experiments were found."
             )
 
     # --- reproducibility.idr.atac_narrow eligibility (Stage 55) ---

@@ -34,7 +34,7 @@ reference for its required columns, optional metadata, and examples; the
 Technical replicates within the same biological replicate are merged into a
 single `biorep<N>.final.bam`. A single technical replicate is symlinked (no
 duplicate data). Experiments with 2+ biological replicates produce pooled BAMs
-and pooled peaks when `stage4b: true` (the default).
+and pooled peaks when `replicate_analysis: true` (the default).
 
 All replicate columns are optional. A minimal single-sample sheet with only the
 required columns is fully supported.
@@ -101,8 +101,8 @@ H3K27AC_rep1	/data/ac1_R1.fq.gz	/data/ac1_R2.fq.gz	PE	chipseq	H3K27ac	narrow	hs	
 H3K27AC_rep2	/data/ac2_R1.fq.gz	/data/ac2_R2.fq.gz	PE	chipseq	H3K27ac	narrow	hs	/path/to/bt2/GRCh38	H3K27AC	2
 ```
 
-With `stage4b: true` (default), the pipeline produces pooled BAMs and pooled
-peaks for the `H3K27AC` experiment. With `stage5: true`, TF ChIP-seq IDR runs
+With `replicate_analysis: true` (default), the pipeline produces pooled BAMs and pooled
+peaks for the `H3K27AC` experiment. With `chipseq_idr: true`, TF ChIP-seq IDR runs
 on the two biorep peak sets.
 
 ### Baseline ATAC-seq

@@ -67,7 +67,7 @@ def _load_targets_namespace(targets_file, idr_globals=None):
         "SAMPLE_MAP": {},
         "SIGNAL_BW_SAMPLE_IDS": [],
         "SIGNAL_BW_EXPERIMENTS": [],
-        "STAGE4B": False,
+        "REPLICATE_ANALYSIS": False,
         "PEAK_MULTI_BIOREP_EXPERIMENTS": [],
         "SEACR_ENABLED": False,
         "SEACR_SAMPLE_IDS": [],
@@ -87,7 +87,7 @@ def _load_targets_namespace(targets_file, idr_globals=None):
         "BROAD_CHIPSEQ_IDR_EXPERIMENTS": [],
         "BROAD_CUTTAG_IDR_EXPERIMENTS": [],
         # IDR config gating and experiment lists are injected by callers.
-        "STAGE5": False,
+        "CHIPSEQ_IDR": False,
         "IDR_EXPERIMENTS": [],
         "IDR_BIOREP_EXP_LIST": [],
         "IDR_BIOREP_LIST": [],
@@ -156,7 +156,7 @@ def targets_namespace_idr_enabled(targets_file):
     return _load_targets_namespace(
         targets_file,
         idr_globals={
-            "STAGE5": True,
+            "CHIPSEQ_IDR": True,
             "IDR_EXPERIMENTS": ["EXP1", "EXP2"],
             "IDR_BIOREP_EXP_LIST": ["EXP1", "EXP1", "EXP2", "EXP2"],
             "IDR_BIOREP_LIST": ["1", "2", "1", "2"],

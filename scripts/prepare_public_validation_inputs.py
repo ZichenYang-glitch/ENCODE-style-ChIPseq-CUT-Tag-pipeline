@@ -26,7 +26,7 @@ _VALIDATION_DATASETS = [
         "n_treatment_bioreps": 2,
         "n_control_samples": 1,
         "has_control": True,
-        "stage5_idr": True,
+        "chipseq_idr": True,
         "notes": "TF ChIP-seq with control — validates pooled, IDR, and control paths.",
     },
     {
@@ -41,7 +41,7 @@ _VALIDATION_DATASETS = [
         "n_treatment_bioreps": 2,
         "n_control_samples": 1,
         "has_control": True,
-        "stage5_idr": False,
+        "chipseq_idr": False,
         "notes": "Broad histone mark — validates broad-peak MACS3, histone pooled QC, no IDR.",
     },
     {
@@ -56,7 +56,7 @@ _VALIDATION_DATASETS = [
         "n_treatment_bioreps": 2,
         "n_control_samples": 0,
         "has_control": False,
-        "stage5_idr": False,
+        "chipseq_idr": False,
         "notes": "ATAC-seq baseline — validates ATAC dispatch, Tn5-aware MACS3, TSS/FRiP.",
     },
     {
@@ -71,7 +71,7 @@ _VALIDATION_DATASETS = [
         "n_treatment_bioreps": 2,
         "n_control_samples": 1,
         "has_control": True,
-        "stage5_idr": False,
+        "chipseq_idr": False,
         "seacr_enabled": True,
         "notes": "CUT&Tag with IgG control — validates SEACR sidecar, fragment-size QC, no CUT&Tag IDR.",
     },
@@ -88,7 +88,7 @@ _MANIFEST_COLUMNS = [
     "peak_mode",
     "n_treatment_bioreps",
     "n_control_samples",
-    "stage5_idr",
+    "chipseq_idr",
     "seacr_enabled",
     "notes",
 ]
@@ -124,7 +124,7 @@ _METADATA_CHECK_FIELDS = [
     "n_control_samples",
     "has_control",
     "peak_mode",
-    "stage5_idr",
+    "chipseq_idr",
 ]
 
 

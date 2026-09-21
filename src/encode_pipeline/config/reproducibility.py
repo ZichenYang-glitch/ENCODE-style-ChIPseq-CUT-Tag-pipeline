@@ -142,13 +142,15 @@ def validate_reproducibility(raw, validated_config, error_cls=ValueError):
             "reproducibility.idr.chipseq_narrow",
             error_cls=error_cls,
         )
-        if not idr_result["chipseq_narrow"] and validated_config.get("stage5", False):
+        if not idr_result["chipseq_narrow"] and validated_config.get(
+            "chipseq_idr", False
+        ):
             warnings.warn(
                 "Config contradiction: reproducibility.idr.chipseq_narrow is "
-                "explicitly false but stage5 is true. Legacy Stage 5 IDR will "
+                "explicitly false but chipseq_idr is true. ChIP-seq narrow IDR will "
                 "still run. Set reproducibility.idr.chipseq_narrow to null "
-                "(omitted) to infer from stage5, or set stage5 to false to "
-                "disable legacy IDR."
+                "(omitted) to infer from chipseq_idr, or set chipseq_idr to false to "
+                "disable ChIP-seq narrow IDR."
             )
 
     for flag in ("atac_narrow", "cuttag_narrow"):

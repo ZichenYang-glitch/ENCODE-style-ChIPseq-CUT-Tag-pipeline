@@ -60,13 +60,13 @@ def test_default_tsv_inventory_is_deterministic_and_ordered(tmp_path):
         "peak_mode",
         "n_treatment_bioreps",
         "n_control_samples",
-        "stage5_idr",
+        "chipseq_idr",
         "seacr_enabled",
         "notes",
     ]
     assert [row["queue"] for row in rows] == QUEUES
     assert [row["accession"] for row in rows] == ACCESSIONS
-    assert [row["stage5_idr"] for row in rows] == [
+    assert [row["chipseq_idr"] for row in rows] == [
         "true",
         "false",
         "false",
@@ -80,7 +80,7 @@ def test_json_inventory_preserves_typed_dataset_contract(tmp_path):
     assert [dataset["queue"] for dataset in datasets] == QUEUES
     assert [dataset["accession"] for dataset in datasets] == ACCESSIONS
     assert datasets[0]["has_control"] is True
-    assert datasets[0]["stage5_idr"] is True
+    assert datasets[0]["chipseq_idr"] is True
     assert datasets[2]["has_control"] is False
     assert datasets[3]["seacr_enabled"] is True
 

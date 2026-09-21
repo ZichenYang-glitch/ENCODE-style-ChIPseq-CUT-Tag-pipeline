@@ -86,8 +86,8 @@ def _base_config():
     return {
         "use_control": False,
         "multiqc": True,
-        "stage4b": True,
-        "stage5": False,
+        "replicate_analysis": True,
+        "chipseq_idr": False,
         "qc": {"signal_tracks": True, "summary": True},
         "genome_resources": {
             "hs": {"effective_genome_size": "hs", "chrom_sizes": ""},
@@ -256,7 +256,7 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
     # 2. chipseq narrow IDR (2 bioreps)
     all_types |= _run_manifest(
         {
-            "stage5": True,
+            "chipseq_idr": True,
             "idr": {"seed": 42, "threshold": 0.05, "rank": "p.value"},
             "qc": {"signal_tracks": True, "summary": True},
         },

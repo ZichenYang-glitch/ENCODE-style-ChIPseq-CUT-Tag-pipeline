@@ -8,8 +8,8 @@ trim: false
 extend_reads: "auto"
 use_control: false
 multiqc: false
-stage4b: false
-stage5: false
+replicate_analysis: false
+chipseq_idr: false
 genome_resources:
   hs:
     effective_genome_size: "hs"

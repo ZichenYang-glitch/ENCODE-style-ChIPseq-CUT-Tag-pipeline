@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Aggregate per-sample QC summary TSVs into a project-level summary.
 
-Replaces the shell head/tail concatenation in the stage3_qc_summary Snakemake rule.
+Replaces the shell head/tail concatenation in the project_qc_summary Snakemake rule.
 Validates header consistency across all input files and concatenates data rows.
 Uses the same 37-column header as assemble_qc_summary.py.
 
 Usage:
     python3 scripts/aggregate_qc_summary.py \\
-        --output results/multiqc/stage3_qc_summary.tsv \\
+        --output results/multiqc/project_qc_summary.tsv \\
         results/S1/01_qc/S1.qc_summary.tsv \\
         results/S2/01_qc/S2.qc_summary.tsv
 """

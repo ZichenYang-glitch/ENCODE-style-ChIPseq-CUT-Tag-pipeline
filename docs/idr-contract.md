@@ -1,12 +1,12 @@
 # IDR Contract (v0.2)
 
 This document defines the TF ChIP-seq IDR (Irreproducible Discovery Rate) behavioral
-contract as implemented in Stage 5. It describes actual outputs, eligibility, and
+contract for the `chipseq_idr` workflow. It describes actual outputs, eligibility, and
 scope boundaries — no aspirational features.
 
 ## Master gate
 
-`stage5: true` enables all IDR rules. Requires `stage4b: true` (enforced by validator).
+`chipseq_idr: true` enables all IDR rules. Requires `replicate_analysis: true` (enforced by validator).
 
 ## Eligibility
 
@@ -19,14 +19,14 @@ All of the following must be true:
 | Biological replicates | Exactly 2 treatment biological replicates per experiment |
 
 Technical replicates are supported — they are merged into biological-replicate BAMs
-by Stage 4b before IDR processing. The IDR eligibility check counts unique
+by replicate analysis before IDR processing. The IDR eligibility check counts unique
 `biological_replicate` values, not sample rows.
 
 ## Outputs
 
 All IDR outputs land under `results/experiments/<experiment>/`.
 
-### Stage 5a: True-replicate IDR
+### True-replicate IDR
 
 | Output | Path | Description |
 | :--- | :--- | :--- |
@@ -34,7 +34,7 @@ All IDR outputs land under `results/experiments/<experiment>/`.
 | True-replicate IDR raw | `06_idr/true_replicates/idr.txt` | Raw IDR output from `idr --samples` between the two biorep peak sets |
 | True-replicate IDR thresholded | `06_idr/true_replicates/idr.thresholded.narrowPeak` | IDR-thresholded narrowPeak at configured `idr.threshold` (default 0.05) |
 
-### Stage 5b: Pseudoreplicate IDR
+### Pseudoreplicate IDR
 
 | Output | Path | Description |
 | :--- | :--- | :--- |
@@ -43,7 +43,7 @@ All IDR outputs land under `results/experiments/<experiment>/`.
 | Self-IDR per biorep | `06_idr/self_pseudoreplicates/biorep<N>.idr.txt` | Self-consistency IDR between pseudoreps of the same biorep |
 | Pooled-IDR | `06_idr/pooled_pseudoreplicates/idr.txt` | IDR between pooled pseudoreps |
 
-### Stage 5b: Final peak sets
+### Final peak sets
 
 | Output | Path | Description |
 | :--- | :--- | :--- |
@@ -54,8 +54,8 @@ All IDR outputs land under `results/experiments/<experiment>/`.
 ## Configuration
 
 ```yaml
-stage5: true
-stage4b: true           # required
+chipseq_idr: true
+replicate_analysis: true           # required
 idr:
   seed: 42              # pseudorep split seed (positive int)
   threshold: 0.05       # passed directly to idr --idr-threshold
@@ -68,7 +68,7 @@ tool_parameters:
 
 ## Manifest coverage
 
-The Stage 25 result manifest records only the final IDR outputs:
+The result manifest records only the final IDR outputs:
 - `idr_conservative` (`conservative.narrowPeak`)
 - `idr_optimal` (`optimal.narrowPeak`)
 - `idr_reproducibility_summary` (`reproducibility_summary.tsv`)

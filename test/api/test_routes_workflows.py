@@ -221,7 +221,7 @@ def test_get_schema_returns_versioned_renderable_contract(
     data = response.json()
     assert data["ok"] is True
     assert data["workflow_id"] == workflow_id
-    assert data["schema"]["schema_version"] == "1.3.0"
+    assert data["schema"]["schema_version"] == "2.0.0"
     assert data["schema"]["schema_dialect"] == (
         "https://json-schema.org/draft/2020-12/schema"
     )
@@ -272,7 +272,7 @@ def test_validate_success(
     assert data["workflow_id"] == workflow_id
     assert data["value"] is None
     assert data["snapshot"]["workflow_id"] == workflow_id
-    assert data["snapshot"]["schema_version"] == "1.3.0"
+    assert data["snapshot"]["schema_version"] == "2.0.0"
     assert data["snapshot"]["reference_profile"]["revision_id"] == (
         _reference_revision_id(client)
     )
@@ -320,7 +320,7 @@ def test_validate_inline_rows_without_config_samples_is_successful(
     assert tempfile.gettempdir() not in response.text
 
 
-def test_validate_equal_semantic_and_legacy_aliases_returns_one_safe_warning(
+def test_validate_semantic_switches_returns_snapshot_without_warnings(
     client: ApiTestClient,
     tmp_path,
 ) -> None:
@@ -340,9 +340,7 @@ def test_validate_equal_semantic_and_legacy_aliases_returns_one_safe_warning(
         json={
             "config": {
                 "replicate_analysis": {"enabled": False},
-                "stage4b": "FALSE",
                 "chipseq_idr": {"enabled": False},
-                "stage5": False,
             },
             "samples": [row],
             "options": {},
@@ -354,17 +352,9 @@ def test_validate_equal_semantic_and_legacy_aliases_returns_one_safe_warning(
     data = response.json()
     assert data["ok"] is True
     assert data["snapshot"] is not None
-    assert data["snapshot"]["schema_version"] == "1.3.0"
-    assert [issue["code"] for issue in data["issues"]] == [
-        "ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED"
-    ]
-    warning = data["issues"][0]
-    assert warning["severity"] == "warning"
-    assert warning["path"] == "config"
-    assert warning["technical_message"] is None
-    assert warning["context"] == {}
-    assert "stage4b" not in str(warning)
-    assert "stage5" not in str(warning)
+    assert data["snapshot"]["schema_version"] == "2.0.0"
+    assert data["issues"] == []
+    assert str(tmp_path) not in response.text
 
 
 def test_validate_rejects_oversized_sample_cell_with_safe_400(

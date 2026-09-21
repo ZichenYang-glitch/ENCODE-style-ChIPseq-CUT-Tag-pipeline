@@ -48,13 +48,13 @@ def _replicate_rows(*replicate_pairs):
     ]
 
 
-def _config(tmp_path, *, stage4b=True, signal_tracks=True):
+def _config(tmp_path, *, replicate_analysis=True, signal_tracks=True):
     return {
         "outdir": str(tmp_path / "results"),
         "use_control": False,
         "threads": 1,
-        "stage4b": stage4b,
-        "stage5": False,
+        "replicate_analysis": replicate_analysis,
+        "chipseq_idr": False,
         "qc": {"signal_tracks": signal_tracks},
     }
 
@@ -101,7 +101,7 @@ def test_disabled_replicate_processing_schedules_no_merge_or_pool(
 ):
     output = replicate_dry_run(
         _replicate_rows((1, 1), (2, 1)),
-        _config(tmp_path, stage4b=False),
+        _config(tmp_path, replicate_analysis=False),
     )
 
     for rule in (

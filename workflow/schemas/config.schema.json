@@ -57,15 +57,15 @@
       "default": true,
       "description": "Run MultiQC aggregation after all samples complete."
     },
-    "stage4b": {
+    "replicate_analysis": {
       "type": ["boolean", "string"],
       "default": true,
       "description": "Enable replicate-aware grouped outputs."
     },
-    "stage5": {
+    "chipseq_idr": {
       "type": ["boolean", "string"],
       "default": false,
-      "description": "Enable Stage 5 TF ChIP-seq IDR."
+      "description": "Enable TF ChIP-seq IDR."
     },
     "idr": {
       "type": "object",

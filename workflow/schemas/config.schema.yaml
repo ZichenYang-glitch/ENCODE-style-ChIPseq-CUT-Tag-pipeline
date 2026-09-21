@@ -122,7 +122,7 @@ genome_resources:
           default: ""
           description: Path to reference FASTA file.
 
-# ---- Stage 3 QC (optional) ----
+# ---- Single-sample QC (optional) ----
 qc:
   type: mapping
   required: false
@@ -139,7 +139,7 @@ qc:
     picard_metrics: false
     tss_enrichment: false
   description: >
-    Single-sample QC switches. Missing qc block defaults legacy Stage 3
+    Single-sample QC switches. Missing qc block defaults standard
     switches to true and heavier optional modules to false. Each switch
     accepts boolean or string boolean.
   schema:
@@ -155,20 +155,20 @@ qc:
       default: true
       description: >
         Enable FRiP (Fraction of Reads in Peaks) calculation.
-        Stage 3a is read-record based, not fragment-based.
+        FRiP is read-record based, not fragment-based.
     library_complexity:
       type: boolean
       default: true
       description: >
         Enable library complexity metrics from Picard MarkDuplicates.
-        Stage 3b-1 is duplication-derived (not preseq-based).
+        Library complexity is duplication-derived (not preseq-based).
         If Picard is unavailable, NA values are emitted.
     nrf_pbc:
       type: boolean
       default: true
       description: >
         Enable NRF/PBC library complexity metrics from BAM.
-        Stage 3c-1 is BAM-derived (not preseq-based, not cross-correlation).
+        NRF/PBC is BAM-derived (not preseq-based, not cross-correlation).
         NRF = distinct_fragments / total_fragments.
         PBC1 = one_read_fragments / distinct_fragments.
         PBC2 = one_read_fragments / two_read_fragments.
@@ -217,38 +217,38 @@ qc:
         start sites. Requires genome_resources.gtf for every treatment sample
         genome. Produces a TSS BED, computeMatrix output, profile TSV, and PDF.
 
-# ---- Stage 4b Replicate-Aware Outputs (optional) ----
-stage4b:
+# ---- Replicate-Aware Outputs (optional) ----
+replicate_analysis:
   type: boolean | string
   default: true
   allowed: [true, false, "true", "false"]
   description: >
-    Enable Stage 4b replicate-aware grouped outputs.
+    Enable replicate-aware grouped outputs.
     When true:
     - Biorep BAMs are produced for technical-replicate merging or
       as intermediates for pooled outputs.
     - Pooled treatment/control BAMs and pooled MACS3 peaks are only
       scheduled for experiments with >=2 treatment biological replicates.
-    - Single-sample workflows produce zero Stage 4b outputs.
-    Set to false to disable all Stage 4b outputs and revert to
-    the Stage 4a metadata-only behavior.
+    - Single-sample workflows produce zero replicate-aware grouped outputs.
+    Set to false to disable all replicate-aware grouped outputs and revert to
+    metadata-only behavior.
 
-# ---- Stage 5: TF ChIP-seq IDR (optional) ----
-stage5:
+# ---- TF ChIP-seq IDR (optional) ----
+chipseq_idr:
   type: boolean | string
   default: false
   allowed: [true, false, "true", "false"]
   description: >
-    Enable Stage 5 TF ChIP-seq true-replicate IDR. When true, requires
-    stage4b: true. Supports chipseq + narrow + exactly 2 biological
+    Enable TF ChIP-seq true-replicate IDR. When true, requires
+    replicate_analysis: true. Supports chipseq + narrow + exactly 2 biological
     replicates only. Produces IDR-ready MACS3 peak calls and true
-    replicate IDR output. Set to false to disable all Stage 5 outputs.
+    replicate IDR output. Set to false to disable all ChIP-seq IDR outputs.
 
 idr:
   type: mapping
   required: false
   description: >
-    Stage 5 IDR analysis settings. Only validated when stage5 is true.
+    ChIP-seq IDR analysis settings. Only validated when chipseq_idr is true.
   schema:
     seed:
       type: integer
@@ -264,16 +264,16 @@ idr:
       allowed: ["p.value", "signal.value"]
       description: Column to rank by in IDR.
 
-# ---- Stage 53+: Reproducibility Policy (optional) ----
+# ---- Reproducibility Policy (optional) ----
 reproducibility:
   type: mapping
   required: false
   default:
     enabled: false
   description: >
-    Stage 53+ reproducibility policy for replicate-validated peak outputs.
+    Reproducibility policy for replicate-validated peak outputs.
     When enabled is false, no new reproducibility outputs are generated.
-    Does not affect existing stage5 ChIP-seq narrow IDR.
+    Does not affect ChIP-seq narrow IDR controlled by chipseq_idr.
   schema:
     enabled:
       type: boolean | string
@@ -281,7 +281,7 @@ reproducibility:
       allowed: [true, false, "true", "false"]
       description: >
         Master switch for new reproducibility outputs. When false,
-        all sub-keys are ignored for DAG purposes. Orthogonal to stage5.
+        all sub-keys are ignored for DAG purposes. Orthogonal to chipseq_idr.
     consensus:
       type: mapping
       required: false
@@ -305,16 +305,16 @@ reproducibility:
       type: mapping
       required: false
       description: >
-        IDR configuration for non-legacy modes. Does not affect stage5.
+        IDR configuration for additional assay modes. Does not affect chipseq_idr.
         No seacr_experimental key — SEACR IDR is not planned.
       schema:
         chipseq_narrow:
           type: boolean | null
           default: null
           description: >
-            null/omitted → inferred from stage5. When explicitly false and
-            stage5 is true, a config contradiction warning is emitted but
-            legacy Stage 5 still runs.
+            null/omitted → inferred from chipseq_idr. When explicitly false and
+            chipseq_idr is true, a config contradiction warning is emitted but
+            ChIP-seq narrow IDR still runs.
         atac_narrow:
           type: boolean
           default: false
@@ -352,7 +352,7 @@ cuttag:
       type: string
       default: "macs3"
       allowed: ["macs3"]
-      description: Canonical peak caller (future: seacr, gopeaks).
+      description: "Canonical peak caller (future: seacr, gopeaks)."
     seacr:
       type: mapping
       required: false

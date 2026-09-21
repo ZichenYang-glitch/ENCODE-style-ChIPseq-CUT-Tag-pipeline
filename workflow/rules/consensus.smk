@@ -127,7 +127,7 @@ def _consensus_final_output(experiment, assay, peak_mode):
     #   chipseq broad (when IDR not enabled), cuttag narrow (when IDR not enabled),
     #   cuttag broad (when IDR not enabled)
     # Modes where consensus is NOT primary final:
-    #   chipseq narrow (legacy stage5 IDR), atac narrow (policy: wait for IDR),
+    #   chipseq narrow (ChIP-seq IDR), atac narrow (policy: wait for IDR),
     #   cuttag narrow (when IDR enabled),
     #   chipseq broad / cuttag broad (when broad IDR enabled)
     if (assay == "chipseq" and peak_mode == "broad"
@@ -390,7 +390,7 @@ rule consensus_final:
 def _consensus_final_method(experiment, assay, peak_mode):
     """Return the final_method string for compute_consensus.py --final-method."""
     if assay == "chipseq" and peak_mode == "narrow":
-        if STAGE5 and experiment in IDR_EXPERIMENTS:
+        if CHIPSEQ_IDR and experiment in IDR_EXPERIMENTS:
             return "idr"
         return "none"
     if assay == "chipseq" and peak_mode == "broad":
@@ -411,7 +411,7 @@ def _consensus_final_method(experiment, assay, peak_mode):
         if ATAC_IDR_ENABLED and experiment in ATAC_IDR_EXPERIMENTS:
             return "idr"
         return "none"
-    # chipseq narrow → legacy stage5 or consensus
+    # chipseq narrow → ChIP-seq IDR or consensus
     return "consensus"
 
 
@@ -421,7 +421,7 @@ def _consensus_final_method(experiment, assay, peak_mode):
 # SEACR consensus is enabled only when ALL of:
 #   - REPRO_ENABLED and CONSENSUS_ENABLED
 #   - SEACR_ENABLED (cuttag.seacr.enabled: true)
-#   - STAGE4B
+#   - REPLICATE_ANALYSIS
 #   - assay == cuttag, layout == PE, >= 2 biological replicates
 #
 # Helpers use _consensus_seacr_ prefix.

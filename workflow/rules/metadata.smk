@@ -18,10 +18,10 @@ CONTROL_SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {
 
 
 # ---------------------------------------------------------------------------
-# 3a2. Stage 4b replicate-aware grouped outputs
+# 3a2. Replicate-aware grouped outputs
 # ---------------------------------------------------------------------------
 
-if STAGE4B:
+if REPLICATE_ANALYSIS:
 
     # Biological replicate groups: keyed by (experiment, role, bio_rep)
     # Role separation ensures treatment and control BAMs are never merged together.
@@ -112,7 +112,7 @@ MNASE_MULTI_BIOREP_EXPERIMENTS = [
 
 
 # ---------------------------------------------------------------------------
-# 3a3. Stage 5a/5b/55/64/65 IDR derived structures
+# 3a3. IDR derived structures
 # ---------------------------------------------------------------------------
 
 
@@ -267,12 +267,12 @@ def _build_broad_idr_pseudorep_lists(experiments, assays):
     )
 
 
-# Stage 5a
+# ChIP-seq true-replicate IDR
 IDR_EXPERIMENTS, IDR_BIOREP_EXP_LIST, IDR_BIOREP_LIST = _build_idr_experiment_lists(
-    STAGE5, "chipseq", "narrow", MULTI_BIOREP_EXPERIMENTS
+    CHIPSEQ_IDR, "chipseq", "narrow", MULTI_BIOREP_EXPERIMENTS
 )
 
-# Stage 5b precomputed expansion lists
+# ChIP-seq pseudoreplicate expansion lists
 (
     IDR_SPLIT_SOURCE_EXP,
     IDR_SPLIT_SOURCE_NAME,
@@ -284,12 +284,12 @@ IDR_EXPERIMENTS, IDR_BIOREP_EXP_LIST, IDR_BIOREP_LIST = _build_idr_experiment_li
 ) = _build_idr_pseudorep_lists(IDR_EXPERIMENTS)
 
 
-# Stage 55 ATAC narrow IDR
+# ATAC narrow IDR
 ATAC_IDR_EXPERIMENTS, ATAC_IDR_BIOREP_EXP_LIST, ATAC_IDR_BIOREP_LIST = _build_idr_experiment_lists(
     ATAC_IDR_ENABLED, "atac", "narrow", MULTI_BIOREP_EXPERIMENTS
 )
 
-# Stage 55 pseudorep expansion lists
+# ATAC pseudoreplicate expansion lists
 (
     ATAC_IDR_SPLIT_SOURCE_EXP,
     ATAC_IDR_SPLIT_SOURCE_NAME,
@@ -321,12 +321,12 @@ CUTTAG_IDR_EXPERIMENTS = sorted(CUTTAG_IDR_EXPERIMENTS)
 # Stage 65 broad-peak IDR experiment lists (experimental opt-in)
 BROAD_CHIPSEQ_IDR_EXPERIMENTS, BROAD_CHIPSEQ_IDR_BIOREP_EXP_LIST, BROAD_CHIPSEQ_IDR_BIOREP_LIST = (
     _build_idr_experiment_lists(
-        BROAD_IDR_ENABLED and STAGE4B and BROAD_CHIPSEQ_IDR_ENABLED, "chipseq", "broad", MULTI_BIOREP_EXPERIMENTS
+        BROAD_IDR_ENABLED and REPLICATE_ANALYSIS and BROAD_CHIPSEQ_IDR_ENABLED, "chipseq", "broad", MULTI_BIOREP_EXPERIMENTS
     )
 )
 BROAD_CUTTAG_IDR_EXPERIMENTS, BROAD_CUTTAG_IDR_BIOREP_EXP_LIST, BROAD_CUTTAG_IDR_BIOREP_LIST = (
     _build_idr_experiment_lists(
-        BROAD_IDR_ENABLED and STAGE4B and BROAD_CUTTAG_IDR_ENABLED, "cuttag", "broad", MULTI_BIOREP_EXPERIMENTS
+        BROAD_IDR_ENABLED and REPLICATE_ANALYSIS and BROAD_CUTTAG_IDR_ENABLED, "cuttag", "broad", MULTI_BIOREP_EXPERIMENTS
     )
 )
 
@@ -371,7 +371,7 @@ CONSENSUS_MODES = [
     ("atac", "narrow"),
 ]
 
-if CONSENSUS_ENABLED and STAGE4B:
+if CONSENSUS_ENABLED and REPLICATE_ANALYSIS:
     CONSENSUS_EXPERIMENTS = {}  # (assay, peak_mode) -> [experiment_ids]
     CONSENSUS_BIOREP_EXP_LIST = []  # for expand(zip, ...)
     CONSENSUS_BIOREP_LIST = []
@@ -398,7 +398,7 @@ else:
 # 3a6. Stage 63 SEACR consensus experiment list
 # ---------------------------------------------------------------------------
 
-if CONSENSUS_ENABLED and STAGE4B and SEACR_ENABLED:
+if CONSENSUS_ENABLED and REPLICATE_ANALYSIS and SEACR_ENABLED:
     SEACR_CONSENSUS_EXPERIMENTS = []
     for exp in MULTI_BIOREP_EXPERIMENTS:
         treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(exp, [])
@@ -415,7 +415,7 @@ else:
 
 
 # ---------------------------------------------------------------------------
-# 3b. Stage 3 QC configuration and genome resource helpers
+# 3b. QC configuration and genome resource helpers
 # ---------------------------------------------------------------------------
 
 QC_CONFIG = VALIDATED_CONFIG.get(
@@ -490,7 +490,7 @@ SIGNAL_BW_SAMPLE_IDS = [
     sid for sid in PEAK_SAMPLE_IDS if QC_CONFIG.get("signal_tracks", True) and has_genome_resource(sid, "chrom_sizes")
 ]
 
-if STAGE4B:
+if REPLICATE_ANALYSIS:
     SIGNAL_BW_EXPERIMENTS = [
         exp
         for exp in PEAK_MULTI_BIOREP_EXPERIMENTS

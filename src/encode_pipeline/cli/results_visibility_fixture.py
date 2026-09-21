@@ -194,8 +194,8 @@ def _build_config(
         raise ValueError("platform worker tiny config must be a mapping")
     config = copy.deepcopy(raw)
     config.pop("samples", None)
-    replicate_enabled = config.pop("stage4b", True)
-    chipseq_idr_enabled = config.pop("stage5", False)
+    replicate_enabled = config.pop("replicate_analysis", True)
+    chipseq_idr_enabled = config.pop("chipseq_idr", False)
     if not isinstance(replicate_enabled, bool) or not isinstance(
         chipseq_idr_enabled, bool
     ):

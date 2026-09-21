@@ -74,7 +74,7 @@ def _write_config(
     workdir,
     chrom_sizes_value='""',
     signal_tracks=True,
-    stage4b="true",
+    replicate_analysis="true",
     with_experiment=False,
     with_control=False,
 ):
@@ -91,8 +91,8 @@ trim: true
 extend_reads: "auto"
 use_control: false
 multiqc: false
-stage4b: {stage4b}
-stage5: false
+replicate_analysis: {replicate_analysis}
+chipseq_idr: false
 qc:
   signal_tracks: {signal_tracks_str}
   blacklist_filter: false
@@ -236,7 +236,7 @@ def test_pooled_chrom_sizes_pooled_bigwig(tmp_path):
         workdir,
         chrom_sizes_value=f'"{chrom_sizes_path}"',
         signal_tracks=True,
-        stage4b="true",
+        replicate_analysis="true",
         with_experiment=True,
     )
     _create_placeholder_fastqs(workdir)
@@ -254,7 +254,7 @@ def test_pooled_no_chrom_sizes_no_pooled_bigwig(tmp_path):
         workdir,
         chrom_sizes_value='""',
         signal_tracks=True,
-        stage4b="true",
+        replicate_analysis="true",
         with_experiment=True,
     )
     _create_placeholder_fastqs(workdir)

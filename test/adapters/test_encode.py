@@ -92,12 +92,12 @@ def test_adapter_plan_workspace_translates_semantic_config_only_at_materializati
 
     assert result.is_success
     rendered = yaml.safe_load(dict(result.value.files)["config/config.yaml"])
-    assert rendered["stage4b"] is False
-    assert rendered["stage5"] is False
-    assert "replicate_analysis" not in rendered
-    assert "chipseq_idr" not in rendered
-    assert validate_config(rendered)["stage4b"] is False
-    assert validate_config(rendered)["stage5"] is False
+    assert rendered["replicate_analysis"] is False
+    assert rendered["chipseq_idr"] is False
+    assert "stage4b" not in rendered
+    assert "stage5" not in rendered
+    assert validate_config(rendered)["replicate_analysis"] is False
+    assert validate_config(rendered)["chipseq_idr"] is False
     assert submitted_config == {
         "replicate_analysis": {"enabled": False},
         "chipseq_idr": {"enabled": False},
@@ -106,7 +106,7 @@ def test_adapter_plan_workspace_translates_semantic_config_only_at_materializati
     }
 
 
-def test_adapter_plan_workspace_preserves_one_deprecated_alias_warning(tmp_path):
+def test_adapter_plan_workspace_semantic_config_has_only_completion_issue(tmp_path):
     samples_tsv = tmp_path / "samples.tsv"
     samples_tsv.write_text(
         "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
@@ -118,9 +118,7 @@ def test_adapter_plan_workspace_preserves_one_deprecated_alias_warning(tmp_path)
         WorkflowInputs(
             config={
                 "replicate_analysis": {"enabled": False},
-                "stage4b": "false",
                 "chipseq_idr": {"enabled": False},
-                "stage5": False,
             },
             samples=str(samples_tsv),
         ),
@@ -129,7 +127,6 @@ def test_adapter_plan_workspace_preserves_one_deprecated_alias_warning(tmp_path)
 
     assert result.is_success
     assert [issue.code for issue in result.issues] == [
-        "ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED",
         "ENCODE_WORKSPACE_PLANNING_COMPLETE",
     ]
 
@@ -386,7 +383,7 @@ def test_adapter_plan_workspace_semantic_round_trip_via_loader(tmp_path):
     loaded = load_and_validate_samples(
         str(rendered),
         use_control=True,
-        stage5_enabled=False,
+        chipseq_idr_enabled=False,
         strict_inputs=False,
     )
 

@@ -140,11 +140,11 @@ def test_use_control_rejects_invalid_string(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# multiqc / stage4b / stage5
+# multiqc / replicate_analysis / chipseq_idr
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("field", ["multiqc", "stage4b", "stage5"])
+@pytest.mark.parametrize("field", ["multiqc", "replicate_analysis", "chipseq_idr"])
 @pytest.mark.parametrize(
     "raw,expected",
     [
@@ -161,7 +161,7 @@ def test_bool_flag_accepts_bool_and_string_booleans(tmp_path, field, raw, expect
     assert validated[field] == expected
 
 
-@pytest.mark.parametrize("field", ["multiqc", "stage4b", "stage5"])
+@pytest.mark.parametrize("field", ["multiqc", "replicate_analysis", "chipseq_idr"])
 def test_bool_flag_rejects_invalid_string(tmp_path, field):
     config = _make_config(tmp_path, **{field: "yes"})
     with pytest.raises(ValidationError, match="must be true or false"):

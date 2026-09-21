@@ -43,7 +43,7 @@ def _config(
     reproducibility=True,
     consensus=True,
     seacr=None,
-    stage5=False,
+    chipseq_idr=False,
     cuttag_idr=None,
 ):
     reproducibility_config = {
@@ -57,8 +57,8 @@ def _config(
         "outdir": str(tmp_path / "results"),
         "use_control": False,
         "threads": 1,
-        "stage4b": True,
-        "stage5": stage5,
+        "replicate_analysis": True,
+        "chipseq_idr": chipseq_idr,
         "reproducibility": reproducibility_config,
     }
     if seacr is not None:
@@ -255,7 +255,7 @@ def test_idr_takes_precedence_only_for_the_final_peak(
     if final_policy == "chipseq-idr":
         assay = "chipseq"
         experiment = "exp_cs"
-        config = _config(tmp_path, stage5=True)
+        config = _config(tmp_path, chipseq_idr=True)
         expected_final = "06_idr/final/conservative.narrowPeak"
         rejected_final = _macs3_consensus_final(experiment, assay, "narrow")
     elif final_policy == "cuttag-idr":

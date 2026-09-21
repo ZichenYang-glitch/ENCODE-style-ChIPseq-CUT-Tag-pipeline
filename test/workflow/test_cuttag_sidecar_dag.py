@@ -77,8 +77,8 @@ def _base_config(tmp_path: Path, *, use_control: bool = False) -> dict:
         "threads": 1,
         "trim": False,
         "multiqc": False,
-        "stage4b": False,
-        "stage5": False,
+        "replicate_analysis": False,
+        "chipseq_idr": False,
         "qc": {
             "blacklist_filter": False,
             "frip": False,

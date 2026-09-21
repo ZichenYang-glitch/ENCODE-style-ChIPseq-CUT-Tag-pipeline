@@ -53,7 +53,7 @@ def main(argv=None):
         samples = load_and_validate_samples(
             validated["samples"],
             use_control=validated["use_control"],
-            stage5_enabled=validated.get("stage5", False),
+            chipseq_idr_enabled=validated.get("chipseq_idr", False),
             strict_inputs=args.strict_inputs,
             reproducibility_idr_atac_narrow=atac_idr_enabled,
             reproducibility_idr_cuttag_narrow=cuttag_idr_enabled,

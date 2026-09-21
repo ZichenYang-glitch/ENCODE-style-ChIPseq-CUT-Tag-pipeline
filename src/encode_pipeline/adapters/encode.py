@@ -22,7 +22,6 @@ from encode_pipeline.artifacts import (
     artifacts_by_manifest_output_type,
     load_catalog,
 )
-from encode_pipeline.config.coercion import coerce_bool
 from encode_pipeline.platform.adapters import (
     ARTIFACT_EXTRACT_CAPABILITY,
     INPUT_AUTHORING_CAPABILITY,
@@ -207,8 +206,8 @@ _GENERIC_ADAPTER_MESSAGES = {
 _DEFAULT_ADAPTER_VALIDATION_MESSAGE = "Workflow input validation failed."
 
 _SEMANTIC_ENGINE_SWITCHES = (
-    ("replicate_analysis", "stage4b", True),
-    ("chipseq_idr", "stage5", False),
+    ("replicate_analysis", True),
+    ("chipseq_idr", False),
 )
 
 
@@ -234,14 +233,15 @@ def _translate_authoring_config(
 ) -> Result[dict[str, Any]]:
     """Translate semantic authoring switches on a private config copy."""
     translated = deepcopy(dict(config))
-    used_deprecated_alias = False
-
-    for semantic_key, engine_key, default in _SEMANTIC_ENGINE_SWITCHES:
+    for semantic_key, default in _SEMANTIC_ENGINE_SWITCHES:
         if semantic_key not in translated:
-            translated.setdefault(engine_key, default)
+            translated[semantic_key] = default
             continue
 
-        semantic_value = translated.pop(semantic_key)
+        semantic_value = translated[semantic_key]
+        # Scientific YAML and already validated snapshots use scalar switches.
+        if isinstance(semantic_value, (bool, str)):
+            continue
         if (
             not isinstance(semantic_value, Mapping)
             or set(semantic_value) != {"enabled"}
@@ -259,50 +259,9 @@ def _translate_authoring_config(
                 ]
             )
 
-        enabled = semantic_value["enabled"]
-        if engine_key in translated:
-            try:
-                legacy_enabled = coerce_bool(
-                    translated[engine_key],
-                    f"config {engine_key}",
-                )
-            except ValueError:
-                # Preserve the existing scientific validator's public failure
-                # classification for malformed legacy-only values.
-                continue
-            if legacy_enabled != enabled:
-                return Result.failure(
-                    [
-                        Issue(
-                            code="ENCODE_CONFIG_SEMANTIC_CONFLICT",
-                            message=(
-                                "Semantic and deprecated compatibility "
-                                "configuration values conflict."
-                            ),
-                            severity="error",
-                            path=f"config.{semantic_key}.enabled",
-                            source="adapter",
-                        )
-                    ]
-                )
-            used_deprecated_alias = True
-        translated[engine_key] = enabled
+        translated[semantic_key] = semantic_value["enabled"]
 
-    issues = ()
-    if used_deprecated_alias:
-        issues = (
-            Issue(
-                code="ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED",
-                message=(
-                    "Deprecated compatibility fields duplicate the semantic "
-                    "workflow configuration and should be removed."
-                ),
-                severity="warning",
-                path="config",
-                source="adapter",
-            ),
-        )
-    return Result.success(translated, issues=issues)
+    return Result.success(translated)
 
 
 class EncodeStyleWorkflowAdapter:
@@ -1032,7 +991,7 @@ def _validate_scientific_inputs(
         samples = load_and_validate_samples(
             validated_config["samples"],
             use_control=validated_config["use_control"],
-            stage5_enabled=validated_config.get("stage5", False),
+            chipseq_idr_enabled=validated_config.get("chipseq_idr", False),
             strict_inputs=strict_inputs,
             reproducibility_idr_atac_narrow=flags["atac_narrow"],
             reproducibility_idr_cuttag_narrow=flags["cuttag_narrow"],

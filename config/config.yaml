@@ -134,23 +134,23 @@ genome_resources:
     gtf: ""
     reference_fasta: ""
 
-# Stage 4b replicate-aware grouped outputs (Stage 4b).
+# Replicate-aware grouped outputs.
 # When true, biological-replicate BAMs, pooled BAMs, and pooled peaks
 # are scheduled for experiments with >=2 biological replicates.
-# Set to false to disable all Stage 4b outputs.
-stage4b: true
+# Set to false to disable all replicate-aware grouped outputs.
+replicate_analysis: true
 
-# Stage 5: TF ChIP-seq IDR and reproducibility (default off)
-stage5: false
+# TF ChIP-seq IDR and reproducibility (default off)
+chipseq_idr: false
 
-# Stage 5 IDR analysis settings
+# ChIP-seq IDR analysis settings
 # idr:
 #   seed: 42
 #   threshold: 0.05
 #   rank: "p.value"
 
-# Stage 53+: Reproducibility policy for replicate-validated peak outputs.
-# Added in Stage 53 — does not affect existing stage5 ChIP-seq narrow IDR.
+# Reproducibility policy for replicate-validated peak outputs.
+# Does not affect ChIP-seq narrow IDR controlled by chipseq_idr.
 # reproducibility:
 #   enabled: false
 #   consensus:
@@ -166,7 +166,7 @@ stage5: false
 #     chipseq_broad_experimental: false
 #     cuttag_broad_experimental: false
 
-# Stage 3 QC configuration.
+# Single-sample QC configuration.
 # Each switch accepts boolean or string boolean (true/false).
 # Missing qc block defaults to all switches enabled.
 qc:

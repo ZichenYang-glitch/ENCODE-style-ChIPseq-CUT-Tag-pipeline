@@ -80,8 +80,8 @@ def _make_config(qc_block=None, genome_resources=None):
         "extend_reads": "auto",
         "use_control": "false",
         "multiqc": "false",
-        "stage4b": "false",
-        "stage5": "false",
+        "replicate_analysis": "false",
+        "chipseq_idr": "false",
     }
     if qc_block is not None:
         cfg["qc"] = qc_block

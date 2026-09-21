@@ -1,17 +1,17 @@
-# idr.smk — Stage 5a + 5b TF ChIP-seq IDR
+# idr.smk — TF ChIP-seq IDR
 # =========================================
-# Stage 5a: IDR-ready MACS3 per biorep, true-replicate IDR.
-# Stage 5b: pseudorep BAM splitting, pseudorep MACS3, self-IDR,
+# IDR-ready MACS3 per biorep and true-replicate IDR.
+# Pseudorep BAM splitting, pseudorep MACS3, self-IDR,
 # pooled-IDR, reproducibility summary.
 #
 # Rules:
-#   macs3_idr_biorep     — IDR-ready MACS3 call on a single biorep BAM (5a)
-#   idr_true_replicates  — IDR between the two biorep IDR peak sets (5a)
-#   split_pseudoreps     — deterministic BAM pseudorep split (5b)
-#   macs3_idr_pseudorep  — IDR-ready MACS3 on pseudorep BAM (5b)
-#   idr_self_pseudoreps  — self-IDR per biorep (5b)
-#   idr_pooled_pseudoreps— pooled pseudorep IDR (5b)
-#   stage5b_summary      — reproducibility QC + final peaks (5b)
+#   macs3_idr_biorep     — IDR-ready MACS3 call on a single biorep BAM (true replicates)
+#   idr_true_replicates  — IDR between the two biorep IDR peak sets (true replicates)
+#   split_pseudoreps     — deterministic BAM pseudorep split (pseudoreplicates and final peaks)
+#   macs3_idr_pseudorep  — IDR-ready MACS3 on pseudorep BAM (pseudoreplicates and final peaks)
+#   idr_self_pseudoreps  — self-IDR per biorep (pseudoreplicates and final peaks)
+#   idr_pooled_pseudoreps— pooled pseudorep IDR (pseudoreplicates and final peaks)
+#   chipseq_idr_summary      — reproducibility QC + final peaks (pseudoreplicates and final peaks)
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +133,7 @@ rule idr_true_replicates:
         """
         set -e -o pipefail
         command -v idr >/dev/null 2>&1 || {{
-            echo "ERROR: idr is required for Stage 5 IDR analysis but was not found in PATH." >&2
+            echo "ERROR: idr is required for ChIP-seq IDR analysis but was not found in PATH." >&2
             exit 1
         }}
 
@@ -161,7 +161,7 @@ rule idr_true_replicates:
 
 
 # ============================================================================
-# Stage 5b rules
+# Pseudoreplicate IDR and final peak assembly rules
 # ============================================================================
 
 # ---------------------------------------------------------------------------
@@ -312,7 +312,7 @@ rule idr_self_pseudoreps:
         """
         set -e -o pipefail
         command -v idr >/dev/null 2>&1 || {{
-            echo "ERROR: idr is required for Stage 5 IDR analysis but was not found in PATH." >&2
+            echo "ERROR: idr is required for ChIP-seq IDR analysis but was not found in PATH." >&2
             exit 1
         }}
 
@@ -365,7 +365,7 @@ rule idr_pooled_pseudoreps:
         """
         set -e -o pipefail
         command -v idr >/dev/null 2>&1 || {{
-            echo "ERROR: idr is required for Stage 5 IDR analysis but was not found in PATH." >&2
+            echo "ERROR: idr is required for ChIP-seq IDR analysis but was not found in PATH." >&2
             exit 1
         }}
 
@@ -394,7 +394,7 @@ rule idr_pooled_pseudoreps:
 # 7. Reproducibility QC summary and final peak sets
 # ---------------------------------------------------------------------------
 
-rule stage5b_summary:
+rule chipseq_idr_summary:
     output:
         summary      = f"{OUTDIR}/experiments/{{experiment}}/06_idr/final/reproducibility_summary.tsv",
         conservative = f"{OUTDIR}/experiments/{{experiment}}/06_idr/final/conservative.narrowPeak",
@@ -409,14 +409,14 @@ rule stage5b_summary:
         bio_rep_a  = lambda wc: idr_biorep_labels(wc.experiment)[0],
         bio_rep_b  = lambda wc: idr_biorep_labels(wc.experiment)[1],
     log:
-        f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.stage5b.summary.log",
+        f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.chipseq_idr.summary.log",
     conda:
         "../envs/python.yml",
     shell:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output.summary})" "$(dirname {log})"
-        python3 {workflow.basedir}/../scripts/stage5b_summary.py \
+        python3 {workflow.basedir}/../scripts/chipseq_idr_summary.py \
             --true-peaks {input.true_thresh:q} \
             --pooled-peaks {input.pool_thresh:q} \
             --self1-peaks {input.self1_thresh:q} \

@@ -112,7 +112,7 @@ qc:
 | `library_complexity` | `true` | Parse duplicate metrics. Picard fields are reported when Picard is available; otherwise fallback fields are emitted as `NA`. |
 | `nrf_pbc` | `true` | Compute NRF and PBC1/PBC2 from the BAM file (library complexity from read counts). |
 | `signal_tracks` | `true` | Produce MACS3 FE (fold-enrichment) and ppois (Poisson p-value) bedGraph tracks per treatment sample and for pooled experiments. FE/ppois BigWig conversion is available when `genome_resources.<genome>.chrom_sizes` is also configured. |
-| `summary` | `true` | Emit per-sample QC summary TSV and a project-level aggregate at `results/multiqc/stage3_qc_summary.tsv`. |
+| `summary` | `true` | Emit per-sample QC summary TSV and a project-level aggregate at `results/multiqc/project_qc_summary.tsv`. |
 | `cuttag_fragment_size` | `true` | Compute CUT&Tag fragment-size statistics for active samples with assay=cuttag. |
 | `cross_correlation` | `false` | Run phantompeakqualtools cross-correlation QC per treatment sample. Produces NSC/RSC metrics (`.cc.qc`) and a cross-correlation plot (`.cc.plot.pdf`). When enabled, also generates a project-level summary at `results/multiqc/cross_correlation_summary.tsv` and exposes it as a MultiQC custom section. See [docs/qc-interpretation.md](qc-interpretation.md) for interpretation guidance. |
 | `preseq_complexity` | `false` | Run preseq library complexity extrapolation (`lc_extrap -B`) per treatment sample. Produces `.preseq.txt`. Complements existing NRF/PBC metrics. |
@@ -147,8 +147,8 @@ Only relevant for samples with `assay: mnase`. The dyad BigWig uses `bamCoverage
 ## Replicate and IDR features
 
 ```yaml
-stage4b: true        # replicate-aware pooled BAMs and peaks (default on)
-stage5: false        # TF ChIP-seq IDR (default off; requires stage4b: true)
+replicate_analysis: true        # replicate-aware pooled BAMs and peaks (default on)
+chipseq_idr: false        # TF ChIP-seq IDR (default off; requires replicate_analysis: true)
 
 idr:
   seed: 42
@@ -156,30 +156,30 @@ idr:
   rank: "p.value"    # ranking measure: p.value or signal.value
 ```
 
-- **`stage4b`** (default `true`): Enables technical replicate merging,
+- **`replicate_analysis`** (default `true`): Enables technical replicate merging,
   biological-replicate BAMs, pooled treatment/control BAMs, pooled MACS3 peak
   calls, and pooled signal tracks. Applies to experiments with 2+ biological
   replicates.
-- **`stage5`** (default `false`): Enables TF ChIP-seq IDR. Requires
-  `stage4b: true`, `chipseq` assay, `narrow` peak_mode, and exactly 2
+- **`chipseq_idr`** (default `false`): Enables TF ChIP-seq IDR. Requires
+  `replicate_analysis: true`, `chipseq` assay, `narrow` peak_mode, and exactly 2
   treatment biological replicates per experiment.
-- **`idr.*`**: The idr block is only read when `stage5: true`. `threshold` is
+- **`idr.*`**: The idr block is only read when `chipseq_idr: true`. `threshold` is
   the IDR threshold (0.05 = IDR -log10(0.05) ≈ 1.3). `rank` chooses between
   p-value and signal-value ranking for IDR input.
 - IDR rules use `workflow/envs/idr.yml` when Snakemake is run with
   `--use-conda`, keeping IDR's older Python dependency constraints out of the
   core environment.
 
-### Legacy `stage5` IDR gating summary
+### ChIP-seq narrow IDR (`chipseq_idr`) gating summary
 
 | Condition | Required |
 | :--- | :--- |
-| `stage4b: true` | Always required for IDR |
+| `replicate_analysis: true` | Always required for IDR |
 | `assay` | `chipseq` only |
 | `peak_mode` | `narrow` only |
 | Biological replicates | Exactly 2 treatment bioreps per experiment |
 
-This legacy path does not support CUT&Tag or 3+ replicate IDR. The separate
+This ChIP-seq narrow IDR path does not support CUT&Tag or 3+ replicate IDR. The separate
 `reproducibility` block provides opt-in CUT&Tag narrow IDR and the maintained
 consensus policies described in the
 [reproducibility policy](reproducibility-policy.md).
@@ -218,7 +218,7 @@ tool_parameters:
 | Block | Key | Default | Effect |
 | :--- | :--- | :--- | :--- |
 | `macs3` | `qvalue` | `0.01` | MACS3 q-value cutoff for peak calling. |
-| `idr_macs3` | `pvalue` | `0.1` | Relaxed p-value for IDR-ready per-biorep peak calls. Only used when `stage5: true`. |
+| `idr_macs3` | `pvalue` | `0.1` | Relaxed p-value for IDR-ready per-biorep peak calls. Only used when `chipseq_idr: true`. |
 | `bamcoverage` | `normalize_using` | `"CPM"` | deepTools bamCoverage normalization method. |
 | any block | `extra_args` | `""` | Additional CLI arguments passed through to the tool. Use sparingly. |
 
@@ -250,9 +250,9 @@ those are already checked regardless of strict mode.
 | `use_control` | `false` | Always; enables control resolution when `true` |
 | `multiqc` | `true` | Always; enables MultiQC aggregation when `true` |
 | `qc.*` | legacy QC `true`; heavier optional QC `false` | Always; individual switches gate each metric |
-| `stage4b` | `true` | Always; enables pooled outputs for multi-biorep experiments |
-| `stage5` | `false` | `stage4b: true` + chipseq + narrow + exactly 2 bioreps |
-| `idr.*` | listed above | Only when `stage5: true` |
+| `replicate_analysis` | `true` | Always; enables pooled outputs for multi-biorep experiments |
+| `chipseq_idr` | `false` | `replicate_analysis: true` + chipseq + narrow + exactly 2 bioreps |
+| `idr.*` | listed above | Only when `chipseq_idr: true` |
 | `cuttag.seacr.enabled` | `false` | Always; affects CUT&Tag samples only |
 | `qc.tss_enrichment` | `false` | Requires `genome_resources.<genome>.gtf` |
 | `tool_parameters.*` | tool defaults | Always; absent keys use built-in tool defaults |

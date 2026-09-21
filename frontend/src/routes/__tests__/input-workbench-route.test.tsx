@@ -481,14 +481,14 @@ describe('schema input workbench route', () => {
     expect(generatedMocks.createRun).not.toHaveBeenCalled();
   });
 
-  it('keeps a successful deprecated-alias warning non-terminal and create-ready', async () => {
+  it('keeps a successful validation warning non-terminal and create-ready', async () => {
     const user = userEvent.setup();
     generatedMocks.validateWorkflow.mockResolvedValue({
       ...validatedSnapshotResponse(),
       issues: [
         {
-          code: 'ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED',
-          message: 'Deprecated compatibility fields should be removed.',
+          code: 'WORKFLOW_VALIDATION_WARNING',
+          message: 'Review the workflow configuration before execution.',
           severity: 'warning',
           path: 'config',
         },
@@ -503,20 +503,20 @@ describe('schema input workbench route', () => {
     await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
 
     expect(
-      await screen.findByText('ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED'),
+      await screen.findByText('WORKFLOW_VALIDATION_WARNING'),
     ).toBeVisible();
     expect(
-      screen.getByText('ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED').closest('[role="status"]'),
+      screen.getByText('WORKFLOW_VALIDATION_WARNING').closest('[role="status"]'),
     ).not.toBeNull();
     expect(
-      screen.getByText('ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED').closest('[role="alert"]'),
+      screen.getByText('WORKFLOW_VALIDATION_WARNING').closest('[role="alert"]'),
     ).toBeNull();
     expect(
       screen.getByRole('button', { name: 'Create run from validated inputs' }),
     ).toBeEnabled();
   });
 
-  it('preserves opposite legacy switches through a Form edit, Review, and validate', async () => {
+  it('preserves semantic switches through a Form edit, Review, and validate', async () => {
     const user = userEvent.setup();
     renderWithRouter(appRoutes, {
       initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
@@ -527,7 +527,7 @@ describe('schema input workbench route', () => {
     await user.clear(editor);
     await user.type(
       editor,
-      'outdir: results\nthreads: 4\nstage4b: false\nstage5: true',
+      'outdir: results\nthreads: 4\nreplicate_analysis:\n  enabled: false\nchipseq_idr:\n  enabled: true',
     );
     await user.click(screen.getByRole('button', { name: 'Form mode' }));
     fireEvent.change(screen.getByRole('spinbutton', { name: /threads/i }), {
@@ -542,18 +542,26 @@ describe('schema input workbench route', () => {
     const updatedEditor = screen.getByRole('textbox', {
       name: 'Advanced config YAML',
     });
-    expect((updatedEditor as HTMLTextAreaElement).value).toContain('stage4b: false');
-    expect((updatedEditor as HTMLTextAreaElement).value).toContain('stage5: true');
+    expect((updatedEditor as HTMLTextAreaElement).value).toContain(
+      'replicate_analysis:\n  enabled: false',
+    );
+    expect((updatedEditor as HTMLTextAreaElement).value).toContain(
+      'chipseq_idr:\n  enabled: true',
+    );
     expect((updatedEditor as HTMLTextAreaElement).value).toContain('threads: 12');
     expect((updatedEditor as HTMLTextAreaElement).value).not.toMatch(
-      /replicate_analysis|chipseq_idr/,
+      /stage4b|stage5/,
     );
 
     await authorValidDraft(user);
-    expect(screen.getByTestId('draft-review-json')).toHaveTextContent('stage4b');
-    expect(screen.getByTestId('draft-review-json')).toHaveTextContent('stage5');
+    expect(screen.getByTestId('draft-review-json')).toHaveTextContent(
+      '"replicate_analysis": { "enabled": false }',
+    );
+    expect(screen.getByTestId('draft-review-json')).toHaveTextContent(
+      '"chipseq_idr": { "enabled": true }',
+    );
     expect(screen.getByTestId('draft-review-json')).not.toHaveTextContent(
-      /replicate_analysis|chipseq_idr/,
+      /stage4b|stage5/,
     );
     await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
     expect(generatedMocks.validateWorkflow).toHaveBeenCalledWith(
@@ -562,8 +570,8 @@ describe('schema input workbench route', () => {
         config: {
           outdir: 'results',
           threads: 12,
-          stage4b: false,
-          stage5: true,
+          replicate_analysis: { enabled: false },
+          chipseq_idr: { enabled: true },
         },
       }),
     );

@@ -478,7 +478,7 @@ artifacts:
   manifest_output_type: pooled_final_bam
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true + >=2 treatment bioreps'
+  config_gate: 'replicate_analysis: true + >=2 treatment bioreps'
   notes: includes MNase experiments
 - id: pooled_final_bai
   description: Pooled treatment final BAM index
@@ -491,7 +491,7 @@ artifacts:
   manifest_output_type: pooled_final_bai
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true + >=2 treatment bioreps'
+  config_gate: 'replicate_analysis: true + >=2 treatment bioreps'
   notes: emitted by make_manifest.py but previously missing from output-contract.md; added Stage 43
 - id: biorep_final_bam
   description: Biological-replicate merged BAM
@@ -504,7 +504,7 @@ artifacts:
   manifest_output_type: biorep<N>_final_bam
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true'
+  config_gate: 'replicate_analysis: true'
   notes: N is the biological_replicate number
 - id: biorep_final_bai
   description: Biological-replicate BAM index
@@ -517,7 +517,7 @@ artifacts:
   manifest_output_type: biorep<N>_final_bai
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true'
+  config_gate: 'replicate_analysis: true'
   notes: emitted by make_manifest.py but previously missing from output-contract.md; added Stage 43
 - id: pooled_macs3_peak
   description: Pooled MACS3 peak directory
@@ -530,7 +530,7 @@ artifacts:
   manifest_output_type: pooled_macs3_peak
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true + >=2 peak-centric treatment bioreps'
+  config_gate: 'replicate_analysis: true + >=2 peak-centric treatment bioreps'
   notes: not produced for MNase experiments
 - id: pooled_fe_bdg
   description: Pooled fold-enrichment bedGraph
@@ -543,7 +543,7 @@ artifacts:
   manifest_output_type: pooled_fe_bdg
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true + qc.signal_tracks: true + >=2 peak-centric bioreps'
+  config_gate: 'replicate_analysis: true + qc.signal_tracks: true + >=2 peak-centric bioreps'
   notes: not produced for MNase experiments
 - id: pooled_ppois_bdg
   description: Pooled Poisson p-value bedGraph
@@ -556,7 +556,7 @@ artifacts:
   manifest_output_type: pooled_ppois_bdg
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true + qc.signal_tracks: true + >=2 peak-centric bioreps'
+  config_gate: 'replicate_analysis: true + qc.signal_tracks: true + >=2 peak-centric bioreps'
   notes: not produced for MNase experiments
 - id: pooled_fe_bw
   description: Pooled fold-enrichment BigWig
@@ -569,7 +569,7 @@ artifacts:
   manifest_output_type: pooled_fe_bw
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true + qc.signal_tracks: true + chrom_sizes + >=2 peak-centric bioreps'
+  config_gate: 'replicate_analysis: true + qc.signal_tracks: true + chrom_sizes + >=2 peak-centric bioreps'
   notes: Stage 22
 - id: pooled_ppois_bw
   description: Pooled Poisson p-value BigWig
@@ -582,7 +582,7 @@ artifacts:
   manifest_output_type: pooled_ppois_bw
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true + qc.signal_tracks: true + chrom_sizes + >=2 peak-centric bioreps'
+  config_gate: 'replicate_analysis: true + qc.signal_tracks: true + chrom_sizes + >=2 peak-centric bioreps'
   notes: Stage 22
 - id: pooled_qc_summary
   description: Pooled experiment QC summary TSV
@@ -595,7 +595,7 @@ artifacts:
   manifest_output_type: pooled_qc_summary
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true + >=2 peak-centric treatment bioreps'
+  config_gate: 'replicate_analysis: true + >=2 peak-centric treatment bioreps'
   notes: Stage 6b; not produced for MNase experiments
 - id: pooled_mnase_mono_bam
   description: Pooled MNase mono-nucleosome BAM
@@ -608,7 +608,7 @@ artifacts:
   manifest_output_type: pooled_mnase_mono_bam
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true + >=2 MNase treatment bioreps'
+  config_gate: 'replicate_analysis: true + >=2 MNase treatment bioreps'
   notes: Stage 39; pooled sub/di deferred
 - id: pooled_mnase_mono_bai
   description: Pooled MNase mono BAM index
@@ -621,7 +621,7 @@ artifacts:
   manifest_output_type: pooled_mnase_mono_bai
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true + >=2 MNase treatment bioreps'
+  config_gate: 'replicate_analysis: true + >=2 MNase treatment bioreps'
   notes: Stage 39
 - id: pooled_mnase_dyad_bigwig
   description: Pooled MNase dyad BigWig
@@ -634,7 +634,7 @@ artifacts:
   manifest_output_type: pooled_mnase_dyad_bigwig
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true + >=2 MNase treatment bioreps'
+  config_gate: 'replicate_analysis: true + >=2 MNase treatment bioreps'
   notes: Stage 39
 - id: pooled_mnase_mono_bigwig
   description: Pooled MNase mono occupancy BigWig
@@ -647,7 +647,7 @@ artifacts:
   manifest_output_type: pooled_mnase_mono_bigwig
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage4b: true + >=2 MNase treatment bioreps'
+  config_gate: 'replicate_analysis: true + >=2 MNase treatment bioreps'
   notes: Stage 39
 - id: idr_true_replicate_raw
   description: True-replicate IDR raw output
@@ -660,8 +660,8 @@ artifacts:
   manifest_output_type: null
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
-  notes: Stage 5a
+  config_gate: 'chipseq_idr: true + chipseq narrow + exactly 2 bioreps'
+  notes: ChIP-seq true-replicate IDR
 - id: idr_true_replicate_thresh
   description: True-replicate IDR thresholded narrowPeak
   scope: experiment
@@ -673,8 +673,8 @@ artifacts:
   manifest_output_type: null
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
-  notes: Stage 5a
+  config_gate: 'chipseq_idr: true + chipseq narrow + exactly 2 bioreps'
+  notes: ChIP-seq true-replicate IDR
 - id: idr_self_raw
   description: Self-pseudoreplicate IDR raw output
   scope: experiment
@@ -686,8 +686,8 @@ artifacts:
   manifest_output_type: null
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
-  notes: Stage 5b; N is biorep number; manifest uses dynamic f-string
+  config_gate: 'chipseq_idr: true + chipseq narrow + exactly 2 bioreps'
+  notes: ChIP-seq pseudoreplicate IDR and final peaks; N is biorep number; manifest uses dynamic f-string
 - id: idr_pooled_raw
   description: Pooled-pseudoreplicate IDR raw output
   scope: experiment
@@ -699,49 +699,49 @@ artifacts:
   manifest_output_type: null
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
-  notes: Stage 5b
+  config_gate: 'chipseq_idr: true + chipseq narrow + exactly 2 bioreps'
+  notes: ChIP-seq pseudoreplicate IDR and final peaks
 - id: idr_conservative
   description: IDR conservative peak set
   scope: experiment
   level: pooled_experiment
   assay_gate: idr
   path_template: results/experiments/<experiment>/06_idr/final/conservative.narrowPeak
-  producing_rule: stage5b_summary
+  producing_rule: chipseq_idr_summary
   tool: idr filter
   manifest_output_type: idr_conservative
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
-  notes: Stage 5b
+  config_gate: 'chipseq_idr: true + chipseq narrow + exactly 2 bioreps'
+  notes: ChIP-seq pseudoreplicate IDR and final peaks
 - id: idr_optimal
   description: IDR optimal peak set
   scope: experiment
   level: pooled_experiment
   assay_gate: idr
   path_template: results/experiments/<experiment>/06_idr/final/optimal.narrowPeak
-  producing_rule: stage5b_summary
+  producing_rule: chipseq_idr_summary
   tool: idr filter
   manifest_output_type: idr_optimal
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
-  notes: Stage 5b
+  config_gate: 'chipseq_idr: true + chipseq narrow + exactly 2 bioreps'
+  notes: ChIP-seq pseudoreplicate IDR and final peaks
 - id: idr_reproducibility_summary
   description: IDR reproducibility summary TSV
   scope: experiment
   level: pooled_experiment
   assay_gate: idr
   path_template: results/experiments/<experiment>/06_idr/final/reproducibility_summary.tsv
-  producing_rule: stage5b_summary
+  producing_rule: chipseq_idr_summary
   tool: (script)
   manifest_output_type: idr_reproducibility_summary
   pipeline_done: false
   rule_all: true
-  config_gate: 'stage5: true + chipseq narrow + exactly 2 bioreps'
-  notes: Stage 5b
+  config_gate: 'chipseq_idr: true + chipseq narrow + exactly 2 bioreps'
+  notes: ChIP-seq pseudoreplicate IDR and final peaks
 
-# ---- Stage 53-65 reproducibility outputs (consensus + IDR final + consensus final) ----
+# ---- Replicate-validated reproducibility outputs (consensus + IDR final + consensus final) ----
 
 # Consensus outputs (catalog/report)
 
@@ -757,7 +757,7 @@ artifacts:
   pipeline_done: false
   rule_all: true
   config_gate: reproducibility.enabled and reproducibility.consensus.enabled
-  notes: Consensus catalog output; not primary final (legacy stage5 IDR is final)
+  notes: Consensus catalog output; not primary final (ChIP-seq IDR is final)
 
 - id: chipseq_macs3_narrow_consensus_summary
   description: ChIP-seq narrow consensus summary TSV
@@ -1100,15 +1100,15 @@ artifacts:
   rule_all: true
   config_gate: 'multiqc: true'
   notes: depends on pipeline_done for all treatment samples
-- id: stage3_qc_summary
+- id: project_qc_summary
   description: Project-level QC summary TSV
   scope: project
   level: project
   assay_gate: peak_centric
-  path_template: results/multiqc/stage3_qc_summary.tsv
-  producing_rule: stage3_qc_summary
+  path_template: results/multiqc/project_qc_summary.tsv
+  producing_rule: project_qc_summary
   tool: aggregate_qc_summary.py
-  manifest_output_type: stage3_qc_summary
+  manifest_output_type: project_qc_summary
   pipeline_done: false
   rule_all: true
   config_gate: 'qc.summary: true'

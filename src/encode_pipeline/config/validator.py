@@ -181,18 +181,18 @@ def validate_config(config: dict) -> dict:
         config.get("genome_resources", {})
     )
 
-    # qc — optional QC switches (legacy Stage 3 defaults true; heavier modules false)
+    # qc — optional QC switches (standard defaults true; heavier modules false)
     validated["qc"] = _validate_qc_config(config.get("qc", {}))
 
-    # stage4b — optional Stage 4b replicate-aware outputs, default true
-    stage4b_raw = config.get("stage4b", True)
-    if isinstance(stage4b_raw, bool):
-        validated["stage4b"] = stage4b_raw
-    elif str(stage4b_raw).lower() in ("true", "false"):
-        validated["stage4b"] = str(stage4b_raw).lower() == "true"
+    # replicate_analysis — optional replicate-aware outputs, default true
+    replicate_analysis_raw = config.get("replicate_analysis", True)
+    if isinstance(replicate_analysis_raw, bool):
+        validated["replicate_analysis"] = replicate_analysis_raw
+    elif str(replicate_analysis_raw).lower() in ("true", "false"):
+        validated["replicate_analysis"] = str(replicate_analysis_raw).lower() == "true"
     else:
         raise ValidationError(
-            f"config stage4b must be true or false, got {stage4b_raw!r}"
+            f"config replicate_analysis must be true or false, got {replicate_analysis_raw!r}"
         )
 
     # tool_parameters — optional Stage 4c structured tool config, default empty
@@ -200,39 +200,39 @@ def validate_config(config: dict) -> dict:
         config.get("tool_parameters", {})
     )
 
-    # stage5 — optional Stage 5 IDR, default false
-    stage5_raw = config.get("stage5", False)
-    if isinstance(stage5_raw, bool):
-        validated["stage5"] = stage5_raw
-    elif str(stage5_raw).lower() in ("true", "false"):
-        validated["stage5"] = str(stage5_raw).lower() == "true"
+    # chipseq_idr — optional ChIP-seq IDR, default false
+    chipseq_idr_raw = config.get("chipseq_idr", False)
+    if isinstance(chipseq_idr_raw, bool):
+        validated["chipseq_idr"] = chipseq_idr_raw
+    elif str(chipseq_idr_raw).lower() in ("true", "false"):
+        validated["chipseq_idr"] = str(chipseq_idr_raw).lower() == "true"
     else:
         raise ValidationError(
-            f"config stage5 must be true or false, got {stage5_raw!r}"
+            f"config chipseq_idr must be true or false, got {chipseq_idr_raw!r}"
         )
 
-    # stage5 requires stage4b
-    if validated["stage5"] and not validated.get("stage4b", True):
+    # chipseq_idr requires replicate_analysis
+    if validated["chipseq_idr"] and not validated.get("replicate_analysis", True):
         raise ValidationError(
-            "config: stage5=true requires stage4b=true. "
-            "Stage 5a depends on Stage 4b biorep BAMs and pooled control BAMs."
+            "config: chipseq_idr=true requires replicate_analysis=true. "
+            "ChIP-seq IDR depends on replicate analysis biorep BAMs and pooled control BAMs."
         )
 
-    # reproducibility — Stage 53+ replicate-validated peak outputs
+    # reproducibility — replicate-validated peak outputs
     validated["reproducibility"] = _validate_reproducibility(
         config.get("reproducibility", {}), validated
     )
 
-    # Stage 55: determine whether ATAC IDR is enabled from validated reproducibility
+    # Determine whether ATAC IDR is enabled from validated reproducibility
     repro = validated["reproducibility"]
     atac_idr_enabled = repro.get("enabled", False) and repro.get("idr", {}).get(
         "atac_narrow", False
     )
 
-    # ATAC IDR requires stage4b (Stage 55)
-    if atac_idr_enabled and not validated.get("stage4b", True):
+    # ATAC IDR requires replicate_analysis (ATAC narrow)
+    if atac_idr_enabled and not validated.get("replicate_analysis", True):
         raise ValidationError(
-            "config: reproducibility.idr.atac_narrow=true requires stage4b=true."
+            "config: reproducibility.idr.atac_narrow=true requires replicate_analysis=true."
         )
 
     # Stage 64: determine whether CUT&Tag IDR is enabled
@@ -240,10 +240,10 @@ def validate_config(config: dict) -> dict:
         "cuttag_narrow", False
     )
 
-    # CUT&Tag IDR requires stage4b (Stage 64)
-    if cuttag_idr_enabled and not validated.get("stage4b", True):
+    # CUT&Tag IDR requires replicate_analysis (Stage 64)
+    if cuttag_idr_enabled and not validated.get("replicate_analysis", True):
         raise ValidationError(
-            "config: reproducibility.idr.cuttag_narrow=true requires stage4b=true."
+            "config: reproducibility.idr.cuttag_narrow=true requires replicate_analysis=true."
         )
 
     # Stage 65: determine whether broad IDR is enabled
@@ -254,18 +254,18 @@ def validate_config(config: dict) -> dict:
         "cuttag_broad_experimental", False
     )
 
-    # Broad IDR requires stage4b (Stage 65)
+    # Broad IDR requires replicate_analysis (Stage 65)
     if (broad_chipseq_idr_enabled or broad_cuttag_idr_enabled) and not validated.get(
-        "stage4b", True
+        "replicate_analysis", True
     ):
         raise ValidationError(
             "config: reproducibility.idr.chipseq_broad_experimental=true "
-            "or cuttag_broad_experimental=true requires stage4b=true."
+            "or cuttag_broad_experimental=true requires replicate_analysis=true."
         )
 
-    # idr settings validated when stage5 or any IDR mode is enabled
+    # idr settings validated when chipseq_idr or any IDR mode is enabled
     if (
-        validated["stage5"]
+        validated["chipseq_idr"]
         or atac_idr_enabled
         or cuttag_idr_enabled
         or broad_chipseq_idr_enabled
@@ -375,7 +375,7 @@ def _validate_tool_params(tool_params) -> dict:
 def _validate_idr_settings(idr):
     """Validate the idr config block. Returns normalized dict.
 
-    Only called when stage5 is true.
+    Only called when chipseq_idr is true.
     """
     return reproducibility_validation.validate_idr_settings(
         idr,
@@ -384,7 +384,7 @@ def _validate_idr_settings(idr):
 
 
 def _validate_reproducibility(raw, validated_config):
-    """Validate the reproducibility config block (Stage 53+).
+    """Validate the reproducibility config block.
 
     Returns a dict with validated reproducibility settings.
     When enabled is false/absent, returns {'enabled': False} without
