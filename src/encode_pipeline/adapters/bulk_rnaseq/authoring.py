@@ -326,7 +326,7 @@ def _ribosomal_rna_removal_schema() -> dict[str, object]:
                 "type": "string",
                 "enum": ["sortmerna", "bowtie2"],
             },
-            "save_filtered_reads": {"type": "boolean", "default": False},
+            "save_filtered_reads": {"type": "boolean"},
             "database_manifest": {
                 "type": "object",
                 "title": "rRNA database manifest",
@@ -502,8 +502,7 @@ def _umi_schema() -> dict[str, object]:
             },
             "deduplication_tool": {
                 "type": "string",
-                "const": "umitools",
-                "default": "umitools",
+                "enum": ["umitools"],
             },
             "extraction_method": {
                 "type": "string",
@@ -535,10 +534,9 @@ def _umi_schema() -> dict[str, object]:
                     "adjacency",
                     "directional",
                 ],
-                "default": "directional",
             },
-            "emit_dedup_stats": {"type": "boolean", "default": False},
-            "primary_alignments_only": {"type": "boolean", "default": False},
+            "emit_dedup_stats": {"type": "boolean"},
+            "primary_alignments_only": {"type": "boolean"},
         },
         "required": ["enabled"],
         "allOf": [
