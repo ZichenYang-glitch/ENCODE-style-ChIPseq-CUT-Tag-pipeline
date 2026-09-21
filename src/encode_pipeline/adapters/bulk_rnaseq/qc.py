@@ -1636,7 +1636,7 @@ def _rseqc_bam_stat_counts(content: bytes, *, layout: str) -> dict[str, int]:
         "Non-splice reads": r"^Non-splice reads:\s+([0-9]+)$",
         "Splice reads": r"^Splice reads:\s+([0-9]+)$",
         "Proper-paired reads map to different chrom": (
-            r"^Proper-paired reads map to different chrom:\s+([0-9]+)$"
+            r"^Proper-paired reads map to different chrom:\s*([0-9]+)$"
         ),
     }
     result: dict[str, int] = {}

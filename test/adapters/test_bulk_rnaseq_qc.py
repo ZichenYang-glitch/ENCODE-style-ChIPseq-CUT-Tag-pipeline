@@ -2150,7 +2150,15 @@ def test_rseqc_tin_clamps_only_the_fixed_binary64_rounding_envelope():
     assert metrics["rseqc.tin.standard_deviation"].value == Decimal(50)
 
 
-def test_rseqc_se_bam_stat_accepts_fixed_zero_paired_fields():
+@pytest.mark.parametrize(
+    "long_label_line",
+    [
+        b"Proper-paired reads map to different chrom: 0\n",
+        b"Proper-paired reads map to different chrom:0\n",
+    ],
+    ids=["padded", "unpadded-real-output"],
+)
+def test_rseqc_se_bam_stat_accepts_fixed_zero_paired_fields(long_label_line):
     source = _source(
         "bulk_rnaseq.rseqc.bam_stat",
         b"#Output (all numbers are read count)\n#================================\n"
@@ -2160,8 +2168,7 @@ def test_rseqc_se_bam_stat_accepts_fixed_zero_paired_fields():
         b"mapq >= mapq_cut (unique): 600\nRead-1: 0\nRead-2: 0\n"
         b"Reads map to '+': 310\nReads map to '-': 290\n"
         b"Non-splice reads: 500\nSplice reads: 100\n"
-        b"Reads mapped in proper pairs: 0\n"
-        b"Proper-paired reads map to different chrom: 0\n",
+        b"Reads mapped in proper pairs: 0\n" + long_label_line,
         sample="S1",
     )
 
