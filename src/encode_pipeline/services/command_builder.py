@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import os
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Protocol
 from uuid import uuid4
 
 from encode_pipeline.platform.adapters import (
@@ -19,7 +18,6 @@ from encode_pipeline.platform.managed_containers import managed_container_scope
 from encode_pipeline.platform.planning import (
     ExecutionPlan,
     PlanStatus,
-    WorkspacePathPolicy,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.reference_profiles import BoundWorkflowReference
@@ -37,12 +35,6 @@ class _ReferenceProfileRuntimeResolver(Protocol):
     ) -> Result[BoundWorkflowReference | None]: ...
 
 
-def _bundled_snakefile_path(project_root: Path | None = None) -> Path:
-    """Return the controlled project-relative path to the bundled Snakefile."""
-    root = Path(__file__).resolve().parents[3] if project_root is None else project_root
-    return root / "workflow" / "Snakefile"
-
-
 class CommandBuilder:
     """Pure command-spec construction boundary for planned workflow runs."""
 
@@ -50,53 +42,17 @@ class CommandBuilder:
         self,
         registry: WorkflowRegistry,
         *,
-        project_root: Path | None = None,
         reference_profile_resolver: _ReferenceProfileRuntimeResolver | None = None,
-        snakemake_executable: Path | None = None,
-        conda_prefix: Path | None = None,
     ) -> None:
         """Initialize with an adapter registry for engine validation."""
         if not isinstance(registry, WorkflowRegistry):
             raise ValueError("registry must be a WorkflowRegistry")
-        root = (
-            Path(__file__).resolve().parents[3]
-            if project_root is None
-            else project_root
-        )
-        if not isinstance(root, Path) or not root.is_absolute():
-            raise ValueError("project_root must be an absolute pathlib.Path")
         if reference_profile_resolver is not None and not callable(
             getattr(reference_profile_resolver, "resolve_run", None)
         ):
             raise ValueError("reference_profile_resolver is invalid")
-        if (snakemake_executable is None) != (conda_prefix is None):
-            raise ValueError(
-                "snakemake_executable and conda_prefix must be configured together"
-            )
-        if snakemake_executable is not None:
-            if (
-                not isinstance(snakemake_executable, Path)
-                or not snakemake_executable.is_absolute()
-                or snakemake_executable.name != "snakemake"
-                or any(
-                    character in str(snakemake_executable)
-                    for character in ("\x00", "\n", "\r")
-                )
-            ):
-                raise ValueError("snakemake_executable is invalid")
-            if (
-                not isinstance(conda_prefix, Path)
-                or not conda_prefix.is_absolute()
-                or any(
-                    character in str(conda_prefix) for character in ("\x00", "\n", "\r")
-                )
-            ):
-                raise ValueError("conda_prefix is invalid")
         self._registry = registry
-        self._project_root = root
         self._reference_profile_resolver = reference_profile_resolver
-        self._snakemake_executable = snakemake_executable
-        self._conda_prefix = conda_prefix
 
     def build_command(
         self,
@@ -184,162 +140,51 @@ class CommandBuilder:
         assert resolved_adapter.value is not None
         adapter = resolved_adapter.value
 
+        trusted = self._registry.uses_encode_execution_fallback(registered_adapter)
+        same_contract = (
+            type(adapter) is type(registered_adapter)
+            and adapter.metadata == registered_adapter.metadata
+            and adapter.capabilities == registered_adapter.capabilities
+        )
+        if trusted and same_contract:
+            return self._build_trusted_adapter_command(adapter, plan, base_dir)
         if COMMAND_CAPABILITY in adapter.capabilities.supports:
             return self._build_adapter_command(
                 adapter=adapter,
                 plan=plan,
                 base_dir=base_dir,
             )
-
-        if not (
-            self._registry.uses_encode_execution_fallback(adapter)
-            or self._registry.uses_encode_execution_fallback(registered_adapter)
-        ):
-            return Result.failure(
-                [
-                    Issue(
-                        code="COMMAND_BUILD_UNSUPPORTED_ENGINE",
-                        message="Workflow engine is not supported.",
-                        severity="error",
-                        path="workflow",
-                        source="command_builder",
-                    )
-                ]
-            )
-
-        snakefile = _bundled_snakefile_path(self._project_root)
-        if not snakefile.is_file():
-            return Result.failure(
-                [
-                    Issue(
-                        code="COMMAND_BUILD_SNAKEFILE_NOT_FOUND",
-                        message="Bundled Snakefile was not found.",
-                        severity="error",
-                        path="workflow",
-                        source="command_builder",
-                    )
-                ]
-            )
-
-        config_path = self._resolve_config_path(base_dir, plan.workspace_plan)
-        if isinstance(config_path, Result):
-            return config_path
-
-        cores_result = self._resolve_cores(plan.inputs_snapshot)
-        if isinstance(cores_result, Result):
-            return cores_result
-        cores = cores_result
-
-        runtime = self._scientific_runtime(base_dir)
-        if isinstance(runtime, Result):
-            return runtime
-        executable, runtime_arguments, environment = runtime
-        argv = (
-            executable,
-            "--snakefile",
-            str(snakefile),
-            "--directory",
-            str(base_dir),
-            "--configfile",
-            str(config_path),
-            "--cores",
-            str(cores),
-            *runtime_arguments,
-        )
-        command_spec = CommandSpec(
-            argv=argv,
-            cwd=None,
-            env=environment,
-            preflight_argv=argv + ("-n",),
+        return Result.failure(
+            [
+                Issue(
+                    code="COMMAND_BUILD_UNSUPPORTED_ENGINE",
+                    message="Workflow engine is not supported.",
+                    severity="error",
+                    path="workflow",
+                    source="command_builder",
+                )
+            ]
         )
 
-        return Result.success(self._planned_plan(plan, command_spec))
-
-    def _scientific_runtime(
+    def _build_trusted_adapter_command(
         self,
-        workspace: Path,
-    ) -> tuple[str, tuple[str, ...], dict[str, str]] | Result[ExecutionPlan]:
-        executable = self._snakemake_executable
-        prefix = self._conda_prefix
-        if executable is None or prefix is None:
-            return "snakemake", (), {}
-        runtime_root = executable.parent.parent.parent
-        mamba_root = runtime_root / "mamba-root"
-        conda_executable = executable.parent / "conda"
-        activate = mamba_root / "bin" / "activate"
-        micromamba = runtime_root / "runner" / "libexec" / "micromamba"
+        adapter: WorkflowAdapter,
+        plan: ExecutionPlan,
+        base_dir: Path,
+    ) -> Result[ExecutionPlan]:
+        """Delegate under existing exact-instance legacy authority (cwd may be None)."""
+        assert plan.workspace_plan is not None
         try:
-            observed_files = tuple(
-                (path, path.lstat())
-                for path in (executable, conda_executable, activate, micromamba)
-            )
-            observed_directories = tuple(
-                (path, path.lstat()) for path in (runtime_root, mamba_root, prefix)
-            )
-            if (
-                executable.parent.parent != runtime_root / "runner"
-                or prefix != runtime_root / "conda-envs"
-                or any(
-                    path.is_symlink()
-                    or not path.is_file()
-                    or not os.access(path, os.X_OK)
-                    or witness.st_mode & 0o022
-                    for path, witness in observed_files
-                )
-                or any(
-                    path.is_symlink() or not path.is_dir() or witness.st_mode & 0o022
-                    for path, witness in observed_directories
-                )
-            ):
-                raise OSError
-        except OSError:
-            return Result.failure(
-                [
-                    Issue(
-                        code="COMMAND_BUILD_SCIENTIFIC_RUNTIME_UNAVAILABLE",
-                        message="The admitted scientific runtime is unavailable.",
-                        severity="error",
-                        path="workflow",
-                        source="command_builder",
-                    )
-                ]
-            )
-        path = ":".join(
-            (
-                str(executable.parent),
-                "/usr/sbin",
-                "/usr/bin",
-                "/sbin",
-                "/bin",
-            )
-        )
-        return (
-            str(executable),
-            (
-                "--use-conda",
-                "--conda-prefix",
-                str(prefix),
-                "--conda-base-path",
-                str(mamba_root),
-                "--conda-frontend",
-                "conda",
-            ),
-            {
-                "PATH": path,
-                "CONDA_DEFAULT_ENV": "",
-                "CONDA_EXE": str(conda_executable),
-                "CONDA_PREFIX": "",
-                "CONDA_SHLVL": "0",
-                "HOME": str(workspace),
-                "MAMBA_ROOT_PREFIX": str(mamba_root),
-                "PYTHONDONTWRITEBYTECODE": "1",
-                "PYTHONNOUSERSITE": "1",
-                "TMPDIR": str(workspace),
-                "XDG_CACHE_HOME": str(workspace / ".snakemake"),
-                "_CONDA_EXE": str(conda_executable),
-                "_CONDA_ROOT": str(mamba_root),
-            },
-        )
+            result = adapter.build_command(plan.workspace_plan, base_dir)
+        except Exception:
+            return self._adapter_failure()
+        if not isinstance(result, Result):
+            return self._adapter_failure()
+        if result.is_failure:
+            return Result.failure(result.issues)
+        if not isinstance(result.value, CommandSpec):
+            return self._adapter_failure()
+        return Result.success(self._planned_plan(plan, result.value))
 
     def _resolve_reference_profile(
         self,
@@ -514,64 +359,3 @@ class CommandBuilder:
                 ),
             ),
         )
-
-    def _resolve_config_path(
-        self,
-        base_dir: Path,
-        workspace_plan: WorkspacePlan,
-    ) -> Path | Result[Any]:
-        """Find config/config.yaml in the workspace plan and resolve it safely."""
-        for index, (file_path, _) in enumerate(workspace_plan.files):
-            if file_path == "config/config.yaml":
-                policy = WorkspacePathPolicy(base_dir=base_dir)
-                try:
-                    return policy.resolve(file_path)
-                except Exception:
-                    return Result.failure(
-                        [
-                            Issue(
-                                code="COMMAND_BUILD_MISSING_CONFIG",
-                                message="Workspace config file could not be resolved.",
-                                severity="error",
-                                path=f"workspace_plan.files[{index}]",
-                                source="command_builder",
-                            )
-                        ]
-                    )
-
-        return Result.failure(
-            [
-                Issue(
-                    code="COMMAND_BUILD_MISSING_CONFIG",
-                    message="Workspace plan must include config/config.yaml.",
-                    severity="error",
-                    path="workspace_plan.files",
-                    source="command_builder",
-                )
-            ]
-        )
-
-    def _resolve_cores(
-        self,
-        inputs_snapshot: Mapping[str, Any],
-    ) -> int | Result[Any]:
-        """Read a positive integer cores value from inputs_snapshot options."""
-        options = inputs_snapshot.get("options")
-        if not isinstance(options, Mapping):
-            return 1
-        cores = options.get("cores")
-        if cores is None:
-            return 1
-        if type(cores) is not int or cores <= 0:
-            return Result.failure(
-                [
-                    Issue(
-                        code="COMMAND_BUILD_INVALID_CORES",
-                        message="cores must be a positive integer.",
-                        severity="error",
-                        path="plan.inputs_snapshot.options.cores",
-                        source="command_builder",
-                    )
-                ]
-            )
-        return cores

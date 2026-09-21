@@ -68,13 +68,34 @@ def _make_pending_plan(
     from encode_pipeline.platform.adapters import WorkspacePlan
     from encode_pipeline.platform.planning import ExecutionPlan, PlanStatus
 
+    workspace_plan = WorkspacePlan(files=workspace_plan_files)
+    if workflow_id == _WORKFLOW_ID:
+        from encode_pipeline.adapters.encode_execution import (
+            EXECUTION_CONFIG_PATH,
+            execution_config_bytes,
+        )
+
+        snapshot = inputs_snapshot or {}
+        options = snapshot.get("options")
+        cores = options.get("cores") if isinstance(options, dict) else None
+        workspace_plan = WorkspacePlan(
+            files=workspace_plan.files
+            + (
+                (
+                    EXECUTION_CONFIG_PATH,
+                    execution_config_bytes(
+                        workspace_plan, 1 if cores is None else cores
+                    ),
+                ),
+            )
+        )
     return ExecutionPlan(
         plan_id=str(uuid4()),
         run_id="run-1",
         workflow_id=workflow_id,
         status=PlanStatus.PENDING,
         inputs_snapshot=inputs_snapshot or {},
-        workspace_plan=WorkspacePlan(files=workspace_plan_files),
+        workspace_plan=workspace_plan,
     )
 
 
@@ -503,7 +524,9 @@ def test_command_builder_command_spec_has_expected_argv(tmp_path):
 
 
 def test_supported_command_uses_admitted_scientific_runtime(tmp_path):
-    from encode_pipeline.services.command_builder import CommandBuilder
+    from encode_pipeline.services.defaults import (
+        create_default_command_builder as CommandBuilder,
+    )
 
     runtime_root = tmp_path / "scientific" / "runtime-identity"
     runner_root = runtime_root / "runner"
@@ -574,7 +597,9 @@ def test_supported_command_uses_admitted_scientific_runtime(tmp_path):
 
 
 def test_supported_command_fails_closed_without_the_activation_seam(tmp_path):
-    from encode_pipeline.services.command_builder import CommandBuilder
+    from encode_pipeline.services.defaults import (
+        create_default_command_builder as CommandBuilder,
+    )
 
     runtime_root = tmp_path / "scientific" / "runtime-identity"
     executable = runtime_root / "runner" / "bin" / "snakemake"
@@ -603,7 +628,9 @@ def test_supported_command_fails_closed_without_the_activation_seam(tmp_path):
 
 
 def test_supported_command_fails_closed_when_runtime_is_missing(tmp_path):
-    from encode_pipeline.services.command_builder import CommandBuilder
+    from encode_pipeline.services.defaults import (
+        create_default_command_builder as CommandBuilder,
+    )
 
     result = CommandBuilder(
         registry=_make_registry(),
@@ -917,7 +944,9 @@ def test_command_builder_command_spec_has_empty_env_and_no_cwd(tmp_path):
 
 
 def test_command_builder_refuses_missing_snakefile(tmp_path):
-    from encode_pipeline.services.command_builder import CommandBuilder
+    from encode_pipeline.services.defaults import (
+        create_default_command_builder as CommandBuilder,
+    )
 
     fake_repo = tmp_path / "repo"
     fake_repo.mkdir()
@@ -935,7 +964,9 @@ def test_command_builder_refuses_missing_snakefile(tmp_path):
 
 
 def test_command_builder_uses_snakefile_from_explicit_project_root(tmp_path):
-    from encode_pipeline.services.command_builder import CommandBuilder
+    from encode_pipeline.services.defaults import (
+        create_default_command_builder as CommandBuilder,
+    )
 
     project_root = tmp_path / "source"
     workflow_dir = project_root / "workflow"
@@ -954,7 +985,9 @@ def test_command_builder_uses_snakefile_from_explicit_project_root(tmp_path):
 
 
 def test_command_builder_requires_absolute_project_root():
-    from encode_pipeline.services.command_builder import CommandBuilder
+    from encode_pipeline.services.defaults import (
+        create_default_command_builder as CommandBuilder,
+    )
 
     with pytest.raises(
         ValueError,
@@ -1060,3 +1093,48 @@ def _make_registry():
         adapters=[adapter],
         legacy_execution_fallbacks=(adapter,),
     )
+
+
+def test_trusted_cwd_exception_does_not_extend_to_other_bound_adapter_type(tmp_path):
+    from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
+    from encode_pipeline.platform.adapters import CommandSpec, WorkflowInputs
+    from encode_pipeline.platform.reference_profiles import (
+        AdapterReferenceBindingIdentity,
+        BoundWorkflowReference,
+    )
+    from encode_pipeline.platform.registry import WorkflowRegistry
+    from encode_pipeline.platform.results import Result
+    from encode_pipeline.services.command_builder import CommandBuilder
+
+    registered = EncodeStyleWorkflowAdapter()
+    bound = _CommandAdapter(
+        lambda _plan, _workspace: Result.success(CommandSpec(argv=("engine",)))
+    )
+    bound.metadata = registered.metadata
+    bound.capabilities = registered.capabilities
+    registry = WorkflowRegistry([registered], legacy_execution_fallbacks=(registered,))
+    assert registry.uses_encode_execution_fallback(registered)
+    assert not registry.uses_encode_execution_fallback(bound)
+
+    class Resolver:
+        def resolve_run(self, *_args, **_kwargs):
+            return Result.success(
+                BoundWorkflowReference(
+                    inputs=WorkflowInputs(config={}),
+                    adapter=bound,
+                    identity=AdapterReferenceBindingIdentity(
+                        workflow_id=_WORKFLOW_ID,
+                        contract_version="encode-reference-binding-v1",
+                        identity_sha256="a" * 64,
+                    ),
+                )
+            )
+
+    result = CommandBuilder(
+        registry, reference_profile_resolver=Resolver()
+    ).build_command(
+        _make_pending_plan(inputs_snapshot={"config": {}, "options": {}}),
+        tmp_path,
+    )
+    assert result.is_failure
+    assert result.issues[0].code == "COMMAND_BUILD_ADAPTER_FAILED"

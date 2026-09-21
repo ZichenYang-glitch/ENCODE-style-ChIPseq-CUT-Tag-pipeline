@@ -147,6 +147,22 @@ def _make_pending_plan_with_workspace(
             directories=("logs",),
             files=(("config/config.yaml", b"use_control: false\n"),),
         )
+    if workflow_id == "encode-style-chipseq-cuttag-atac-mnase":
+        from encode_pipeline.adapters.encode_execution import (
+            EXECUTION_CONFIG_PATH,
+            execution_config_bytes,
+        )
+
+        workspace_plan = WorkspacePlan(
+            directories=workspace_plan.directories,
+            files=workspace_plan.files
+            + (
+                (
+                    EXECUTION_CONFIG_PATH,
+                    execution_config_bytes(workspace_plan, 1),
+                ),
+            ),
+        )
     return ExecutionPlan(
         plan_id="plan-1",
         run_id=run_id,
@@ -1620,7 +1636,7 @@ def test_workspace_materialized_event_context(tmp_path):
     mat_event = [e for e in events if e.event_type == "workspace_materialized"][0]
 
     assert mat_event.status is None
-    assert mat_event.context == {"directory_count": 2, "file_count": 2}
+    assert mat_event.context == {"directory_count": 2, "file_count": 3}
     # No paths in context
     context_text = str(mat_event.context)
     assert "workspaces" not in context_text

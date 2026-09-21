@@ -17,6 +17,12 @@ import yaml
 
 from encode_pipeline import __version__
 from encode_pipeline.adapters.encode_authoring import MAX_CORES
+from encode_pipeline.adapters.encode_execution import (
+    EXECUTION_CONFIG_PATH,
+    EncodeExecutionBinding,
+    build_encode_command,
+    execution_config_bytes,
+)
 from encode_pipeline.artifacts import (
     Artifact,
     artifacts_by_manifest_output_type,
@@ -24,6 +30,7 @@ from encode_pipeline.artifacts import (
 )
 from encode_pipeline.platform.adapters import (
     ARTIFACT_EXTRACT_CAPABILITY,
+    COMMAND_CAPABILITY,
     INPUT_AUTHORING_CAPABILITY,
     INPUT_BUNDLE_IMPORT_CAPABILITY,
     MAX_SAMPLE_CELL_LENGTH,
@@ -55,6 +62,7 @@ from encode_pipeline.platform.input_bundles import (
     validate_input_bundle_relative_path,
 )
 from encode_pipeline.platform.results import Issue, Result
+from encode_pipeline.platform.registry import WorkflowRegistry
 
 
 _WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
@@ -282,6 +290,7 @@ class EncodeStyleWorkflowAdapter:
         supports=(
             VALIDATION_CAPABILITY,
             WORKSPACE_PLAN_CAPABILITY,
+            COMMAND_CAPABILITY,
             INPUT_AUTHORING_CAPABILITY,
             INPUT_BUNDLE_IMPORT_CAPABILITY,
             ARTIFACT_EXTRACT_CAPABILITY,
@@ -294,9 +303,13 @@ class EncodeStyleWorkflowAdapter:
         *,
         catalog: tuple[Artifact, ...] | list[Artifact] | None = None,
         catalog_path: str | None = None,
+        execution: EncodeExecutionBinding | None = None,
     ) -> None:
         if catalog is not None and catalog_path is not None:
             raise ValueError("catalog and catalog_path are mutually exclusive")
+        if execution is not None and not isinstance(execution, EncodeExecutionBinding):
+            raise ValueError("execution must be an EncodeExecutionBinding")
+        self._execution_binding = execution or EncodeExecutionBinding()
         loaded = load_catalog(catalog_path) if catalog is None else list(catalog)
         self._artifact_catalog = tuple(loaded)
         self._artifacts_by_manifest_type = artifacts_by_manifest_output_type(loaded)
@@ -398,7 +411,9 @@ class EncodeStyleWorkflowAdapter:
             return Result.failure(resolved.issues)
         assert resolved.value is not None
         bound_inputs, identity = resolved.value
-        bound_adapter = type(self)(catalog=self._artifact_catalog)
+        bound_adapter = type(self)(
+            catalog=self._artifact_catalog, execution=self._execution_binding
+        )
         return Result.success(
             BoundWorkflowReference(
                 inputs=bound_inputs,
@@ -471,6 +486,18 @@ class EncodeStyleWorkflowAdapter:
                 ("config/samples.tsv", samples_tsv),
             ),
         )
+        workspace_plan = WorkspacePlan(
+            directories=workspace_plan.directories,
+            files=workspace_plan.files
+            + (
+                (
+                    EXECUTION_CONFIG_PATH,
+                    execution_config_bytes(
+                        workspace_plan, inputs.options.get("cores", 1)
+                    ),
+                ),
+            ),
+        )
 
         return Result.success(
             workspace_plan,
@@ -482,7 +509,7 @@ class EncodeStyleWorkflowAdapter:
                     severity="info",
                     path="workspace_plan",
                     source="adapter",
-                    context={"file_count": 2, "directory_count": 2},
+                    context={"file_count": 3, "directory_count": 2},
                 ),
             ],
         )
@@ -492,8 +519,8 @@ class EncodeStyleWorkflowAdapter:
         plan: WorkspacePlan,
         workspace: str | Path,
     ) -> Result[CommandSpec]:
-        """Return unsupported until command construction is designed."""
-        return _unsupported_method("build_command")
+        """Build the ENCODE-owned command from the private workspace contract."""
+        return build_encode_command(plan, workspace, binding=self._execution_binding)
 
     def extract_artifacts(
         self,
@@ -1183,3 +1210,26 @@ def _unsupported_method(method: str) -> Result[Any]:
             )
         ]
     )
+
+
+def configure_encode_execution(
+    registry: WorkflowRegistry,
+    *,
+    project_root: Path | None = None,
+    snakemake_executable: Path | None = None,
+    conda_prefix: Path | None = None,
+) -> None:
+    """Bind operator coordinates at composition without replacing registry instances."""
+    if not isinstance(registry, WorkflowRegistry):
+        raise ValueError("registry must be a WorkflowRegistry")
+    binding = EncodeExecutionBinding(
+        project_root=project_root,
+        snakemake_executable=snakemake_executable,
+        conda_prefix=conda_prefix,
+    )
+    for metadata in registry.list_metadata():
+        adapter = registry.get(metadata.workflow_id)
+        if registry.uses_encode_execution_fallback(adapter) and isinstance(
+            adapter, EncodeStyleWorkflowAdapter
+        ):
+            adapter._execution_binding = binding

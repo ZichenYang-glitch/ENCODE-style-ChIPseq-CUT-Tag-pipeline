@@ -16,12 +16,10 @@ import yaml
 
 import encode_pipeline.adapters.encode as encode_adapter_module
 from encode_pipeline.platform.adapters import (
-    CommandSpec,
     DagPreview,
     JSON_SCHEMA_DIALECT,
     WorkflowAdapter,
     WorkflowInputs,
-    WorkspacePlan,
     QcSummaryExtractingAdapter,
 )
 from encode_pipeline.platform.results import Issue, Result
@@ -100,6 +98,7 @@ def test_metadata_and_capabilities_match_minimal_contract():
     assert adapter.capabilities.supports == (
         "validation",
         "workspace_plan",
+        "command",
         "input_authoring",
         "input_bundle_import",
         "artifact_extract",
@@ -698,13 +697,6 @@ def test_unsupported_methods_return_failure_without_side_effects(tmp_path):
     workspace = tmp_path / "workspace"
 
     dag_result = adapter.preview_dag(inputs)
-    command_result = adapter.build_command(
-        WorkspacePlan(
-            directories=[str(workspace)],
-            files=[("config.yaml", b"samples: samples.tsv\n")],
-        ),
-        workspace.resolve(),
-    )
 
     # plan_workspace is implemented; with invalid inputs it fails validation
     # without touching the filesystem.
@@ -713,7 +705,6 @@ def test_unsupported_methods_return_failure_without_side_effects(tmp_path):
     assert not workspace.exists()
     for result, expected_method, expected_type in [
         (dag_result, "preview_dag", DagPreview),
-        (command_result, "build_command", CommandSpec),
     ]:
         assert result.is_failure
         assert result.value is None

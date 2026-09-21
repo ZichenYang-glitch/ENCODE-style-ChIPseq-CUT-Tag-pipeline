@@ -26,6 +26,7 @@ _ENCODE_EXECUTION_CAPABILITIES = frozenset(
     {
         "validation",
         "workspace_plan",
+        "command",
         "input_authoring",
         "input_bundle_import",
         "artifact_extract",

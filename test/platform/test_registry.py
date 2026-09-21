@@ -190,6 +190,7 @@ def test_exact_encode_metadata_cannot_self_authorize_legacy_fallback():
                 supports=(
                     "validation",
                     "workspace_plan",
+                    "command",
                     "input_authoring",
                     "input_bundle_import",
                     "artifact_extract",
@@ -212,7 +213,7 @@ def test_exact_encode_metadata_cannot_self_authorize_legacy_fallback():
         def extract_qc_metrics(self, inputs, sources):
             return Result.success(())
 
-    with pytest.raises(ValueError, match="workspace_plan.*command"):
+    with pytest.raises(ValueError, match="availability"):
         WorkflowRegistry((SpoofedEncodeAdapter(),))
 
 

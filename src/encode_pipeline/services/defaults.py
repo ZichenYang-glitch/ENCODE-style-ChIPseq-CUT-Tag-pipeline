@@ -404,13 +404,17 @@ def create_default_command_builder(
             Omitted callers use the bundled project root.
     """
     from encode_pipeline.services.command_builder import CommandBuilder
+    from encode_pipeline.adapters.encode import configure_encode_execution
 
     if registry is None:
         registry = create_default_workflow_registry()
-    return CommandBuilder(
-        registry=registry,
+    configure_encode_execution(
+        registry,
         project_root=project_root,
-        reference_profile_resolver=reference_profile_resolver,
         snakemake_executable=snakemake_executable,
         conda_prefix=conda_prefix,
+    )
+    return CommandBuilder(
+        registry=registry,
+        reference_profile_resolver=reference_profile_resolver,
     )

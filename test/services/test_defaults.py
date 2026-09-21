@@ -448,7 +448,8 @@ def test_create_default_command_builder_forwards_project_root(tmp_path):
     project_root = (tmp_path / "source").resolve()
     builder = create_default_command_builder(project_root=project_root)
 
-    assert builder._project_root == project_root
+    adapter = builder._registry.get("encode-style-chipseq-cuttag-atac-mnase")
+    assert adapter._execution_binding.project_root == project_root
 
 
 def _run_python(code: str) -> subprocess.CompletedProcess[str]:

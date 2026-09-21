@@ -1,0 +1,414 @@
+[
+  {
+    "managed_runtime": false,
+    "options": {},
+    "command": {
+      "argv": [
+        "snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "1"
+      ],
+      "cwd": null,
+      "env": {},
+      "preflight_argv": [
+        "snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "1",
+        "-n"
+      ],
+      "preflight_kind": "dry_run",
+      "preflight_managed_log_count": 0,
+      "execution_managed_log_count": 0,
+      "redaction_count": 0,
+      "managed_container_cleanup": false
+    }
+  },
+  {
+    "managed_runtime": false,
+    "options": {
+      "cores": 1
+    },
+    "command": {
+      "argv": [
+        "snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "1"
+      ],
+      "cwd": null,
+      "env": {},
+      "preflight_argv": [
+        "snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "1",
+        "-n"
+      ],
+      "preflight_kind": "dry_run",
+      "preflight_managed_log_count": 0,
+      "execution_managed_log_count": 0,
+      "redaction_count": 0,
+      "managed_container_cleanup": false
+    }
+  },
+  {
+    "managed_runtime": false,
+    "options": {
+      "cores": 8
+    },
+    "command": {
+      "argv": [
+        "snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "8"
+      ],
+      "cwd": null,
+      "env": {},
+      "preflight_argv": [
+        "snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "8",
+        "-n"
+      ],
+      "preflight_kind": "dry_run",
+      "preflight_managed_log_count": 0,
+      "execution_managed_log_count": 0,
+      "redaction_count": 0,
+      "managed_container_cleanup": false
+    }
+  },
+  {
+    "managed_runtime": false,
+    "options": {
+      "cores": 1024
+    },
+    "command": {
+      "argv": [
+        "snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "1024"
+      ],
+      "cwd": null,
+      "env": {},
+      "preflight_argv": [
+        "snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "1024",
+        "-n"
+      ],
+      "preflight_kind": "dry_run",
+      "preflight_managed_log_count": 0,
+      "execution_managed_log_count": 0,
+      "redaction_count": 0,
+      "managed_container_cleanup": false
+    }
+  },
+  {
+    "managed_runtime": true,
+    "options": {},
+    "command": {
+      "argv": [
+        "{runtime}/runner/bin/snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "1",
+        "--use-conda",
+        "--conda-prefix",
+        "{runtime}/conda-envs",
+        "--conda-base-path",
+        "{runtime}/mamba-root",
+        "--conda-frontend",
+        "conda"
+      ],
+      "cwd": null,
+      "env": {
+        "PATH": "{runtime}/runner/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "CONDA_DEFAULT_ENV": "",
+        "CONDA_EXE": "{runtime}/runner/bin/conda",
+        "CONDA_PREFIX": "",
+        "CONDA_SHLVL": "0",
+        "HOME": "{workspace}",
+        "MAMBA_ROOT_PREFIX": "{runtime}/mamba-root",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONNOUSERSITE": "1",
+        "TMPDIR": "{workspace}",
+        "XDG_CACHE_HOME": "{workspace}/.snakemake",
+        "_CONDA_EXE": "{runtime}/runner/bin/conda",
+        "_CONDA_ROOT": "{runtime}/mamba-root"
+      },
+      "preflight_argv": [
+        "{runtime}/runner/bin/snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "1",
+        "--use-conda",
+        "--conda-prefix",
+        "{runtime}/conda-envs",
+        "--conda-base-path",
+        "{runtime}/mamba-root",
+        "--conda-frontend",
+        "conda",
+        "-n"
+      ],
+      "preflight_kind": "dry_run",
+      "preflight_managed_log_count": 0,
+      "execution_managed_log_count": 0,
+      "redaction_count": 0,
+      "managed_container_cleanup": false
+    }
+  },
+  {
+    "managed_runtime": true,
+    "options": {
+      "cores": 1
+    },
+    "command": {
+      "argv": [
+        "{runtime}/runner/bin/snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "1",
+        "--use-conda",
+        "--conda-prefix",
+        "{runtime}/conda-envs",
+        "--conda-base-path",
+        "{runtime}/mamba-root",
+        "--conda-frontend",
+        "conda"
+      ],
+      "cwd": null,
+      "env": {
+        "PATH": "{runtime}/runner/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "CONDA_DEFAULT_ENV": "",
+        "CONDA_EXE": "{runtime}/runner/bin/conda",
+        "CONDA_PREFIX": "",
+        "CONDA_SHLVL": "0",
+        "HOME": "{workspace}",
+        "MAMBA_ROOT_PREFIX": "{runtime}/mamba-root",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONNOUSERSITE": "1",
+        "TMPDIR": "{workspace}",
+        "XDG_CACHE_HOME": "{workspace}/.snakemake",
+        "_CONDA_EXE": "{runtime}/runner/bin/conda",
+        "_CONDA_ROOT": "{runtime}/mamba-root"
+      },
+      "preflight_argv": [
+        "{runtime}/runner/bin/snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "1",
+        "--use-conda",
+        "--conda-prefix",
+        "{runtime}/conda-envs",
+        "--conda-base-path",
+        "{runtime}/mamba-root",
+        "--conda-frontend",
+        "conda",
+        "-n"
+      ],
+      "preflight_kind": "dry_run",
+      "preflight_managed_log_count": 0,
+      "execution_managed_log_count": 0,
+      "redaction_count": 0,
+      "managed_container_cleanup": false
+    }
+  },
+  {
+    "managed_runtime": true,
+    "options": {
+      "cores": 8
+    },
+    "command": {
+      "argv": [
+        "{runtime}/runner/bin/snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "8",
+        "--use-conda",
+        "--conda-prefix",
+        "{runtime}/conda-envs",
+        "--conda-base-path",
+        "{runtime}/mamba-root",
+        "--conda-frontend",
+        "conda"
+      ],
+      "cwd": null,
+      "env": {
+        "PATH": "{runtime}/runner/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "CONDA_DEFAULT_ENV": "",
+        "CONDA_EXE": "{runtime}/runner/bin/conda",
+        "CONDA_PREFIX": "",
+        "CONDA_SHLVL": "0",
+        "HOME": "{workspace}",
+        "MAMBA_ROOT_PREFIX": "{runtime}/mamba-root",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONNOUSERSITE": "1",
+        "TMPDIR": "{workspace}",
+        "XDG_CACHE_HOME": "{workspace}/.snakemake",
+        "_CONDA_EXE": "{runtime}/runner/bin/conda",
+        "_CONDA_ROOT": "{runtime}/mamba-root"
+      },
+      "preflight_argv": [
+        "{runtime}/runner/bin/snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "8",
+        "--use-conda",
+        "--conda-prefix",
+        "{runtime}/conda-envs",
+        "--conda-base-path",
+        "{runtime}/mamba-root",
+        "--conda-frontend",
+        "conda",
+        "-n"
+      ],
+      "preflight_kind": "dry_run",
+      "preflight_managed_log_count": 0,
+      "execution_managed_log_count": 0,
+      "redaction_count": 0,
+      "managed_container_cleanup": false
+    }
+  },
+  {
+    "managed_runtime": true,
+    "options": {
+      "cores": 1024
+    },
+    "command": {
+      "argv": [
+        "{runtime}/runner/bin/snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "1024",
+        "--use-conda",
+        "--conda-prefix",
+        "{runtime}/conda-envs",
+        "--conda-base-path",
+        "{runtime}/mamba-root",
+        "--conda-frontend",
+        "conda"
+      ],
+      "cwd": null,
+      "env": {
+        "PATH": "{runtime}/runner/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "CONDA_DEFAULT_ENV": "",
+        "CONDA_EXE": "{runtime}/runner/bin/conda",
+        "CONDA_PREFIX": "",
+        "CONDA_SHLVL": "0",
+        "HOME": "{workspace}",
+        "MAMBA_ROOT_PREFIX": "{runtime}/mamba-root",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONNOUSERSITE": "1",
+        "TMPDIR": "{workspace}",
+        "XDG_CACHE_HOME": "{workspace}/.snakemake",
+        "_CONDA_EXE": "{runtime}/runner/bin/conda",
+        "_CONDA_ROOT": "{runtime}/mamba-root"
+      },
+      "preflight_argv": [
+        "{runtime}/runner/bin/snakemake",
+        "--snakefile",
+        "{project_root}/workflow/Snakefile",
+        "--directory",
+        "{workspace}",
+        "--configfile",
+        "{workspace}/config/config.yaml",
+        "--cores",
+        "1024",
+        "--use-conda",
+        "--conda-prefix",
+        "{runtime}/conda-envs",
+        "--conda-base-path",
+        "{runtime}/mamba-root",
+        "--conda-frontend",
+        "conda",
+        "-n"
+      ],
+      "preflight_kind": "dry_run",
+      "preflight_managed_log_count": 0,
+      "execution_managed_log_count": 0,
+      "redaction_count": 0,
+      "managed_container_cleanup": false
+    }
+  }
+]

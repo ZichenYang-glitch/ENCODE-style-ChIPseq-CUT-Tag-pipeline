@@ -135,7 +135,12 @@ def test_open_worker_runtime_aligns_command_and_identity_project_roots(tmp_path)
         build_identity_provider=provider,
     ) as runtime:
         assert runtime.build_identity_provider is provider
-        assert runtime.command_builder._project_root == project_root
+        assert (
+            runtime.registry.get(
+                "encode-style-chipseq-cuttag-atac-mnase"
+            )._execution_binding.project_root
+            == project_root
+        )
         assert runtime.local_run_driver._command_builder is runtime.command_builder
 
 
@@ -168,7 +173,12 @@ def test_open_worker_runtime_uses_settings_admitted_encode_runtime_root(tmp_path
 
     with open_worker_runtime(configured) as runtime:
         assert runtime.build_identity_provider.project_root == runtime_root
-        assert runtime.command_builder._project_root == runtime_root
+        assert (
+            runtime.registry.get(
+                "encode-style-chipseq-cuttag-atac-mnase"
+            )._execution_binding.project_root
+            == runtime_root
+        )
 
 
 def test_open_worker_runtime_accepts_only_deployment_owned_registry_and_runner(

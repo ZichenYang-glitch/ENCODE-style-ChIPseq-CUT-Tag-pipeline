@@ -117,6 +117,7 @@ def open_worker_runtime(
     override either dependency.
     """
     from encode_pipeline.services.defaults import (
+        create_default_command_builder,
         create_default_execution_planner,
         create_default_local_execution_service,
         create_default_local_run_driver,
@@ -219,7 +220,7 @@ def open_worker_runtime(
             reference_profile_resolver=reference_profile_resolver,
         )
         materializer = create_default_workspace_materializer()
-        command_builder = CommandBuilder(
+        command_builder = create_default_command_builder(
             registry=registry,
             project_root=source_project_root,
             reference_profile_resolver=reference_profile_resolver,
