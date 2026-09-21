@@ -475,7 +475,7 @@ rule mnase_qc_summary:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
-        python3 scripts/mnase_qc_summary.py \
+        python3 {workflow.basedir}/../scripts/mnase_qc_summary.py \
             --sample {params.sample:q} \
             --assay {params.assay:q} \
             --peak-mode {params.peak_mode:q} \

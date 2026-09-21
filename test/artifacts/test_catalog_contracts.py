@@ -814,7 +814,10 @@ def test_unified_idr_artifacts_name_their_executable_producers():
         )
         assert rule_match, f"Workflow rule {rule_name!r} does not exist"
         rule_body = rule_match.group("body")
-        assert "python3 scripts/idr_reproducibility_summary.py" in rule_body
+        assert (
+            "python3 {workflow.basedir}/../scripts/idr_reproducibility_summary.py"
+            in rule_body
+        )
 
         output_match = re.search(
             r"^    output:\n(?P<body>.*?)(?=^    [a-z_]+:)",

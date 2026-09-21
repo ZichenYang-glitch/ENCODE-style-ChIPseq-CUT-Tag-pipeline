@@ -137,6 +137,7 @@ def test_fragment_size_schedules_only_cuttag_with_the_sample_layout(
     tmp_path,
     tmp_config,
     run_snakemake,
+    snakefile,
     monkeypatch,
     layout,
 ):
@@ -158,7 +159,8 @@ def test_fragment_size_schedules_only_cuttag_with_the_sample_layout(
     assert "cuttag_fragment_size" in rules
     assert str(cuttag_output) in output
     assert str(chip_output) not in output
-    assert "python3 scripts/calc_cuttag_fragment_size.py" in output
+    script_path = f"{Path(snakefile).parent}/../scripts/calc_cuttag_fragment_size.py"
+    assert f"python3 {script_path}" in output
     assert "--sample CUTTAG" in output
     assert f"--layout {layout}" in output
 

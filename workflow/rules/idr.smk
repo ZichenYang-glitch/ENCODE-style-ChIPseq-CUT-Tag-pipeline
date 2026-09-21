@@ -223,7 +223,7 @@ rule split_pseudoreps:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output.pr1})" "$(dirname {log})"
-        python3 scripts/split_pseudoreps.py \
+        python3 {workflow.basedir}/../scripts/split_pseudoreps.py \
             --input {input:q} \
             --out1 {output.pr1:q} \
             --out2 {output.pr2:q} \
@@ -416,7 +416,7 @@ rule stage5b_summary:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output.summary})" "$(dirname {log})"
-        python3 scripts/stage5b_summary.py \
+        python3 {workflow.basedir}/../scripts/stage5b_summary.py \
             --true-peaks {input.true_thresh:q} \
             --pooled-peaks {input.pool_thresh:q} \
             --self1-peaks {input.self1_thresh:q} \

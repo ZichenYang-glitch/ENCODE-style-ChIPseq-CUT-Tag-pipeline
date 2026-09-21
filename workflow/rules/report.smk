@@ -131,7 +131,7 @@ rule cross_correlation_summary:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
-        python3 scripts/parse_cross_correlation.py \
+        python3 {workflow.basedir}/../scripts/parse_cross_correlation.py \
             --input {input:q} \
             --output {output:q}
         """
@@ -221,7 +221,7 @@ rule result_manifest:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
-        python3 scripts/make_manifest.py \\
+        python3 {workflow.basedir}/../scripts/make_manifest.py \\
             --config-json {params.config_json:q} \\
             --output {output:q}
         """

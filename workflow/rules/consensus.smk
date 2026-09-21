@@ -283,7 +283,7 @@ rule consensus_compute_narrow:
         set -e -o pipefail
         mkdir -p "$(dirname {output.peak:q})" "$(dirname {log:q})"
 
-        python3 scripts/compute_consensus.py \
+        python3 {workflow.basedir}/../scripts/compute_consensus.py \
             --peaks {input:q} \
             --bioreps {params.bioreps_args} \
             --format narrowPeak \
@@ -341,7 +341,7 @@ rule consensus_compute_broad:
         set -e -o pipefail
         mkdir -p "$(dirname {output.peak:q})" "$(dirname {log:q})"
 
-        python3 scripts/compute_consensus.py \
+        python3 {workflow.basedir}/../scripts/compute_consensus.py \
             --peaks {input:q} \
             --bioreps {params.bioreps_args} \
             --format broadPeak \
@@ -589,7 +589,7 @@ rule consensus_compute_seacr:
         set -e -o pipefail
         mkdir -p "$(dirname {output.peak:q})" "$(dirname {log:q})"
 
-        python3 scripts/compute_consensus.py \
+        python3 {workflow.basedir}/../scripts/compute_consensus.py \
             --peaks {input:q} \
             --bioreps {params.bioreps_args} \
             --format bed \

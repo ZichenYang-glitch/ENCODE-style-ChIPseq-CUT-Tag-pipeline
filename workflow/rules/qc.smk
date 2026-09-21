@@ -197,7 +197,7 @@ rule frip:
             PEAKS="$2"
         fi
 
-        python3 scripts/calc_frip.py \
+        python3 {workflow.basedir}/../scripts/calc_frip.py \
             --sample {wildcards.sample:q} \
             --bam "$BAM" \
             --peaks "$PEAKS" \
@@ -238,7 +238,7 @@ rule library_complexity:
     shell:
         """
         set -e -o pipefail
-        python3 scripts/parse_dup_metrics.py \
+        python3 {workflow.basedir}/../scripts/parse_dup_metrics.py \
             --sample {wildcards.sample:q} \
             --metrics {input:q} \
             --output {output:q} \
@@ -310,7 +310,7 @@ rule cuttag_fragment_size:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
-        python3 scripts/calc_cuttag_fragment_size.py \
+        python3 {workflow.basedir}/../scripts/calc_cuttag_fragment_size.py \
             --sample {wildcards.sample:q} \
             --bam {input:q} \
             --layout {params.layout:q} \
@@ -331,7 +331,7 @@ rule nrf_pbc:
     shell:
         """
         set -e -o pipefail
-        python3 scripts/calc_nrf_pbc.py \
+        python3 {workflow.basedir}/../scripts/calc_nrf_pbc.py \
             --sample {wildcards.sample:q} \
             --bam {input:q} \
             --output {output:q} \
@@ -649,7 +649,7 @@ rule pooled_experiment_qc_summary:
         fi
 
         mkdir -p "$(dirname {output:q})"
-        python3 scripts/pooled_qc_summary.py \
+        python3 {workflow.basedir}/../scripts/pooled_qc_summary.py \
             --experiment {params.experiment:q} \
             --assay {params.assay:q} \
             --target {params.target:q} \
@@ -712,7 +712,7 @@ rule qc_summary:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
-        python3 scripts/assemble_qc_summary.py \\
+        python3 {workflow.basedir}/../scripts/assemble_qc_summary.py \\
             --sample {params.sample:q} \\
             --assay {params.assay:q} \\
             --target {params.target:q} \\
@@ -856,7 +856,7 @@ rule tss_bed_from_gtf:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
-        python3 scripts/gtf_to_tss_bed.py \
+        python3 {workflow.basedir}/../scripts/gtf_to_tss_bed.py \
             --gtf {input.gtf:q} \
             --output {output:q}
         """
@@ -921,7 +921,7 @@ rule stage3_qc_summary:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
-        python3 scripts/aggregate_qc_summary.py \\
+        python3 {workflow.basedir}/../scripts/aggregate_qc_summary.py \\
             --output {output:q} \\
             {input:q}
         """
