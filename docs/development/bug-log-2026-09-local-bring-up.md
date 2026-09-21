@@ -79,15 +79,43 @@ to rerun; no outcome reported yet. Needs reproduction. If it reproduces,
 candidate fix is invoking the env interpreter explicitly (same pattern as
 bug 2) instead of relying on shebang + activated PATH.
 
-## 4. OPEN (UX trap, by-design rule) — qc master switch conflicts with materialized sub-flags
+## 4. FIXED — qc master switch conflicts with materialized sub-flags
 
 **Observation:** The qc section defaults materialize as all-true
 (`{enabled: true, fastqc: true, ...}`), which is valid. But if a user toggles
 only the master `enabled` off in the form, the sub-flags stay `true` in
 formData and submission fails with `BULK_RNASEQ_QC_CONFLICT`
-("disabled master switch with enabled sub-flags"). The rule itself is
-deliberate; the form gives no help. Candidate frontend improvement: cascade
-the master switch to sub-flags, or surface the conflict inline. Not fixed.
+("disabled master switch with enabled sub-flags"). The backend rule is deliberate.
+
+**Fix (2026-09-21):** The shared schema form now cascades an explicit
+`enabled: true` to `false` edit using the adapter-owned schema. Boolean child
+flags are set to false; sections declaring the neutral default `{enabled: false}`
+(including UMI and ribosomal RNA removal) clear their optional settings instead.
+Child controls are disabled while the section is off, and the master switch
+explains that cleared settings are not restored on re-enable. Trimming retains
+its required tool setting. Imported YAML conflicts and unknown keys remain
+available to normal validation; backend schemas and semantic checks are unchanged.
+
+**Remaining UX boundary:** Cascading is limited to the section's own settings.
+Cross-section dependencies are not cleared: disabling QC while
+`advanced.rseqc_modules` is configured still produces
+`BULK_RNASEQ_ADVANCED_CONTEXT_CONFLICT`; disabling UMI while
+`standard.outputs.umi_intermediates` is true still produces
+`BULK_RNASEQ_OUTPUT_CONFLICT`. These deliberate backend checks remain in force.
+Inline guidance for cross-section conflicts is follow-up work; FIXED here does
+not mean that switching off a section always makes the submission valid.
+
+**Evidence:** Two new form regressions failed before the fix. The final frontend
+suite passes 380 tests, including disable/re-enable, neutral-state cleanup,
+required-setting preservation, and imported-conflict coverage. Desktop/mobile
+browser tests use the served bulk schema and check the exact request preview for
+QC, UMI, and rRNA removal; the complete browser suite passes 13 tests. The existing
+backend conflict/QC-disable cases pass 12 tests. Type checking and the production
+build pass. Package-owned frontend assets are regenerated through the existing
+packaging script, with 33 asset/deployment/distribution tests passing;
+regenerating the 111-file bulk execution manifest leaves its
+identity files unchanged. No real bulk scientific execution or Protected Bulk Gate
+was needed for this UI-only behavior change.
 
 ## 5. DESIGN FRICTION — Docker 29 storage-driver mismatch between staging and runtime admission
 

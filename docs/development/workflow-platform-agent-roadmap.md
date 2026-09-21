@@ -128,8 +128,10 @@ Tier 2 — batched contract work, one Protected gate:
   `2c26a9e`, `55ef928`, `02303b2`, and `0f01241` respectively. A combined
   Protected Bulk Gate for the batch remains pending; completion here records
   the implementation and targeted checks, not an unrecorded gate result.
-- Frontend QC master-switch cascade so disabling the section clears
-  sub-flags instead of failing validation at submit (bug #4).
+- Completed implementation: frontend schema-driven master-switch cascade
+  (bug #4), including QC sub-flags and the declared neutral states for UMI/rRNA
+  removal. Form and desktop/mobile browser tests cover the cleared request data;
+  backend fail-closed validation remains unchanged.
 - Upstream coupling ledger: enumerate the version-locked replicas (MultiQC
   sample-name cleaning, nf-core parameter allowlist, QC header contracts)
   with their resync obligations for upgrades.

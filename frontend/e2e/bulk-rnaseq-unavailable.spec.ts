@@ -431,6 +431,65 @@ function readExpectedSamples(fixture: RuntimeManifest) {
   );
 }
 
+test('Bulk RNA-seq master switches clear section settings in the form @desktop @mobile', async ({ page }) => {
+  const fixture = manifest();
+  const schemaResponse = await page.request.get(`/api/v1/workflows/${fixture.bulkWorkflowId}/schema`);
+  expect(schemaResponse.ok()).toBe(true);
+  const contract = (await schemaResponse.json()).schema;
+  const qcProperties = contract.config_schema.properties.standard.properties.qc.properties;
+  const qcFlags = Object.keys(qcProperties).filter((key) => key !== 'enabled');
+  expect(qcFlags).toContain('fastqc');
+  const newAnalysis = await openBulkAuthoring(page, fixture);
+  await newAnalysis.click();
+  const form = page.getByLabel('Workflow config form');
+  const qcEnabled = form.locator('#root_standard_qc_enabled');
+  await expect(qcEnabled).toBeChecked();
+  await expect(form.locator('#root_standard_qc_fastqc')).toBeChecked();
+  await qcEnabled.uncheck();
+  for (const flag of qcFlags) {
+    const checkbox = form.locator(`#root_standard_qc_${flag}`);
+    await expect(checkbox).not.toBeChecked();
+    await expect(checkbox).toBeDisabled();
+  }
+  await qcEnabled.check();
+  await expect(form.locator('#root_standard_qc_fastqc')).not.toBeChecked();
+  await form.locator('#root_standard_qc_fastqc').check();
+  await qcEnabled.uncheck();
+
+  const umiEnabled = form.locator('#root_standard_umi_enabled');
+  await expect(form.locator('#root_standard_umi_mode')).toBeDisabled();
+  await umiEnabled.check();
+  await form.locator('#root_standard_umi_mode').selectOption({ label: 'read_name' });
+  await form.locator('#root_standard_umi_deduplication_tool').selectOption({ label: 'umitools' });
+  await form.locator('#root_standard_umi_read_name_separator').selectOption({ label: ':' });
+  await form.locator('#root_standard_umi_emit_dedup_stats').check();
+  await umiEnabled.uncheck();
+  await expect(form.locator('#root_standard_umi_mode')).toBeDisabled();
+
+  const rrnaEnabled = form.locator('#root_standard_ribosomal_rna_removal_enabled');
+  await rrnaEnabled.check();
+  await form.locator('#root_standard_ribosomal_rna_removal_tool').selectOption({ label: 'sortmerna' });
+  await form.locator('#root_standard_ribosomal_rna_removal_save_filtered_reads').check();
+  await form.locator('#root_standard_ribosomal_rna_removal_database_manifest_path').fill('/reference/rrna.json');
+  await form.locator('#root_standard_ribosomal_rna_removal_database_manifest_identity_sha256').fill('a'.repeat(64));
+  await rrnaEnabled.uncheck();
+  await expect(form.locator('#root_standard_ribosomal_rna_removal_database_manifest_path')).toBeDisabled();
+
+  await page.getByRole('tab', { name: 'Samples' }).click();
+  await page.getByLabel('Import samples TSV').setInputFiles(fixture.bulkSamplesPath);
+  await expect(page.getByText('3 rows', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Review' }).click();
+  await expect(page.getByText(/structurally ready for backend validation/i)).toBeVisible();
+  const request = JSON.parse(await page.getByTestId('draft-review-json').innerText());
+  expect(request.config.standard.qc).toEqual({
+    enabled: false,
+    ...Object.fromEntries(qcFlags.map((key) => [key, false])),
+  });
+  expect(request.config.standard.umi).toEqual({ enabled: false });
+  expect(request.config.standard.ribosomal_rna_removal).toEqual({ enabled: false });
+  await expectNoHorizontalOverflow(page);
+});
+
 test('Bulk RNA-seq product path is fail-closed or executes by declared admission @desktop', async ({
   page,
 }, testInfo) => {
