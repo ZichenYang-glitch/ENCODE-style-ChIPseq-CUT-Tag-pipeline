@@ -401,6 +401,16 @@ tier. No additional formatting changes were reported, and the edited file
 passed independently. The browser suite used the existing controlled ENCODE
 runtime and bulk authoring/unavailable path, not the Protected Bulk Gate.
 
+**Lint follow-up (2026-09-21):** The 22 script calls changed by `88b5c66`
+now use a shared `SCRIPTS_DIR` through rule-local `params.scripts_dir`, removing
+the new direct-`workflow` warnings without changing rendered script-path bytes
+or the 32-job DAG. With user approval, the baseline received only 23 location
+and rule-name updates, including the approved `stage3_qc_summary` to
+`project_qc_summary` rename. All 65 existing warning types and bodies are
+unchanged; `python test/check_snakemake_lint.py` now exits 0 with
+`snakemake --lint output matches baseline.`
+The complete artifact/workflow tests passed (131 tests, collected in that order).
+
 ## Not bugs (recorded to avoid re-investigation)
 
 - Frontend sample TSV for profile-bound workflows must NOT contain

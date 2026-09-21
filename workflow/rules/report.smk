@@ -125,13 +125,15 @@ rule cross_correlation_summary:
             f"{OUTDIR}/{sid}/05_qc/cross_correlation/{sid}.cc.qc"
             for sid in TREATMENT_SAMPLE_IDS
         ],
+    params:
+        scripts_dir = SCRIPTS_DIR,
     conda:
         "../envs/python.yml",
     shell:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
-        python3 {workflow.basedir}/../scripts/parse_cross_correlation.py \
+        python3 {params.scripts_dir}/parse_cross_correlation.py \
             --input {input:q} \
             --output {output:q}
         """
@@ -214,6 +216,7 @@ rule result_manifest:
     input:
         _manifest_dependency_targets()
     params:
+        scripts_dir = SCRIPTS_DIR,
         config_json = _MANIFEST_CONFIG_JSON
     conda:
         "../envs/python.yml"
@@ -221,7 +224,7 @@ rule result_manifest:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
-        python3 {workflow.basedir}/../scripts/make_manifest.py \\
+        python3 {params.scripts_dir}/make_manifest.py \\
             --config-json {params.config_json:q} \\
             --output {output:q}
         """

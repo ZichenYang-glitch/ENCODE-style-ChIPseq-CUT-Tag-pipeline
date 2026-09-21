@@ -10,6 +10,9 @@ import os
 import sys
 import re
 
+# Keep the existing absolute path spelling so rendered shell commands stay identical.
+SCRIPTS_DIR = f"{workflow.basedir}/../scripts"
+
 # Stable package imports with a local-source fallback for environments where
 # encode-pipeline has not been pip-installed (e.g., fresh clones or HPC runs).
 # The fallback adds the repository src/ directory to sys.path temporarily.
