@@ -121,11 +121,13 @@ Tier 1 — close the real-path gaps first:
 
 Tier 2 — batched contract work, one Protected gate:
 
-- Stage-naming retirement per
+- Completed implementation: stage-naming retirement per
   `docs/architecture/stage-naming-retirement-plan.md`, container uid/gid as
   explicit deployment coordinates (bug #7), ENCODE command ownership moved
-  back into the adapter, and the ENCODE `--cores` fix (bug #8). One combined
-  Protected Bulk Gate for the batch.
+  back into the adapter, and the ENCODE `--cores` fix (bug #8), delivered in
+  `2c26a9e`, `55ef928`, `02303b2`, and `0f01241` respectively. A combined
+  Protected Bulk Gate for the batch remains pending; completion here records
+  the implementation and targeted checks, not an unrecorded gate result.
 - Frontend QC master-switch cascade so disabling the section clears
   sub-flags instead of failing validation at submit (bug #4).
 - Upstream coupling ledger: enumerate the version-locked replicas (MultiQC

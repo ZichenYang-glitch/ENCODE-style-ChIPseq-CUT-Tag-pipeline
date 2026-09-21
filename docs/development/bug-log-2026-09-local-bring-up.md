@@ -1,8 +1,10 @@
 # Bug Log: Local Bring-Up Session 2026-09-17/18
 
 Bugs and defects found while bringing up the local HelixWeave stack
-(ENCODE workflow + bulk RNA-seq adapter) on a WSL2 workstation. Recorded for
-review before committing; each entry lists status, root cause, and evidence.
+(ENCODE workflow + bulk RNA-seq adapter) on a WSL2 workstation. Each entry
+lists status, root cause, and evidence. The accepted maintenance batch is
+committed in `a6df932` through `d1a813d` (eight commits); unresolved entries
+below retain their individual status.
 
 ## 1. FIXED — bulk-rnaseq authoring schema: gated-section defaults conflict with disabled-state rule
 
@@ -23,7 +25,7 @@ The rjsf-generated neutral state therefore always violated the contract.
 Existing tests never caught this because they construct payloads directly and
 bypass rjsf default materialization.
 
-**Fix (working tree, uncommitted):**
+**Fix (commit `a6df932`):**
 `src/encode_pipeline/adapters/bulk_rnaseq/authoring.py`
 
 - `umi`: removed `default` from `deduplication_tool`, `grouping_method`,
@@ -46,9 +48,9 @@ full default config + real sample row + GRCm38 reference passes
 `BulkRnaSeqWorkflowAdapter().validate`; 378 adapter/identity/packaging tests
 pass.
 
-**Review notes before commit:** this change touches the pinned execution
-identity (Protected Bulk Gate territory). Only adapter/execution-identity/
-packaging tests were run; consider the full Bulk Gate before merging.
+**Validation limits for the original fix:** this change touches the pinned
+execution identity (Protected Bulk Gate territory). Only adapter/execution-
+identity/packaging tests were run; no full Bulk Gate evidence was recorded.
 
 ## 2. FIXED — ENCODE workflow: relative `scripts/` paths break under platform execution
 
@@ -61,7 +63,7 @@ packaging tests were run; consider the full Bulk Gate before merging.
 `--directory <workspace>`, so the process cwd is the run workspace, not the
 repository root, and the relative path resolved to a nonexistent location.
 
-**Fix (working tree, uncommitted):** 22 call sites across 6 rule files
+**Fix (commit `88b5c66`):** 22 call sites across 6 rule files
 (`workflow/rules/{consensus,idr,idr_reproducibility,mnase,qc,report}.smk`)
 changed to `python3 {workflow.basedir}/../scripts/<name>.py`. Verified with
 Snakemake dry-run; confirmed in a real platform run afterwards.
@@ -156,7 +158,7 @@ points at the shim. Admission re-verified OK (56 container bindings).
 The shim is now eligible for retirement using the explicit coordinates below;
 the deployed shim file was not changed or deleted by PR-5a.
 
-**Formal fix (PR-5a, 2026-09-21, working tree, uncommitted):**
+**Formal fix (PR-5a, 2026-09-21, commit `55ef928`):**
 
 - `deployment.py` accepts optional `ENCODE_PIPELINE_BULK_CONTAINER_UID` and
   `ENCODE_PIPELINE_BULK_CONTAINER_GID` and passes them into the existing
@@ -220,7 +222,7 @@ profile sidesteps this with `threads: 1`.
 **Impact:** severe under-utilization (multi-core aligners running on one
 core); no correctness impact expected.
 
-**Fix (PR-3, working tree, uncommitted):**
+**Fix (PR-3, commit `0f01241`):**
 
 - Added optional workflow option `cores` to the ENCODE authoring schema:
   integer, minimum 1, maximum 1024, default 1. `additionalProperties: false`
@@ -229,7 +231,7 @@ core); no correctness impact expected.
   adapter/API schema-version assertions.
 - `_validate_options` now accepts `cores` and enforces the same upper bound,
   rejecting booleans, non-integers, null, and values outside 1–1024.
-- The existing service-owned CommandBuilder now receives validated `cores`;
+- At PR-3, the service-owned CommandBuilder received validated `cores`;
   its omitted-option default remains `--cores 1`. CommandBuilder and workflow
   rule thread semantics were not changed.
 - Added schema/adapter boundary cases and a regression test through real
@@ -237,6 +239,9 @@ core); no correctness impact expected.
   `cores: 8` yields `--cores 8`, while omitted `cores` yields `--cores 1`.
   Before the fix, the explicit-cores schema and planning cases failed and
   the omitted-option cases passed.
+- Follow-up commits `2c26a9e` and `02303b2` advance the authoring schema to
+  2.0.0 for stage retirement and move command construction into the ENCODE
+  adapter respectively, preserving the cores contract.
 
 **Evidence (2026-09-21):**
 
@@ -286,7 +291,7 @@ colon with no space (`...different chrom:0`). The parser rejected the whole
 document (`source_content_invalid`). Existing test fixtures always carried
 padded lines, so the unpadded real-world form was never covered.
 
-**Fix (PR-2, working tree, uncommitted):**
+**Fix (PR-2, commit `494b979`):**
 
 - In `src/encode_pipeline/adapters/bulk_rnaseq/qc.py`, changed only the
   long-label pattern's post-colon padding from `\s+` to `\s*`.

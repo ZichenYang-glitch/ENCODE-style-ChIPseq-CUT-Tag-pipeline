@@ -563,6 +563,15 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
+      - name: Schema-default submission and ENCODE cores smoke
+        shell: micromamba-shell {0}
+        run: |
+          python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
+            -m platform_real_execution test/api/test_schema_submission_smoke.py -ra \
+            --junitxml=schema-submission-smoke.xml
+          python3 scripts/check_junit_outcomes.py schema-submission-smoke.xml \
+            --label "schema-default submission and ENCODE cores smoke"
+
       - name: Real browser durable execution gate
         shell: micromamba-shell {0}
         working-directory: frontend
