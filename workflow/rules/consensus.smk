@@ -256,7 +256,7 @@ rule consensus_compute_narrow:
             wc.experiment, wc.assay, wc.peak_mode
         ),
     params:
-        scripts_dir = SCRIPTS_DIR,
+        script = f"{workflow.basedir}/../scripts/compute_consensus.py",
         min_replicates     = lambda wc: REPRODUCIBILITY_CONFIG.get(
             "consensus", {}).get("min_replicates", 2),
         reciprocal_overlap = lambda wc: REPRODUCIBILITY_CONFIG.get(
@@ -284,7 +284,7 @@ rule consensus_compute_narrow:
         set -e -o pipefail
         mkdir -p "$(dirname {output.peak:q})" "$(dirname {log:q})"
 
-        python3 {params.scripts_dir}/compute_consensus.py \
+        python3 {params.script:q} \
             --peaks {input:q} \
             --bioreps {params.bioreps_args} \
             --format narrowPeak \
@@ -315,7 +315,7 @@ rule consensus_compute_broad:
             wc.experiment, wc.assay, wc.peak_mode
         ),
     params:
-        scripts_dir = SCRIPTS_DIR,
+        script = f"{workflow.basedir}/../scripts/compute_consensus.py",
         min_replicates     = lambda wc: REPRODUCIBILITY_CONFIG.get(
             "consensus", {}).get("min_replicates", 2),
         reciprocal_overlap = lambda wc: REPRODUCIBILITY_CONFIG.get(
@@ -343,7 +343,7 @@ rule consensus_compute_broad:
         set -e -o pipefail
         mkdir -p "$(dirname {output.peak:q})" "$(dirname {log:q})"
 
-        python3 {params.scripts_dir}/compute_consensus.py \
+        python3 {params.script:q} \
             --peaks {input:q} \
             --bioreps {params.bioreps_args} \
             --format broadPeak \
@@ -569,7 +569,7 @@ rule consensus_compute_seacr:
     input:
         lambda wc: _consensus_seacr_peak_inputs(wc),
     params:
-        scripts_dir = SCRIPTS_DIR,
+        script = f"{workflow.basedir}/../scripts/compute_consensus.py",
         min_replicates     = lambda wc: REPRODUCIBILITY_CONFIG.get(
             "consensus", {}).get("min_replicates", 2),
         reciprocal_overlap = lambda wc: REPRODUCIBILITY_CONFIG.get(
@@ -592,7 +592,7 @@ rule consensus_compute_seacr:
         set -e -o pipefail
         mkdir -p "$(dirname {output.peak:q})" "$(dirname {log:q})"
 
-        python3 {params.scripts_dir}/compute_consensus.py \
+        python3 {params.script:q} \
             --peaks {input:q} \
             --bioreps {params.bioreps_args} \
             --format bed \

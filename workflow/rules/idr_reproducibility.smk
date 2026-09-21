@@ -188,13 +188,13 @@ rule idr_split_pseudoreps_narrow:
         "../envs/samtools.yml"
     threads: THREADS
     params:
-        scripts_dir=SCRIPTS_DIR,
+        script=f"{workflow.basedir}/../scripts/split_pseudoreps.py",
         seed=IDR_SEED,
     shell:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output.pr1:q})" "$(dirname {log:q})"
-        python3 {params.scripts_dir}/split_pseudoreps.py \
+        python3 {params.script:q} \
             --input {input:q} \
             --out1 {output.pr1:q} \
             --out2 {output.pr2:q} \
@@ -417,7 +417,7 @@ rule idr_summary_atac_narrow:
     conda:
         "../envs/python.yml"
     params:
-        scripts_dir=SCRIPTS_DIR,
+        script=f"{workflow.basedir}/../scripts/idr_reproducibility_summary.py",
         experiment=lambda wc: wc.experiment,
         assay="atac",
         caller="macs3",
@@ -437,7 +437,7 @@ rule idr_summary_atac_narrow:
             "$(dirname {output.final_peak:q})" \
             "$(dirname {log:q})"
 
-        python3 {params.scripts_dir}/idr_reproducibility_summary.py \
+        python3 {params.script:q} \
             --true-peaks {input.true_thresh:q} \
             --pooled-peaks {input.pool_thresh:q} \
             --self1-peaks {input.self1_thresh:q} \
@@ -475,7 +475,7 @@ rule idr_summary_cuttag_narrow:
     conda:
         "../envs/python.yml"
     params:
-        scripts_dir=SCRIPTS_DIR,
+        script=f"{workflow.basedir}/../scripts/idr_reproducibility_summary.py",
         experiment=lambda wc: wc.experiment,
         assay="cuttag",
         caller="macs3",
@@ -495,7 +495,7 @@ rule idr_summary_cuttag_narrow:
             "$(dirname {output.final_peak:q})" \
             "$(dirname {log:q})"
 
-        python3 {params.scripts_dir}/idr_reproducibility_summary.py \
+        python3 {params.script:q} \
             --true-peaks {input.true_thresh:q} \
             --pooled-peaks {input.pool_thresh:q} \
             --self1-peaks {input.self1_thresh:q} \
@@ -661,13 +661,13 @@ rule idr_split_pseudoreps_broad:
         "../envs/samtools.yml"
     threads: THREADS
     params:
-        scripts_dir=SCRIPTS_DIR,
+        script=f"{workflow.basedir}/../scripts/split_pseudoreps.py",
         seed=IDR_SEED,
     shell:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output.pr1:q})" "$(dirname {log:q})"
-        python3 {params.scripts_dir}/split_pseudoreps.py \
+        python3 {params.script:q} \
             --input {input:q} \
             --out1 {output.pr1:q} \
             --out2 {output.pr2:q} \
@@ -890,7 +890,7 @@ rule idr_summary_chipseq_broad:
     conda:
         "../envs/python.yml"
     params:
-        scripts_dir=SCRIPTS_DIR,
+        script=f"{workflow.basedir}/../scripts/idr_reproducibility_summary.py",
         experiment=lambda wc: wc.experiment,
         assay="chipseq",
         caller="macs3",
@@ -910,7 +910,7 @@ rule idr_summary_chipseq_broad:
             "$(dirname {output.final_peak:q})" \
             "$(dirname {log:q})"
 
-        python3 {params.scripts_dir}/idr_reproducibility_summary.py \
+        python3 {params.script:q} \
             --true-peaks {input.true_thresh:q} \
             --pooled-peaks {input.pool_thresh:q} \
             --self1-peaks {input.self1_thresh:q} \
@@ -948,7 +948,7 @@ rule idr_summary_cuttag_broad:
     conda:
         "../envs/python.yml"
     params:
-        scripts_dir=SCRIPTS_DIR,
+        script=f"{workflow.basedir}/../scripts/idr_reproducibility_summary.py",
         experiment=lambda wc: wc.experiment,
         assay="cuttag",
         caller="macs3",
@@ -968,7 +968,7 @@ rule idr_summary_cuttag_broad:
             "$(dirname {output.final_peak:q})" \
             "$(dirname {log:q})"
 
-        python3 {params.scripts_dir}/idr_reproducibility_summary.py \
+        python3 {params.script:q} \
             --true-peaks {input.true_thresh:q} \
             --pooled-peaks {input.pool_thresh:q} \
             --self1-peaks {input.self1_thresh:q} \

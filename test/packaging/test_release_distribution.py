@@ -416,6 +416,24 @@ def test_sdist_contains_the_exact_encode_runtime_source_manifest(
             project_root=REPO_ROOT,
         ).source_manifest()
     )
+    # Runtime scripts must stay in the fingerprint closure when rule params change.
+    assert {
+        "scripts/aggregate_qc_summary.py",
+        "scripts/assemble_qc_summary.py",
+        "scripts/calc_cuttag_fragment_size.py",
+        "scripts/calc_frip.py",
+        "scripts/calc_nrf_pbc.py",
+        "scripts/chipseq_idr_summary.py",
+        "scripts/compute_consensus.py",
+        "scripts/gtf_to_tss_bed.py",
+        "scripts/idr_reproducibility_summary.py",
+        "scripts/make_manifest.py",
+        "scripts/mnase_qc_summary.py",
+        "scripts/parse_cross_correlation.py",
+        "scripts/parse_dup_metrics.py",
+        "scripts/pooled_qc_summary.py",
+        "scripts/split_pseudoreps.py",
+    } <= set(expected)
 
     with tarfile.open(sdist, "r:gz") as archive:
         files = {item.name: item for item in archive.getmembers() if item.isfile()}

@@ -211,7 +211,7 @@ rule split_pseudoreps:
     input:
         lambda wc: _split_input(wc),
     params:
-        scripts_dir = SCRIPTS_DIR,
+        script = f"{workflow.basedir}/../scripts/split_pseudoreps.py",
         seed = IDR_SEED,
     wildcard_constraints:
         source = r"pooled|biorep\d+",
@@ -224,7 +224,7 @@ rule split_pseudoreps:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output.pr1})" "$(dirname {log})"
-        python3 {params.scripts_dir}/split_pseudoreps.py \
+        python3 {params.script:q} \
             --input {input:q} \
             --out1 {output.pr1:q} \
             --out2 {output.pr2:q} \
@@ -406,7 +406,7 @@ rule chipseq_idr_summary:
         self1_thresh = lambda wc: _self_thresh_path(wc.experiment, 0),
         self2_thresh = lambda wc: _self_thresh_path(wc.experiment, 1),
     params:
-        scripts_dir = SCRIPTS_DIR,
+        script = f"{workflow.basedir}/../scripts/chipseq_idr_summary.py",
         experiment = lambda wc: wc.experiment,
         bio_rep_a  = lambda wc: idr_biorep_labels(wc.experiment)[0],
         bio_rep_b  = lambda wc: idr_biorep_labels(wc.experiment)[1],
@@ -418,7 +418,7 @@ rule chipseq_idr_summary:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output.summary})" "$(dirname {log})"
-        python3 {params.scripts_dir}/chipseq_idr_summary.py \
+        python3 {params.script:q} \
             --true-peaks {input.true_thresh:q} \
             --pooled-peaks {input.pool_thresh:q} \
             --self1-peaks {input.self1_thresh:q} \

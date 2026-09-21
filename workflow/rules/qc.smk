@@ -177,7 +177,7 @@ rule frip:
     input:
         lambda wc: _frip_inputs(wc),
     params:
-        scripts_dir = SCRIPTS_DIR,
+        script = f"{workflow.basedir}/../scripts/calc_frip.py",
         peak_mode = lambda wc: SAMPLE_MAP[wc.sample]["peak_mode"],
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.frip.log",
@@ -198,7 +198,7 @@ rule frip:
             PEAKS="$2"
         fi
 
-        python3 {params.scripts_dir}/calc_frip.py \
+        python3 {params.script:q} \
             --sample {wildcards.sample:q} \
             --bam "$BAM" \
             --peaks "$PEAKS" \
@@ -233,7 +233,7 @@ rule library_complexity:
     input:
         f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
     params:
-        scripts_dir = SCRIPTS_DIR,
+        script = f"{workflow.basedir}/../scripts/parse_dup_metrics.py",
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.library_complexity.log",
     conda:
@@ -241,7 +241,7 @@ rule library_complexity:
     shell:
         """
         set -e -o pipefail
-        python3 {params.scripts_dir}/parse_dup_metrics.py \
+        python3 {params.script:q} \
             --sample {wildcards.sample:q} \
             --metrics {input:q} \
             --output {output:q} \
@@ -304,7 +304,7 @@ rule cuttag_fragment_size:
     input:
         f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
     params:
-        scripts_dir = SCRIPTS_DIR,
+        script = f"{workflow.basedir}/../scripts/calc_cuttag_fragment_size.py",
         layout = lambda wc: SAMPLE_MAP[wc.sample]["layout"],
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.cuttag_fragment_size.log",
@@ -314,7 +314,7 @@ rule cuttag_fragment_size:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
-        python3 {params.scripts_dir}/calc_cuttag_fragment_size.py \
+        python3 {params.script:q} \
             --sample {wildcards.sample:q} \
             --bam {input:q} \
             --layout {params.layout:q} \
@@ -329,7 +329,7 @@ rule nrf_pbc:
     input:
         f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
     params:
-        scripts_dir = SCRIPTS_DIR,
+        script = f"{workflow.basedir}/../scripts/calc_nrf_pbc.py",
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.nrf_pbc.log",
     conda:
@@ -337,7 +337,7 @@ rule nrf_pbc:
     shell:
         """
         set -e -o pipefail
-        python3 {params.scripts_dir}/calc_nrf_pbc.py \
+        python3 {params.script:q} \
             --sample {wildcards.sample:q} \
             --bam {input:q} \
             --output {output:q} \
@@ -617,7 +617,7 @@ rule pooled_experiment_qc_summary:
             if QC_CONFIG.get("signal_tracks", True) else []
         ),
     params:
-        scripts_dir = SCRIPTS_DIR,
+        script = f"{workflow.basedir}/../scripts/pooled_qc_summary.py",
         experiment             = "{experiment}",
         target                 = lambda wc: SAMPLE_MAP[
                                   TREATMENT_SAMPLES_BY_EXPERIMENT[wc.experiment][0]]["target"],
@@ -656,7 +656,7 @@ rule pooled_experiment_qc_summary:
         fi
 
         mkdir -p "$(dirname {output:q})"
-        python3 {params.scripts_dir}/pooled_qc_summary.py \
+        python3 {params.script:q} \
             --experiment {params.experiment:q} \
             --assay {params.assay:q} \
             --target {params.target:q} \
@@ -689,7 +689,7 @@ rule qc_summary:
         nrf_pbc             = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.nrf_pbc.tsv",
         final_bam           = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
     params:
-        scripts_dir = SCRIPTS_DIR,
+        script = f"{workflow.basedir}/../scripts/assemble_qc_summary.py",
         sample     = "{sample}",
         assay      = lambda wc: SAMPLE_MAP[wc.sample]["assay"],
         target     = lambda wc: SAMPLE_MAP[wc.sample]["target"],
@@ -720,7 +720,7 @@ rule qc_summary:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
-        python3 {params.scripts_dir}/assemble_qc_summary.py \\
+        python3 {params.script:q} \\
             --sample {params.sample:q} \\
             --assay {params.assay:q} \\
             --target {params.target:q} \\
@@ -859,14 +859,14 @@ rule tss_bed_from_gtf:
     input:
         gtf = lambda wc: GENOME_RESOURCES.get(wc.genome, {}).get("gtf", ""),
     params:
-        scripts_dir = SCRIPTS_DIR,
+        script = f"{workflow.basedir}/../scripts/gtf_to_tss_bed.py",
     conda:
         "../envs/python.yml",
     shell:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
-        python3 {params.scripts_dir}/gtf_to_tss_bed.py \
+        python3 {params.script:q} \
             --gtf {input.gtf:q} \
             --output {output:q}
         """
@@ -926,14 +926,14 @@ rule project_qc_summary:
         [f"{OUTDIR}/{sid}/01_qc/{sid}.qc_summary.tsv"
          for sid in TREATMENT_SAMPLE_IDS],
     params:
-        scripts_dir = SCRIPTS_DIR,
+        script = f"{workflow.basedir}/../scripts/aggregate_qc_summary.py",
     conda:
         "../envs/python.yml",
     shell:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
-        python3 {params.scripts_dir}/aggregate_qc_summary.py \\
+        python3 {params.script:q} \\
             --output {output:q} \\
             {input:q}
         """

@@ -411,6 +411,25 @@ unchanged; `python test/check_snakemake_lint.py` now exits 0 with
 `snakemake --lint output matches baseline.`
 The complete artifact/workflow tests passed (131 tests, collected in that order).
 
+**Build-identity follow-up:** `3d9cf61` removed the literal `scripts/<name>.py`
+references from workflow bytes, so the existing build-identity scanner omitted
+15 runtime scripts from `source_manifest`. Each of the 22 rule calls now binds
+its full literal `../scripts/<name>.py` path in `params.script` and uses
+`{params.script:q}` in the shell; the unused `SCRIPTS_DIR` constant was removed.
+All 22 resolved path values and rendered path tokens are byte-identical to the
+previous version. The packaging contract now independently requires all 15
+script names in the manifest; this assertion failed before the rule fix and
+passed afterward, together with all nine release-distribution tests. The lint
+check exits 0 against the unchanged baseline, and the dry-run remains 32 jobs.
+No `src/` files or execution identity manifests changed. The earlier verification
+matrix omitted the packaging tier, which is now included for workflow path changes.
+Full packaging verification passed: 150 tests in 43.16s outside the sandbox;
+the frontend/API subprocess had timed out inside the sandbox. The artifact/workflow
+suite passed 131 tests in 64.60s, with artifacts collected first because the reverse
+order still exposes the existing `workflow.lib` import error during collection.
+Ruff checks passed; snakefmt reported no formatting changes and the same five
+missing-`shfmt` parse errors documented above.
+
 ## Not bugs (recorded to avoid re-investigation)
 
 - Frontend sample TSV for profile-bound workflows must NOT contain
