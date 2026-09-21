@@ -133,7 +133,8 @@ def test_create_app_aligns_command_and_identity_project_roots(tmp_path: Path) ->
     seed_test_authentication(app)
 
     assert app.state.build_identity_provider.project_root == project_root
-    assert app.state.local_run_driver._command_builder._project_root == project_root
+    adapter = app.state.registry.get("encode-style-chipseq-cuttag-atac-mnase")
+    assert adapter._execution_binding.project_root == project_root
 
     app.state.run_queue.close()
     app.state.persistence.close()

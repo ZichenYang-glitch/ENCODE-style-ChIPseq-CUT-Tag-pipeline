@@ -153,7 +153,7 @@ async function createPlannedRun(
   );
   expect(validatePayload.samples).toHaveLength(1);
   expect(validatePayload.samples[0]?.sample).toBe('C1');
-  expect(validatePayload.options).toEqual({ strict_inputs: false });
+  expect(validatePayload.options).toEqual({ strict_inputs: false, cores: 1 });
   expect(validatePayload.reference_profile_revision_id).toBe(
     selectedReferenceRevisionId,
   );

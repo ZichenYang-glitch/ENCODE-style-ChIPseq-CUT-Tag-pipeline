@@ -332,6 +332,75 @@ when called without attempt identity (currently only invoked by the worker at
 (infer_experiment, read_distribution, featurecounts, salmon meta_info) for
 the same `\s+`-after-label assumption.
 
+## 10. FIXED — CI formatting and stale assertions after the maintenance batch
+
+**Symptom:** CI for `d1a813d` and `4c64f0b` reported the same three failure
+signatures: snakefmt formatting, the startup project-root assertion in shard
+2, and the shared options assertion in three durable browser scenarios.
+These are verification drift, not production execution defects.
+
+**Fix:**
+
+- Ran snakefmt 2.0.3 only on `workflow/rules/metadata.smk`. With the repository's
+  `line_length = 120`, the formatter wrapped two long argument lists. The
+  before/after Python ASTs are identical.
+- `test/api/test_startup.py` now checks the registered ENCODE adapter's
+  `_execution_binding.project_root` against the build identity's project root.
+  PR-5b moved that coordinate out of the service CommandBuilder; the alignment
+  assertion remains exact.
+- `frontend/e2e/durable-run.spec.ts` now expects exactly
+  `{strict_inputs: false, cores: 1}` in the submitted options. PR-3 added the
+  schema's default `cores`; the desktop success, mobile history, and mobile
+  cancellation scenarios share this assertion.
+
+**Process root cause:** Earlier Codex local verification omitted the complete
+lint and browser-e2e tiers: the required local snakefmt, Node 22, and Playwright
+environments were not configured for those commands. Targeted Python tests
+and frontend type checks did not cover these failures. Maintenance changes to
+commands, workspace contracts, or materialized defaults need the corresponding
+lint and full browser tier in the local verification matrix.
+
+**Local environment repair (prepared before this PR):** The operator converted
+47 relative interpreter shebangs in `.local/envs/ci-fast/bin/` to absolute
+paths, made sysconfig `TZPATH` absolute, and provisioned `.local/node22/` and
+`.local/ms-playwright/`. This PR confirmed no remaining ci-fast-relative
+shebangs, absolute timezone paths, Node v22.23.1, and the installed Chromium
+runtime. These deployment-local repairs are recorded here for reference from
+`docs/development/local-platform-runtime.md`; no environment files were
+changed by this PR.
+
+**Evidence:**
+
+```bash
+./.local/envs/lint-snakefmt/bin/snakefmt --check workflow/rules/metadata.smk
+# All 1 file(s) would be left unchanged; exit 0.
+./.local/envs/lint-snakefmt/bin/snakefmt --check workflow/
+# 8 file(s) would be left unchanged; no file requires formatting.
+# 5 parsing errors because local shfmt is absent; exit 123 (limitation below).
+./.local/envs/ci-fast/bin/python -I -S scripts/checkout_bootstrap.py \
+  --repository-root . pytest test/api/test_startup.py -q
+# 8 passed in 16.40s
+cd frontend
+PATH="$PWD/../.local/node22/bin:$PWD/../.local/envs/ci-fast/bin:$PATH" \
+  PLAYWRIGHT_BROWSERS_PATH="$PWD/../.local/ms-playwright" \
+  ENCODE_PIPELINE_E2E_REDIS_URL=redis://127.0.0.1:6379/14 \
+  npm run test:e2e
+# 11 passed (51.7s)
+```
+
+The full browser suite found no cascading assertion failures. In particular,
+`8 loaded of 8` and the exact API metric count of 8 both passed: they count QC
+metrics, not workspace files, so `config/encode-execution.json` does not change
+these assertions. Ruff check and format check passed for the changed Python
+test. No `src/` files or execution identity manifests changed.
+
+**Validation limits:** The local workflow-wide snakefmt check cannot parse
+`common.smk`, `replicates.smk`, `mnase.smk`, `peaks.smk`, and
+`idr_reproducibility.smk` without `shfmt`; this is not a fully green local lint
+tier. No additional formatting changes were reported, and the edited file
+passed independently. The browser suite used the existing controlled ENCODE
+runtime and bulk authoring/unavailable path, not the Protected Bulk Gate.
+
 ## Not bugs (recorded to avoid re-investigation)
 
 - Frontend sample TSV for profile-bound workflows must NOT contain
