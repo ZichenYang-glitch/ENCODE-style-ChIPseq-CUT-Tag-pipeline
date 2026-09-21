@@ -355,6 +355,25 @@ export ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET="/var/run/docker.sock"
 export ENCODE_PIPELINE_REFERENCE_PROFILE_CONFIG="/operator/private/reference-profiles.yaml"
 ```
 
+Optional `ENCODE_PIPELINE_BULK_CONTAINER_UID` and
+`ENCODE_PIPELINE_BULK_CONTAINER_GID` select the numeric user and group inside
+bulk task containers. Each accepts only ASCII decimal digits representing a
+non-negative integer; empty values, signs, whitespace, and other malformed
+values make execution unavailable. If omitted, each independently defaults to
+the API/worker process's `os.getuid()` or `os.getgid()`, preserving rootful
+deployment behavior. Set the same coordinates for the API and worker.
+
+For rootless Docker where container root maps to the deployment host user,
+configure both explicitly:
+
+```bash
+export ENCODE_PIPELINE_BULK_CONTAINER_UID="0"
+export ENCODE_PIPELINE_BULK_CONTAINER_GID="0"
+```
+
+This renders `--user=0:0` directly; no Docker argument-rewriting shim is needed.
+The managed Docker executable and socket remain separate deployment coordinates.
+
 The runtime binding is deliberately reference-unbound. An administrator uses
 the existing CLI to register an append-only revision, verify it without
 mutation, and enable one exact revision for new validations and runs:

@@ -5,11 +5,14 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from dataclasses import replace
 import json
+import os
 
 import pytest
 
 from encode_pipeline.adapters.bulk_rnaseq import BulkRnaSeqResultsWorkflowAdapter
 from encode_pipeline.adapters.bulk_rnaseq.deployment import (
+    CONTAINER_GID_ENV,
+    CONTAINER_UID_ENV,
     MANAGED_DOCKER_EXECUTABLE_ENV,
     MANAGED_DOCKER_SOCKET_ENV,
     RUNTIME_ROOT_ENV,
@@ -102,6 +105,89 @@ def test_partial_coordinates_fail_closed_without_exposing_coordinate_values(tmp_
     assert availability.execution == "unavailable"
     assert private_root not in repr(adapter)
     assert private_root not in repr(availability)
+
+
+@pytest.mark.parametrize("coordinate", [CONTAINER_UID_ENV, CONTAINER_GID_ENV])
+def test_container_identity_alone_is_partial_execution_configuration(coordinate):
+    adapter = load_default_bulk_rnaseq_adapter({coordinate: "0"})
+
+    assert adapter.execution_availability().execution == "unavailable"
+    assert local_execution_configuration(adapter) is None
+
+
+@pytest.mark.parametrize(
+    ("uid", "gid"),
+    [
+        (None, None),
+        ("0", "0"),
+        ("1234", "5678"),
+        ("0", None),
+        (None, "0"),
+        ("00123", "00456"),
+    ],
+)
+def test_container_identity_coordinates_bind_explicit_values_or_host_defaults(
+    tmp_path, monkeypatch, bulk_rnaseq_qualifications, uid, gid
+):
+    _admit_source_qualification(monkeypatch, bulk_rnaseq_qualifications)
+    environment = _runtime_environment(tmp_path)
+    if uid is not None:
+        environment[CONTAINER_UID_ENV] = uid
+    if gid is not None:
+        environment[CONTAINER_GID_ENV] = gid
+
+    adapter = load_default_bulk_rnaseq_adapter(environment)
+
+    assert isinstance(adapter, BulkRnaSeqResultsWorkflowAdapter)
+    binding = adapter.execution_binding
+    assert binding is not None
+    assert binding.container_uid == (os.getuid() if uid is None else int(uid))
+    assert binding.container_gid == (os.getgid() if gid is None else int(gid))
+
+
+@pytest.mark.parametrize("coordinate", [CONTAINER_UID_ENV, CONTAINER_GID_ENV])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        " ",
+        " 0",
+        "0 ",
+        "+1",
+        "-1",
+        "1.0",
+        "1e3",
+        "1_000",
+        "١",
+        "０",
+        "\n0",
+        "0\n",
+        "0:0",
+        "--user=0",
+        "/private/identity",
+        True,
+        0,
+        None,
+    ],
+)
+def test_malformed_container_identity_fails_closed_without_exposing_value(
+    tmp_path, monkeypatch, bulk_rnaseq_qualifications, coordinate, value
+):
+    _admit_source_qualification(monkeypatch, bulk_rnaseq_qualifications)
+    environment = _runtime_environment(tmp_path)
+    environment[coordinate] = value
+
+    adapter = load_default_bulk_rnaseq_adapter(environment)
+
+    assert not isinstance(adapter, BulkRnaSeqResultsWorkflowAdapter)
+    assert adapter.capabilities.supports == ("validation", "input_authoring")
+    assert adapter.execution_availability().to_dict() == {
+        "authoring": "available",
+        "execution": "unavailable",
+        "reason_code": "WORKFLOW_EXECUTION_UNAVAILABLE",
+    }
+    assert local_execution_configuration(adapter) is None
+    assert "/private/identity" not in repr(adapter)
 
 
 @pytest.mark.parametrize(
@@ -214,12 +300,14 @@ def test_stale_source_candidate_checks_keys_without_reading_private_values(
                     TRANSCRIPTOME_BINDING_MANIFEST_ENV,
                     MANAGED_DOCKER_EXECUTABLE_ENV,
                     MANAGED_DOCKER_SOCKET_ENV,
+                    CONTAINER_UID_ENV,
+                    CONTAINER_GID_ENV,
                     UNTRUSTED_QUALIFICATION_ENV,
                 )
             )
 
         def __len__(self) -> int:
-            return 5
+            return 7
 
         def __getitem__(self, _key: str) -> str:
             raise AssertionError("stale qualification must not read private values")

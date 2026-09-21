@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -1161,10 +1162,15 @@ def test_workspace_rejects_prebuilt_index_incompatible_with_run_shaping_params(
     assert result.errors[0].code == "BULK_RNASEQ_REFERENCE_INVALID"
 
 
+@pytest.mark.parametrize("container_ids", [None, (0, 0), (1234, 5678)])
 def test_command_owns_nextflow_paths_profile_reports_and_no_pull(
-    tmp_path: Path, composed_runtime
+    tmp_path: Path, composed_runtime, container_ids
 ):
     binding, verified = composed_runtime
+    if container_ids is not None:
+        binding = replace(
+            binding, container_uid=container_ids[0], container_gid=container_ids[1]
+        )
     adapter = BulkRnaSeqWorkflowAdapter(execution=binding)
     workspace = (tmp_path / "workspace").resolve()
     plan = adapter.plan_workspace(_inputs(tmp_path), workspace).value

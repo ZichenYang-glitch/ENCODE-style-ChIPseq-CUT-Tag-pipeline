@@ -33,6 +33,8 @@ TRANSCRIPTOME_BINDING_MANIFEST_ENV = (
 )
 MANAGED_DOCKER_EXECUTABLE_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE"
 MANAGED_DOCKER_SOCKET_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
+CONTAINER_UID_ENV = "ENCODE_PIPELINE_BULK_CONTAINER_UID"
+CONTAINER_GID_ENV = "ENCODE_PIPELINE_BULK_CONTAINER_GID"
 TRANSCRIPTOME_BINDING_SCHEMA_VERSION = "1.0.0"
 
 _REQUIRED_COORDINATE_NAMES = (
@@ -43,6 +45,8 @@ _REQUIRED_COORDINATE_NAMES = (
 _COORDINATE_NAMES = (
     *_REQUIRED_COORDINATE_NAMES,
     TRANSCRIPTOME_BINDING_MANIFEST_ENV,
+    CONTAINER_UID_ENV,
+    CONTAINER_GID_ENV,
 )
 _TRANSCRIPTOME_FIELDS = {
     "schema_version",
@@ -95,6 +99,13 @@ def load_default_bulk_rnaseq_adapter(
             source[MANAGED_DOCKER_EXECUTABLE_ENV]
         )
         docker_socket = _canonical_absolute_path(source[MANAGED_DOCKER_SOCKET_ENV])
+        container_identity = {}
+        for field_name, coordinate in (
+            ("container_uid", CONTAINER_UID_ENV),
+            ("container_gid", CONTAINER_GID_ENV),
+        ):
+            if coordinate in configured_keys:
+                container_identity[field_name] = _container_identity(source[coordinate])
         transcriptome = None
         if TRANSCRIPTOME_BINDING_MANIFEST_ENV in configured_keys:
             manifest_path = _canonical_absolute_path(
@@ -109,6 +120,7 @@ def load_default_bulk_rnaseq_adapter(
             ),
             implementation_qualification=qualification.value.implementation,
             transcriptome=transcriptome,
+            **container_identity,
         )
         adapter = BulkRnaSeqResultsWorkflowAdapter(execution=binding)
     except Exception:
@@ -145,6 +157,12 @@ def _unavailable_adapter() -> BulkRnaSeqWorkflowAdapter:
             reason_code="WORKFLOW_EXECUTION_UNAVAILABLE",
         )
     )
+
+
+def _container_identity(value: object) -> int:
+    if not isinstance(value, str) or not value.isascii() or not value.isdecimal():
+        raise ValueError("container identity must be a non-negative integer")
+    return int(value)
 
 
 def _canonical_absolute_path(value: object) -> Path:
