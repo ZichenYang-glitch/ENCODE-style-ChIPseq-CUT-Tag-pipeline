@@ -91,6 +91,56 @@ Do not change the `encode_pipeline` import namespace, compatibility CLI names,
 repository slug, workflow identities, or artifact URI scheme without an
 explicit compatibility decision.
 
+## Post-release maintenance priorities
+
+Sequenced follow-ups identified during the 2026-09 local bring-up and the
+accompanying full-stack code review. Defect evidence and root-cause detail
+live in `docs/development/bug-log-2026-09-local-bring-up.md`; this section
+holds only outcome statements and their exit evidence.
+
+Tier 1 — close the real-path gaps first:
+
+- Real-submission smoke coverage: a CI-tier case that materializes the served
+  authoring schema exactly as the browser client does (rjsf default
+  materialization) and round-trips it through adapter validation, plus one
+  tiny-sample execution. Exit evidence: the tier fails when a gated-section
+  default regression (bug #1) or a `--cores` pinning regression (bug #8) is
+  reintroduced.
+- Local deployment documentation: capture the working bring-up (rootless
+  Docker, uid-mapping ACLs, environment coordinates, reference profile
+  registration) in `docs/development/local-platform-runtime.md`. Exit
+  evidence: a fresh host reaches `doctor` green from the document alone.
+- Dual run-repository conformance: one parametrized behavior suite executed
+  against both the in-memory and SQLAlchemy run repositories. Exit evidence:
+  shared suite runs in CI; drift between the two implementations fails the
+  build.
+- Observability for deliberate silence: structured, payload-free failure
+  breadcrumbs in the `_safely` notification and doctor paths. Exit evidence:
+  a killed notification channel is diagnosable from logs without exposing
+  private payloads.
+
+Tier 2 — batched contract work, one Protected gate:
+
+- Stage-naming retirement per
+  `docs/architecture/stage-naming-retirement-plan.md`, container uid/gid as
+  explicit deployment coordinates (bug #7), ENCODE command ownership moved
+  back into the adapter, and the ENCODE `--cores` fix (bug #8). One combined
+  Protected Bulk Gate for the batch.
+- Frontend QC master-switch cascade so disabling the section clears
+  sub-flags instead of failing validation at submit (bug #4).
+- Upstream coupling ledger: enumerate the version-locked replicas (MultiQC
+  sample-name cleaning, nf-core parameter allowlist, QC header contracts)
+  with their resync obligations for upgrades.
+
+Tier 3 — investigations:
+
+- Unify Docker storage semantics between staging and runtime admission so a
+  single daemon can serve both (bug #5).
+- Gradual slimming of the known hotspots (`persistence/repositories.py`,
+  `services/run_repositories.py`, `adapters/bulk_rnaseq/runtime_assets.py`,
+  `adapters/encode/manifest/make.py`) by extracting the touched cluster
+  whenever work lands there — no standalone rewrites.
+
 ## Roadmap discipline
 
 New work should advance one product outcome and name its exit evidence. Keep

@@ -1,0 +1,338 @@
+# Bug Log: Local Bring-Up Session 2026-09-17/18
+
+Bugs and defects found while bringing up the local HelixWeave stack
+(ENCODE workflow + bulk RNA-seq adapter) on a WSL2 workstation. Recorded for
+review before committing; each entry lists status, root cause, and evidence.
+
+## 1. FIXED — bulk-rnaseq authoring schema: gated-section defaults conflict with disabled-state rule
+
+**Symptom:** Every frontend submission of a bulk-rnaseq run config failed with
+`BULK_RNASEQ_UMI_CONFLICT` at `config.standard.umi`, even with all default
+values untouched.
+
+**Root cause:** The backend semantic validator intentionally requires a
+disabled gated section to contain exactly `{enabled: false}` and nothing else
+(`validation.py` `_validate_standard_semantics`, pinned by
+`test_standard_semantic_conflicts_are_rejected`). But the authoring schema
+declared property-level `default`s (and a `const`) inside the gated `umi` and
+`ribosomal_rna_removal` objects. The frontend materializes initial form state
+with rjsf `getDefaultFormState`, which merges property defaults and `const`
+values into the object default, producing e.g.
+`{enabled: false, deduplication_tool: "umitools", grouping_method: "directional", emit_dedup_stats: false}`.
+The rjsf-generated neutral state therefore always violated the contract.
+Existing tests never caught this because they construct payloads directly and
+bypass rjsf default materialization.
+
+**Fix (working tree, uncommitted):**
+`src/encode_pipeline/adapters/bulk_rnaseq/authoring.py`
+
+- `umi`: removed `default` from `deduplication_tool`, `grouping_method`,
+  `emit_dedup_stats`, `primary_alignments_only`; changed `deduplication_tool`
+  from `const: "umitools"` to `enum: ["umitools"]` (rjsf materializes `const`
+  but not `enum`; the accepted value set is unchanged).
+- `ribosomal_rna_removal`: removed `default: false` from
+  `save_filtered_reads`.
+- Normalization already applies the same fallbacks via `.get()` in
+  `validation.py`, so generated nf-core params are unchanged and the set of
+  accepted configs is unchanged (SCHEMA_VERSION left at 1.1.0).
+- Regenerated `execution-implementation-manifest-1.0.0.json` and
+  `default-execution-qualification-1.1.0.json` via
+  `scripts/generate_bulk_rnaseq_execution_manifest.py` (authoring.py is a
+  controlled file in the pinned execution identity).
+
+**Evidence:** rjsf `getDefaultFormState` on the served config schema now
+materializes `umi`/`ribosomal_rna_removal` as exactly `{enabled: false}`;
+full default config + real sample row + GRCm38 reference passes
+`BulkRnaSeqWorkflowAdapter().validate`; 378 adapter/identity/packaging tests
+pass.
+
+**Review notes before commit:** this change touches the pinned execution
+identity (Protected Bulk Gate territory). Only adapter/execution-identity/
+packaging tests were run; consider the full Bulk Gate before merging.
+
+## 2. FIXED — ENCODE workflow: relative `scripts/` paths break under platform execution
+
+**Symptom:** Snakemake run launched by the platform failed at
+`parse_dup_metrics.py` and similar helper invocations with
+`can't open file '[REDACTED]/scripts/parse_dup_metrics.py'`.
+
+**Root cause:** Six rule files invoked helper scripts as
+`python3 scripts/<name>.py`. The platform executes Snakemake with
+`--directory <workspace>`, so the process cwd is the run workspace, not the
+repository root, and the relative path resolved to a nonexistent location.
+
+**Fix (working tree, uncommitted):** 22 call sites across 6 rule files
+(`workflow/rules/{consensus,idr,idr_reproducibility,mnase,qc,report}.smk`)
+changed to `python3 {workflow.basedir}/../scripts/<name>.py`. Verified with
+Snakemake dry-run; confirmed in a real platform run afterwards.
+
+## 3. OPEN (unconfirmed) — ENCODE run: macs3 conda environment activation
+
+**Symptom:** A platform-driven ENCODE run failed in the macs3 step: the rule
+invoked a script via `#!/usr/bin/env python` shebang and resolved the wrong
+interpreter (PATH/activation timing inside the Snakemake-managed conda env).
+
+**State:** The conda env itself was verified good manually. The user was asked
+to rerun; no outcome reported yet. Needs reproduction. If it reproduces,
+candidate fix is invoking the env interpreter explicitly (same pattern as
+bug 2) instead of relying on shebang + activated PATH.
+
+## 4. OPEN (UX trap, by-design rule) — qc master switch conflicts with materialized sub-flags
+
+**Observation:** The qc section defaults materialize as all-true
+(`{enabled: true, fastqc: true, ...}`), which is valid. But if a user toggles
+only the master `enabled` off in the form, the sub-flags stay `true` in
+formData and submission fails with `BULK_RNASEQ_QC_CONFLICT`
+("disabled master switch with enabled sub-flags"). The rule itself is
+deliberate; the form gives no help. Candidate frontend improvement: cascade
+the master switch to sub-flags, or surface the conflict inline. Not fixed.
+
+## 5. DESIGN FRICTION — Docker 29 storage-driver mismatch between staging and runtime admission
+
+**Observation:** The two Docker touchpoints expect opposite storage semantics
+on one daemon:
+
+- staging `_verify_pulled_image` expects classic overlay2 semantics
+  (`inspect Id == config digest` after `docker pull`);
+- runtime admission `_verify_docker_availability` expects containerd-storage
+  semantics after `docker load` of the staged archive
+  (`inspect Id == archive index digest`).
+
+A single Docker 29 daemon cannot satisfy both; switching
+`features.containerd-snapshotter` flips which side fails
+(`docker_image_invalid` vs `runtime_admission_failed`).
+
+**Workaround deployed on this machine:** two daemons — system dockerd
+(overlay2, staging) plus a rootless dockerd (containerd snapshotter,
+`~/.helixweave/docker.sock`) as the managed/admission Docker, selected via
+`ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET`. Works; admission passes
+(56 container bindings verified). Worth documenting in
+`docs/development/local-platform-runtime.md`, or reconsidering the staging
+check so one containerd daemon serves both.
+
+## 6. TOOLING FRICTION — checkout_bootstrap rejects the ci-fast env
+
+**Symptom:** `python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest ...`
+refused to run: `source provenance check failed [pth_mapping_unsafe]: remove
+unrecognized executable .pth startup hooks`.
+
+**Context:** `.local/envs/ci-fast` carries the editable install `.pth` used
+for local platform work. Workaround used: run pytest directly via
+`.local/envs/ci-fast/bin/python -m pytest`. Decide whether the provenance
+check should tolerate a known task-local editable mapping or the docs should
+prescribe the direct invocation for this env.
+
+## 7. FIXED — bulk execution assumes container uid == deployment host uid
+
+**Symptom:** First real bulk-rnaseq run failed every task at launch:
+`bash: .command.run: Permission denied` in each task's `.command.err`.
+
+**Root cause:** The generated `platform.nextflow.config` pins
+`docker.runOptions = '--user=<deployment os.getuid()>:<gid>'`
+(`execution.py:841`, default at `execution.py:141-142`, not operator
+configurable in `deployment.py`). This assumes the managed Docker shares the
+host user namespace (rootful Docker), so container uid 1000 is the workspace
+owner. Under rootless Docker the container uid 1000 maps to host subuid
+100999 (verified empirically: file created in-container lands as 100999 on
+the host), which can neither traverse `/home/yangzichen` (0750) nor write
+into workspace task directories (0755, owned by the host user).
+
+**Workaround deployed:** keep rootless Docker; `chmod o+x /home/yangzichen`
+(traverse-only) plus inherited ACLs granting subuid 100999 access to the
+platform workspaces directory (`setfacl -m u:100999:rwx -m d:u:100999:rwx`).
+Requires the `acl` package. Reversible with `setfacl -Rb`.
+
+**Second symptom (2026-09-19):** ACLs fixed container launch and reads, but
+STAR creates its temp dirs (`_STARgenome`, `_STARpass1`) with explicit mode
+0700 owned by subuid 100999; the host-side Nextflow output collector
+(`fetchResultFiles`) then dies with `AccessDeniedException` walking the task
+dir, failing STAR_ALIGN after the aligner itself succeeded. Explicit
+`mkdir(0700)` overrides inherited ACL masks, so ACLs cannot fix this class.
+
+**Interim shim deployed:** `~/.helixweave/bin/docker` rewrites the pinned
+`--user=1000:1000` to `--user=0:0` (container uid 0 maps back to the host
+user under rootless Docker); `ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE`
+points at the shim. Admission re-verified OK (56 container bindings).
+The shim is now eligible for retirement using the explicit coordinates below;
+the deployed shim file was not changed or deleted by PR-5a.
+
+**Formal fix (PR-5a, 2026-09-21, working tree, uncommitted):**
+
+- `deployment.py` accepts optional `ENCODE_PIPELINE_BULK_CONTAINER_UID` and
+  `ENCODE_PIPELINE_BULK_CONTAINER_GID` and passes them into the existing
+  `BulkRnaSeqExecutionBinding.container_uid` / `container_gid` fields.
+  Each omitted coordinate retains its existing `os.getuid()` / `os.getgid()`
+  default independently. Explicit `0` is preserved.
+- Values must contain only ASCII decimal digits for a non-negative integer.
+  Empty strings, whitespace, signs, floats, Unicode digits, and non-string
+  values fail closed: authoring remains available, execution becomes
+  unavailable, and rejected operator values are not exposed publicly.
+- The existing validation and `--user=<uid>:<gid>` rendering in `execution.py`
+  already support explicit identities and are reused unchanged. Other Docker
+  options, default resources, and ENCODE command construction are unchanged.
+- Regenerated both execution identity files. The 111-file manifest changes
+  only the `deployment.py` entry; prior authoring/QC fixes and the persistence
+  contract remain preserved.
+
+**Evidence:**
+
+```bash
+./.local/envs/ci-fast/bin/python -m pytest \
+  test/adapters/test_bulk_rnaseq_execution.py \
+  test/adapters/test_bulk_rnaseq_adapter.py \
+  test/adapters/test_bulk_rnaseq_deployment.py \
+  test/adapters/test_bulk_rnaseq_reference_profiles.py \
+  test/adapters/test_bulk_rnaseq_execution_identity.py \
+  test/packaging/test_bulk_rnaseq_contract_package.py -q
+# 469 passed in 6.91s
+```
+
+Tests cover omitted coordinates, explicit `0:0`, other numeric IDs, independent
+UID/GID defaults, malformed/partial coordinates, and generated Docker options.
+`ruff check` and `ruff format --check` pass for all three changed Python files.
+PR-5a diffs are whitespace-clean; the whole-worktree check still reports the
+untouched pre-existing trailing whitespace in `config/samples.tsv:2`.
+
+**Deployment follow-up:** Set both new coordinates to `0` for this rootless
+deployment, point `ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE` at the real Docker
+executable, then restart the API/worker and recheck admission. The old argument
+rewriting shim can then be retired by the deployment operator. No deployment
+configuration, shim, ACL, or live service was changed in this PR.
+
+**Validation limits:** The Protected Bulk Gate and a real rootless scientific
+run were not performed; the evidence above covers deployment loading,
+validation, configuration generation, and execution identity contracts.
+
+## 8. FIXED — ENCODE platform runs pin `--cores 1` while smk rules default to `threads: 8`
+
+**Observation (code review, 2026-09-19):** The adapter's `_validate_options`
+only allows `strict_inputs` (`adapters/encode.py:1093`) and the authoring
+schema is `additionalProperties: false` (`encode_authoring.py:265`), so the
+`options.cores` branch in the service-layer command builder
+(`command_builder.py:562`) is unreachable on the platform path: every
+platform-driven ENCODE run gets `--cores 1`. Snakemake rules declare
+`threads: THREADS` (default 8, `workflow/rules/common.smk:40`). Empirical
+evidence from the 2026-09-17 platform run (18/32 steps completed) suggests
+Snakemake caps threads to available cores rather than failing — meaning
+alignment/peak steps silently ran single-core. The only real-execution e2e
+profile sidesteps this with `threads: 1`.
+
+**Impact:** severe under-utilization (multi-core aligners running on one
+core); no correctness impact expected.
+
+**Fix (PR-3, working tree, uncommitted):**
+
+- Added optional workflow option `cores` to the ENCODE authoring schema:
+  integer, minimum 1, maximum 1024, default 1. `additionalProperties: false`
+  and the existing `strict_inputs` option remain unchanged. Advanced the
+  versioned authoring contract from 1.2.0 to 1.3.0 and updated the existing
+  adapter/API schema-version assertions.
+- `_validate_options` now accepts `cores` and enforces the same upper bound,
+  rejecting booleans, non-integers, null, and values outside 1–1024.
+- The existing service-owned CommandBuilder now receives validated `cores`;
+  its omitted-option default remains `--cores 1`. CommandBuilder and workflow
+  rule thread semantics were not changed.
+- Added schema/adapter boundary cases and a regression test through real
+  adapter validation, WorkspacePlanner, and CommandBuilder: explicit
+  `cores: 8` yields `--cores 8`, while omitted `cores` yields `--cores 1`.
+  Before the fix, the explicit-cores schema and planning cases failed and
+  the omitted-option cases passed.
+
+**Evidence (2026-09-21):**
+
+```bash
+./.local/envs/ci-fast/bin/python -m pytest test/adapters/ -k encode -q
+# 124 passed, 860 deselected in 4.43s
+./.local/envs/ci-fast/bin/python -m pytest \
+  test/services/test_command_builder.py \
+  test/api/test_routes_workflows.py test/api/test_openapi_export.py -q
+# 86 passed, 1 warning in 75.94s
+```
+
+- `snakemake -s workflow/Snakefile --configfile config/config.yaml -n`
+  succeeded with 32 jobs, using `ci-fast/bin` on PATH and a temporary writable
+  `XDG_CACHE_HOME`. The first attempt hit the sandbox's read-only default
+  Snakemake cache; no workflow or deployment configuration was changed.
+- Ran `./.local/envs/ci-fast/bin/python
+  scripts/generate_bulk_rnaseq_execution_manifest.py`. Both generated files
+  and their hashes remained byte-identical to the pre-PR working tree: the
+  changed ENCODE source files are outside the bulk manifest's 111-file
+  allowlist. The existing bulk authoring/QC fixes remain preserved.
+- `ruff check` and `ruff format --check` passed for all five changed Python
+  files. PR-3 file diffs are whitespace-clean. The whole-worktree
+  `git diff --check` still reports the untouched, pre-existing trailing
+  whitespace in `config/samples.tsv:2`.
+- The pytest warning is the existing relative `PYTHONTZPATH` environment
+  setting. OpenAPI contract checks passed; no generated-client changes were
+  needed.
+
+**Validation limits:** No real scientific execution or browser run was
+performed, so actual process thread counts were not measured. The 1024-core
+limit is an adapter contract bound, not host-capacity detection. The
+Protected Bulk Gate was not run; bulk execution identity is unchanged.
+
+## 9. FIXED — bulk QC parser rejects RSeQC bam_stat long-label line (QC indexing fails on real runs)
+
+**Symptom:** First successful bulk run (2026-09-19, SRX21122275) completed all
+45 tasks and artifact extraction (54 artifacts), but QC metrics indexing
+failed: `qc_metrics_indexing_failed` / `QC_INDEXING_ADAPTER_FAILED`. Fail-closed
+behavior worked as designed — nothing invalid was persisted.
+
+**Root cause:** `_rseqc_bam_stat_counts` (`adapters/bulk_rnaseq/qc.py:1638`)
+requires `\s+` after the colon in
+`Proper-paired reads map to different chrom:`. Real RSeQC output pads fields
+to a fixed width; this label fills the entire width, so the digit follows the
+colon with no space (`...different chrom:0`). The parser rejected the whole
+document (`source_content_invalid`). Existing test fixtures always carried
+padded lines, so the unpadded real-world form was never covered.
+
+**Fix (PR-2, working tree, uncommitted):**
+
+- In `src/encode_pipeline/adapters/bulk_rnaseq/qc.py`, changed only the
+  long-label pattern's post-colon padding from `\s+` to `\s*`.
+- Parameterized the existing single-end bam_stat test in
+  `test/adapters/test_bulk_rnaseq_qc.py` with both the original padded line
+  and the exact real-output line `Proper-paired reads map to different chrom:0`;
+  existing metric assertions are unchanged.
+- Regenerated `execution-implementation-manifest-1.0.0.json` and
+  `default-execution-qualification-1.1.0.json` using
+  `./.local/envs/ci-fast/bin/python scripts/generate_bulk_rnaseq_execution_manifest.py`.
+  Relative to the pre-PR working tree, only the `qc.py` manifest entry changed;
+  the existing authoring fix identity and persistence contract were preserved.
+
+**Evidence (2026-09-21):** Before the parser fix, the padded case passed and
+the new unpadded case failed with `source_content_invalid`. After the fix:
+
+```bash
+./.local/envs/ci-fast/bin/python -m pytest \
+  test/adapters/test_bulk_rnaseq_qc.py \
+  test/adapters/test_bulk_rnaseq_execution_identity.py \
+  test/packaging/test_bulk_rnaseq_contract_package.py -v
+# 154 passed in 2.99s
+```
+
+`ruff check` and `ruff format --check` passed for both changed Python files;
+`git diff --check` passed for the PR-2 files. The whole-worktree check still
+reports pre-existing trailing whitespace in `config/samples.tsv:2`; that file
+was left unchanged. The Protected Bulk Gate and real-run QC reindexing were
+not run for this PR.
+
+**Operational follow-up:** After the fix and a stack restart, this run's QC
+can be reindexed without re-execution:
+`QcSummaryIndexingService.index(run_id, artifacts)` begins a fresh attempt
+when called without attempt identity (currently only invoked by the worker at
+`workers/jobs.py:406`; no user-facing retry endpoint exists).
+
+**Wider review note:** audit the other fixed-width parsers in `qc.py`
+(infer_experiment, read_distribution, featurecounts, salmon meta_info) for
+the same `\s+`-after-label assumption.
+
+## Not bugs (recorded to avoid re-investigation)
+
+- Frontend sample TSV for profile-bound workflows must NOT contain
+  `genome`/`bowtie2_index` columns: once a reference profile is selected the
+  platform injects those values, and extra sample columns are rejected. This
+  is intentional fail-closed behavior.
+- `docker images` lists nothing after digest-only `docker load` under the
+  containerd snapshotter (no repo tags); `docker inspect <digest>` works.
+  Docker behavior, not a platform bug.
