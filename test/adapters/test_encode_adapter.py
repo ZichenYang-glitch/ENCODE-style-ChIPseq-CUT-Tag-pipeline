@@ -119,7 +119,7 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     schema = _adapter().schema()
     as_dict = schema.to_dict()
 
-    assert as_dict["schema_version"] == "1.2.0"
+    assert as_dict["schema_version"] == "1.3.0"
     assert as_dict["schema_dialect"] == JSON_SCHEMA_DIALECT
     assert as_dict["coverage"] == {
         "config": "partial",
@@ -200,12 +200,20 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
         "default": False,
         "description": "Validate FASTQ and Bowtie2 index file existence.",
     }
+    assert set(as_dict["option_schema"]["properties"]) == {"strict_inputs", "cores"}
+    assert as_dict["option_schema"]["properties"]["cores"] == {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1024,
+        "default": 1,
+        "description": "Maximum CPU cores available to this workflow run.",
+    }
     assert as_dict["option_schema"]["additionalProperties"] is False
 
     for name in ("config_schema", "sample_schema", "option_schema"):
         document = as_dict[name]
         assert document["$schema"] == JSON_SCHEMA_DIALECT
-        assert document["$id"].endswith("/1.2.0")
+        assert document["$id"].endswith("/1.3.0")
         jsonschema.Draft202012Validator.check_schema(document)
 
 
@@ -422,7 +430,16 @@ def test_schema_returns_fresh_instances_after_internal_mapping_mutation():
     assert second_outdir["description"] == "Platform-owned run output directory."
 
 
-def test_schema_accepts_tiny_profile_without_samples_and_inline_rows(tmp_path):
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"strict_inputs": False},
+        {"strict_inputs": False, "cores": 1},
+        {"strict_inputs": False, "cores": 8},
+        {"strict_inputs": False, "cores": 1024},
+    ],
+)
+def test_schema_accepts_tiny_profile_without_samples_and_inline_rows(tmp_path, options):
     schema = _adapter().schema()
     tiny_config = yaml.safe_load(
         (
@@ -439,13 +456,9 @@ def test_schema_accepts_tiny_profile_without_samples_and_inline_rows(tmp_path):
 
     jsonschema.Draft202012Validator(schema.config_schema).validate(tiny_config)
     jsonschema.Draft202012Validator(schema.sample_schema).validate([public_row])
-    jsonschema.Draft202012Validator(schema.option_schema).validate(
-        {"strict_inputs": False}
-    )
+    jsonschema.Draft202012Validator(schema.option_schema).validate(options)
     result = _adapter().validate(
-        WorkflowInputs(
-            config=tiny_config, samples=[row], options={"strict_inputs": False}
-        )
+        WorkflowInputs(config=tiny_config, samples=[row], options=options)
     )
 
     assert result.is_success
@@ -596,6 +609,27 @@ def test_invalid_strict_inputs_type_maps_to_options_issue(tmp_path):
     assert issue.message == "strict_inputs must be a boolean"
 
 
+@pytest.mark.parametrize("cores", [None, True, False, "8", 3.14, 0, -1, 1025, [], {}])
+def test_invalid_cores_rejected_by_schema_and_adapter(tmp_path, cores):
+    adapter = _adapter()
+    options = {"cores": cores}
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft202012Validator(adapter.schema().option_schema).validate(
+            options
+        )
+
+    result = adapter.validate(
+        WorkflowInputs(config={}, samples=[_inline_row(tmp_path)], options=options)
+    )
+
+    issue = _first_issue(result)
+    assert result.is_failure
+    assert issue.code == "ENCODE_OPTIONS_INVALID"
+    assert issue.source == "adapter"
+    assert issue.path == "options.cores"
+    assert issue.message == "cores must be an integer between 1 and 1024"
+
+
 def test_unsupported_options_return_options_issue(tmp_path):
     samples_path = _write_samples(tmp_path / "samples.tsv")
     result = _adapter().validate(
@@ -611,6 +645,10 @@ def test_unsupported_options_return_options_issue(tmp_path):
     assert issue.source == "adapter"
     assert issue.path == "options"
     assert issue.context == {"unsupported_options": ["profile"]}
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft202012Validator(_adapter().schema().option_schema).validate(
+            {"profile": "local"}
+        )
 
 
 def test_inline_sample_rows_validate_without_config_samples(tmp_path):

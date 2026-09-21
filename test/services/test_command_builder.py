@@ -417,6 +417,48 @@ def test_command_builder_defaults_cores_when_cores_missing(tmp_path):
     assert result.value.command_spec.argv[-1] == "1"
 
 
+@pytest.mark.parametrize(
+    ("options", "expected_cores"), [({}, "1"), ({"cores": 8}, "8")]
+)
+def test_encode_validated_options_reach_snakemake_cores(
+    tmp_path, options, expected_cores
+):
+    from encode_pipeline.services.command_builder import CommandBuilder
+    from encode_pipeline.services.planning import WorkspacePlanner
+
+    registry = _make_registry()
+    plan = _make_pending_plan(
+        inputs_snapshot={
+            "config": {"threads": 8, "use_control": False},
+            "samples": [
+                {
+                    "sample": "S1",
+                    "fastq_1": str(tmp_path / "S1.fastq.gz"),
+                    "layout": "SE",
+                    "assay": "chipseq",
+                    "target": "CTCF",
+                    "peak_mode": "narrow",
+                    "genome": "hs",
+                    "bowtie2_index": str(tmp_path / "indices" / "hs"),
+                }
+            ],
+            "options": options,
+        },
+        workspace_plan_files=(),
+    )
+    planned = WorkspacePlanner(registry).plan_workspace(plan, tmp_path.resolve())
+    assert planned.is_success, planned.issues
+
+    result = CommandBuilder(registry=registry).build_command(
+        planned.value, tmp_path.resolve()
+    )
+
+    assert result.is_success, result.issues
+    assert result.value.inputs_snapshot["options"] == options
+    argv = result.value.command_spec.argv
+    assert argv[argv.index("--cores") + 1] == expected_cores
+
+
 def test_command_builder_returns_planned_execution_plan(tmp_path):
     from encode_pipeline.platform.planning import PlanStatus
     from encode_pipeline.services.command_builder import CommandBuilder

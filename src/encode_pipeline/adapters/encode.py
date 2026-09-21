@@ -16,6 +16,7 @@ from typing import Any
 import yaml
 
 from encode_pipeline import __version__
+from encode_pipeline.adapters.encode_authoring import MAX_CORES
 from encode_pipeline.artifacts import (
     Artifact,
     artifacts_by_manifest_output_type,
@@ -1090,7 +1091,9 @@ def _inline_samples_failure() -> Result[dict[str, Any]]:
 
 
 def _validate_options(options: dict[str, object]) -> Issue | None:
-    unsupported = sorted(str(key) for key in options if key != "strict_inputs")
+    unsupported = sorted(
+        str(key) for key in options if key not in {"strict_inputs", "cores"}
+    )
     if unsupported:
         return Issue(
             code="ENCODE_OPTIONS_INVALID",
@@ -1107,6 +1110,15 @@ def _validate_options(options: dict[str, object]) -> Issue | None:
             source="adapter",
             path="options.strict_inputs",
         )
+    if "cores" in options:
+        cores = options["cores"]
+        if type(cores) is not int or not 1 <= cores <= MAX_CORES:
+            return Issue(
+                code="ENCODE_OPTIONS_INVALID",
+                message=f"cores must be an integer between 1 and {MAX_CORES}",
+                source="adapter",
+                path="options.cores",
+            )
     return None
 
 

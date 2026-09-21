@@ -221,7 +221,7 @@ def test_get_schema_returns_versioned_renderable_contract(
     data = response.json()
     assert data["ok"] is True
     assert data["workflow_id"] == workflow_id
-    assert data["schema"]["schema_version"] == "1.2.0"
+    assert data["schema"]["schema_version"] == "1.3.0"
     assert data["schema"]["schema_dialect"] == (
         "https://json-schema.org/draft/2020-12/schema"
     )
@@ -272,7 +272,7 @@ def test_validate_success(
     assert data["workflow_id"] == workflow_id
     assert data["value"] is None
     assert data["snapshot"]["workflow_id"] == workflow_id
-    assert data["snapshot"]["schema_version"] == "1.2.0"
+    assert data["snapshot"]["schema_version"] == "1.3.0"
     assert data["snapshot"]["reference_profile"]["revision_id"] == (
         _reference_revision_id(client)
     )
@@ -354,7 +354,7 @@ def test_validate_equal_semantic_and_legacy_aliases_returns_one_safe_warning(
     data = response.json()
     assert data["ok"] is True
     assert data["snapshot"] is not None
-    assert data["snapshot"]["schema_version"] == "1.2.0"
+    assert data["snapshot"]["schema_version"] == "1.3.0"
     assert [issue["code"] for issue in data["issues"]] == [
         "ENCODE_CONFIG_LEGACY_ALIAS_DEPRECATED"
     ]

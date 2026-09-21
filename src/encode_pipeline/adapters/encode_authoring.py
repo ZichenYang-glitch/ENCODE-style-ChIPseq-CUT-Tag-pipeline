@@ -17,7 +17,8 @@ from encode_pipeline.platform.adapters import (
 )
 
 
-SCHEMA_VERSION = "1.2.0"
+SCHEMA_VERSION = "1.3.0"
+MAX_CORES = 1024
 _SCHEMA_ID_ROOT = (
     "https://encode-pipeline.org/schemas/encode-style-chipseq-cuttag-atac-mnase"
 )
@@ -260,7 +261,14 @@ def _option_schema() -> dict[str, object]:
                 "type": "boolean",
                 "default": False,
                 "description": "Validate FASTQ and Bowtie2 index file existence.",
-            }
+            },
+            "cores": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": MAX_CORES,
+                "default": 1,
+                "description": "Maximum CPU cores available to this workflow run.",
+            },
         },
         "additionalProperties": False,
     }
