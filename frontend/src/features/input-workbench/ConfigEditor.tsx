@@ -1,4 +1,5 @@
 import CodeMirror from '@uiw/react-codemirror';
+import { useEffect, useRef } from 'react';
 import { yaml } from '@codemirror/lang-yaml';
 import { EditorView } from '@codemirror/view';
 import { Code2, ListTree } from 'lucide-react';
@@ -6,6 +7,7 @@ import { Button } from '../../components/Button';
 import type { InputDraftController } from './useInputDraft';
 import type { WorkbenchSchema } from './schemaContract';
 import { SchemaObjectForm } from './SchemaObjectForm';
+import { focusConfigIssue, type ConfigFocusRequest, type SafeIssue } from './validationFeedback';
 
 export type ConfigMode = 'form' | 'yaml';
 
@@ -14,6 +16,8 @@ interface ConfigEditorProps {
   draft: InputDraftController;
   mode: ConfigMode;
   onModeChange: (mode: ConfigMode) => void;
+  issues?: SafeIssue[];
+  focusRequest?: ConfigFocusRequest | null;
 }
 
 export function ConfigEditor({
@@ -21,9 +25,20 @@ export function ConfigEditor({
   draft,
   mode,
   onModeChange,
+  issues,
+  focusRequest,
 }: ConfigEditorProps) {
+  const editor = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!focusRequest || !editor.current) return;
+    if (mode === 'yaml') {
+      editor.current.querySelector<HTMLElement>('[aria-label="Advanced config YAML"]')?.focus();
+    } else {
+      focusConfigIssue(editor.current, schema.configSchema, focusRequest.path);
+    }
+  }, [focusRequest, mode, schema.configSchema]);
   return (
-    <section className="min-w-0 max-w-5xl space-y-3" aria-labelledby="config-editor-title">
+    <section ref={editor} tabIndex={-1} className="min-w-0 max-w-5xl space-y-3" aria-labelledby="config-editor-title">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 id="config-editor-title" className="text-sm font-semibold">
@@ -72,6 +87,7 @@ export function ConfigEditor({
           resetRevision={draft.state.configFormResetRevision}
           onChange={draft.setConfig}
           ariaLabel="Workflow config form"
+          issues={issues}
         />
       ) : (
         <div className="min-w-0 overflow-hidden rounded-[4px] border border-[var(--color-border)] bg-[var(--color-surface)]">
@@ -95,6 +111,7 @@ export function ConfigEditor({
       <p id="yaml-editor-help" className="text-xs text-[var(--color-text-muted)]">
         YAML is parsed locally into the same config object. Formatting and
         comments may be normalized after a Form edit.
+        {' '}To remove an optional config key, edit YAML. Turning a checkbox off keeps its value as false.
       </p>
       {draft.state.yamlIssue && (
         <p

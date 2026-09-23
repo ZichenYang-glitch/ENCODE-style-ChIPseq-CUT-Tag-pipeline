@@ -13,6 +13,8 @@ import { SampleEditor } from './SampleEditor';
 import type { WorkbenchSchema } from './schemaContract';
 import { useInputDraft } from './useInputDraft';
 import { ValidatedSubmission } from './ValidatedSubmission';
+import { ValidationFeedbackPanel } from './ValidationFeedbackPanel';
+import type { ConfigFocusRequest, ValidationFeedback } from './validationFeedback';
 
 type WorkbenchStep = 'config' | 'samples' | 'options' | 'review';
 
@@ -62,6 +64,14 @@ export function InputWorkbench({
 }: InputWorkbenchProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const draft = useInputDraft(schema);
+  const [validationFeedback, setValidationFeedback] = useState<ValidationFeedback | null>(null);
+  const [configFocus, setConfigFocus] = useState<ConfigFocusRequest | null>(null);
+  const validationIssues = useMemo(
+    () => validationFeedback?.revision === draft.state.semanticRevision
+      ? validationFeedback.issues : [],
+    [validationFeedback, draft.state.semanticRevision],
+  );
+  useEffect(() => { setConfigFocus(null); }, [draft.state.semanticRevision]);
   const [referenceSelectionMessage, setReferenceSelectionMessage] = useState<
     string | null
   >(null);
@@ -190,6 +200,16 @@ export function InputWorkbench({
           onRefresh={onRefreshReferenceProfiles}
         />
 
+        <ValidationFeedbackPanel
+          feedback={validationFeedback}
+          revision={draft.state.semanticRevision}
+          schema={schema.configSchema}
+          onLocate={(path) => {
+            setConfigFocus((previous) => ({ path, sequence: (previous?.sequence ?? 0) + 1 }));
+            setStep('config');
+          }}
+          onReview={() => setStep('review')}
+        />
         <Tabs.Root value={step} onValueChange={setStep} className="min-w-0 pt-3">
           <Tabs.List
             className="grid grid-cols-2 gap-1 border-b border-[var(--color-border)] sm:flex"
@@ -228,6 +248,8 @@ export function InputWorkbench({
               draft={draft}
               mode={mode}
               onModeChange={setMode}
+              issues={validationIssues}
+              focusRequest={configFocus}
             />
           </Tabs.Content>
           <Tabs.Content value="samples" className="min-w-0 pt-4 outline-none">
@@ -249,6 +271,7 @@ export function InputWorkbench({
               referenceSelectionAvailable={
                 selectedReference !== null && referenceProfilesError === null
               }
+              onValidationFeedback={setValidationFeedback}
             />
           </Tabs.Content>
         </Tabs.Root>

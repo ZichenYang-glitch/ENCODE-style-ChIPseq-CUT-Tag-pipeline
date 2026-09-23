@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
+import pytest
+
 from encode_pipeline.platform.authentication import UserRole, UserStatus
 from encode_pipeline.platform.notifications import SmtpTerminalEmailSettings
 from encode_pipeline.platform.runs import RunQcMetric, RunRecord, RunStatus
@@ -137,6 +139,69 @@ def _service(repository, authentication, transport) -> TerminalNotificationServi
         run_repository=repository,
         authentication_repository=authentication,
         transport=transport,
+    )
+
+
+@pytest.mark.parametrize("delivery_fails", [False, True])
+@pytest.mark.parametrize("recording_fails", [False, True])
+def test_outcome_diagnostic_preserves_delivery_and_recording_semantics(
+    delivery_fails, recording_fails, tmp_path, monkeypatch, assert_failure_diagnostics
+):
+    private = str(tmp_path / "PRIVATE_EVENT_FAILURE")
+    monkeypatch.setenv("HELIX_TEST_PRIVATE", "PRIVATE_ENV_VALUE")
+    repository = _RunRepository(_record(RunStatus.FAILED))
+    original_record = repository.record
+    authentication = _AuthenticationRepository()
+    authentication.account.notification_email = "PRIVATE_RECIPIENT@example.test"
+    calls = []
+
+    class Transport:
+        def send(self, message, envelope_recipients):
+            calls.append(("send", message.get_content(), envelope_recipients))
+            if delivery_fails:
+                raise RuntimeError(private + " PRIVATE_EXCEPTION_TEXT")
+
+    add_event = repository.add_event
+
+    def record(run_id, event):
+        calls.append(("record", event.event_type))
+        if recording_fails:
+            raise RuntimeError(private + " PRIVATE_EXCEPTION_TEXT")
+        return add_event(run_id, event)
+
+    monkeypatch.setattr(repository, "add_event", record)
+    assert (
+        _service(repository, authentication, Transport()).notify_terminal_run(
+            "run-1", RunStatus.FAILED
+        )
+        is None
+    )
+    outcome = "terminal_email_failed" if delivery_fails else "terminal_email_sent"
+    assert [call[0] for call in calls] == ["send", "record"]
+    assert calls[1] == ("record", outcome)
+    assert repository.record == original_record
+    assert [event.event_type for event in repository.events] == (
+        [] if recording_fails else [outcome]
+    )
+    assert_failure_diagnostics(
+        [
+            (
+                "terminal_notifications",
+                "record_outcome",
+                "TERMINAL_EMAIL_EVENT_RECORD_FAILED",
+            )
+        ]
+        if recording_fails
+        else [],
+        private=(
+            private,
+            "PRIVATE_EXCEPTION_TEXT",
+            "PRIVATE_ENV_VALUE",
+            "PRIVATE_RECIPIENT",
+            calls[0][1],
+            "/workspace/private.fastq.gz",
+            "smtp-password",
+        ),
     )
 
 

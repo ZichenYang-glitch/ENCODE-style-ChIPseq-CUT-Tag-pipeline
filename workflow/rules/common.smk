@@ -373,8 +373,9 @@ rule samtools_idxstats:
 def _bamcoverage_inputs(wildcards):
     """Return input list for bamcoverage: [final.bam, final.bam.bai, ...optional peaks].
 
-    For SE ChIP-seq with extend_reads=auto/yes, the MACS3 peaks output is
-    added as a dependency so the MACS3 log exists for fragment-size extraction.
+    For SE ChIP-seq or broad CUT&Tag with extend_reads=auto/yes, depend on
+    the MACS3 peaks output so its log is ready for fragment-size extraction.
+    Narrow CUT&Tag uses --nomodel and does not need this model dependency.
     """
     s = SAMPLE_MAP[wildcards.sample]
     inputs = [
@@ -382,7 +383,12 @@ def _bamcoverage_inputs(wildcards):
         f"{OUTDIR}/{wildcards.sample}/02_align/{wildcards.sample}.final.bam.bai",
     ]
     ext = str(config.get("extend_reads", "auto"))
-    if s["role"] == "treatment" and s["layout"] == "SE" and s["assay"] == "chipseq" and ext in ("auto", "yes"):
+    if (
+        s["role"] == "treatment"
+        and s["layout"] == "SE"
+        and (s["assay"] == "chipseq" or (s["assay"] == "cuttag" and s["peak_mode"] == "broad"))
+        and ext in ("auto", "yes")
+    ):
         inputs.append(f"{OUTDIR}/{wildcards.sample}/04_peaks/{wildcards.sample}")
     return inputs
 

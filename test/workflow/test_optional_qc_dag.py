@@ -701,3 +701,44 @@ def test_multiqc_report_target_with_cross_corr_resolves():
         assert "multiqc" in output
     finally:
         shutil.rmtree(td, ignore_errors=True)
+
+
+@pytest.mark.parametrize("enabled", [None, False, True], ids=["omitted", "off", "on"])
+def test_cross_correlation_default_targets_keep_treatment_gate(
+    tmp_path, tmp_config, run_snakemake, enabled
+):
+    reads = tmp_path / "input.fastq"
+    reads.write_text("@r\nACGTACGT\n+\nIIIIIIII\n")
+    samples = [_chipseq_sample("S1"), _chipseq_sample("C1")]
+    for sample, role in zip(samples, ("treatment", "control")):
+        sample.update(
+            fastq_1=str(reads),
+            bowtie2_index=str(tmp_path / "index"),
+            role=role,
+            control_sample="C1" if role == "treatment" else "",
+        )
+    rows = ["\t".join(samples[0])] + ["\t".join(s.values()) for s in samples]
+    qc = dict(_DISABLED_QC)
+    if enabled is not None:
+        qc["cross_correlation"] = enabled
+    config = _make_config(qc)
+    config.pop("samples")
+    config["use_control"] = True
+    _, config_path, _ = tmp_config(config=config, samples="\n".join(rows) + "\n")
+    result = run_snakemake(
+        config_path, extra_args=["--workflow-profile", "none", "--printshellcmds"]
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    text = result.stdout + result.stderr
+    import re
+
+    jobs = re.findall(r"(?m)^rule cross_correlation:\n((?:[ \t]+[^\n]*\n)+)", text)
+    assert len(jobs) == (1 if enabled else 0), text
+    if enabled:
+        assert "sample=S1" in jobs[0]
+        assert "sample=C1" not in jobs[0]
+        assert "rule cross_correlation_summary:" in text
+        assert "-x=-500:15 -rf -p=" in text
+        assert "-speak=" not in text
+    else:
+        assert "rule cross_correlation_summary:" not in text

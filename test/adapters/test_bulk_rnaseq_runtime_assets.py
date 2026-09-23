@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, replace
+import gzip
 import hashlib
 import io
 import json
@@ -136,6 +137,8 @@ def _docker_image_fixture(
     *,
     layer_tar: bytes | None = None,
     diff_id: str | None = None,
+    compressed: bool = False,
+    docker_media: bool = False,
 ) -> _DockerImageFixture:
     layer = layer_tar if layer_tar is not None else _tar_bytes({"tiny.txt": b"tiny\n"})
     configured_diff_id = diff_id or f"sha256:{_sha256(layer)}"
@@ -147,20 +150,38 @@ def _docker_image_fixture(
         }
     )
     config_digest = f"sha256:{_sha256(config)}"
-    layer_digest = f"sha256:{_sha256(layer)}"
+    stored_layer = gzip.compress(layer, mtime=0) if compressed else layer
+    layer_digest = f"sha256:{_sha256(stored_layer)}"
+    manifest_media = (
+        "application/vnd.docker.distribution.manifest.v2+json"
+        if docker_media
+        else "application/vnd.oci.image.manifest.v1+json"
+    )
+    config_media = (
+        "application/vnd.docker.container.image.v1+json"
+        if docker_media
+        else "application/vnd.oci.image.config.v1+json"
+    )
+    layer_media = (
+        "application/vnd.docker.image.rootfs.diff.tar.gzip"
+        if docker_media
+        else "application/vnd.oci.image.layer.v1.tar+gzip"
+        if compressed
+        else "application/vnd.oci.image.layer.v1.tar"
+    )
     local_manifest = _json_bytes(
         {
             "schemaVersion": 2,
-            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "mediaType": manifest_media,
             "config": {
-                "mediaType": "application/vnd.oci.image.config.v1+json",
+                "mediaType": config_media,
                 "size": len(config),
                 "digest": config_digest,
             },
             "layers": [
                 {
-                    "mediaType": "application/vnd.oci.image.layer.v1.tar",
-                    "size": len(layer),
+                    "mediaType": layer_media,
+                    "size": len(stored_layer),
                     "digest": layer_digest,
                 }
             ],
@@ -173,7 +194,7 @@ def _docker_image_fixture(
             "mediaType": "application/vnd.oci.image.index.v1+json",
             "manifests": [
                 {
-                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "mediaType": manifest_media,
                     "size": len(local_manifest),
                     "digest": runtime_image,
                     "platform": {"architecture": "amd64", "os": "linux"},
@@ -193,7 +214,7 @@ def _docker_image_fixture(
     archive = _tar_bytes(
         {
             f"blobs/sha256/{config_digest.removeprefix('sha256:')}": config,
-            f"blobs/sha256/{layer_digest.removeprefix('sha256:')}": layer,
+            f"blobs/sha256/{layer_digest.removeprefix('sha256:')}": stored_layer,
             f"blobs/sha256/{runtime_image.removeprefix('sha256:')}": (local_manifest),
             "index.json": index,
             "manifest.json": archive_manifest,
@@ -219,6 +240,8 @@ def _docker_image_fixture(
             ],
         }
     )
+    if compressed:
+        distribution_manifest = local_manifest
     return _DockerImageFixture(
         archive=archive,
         distribution_manifest=distribution_manifest,
@@ -276,7 +299,9 @@ def _tar_file_contents(content: bytes) -> dict[str, bytes]:
     return files
 
 
-def _tiny_assets(tmp_path: Path) -> _Fixture:
+def _tiny_assets(
+    tmp_path: Path, *, docker_image: _DockerImageFixture | None = None
+) -> _Fixture:
     root = tmp_path / "offline-assets"
     source = root / ("source/nf-core-rnaseq-e7ca46272c8f9d5ceee3f71759f4ba551d3217a4")
     source_files = {
@@ -385,7 +410,7 @@ def _tiny_assets(tmp_path: Path) -> _Fixture:
         "entries_sha256": inventory_sha256,
     }
 
-    docker_image = _docker_image_fixture()
+    docker_image = docker_image or _docker_image_fixture()
     container_content = docker_image.archive
     container_asset = root / "containers/assets/star.tar"
     container_asset.parent.mkdir(parents=True)
@@ -2335,3 +2360,122 @@ def test_binding_requires_fixed_absolute_network_isolation_executable(
 def test_binding_rejects_string_docker_endpoints(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="absolute pathlib.Path"):
         RuntimeAssetBinding(root=tmp_path, docker_executable="/usr/bin/docker")
+
+
+@pytest.mark.parametrize("docker_media", [False, True], ids=["oci", "docker-v2"])
+def test_containerd_gzip_archive_preserves_manifest_and_rootfs_identity(
+    tmp_path: Path,
+    docker_media: bool,
+) -> None:
+    image = _docker_image_fixture(compressed=True, docker_media=docker_media)
+    fixture = _tiny_assets(tmp_path, docker_image=image)
+    result = verify_runtime_assets(
+        fixture.binding,
+        _contract=fixture.contract,
+        _docker_probe=fixture.docker_probe,
+    )
+    assert result.is_success
+    [container] = result.value.containers
+    assert container.runtime_image == f"sha256:{_sha256(image.distribution_manifest)}"
+    assert container.config_digest == image.config_digest
+    assert container.runtime_image != container.config_digest
+    assert container.rootfs_diff_ids == image.rootfs_diff_ids
+
+
+@pytest.mark.parametrize(
+    "damage", ["stored_digest", "diff_id", "truncated_gzip", "not_gzip"]
+)
+def test_containerd_gzip_archive_rejects_corruption(
+    tmp_path: Path, damage: str
+) -> None:
+    image = _docker_image_fixture(
+        compressed=True,
+        diff_id=f"sha256:{'f' * 64}" if damage == "diff_id" else None,
+    )
+    fixture = _tiny_assets(tmp_path, docker_image=image)
+    if damage != "diff_id":
+        files = _tar_file_contents(image.archive)
+        index = json.loads(files["index.json"])
+        descriptor = index["manifests"][0]
+        target_path = f"blobs/sha256/{descriptor['digest'].removeprefix('sha256:')}"
+        manifest = json.loads(files[target_path])
+        layer = manifest["layers"][0]
+        layer_path = f"blobs/sha256/{layer['digest'].removeprefix('sha256:')}"
+        if damage == "stored_digest":
+            content = bytearray(files[layer_path])
+            content[-1] ^= 1
+            files[layer_path] = bytes(content)
+        else:
+            # Keep all outer hashes coherent, so decoding itself must reject the blob.
+            content = (
+                files.pop(layer_path)[:-8]
+                if damage == "truncated_gzip"
+                else b"not gzip"
+            )
+            layer["digest"] = f"sha256:{_sha256(content)}"
+            layer["size"] = len(content)
+            files[f"blobs/sha256/{layer['digest'].removeprefix('sha256:')}"] = content
+            target = _json_bytes(manifest)
+            del files[target_path]
+            descriptor["digest"] = f"sha256:{_sha256(target)}"
+            descriptor["size"] = len(target)
+            files[f"blobs/sha256/{descriptor['digest'].removeprefix('sha256:')}"] = (
+                target
+            )
+            compatibility = json.loads(files["manifest.json"])
+            compatibility[0]["Layers"] = [
+                f"blobs/sha256/{layer['digest'].removeprefix('sha256:')}"
+            ]
+            files["manifest.json"] = _json_bytes(compatibility)
+            files["index.json"] = _json_bytes(index)
+        _replace_archive(fixture, _tar_bytes(files))
+
+    result = verify_runtime_asset_closure(fixture.binding, _contract=fixture.contract)
+    assert result.is_failure
+    expected = "CONTRACT" if damage in {"truncated_gzip", "not_gzip"} else "IDENTITY"
+    assert result.issues[0].code == f"BULK_RNASEQ_RUNTIME_ASSET_{expected}"
+
+
+def test_containerd_gzip_archive_bounds_uncompressed_content(
+    tmp_path: Path, monkeypatch
+) -> None:
+    image = _docker_image_fixture(
+        compressed=True,
+        layer_tar=_tar_bytes({"compressible.txt": b"x" * 200_000}),
+    )
+    fixture = _tiny_assets(tmp_path, docker_image=image)
+    assert len(image.archive) < 50_000
+    monkeypatch.setattr(runtime_assets_module, "_MAX_CONTAINER_ARCHIVE_BYTES", 50_000)
+    result = verify_runtime_asset_closure(fixture.binding, _contract=fixture.contract)
+    assert result.is_failure
+    assert result.issues[0].code == "BULK_RNASEQ_RUNTIME_ASSET_BOUNDS"
+
+
+@pytest.mark.parametrize("location", ["descriptor", "layer"])
+@pytest.mark.parametrize("media_type", [[], {}], ids=["list", "object"])
+def test_archive_media_type_rejects_non_string_as_contract_failure(
+    tmp_path: Path, location: str, media_type: object
+) -> None:
+    image = _docker_image_fixture()
+    fixture = _tiny_assets(tmp_path, docker_image=image)
+    files = _tar_file_contents(image.archive)
+    index = json.loads(files["index.json"])
+    descriptor = index["manifests"][0]
+    if location == "descriptor":
+        descriptor["mediaType"] = media_type
+    else:
+        target_path = f"blobs/sha256/{descriptor['digest'].removeprefix('sha256:')}"
+        target = json.loads(files.pop(target_path))
+        target["layers"][0]["mediaType"] = media_type
+        content = _json_bytes(target)
+        descriptor["digest"] = f"sha256:{_sha256(content)}"
+        descriptor["size"] = len(content)
+        files[f"blobs/sha256/{descriptor['digest'].removeprefix('sha256:')}"] = content
+    # Keep the target and outer archive identities coherent to reach field validation.
+    files["index.json"] = _json_bytes(index)
+    _replace_archive(fixture, _tar_bytes(files))
+
+    result = verify_runtime_asset_closure(fixture.binding, _contract=fixture.contract)
+
+    assert result.is_failure
+    assert result.issues[0].code == "BULK_RNASEQ_RUNTIME_ASSET_CONTRACT"

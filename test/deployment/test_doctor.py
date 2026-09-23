@@ -38,6 +38,54 @@ def _probes(*, state: str = PASS, reason: str = "READY"):
     }
 
 
+@pytest.mark.parametrize("check_id", ["database", "references"])
+@pytest.mark.parametrize(
+    "failure", [None, "unexpected", "deployment", "public-deployment"]
+)
+def test_doctor_probe_failure_diagnostic_preserves_fallback(
+    check_id, failure, tmp_path, monkeypatch, assert_failure_diagnostics
+):
+    private = str(tmp_path / "PRIVATE_DOCTOR_PATH")
+    monkeypatch.setenv("HELIX_TEST_PRIVATE", "PRIVATE_DOCTOR_ENV")
+    calls = []
+
+    def probe():
+        calls.append(check_id)
+        if failure == "unexpected":
+            raise RuntimeError(private + " PRIVATE_DOCTOR_EXCEPTION")
+        if failure == "deployment":
+            raise fail("PRIVATE_DOCTOR_CODE", private + " PRIVATE_DOCTOR_EXCEPTION")
+        if failure == "public-deployment":
+            raise fail("RUNTIME_NOT_ACTIVE", private + " PRIVATE_DOCTOR_EXCEPTION")
+        return ProbeResult(PASS, "READY")
+
+    probes = _probes()
+    probes[check_id] = probe
+    report = DeploymentDoctor(probes).run()
+    checks = {item.check_id: item for item in report.checks}
+    assert calls == [check_id]
+    assert checks[check_id].state == (FAIL if failure else PASS)
+    assert checks[check_id].reason_code == (
+        "RUNTIME_NOT_ACTIVE"
+        if failure == "public-deployment"
+        else "DOCTOR_CHECK_FAILED"
+        if failure
+        else "READY"
+    )
+    assert report.ready is (failure is None)
+    assert len(checks) == len(CHECKS)
+    assert all(item.state == PASS for key, item in checks.items() if key != check_id)
+    assert_failure_diagnostics(
+        [("deployment_doctor", check_id, "DOCTOR_CHECK_FAILED")] if failure else [],
+        private=(
+            private,
+            "PRIVATE_DOCTOR_EXCEPTION",
+            "PRIVATE_DOCTOR_ENV",
+            "PRIVATE_DOCTOR_CODE",
+        ),
+    )
+
+
 def test_doctor_report_has_one_stable_check_inventory_and_status() -> None:
     probes = _probes()
     probes["references"] = fixed_probe(WARNING, "REFERENCES_INCOMPLETE")

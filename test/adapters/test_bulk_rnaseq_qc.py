@@ -322,8 +322,8 @@ def _fastp_source(sample: str, retained: int) -> QcSourceDocument:
         "bulk_rnaseq.trim.fastp.json",
         json.dumps(
             {
-                "fastp_version": "1.0.1",
                 "summary": {
+                    "fastp_version": "1.0.1",
                     "before_filtering": {
                         "total_reads": retained + 100,
                         "total_bases": 1000000,
@@ -900,8 +900,8 @@ def test_fastp_low_trim_sample_omits_trimmed_fastqc_without_inventing_zero():
         "bulk_rnaseq.trim.fastp.json",
         json.dumps(
             {
-                "fastp_version": "1.0.1",
                 "summary": {
+                    "fastp_version": "1.0.1",
                     "before_filtering": {
                         "total_reads": 10_000,
                         "total_bases": 1_000_000,
@@ -1004,8 +1004,8 @@ def test_fastp_and_trimmed_fastqc_retained_reads_reconcile_exactly(
             "bulk_rnaseq.trim.fastp.json",
             json.dumps(
                 {
-                    "fastp_version": "1.0.1",
                     "summary": {
+                        "fastp_version": "1.0.1",
                         "before_filtering": {
                             "total_reads": retained + 100,
                             "total_bases": 100_000,
@@ -1161,8 +1161,8 @@ def test_fastp_mixed_layout_metrics_are_not_double_counted():
     sources = [*_core_sources("S1"), *_core_sources("S2")]
     for sample in ("S1", "S2"):
         payload = {
-            "fastp_version": "1.0.1",
             "summary": {
+                "fastp_version": "1.0.1",
                 "before_filtering": {"total_reads": 200, "total_bases": 20000},
                 "after_filtering": {"total_reads": 150, "total_bases": 14000},
             },
@@ -1186,6 +1186,46 @@ def test_fastp_mixed_layout_metrics_are_not_double_counted():
     assert str(by_sample[("S1", "trimming.input_reads")].value) == "200"
     assert str(by_sample[("S2", "trimming.input_reads")].value) == "200"
     assert str(by_sample[("S2", "trimming.read_retained_fraction")].value) == "0.75"
+
+
+@pytest.mark.parametrize(
+    "version_case",
+    ("nested", "missing", "root-only", "wrong-nested-with-root", "list-summary"),
+)
+def test_fastp_qc_requires_the_pinned_nested_version(version_case: str):
+    from encode_pipeline.adapters.bulk_rnaseq.adapter import BulkRnaSeqWorkflowAdapter
+
+    inputs = _inputs(trimming={"enabled": True, "tool": "fastp"})
+    validation = BulkRnaSeqWorkflowAdapter().validate(inputs)
+    assert validation.is_success
+    payload = json.loads(_fastp_source("S1", 150).content)
+    if version_case in {"missing", "root-only"}:
+        del payload["summary"]["fastp_version"]
+    if version_case in {"root-only", "wrong-nested-with-root", "list-summary"}:
+        payload["fastp_version"] = "1.0.1"
+    if version_case == "wrong-nested-with-root":
+        payload["summary"]["fastp_version"] = "0.23.4"
+    if version_case == "list-summary":
+        payload["summary"] = []
+    source = _source(
+        "bulk_rnaseq.trim.fastp.json",
+        json.dumps(payload).encode(),
+        sample="S1",
+        suffix="json",
+    )
+
+    result = extract_bulk_rnaseq_qc_metrics(inputs, (*_core_sources(), source))
+
+    if version_case == "nested":
+        assert result.is_success
+        metrics = _metric_map(result)
+        assert str(metrics["trimming.input_reads"].value) == "250"
+        assert str(metrics["trimming.retained_reads"].value) == "150"
+        assert str(metrics["trimming.read_retained_fraction"].value) == "0.6"
+    else:
+        assert result.is_failure
+        assert result.errors[0].code == "BULK_RNASEQ_QC_INVALID"
+        assert result.errors[0].context == {"reason_code": "source_content_invalid"}
 
 
 @pytest.mark.parametrize("layout", ("SE", "PE"))

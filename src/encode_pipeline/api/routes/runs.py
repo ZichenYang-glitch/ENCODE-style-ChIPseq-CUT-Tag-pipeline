@@ -17,6 +17,7 @@ from encode_pipeline.api.dependencies import (
     get_validated_run_creation_service,
 )
 from encode_pipeline.api.models import (
+    ValidationResponse,
     IssueResponse,
     RunCreateRequest,
     RunEventResponse,
@@ -287,6 +288,7 @@ def _run_history_content(response: RunHistoryResponse) -> dict[str, Any]:
     status_code=201,
     operation_id="createRun",
     responses={
+        500: {"model": RunResponse},
         200: {
             "model": RunResponse,
             "description": "Idempotent replay of the snapshot's canonical run.",
@@ -560,7 +562,12 @@ def list_runs(
     )
 
 
-@router.get("/runs/{run_id}", response_model=RunResponse, operation_id="getRun")
+@router.get(
+    "/runs/{run_id}",
+    response_model=RunResponse,
+    operation_id="getRun",
+    responses={500: {"model": RunResponse | ValidationResponse}},
+)
 async def get_run(
     run_id: str,
     run_service: RunService = Depends(get_run_service),
@@ -615,6 +622,7 @@ async def get_run(
     status_code=202,
     operation_id="startRun",
     responses={
+        500: {"model": ValidationResponse},
         404: {"model": RunResponse},
         409: {"model": RunResponse},
         503: {"model": RunResponse},
@@ -702,6 +710,7 @@ def start_run(
     response_model=RunResponse,
     operation_id="cancelRun",
     responses={
+        500: {"model": ValidationResponse},
         202: {"model": RunResponse},
         404: {"model": RunResponse},
         409: {"model": RunResponse},
@@ -764,11 +773,12 @@ def cancel_run(
     "/runs/{run_id}/events",
     response_model=RunEventsResponse,
     operation_id="listRunEvents",
+    responses={500: {"model": ValidationResponse}},
 )
 async def list_run_events(
     run_id: str,
     after: str | None = None,
-    limit: int = Query(default=50, ge=1),
+    limit: int = Query(default=50, ge=1, le=100),
     run_service: RunService = Depends(get_run_service),
 ) -> RunEventsResponse | JSONResponse:
     """List run events with cursor pagination."""
@@ -815,13 +825,16 @@ async def list_run_events(
 
 
 @router.get(
-    "/runs/{run_id}/logs", response_model=RunLogsResponse, operation_id="listRunLogs"
+    "/runs/{run_id}/logs",
+    response_model=RunLogsResponse,
+    operation_id="listRunLogs",
+    responses={500: {"model": ValidationResponse}},
 )
 async def list_run_logs(
     run_id: str,
     stream_name: str = "stdout",
     after: str | None = None,
-    limit: int = Query(default=50, ge=1),
+    limit: int = Query(default=50, ge=1, le=100),
     run_service: RunService = Depends(get_run_service),
 ) -> RunLogsResponse | JSONResponse:
     """List log chunks for a run stream with cursor pagination."""

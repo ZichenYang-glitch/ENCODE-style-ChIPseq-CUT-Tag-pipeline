@@ -95,6 +95,51 @@ class RecordingTerminalNotifier:
         self.calls.append((run_id, status, include_qc))
 
 
+@pytest.mark.parametrize("status", [RunStatus.FAILED, RunStatus.CANCELLED])
+@pytest.mark.parametrize("notifier_fails", [False, True])
+def test_notifier_diagnostic_preserves_terminal_state_and_events(
+    status, notifier_fails, tmp_path, monkeypatch, assert_failure_diagnostics
+):
+    private = str(tmp_path / "PRIVATE_NOTIFIER_PATH")
+    monkeypatch.setenv("HELIX_TEST_PRIVATE", "PRIVATE_NOTIFIER_ENV")
+    calls = []
+
+    class Notifier:
+        def notify_terminal_run(self, run_id, state, *, include_qc=False):
+            # Notification happens after the canonical terminal transition.
+            assert service.get_run(run_id).status is state
+            assert service.get_run(run_id).ended_at is not None
+            calls.append((run_id, state, include_qc))
+            if notifier_fails:
+                raise RuntimeError(private + " PRIVATE_NOTIFIER_TEXT")
+
+    service = RunService(
+        registry=WorkflowRegistry(adapters=[FakeAdapter()]),
+        terminal_notifier=Notifier(),
+        id_factory=lambda: "run-1",
+    )
+    service.create_run("fake", WorkflowInputs(config={"private": private}))
+    service.transition_run("run-1", RunStatus.VALIDATING)
+    result = service.transition_run("run-1", status)
+    assert result == service.get_run("run-1")
+    assert result.status is status
+    events = service.list_events("run-1")
+    assert [event.status for event in events] == [
+        RunStatus.CREATED,
+        RunStatus.VALIDATING,
+        status,
+    ]
+    assert service.cancel_run("run-1") == result
+    assert service.list_events("run-1") == events
+    assert calls == [("run-1", status, False)]
+    assert_failure_diagnostics(
+        [("run_service", "notify_terminal", "TERMINAL_NOTIFIER_FAILED")]
+        if notifier_fails
+        else [],
+        private=(private, "PRIVATE_NOTIFIER_TEXT", "PRIVATE_NOTIFIER_ENV"),
+    )
+
+
 def _succeed_run(service: RunService, run_id: str) -> None:
     for status in (
         RunStatus.VALIDATING,

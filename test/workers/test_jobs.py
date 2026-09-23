@@ -89,6 +89,7 @@ from encode_pipeline.workers.settings import (
     WORKSPACE_ROOT_ENV,
 )
 from encode_pipeline.workers.timeouts import WorkerHardTimeout
+from encode_pipeline.workers.terminal_notifications import WorkerTerminalRunNotifier
 
 from .conftest import create_planned_run, worker_settings
 
@@ -1978,6 +1979,59 @@ def test_post_success_qc_receives_only_successful_complete_artifact_set():
     assert calls[0][:2] == ("run-1", artifacts)
     assert calls[0][2]["expected_artifact_generation"] == ARTIFACT_GENERATION
     validate_result_attempt_id(calls[0][2]["attempt_id"])
+
+
+@pytest.mark.parametrize("failure", [None, "exception", "timeout", "wrapped-timeout"])
+def test_worker_notification_diagnostic_preserves_success(
+    failure, tmp_path, monkeypatch, assert_failure_diagnostics
+):
+    private = str(tmp_path / "PRIVATE_WORKER_NOTIFICATION")
+    monkeypatch.setenv("HELIX_TEST_PRIVATE", "PRIVATE_WORKER_ENV")
+    calls = []
+    state = _ResultStateTracker()
+
+    class Notifier:
+        def notify_terminal_run(self, run_id, status, *, include_qc=False):
+            assert state.artifact_outcome == "succeeded"
+            assert state.qc_outcome == "succeeded"
+            calls.append((run_id, status, include_qc))
+            if failure == "exception":
+                raise RuntimeError(private + " PRIVATE_WORKER_EXCEPTION")
+            if failure in {"timeout", "wrapped-timeout"}:
+                raise WorkerHardTimeout(private + " PRIVATE_WORKER_EXCEPTION")
+
+    notifier = Notifier()
+    if failure == "wrapped-timeout":
+        notifier = WorkerTerminalRunNotifier(notifier)
+    runtime = _post_success_runtime(
+        local_execution_service=SimpleNamespace(
+            execute=lambda _run_id, _claim: Result.success(object())
+        ),
+        artifact_extraction_service=SimpleNamespace(
+            extract=lambda _run_id, attempt_id: state.complete_artifact(
+                attempt_id, Result.success(())
+            )
+        ),
+        run_service=state,
+        qc_summary_indexing_service=SimpleNamespace(
+            index=lambda *_args, **kwargs: state.complete_qc(
+                kwargs["attempt_id"], kwargs["expected_artifact_generation"]
+            )
+        ),
+        terminal_notifier=notifier,
+    )
+    assert worker_jobs._execute_claimed_run(runtime, "run-1", _acquired_claim()) is None
+    assert calls == [("run-1", RunStatus.SUCCEEDED, True)]
+    assert state.artifact_outcome == state.qc_outcome == "succeeded"
+    code = (
+        "TERMINAL_NOTIFIER_FAILED"
+        if failure == "exception"
+        else "TERMINAL_NOTIFIER_TIMEOUT"
+    )
+    assert_failure_diagnostics(
+        [("worker", "notify_terminal", code)] if failure else [],
+        private=(private, "PRIVATE_WORKER_EXCEPTION", "PRIVATE_WORKER_ENV"),
+    )
 
 
 def test_success_notification_runs_only_after_qc_finalizer_returns():

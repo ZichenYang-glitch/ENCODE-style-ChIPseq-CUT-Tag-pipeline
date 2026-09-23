@@ -70,15 +70,15 @@ def main():
     self_den = N2 if N1 > N2 else N1
     self_ratio = compute_ratio(self_num, self_den)
 
-    # Reproducibility status: pass if both ratios < 2 and both finite
+    # Grade raw counts: a ratio below 2 may round to 2.000 for display.
     status = "fail"
-    try:
-        r = float(rescue_ratio)
-        s = float(self_ratio)
-        if r < 2 and s < 2:
-            status = "pass"
-    except ValueError:
-        pass  # NA or inf → fail
+    if (
+        rescue_den > 0
+        and self_den > 0
+        and rescue_num < 2 * rescue_den
+        and self_num < 2 * self_den
+    ):
+        status = "pass"
 
     # Copy final peak sets
     shutil.copyfile(args.true_peaks, args.output_cons)

@@ -86,22 +86,44 @@ for duplicate marking, depending on the runtime environment configured.
 
 ### NRF / PBC (library complexity from read positions)
 
+The input is the coordinate-sorted, MAPQ-filtered BAM before duplicate handling
+(`{sample}.mapq{mapq}.bam`), regardless of `remove_dup=yes/no/auto`.
+Existing MAPQ and flag filters apply; the default filter retains records marked
+as duplicates. This input is not the optional blacklist-filtered copy.
+SE keys use reference, position and strand; PE keys use the fragment span from
+proper-pair first mates, with the existing position/strand fallback when needed.
+
 **Key fields in `nrf_pbc.tsv`:**
-- **NRF** (Non-Redundant Fraction): number of distinct genomic positions with
-  at least one mapped read divided by total mapped reads. Higher is better.
+- **NRF** (Non-Redundant Fraction): distinct fragment keys divided by total
+  observed fragments under the SE/PE conventions above. Higher is better.
   ENCODE guidelines: NRF > 0.8 is good; < 0.5 indicates poor complexity.
 - **PBC1** (PCR Bottleneck Coefficient 1): N1 / N_distinct, where N1 = number
-  of positions with exactly one read. Closer to 1 is better. PBC1 > 0.8 is
+  of fragment keys observed exactly once. Closer to 1 is better. PBC1 > 0.8 is
   good; < 0.5 needs attention.
 - **PBC2** (PCR Bottleneck Coefficient 2): N1 / N2, where N2 = number of
-  positions with exactly two reads. PBC2 > 1 is the ENCODE-recommended
+  fragment keys observed exactly twice. PBC2 > 1 is the ENCODE-recommended
   threshold for TF ChIP-seq.
+
+Zero denominators produce `NA`, including PBC2 when no key occurs exactly twice;
+an empty input yields `NA` for all three ratios. A library with no repeated keys
+can legitimately yield NRF=1, PBC1=1, PBC2=NA. Deduplicated input often loses the
+frequency information these metrics need, but does not invariably yield those
+values: the script's keys differ from samtools/Picard duplicate keys, including
+their treatment of clipping. These definitions are unchanged.
 
 ### Preseq (library complexity extrapolation)
 
 Predicts the number of unique molecules expected at deeper sequencing depths.
 The extrapolation curve shows whether additional sequencing would yield
 diminishing returns.
+
+This opt-in module consumes the same filtered BAM before duplicate handling.
+The validated sample layout selects `-P` for PE; SE does not receive `-P`.
+Production uses preseq's default extrapolation parameters, without quick mode
+(`-Q`). Insufficient frequency information can make preseq fail to extrapolate;
+the task preserves its nonzero exit status rather than emitting a substitute
+curve. FRiP, peak calling, signal tracks, and duplicate-metrics-based
+`library_complexity` retain their existing inputs.
 
 **Interpretation:**
 - A curve that plateaus quickly suggests the library is near saturation.
@@ -129,7 +151,28 @@ diminishing returns.
 
 ### FRiP (Fraction of Reads in Peaks)
 
-Ratio of reads falling within called peaks to total mapped reads.
+The local metric counts **alignment records**, not PE fragments:
+[`calc_frip.py`](../scripts/calc_frip.py) divides the `samtools view -c` count
+after `bedtools intersect -u` against peaks by the count of all records in the
+selected BAM. Records overlapping multiple peaks count once; an empty BAM gives
+`NA`. The script does not shift or extend reads and does not add further flag
+filters to the selected BAM.
+
+[`_frip_inputs` in qc.smk](../workflow/rules/qc.smk) selects both the
+blacklist-filtered BAM and filtered peaks when `qc.blacklist_filter` is enabled
+and the treatment sample has a blacklist resource. Otherwise it selects
+`final.bam` and the raw peak directory. This decision establishes producer
+dependencies in the DAG; it is not a fallback based on whether a file already
+exists. Raw and filtered products coexist. `final.bam` is duplicate-processed
+according to the configured strategy, not necessarily deduplicated.
+`peak_counts` counts raw and, conditionally, filtered peak files; it does not
+consume a filtered BAM.
+
+Unshifted counting can increase or decrease FRiP relative to shifted reads,
+depending on peak boundaries. Comparisons with another pipeline must match
+assay, version, filtering and record/fragment conventions; a difference alone
+does not establish a scientific error. The descriptive ranges below are not
+validation thresholds for this local metric.
 
 **Interpretation:**
 - **TF ChIP-seq:** ENCODE guidelines consider FRiP > 0.01 (1%) acceptable and
@@ -147,10 +190,24 @@ Ratio of reads falling within called peaks to total mapped reads.
 **Outputs:** `*.FE.bdg` (fold-enrichment), `*.ppois.bdg` (Poisson p-value);
 `*.FE.bw`, `*.ppois.bw` when `genome_resources.<genome>.chrom_sizes` is configured
 
+These tracks are selected for eligible peak-assay treatment samples when
+`qc.signal_tracks=true`; pooled targets also require replicate analysis.
 FE tracks show enrichment over local background. Ppois tracks show the
-statistical significance of enrichment. Both are bedGraph format (BigWig
-conversion is planned). Useful for visualizing signal distribution across the
-genome in a browser (IGV, UCSC).
+statistical significance of enrichment. The `.bdg` files are bedGraph;
+existing `signal_track_fe_bw` / `signal_track_ppois_bw` rules convert them to
+BigWig using `bedGraphToBigWig` when a valid, nonempty `chrom_sizes` resource is
+configured. Corresponding pooled rules apply to eligible replicate experiments.
+Without that resource, default targets request bedGraph only. This is existing
+functionality, not a planned conversion.
+
+These MACS3 tracks consume its treatment-pileup and control-lambda bedGraphs
+([`qc.smk`](../workflow/rules/qc.smk)), produced from the peak-calling inputs.
+They do not consume the blacklist-filtered QC copies. The separate default CPM
+coverage track uses `final.bam` via `bamcoverage` in
+[`common.smk`](../workflow/rules/common.smk); the normalization option is
+configurable. Neither branch globally replaces its signal input with the
+blacklist-filtered BAM. File generation alone does not establish platform
+listing/download or complete MultiQC HTML visibility.
 
 ## Cross-Correlation (phantompeakqualtools)
 
@@ -172,7 +229,11 @@ positive- and negative-strand reads at varying shift distances.
   the enrichment signal dominates over the read-length artifact.
 - **Estimated fragment length:** the shift distance at which the
   cross-correlation peaks. Should be consistent with expected library insert
-  size (typically 100-300 bp for standard ChIP-seq).
+  size (typically 100-300 bp for standard ChIP-seq). The scalar summary reports
+  the first candidate in the tool's correlation-ranked output, matching the
+  main peak used for NSC/RSC. All candidates remain in the raw `.cc.qc` file.
+  Empty or malformed candidate lists are reported as `NA`; quality flags
+  continue to depend only on NSC/RSC.
 - **Phantom peak:** the correlation peak at the read length. A prominent
   phantom peak is expected and reflects the strand-separation of paired reads
   at the read length.
@@ -289,12 +350,33 @@ pseudoreplicate IDR, and final conservative/optimal peak sets
 IDR (Irreproducible Discovery Rate) quantifies the consistency of peak calls
 between biological replicates. The final peak sets are:
 
-- **Conservative:** high-confidence peaks reproducible across both replicates
-  and pseudoreplicates.
-- **Optimal:** balances sensitivity and specificity.
+- **Conservative:** a byte-for-byte copy of thresholded true-replicate peaks.
+- **Optimal:** a copy of thresholded pooled-pseudoreplicate peaks, even when
+  that set is smaller. This is the local [IDR contract](idr-contract.md), not
+  a selection of whichever set has more peaks (N2 remains a policy decision).
 
-The `reproducibility_summary.tsv` records N_peaks, rescue ratio, and
-self-consistency ratio for each IDR stage.
+The eight-column ChIP-seq `reproducibility_summary.tsv` reports the four counts,
+rescue ratio, self-consistency ratio and status. Both ratios must be defined and
+strictly less than 2 to pass. PR-13 separates grading from three-decimal display:
+1.9996 displays as `2.000` but passes; exactly 2 fails. `NA`/`inf` do not pass.
+The shared summary for expanded IDR modes has 15 columns and copies true peaks
+as its final output; status does not change the existing copy policy.
+
+## Availability and defaults
+
+The [QC configuration table](configuration.md#qc-block) has 11 switches:
+seven default true, four false. Cross-correlation, preseq, Picard metrics and
+TSS enrichment are opt-in; MultiQC and IDR have separate gates. In particular,
+PE insert-size metrics and `*.insert_size_histogram.pdf` have a Picard producer
+when `qc.picard_metrics=true` and the required reference is configured. The
+checklists do not imply that every optional artifact is generated by default.
+
+The peak-assay project summary is a separate workspace TSV. Current MultiQC
+search paths/custom sections do not directly import that table; standard
+modules may still show overlapping metrics. Complete HTML visibility depends
+on actual module inputs and runtime and has not been established for every
+metric. CUT&Tag fragment-size TSVs likewise exist independently of whether a
+particular summary/platform consumer exposes every field.
 
 ## Practical Checklists
 

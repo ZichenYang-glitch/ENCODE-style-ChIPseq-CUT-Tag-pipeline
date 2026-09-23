@@ -33,16 +33,21 @@ replicate-validated peak sets. They are aggregate-signal peaks only.
 Consensus evaluates per-replicate peak calls and retains regions supported by
 at least `min_replicates` distinct biological replicates.
 
-- **N-of-M replicate support:** For each candidate peak region, count distinct
-  biological replicates with an overlapping peak. Keep the region if
-  `support_count >= min_replicates`.
-- **Default `min_replicates`: 2.** For exactly 2 bioreps, this is equivalent
-  to intersection. For 3+ bioreps, peaks supported by fewer than
-  `min_replicates` replicates are discarded.
-- **Reciprocal overlap** (default 0.5) is used to determine whether a peak
-  from a given replicate "supports" a candidate region.
-- Consensus is the **baseline** reproducibility method and applies to all
-  peak-calling modes with ≥2 biological replicates.
+- **Graph and components:** [`compute_consensus.py`](../scripts/compute_consensus.py)
+  adds an edge when the overlap covers at least `reciprocal_overlap` (default
+  0.5) of **both** source peaks. It then finds connected components.
+- **N-of-M support:** Count distinct biological replicate labels in each
+  component and retain it when `support_count >= min_replicates` (default 2).
+  Several peaks from one biorep count as one supporting replicate.
+- **Output interval:** Merge the component from its minimum start to maximum
+  end. With two bioreps this is not a literal interval intersection. Transitive
+  connections can join source peaks that do not directly overlap, and not
+  every base of the merged interval must have N-replicate support.
+- This is the existing algorithm, not a promise of equivalence to a particular
+  ENCODE overlap implementation. Consensus is the baseline method for eligible
+  peak modes with at least two treatment bioreps **when enabled**. Default
+  targets also require `reproducibility.enabled`, its consensus child switch
+  and `replicate_analysis`; the parent defaults to false.
 
 ### 2.3 IDR (Irreproducible Discovery Rate)
 
@@ -180,8 +185,8 @@ biorep_labels   source_peak_files   final_method   final_output
 | `support_distribution` | JSON | Map of support count → peak count, e.g. `{"2": 15000, "3": 8000}` |
 | `biorep_labels` | string | Comma-separated biorep labels |
 | `source_peak_files` | JSON array | Paths to per-biorep peak files used as input |
-| `final_method` | string | `consensus` or `idr` — which method is primary final |
-| `final_output` | string | Path to the primary final peak file |
+| `final_method` | string | `consensus`, `idr`, or `none`, as selected by the mode helper |
+| `final_output` | string | Path reported by the mode helper; may be empty for a report-only consensus |
 
 ### 4.6 Consensus Output Format Caveats
 
@@ -191,12 +196,26 @@ outputs:
 
 - **chrom / start / end / name:** Represent the merged consensus interval.
   `name` is derived deterministically (e.g., consensus peak index).
-- **score:** Conservative aggregation (max signal among supporting peaks) or
-  documented placeholder.
-- **signalValue / pValue / qValue:** Not newly computed MACS3/IDR statistics.
-  Use max signal among supporting peaks with documented semantics.
-- **The summary TSV is the authoritative source** for support_count,
-  supporting_bioreps, source_peak_count, and method parameters.
+- **score:** `int(1000 * support_count / n_bioreps + 0.5)`, where support is
+  the number of distinct bioreps in the component. Three of three gives 1000;
+  two of three gives 667. This is neither constant nor the maximum signal.
+- **signalValue:** Maximum signal among supporting source peaks; it is not a
+  newly fitted MACS3 or IDR statistic.
+- **pValue / qValue:** Both are `-1` (not assigned), as permitted by the
+  [UCSC narrowPeak/broadPeak specification](https://genome.ucsc.edu/FAQ/FAQformat.html#format12).
+  The sentinel itself is not a format defect.
+- **Summary scope:** The table in §4.5 is one aggregate data row with 13
+  columns. `support_distribution` counts retained components by support level;
+  `biorep_labels` and `source_peak_files` describe the input set. There are no
+  per-peak `support_count`, `supporting_bioreps` or `source_peak_count` columns.
+  `final_method`/`final_output` describe the selected final method/path; the
+  consensus script does not create a second product at `final_output`.
+
+Implementation: `_build_consensus_row` and `write_summary_tsv` in [`compute_consensus.py`](../scripts/compute_consensus.py).
+Existing checks: `test_support_fraction_sets_consensus_score`,
+`test_overlap_components_respect_interval_topology`, and
+`test_summary_schema_and_values` in
+[`test_compute_consensus.py`](../test/scripts/test_compute_consensus.py).
 
 ## 5. Config Reference
 

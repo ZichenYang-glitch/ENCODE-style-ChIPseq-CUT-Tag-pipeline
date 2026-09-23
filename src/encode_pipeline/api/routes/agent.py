@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from encode_pipeline.api.dependencies import get_agent_service
-from encode_pipeline.api.models import AgentRequest, AgentResponse
+from encode_pipeline.api.models import AgentRequest, AgentResponse, ValidationResponse
 from encode_pipeline.services.agent import AgentService
 
 
@@ -16,6 +16,7 @@ router = APIRouter(prefix="/workflows", tags=["agent"])
     "/{workflow_id}/agent/chat",
     response_model=AgentResponse,
     operation_id="chatWithWorkflowAgent",
+    responses={500: {"model": ValidationResponse}},
 )
 async def chat_with_workflow_agent(
     workflow_id: str,

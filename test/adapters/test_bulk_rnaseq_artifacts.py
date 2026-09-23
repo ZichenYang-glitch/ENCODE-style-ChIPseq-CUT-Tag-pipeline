@@ -223,8 +223,8 @@ def _write_fastp_evidence(workspace: Path, sample: str, retained: int) -> None:
         f"fastp/{sample}.fastp.json",
         json.dumps(
             {
-                "fastp_version": "1.0.1",
                 "summary": {
+                    "fastp_version": "1.0.1",
                     "before_filtering": {
                         "total_reads": retained + 100,
                         "total_bases": 1000000,
@@ -395,8 +395,8 @@ def _multiqc_only() -> dict[str, object]:
 
 def _valid_fastp_payload() -> dict[str, object]:
     return {
-        "fastp_version": "1.0.1",
         "summary": {
+            "fastp_version": "1.0.1",
             "before_filtering": {"total_reads": 100, "total_bases": 10000},
             "after_filtering": {"total_reads": 90, "total_bases": 9000},
         },
@@ -404,11 +404,74 @@ def _valid_fastp_payload() -> dict[str, object]:
     }
 
 
+def test_fastp_shared_parser_accepts_pinned_summary_version():
+    content = json.dumps(_valid_fastp_payload()).encode()
+
+    assert status_evidence_module.parse_fastp_summary(content) == (
+        status_evidence_module.FastpSummaryEvidence(
+            input_reads=100,
+            retained_reads=90,
+            input_bases=10000,
+            retained_bases=9000,
+        )
+    )
+    assert status_evidence_module.parse_fastp_retained_reads(content) == 90
+
+
+@pytest.mark.parametrize(
+    "version",
+    (None, "0.23.4", "", 1, True, [], {}),
+    ids=("null", "wrong", "empty", "number", "boolean", "list", "object"),
+)
+def test_fastp_shared_parser_root_version_cannot_mask_invalid_summary_version(version):
+    payload = _valid_fastp_payload()
+    payload["fastp_version"] = "1.0.1"
+    payload["summary"]["fastp_version"] = version
+
+    with pytest.raises(status_evidence_module.StatusEvidenceError):
+        status_evidence_module.parse_fastp_summary(json.dumps(payload).encode())
+
+
+@pytest.mark.parametrize("root_version", (False, True))
+def test_fastp_shared_parser_requires_nested_version(root_version: bool):
+    payload = _valid_fastp_payload()
+    del payload["summary"]["fastp_version"]
+    if root_version:
+        payload["fastp_version"] = "1.0.1"
+
+    with pytest.raises(status_evidence_module.StatusEvidenceError):
+        status_evidence_module.parse_fastp_summary(json.dumps(payload).encode())
+
+
+@pytest.mark.parametrize("location", ("payload", "summary"))
+@pytest.mark.parametrize("value", (None, [], "text", 1, True))
+def test_fastp_shared_parser_rejects_non_object_containers(location, value):
+    payload = _valid_fastp_payload()
+    if location == "payload":
+        payload = value
+    else:
+        payload["fastp_version"] = "1.0.1"
+        payload["summary"] = value
+
+    with pytest.raises(status_evidence_module.StatusEvidenceError):
+        status_evidence_module.parse_fastp_summary(json.dumps(payload).encode())
+
+
+@pytest.mark.parametrize("count", (-1, True, "90", 90.5, 10**25 + 1))
+def test_fastp_shared_parser_rejects_invalid_counts_with_nested_version(count):
+    payload = _valid_fastp_payload()
+    payload["summary"]["after_filtering"]["total_reads"] = count
+    payload["filtering_result"]["passed_filter_reads"] = count
+
+    with pytest.raises(status_evidence_module.StatusEvidenceError):
+        status_evidence_module.parse_fastp_summary(json.dumps(payload).encode())
+
+
 @pytest.mark.parametrize(
     "content",
     (
-        b'{"fastp_version":"wrong","fastp_version":"1.0.1",'
-        b'"summary":{"before_filtering":{"total_reads":100,"total_bases":10000},'
+        b'{"summary":{"fastp_version":"wrong","fastp_version":"1.0.1",'
+        b'"before_filtering":{"total_reads":100,"total_bases":10000},'
         b'"after_filtering":{"total_reads":90,"total_bases":9000}},'
         b'"filtering_result":{"passed_filter_reads":90}}',
         json.dumps({**_valid_fastp_payload(), "junk": "x" * 8193}).encode(),
@@ -419,8 +482,19 @@ def _valid_fastp_payload() -> dict[str, object]:
             {**_valid_fastp_payload(), "junk": [0] * 50_001},
             separators=(",", ":"),
         ).encode(),
+        json.dumps({**_valid_fastp_payload(), "junk": float("nan")}).encode(),
+        json.dumps({**_valid_fastp_payload(), "junk": float("inf")}).encode(),
+        json.dumps({**_valid_fastp_payload(), "junk": float("-inf")}).encode(),
     ),
-    ids=("duplicate-key", "overlong-string", "over-depth", "over-node-limit"),
+    ids=(
+        "duplicate-key",
+        "overlong-string",
+        "over-depth",
+        "over-node-limit",
+        "nan",
+        "inf",
+        "negative-inf",
+    ),
 )
 def test_fastp_shared_parser_preserves_strict_json_limits(content: bytes):
     with pytest.raises(status_evidence_module.StatusEvidenceError):
@@ -2488,12 +2562,14 @@ def test_cutadapt_same_length_replacement_after_reconciliation_is_a_race(
         ("passed_filter_reads", 10000),
         ("before_total_reads", 9998),
         ("after_total_bases", 1000001),
+        ("root_version_only", None),
+        ("wrong_nested_version", "0.23.4"),
     ),
 )
 def test_fastp_status_evidence_rejects_impossible_fixed_report(
     tmp_path: Path,
     field: str,
-    value: int,
+    value: object,
 ):
     inputs = _inputs(
         trimming={"enabled": True, "tool": "fastp"},
@@ -2503,7 +2579,12 @@ def test_fastp_status_evidence_rejects_impossible_fixed_report(
     _write_fastp_evidence(tmp_path, "S1", 9999)
     report = tmp_path / "results/fastp/S1.fastp.json"
     payload = json.loads(report.read_text())
-    if field == "passed_filter_reads":
+    if field == "root_version_only":
+        payload["fastp_version"] = payload["summary"].pop("fastp_version")
+    elif field == "wrong_nested_version":
+        payload["fastp_version"] = "1.0.1"
+        payload["summary"]["fastp_version"] = value
+    elif field == "passed_filter_reads":
         payload["filtering_result"]["passed_filter_reads"] = value
     elif field == "before_total_reads":
         payload["summary"]["before_filtering"]["total_reads"] = value

@@ -403,13 +403,13 @@ def parse_fastp_summary(content: bytes) -> FastpSummaryEvidence:
         payload = parse_strict_json_document(content)
     except StatusEvidenceError:
         raise
-    if (
-        not isinstance(payload, Mapping)
-        or payload.get("fastp_version") != _FASTP_VERSION
-    ):
+    if not isinstance(payload, Mapping):
         raise StatusEvidenceError
     summary = payload.get("summary")
-    if not isinstance(summary, Mapping):
+    if (
+        not isinstance(summary, Mapping)
+        or summary.get("fastp_version") != _FASTP_VERSION
+    ):
         raise StatusEvidenceError
     before = summary.get("before_filtering")
     after = summary.get("after_filtering")

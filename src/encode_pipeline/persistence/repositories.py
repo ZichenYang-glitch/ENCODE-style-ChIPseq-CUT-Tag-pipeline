@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
 from threading import RLock
@@ -2193,6 +2193,8 @@ class SqlAlchemyRunRepository:
         run_id: str,
         draft: RunEventDraft,
     ) -> RunEvent:
+        if not isinstance(draft.context, Mapping):
+            raise ValueError("context must be a mapping")
         latest = session.scalar(
             select(func.max(RunEventRow.sequence)).where(RunEventRow.run_id == run_id)
         )

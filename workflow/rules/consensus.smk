@@ -297,7 +297,7 @@ rule consensus_compute_narrow:
             --caller macs3 \
             --peak-mode {wildcards.peak_mode:q} \
             --final-method {params.final_method:q} \
-            --final-output {params.final_output:q} \
+            --final-output={params.final_output:q} \
             2>&1 | tee {log:q}
         """
 

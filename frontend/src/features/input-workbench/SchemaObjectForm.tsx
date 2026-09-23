@@ -4,6 +4,7 @@ import type { ValidationRequestConfig } from '../../api/generated/models';
 import { rjsfValidator } from './schemaContract';
 import { isJsonObject, isPlainObject } from './jsonSafety';
 import { cascadeSectionSwitches, sectionDisableMode } from './sectionSwitches';
+import { configIssueErrors, type SafeIssue } from './validationFeedback';
 
 interface SchemaObjectFormProps {
   schema: RJSFSchema;
@@ -11,6 +12,7 @@ interface SchemaObjectFormProps {
   resetRevision: number;
   onChange: (value: unknown) => void;
   ariaLabel: string;
+  issues?: SafeIssue[];
 }
 
 function fieldUiSchema(
@@ -81,6 +83,7 @@ export function SchemaObjectForm({
   resetRevision,
   onChange,
   ariaLabel,
+  issues = [],
 }: SchemaObjectFormProps) {
   return (
     <div className="schema-object-form" aria-label={ariaLabel}>
@@ -97,6 +100,7 @@ export function SchemaObjectForm({
         omitExtraData={false}
         noHtml5Validate
         showErrorList={false}
+        extraErrors={configIssueErrors(schema, issues)}
         onChange={(event) => onChange(
           isJsonObject(event.formData)
             ? cascadeSectionSwitches(schema, value, event.formData)

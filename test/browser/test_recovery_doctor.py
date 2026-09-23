@@ -20,6 +20,71 @@ from encode_pipeline.cli.local_platform import (
 )
 
 
+@pytest.mark.parametrize("failure", [None, "environment", "workflows", "recovery"])
+def test_json_doctor_failure_diagnostic_preserves_output_and_exit(
+    failure, tmp_path, monkeypatch, capsys, assert_failure_diagnostics
+):
+    private = str(tmp_path / "PRIVATE_JSON_DOCTOR_PATH")
+    monkeypatch.setenv("HELIX_TEST_PRIVATE", "PRIVATE_JSON_DOCTOR_ENV")
+    calls = []
+    healthy_recovery = RecoveryDoctorCheck(
+        RecoveryDoctorStatus.NOT_CONFIGURED,
+        "RUN_RECOVERY_DATABASE_NOT_CONFIGURED",
+        RecoveryDoctorCounts(),
+    )
+
+    def probe(stage, result):
+        def invoke(*_args, **_kwargs):
+            calls.append(stage)
+            if failure == stage:
+                raise RuntimeError(private + " PRIVATE_JSON_DOCTOR_EXCEPTION")
+            return result
+
+        return invoke
+
+    monkeypatch.setattr(
+        local_platform, "run_environment_doctor", probe("environment", ())
+    )
+    monkeypatch.setattr(local_platform, "run_workflow_doctor", probe("workflows", ()))
+    monkeypatch.setattr(
+        local_platform, "run_recovery_doctor", probe("recovery", healthy_recovery)
+    )
+    assert local_platform.main(
+        ["--doctor", "--json", "--runtime-root", private]
+    ) == int(failure is not None)
+    assert calls == ["environment", "workflows", "recovery"]
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert captured.err == ""
+    assert payload["environment"] == []
+    assert payload["workflows"] == []
+    assert not (tmp_path / "PRIVATE_JSON_DOCTOR_PATH").exists()
+    code = {
+        "environment": "ENVIRONMENT_CHECK_FAILED",
+        "workflows": "WORKFLOW_CHECK_FAILED",
+        "recovery": "RUN_RECOVERY_INTERNAL_ERROR",
+    }.get(failure)
+    if failure in {"environment", "workflows"}:
+        assert payload["errors"] == [{"component": failure, "reason_code": code}]
+    else:
+        assert "errors" not in payload
+    recovery = payload["run_recovery"]
+    assert recovery["status"] == (
+        "unavailable" if failure == "recovery" else "not_configured"
+    )
+    assert recovery["reason_code"] == (
+        "RUN_RECOVERY_INTERNAL_ERROR"
+        if failure == "recovery"
+        else healthy_recovery.reason_code
+    )
+    assert set(recovery["counts"].values()) == {0}
+    assert_failure_diagnostics(
+        [("local_platform_doctor", failure, code)] if failure else [],
+        private=(private, "PRIVATE_JSON_DOCTOR_EXCEPTION", "PRIVATE_JSON_DOCTOR_ENV"),
+    )
+    assert private not in captured.out
+
+
 def test_recovery_doctor_missing_database_is_not_configured_and_read_only(
     tmp_path,
 ) -> None:

@@ -111,10 +111,15 @@ def main(argv=None):
     rescue_ratio = compute_ratio(max(Np, Nt), min(Np, Nt))
     self_ratio = compute_ratio(max(N1, N2), min(N1, N2))
 
-    def _is_ok(r):
-        return r not in ("NA", "inf") and float(r) < 2.0
-
-    status = "pass" if _is_ok(rescue_ratio) and _is_ok(self_ratio) else "fail"
+    # Grade raw counts: a ratio below 2 may round to 2.000 for display.
+    status = "fail"
+    if (
+        min(Np, Nt) > 0
+        and min(N1, N2) > 0
+        and max(Np, Nt) < 2 * min(Np, Nt)
+        and max(N1, N2) < 2 * min(N1, N2)
+    ):
+        status = "pass"
 
     shutil.copyfile(args.true_peaks, args.output_peak)
 

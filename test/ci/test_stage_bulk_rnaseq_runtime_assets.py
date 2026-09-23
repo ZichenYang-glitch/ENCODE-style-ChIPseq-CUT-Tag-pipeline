@@ -5,18 +5,28 @@ from __future__ import annotations
 from dataclasses import replace
 import gzip
 import hashlib
+import importlib.util
 import io
 import json
 from pathlib import Path
 from pathlib import PurePosixPath
 import stat
+import sys
 import tarfile
 import zipfile
 
 from jsonschema import Draft202012Validator
 import pytest
 
-import scripts.stage_bulk_rnaseq_runtime_assets as staging
+# The isolated checkout bootstrap exposes src/, not the repository's scripts namespace.
+_staging_spec = importlib.util.spec_from_file_location(
+    "_test_bulk_runtime_staging",
+    Path(__file__).resolve().parents[2] / "scripts/stage_bulk_rnaseq_runtime_assets.py",
+)
+assert _staging_spec is not None and _staging_spec.loader is not None
+staging = importlib.util.module_from_spec(_staging_spec)
+sys.modules[_staging_spec.name] = staging
+_staging_spec.loader.exec_module(staging)
 
 
 def _sha256(content: bytes) -> str:
@@ -125,7 +135,7 @@ class _FakeRunner:
             return _json_bytes(
                 [
                     {
-                        "Id": self.image_config_digest,
+                        "Id": self.image_digest,
                         "Os": "linux",
                         "Architecture": "amd64",
                         "RootFS": {"Type": "layers", "Layers": []},
@@ -265,18 +275,22 @@ def staging_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
     docker_archive = _tar_bytes(
         {
-            f"{image_config_digest.removeprefix('sha256:')}.json": (
+            f"blobs/sha256/{image_config_digest.removeprefix('sha256:')}": (
                 image_config,
                 0o644,
             ),
+            f"blobs/sha256/{image_digest.removeprefix('sha256:')}": (
+                selected_manifest,
+                0o644,
+            ),
+            "index.json": (index_manifest, 0o644),
+            "oci-layout": (_json_bytes({"imageLayoutVersion": "1.0.0"}), 0o644),
             "manifest.json": (
                 _json_bytes(
                     [
                         {
-                            "Config": (
-                                image_config_digest.removeprefix("sha256:") + ".json"
-                            ),
-                            "RepoTags": [image_coordinate],
+                            "Config": f"blobs/sha256/{image_config_digest.removeprefix('sha256:')}",
+                            "RepoTags": None,
                             "Layers": [],
                         }
                     ]
@@ -596,6 +610,28 @@ def test_stage_builds_one_digest_closed_image_and_schema_valid_lock(staging_case
     )
     assert sum("pull" in call for call in calls) == 1
     assert sum("save" in call for call in calls) == 1
+    save = next(call for call in calls if "save" in call)
+    assert save[-1] == staging_case["image_digest"]
+    assert all(
+        call[1:3] == ("--host", f"unix://{staging_case['docker_socket']}")
+        for call in calls
+        if call[0] == str(staging_case["docker_executable"])
+    )
+    # Exercise the production archive consumer, rather than just the admission recorder.
+    from encode_pipeline.adapters.bulk_rnaseq import runtime_assets
+
+    manifest = json.loads(staging_case["selected_manifest"])
+    entry = lock["entries"][0]
+    with (root / "containers/assets" / entry["local_asset"]).open("rb") as handle:
+        closure = runtime_assets._parse_docker_archive(
+            handle,
+            distribution=runtime_assets._DistributionManifest(
+                config_digest=manifest["config"]["digest"],
+                config_size_bytes=manifest["config"]["size"],
+                layer_count=0,
+            ),
+        )
+    assert closure.runtime_image == staging_case["image_digest"]
 
 
 def test_wrong_platform_manifest_fails_before_pull_and_cleans_candidate(staging_case):
@@ -774,3 +810,33 @@ def test_asset_root_path_is_fail_closed(tmp_path: Path, staging_case, unsafe: st
             command_runner=staging_case["runner"],
             admission_verifier=_AdmissionRecorder(),
         )
+
+
+@pytest.mark.parametrize("wrong_id", ["config", "index", "other"])
+def test_staging_rejects_other_digest_kinds_before_save(staging_case, wrong_id):
+    runner = staging_case["runner"]
+    selected_id = {
+        "config": runner.image_config_digest,
+        "index": f"sha256:{_sha256(runner.index_manifest)}",
+        "other": f"sha256:{'f' * 64}",
+    }[wrong_id]
+
+    def mismatched_inspect(argv, *, capture_stdout):
+        content = runner(argv, capture_stdout=capture_stdout)
+        if "image" in argv and "inspect" in argv:
+            value = json.loads(content)
+            value[0]["Id"] = selected_id
+            return _json_bytes(value)
+        return content
+
+    with pytest.raises(staging.StagingError, match="^docker_image_invalid$"):
+        staging.stage_runtime_assets(
+            _options(
+                staging_case, phase="stage", allow_network=True, allow_mutation=True
+            ),
+            contract=staging_case["contract"],
+            command_runner=mismatched_inspect,
+            admission_verifier=_AdmissionRecorder(),
+        )
+    assert not staging_case["asset_root"].exists()
+    assert not any("save" in call for call, _capture in runner.calls)

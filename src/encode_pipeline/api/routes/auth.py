@@ -15,6 +15,7 @@ from encode_pipeline.api.dependencies import (
     require_principal,
 )
 from encode_pipeline.api.models import (
+    ValidationResponse,
     AccountCreateRequest,
     AccountListResponse,
     AccountMutationResponse,
@@ -104,7 +105,7 @@ def _service_error_body(error: AuthenticationError) -> JSONResponse:
     "/login",
     operation_id="login",
     response_model=LoginResponse,
-    responses={401: {"model": AuthErrorResponse}},
+    responses={500: {"model": ValidationResponse}, 401: {"model": AuthErrorResponse}},
 )
 def login(
     payload: LoginRequest,
@@ -152,6 +153,7 @@ def login(
     operation_id="logout",
     response_model=SessionStateResponse,
     dependencies=[Depends(enforce_csrf)],
+    responses={500: {"model": ValidationResponse}},
 )
 def logout(
     request: Request,
@@ -175,7 +177,10 @@ def logout(
 
 
 @router.get(
-    "/session", response_model=SessionStateResponse, operation_id="session_state"
+    "/session",
+    response_model=SessionStateResponse,
+    operation_id="session_state",
+    responses={500: {"model": ValidationResponse}},
 )
 def session_state(
     request: Request,
@@ -201,7 +206,11 @@ def session_state(
     "/preferences/terminal-email",
     operation_id="get_terminal_email_preference",
     response_model=TerminalEmailPreferenceResponse,
-    responses={401: {"model": AuthErrorResponse}, 403: {"model": AuthErrorResponse}},
+    responses={
+        500: {"model": ValidationResponse},
+        401: {"model": AuthErrorResponse},
+        403: {"model": AuthErrorResponse},
+    },
 )
 def get_terminal_email_preference(
     principal: AuthenticatedPrincipal = Depends(require_principal),
@@ -224,7 +233,11 @@ def get_terminal_email_preference(
     operation_id="set_terminal_email_preference",
     response_model=TerminalEmailPreferenceResponse,
     dependencies=[Depends(enforce_csrf)],
-    responses={401: {"model": AuthErrorResponse}, 403: {"model": AuthErrorResponse}},
+    responses={
+        500: {"model": ValidationResponse},
+        401: {"model": AuthErrorResponse},
+        403: {"model": AuthErrorResponse},
+    },
 )
 def set_terminal_email_preference(
     payload: TerminalEmailPreferenceRequest,
@@ -251,6 +264,7 @@ def set_terminal_email_preference(
     operation_id="list_accounts",
     response_model=AccountListResponse,
     dependencies=_ADMIN_DEPENDENCIES,
+    responses={500: {"model": ValidationResponse}},
 )
 def list_accounts(
     administration: AccountAdministrationService = Depends(
@@ -267,6 +281,7 @@ def list_accounts(
     operation_id="create_member_account",
     response_model=AccountMutationResponse,
     dependencies=_ADMIN_DEPENDENCIES,
+    responses={500: {"model": ValidationResponse}},
 )
 def create_member_account(
     payload: AccountCreateRequest,
@@ -296,6 +311,7 @@ def create_member_account(
     operation_id="set_account_status",
     response_model=AccountMutationResponse,
     dependencies=_ADMIN_DEPENDENCIES,
+    responses={500: {"model": ValidationResponse}},
 )
 def set_account_status(
     user_id: str,
@@ -329,6 +345,7 @@ def set_account_status(
     operation_id="reset_account_password",
     response_model=AccountMutationResponse,
     dependencies=_ADMIN_DEPENDENCIES,
+    responses={500: {"model": ValidationResponse}},
 )
 def reset_account_password(
     user_id: str,
@@ -362,6 +379,7 @@ def reset_account_password(
     operation_id="revoke_account_sessions",
     response_model=AccountSessionsRevokeResponse,
     dependencies=_ADMIN_DEPENDENCIES,
+    responses={500: {"model": ValidationResponse}},
 )
 def revoke_account_sessions(
     user_id: str,

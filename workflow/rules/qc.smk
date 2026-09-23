@@ -327,7 +327,7 @@ rule nrf_pbc:
     output:
         f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.nrf_pbc.tsv",
     input:
-        f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
     params:
         script = f"{workflow.basedir}/../scripts/calc_nrf_pbc.py",
     log:
@@ -779,7 +779,7 @@ rule cross_correlation:
         }}
         mkdir -p "$(dirname {output.qc:q})" "$(dirname {log:q})"
         run_spp.R -c={input.bam:q} -savp={output.pdf:q} -out={output.qc:q} \
-            -x=-500:15 -rf -speak=0 -p={threads} \
+            -x=-500:15 -rf -p={threads} \
             2>&1 | tee {log:q}
         """
 
@@ -792,11 +792,13 @@ rule preseq_complexity:
     output:
         f"{OUTDIR}/{{sample}}/05_qc/preseq/{{sample}}.preseq.txt",
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.preseq.log",
     conda:
         "../envs/preseq.yml",
+    params:
+        paired=lambda wc: "-P" if SAMPLE_MAP[wc.sample]["layout"] == "PE" else "",
     shell:
         """
         set -e -o pipefail
@@ -805,7 +807,7 @@ rule preseq_complexity:
             exit 1
         }}
         mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
-        preseq lc_extrap -B -o {output:q} {input.bam:q} \
+        preseq lc_extrap -B {params.paired} -o {output:q} {input.bam:q} \
             2>&1 | tee {log:q}
         """
 
@@ -924,7 +926,7 @@ rule project_qc_summary:
         f"{OUTDIR}/multiqc/project_qc_summary.tsv",
     input:
         [f"{OUTDIR}/{sid}/01_qc/{sid}.qc_summary.tsv"
-         for sid in TREATMENT_SAMPLE_IDS],
+         for sid in PEAK_SAMPLE_IDS],
     params:
         script = f"{workflow.basedir}/../scripts/aggregate_qc_summary.py",
     conda:

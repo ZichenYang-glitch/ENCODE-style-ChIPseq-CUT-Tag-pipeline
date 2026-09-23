@@ -66,6 +66,7 @@ export * from './bindingMode';
 export * from './bindingProvenance';
 export * from './downloadRunArtifactParams';
 export * from './getArtifactPublicationParams';
+export * from './getRun500';
 export * from './getRunArtifactParams';
 export * from './hTTPValidationError';
 export * from './inputBindingResponse';

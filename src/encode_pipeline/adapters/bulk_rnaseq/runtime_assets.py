@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+import gzip
 import hashlib
 from importlib import resources
 import io
@@ -27,6 +28,7 @@ import threading
 import time
 from typing import Any
 import zipfile
+import zlib
 
 from jsonschema import Draft202012Validator
 
@@ -146,6 +148,13 @@ _OCI_INDEX_MEDIA_TYPE = "application/vnd.oci.image.index.v1+json"
 _OCI_MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
 _OCI_CONFIG_MEDIA_TYPE = "application/vnd.oci.image.config.v1+json"
 _OCI_LAYER_MEDIA_TYPE = "application/vnd.oci.image.layer.v1.tar"
+_GZIP_LAYER_MEDIA_TYPES = frozenset(
+    {
+        "application/vnd.oci.image.layer.v1.tar+gzip",
+        "application/vnd.docker.image.rootfs.diff.tar.gzip",
+    }
+)
+_DOCKER_CONFIG_MEDIA_TYPE = "application/vnd.docker.container.image.v1+json"
 
 
 @dataclass(frozen=True)
@@ -1637,7 +1646,9 @@ def _parse_docker_archive(
             runtime_image = target_descriptor.get("digest")
             target_size = target_descriptor.get("size")
             if (
-                target_descriptor.get("mediaType") != _OCI_MANIFEST_MEDIA_TYPE
+                not isinstance(target_descriptor.get("mediaType"), str)
+                or target_descriptor.get("mediaType")
+                not in _DOCKER_MANIFEST_MEDIA_TYPES
                 or not _valid_digest(runtime_image)
                 or isinstance(target_size, bool)
                 or not isinstance(target_size, int)
@@ -1667,7 +1678,7 @@ def _parse_docker_archive(
             if (
                 not isinstance(target_manifest, Mapping)
                 or target_manifest.get("schemaVersion") != 2
-                or target_manifest.get("mediaType") != _OCI_MANIFEST_MEDIA_TYPE
+                or target_manifest.get("mediaType") != target_descriptor["mediaType"]
             ):
                 raise _AssetFault("containers", "contract")
             target_config = target_manifest.get("config")
@@ -1679,7 +1690,12 @@ def _parse_docker_archive(
             target_config_digest = target_config.get("digest")
             target_config_size = target_config.get("size")
             if (
-                target_config.get("mediaType") != _OCI_CONFIG_MEDIA_TYPE
+                target_config.get("mediaType")
+                != (
+                    _OCI_CONFIG_MEDIA_TYPE
+                    if target_manifest["mediaType"] == _OCI_MANIFEST_MEDIA_TYPE
+                    else _DOCKER_CONFIG_MEDIA_TYPE
+                )
                 or target_config_digest != distribution.config_digest
                 or isinstance(target_config_size, bool)
                 or target_config_size != distribution.config_size_bytes
@@ -1689,13 +1705,16 @@ def _parse_docker_archive(
 
             local_layer_paths: list[str] = []
             local_layer_sizes: list[int] = []
+            local_layer_media_types: list[str] = []
             for layer in target_layers:
                 if not isinstance(layer, Mapping):
                     raise _AssetFault("containers", "contract")
                 layer_digest = layer.get("digest")
                 layer_size = layer.get("size")
                 if (
-                    layer.get("mediaType") != _OCI_LAYER_MEDIA_TYPE
+                    not isinstance(layer.get("mediaType"), str)
+                    or layer.get("mediaType")
+                    not in {_OCI_LAYER_MEDIA_TYPE, *_GZIP_LAYER_MEDIA_TYPES}
                     or not _valid_digest(layer_digest)
                     or isinstance(layer_size, bool)
                     or not isinstance(layer_size, int)
@@ -1706,6 +1725,7 @@ def _parse_docker_archive(
                 assert isinstance(layer_digest, str)
                 local_layer_paths.append(f"blobs/sha256/{_digest_hex(layer_digest)}")
                 local_layer_sizes.append(layer_size)
+                local_layer_media_types.append(layer["mediaType"])
 
             manifest_member = _required_regular_tar_member(members, "manifest.json")
             manifest_content = _read_tar_member(
@@ -1772,20 +1792,34 @@ def _parse_docker_archive(
                 or not all(_valid_digest(value) for value in diff_ids)
             ):
                 raise _AssetFault("containers", "contract")
-            for layer_path, layer_size, expected_diff_id in zip(
+            total_uncompressed_bytes = 0
+            for layer_path, layer_size, layer_media_type, expected_diff_id in zip(
                 layer_paths,
                 local_layer_sizes,
+                local_layer_media_types,
                 diff_ids,
                 strict=True,
             ):
                 layer_member = _required_regular_tar_member(members, layer_path)
                 if layer_member.size != layer_size:
                     raise _AssetFault("containers", "identity")
-                actual_diff_id = f"sha256:{_hash_tar_member(package, layer_member)}"
-                if (
-                    actual_diff_id != f"sha256:{PurePosixPath(layer_path).name}"
-                    or actual_diff_id != expected_diff_id
-                ):
+                stored_digest = f"sha256:{_hash_tar_member(package, layer_member)}"
+                if stored_digest != f"sha256:{PurePosixPath(layer_path).name}":
+                    raise _AssetFault("containers", "identity")
+                if layer_media_type in _GZIP_LAYER_MEDIA_TYPES:
+                    diff_digest, unpacked_size = _hash_gzip_tar_member(
+                        package,
+                        layer_member,
+                        maximum_bytes=_MAX_CONTAINER_ARCHIVE_BYTES
+                        - total_uncompressed_bytes,
+                    )
+                    actual_diff_id = f"sha256:{diff_digest}"
+                else:
+                    actual_diff_id, unpacked_size = stored_digest, layer_size
+                total_uncompressed_bytes += unpacked_size
+                if total_uncompressed_bytes > _MAX_CONTAINER_ARCHIVE_BYTES:
+                    raise _AssetFault("containers", "bounds")
+                if actual_diff_id != expected_diff_id:
                     raise _AssetFault("containers", "identity")
     except _AssetFault:
         raise
@@ -1842,6 +1876,32 @@ def _hash_tar_member(package: tarfile.TarFile, member: tarfile.TarInfo) -> str:
     if total != member.size:
         raise _AssetFault("containers", "contract")
     return digest.hexdigest()
+
+
+def _hash_gzip_tar_member(
+    package: tarfile.TarFile,
+    member: tarfile.TarInfo,
+    *,
+    maximum_bytes: int,
+) -> tuple[str, int]:
+    """Verify the uncompressed diff ID without extracting a layer to disk."""
+    extracted = package.extractfile(member)
+    if extracted is None:
+        raise _AssetFault("containers", "contract")
+    digest = hashlib.sha256()
+    total = 0
+    try:
+        with extracted, gzip.GzipFile(fileobj=extracted) as stream:
+            while chunk := stream.read(
+                min(_READ_CHUNK_BYTES, maximum_bytes - total + 1)
+            ):
+                total += len(chunk)
+                if total > maximum_bytes:
+                    raise _AssetFault("containers", "bounds")
+                digest.update(chunk)
+    except (OSError, EOFError, zlib.error) as exc:
+        raise _AssetFault("containers", "contract") from exc
+    return digest.hexdigest(), total
 
 
 def _hash_open_descriptor(

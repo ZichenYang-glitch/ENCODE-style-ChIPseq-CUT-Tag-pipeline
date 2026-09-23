@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { CheckCircle2, CircleAlert, Play, ShieldCheck } from 'lucide-react';
+import { Play, ShieldCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createRun } from '../../api/generated/runs/runs';
 import { validateWorkflow } from '../../api/generated/workflows/workflows';
@@ -16,13 +17,7 @@ import { Button } from '../../components/Button';
 import { ExecutionAvailabilityNotice } from '../workflow-detail/WorkflowAvailability';
 import type { InputDraftController } from './useInputDraft';
 
-interface SafeIssue {
-  code: string;
-  message: string;
-  severity?: 'error' | 'warning' | 'info';
-  path?: string | null;
-  hint?: string | null;
-}
+import type { SafeIssue, ValidationFeedback } from './validationFeedback';
 
 interface SnapshotState {
   snapshot: ValidatedInputSnapshotResponse;
@@ -30,6 +25,7 @@ interface SnapshotState {
 }
 
 interface ValidationAttempt {
+  requestId: number;
   payload: ValidationRequest & { reference_profile_revision_id: string };
   revision: number;
   referenceProfileRevisionId: string;
@@ -45,6 +41,7 @@ interface ValidatedSubmissionProps {
   draft: InputDraftController;
   availability: WorkflowAvailability | null;
   referenceSelectionAvailable: boolean;
+  onValidationFeedback: Dispatch<SetStateAction<ValidationFeedback | null>>;
 }
 
 function safeIssues(issues: IssueResponse[] | undefined): SafeIssue[] {
@@ -81,116 +78,77 @@ export function ValidatedSubmission({
   draft,
   availability,
   referenceSelectionAvailable,
+  onValidationFeedback,
 }: ValidatedSubmissionProps) {
   const navigate = useNavigate();
   const [snapshotState, setSnapshotState] = useState<SnapshotState | null>(null);
+  // Creation outcomes survive editing and revalidation, including uncertain outcomes.
   const [issues, setIssues] = useState<SafeIssue[]>([]);
-  const [notice, setNotice] = useState<string | null>(null);
+  const latestValidationRequest = useRef(0);
   const activeSnapshot =
     snapshotState?.revision === draft.state.semanticRevision
       ? snapshotState.snapshot
       : null;
-  const snapshotInvalidated = snapshotState !== null && activeSnapshot === null;
   const executionAvailable = availability?.execution === 'available';
-
-  useEffect(() => {
-    if (snapshotInvalidated) {
-      setNotice('Inputs changed after validation. Validate the current draft again.');
-      setIssues([]);
-    }
-  }, [snapshotInvalidated]);
 
   const validationMutation = useMutation({
     mutationFn: (attempt: ValidationAttempt) =>
       validateWorkflow(workflowId, attempt.payload),
     onSuccess: (response, attempt) => {
+      if (attempt.requestId !== latestValidationRequest.current) return;
+      const report = (issues: SafeIssue[], notice?: string, snapshotId?: string) =>
+        onValidationFeedback({ revision: attempt.revision, issues, notice, snapshotId });
       if (attempt.revision !== draft.state.semanticRevision) {
         setSnapshotState(null);
-        setIssues([]);
-        setNotice(
-          'Inputs changed while validation was running. Validate the current draft again.',
-        );
+        onValidationFeedback({ revision: attempt.revision, issues: [], changedInFlight: true });
         return;
       }
       const responseIssues = safeIssues(response.issues);
       if (response.snapshot !== null) {
-        const frozenReference = readReferenceProfileSummary(
-          response.snapshot.reference_profile,
-        );
-        if (
-          frozenReference?.revision_id !== attempt.referenceProfileRevisionId
-        ) {
+        const frozenReference = readReferenceProfileSummary(response.snapshot.reference_profile);
+        if (frozenReference?.revision_id !== attempt.referenceProfileRevisionId) {
           setSnapshotState(null);
-          setIssues([
-            {
-              code: 'REFERENCE_PROFILE_NOT_CONFIRMED',
-              message:
-                'Backend validation did not confirm the selected reference revision.',
-              path: 'reference_profile_revision_id',
-            },
-          ]);
-          setNotice(null);
+          report([{
+            code: 'REFERENCE_PROFILE_NOT_CONFIRMED',
+            message: 'Backend validation did not confirm the selected reference revision.',
+            path: 'reference_profile_revision_id',
+          }]);
           return;
         }
       }
-      if (
-        response.ok &&
-        response.snapshot === null &&
-        !executionAvailable
-      ) {
+      if (response.ok && response.snapshot === null && !executionAvailable) {
         setSnapshotState(null);
-        setIssues(responseIssues);
-        setNotice(
-          'Backend validation succeeded. No runnable snapshot was issued because execution is unavailable.',
-        );
+        report(responseIssues, 'Backend validation succeeded. No runnable snapshot was issued because execution is unavailable.');
         return;
       }
-      if (
-        !response.ok ||
-        response.snapshot === null ||
-        response.snapshot.workflow_id !== workflowId
-      ) {
+      if (!response.ok || response.snapshot === null || response.snapshot.workflow_id !== workflowId) {
         setSnapshotState(null);
-        setIssues(
-          responseIssues.length > 0
-            ? responseIssues
-            : [
-                {
-                  code: 'VALIDATION_NOT_CONFIRMED',
-                  message: 'Backend validation did not return a usable snapshot.',
-                },
-              ],
-        );
-        setNotice(null);
+        report(responseIssues.length > 0 ? responseIssues : [{
+          code: 'VALIDATION_NOT_CONFIRMED',
+          message: 'Backend validation did not return a usable snapshot.',
+        }]);
         return;
       }
-      setSnapshotState({
-        snapshot: response.snapshot,
-        revision: draft.state.semanticRevision,
-      });
-      setIssues(responseIssues);
-      setNotice(
-        executionAvailable
-          ? 'Backend validation succeeded. This exact draft can create one run.'
-          : 'Backend validation succeeded. This exact draft is saved, but execution is unavailable.',
-      );
+      setSnapshotState({ snapshot: response.snapshot, revision: attempt.revision });
+      report(responseIssues, executionAvailable
+        ? 'Backend validation succeeded. This exact draft can create one run.'
+        : 'Backend validation succeeded. This exact draft is saved, but execution is unavailable.',
+        response.snapshot.snapshot_id);
     },
     onError: (error, attempt) => {
+      if (attempt.requestId !== latestValidationRequest.current) return;
       setSnapshotState(null);
       if (attempt.revision !== draft.state.semanticRevision) {
-        setIssues([]);
-        setNotice(
-          'Inputs changed while validation was running. Validate the current draft again.',
-        );
+        onValidationFeedback({ revision: attempt.revision, issues: [], changedInFlight: true });
         return;
       }
-      setIssues(
-        requestIssues(error, {
+      onValidationFeedback({
+        revision: attempt.revision,
+        issues: requestIssues(error, {
           code: 'VALIDATION_UNAVAILABLE',
           message: 'Validation could not be confirmed. Retry when the API is available.',
         }),
-      );
-      setNotice(null);
+      });
     },
   });
 
@@ -209,7 +167,6 @@ export function ValidatedSubmission({
               'Inputs changed while run creation was running. The earlier request may have created a run; review canonical runs before retrying.',
           },
         ]);
-        setNotice(null);
         return;
       }
       const run = response.run ?? null;
@@ -246,7 +203,6 @@ export function ValidatedSubmission({
               'Inputs changed while run creation was running. The earlier request may have created a run; review canonical runs before retrying.',
           },
         ]);
-        setNotice(null);
         return;
       }
       const apiCode = error instanceof ApiError ? error.code : null;
@@ -254,7 +210,20 @@ export function ValidatedSubmission({
         apiCode === 'VALIDATED_SNAPSHOT_EXPIRED' ||
         apiCode === 'VALIDATED_SNAPSHOT_STALE'
       ) {
-        setSnapshotState(null);
+        setSnapshotState((current) =>
+          current?.snapshot.snapshot_id === attempt.snapshotId ? null : current,
+        );
+        onValidationFeedback((current) =>
+          current !== null &&
+          current.revision === attempt.revision &&
+          current.snapshotId === attempt.snapshotId
+            ? {
+                ...current,
+                notice:
+                  'The validated snapshot is no longer valid. Validate the current draft again.',
+              }
+            : current,
+        );
       }
       setIssues(
         requestIssues(error, {
@@ -263,7 +232,6 @@ export function ValidatedSubmission({
             'Run creation could not be confirmed. Retry with the same validated snapshot to read the canonical outcome.',
         }),
       );
-      setNotice(null);
     },
   });
 
@@ -317,7 +285,9 @@ export function ValidatedSubmission({
                 referenceSelectionAvailable &&
                 referenceProfileRevisionId !== null
               ) {
+                onValidationFeedback({ revision: draft.state.semanticRevision, issues: [] });
                 validationMutation.mutate({
+                  requestId: ++latestValidationRequest.current,
                   payload: {
                     ...draft.review.payload,
                     reference_profile_revision_id: referenceProfileRevisionId,
@@ -365,36 +335,17 @@ export function ValidatedSubmission({
       </div>
 
       <div className="mt-3 min-h-12" aria-live="polite">
-        {notice !== null && (
-          <div
-            className={`flex items-start gap-2 rounded border px-3 py-2 text-sm ${
-              activeSnapshot !== null
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                : 'border-amber-200 bg-[var(--color-warning-bg)] text-[var(--color-warning)]'
-            }`}
-            role="status"
-          >
-            {activeSnapshot !== null ? (
-              <CheckCircle2 className="mt-0.5 shrink-0" aria-hidden="true" size={16} />
-            ) : (
-              <CircleAlert className="mt-0.5 shrink-0" aria-hidden="true" size={16} />
-            )}
-            <div className="min-w-0">
-              <p>{notice}</p>
-              {activeSnapshot !== null && expiryLabel !== null && (
-                <p className="mt-1 break-words text-xs">
-                  First use expires {expiryLabel}. Snapshot{' '}
-                  <code className="break-all">{activeSnapshot.snapshot_id}</code>
-                </p>
-              )}
-            </div>
-          </div>
+        {activeSnapshot !== null && expiryLabel !== null && (
+          <p className="mb-2 break-words text-xs">
+            First use expires {expiryLabel}. Snapshot{' '}
+            <code className="break-all">{activeSnapshot.snapshot_id}</code>
+          </p>
         )}
         {advisoryIssues.length > 0 && (
           <div
             className="rounded border border-amber-200 bg-[var(--color-warning-bg)] px-3 py-2 text-sm text-[var(--color-warning)]"
             role="status"
-            data-testid="validation-advisories"
+            data-testid="creation-advisories"
           >
             <ul className="space-y-1">
               {advisoryIssues.map((issue, index) => (

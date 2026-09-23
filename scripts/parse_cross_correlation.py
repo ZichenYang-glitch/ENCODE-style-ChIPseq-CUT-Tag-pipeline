@@ -7,6 +7,7 @@ Output: TSV with columns: sample, cc_qc_file, estimated_fragment_length,
 """
 
 import argparse
+import math
 import os
 import sys
 
@@ -52,6 +53,20 @@ def _try_float(raw):
         return float(raw)
     except (ValueError, TypeError):
         return None
+
+
+def _primary_fragment_length(raw):
+    """Return the first tool-ranked candidate, or None for an invalid list.
+
+    Every token must be a finite number. Empty/NA/malformed tokens invalidate
+    the field; never skip a bad first candidate to select a later one.
+    """
+    if raw is None:
+        return None
+    candidates = [_try_float(token.strip()) for token in raw.split(",")]
+    if any(value is None or not math.isfinite(value) for value in candidates):
+        return None
+    return candidates[0]
 
 
 def parse_cc_qc_file(filepath):
@@ -114,7 +129,9 @@ def parse_cc_qc_file(filepath):
                         return None
                     return dfields[idx].strip()
 
-                result["estimated_fragment_length"] = _try_float(_get("estFragLen"))
+                result["estimated_fragment_length"] = _primary_fragment_length(
+                    _get("estFragLen")
+                )
                 result["phantom_peak"] = _try_float(_get("PhantomPeak"))
                 result["nsc"] = _try_float(_get("NSC"))
                 result["rsc"] = _try_float(_get("RSC"))
@@ -136,7 +153,9 @@ def parse_cc_qc_file(filepath):
             continue
         if _try_float(fields[1].strip()) is None:
             continue
-        result["estimated_fragment_length"] = _try_float(fields[2].strip())
+        result["estimated_fragment_length"] = _primary_fragment_length(
+            fields[2].strip()
+        )
         result["phantom_peak"] = _try_float(fields[4].strip())
         result["nsc"] = _try_float(fields[8].strip())
         result["rsc"] = _try_float(fields[9].strip())

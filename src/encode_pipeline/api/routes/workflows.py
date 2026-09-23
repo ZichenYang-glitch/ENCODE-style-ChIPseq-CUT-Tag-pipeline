@@ -79,7 +79,12 @@ def _descriptor_item(descriptor) -> WorkflowListItem:
     return WorkflowListItem.model_validate(descriptor.to_dict())
 
 
-@router.get("/", response_model=WorkflowListResponse, operation_id="listWorkflows")
+@router.get(
+    "/",
+    response_model=WorkflowListResponse,
+    operation_id="listWorkflows",
+    responses={500: {"model": ValidationResponse}},
+)
 def list_workflows(
     registry: WorkflowRegistry = Depends(get_registry),
 ) -> WorkflowListResponse:
@@ -96,6 +101,7 @@ def list_workflows(
     response_model=WorkflowDetailResponse,
     operation_id="getWorkflow",
     responses={
+        500: {"model": ValidationResponse},
         404: {"model": WorkflowDetailResponse},
         503: {"model": WorkflowDetailResponse},
     },
@@ -131,6 +137,7 @@ def get_workflow(
     response_model=ReferenceProfileListResponse,
     operation_id="listCompatibleReferenceProfiles",
     responses={
+        500: {"model": ValidationResponse},
         404: {"model": ReferenceProfileListResponse},
         503: {"model": ReferenceProfileListResponse},
     },
@@ -182,6 +189,7 @@ def list_compatible_reference_profiles(
     "/{workflow_id}/schema",
     response_model=SchemaResponse,
     operation_id="getWorkflowSchema",
+    responses={500: {"model": ValidationResponse}},
 )
 async def get_schema(
     workflow_id: str,

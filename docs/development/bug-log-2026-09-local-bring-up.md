@@ -70,14 +70,48 @@ Snakemake dry-run; confirmed in a real platform run afterwards.
 
 ## 3. OPEN (unconfirmed) — ENCODE run: macs3 conda environment activation
 
-**Symptom:** A platform-driven ENCODE run failed in the macs3 step: the rule
-invoked a script via `#!/usr/bin/env python` shebang and resolved the wrong
-interpreter (PATH/activation timing inside the Snakemake-managed conda env).
+**Historical report (unconfirmed):** A platform-driven ENCODE run reportedly
+failed in the macs3 step, with an `#!/usr/bin/env python` entrypoint suspected
+of selecting the wrong interpreter. The environment was reported to work when
+activated manually. No failed run ID, original traceback, exact entrypoint or
+confirmed deployed ENCODE runtime root is available; the cause is not established.
 
-**State:** The conda env itself was verified good manually. The user was asked
-to rerun; no outcome reported yet. Needs reproduction. If it reproduces,
-candidate fix is invoking the env interpreter explicitly (same pattern as
-bug 2) instead of relying on shebang + activated PATH.
+**PR-2 investigation (2026-09-22): investigation complete, awaiting user and
+independent review; currently not reproduced.** No production implementation
+change is justified by the available evidence. This does not disprove the
+historical failure, and this entry remains OPEN (unconfirmed).
+
+- Legacy execution builds bare `snakemake` without `--use-conda` and inherits
+  the ProcessRunner-allowlisted worker environment. Managed execution uses an
+  absolute runner, explicit conda prefix/base and a controlled PATH
+  (`adapters/encode_execution.py:84–156`). Real CommandBuilder/ProcessRunner
+  handoff probes passed for both branches; their Snakemake executable was a
+  recorder, so these probes establish argv/env/cwd propagation only.
+- Original ChIP-seq and CUT&Tag `macs3_callpeak` rules executed through the
+  real adapter/builder and ProcessRunner on a synthetic 6,000-pair BAM.
+  Both dry-runs and executions exited 0, each producing one ten-column peak.
+  These were legacy-path executions with explicit operator tool PATHs and
+  isolated target selection. Both actual MACS3 3.0.4 entrypoints have absolute
+  Python shebangs; `/proc` observations confirmed the expected Python 3.12
+  executables, workspace cwd and loaded MACS3 extensions from their own environments.
+- The original managed activation-script renderer was exercised separately
+  with a temporary bin reference to an existing rule environment. It placed
+  that bin first and selected its Python/MACS3, including for an `env python`
+  probe. Invalid/outside and missing prefixes returned 64/69. This is component
+  evidence, not an admitted runtime or a complete managed Snakemake/RQ execution.
+- Removing MACS3 from the legacy tool PATH produced the expected
+  `macs3: command not found` and exit 1. That controlled deployment omission
+  does not demonstrate managed activation failure or reproduce the historical
+  wrong-interpreter hypothesis. Bug #2's relative-script-path fix is not evidence
+  for changing MACS3 invocation to an explicit Python command.
+
+**Evidence:** `/tmp/helix-pr2-macs3-uo5rxdd8/report.md` records commands,
+identities, raw output and probe corrections. Canonical-bootstrap verification,
+2 handoff probes, 6 final scientific/activation probes and 81 existing targeted
+tests passed. No runtime was installed/staged, no manifest was rebuilt and no
+Protected Bulk Gate was run. Historical reproduction and full deployed managed
+runtime verification remain unproven; no production Redis/worker or database
+was used.
 
 ## 4. FIXED — qc master switch conflicts with materialized sub-flags
 
@@ -117,28 +151,96 @@ regenerating the 111-file bulk execution manifest leaves its
 identity files unchanged. No real bulk scientific execution or Protected Bulk Gate
 was needed for this UI-only behavior change.
 
-## 5. DESIGN FRICTION — Docker 29 storage-driver mismatch between staging and runtime admission
+## 5. CONFIRMED — Docker storage identity mismatch; PR-6 fix awaiting review
 
-**Observation:** The two Docker touchpoints expect opposite storage semantics
-on one daemon:
+**Historical report:** staging worked with the system classic/overlay2 daemon,
+while runtime admission used a rootless containerd daemon. The earlier claim
+that all 56 bindings passed is historical evidence, not a deployment result
+reproduced by PR-6. No daemon configuration or existing image was changed here.
 
-- staging `_verify_pulled_image` expects classic overlay2 semantics
-  (`inspect Id == config digest` after `docker pull`);
-- runtime admission `_verify_docker_availability` expects containerd-storage
-  semantics after `docker load` of the staged archive
-  (`inspect Id == archive index digest`).
+**PR-6 investigation (2026-09-22):** Docker Engine 29.1.3 (`fbf3ed2`) was observed
+at both explicit sockets. A 320 KiB, locally built, tag-free synthetic image
+was loaded, saved and executed with real Docker on each daemon:
 
-A single Docker 29 daemon cannot satisfy both; switching
-`features.containerd-snapshotter` flips which side fails
-(`docker_image_invalid` vs `runtime_admission_failed`).
+- Classic inspect returns the config digest. Its save output converts the image
+  to an uncompressed OCI manifest; the resulting manifest digest differs from
+  the config digest and the original compressed distribution manifest.
+- Containerd inspect returns the target manifest digest for this single-platform
+  image. Save preserves that manifest and gzip layer. The previous staging
+  `_verify_pulled_image` rejected this ID; the archive reader independently
+  rejected the compressed layer representation. Original-function probes
+  reproduced both rejections using actual Docker output.
+- Admission addresses `index.json.manifests[0].digest`: the descriptor's target
+  manifest digest, **not** the hash of `index.json`. Config digest, compressed
+  layer digest, uncompressed rootfs diff ID and archive file SHA have separate
+  checks. The synthetic loaded images had empty RepoDigests; admission does not
+  use that field as an alternative identity.
 
-**Workaround deployed on this machine:** two daemons — system dockerd
-(overlay2, staging) plus a rootless dockerd (containerd snapshotter,
-`~/.helixweave/docker.sock`) as the managed/admission Docker, selected via
-`ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET`. Works; admission passes
-(56 container bindings verified). Worth documenting in
-`docs/development/local-platform-runtime.md`, or reconsidering the staging
-check so one containerd daemon serves both.
+**Minimal single-daemon implementation:** staging now requires the selected
+linux/amd64 manifest ID and saves by digest, avoiding tag side effects. The
+archive reader accepts Docker v2/OCI gzip layers as well as the existing
+uncompressed OCI form. It checks config bytes, compressed blob SHA/size and the
+bounded decompressed diff ID separately. Exact admission ID/rootfs checks and
+rejection of RepoTags remain intact. Explicit socket/executable propagation and
+worker endpoint matching were already present and are unchanged; no fallback
+or “any digest matches” rule was introduced. See
+`scripts/stage_bulk_rnaseq_runtime_assets.py:522,1254` and
+`src/encode_pipeline/adapters/bulk_rnaseq/runtime_assets.py:1587,1881,2235`.
+
+**Initial PR-6 validation and limits:** three focused regression cases failed before the
+implementation and passed afterwards; 341 targeted tests pass. Real archive
+verification, the original local-Docker admission component and ProcessRunner
+execution on the same rootless daemon pass one isolated smoke test, including
+wrong-rootfs/wrong-daemon rejection. The process only prints a fixed marker;
+it is not a sequencing run, Nextflow/RQ validation or the full runtime canary.
+Online pull failed at the daemon's existing proxy connection, before image
+retrieval. Complete online staging and the full deployed runtime therefore
+remain unverified. Local probe construction mistakes are separately recorded,
+not counted as production failures. Both probe-created images were removed;
+all 34 pre-existing rootless image IDs remain.
+
+The initial PR-6 execution closure has aggregate
+`d6b44c855d99d5bf4016c8cc63811abb9a059f737a61cc58a596a27f5a6bb6ee`;
+manifest/qualification were regenerated and 32 identity tests pass. Protected
+Bulk Gate is still pending for this identity: controlled runtime, fixture and
+Redis/runner coordinates and a reviewed clean revision are not available.
+This debt is separate from PR-3, PR-4 and G0. Do not mark all acceptance checks
+complete or use this result to validate the historical two-daemon deployment.
+
+**Evidence:** `/tmp/helix-pr6-docker-w93xj3bx/report.md`, raw logs, exact old
+closure copies and `this-round.diff`. The matched Engine
+[containerd inspect source](https://github.com/moby/moby/blob/fbf3ed25f893e6ce21336f1101590e40a13934f4/daemon/containerd/image_inspect.go)
+and [classic inspect source](https://github.com/moby/moby/blob/fbf3ed25f893e6ce21336f1101590e40a13934f4/daemon/images/image_inspect.go)
+explain the observed ID difference. The
+[OCI diff-ID definition](https://github.com/opencontainers/image-spec/blob/v1.1.1/config.md#layer-diffid)
+explains why compressed blob hashes must be checked separately.
+
+**Review revision (2026-09-22), awaiting re-review:** the new set membership
+checks on archive descriptor/layer `mediaType` raised uncaught `TypeError` for
+JSON arrays or objects. This regressed structured rejection of malformed
+archives; it does not establish failure of normal Docker output or an integrity
+bypass. Two local string checks at `runtime_assets.py:1649,1715` restore
+`BULK_RNASEQ_RUNTIME_ASSET_CONTRACT`. Distribution parsing, daemon selection,
+exact identity, compressed blob SHA/size, bounded decompression/diff ID and
+other rejection checks remain unchanged.
+
+Four formal cases call public `verify_runtime_asset_closure` with coherent
+outer archive registration and target blob identities: descriptor/layer ×
+array/object. All four fail with TypeError before the fix and pass afterwards.
+The three required test files pass 163 cases (20 staging, 111 runtime assets,
+32 execution identity), with zero failures/skips and existing gzip positive,
+corruption and size-limit coverage retained. Ruff and scoped diff checks pass.
+No real Docker, online staging, deployment admission or scientific execution
+was repeated in this revision; the initial delivery's limits still apply.
+
+Regenerated manifest/qualification bind aggregate
+`15646a6a76bad8d8ad7df6855d2abe0b179fcd186c233000311633ab8892e27c`.
+Only `runtime_assets.py` changes within the 111-file closure. Gate coordinates
+remain absent, so no Gate was attempted for this identity. Its pending status
+is separate from the initial PR-6 identity, PR-3, PR-4 and G0. Generation of a
+qualification is not a passing Gate. Exact pre-revision recovery copies and
+hashes, commands, raw red/green logs and the independent diff are preserved in
+`/tmp/helix-pr6-media-fix-s63ji4z_/`; see `report.md` and `baseline/recovery.json`.
 
 ## 6. TOOLING FRICTION — checkout_bootstrap rejects the ci-fast env
 

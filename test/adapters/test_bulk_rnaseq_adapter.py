@@ -1601,3 +1601,112 @@ def test_default_registry_registers_bulk_authoring_without_runtime():
         "bulk-rnaseq",
     ]
     assert registry.has("bulk-rnaseq") is True
+
+
+@pytest.mark.parametrize(
+    ("standard", "advanced", "path", "hint", "corrected_standard"),
+    [
+        (
+            {"umi": {"enabled": False}, "outputs": {"umi_intermediates": True}},
+            {},
+            "config.standard.outputs",
+            "Turn off standard.outputs.umi_intermediates, or enable standard.umi "
+            "and complete its required settings. Validate again after editing.",
+            {"umi": {"enabled": False}, "outputs": {"umi_intermediates": False}},
+        ),
+        (
+            {
+                "trimming": {"enabled": False, "tool": "trimgalore"},
+                "outputs": {"trimmed_reads": True},
+            },
+            {},
+            "config.standard.outputs",
+            "Turn off standard.outputs.trimmed_reads, or enable "
+            "standard.trimming.enabled. Validate again after editing.",
+            {
+                "trimming": {"enabled": True, "tool": "trimgalore"},
+                "outputs": {"trimmed_reads": True},
+            },
+        ),
+        (
+            {"trimming": {"enabled": False, "tool": "trimgalore"}},
+            {"min_trimmed_reads": 10},
+            "config.advanced.min_trimmed_reads",
+            "Remove advanced.min_trimmed_reads, or enable "
+            "standard.trimming.enabled. Validate again after editing.",
+            {"trimming": {"enabled": True, "tool": "trimgalore"}},
+        ),
+        (
+            {"qc": {"enabled": False}},
+            {"rseqc_modules": "bam_stat"},
+            "config.advanced.rseqc_modules",
+            "Remove advanced.rseqc_modules, or enable both standard.qc.enabled "
+            "and standard.qc.rseqc. Validate again after editing.",
+            {"qc": {"enabled": True, "rseqc": True}},
+        ),
+        (
+            {"qc": {"enabled": False}},
+            {"deseq2_vst": False},
+            "config.advanced.deseq2_vst",
+            "Remove advanced.deseq2_vst, or enable both standard.qc.enabled "
+            "and standard.qc.deseq2_pca. Setting deseq2_vst to false does not "
+            "remove it. Validate again after editing.",
+            {"qc": {"enabled": True, "deseq2_pca": True}},
+        ),
+        (
+            {"qc": {"enabled": False}},
+            {
+                "featurecounts_feature_type": "exon",
+                "featurecounts_group_type": "gene_biotype",
+            },
+            "config.advanced",
+            "Remove advanced.featurecounts_group_type and "
+            "advanced.featurecounts_feature_type if present, or enable both "
+            "standard.qc.enabled and standard.qc.biotype. Validate again after editing.",
+            {"qc": {"enabled": True, "biotype": True}},
+        ),
+    ],
+)
+def test_cross_section_conflicts_offer_fixed_hints_without_mutating_config(
+    standard, advanced, path, hint, corrected_standard
+):
+    config = _config(**standard)
+    config["standard"]["reference"]["annotation_style"] = "ensembl"
+    config["advanced"] = deepcopy(advanced)
+    original = deepcopy(config)
+    adapter = BulkRnaSeqWorkflowAdapter()
+
+    result = adapter.validate(_inputs(config=config))
+
+    assert result.is_failure
+    assert len(result.issues) == 1
+    issue = result.issues[0]
+    assert issue.code == (
+        "BULK_RNASEQ_OUTPUT_CONFLICT"
+        if path == "config.standard.outputs"
+        else "BULK_RNASEQ_ADVANCED_CONTEXT_CONFLICT"
+    )
+    assert issue.path == path
+    assert issue.message == "Bulk RNA-seq input validation failed."
+    assert issue.hint == hint
+    assert issue.technical_message is None
+    assert issue.context == {}
+    assert config == original
+
+    corrected = deepcopy(config)
+    corrected["standard"].update(corrected_standard)
+    before_validation = deepcopy(corrected)
+    assert adapter.validate(_inputs(config=corrected)).is_success
+    assert corrected == before_validation
+
+
+def test_reopening_qc_master_still_explains_disabled_rseqc_dependency():
+    config = _config(qc={"enabled": True, "rseqc": False})
+    config["advanced"] = {"rseqc_modules": "bam_stat"}
+    result = BulkRnaSeqWorkflowAdapter().validate(_inputs(config=config))
+    assert result.is_failure
+    assert result.issues[0].hint == (
+        "Remove advanced.rseqc_modules, or enable both standard.qc.enabled "
+        "and standard.qc.rseqc. Validate again after editing."
+    )
+    assert config["standard"]["qc"] == {"enabled": True, "rseqc": False}

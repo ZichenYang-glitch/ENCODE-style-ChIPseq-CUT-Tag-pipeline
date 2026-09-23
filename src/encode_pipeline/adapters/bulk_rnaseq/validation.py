@@ -261,9 +261,23 @@ def _validate_standard_semantics(
     trimming = {**TRIMMING_DEFAULTS, **standard.get("trimming", {})}
     outputs = standard.get("outputs", {})
     if outputs.get("umi_intermediates") is True and not enabled:
-        return _issue("BULK_RNASEQ_OUTPUT_CONFLICT", "config.standard.outputs")
+        return _issue(
+            "BULK_RNASEQ_OUTPUT_CONFLICT",
+            "config.standard.outputs",
+            hint=(
+                "Turn off standard.outputs.umi_intermediates, or enable standard.umi "
+                "and complete its required settings. Validate again after editing."
+            ),
+        )
     if outputs.get("trimmed_reads") is True and not trimming["enabled"]:
-        return _issue("BULK_RNASEQ_OUTPUT_CONFLICT", "config.standard.outputs")
+        return _issue(
+            "BULK_RNASEQ_OUTPUT_CONFLICT",
+            "config.standard.outputs",
+            hint=(
+                "Turn off standard.outputs.trimmed_reads, or enable "
+                "standard.trimming.enabled. Validate again after editing."
+            ),
+        )
     return None
 
 
@@ -376,6 +390,10 @@ def _validate_advanced_semantics(
         return _issue(
             "BULK_RNASEQ_ADVANCED_CONTEXT_CONFLICT",
             "config.advanced.min_trimmed_reads",
+            hint=(
+                "Remove advanced.min_trimmed_reads, or enable "
+                "standard.trimming.enabled. Validate again after editing."
+            ),
         )
     if "star_ignore_sjdbgtf" in advanced and "star_index" not in reference:
         return _issue(
@@ -392,6 +410,10 @@ def _validate_advanced_semantics(
             return _issue(
                 "BULK_RNASEQ_ADVANCED_CONTEXT_CONFLICT",
                 "config.advanced.rseqc_modules",
+                hint=(
+                    "Remove advanced.rseqc_modules, or enable both standard.qc.enabled "
+                    "and standard.qc.rseqc. Validate again after editing."
+                ),
             )
         modules = str(advanced["rseqc_modules"]).split(",")
         if len(modules) != len(set(modules)) or not set(modules).issubset(
@@ -405,6 +427,11 @@ def _validate_advanced_semantics(
         return _issue(
             "BULK_RNASEQ_ADVANCED_CONTEXT_CONFLICT",
             "config.advanced.deseq2_vst",
+            hint=(
+                "Remove advanced.deseq2_vst, or enable both standard.qc.enabled "
+                "and standard.qc.deseq2_pca. Setting deseq2_vst to false does not "
+                "remove it. Validate again after editing."
+            ),
         )
     biotype_parameters = {
         "featurecounts_group_type",
@@ -416,6 +443,11 @@ def _validate_advanced_semantics(
         return _issue(
             "BULK_RNASEQ_ADVANCED_CONTEXT_CONFLICT",
             "config.advanced",
+            hint=(
+                "Remove advanced.featurecounts_group_type and "
+                "advanced.featurecounts_feature_type if present, or enable both "
+                "standard.qc.enabled and standard.qc.biotype. Validate again after editing."
+            ),
         )
     if (
         "featurecounts_group_type" in advanced
@@ -848,6 +880,7 @@ def _issue(
     code: str,
     path: str,
     *,
+    hint: str | None = None,
     context: Mapping[str, object] | None = None,
 ) -> Issue:
     return Issue(
@@ -856,6 +889,7 @@ def _issue(
         severity="error",
         path=path,
         source="adapter",
+        hint=hint,
         context={} if context is None else dict(context),
     )
 

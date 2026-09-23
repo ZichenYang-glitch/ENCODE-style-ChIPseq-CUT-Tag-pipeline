@@ -20,8 +20,11 @@ Output columns:
 Usage:
     python3 scripts/calc_nrf_pbc.py \\
         --sample SAMPLE \\
-        --bam sample.final.bam \\
+        --bam sample.mapq30.bam \\
         --output sample.nrf_pbc.tsv
+
+Input must be coordinate-sorted, filtered, and retain duplicate records.
+MAPQ 30 is only an example; the actual threshold is set by configuration.
 """
 
 import argparse

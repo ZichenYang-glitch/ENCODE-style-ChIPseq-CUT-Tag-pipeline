@@ -4,6 +4,7 @@ import asyncio
 import csv
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -34,6 +35,39 @@ def pytest_addoption(parser):
         default=False,
         help="Update DAG snapshot fixtures from current dry-run output",
     )
+
+
+@pytest.fixture
+def assert_failure_diagnostics(caplog):
+    """Check emitted text and structured fields, including absence of exceptions."""
+    caplog.set_level(logging.WARNING, logger="encode_pipeline")
+
+    def check(expected, *, private=()):
+        records = [
+            record
+            for record in caplog.records
+            if record.name.startswith("encode_pipeline.")
+        ]
+        assert [
+            (record.component, record.phase, record.reason_code) for record in records
+        ] == expected
+        for record in records:
+            assert record.levelno == logging.WARNING
+            assert record.getMessage() == (
+                f"{record.reason_code} component={record.component} phase={record.phase}"
+            )
+            assert record.args == ()
+            assert record.exc_info is None
+            assert record.exc_text is None
+            assert record.stack_info is None
+            assert not any(
+                isinstance(value, BaseException) for value in vars(record).values()
+            )
+        rendered = caplog.text + repr([vars(record) for record in records])
+        for value in private:
+            assert value not in rendered
+
+    return check
 
 
 @pytest.fixture(autouse=True)

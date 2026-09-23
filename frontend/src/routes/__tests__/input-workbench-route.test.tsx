@@ -753,6 +753,10 @@ describe('schema input workbench route', () => {
     await screen.findByRole('heading', { name: 'Input workbench' });
     await authorValidDraft(user);
     await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(
+      await screen.findByText(/This exact draft can create one run/i),
+    ).toBeVisible();
+    const before = screen.getByTestId('draft-review-json').textContent;
     const create = await screen.findByRole('button', {
       name: 'Create run from validated inputs',
     });
@@ -762,6 +766,85 @@ describe('schema input workbench route', () => {
       'VALIDATED_SNAPSHOT_EXPIRED',
     );
     expect(create).toBeDisabled();
+    expect(
+      screen.queryByText(/This exact draft can create one run/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/validated snapshot is no longer valid/i),
+    ).toBeVisible();
+    expect(screen.getByTestId('draft-review-json').textContent).toBe(before);
+    expect(
+      screen.getByRole('combobox', { name: 'Reference profile' }),
+    ).toHaveValue(GRCH38_PROFILE.revision_id);
+
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(
+      await screen.findByText(/This exact draft can create one run/i),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Create run from validated inputs' }),
+    ).toBeEnabled();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'VALIDATED_SNAPSHOT_EXPIRED',
+    );
+  });
+
+  it('requires revalidation after the API reports a stale snapshot', async () => {
+    generatedMocks.createRun.mockRejectedValue(
+      new ApiError(
+        409,
+        'VALIDATED_SNAPSHOT_STALE',
+        'Validated execution identity changed after validation.',
+        [
+          {
+            code: 'VALIDATED_SNAPSHOT_STALE',
+            message:
+              'Validated execution identity changed after validation. Validate again.',
+          },
+        ],
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    await screen.findByRole('heading', { name: 'Input workbench' });
+    await authorValidDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(
+      await screen.findByText(/This exact draft can create one run/i),
+    ).toBeVisible();
+    const before = screen.getByTestId('draft-review-json').textContent;
+    const create = await screen.findByRole('button', {
+      name: 'Create run from validated inputs',
+    });
+    await user.click(create);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'VALIDATED_SNAPSHOT_STALE',
+    );
+    expect(create).toBeDisabled();
+    expect(
+      screen.queryByText(/This exact draft can create one run/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/validated snapshot is no longer valid/i),
+    ).toBeVisible();
+    expect(screen.getByTestId('draft-review-json').textContent).toBe(before);
+    expect(
+      screen.getByRole('combobox', { name: 'Reference profile' }),
+    ).toHaveValue(GRCH38_PROFILE.revision_id);
+
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(
+      await screen.findByText(/This exact draft can create one run/i),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Create run from validated inputs' }),
+    ).toBeEnabled();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'VALIDATED_SNAPSHOT_STALE',
+    );
   });
 
   it('keeps a stable loading region while schema loading is pending', async () => {
@@ -1236,4 +1319,141 @@ describe('schema input workbench route', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/larger/i);
     expect(textSpy).not.toHaveBeenCalled();
   });
+
+  it('locates a schema field from any tab, preserves config, and clears only stale validation errors', async () => {
+    generatedMocks.validateWorkflow.mockResolvedValueOnce({
+      ...validatedSnapshotResponse(), ok: false, snapshot: null,
+      issues: [{ code: 'EXAMPLE_CONFLICT', severity: 'error', path: 'config.threads',
+        message: 'Example configuration conflict.', hint: 'Choose four threads, then validate again.' }],
+    });
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, { initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`] });
+    await authorValidDraft(user);
+    const before = screen.getByTestId('draft-review-json').textContent;
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(await screen.findByTestId('validation-errors')).toHaveTextContent('Choose four threads');
+    await user.click(screen.getByRole('tab', { name: 'Options' }));
+    await user.click(screen.getByRole('button', { name: 'Go to config.threads' }));
+    const threads = screen.getByRole('spinbutton', { name: /threads/i });
+    expect(threads).toHaveFocus();
+    expect(document.getElementById('root_threads__error')).toHaveTextContent('Choose four threads');
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+    expect(screen.getByTestId('draft-review-json').textContent).toBe(before);
+    await user.click(screen.getByRole('button', { name: 'Go to config.threads' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: /threads/i }), { target: { value: '4' } });
+    expect(screen.queryByTestId('validation-errors')).not.toBeInTheDocument();
+    expect(screen.queryByText('EXAMPLE_CONFLICT')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Review current inputs' }));
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(await screen.findByText(/Backend validation succeeded/)).toBeVisible();
+    expect(generatedMocks.validateWorkflow.mock.calls[1][1].config.threads).toBe(4);
+  });
+
+  it('locates a section and a YAML editor without changing the submitted config', async () => {
+    generatedMocks.validateWorkflow.mockResolvedValue({
+      ...validatedSnapshotResponse(), ok: false, snapshot: null,
+      issues: [{ code: 'EXAMPLE_SECTION', path: 'config.qc', message: 'Check this section.', hint: 'Edit the optional setting.' }],
+    });
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, { initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`] });
+    await authorValidDraft(user);
+    const before = screen.getByTestId('draft-review-json').textContent;
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    await user.click(await screen.findByRole('button', { name: 'Go to config.qc' }));
+    expect(document.activeElement?.tagName).toBe('LEGEND');
+    expect(document.activeElement?.parentElement?.id).toBe('root_qc');
+    await user.click(screen.getByRole('button', { name: 'YAML mode' }));
+    await user.click(screen.getByRole('button', { name: 'Go to config.qc' }));
+    expect(screen.getByLabelText('Advanced config YAML')).toHaveFocus();
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+    expect(screen.getByTestId('draft-review-json').textContent).toBe(before);
+  });
+
+  it.each(['response', 'rejection'])('discards delayed validation errors delivered as %s after editing', async (delivery) => {
+    const pending = deferred<unknown>();
+    const issue = { code: 'OLD_CONFLICT', path: 'config.threads', message: 'Old draft conflict.', hint: 'Old correction.' };
+    generatedMocks.validateWorkflow.mockReturnValueOnce(pending.promise.then(() => {
+      if (delivery === 'rejection') throw new ApiError(422, issue.code, issue.message, [issue]);
+      return { ...validatedSnapshotResponse(), ok: false, snapshot: null, issues: [issue] };
+    }));
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, { initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`] });
+    await authorValidDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    await user.click(screen.getByRole('tab', { name: 'Config' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: /threads/i }), { target: { value: '4' } });
+    await act(async () => { pending.resolve(null); await pending.promise; });
+    expect(await screen.findByText(/Inputs changed while validation was running/)).toBeVisible();
+    expect(screen.queryByText('OLD_CONFLICT')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('validation-errors')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Review current inputs' }));
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(await screen.findByText(/Backend validation succeeded/)).toBeVisible();
+  });
+
+  it.each(['RUN_CREATE_INPUTS_CHANGED', 'RUN_CREATE_UNCONFIRMED'])('retains %s through further edits and revalidation', async (code) => {
+    const pending = deferred<ReturnType<typeof createdRunResponse>>();
+    if (code === 'RUN_CREATE_INPUTS_CHANGED') generatedMocks.createRun.mockReturnValueOnce(pending.promise);
+    else generatedMocks.createRun.mockRejectedValueOnce(new Error('PRIVATE-CREATE-ERROR'));
+    const user = userEvent.setup();
+    const { router } = renderWithRouter(appRoutes, { initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`] });
+    await authorValidDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    const create = await screen.findByRole('button', { name: 'Create run from validated inputs' });
+    await waitFor(() => expect(create).toBeEnabled());
+    await user.click(create);
+    if (code === 'RUN_CREATE_INPUTS_CHANGED') {
+      await user.click(screen.getByRole('tab', { name: 'Config' }));
+      fireEvent.change(screen.getByRole('spinbutton', { name: /threads/i }), { target: { value: '4' } });
+      await act(async () => { pending.resolve(createdRunResponse()); await pending.promise; });
+    }
+    expect(await screen.findByText(code)).toBeVisible();
+    await user.click(screen.getByRole('tab', { name: 'Config' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: /threads/i }), { target: { value: '6' } });
+    expect(screen.getByText(code)).toBeVisible();
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+    expect(screen.getByRole('button', { name: 'Create run from validated inputs' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(await screen.findByText(/Backend validation succeeded/)).toBeVisible();
+    expect(screen.getByText(code)).toBeVisible();
+    expect(screen.queryByText('PRIVATE-CREATE-ERROR')).not.toBeInTheDocument();
+    expect(generatedMocks.createRun).toHaveBeenCalledTimes(1);
+    expect(router.state.location.pathname).toBe(`/workflows/${WORKFLOW_ID}/new-run`);
+  });
+
+
+  it('falls back to the section when a real schema form disables the target control', async () => {
+    const response = successResponse();
+    response.schema!.config_schema = {
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      type: 'object', properties: { processing: {
+        type: 'object', default: { enabled: false }, required: ['enabled'],
+        properties: { enabled: { type: 'boolean' }, method: { type: 'string', enum: ['keep', 'other'] } },
+      } },
+    };
+    generatedMocks.getWorkflowSchema.mockResolvedValue(response);
+    generatedMocks.validateWorkflow.mockResolvedValue({
+      ...validatedSnapshotResponse(), ok: false, snapshot: null,
+      issues: [{ code: 'EXAMPLE_DISABLED', path: 'config.processing.method', message: 'Review processing.', hint: 'Edit the section in YAML.' }],
+    });
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, { initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`] });
+    await user.click(await screen.findByRole('button', { name: 'YAML mode' }));
+    fireEvent.change(screen.getByLabelText('Advanced config YAML'), { target: { value: 'processing: { enabled: false, method: keep }' } });
+    await user.click(screen.getByRole('button', { name: 'Form mode' }));
+    await authorValidDraft(user);
+    const before = screen.getByTestId('draft-review-json').textContent;
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    await user.click(await screen.findByRole('button', { name: 'Go to config.processing.method' }));
+    expect(document.activeElement?.tagName).toBe('LEGEND');
+    expect(document.activeElement?.parentElement?.id).toBe('root_processing');
+    expect(screen.getByRole('combobox', { name: 'method' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'method' })).toHaveDisplayValue('keep');
+    await user.click(screen.getByRole('button', { name: 'YAML mode' }));
+    await user.click(screen.getByRole('button', { name: 'Go to config.processing.method' }));
+    expect(screen.getByLabelText('Advanced config YAML')).toHaveFocus();
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+    expect(screen.getByTestId('draft-review-json').textContent).toBe(before);
+  });
+
 });

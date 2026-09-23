@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+import logging
 import re
 from typing import Protocol
 
@@ -168,7 +169,7 @@ class DeploymentDoctor:
     def run(self) -> DoctorReport:
         checks: list[DoctorCheck] = []
         for check_id, category in CHECKS:
-            result = self._run_probe(self._probes[check_id])
+            result = self._run_probe(self._probes[check_id], check_id)
             checks.append(
                 DoctorCheck(
                     check_id=check_id,
@@ -181,19 +182,37 @@ class DeploymentDoctor:
         return DoctorReport.create(tuple(checks))
 
     @staticmethod
-    def _run_probe(probe: DoctorProbe) -> ProbeResult:
+    def _run_probe(probe: DoctorProbe, check_id: str) -> ProbeResult:
         try:
             result = probe()
         except DeploymentError as error:
             code = error.issue.code
             if code not in PUBLIC_REASON_CODES:
                 code = "DOCTOR_CHECK_FAILED"
+            DeploymentDoctor._log_probe_failure(check_id)
             return ProbeResult(FAIL, code)
         except Exception:
+            DeploymentDoctor._log_probe_failure(check_id)
             return ProbeResult(FAIL, "DOCTOR_CHECK_FAILED")
         if not isinstance(result, ProbeResult):
             return ProbeResult(FAIL, "DOCTOR_RESULT_INVALID")
         return result
+
+    @staticmethod
+    def _log_probe_failure(check_id: str) -> None:
+        # Only the fixed inventory identifier is observable, never probe payloads.
+        phase = check_id if check_id in _CHECK_IDS else "unknown"
+        try:
+            logging.getLogger(__name__).warning(
+                f"DOCTOR_CHECK_FAILED component=deployment_doctor phase={phase}",
+                extra={
+                    "component": "deployment_doctor",
+                    "phase": phase,
+                    "reason_code": "DOCTOR_CHECK_FAILED",
+                },
+            )
+        except Exception:
+            pass  # Keep the existing probe fallback even if a log handler fails.
 
 
 class DeploymentStateProbe:

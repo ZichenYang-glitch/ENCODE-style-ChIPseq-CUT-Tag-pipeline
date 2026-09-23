@@ -761,6 +761,26 @@ jobs:
           cache-environment: true
           cache-environment-key: chipseq-multiqc-${{ runner.os }}-${{ hashFiles('workflow/envs/multiqc.lock') }}
 
+      - name: Setup preseq toolchain
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/preseq.lock
+          environment-name: chipseq-preseq
+          init-shell: none
+          generate-run-shell: false
+          cache-environment: true
+          cache-environment-key: chipseq-preseq-${{ runner.os }}-${{ hashFiles('workflow/envs/preseq.lock') }}
+
+      - name: Setup cross-correlation toolchain
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/phantompeakqualtools.lock
+          environment-name: chipseq-phantompeakqualtools
+          init-shell: none
+          generate-run-shell: false
+          cache-environment: true
+          cache-environment-key: chipseq-phantompeakqualtools-${{ runner.os }}-${{ hashFiles('workflow/envs/phantompeakqualtools.lock') }}
+
       - name: Scientific real-execution suite
         shell: micromamba-shell {0}
         env:
@@ -768,12 +788,14 @@ jobs:
         run: |
           export SNAKEMAKE="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/snakemake"
           export SAMTOOLS="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/samtools"
+          export PRESEQ="$MAMBA_ROOT_PREFIX/envs/chipseq-preseq/bin/preseq"
+          export RUN_SPP="$MAMBA_ROOT_PREFIX/envs/chipseq-phantompeakqualtools/bin/run_spp.R"
           export FASTQC="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/fastqc"
           export TRIM_GALORE="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/trim_galore"
           export MULTIQC="$MAMBA_ROOT_PREFIX/envs/chipseq-multiqc/bin/multiqc"
           micromamba run -n ci-fast \
             python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
-            -m real_execution test/real_execution -ra \
+            -m real_execution test/real_execution test/workflow/test_consensus_execution.py -ra \
             --durations=25 --durations-min=1.0 \
             --junitxml=scientific-real-report.xml
 

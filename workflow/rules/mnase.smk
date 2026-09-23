@@ -451,6 +451,11 @@ rule mnase_qc_summary:
         di_bam=mnase_fragment_bam("{sample}", "di"),
         dyad_bw=mnase_signal_bw("{sample}", "dyad"),
         mono_bw=mnase_signal_bw("{sample}", "mono"),
+        insert_size_metrics=lambda wc: (
+            [f"{OUTDIR}/{wc.sample}/05_qc/picard/{wc.sample}.insert_size_metrics"]
+            if QC_CONFIG.get("picard_metrics", False)
+            else []
+        ),
     output:
         mnase_qc_summary_tsv("{sample}"),
     conda:

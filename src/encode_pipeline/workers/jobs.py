@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from rq import get_current_job
@@ -343,9 +344,30 @@ def _execute_claimed_run(
             # The scientific result and durable indexes are already complete.
             # A deadline interrupt in best-effort email cannot rewrite the RQ
             # job outcome from success to failure.
+            try:
+                logging.getLogger(__name__).warning(
+                    "TERMINAL_NOTIFIER_TIMEOUT component=worker phase=notify_terminal",
+                    extra={
+                        "component": "worker",
+                        "phase": "notify_terminal",
+                        "reason_code": "TERMINAL_NOTIFIER_TIMEOUT",
+                    },
+                )
+            except Exception:
+                pass
             return
         except Exception:
-            pass
+            try:
+                logging.getLogger(__name__).warning(
+                    "TERMINAL_NOTIFIER_FAILED component=worker phase=notify_terminal",
+                    extra={
+                        "component": "worker",
+                        "phase": "notify_terminal",
+                        "reason_code": "TERMINAL_NOTIFIER_FAILED",
+                    },
+                )
+            except Exception:
+                pass
         return
     current = runtime.run_service.get_run(run_id)
     if current.status is RunStatus.CANCELLED:

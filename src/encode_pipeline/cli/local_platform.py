@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 import importlib
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -599,6 +600,18 @@ def _run_json_doctor(args: argparse.Namespace) -> int:
         )
     except Exception:
         environment_checks = ()
+        try:
+            logging.getLogger(__name__).warning(
+                "ENVIRONMENT_CHECK_FAILED "
+                "component=local_platform_doctor phase=environment",
+                extra={
+                    "component": "local_platform_doctor",
+                    "phase": "environment",
+                    "reason_code": "ENVIRONMENT_CHECK_FAILED",
+                },
+            )
+        except Exception:
+            pass
         errors.append(
             {
                 "component": "environment",
@@ -612,6 +625,17 @@ def _run_json_doctor(args: argparse.Namespace) -> int:
         )
     except Exception:
         workflow_checks = ()
+        try:
+            logging.getLogger(__name__).warning(
+                "WORKFLOW_CHECK_FAILED component=local_platform_doctor phase=workflows",
+                extra={
+                    "component": "local_platform_doctor",
+                    "phase": "workflows",
+                    "reason_code": "WORKFLOW_CHECK_FAILED",
+                },
+            )
+        except Exception:
+            pass
         errors.append(
             {
                 "component": "workflows",
@@ -631,6 +655,18 @@ def _run_json_doctor(args: argparse.Namespace) -> int:
             "RUN_RECOVERY_INTERNAL_ERROR",
             RecoveryDoctorCounts(),
         )
+        try:
+            logging.getLogger(__name__).warning(
+                "RUN_RECOVERY_INTERNAL_ERROR "
+                "component=local_platform_doctor phase=recovery",
+                extra={
+                    "component": "local_platform_doctor",
+                    "phase": "recovery",
+                    "reason_code": "RUN_RECOVERY_INTERNAL_ERROR",
+                },
+            )
+        except Exception:
+            pass
     _write_compact_json(
         _doctor_json_payload(
             environment_checks,

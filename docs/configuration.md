@@ -107,22 +107,51 @@ qc:
 
 | Switch | Default | Effect |
 | :--- | :--- | :--- |
-| `blacklist_filter` | `true` | Filter BAMs and peaks against the blacklist BED in genome resources. Requires a blacklist path in `genome_resources`. |
-| `frip` | `true` | Compute FRiP (Fraction of Reads in Peaks) per sample. |
+| `blacklist_filter` | `true` | Create additional blacklist-filtered BAM and peak copies for eligible treatment samples with a configured blacklist BED. Raw outputs remain available; consumers are described below. |
+| `frip` | `true` | Compute read-record FRiP for peak-assay treatment samples, using both filtered copies when blacklist QC applies. |
 | `library_complexity` | `true` | Parse duplicate metrics. Picard fields are reported when Picard is available; otherwise fallback fields are emitted as `NA`. |
-| `nrf_pbc` | `true` | Compute NRF and PBC1/PBC2 from the BAM file (library complexity from read counts). |
-| `signal_tracks` | `true` | Produce MACS3 FE (fold-enrichment) and ppois (Poisson p-value) bedGraph tracks per treatment sample and for pooled experiments. FE/ppois BigWig conversion is available when `genome_resources.<genome>.chrom_sizes` is also configured. |
-| `summary` | `true` | Emit per-sample QC summary TSV and a project-level aggregate at `results/multiqc/project_qc_summary.tsv`. |
+| `nrf_pbc` | `true` | Compute NRF and PBC1/PBC2 from the MAPQ-filtered, duplicate-containing BAM (`{sample}.mapq{mapq}.bam`), before duplicate handling. |
+| `signal_tracks` | `true` | Produce MACS3 FE (fold-enrichment) and ppois (Poisson p-value) bedGraph tracks for eligible peak-assay treatment samples and pooled replicate experiments. FE/ppois BigWig conversion is available when `genome_resources.<genome>.chrom_sizes` is also configured. |
+| `summary` | `true` | Emit per-sample and project QC summaries for peak-assay treatment samples. The project TSV is `results/multiqc/project_qc_summary.tsv`; MNase has its own summary, independent of this switch. |
 | `cuttag_fragment_size` | `true` | Compute CUT&Tag fragment-size statistics for active samples with assay=cuttag. |
-| `cross_correlation` | `false` | Run phantompeakqualtools cross-correlation QC per treatment sample. Produces NSC/RSC metrics (`.cc.qc`) and a cross-correlation plot (`.cc.plot.pdf`). When enabled, also generates a project-level summary at `results/multiqc/cross_correlation_summary.tsv` and exposes it as a MultiQC custom section. See [docs/qc-interpretation.md](qc-interpretation.md) for interpretation guidance. |
-| `preseq_complexity` | `false` | Run preseq library complexity extrapolation (`lc_extrap -B`) per treatment sample. Produces `.preseq.txt`. Complements existing NRF/PBC metrics. |
+| `cross_correlation` | `false` | Run phantompeakqualtools cross-correlation QC per treatment sample. Produces NSC/RSC metrics (`.cc.qc`) and a cross-correlation plot (`.cc.plot.pdf`). When enabled, also generates a project-level summary at `results/multiqc/cross_correlation_summary.tsv` and makes it available to the custom section when MultiQC is enabled. See [docs/qc-interpretation.md](qc-interpretation.md) for interpretation guidance. |
+| `preseq_complexity` | `false` | Run preseq on the same MAPQ-filtered, duplicate-containing BAM per treatment sample. Uses `lc_extrap -B -P` for PE and `lc_extrap -B` for SE, producing `.preseq.txt` when extrapolation succeeds. |
 | `picard_metrics` | `false` | Run Picard CollectMultipleMetrics per treatment sample. Produces alignment summary, insert size, and quality distribution metrics. Requires `genome_resources.<genome>.reference_fasta` with a matching samtools FASTA index (`.fai`) and Picard sequence dictionary (`.dict`) next to the FASTA (e.g. `GRCm39.dict` for `GRCm39.fa`). Uses `VALIDATION_STRINGENCY=LENIENT` because real PE BAMs after MAPQ/flag filtering can trigger mate-field validation warnings (e.g. `INVALID_FLAG_MATE_UNMAPPED`) that would fail the default STRICT mode.
 | `tss_enrichment` | `false` | Run deepTools TSS profile QC per treatment sample. Requires `genome_resources.<genome>.gtf`. Produces `results/reference/<genome>.tss.bed`, `<sample>.tss_matrix.gz`, `<sample>.tss_profile.tsv`, and `<sample>.tss_profile.pdf`. |
 
-The lightweight core QC switches default to `true`. Heavier optional modules
+These 11 defaults come from [`config/qc.py`](../src/encode_pipeline/config/qc.py):
+seven are `true` and four are `false`. Heavier optional modules
 (`cross_correlation`, `preseq_complexity`, `picard_metrics`,
 `tss_enrichment`) default to `false`. Set individual switches explicitly for
-production runs.
+production runs. Default target selection also depends on assay, role and resources;
+for example, a peak summary pulls its component metrics even if their individual
+switches are false. Explicitly requesting a rule output is distinct from default
+target selection.
+
+Blacklist handling is not a global replacement of BAMs, peaks or signal tracks.
+In [`qc.smk`](../workflow/rules/qc.smk), `_has_blacklist_qc` requires both the
+switch and a sample in `BLACKLIST_SAMPLES` (treatment samples with a nonempty
+blacklist genome resource). `_frip_inputs` then requests the filtered BAM **and**
+filtered peaks; otherwise it requests `final.bam` and the original peak directory.
+This is configuration-based DAG selection: missing selected outputs must be
+produced, not silently replaced with raw inputs. `_peak_counts_inputs` requests
+raw peaks and optional filtered peaks, never the filtered BAM.
+
+`final.bam` may retain duplicates according to the duplicate policy.
+Default CPM coverage uses that final BAM in
+[`common.smk`](../workflow/rules/common.smk); MACS3 FE/ppois tracks use MACS3
+pileup/background bedGraphs, not the optional blacklist copies. See
+[QC interpretation](qc-interpretation.md#frip-fraction-of-reads-in-peaks) for
+counting and signal-consumer details. A workspace TSV does not by itself prove
+platform listing/download or complete MultiQC HTML visibility.
+
+MultiQC and reproducibility have separate defaults in
+[`validator.py`](../src/encode_pipeline/config/validator.py) and
+[`reproducibility.py`](../src/encode_pipeline/config/reproducibility.py):
+`multiqc=true`, `replicate_analysis=true`, `chipseq_idr=false`, and
+`reproducibility.enabled=false`. The consensus child default (`true`) does not
+bypass its parent or replicate/assay eligibility. See the
+[reproducibility policy](reproducibility-policy.md#5-config-reference).
 
 ## MNase-seq fragment ranges and caller surface
 

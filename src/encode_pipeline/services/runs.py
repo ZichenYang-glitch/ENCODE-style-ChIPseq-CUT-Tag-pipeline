@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timezone
+import logging
 import re
 from threading import RLock
 from typing import Any
@@ -1123,6 +1124,18 @@ class RunService:
         try:
             self._terminal_notifier.notify_terminal_run(run_id, status)
         except Exception:
+            try:
+                logging.getLogger(__name__).warning(
+                    "TERMINAL_NOTIFIER_FAILED "
+                    "component=run_service phase=notify_terminal",
+                    extra={
+                        "component": "run_service",
+                        "phase": "notify_terminal",
+                        "reason_code": "TERMINAL_NOTIFIER_FAILED",
+                    },
+                )
+            except Exception:
+                pass  # Diagnostics must not alter the durable lifecycle result.
             return
 
     def replace_artifacts(

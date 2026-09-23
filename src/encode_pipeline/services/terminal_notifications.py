@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from email.message import EmailMessage
+import logging
 from urllib.parse import quote
 
 from encode_pipeline.platform.authentication import UserRole, UserStatus
@@ -248,6 +249,18 @@ class TerminalNotificationService:
                 ),
             )
         except Exception:
+            try:
+                logging.getLogger(__name__).warning(
+                    "TERMINAL_EMAIL_EVENT_RECORD_FAILED "
+                    "component=terminal_notifications phase=record_outcome",
+                    extra={
+                        "component": "terminal_notifications",
+                        "phase": "record_outcome",
+                        "reason_code": "TERMINAL_EMAIL_EVENT_RECORD_FAILED",
+                    },
+                )
+            except Exception:
+                pass  # Diagnostics must not change best-effort notification semantics.
             return
 
 

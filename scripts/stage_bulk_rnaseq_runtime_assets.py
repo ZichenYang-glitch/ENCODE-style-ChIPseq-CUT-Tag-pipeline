@@ -565,7 +565,7 @@ def _stage_container_assets(
                 digest_reference,
             ),
         )
-        selected_manifest, config_digest = _validated_selected_manifest(
+        selected_manifest, _config_digest = _validated_selected_manifest(
             selected_output,
             expected_digest=digest,
             expected_size=expected_size,
@@ -595,7 +595,7 @@ def _stage_container_assets(
                 digest_reference,
             ),
         )
-        _verify_pulled_image(inspected, config_digest=config_digest)
+        _verify_pulled_image(inspected, manifest_digest=digest)
 
         manifest_name = f"{digest.removeprefix('sha256:')}.manifest.json"
         archive_name = f"{digest.removeprefix('sha256:')}.docker.tar"
@@ -615,7 +615,7 @@ def _stage_container_assets(
                     "save",
                     "--output",
                     str(temporary_archive),
-                    digest_reference,
+                    digest,
                 ),
             )
             archive_size = _regular_file_size(
@@ -1251,7 +1251,9 @@ def _validate_manifest_shape(value: object) -> None:
             raise StagingError("container_manifest_invalid")
 
 
-def _verify_pulled_image(content: bytes, *, config_digest: str) -> None:
+def _verify_pulled_image(content: bytes, *, manifest_digest: str) -> None:
+    # Admission and execution address the archive's manifest in containerd storage.
+    # The pinned config bytes and layer diff IDs are verified from that archive.
     try:
         value = _strict_json(content)
     except (UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
@@ -1265,7 +1267,7 @@ def _verify_pulled_image(content: bytes, *, config_digest: str) -> None:
     image = value[0]
     rootfs = image.get("RootFS")
     if (
-        image.get("Id") != config_digest
+        image.get("Id") != manifest_digest
         or image.get("Os") != "linux"
         or image.get("Architecture") != "amd64"
         or not isinstance(rootfs, Mapping)

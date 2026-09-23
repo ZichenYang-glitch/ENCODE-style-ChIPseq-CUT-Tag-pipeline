@@ -9,7 +9,7 @@ from encode_pipeline.api.dependencies import (
     get_preflight_service,
     get_run_service,
 )
-from encode_pipeline.api.models import RunResponse
+from encode_pipeline.api.models import RunResponse, ValidationResponse
 from encode_pipeline.api.routes.runs import _run_not_found_issue, _run_record_response
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.preflight import LocalPreflightService
@@ -52,6 +52,7 @@ def _preflight_already_triggered_issue(current_status: str):
     response_model=RunResponse,
     status_code=202,
     operation_id="triggerPreflight",
+    responses={500: {"model": ValidationResponse}},
 )
 async def trigger_preflight(
     run_id: str,

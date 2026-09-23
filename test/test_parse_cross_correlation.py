@@ -7,6 +7,8 @@ import tempfile
 import shutil
 import subprocess
 
+import pytest
+
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_REPO, "scripts"))
 from parse_cross_correlation import (  # noqa: E402
@@ -357,3 +359,102 @@ if __name__ == "__main__":
 
     print(f"\n{passed} passed, {failed} failed, {passed + failed} total")
     sys.exit(0 if failed == 0 else 1)
+
+
+_CC_HEADER = (
+    "Filename\tnumReads\testFragLen\tcorr_estFragLen\tPhantomPeak\t"
+    "corr_phantomPeak\targmin_corr\tmin_corr\tNSC\tRSC\tQualityTag"
+)
+
+
+def _candidate_file(tmp_path, candidates, header, *, nsc="1.12", rsc="1.45"):
+    path = tmp_path / "private" / "sample.cc.qc"
+    path.parent.mkdir(exist_ok=True)
+    row = (
+        f"/private/source.bam\t20000\t{candidates}\t0.8\t50\t0.6\t1500\t0.5\t"
+        f"{nsc}\t{rsc}\t2"
+    )
+    path.write_text((_CC_HEADER + "\n" if header else "") + row + "\n")
+    return path
+
+
+@pytest.mark.parametrize("header", [False, True], ids=["headerless", "header"])
+@pytest.mark.parametrize(
+    "candidates,expected",
+    [
+        ("175", 175.0),
+        (" 300 , 200 ", 300.0),
+        ("300,200,400", 300.0),
+        ("", None),
+        ("  ", None),
+        ("NA", None),
+        (",200", None),
+        ("200,", None),
+        ("200,,300", None),
+        ("NA,200", None),
+        ("bad,200", None),
+        ("200,NA", None),
+        ("200,bad", None),
+        ("200;300", None),
+        ("NaN,200", None),
+        ("200,inf", None),
+    ],
+)
+def test_fragment_candidates_preserve_tool_order(
+    tmp_path, header, candidates, expected
+):
+    result = parse_cc_qc_file(_candidate_file(tmp_path, candidates, header))
+    assert result == {
+        "estimated_fragment_length": expected,
+        "phantom_peak": 50.0,
+        "nsc": 1.12,
+        "rsc": 1.45,
+        "quality_tag": "2",
+    }
+    # An unavailable length does not redefine the existing NSC/RSC-only flag.
+    assert _quality_flag(result["nsc"], result["rsc"]) == "ok"
+
+
+@pytest.mark.parametrize("header", [False, True])
+@pytest.mark.parametrize("field", ["nsc", "rsc"])
+def test_candidate_support_does_not_accept_list_in_other_scalars(
+    tmp_path, header, field
+):
+    result = parse_cc_qc_file(
+        _candidate_file(tmp_path, "300,200", header, **{field: "1.12,1.45"})
+    )
+    assert result["estimated_fragment_length"] == 300.0
+    assert result[field] is None
+    assert _quality_flag(result["nsc"], result["rsc"]) == "parse_failed"
+
+
+@pytest.mark.parametrize("header", [False, True])
+def test_candidate_cli_keeps_seven_columns_and_missing_inputs(tmp_path, header):
+    source = _candidate_file(tmp_path, "300,200,400", header)
+    empty, missing = tmp_path / "empty.cc.qc", tmp_path / "missing.cc.qc"
+    empty.write_text("")
+    output = tmp_path / "summary.tsv"
+    result = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(_REPO, "scripts", "parse_cross_correlation.py"),
+            "--input",
+            str(source),
+            str(empty),
+            str(missing),
+            "--output",
+            str(output),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert output.read_text().splitlines() == [
+        "sample\tcc_qc_file\testimated_fragment_length\tphantom_peak\tnsc\trsc\tquality_flag",
+        "sample\tsample.cc.qc\t300.0\t50.0\t1.12\t1.45\tok",
+        "empty\tempty.cc.qc\tNA\tNA\tNA\tNA\tparse_failed",
+        "missing\tmissing.cc.qc\tNA\tNA\tNA\tNA\tparse_failed",
+    ]
+    assert str(tmp_path) not in output.read_text()
+    assert "/private/" not in output.read_text()
