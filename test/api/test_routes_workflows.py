@@ -126,8 +126,13 @@ def test_list_workflows_returns_encode_and_authoring_only_bulk(
     assert response.status_code == 200
     data = response.json()
     assert data["ok"] is True
-    assert len(data["workflows"]) == 2
+    assert len(data["workflows"]) == 3
     by_id = {item["metadata"]["workflow_id"]: item for item in data["workflows"]}
+    assert list(by_id) == [
+        "encode-style-chipseq-cuttag-atac-mnase",
+        "bulk-rnaseq",
+        "hitrac-preprocess",
+    ]
     item = by_id["encode-style-chipseq-cuttag-atac-mnase"]
     assert "validation" in item["capabilities"]["supports"]
     bulk = by_id["bulk-rnaseq"]
@@ -141,6 +146,21 @@ def test_list_workflows_returns_encode_and_authoring_only_bulk(
     }
     assert bulk["capabilities"]["supports"] == ["validation", "input_authoring"]
     assert bulk["availability"] == {
+        "authoring": "available",
+        "execution": "not_configured",
+        "reason_code": "WORKFLOW_EXECUTION_NOT_CONFIGURED",
+    }
+    hitrac = by_id["hitrac-preprocess"]
+    assert hitrac["metadata"]["name"] == "Hi-TrAC preprocessing"
+    assert hitrac["schema_version"] == "1.0.0"
+    assert hitrac["metadata"]["engines"] == ["hitrac-qualification"]
+    assert hitrac["upstream_identity"] == {
+        "name": "cLoops2/tracPre2",
+        "version": "git-v0.0.5",
+        "revision": "de6cc732fa00b408551b9f4272933640c08447f1",
+    }
+    assert hitrac["capabilities"]["supports"] == ["validation", "input_authoring"]
+    assert hitrac["availability"] == {
         "authoring": "available",
         "execution": "not_configured",
         "reason_code": "WORKFLOW_EXECUTION_NOT_CONFIGURED",

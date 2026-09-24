@@ -32,6 +32,25 @@ from .execution import (
 from .validation import validate_hitrac_inputs
 
 
+AUTHORING_CAPABILITIES = ("validation", "input_authoring")
+EXECUTION_CAPABILITIES = ("workspace_plan", "command")
+
+
+def declared_capabilities(runtime: RuntimeAdmission | None) -> WorkflowCapabilities:
+    """Declare execution ownership only once a runtime has been admitted.
+
+    Authoring is available with no operator coordinates; the execution-owned
+    capabilities appear together with the admitted runtime, mirroring the
+    bundled bulk RNA-seq composition so an unconfigured workflow never declares
+    execution it cannot perform.
+    """
+    if runtime is None:
+        return WorkflowCapabilities(supports=AUTHORING_CAPABILITIES)
+    return WorkflowCapabilities(
+        supports=(*AUTHORING_CAPABILITIES, *EXECUTION_CAPABILITIES)
+    )
+
+
 class HiTracPreprocessAdapter:
     metadata = WorkflowMetadata(
         workflow_id=WORKFLOW_ID,
@@ -46,9 +65,7 @@ class HiTracPreprocessAdapter:
         version="git-v0.0.5",
         revision="de6cc732fa00b408551b9f4272933640c08447f1",
     )
-    capabilities = WorkflowCapabilities(
-        supports=("validation", "input_authoring", "workspace_plan", "command")
-    )
+    capabilities = WorkflowCapabilities(supports=AUTHORING_CAPABILITIES)
 
     def __init__(
         self,
@@ -64,6 +81,7 @@ class HiTracPreprocessAdapter:
             raise ValueError("invalid execution binding")
         self._runtime = runtime
         self._binding = binding
+        self.capabilities = declared_capabilities(runtime)
 
     def schema(self):
         return build_hitrac_authoring_schema()

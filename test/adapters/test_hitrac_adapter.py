@@ -188,10 +188,10 @@ def test_default_registry_results_stay_unconfigured_without_runtime():
     assert isinstance(adapter, ReferenceProfileBindingAdapter)
     assert isinstance(adapter, WorkflowAvailabilityProvidingAdapter)
     assert isinstance(adapter, WorkflowBuildIdentityProvidingAdapter)
-    assert isinstance(adapter, QcSummaryExtractingAdapter)
-    assert {"artifact_extract", "qc_summary_extract"}.issubset(
-        adapter.capabilities.supports
-    )
+    # Authoring-only composition: execution-owned capabilities, and the optional
+    # QC protocol they gate, arrive only with an admitted runtime.
+    assert not isinstance(adapter, QcSummaryExtractingAdapter)
+    assert adapter.capabilities.supports == ("validation", "input_authoring")
     descriptor = WorkflowInfoService(registry).get_descriptor(WORKFLOW).value
     assert descriptor.availability.execution == "not_configured"
     assert descriptor.availability.reason_code == "WORKFLOW_EXECUTION_NOT_CONFIGURED"

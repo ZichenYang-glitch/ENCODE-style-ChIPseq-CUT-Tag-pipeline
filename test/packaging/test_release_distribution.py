@@ -563,6 +563,7 @@ metadata = registry.list_metadata()
 assert [item.workflow_id for item in metadata] == [
     "encode-style-chipseq-cuttag-atac-mnase",
     "bulk-rnaseq",
+    "hitrac-preprocess",
 ]
 runtime = Path(__import__("os").environ["RELEASE_RUNTIME_ROOT"])
 app = create_app(
@@ -599,4 +600,5 @@ print(json.dumps([item.workflow_id for item in metadata]))
     assert json.loads(completed.stdout) == [
         "encode-style-chipseq-cuttag-atac-mnase",
         "bulk-rnaseq",
+        "hitrac-preprocess",
     ]

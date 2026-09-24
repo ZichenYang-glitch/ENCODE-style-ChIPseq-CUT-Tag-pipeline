@@ -25,7 +25,14 @@ from encode_pipeline.platform.results import Result
 from .adapter import HiTracPreprocessAdapter
 from .admission import _regular, sha256_file
 from .calls import CallFailure, digest, plan_calls, strict_json, verify_calls
-from .execution import ATTEMPT, REQUEST, encoded, failure
+from .execution import (
+    ATTEMPT,
+    REQUEST,
+    ExecutionBinding,
+    RuntimeAdmission,
+    encoded,
+    failure,
+)
 from .outputs import iter_bedpe, summary_columns, verify_outputs
 from .pairs import verify_pairs
 from .qualification import implementation_identity
@@ -346,13 +353,22 @@ class HiTracPreprocessResultsAdapter(HiTracPreprocessAdapter):
         HiTracPreprocessAdapter.metadata,
         description="Pinned tracPre2 preprocessing with verified BEDPE and sample QC results.",
     )
-    capabilities = WorkflowCapabilities(
-        supports=(
-            *HiTracPreprocessAdapter.capabilities.supports,
-            "artifact_extract",
-            "qc_summary_extract",
-        )
-    )
+
+    def __init__(
+        self,
+        *,
+        runtime: RuntimeAdmission | None = None,
+        binding: ExecutionBinding | None = None,
+    ):
+        super().__init__(runtime=runtime, binding=binding)
+        if self._runtime is not None:
+            self.capabilities = WorkflowCapabilities(
+                supports=(
+                    *self.capabilities.supports,
+                    "artifact_extract",
+                    "qc_summary_extract",
+                )
+            )
 
     def requires_atomic_result_publication(self):
         return True

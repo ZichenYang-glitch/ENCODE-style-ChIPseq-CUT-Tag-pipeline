@@ -17,6 +17,7 @@ import yaml
 
 from encode_pipeline.adapters.bulk_rnaseq import BulkRnaSeqWorkflowAdapter
 from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
+from encode_pipeline.adapters.hitrac_preprocess.adapter import HiTracPreprocessAdapter
 from encode_pipeline.platform.adapters import (
     CommandSpec,
     DagNode,
@@ -383,6 +384,35 @@ def _bulk_authoring_case(
     )
 
 
+def _hitrac_authoring_case(
+    tmp_path: Path,
+    *,
+    adapter: HiTracPreprocessAdapter,
+) -> AdapterConformanceCase:
+    workdir = tmp_path / "hitrac"
+    valid_inputs = WorkflowInputs(
+        config={},
+        samples=[
+            {
+                "sample_id": "sample 1",
+                "fastq_1": str((workdir / "reads_1.fastq.gz").resolve()),
+                "fastq_2": str((workdir / "reads_2.fastq.gz").resolve()),
+            }
+        ],
+    )
+    invalid_inputs = WorkflowInputs(
+        config={},
+        samples=[{"sample_id": "", "fastq_1": "", "fastq_2": ""}],
+    )
+    return AdapterConformanceCase(
+        adapter=adapter,
+        valid_inputs=valid_inputs,
+        invalid_inputs=invalid_inputs,
+        planning_workspace=(workdir / "planned").resolve(),
+        artifact_workspace=(workdir / "artifacts").resolve(),
+    )
+
+
 def test_minimal_adapter_passes_reusable_conformance_suite(tmp_path):
     verify_adapter_conformance(_minimal_case(tmp_path))
 
@@ -398,10 +428,12 @@ def test_default_registry_exact_instances_pass_registry_conformance(
     registry = create_default_workflow_registry(environ={})
     encode = registry.get("encode-style-chipseq-cuttag-atac-mnase")
     bulk = registry.get("bulk-rnaseq")
+    hitrac = registry.get("hitrac-preprocess")
 
     cases = (
         _encode_case(tmp_path, monkeypatch, adapter=encode),
         _bulk_authoring_case(tmp_path, adapter=bulk),
+        _hitrac_authoring_case(tmp_path, adapter=hitrac),
     )
 
     verify_registry_conformance(registry, cases)

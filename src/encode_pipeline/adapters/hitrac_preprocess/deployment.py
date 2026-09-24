@@ -20,17 +20,22 @@ _RUNTIME_LOCK_SHA256 = (
 
 
 def load_default_hitrac_adapter(environ=None):
+    """Return authoring-only or fully admitted execution composition.
+
+    Missing or unadmitted coordinates compose the authoring-only adapter, so the
+    registered product never declares execution it cannot perform.
+    """
     values = os.environ if environ is None else environ
     path = values.get("HELIXWEAVE_HITRAC_RUNTIME_BINDING")
     expected = values.get("HELIXWEAVE_HITRAC_RUNTIME_SHA256")
     if not path or not expected:
-        return HiTracPreprocessResultsAdapter()
+        return HiTracPreprocessAdapter()
     try:
         return HiTracPreprocessResultsAdapter(
             runtime=admit_runtime(Path(path), expected)
         )
     except (OSError, TypeError, ValueError):
-        return HiTracPreprocessResultsAdapter()
+        return HiTracPreprocessAdapter()
 
 
 def local_execution_executable(adapter):
