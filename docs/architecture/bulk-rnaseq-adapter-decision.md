@@ -246,6 +246,26 @@ daemon operation that materializes only after the complete bounded budget is
 an unavoidable external-runtime residual rather than a claim of unbounded
 cleanup.
 
+The descendant freeze proof is bounded, and it states what it cannot see. A
+registered descendant that exits *inside* the freeze window retires from the
+proof with its PID/start-time identity recorded instead of failing the stop: its
+parent is stopped and cannot reap it, so a submission burst makes such exits
+routine, and treating them as a lost tree left the run unacknowledged in
+`running` instead of reaching a terminal cancellation. The relaxation is bounded
+wherever a violation is observable. The root must stay live and frozen, so a lost
+root remains fatal. A member whose identity changed underneath the cleanup
+remains fatal, and an identity read that is denied or malformed is never taken
+for an exit. Every identity the cleanup signals is registered strictly before the
+first kill signal. After the group kill no live process may remain in the horse's
+kernel-maintained process group, which covers the same-group orphan of a member
+that exited in the window. A member that exited before this scope adopted the
+tree, having already started its own session, leaves an independent session
+subtree with no kernel process-table entry left to enumerate; that shape is
+outside this proof and is reported by the diagnostic census that runs with every
+confirmed cleanup. It is an unavoidable residual of an after-the-fact ownership
+proof rather than a claim of complete attribution, and closing it would require
+adopting orphans for the worker's whole lifetime.
+
 Stdout/stderr are bounded and redacted before durable callbacks. The adapter
 also declares the Nextflow preflight and execution logs as managed logs; the
 platform reads them descriptor-relatively with no-follow/type/size/race checks,

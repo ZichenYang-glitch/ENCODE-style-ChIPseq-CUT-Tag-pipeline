@@ -28,6 +28,36 @@ def _read_regular(path: Path, *, tail: bool = False) -> tuple[bytes, int]:
         return stream.read(_LOG_LIMIT), metadata.st_size
 
 
+def resolve_private_diagnostics_root(evidence_root: Path) -> Path:
+    """Return the owner-only directory that holds raw, unpublished diagnostics.
+
+    Every raw capture shares this rule set: the directory must be canonical,
+    outside every uploadable evidence glob, outside a configured runner's
+    cleanup, and owner-only. A caller that cannot satisfy the rule fails closed
+    instead of writing raw text somewhere it could be published.
+    """
+    configured = os.environ.get(PRIVATE_DIAGNOSTICS_ENV)
+    private_root = (
+        Path(configured) if configured else evidence_root.parent / "private-diagnostics"
+    )
+    if not private_root.is_absolute() or private_root.resolve() != private_root:
+        raise ValueError("private diagnostics directory must be canonical")
+    if "evidence" in private_root.parts:
+        raise ValueError("raw diagnostics must stay outside evidence upload globs")
+    runner_temp = os.environ.get("RUNNER_TEMP")
+    if configured and runner_temp and private_root.is_relative_to(Path(runner_temp)):
+        raise ValueError("configured diagnostics must survive runner cleanup")
+    private_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    metadata = private_root.lstat()
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.getuid()
+        or stat.S_IMODE(metadata.st_mode) != 0o700
+    ):
+        raise ValueError("private diagnostics directory must be owner-only")
+    return private_root
+
+
 def preserve_execution_failure(
     *,
     workspace: Path,
@@ -56,34 +86,12 @@ def preserve_execution_failure(
         "files": files,
     }
     try:
-        configured = os.environ.get(PRIVATE_DIAGNOSTICS_ENV)
-        private_root = (
-            Path(configured)
-            if configured
-            else evidence_root.parent / "private-diagnostics"
-        )
-        if not private_root.is_absolute() or private_root.resolve() != private_root:
-            raise ValueError("private diagnostics directory must be canonical")
-        if "evidence" in private_root.parts:
-            raise ValueError("raw diagnostics must stay outside evidence upload globs")
-        runner_temp = os.environ.get("RUNNER_TEMP")
-        if (
-            configured
-            and runner_temp
-            and private_root.is_relative_to(Path(runner_temp))
-        ):
-            raise ValueError("configured diagnostics must survive runner cleanup")
-        private_root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        metadata = private_root.lstat()
-        if (
-            not stat.S_ISDIR(metadata.st_mode)
-            or metadata.st_uid != os.getuid()
-            or stat.S_IMODE(metadata.st_mode) != 0o700
-        ):
-            raise ValueError("private diagnostics directory must be owner-only")
+        private_root = resolve_private_diagnostics_root(evidence_root)
         destination = Path(tempfile.mkdtemp(prefix="failure-", dir=private_root))
         document["private_record"] = destination.name
-        document["persistent_destination_configured"] = bool(configured)
+        document["persistent_destination_configured"] = bool(
+            os.environ.get(PRIVATE_DIAGNOSTICS_ENV)
+        )
 
         def save(label: str, content: bytes, source_size: int) -> None:
             with (destination / label).open("xb") as stream:

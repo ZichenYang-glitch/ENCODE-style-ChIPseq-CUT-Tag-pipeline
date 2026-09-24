@@ -524,3 +524,61 @@ F2 发布失败的首次/旧 bundle 场景经原服务、SQLite repository 与�
 完整 Protected Bulk Gate 按用户决定留本轮之后的集成收尾，只覆盖最终精确身份；
 本轮不追认历史/中间身份，G0、PR-6 在线 staging 全链与完整 ENCODE 摘要保护
 边界继续保留。证据、命令与原始日志：`/tmp/helix-h5-XTvzkxCP/`。
+
+## 13. H5 取消确认返修（2026-09-25，本轮修复，待独立验收）
+
+H5 之后的完整 Bulk Gate-2 取消用例未达终态：run 永久停在 `running`
+（`ended_at`/`cancellation_acknowledged_at` 均空）。根因不在 Redis/QoS，而在
+[DurableWorker](../../src/encode_pipeline/workers/timeouts.py) 的冻结证明本身。
+
+H5-era 冻结窗口内，任意一个已登记下行成员**正常退出**即触发致命分支。其父进程刚被
+`SIGSTOP`，无法 `wait()` 回收，该成员以僵尸形态留在
+`/proc/<ppid>/task/<tid>/children`；`_require_frozen_member` 把「不存在或已是僵尸」
+一律判为失根致命 → `kill_horse` 抛错 → `_nested_cleanup_completed` 永不写入 →
+`wait_for_horse` 抛错 → RQ 裸 `except` 吞掉并以 0 退出 → 停止回调不执行。Nextflow
+提交突发（大量 `.command.run` 同时存在）下这是常态，不是异常；F1 契约只要求**根**的
+死亡保持致命，并未要求对正常结束的下行成员中止——该行为是实现副作用。
+
+根因由两条独立证据链确证：(1) 真实 Gate-2 现场 worker 私有 stderr 的两条 traceback
+（停止线程 `command.py:141 → timeouts.py:434 → :183 → :80`；主线程
+`base.py:636 → worker_classes.py:156 → :346 → :88 → :372`），`worker-exit.json`
+为 `{"returncode":0}`；(2) 不依赖 Redis/容器/Nextflow 的独立微复现
+`probe-cancel-freeze-abort-4`，触发点为僵尸成员、其父是树内成员、`is_root=false`。
+RQ/Redis 层异常与回调硬超时已排除。
+
+按用户裁决做**有界放宽 + 内核正向证明**（不改变契约本质、不延长窗口、不直接标
+CANCELLED、不删除失根检查）：
+
+- **根严格不变**：根必须存活且冻结；根的消失/僵尸仍致命。
+- 已登记成员的正常退出（`_member_visibility == "gone"`）改为「已知归属的退出事件」：
+  PID+starttime 记入 `exited`，从冻结证明中剔除。**身份改变**（starttime 不符）仍致命；
+  身份读取被拒或格式异常仍致命，**不当作退出**。
+- **登记时序**：`registered`（根 + 全部 tracked + 全部 exited）在第一个 kill 信号之前
+  成型；`_record_owned_cleanup` 在写完成标记**之前**先落日志/报告（证据先于确认）。
+- **正向证明①（同组完备性）**：`killpg(horse_pid)` 之后，所有 `pgrp == horse_pid` 的
+  存活进程必须为空。进程组归属由内核维护、不随重挂丢失，覆盖已退出成员留下的**同组**
+  孤儿。
+- **正向证明②（孤儿归属检查，诊断）**：`_uncovered_processes` 报告既不在登记集合、
+  又落在 horse 进程组、或作为 worker 新收养子进程出现的存活进程；只记诊断事件，
+  不静默，也不作为确认依据。
+
+**残余风险（显性记录）**：在本次清理作用域收养树之前就已退出、且已 `setsid` 的成员，
+其独立 session 子树在内核中已无进程表项可枚举，既不在 horse 组内、也不一定在 worker
+收养表内，因此不在证明覆盖范围内。取消路径对该形态保留诊断钩子（`uncovered` 记录 +
+worker 警告日志），但这是「本轮证据中未出现」，不是「证明不可能出现」。关闭该残余需要
+worker 全程 subreaper + 全作业期孤儿归属（更大的契约改造），不在本轮范围。
+
+回归见 [test_relaxed_owned_cleanup.py](../../test/workers/test_relaxed_owned_cleanup.py)：
+动态覆盖「成员在冻结窗口内正常退出仍确认清理」，并含否定用例「根丢失仍致命」「身份
+改变仍致命」，以及登记时序（第一个 `killpg` 之前无新的归属发现、每个 SIGKILL 目标都
+已登记）与 `_member_visibility` 四态分类。原 F1 6 项、F2 18 项、timeouts、nested/owned
+horse、atomic bundle 共 **83 项**保持通过，`test/workers` 全层 **304 通过**。
+`workers/timeouts.py` 同时属于 Bulk 与 Hi-TrAC 两个执行闭包，Bulk 走正式生成器
+（`scripts/generate_bulk_rnaseq_execution_manifest.py`）、Hi-TrAC 走产品函数
+`implementation_identity()` 重算：Bulk `965a9e78…`→`b4dd6488…`，Hi-TrAC
+`fe775ae8…`→`88e81e8b…`，路径集不变（119/63），persistence contract
+`ecf0e206…` 不变。冻结后同一工作区内，独立探针以同一棵真实进程树记录登记时序与
+残余形态：`probes/cancel_freeze_abort_probe.py`（A 分支修复前后由
+「Workflow tree was lost before freezing.」变为确认清理；C 场景的独立 session 孤儿
+在清理后仍存活）与 `probes/registration_order_probe.py`（首个 killpg 之后无归属发现、
+每个 SIGKILL 目标都在 `registered` 内、组内无存活进程、两条警告均已落日志）。

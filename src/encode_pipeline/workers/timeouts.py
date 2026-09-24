@@ -133,19 +133,201 @@ def _stopped_or_gone(pid: int, starttime: int) -> bool:
     return state is None or state in {"T", "t", "Z", "X", "x"}
 
 
+def _process_stat_fields(pid: int) -> tuple[str, int, int, int, int] | None:
+    """Read state/ppid/pgrp/session/starttime; ``None`` only when truly absent."""
+    try:
+        value = Path(f"/proc/{pid}/stat").read_text()
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeError):
+        raise ProcessRunnerCleanupError("Process state is unavailable.") from None
+    closing = value.rfind(")")
+    if closing < 0:
+        raise ProcessRunnerCleanupError("Process state is invalid.")
+    fields = value[closing + 2 :].split()
+    if len(fields) < 20 or len(fields[0]) != 1:
+        raise ProcessRunnerCleanupError("Process state is invalid.")
+    try:
+        return (
+            fields[0],
+            int(fields[1]),
+            int(fields[2]),
+            int(fields[3]),
+            int(fields[19]),
+        )
+    except ValueError:
+        raise ProcessRunnerCleanupError("Process state is invalid.") from None
+
+
+def _member_visibility(pid: int, starttime: int) -> str:
+    """Classify a *registered* member: ``frozen``, ``live``, ``gone``, ``changed``.
+
+    The identity decision goes through the injectable owned-stat seam, so a
+    denied or malformed identity read is never silently treated as an exit; only
+    ``gone`` may retire a member from the freeze proof.
+    """
+    current = _owned_stat(pid)
+    if current is None:
+        return "gone"
+    if current[1] != starttime:
+        return "changed"
+    fields = _process_stat_fields(pid)
+    if fields is None:
+        # The entry vanished between the two reads: an exit, not a change.
+        return "gone"
+    state, _ppid, _pgrp, _session, observed = fields
+    if observed != starttime:
+        return "changed"
+    if state in {"Z", "X", "x"}:
+        return "gone"
+    if state in {"T", "t"}:
+        return "frozen"
+    return "live"
+
+
+def _live_process_census() -> tuple[tuple[int, int, str, int, int, int], ...]:
+    """Snapshot live processes as (pid, ppid, state, pgrp, session, starttime).
+
+    An entry that cannot be read is skipped instead of failing this tree: F1
+    established that a failure in an unrelated proc entry is not a failure of
+    the owned tree. A live process in the worker's session was created by this
+    worker's user and is readable, so an unreadable entry cannot be one of the
+    horse's descendants -- the only shape that can share its process group.
+    """
+    try:
+        with os.scandir("/proc") as entries:
+            pids = sorted(
+                int(entry.name) for entry in entries if entry.name.isdecimal()
+            )
+    except OSError:
+        raise ProcessRunnerCleanupError("Process table is unavailable.") from None
+    rows = []
+    for pid in pids:
+        try:
+            fields = _process_stat_fields(pid)
+        except ProcessRunnerCleanupError:
+            continue
+        if fields is None:
+            continue
+        state, ppid, pgrp, session, starttime = fields
+        if state in {"Z", "X", "x"}:
+            continue
+        rows.append((pid, ppid, state, pgrp, session, starttime))
+    return tuple(rows)
+
+
+def _live_group_members(group_id: int) -> tuple[tuple[int, int], ...]:
+    """Live processes whose kernel-maintained process group is ``group_id``.
+
+    Group membership cannot be changed by a third party and survives
+    reparenting, so an empty group is a positive completeness proof for every
+    descendant that never started its own session -- including the orphan of a
+    member that exited inside the freeze window.
+    """
+    return tuple(
+        (pid, starttime)
+        for pid, _ppid, _state, pgrp, _session, starttime in _live_process_census()
+        if pgrp == group_id
+    )
+
+
+def _uncovered_processes(
+    horse_pid: int,
+    registered: tuple[tuple[int, int], ...],
+) -> tuple[dict[str, object], ...]:
+    """Report live processes the ownership proof cannot account for.
+
+    Diagnostic evidence only, never a substitute for a proof. A member that
+    exited before the subreaper scope adopted the tree leaves no kernel process
+    table entry behind, so an independent session subtree it started cannot be
+    enumerated here at all; this census is the best available signal and must
+    not be read as proof of absence.
+    """
+    known = set(registered)
+    worker_pid = os.getpid()
+    try:
+        worker_session: int | None = os.getsid(0)
+    except OSError:  # pragma: no cover - diagnostic best effort
+        worker_session = None
+    seen = []
+    for pid, ppid, state, pgrp, session, starttime in _live_process_census():
+        if pid == horse_pid or (pid, starttime) in known:
+            continue
+        if pgrp == horse_pid:
+            reason = "process-group member outside the registered tree"
+        elif ppid == worker_pid:
+            reason = "reparented live child outside the registered tree"
+        else:
+            continue
+        seen.append(
+            {
+                "pid": pid,
+                "starttime": starttime,
+                "ppid": ppid,
+                "state": state,
+                "pgrp": pgrp,
+                "session": session,
+                "worker_session": worker_session,
+                "reason": reason,
+            }
+        )
+    return tuple(seen)
+
+
+@dataclass(frozen=True)
+class _OwnedCleanupReport:
+    """Ownership evidence from one confirmed frozen-tree cleanup.
+
+    ``registered`` is complete strictly before the first kill signal: every
+    identity the cleanup relies on was observed alive with that exact
+    starttime. ``exited`` lists members that terminated inside the freeze
+    window -- their own identity is proven, but any descendant they reparented
+    away before this scope adopted the tree is not covered by the proof.
+    ``uncovered`` is diagnostic evidence, never part of the proof.
+    """
+
+    horse_pid: int
+    horse_starttime: int
+    registered: tuple[tuple[int, int], ...]
+    exited: tuple[tuple[int, int], ...]
+    uncovered: tuple[dict[str, object], ...]
+
+
 def _kill_owned_horse_tree(
     horse_pid: int,
     root_starttime: int,
     kill_horse: Callable[[], None],
-) -> None:
+) -> _OwnedCleanupReport:
     """Freeze an owned tree before killing it, including nested sessions.
 
     The RQ parent retains its direct horse wait status. Only captured descendant
     identities are adopted/reaped; unrelated children are never collected via
     the subreaper's generic newly-adopted-child discovery.
+
+    A registered descendant that exits *inside* the freeze window retires from
+    the freeze proof instead of failing it. Its parent is stopped and cannot
+    ``wait`` for it, so a Nextflow submission burst makes such exits routine;
+    treating them as a lost tree strands the run in ``running`` forever. The
+    retirement is bounded:
+
+    * the root must stay live and frozen -- a lost root remains fatal;
+    * a member whose identity changed remains fatal;
+    * every identity the cleanup relies on is registered before any kill;
+    * after the group kill no live process may remain in the horse's
+      kernel-maintained process group.
+
+    Residual, deliberately outside the proof: a member that exited *before* this
+    scope adopted the tree, having already started its own session. Its
+    independent session subtree has no kernel entry left to enumerate, so it
+    cannot be attributed or killed. ``_uncovered_processes`` reports whatever is
+    still observable; it is diagnostic evidence and never a substitute for the
+    proof.
     """
     tracked: dict[int, int] = {}
+    exited: dict[int, int] = {}
     cleaned = False
+    uncovered: tuple[dict[str, object], ...] = ()
+    registered: tuple[tuple[int, int], ...] = ((horse_pid, root_starttime),)
     try:
         with _LinuxSubreaper(strict=True):
             root = _owned_stat(horse_pid)
@@ -155,45 +337,86 @@ def _kill_owned_horse_tree(
                 _signal_owned(horse_pid, root_starttime, signal.SIGSTOP)
                 deadline = time.monotonic() + 2.0
                 previous = None
+
+                def retire_exited_members() -> tuple[bool, bool]:
+                    """Retire members that exited; report (retired, all frozen).
+
+                    Every registered non-root identity is read through the
+                    injectable owned-stat seam, so a denied or malformed identity
+                    read stays fatal instead of passing as an exit. A member that
+                    exited is retired with its identity recorded; only the root
+                    keeps the strict live-and-frozen requirement.
+                    """
+                    retired_any = False
+                    all_frozen = True
+                    for pid, starttime in list(tracked.items()):
+                        visibility = _member_visibility(pid, starttime)
+                        if visibility == "changed":
+                            raise ProcessRunnerCleanupError(
+                                "Owned child identity changed."
+                            )
+                        if visibility == "gone":
+                            exited[pid] = starttime
+                            tracked.pop(pid, None)
+                            retired_any = True
+                            continue
+                        if visibility != "frozen":
+                            all_frozen = False
+                    return retired_any, all_frozen
+
                 while time.monotonic() < deadline:
                     # Parent-before-child stopping closes the fork window. A
-                    # second full scan must see the same stopped identities.
-                    members = ((horse_pid, root_starttime), *tracked.items())
-                    frozen = [
-                        _require_frozen_member(pid, starttime)
-                        for pid, starttime in members
-                    ]
-                    if not all(frozen):
+                    # registered descendant that exited inside it is retired here
+                    # with its identity recorded; only the root, and any identity
+                    # that changed underneath us, stays fatal.
+                    _require_frozen_member(horse_pid, root_starttime)
+                    if retire_exited_members()[0]:
+                        previous = None
                         time.sleep(0.02)
                         continue
-                    for pid, _starttime in members:
+                    for pid, starttime in tracked.items():
+                        _signal_owned(pid, starttime, signal.SIGSTOP)
+                    retired, all_frozen = retire_exited_members()
+                    if retired or not all_frozen:
+                        time.sleep(0.02)
+                        continue
+                    for pid in (horse_pid, *tracked):
                         for child, starttime in _linux_descendants(pid):
-                            if child in tracked and tracked[child] != starttime:
+                            known = tracked.get(child, exited.get(child))
+                            if known is None:
+                                tracked[child] = starttime
+                            elif known != starttime:
                                 raise ProcessRunnerCleanupError(
                                     "Owned child identity changed."
                                 )
-                            tracked[child] = starttime
-                    for pid, starttime in tracked.items():
-                        _signal_owned(pid, starttime, signal.SIGSTOP)
+                    # A member discovered in this pass may have exited already --
+                    # its stopped parent cannot reap it -- so retire it before
+                    # the next pass turns it into a fatal zombie requirement.
+                    if retire_exited_members()[0]:
+                        previous = None
+                        time.sleep(0.02)
+                        continue
                     identities = tuple(sorted(tracked.items()))
                     members = ((horse_pid, root_starttime), *identities)
                     # Inspect every member even if an earlier one is not yet
                     # stopped: a lost later member cannot be hidden by all().
-                    frozen = [
-                        _require_frozen_member(pid, starttime)
-                        for pid, starttime in members
-                    ]
-                    stopped = all(frozen) and all(
+                    stopped = [
                         _stopped_or_gone(pid, starttime) for pid, starttime in members
-                    )
-                    if stopped and identities == previous:
-                        # Reconfirm live frozen identities after the last reads;
-                        # a zombie root is never a substitute for this proof.
-                        confirmed = [
-                            _require_frozen_member(pid, starttime)
-                            for pid, starttime in members
-                        ]
-                        if all(confirmed):
+                    ]
+                    retired, all_frozen = retire_exited_members()
+                    if retired:
+                        previous = None
+                        time.sleep(0.02)
+                        continue
+                    if all_frozen and all(stopped) and identities == previous:
+                        # Reconfirm after the last reads; a zombie root is never
+                        # a substitute for this proof.
+                        retired, all_frozen = retire_exited_members()
+                        if (
+                            not retired
+                            and all_frozen
+                            and _require_frozen_member(horse_pid, root_starttime)
+                        ):
                             break
                     previous = identities
                     time.sleep(0.02)
@@ -201,12 +424,20 @@ def _kill_owned_horse_tree(
                     raise ProcessRunnerCleanupError(
                         "Nested workflow tree did not stabilize."
                     )
+                # Registration is complete here, strictly before the first kill
+                # below: every identity this cleanup signals or vouches for was
+                # observed alive with this exact starttime.
+                registered = (
+                    (horse_pid, root_starttime),
+                    *tuple(sorted(tracked.items())),
+                    *tuple(sorted(exited.items())),
+                )
             finally:
                 # Best-effort termination is limited to still-confirmed owned
                 # identities. Unknown identities may remain alive or stopped;
                 # that failure must never become a cleanup acknowledgement.
                 failed = False
-                for pid, starttime in reversed(tuple(tracked.items())):
+                for pid, starttime in reversed((*tracked.items(), *exited.items())):
                     try:
                         _signal_owned(pid, starttime, signal.SIGKILL)
                     except (OSError, ProcessRunnerCleanupError):
@@ -219,6 +450,14 @@ def _kill_owned_horse_tree(
                 deadline = time.monotonic() + 2.0
                 while time.monotonic() < deadline:
                     live = []
+                    for pid in exited:
+                        # Reaping an already-exited member is hygiene only: a
+                        # non-child wait is ignored and it can never acknowledge
+                        # the cleanup.
+                        try:
+                            os.waitpid(pid, os.WNOHANG)
+                        except (ChildProcessError, OSError):
+                            pass
                     for pid, starttime in tracked.items():
                         try:
                             if not _linux_process_matches(pid, starttime):
@@ -232,12 +471,26 @@ def _kill_owned_horse_tree(
                         except (OSError, ProcessRunnerCleanupError):
                             failed = True
                             live.append(pid)
+                    # Group completeness: membership survives reparenting, so an
+                    # empty group covers every same-group descendant, including
+                    # the orphan of a member that exited in the freeze window.
+                    try:
+                        group_live = _live_group_members(horse_pid)
+                    except ProcessRunnerCleanupError:
+                        failed = True
+                        group_live = ()
                     if failed:
                         break
-                    if not live:
-                        cleaned = not failed
+                    if not live and not group_live:
+                        cleaned = True
                         break
                     time.sleep(0.02)
+                try:
+                    uncovered = _uncovered_processes(horse_pid, registered)
+                except ProcessRunnerCleanupError:  # pragma: no cover - diagnostics
+                    uncovered = (
+                        {"reason": "uncovered-process census was unavailable"},
+                    )
                 if not cleaned:
                     raise ProcessRunnerCleanupError(
                         "Nested workflow cleanup could not be confirmed."
@@ -248,6 +501,13 @@ def _kill_owned_horse_tree(
         raise ProcessRunnerCleanupError(
             "Nested workflow cleanup could not be confirmed."
         ) from None
+    return _OwnedCleanupReport(
+        horse_pid=horse_pid,
+        horse_starttime=root_starttime,
+        registered=registered,
+        exited=tuple(sorted(exited.items())),
+        uncovered=uncovered,
+    )
 
 
 @dataclass
@@ -431,7 +691,13 @@ class DurableWorker(Worker):
                     raise ProcessRunnerCleanupError(
                         "Workflow root was lost before freezing."
                     )
-                _kill_owned_horse_tree(horse_pid, owned_root[1], kill_owned_horse)
+                report = _kill_owned_horse_tree(
+                    horse_pid, owned_root[1], kill_owned_horse
+                )
+                # Evidence before acknowledgement: the completion marker below
+                # is only written once the relaxation and every process the
+                # proof could not account for have been recorded.
+                self._record_owned_cleanup(report)
                 self._nested_cleanup_completed = (
                     self.__dict__.get("_nested_stopped_job_id"),
                     horse_pid,
@@ -441,6 +707,35 @@ class DurableWorker(Worker):
             else:
                 kill_owned_horse()
         return None
+
+    def _record_owned_cleanup(self, report: _OwnedCleanupReport | None) -> None:
+        """Surface a relaxed or incompletely attributed cleanup; never silently."""
+        self.__dict__["_nested_cleanup_report"] = report
+        if report is None:  # pragma: no cover - injected cleanup stubs
+            return
+        self.log.info(
+            "Owned cleanup confirmed: %d identity(ies) registered before the "
+            "group signal (horse=%s starttime=%s)",
+            len(report.registered),
+            report.horse_pid,
+            report.horse_starttime,
+        )
+        if report.exited:
+            self.log.warning(
+                "Owned cleanup retired %d member(s) that exited inside the "
+                "freeze window: %s. A member that exited before this cleanup "
+                "adopted the tree, having already started its own session, "
+                "leaves an independent session subtree outside the ownership "
+                "proof.",
+                len(report.exited),
+                report.exited,
+            )
+        if report.uncovered:
+            self.log.warning(
+                "Owned cleanup could not account for %d live process(es): %s",
+                len(report.uncovered),
+                report.uncovered,
+            )
 
     def perform_job(self, job, queue) -> bool:
         job_attributes = getattr(job, "__dict__", None)

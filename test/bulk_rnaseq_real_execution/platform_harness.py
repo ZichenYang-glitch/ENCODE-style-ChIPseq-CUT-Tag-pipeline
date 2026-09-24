@@ -65,6 +65,12 @@ from encode_pipeline.workers.timeouts import WorkerHardTimeout
 
 from workers.process_helpers import terminate_rq_worker
 
+from .cancellation_diagnostics import (
+    SNAPSHOT_SCHEMA_VERSION,
+    WorkerStreamCapture,
+    resolve_private_diagnostics_root,
+    write_cancellation_snapshot,
+)
 from .failure_diagnostics import preserve_execution_failure
 from .support import (
     FIXTURE_MANIFEST_ENV,
@@ -102,6 +108,9 @@ _REFERENCE_PROFILE_SAFE_KEY = "bulk-rnaseq-gate-tiny"
 _REFERENCE_PROFILE_DISPLAY_NAME = "Bulk RNA-seq protected tiny"
 _REFERENCE_PROFILE_ORGANISM = "Synthetic organism"
 _REFERENCE_PROFILE_ASSEMBLY = "tiny"
+_DIAGNOSTICS_REDIS_KEY_LIMIT = 64
+_DIAGNOSTICS_PROC_SCAN_LIMIT = 8192
+_DIAGNOSTICS_CMDLINE_LIMIT = 4096
 
 
 @dataclass(frozen=True)
@@ -275,6 +284,11 @@ class PlatformAcceptanceHarness:
         self._run_queue: RqRunQueue | None = None
         self._submitted: list[SubmittedAcceptanceRun] = []
         self._worker_processes: list[subprocess.Popen[str]] = []
+        self._worker_streams: list[
+            tuple[subprocess.Popen[str], WorkerStreamCapture]
+        ] = []
+        self._private_diagnostics_root: Path | None = None
+        self._private_diagnostics_error: str | None = None
         self._reference_profile_revision_id: str | None = None
         self._reference_profile_public_identity_sha256: str | None = None
         self._reference_profile_directory_identity: tuple[int, int] | None = None
@@ -329,23 +343,58 @@ class PlatformAcceptanceHarness:
         self.wait_worker(self.start_worker())
 
     def start_worker(self) -> subprocess.Popen[str]:
-        """Start a real worker session that a cancellation test may observe."""
-        process = subprocess.Popen(
-            (
-                sys.executable,
-                "-m",
-                "bulk_rnaseq_real_execution.worker_entry",
-            ),
-            cwd=self.repository_root,
-            env=self._worker_environment(),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            start_new_session=True,
+        """Start a real worker session that a cancellation test may observe.
+
+        The session's raw stdout/stderr are kept in the owner-only private
+        diagnostics directory rather than discarded, because a cancellation
+        that never reaches a terminal state must still be explainable. They stay
+        out of the public evidence tree, the download bundle, and mail.
+        """
+        root = self._resolve_private_diagnostics_root()
+        capture = (
+            WorkerStreamCapture(root=root, ordinal=len(self._worker_streams))
+            if root is not None
+            else None
         )
+        try:
+            process = subprocess.Popen(
+                (
+                    sys.executable,
+                    "-m",
+                    "bulk_rnaseq_real_execution.worker_entry",
+                ),
+                cwd=self.repository_root,
+                env=self._worker_environment(),
+                stdin=subprocess.DEVNULL,
+                stdout=(
+                    capture.stdout_handle if capture is not None else subprocess.DEVNULL
+                ),
+                stderr=(
+                    capture.stderr_handle if capture is not None else subprocess.DEVNULL
+                ),
+                text=True,
+                start_new_session=True,
+            )
+        except Exception:
+            if capture is not None:
+                capture.close(returncode=None)
+            raise
+        if capture is not None:
+            self._worker_streams.append((process, capture))
         self._worker_processes.append(process)
         return process
+
+    def _close_worker_streams(
+        self,
+        process: subprocess.Popen[str],
+        *,
+        returncode: int | None,
+    ) -> None:
+        for index, (owner, capture) in enumerate(tuple(self._worker_streams)):
+            if owner is process:
+                del self._worker_streams[index]
+                capture.close(returncode=returncode)
+                return
 
     def wait_for_execution_activity(
         self,
@@ -499,10 +548,15 @@ class PlatformAcceptanceHarness:
                 self.composition.registry,
                 repository=persistence.repository,
             )
-            return RunCancellationService(
+            result = RunCancellationService(
                 run_service,
                 self._require_queue(),
             ).cancel_run(submitted.run_id, reason=reason)
+            self._capture_diagnostics_snapshot(
+                "cancellation-requested",
+                note=f"stop_requested={result.stop_requested}",
+            )
+            return result
         finally:
             persistence.close()
 
@@ -536,6 +590,7 @@ class PlatformAcceptanceHarness:
             if process.poll() is None:
                 terminate_rq_worker(process)
             self._worker_processes.remove(process)
+            self._close_worker_streams(process, returncode=process.returncode)
         _assert_worker_session_reaped(process.pid)
         if process.returncode != 0:
             raise AssertionError("bulk RNA-seq DurableWorker exited unsuccessfully")
@@ -618,6 +673,17 @@ class PlatformAcceptanceHarness:
             rq_status not in {JobStatus.FAILED, JobStatus.STOPPED}
             and not allow_unstable_rq
         ):
+            self._capture_diagnostics_snapshot(
+                "rq-not-terminal",
+                note=(
+                    "rq_status="
+                    + (
+                        rq_status.value
+                        if isinstance(rq_status, JobStatus)
+                        else "unavailable"
+                    )
+                ),
+            )
             raise AssertionError("accepted RQ job lacks a non-success terminal state")
 
         persistence = open_existing_run_persistence(self.database_url)
@@ -704,6 +770,10 @@ class PlatformAcceptanceHarness:
             if record.status == RunStatus.FAILED:
                 self._preserve_failure(submitted, reason_code=error_reason_code)
             if not cleanup_confirmed and not allow_unstable_rq:
+                self._capture_diagnostics_snapshot(
+                    "cleanup-incomplete",
+                    note="cleanup_confirmed=false",
+                )
                 raise AssertionError("accepted lifecycle cleanup is incomplete")
             return evidence
         finally:
@@ -740,9 +810,15 @@ class PlatformAcceptanceHarness:
 
     def close(self) -> None:
         """Clean only this harness's run scopes, jobs, and unique queue."""
+        # Capture the decisive private state before cleanup destroys it.
+        self._capture_diagnostics_snapshot("pre-close")
         for process in tuple(self._worker_processes):
             terminate_rq_worker(process)
             self._worker_processes.remove(process)
+            self._close_worker_streams(process, returncode=process.returncode)
+        for _owner, capture in tuple(self._worker_streams):
+            capture.close(returncode=None)
+        self._worker_streams.clear()
         cleaner = ManagedContainerCleaner(
             executable=self.gate_settings.docker_executable,
             unix_socket=self.gate_settings.docker_socket,
@@ -1084,6 +1160,467 @@ class PlatformAcceptanceHarness:
         if self._run_queue is None:
             raise RuntimeError("acceptance harness is not open")
         return self._run_queue
+
+    def _resolve_private_diagnostics_root(self) -> Path | None:
+        """Resolve the owner-only diagnostics root once; never mask a failure."""
+        if self._private_diagnostics_root is not None:
+            return self._private_diagnostics_root
+        if self._private_diagnostics_error is not None:
+            return None
+        try:
+            self._private_diagnostics_root = resolve_private_diagnostics_root(
+                self.temporary_root / "evidence"
+            )
+        except Exception as error:
+            self._private_diagnostics_error = type(error).__name__
+            return None
+        return self._private_diagnostics_root
+
+    def _capture_diagnostics_snapshot(
+        self,
+        label: str,
+        *,
+        note: str | None = None,
+    ) -> str | None:
+        """Record private pre-destruction state; never raise, never publish."""
+        root = self._resolve_private_diagnostics_root()
+        if root is None:
+            return None
+        sections: dict[str, object] = {}
+        for name, collector in (
+            ("redis", self._diagnostics_redis),
+            ("rq_job", self._diagnostics_rq_job),
+            ("sqlite", self._diagnostics_sqlite),
+            ("processes", self._diagnostics_processes),
+            ("containers", self._diagnostics_containers),
+        ):
+            try:
+                sections[name] = collector()
+            except Exception as error:
+                sections[name] = {"section_error": type(error).__name__}
+        document: dict[str, object] = {
+            "schema": SNAPSHOT_SCHEMA_VERSION,
+            "note": note,
+            "run_ids": [submitted.run_id for submitted in self._submitted],
+            "job_ids": [submitted.job_id for submitted in self._submitted],
+            "worker_session_ids": [process.pid for process in self._worker_processes],
+            "worker_returncodes": [
+                process.returncode for process in self._worker_processes
+            ],
+            "sections": sections,
+        }
+        if self._private_diagnostics_error is not None:
+            document["root_error"] = self._private_diagnostics_error
+        return write_cancellation_snapshot(root=root, label=label, document=document)
+
+    def _diagnostics_redis(self) -> dict[str, object]:
+        """Dump every Redis key that names this harness's queue or jobs."""
+        connection = self._connection
+        if connection is None:
+            return {"unavailable": "harness is not open"}
+        tokens = [self.queue_name, *(s.job_id for s in self._submitted)]
+        keys: set[str] = set()
+        for token in tokens:
+            try:
+                keys.update(
+                    _redis_text(key)
+                    for key in connection.scan_iter(match=f"*{token}*", count=200)
+                )
+            except Exception as error:
+                return {"scan_error": type(error).__name__}
+        ordered = sorted(keys)
+        return {
+            "key_count": len(ordered),
+            "keys": {
+                key: _redis_key_state(connection, key)
+                for key in ordered[:_DIAGNOSTICS_REDIS_KEY_LIMIT]
+            },
+        }
+
+    def _diagnostics_rq_job(self) -> dict[str, object]:
+        """Read the live RQ job objects for each submitted run."""
+        run_queue = self._run_queue
+        if run_queue is None:
+            return {"unavailable": "harness is not open"}
+        document: dict[str, object] = {}
+        for submitted in self._submitted:
+            entry: dict[str, object] = {}
+            try:
+                job = run_queue._queue.fetch_job(submitted.job_id)
+            except Exception as error:
+                document[submitted.job_id] = {"fetch_error": type(error).__name__}
+                continue
+            if job is None:
+                document[submitted.job_id] = {"present": False}
+                continue
+            entry["present"] = True
+            try:
+                entry["status_refreshed"] = _enum_value(job.get_status(refresh=True))
+            except Exception as error:
+                entry["status_error"] = type(error).__name__
+            for attribute in (
+                "id",
+                "origin",
+                "description",
+                "worker_name",
+                "created_at",
+                "enqueued_at",
+                "started_at",
+                "ended_at",
+                "timeout",
+                "result_ttl",
+                "failure_ttl",
+                "retries_left",
+                "is_failed",
+                "is_finished",
+                "is_stopped",
+                "is_queued",
+                "is_started",
+                "is_deferred",
+                "is_scheduled",
+                "is_canceled",
+            ):
+                entry[attribute] = _job_attribute(job, attribute)
+            try:
+                entry["exc_info"] = _bounded_text(job.exc_info)
+            except Exception as error:
+                entry["exc_info_error"] = type(error).__name__
+            document[submitted.job_id] = entry
+        return document
+
+    def _diagnostics_sqlite(self) -> dict[str, object]:
+        """Read the durable run, assignment, event, and result state."""
+        persistence = open_existing_run_persistence(self.database_url)
+        try:
+            from encode_pipeline.services.runs import RunService
+
+            run_service = RunService(
+                self.composition.registry,
+                repository=persistence.repository,
+            )
+            document: dict[str, object] = {}
+            for submitted in self._submitted:
+                entry: dict[str, object] = {
+                    "run": _run_record_projection(
+                        run_service.get_run(submitted.run_id)
+                    ),
+                    "assignment": _assignment_projection(
+                        run_service.get_execution_assignment(submitted.run_id)
+                    ),
+                    "events": [
+                        _event_projection(event)
+                        for event in run_service.list_events(
+                            submitted.run_id, limit=1000
+                        )
+                    ],
+                    "result_state": _result_state_projection(
+                        run_service.get_result_state(submitted.run_id)
+                    ),
+                    "artifact_count": len(run_service.list_artifacts(submitted.run_id)),
+                    "qc_metric_count": len(
+                        run_service.list_qc_metrics(submitted.run_id)
+                    ),
+                }
+                document[submitted.run_id] = entry
+            return document
+        finally:
+            persistence.close()
+
+    def _diagnostics_processes(self) -> dict[str, object]:
+        """Record every process still alive in a harness-owned worker session."""
+        document: dict[str, object] = {
+            "harness_pid": os.getpid(),
+            "harness_process_group": os.getpgrp(),
+            "workers": [],
+        }
+        for process in self._worker_processes:
+            entry: dict[str, object] = {
+                "pid": process.pid,
+                "returncode": process.returncode,
+            }
+            try:
+                entry["poll"] = process.poll()
+            except Exception as error:
+                entry["poll_error"] = type(error).__name__
+            for name, reader in (
+                ("session_id", lambda: os.getsid(process.pid)),
+                (
+                    "process_groups",
+                    lambda: _worker_session_process_groups(process.pid),
+                ),
+                (
+                    "nextflow_pids",
+                    lambda: _worker_session_nextflow_processes(
+                        process.pid,
+                        runtime_root=self.gate_settings.runtime_root,
+                    ),
+                ),
+                ("table", lambda: _process_table(process.pid)),
+            ):
+                try:
+                    entry[name] = reader()
+                except Exception as error:
+                    entry[name] = {"error": type(error).__name__}
+            document["workers"].append(entry)
+        return document
+
+    def _diagnostics_containers(self) -> dict[str, object]:
+        """Record the managed container scope before cleanup removes it."""
+        document: dict[str, object] = {}
+        try:
+            cleaner = ManagedContainerCleaner(
+                executable=self.gate_settings.docker_executable,
+                unix_socket=self.gate_settings.docker_socket,
+            )
+            document["endpoint_is_failure"] = bool(
+                getattr(cleaner.verify_endpoint(), "is_failure", None)
+            )
+        except Exception as error:
+            return {"endpoint_error": type(error).__name__}
+        for submitted in self._submitted:
+            scope = managed_container_scope(self.workspace_root / submitted.run_id)
+            entry: dict[str, object] = {}
+            for key, all_containers in (
+                ("scope_containers", False),
+                ("managed_containers", True),
+            ):
+                try:
+                    entry[key] = [
+                        str(value)
+                        for value in managed_container_ids(
+                            cleaner, scope, all_containers=all_containers
+                        )
+                    ]
+                except Exception as error:
+                    entry[key] = {"error": type(error).__name__}
+            document[submitted.run_id] = entry
+        return document
+
+
+def _redis_text(value: object) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return str(value)
+
+
+def _redis_key_state(connection, key: str) -> object:
+    try:
+        kind = _redis_text(connection.type(key))
+    except Exception as error:
+        return {"type_error": type(error).__name__}
+    try:
+        if kind == "string":
+            return {"type": kind, "value": _bounded_text(connection.get(key))}
+        if kind == "hash":
+            return {
+                "type": kind,
+                "fields": {
+                    _redis_text(field): _bounded_text(value)
+                    for field, value in connection.hgetall(key).items()
+                },
+            }
+        if kind == "list":
+            return {
+                "type": kind,
+                "length": connection.llen(key),
+                "values": [
+                    _bounded_text(value) for value in connection.lrange(key, 0, 63)
+                ],
+            }
+        if kind == "set":
+            return {
+                "type": kind,
+                "length": connection.scard(key),
+                "values": sorted(
+                    _bounded_text(value) for value in connection.smembers(key)
+                )[:64],
+            }
+        if kind == "zset":
+            return {
+                "type": kind,
+                "length": connection.zcard(key),
+                "values": [
+                    _bounded_text(value) for value in connection.zrange(key, 0, 63)
+                ],
+            }
+        return {"type": kind}
+    except Exception as error:
+        return {"type": kind, "read_error": type(error).__name__}
+
+
+def _enum_value(value: object) -> object:
+    return getattr(value, "value", value)
+
+
+def _job_attribute(job, name: str) -> object:
+    try:
+        value = getattr(job, name, None)
+    except Exception as error:
+        return {"error": type(error).__name__}
+    if callable(value):
+        try:
+            value = value()
+        except Exception as error:
+            return {"error": type(error).__name__}
+    if isinstance(value, (bool, int, float)) or value is None:
+        return value
+    return _bounded_text(value)
+
+
+def _bounded_text(value: object) -> object:
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")[:_DIAGNOSTICS_CMDLINE_LIMIT]
+    if isinstance(value, str):
+        return value[:65536]
+    return str(value)[:65536]
+
+
+def _bounded_value(value: object) -> object:
+    if isinstance(value, str):
+        return value[:8192]
+    if isinstance(value, dict):
+        return {
+            str(key): _bounded_value(item) for key, item in list(value.items())[:64]
+        }
+    if isinstance(value, (list, tuple)):
+        return [_bounded_value(item) for item in list(value)[:64]]
+    if isinstance(value, (bool, int, float)) or value is None:
+        return value
+    return _bounded_text(value)
+
+
+def _run_record_projection(record) -> dict[str, object]:
+    error = getattr(record, "error", None)
+    return {
+        "run_id": getattr(record, "run_id", None),
+        "workflow_id": getattr(record, "workflow_id", None),
+        "status": _enum_value(getattr(record, "status", None)),
+        "created_at": getattr(record, "created_at", None),
+        "updated_at": getattr(record, "updated_at", None),
+        "started_at": getattr(record, "started_at", None),
+        "ended_at": getattr(record, "ended_at", None),
+        "current_stage": getattr(record, "current_stage", None),
+        "cancellation_reason": getattr(record, "cancellation_reason", None),
+        "error_code": getattr(error, "code", None),
+        "error_context": _bounded_value(getattr(error, "context", None)),
+    }
+
+
+def _assignment_projection(assignment) -> dict[str, object] | None:
+    if assignment is None:
+        return None
+    return {
+        name: getattr(assignment, name, None)
+        for name in (
+            "run_id",
+            "job_id",
+            "backend",
+            "queue_name",
+            "created_at",
+            "managed_container_scope",
+            "dispatched_at",
+            "claimed_at",
+            "cancellation_requested_at",
+            "cancellation_reason",
+            "cancellation_acknowledged_at",
+            "requeue_requested_at",
+            "requeue_confirmed_at",
+        )
+    }
+
+
+def _event_projection(event) -> dict[str, object]:
+    issue = getattr(event, "issue", None)
+    return {
+        "sequence": getattr(event, "sequence", None),
+        "event_type": getattr(event, "event_type", None),
+        "timestamp": getattr(event, "timestamp", None),
+        "status": _enum_value(getattr(event, "status", None)),
+        "stage": getattr(event, "stage", None),
+        "message": _bounded_value(getattr(event, "message", None)),
+        "context": _bounded_value(getattr(event, "context", None)),
+        "issue_code": getattr(issue, "code", None),
+        "issue_message": _bounded_value(getattr(issue, "message", None)),
+    }
+
+
+def _result_state_projection(state) -> dict[str, object] | None:
+    if state is None:
+        return None
+    return {
+        name: getattr(state, name, None)
+        for name in (
+            "artifact_revision",
+            "artifact_attempt_id",
+            "artifact_attempt_status",
+            "qc_revision",
+            "qc_attempt_id",
+            "qc_attempt_status",
+        )
+    }
+
+
+def _parse_proc_stat(raw: str) -> dict[str, object] | None:
+    start = raw.find("(")
+    end = raw.rfind(")")
+    if start == -1 or end < start:
+        return None
+    pid_text = raw[:start].strip()
+    remainder = raw[end + 1 :].split()
+    if not pid_text.isdigit() or len(remainder) < 20:
+        return None
+
+    def field(index: int) -> int | None:
+        return int(remainder[index]) if remainder[index].isdigit() else None
+
+    return {
+        "comm": raw[start + 1 : end][:128],
+        "state": remainder[0],
+        "ppid": field(1),
+        "pgrp": field(2),
+        "session": field(3),
+        "starttime_ticks": field(19),
+    }
+
+
+def _process_table(session_id: int) -> object:
+    """List every live process whose session matches one worker session id."""
+    try:
+        entries = tuple(Path("/proc").iterdir())
+    except OSError:
+        return {"error": "OSError"}
+    rows: list[dict[str, object]] = []
+    truncated = False
+    for count, entry in enumerate(entries):
+        if not entry.name.isdigit():
+            continue
+        if count > _DIAGNOSTICS_PROC_SCAN_LIMIT:
+            truncated = True
+            break
+        parsed = None
+        try:
+            parsed = _parse_proc_stat(
+                (entry / "stat").read_text(encoding="utf-8", errors="replace")
+            )
+        except OSError:
+            continue
+        if parsed is None:
+            continue
+        pid = int(entry.name)
+        if parsed["session"] != session_id and pid != session_id:
+            continue
+        row: dict[str, object] = {"pid": pid, **parsed}
+        try:
+            raw = (entry / "cmdline").read_bytes()[:_DIAGNOSTICS_CMDLINE_LIMIT]
+        except OSError:
+            row["cmdline"] = None
+        else:
+            row["cmdline"] = raw.replace(b"\0", b" ").decode("utf-8", "replace").strip()
+        rows.append(row)
+    rows.sort(key=lambda row: int(row["pid"]))
+    return {"truncated": truncated, "processes": rows}
 
 
 def _wait_for_rq_terminal_status(
