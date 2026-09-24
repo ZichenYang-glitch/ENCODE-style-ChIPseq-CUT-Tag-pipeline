@@ -77,6 +77,7 @@ atomic persistence. Conformance never bypasses those runtime checks.
 | :--- | :--- | :--- | :--- |
 | `encode-style-chipseq-cuttag-atac-mnase` | Available | Existing bundled local composition | Snakemake |
 | `bulk-rnaseq` | Available even without runtime assets | Available only after the complete operator binding passes live admission | Nextflow; nf-core/rnaseq 3.26.0 at `e7ca46272c8f9d5ceee3f71759f4ba551d3217a4` |
+| `hitrac-preprocess` | Available | `not_configured` until qualified artifact/QC publication is implemented | tracPre2 preprocessing; pinned cLoops2/tracPre2 `git-v0.0.5` at `de6cc732fa00b408551b9f4272933640c08447f1` |
 
 The workflow list/detail API publishes the adapter schema version, safe
 upstream identity, authoring capabilities, and a path-free execution state.

@@ -40,9 +40,13 @@ RUNTIME_IMPORTS = (
     "rq",
     "uvicorn",
 )
+# Ordered identity of the bundled registry (see services/defaults.py). The
+# doctor fails closed on any change in membership or order, so this must track
+# the registered adapters exactly.
 EXPECTED_WORKFLOW_IDS = (
     "encode-style-chipseq-cuttag-atac-mnase",
     "bulk-rnaseq",
+    "hitrac-preprocess",
 )
 
 

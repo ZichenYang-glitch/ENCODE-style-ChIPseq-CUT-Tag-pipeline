@@ -138,7 +138,9 @@ def test_environment_doctor_does_not_require_playwright(tmp_path, monkeypatch) -
     assert EnvironmentCheck("Frontend dependencies", "available") in checks
 
 
-def test_workflow_doctor_reports_both_products_without_optional_bulk_runtime() -> None:
+def test_workflow_doctor_reports_all_bundled_workflows_without_optional_runtime() -> (
+    None
+):
     checks = run_workflow_doctor(REPOSITORY_ROOT, environ={})
 
     assert checks == (
@@ -152,6 +154,13 @@ def test_workflow_doctor_reports_both_products_without_optional_bulk_runtime() -
         WorkflowCheck(
             workflow_id="bulk-rnaseq",
             name="Bulk RNA-seq",
+            authoring="available",
+            execution="not_configured",
+            reason_code="WORKFLOW_EXECUTION_NOT_CONFIGURED",
+        ),
+        WorkflowCheck(
+            workflow_id="hitrac-preprocess",
+            name="Hi-TrAC preprocessing",
             authoring="available",
             execution="not_configured",
             reason_code="WORKFLOW_EXECUTION_NOT_CONFIGURED",

@@ -65,7 +65,7 @@ workflow.
 | Laboratory access | Administrator-managed member accounts, trusted-LAN sessions, CSRF protection, and per-user terminal notification preferences. |
 | Operations | Reference Profiles, artifact publication, exact-identity run recovery, and offline systemd deployment install/verify/upgrade/rollback. |
 
-The default registry contains both bundled workflows. The platform contracts
+The default registry contains all bundled workflows. The platform contracts
 remain workflow-neutral; onboarding any additional workflow still requires an
 explicit adapter and deployment integration.
 
