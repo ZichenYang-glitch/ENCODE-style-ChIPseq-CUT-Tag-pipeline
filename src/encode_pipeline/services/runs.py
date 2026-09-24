@@ -1138,6 +1138,25 @@ class RunService:
                 pass  # Diagnostics must not alter the durable lifecycle result.
             return
 
+    def publish_result_bundle(
+        self,
+        run_id: str,
+        artifacts: Iterable[RunArtifactRef],
+        metrics: Iterable[RunQcMetric],
+        *,
+        attempt_id: str,
+        expected_artifact_generation: str | None,
+    ) -> RunResultState:
+        """Publish one prepared artifact/QC bundle in the repository transaction."""
+        with self._lock:
+            return self._repository.publish_result_bundle(
+                run_id,
+                tuple(artifacts),
+                tuple(metrics),
+                attempt_id=attempt_id,
+                expected_artifact_generation=expected_artifact_generation,
+            )
+
     def replace_artifacts(
         self,
         run_id: str,

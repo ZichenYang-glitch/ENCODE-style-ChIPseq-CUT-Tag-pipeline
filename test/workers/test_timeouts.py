@@ -160,6 +160,14 @@ def test_durable_worker_uses_positive_pid_snapshot_during_completion_race(
 
 
 def test_durable_worker_never_kills_the_parent_process_group(monkeypatch):
+    # This unit isolates signal targeting. Give the strict ownership boundary
+    # the matching identity that its intentionally synthetic PID cannot supply.
+    import encode_pipeline.workers.timeouts as timeouts
+
+    monkeypatch.setattr(timeouts, "_owned_stat", lambda _pid: (1, 100))
+    monkeypatch.setattr(
+        timeouts, "_kill_owned_horse_tree", lambda _pid, _start, kill: kill()
+    )
     worker = object.__new__(DurableWorker)
     worker._horse_pid = 123
     worker.log = SimpleNamespace(
@@ -187,6 +195,14 @@ def test_durable_worker_never_kills_the_parent_process_group(monkeypatch):
 
 
 def test_durable_worker_kills_its_owned_process_group(monkeypatch):
+    # This unit isolates signal targeting. Give the strict ownership boundary
+    # the matching identity that its intentionally synthetic PID cannot supply.
+    import encode_pipeline.workers.timeouts as timeouts
+
+    monkeypatch.setattr(timeouts, "_owned_stat", lambda _pid: (1, 100))
+    monkeypatch.setattr(
+        timeouts, "_kill_owned_horse_tree", lambda _pid, _start, kill: kill()
+    )
     worker = object.__new__(DurableWorker)
     worker._horse_pid = 123
     worker.log = SimpleNamespace(
@@ -249,6 +265,13 @@ def test_durable_worker_handles_process_group_signal_errors(
     error_number,
     raises,
 ):
+    # Isolate the existing signal-error contract from synthetic PID ownership.
+    import encode_pipeline.workers.timeouts as timeouts
+
+    monkeypatch.setattr(timeouts, "_owned_stat", lambda _pid: (1, 100))
+    monkeypatch.setattr(
+        timeouts, "_kill_owned_horse_tree", lambda _pid, _start, kill: kill()
+    )
     worker = object.__new__(DurableWorker)
     worker._horse_pid = 123
     worker.log = SimpleNamespace(

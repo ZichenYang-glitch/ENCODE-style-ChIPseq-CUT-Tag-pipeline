@@ -64,6 +64,7 @@ from encode_pipeline.platform.runs import (
     RunStatus,
     build_qc_metric_id,
     validate_qc_identifier_token,
+    validate_qc_sample_identifier,
 )
 from encode_pipeline.platform.snapshots import (
     ValidatedInputSnapshot,
@@ -332,6 +333,16 @@ class RunRepository(Protocol):
         expected_artifact_generation: str,
         expected_artifacts: tuple[RunArtifactRef, ...],
         expected_status: RunStatus,
+    ) -> RunResultState: ...
+
+    def publish_result_bundle(
+        self,
+        run_id: str,
+        artifacts: tuple[RunArtifactRef, ...],
+        metrics: tuple[RunQcMetric, ...],
+        *,
+        attempt_id: str,
+        expected_artifact_generation: str | None,
     ) -> RunResultState: ...
 
     def replace_artifacts(
@@ -1350,6 +1361,71 @@ class InMemoryRunRepository:
                 qc_attempt_artifact_generation=expected_artifact_generation,
             )
             self._result_states[run_id] = state
+            return state
+
+    def publish_result_bundle(
+        self,
+        run_id: str,
+        artifacts: tuple[RunArtifactRef, ...],
+        metrics: tuple[RunQcMetric, ...],
+        *,
+        attempt_id: str,
+        expected_artifact_generation: str | None,
+    ) -> RunResultState:
+        with self._lock:
+            if self._runs[run_id].status is not RunStatus.SUCCEEDED:
+                raise ConcurrentRunUpdateError("result bundle requires a succeeded run")
+            bundle = _prepare_result_bundle(
+                self._result_states[run_id],
+                artifacts,
+                metrics,
+                attempt_id=attempt_id,
+                expected_artifact_generation=expected_artifact_generation,
+            )
+            if bundle.committed:
+                return bundle.state
+            state = bundle.state
+            qc_attempt_id = state.qc_attempt_id
+            assert qc_attempt_id is not None
+            if qc_attempt_id in self._result_attempts:
+                raise ConcurrentRunUpdateError(
+                    "result bundle QC attempt already exists"
+                )
+            events = tuple(
+                self._make_event(run_id, len(self._events[run_id]) + offset, draft)
+                for offset, draft in enumerate(bundle.events, 1)
+            )
+            publications = ()
+            if bundle.artifact_changed:
+                assert state.artifact_generation is not None
+                publications = tuple(
+                    _in_memory_artifact_publication(
+                        run_id=run_id,
+                        artifact_generation=state.artifact_generation,
+                        published_at=events[0].timestamp,
+                        artifact=artifact,
+                    )
+                    for artifact in bundle.artifacts
+                )
+                if any(
+                    _artifact_publication_identity(item) in self._artifact_publications
+                    for item in publications
+                ):
+                    raise ValueError("artifact publication identity already exists")
+            self._artifacts[run_id] = {
+                item.artifact_id: item for item in bundle.artifacts
+            }
+            self._qc_metrics[run_id] = {item.metric_id: item for item in bundle.metrics}
+            self._artifact_publications.update(
+                (_artifact_publication_identity(item), item) for item in publications
+            )
+            self._result_attempts[qc_attempt_id] = (
+                run_id,
+                "qc",
+                state.artifact_generation,
+            )
+            self._result_states[run_id] = state
+            self._events[run_id].extend(events)
             return state
 
     def replace_artifacts(
@@ -2894,10 +2970,14 @@ def _validate_qc_metric_fields(metric: RunQcMetric) -> None:
         raise ValueError("QC metric unit is invalid")
     if not isinstance(metric.scope, str) or metric.scope not in _QC_SCOPES:
         raise ValueError("QC metric scope is invalid")
-    for value in (metric.sample_id, metric.experiment_id, metric.assay):
+    for value, validator in (
+        (metric.sample_id, validate_qc_sample_identifier),
+        (metric.experiment_id, validate_qc_identifier_token),
+        (metric.assay, validate_qc_identifier_token),
+    ):
         if value is not None:
             try:
-                validate_qc_identifier_token(value)
+                validator(value)
             except ValueError:
                 raise ValueError("QC metric identifier is invalid") from None
     if metric.scope == "run" and (
@@ -3137,3 +3217,151 @@ def _canonical_unexpected_stop_event(
         }
     )
     return replace(event, context=context)
+
+
+@dataclass(frozen=True)
+class _ResultBundle:
+    state: RunResultState
+    artifacts: tuple[RunArtifactRef, ...]
+    metrics: tuple[RunQcMetric, ...]
+    events: tuple[RunEventDraft, ...]
+    artifact_changed: bool
+    committed: bool
+
+
+def _prepare_result_bundle(
+    state: RunResultState,
+    artifacts: tuple[RunArtifactRef, ...],
+    metrics: tuple[RunQcMetric, ...],
+    *,
+    attempt_id: str,
+    expected_artifact_generation: str | None,
+) -> _ResultBundle:
+    """Validate the whole bundle before either repository mutates public rows."""
+    validate_result_attempt_id(attempt_id)
+    if expected_artifact_generation is not None:
+        validate_artifact_generation(expected_artifact_generation)
+    _require_current_attempt(state.artifact_attempt_id, attempt_id, "artifact")
+    artifacts = _validated_expected_artifacts(state.run_id, artifacts)
+    metrics = _validated_qc_replacement(
+        state.run_id, metrics, {item.artifact_id for item in artifacts}
+    )
+    artifact_digest = artifact_manifest_digest(artifacts)
+    qc_digest = qc_metric_manifest_digest(metrics)
+    if state.artifact_attempt_status == "succeeded":
+        if (
+            state.artifact_manifest_digest == artifact_digest
+            and state.qc_manifest_digest == qc_digest
+            and state.qc_artifact_generation == state.artifact_generation
+            and state.qc_attempt_id == _bundle_qc_attempt(attempt_id)
+            and state.qc_attempt_status == "succeeded"
+        ):
+            return _ResultBundle(state, artifacts, metrics, (), False, True)
+        raise ConcurrentRunUpdateError("result bundle attempt already committed")
+    if state.artifact_attempt_status != "pending":
+        raise ConcurrentRunUpdateError("result bundle attempt is no longer current")
+    if state.artifact_generation != expected_artifact_generation:
+        raise ResultGenerationChangedError("result bundle base generation changed")
+    artifact_changed = state.artifact_manifest_digest != artifact_digest
+    artifact_revision = state.artifact_revision + int(artifact_changed)
+    artifact_generation = (
+        build_artifact_generation(
+            run_id=state.run_id, revision=artifact_revision, artifacts=artifacts
+        )
+        if artifact_changed
+        else state.artifact_generation
+    )
+    if artifact_generation is None:
+        raise ValueError("result bundle artifact generation is missing")
+    qc_changed = (
+        state.qc_manifest_digest != qc_digest
+        or state.qc_artifact_generation != artifact_generation
+        or state.qc_outcome != "succeeded"
+    )
+    qc_revision = state.qc_revision + int(qc_changed)
+    qc_generation = (
+        build_qc_generation(
+            run_id=state.run_id,
+            revision=qc_revision,
+            artifact_generation=artifact_generation,
+            metrics=metrics,
+        )
+        if qc_changed
+        else state.qc_generation
+    )
+    qc_attempt_id = _bundle_qc_attempt(attempt_id)
+    events = []
+    if artifact_changed or state.artifact_outcome != "succeeded":
+        events.append(
+            RunEventDraft(
+                event_type="artifacts_indexed",
+                message="Workflow artifacts indexed.",
+                status=RunStatus.SUCCEEDED,
+                stage="artifact_extraction",
+                context={
+                    "attempt_id": attempt_id,
+                    "artifact_generation": artifact_generation,
+                    "artifact_count": len(artifacts),
+                },
+            )
+        )
+    if qc_changed:
+        events.append(
+            RunEventDraft(
+                event_type="qc_metrics_indexed",
+                message="Workflow QC metrics indexed.",
+                status=RunStatus.SUCCEEDED,
+                stage="qc_summary_indexing",
+                context={
+                    "attempt_id": qc_attempt_id,
+                    "artifact_generation": artifact_generation,
+                    "qc_generation": qc_generation,
+                    "metric_count": len(metrics),
+                },
+            )
+        )
+    updated = replace(
+        state,
+        artifact_revision=artifact_revision,
+        artifact_generation=artifact_generation,
+        artifact_manifest_digest=artifact_digest,
+        artifact_attempt_status="succeeded",
+        artifact_outcome="succeeded",
+        artifact_reason_code=None,
+        qc_revision=qc_revision,
+        qc_generation=qc_generation,
+        qc_manifest_digest=qc_digest,
+        qc_artifact_generation=artifact_generation,
+        qc_outcome="succeeded",
+        qc_reason_code=None,
+        qc_attempt_id=qc_attempt_id,
+        qc_attempt_status="succeeded",
+        qc_attempt_artifact_generation=artifact_generation,
+    )
+    return _ResultBundle(
+        updated, artifacts, metrics, tuple(events), artifact_changed, False
+    )
+
+
+def _bundle_qc_attempt(artifact_attempt_id: str) -> str:
+    return (
+        "resultattempt-"
+        + sha256(("atomic-qc:" + artifact_attempt_id).encode("ascii")).hexdigest()
+    )
+
+
+def result_bundle_is_complete(state: RunResultState, attempt_id: str | None) -> bool:
+    """Recognize only the QC attempt committed with this exact artifact attempt."""
+    return (
+        attempt_id is not None
+        and state.artifact_attempt_id == attempt_id
+        and state.artifact_attempt_status == "succeeded"
+        and state.artifact_outcome == "succeeded"
+        and state.artifact_generation is not None
+        and state.qc_attempt_id == _bundle_qc_attempt(attempt_id)
+        and state.qc_attempt_status == "succeeded"
+        and state.qc_outcome == "succeeded"
+        and state.qc_generation is not None
+        and state.qc_artifact_generation == state.artifact_generation
+        and state.qc_attempt_artifact_generation == state.artifact_generation
+    )

@@ -2,6 +2,7 @@ import { ExternalLink } from 'lucide-react';
 import type { QcMetricResponse } from '../../api/generated/models';
 import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
+import { SampleIdentity } from '../../components/SampleIdentity';
 import { IdWithCopy } from '../../components/IdWithCopy';
 import { formatQcProducedTime } from './qcState';
 
@@ -15,12 +16,6 @@ interface QcMetricListProps {
 
 function optionalText(value: string | null | undefined): string {
   return value && value.trim() ? value : '—';
-}
-
-function sampleExperiment(metric: QcMetricResponse): string {
-  return [metric.sample_id, metric.experiment_id]
-    .filter((value): value is string => Boolean(value))
-    .join(' · ') || '—';
 }
 
 function QcFlag({ value }: { value: QcMetricResponse['qc_flag'] }) {
@@ -121,7 +116,7 @@ export function QcMetricList({
                   {metric.scope}
                 </td>
                 <td className="break-words px-2 py-2 text-[var(--color-text-muted)]">
-                  {sampleExperiment(metric)}
+                  <SampleIdentity sampleId={metric.sample_id} experimentId={metric.experiment_id} />
                 </td>
                 <td className="min-w-0 px-2 py-2">
                   <span className="block break-words text-[var(--color-text-muted)]">
@@ -169,7 +164,7 @@ export function QcMetricList({
               <summary className="min-h-11 cursor-pointer px-3 py-3 text-xs font-medium">Technical metadata</summary>
               <dl className="grid min-w-0 grid-cols-[6.5rem_minmax(0,1fr)] gap-x-2 gap-y-2 border-t border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-xs">
                 <dt className="text-[var(--color-text-muted)]">Scope</dt><dd className="break-words">{metric.scope}</dd>
-                <dt className="text-[var(--color-text-muted)]">Sample / exp.</dt><dd className="break-words">{sampleExperiment(metric)}</dd>
+                <dt className="text-[var(--color-text-muted)]">Sample / exp.</dt><dd className="break-words"><SampleIdentity sampleId={metric.sample_id} experimentId={metric.experiment_id} /></dd>
                 <dt className="text-[var(--color-text-muted)]">Assay</dt><dd className="break-words">{optionalText(metric.assay)}</dd>
                 <dt className="text-[var(--color-text-muted)]">Source</dt><dd className="min-w-0"><SourceArtifactAction metric={metric} onOpen={onOpenSourceArtifact} /></dd>
                 <dt className="text-[var(--color-text-muted)]">Produced</dt><dd><time dateTime={metric.produced_at}>{formatQcProducedTime(metric.produced_at)}</time></dd>

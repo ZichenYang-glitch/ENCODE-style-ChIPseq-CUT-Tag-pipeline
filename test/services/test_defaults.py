@@ -55,16 +55,18 @@ def test_create_default_workflow_registry_returns_workflow_registry():
     assert isinstance(registry, WorkflowRegistry)
 
 
-def test_default_registry_lists_encode_and_bulk_metadata_without_runtime():
+def test_default_registry_lists_encode_bulk_and_hitrac_metadata_without_runtime():
     registry = create_default_workflow_registry(environ={})
 
     metadata = registry.list_metadata()
 
-    assert len(metadata) == 2
+    assert len(metadata) == 3
     assert metadata[0].workflow_id == WORKFLOW_ID
     assert metadata[0].name == "ENCODE-style ChIP-seq/CUT&Tag/ATAC/MNase"
     assert metadata[1].workflow_id == BULK_WORKFLOW_ID
     assert metadata[1].name == "Bulk RNA-seq"
+    assert metadata[2].workflow_id == "hitrac-preprocess"
+    assert metadata[2].name == "Hi-TrAC preprocessing"
 
 
 def test_default_registry_resolves_encode_adapter():

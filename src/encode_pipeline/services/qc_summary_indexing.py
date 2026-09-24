@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from decimal import Decimal
 import os
 from pathlib import Path, PurePosixPath
@@ -11,6 +12,7 @@ import stat
 from typing import Protocol, cast
 
 from encode_pipeline.platform.adapters import (
+    AtomicResultPublishingAdapter,
     MAX_SAMPLE_ROWS,
     QC_SUMMARY_EXTRACT_CAPABILITY,
     ExtractedQcMetricCandidate,
@@ -37,6 +39,7 @@ from encode_pipeline.platform.runs import (
     RunStatus,
     build_qc_metric_id,
     validate_qc_identifier_token,
+    validate_qc_sample_identifier,
 )
 from encode_pipeline.services.run_repositories import (
     ConcurrentRunUpdateError,
@@ -142,6 +145,18 @@ class QcSummaryIndexingService:
         try:
             if (attempt_id is None) != (expected_artifact_generation is None):
                 raise ValueError("QC attempt identity and generation must be paired")
+            adapter = self._registry.get(record.workflow_id)
+            if (
+                isinstance(adapter, AtomicResultPublishingAdapter)
+                and adapter.requires_atomic_result_publication() is True
+            ):
+                state = self._run_service.get_result_state(run_id)
+                if attempt_id is not None and (
+                    attempt_id != state.qc_attempt_id
+                    or expected_artifact_generation != state.artifact_generation
+                ):
+                    return self._result_failure("QC_INDEXING_STATE_CHANGED")
+                return self._completed_bundle(run_id, record, adapter, artifacts)
             if attempt_id is None:
                 attempt_id, expected_artifact_generation = self.begin_attempt(
                     run_id,
@@ -277,6 +292,75 @@ class QcSummaryIndexingService:
                 attempt_id,
                 expected_artifact_generation,
             )
+
+    def _completed_bundle(self, run_id, record, adapter, artifacts):
+        from encode_pipeline.services.run_repositories import result_bundle_is_complete
+
+        state = self._run_service.get_result_state(run_id)
+        if not result_bundle_is_complete(state, state.artifact_attempt_id):
+            return self._result_failure("QC_INDEXING_STATE_CHANGED")
+        expected = self._validated_artifact_generation(run_id, artifacts)
+        if expected != tuple(
+            sorted(
+                self._run_service.list_artifacts(run_id),
+                key=lambda item: item.artifact_id,
+            )
+        ):
+            return self._result_failure("QC_INDEXING_ARTIFACT_GENERATION_MISMATCH")
+        context = self._resolve_reference_profile(
+            run_id, record.workflow_id, adapter, self._reconstruct_inputs(record.inputs)
+        )
+        if context.is_failure or context.value is None:
+            return self._result_failure("QC_INDEXING_REFERENCE_UNAVAILABLE")
+        adapter, inputs = context.value
+        if not self._build_matches(run_id, adapter):
+            return self._result_failure("QC_INDEXING_BUILD_MISMATCH")
+        prepared = self.prepare(
+            run_id,
+            inputs=inputs,
+            adapter=adapter,
+            artifacts=expected,
+            workspace=self._workspace_for_run(run_id),
+            produced_at=record.ended_at,
+        )
+        current = self._run_service.list_qc_metrics(run_id)
+        if (
+            tuple(sorted(prepared, key=lambda item: item.metric_id)) != current
+            or self._run_service.get_result_state(run_id) != state
+        ):
+            return self._result_failure("QC_INDEXING_STATE_CHANGED")
+        return Result.success(current)
+
+    def prepare(
+        self,
+        run_id: str,
+        *,
+        inputs: WorkflowInputs,
+        adapter: WorkflowAdapter,
+        artifacts: tuple[RunArtifactRef, ...],
+        workspace: Path,
+        produced_at: datetime | None,
+    ) -> tuple[RunQcMetric, ...]:
+        """Validate candidate source bytes and QC without any persistent writes."""
+        if (
+            QC_SUMMARY_EXTRACT_CAPABILITY not in adapter.capabilities.supports
+            or not isinstance(adapter, QcSummaryExtractingAdapter)
+        ):
+            raise ValueError("QC adapter contract is incomplete")
+        sources = self._source_documents(
+            self._validated_artifact_generation(run_id, artifacts),
+            self._validated_source_types(adapter.qc_source_output_types()),
+            workspace,
+        )
+        result = adapter.extract_qc_metrics(inputs, sources)
+        if result.is_failure:
+            raise ValueError("QC candidate extraction failed")
+        return self._build_metrics(
+            run_id,
+            produced_at,
+            result.value,
+            {document.source.artifact_id for document in sources},
+        )
 
     def begin_attempt(
         self,
@@ -574,7 +658,11 @@ class QcSummaryIndexingService:
             if value is None:
                 continue
             try:
-                validated = validate_qc_identifier_token(value)
+                validated = (
+                    validate_qc_sample_identifier(value)
+                    if key == "sample_id"
+                    else validate_qc_identifier_token(value)
+                )
             except ValueError:
                 raise ValueError("QC source metadata is invalid")
             result[key] = validated
@@ -828,10 +916,14 @@ class QcSummaryIndexingService:
             raise ValueError("QC metric unit is invalid")
         if candidate.scope not in _ALLOWED_SCOPES:
             raise ValueError("QC metric scope is invalid")
-        for value in (candidate.sample_id, candidate.experiment_id, candidate.assay):
+        for value, validator in (
+            (candidate.sample_id, validate_qc_sample_identifier),
+            (candidate.experiment_id, validate_qc_identifier_token),
+            (candidate.assay, validate_qc_identifier_token),
+        ):
             if value is not None:
                 try:
-                    validate_qc_identifier_token(value)
+                    validator(value)
                 except ValueError:
                     raise ValueError("QC metric identifier is invalid") from None
         if candidate.scope == "run" and (

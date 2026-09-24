@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 from encode_pipeline.platform.adapters import (
     ARTIFACT_EXTRACT_CAPABILITY,
+    AtomicResultPublishingAdapter,
     ExtractedArtifactCandidate,
     MAX_SAMPLE_ROWS,
     QC_SUMMARY_EXTRACT_CAPABILITY,
@@ -144,6 +145,9 @@ class ArtifactExtractionService:
                     run_id,
                     attempt_id=attempt_id,
                 )
+            expected_generation = self._run_service.get_result_state(
+                run_id
+            ).artifact_generation
             adapter = self._registry.get(record.workflow_id)
             if ARTIFACT_EXTRACT_CAPABILITY not in adapter.capabilities.supports:
                 return self._fail(
@@ -194,11 +198,42 @@ class ArtifactExtractionService:
                 candidates_result.value,
                 qc_source_types=qc_source_types,
             )
-            self._run_service.replace_artifacts(
-                run_id,
-                references,
-                attempt_id=attempt_id,
-            )
+            if (
+                isinstance(adapter, AtomicResultPublishingAdapter)
+                and adapter.requires_atomic_result_publication() is True
+            ):
+                from encode_pipeline.services.qc_summary_indexing import (
+                    QcSummaryIndexingService,
+                )
+
+                preparer = QcSummaryIndexingService(
+                    run_service=self._run_service,
+                    registry=self._registry,
+                    build_identity_provider=self._build_identity_provider,
+                    workspace_root=self._workspace_root,
+                    reference_profile_resolver=self._reference_profile_resolver,
+                )
+                metrics = preparer.prepare(
+                    run_id,
+                    inputs=inputs,
+                    adapter=adapter,
+                    artifacts=references,
+                    workspace=workspace,
+                    produced_at=record.ended_at,
+                )
+                self._run_service.publish_result_bundle(
+                    run_id,
+                    references,
+                    metrics,
+                    attempt_id=attempt_id,
+                    expected_artifact_generation=expected_generation,
+                )
+            else:
+                self._run_service.replace_artifacts(
+                    run_id,
+                    references,
+                    attempt_id=attempt_id,
+                )
             return Result.success(references)
         except ConcurrentRunUpdateError:
             return self._fail(

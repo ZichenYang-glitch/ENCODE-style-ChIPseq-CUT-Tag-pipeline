@@ -95,6 +95,20 @@ EXECUTION_IMPLEMENTATION_PATHS = (
     "src/encode_pipeline/adapters/bulk_rnaseq/reference_profiles.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/upstream.py",
     "src/encode_pipeline/adapters/bulk_rnaseq/validation.py",
+    # The shared runner consults Hi-TrAC server admission even in a Bulk-only
+    # registry. Cover that control chain, including its identity hash helper;
+    # Hi-TrAC scientific output/pair/process code is not invoked by this decision.
+    # The external runtime-policy lock is pinned by controlled deployment.py.
+    "src/encode_pipeline/adapters/hitrac_preprocess/__init__.py",
+    "src/encode_pipeline/adapters/hitrac_preprocess/deployment.py",
+    "src/encode_pipeline/adapters/hitrac_preprocess/adapter.py",
+    # Default registry now instantiates this control class (capabilities and
+    # availability); its result-only science helpers are not called by Bulk.
+    "src/encode_pipeline/adapters/hitrac_preprocess/results.py",
+    "src/encode_pipeline/adapters/hitrac_preprocess/execution.py",
+    "src/encode_pipeline/adapters/hitrac_preprocess/admission.py",
+    "src/encode_pipeline/adapters/hitrac_preprocess/qualification.py",
+    "src/encode_pipeline/adapters/hitrac_preprocess/calls.py",
     "src/encode_pipeline/platform/__init__.py",
     "src/encode_pipeline/platform/adapters.py",
     "src/encode_pipeline/platform/artifact_publications.py",

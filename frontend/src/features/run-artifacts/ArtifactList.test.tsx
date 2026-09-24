@@ -88,3 +88,16 @@ describe('ArtifactList', () => {
     expect(screen.getByText('Loading more…')).toBeInTheDocument();
   });
 });
+
+
+it('keeps a whitespace-bearing artifact sample distinct and copyable in both layouts', async () => {
+  const user = userEvent.setup();
+  render(<ArtifactList artifacts={[{ ...artifact, metadata: { ...artifact.metadata, sample_id: 'a  b ', experiment_id: null } }]} selectedArtifactId={null} onSelect={vi.fn()} hasNextPage={false} isFetchingNextPage={false} onLoadMore={vi.fn()} />);
+  const displays = document.querySelectorAll('[data-sample-label]');
+  expect(displays).toHaveLength(2);
+  for (const display of displays) expect(display).toHaveTextContent('"a  b "', { normalizeWhitespace: false });
+  for (const button of screen.getAllByRole('button', { name: 'Copy sample ID' })) {
+    await user.click(button);
+    expect(await navigator.clipboard.readText()).toBe('a  b ');
+  }
+});

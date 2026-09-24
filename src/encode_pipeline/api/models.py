@@ -31,6 +31,7 @@ from encode_pipeline.platform.runs import (
     RunStatus,
     build_qc_metric_id,
     validate_qc_identifier_token,
+    validate_qc_sample_identifier,
 )
 from encode_pipeline.platform.data_registry import (
     LEGACY_PROJECT_ID,
@@ -1113,7 +1114,14 @@ class QcMetricResponse(BaseModel):
             raise ValueError("QC metric display name is not public-safe")
         return value
 
-    @field_validator("sample_id", "experiment_id", "assay")
+    @field_validator("sample_id")
+    @classmethod
+    def validate_sample_identifier(cls, value: str | None) -> str | None:
+        if value is not None:
+            validate_qc_sample_identifier(value)
+        return value
+
+    @field_validator("experiment_id", "assay")
     @classmethod
     def validate_identifier(cls, value: str | None) -> str | None:
         if value is not None:

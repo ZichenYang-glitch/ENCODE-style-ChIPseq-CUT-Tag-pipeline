@@ -18,6 +18,7 @@ from encode_pipeline.persistence.runtime import (
     open_existing_run_persistence,
 )
 from encode_pipeline.platform.adapters import (
+    AtomicResultPublishingAdapter,
     ReferenceProfileBindingAdapter,
     WorkflowAdapter,
     WorkflowInputs,
@@ -416,6 +417,33 @@ def _index_succeeded_run_results(runtime, run_id: str) -> bool:
         return False
     if not _artifact_attempt_is_closed(artifact_state, artifact_attempt_id):
         return False
+    # Opt-in adapters publish artifact/QC as one bundle. A closed failure is
+    # diagnostic completion, not a successful publication or notification point.
+    # RunService owns the deployment registry; lightweight non-adapter callers
+    # may not expose one and retain the existing non-opt-in policy.
+    try:
+        registry = getattr(runtime.run_service, "registry", None)
+        adapter = (
+            registry.get(runtime.run_service.get_run(run_id).workflow_id)
+            if registry is not None
+            else None
+        )
+        atomic_publication = (
+            isinstance(adapter, AtomicResultPublishingAdapter)
+            and adapter.requires_atomic_result_publication() is True
+        )
+    except WorkerHardTimeout:
+        raise
+    except Exception:
+        return False
+    if atomic_publication:
+        from encode_pipeline.services.run_repositories import result_bundle_is_complete
+
+        return (
+            artifact_result is not None
+            and artifact_result.is_success
+            and result_bundle_is_complete(artifact_state, artifact_attempt_id)
+        )
     if artifact_state.artifact_attempt_status == "failed":
         return True
     if artifact_result is None or artifact_result.is_failure:
@@ -423,6 +451,10 @@ def _index_succeeded_run_results(runtime, run_id: str) -> bool:
     artifact_generation = artifact_state.artifact_generation
     if artifact_generation is None:
         return False
+    from encode_pipeline.services.run_repositories import result_bundle_is_complete
+
+    if result_bundle_is_complete(artifact_state, artifact_attempt_id):
+        return True
     qc_attempt_id = new_result_attempt_id()
     try:
         runtime.qc_summary_indexing_service.index(

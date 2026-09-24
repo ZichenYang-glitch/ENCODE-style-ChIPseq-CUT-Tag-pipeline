@@ -100,16 +100,20 @@ holds only outcome statements and their exit evidence.
 
 Tier 1 — close the real-path gaps first:
 
-- Real-submission smoke coverage: a CI-tier case that materializes the served
-  authoring schema exactly as the browser client does (rjsf default
-  materialization) and round-trips it through adapter validation, plus one
-  tiny-sample execution. Exit evidence: the tier fails when a gated-section
-  default regression (bug #1) or a `--cores` pinning regression (bug #8) is
-  reintroduced.
-- Local deployment documentation: capture the working bring-up (rootless
-  Docker, uid-mapping ACLs, environment coordinates, reference profile
-  registration) in `docs/development/local-platform-runtime.md`. Exit
-  evidence: a fresh host reaches `doctor` green from the document alone.
+- Completed implementation: real-submission smoke coverage in `4c64f0b`.
+  The browser CI tier materializes the served authoring schema through the
+  workbench's rjsf logic, validates bulk defaults with the real adapter, and
+  executes the controlled ENCODE fixture with `cores: 2`, asserting both argv
+  and Snakemake's allocated threads. The tests guard bug #1 and bug #8; they
+  do not replace a real bulk scientific run or the Protected Bulk Gate.
+- Local deployment documentation now records the rootless/containerd bring-up,
+  the two-daemon workaround, explicit container identity, Reference Profile
+  registration and local verification toolchain in
+  `docs/development/local-platform-runtime.md`. Remaining exit evidence: a
+  fresh host reaches `doctor` green from the document alone, with bulk
+  availability checked separately; shim retirement and a real rootless run
+  remain operator verification tasks. The unresolved staging/admission storage
+  mismatch is tracked in bug #5.
 - Dual run-repository conformance: one parametrized behavior suite executed
   against both the in-memory and SQLAlchemy run repositories. Exit evidence:
   shared suite runs in CI; drift between the two implementations fails the
@@ -843,8 +847,8 @@ Hi-TrAC 的只读上游与契约调查可并行；不将新 adapter 的代码、
 | 1 | PR-17 文案返修：仅修审计 P4/S12/S15 的历史转述及对应总表，同步验收状态。 | 对照原审计开工副本与复核证据；保持裁决、科学政策及编号不变，限定文档检查通过。PR-17 返修已通过独立复验，用户允许继续第二单元。 |
 | 2 | fastp 固定版本字段兼容修复：核对上游 `summary.fastp_version`，修正原解析器及相应契约测试。 | 合法上游布局可提取 QC；核对共享 artifact 消费路径，保留版本、计数、重复键和非有限值拒绝；用相同断言保存修复前后证据。按实际闭包影响同步必要身份。332 项独立复验通过，用户已接受；完整 Gate 留待集成收尾。 |
 | 3 | 成功流式下载超时定位：区分测试客户端、资源清理、运行环境与产品行为。 | 验证正常下载及相关审计路径；有证据的缺陷做最小修复，无缺陷则以原因及可复核成功证据收尾。不得靠放宽断言、跳过测试或单纯增加超时宣布通过。已独立复验并获用户接受：当前受限执行环境的 socket 唤醒问题，无需生产/测试修复；原测试及真实下载清理通过。 |
-| 4 | 最终集成验证与完整 Gate：整理累计改动和精确身份，补齐真实运行前提。 | 对最终状态执行相关后端、前端、ENCODE 科学及契约回归，完成此前缺工具的格式检查；核验 PR-6 staging → admission → 受控小样本链。按已验收边界准备候选提交范围，获用户授权后形成干净的精确 commit，再执行完整 Gate，保留全部身份与日志。最终集成准备及最小格式收尾已通过独立复验；候选范围维持已裁定的 90 路径。核心环境准备及系统依赖补齐已通过独立复验，详见 2026-09-24 记录；干净审核 commit 尚未形成，PR-6 完整链和完整 Gate 尚未完成，历史格式债保留。 |
-| 5 | 推送与交付审阅。 | 确认验收证据覆盖候选提交，排除用户本地内容；推送、合并或发布仍不自动执行，由用户裁决。远端 Gate 所需的候选提交推送按下文单独处理。 |
+| 4 | 最终集成验证与完整 Gate：整理累计改动和精确身份，补齐真实运行前提。 | 最终集成准备、最小格式收尾及 90 路径候选已通过独立复验；已形成精确 clean commit `842251e48408dcdaa8b3054403be5e2101951f0e`。该提交在专用 rootful 环境的原 Python Gate 4 项、浏览器产品链 5 项全部通过，且已独立验收。该 SHA 的远端 Protected Bulk attempt 2 已通过独立复验，用户接受，详见后文；PR-6 在线 staging 完整链、历史格式债及各历史身份当时未验证的边界继续保留。 |
+| 5 | 推送与交付审阅。 | 用户明确确认目标及上传可见性后，上述精确 SHA 已推到原 GitHub 仓库的 `maintenance/20260924-final-gate` 分支；远端引用复核一致，main 仍为父提交。普通 hosted 作业、Lint 和 Lock Check 均成功；Protected 首轮因临时容量监护停止 Docker 而失败。修正并验证临时监护后，仅重试该失败 job 一次，attempt 2 已成功：Python 4项及浏览器5项通过、零失败零跳过；本轮收尾已通过独立复验，用户接受，详见后文。未重跑普通 hosted 作业，未重复 dispatch、合并或发布。本次新增 roadmap 规划和运行记录仅留在源工作区，不属于该已验收、已推送提交。 |
 
 Gate 准备包括受控 runtime root、fixture manifest、测试 Redis、Docker CLI/socket，
 以及现有准入契约要求的工具与隔离能力。不得绕过镜像、身份或环境校验。
@@ -1149,7 +1153,7 @@ G0 及各历史身份欠验独立保留，不跨身份追认。
   仅在许可路径的临时副本做原生重放及字节/模式/删除状态核对；本轮只读核对
   Bulk 111 项及原 qualification，aggregate 仍为上节值，未重建身份。
 
-**最终候选收尾待独立验收，尚未形成 commit。** 本轮证据为
+**该候选准备单元结束时：待独立验收，尚未形成 commit。** 当轮证据为
 `/tmp/helix-final-candidate-2ad2jsed/{report,commands}.md`、`this-round.diff`、
 `candidate.patch`、`candidate-inventory.json` 及 `next-steps.md`。
 之后须另获暂存/提交授权，在隔离范围形成经审核的精确 commit，并核验包含
@@ -1158,26 +1162,513 @@ untracked 的 clean 状态；完整 Gate、push、workflow_dispatch 分别按授
 本机环境准备、未来本地完整 Gate、远端 protected CI 分别验收；PR-6 在线 staging
 与完整科学链仍未补验，不能用归档装载/admission 代替。G0 及各历史身份欠验保持独立。
 
-### 后续 Hi-TrAC 预处理 adapter
+### 精确提交与本机 Gate 验收（2026-09-24）
 
-拟使用独立 workflow ID `hitrac-preprocess`，第一版范围为双端 FASTQ 的 linker
-处理、比对/MAPQ 过滤、唯一 PET BEDPE 与 QC，以及平台配置、执行、取消、结果查看
-和下载。loop/domain calling 不纳入第一版。科学参数、输出含义和参考绑定由 adapter
-拥有，复用现有生命周期、schema 表单及产物发布机制，不在通用 API/UI 硬编码 Hi-TrAC。
+90 路径候选已形成提交 `842251e48408dcdaa8b3054403be5e2101951f0e`，tree 为
+`bb075b7e76aea272f223cc390c2b793c493ce843`，父提交为
+`13d6c8ed26961150a6ed1bc93e445b3793125f43`。隔离 checkout 含 untracked 的
+clean 检查通过，Bulk 111 项 aggregate 仍为
+`12fa7ec0d8c46d8689ad3042636b677468dca1957765eca2425c1193c174d62a`。
+专用 rootful 环境中，原 Python Gate 4 项与原浏览器产品链 5 项均零失败、零跳过；
+该结论已通过独立验收，代码、测试与身份未因本轮验收而修改。
 
-| 阶段 | 工作与验收边界 |
-| :--- | :--- |
-| 调查与契约 | 固定 cLoops2 tag/commit 和依赖，核对 `tracPre2.py` 的输入配对、索引、参数、产物和失败语义；明确多 lane/多样本及参考支持范围。当前可只读并行；真实原脚本小输入验证在本批次收尾后开展。 |
-| 受控执行 | 优先评估直接调用固定原脚本的受控启动器；是否使用 Snakemake 由恢复与调度需求决定。补齐独立 runtime/reference binding、build identity、availability、工作区与 executable 准入；验证失败、部分产物、资源限制、取消和超时。 |
-| 平台结果 | 接入 adapter schema、校验、命令、BEDPE 产物与 QC；输入采用受控配对映射，保留原始文件。运行时未准入时保持不可执行；核验列表、下载和 QC 展示，不能只查工作区文件。 |
-| 端到端验收 | 用固定版本原脚本与平台执行同一受控小输入，比较 PET 集合和 QC；覆盖真实工具、失败对照与桌面/移动浏览器。回归现有 adapter；按实际共享闭包影响决定额外 Gate。 |
+实施证据在 `/tmp/helix-rootful-gate-rp0o022v/`，独立验收在
+`/tmp/helix-rootful-gate-review-0yyxwrqc/report.md`。独立验收核对原始记录及身份，
+没有重跑科学流程或浏览器。五项浏览器测试不等于五次科学执行；下载验证覆盖
+已记录的 Salmon 元信息产物，不外推所有产物或完整 HTML 可见性。测试服务已停止。
+此前 rootless/监护失败记录保留；当前成功不追认 G0 或各历史身份，PR-6 在线
+staging 全链及远端 protected CI 仍未执行，ENCODE 完整动态摘要未新增捕获。
 
-初步依据为[上游 tracPre2.py](https://github.com/YaqiangCao/cLoops2/blob/master/scripts/tracPre2.py)
-及现有 `platform/adapters.py`、`platform/registry.py`、`services/defaults.py`。
-上游当前源码有固定文件命名和仅记录错误后返回的分支，接入时须独立核验输入配对
-及完整产物，不能仅凭退出码判成功。现有通用命令协议可复用，但默认 runner 准入
-仍需显式接线，单独注册元数据不代表可执行。本次仅源码调查，未执行 Hi-TrAC 实验，
-上游 `master` 链接不是已锁定的生产身份；正式实施前确定版本与验收夹具。
+本次仅补充验收状态与 Hi-TrAC 规划，不改写或追加到上述已测试提交。
+推送目标为 `https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline.git`
+的 `maintenance/20260924-final-gate`；远端检查时 main 仍为父提交且目标分支不存在。
+首次推送被自动审批在执行前拒绝；用户随后明确确认该目标及上传内容可见性。
+重试推送退出 0，远端维护分支精确指向上述 SHA，main 仍为父提交。推送单元未合并、
+发布或 dispatch。新增 roadmap 规划仅留在源工作区，未混入已推送提交；该单元证据在
+`/tmp/helix-push-hitrac-plan-ra8cqokr/`。
+
+### 远端 CI 与 Protected Bulk：接管、执行和结果（2026-09-24）
+
+用户随后明确授权远端 CI。核对维护分支仍指向上述 SHA 后，分别 dispatch 了
+CI、Lint、Lock Check；GitHub API 均返回 204。CI 的参数为
+`bulk_rnaseq_real_execution=true`、`bulk_rnaseq_expected_sha=842251e48408dcdaa8b3054403be5e2101951f0e`。
+三次 run 的 head SHA 均匹配；维护分支普通 push 本身不触发这三份 workflow。
+
+- [CI 35918197084](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/35918197084)：接管复查时普通 hosted 的9个作业均成功，含两个 shard、fast-checks 汇总与 coverage；Protected Bulk job 仍等待 `bulk-rnaseq-real-execution` 环境审批、无 runner 分配，尚未执行。CI 整体为 waiting，不能标为通过。
+- [Lint 35918199896](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/35918199896)：成功，job/step 记录确认 Ruff、snakefmt 和原 lint baseline 均通过。
+- [Lock Check 35918203241](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/35918203241)：成功；手动 dispatch 只证明 lock 存在，该入口按原规则不检查事件 diff 中 YAML/lock 的同步更新。
+
+运行时观测：仓库 runner API 返回 `total_count=0`；保护环境存在 required reviewers
+和 branch policy，待审批记录存在。因此批准环境也不能代替合格的 self-hosted runner。
+本轮没有批准环境、改保护规则、注册 runner 或部署服务；这些前提需另列具体方案。
+执行 session 接管上述现有 run，不重复 dispatch；归档失败及真实结果，不能将等待
+或跳过记为通过。历史各身份保留当时未验证记录，不默认逐个回跑已被当前版本替代的
+提交；PR-6 在线 staging 全链仍是独立验证边界，远端原 Gate 也只有 verify 阶段。
+本轮命令、API 状态和 job/step 证据在 `/tmp/helix-remote-ci-jou6h_ma/`。
+
+接管复查（2026-09-24，UTC 2026-09-23 21:04）：三个 run 的 head SHA 与维护分支
+仍为已审核 SHA，main 仍为父提交；未再次 dispatch。远端原日志显示两个 shard
+3626+3658=7284 项通过，汇总 JUnit 零失败/错误/skip；科学真实工具层43项、平台
+真实执行层10项、前端392项与普通浏览器13项通过，coverage 检查通过。
+这些是本轮查询/归档的远端执行结果，不是本机重跑，也不代替 Protected Bulk。
+
+runner API 仍返回0；五项环境 vars 均存在，但除 Docker executable 外，四项与
+已验收本机坐标不同，未连接未知旧端点。环境 custom branch policy 的规则列表为空，
+维护分支的允许状态还需管理员核验，不能因 waiting 推断已通过保护条件。
+本机离线资源可复用但服务停止，尚无 Actions runner 的 cache/镜像检出接线。
+`local-mirror-only` 是 checkout 的 token 值，不会自动创建本地 mirror；须另行准备
+受控镜像、runner 专属 Git 配置和缓存，并实际验证固定 checkout action。
+最小方案、资源范围和需授权的 runner注册/坐标/服务/环境审批在
+`/tmp/helix-ci-h1-xv32gtkc/protected-runner-plan.md`；本轮没有实施这些动作。
+API原始记录、全部已完成job日志和命令在该目录；没有失败作业日志可归档。
+Lock Check 手动入口仍只证实 lock 存在，不验证事件差异的YAML/lock同步。
+
+后续授权执行（2026-09-24，UTC 2026-09-23 21:54–22:06）：沿用同一 CI run，
+没有再次 dispatch 普通 CI。官方 Actions runner 2.337.0 以仓库专用、单 job ephemeral
+方式注册（id 66）；固定 checkout action 已在断网条件下实际从只读 local mirror
+完整检出。runner 使用用户另行允许的专用 HOME、离线工具缓存和本轮私有 Redis
+Unix socket；只更新四项不同环境坐标，Docker executable 不变；只新增精确维护分支
+准入规则，不删除已有保护。再次核对唯一待投递任务、分支 SHA 和前提后，仅批准
+既有 pending deployment 一次。实际 hook 接受的 run/job/SHA 与授权目标一致。
+
+[Protected job 107375096912](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/35918197084/job/107375096912)
+最终为 **failure**，CI run 整体也是 failure。精确 checkout、锁定工具、安装及原 runtime
+verify 均通过；原 Python Gate 为 **1 passed、3 failed、0 skipped、77 deselected**。
+通过项是实际取消及清理；超时项报 `accepted lifecycle cleanup is incomplete`，
+STAR/Salmon 与 rapid-quant 两项在入口因 Docker socket 消失失败。后续四个 Node/浏览器
+步骤被跳过，浏览器产品链未执行；缺少产品 evidence 的检查失败不能记为浏览器失败复现。
+`Require no managed containers` 失败源于连接不到 socket，不能据此认定仍有残留容器。
+
+直接原因在本轮临时容量监护脚本，未证实产品缺陷：`du` 遍历专用根时，containerd
+snapshot 和 Nextflow `engine/tmp` 下的临时 class 文件正被删除，返回 ENOENT/退出 1。
+脚本的有限重试只接受 snapshot 路径，混合错误被拒绝，随后主动停止专用 daemon。
+用保存的原 stderr 调用原判断函数，已复现“snapshot 单独允许重试、混合/Nextflow 不允许”。
+最后完整容量样本约 75.8 GiB、可用约 274.2 GiB，未达到预算；不采信失败 `du` 的不完整计数。
+最小后续方案为仅修正该临时监护的并发删除识别与有限完整重测，保留预算、未知错误和
+持续失败的拒绝，先验证再重启；本轮未重启或重跑失败 job，未修改产品、测试、workflow 或身份。
+
+收尾核对：ephemeral runner 自动注销（API 返回0），Listener 退出；专用 Docker/containerd
+及 Redis 停止，三个 socket 均不存在，停止前专用 daemon 的最后容器清单为空，宿主可见
+范围没有本轮匹配的存活进程。最终 checkout 含 untracked 的 clean 检查通过，1147 个
+tracked 文件字节/模式及 90 路径范围不变，Bulk 111 项 aggregate 仍为
+`12fa7ec0d8c46d8689ad3042636b677468dca1957765eca2425c1193c174d62a`。
+job 原日志、带服务端摘要核验的原 artifact、失败因果与清理记录在
+`/tmp/helix-protected-runner-f_t4nmkx/`。runner 默认清理了 RUNNER_TEMP，未外置的科学
+私有诊断只保留上传的摘要及 pytest 失败链，不声称完整私有日志仍在。
+本机已验收 Gate 与本次远端失败分别记录；G0/旧身份仍为当时未验证，PR-6 在线 staging
+完整链没有新增验证。Hi-TrAC H1 规划不变，未推进 H2。本轮收尾待独立验收。
+
+### Protected Bulk 定向重试与容量监护修正（2026-09-24）
+
+前次失败归因及收尾已获独立复验确认，见
+`/tmp/helix-protected-failure-review-luj0mump/report.md`；上述首轮失败证据仍保留。
+本轮仅修改新的临时容量监护及环境接线，没有修改产品、测试、workflow、超时、
+断言或执行身份。新监护逐行校验 exit 1/ENOENT/完整路径，只允许专用 snapshot 树
+和本次 runner 指定 workspace 的 Nextflow `engine/tmp/nxf-*` 并发删除进入有限重测。
+最多6次，失败的部分计数丢弃，每次重测前检查可用空间；未知路径、权限错误、持续失败
+及预算超限仍停止。52项匹配/替身/预算检查及18项组装复核通过；有界真实 du 对照
+24次中13次受控 ENOENT、11次成功，停止创建/删除后完整测量成功。这些不替代 Gate。
+
+只调用一次原失败 job `107375096912` 的 rerun API，未重新 dispatch；实际新目标为
+[attempt 2 / job 107415516205](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/35918197084/job/107415516205)。
+九个普通 hosted 作业在新 attempt API 中有新的 alias ID，但时间、runner 和 steps 与
+首轮成功记录完全相同，未重新执行。新 runner id67 为仓库专用 single-job ephemeral，
+hook绑定实际run/attempt/job key/审核SHA；只更新私有 Redis 坐标，其余四项坐标及保护
+规则不变。前提核验后，仅批准本次新 pending deployment 一次。
+
+**远端实际结果：job 与 CI run 均为 success，24个步骤成功。** 原 Python Gate
+`4 passed / 0 failed / 0 skipped`（77 deselected），原 JUnit零skip检查通过；保留1条
+RQ `job.exc_info` 弃用警告，未压低警告。原浏览器产品入口 `5 passed / 0 failed / 0 skipped`，
+覆盖强制可用 registry→创建→真实运行→QC/artifact→下载及桌面/移动展示；产品证据含
+56项artifact、93项QC和1234字节下载的SHA，另有9张原截图。原path-free证据、显式endpoint
+零容器及上传步骤均通过。归档artifact id `10782430842`（23个文件）的SHA256为
+`7dde650047a9ed1cd81941235ff53e74fdd0719cd970ac6945b8a34d986958d4`，与服务端摘要一致。
+
+实际执行仍为 `842251e48408dcdaa8b3054403be5e2101951f0e`；停服后完整核对tree/parent、
+90路径（59修改/25新增/6删除）、1147个tracked字节/模式及含untracked的clean状态均通过。
+Bulk111及manifest/qualification未变，aggregate仍为
+`12fa7ec0d8c46d8689ad3042636b677468dca1957765eca2425c1193c174d62a`，未重建身份。
+
+运行中7次真实snapshot ENOENT分属5轮容量测量，最长一轮第4次取得完整计数，监护无失败；没有将这些记录
+冒称真实Nextflow混合竞态（混合stderr和Nextflow路径另有固定输入/有界du验证）。
+累计占用峰值采样79.44GiB、最低可用270.48GiB，RSS合计峰值采样3.79GiB；CPU限于0–7，
+未突破既定预算。采样值不代表连续瞬时峰值。停止时最后完整占用样本79.15GiB；停服后
+可用270.79GiB，未再次以root测量整个store占用。
+
+收尾：runner自动注销，API返回0，Listener退出0；原Gate及停服前容器清单均为空；
+专用Docker/containerd、Redis和已知PID/startticks均停止，三个socket不存在，root停止
+记录无失败或清理错误。可见进程范围无匹配的存活任务；另有31个进程cwd权限受限，
+不声称已看见全机所有cwd或证明所有既有服务不变。私有诊断在RUNNER_TEMP外0700目录，
+没有进入公开artifact；预期超时负向用例的诊断已保留。资产、缓存、旧失败记录未删除。
+
+证据：`/tmp/helix-protected-retry-bdt4jw34/report.md`、`commands.md`、原job日志/JUnit/
+artifact、`monitor-vs-prior.diff`、`roadmap.diff`及停服后身份核对。本轮已通过独立复验，用户接受；
+没有提交、推送、改分支或推进H2。本机此前通过与本次远端通过分别归档；G0/旧身份仍为
+当时未验证，不由本次追认；PR-6在线staging完整链没有新增验证。Lock Check手动入口的
+YAML/lock变更同步验证边界、Hi-TrAC H1计划及其他政策裁决不变。
+
+独立复验依据：`/tmp/helix-protected-retry-review-D4qGAw6T/report.md`。
+复验核对原远端日志、JUnit、artifact 与身份/停止记录，没有重跑科学 Gate 或浏览器。
+验收仅对应上述精确提交的 attempt 2 / job `107415516205`；下载证据核对 HTTP、
+generation/revision、大小并记录 SHA，未另以源文件独立摘要作等值校验。
+此次验收状态及后续 H1/H2 文档更新不属于该已测试提交。
+
+### 后续 Hi-TrAC 预处理 adapter：五个 PR
+
+使用独立 workflow ID `hitrac-preprocess`。第一版范围为双端 FASTQ 的 linker
+处理、Bowtie2 比对/MAPQ 过滤、PET BEDPE 与 QC，以及平台配置、执行、取消、结果查看
+和下载；不包含 loop/domain/peak calling、bigWig 或差异分析。adapter 拥有科学参数、
+输入与参考契约、输出解释；继续复用 SQLite 生命周期、RQ worker、schema 表单和
+产物发布机制，不另建平台或在通用 API/UI 硬编码 Hi-TrAC。
+用户进一步确认：科学处理范围严格等于 `tracPre2.py` 本身，不增加后续分析或
+新的科学产物。下列校验与结果解析用于安全接入该脚本，不另行实现一套预处理算法。
+
+实施暂按 H1–H5 五个 PR 排序，与已完成的 PR-2～PR-17 分开；一次一个，完成后停下
+独立验收。本审核会话只负责规划与复验；本次没有开始实现 adapter。优先采用固定
+原脚本加薄启动器，初版不引入 Snakemake 或重写科学步骤；若真实基线证明该方式
+无法满足失败检测、资源管理或恢复契约，先提交具体方案，不在接线时顺带重构。
+
+| PR | 用户可验收的结果与主要落点 | 验收与停止条件 |
+| :--- | :--- | :--- |
+| H1：固定上游与科学契约 | 记录固定源码、依赖和参考身份方案；确定输入配对、参数、PET/QC 单位、零结果及中间产物政策。形成简短 adapter 契约和有预期 PET 集合的 tiny fixture 设计。本轮已形成[H1设计](hitrac-preprocess-contract.md)，零 PET/无 cis 政策 A 及中间产物私有保留政策均已获用户确认，设计待独立验收。 | 用固定源码逐项核对；明确哪些是原算法、哪些是 HelixWeave 的校验。默认计划为每样本一对 gzip FASTQ，可含多个样本；多 lane 需预先合为一对，首版不自动合并、不按 lane 分别去重。任一样本 all/noBg 为空或需要 cis 分母的 QC 集合无 cis，整个 attempt 不发布成功，保留原输出与诊断；政策 B 留待后续；BAM/裁剪FASTQ及诊断在所有attempt中私有保留，不自动删除，不提供首版下载。两项政策已收口，进入 H2。 |
+| H2：原脚本真实基线与锁定 runtime | 在 adapter 专用 runtime/启动入口中固定 Python、cLoops2、Bowtie2、samtools、bedtools、gzip 及依赖；实现受控 staging、参考准入、全新 attempt 和完成核验。原算法不变。退出码收集与独立配对来源核验方案已获用户批准；H2私有资格入口已独立验收（159快速＋24资格，另threads=3/8双样本CLI）；旧反例原样保留。 | 真实原脚本跑已知 tiny FASTQ/参考：linker、短/长 cis、trans、重复、低 MAPQ、短 read；核对解压后的 PET 集合与 summary。缺 mate、ID/数量不匹配、坏 gzip、错索引、子工具失败、空/无 cis、旧输出等均有明确结果。替身不能代替这项科学基线；无法安全封装的上游缺陷先报告。 |
+| H3：adapter 配置与执行接线 | 新增 `adapters/hitrac_preprocess/` 的 schema、validation、workspace、command、input/reference binding、build identity、availability；复用 registry、默认 runner、worker 与取消机制。 | 配置校验、快照身份、受控执行、失败/取消/超时及清理通过；不暴露任意 shell 参数或私有路径。运行时未准入保持不可执行；H4 结果契约完整前，公共 execution 保持 not_configured/unavailable，仅隔离资格验证入口可执行。共享协议仅在存在真实消费者时最小扩展。 |
+| H4：结果、QC 与通用界面 | 严格解析最终 15 个指标列及额外样本索引列（物理 TSV 16 列）的 summary，映射内部样本 token；登记 unique/all BEDPE.gz 与原 summary，落实 BAM/裁剪 FASTQ 保留政策。沿用通用表单、QC 和下载入口。 | 样本集合、计数/比例、gzip/BEDPE、产物来源与结果 generation 一致；缺产物或部分结果不发布成功。实际验证列表、QC、鉴权及下载字节，不能以工作区 TSV 存在代替平台可用。无现成通用表达时先提交契约方案，不硬编码 Hi-TrAC UI。 |
+| H5：全链验收与交付 | 用同一固定 tiny 输入完成真实 API → RQ/worker → 预处理 → artifact/QC → 下载，覆盖桌面/移动与重复执行；补部署、升级和上游耦合台账。 | 与 H2 原脚本基线比较规范化 PET 和 QC；验证失败、取消/超时与服务清理，记录资源和完整身份。运行相关 ENCODE/Bulk 回归及适用 Gate，在精确 clean commit 上验收；科学 tiny 通过不外推真实实验的生物学有效性。 |
+
+首版建议直接锁定 Git tag `v0.0.5` 对应 commit
+`de6cc732fa00b408551b9f4272933640c08447f1`，并在 H2 锁定完整工具构建产物。
+该版本 `scripts/tracPre2.py` SHA256 为
+`c3c4ef4e6287fa4ade97a6f5980d20c81ea345b8e8e13c88ae3b7c4bd3a67aec`。
+PyPI 同名 `0.0.5` 不能作为该 Git commit 的等价身份；依赖不能仅写包版本号。
+一手依据为[固定脚本](https://github.com/YaqiangCao/cLoops2/blob/de6cc732fa00b408551b9f4272933640c08447f1/scripts/tracPre2.py)、
+[系统调用](https://github.com/YaqiangCao/cLoops2/blob/de6cc732fa00b408551b9f4272933640c08447f1/cLoops2/utils.py#L103)、
+[QC 实现](https://github.com/YaqiangCao/cLoops2/blob/de6cc732fa00b408551b9f4272933640c08447f1/cLoops2/qc.py#L66)
+及[许可证](https://github.com/YaqiangCao/cLoops2/blob/de6cc732fa00b408551b9f4272933640c08447f1/LICENSE)。
+
+以下为H1规划时核出的源码约束；后续H2真实实验和当前实现状态见文末记录：
+
+- 输入按 `_R1.fastq.gz` / `_R2.fastq.gz` 查找；原配对占位检查不完整，`zip` 不核
+  数量与 read ID。使用安全内部 token/staging 路径，运行前核配对与 FASTQ/gzip
+  完整性，保留原始数据。不能直接把任意用户样本名/路径送入上游 shell 字符串。
+- linker 固定为 `CTGTCTCTTATACACATCT`，保留长度至少 10 bp；MAPQ 默认 10。
+  首版保持固定算法，不把其 PET 去重等同 Picard/Samtools 去重。参考先限定完整六件
+  `.bt2` 索引并绑定参考 identity；仅 `.bt2l` 的支持需另行验证上游入口。
+- 缺工具/索引等分支可能退出 0，部分子命令状态被忽略，旧输出会触发跳过。
+  启动器预创建全新输出目录；完成条件同时核退出状态、最终格式、样本和产物集合、
+  计数一致性。summary 会被写两次，文件出现不表示最终结果完成。
+- 原 QC 在无 cis/无 unique 时存在将计数设为 1 的分支；空结果与无 cis 对照必须
+  真跑并制定不可用指标政策，不能直接透传成可信科学数值。未经裁决不改原算法。
+- `n=1,p=1` 会计算出转换 `n_jobs=0`；首版可固定 `n=1,p>=2`，但实际 CPU 预算
+  还需计 samtools 固定辅助线程。Python/Biopython/distutils 兼容性及内存上限须
+  在 H2 实测；上游旧环境文件不是新的运行锁。
+
+现有接线依据为 `platform/adapters.py`、`platform/registry.py` 和
+`services/defaults.py:97–157`：默认 runner 当前通过 Bulk 专有部署查询准入，
+单独注册 Hi-TrAC 元数据不等于可执行。应在 H3 接入实际 consumer，不复制完整
+Bulk 适配器或为一个新 adapter 建通用插件框架。`adapters/bulk_rnaseq/execution_identity.py:79–183`
+已将 defaults、registry、worker runtime 等列入 Bulk 闭包；修改这些文件时按
+AGENTS.md 更新对应身份并做适用的 Protected Bulk Gate，不能因目录属于平台而
+豁免。Hi-TrAC 自有科学/产品验收与 Bulk Gate 分开记录；当前维护提交的通过结果
+不覆盖未来新 adapter 身份。每个 PR 按实际最终 diff 判断范围，纯规划文档不重建身份。
+
+输入先沿用现有已合格的外部输入模式，原始 FASTQ 只读。当前
+`services/managed_input_verification.py:68–83` 对受管输入运行仍拒绝准入；本次
+接入不顺带解锁 managed input 执行或新建上传/存储系统。工作区的安全配对映射由
+Hi-TrAC 启动器负责，不能假设 `WorkspacePlan` 已有 FASTQ symlink 接口。
+
+上游源码、URL/SHA、静态接线调查和本次独立文档 diff 保存在
+`/tmp/helix-push-hitrac-plan-ra8cqokr/`；这些静态证据不替代 H2/H5 的真实验收。
+
+### H1 契约与基线设计交付（2026-09-24）
+
+[Hi-TrAC H1契约](hitrac-preprocess-contract.md)已完成固定源码核对及tiny设计，
+待独立验收。本轮从官方tag与固定commit重新核验脚本SHA，未使用PyPI替代身份。
+明确原PET去重键与QC去重键不同，raw/trim按pairs、mapped按PET行计数；最终表为
+15指标加样本索引，原mapping ratio依赖Bowtie2日志结构。给出8对读段的目标坐标、
+预期5条unique noBg PET及逐项QC，均为源码手推，必须在H2真实工具下验证。
+多样本/预合lane沿用既定边界；推荐BAM/裁剪FASTQ私有保留、不自动删除。
+
+设计交付时，零PET/无cis及中间产物保留均为推荐；后续政策裁决记录见下文。
+针对exit0但失败、旧输出跳过和中间summary设计fresh attempt与完成核验；
+后置条件能否覆盖所有被忽略的子退出码仍须H2故障注入确认，不能宣称已保证。
+
+证据 `/tmp/helix-ci-h1-xv32gtkc/` 含官方源码/URL/SHA、H1分项、CI接管结果、命令与
+相对开工文档独立diff。只改本设计文档及roadmap，未构建环境、运行Hi-TrAC科学任务、
+实现adapter、重建身份、提交或推送；未开始H2。本机已验收Gate、远端Protected
+Bulk等待、PR-6在线staging以及G0/旧身份当时未验证的边界分别保留。
+
+### H1 政策裁决进度（2026-09-24）
+
+用户已确认零PET/无cis政策A：任一样本all/noBg为空，或需要cis分母的QC集合无cis，
+则整个attempt不发布成功，不允许部分样本成功发布。保留原始输出和诊断，明确标识
+触发样本、集合及原因；不修改上游计数，不据此评价实验没有科学意义。
+政策B（合法PET保留、受影响QC不可用）留作后续能力，本轮不扩大结果与发布契约。
+
+用户同时确认BAM/裁剪FASTQ私有保留、不自动删除，首版平台不提供其下载，公开仅
+BEDPE/summary；成功、失败及取消的attempt均保留已有中间产物和诊断。原始FASTQ
+始终只读，后续清理或扩大公开范围需另行授权。两项政策已收口，H2进展与停止点见下文；
+不进入H3。记录位于
+`/tmp/helix-hitrac-h2-bx4wf6lj/`；本次文档不属于已验收维护提交，不重建执行身份。
+
+### H2 原脚本基线与失败检测裁决点（2026-09-24）
+
+该轮交付时H2尚未完成，停在独立审核及最小退出码收集方案裁决点；后续批准和实施见下一节。任务环境和全部探针位于
+`/tmp/helix-hitrac-h2-bx4wf6lj/`；隔离源码仅从已验收维护commit导出明确许可路径，
+不是完整clean Gate checkout。源码/测试/规则/manifest/qualification均未修改；
+源工作区本轮只改H1契约和本roadmap，且保留此前内容。
+
+固定原cLoops2脚本SHA再次核对一致。最终专用科学环境为Python3.11.14、Bowtie2
+2.5.4固定构建及124项锁定依赖；真实tiny双样本分别all8/noBg5，15指标及样本索引
+与原设计条件预期一致。此前2.5.5日志警告不兼容、bootstrap依赖版本不合格及临时
+环境组装错误均保留；通过正常任务局部依赖安装纠正，没有修改上游脚本或校验。
+
+子工具故障注入确认：合法但少一对记录的BAM＋退出73，仍可使原脚本exit0，
+并让候选后验错误接受all7/noBg4。固定断言1通过1失败，没有弱化或补造转绿。
+另有真实单mate用例：两个不同read ID的孤立记录得到末记录自身配对的cis PET；
+必须核每条输出PET是否具有同名两端BAM支持，不能只重跑同一转换工具。
+已按用户要求停止仅靠后验的实现方向，交付透明子工具退出码收集和配对后验方案，
+不擅改科学算法、过滤政策或公共契约。没有发布资格启动器或正式完成标记。
+
+原脚本边界输出与政策A诊断记录已保留；正式输入/参考准入、完整故障矩阵、取消及
+CI接线尚未完成。本轮不是H2完成验收，也未推进H3。Bulk111逐文件及原aggregate
+核对不变，不重建身份、不重跑Protected Gate；维护精确提交的已验收结果不能覆盖
+未来Hi-TrAC代码。G0/旧身份当时未验证及PR-6在线staging边界保持不变。
+
+### H2 透明退出码与独立配对来源核验（2026-09-24）
+
+用户已批准技术方案，独立审核支持旧退出73和singlemate反例；H1政策A不变，
+不是NA映射或部分发布。此次正式实现位于
+`/tmp/helix-hitrac-h2-impl-gzfw7n63/checkout/`，只从维护commit
+`842251e48408dcdaa8b3054403be5e2101951f0e`选择许可源码，并引入开工H1/roadmap文档。
+这是有明确来源的准备副本，不是完整clean Git checkout。源工作区保持不变，
+本次文档与代码不属于已经通过远端Protected attempt2/job107415516205的维护身份。
+
+新增私有输入/参考/工具准入、完整原子调用记录、产物后验、按qname磁盘关联的BAM双mate
+来源核验、取消/超时进程组清理及最后原子完成标记。原tracPre2和cLoops2包字节不变，
+沿用runtime-v3固定124项构建，新tiny由原生成器设计及真实bowtie2-build产生六索引。
+原rm范围也纳入计划，仅SAM及两个中间QC，不新增清理；BAM/裁剪FASTQ私有保留。
+固定脚本Bowtie2取得stat的正确位置为245（不是247）。
+
+最终快速层159通过；显式真实资格层24通过（12项无替身科学、10项工具故障、2项取消/超时），
+均零失败零skip，重复执行不累计独立覆盖。详见本轮report/commands；真实双样本每样本all8/noBg5、
+全部15指标和PET多重集合不变，MAPQ10/17均验证。退出73的完整部分BAM、真实singlemate、
+零/无cis及多样本一例失败均整批拒绝，保存上游原输出。进程/故障替身与真实无故障科学
+分开计数；旧候选accepted=true和旧红灯未修改。实现中发现的信号、收割竞态、落盘/取消
+窗口及记录结构问题保存同断言红绿证据，不归为上游科学缺陷。
+
+正式快速测试进入现有CI发现规则；专用真实测试使用既有real_execution标记与显式
+坐标，不硬编码本机路径，缺环境失败、不skip。本轮未配置或运行远端Hi-TrAC资格job，
+未重跑完整平台/Bulk Gate。字段、输入检查和公共发布仍须H3–H5接线验收，不能以私有
+完成标记冒充平台执行可用。线程参数/离散资源观察不是CPU/RSS硬限；不同prefix完整重装
+可重复性及主动setsid逃逸进程不在已验证边界。
+
+Bulk111项、manifest/qualification及aggregate保持不变，不重建清单。Hi-TrAC新增代码、
+调用计划、入口和锁拥有独立实现摘要，不能沿用维护commit的通过结果。完整ENCODE身份
+入口未执行；G0/旧身份当时未验证、PR-6在线staging全链边界继续保留。
+H2交付时标为待独立验收。随后独立审核159快速＋24资格全部通过，额外threads=3/8双样本CLI通过，用户接受；证据 `/tmp/helix-hitrac-h2-independent-0d3nw0cc/`。H2不包含H3公共接线，原验证边界保留。
+
+
+### H3 adapter 配置与执行接线（2026-09-24，待独立验收）
+
+本轮只在 `/tmp/helix-hitrac-h3-0uj0yyu1/checkout/` 继承已验收H2精确字节实施，
+未覆盖源工作区、H2或审核证据；选择性准备副本不称完整clean Git。新增Hi-TrAC
+schema/validation、服务器参考及runtime绑定、输入/参数/实现身份、workspace/command，
+注册默认元数据与作者校验。正式命令通过canonical入口消费原H2 qualifier，未改
+固定tracPre2/cLoops2、工具锁、H1政策A或中间产物保留。
+
+公共execution始终not_configured（包括runtime已准入），未声明artifact/QC capability，
+未开放公开科学执行/成功发布。快照服务的执行可用注入仅在测试中；隔离资格经过正式
+adapter/planner/materializer/command/default runner。H4/H5尚未开始。
+
+实际嵌套进程取消红灯促成worker内部最小控制修正：冻结自有PID/starttime树并等待清理，
+取消确认不能早于后代终止。保留原RQ horse wait结果、非SIGKILL行为以及SQLite/job/
+事件契约，不改默认ProcessRunner。快速、真实tiny、故障和外层取消证据分别统计于
+本轮report/commands；不将无Redis的fork horse控制称作公开产品链。
+
+最终快速/相关回归949项通过（560项核心＋389项Bulk adapter/deployment，零skip）；
+原H2资格24项与新增adapter/control 8项分层验证，真实科学与故障/控制实验分别记录。
+一项既有完整worker-runtime回归受选择性副本/完整ENCODE身份前提限制未完成，
+首轮fixture缺件失败与修复后安全定向结果均保留。Ruff、格式和限定文件patch核验见报告。
+
+共享defaults.py和workers/timeouts.py进入Bulk111，已保存旧闭包及正式同步新身份；
+新Bulk aggregate为`a568b21c0c6b0e1c39d386b9cf984bc08d2ea29c6cbb3fddb3f2d2ff0894b1ff`，
+111路径不变，仅上述两个受控文件改变；Hi-TrAC 52项实现摘要为
+`1dfb2dc4a3628da6212678f40f04794171b6f8846baa3f00a598f1ef3e87d866`。
+本H3身份的Protected Bulk Gate待补验。本轮无已审核H3完整clean commit、未授权重启
+旧Gate服务或远端dispatch，没有以qualification生成代替Gate。完整ENCODE身份入口
+因保护profile边界未执行。维护提交842251e的本机/远端通过不覆盖H3；G0和旧身份
+“当时未验证”、PR-6在线staging全链继续独立保留。停止待独立验收，不提交或推进H4。
+
+
+### H3 独立复验返修（2026-09-24，完成，待独立验收）
+
+独立复验 `/tmp/helix-hitrac-h3-review-u9bvnbg9/` 确认三项缺口：已冻结自有子进程
+的身份读取失败被当作消失（C1）；根在完整冻结前死亡并改父后代，空扫描仍被当作
+清理完成（C2）；共享runner准入依赖Hi-TrAC helper而原Bulk111闭包未覆盖（I1）。
+故障注入不证明默认发生频率；I1只观察到白名单变化，没有执行候选程序，不表述为
+已证实的任意命令执行漏洞。返修只在新选择性隔离副本实施，保留H3原交付和审核证据。
+
+worker局部控制边界严格区分不存在/身份变化、仍存在与无法确认；只沿自有进程的
+thread children发现下一代，逐层冻结。未知状态、失根或发现不完整均拒绝成功清理
+确认，不杀无关收养进程；正常路径保留RQ原wait状态、非SIGKILL及pre-setpgrp保护。
+这是拒绝错误确认，不承诺自动找回失根后代；测试按已知身份收尾不能冒充产品恢复。
+ProcessRunner、SQLite生命周期、持久job identity和事件语义均未重构。
+
+共享runner实际控制依赖进入Bulk正式闭包，外置工具锁由受控部署代码固定摘要；
+没有机械纳入全部Hi-TrAC科学模块。旧新精确恢复材料、正式生成器结果和定向测试
+记录于 `/tmp/helix-hitrac-h3-fix-jgvb1rzl/`。最终587项快速/相关回归＋32项真实资格
+全部通过（零失败/skip），另有真实SQLite25条组合断言；资格层17项科学正负例、
+11项子工具故障注入、4项取消/超时分别报告，不重复累计重跑。C1/C2同字节红灯
+1通过/3失败→4通过，I1同字节9失败→9通过。getpgid权限错误遗漏在终审另获红灯
+后同边界补齐。Ruff/格式通过；限定diff和原生重放结果见交付。
+
+Bulk闭包111→118，新增7项实际准入控制依赖，正式同步后的aggregate为
+`947b5757a9bf27748f1e4505e6e4733c1c2c5bc70cb9d7220d817c81584814b4`；
+Hi-TrAC52项实现摘要为`b9a20ee8f849c3c2f7314e01d2eab9c4fb59abe6bf65e6986cf6da3bdc3382e2`。
+旧H3及本轮中间/最终身份恢复材料均保留，persistence contract字节未变。
+公共execution仍为not_configured，H1政策A及原科学实现不变，未进入H4/H5。
+
+**用户本轮裁决：** 完整Protected Bulk Gate延至H5完成后的集成收尾统一执行；
+H3/H4仍执行各自定向验证及必要身份同步，不以完整Gate尚未运行单独阻塞交付。
+最终Gate只覆盖最终精确版本，不追认历史或中间身份；维护提交842251e的既有通过、
+G0/旧身份当时未验证及PR-6在线staging边界继续分别保留。本轮不启动Gate或旧服务。
+
+原planned-run完整worker-runtime测试仍未完成：旧实际失败首先是选择性副本缺tiny
+fixture；之后完整ENCODE指纹需要保护profile是源码核对，不是本轮运行结论。真实
+SQLite CREATED种子25条组合断言另行验证，不能代替原PLANNED/Redis-RQ持久链。
+
+### H3 早期并发返修与 H4 连续授权（2026-09-24，阶段 A 本轮验证通过）
+
+用户授权本轮先完成 H3 早期停止／等待窗口返修，定向验证通过并冻结后直接继续
+H4；两个阶段独立保存基线、diff、身份和证据，最后一起待独立验收，不进入 H5。
+独立复验 `/tmp/helix-hitrac-h3-fix-review-XQf8z76R/` 支持上一轮 C1/C2/I1 顺序与身份
+修复，但发现真实 RQ stop 已登记、getpgid/pre-setpgrp 查询仍在锁外的并发确认缺口。
+
+本轮仅在 worker 停止边界补同步：早期准备、重试、所有退出与最终清理决策受同一锁
+约束；真实 wait4 仍在锁外。等待确认要求匹配 stopped job、horse PID/starttime 的
+完成证明，也拒绝 RQ 已写停止标记但 kill 尚未进入的未确认窗口。未改持久生命周期、
+ProcessRunner 或科学代码；未知／失根仍拒绝确认，不承诺自动找回全部失根后代。
+
+证据 `/tmp/helix-hitrac-h3-h4-l8ug4hfs/stage-a/`：同一正式9条并发测试字节，旧实现
+3 failed/6 passed，新实现连同原50条 worker 回归59 passed；相关 registry、默认runner、
+Hi-TrAC/Bulk身份与准入239 passed；分层真实资格9 passed（5项真实科学正负例、2项
+子工具退出73故障注入、2项真实嵌套取消/超时）。均零skip。真实双样本仍all=8/noBg=5，
+全部15指标与PET基线一致，旧attempt与政策A拒绝保留；没有运行完整Redis/RQ持久链。
+
+正式生成器同步Bulk118项，路径集合不变，仅worker字节改变，aggregate为
+`dbe851ece25be24f959e81dbbcf345df5a7f3db528b89aef02c9c2715e8082a5`；Hi-TrAC52项摘要为
+`9fb8516d7dcbe56f3dc3d5e03739e0eb242852e251216e6e7e9efd5ac81b0d99`。旧新精确恢复材料
+保留；persistence contract未变。阶段A返修通过本轮验证，待最终独立验收。
+
+完整Protected Bulk Gate仍按用户决定留到H5后的集成收尾；资格生成不是Gate通过。
+H3/H4各自定向验证及必要身份同步，最终Gate不追认中间／历史身份。维护提交既有通过、
+G0/旧身份当时未验证、PR-6在线staging边界和完整ENCODE身份保护限制分别保留。
+
+### H4 结果、原子发布及样本名契约（2026-09-24，本轮完成，待独立验收）
+
+阶段A已冻结后继续H4，证据 `/tmp/helix-hitrac-h3-h4-l8ug4hfs/stage-b/`。
+实现Hi-TrAC Results adapter：原16物理列/15指标、动态MAPQ、精确token映射，重新
+核验完整调用/输入/参考/实现/完成标记及原输出和配对来源；仅登记原all、unique/noBg
+BEDPE.gz及原summary。BAM、裁剪FASTQ、请求和诊断私有保留，不自动删除。
+任一样本不满足H1政策A仍整批拒绝发布，不部分发布或修改原科学结果。
+
+真实消费发现既有两步发布会在后续QC拒绝时已留下artifact。用户批准限定内部bundle：
+全部候选先验，再以同一事务提交artifact、QC、generation、attempt、事件与publication；
+保留原表结构、公共字段及ENCODE/Bulk普通路径。回滚、并发观察、幂等和陈旧attempt
+有两repository及原服务回归。Results子类真实能力完成后按原服务器准入开放execution；
+未配置或完整性失败仍拒绝，H3基础类仍关闭，没有用户绕过开关。
+
+原summary的完整比例超过公共Decimal最多12位精度时，仅QC显示候选沿用Bulk的
+ROUND_HALF_EVEN，原科学核验/计数/summary字节不改。另一实测缺口由用户独立批准：
+只为QC sample_id的原字符集增加ASCII空格，1～255字符；拒绝纯空格及路径/控制字符，
+原样保留连续和尾空格，experiment_id/assay及数据注册ID不变。既有metric ID算法未改。
+同核心断言8失败/49通过→57全通过；一次新HTTP测试读错响应键的搭建错误已独立纠正、
+保留原日志，不混作产品红灯。两次公共方案和决定均在阶段B证据中。
+
+实际验证：结果快速层59通过（其中25项与下列相关集合重叠），sample_id专项57通过，
+共享集合249通过及worker17通过，registry/runner/身份/准入239通过，H2快速159通过。
+逐命令统计不相加冒称独立覆盖总数。最终当前身份的真实分层11通过、零skip：
+3组正式快照→默认runner→SQLite bundle→原认证HTTP列表/QC/下载；MAPQ10/30原结果
+对照、篡改整批拒绝、真实singlemate/单样本empty拒绝；另含退出73及真实嵌套取消/超时。
+每样本all=8/noBg=5，15指标/PET集合不变，发布链MAPQ17也经过原表头核验。
+
+通用界面152项通过，typecheck/build通过。桌面1440×900、移动390×844使用最终
+真实结果数据库：各30 QC/5产物，10次原下载SHA/size一致；连续/尾空格带引号保留展示、
+复制、键盘和布局检查通过，服务已停止。正式OpenAPI导出与原JSON逐字相同，生成
+客户端不变；前端资产由正式入口同步，identity为
+`sha256-acfcf9c82fa169c57c504862507c38287f60198011ebcc0012097c5d1e6bddd3`。
+没有手填产物/QC或用合成页面替代该浏览器验证；也没有声称H5完整RQ产品链已通过。
+
+正式工具同步Bulk118→119（新增实际Results准入依赖），aggregate为
+`066c7c11cfb39d1cf3f6f86ee9480a6f93e5c73359bba83c555c1014b42ba2dc`；Hi-TrAC63项为
+`215f805297c93232994785e37721d1ab083646c972e72c843adf91edacf3b259`。
+旧/新闭包及qualification精确恢复材料分别保存；没有DDL或persistence contract变化。
+完整Gate未运行，仍留H5后的最终精确版本；维护commit既有通过不覆盖H3/H4新身份，
+历史/G0当时未验证和PR-6在线staging全链仍分开记录。完整ENCODE摘要保护边界不变。
+H3并发返修和H4均为本轮验证完成、待独立验收；不进入H5，不提交或推送。
+
+### H3/H4 F1/F2 限定返修（2026-09-24，返修完成，待独立验收）
+
+独立复验`/tmp/helix-h3-h4-independent-LUTACHet/`确认两处边界：晚到RQ停止标记
+可越过wait返回后的确认，原子bundle失败仍进入成功通知点。本轮证据
+`/tmp/helix-h3-h4-fixes-iwa4yxgq/`，只改worker两处及正式回归，源工作区不覆盖。
+
+F1：停止登记与原monitor中每次停止标记消费共享清理同步/证明边界，覆盖原
+stopped callback及原handle_job_failure二次消费；wait4仍在锁外。只有匹配
+job/PID/starttime的证明才可确认。真实RQ stop、wait4和monitor的屏障反例
+5失败/1通过→6通过，连同既有59项worker回归65通过；失败拒绝确认不等于
+自动清理失根后代。Redis/回调终点替身范围明确，完整持久取消链未验收。
+
+F2：按现有原子发布内部协议，只允许本次精确完整bundle成功后通知。首次/旧
+bundle后QC失败、提交异常、不完整发布和正常/非opt-in对照，经真实内存与SQLite
+repository、启用通知服务及内存transport验证；相同断言8失败/10通过→18通过，
+原通知及worker35项通过。保留旧结果及科学SUCCEEDED，不发送真实邮件。
+最终受影响集合476项通过，包含上述F1的65项，不重复累计；覆盖worker、结果服务、
+两repository、registry、默认runner与绑定/身份回归。
+当前新身份真实资格9项通过、零skip：默认runner超时与原worker嵌套清理、退出73、
+MAPQ10/30双样本all=8/noBg=5、漂移拒绝、singlemate及多样本空集合拒绝，
+并经过正式快照/runner/SQLite bundle/认证HTTP QC列表与逐字节下载链。
+该链使用进程内ASGI与临时数据库，没有Redis服务、浏览器或H5完整链宣称。
+
+正式入口同步Bulk119项与Hi-TrAC63项，路径集合不变；两处worker字节变化，
+Bulk aggregate为`965a9e783eaece90a1c6900d742c8d30d2ea12fbf127c72bc9d1bc8c5810a41d`，
+Hi-TrAC为`fe775ae826245c0292e9431742b126c3e31c29e51fe197c76214cab1b16d12f9`。
+精确旧新恢复材料保留，未捕获会读取保护profile的完整ENCODE摘要。
+
+旧stage-b前端152通过记录应引用`ui/whitespace-ui-c695ffffcd`；本轮不改前端，
+不重复浏览器，也不覆盖旧证据。原planned-run worker-runtime仍有选择性副本
+缺tiny fixture及后续保护profile边界；未把测试选择失误或沙箱限制记为产品缺陷。
+本轮未修只读QC followup观察，不进入H5。完整Protected Bulk Gate按用户决定
+留H5后，最终版本不追认历史/中间身份、G0或PR-6在线staging全链。
+
+### H5 全链验收与交付（2026-09-24，本轮交付，待独立验收）
+
+H3/H4 F1/F2 返修已获独立验收（`/tmp/helix-f1-f2-independent-Z3QODmwn/`）。
+本轮在 `/tmp/helix-h5-XTvzkxCP/` 隔离副本（783 项许可文件，逐字节核对，
+仍非完整 clean Git checkout）完成 Hi-TrAC 真实平台全链验收。只新增测试与
+文档：正式资格入口 `test/hitrac_qualification/test_platform_real.py`、
+`h5_stack.py`、`test_publication_real.py`，以及
+`docs/development/hitrac-preprocess-operations.md`（部署/准入/升级/上游耦合，
+含固定 RQ 停止消费点与 tracPre2 输出/工具身份）。无生产代码、schema、
+OpenAPI、前端或身份变化；两闭包路径集合与 aggregate 不变。
+
+真实链证据：认证 HTTP API → validated snapshot → create/preflight/start →
+任务专用真实 Redis/RQ → 原 worker 默认装配 → 固定 tracPre2 真实工具 →
+SQLite 原子 bundle → 原 API 下载。双样本（连续/尾部空格 ID）各 all=8/noBg=5、
+15 指标与规范化 PET 多重集合符合 H2 基线；5 产物、30 QC、5 publication 与
+generation 一致；下载字节等于登记摘要；无权/私有拒绝；数据库关闭重开后
+终态/结果/下载可读；相同输入新 run 新 attempt、同 snapshot 幂等回放；
+成功邮件恰一条且含本次 QC（loopback 捕获 transport，非真实投递）。
+取消经真实 RQ stop/monitor/回调持久化并记录 job 与 horse PID/starttime；
+超时按既有契约清理嵌套科学进程；政策 A 与原脚本失败整批拒绝、无部分发布。
+桌面/移动浏览器消费同一次真实 run，下载 SHA 一致、空格 ID 展示复制保留。
+
+本轮未执行：完整 Protected Bulk Gate（留集成收尾，仅覆盖届时最终精确身份）、
+远端 CI、真实 SMTP 投递、真实 worker 内的 bundle 提交失败注入（无安全确定性
+接缝，由定向集成层覆盖并明确标注）。H5 资格入口为显式 real_execution 层，
+缺坐标失败、不静默 skip，未接入远端 job。G0/历史身份与 PR-6 在线 staging
+边界原样保留。本轮不提交、不推送，停止待独立验收。
 
 ## Roadmap discipline
 

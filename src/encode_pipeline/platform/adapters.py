@@ -842,6 +842,14 @@ class ReferenceProfileBindingAdapter(Protocol):
 
 
 @runtime_checkable
+class AtomicResultPublishingAdapter(Protocol):
+    """Internal opt-in for adapters requiring one artifact/QC publication."""
+
+    def requires_atomic_result_publication(self) -> bool:
+        """Require complete artifact and QC candidates before any publication."""
+
+
+@runtime_checkable
 class QcSummaryExtractingAdapter(Protocol):
     """Optional adapter contract for trusted machine-readable QC summaries."""
 

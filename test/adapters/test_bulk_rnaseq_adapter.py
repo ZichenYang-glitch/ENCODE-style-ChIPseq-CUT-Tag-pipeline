@@ -1599,6 +1599,7 @@ def test_default_registry_registers_bulk_authoring_without_runtime():
     assert [item.workflow_id for item in registry.list_metadata()] == [
         "encode-style-chipseq-cuttag-atac-mnase",
         "bulk-rnaseq",
+        "hitrac-preprocess",
     ]
     assert registry.has("bulk-rnaseq") is True
 

@@ -1,5 +1,6 @@
 import type { ArtifactReferenceResponse } from '../../api/generated/models';
 import { Button } from '../../components/Button';
+import { SampleIdentity } from '../../components/SampleIdentity';
 import { formatBytes, formatProducedTime } from './artifactState';
 
 interface ArtifactListProps {
@@ -13,12 +14,6 @@ interface ArtifactListProps {
 
 function optionalText(value: string | null | undefined): string {
   return value && value.trim() ? value : '—';
-}
-
-function sampleExperiment(artifact: ArtifactReferenceResponse): string {
-  return [artifact.metadata.sample_id, artifact.metadata.experiment_id]
-    .filter((value): value is string => Boolean(value))
-    .join(' · ') || '—';
 }
 
 function ArtifactName({ artifact }: { artifact: ArtifactReferenceResponse }) {
@@ -97,7 +92,7 @@ export function ArtifactList({
                     {optionalText(artifact.metadata.scope)}
                   </td>
                   <td className="break-words px-2 py-2 text-[var(--color-text-muted)]">
-                    {sampleExperiment(artifact)}
+                    <SampleIdentity sampleId={artifact.metadata.sample_id} experimentId={artifact.metadata.experiment_id} />
                   </td>
                   <td className="break-words px-2 py-2 text-[var(--color-text-muted)]">
                     <span className="block">{optionalText(artifact.metadata.assay)}</span>
@@ -142,7 +137,7 @@ export function ArtifactList({
                 <dt className="text-[var(--color-text-muted)]">Scope</dt>
                 <dd className="break-words">{optionalText(artifact.metadata.scope)}</dd>
                 <dt className="text-[var(--color-text-muted)]">Sample / exp.</dt>
-                <dd className="break-words">{sampleExperiment(artifact)}</dd>
+                <dd className="break-words"><SampleIdentity sampleId={artifact.metadata.sample_id} experimentId={artifact.metadata.experiment_id} /></dd>
                 <dt className="text-[var(--color-text-muted)]">Assay</dt>
                 <dd className="break-words">{optionalText(artifact.metadata.assay)}</dd>
                 <dt className="text-[var(--color-text-muted)]">Produced</dt>

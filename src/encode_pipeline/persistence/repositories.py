@@ -121,6 +121,7 @@ from encode_pipeline.services.run_repositories import (
     _event_with_context,
     _legacy_run_inputs_digest,
     _require_current_attempt,
+    _prepare_result_bundle,
     _sorted_artifacts,
     _state_after_artifact_change,
     _validate_qc_metric_fields,
@@ -1035,6 +1036,77 @@ class SqlAlchemyRunRepository:
             _apply_result_state(row, state)
             session.flush()
             return state
+
+    def publish_result_bundle(
+        self,
+        run_id: str,
+        artifacts: tuple[RunArtifactRef, ...],
+        metrics: tuple[RunQcMetric, ...],
+        *,
+        attempt_id: str,
+        expected_artifact_generation: str | None,
+    ) -> RunResultState:
+        try:
+            with self._lock, self._session_factory.begin() as session:
+                _begin_write(session)
+                current = self._require_run(session, run_id)
+                if RunStatus(current.status) is not RunStatus.SUCCEEDED:
+                    raise ConcurrentRunUpdateError(
+                        "result bundle requires a succeeded run"
+                    )
+                row = self._require_result_state(session, run_id)
+                bundle = _prepare_result_bundle(
+                    _result_state_from_row(row),
+                    artifacts,
+                    metrics,
+                    attempt_id=attempt_id,
+                    expected_artifact_generation=expected_artifact_generation,
+                )
+                if bundle.committed:
+                    return bundle.state
+                state = bundle.state
+                if session.get(RunResultAttemptRow, state.qc_attempt_id) is not None:
+                    raise ConcurrentRunUpdateError(
+                        "result bundle QC attempt already exists"
+                    )
+                session.add(
+                    RunResultAttemptRow(
+                        attempt_id=state.qc_attempt_id,
+                        run_id=run_id,
+                        result_kind="qc",
+                        artifact_generation=state.artifact_generation,
+                    )
+                )
+                session.execute(
+                    delete(RunQcMetricRow).where(RunQcMetricRow.run_id == run_id)
+                )
+                session.execute(
+                    delete(RunArtifactRow).where(RunArtifactRow.run_id == run_id)
+                )
+                session.add_all([_artifact_row(item) for item in bundle.artifacts])
+                session.add_all([_qc_metric_row(item) for item in bundle.metrics])
+                _apply_result_state(row, state)
+                session.flush()
+                events = tuple(
+                    self._insert_event(session, run_id, draft)
+                    for draft in bundle.events
+                )
+                if bundle.artifact_changed:
+                    assert state.artifact_generation is not None
+                    session.add_all(
+                        [
+                            _artifact_publication_row(
+                                item,
+                                artifact_generation=state.artifact_generation,
+                                published_at=events[0].timestamp,
+                            )
+                            for item in bundle.artifacts
+                        ]
+                    )
+                session.flush()
+                return state
+        except IntegrityError as exc:
+            raise ValueError("result bundle could not be persisted") from exc
 
     def replace_artifacts(
         self,

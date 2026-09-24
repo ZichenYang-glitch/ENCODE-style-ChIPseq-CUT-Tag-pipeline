@@ -46,6 +46,10 @@ def create_default_workflow_registry(
         load_default_bulk_rnaseq_adapter,
     )
 
+    from encode_pipeline.adapters.hitrac_preprocess.deployment import (
+        load_default_hitrac_adapter,
+    )
+
     catalog_path = (
         None
         if project_root is None
@@ -56,6 +60,7 @@ def create_default_workflow_registry(
         adapters=[
             encode_adapter,
             load_default_bulk_rnaseq_adapter(environ),
+            load_default_hitrac_adapter(environ),
         ],
         legacy_execution_fallbacks=(encode_adapter,),
     )
@@ -141,6 +146,15 @@ def create_default_process_runner(
         for adapter, _configuration in configurations:
             disable_local_execution(adapter)
         configurations = []
+    from encode_pipeline.adapters.hitrac_preprocess.deployment import (
+        local_execution_executable as hitrac_executable,
+    )
+
+    hitrac_executables = []
+    for metadata in registry.list_metadata():
+        executable = hitrac_executable(registry.get(metadata.workflow_id))
+        if executable is not None:
+            hitrac_executables.append(executable)
     allowed_executables = [
         (
             str(settings.encode_runner_root / "bin" / "snakemake")
@@ -148,6 +162,7 @@ def create_default_process_runner(
             else "snakemake"
         ),
         *(str(configuration.executable) for _, configuration in configurations),
+        *hitrac_executables,
     ]
     return ProcessRunner(
         allowed_executables=tuple(dict.fromkeys(allowed_executables)),

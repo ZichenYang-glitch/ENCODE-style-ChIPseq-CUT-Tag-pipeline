@@ -814,3 +814,129 @@ def test_non_succeeded_run_never_calls_adapter(tmp_path, terminal):
     assert result.is_failure
     assert adapter.calls == 0
     assert run_service.list_artifacts("run-1") == ()
+
+
+class AtomicQcArtifactAdapter(QcArtifactAdapter):
+    reject_qc = False
+
+    def requires_atomic_result_publication(self):
+        return True
+
+    def extract_qc_metrics(self, inputs, sources):
+        from decimal import Decimal
+        from encode_pipeline.platform.adapters import ExtractedQcMetricCandidate
+
+        if self.reject_qc:
+            return Result.failure([Issue(code="INVALID_QC", message="Invalid QC.")])
+        return Result.success(
+            (
+                ExtractedQcMetricCandidate(
+                    metric_key="pets",
+                    display_name="PETs",
+                    value=Decimal(8),
+                    unit="count",
+                    scope="sample",
+                    sample_id="sample-a",
+                    source_artifact_id=sources[0].source.artifact_id,
+                ),
+            )
+        )
+
+
+def _atomic_service(tmp_path):
+    adapter = AtomicQcArtifactAdapter(
+        (
+            ExtractedArtifactCandidate(
+                output_type="summary",
+                relative_path="results/summary.tsv",
+                mime_type="text/tab-separated-values",
+            ),
+        )
+    )
+    service, runs, workspace, provider = _service(tmp_path, adapter)
+    (workspace / "results/summary.tsv").write_bytes(b"valid source bytes\n")
+    return adapter, service, runs, workspace, provider
+
+
+def test_atomic_extraction_prepares_qc_before_any_artifact_publication(tmp_path):
+    adapter, service, runs, _workspace, _provider = _atomic_service(tmp_path)
+    adapter.reject_qc = True
+    result = service.extract("run-1")
+    assert result.is_failure
+    assert runs.list_artifacts("run-1") == ()
+    assert runs.list_qc_metrics("run-1") == ()
+    assert not any(
+        e.event_type in {"artifacts_indexed", "qc_metrics_indexed"}
+        for e in runs.list_events("run-1")
+    )
+    adapter.reject_qc = False
+    result = service.extract("run-1")
+    assert result.is_success
+    state = runs.get_result_state("run-1")
+    assert state.artifact_outcome == state.qc_outcome == "succeeded"
+    assert state.artifact_generation == state.qc_artifact_generation
+    assert len(runs.list_artifacts("run-1")) == len(runs.list_qc_metrics("run-1")) == 1
+
+
+def test_atomic_reextraction_failure_keeps_old_complete_results(tmp_path):
+    adapter, service, runs, workspace, _provider = _atomic_service(tmp_path)
+    assert service.extract("run-1").is_success
+    old_artifacts, old_metrics = (
+        runs.list_artifacts("run-1"),
+        runs.list_qc_metrics("run-1"),
+    )
+    old_state = runs.get_result_state("run-1")
+    adapter.reject_qc = True
+    (workspace / "results/summary.tsv").write_bytes(b"new invalid QC bytes\n")
+    assert service.extract("run-1").is_failure
+    assert runs.list_artifacts("run-1") == old_artifacts
+    assert runs.list_qc_metrics("run-1") == old_metrics
+    state = runs.get_result_state("run-1")
+    assert state.artifact_generation == old_state.artifact_generation
+    assert state.qc_generation == old_state.qc_generation
+
+
+def test_atomic_worker_publishes_once_and_does_not_start_separate_qc_attempt(tmp_path):
+    from encode_pipeline.workers.jobs import _index_succeeded_run_results
+
+    _adapter, service, runs, _workspace, _provider = _atomic_service(tmp_path)
+
+    class UnexpectedIndexer:
+        def index(self, *args, **kwargs):
+            raise AssertionError("the completed bundle must not start independent QC")
+
+    runtime = SimpleNamespace(
+        artifact_extraction_service=service,
+        run_service=runs,
+        qc_summary_indexing_service=UnexpectedIndexer(),
+    )
+    assert _index_succeeded_run_results(runtime, "run-1")
+    state = runs.get_result_state("run-1")
+    assert state.qc_attempt_status == "succeeded"
+    assert state.qc_artifact_generation == state.artifact_generation
+    assert [e.event_type for e in runs.list_events("run-1")].count(
+        "artifacts_indexed"
+    ) == 1
+    assert [e.event_type for e in runs.list_events("run-1")].count(
+        "qc_metrics_indexed"
+    ) == 1
+
+
+def test_atomic_qc_followup_reobserves_bundle_without_extra_events(tmp_path):
+    from encode_pipeline.services.qc_summary_indexing import QcSummaryIndexingService
+
+    adapter, service, runs, workspace, provider = _atomic_service(tmp_path)
+    result = service.extract("run-1")
+    assert result.is_success
+    qc = QcSummaryIndexingService(
+        run_service=runs,
+        registry=WorkflowRegistry([adapter]),
+        build_identity_provider=provider,
+        workspace_root=workspace.parent,
+    )
+    events, state = runs.list_events("run-1"), runs.get_result_state("run-1")
+    followup = qc.index("run-1", result.value)
+    assert followup.is_success
+    assert followup.value == runs.list_qc_metrics("run-1")
+    assert runs.list_events("run-1") == events
+    assert runs.get_result_state("run-1") == state

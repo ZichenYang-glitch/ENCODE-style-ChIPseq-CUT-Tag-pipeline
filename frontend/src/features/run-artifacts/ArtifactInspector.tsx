@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Copy, Download } from 'lucide-react';
 import type { ArtifactReferenceResponse } from '../../api/generated/models';
 import { Button } from '../../components/Button';
+import { SampleIdentity } from '../../components/SampleIdentity';
 import { formatBytes, formatProducedTime } from './artifactState';
 
 interface ArtifactInspectorProps {
@@ -191,7 +192,9 @@ export function ArtifactInspector({
               return (
                 <div className="contents" key={key}>
                   <dt className="text-[var(--color-text-muted)]">{label}</dt>
-                  <dd className="break-all">{value}</dd>
+                  <dd className="break-all">
+                    {key === 'sample_id' ? <SampleIdentity sampleId={value} /> : value}
+                  </dd>
                 </div>
               );
             })}

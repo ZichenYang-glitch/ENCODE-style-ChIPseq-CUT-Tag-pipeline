@@ -127,3 +127,38 @@ describe('QcMetricList', () => {
     expect(screen.getByRole('button', { name: 'Load more QC metrics' })).toBeDisabled();
   });
 });
+
+
+describe('QC sample identity whitespace', () => {
+  it('preserves distinct sample IDs and copies their exact untrimmed bytes', async () => {
+    const user = userEvent.setup();
+    const samples = ['ab', 'a b', 'a  b', 'a b '];
+    render(
+      <QcMetricList
+        metrics={samples.map((sample_id, index) => metric({
+          metric_id: `qcmetric-${String(index).repeat(64)}`,
+          sample_id,
+          experiment_id: null,
+        }))}
+        hasNextPage={false}
+        isFetchingNextPage={false}
+        onLoadMore={vi.fn()}
+        onOpenSourceArtifact={vi.fn()}
+      />,
+    );
+    for (const sample of samples) {
+      const displays = document.querySelectorAll<HTMLElement>('[data-sample-identity]');
+      const matching = Array.from(displays).filter((item) => item.dataset.sampleIdentity === sample);
+      expect(matching).toHaveLength(2);
+      for (const item of matching) {
+        expect(item.querySelector('[data-sample-label]')).toHaveTextContent(
+          sample.includes(' ') ? JSON.stringify(sample) : sample,
+          { normalizeWhitespace: false },
+        );
+        expect(item.querySelector('[data-sample-label]')).toHaveClass('whitespace-pre-wrap');
+        await user.click(item.querySelector<HTMLButtonElement>('button')!);
+        expect(await navigator.clipboard.readText()).toBe(sample);
+      }
+    }
+  });
+});

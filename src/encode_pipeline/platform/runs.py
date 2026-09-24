@@ -299,6 +299,7 @@ class RunArtifactRef:
 
 
 _QC_IDENTIFIER_TOKEN = re.compile(r"^[A-Za-z0-9_.-]{1,255}$")
+_QC_SAMPLE_IDENTIFIER = re.compile(r"^[A-Za-z0-9_. -]{1,255}$")
 
 
 def build_qc_metric_id(
@@ -337,6 +338,18 @@ def validate_qc_identifier_token(value: object) -> str:
         or _QC_IDENTIFIER_TOKEN.fullmatch(value) is None
     ):
         raise ValueError("QC identifier token is invalid")
+    return value
+
+
+def validate_qc_sample_identifier(value: object) -> str:
+    """Preserve a bounded sample label, including literal ASCII spaces."""
+    if (
+        not isinstance(value, str)
+        or value in {".", ".."}
+        or _QC_SAMPLE_IDENTIFIER.fullmatch(value) is None
+        or not any(character != " " for character in value)
+    ):
+        raise ValueError("QC sample identifier is invalid")
     return value
 
 

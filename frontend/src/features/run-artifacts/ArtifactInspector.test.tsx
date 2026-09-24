@@ -240,3 +240,12 @@ describe('ArtifactInspector', () => {
     expect(onBackToList).toHaveBeenCalledTimes(1);
   });
 });
+
+
+it('preserves the exact sample identity in artifact details and clipboard', async () => {
+  const user = userEvent.setup();
+  render(<ArtifactInspector artifact={{ ...artifact, metadata: { ...artifact.metadata, sample_id: 'a  b ' } }} selectedArtifactId={artifact.artifact_id} isLoading={false} isError={false} invalidSelection={false} onRetry={vi.fn()} />);
+  expect(document.querySelector('[data-sample-label]')).toHaveTextContent('"a  b "', { normalizeWhitespace: false });
+  await user.click(screen.getByRole('button', { name: 'Copy sample ID' }));
+  expect(await navigator.clipboard.readText()).toBe('a  b ');
+});
