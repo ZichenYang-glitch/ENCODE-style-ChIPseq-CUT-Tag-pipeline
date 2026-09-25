@@ -222,49 +222,80 @@ def test_durable_worker_kills_its_owned_process_group(monkeypatch):
     assert calls == [(123, signal.SIGKILL)]
 
 
+def _quiet_worker(horse_pid: int) -> DurableWorker:
+    """A worker whose cleanup outcome is observable but whose log is silent."""
+    worker = object.__new__(DurableWorker)
+    worker._horse_pid = horse_pid
+    worker.log = SimpleNamespace(
+        info=lambda *_args: None,
+        debug=lambda *_args: None,
+        warning=lambda *_args: None,
+    )
+    return worker
+
+
 @pytest.mark.parametrize(
-    ("error_number", "raises"),
+    ("error_number", "reason"),
     (
-        (errno.ESRCH, False),
-        (errno.EPERM, True),
+        (errno.ESRCH, None),
+        (errno.EPERM, "OWNED_TREE_ROOT_LOST_BEFORE_FREEZE"),
     ),
 )
 def test_durable_worker_handles_process_group_lookup_errors(
     monkeypatch,
     error_number,
-    raises,
+    reason,
 ):
-    worker = object.__new__(DurableWorker)
-    worker._horse_pid = 123
-    worker.log = SimpleNamespace(
-        info=lambda *_args: None,
-        debug=lambda *_args: None,
-    )
+    """A group lookup that fails never escapes ``kill_horse``.
+
+    RQ calls ``kill_horse`` from its pubsub thread and from its own monitor
+    deadline path, and a raise from either ends the worker before it can
+    acknowledge the stop. An unreadable group is therefore reported as data: the
+    identity-guarded single-process fallback is attempted, and the outcome is
+    refused with a fixed code. ESRCH proves nothing about detached children, so
+    it is refused rather than read as "already cleaned".
+    """
+    worker = _quiet_worker(123)
+    signals = []
 
     def fail_lookup(_pid):
         raise OSError(error_number, os.strerror(error_number))
 
     monkeypatch.setattr(os, "getpgid", fail_lookup)
-    if raises:
-        with pytest.raises(OSError) as error:
-            DurableWorker.kill_horse(worker)
-        assert error.value.errno == error_number
+    monkeypatch.setattr(os, "kill", lambda *args: signals.append(args))
+    assert DurableWorker.kill_horse(worker) is None
+    assert worker._nested_cleanup_failed_pid == 123
+    if reason is None:
+        # The group is already gone, so nothing was signaled on a guess.
+        assert signals == []
+        assert getattr(worker, "_nested_cleanup_report", None) is None
     else:
-        assert DurableWorker.kill_horse(worker) is None
+        # No identity was established for pid 123, so no fallback signal either.
+        assert signals == []
+        report = worker._nested_cleanup_report
+        assert report is not None
+        assert report.confirmed is False
+        assert report.unconfirmed_reason == reason
 
 
 @pytest.mark.parametrize(
-    ("error_number", "raises"),
+    ("error_number", "reason"),
     (
-        (errno.ESRCH, False),
-        (errno.EPERM, True),
+        (errno.ESRCH, None),
+        (errno.EPERM, "OWNED_TREE_SIGNAL_DENIED"),
     ),
 )
 def test_durable_worker_handles_process_group_signal_errors(
     monkeypatch,
     error_number,
-    raises,
+    reason,
 ):
+    """A failing group signal is data, not an escaping exception.
+
+    ESRCH means the group is already gone, so the frozen-tree proof is left to
+    decide the outcome. EPERM is a refusal and is recorded with a fixed code, so
+    the stop stays unacknowledged instead of ending the worker.
+    """
     # Isolate the existing signal-error contract from synthetic PID ownership.
     import encode_pipeline.workers.timeouts as timeouts
 
@@ -272,12 +303,7 @@ def test_durable_worker_handles_process_group_signal_errors(
     monkeypatch.setattr(
         timeouts, "_kill_owned_horse_tree", lambda _pid, _start, kill: kill()
     )
-    worker = object.__new__(DurableWorker)
-    worker._horse_pid = 123
-    worker.log = SimpleNamespace(
-        info=lambda *_args: None,
-        debug=lambda *_args: None,
-    )
+    worker = _quiet_worker(123)
 
     monkeypatch.setattr(os, "getpgid", lambda pid: pid)
 
@@ -285,12 +311,17 @@ def test_durable_worker_handles_process_group_signal_errors(
         raise OSError(error_number, os.strerror(error_number))
 
     monkeypatch.setattr(os, "killpg", fail_signal)
-    if raises:
-        with pytest.raises(OSError) as error:
-            DurableWorker.kill_horse(worker)
-        assert error.value.errno == error_number
+    assert DurableWorker.kill_horse(worker) is None
+    report = worker._nested_cleanup_report
+    if reason is None:
+        # The group was already gone; nothing remained for the proof to find.
+        assert report is None
+        assert worker._nested_cleanup_failed_pid is None
     else:
-        assert DurableWorker.kill_horse(worker) is None
+        assert report is not None
+        assert report.confirmed is False
+        assert report.unconfirmed_reason == reason
+        assert worker._nested_cleanup_failed_pid == 123
 
 
 def test_worker_hard_timeout_bypasses_application_exception_handlers():

@@ -3,6 +3,11 @@
 Real stop command, wait4, processes and monitor; Redis job lookup and terminal
 callbacks are captured locally. The second-consumer arm enters original RQ
 handle_job_failure and intercepts set_status before any Redis write.
+
+A stop whose proof does not complete is refused as data, not raised: the monitor
+must reach RQ's abnormal-termination branch, settle on FAILED, and leave the
+worker able to run its next job. ``test_gate_rejects_a_cleanup_proof_that_is_not_this_monitor``
+pins the matching rule itself (job, pid and starttime) directly.
 """
 
 from contextlib import nullcontext
@@ -21,14 +26,19 @@ from rq.command import handle_stop_job_command
 from rq.job import JobStatus
 
 from encode_pipeline.workers import timeouts
-from .test_horse_stop_wait_race import _fixture_subreaper, _state, _wait_until
+from .test_horse_stop_wait_race import (
+    _fixture_subreaper,
+    _state,
+    _wait_until,
+    acknowledgement_decision,
+)
 
 
 class _StatusWriteReached(Exception):
     pass
 
 
-def _exercise(tmp_path, monkeypatch, boundary, wrong_proof=None):
+def _exercise(tmp_path, monkeypatch, boundary):
     marker = tmp_path / "child"
     reached = threading.Event()
     release = threading.Event()
@@ -145,12 +155,6 @@ def _exercise(tmp_path, monkeypatch, boundary, wrong_proof=None):
                     stop_thread.join(5)
                     assert not stop_thread.is_alive()
                     assert worker._stopped_job_id == job.id
-                    if wrong_proof is not None:
-                        proof = [job.id, horse.pid, root_identity["starttime"]]
-                        proof[{"job": 0, "pid": 1, "starttime": 2}[wrong_proof]] = (
-                            "another-job" if wrong_proof == "job" else -1
-                        )
-                        worker._nested_cleanup_completed = tuple(proof)
                     release.set()
                 monitor_thread.join(5)
                 assert not monitor_thread.is_alive()
@@ -159,28 +163,55 @@ def _exercise(tmp_path, monkeypatch, boundary, wrong_proof=None):
                 current is not None
                 and current["starttime"] == child_identity["starttime"]
             )
+            report = getattr(worker, "_nested_cleanup_report", None)
             observed = {
                 "boundary": boundary,
-                "wrong_proof": wrong_proof,
                 "callbacks": events,
                 "errors": errors,
                 "wait4": waits,
                 "same_child_alive": alive,
-                "completed": getattr(worker, "_nested_cleanup_completed", None),
+                "report_confirmed": getattr(report, "confirmed", None),
+                "unconfirmed_reason": getattr(report, "unconfirmed_reason", None),
+                "cleanup_proof_absent": report is None,
+                "stopped_marker_cleared": (
+                    worker.__dict__.get("_nested_stopped_job_id") is None
+                ),
+                "cleanup_markers_released": not {
+                    "_nested_cleanup_failed_pid",
+                    "_nested_cleanup_completed",
+                    "_nested_cleanup_unconfirmed",
+                }
+                & set(worker.__dict__),
                 "sentinel_alive": sentinel.poll() is None,
             }
             (tmp_path / "observation.json").write_text(json.dumps(observed, indent=2))
             assert observed["sentinel_alive"]
             assert waits == [[horse.pid, signal.SIGKILL]]
+            assert observed["stopped_marker_cleared"]
+            assert observed["cleanup_markers_released"]
             if boundary == "completed-stop":
                 assert errors == {}
                 assert events == ["stopped", "failure"]
                 assert not alive
+                assert observed["report_confirmed"] is True
             else:
                 assert alive  # A refusal is not automatic orphan recovery.
                 assert "stopped" not in events
                 assert "status:stopped" not in events
-                assert errors.get("monitor") == "ProcessRunnerCleanupError"
+                # RQ already reaped the horse before the stop arrived, so there
+                # was nothing left to clean and no proof to produce. The stop is
+                # still refused -- as data, never as a raise: this is the frame
+                # that used to unwind work() and end the worker, leaving the run
+                # ``running`` forever.
+                assert observed["cleanup_proof_absent"] is True
+                if boundary == "before-failure-read":
+                    # Original RQ handle_job_failure ran and chose FAILED; the
+                    # stub raises at the boundary immediately before the write.
+                    assert events == ["killed", "status:failed"]
+                    assert errors == {"monitor": "_StatusWriteReached"}
+                else:
+                    assert events == ["killed", "failure"]
+                    assert errors == {}
         finally:
             release.set()
             for thread in (monitor_thread, stop_thread):
@@ -221,6 +252,31 @@ def test_original_rq_monitor_requires_proven_cleanup_for_late_stop(
     _exercise(tmp_path, monkeypatch, boundary)
 
 
-@pytest.mark.parametrize("wrong_proof", ["job", "pid", "starttime"])
-def test_monitor_rejects_unrelated_cleanup_proof(tmp_path, monkeypatch, wrong_proof):
-    _exercise(tmp_path, monkeypatch, "after-wait", wrong_proof)
+@pytest.mark.parametrize("wrong_field", ["job", "pid", "starttime"])
+def test_gate_rejects_a_cleanup_proof_that_is_not_this_monitor(wrong_field):
+    """A confirmed cleanup belonging to anything else never acknowledges.
+
+    The proof is keyed to the monitored job *and* to the root identity that
+    monitor observed, so a proof for another job, pid or starttime must not be
+    promoted into an acknowledgement. The matching proof is asserted in the
+    same case so the refusal cannot be a blanket "never acknowledge".
+    """
+    root_starttime = 100
+    worker = object.__new__(timeouts.DurableWorker)
+    worker._horse_pid = 43210
+    worker.log = logging.getLogger("late-stop-gate")
+    worker._stopped_job_id = "late-stop-job"
+    wrong = ["late-stop-job", 43210, root_starttime]
+    wrong[{"job": 0, "pid": 1, "starttime": 2}[wrong_field]] = (
+        "another-job" if wrong_field == "job" else -1
+    )
+    worker._nested_cleanup_completed = tuple(wrong)
+    worker._nested_cleanup_failed_pid = None
+    assert (
+        acknowledgement_decision(worker, "late-stop-job", 43210, root_starttime) is None
+    )
+    worker._nested_cleanup_completed = ("late-stop-job", 43210, root_starttime)
+    assert (
+        acknowledgement_decision(worker, "late-stop-job", 43210, root_starttime)
+        == "late-stop-job"
+    )

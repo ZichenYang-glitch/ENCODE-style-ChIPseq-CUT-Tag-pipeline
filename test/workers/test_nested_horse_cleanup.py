@@ -91,20 +91,30 @@ def test_nested_stop_does_not_change_non_kill_signal(monkeypatch):
 
 
 @pytest.mark.parametrize("cleanup_fails", [False, True])
-def test_rq_wait_cannot_acknowledge_before_nested_cleanup(monkeypatch, cleanup_fails):
-    """RQ waits in one thread while its pubsub thread kills the horse."""
-    import threading
+def test_rq_gate_cannot_decide_before_nested_cleanup_returns(
+    monkeypatch, cleanup_fails
+):
+    """RQ's acknowledgement gate is decided only after the proof returns.
 
-    from rq import Worker
+    RQ reads ``_stopped_job_id`` from inside ``monitor_work_horse`` twice -- to
+    pick its stopped-versus-unexpected branch and again inside
+    ``handle_job_failure``. Both reads must block behind an in-progress
+    ``kill_horse`` and must refuse when the proof did not complete.
+    """
+    import threading
 
     from encode_pipeline.services.process_runner import ProcessRunnerCleanupError
     import encode_pipeline.workers.timeouts as timeouts
 
+    from .test_horse_stop_wait_race import acknowledgement_decision
+
+    stop_job = "stop-job"
+    root_starttime = 100
     worker = _worker(43210)
     killed = threading.Event()
     release = threading.Event()
-    waited = threading.Event()
-    results = []
+    decided = threading.Event()
+    decisions = []
     errors = []
     monkeypatch.setattr(os, "getpgid", lambda _pid: 43210)
     monkeypatch.setattr(os, "killpg", lambda *_args: None)
@@ -118,42 +128,53 @@ def test_rq_wait_cannot_acknowledge_before_nested_cleanup(monkeypatch, cleanup_f
             raise ProcessRunnerCleanupError("injected cleanup refusal")
 
     monkeypatch.setattr(timeouts, "_kill_owned_horse_tree", cleanup)
-    monkeypatch.setattr(Worker, "wait_for_horse", lambda _self: (43210, 9, None))
+    # What RQ's own stop command does before it calls kill_horse.
+    worker._stopped_job_id = stop_job
 
     def stop():
         try:
             worker.kill_horse()
-        except ProcessRunnerCleanupError:
-            errors.append("stop")
+        except BaseException as exc:  # noqa: BLE001 - the assertion is the point
+            errors.append("stop:" + type(exc).__name__)
 
-    def wait():
+    def decide():
         try:
-            results.append(worker.wait_for_horse())
-        except ProcessRunnerCleanupError:
-            errors.append("wait")
+            decisions.append(
+                acknowledgement_decision(worker, stop_job, 43210, root_starttime)
+            )
+        except BaseException as exc:  # noqa: BLE001
+            errors.append("gate:" + type(exc).__name__)
         finally:
-            waited.set()
+            decided.set()
 
     stopping = threading.Thread(target=stop)
-    waiting = threading.Thread(target=wait)
+    deciding = threading.Thread(target=decide)
     stopping.start()
     try:
         assert killed.wait(3)
-        waiting.start()
-        assert not waited.wait(0.1), "RQ can acknowledge before cleanup finishes"
+        deciding.start()
+        assert not decided.wait(0.1), "RQ may decide before the cleanup proof returns"
     finally:
         release.set()
         stopping.join(3)
-        if waiting.ident is not None:
-            waiting.join(3)
+        if deciding.ident is not None:
+            deciding.join(3)
     assert not stopping.is_alive()
-    assert not waiting.is_alive()
+    assert not deciding.is_alive()
+    assert errors == []
     if cleanup_fails:
-        assert sorted(errors) == ["stop", "wait"]
-        assert results == []
+        # The refusal is data: no reader sees an acknowledgement for this job.
+        assert decisions == [None]
+        assert worker._nested_cleanup_failed_pid == 43210
+        assert getattr(worker, "_nested_cleanup_completed", None) is None
+        report = worker._nested_cleanup_report
+        assert report is not None
+        assert report.confirmed is False
+        assert report.unconfirmed_reason == "OWNED_TREE_CLEANUP_UNCONFIRMED"
     else:
-        assert errors == []
-        assert results == [(43210, 9, None)]
+        assert decisions == [stop_job]
+        assert worker._nested_cleanup_completed == (stop_job, 43210, root_starttime)
+        assert worker._nested_cleanup_failed_pid is None
 
 
 def test_owned_signal_refuses_pid_reuse(monkeypatch):
@@ -205,7 +226,6 @@ def _finish_pair(horse, child):
 def test_freeze_failure_still_stops_owned_tree_and_refuses_confirmation(
     tmp_path, monkeypatch
 ):
-    from encode_pipeline.services.process_runner import ProcessRunnerCleanupError
     import encode_pipeline.workers.timeouts as timeouts
 
     horse, child = _owned_pair(tmp_path)
@@ -216,11 +236,18 @@ def test_freeze_failure_still_stops_owned_tree_and_refuses_confirmation(
 
     monkeypatch.setattr(timeouts, "_stopped_or_gone", fail_state_read)
     try:
-        with pytest.raises(ProcessRunnerCleanupError):
-            worker.kill_horse()
+        # A failed proof is reported, never raised: the real tree is still
+        # killed (RQ keeps its own wait status) but the stop is not confirmed.
+        assert worker.kill_horse() is None
         assert horse.wait(timeout=5) == -signal.SIGKILL
         assert _stat(child) is None
         assert worker._nested_cleanup_failed_pid == horse.pid
+        assert getattr(worker, "_nested_cleanup_completed", None) is None
+        report = worker._nested_cleanup_report
+        assert report is not None
+        assert report.confirmed is False
+        assert report.unconfirmed_reason
+        assert report.unconfirmed_detail
     finally:
         _finish_pair(horse, child)
 
@@ -258,8 +285,10 @@ def test_new_unrelated_child_during_subreaper_scope_is_not_adopted(
 
 
 def test_absent_horse_wait_preserves_rq_result(monkeypatch):
+    """The project must not override RQ's wait; the refusal lives in the gate."""
     from rq import Worker
 
+    assert "wait_for_horse" not in DurableWorker.__dict__
     monkeypatch.setattr(Worker, "wait_for_horse", lambda _self: (None, None, None))
     assert _worker(0).wait_for_horse() == (None, None, None)
 

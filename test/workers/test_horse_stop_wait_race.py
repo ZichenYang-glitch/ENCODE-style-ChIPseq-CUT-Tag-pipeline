@@ -36,6 +36,24 @@ def _wait_until(check):
         time.sleep(0.005)
 
 
+def acknowledgement_decision(worker, job_id, horse_pid, starttime):
+    """Read RQ's stopped-job gate from inside RQ's monitor scope.
+
+    ``monitor_work_horse`` reads ``_stopped_job_id`` to choose between RQ's
+    "stopped by user" branch and its unexpected-termination branch, and
+    ``handle_job_failure`` reads it again to choose STOPPED versus FAILED. Both
+    reads happen inside the scope ``DurableWorker.monitor_work_horse`` installs,
+    so this helper reproduces exactly those two reads. Outside that scope the
+    property deliberately reports the raw marker: the pubsub thread and
+    diagnostic readers must never block behind a paused kill.
+    """
+    token = timeouts._STOP_MONITOR.set((worker, job_id, horse_pid, starttime))
+    try:
+        return worker._stopped_job_id
+    finally:
+        timeouts._STOP_MONITOR.reset(token)
+
+
 @contextmanager
 def _fixture_subreaper():
     # Only test cleanup needs to reap this fixture's orphan by known PID. Do not
@@ -78,6 +96,8 @@ def _exercise(tmp_path, monkeypatch, *, barrier, root_exits, wait_after_stop=Fal
         )
         try:
             _wait_until(marker.exists)
+            root_identity = _state(horse.pid)
+            assert root_identity is not None
             child = int(marker.read_text())
             identity = _state(child)
             assert identity is not None
@@ -172,6 +192,7 @@ def _exercise(tmp_path, monkeypatch, *, barrier, root_exits, wait_after_stop=Fal
                 errors=errors,
                 rq_results=results,
                 horse_pid=horse.pid,
+                root_starttime=root_identity["starttime"],
                 child_before=identity,
                 child_after=current,
                 same_child_alive=current is not None
@@ -185,13 +206,20 @@ def _exercise(tmp_path, monkeypatch, *, barrier, root_exits, wait_after_stop=Fal
             assert results == [[horse.pid, signal.SIGKILL]]
             assert observation["unrelated_alive"]
             if root_exits:
-                assert not (
-                    observation["wait_finished_before_release"]
-                    and observation["wait_error_before_release"] is None
-                    and observation["same_child_alive"]
-                ), "Real RQ wait acknowledged a pending stop while its child survived"
-                assert errors["wait"] == "ProcessRunnerCleanupError"
+                # The refusal is data, not an exception: neither the command
+                # thread nor the RQ wait observed a raise, and RQ's own
+                # acknowledgement gate returns nothing for this job.
+                assert errors == {}, errors
                 assert observation["failed_pid"] == horse.pid
+                assert (
+                    acknowledgement_decision(
+                        worker,
+                        "concurrent-stop-job",
+                        horse.pid,
+                        root_identity["starttime"],
+                    )
+                    is None
+                )
                 # Fail closed does not imply automatic recovery of this orphan.
                 assert observation["same_child_alive"]
             else:

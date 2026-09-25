@@ -20,8 +20,6 @@ import subprocess
 import sys
 import time
 
-import pytest
-
 from encode_pipeline.services.process_runner import ProcessRunnerCleanupError
 from encode_pipeline.workers import timeouts
 from encode_pipeline.workers.timeouts import DurableWorker
@@ -150,12 +148,20 @@ def test_lost_root_stays_fatal_even_while_a_member_exits(tmp_path, monkeypatch):
 
     monkeypatch.setattr(timeouts, "_signal_owned", kill_root_at_freeze)
     try:
-        with pytest.raises(ProcessRunnerCleanupError):
-            worker.kill_horse()
+        # The refusal is recorded, never raised: RQ calls kill_horse from its
+        # pubsub thread and from its own monitor deadline path, and a raise from
+        # either ends the worker without acknowledging the stop.
+        assert worker.kill_horse() is None
         assert armed
         assert worker._nested_cleanup_failed_pid == horse.pid
         assert getattr(worker, "_nested_cleanup_completed", None) is None
-        assert getattr(worker, "_nested_cleanup_report", None) is None
+        report = worker._nested_cleanup_report
+        assert report is not None
+        assert report.confirmed is False
+        assert report.unconfirmed_reason == "OWNED_TREE_LOST_BEFORE_FREEZE"
+        assert report.unconfirmed_detail.startswith(
+            f"{ProcessRunnerCleanupError.__name__}: "
+        )
     finally:
         _finish(horse, member)
 
@@ -198,11 +204,16 @@ def test_changed_member_identity_is_never_retired(tmp_path, monkeypatch):
         monkeypatch.setattr(timeouts._ProcessStat, "read", staticmethod(read))
         monkeypatch.setattr(timeouts, "_signal_owned", send)
         worker = _worker(horse.pid)
-        with pytest.raises(ProcessRunnerCleanupError):
-            worker.kill_horse()
+        # Reported as data with a fixed code, so a refused cleanup can never be
+        # mistaken for a confirmed one by any reader of the worker state.
+        assert worker.kill_horse() is None
         assert armed
         assert worker._nested_cleanup_failed_pid == horse.pid
-        assert getattr(worker, "_nested_cleanup_report", None) is None
+        assert getattr(worker, "_nested_cleanup_completed", None) is None
+        report = worker._nested_cleanup_report
+        assert report is not None
+        assert report.confirmed is False
+        assert report.unconfirmed_reason == "OWNED_TREE_CHILD_IDENTITY_CHANGED"
     finally:
         _finish(horse, member)
 

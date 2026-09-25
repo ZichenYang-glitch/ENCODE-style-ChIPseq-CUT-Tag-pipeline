@@ -284,13 +284,56 @@ class _OwnedCleanupReport:
     window -- their own identity is proven, but any descendant they reparented
     away before this scope adopted the tree is not covered by the proof.
     ``uncovered`` is diagnostic evidence, never part of the proof.
+
+    ``confirmed`` carries the outcome the worker acts on. A cleanup whose proof
+    did not complete records ``False`` with a fixed ``unconfirmed_reason``
+    instead of raising, and ``horse_starttime`` stays ``None`` when the root
+    identity was never established.
     """
 
     horse_pid: int
-    horse_starttime: int
+    horse_starttime: int | None
     registered: tuple[tuple[int, int], ...]
     exited: tuple[tuple[int, int], ...]
     uncovered: tuple[dict[str, object], ...]
+    confirmed: bool = True
+    unconfirmed_reason: str | None = None
+    unconfirmed_detail: str | None = None
+
+
+# Fixed code per proof-failure message this module can produce, so a worker log
+# names a stable reason instead of relaying a free-form message.
+_OWNED_CLEANUP_UNCONFIRMED_CODES = {
+    "Owned process identity is unavailable.": "OWNED_PROCESS_IDENTITY_UNAVAILABLE",
+    "Owned process identity is invalid.": "OWNED_PROCESS_IDENTITY_INVALID",
+    "Owned process state is unavailable.": "OWNED_PROCESS_STATE_UNAVAILABLE",
+    "Owned process state is invalid.": "OWNED_PROCESS_STATE_INVALID",
+    "Process state is unavailable.": "PROCESS_STATE_UNAVAILABLE",
+    "Process state is invalid.": "PROCESS_STATE_INVALID",
+    "Process table is unavailable.": "PROCESS_TABLE_UNAVAILABLE",
+    "Workflow tree was lost before freezing.": "OWNED_TREE_LOST_BEFORE_FREEZE",
+    "Workflow parent is not frozen.": "OWNED_TREE_PARENT_NOT_FROZEN",
+    "Owned process threads are unavailable.": "OWNED_TREE_THREADS_UNAVAILABLE",
+    "Owned process children are unavailable.": "OWNED_TREE_CHILDREN_UNAVAILABLE",
+    "Owned child changed during discovery.": "OWNED_TREE_CHILD_CHANGED",
+    "Workflow parent resumed during discovery.": "OWNED_TREE_PARENT_RESUMED",
+    "Owned child identity changed.": "OWNED_TREE_CHILD_IDENTITY_CHANGED",
+    "Nested workflow root was lost.": "OWNED_TREE_ROOT_LOST",
+    "Nested workflow tree did not stabilize.": "OWNED_TREE_DID_NOT_STABILIZE",
+    "Nested workflow cleanup could not be confirmed.": "OWNED_TREE_CLEANUP_UNCONFIRMED",
+    "Workflow root was lost before freezing.": "OWNED_TREE_ROOT_LOST_BEFORE_FREEZE",
+}
+_OWNED_CLEANUP_UNCONFIRMED_FALLBACK = "OWNED_TREE_CLEANUP_UNCONFIRMED"
+
+
+def _unconfirmed_reason_code(error: BaseException) -> str:
+    """Map a cleanup failure to a fixed code; never relay a raw message."""
+    message = str(error)
+    if message in _OWNED_CLEANUP_UNCONFIRMED_CODES:
+        return _OWNED_CLEANUP_UNCONFIRMED_CODES[message]
+    if getattr(error, "errno", None) == errno.EPERM:
+        return "OWNED_TREE_SIGNAL_DENIED"
+    return _OWNED_CLEANUP_UNCONFIRMED_FALLBACK
 
 
 def _kill_owned_horse_tree(
@@ -571,24 +614,49 @@ class DurableWorker(Worker):
             return self.__dict__.get("_nested_stopped_job_id")
         with self._nested_cleanup_lock():
             stopped = self.__dict__.get("_nested_stopped_job_id")
-            if stopped is not None:
-                _, job_id, horse_pid, starttime = context
-                if (
-                    stopped != job_id
-                    or starttime is None
-                    or getattr(self, "_nested_cleanup_completed", None)
-                    != (job_id, horse_pid, starttime)
-                    or getattr(self, "_nested_cleanup_failed_pid", None) == horse_pid
-                ):
-                    raise ProcessRunnerCleanupError(
-                        "Nested workflow cleanup could not be confirmed."
-                    )
+            if stopped is None:
+                return None
+            _, job_id, horse_pid, starttime = context
+            # Fail closed *without* raising. An unconfirmed cleanup must not
+            # acknowledge the stop, and it must not end the worker either: RQ
+            # reads this twice per job -- once to choose the stopped branch and
+            # once inside ``handle_job_failure`` -- and a raise from either
+            # unwinds ``work()``'s bare ``except``, which ends the worker while
+            # the run is still ``running``. Returning ``None`` instead sends RQ
+            # down its unexpected-termination branch, which reports the job as
+            # failed. Taking the lock keeps the refusal behind an in-progress
+            # ``kill_horse``, so no result is decided before the proof returns.
+            if (
+                stopped != job_id
+                or starttime is None
+                or getattr(self, "_nested_cleanup_completed", None)
+                != (job_id, horse_pid, starttime)
+                or getattr(self, "_nested_cleanup_failed_pid", None) == horse_pid
+            ):
+                return None
             return stopped
 
     @_stopped_job_id.setter
     def _stopped_job_id(self, value):
         with self._nested_cleanup_lock():
             self.__dict__["_nested_stopped_job_id"] = value
+
+    def handle_payload(self, message):
+        """Run an external command without letting it end the pubsub thread.
+
+        RQ's ``handle_payload`` calls ``handle_command``, which has no exception
+        handling, and the pubsub thread's own handler re-raises everything that
+        is not a Redis connection error. One escaping cleanup failure therefore
+        ends the thread and, because ``workers/cli.py`` discards ``work()``'s
+        return value, still exits the worker with status ``0``. Redis transport
+        failures arrive as ``redis.exceptions.RedisError`` rather than
+        ``OSError``, so RQ's connection-retry contract is left untouched.
+        """
+        try:
+            return super().handle_payload(message)
+        except (ProcessRunnerCleanupError, OSError) as error:
+            self._record_unconfirmed_cleanup(self.horse_pid, None, error)
+            return None
 
     def monitor_work_horse(self, job, queue):
         horse_pid = self.horse_pid
@@ -606,36 +674,18 @@ class DurableWorker(Worker):
             return super().monitor_work_horse(job, queue)
         finally:
             _STOP_MONITOR.reset(token)
-
-    def wait_for_horse(self):
-        horse_pid = self.horse_pid
-        try:
-            root = _owned_stat(horse_pid) if horse_pid > 0 else None
-        except ProcessRunnerCleanupError:
-            root = None
-        # Never hold the stop lock across wait4: the stop thread must be able
-        # to terminate the horse that RQ is waiting for.
-        result = super().wait_for_horse()
-        with self._nested_cleanup_lock():
-            failed_pid = getattr(self, "_nested_cleanup_failed_pid", None)
-            stopped_job = self.__dict__.get("_nested_stopped_job_id")
-            completed = getattr(self, "_nested_cleanup_completed", None)
-            # RQ records the stop request before invoking kill_horse. A wait
-            # can reach this point even before that method obtains the lock.
-            # Only a matching completed cleanup may acknowledge that request.
-            unconfirmed_stop = stopped_job is not None and (
-                root is None
-                or result[0] != horse_pid
-                or completed != (stopped_job, horse_pid, root[1])
-            )
-            if unconfirmed_stop or (failed_pid is not None and failed_pid == result[0]):
-                raise ProcessRunnerCleanupError(
-                    "Nested workflow cleanup could not be confirmed."
-                )
-        return result
+            self._release_consumed_stop(job.id)
 
     def kill_horse(self, sig: signal.Signals = signal.SIGKILL):
-        """Kill only the horse group, never its pre-``setpgrp`` parent group."""
+        """Kill only the horse group, never its pre-``setpgrp`` parent group.
+
+        The cleanup outcome is data, never an escaping exception. RQ calls this
+        from its pubsub thread -- where an exception ends the thread and the
+        worker -- and from its own monitor deadline path, where it unwinds
+        ``work()``. Either way the worker would die *without* acknowledging the
+        stop: the run stays ``running`` and, under a fail-fast supervisor, the
+        worker's exit tears down every other platform service.
+        """
         with self._nested_cleanup_lock():
             horse_pid = self.horse_pid
             if horse_pid <= 0:
@@ -647,71 +697,140 @@ class DurableWorker(Worker):
                 # remains unconfirmed until the complete owned tree succeeds.
                 self._nested_cleanup_failed_pid = horse_pid
                 self._nested_cleanup_completed = None
-            process_group = None
-            for attempt in range(5):
-                if self.horse_pid != horse_pid:
-                    self.log.debug("RQ work horse changed before process-group kill")
-                    return None
-                try:
-                    process_group = os.getpgid(horse_pid)
-                except OSError as exc:
-                    if exc.errno == errno.ESRCH:
-                        self.log.debug("RQ work horse is already gone")
-                        return None
-                    raise
-                if process_group == horse_pid:
-                    break
-                if attempt < 4:
-                    time.sleep(0.01)
+            try:
+                self._kill_owned_horse(horse_pid, sig)
+            except (ProcessRunnerCleanupError, OSError) as error:
+                self._record_unconfirmed_cleanup(horse_pid, sig, error)
+            return None
 
+    def _kill_owned_horse(self, horse_pid: int, sig: signal.Signals) -> None:
+        process_group = None
+        for attempt in range(5):
             if self.horse_pid != horse_pid:
-                self.log.debug("RQ work horse changed before termination")
-                return None
+                self.log.debug("RQ work horse changed before process-group kill")
+                return
+            try:
+                process_group = os.getpgid(horse_pid)
+            except OSError as exc:
+                if exc.errno == errno.ESRCH:
+                    self.log.debug("RQ work horse is already gone")
+                    return
+                # The group is unreadable, so no group signal may be sent.
+                # Fall back to the identity-guarded single-process signal
+                # below: leaving the horse alive would block RQ's wait4 and
+                # strand the run instead of reporting it failed.
+                self.log.debug("RQ work horse process group is unavailable: %s", exc)
+                process_group = None
+                break
+            if process_group == horse_pid:
+                break
+            if attempt < 4:
+                time.sleep(0.01)
 
-            def kill_owned_horse() -> None:
-                try:
-                    if process_group == horse_pid:
-                        os.killpg(horse_pid, sig)
-                        self.log.info(
-                            "Killed RQ work horse process group %s", horse_pid
-                        )
-                    else:
-                        # Never signal the worker's pre-setpgrp parent group.
-                        os.kill(horse_pid, sig)
-                        self.log.info("Killed pre-group RQ work horse %s", horse_pid)
-                except OSError as exc:
-                    if exc.errno == errno.ESRCH:
-                        self.log.debug("RQ work horse is already gone")
-                        return
-                    raise
+        if self.horse_pid != horse_pid:
+            self.log.debug("RQ work horse changed before termination")
+            return
 
-            if sig == signal.SIGKILL:
-                owned_root = _owned_stat(horse_pid)
-                if owned_root is None:
-                    raise ProcessRunnerCleanupError(
-                        "Workflow root was lost before freezing."
-                    )
-                report = _kill_owned_horse_tree(
-                    horse_pid, owned_root[1], kill_owned_horse
+        def kill_owned_horse() -> None:
+            try:
+                if process_group == horse_pid:
+                    os.killpg(horse_pid, sig)
+                    self.log.info("Killed RQ work horse process group %s", horse_pid)
+                else:
+                    # Never signal the worker's pre-setpgrp parent group.
+                    os.kill(horse_pid, sig)
+                    self.log.info("Killed pre-group RQ work horse %s", horse_pid)
+            except OSError as exc:
+                if exc.errno == errno.ESRCH:
+                    self.log.debug("RQ work horse is already gone")
+                    return
+                raise
+
+        if sig == signal.SIGKILL:
+            owned_root = _owned_stat(horse_pid)
+            if owned_root is None:
+                raise ProcessRunnerCleanupError(
+                    "Workflow root was lost before freezing."
                 )
-                # Evidence before acknowledgement: the completion marker below
-                # is only written once the relaxation and every process the
-                # proof could not account for have been recorded.
-                self._record_owned_cleanup(report)
-                self._nested_cleanup_completed = (
-                    self.__dict__.get("_nested_stopped_job_id"),
-                    horse_pid,
-                    owned_root[1],
-                )
-                self._nested_cleanup_failed_pid = None
-            else:
-                kill_owned_horse()
-        return None
+            report = _kill_owned_horse_tree(horse_pid, owned_root[1], kill_owned_horse)
+            # Evidence before acknowledgement: the completion marker below
+            # is only written once the relaxation and every process the
+            # proof could not account for have been recorded.
+            self._record_owned_cleanup(report)
+            self._nested_cleanup_completed = (
+                self.__dict__.get("_nested_stopped_job_id"),
+                horse_pid,
+                owned_root[1],
+            )
+            self._nested_cleanup_failed_pid = None
+        else:
+            kill_owned_horse()
+
+    def _record_unconfirmed_cleanup(
+        self,
+        horse_pid: int,
+        sig: signal.Signals | None,
+        error: BaseException,
+    ) -> None:
+        """Record a cleanup whose ownership proof did not complete.
+
+        The refusal is data: the stop stays unacknowledged, so RQ reports the
+        job as failed, and the worker keeps running. ``sig`` is ``None`` when
+        the failure is reported from the command boundary rather than a kill.
+        Repeats for the same stop and horse are collapsed into one record.
+        """
+        marker = (
+            self.__dict__.get("_nested_stopped_job_id"),
+            horse_pid,
+            None if sig is None else int(sig),
+        )
+        if self.__dict__.get("_nested_cleanup_unconfirmed") == marker:
+            return
+        self.__dict__["_nested_cleanup_unconfirmed"] = marker
+        self._record_owned_cleanup(
+            _OwnedCleanupReport(
+                horse_pid=horse_pid,
+                horse_starttime=None,
+                registered=(),
+                exited=(),
+                uncovered=(),
+                confirmed=False,
+                unconfirmed_reason=_unconfirmed_reason_code(error),
+                unconfirmed_detail=f"{type(error).__name__}: {error}",
+            )
+        )
+
+    def _release_consumed_stop(self, job_id: str) -> None:
+        """Drop this job's stop and cleanup markers once its monitor returns.
+
+        The failure marker is keyed by horse pid alone and a pid is reusable, so
+        a marker left behind could refuse the acknowledgement of a later,
+        unrelated job.
+        """
+        with self._nested_cleanup_lock():
+            if self.__dict__.get("_nested_stopped_job_id") == job_id:
+                self.__dict__["_nested_stopped_job_id"] = None
+            for name in (
+                "_nested_cleanup_failed_pid",
+                "_nested_cleanup_completed",
+                "_nested_cleanup_unconfirmed",
+            ):
+                self.__dict__.pop(name, None)
 
     def _record_owned_cleanup(self, report: _OwnedCleanupReport | None) -> None:
         """Surface a relaxed or incompletely attributed cleanup; never silently."""
         self.__dict__["_nested_cleanup_report"] = report
         if report is None:  # pragma: no cover - injected cleanup stubs
+            return
+        if not report.confirmed:
+            self.log.warning(
+                "Owned cleanup could not be confirmed (%s) for horse %s: %s. The "
+                "stop stays unacknowledged and the run is reported as an "
+                "unexpected execution failure; the worker keeps running.",
+                report.unconfirmed_reason,
+                report.horse_pid,
+                report.unconfirmed_detail,
+            )
             return
         self.log.info(
             "Owned cleanup confirmed: %d identity(ies) registered before the "
