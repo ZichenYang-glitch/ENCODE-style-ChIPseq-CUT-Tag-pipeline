@@ -154,7 +154,8 @@ python3 test/check_snakemake_lint.py
 ```
 
 The local default pytest selection runs the complete deterministic suite and
-excludes only both real-execution markers:
+excludes all three real-execution markers (`real_execution`,
+`platform_real_execution`, `bulk_rnaseq_real_execution`):
 
 ```bash
 python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest test -ra
@@ -163,3 +164,25 @@ python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest test -ra
 See the [coverage policy](coverage-policy.md) for complete coverage commands
 and [real-execution harness](real-execution-harness.md) for the explicit real
 tiers.
+
+## Multiple checkouts and git worktrees
+
+When working in a `git worktree` or a second clone, create a dedicated
+environment for that checkout from the locked dependencies — one prefix per
+worktree, never an editable HelixWeave install in a shared environment. Follow
+the recipe in
+[local platform runtime](local-platform-runtime.md) and the rules in
+[Python source provenance](source-provenance.md).
+
+The one silent failure mode left is the Snakemake channel: the Snakefile
+imports `encode_pipeline` with a conditional `ImportError` fallback, so if you
+drive a worktree's `workflow/Snakefile` with a shared environment whose
+editable install points at another checkout (for example the main checkout's
+`.local/envs/ci-fast`), the import succeeds against that other checkout and
+the fallback never fires. The result is mixed execution — the worktree's
+rules and config with the other checkout's package code — with no error and
+no warning.
+
+Note the asymmetry: `pytest` in the same situation fails loudly, because
+checkout provenance rejects a sibling worktree by design. Never infer from a
+passing pytest run that a snakemake run used the correct package code.

@@ -678,3 +678,52 @@ def test_lint_and_lock_workflows_cover_the_maintained_contracts():
     assert "require_deleted_lock" in lock_runs
     assert "Push base is empty or all-zero" in lock_runs
     assert "Pull-request base SHA is unexpectedly empty" in lock_runs
+
+
+# The Snakefile's try/except ImportError fallback only inserts the current
+# checkout's src/ when the snakemake interpreter cannot import
+# encode_pipeline. CI relies on the chipseq environment being free of the
+# HelixWeave distribution; if it ever gains the package, a local multi-checkout
+# setup silently runs the wrong package code (no error, no warning).
+HELIXWEAVE_DISTRIBUTION_NAMES = ("helixweave", "encode-pipeline", "encode_pipeline")
+
+
+def _dependency_names(dependencies) -> set:
+    names = set()
+    for entry in dependencies:
+        if isinstance(entry, str):
+            names.add(re.split(r"[=<>\s]", entry, maxsplit=1)[0].lower())
+        elif isinstance(entry, dict):
+            for pip_entry in entry.get("pip", []):
+                names.add(re.split(r"[=<>\[;\s]", pip_entry, maxsplit=1)[0].lower())
+    return names
+
+
+def _is_helixweave_distribution(name: str) -> bool:
+    return any(
+        name == dist or name.startswith(dist + "-") or name.startswith(dist + "_")
+        for dist in HELIXWEAVE_DISTRIBUTION_NAMES
+    )
+
+
+def test_chipseq_env_yml_excludes_helixweave() -> None:
+    env = yaml.safe_load(
+        (REPO_ROOT / "workflow" / "envs" / "chipseq.yml").read_text(encoding="utf-8")
+    )
+    names = _dependency_names(env.get("dependencies", []))
+    offenders = [name for name in names if _is_helixweave_distribution(name)]
+    assert not offenders, f"chipseq.yml must not install HelixWeave: {offenders}"
+
+
+def test_chipseq_env_lock_excludes_helixweave() -> None:
+    lock_path = REPO_ROOT / "workflow" / "envs" / "chipseq.lock"
+    offenders = []
+    for raw in lock_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith("@"):
+            continue
+        token = line.split(" @ ", 1)[0] if " @ " in line else line.rsplit("/", 1)[-1]
+        token = token.split("#", 1)[0].lower()  # strip conda-md5 fragment
+        if _is_helixweave_distribution(token):
+            offenders.append(raw)
+    assert not offenders, f"chipseq.lock must not pin HelixWeave: {offenders}"

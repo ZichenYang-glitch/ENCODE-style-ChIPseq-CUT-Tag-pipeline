@@ -126,3 +126,49 @@ def test_split_is_complementary_mate_preserving_indexed_and_deterministic(
     first_view = _run([samtools_path, "view", first_pr1], samtools_path).stdout
     repeated_view = _run([samtools_path, "view", second_pr1], samtools_path).stdout
     assert repeated_view == first_view
+
+
+def test_split_partition_depends_on_seed(tmp_path, samtools_path):
+    # 24 independent fragments: seeds 42 and 7 place 7 of them on different
+    # sides, so the pr1 read-name sets provably differ (deterministic hash).
+    sam_path = tmp_path / "input.sam"
+    input_bam = tmp_path / "input.bam"
+    lines = ["@HD\tVN:1.6\tSO:coordinate", "@SQ\tSN:chr1\tLN:100000"]
+    for index in range(1, 25):
+        pos = index * 1000
+        lines.append(
+            f"frag{index}/1\t99\tchr1\t{pos}\t60\t100M\t=\t{pos + 200}\t200\t*\t*"
+        )
+        lines.append(
+            f"frag{index}/2\t147\tchr1\t{pos + 200}\t60\t100M\t=\t{pos}\t-200\t*\t*"
+        )
+    sam_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _run(
+        [samtools_path, "view", "-bS", "-o", input_bam, sam_path],
+        samtools_path,
+    )
+
+    pr1_names_by_seed = {}
+    for seed in ("42", "7"):
+        out1 = tmp_path / f"seed{seed}.pr1.bam"
+        out2 = tmp_path / f"seed{seed}.pr2.bam"
+        _run(
+            [
+                sys.executable,
+                SPLIT_SCRIPT,
+                "--input",
+                input_bam,
+                "--out1",
+                out1,
+                "--out2",
+                out2,
+                "--seed",
+                seed,
+                "--threads",
+                "1",
+            ],
+            samtools_path,
+        )
+        pr1_names_by_seed[seed] = _read_names(out1, samtools_path)
+
+    assert pr1_names_by_seed["42"] != pr1_names_by_seed["7"]

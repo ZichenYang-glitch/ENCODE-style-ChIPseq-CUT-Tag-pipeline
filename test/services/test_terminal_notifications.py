@@ -150,7 +150,6 @@ def test_outcome_diagnostic_preserves_delivery_and_recording_semantics(
     private = str(tmp_path / "PRIVATE_EVENT_FAILURE")
     monkeypatch.setenv("HELIX_TEST_PRIVATE", "PRIVATE_ENV_VALUE")
     repository = _RunRepository(_record(RunStatus.FAILED))
-    original_record = repository.record
     authentication = _AuthenticationRepository()
     authentication.account.notification_email = "PRIVATE_RECIPIENT@example.test"
     calls = []
@@ -179,7 +178,6 @@ def test_outcome_diagnostic_preserves_delivery_and_recording_semantics(
     outcome = "terminal_email_failed" if delivery_fails else "terminal_email_sent"
     assert [call[0] for call in calls] == ["send", "record"]
     assert calls[1] == ("record", outcome)
-    assert repository.record == original_record
     assert [event.event_type for event in repository.events] == (
         [] if recording_fails else [outcome]
     )

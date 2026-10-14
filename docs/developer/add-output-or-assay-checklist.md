@@ -12,15 +12,16 @@ numbered item names the specific file(s) to modify and what to change.
 
 - [ ] `workflow/schemas/samples.schema.yaml`: If the output requires a new
   sample sheet column, add it to the schema.
-- [ ] `scripts/validate_samples.py`: Add validation for any new column value
-  or config key.
+- [ ] `src/encode_pipeline/samples/rows.py` (per-row normalization) and
+  `src/encode_pipeline/samples/validate.py`: Add validation for any new column
+  value. `scripts/validate_samples.py` is only a checkout-verified wrapper.
 
 ### 2. Config schema
 
 - [ ] `workflow/schemas/config.schema.yaml`: If the output is gated by a new
   config key, document the key, its type, default, and allowed values.
-- [ ] `scripts/validate_samples.py`: Add `_validate_*_config()` logic for the
-  new key. Gate-checked keys should produce clear error messages.
+- [ ] `src/encode_pipeline/config/validator.py`: Add `_validate_*_config()`
+  logic for the new key. Gate-checked keys should produce clear error messages.
 
 ### 3. Workflow rule file
 
@@ -32,7 +33,7 @@ numbered item names the specific file(s) to modify and what to change.
 
 ### 4. Target helper wiring
 
-- [ ] `workflow/Snakefile`: Add the new output path to the correct
+- [ ] `workflow/rules/targets.smk`: Add the new output path to the correct
   `_*_targets()` function (e.g., `_mnase_targets()` for MNase outputs,
   `_single_sample_qc_targets()` for QC outputs).
 - [ ] Gate on the correct sample ID list (`MNASE_SAMPLE_IDS`,
@@ -50,8 +51,9 @@ numbered item names the specific file(s) to modify and what to change.
 
 ### 6. Manifest rows
 
-- [ ] `scripts/make_manifest.py`: Add `_add_row(...)` calls in the appropriate
-  builder function (`_build_sample_rows` or `_build_experiment_rows`).
+- [ ] `src/encode_pipeline/manifest/make.py`: Add `_add_row(...)` calls in the
+  appropriate builder function (`_build_sample_rows` or
+  `_build_experiment_rows`). `scripts/make_manifest.py` is only a wrapper.
 - [ ] Use the existing `output_type` vocabulary (snake_case, tool-derived names).
 - [ ] Gate on the same conditions as the Snakemake rule (assay, config, stage).
 
@@ -110,10 +112,12 @@ All of the above (items 1-11), plus:
   `get_remove_dup_<assay>()`, `get_extend_reads_<assay>()`,
   `get_macs3_args_<assay>()` policy functions. For non-peak-centric assays,
   the MACS3 function should raise `ValueError`.
-- [ ] **Dispatch functions:** `workflow/Snakefile` — add `<assay>` branch to
-  `get_remove_dup()`, `get_macs3_args()`, `get_extend_reads()`.
+- [ ] **Dispatch functions:** `workflow/rules/metadata.smk` — add `<assay>`
+  branch to `get_remove_dup()`, `get_macs3_args()`, `get_extend_reads()`.
 - [ ] **Derived lists:** `workflow/Snakefile` — add `<ASSAY>_SAMPLE_IDS` and
-  `<ASSAY>_MULTI_BIOREP_EXPERIMENTS` derived lists.
+  `<ASSAY>_MULTI_BIOREP_EXPERIMENTS`. These are split across
+  `workflow/Snakefile` and `workflow/rules/metadata.smk`; follow the
+  neighbouring assay rather than assuming a single location.
 - [ ] **Target helper:** Add `_<assay>_targets()` function.
 - [ ] **Rule file include:** Add `include: "rules/<assay>.smk"` to Snakefile.
 - [ ] **Manifest:** Add assay-specific manifest rows with `not_applicable`
@@ -121,3 +125,15 @@ All of the above (items 1-11), plus:
   assays).
 - [ ] **Test profile:** `test/profiles/<assay>_<layout>_noctrl/` with
   `config.yaml` and `samples.tsv`.
+
+## C. Adding a helper script under `scripts/`
+
+- [ ] **Provenance obligation:** Any new `scripts/*.py` that imports
+  `encode_pipeline` must explicitly activate its own checkout: run
+  `bootstrap_checkout` from `scripts/source_provenance.py` (the Hi-TrAC
+  scripts are the strongest pattern), or at least unconditionally
+  `sys.path.insert(0, <repo>/src)` and then call `require_checkout`, as in
+  `scripts/validate_samples.py`. A `try/except ImportError` fallback does
+  **not** satisfy this obligation — in a shared environment the import
+  succeeds against another checkout, so the fallback never fires and the
+  script silently runs foreign code.

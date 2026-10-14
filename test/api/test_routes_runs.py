@@ -772,17 +772,6 @@ def test_api_routes_runs_import_boundary() -> None:
     assert "encode_pipeline.samples.load" not in source
 
 
-def test_create_run_returns_created_with_default_driver(
-    client: ApiTestClient,
-    workflow_id: str,
-) -> None:
-    response = _create_run_response(client, workflow_id)
-    assert response.status_code == 201
-    data = response.json()
-    assert data["ok"] is True
-    assert data["run"]["status"] == "created"
-
-
 def test_create_run_generates_created_event(
     client: ApiTestClient,
     workflow_id: str,

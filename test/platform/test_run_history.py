@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+import json
 
 import pytest
 
@@ -137,3 +139,14 @@ def test_run_history_cursor_rejects_noncanonical_payload() -> None:
     )
 
     assert encoded != encode_run_history_cursor(mutated)
+
+    body = encoded[len("runhist_") :]
+    payload = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+    reversed_payload = {key: payload[key] for key in reversed(list(payload))}
+    noncanonical = "runhist_" + base64.urlsafe_b64encode(
+        json.dumps(reversed_payload, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+
+    assert noncanonical != encoded
+    with pytest.raises(ValueError, match="not canonical"):
+        decode_run_history_cursor(noncanonical, workflow_id=None, status=None)

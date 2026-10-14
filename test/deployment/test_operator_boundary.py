@@ -7807,3 +7807,66 @@ def test_uninstall_recovery_restores_real_pending_boundary_before_reload(
         path = root / str(logical).lstrip("/")
         assert path.exists() or path.is_symlink()
         assert not path.with_name(f".{path.name}.helixweave-uninstall-pending").exists()
+
+
+def test_validate_sudoers_accepts_when_visudo_approves(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(bootstrap, "VISUDO", Path("/bin/true"))
+
+    assert bootstrap._validate_sudoers(tmp_path / "candidate") is True
+
+
+def test_validate_sudoers_rejects_when_visudo_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(bootstrap, "VISUDO", Path("/bin/false"))
+
+    assert bootstrap._validate_sudoers(tmp_path / "candidate") is False
+
+
+def test_validate_sudoers_fails_closed_when_visudo_is_unavailable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(bootstrap, "VISUDO", Path("/nonexistent/visudo"))
+
+    assert bootstrap._validate_sudoers(tmp_path / "candidate") is False
+
+
+def test_bootstrap_install_rejects_sudoers_that_fail_validation(tmp_path: Path) -> None:
+    root = tmp_path / "host"
+    root.mkdir()
+    backend = bootstrap.HostBootstrapBackend(
+        source_root=TEMPLATES,
+        root_prefix=root,
+        owner_uid=os.getuid(),
+        owner_gid=os.getgid(),
+        command_runner=lambda command: pytest.fail(f"unexpected command: {command}"),
+        sudoers_validator=lambda _path: False,
+    )
+
+    with pytest.raises(bootstrap.BootstrapFailure) as captured:
+        backend.apply(operation="install", invoking_user="labadmin")
+
+    assert captured.value.code == "BOOTSTRAP_SUDOERS_INVALID"
+    sudoers_target = root / "etc" / "sudoers.d" / "helixweave-operator"
+    assert not sudoers_target.exists()
+    assert [str(path) for path in root.rglob("*.tmp")] == []
+
+
+@pytest.mark.real_execution
+def test_validate_sudoers_with_real_visudo(tmp_path: Path, monkeypatch) -> None:
+    from _tool_resolver import require_external_tools
+
+    candidate = os.environ.get("VISUDO", "") or shutil.which("visudo") or ""
+    if not candidate and os.access("/usr/sbin/visudo", os.X_OK):
+        candidate = "/usr/sbin/visudo"
+    if not candidate:
+        require_external_tools(["visudo"], "sudoers validation real execution")
+    monkeypatch.setattr(bootstrap, "VISUDO", Path(candidate))
+
+    template = TEMPLATES / "helixweave-operator.sudoers"
+    assert bootstrap._validate_sudoers(template) is True
+    broken = tmp_path / "broken.sudoers"
+    broken.write_text("not valid sudoers syntax {{{\n", encoding="utf-8")
+    assert bootstrap._validate_sudoers(broken) is False

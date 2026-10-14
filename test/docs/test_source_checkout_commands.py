@@ -61,3 +61,11 @@ def test_documented_openapi_regeneration_delegates_to_canonical_bootstrap() -> N
     assert scripts["openapi:regenerate"] == (
         "npm run openapi:export && npm run openapi:generate"
     )
+
+
+def test_script_checklist_states_provenance_obligation() -> None:
+    """The helper-script checklist must name the provenance activation API."""
+    content = (
+        REPOSITORY_ROOT / "docs/developer/add-output-or-assay-checklist.md"
+    ).read_text(encoding="utf-8")
+    assert "require_checkout" in content or "bootstrap_checkout" in content

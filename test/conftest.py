@@ -27,6 +27,22 @@ import pytest  # noqa: E402
 _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _checkout_src_on_subprocess_pythonpath():
+    """Make spawned tools (e.g. snakemake) import this checkout's package.
+
+    Snakemake runs the Snakefile under its own interpreter; without this,
+    an editable install in a shared environment (e.g. the main checkout's
+    ci-fast env) can silently satisfy the Snakefile's import from a
+    different checkout. Mirrors the PYTHONPATH precedent in
+    test/bulk_rnaseq_real_execution/platform_harness.py.
+    """
+    src = str(_REPOSITORY_ROOT / "src")
+    entries = [e for e in os.environ.get("PYTHONPATH", "").split(os.pathsep) if e]
+    if src not in entries:
+        os.environ["PYTHONPATH"] = os.pathsep.join([src, *entries])
+
+
 def pytest_addoption(parser):
     """Add custom command-line options."""
     parser.addoption(

@@ -8,19 +8,30 @@ from collections.abc import Callable, Sequence
 import json
 import os
 from pathlib import Path
+import runpy
 import stat
 import sys
 
-from encode_pipeline.deployment.canonical import canonical_json_bytes
-from encode_pipeline.deployment.errors import DeploymentError, fail
-from encode_pipeline.deployment.gate import (
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
+_require_checkout = runpy.run_path(
+    str(Path(__file__).with_name("source_provenance.py"))
+)["require_checkout"]
+_require_checkout(REPOSITORY_ROOT)
+
+from encode_pipeline.deployment.canonical import canonical_json_bytes  # noqa: E402
+from encode_pipeline.deployment.errors import DeploymentError, fail  # noqa: E402
+from encode_pipeline.deployment.gate import (  # noqa: E402
     FilesystemGateObserver,
     GateObserver,
     GatePolicy,
     GateRequest,
     prepare_gate_request,
 )
-from encode_pipeline.deployment.models import BULK_RNASEQ_RUNTIME, ENCODE_RUNTIME
+from encode_pipeline.deployment.models import (  # noqa: E402
+    BULK_RNASEQ_RUNTIME,
+    ENCODE_RUNTIME,
+)
 
 
 class _Parser(argparse.ArgumentParser):

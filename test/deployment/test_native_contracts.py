@@ -7,6 +7,7 @@ from hashlib import sha256
 from importlib import resources
 import io
 import json
+import shutil
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
@@ -45,7 +46,10 @@ from encode_pipeline.deployment.native_contracts import (
     verify_static_micromamba,
 )
 from encode_pipeline.persistence.migration_admission import (
+    MigrationAdmissionError,
     MigrationInventoryTrustAnchor,
+    build_migration_execution_inventory,
+    canonical_migration_execution_inventory_bytes,
     verify_migration_execution_inventory,
 )
 from encode_pipeline.platform.results import Result
@@ -790,3 +794,87 @@ def _wheel_bytes(members: dict[str, bytes]) -> bytes:
             archive.writestr(name, content)
         archive.writestr(record, stream.getvalue().encode("utf-8"))
     return archive_bytes.getvalue()
+
+
+def _copy_persistence_tree(destination: Path) -> Path:
+    persistence_root = destination / "persistence"
+    shutil.copytree(
+        Path(__file__).resolve().parents[2] / "src" / "encode_pipeline" / "persistence",
+        persistence_root,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    return persistence_root
+
+
+def _persistence_wheel_members(persistence_root: Path) -> dict[str, bytes]:
+    members = {}
+    for path in sorted(persistence_root.rglob("*")):
+        if path.is_file():
+            relative = path.relative_to(persistence_root).as_posix()
+            members[f"encode_pipeline/persistence/{relative}"] = path.read_bytes()
+    return members
+
+
+def _wheel_migration_anchor(
+    persistence_root: Path,
+) -> tuple[bytes, MigrationInventoryTrustAnchor]:
+    inventory = canonical_migration_execution_inventory_bytes(
+        build_migration_execution_inventory(persistence_root)
+    )
+    return inventory, MigrationInventoryTrustAnchor(
+        len(inventory),
+        sha256(inventory).hexdigest(),
+    )
+
+
+def test_verify_wheel_migrations_extracts_and_verifies_wheel_members(
+    tmp_path,
+) -> None:
+    persistence_root = _copy_persistence_tree(tmp_path)
+    inventory, anchor = _wheel_migration_anchor(persistence_root)
+    expected = verify_migration_execution_inventory(
+        persistence_root=persistence_root,
+        inventory_bytes=inventory,
+        trust_anchor=anchor,
+    )
+    members = _persistence_wheel_members(persistence_root)
+    members["encode_pipeline/platform/runs.py"] = b"# not a persistence member\n"
+
+    wheel = _wheel_bytes(members)
+    with zipfile.ZipFile(io.BytesIO(wheel), mode="r") as archive:
+        verified = native_module._verify_wheel_migrations(
+            archive,
+            inventory,
+            trust_anchor=anchor,
+        )
+
+    assert verified.heads == expected.heads
+    assert verified.bases == expected.bases
+    assert verified.environment.sha256 == expected.environment.sha256
+    assert sorted(revision.source.sha256 for revision in verified.revisions) == sorted(
+        revision.source.sha256 for revision in expected.revisions
+    )
+
+
+def test_verify_wheel_migrations_rejects_a_wheel_missing_a_revision_member(
+    tmp_path,
+) -> None:
+    persistence_root = _copy_persistence_tree(tmp_path)
+    inventory, anchor = _wheel_migration_anchor(persistence_root)
+    members = _persistence_wheel_members(persistence_root)
+    dropped = next(
+        name
+        for name in members
+        if name.startswith("encode_pipeline/persistence/alembic/versions/")
+    )
+    del members[dropped]
+
+    wheel = _wheel_bytes(members)
+    with zipfile.ZipFile(io.BytesIO(wheel), mode="r") as archive:
+        with pytest.raises(MigrationAdmissionError) as caught:
+            native_module._verify_wheel_migrations(
+                archive,
+                inventory,
+                trust_anchor=anchor,
+            )
+    assert caught.value.reason_code == "MIGRATION_REVISION_MISSING"

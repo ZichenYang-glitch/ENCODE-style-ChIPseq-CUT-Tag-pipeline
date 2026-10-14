@@ -1183,6 +1183,133 @@ def test_rq_worker_rejects_adapter_version_drift_before_any_worker_side_effect(
     assert all(event.event_type != "worker_dependencies_rebuilt" for event in events)
 
 
+def test_rq_worker_fails_queued_run_when_workflow_build_drifts(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    registry = create_default_workflow_registry()
+    identity_result = WorkflowBuildIdentityProvider(registry).capture_executable(
+        "encode-style-chipseq-cuttag-atac-mnase"
+    )
+    assert identity_result.is_success
+    assignment = create_planned_run(
+        configured,
+        "queued-build-mismatch-run",
+        assign_queue=configured.queue_name,
+        build_identity=replace(
+            identity_result.value,
+            adapter_version=f"{identity_result.value.adapter_version}-stale",
+        ),
+    )
+    assert assignment is not None
+    persistence = open_run_persistence(configured.database_url)
+    try:
+        service = create_default_run_service(
+            registry=create_default_workflow_registry(),
+            repository=persistence.repository,
+        )
+        service.mark_execution_dispatched(
+            assignment.run_id,
+            job_id=assignment.job_id,
+        )
+        service.queue_dispatched_run(
+            assignment.run_id,
+            job_id=assignment.job_id,
+            backend=assignment.backend,
+            queue_name=assignment.queue_name,
+        )
+    finally:
+        persistence.close()
+    _configure_worker_environment(monkeypatch, configured)
+    monkeypatch.setattr(ProcessRunner, "run", _fail_if_process_starts)
+    connection = fakeredis.FakeRedis()
+    run_queue = RqRunQueue(configured, connection=connection)
+    run_queue.enqueue_execution(assignment)
+    before_record, _before_events, _before_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert before_record.status is RunStatus.QUEUED
+
+    assert _run_burst(connection, run_queue) is True
+
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    record, events, persisted_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert job is not None
+    assert job.is_failed
+    assert record.status is RunStatus.FAILED
+    assert record.error is not None
+    assert record.error.code == "RUN_WORKFLOW_BUILD_IDENTITY_MISMATCH"
+    assert persisted_assignment is not None
+    assert persisted_assignment.claimed_at is None
+    failure_events = [event for event in events if event.status is RunStatus.FAILED]
+    assert len(failure_events) == 1
+    assert (
+        failure_events[0].context["reason_code"]
+        == "RUN_WORKFLOW_BUILD_IDENTITY_MISMATCH"
+    )
+
+
+def test_rq_worker_leaves_cancelled_run_untouched_when_build_drifts(
+    tmp_path,
+    monkeypatch,
+):
+    configured = worker_settings(tmp_path)
+    registry = create_default_workflow_registry()
+    identity_result = WorkflowBuildIdentityProvider(registry).capture_executable(
+        "encode-style-chipseq-cuttag-atac-mnase"
+    )
+    assert identity_result.is_success
+    assignment = create_planned_run(
+        configured,
+        "cancelled-build-mismatch-run",
+        assign_queue=configured.queue_name,
+        build_identity=replace(
+            identity_result.value,
+            adapter_version=f"{identity_result.value.adapter_version}-stale",
+        ),
+    )
+    assert assignment is not None
+    persistence = open_run_persistence(configured.database_url)
+    try:
+        service = create_default_run_service(
+            registry=create_default_workflow_registry(),
+            repository=persistence.repository,
+        )
+        service.transition_run(
+            assignment.run_id,
+            RunStatus.CANCELLED,
+            stage="execution",
+            message="Run cancelled before the worker claimed it.",
+        )
+    finally:
+        persistence.close()
+    _configure_worker_environment(monkeypatch, configured)
+    monkeypatch.setattr(ProcessRunner, "run", _fail_if_process_starts)
+    connection = fakeredis.FakeRedis()
+    run_queue = RqRunQueue(configured, connection=connection)
+    run_queue.enqueue_execution(assignment)
+
+    assert _run_burst(connection, run_queue) is True
+
+    job = run_queue._queue.fetch_job(assignment.job_id)
+    record, events, persisted_assignment = _read_run(
+        configured,
+        assignment.run_id,
+    )
+    assert job is not None
+    assert not job.is_failed
+    assert record.status is RunStatus.CANCELLED
+    assert record.error is None
+    assert persisted_assignment is not None
+    assert persisted_assignment.claimed_at is None
+    assert all(event.status is not RunStatus.FAILED for event in events)
+
+
 def test_stale_worker_cannot_fail_queued_run_before_assignment_check(
     tmp_path,
     monkeypatch,

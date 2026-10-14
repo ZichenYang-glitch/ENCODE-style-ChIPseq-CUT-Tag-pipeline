@@ -1,5 +1,11 @@
 """Tests for the ENCODE-style workflow adapter."""
 
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
 from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
 from encode_pipeline.platform.adapters import WorkflowInputs
 
@@ -288,6 +294,94 @@ def test_adapter_plan_workspace_accepts_inline_rows_and_is_byte_deterministic(
     files = dict(first.value.files)
     assert b"samples: config/samples.tsv" in files["config/config.yaml"]
     assert b"S1" in files["config/samples.tsv"]
+
+
+_PLAN_HASH_CHILD = """
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+base = Path(sys.argv[1])
+sys.path.insert(0, str(Path(sys.argv[2]) / "src"))
+
+import encode_pipeline.adapters.encode as encode_module
+from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
+from encode_pipeline.platform.adapters import WorkflowInputs
+
+row = {
+    "sample": "S1",
+    "fastq_1": str(base / "S1.R1.fastq.gz"),
+    "fastq_2": str(base / "S1.R2.fastq.gz"),
+    "layout": "PE",
+    "assay": "chipseq",
+    "target": "CTCF",
+    "peak_mode": "narrow",
+    "genome": "hs",
+    "bowtie2_index": str(base / "indices" / "hs"),
+}
+adapter = EncodeStyleWorkflowAdapter()
+result = adapter.plan_workspace(
+    WorkflowInputs(config={}, samples=[row]), base / "workspace"
+)
+if result.is_failure:
+    print(json.dumps({"codes": [issue.code for issue in result.issues]}))
+    raise SystemExit(1)
+hashes = {
+    relpath: hashlib.sha256(content).hexdigest()
+    for relpath, content in sorted(result.value.files)
+}
+hashes["__module_file__"] = encode_module.__file__
+probe_keys = frozenset(f"probe-key-{index}" for index in range(16))
+hashes["__hash_order_fingerprint__"] = hashlib.sha256(
+    ",".join(probe_keys).encode("utf-8")
+).hexdigest()
+print(json.dumps(hashes, sort_keys=True))
+"""
+
+
+def test_adapter_plan_workspace_is_byte_deterministic_across_hash_seeds(tmp_path):
+    # No -I here: -I implies -E, which silently ignores PYTHONHASHSEED and
+    # would turn this into a comparison of two random seeds.
+    repo_root = Path(__file__).resolve().parents[2]
+    base_env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("PYTEST", "PYTHONPATH", "PYTHONHOME"))
+    }
+    expected_module = str(
+        repo_root / "src" / "encode_pipeline" / "adapters" / "encode.py"
+    )
+    runs = {}
+    for seed in ("1", "2"):
+        env = dict(base_env)
+        env["PYTHONHASHSEED"] = seed
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                "-c",
+                _PLAN_HASH_CHILD,
+                str(tmp_path),
+                str(repo_root),
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr[-500:]
+        runs[seed] = json.loads(completed.stdout)
+
+    fingerprints = {}
+    for seed, hashes in runs.items():
+        module_file = hashes.pop("__module_file__")
+        assert module_file == expected_module
+        fingerprints[seed] = hashes.pop("__hash_order_fingerprint__")
+    # Self-proof: the two children really ran with different hash seeds.
+    # Without this, a broken env handoff would silently compare identical seeds.
+    assert fingerprints["1"] != fingerprints["2"]
+    assert runs["1"] == runs["2"]
 
 
 def test_inline_and_server_path_modes_render_equivalent_workspace_files(tmp_path):

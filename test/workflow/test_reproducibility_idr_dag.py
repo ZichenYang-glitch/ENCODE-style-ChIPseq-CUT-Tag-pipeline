@@ -159,6 +159,19 @@ def _scheduled_rules(output: str) -> set[str]:
     }
 
 
+def _rule_shell_blocks(output: str) -> dict[str, str]:
+    blocks: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in output.splitlines():
+        match = re.match(r"^\s*(?:local)?rule\s+(\w+)\s*:", line)
+        if match is not None:
+            current = match.group(1)
+            blocks.setdefault(current, [])
+        elif current is not None:
+            blocks[current].append(line)
+    return {name: "\n".join(lines) for name, lines in blocks.items()}
+
+
 def _dry_run(
     tmp_path,
     tmp_config,
@@ -218,9 +231,16 @@ def test_custom_idr_threshold_rank_and_seed_reach_snakemake_shell_commands(
         "idr_self_pseudoreps_narrow",
         "idr_pooled_pseudoreps_narrow",
     } <= rules
-    assert "--idr-threshold 0.0125" in output
-    assert "--rank signal.value" in output
-    assert "--seed 777" in output
+    blocks = _rule_shell_blocks(output)
+    assert "--seed 777" in blocks["idr_split_pseudoreps_narrow"]
+    assert "--idr-threshold 0.0125" in blocks["idr_true_replicates_narrow"]
+    for command_rule in (
+        "idr_true_replicates_narrow",
+        "idr_self_pseudoreps_narrow",
+        "idr_pooled_pseudoreps_narrow",
+    ):
+        assert "--rank signal.value" in blocks[command_rule]
+        assert "--plot" in blocks[command_rule]
 
 
 @pytest.mark.parametrize(
@@ -270,6 +290,13 @@ def test_enabled_modes_schedule_current_unified_idr_rules_and_commands(
     if peak_mode == "broad":
         assert "--broad" in output
         assert "--broad-cutoff" in output
+    blocks = _rule_shell_blocks(output)
+    for command_rule in (
+        f"idr_true_replicates_{peak_mode}",
+        f"idr_self_pseudoreps_{peak_mode}",
+        f"idr_pooled_pseudoreps_{peak_mode}",
+    ):
+        assert "--plot" in blocks[command_rule]
 
 
 @pytest.mark.parametrize(
