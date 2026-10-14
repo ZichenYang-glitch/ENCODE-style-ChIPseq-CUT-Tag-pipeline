@@ -809,8 +809,8 @@ PR-6 完整执行边界、fastp 延期及修复归属未定、科学政策和证
   类推主开关。S2/S3/S9/S10/S11/S12 不应统称默认执行。
 - 原上游证据归档缺 overlap 源码；引用与归档完整性应分别核对。
   工作区 TSV 存在不能证明平台列表、下载或浏览器可达。
-- N2 为兼容政策：`docs/idr-contract.md:50–51` 明确约定
-  true → conservative、pooled → optimal。是否改为上游较大集合选择
+- N2 为兼容政策：[IDR 契约的 final peak sets 一节](../idr-contract.md#final-peak-sets)
+  明确约定 true → conservative、pooled → optimal。是否改为上游较大集合选择
   需要单独科学决策，不能随 PR-13 舍入修复改变。
 - S3/S9/S10/S11/S14 的算法或 ENCODE 兼容选择，以及 S19/S20 的额外
   汇总展示，保留决策边界；与上游不同不自动构成需要修复的缺陷。
@@ -1338,7 +1338,7 @@ generation/revision、大小并记录 SHA，未另以源文件独立摘要作等
 
 首版建议直接锁定 Git tag `v0.0.5` 对应 commit
 `de6cc732fa00b408551b9f4272933640c08447f1`，并在 H2 锁定完整工具构建产物。
-该版本 `scripts/tracPre2.py` SHA256 为
+该版本上游 scripts/tracPre2.py SHA256 为
 `c3c4ef4e6287fa4ade97a6f5980d20c81ea345b8e8e13c88ae3b7c4bd3a67aec`。
 PyPI 同名 `0.0.5` 不能作为该 Git commit 的等价身份；依赖不能仅写包版本号。
 一手依据为[固定脚本](https://github.com/YaqiangCao/cLoops2/blob/de6cc732fa00b408551b9f4272933640c08447f1/scripts/tracPre2.py)、

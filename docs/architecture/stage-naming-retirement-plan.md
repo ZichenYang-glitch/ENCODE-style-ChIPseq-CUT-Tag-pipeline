@@ -36,8 +36,8 @@
 - `MANIFEST.in:17`：打包清单同步新脚本名
 
 ### 3. src/（平台代码）
-- `config/validator.py`：键名校验 + 跨键约束错误消息（"stage5 requires stage4b" → "chipseq_idr requires replicate_analysis"）
-- `config/reproducibility.py:145-150`：`chipseq_narrow: null` 推断来源改读 `chipseq_idr`
+- `src/encode_pipeline/config/validator.py`：键名校验 + 跨键约束错误消息（"stage5 requires stage4b" → "chipseq_idr requires replicate_analysis"）
+- `src/encode_pipeline/config/reproducibility.py:145-150`：`chipseq_narrow: null` 推断来源改读 `chipseq_idr`
 - `adapters/encode.py:209-210`：映射元组简化为同名映射
 - `samples/replicates.py`、`samples/loader.py`、`cli/_validator.py`、`cli/results_visibility_fixture.py`：键名与错误消息
 - `manifest/make.py`：`stage4b`/`stage5` 键（387,396,749-758,840,880,908,931,940,1382-1405）+ `stage3_qc_summary` output_type（1324-1336）

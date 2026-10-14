@@ -12,7 +12,7 @@ aliases, duplicate outputs, or automatic rewrites of existing results.
 | Config `stage5` | `chipseq_idr` |
 | Rule and output type `stage3_qc_summary` | `project_qc_summary` |
 | `results/multiqc/stage3_qc_summary.tsv` | `results/multiqc/project_qc_summary.tsv` |
-| Rule and script `stage5b_summary` / `scripts/stage5b_summary.py` | `chipseq_idr_summary` / `scripts/chipseq_idr_summary.py` |
+| Rule and script `stage5b_summary` / scripts/stage5b_summary.py (retired path) | `chipseq_idr_summary` / `scripts/chipseq_idr_summary.py` |
 | `<exp>.stage5b.summary.log` | `<exp>.chipseq_idr.summary.log` |
 | Public-validation input column `stage5_idr` | `chipseq_idr` |
 

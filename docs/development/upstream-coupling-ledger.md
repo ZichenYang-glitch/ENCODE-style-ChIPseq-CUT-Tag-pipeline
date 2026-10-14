@@ -354,7 +354,7 @@ NF [模块][NF-picard]。MultiQC 有 multiple-library 合并/重算分支，机�
 
 **上游**：RSeQC **5.0.4** 官方 [源码发行包][RSEQC-source]，SHA-256
 `b7f3996f3de0b0b0a09eec949281a8f3e665a20827fcb3cbbd7546b94574a088`（与 results contract 相同）。
-本轮只读取 `scripts/bam_stat.py`、`infer_experiment.py`、`read_distribution.py`、`tin.py` 及 `src/qcmodule/SAM.py`，没有安装。
+本轮只读取上游发行包内的 scripts/bam_stat.py、`infer_experiment.py`、`read_distribution.py`、`tin.py` 及 src/qcmodule/SAM.py，没有安装。
 对应 NF [bamstat][NF-bamstat] / [inferexperiment][NF-infer] / [readdistribution][NF-distribution] / [tin][NF-tin] 接线已核对。
 
 **本地**：[qc.py:1619](../../src/encode_pipeline/adapters/bulk_rnaseq/qc.py#L1619) 的 `_rseqc_bam_stat_counts`、[qc.py:1702](../../src/encode_pipeline/adapters/bulk_rnaseq/qc.py#L1702) 的 `_parse_rseqc_infer`、

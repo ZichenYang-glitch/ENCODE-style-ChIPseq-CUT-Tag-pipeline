@@ -9,7 +9,8 @@ only delegates; argv, environment, preflight, and `cwd=None` retain their
 pre-migration values. No public `CommandSpec`, `WorkspacePlan`, or adapter
 protocol fields/signatures change.
 
-Workspace planning adds `config/encode-execution.json`, canonical UTF-8 JSON
+Workspace planning adds a workspace-local config/encode-execution.json,
+canonical UTF-8 JSON
 with sorted keys, compact separators, and a final newline. Its exact fields
 are `schema_version` (`"1.0.0"`), `cores` (integer 1–1024, excluding booleans),
 and `workspace_contract_sha256` (SHA-256). The digest binds cores, ordered

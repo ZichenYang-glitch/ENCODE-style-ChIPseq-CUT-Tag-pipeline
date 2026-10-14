@@ -11,7 +11,7 @@
 | 对象 | 身份 |
 | --- | --- |
 | workflow ID | `hitrac-preprocess`（独立 ID，不改 ENCODE/Bulk 注册） |
-| 上游脚本 | cLoops2 Git commit `de6cc732fa00b408551b9f4272933640c08447f1`（tag v0.0.5）的 `scripts/tracPre2.py`，SHA256 `c3c4ef4e6287fa4ade97a6f5980d20c81ea345b8e8e13c88ae3b7c4bd3a67aec`；PyPI 同名 0.0.5 不是等价身份 |
+| 上游脚本 | cLoops2 Git commit `de6cc732fa00b408551b9f4272933640c08447f1`（tag v0.0.5）的 scripts/tracPre2.py，SHA256 `c3c4ef4e6287fa4ade97a6f5980d20c81ea345b8e8e13c88ae3b7c4bd3a67aec`；PyPI 同名 0.0.5 不是等价身份 |
 | 运行时锁 | `config/hitrac_preprocess/tools.lock.json`，SHA256 `392e4a4ff93f2b14b380f16572d74a77dbca699112800bcafe50992d692090da`；124 个 conda 构建逐项锁定（Python 3.11.14、Bowtie2 2.5.4 `he96a11b_6`、samtools 1.23.1、bedtools 2.31.1、gzip 1.14、pandas 2.2.3、joblib 1.4.2、Biopython 1.85 等） |
 | 工具入口 | `python`、`bowtie2`、`bowtie2-build`、`bowtie2-inspect`、`samtools`、`bamToBed`、`bedtools`、`gzip`、`cLoops2`、`rm`，逐入口 SHA256 锁定；Bowtie2 仅验证过 2.5.4 固定构建（两个 2.5.5 构建的日志形状不兼容原解析，见契约第 7 节） |
 | 实现闭包 | `adapters/hitrac_preprocess/qualification.py` 的 `implementation_identity()` 聚合 adapter 全部模块、工具锁、三个入口脚本与共享平台/持久化/worker 文件；准入、执行前后与发布前重复核验 |

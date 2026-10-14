@@ -242,17 +242,27 @@ qualification is not a passing Gate. Exact pre-revision recovery copies and
 hashes, commands, raw red/green logs and the independent diff are preserved in
 `/tmp/helix-pr6-media-fix-s63ji4z_/`; see `report.md` and `baseline/recovery.json`.
 
-## 6. TOOLING FRICTION — checkout_bootstrap rejects the ci-fast env
+## 6. RESOLVED (local tooling) — checkout_bootstrap rejected the ci-fast env
 
 **Symptom:** `python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest ...`
 refused to run: `source provenance check failed [pth_mapping_unsafe]: remove
 unrecognized executable .pth startup hooks`.
 
-**Context:** `.local/envs/ci-fast` carries the editable install `.pth` used
-for local platform work. Workaround used: run pytest directly via
-`.local/envs/ci-fast/bin/python -m pytest`. Decide whether the provenance
-check should tolerate a known task-local editable mapping or the docs should
-prescribe the direct invocation for this env.
+**Original context:** `.local/envs/ci-fast` carried the editable install `.pth`
+used for local platform work. Direct `python -m pytest` was a temporary bypass,
+not the supported source-checkout verification path.
+
+**Reconciliation (2026-09-21):** The canonical
+`./.local/envs/ci-fast/bin/python -I -S scripts/checkout_bootstrap.py
+--repository-root . verify-checkout` now exits 0. Later maintenance verification
+also used this bootstrap for pytest (see bug #10). The original rejection is no
+longer reproduced in this environment; the exact remediation of its `.pth`
+state was not recorded. No provenance rule was relaxed by this documentation
+update. Keep shared environments dependency-only and install the exact checkout
+in a dedicated environment as described in
+[Local Runtime](local-platform-runtime.md#one-command-helixweave-stack).
+The shebang/TZPATH and Node/browser repairs recorded in bug #10 are separate
+local-toolchain evidence, not a proven cause of the earlier `.pth` failure.
 
 ## 7. FIXED — bulk execution assumes container uid == deployment host uid
 
@@ -520,7 +530,7 @@ PATH="$PWD/../.local/node22/bin:$PWD/../.local/envs/ci-fast/bin:$PATH" \
 
 The full browser suite found no cascading assertion failures. In particular,
 `8 loaded of 8` and the exact API metric count of 8 both passed: they count QC
-metrics, not workspace files, so `config/encode-execution.json` does not change
+metrics, not workspace files, so a workspace-local config/encode-execution.json does not change
 these assertions. Ruff check and format check passed for the changed Python
 test. No `src/` files or execution identity manifests changed.
 
