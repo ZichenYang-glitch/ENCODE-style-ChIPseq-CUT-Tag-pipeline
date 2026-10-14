@@ -83,7 +83,11 @@ def idr_macs3_args(experiment, assay, peak_mode):
 
     Dispatch policy (mirrors the four legacy assay-specific helpers):
       - chipseq narrow: no assay-specific extras
-      - atac/cuttag narrow: --nomodel --shift -100 --extsize 200
+      - atac/cuttag narrow SE (-f BAM): --nomodel --shift -100 --extsize 200
+      - atac/cuttag narrow PE (-f BAMPE): no shift/extension flags. This is
+        a deliberate decision, not a parameter fix: under BAMPE, MACS3
+        neutralizes --shift to 0 and, with --nomodel, ignores --extsize
+        (using the real pair distance), so the flags would be silently inert.
       - broad (chipseq or cuttag): --broad --broad-cutoff N
     Uses -p (p-value) instead of -q for relaxed IDR-ready calls.
     """
@@ -101,7 +105,11 @@ def idr_macs3_args(experiment, assay, peak_mode):
         broad_cutoff = _tool_param("macs3", "broad_cutoff", 0.1)
         parts.append(f"--broad --broad-cutoff {broad_cutoff}")
     elif assay in ("atac", "cuttag"):
-        parts.append("--nomodel --shift -100 --extsize 200")
+        # SE only: under -f BAMPE these flags are inert (see docstring).
+        # Keep in sync with get_macs3_args_atac (atac.smk) and
+        # get_macs3_args_cuttag (cuttag.smk).
+        if s["layout"] != "PE":
+            parts.append("--nomodel --shift -100 --extsize 200")
     if extra:
         parts.append(extra)
     return " ".join(parts)

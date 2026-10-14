@@ -9,15 +9,25 @@
 def get_macs3_args_atac(wildcards):
     """ATAC-seq MACS3 parameters.
 
-    Stage 19 supports narrow peaks only. The Tn5-aware shift/extension policy
-    mirrors common ATAC-seq callpeak practice while keeping inputs and outputs
-    in the shared MACS3 rule.
+    Stage 19 supports narrow peaks only. Inputs and outputs stay in the
+    shared MACS3 rule.
+
+    SE (-f BAM): Tn5-aware --nomodel --shift -100 --extsize 200, matching
+    common ATAC-seq callpeak practice.
+    PE (-f BAMPE): no shift/extension flags. This is a deliberate decision,
+    not a parameter fix: under BAMPE, MACS3 neutralizes --shift to 0 and,
+    with --nomodel, ignores --extsize (using the real pair distance), so
+    the flags would be silently inert. Keep in sync with
+    get_macs3_args_cuttag (cuttag.smk) and idr_macs3_args (idr_paths.smk).
     """
     s = SAMPLE_MAP[wildcards.sample]
     fmt = "BAMPE" if s["layout"] == "PE" else "BAM"
     genome = _normalize_genome(s["genome"])
     qvalue = _tool_param("macs3", "qvalue", 0.01)
-    return f"-f {fmt} -g {genome} -q {qvalue} " "--nomodel --shift -100 --extsize 200"
+    args = f"-f {fmt} -g {genome} -q {qvalue}"
+    if s["layout"] != "PE":
+        args += " --nomodel --shift -100 --extsize 200"
+    return args
 
 
 def get_remove_dup_atac(wildcards):

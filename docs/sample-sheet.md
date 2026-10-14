@@ -115,9 +115,12 @@ sample	fastq_1	fastq_2	layout	assay	target	peak_mode	genome	bowtie2_index
 ATAC_rep1	/data/atac_R1.fq.gz	/data/atac_R2.fq.gz	PE	atac	ATAC	narrow	hg38	/data/genomes/hg38/GRCh38
 ```
 
-ATAC currently uses MACS3 narrow-peak calling with a Tn5-aware shift/extension
-policy. ATAC-specific footprinting and nucleosome-positioning modules are not
-included.
+ATAC currently uses MACS3 narrow-peak calling. The Tn5-aware shift/extension
+policy (`--nomodel --shift -100 --extsize 200`) applies to SE samples only;
+PE samples (`-f BAMPE`) deliberately omit those flags because MACS3
+neutralizes `--shift` to 0 and, with `--nomodel`, ignores `--extsize`, using
+the real pair distance instead. ATAC-specific footprinting and
+nucleosome-positioning modules are not included.
 
 ### MNase-seq
 

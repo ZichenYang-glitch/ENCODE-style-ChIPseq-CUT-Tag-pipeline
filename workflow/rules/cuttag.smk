@@ -13,7 +13,12 @@
 def get_macs3_args_cuttag(wildcards):
     """CUT&Tag MACS3 parameters with Tn5-aware shift (narrow peaks only).
 
-    Narrow: --nomodel --shift -100 --extsize 200
+    Narrow SE (-f BAM):   --nomodel --shift -100 --extsize 200
+    Narrow PE (-f BAMPE): no shift/extension flags. This is a deliberate
+                          decision, not a parameter fix: under BAMPE, MACS3
+                          neutralizes --shift to 0 and, with --nomodel,
+                          ignores --extsize (using the real pair distance),
+                          so the flags would be silently inert.
     Broad:  --broad --broad-cutoff 0.1 (no Tn5 shift per ENCODE guidelines)
     The -c (control) flag is built from tracked input in peaks.smk,
     not from this function.
@@ -23,7 +28,10 @@ def get_macs3_args_cuttag(wildcards):
     genome = _normalize_genome(s["genome"])
     qvalue = _tool_param("macs3", "qvalue", 0.01)
     if s["peak_mode"] == "narrow":
-        return f"-f {fmt} -g {genome} -q {qvalue} " "--nomodel --shift -100 --extsize 200"
+        args = f"-f {fmt} -g {genome} -q {qvalue}"
+        if s["layout"] != "PE":
+            args += " --nomodel --shift -100 --extsize 200"
+        return args
     else:
         broad_cutoff = _tool_param("macs3", "broad_cutoff", 0.1)
         return f"-f {fmt} -g {genome} -q {qvalue} --broad --broad-cutoff {broad_cutoff}"

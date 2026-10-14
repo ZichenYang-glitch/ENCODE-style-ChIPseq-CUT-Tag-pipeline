@@ -186,20 +186,43 @@ def test_idr_pseudorep_peaks_inputs_with_prefix(idr_paths_namespace_with_control
 
 
 @pytest.mark.parametrize(
-    "assay,peak_mode,expected_subset",
+    "assay,peak_mode,expected_subset,absent_subset",
     [
-        ("chipseq", "narrow", ["-f BAMPE", "-g hs", "-p 0.1"]),
-        ("atac", "narrow", ["--nomodel", "--shift -100", "--extsize 200"]),
-        ("cuttag", "narrow", ["--nomodel", "--shift -100", "--extsize 200"]),
-        ("chipseq", "broad", ["--broad", "--broad-cutoff 0.1"]),
-        ("cuttag", "broad", ["--broad", "--broad-cutoff 0.1"]),
+        ("chipseq", "narrow", ["-f BAMPE", "-g hs", "-p 0.1"], []),
+        (
+            "atac",
+            "narrow",
+            ["-f BAMPE", "-g hs", "-p 0.1"],
+            ["--nomodel", "--shift", "--extsize"],
+        ),
+        (
+            "cuttag",
+            "narrow",
+            ["-f BAMPE", "-g hs", "-p 0.1"],
+            ["--nomodel", "--shift", "--extsize"],
+        ),
+        ("chipseq", "broad", ["--broad", "--broad-cutoff 0.1"], []),
+        ("cuttag", "broad", ["--broad", "--broad-cutoff 0.1"], []),
     ],
 )
 def test_idr_macs3_args_dispatch(
-    idr_paths_namespace_chipseq_pe, assay, peak_mode, expected_subset
+    idr_paths_namespace_chipseq_pe, assay, peak_mode, expected_subset, absent_subset
 ):
+    """PE fixture: Tn5 flags are inert under -f BAMPE and must be omitted."""
     args = idr_paths_namespace_chipseq_pe["idr_macs3_args"]("EXP1", assay, peak_mode)
     for fragment in expected_subset:
+        assert fragment in args, f"{fragment!r} not in {args!r}"
+    for fragment in absent_subset:
+        assert fragment not in args, f"{fragment!r} unexpectedly in {args!r}"
+
+
+@pytest.mark.parametrize("assay", ["atac", "cuttag"])
+def test_idr_macs3_args_se_layout_keeps_tn5_flags(
+    idr_paths_namespace_chipseq_se, assay
+):
+    """SE fixture: Tn5 flags are reachable under -f BAM and must be present."""
+    args = idr_paths_namespace_chipseq_se["idr_macs3_args"]("EXP2", assay, "narrow")
+    for fragment in ("--nomodel", "--shift -100", "--extsize 200"):
         assert fragment in args, f"{fragment!r} not in {args!r}"
 
 
@@ -358,9 +381,6 @@ def test_legacy_idr_pseudorep_peaks_inputs_with_control_match_inlined(
                 "-f BAMPE",
                 "-g hs",
                 "-p 0.1",
-                "--nomodel",
-                "--shift -100",
-                "--extsize 200",
             ],
         ),
         (
@@ -370,9 +390,6 @@ def test_legacy_idr_pseudorep_peaks_inputs_with_control_match_inlined(
                 "-f BAMPE",
                 "-g hs",
                 "-p 0.1",
-                "--nomodel",
-                "--shift -100",
-                "--extsize 200",
             ],
         ),
         (
@@ -390,10 +407,18 @@ def test_legacy_idr_pseudorep_peaks_inputs_with_control_match_inlined(
 def test_legacy_idr_macs3_args_match_inlined(
     idr_paths_namespace_chipseq_pe, assay, peak_mode, expected_parts
 ):
-    """Legacy _idr_macs3_args / _atac_idr_macs3_args / _cuttag_idr_macs3_args / _broad_idr_macs3_args."""
+    """Legacy _idr_macs3_args / _atac_idr_macs3_args / _cuttag_idr_macs3_args / _broad_idr_macs3_args.
+
+    This fixture is PE: atac/cuttag narrow deliberately omit the Tn5 flags
+    (inert under -f BAMPE). The SE expectation lives in
+    test_idr_macs3_args_se_layout_keeps_tn5_flags.
+    """
     args = idr_paths_namespace_chipseq_pe["idr_macs3_args"]("EXP1", assay, peak_mode)
     for part in expected_parts:
         assert part in args, f"{part!r} not in {args!r}"
+    if peak_mode == "narrow" and assay in ("atac", "cuttag"):
+        for part in ("--nomodel", "--shift", "--extsize"):
+            assert part not in args, f"{part!r} unexpectedly in {args!r}"
 
 
 def test_legacy_idr_biorep_labels_match_inlined(idr_paths_namespace):

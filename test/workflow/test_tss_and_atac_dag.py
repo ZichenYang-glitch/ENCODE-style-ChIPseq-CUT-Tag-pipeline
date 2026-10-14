@@ -225,11 +225,19 @@ def test_atac_dryrun_uses_shared_pipeline_without_cuttag_sidecars():
         shutil.rmtree(td, ignore_errors=True)
 
 
-def test_atac_macs3_shell_contains_tn5_policy():
+@pytest.mark.parametrize(
+    "layout,expect_tn5_flags",
+    [("PE", False), ("SE", True)],
+    ids=["pe-omits-inert-flags", "se-keeps-tn5-flags"],
+)
+def test_atac_macs3_shell_contains_tn5_policy(layout, expect_tn5_flags):
     td = tempfile.mkdtemp(prefix="atac_dag_")
     try:
         row = _sample(td, assay="atac", peak_mode="narrow")
+        row["layout"] = layout
         _touch_inputs(row)
+        if layout == "SE":
+            row["fastq_2"] = ""
         samples_tsv = os.path.join(td, "samples.tsv")
         config_yml = os.path.join(td, "config.yaml")
         _write_samples_tsv(samples_tsv, [row])
@@ -247,6 +255,13 @@ def test_atac_macs3_shell_contains_tn5_policy():
         )
         assert rc == 0, f"Dry-run failed: {stderr}"
         output = stdout + stderr
-        assert "--nomodel --shift -100 --extsize 200" in output
+        if expect_tn5_flags:
+            assert "--nomodel --shift -100 --extsize 200" in output
+        else:
+            # PE (-f BAMPE): MACS3 neutralizes --shift to 0 and ignores
+            # --extsize under --nomodel, so the flags are deliberately
+            # omitted rather than passed as silently inert.
+            assert "--nomodel --shift -100 --extsize 200" not in output
+            assert "-f BAMPE" in output
     finally:
         shutil.rmtree(td, ignore_errors=True)

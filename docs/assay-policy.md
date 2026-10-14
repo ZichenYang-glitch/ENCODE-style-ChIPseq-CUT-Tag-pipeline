@@ -57,12 +57,13 @@ replicate consensus and experimental opt-in broad IDR under the maintained
 
 ### MACS3 parameters
 
-| Peak mode | Arguments |
-| :--- | :--- |
-| `narrow` | `-f <fmt> -g <genome> -q <qvalue> --nomodel --shift -100 --extsize 200` |
-| `broad` | `-f <fmt> -g <genome> -q <qvalue> --broad --broad-cutoff <cutoff>` |
+| Peak mode | Layout | Arguments |
+| :--- | :--- | :--- |
+| `narrow` | SE (`-f BAM`) | `-f <fmt> -g <genome> -q <qvalue> --nomodel --shift -100 --extsize 200` |
+| `narrow` | PE (`-f BAMPE`) | `-f <fmt> -g <genome> -q <qvalue>` (no shift/extension flags) |
+| `broad` | SE / PE | `-f <fmt> -g <genome> -q <qvalue> --broad --broad-cutoff <cutoff>` |
 
-The narrow-peak mode uses Tn5-aware parameters (`--nomodel --shift -100 --extsize 200`). Broad mode does not apply the Tn5 shift (per ENCODE CUT&Tag guidelines).
+The narrow-peak mode applies the Tn5-aware parameters (`--nomodel --shift -100 --extsize 200`) to SE data only. This is a deliberate decision, not an accident: under `-f BAMPE`, MACS3 neutralizes `--shift` to 0 (`MACS3/Utilities/OptValidator.py`, `# neutralize SHIFT`) and, when `--nomodel` is given, ignores `--extsize` and uses the real pair distance instead (`MACS3/Commands/callpeak_cmd.py`, `options.d = options.tsize`). PE calls therefore omit the flags rather than pass silently inert ones. Broad mode does not apply the Tn5 shift (per ENCODE CUT&Tag guidelines).
 
 ### Duplicate policy
 
@@ -98,9 +99,15 @@ output selection.
 
 ### MACS3 parameters
 
+SE (`-f BAM`):
+
 `-f <fmt> -g <genome> -q <qvalue> --nomodel --shift -100 --extsize 200`
 
-Tn5-aware shift/extension matching common ATAC-seq practice.
+PE (`-f BAMPE`):
+
+`-f <fmt> -g <genome> -q <qvalue>` (no shift/extension flags)
+
+Tn5-aware shift/extension matching common ATAC-seq practice applies to SE data only. This is a deliberate decision, not an accident: under `-f BAMPE`, MACS3 neutralizes `--shift` to 0 (`MACS3/Utilities/OptValidator.py`, `# neutralize SHIFT`) and, with `--nomodel`, ignores `--extsize` and uses the real pair distance instead (`MACS3/Commands/callpeak_cmd.py`, `options.d = options.tsize`), so PE calls omit the flags rather than pass silently inert ones.
 
 ### Duplicate policy
 
