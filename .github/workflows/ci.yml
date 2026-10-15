@@ -788,6 +788,7 @@ jobs:
         run: |
           export SNAKEMAKE="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/snakemake"
           export SAMTOOLS="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/samtools"
+          export MACS3="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/macs3"
           export PRESEQ="$MAMBA_ROOT_PREFIX/envs/chipseq-preseq/bin/preseq"
           export RUN_SPP="$MAMBA_ROOT_PREFIX/envs/chipseq-phantompeakqualtools/bin/run_spp.R"
           export FASTQC="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/fastqc"
