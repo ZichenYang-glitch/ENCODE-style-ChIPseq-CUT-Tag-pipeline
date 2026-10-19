@@ -34,6 +34,7 @@ def main(argv=None):
 
     try:
         validated = validator_module.validate_config(config)
+        validator_module.validate_execution_support(validated)
         repro = validated.get("reproducibility", {})
         atac_idr_enabled = repro.get("enabled", False) and repro.get("idr", {}).get(
             "atac_narrow", False
@@ -62,6 +63,17 @@ def main(argv=None):
         )
         validator_module.validate_picard_reference_resources(validated, samples)
         validator_module.validate_tss_annotation_resources(validated, samples)
+        from encode_pipeline.samples.admission import (
+            validate_reference_control_admission,
+        )
+
+        validate_reference_control_admission(
+            samples,
+            validated,
+            reference_mode=validated["reference_mode"],
+            external_control_policy=validated["external_control_policy"],
+            error_cls=validator_module.ValidationError,
+        )
     except validator_module.ValidationError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)

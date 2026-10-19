@@ -92,6 +92,8 @@ def _config_schema() -> dict[str, object]:
     qc_properties = {
         key: _boolean_or_string_schema(default=default)
         for key, default in (
+            # Authoring remains executable legacy until B/C lands. Legacy
+            # qc.blacklist_filter=true keeps the historical copies behavior.
             ("blacklist_filter", True),
             ("frip", True),
             ("library_complexity", True),
@@ -125,6 +127,71 @@ def _config_schema() -> dict[str, object]:
             "threads": {"type": "integer", "minimum": 1, "default": 8},
             "mapq": {"type": "integer", "minimum": 0, "default": 30},
             "binsize": {"type": "integer", "minimum": 1, "default": 10},
+            "config_schema_version": {
+                "type": "string",
+                "enum": ["1.0.0", "2.0.0"],
+                "default": "1.0.0",
+                "description": (
+                    "Canonical config compatibility version. Omitted legacy "
+                    "YAML configs resolve to 1.0.0."
+                ),
+            },
+            "analysis_profile": {
+                "type": "string",
+                "enum": ["legacy", "updated"],
+                "default": "legacy",
+                "description": "Analysis policy bundle; legacy preserves existing outputs.",
+            },
+            "blacklist_mode": {
+                "type": "string",
+                "enum": ["off", "copies", "analysis"],
+                "default": "copies",
+                "description": (
+                    "off=raw; copies=QC copies; analysis=filtered branch "
+                    "(analysis is deferred until PR-D)."
+                ),
+            },
+            "organelle_mode": {
+                "type": "string",
+                "enum": ["auto", "exclude", "report", "keep"],
+                "default": "keep",
+            },
+            "duplicate_backend": {
+                "type": "string",
+                "enum": ["", "picard", "samtools"],
+                "default": "",
+            },
+            "duplicate_analysis": {
+                "type": "string",
+                "enum": ["exclude", "retain"],
+                "default": "exclude",
+            },
+            "control_mode": {
+                "type": "string",
+                "enum": ["matched", "pooled", "auto"],
+                "default": "pooled",
+            },
+            "reference_mode": {
+                "type": "string",
+                "enum": ["legacy", "strict"],
+                "default": "legacy",
+            },
+            "external_control_policy": {
+                "type": "string",
+                "enum": ["warn", "validate"],
+                "default": "warn",
+            },
+            "fragment_cpm": {
+                "type": "string",
+                "enum": ["off", "auto", "on"],
+                "default": "off",
+                "description": "Deferred until PR-E1.",
+            },
+            "tss_fragment_profile": {
+                "type": "boolean",
+                "default": False,
+                "description": "Deferred until PR-E2.",
+            },
             "remove_dup": {
                 "type": "string",
                 "enum": ["auto", "yes", "no"],

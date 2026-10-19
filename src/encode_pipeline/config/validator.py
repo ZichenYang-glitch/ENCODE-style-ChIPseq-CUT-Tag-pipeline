@@ -81,6 +81,251 @@ def _coerce_int(value, *, name: str, minimum: int) -> int:
     )
 
 
+def _choice(value, *, name: str, allowed: tuple[str, ...]) -> str:
+    """Return a validated string choice, rejecting bools and non-members."""
+    if isinstance(value, bool):
+        raise ValidationError(f"config {name} must be one of {allowed}, got {value!r}")
+    text = str(value)
+    if text not in allowed:
+        raise ValidationError(f"config {name} must be one of {allowed}, got {value!r}")
+    return text
+
+
+def _strict_bool(value, *, name: str) -> bool:
+    """Parse a boolean or string boolean for alias compatibility checks."""
+    if isinstance(value, bool):
+        return value
+    text = str(value).lower()
+    if text in ("true", "yes", "1"):
+        return True
+    if text in ("false", "no", "0"):
+        return False
+    raise ValidationError(f"config {name} must be true or false, got {value!r}")
+
+
+def _validate_config_schema_version(config: dict) -> str:
+    raw = config.get("config_schema_version", "1.0.0")
+    return _choice(
+        raw,
+        name="config_schema_version",
+        allowed=defaults.CONFIG_SCHEMA_VERSIONS,
+    )
+
+
+def _validate_analysis_profile(config: dict, version: str) -> str:
+    default = "updated" if version == "2.0.0" else "legacy"
+    raw = config.get("analysis_profile", default)
+    return _choice(
+        raw,
+        name="analysis_profile",
+        allowed=defaults.ANALYSIS_PROFILES,
+    )
+
+
+def _validate_blacklist_mode(
+    config: dict,
+    qc_raw: dict,
+    profile: str,
+) -> str:
+    """Resolve canonical blacklist_mode and keep qc.blacklist_filter consistent.
+
+    A1 does not implement the analysis branch; explicit `analysis` is rejected
+    rather than silently downgraded.
+    """
+    raw_mode = config.get("blacklist_mode")
+    alias_present = isinstance(qc_raw, dict) and "blacklist_filter" in qc_raw
+    alias_value = None
+    if alias_present:
+        alias_value = _strict_bool(
+            qc_raw["blacklist_filter"], name="qc.blacklist_filter"
+        )
+        mapped = "copies" if alias_value else "off"
+    else:
+        mapped = None
+
+    if raw_mode is None:
+        if profile == "legacy":
+            mode = "copies" if mapped is None else mapped
+        else:
+            # Explicit legacy alias true still means copies; absent alias is raw.
+            mode = "off" if mapped is None else mapped
+    else:
+        mode = _choice(
+            raw_mode,
+            name="blacklist_mode",
+            allowed=defaults.BLACKLIST_MODES,
+        )
+        if mapped is not None and mode != mapped:
+            raise ValidationError(
+                "config: blacklist_mode conflicts with qc.blacklist_filter. "
+                "Use one canonical key or make them consistent."
+            )
+
+    if mode == "analysis":
+        raise ValidationError(
+            "config: blacklist_mode=analysis is not implemented in A1; "
+            "use off or copies until PR-D."
+        )
+
+    if isinstance(qc_raw, dict):
+        qc_raw["blacklist_filter"] = mode == "copies"
+    return mode
+
+
+def _validate_duplicate_settings(config: dict, remove_dup: str, profile: str) -> str:
+    """Resolve duplicate_analysis without activating marking behavior in A1."""
+    raw = config.get("duplicate_analysis")
+    explicit = (
+        None
+        if raw is None
+        else _choice(
+            raw,
+            name="duplicate_analysis",
+            allowed=defaults.DUPLICATE_ANALYSIS_MODES,
+        )
+    )
+    derived = "exclude" if remove_dup in ("auto", "yes") else "retain"
+
+    if profile == "legacy":
+        if explicit is None:
+            return derived
+        if explicit != derived:
+            raise ValidationError(
+                "config: duplicate_analysis conflicts with legacy remove_dup."
+            )
+        return explicit
+
+    # updated profile
+    if explicit is not None:
+        # Explicit canonical policy wins over remove_dup=auto. Explicit yes/no
+        # must still agree with the legacy alias.
+        if remove_dup == "yes" and explicit != "exclude":
+            raise ValidationError(
+                "config: remove_dup=yes conflicts with duplicate_analysis=retain."
+            )
+        if remove_dup == "no" and explicit != "retain":
+            raise ValidationError(
+                "config: remove_dup=no conflicts with duplicate_analysis=exclude."
+            )
+        return explicit
+    if remove_dup == "no":
+        raise ValidationError(
+            "config: analysis_profile=updated with remove_dup=no requires "
+            "an explicit duplicate_analysis=retain or exclude."
+        )
+    return "exclude"
+
+
+def _validate_advanced_modes(config: dict, profile: str) -> dict:
+    """Parse A2/E1/E2 keys without activating their runtime behavior."""
+    organelle_default = "keep" if profile == "legacy" else "auto"
+    organelle_mode = _choice(
+        config.get("organelle_mode", organelle_default),
+        name="organelle_mode",
+        allowed=defaults.ORGANELLE_MODES,
+    )
+    if profile == "legacy" and organelle_mode != "keep":
+        raise ValidationError(
+            "config: analysis_profile=legacy does not support organelle_mode "
+            f"{organelle_mode!r}; use keep."
+        )
+
+    control_default = "pooled" if profile == "legacy" else "matched"
+    control_mode = _choice(
+        config.get("control_mode", control_default),
+        name="control_mode",
+        allowed=defaults.CONTROL_MODES,
+    )
+    if profile == "legacy" and control_mode != "pooled":
+        raise ValidationError(
+            "config: analysis_profile=legacy does not support control_mode "
+            f"{control_mode!r}; use pooled."
+        )
+
+    backend_default = "" if profile == "legacy" else "picard"
+    duplicate_backend = _choice(
+        config.get("duplicate_backend", backend_default),
+        name="duplicate_backend",
+        allowed=defaults.DUPLICATE_BACKENDS,
+    )
+    if profile == "legacy" and duplicate_backend != "":
+        raise ValidationError(
+            "config: analysis_profile=legacy preserves the original backend "
+            "dispatch; duplicate_backend must be empty."
+        )
+
+    fragment_cpm = _choice(
+        config.get("fragment_cpm", "off"),
+        name="fragment_cpm",
+        allowed=defaults.FRAGMENT_CPM_MODES,
+    )
+    if fragment_cpm != "off":
+        raise ValidationError(
+            "config: fragment_cpm is not implemented in A1; use off until PR-E1."
+        )
+
+    tss_fragment_profile = _strict_bool(
+        config.get("tss_fragment_profile", False),
+        name="tss_fragment_profile",
+    )
+    if tss_fragment_profile:
+        raise ValidationError(
+            "config: tss_fragment_profile is not implemented in A1; use false "
+            "until PR-E2."
+        )
+
+    return {
+        "organelle_mode": organelle_mode,
+        "control_mode": control_mode,
+        "duplicate_backend": duplicate_backend,
+        "reference_mode": _choice(
+            config.get("reference_mode", "legacy"),
+            name="reference_mode",
+            allowed=defaults.REFERENCE_MODES,
+        ),
+        "external_control_policy": _choice(
+            config.get("external_control_policy", "warn"),
+            name="external_control_policy",
+            allowed=defaults.EXTERNAL_CONTROL_POLICIES,
+        ),
+        "fragment_cpm": fragment_cpm,
+        "tss_fragment_profile": tss_fragment_profile,
+    }
+
+
+def validate_execution_support(
+    validated_config: dict,
+    error_cls=ValidationError,
+) -> None:
+    """Reject configs whose policies are parsed but not executable yet.
+
+    ``validate_config`` is the pure parsing layer. Execution entry points
+    (CLI, adapter validation, workspace planning) call this gate so A1 does
+    not accept updated policies and then silently run legacy behavior.
+    """
+    if validated_config.get("analysis_profile") != "legacy":
+        raise error_cls(
+            "config: analysis_profile=updated is parsed but not executable "
+            "until PR-B/C. Use analysis_profile=legacy for current runs."
+        )
+    if validated_config.get("blacklist_mode") not in ("off", "copies"):
+        raise error_cls("config: blacklist_mode=analysis is not executable until PR-D.")
+    if validated_config.get("organelle_mode") != "keep":
+        raise error_cls(
+            "config: organelle_mode changes are not executable until PR-B/C."
+        )
+    if validated_config.get("duplicate_analysis") not in ("exclude", "retain"):
+        raise error_cls("config: duplicate_analysis is invalid")
+    if validated_config.get("duplicate_backend"):
+        raise error_cls("config: duplicate_backend is not executable until PR-B/C.")
+    if validated_config.get("control_mode") != "pooled":
+        raise error_cls("config: control_mode changes are not executable until PR-B/C.")
+    if validated_config.get("fragment_cpm") != "off":
+        raise error_cls("config: fragment_cpm is not executable until PR-E1.")
+    if validated_config.get("tss_fragment_profile"):
+        raise error_cls("config: tss_fragment_profile is not executable until PR-E2.")
+
+
 def validate_config(config: dict) -> dict:
     """Validate and normalize workflow configuration.
 
@@ -124,6 +369,12 @@ def validate_config(config: dict) -> dict:
     )
     validated["binsize"] = binsize
 
+    # config_schema_version / analysis_profile — A1 compatibility surface
+    validated["config_schema_version"] = _validate_config_schema_version(config)
+    validated["analysis_profile"] = _validate_analysis_profile(
+        config, validated["config_schema_version"]
+    )
+
     # remove_dup — "auto", "yes", or "no"
     remove_dup = str(config.get("remove_dup", "auto"))
     if remove_dup not in defaults.REMOVE_DUP_KEYWORDS:
@@ -131,6 +382,9 @@ def validate_config(config: dict) -> dict:
             f"config remove_dup must be auto, yes, or no, got {remove_dup!r}"
         )
     validated["remove_dup"] = remove_dup
+    validated["duplicate_analysis"] = _validate_duplicate_settings(
+        config, remove_dup, validated["analysis_profile"]
+    )
 
     # trim — boolean or string boolean, normalize to string
     trim_raw = config.get("trim", True)
@@ -182,7 +436,17 @@ def validate_config(config: dict) -> dict:
     )
 
     # qc — optional QC switches (standard defaults true; heavier modules false)
-    validated["qc"] = _validate_qc_config(config.get("qc", {}))
+    qc_raw = config.get("qc", {})
+    qc_raw = dict(qc_raw) if isinstance(qc_raw, dict) else qc_raw
+    validated["blacklist_mode"] = _validate_blacklist_mode(
+        config,
+        qc_raw,
+        validated["analysis_profile"],
+    )
+    validated["qc"] = _validate_qc_config(qc_raw)
+
+    # A2/E1/E2 keys are normalized in A1 but do not activate behavior.
+    validated.update(_validate_advanced_modes(config, validated["analysis_profile"]))
 
     # replicate_analysis — optional replicate-aware outputs, default true
     replicate_analysis_raw = config.get("replicate_analysis", True)
