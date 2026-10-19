@@ -33,6 +33,19 @@ IDR_RANKS = ("p.value", "signal.value")
 BOWTIE2_MODES = ("", "very-fast", "fast", "sensitive", "very-sensitive")
 BAMCOVERAGE_NORMALIZE_USING = ("CPM", "RPKM", "BPM", "None")
 
+# A1 config compatibility surface. These keys are parsed/normalized in this
+# PR but do not activate new analysis behavior.
+CONFIG_SCHEMA_VERSIONS = ("1.0.0", "2.0.0")
+ANALYSIS_PROFILES = ("legacy", "updated")
+BLACKLIST_MODES = ("off", "copies", "analysis")
+ORGANELLE_MODES = ("auto", "exclude", "report", "keep")
+DUPLICATE_BACKENDS = ("", "picard", "samtools")
+DUPLICATE_ANALYSIS_MODES = ("exclude", "retain")
+CONTROL_MODES = ("matched", "pooled", "auto")
+REFERENCE_MODES = ("legacy", "strict")
+EXTERNAL_CONTROL_POLICIES = ("warn", "validate")
+FRAGMENT_CPM_MODES = ("off", "auto", "on")
+
 # Sample sheet allowed values
 ASSAYS = ("chipseq", "cuttag", "atac", "mnase")
 LAYOUTS = ("PE", "SE")

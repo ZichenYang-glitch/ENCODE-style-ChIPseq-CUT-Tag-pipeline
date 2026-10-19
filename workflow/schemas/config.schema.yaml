@@ -34,6 +34,94 @@ binsize:
   constraints: ">= 1"
   description: BigWig bin size in bp.
 
+# ---- A1 Compatibility Surface (parsed, not activated in A1) ----
+config_schema_version:
+  type: string
+  default: "1.0.0"
+  allowed: ["1.0.0", "2.0.0"]
+  description: >
+    Config compatibility version. Omitted YAML configs resolve to 1.0.0
+    (legacy behavior). New authoring should set 2.0.0 and choose
+    analysis_profile explicitly.
+
+analysis_profile:
+  type: string
+  default: legacy
+  allowed: [legacy, updated]
+  description: >
+    Analysis policy bundle. legacy preserves existing scientific inputs,
+    outputs, and paths. updated applies D-02/D-03/D-04/D-06 defaults.
+    updated must be explicit; it is not inferred from a missing key.
+
+blacklist_mode:
+  type: string
+  default: copies
+  allowed: [off, copies, analysis]
+  description: >
+    Canonical blacklist policy. off=raw; copies=QC copies; analysis=filtered
+    branch (deferred until PR-D). In legacy configs the historical
+    qc.blacklist_filter alias maps true→copies and false→off.
+
+organelle_mode:
+  type: string
+  default: keep
+  allowed: [auto, exclude, report, keep]
+  description: >
+    Organelle policy. auto applies assay defaults; exclude/report/keep are
+    explicit. Legacy profile supports keep only.
+
+duplicate_backend:
+  type: string
+  default: ""
+  allowed: ["", picard, samtools]
+  description: >
+    Updated profile: picard primary, samtools explicit. Legacy profile
+    preserves the original backend dispatch and expects an empty value.
+
+duplicate_analysis:
+  type: string
+  default: exclude
+  allowed: [exclude, retain]
+  description: >
+    Duplicate policy for updated analysis. Legacy derives it from remove_dup.
+
+control_mode:
+  type: string
+  default: pooled
+  allowed: [matched, pooled, auto]
+  description: >
+    Control background policy. Legacy profile supports pooled only; updated
+    defaults to matched.
+
+reference_mode:
+  type: string
+  default: legacy
+  allowed: [legacy, strict]
+  description: >
+    Reference admission mode. CLI defaults to legacy warning behavior;
+    platform runs enforce strict.
+
+external_control_policy:
+  type: string
+  default: warn
+  allowed: [warn, validate]
+  description: >
+    External control BAM admission. warn is CLI-compatible; validate checks
+    BAM header/contig/sort compatibility and fails closed.
+
+fragment_cpm:
+  type: string
+  default: off
+  allowed: [off, auto, on]
+  description: >
+    Fragment-level CPM track. Deferred until PR-E1; A1 rejects on/auto.
+
+tss_fragment_profile:
+  type: boolean
+  default: false
+  description: >
+    Opt-in fragment-occupancy TSS profile. Deferred until PR-E2.
+
 # ---- Processing Policies ----
 remove_dup:
   type: string

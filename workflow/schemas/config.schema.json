@@ -31,6 +31,63 @@
       "default": 10,
       "description": "BigWig bin size in bp."
     },
+    "config_schema_version": {
+      "type": "string",
+      "enum": ["1.0.0", "2.0.0"],
+      "default": "1.0.0",
+      "description": "Config compatibility version; omitted legacy YAML resolves to 1.0.0."
+    },
+    "analysis_profile": {
+      "type": "string",
+      "enum": ["legacy", "updated"],
+      "default": "legacy",
+      "description": "Analysis policy bundle; updated must be explicit."
+    },
+    "blacklist_mode": {
+      "type": "string",
+      "enum": ["off", "copies", "analysis"],
+      "default": "copies",
+      "description": "off=raw; copies=QC copies; analysis=filtered branch (deferred)."
+    },
+    "organelle_mode": {
+      "type": "string",
+      "enum": ["auto", "exclude", "report", "keep"],
+      "default": "keep"
+    },
+    "duplicate_backend": {
+      "type": "string",
+      "enum": ["", "picard", "samtools"],
+      "default": ""
+    },
+    "duplicate_analysis": {
+      "type": "string",
+      "enum": ["exclude", "retain"],
+      "default": "exclude"
+    },
+    "control_mode": {
+      "type": "string",
+      "enum": ["matched", "pooled", "auto"],
+      "default": "pooled"
+    },
+    "reference_mode": {
+      "type": "string",
+      "enum": ["legacy", "strict"],
+      "default": "legacy"
+    },
+    "external_control_policy": {
+      "type": "string",
+      "enum": ["warn", "validate"],
+      "default": "warn"
+    },
+    "fragment_cpm": {
+      "type": "string",
+      "enum": ["off", "auto", "on"],
+      "default": "off"
+    },
+    "tss_fragment_profile": {
+      "type": "boolean",
+      "default": false
+    },
     "remove_dup": {
       "type": "string",
       "enum": ["auto", "yes", "no"],

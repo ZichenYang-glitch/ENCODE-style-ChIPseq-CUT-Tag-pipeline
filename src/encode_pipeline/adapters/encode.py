@@ -983,7 +983,8 @@ def _validate_inline_inputs(
         {
             "config": validated_config,
             "samples": result.value["samples"],
-        }
+        },
+        issues=result.issues,
     )
 
 
@@ -997,10 +998,24 @@ def _validate_scientific_inputs(
     from encode_pipeline.config.validate import (
         ValidationError,
         validate_config,
+        validate_execution_support,
         validate_picard_reference_resources,
         validate_tss_annotation_resources,
     )
+    from encode_pipeline.samples.admission import (
+        validate_reference_control_admission,
+    )
     from encode_pipeline.samples.load import load_and_validate_samples
+
+    # Platform reference-capable runs inject genome_resources before this
+    # point. They may not downgrade admission via caller config.
+    platform_admission = bool(config.get("genome_resources"))
+    requested_reference_mode = config.get("reference_mode")
+    requested_external_control_policy = config.get("external_control_policy")
+    if platform_admission:
+        config = dict(config)
+        config["reference_mode"] = "strict"
+        config["external_control_policy"] = "validate"
 
     try:
         validated_config = validate_config(config)
@@ -1008,6 +1023,17 @@ def _validate_scientific_inputs(
         return _scientific_validation_failure(
             exc,
             code="ENCODE_CONFIG_INVALID",
+            source="config",
+            path="config",
+            sanitize=sanitize_errors,
+        )
+
+    try:
+        validate_execution_support(validated_config)
+    except ValidationError as exc:
+        return _scientific_validation_failure(
+            exc,
+            code="ENCODE_EXECUTION_UNSUPPORTED",
             source="config",
             path="config",
             sanitize=sanitize_errors,
@@ -1037,16 +1063,45 @@ def _validate_scientific_inputs(
     try:
         validate_picard_reference_resources(validated_config, samples)
         validate_tss_annotation_resources(validated_config, samples)
+        if platform_admission:
+            validate_reference_control_admission(
+                samples,
+                validated_config,
+                reference_mode=validated_config["reference_mode"],
+                external_control_policy=validated_config["external_control_policy"],
+                error_cls=ValidationError,
+            )
     except ValidationError as exc:
         return _scientific_validation_failure(
             exc,
-            code="ENCODE_RESOURCES_INVALID",
-            source="config",
-            path="config.genome_resources",
+            code="ENCODE_REFERENCE_ADMISSION_INVALID"
+            if platform_admission
+            else "ENCODE_RESOURCES_INVALID",
+            source="samples" if platform_admission else "config",
+            path="samples" if platform_admission else "config.genome_resources",
             sanitize=sanitize_errors,
         )
 
-    return Result.success({"config": validated_config, "samples": samples})
+    issues: list[Issue] = []
+    if platform_admission and (
+        requested_reference_mode not in (None, "strict")
+        or requested_external_control_policy not in (None, "validate")
+    ):
+        issues.append(
+            Issue(
+                code="ENCODE_PLATFORM_ADMISSION_ENFORCED",
+                message=(
+                    "Platform admission enforces reference_mode=strict and "
+                    "external_control_policy=validate."
+                ),
+                severity="warning",
+                source="adapter",
+                path="config",
+            )
+        )
+    return Result.success(
+        {"config": validated_config, "samples": samples}, issues=issues
+    )
 
 
 def _scientific_validation_failure(
