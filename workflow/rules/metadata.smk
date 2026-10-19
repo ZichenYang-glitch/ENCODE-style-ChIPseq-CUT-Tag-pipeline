@@ -68,6 +68,8 @@ if REPLICATE_ANALYSIS:
     # "control_sample" or "control_bam".
     def _resolve_experiment_controls(experiment):
         """Return unique non-empty control paths for an experiment's treatment rows."""
+        if not USE_CONTROL:
+            return []
         treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
         if not treatment_ids:
             return []
@@ -80,10 +82,19 @@ if REPLICATE_ANALYSIS:
             if cs:
                 ctrl_samples.add(cs)
             elif cb:
+                if VALIDATED_CONFIG.get("analysis_profile") == "updated":
+                    raise ValueError(
+                        "updated profile does not yet support external control_bam"
+                    )
                 ctrl_bams.add(cb)
         result = []
         for cs in sorted(ctrl_samples):
-            result.append(("control_sample", f"{OUTDIR}/{cs}/02_align/{cs}.final.bam"))
+            path = (
+                f"{OUTDIR}/{cs}/02_align/{cs}.analysis.bam"
+                if VALIDATED_CONFIG.get("analysis_profile") == "updated"
+                else f"{OUTDIR}/{cs}/02_align/{cs}.final.bam"
+            )
+            result.append(("control_sample", path))
         for cb in sorted(ctrl_bams):
             result.append(("control_bam", cb))
         return result
@@ -567,6 +578,55 @@ def get_duplicate_mode(wildcards):
     return get_remove_dup(wildcards)
 
 
+def _organelle_context_assay(sample_id):
+    """Return the assay whose organelle policy applies to a sample.
+
+    Controls inherit the policy of the treatment they are called for; a
+    control row's own assay is not authoritative. A control shared across
+    assays with different policies cannot be represented by one analysis BAM,
+    so fail closed instead of silently choosing one policy.
+    """
+    sample = SAMPLE_MAP[sample_id]
+    if sample.get("role") != "control":
+        return sample["assay"]
+    contexts = sorted(
+        {
+            SAMPLE_MAP[sid]["assay"]
+            for sid in TREATMENT_SAMPLE_IDS
+            if SAMPLE_MAP[sid].get("control_sample") == sample_id
+        }
+    )
+    if not contexts:
+        return sample["assay"]
+    if len(contexts) > 1:
+        raise ValueError(
+            "updated profile cannot derive one organelle policy for control "
+            f"{sample_id!r}; referenced by treatment assays: "
+            f"{', '.join(contexts)}"
+        )
+    return contexts[0]
+
+
+def get_organelle_mode(wildcards):
+    """Resolve the effective organelle policy for a sample."""
+    config_mode = str(VALIDATED_CONFIG.get("organelle_mode", "auto"))
+    if config_mode != "auto":
+        return config_mode
+    assay = _organelle_context_assay(wildcards.sample)
+    return "exclude" if assay in ("atac", "cuttag") else "report"
+
+
+def get_organelle_chroms(wildcards):
+    """Return organelle contig names for a sample's genome."""
+    sample = SAMPLE_MAP[wildcards.sample]
+    resources = VALIDATED_CONFIG.get("genome_resources", {})
+    resource = resources.get(sample["genome"], {}) if isinstance(resources, dict) else {}
+    chroms = resource.get("organelle_chroms") if isinstance(resource, dict) else None
+    if isinstance(chroms, (list, tuple)) and chroms:
+        return [str(chrom) for chrom in chroms]
+    return ["chrM", "MT", "chrMT"]
+
+
 def get_macs3_args(wildcards):
     """Return MACS3 arguments string, dispatched by assay."""
     s = SAMPLE_MAP[wildcards.sample]
@@ -600,6 +660,47 @@ def get_extend_reads(wildcards):
 # ---------------------------------------------------------------------------
 
 
+def _biorep_control_paths(experiment, bio_rep):
+    """Return unique control BAMs referenced by one treatment biorep."""
+    if not USE_CONTROL or not REPLICATE_ANALYSIS:
+        return []
+    sids = sorted(BIO_REP_GROUPS.get((experiment, "treatment", bio_rep), []))
+    control_samples = set()
+    control_bams = set()
+    for sid in sids:
+        sample = SAMPLE_MAP[sid]
+        cs = sample.get("control_sample", "")
+        cb = sample.get("control_bam", "")
+        if cs:
+            control_samples.add(cs)
+        elif cb:
+            if is_updated_profile():
+                raise ValueError(
+                    "updated profile does not yet support external control_bam"
+                )
+            control_bams.add(cb)
+    paths = []
+    for cs in sorted(control_samples):
+        paths.append(
+            analysis_bam(cs)
+            if is_updated_profile()
+            else f"{OUTDIR}/{cs}/02_align/{cs}.final.bam"
+        )
+    paths.extend(sorted(control_bams))
+    return paths
+
+
+def _biorep_control_bam(experiment, bio_rep):
+    return (
+        f"{OUTDIR}/experiments/{experiment}/02_align/"
+        f"biorep{bio_rep}.control.final.bam"
+    )
+
+
+def _biorep_control_bai(experiment, bio_rep):
+    return f"{_biorep_control_bam(experiment, bio_rep)}.bai"
+
+
 def _macs3_inputs(wildcards):
     """Return input list for macs3_callpeak.
 
@@ -611,13 +712,17 @@ def _macs3_inputs(wildcards):
     s = SAMPLE_MAP[wildcards.sample]
     sid = wildcards.sample
     inputs = [
-        f"{OUTDIR}/{sid}/02_align/{sid}.final.bam",
-        f"{OUTDIR}/{sid}/02_align/{sid}.final.bam.bai",
+        analysis_bam(sid),
+        analysis_bai(sid),
     ]
     if USE_CONTROL:
         if s.get("control_sample"):
             cs = s["control_sample"]
-            inputs.append(f"{OUTDIR}/{cs}/02_align/{cs}.final.bam")
+            inputs.append(analysis_bam(cs))
         elif s.get("control_bam"):
+            if is_updated_profile():
+                raise ValueError(
+                    "updated profile does not yet support external control_bam"
+                )
             inputs.append(s["control_bam"])
     return inputs

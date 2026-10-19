@@ -1,0 +1,10 @@
+name: chipseq-duplicate
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - python >=3.10,<3.13
+  - samtools >=1.16,<2
+  - picard >=3.0,<4
+  - openjdk >=17,<18

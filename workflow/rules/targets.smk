@@ -30,10 +30,11 @@ def _analysis_targets():
     """Updated-profile derived analysis BAMs (legacy uses final.bam directly)."""
     if not is_updated_profile():
         return []
-    targets = []
+    targets = [f"{OUTDIR}/.helixweave/analysis_identity.json"]
     for sample_id in ACTIVE_SAMPLE_IDS:
         targets.append(analysis_bam(sample_id))
         targets.append(analysis_bai(sample_id))
+        targets.append(f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.mito_fraction.tsv")
     return targets
 
 

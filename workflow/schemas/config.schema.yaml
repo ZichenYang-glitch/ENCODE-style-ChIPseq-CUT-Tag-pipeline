@@ -185,7 +185,7 @@ genome_resources:
     "<genome>":
       type: mapping
       required: [effective_genome_size]
-      optional: [chrom_sizes, blacklist, gtf, reference_fasta]
+      optional: [chrom_sizes, blacklist, gtf, reference_fasta, organelle_chroms]
       properties:
         effective_genome_size:
           type: string | integer
@@ -209,6 +209,13 @@ genome_resources:
           type: string
           default: ""
           description: Path to reference FASTA file.
+        organelle_chroms:
+          type: array
+          items: string
+          description: >
+            Contig names treated as organelle/mitochondrial for this genome
+            (for example chrM or MT). Defaults to chrM, MT, and chrMT when
+            omitted. Used by organelle_mode auto/exclude and mito_fraction.
 
 # ---- Single-sample QC (optional) ----
 qc:

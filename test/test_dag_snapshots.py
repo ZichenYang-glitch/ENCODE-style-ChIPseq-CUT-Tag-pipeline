@@ -20,8 +20,10 @@ import os
 import re
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
+import yaml
 
 from conftest import SMOKE_PROFILES, prepare_profile_workdir
 from _tool_resolver import resolve_tool
@@ -204,5 +206,662 @@ def test_legacy_analysis_target_is_blocked(target, snakefile, profiles_dir):
         assert result.returncode != 0, output
         assert "analysis_profile=updated" in output, output
         assert not os.path.exists(os.path.join(workdir, target))
+    finally:
+        shutil.rmtree(workdir)
+
+
+@pytest.mark.parametrize(
+    "profile_name",
+    ["chipseq_pe_noctrl", "chipseq_pe_ctrlsample"],
+)
+def test_updated_profile_schedules_analysis_chain(
+    snakefile, profiles_dir, profile_name
+):
+    """Updated profile must schedule analysis BAM and mito-fraction outputs."""
+    profile_dir = os.path.join(profiles_dir, profile_name)
+    workdir, dest_config = prepare_profile_workdir(profile_dir)
+    try:
+        with open(dest_config, encoding="utf-8") as handle:
+            config = yaml.safe_load(handle)
+        config.update(
+            {
+                "config_schema_version": "2.0.0",
+                "analysis_profile": "updated",
+                "blacklist_mode": "off",
+                "organelle_mode": "auto",
+                "duplicate_backend": "picard",
+                "duplicate_analysis": "exclude",
+                "control_mode": "matched",
+                "reference_mode": "legacy",
+                "external_control_policy": "warn",
+                "fragment_cpm": "off",
+                "tss_fragment_profile": False,
+            }
+        )
+        config.setdefault("qc", {})["blacklist_filter"] = False
+        with open(dest_config, "w", encoding="utf-8") as handle:
+            yaml.safe_dump(config, handle, sort_keys=False)
+
+        result = subprocess.run(
+            [
+                SNAKEMAKE,
+                "-s",
+                snakefile,
+                "--configfile",
+                dest_config,
+                "-n",
+            ],
+            cwd=workdir,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        output = result.stdout + result.stderr
+        assert result.returncode == 0, output
+        assert "prepare_analysis_bam" in output
+        assert "mito_fraction" in output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def _prepare_updated_workdir(profiles_dir, profile_name):
+    profile_dir = os.path.join(profiles_dir, profile_name)
+    workdir, dest_config = prepare_profile_workdir(profile_dir)
+    with open(dest_config, encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+    config.update(
+        {
+            "config_schema_version": "2.0.0",
+            "analysis_profile": "updated",
+            "blacklist_mode": "off",
+            "organelle_mode": "auto",
+            "duplicate_backend": "picard",
+            "duplicate_analysis": "exclude",
+            "control_mode": "matched",
+            "reference_mode": "legacy",
+            "external_control_policy": "warn",
+            "fragment_cpm": "off",
+            "tss_fragment_profile": False,
+        }
+    )
+    config.setdefault("qc", {})["blacklist_filter"] = False
+    with open(dest_config, "w", encoding="utf-8") as handle:
+        yaml.safe_dump(config, handle, sort_keys=False)
+    return workdir, dest_config
+
+
+def _run_snakemake_dryrun(
+    snakefile, workdir, config_path, target=None, printshellcmds=False
+):
+    command = [
+        SNAKEMAKE,
+        "-s",
+        snakefile,
+        "--configfile",
+        config_path,
+        "-n",
+    ]
+    if printshellcmds:
+        command.append("-p")
+    if target:
+        command.append(target)
+    result = subprocess.run(
+        command,
+        cwd=workdir,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    return result, result.stdout + result.stderr
+
+
+def _run_snakemake_job(snakefile, workdir, config_path, target):
+    result = subprocess.run(
+        [
+            SNAKEMAKE,
+            "-s",
+            snakefile,
+            "--configfile",
+            config_path,
+            "-j",
+            "1",
+            target,
+        ],
+        cwd=workdir,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    return result, result.stdout + result.stderr
+
+
+_UPDATED_SAMPLES_HEADER = (
+    "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\t"
+    "bowtie2_index\texperiment\tcondition\treplicate\tbiological_replicate\t"
+    "technical_replicate\trole\tcontrol_sample\tcontrol_bam\n"
+)
+
+
+def _write_updated_profile(
+    profile_dir, sample_rows, *, use_control, genome_resources=None
+):
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "samples.tsv").write_text(
+        _UPDATED_SAMPLES_HEADER + "".join(f"{row}\n" for row in sample_rows),
+        encoding="utf-8",
+    )
+    resources = genome_resources or {
+        "hs": {
+            "effective_genome_size": "hs",
+            "chrom_sizes": "",
+            "blacklist": "",
+            "gtf": "",
+            "reference_fasta": "",
+        }
+    }
+    config = {
+        "samples": "samples.tsv",
+        "outdir": "results",
+        "threads": 1,
+        "trim": True,
+        "use_control": use_control,
+        "multiqc": False,
+        "replicate_analysis": True,
+        "chipseq_idr": False,
+        "genome_resources": resources,
+        "qc": {
+            "blacklist_filter": False,
+            "frip": False,
+            "library_complexity": False,
+            "nrf_pbc": False,
+            "signal_tracks": False,
+            "summary": False,
+            "cuttag_fragment_size": False,
+        },
+        "config_schema_version": "2.0.0",
+        "analysis_profile": "updated",
+        "blacklist_mode": "off",
+        "organelle_mode": "auto",
+        "duplicate_backend": "picard",
+        "duplicate_analysis": "exclude",
+        "control_mode": "matched",
+        "reference_mode": "legacy",
+        "external_control_policy": "warn",
+        "fragment_cpm": "off",
+        "tss_fragment_profile": False,
+    }
+    (profile_dir / "config.yaml").write_text(
+        yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
+    )
+    return prepare_profile_workdir(str(profile_dir))
+
+
+def test_updated_control_inherits_treatment_organelle_context(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tcuttag\tH3K4me3\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K4me3\t1\t1\t1\ttreatment\tC1\t",
+            "C1\tR3.fq\tR4.fq\tPE\tchipseq\tInput\tnarrow\ths\tbt2_idx\t"
+            "exp1\tInput\t1\t1\t1\tcontrol\t\t",
+        ],
+        use_control=True,
+        genome_resources={
+            "hs": {
+                "effective_genome_size": "hs",
+                "organelle_chroms": ["chrM", "chrMT"],
+            }
+        },
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/C1/02_align/C1.analysis.bam",
+            printshellcmds=True,
+        )
+        assert result.returncode == 0, output
+        assert 'awk -v omit="chrM chrMT"' in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_control_context_conflict_fails_closed(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tcuttag\tH3K4me3\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K4me3\t1\t1\t1\ttreatment\tC1\t",
+            "T2\tR3.fq\tR4.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+            "exp2\tH3K27ac\t1\t1\t1\ttreatment\tC1\t",
+            "C1\tR5.fq\tR6.fq\tPE\tchipseq\tInput\tnarrow\ths\tbt2_idx\t"
+            "exp1\tInput\t1\t1\t1\tcontrol\t\t",
+        ],
+        use_control=True,
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/C1/02_align/C1.analysis.bam",
+        )
+        assert result.returncode != 0, output
+        assert "cannot derive one organelle policy" in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_chipseq_organelle_mode_reports(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K27ac\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/T1/05_qc/T1.mito_fraction.tsv",
+            printshellcmds=True,
+        )
+        assert result.returncode == 0, output
+        assert 'mode="report"' in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_staged_production_depends_on_identity_marker(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K27ac\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/T1/02_align/T1.sorted.bam",
+        )
+        assert result.returncode == 0, output
+        assert "analysis_identity_marker" in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "mapq",
+        "trim",
+        "tool_parameters",
+        "effective_genome_size",
+        "fastq_1",
+        "fastq_2",
+        "biological_replicate",
+        "technical_replicate",
+    ],
+)
+def test_updated_identity_covers_scientific_inputs(snakefile, tmp_path, mutation):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K27ac\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+    )
+    marker = "results/.helixweave/analysis_identity.json"
+    try:
+        result, output = _run_snakemake_job(snakefile, workdir, dest_config, marker)
+        assert result.returncode == 0, output
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config, marker)
+        assert result.returncode == 0, output
+
+        if mutation in ("fastq_1", "fastq_2"):
+            samples = Path(workdir) / "samples.tsv"
+            text = samples.read_text(encoding="utf-8")
+            if mutation == "fastq_1":
+                (Path(workdir) / "R3.fq").touch()
+                text = text.replace("T1\tR1.fq", "T1\tR3.fq")
+            else:
+                (Path(workdir) / "R4.fq").touch()
+                text = text.replace("\tR2.fq\tPE", "\tR4.fq\tPE")
+            samples.write_text(text, encoding="utf-8")
+        elif mutation in ("biological_replicate", "technical_replicate"):
+            samples = Path(workdir) / "samples.tsv"
+            if mutation == "biological_replicate":
+                old, new = "\t1\t1\t1\ttreatment", "\t1\t2\t1\ttreatment"
+            else:
+                old, new = "\t1\t1\t1\ttreatment", "\t1\t1\t2\ttreatment"
+            samples.write_text(
+                samples.read_text(encoding="utf-8").replace(old, new),
+                encoding="utf-8",
+            )
+        else:
+            with open(dest_config, encoding="utf-8") as handle:
+                config = yaml.safe_load(handle)
+            if mutation == "mapq":
+                config["mapq"] = 31
+            elif mutation == "trim":
+                config["trim"] = False
+            elif mutation == "tool_parameters":
+                config["tool_parameters"] = {
+                    "bowtie2": {"extra_args": "--very-sensitive"}
+                }
+            elif mutation == "effective_genome_size":
+                config["genome_resources"]["hs"]["effective_genome_size"] = 123456
+            with open(dest_config, "w", encoding="utf-8") as handle:
+                yaml.safe_dump(config, handle, sort_keys=False)
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config, marker)
+        assert result.returncode != 0, output
+        assert "different analysis identity" in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_refuses_unmarked_outdir(snakefile, profiles_dir, tmp_path):
+    workdir, dest_config = _prepare_updated_workdir(profiles_dir, "chipseq_pe_noctrl")
+    try:
+        final_dir = os.path.join(workdir, "results", "T1", "02_align")
+        os.makedirs(final_dir, exist_ok=True)
+        final_path = os.path.join(final_dir, "T1.final.bam")
+        with open(final_path, "wb") as handle:
+            handle.write(b"legacy")
+
+        result, output = _run_snakemake_dryrun(
+            snakefile, workdir, dest_config, "results/T1/02_align/T1.analysis.bam"
+        )
+        assert result.returncode != 0, output
+        assert "unmarked outdir" in output, output
+        assert not os.path.exists(
+            os.path.join(workdir, "results/T1/02_align/T1.analysis.bam")
+        )
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_refuses_different_identity_marker(snakefile, profiles_dir):
+    workdir, dest_config = _prepare_updated_workdir(profiles_dir, "chipseq_pe_noctrl")
+    try:
+        marker_dir = os.path.join(workdir, "results", ".helixweave")
+        os.makedirs(marker_dir, exist_ok=True)
+        with open(
+            os.path.join(marker_dir, "analysis_identity.json"),
+            "w",
+            encoding="utf-8",
+        ) as handle:
+            handle.write('{"identity":"deadbeef","analysis_profile":"updated"}\n')
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "different analysis identity" in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_legacy_refuses_updated_marker_outdir(snakefile, profiles_dir):
+    profile_dir = os.path.join(profiles_dir, "chipseq_se_noctrl")
+    workdir, dest_config = prepare_profile_workdir(profile_dir)
+    try:
+        marker_dir = os.path.join(workdir, "results", ".helixweave")
+        os.makedirs(marker_dir, exist_ok=True)
+        with open(
+            os.path.join(marker_dir, "analysis_identity.json"),
+            "w",
+            encoding="utf-8",
+        ) as handle:
+            handle.write('{"identity":"deadbeef","analysis_profile":"updated"}\n')
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "owned by analysis_profile=updated" in output, output
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def test_updated_marker_directory_is_rejected(snakefile, profiles_dir):
+    workdir, dest_config = _prepare_updated_workdir(profiles_dir, "chipseq_pe_noctrl")
+    try:
+        marker = os.path.join(
+            workdir, "results", ".helixweave", "analysis_identity.json"
+        )
+        os.makedirs(marker, exist_ok=True)
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "not a regular file" in output, output
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ("[]\n", "must be a JSON object"),
+        ("null\n", "must be a JSON object"),
+        ("{invalid\n", "unreadable"),
+    ],
+)
+def test_updated_marker_contract_is_enforced(snakefile, profiles_dir, content, message):
+    workdir, dest_config = _prepare_updated_workdir(profiles_dir, "chipseq_pe_noctrl")
+    try:
+        marker = os.path.join(
+            workdir, "results", ".helixweave", "analysis_identity.json"
+        )
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        with open(marker, "w", encoding="utf-8") as handle:
+            handle.write(content)
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert message in output, output
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        None,
+        "results/T1/02_align/T1.analysis.bam",
+    ],
+)
+def test_updated_external_control_rejected_before_consumer_selection(
+    snakefile, profiles_dir, target
+):
+    workdir, dest_config = _prepare_updated_workdir(
+        profiles_dir, "chipseq_pe_external_ctrlbam"
+    )
+    try:
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config, target)
+        assert result.returncode != 0, output
+        assert "does not yet support external control_bam" in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_external_control_rejected_for_mnase_without_replicates(
+    snakefile, tmp_path
+):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "M1\tR1.fq\tR2.fq\tPE\tmnase\tH3\tnucleosome\ths\tbt2_idx\t"
+            "exp1\tH3\t1\t1\t1\ttreatment\t\tctrl.bam",
+        ],
+        use_control=True,
+    )
+    try:
+        with open(dest_config, encoding="utf-8") as handle:
+            config = yaml.safe_load(handle)
+        config["replicate_analysis"] = False
+        with open(dest_config, "w", encoding="utf-8") as handle:
+            yaml.safe_dump(config, handle, sort_keys=False)
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "does not yet support external control_bam" in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+@pytest.mark.parametrize("dangling", [False, True])
+def test_updated_marker_symlink_is_rejected(snakefile, profiles_dir, dangling):
+    workdir, dest_config = _prepare_updated_workdir(profiles_dir, "chipseq_pe_noctrl")
+    try:
+        marker = os.path.join(
+            workdir, "results", ".helixweave", "analysis_identity.json"
+        )
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        target = os.path.join(workdir, "marker-target.json")
+        if not dangling:
+            with open(target, "w", encoding="utf-8") as handle:
+                handle.write('{"identity":"deadbeef","analysis_profile":"updated"}\n')
+        os.symlink(target, marker)
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "must not be a symlink" in output, output
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def test_legacy_refuses_dangling_symlink_marker(snakefile, profiles_dir, tmp_path):
+    profile_dir = os.path.join(profiles_dir, "chipseq_se_noctrl")
+    workdir, dest_config = prepare_profile_workdir(profile_dir)
+    try:
+        marker = os.path.join(
+            workdir, "results", ".helixweave", "analysis_identity.json"
+        )
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        os.symlink(os.path.join(workdir, "missing-marker-target.json"), marker)
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "must not be a symlink" in output, output
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def test_updated_use_control_false_schedules_no_control_tasks(snakefile, profiles_dir):
+    workdir, dest_config = _prepare_updated_workdir(
+        profiles_dir, "chipseq_pe_ctrlsample"
+    )
+    try:
+        with open(dest_config, encoding="utf-8") as handle:
+            config = yaml.safe_load(handle)
+        config["use_control"] = False
+        with open(dest_config, "w", encoding="utf-8") as handle:
+            yaml.safe_dump(config, handle, sort_keys=False)
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode == 0, output
+        assert "merge_biorep_control" not in output, output
+        assert "pool_control_bam" not in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_mnase_dryrun_uses_analysis_bam(snakefile, profiles_dir):
+    workdir, dest_config = _prepare_updated_workdir(profiles_dir, "mnase_pe_noctrl")
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/M1/03_fragments/M1.mono.bam",
+            printshellcmds=True,
+        )
+        assert result.returncode == 0, output
+        assert "results/M1/02_align/M1.analysis.bam" in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_use_control_false_idr_has_no_control_tasks(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    (profile_dir / "samples.tsv").write_text(
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\t"
+        "bowtie2_index\texperiment\tcondition\treplicate\tbiological_replicate\t"
+        "technical_replicate\trole\tcontrol_sample\tcontrol_bam\n"
+        "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\texp1\t"
+        "H3K27ac\t1\t1\t1\ttreatment\tC1\t\n"
+        "T2\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\texp1\t"
+        "H3K27ac\t2\t2\t1\ttreatment\tC2\t\n"
+        "C1\tR3.fq\tR4.fq\tPE\tchipseq\tInput\tnarrow\ths\tbt2_idx\texp1\t"
+        "Input\t1\t1\t1\tcontrol\t\t\n"
+        "C2\tR3.fq\tR4.fq\tPE\tchipseq\tInput\tnarrow\ths\tbt2_idx\texp1\t"
+        "Input\t2\t2\t1\tcontrol\t\t\n",
+        encoding="utf-8",
+    )
+    config = {
+        "samples": "samples.tsv",
+        "outdir": "results",
+        "threads": 1,
+        "trim": True,
+        "use_control": False,
+        "multiqc": False,
+        "replicate_analysis": True,
+        "chipseq_idr": True,
+        "genome_resources": {
+            "hs": {
+                "effective_genome_size": "hs",
+                "chrom_sizes": "",
+                "blacklist": "",
+                "gtf": "",
+                "reference_fasta": "",
+            }
+        },
+        "qc": {
+            "blacklist_filter": False,
+            "frip": False,
+            "library_complexity": False,
+            "nrf_pbc": False,
+            "signal_tracks": False,
+            "summary": False,
+            "cuttag_fragment_size": False,
+        },
+        "config_schema_version": "2.0.0",
+        "analysis_profile": "updated",
+        "blacklist_mode": "off",
+        "organelle_mode": "auto",
+        "duplicate_backend": "picard",
+        "duplicate_analysis": "exclude",
+        "control_mode": "matched",
+        "reference_mode": "legacy",
+        "external_control_policy": "warn",
+        "fragment_cpm": "off",
+        "tss_fragment_profile": False,
+    }
+    (profile_dir / "config.yaml").write_text(
+        yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
+    )
+
+    workdir, dest_config = prepare_profile_workdir(str(profile_dir))
+    try:
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode == 0, output
+        assert "macs3_idr_biorep" in output, output
+        assert "merge_biorep_control" not in output, output
+        assert "pool_control_bam" not in output, output
     finally:
         shutil.rmtree(workdir)

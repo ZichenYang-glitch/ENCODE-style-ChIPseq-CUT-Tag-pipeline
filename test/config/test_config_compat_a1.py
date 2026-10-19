@@ -16,7 +16,11 @@ from encode_pipeline.adapters.encode_authoring import (
     SCHEMA_VERSION,
     build_encode_authoring_schema,
 )
-from encode_pipeline.config.validate import ValidationError, validate_config
+from encode_pipeline.config.validate import (
+    ValidationError,
+    validate_config,
+    validate_execution_support,
+)
 
 
 SAMPLES_HEADER = (
@@ -177,6 +181,45 @@ def test_unimplemented_or_legacy_incompatible_modes_rejected(tmp_path, overrides
         _validate(tmp_path, **overrides)
 
 
+def test_organelle_chroms_resource_is_accepted(tmp_path):
+    validated = _validate(
+        tmp_path,
+        genome_resources={
+            "hs": {
+                "effective_genome_size": "hs",
+                "organelle_chroms": ["chrM", "MT"],
+            }
+        },
+    )
+
+    assert validated["genome_resources"]["hs"]["organelle_chroms"] == [
+        "chrM",
+        "MT",
+    ]
+
+
+@pytest.mark.parametrize(
+    "organelle_chroms",
+    [
+        "chrM",
+        ["chrM", "chrM"],
+        ["chrM", ""],
+        ["chrM", 1],
+    ],
+)
+def test_organelle_chroms_resource_rejects_invalid_values(tmp_path, organelle_chroms):
+    with pytest.raises(ValidationError, match="organelle_chroms"):
+        _validate(
+            tmp_path,
+            genome_resources={
+                "hs": {
+                    "effective_genome_size": "hs",
+                    "organelle_chroms": organelle_chroms,
+                }
+            },
+        )
+
+
 def test_workspace_render_roundtrip_is_idempotent(tmp_path):
     validated = _validate(tmp_path, config_schema_version="2.0.0")
     workspace_config = _prepare_workspace_config(validated)
@@ -241,3 +284,13 @@ def test_authoring_schema_exposes_a1_keys_and_executable_legacy_defaults():
     assert properties["control_mode"]["default"] == "pooled"
     assert properties["qc"]["properties"]["blacklist_filter"]["default"] is True
     assert "" in properties["duplicate_backend"]["enum"]
+
+
+def test_updated_control_mode_auto_rejected_at_execution(tmp_path):
+    validated = _validate(
+        tmp_path,
+        analysis_profile="updated",
+        control_mode="auto",
+    )
+    with pytest.raises(ValidationError, match="requires control_mode=matched"):
+        validate_execution_support(validated)

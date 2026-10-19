@@ -303,27 +303,38 @@ def validate_execution_support(
     (CLI, adapter validation, workspace planning) call this gate so A1 does
     not accept updated policies and then silently run legacy behavior.
     """
-    if validated_config.get("analysis_profile") != "legacy":
-        raise error_cls(
-            "config: analysis_profile=updated is parsed but not executable "
-            "until PR-B/C. Use analysis_profile=legacy for current runs."
-        )
+    profile = validated_config.get("analysis_profile")
+    if profile not in ("legacy", "updated"):
+        raise error_cls("config: analysis_profile is invalid")
+
     if validated_config.get("blacklist_mode") not in ("off", "copies"):
         raise error_cls("config: blacklist_mode=analysis is not executable until PR-D.")
-    if validated_config.get("organelle_mode") != "keep":
-        raise error_cls(
-            "config: organelle_mode changes are not executable until PR-B/C."
-        )
     if validated_config.get("duplicate_analysis") not in ("exclude", "retain"):
         raise error_cls("config: duplicate_analysis is invalid")
-    if validated_config.get("duplicate_backend"):
-        raise error_cls("config: duplicate_backend is not executable until PR-B/C.")
-    if validated_config.get("control_mode") != "pooled":
-        raise error_cls("config: control_mode changes are not executable until PR-B/C.")
     if validated_config.get("fragment_cpm") != "off":
         raise error_cls("config: fragment_cpm is not executable until PR-E1.")
     if validated_config.get("tss_fragment_profile"):
         raise error_cls("config: tss_fragment_profile is not executable until PR-E2.")
+
+    if profile == "legacy":
+        if validated_config.get("organelle_mode") != "keep":
+            raise error_cls("config: legacy profile requires organelle_mode=keep.")
+        if validated_config.get("duplicate_backend"):
+            raise error_cls(
+                "config: legacy profile preserves the original duplicate dispatch; "
+                "duplicate_backend must be empty."
+            )
+        if validated_config.get("control_mode") != "pooled":
+            raise error_cls("config: legacy profile requires control_mode=pooled.")
+        return
+
+    # updated profile (B2 consumer closure)
+    if validated_config.get("duplicate_backend") != "picard":
+        raise error_cls("config: updated profile requires duplicate_backend=picard.")
+    if validated_config.get("control_mode") != "matched":
+        raise error_cls(
+            "config: updated profile currently requires control_mode=matched."
+        )
 
 
 def validate_config(config: dict) -> dict:

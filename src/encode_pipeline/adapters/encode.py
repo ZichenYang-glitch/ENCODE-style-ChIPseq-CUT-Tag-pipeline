@@ -1063,22 +1063,27 @@ def _validate_scientific_inputs(
     try:
         validate_picard_reference_resources(validated_config, samples)
         validate_tss_annotation_resources(validated_config, samples)
-        if platform_admission:
-            validate_reference_control_admission(
-                samples,
-                validated_config,
-                reference_mode=validated_config["reference_mode"],
-                external_control_policy=validated_config["external_control_policy"],
-                error_cls=ValidationError,
-            )
+        # Always run shared admission. It is lenient for legacy reference
+        # policy, but its updated-profile external-control prohibition must
+        # apply even to bare-bundle inputs without genome_resources.
+        validate_reference_control_admission(
+            samples,
+            validated_config,
+            reference_mode=validated_config["reference_mode"],
+            external_control_policy=validated_config["external_control_policy"],
+            error_cls=ValidationError,
+        )
     except ValidationError as exc:
+        admission_failure = platform_admission or (
+            validated_config.get("analysis_profile") == "updated"
+        )
         return _scientific_validation_failure(
             exc,
             code="ENCODE_REFERENCE_ADMISSION_INVALID"
-            if platform_admission
+            if admission_failure
             else "ENCODE_RESOURCES_INVALID",
-            source="samples" if platform_admission else "config",
-            path="samples" if platform_admission else "config.genome_resources",
+            source="samples" if admission_failure else "config",
+            path="samples" if admission_failure else "config.genome_resources",
             sanitize=sanitize_errors,
         )
 

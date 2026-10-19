@@ -215,6 +215,11 @@ def _frip_inputs(wildcards):
     unfiltered BAM and peaks directory.
     """
     sid = wildcards.sample
+    if is_updated_profile():
+        return [
+            analysis_bam(sid),
+            f"{OUTDIR}/{sid}/04_peaks/{sid}",
+        ]
     if _has_blacklist_qc(sid):
         return [_blacklist_bam_file(sid), _blacklist_peak_file(sid)]
     else:
@@ -261,7 +266,7 @@ rule seacr_bedgraph:
     output:
         f"{OUTDIR}/{{sample}}/04_peaks_seacr/{{sample}}.bedgraph",
     input:
-        f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        lambda wc: analysis_bam(wc.sample),
     conda:
         "../envs/seacr.yml",
     shell:
@@ -764,7 +769,7 @@ rule cross_correlation:
         qc  = f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cc.qc",
         pdf = f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cc.plot.pdf",
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        bam = lambda wc: analysis_bam(wc.sample),
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.cross_correlation.log",
     threads: THREADS,

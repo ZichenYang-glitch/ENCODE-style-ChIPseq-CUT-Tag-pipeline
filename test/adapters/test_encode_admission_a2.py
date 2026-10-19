@@ -111,6 +111,33 @@ def _admit(samples, config, *, reference_mode="strict", external="validate"):
     )
 
 
+def test_updated_rejects_external_control_with_legacy_reference_mode(tmp_path):
+    bam = _write_bam(tmp_path / "control.bam")
+    config = _config(use_control=True)
+    config["analysis_profile"] = "updated"
+
+    with pytest.raises(ValidationError, match="external control_bam"):
+        _admit(
+            [_sample(control_bam=str(bam))],
+            config,
+            reference_mode="legacy",
+            external="warn",
+        )
+
+
+def test_updated_ignores_external_control_when_use_control_false(tmp_path):
+    bam = _write_bam(tmp_path / "control.bam")
+    config = _config(use_control=False)
+    config["analysis_profile"] = "updated"
+
+    _admit(
+        [_sample(control_bam=str(bam))],
+        config,
+        reference_mode="legacy",
+        external="warn",
+    )
+
+
 def test_strict_rejects_genome_absent_from_resources():
     with pytest.raises(ValidationError, match="not present in genome_resources"):
         _admit([_sample(genome="not_a_genome")], _config())
@@ -326,15 +353,52 @@ def test_platform_admission_overrides_caller_downgrade(tmp_path: Path):
     )
 
 
-def test_platform_admission_rejects_updated_execution(tmp_path: Path):
+def test_platform_admission_accepts_updated_execution(tmp_path: Path):
     adapter = EncodeStyleWorkflowAdapter()
     inputs = _inputs(tmp_path)
     inputs.config["analysis_profile"] = "updated"
     bound = adapter.bind_reference_profile(inputs, _binding(tmp_path))
     assert bound.is_success
     result = bound.value.adapter.validate(bound.value.inputs)
+    assert result.is_success, result.issues
+    assert result.value["config"]["analysis_profile"] == "updated"
+
+
+def test_bare_bundle_rejects_updated_external_control(tmp_path: Path):
+    bam = _write_bam(tmp_path / "control.bam")
+    inputs = _inputs(tmp_path)
+    inputs.config.update({"analysis_profile": "updated", "use_control": True})
+    inputs.samples[0].update(
+        {
+            "genome": "hg38",
+            "bowtie2_index": "/idx/hg38",
+            "control_bam": str(bam),
+        }
+    )
+
+    result = EncodeStyleWorkflowAdapter().validate(inputs)
+
     assert result.is_failure
-    assert any(issue.code == "ENCODE_EXECUTION_UNSUPPORTED" for issue in result.issues)
+    assert any(
+        issue.code == "ENCODE_REFERENCE_ADMISSION_INVALID" for issue in result.issues
+    )
+
+
+def test_bare_bundle_updated_ignores_external_control_when_disabled(tmp_path: Path):
+    bam = _write_bam(tmp_path / "control.bam")
+    inputs = _inputs(tmp_path)
+    inputs.config.update({"analysis_profile": "updated", "use_control": False})
+    inputs.samples[0].update(
+        {
+            "genome": "hg38",
+            "bowtie2_index": "/idx/hg38",
+            "control_bam": str(bam),
+        }
+    )
+
+    result = EncodeStyleWorkflowAdapter().validate(inputs)
+
+    assert result.is_success, result.issues
 
 
 def _cli_fixture(tmp_path: Path, *, config: dict) -> Path:
@@ -352,7 +416,7 @@ def _cli_fixture(tmp_path: Path, *, config: dict) -> Path:
     return path
 
 
-def test_cli_rejects_updated_execution(tmp_path: Path):
+def test_cli_accepts_updated_execution(tmp_path: Path):
     path = _cli_fixture(
         tmp_path,
         config={
@@ -362,8 +426,7 @@ def test_cli_rejects_updated_execution(tmp_path: Path):
             "genome_resources": {"hg38": {"effective_genome_size": "hs"}},
         },
     )
-    with pytest.raises(SystemExit):
-        cli_validator_main(["--config", str(path)])
+    assert cli_validator_main(["--config", str(path)]) is None
 
 
 def test_cli_executes_strict_admission(tmp_path: Path):

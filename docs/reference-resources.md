@@ -18,6 +18,7 @@ For the config keys that point to these files, see
 | Sequence dictionary | `<reference_fasta basename>.dict` | Required with Picard metrics | Picard / htsjdk sequence metadata |
 | Chrom sizes | `genome_resources.<genome>.chrom_sizes` | Optional now | Future bedGraph-to-BigWig and genome-window operations |
 | Blacklist BED | `genome_resources.<genome>.blacklist` | Required when blacklist filtering is enabled for that genome | BAM and peak blacklist filtering |
+| Organelle contigs | `genome_resources.<genome>.organelle_chroms` | Optional; defaults to `chrM`, `MT`, `chrMT` | `organelle_mode` filtering and `mito_fraction` QC |
 | GTF / annotation | `genome_resources.<genome>.gtf` | Required when `qc.tss_enrichment: true` | TSS profile QC |
 
 ## Path Rules

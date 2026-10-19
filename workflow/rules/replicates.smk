@@ -15,10 +15,10 @@
 
 
 def _biorep_techrep_bams(experiment, role, bio_rep):
-    """Return sorted final.bam paths for every tech-rep in a biorep group."""
+    """Return sorted analysis BAM paths for every tech-rep in a biorep group."""
     key = (experiment, role, bio_rep)
     sids = sorted(BIO_REP_GROUPS.get(key, []))
-    return [f"{OUTDIR}/{sid}/02_align/{sid}.final.bam" for sid in sids]
+    return [analysis_bam(sid) for sid in sids]
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +54,36 @@ rule merge_biorep_bam:
             samtools merge -@ {threads} {output.bam:q} "$@"
             samtools index -@ {threads} {output.bam:q}
         fi
+        """
+
+
+# ---------------------------------------------------------------------------
+# 1b. Per-biorep matched control BAM — updated-profile IDR/consensus
+# ---------------------------------------------------------------------------
+
+
+rule merge_biorep_control:
+    input:
+        lambda wc: _biorep_control_paths(wc.experiment, int(wc.bio_rep)),
+    output:
+        bam=f"{OUTDIR}/experiments/{{experiment}}/02_align/biorep{{bio_rep}}.control.final.bam",
+        bai=f"{OUTDIR}/experiments/{{experiment}}/02_align/biorep{{bio_rep}}.control.final.bam.bai",
+    wildcard_constraints:
+        bio_rep=r"\d+",
+    conda:
+        "../envs/samtools.yml"
+    threads: THREADS
+    shell:
+        """
+        set -e -o pipefail
+        set -- {input:q}
+        mkdir -p $(dirname {output.bam:q})
+        if [[ "$#" -eq 1 ]]; then
+            ln -sf "$(readlink -f "$1")" {output.bam:q}
+        else
+            samtools merge -@ {threads} {output.bam:q} "$@"
+        fi
+        samtools index -@ {threads} {output.bam:q}
         """
 
 

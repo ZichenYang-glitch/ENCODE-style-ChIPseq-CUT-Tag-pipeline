@@ -29,6 +29,7 @@ def _fastqc_stage_input(wildcards):
 rule fastqc_stage:
     input:
         fastq=_fastqc_stage_input,
+        identity=lambda wc: _analysis_identity_inputs(wc),
     output:
         html=f"{OUTDIR}/{{sample}}/01_qc/fastqc/{{stage}}/{{sample}}.{{stage}}.{{read}}_fastqc.html",
         zip=f"{OUTDIR}/{{sample}}/01_qc/fastqc/{{stage}}/{{sample}}.{{stage}}.{{read}}_fastqc.zip",
@@ -77,8 +78,10 @@ def _trim_galore_inputs(wildcards):
     """Return [fq1] for SE, [fq1, fq2] for PE.  Never returns empty string."""
     s = SAMPLE_MAP[wildcards.sample]
     if s["layout"] == "PE" and s.get("fq2"):
-        return [s["fq1"], s["fq2"]]
-    return [s["fq1"]]
+        inputs = [s["fq1"], s["fq2"]]
+    else:
+        inputs = [s["fq1"]]
+    return inputs + _analysis_identity_inputs(wildcards)
 
 
 rule trim_galore:
@@ -153,6 +156,7 @@ rule bowtie2_align:
     input:
         r1=f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R1_val_1.fq.gz",
         r2=f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R2_val_2.fq.gz",
+        identity=lambda wc: _analysis_identity_inputs(wc),
     output:
         bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
     log:
@@ -213,6 +217,7 @@ rule samtools_index_sorted:
 rule samtools_filter:
     input:
         bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
+        identity=lambda wc: _analysis_identity_inputs(wc),
     output:
         bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
     conda:
@@ -275,16 +280,24 @@ rule samtools_index_filt:
 # ---------------------------------------------------------------------------
 
 
+DUPLICATE_ENV = (
+    "../envs/duplicate.yml"
+    if is_updated_profile()
+    else "../envs/samtools.yml"
+)
+
+
 rule duplicate_handling:
     input:
         bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
         bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam.bai",
+        identity=lambda wc: _analysis_identity_inputs(wc),
     output:
         bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
         bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
         metrics=f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
     conda:
-        "../envs/samtools.yml"
+        DUPLICATE_ENV
     threads: THREADS
     params:
         remove_dup=lambda wc: get_remove_dup(wc),
@@ -416,8 +429,8 @@ def _bamcoverage_inputs(wildcards):
     """
     s = SAMPLE_MAP[wildcards.sample]
     inputs = [
-        f"{OUTDIR}/{wildcards.sample}/02_align/{wildcards.sample}.final.bam",
-        f"{OUTDIR}/{wildcards.sample}/02_align/{wildcards.sample}.final.bam.bai",
+        analysis_bam(wildcards.sample),
+        analysis_bai(wildcards.sample),
     ]
     ext = str(config.get("extend_reads", "auto"))
     if (
