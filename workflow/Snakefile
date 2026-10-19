@@ -16,8 +16,12 @@ import re
 try:
     from encode_pipeline.config.validate import (
         validate_config,
+        validate_execution_support,
         validate_picard_reference_resources,
         validate_tss_annotation_resources,
+    )
+    from encode_pipeline.samples.admission import (
+        validate_reference_control_admission,
     )
     from encode_pipeline.samples.load import load_and_validate_samples
     from encode_pipeline.qc.histone import classify_histone_target
@@ -25,8 +29,12 @@ except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(workflow.basedir), "src"))
     from encode_pipeline.config.validate import (
         validate_config,
+        validate_execution_support,
         validate_picard_reference_resources,
         validate_tss_annotation_resources,
+    )
+    from encode_pipeline.samples.admission import (
+        validate_reference_control_admission,
     )
     from encode_pipeline.samples.load import load_and_validate_samples
     from encode_pipeline.qc.histone import classify_histone_target
@@ -54,6 +62,7 @@ configfile: "config/config.yaml"
 schema: "schemas/config.schema.json"
 
 VALIDATED_CONFIG = validate_config(config)
+validate_execution_support(VALIDATED_CONFIG)
 
 OUTDIR = VALIDATED_CONFIG["outdir"]
 THREADS = VALIDATED_CONFIG["threads"]
@@ -142,6 +151,13 @@ SAMPLES = load_and_validate_samples(
 validate_picard_reference_resources(VALIDATED_CONFIG, SAMPLES)
 # Stage 18: GTF annotation gating for TSS enrichment profiles
 validate_tss_annotation_resources(VALIDATED_CONFIG, SAMPLES)
+# A2: reference/control admission (strict/validate only; legacy is lenient).
+validate_reference_control_admission(
+    SAMPLES,
+    VALIDATED_CONFIG,
+    reference_mode=VALIDATED_CONFIG["reference_mode"],
+    external_control_policy=VALIDATED_CONFIG["external_control_policy"],
+)
 
 # --- Derived ID lists ---
 SAMPLE_MAP = {s["id"]: s for s in SAMPLES}
