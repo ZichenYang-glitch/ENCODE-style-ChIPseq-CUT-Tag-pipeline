@@ -134,6 +134,26 @@ stack and its doctor/demo commands.
   the task-local environment, and invoke it through the canonical bootstrap.
 - Clean up only processes and temporary files that your own work created.
 
+## Commit Attribution
+
+- The human author/committer remains the person making the commit.
+- Credit every AI model or agent that materially participated in the commit,
+  including implementation, tests, documentation, review, or decision support.
+  Review-only participation still counts.
+- Use these exact trailers for the participants actually involved:
+
+  ```text
+  Co-Authored-By: DeepSeek Flash
+  Co-Authored-By: Codex <noreply@openai.com>
+  ```
+
+- Include only participants that actually participated; omit the others.
+- Do not use the `claude-code-best.win` attribution line.
+- Do not invent emails or GitHub accounts. Name-only trailers are attribution
+  text, not verified GitHub accounts, and may not count toward GitHub
+  achievements.
+- If attribution is ambiguous, ask rather than guessing.
+
 ## Definition Of Done
 
 A change is done when its requested behavior is implemented, relevant tests
