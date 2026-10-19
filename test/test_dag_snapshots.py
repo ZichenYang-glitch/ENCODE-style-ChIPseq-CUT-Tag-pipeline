@@ -171,3 +171,38 @@ def test_key_markers(profile, snapshots_dir, request):
                     f"{profile}: expected {marker_name} marker rule {rule!r} "
                     f"not found in snapshot"
                 )
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "results/T1/02_align/T1.analysis.bam",
+        "results/T1/02_align/T1.analysis.bam.bai",
+    ],
+)
+def test_legacy_analysis_target_is_blocked(target, snakefile, profiles_dir):
+    """Legacy must not be able to request the updated analysis rule."""
+    profile_dir = os.path.join(profiles_dir, "chipseq_se_noctrl")
+    workdir, dest_config = prepare_profile_workdir(profile_dir)
+    try:
+        result = subprocess.run(
+            [
+                SNAKEMAKE,
+                "-s",
+                snakefile,
+                "--configfile",
+                dest_config,
+                "-n",
+                target,
+            ],
+            cwd=workdir,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        output = result.stdout + result.stderr
+        assert result.returncode != 0, output
+        assert "analysis_profile=updated" in output, output
+        assert not os.path.exists(os.path.join(workdir, target))
+    finally:
+        shutil.rmtree(workdir)

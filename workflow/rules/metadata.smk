@@ -540,6 +540,33 @@ def get_remove_dup(wildcards):
     raise ValueError(f"Unsupported assay for duplicate policy: {s['assay']}")
 
 
+def is_updated_profile():
+    """True when the run uses the B/C updated analysis chain."""
+    return VALIDATED_CONFIG.get("analysis_profile") == "updated"
+
+
+def analysis_bam(sample):
+    """Return the analysis BAM for a sample.
+
+    Legacy keeps the existing final.bam contract. Updated uses a derived
+    analysis.bam so the raw marked BAM remains available.
+    """
+    if is_updated_profile():
+        return f"{OUTDIR}/{sample}/02_align/{sample}.analysis.bam"
+    return f"{OUTDIR}/{sample}/02_align/{sample}.final.bam"
+
+
+def analysis_bai(sample):
+    return f"{analysis_bam(sample)}.bai"
+
+
+def get_duplicate_mode(wildcards):
+    """Return the duplicate handling mode for the current profile."""
+    if is_updated_profile():
+        return "mark"
+    return get_remove_dup(wildcards)
+
+
 def get_macs3_args(wildcards):
     """Return MACS3 arguments string, dispatched by assay."""
     s = SAMPLE_MAP[wildcards.sample]

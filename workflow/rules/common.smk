@@ -221,11 +221,35 @@ rule samtools_filter:
     params:
         mapq=MAPQ,
         filter_flags=_filter_flags_arg(),
+        layout=lambda wc: SAMPLE_MAP[wc.sample]["layout"],
+        filter_mode=lambda wc: "updated" if is_updated_profile() else "legacy",
         extra=_tool_param("samtools_filter", "extra_args", ""),
     shell:
         """
         set -e -o pipefail
-        samtools view -@ {threads} -b -q {params.mapq} {params.filter_flags} {params.extra} {input.bam:q} >{output.bam:q}
+        if [[ "{params.filter_mode}" == "updated" ]]; then
+            if [[ "{params.layout}" == "PE" ]]; then
+                TMPD=$(mktemp -d)
+                trap 'rm -rf "$TMPD"' EXIT
+                samtools view -@ {threads} -b -q {params.mapq} -F 0xb0c -f 2 {params.extra} {input.bam:q} \
+                    > "$TMPD/filtered.bam"
+                samtools view "$TMPD/filtered.bam" \
+                    | cut -f1 \
+                    | LC_ALL=C sort \
+                    | uniq -c \
+                    | awk '$1 == 2 {{print $2}}' \
+                    > "$TMPD/names.txt"
+                if [[ -s "$TMPD/names.txt" ]]; then
+                    samtools view -@ {threads} -b -N "$TMPD/names.txt" "$TMPD/filtered.bam" >{output.bam:q}
+                else
+                    samtools view -@ {threads} -b -N /dev/null "$TMPD/filtered.bam" >{output.bam:q}
+                fi
+            else
+                samtools view -@ {threads} -b -q {params.mapq} -F 0xb0c {params.extra} {input.bam:q} >{output.bam:q}
+            fi
+        else
+            samtools view -@ {threads} -b -q {params.mapq} {params.filter_flags} {params.extra} {input.bam:q} >{output.bam:q}
+        fi
         """
 
 
@@ -264,6 +288,7 @@ rule duplicate_handling:
     threads: THREADS
     params:
         remove_dup=lambda wc: get_remove_dup(wc),
+        duplicate_mode=lambda wc: get_duplicate_mode(wc),
         picard_od=(
             f"OPTICAL_DUPLICATE_PIXEL_DISTANCE={v}"
             if (v := _tool_param("picard_markduplicates", "optical_duplicate_pixel_distance", "")) != ""
@@ -273,7 +298,19 @@ rule duplicate_handling:
     shell:
         """
         set -e -o pipefail
-        if [[ "{params.remove_dup}" == "yes" ]]; then
+        if [[ "{params.duplicate_mode}" == "mark" ]]; then
+            if ! command -v picard >/dev/null 2>&1; then
+                echo "ERROR: updated profile requires Picard MarkDuplicates" >&2
+                exit 1
+            fi
+            picard MarkDuplicates \
+                I={input.bam:q} \
+                O={output.bam:q} \
+                M={output.metrics:q} \
+                REMOVE_DUPLICATES=false \
+                {params.picard_od} {params.picard_extra}
+            samtools index -@ {threads} {output.bam}
+        elif [[ "{params.remove_dup}" == "yes" ]]; then
             if command -v picard >/dev/null 2>&1; then
                 picard MarkDuplicates \
                     I={input.bam:q} \

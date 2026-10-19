@@ -221,6 +221,7 @@ include: "rules/targets.smk"
 rule all:
     input:
         _base_targets()
+        + _analysis_targets()
         + _blacklist_targets()
         + _single_sample_qc_targets()
         + _signal_targets()
@@ -248,6 +249,7 @@ rule all:
 
 
 include: "rules/common.smk"
+include: "rules/analysis.smk"
 include: "rules/peaks.smk"
 include: "rules/mnase.smk"
 include: "rules/replicates.smk"
