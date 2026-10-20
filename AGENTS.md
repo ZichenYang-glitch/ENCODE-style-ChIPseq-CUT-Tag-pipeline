@@ -143,15 +143,18 @@ stack and its doctor/demo commands.
 - Use these exact trailers for the participants actually involved:
 
   ```text
-  Co-Authored-By: DeepSeek Flash
+  Co-Authored-By: Peri
   Co-Authored-By: Codex <noreply@openai.com>
   ```
 
+- Use Peri's default co-author identity. Do not substitute the underlying
+  model/provider name (for example `DeepSeek Flash`) in the trailer.
 - Include only participants that actually participated; omit the others.
 - Do not use the `claude-code-best.win` attribution line.
 - Do not invent emails or GitHub accounts. Name-only trailers are attribution
   text, not verified GitHub accounts, and may not count toward GitHub
-  achievements.
+  achievements. If a verified Peri email/GitHub account is provided later,
+  replace the name-only trailer with it.
 - If attribution is ambiguous, ask rather than guessing.
 
 ## Definition Of Done
