@@ -183,6 +183,23 @@ MultiQC and reproducibility have separate defaults in
 bypass its parent or replicate/assay eligibility. See the
 [reproducibility policy](reproducibility-policy.md#5-config-reference).
 
+## Platform reference binding v2
+
+Platform reference profiles may use `encode-reference-binding-v2`. In addition
+to the v1 content hashes, v2 requires a `reference_fai` descriptor and verifies
+that FASTA headers/lengths, `.fai`, `chrom_sizes`, GTF contigs, blacklist
+contigs, and an optional `reference_dict` agree. It also accepts
+`organelle_chroms` and `canonical_chroms`; every listed contig must exist in the
+FASTA. Symbolic effective genome sizes are constrained to matching assembly
+families (`hs` for GRCh/hg, `mm` for GRCm/mm); numeric sizes remain explicit.
+
+`organelle_chroms` is injected into `genome_resources.<assembly>` for the
+workflow. Binding v1 remains accepted and keeps its existing identity. The
+binding identity includes the v2 contract and metadata and remains path-free.
+FAI verification currently checks contig names and lengths; it does not
+validate offset/line-width fields or prove random-access usability. Bowtie2
+index contents remain hash-bound without internal contig parsing.
+
 ## Fragment-level CPM tracks
 
 ```yaml
