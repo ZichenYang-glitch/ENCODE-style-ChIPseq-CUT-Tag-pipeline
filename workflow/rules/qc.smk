@@ -30,6 +30,11 @@ def _peak_file(sample_id):
     )
 
 
+def _blacklist_output_root():
+    """Output root for filtered peak copies: filtered branch or raw copies."""
+    return OUTDIR if ANALYSIS_FILTERED else RAW_OUTDIR
+
+
 def _has_blacklist_qc(sample_id):
     """Return True when blacklist filtering is enabled and resource-backed."""
     return (
@@ -40,6 +45,15 @@ def _has_blacklist_qc(sample_id):
 
 def _blacklist_peak_file(sample_id):
     """Return the blacklist-filtered peak file path for a sample."""
+    suffix = _peak_suffix(sample_id)
+    return (
+        f"{OUTDIR}/{sample_id}/04_peaks/{sample_id}_blacklist_filtered/"
+        f"{sample_id}_peaks.blacklist_filtered.{suffix}"
+    )
+
+
+def _analysis_filtered_peak_file(sample_id):
+    """Return the final filtered peak file in the analysis_filtered branch."""
     suffix = _peak_suffix(sample_id)
     return (
         f"{OUTDIR}/{sample_id}/04_peaks/{sample_id}_blacklist_filtered/"
@@ -71,11 +85,11 @@ def _pooled_signal_track_file(experiment, signal):
 
 rule blacklist_filter_bam:
     output:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.blacklist_filtered.bam",
-        bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.blacklist_filtered.bam.bai",
+        bam = f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.blacklist_filtered.bam",
+        bai = f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.blacklist_filtered.bam.bai",
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
-        bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+        bam = f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        bai = f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
     params:
         blacklist = lambda wc: get_genome_resource(wc.sample, "blacklist"),
     threads: THREADS,
@@ -96,7 +110,7 @@ rule blacklist_filter_bam:
 
 rule blacklist_filter_peaks:
     output:
-        f"{OUTDIR}/{{sample}}/04_peaks/{{sample}}_blacklist_filtered/{{sample}}_peaks.blacklist_filtered.{{suffix}}",
+        f"{_blacklist_output_root()}/{{sample}}/04_peaks/{{sample}}_blacklist_filtered/{{sample}}_peaks.blacklist_filtered.{{suffix}}",
     input:
         # MACS3 peaks directory (Snakemake-tracked) — peak file assembled in shell
         peaks_dir = f"{OUTDIR}/{{sample}}/04_peaks/{{sample}}",
@@ -126,9 +140,14 @@ rule peak_counts:
     params:
         peak_mode = lambda wc: SAMPLE_MAP[wc.sample]["peak_mode"],
         sample    = "{sample}",
+        analysis_mode = "yes" if ANALYSIS_FILTERED else "no",
         bl_peak   = lambda wc: (
-            _blacklist_peak_file(wc.sample)
-            if _has_blacklist_qc(wc.sample) else ""
+            _analysis_filtered_peak_file(wc.sample)
+            if ANALYSIS_FILTERED
+            else (
+                _blacklist_peak_file(wc.sample)
+                if _has_blacklist_qc(wc.sample) else ""
+            )
         ),
     conda:
         "../envs/python.yml",
@@ -144,6 +163,9 @@ rule peak_counts:
         BL_PEAK={params.bl_peak:q}
         if [[ -n "$BL_PEAK" && -f "$BL_PEAK" ]]; then
             BL_COUNT=$(wc -l < "$BL_PEAK")
+            if [[ "{params.analysis_mode}" == "yes" ]]; then
+                PEAK_COUNT="$BL_COUNT"
+            fi
         else
             BL_COUNT="NA"
         fi
@@ -162,8 +184,11 @@ def _peak_counts_inputs(wildcards):
     sid = wildcards.sample
     peaks_dir = f"{OUTDIR}/{sid}/04_peaks/{sid}"
     inputs = [peaks_dir]
-    if _has_blacklist_qc(sid):
-        inputs.append(_blacklist_peak_file(sid))
+    if ANALYSIS_FILTERED or _has_blacklist_qc(sid):
+        inputs.append(
+            _analysis_filtered_peak_file(sid)
+            if ANALYSIS_FILTERED else _blacklist_peak_file(sid)
+        )
     return inputs
 
 
@@ -215,6 +240,8 @@ def _frip_inputs(wildcards):
     unfiltered BAM and peaks directory.
     """
     sid = wildcards.sample
+    if ANALYSIS_FILTERED:
+        return [analysis_bam(sid), _analysis_filtered_peak_file(sid)]
     if is_updated_profile():
         return [
             analysis_bam(sid),
@@ -234,13 +261,13 @@ def _frip_inputs(wildcards):
 
 rule library_complexity:
     output:
-        f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.library_complexity.tsv",
+        f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.library_complexity.tsv",
     input:
-        f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
+        f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
     params:
         script = f"{workflow.basedir}/../scripts/parse_dup_metrics.py",
     log:
-        f"{OUTDIR}/{{sample}}/logs/{{sample}}.library_complexity.log",
+        f"{RAW_OUTDIR}/{{sample}}/logs/{{sample}}.library_complexity.log",
     conda:
         "../envs/python.yml",
     shell:
@@ -307,7 +334,7 @@ rule cuttag_fragment_size:
     output:
         f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.cuttag_fragment_size.tsv",
     input:
-        f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
     params:
         script = f"{workflow.basedir}/../scripts/calc_cuttag_fragment_size.py",
         layout = lambda wc: SAMPLE_MAP[wc.sample]["layout"],
@@ -330,13 +357,13 @@ rule cuttag_fragment_size:
 
 rule nrf_pbc:
     output:
-        f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.nrf_pbc.tsv",
+        f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.nrf_pbc.tsv",
     input:
-        f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
+        f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
     params:
         script = f"{workflow.basedir}/../scripts/calc_nrf_pbc.py",
     log:
-        f"{OUTDIR}/{{sample}}/logs/{{sample}}.nrf_pbc.log",
+        f"{RAW_OUTDIR}/{{sample}}/logs/{{sample}}.nrf_pbc.log",
     conda:
         "../envs/samtools.yml",
     shell:
@@ -690,9 +717,9 @@ rule qc_summary:
     input:
         peak_counts         = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.peak_counts.tsv",
         frip                = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.frip.tsv",
-        library_complexity  = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.library_complexity.tsv",
-        nrf_pbc             = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.nrf_pbc.tsv",
-        final_bam           = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        library_complexity  = f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.library_complexity.tsv",
+        nrf_pbc             = f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.nrf_pbc.tsv",
+        final_bam           = lambda wc: analysis_bam(wc.sample),
     params:
         script = f"{workflow.basedir}/../scripts/assemble_qc_summary.py",
         sample     = "{sample}",
@@ -702,21 +729,31 @@ rule qc_summary:
         layout     = lambda wc: SAMPLE_MAP[wc.sample]["layout"],
         peak_mode  = lambda wc: SAMPLE_MAP[wc.sample]["peak_mode"],
         has_blacklist = lambda wc: (
-            "yes" if wc.sample in BLACKLIST_SAMPLES
-            and QC_CONFIG.get("blacklist_filter", True) else "no"
+            "yes" if (ANALYSIS_FILTERED or _has_blacklist_qc(wc.sample)) else "no"
         ),
         blacklist = lambda wc: (
             get_genome_resource(wc.sample, "blacklist")
-            if _has_blacklist_qc(wc.sample) else "NA"
+            if (ANALYSIS_FILTERED or _has_blacklist_qc(wc.sample)) else "NA"
         ),
-        peaks_file = lambda wc: _peak_file(wc.sample),
+        peaks_file = lambda wc: (
+            _analysis_filtered_peak_file(wc.sample)
+            if ANALYSIS_FILTERED else _peak_file(wc.sample)
+        ),
         bl_bam = lambda wc: (
-            _blacklist_bam_file(wc.sample)
-            if _has_blacklist_qc(wc.sample) else "NA"
+            analysis_bam(wc.sample)
+            if ANALYSIS_FILTERED
+            else (
+                _blacklist_bam_file(wc.sample)
+                if _has_blacklist_qc(wc.sample) else "NA"
+            )
         ),
         bl_peaks = lambda wc: (
-            _blacklist_peak_file(wc.sample)
-            if _has_blacklist_qc(wc.sample) else "NA"
+            _analysis_filtered_peak_file(wc.sample)
+            if ANALYSIS_FILTERED
+            else (
+                _blacklist_peak_file(wc.sample)
+                if _has_blacklist_qc(wc.sample) else "NA"
+            )
         ),
         ctrl_type = lambda wc: _control_type(wc.sample),
     conda:
@@ -795,11 +832,11 @@ rule cross_correlation:
 
 rule preseq_complexity:
     output:
-        f"{OUTDIR}/{{sample}}/05_qc/preseq/{{sample}}.preseq.txt",
+        f"{RAW_OUTDIR}/{{sample}}/05_qc/preseq/{{sample}}.preseq.txt",
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
+        bam = f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
     log:
-        f"{OUTDIR}/{{sample}}/logs/{{sample}}.preseq.log",
+        f"{RAW_OUTDIR}/{{sample}}/logs/{{sample}}.preseq.log",
     conda:
         "../envs/preseq.yml",
     params:
@@ -823,17 +860,17 @@ rule preseq_complexity:
 
 rule picard_collect_multiple_metrics:
     output:
-        alignment   = f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.alignment_summary_metrics",
-        insert_size = f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.insert_size_metrics",
-        quality     = f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.quality_distribution_metrics",
-        ins_hist    = f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.insert_size_histogram.pdf",
+        alignment   = f"{RAW_OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.alignment_summary_metrics",
+        insert_size = f"{RAW_OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.insert_size_metrics",
+        quality     = f"{RAW_OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.quality_distribution_metrics",
+        ins_hist    = f"{RAW_OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.insert_size_histogram.pdf",
     input:
-        bam = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
-        bai = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+        bam = f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        bai = f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
     params:
         ref = lambda wc: get_genome_resource(wc.sample, "reference_fasta"),
     log:
-        f"{OUTDIR}/{{sample}}/logs/{{sample}}.picard_metrics.log",
+        f"{RAW_OUTDIR}/{{sample}}/logs/{{sample}}.picard_metrics.log",
     conda:
         "../envs/picard.yml",
     shell:
@@ -847,7 +884,7 @@ rule picard_collect_multiple_metrics:
         picard CollectMultipleMetrics \
             I={input.bam:q} \
             R={params.ref:q} \
-            O={OUTDIR:q}/{wildcards.sample}/05_qc/picard/{wildcards.sample} \
+            O={RAW_OUTDIR:q}/{wildcards.sample}/05_qc/picard/{wildcards.sample} \
             PROGRAM=CollectAlignmentSummaryMetrics \
             PROGRAM=CollectInsertSizeMetrics \
             PROGRAM=QualityScoreDistribution \

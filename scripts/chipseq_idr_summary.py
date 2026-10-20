@@ -19,7 +19,12 @@ Usage:
 """
 
 import argparse
+import os
 import shutil
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from blacklist_filter import Blacklist  # noqa: E402
 
 
 def count_peaks(path):
@@ -53,6 +58,11 @@ def main():
     parser.add_argument("--output-tsv", required=True)
     parser.add_argument("--output-cons", required=True)
     parser.add_argument("--output-opt", required=True)
+    parser.add_argument(
+        "--blacklist",
+        default="",
+        help="Optional blacklist BED for final peak filtering",
+    )
     args = parser.parse_args()
 
     Nt = count_peaks(args.true_peaks)
@@ -80,9 +90,14 @@ def main():
     ):
         status = "pass"
 
-    # Copy final peak sets
-    shutil.copyfile(args.true_peaks, args.output_cons)
-    shutil.copyfile(args.pooled_peaks, args.output_opt)
+    # Copy final peak sets (filter blacklist intervals when requested)
+    if args.blacklist:
+        blacklist = Blacklist(args.blacklist)
+        blacklist.filter_peak_file(args.true_peaks, args.output_cons)
+        blacklist.filter_peak_file(args.pooled_peaks, args.output_opt)
+    else:
+        shutil.copyfile(args.true_peaks, args.output_cons)
+        shutil.copyfile(args.pooled_peaks, args.output_opt)
 
     # Write summary TSV
     with open(args.output_tsv, "w") as fh:

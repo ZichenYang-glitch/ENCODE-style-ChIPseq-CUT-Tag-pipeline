@@ -194,6 +194,84 @@ artifacts:
   rule_all: true
   config_gate: 'qc.blacklist_filter: true + blacklist BED configured'
   notes: resource-gated per genome
+- id: analysis_bam
+  description: Updated-profile analysis BAM
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/02_align/<sample>.analysis.bam
+  producing_rule: prepare_analysis_bam
+  tool: samtools
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'analysis_profile: updated'
+  notes: duplicate/organelle-derived view; raw final.bam remains available
+- id: analysis_filtered_bam
+  description: Analysis-filtered branch BAM
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/analysis_filtered/<sample>/02_align/<sample>.analysis.bam
+  producing_rule: prepare_analysis_bam
+  tool: samtools + filter_blacklist_templates.py
+  manifest_output_type: null
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'blacklist_mode: analysis'
+  notes: duplicate/organelle/blacklist-filtered analysis view
+- id: blacklist_dropped
+  description: Template-aware blacklist drop counts
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/05_qc/<sample>.blacklist_dropped.tsv
+  producing_rule: prepare_analysis_bam
+  tool: filter_blacklist_templates.py
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'blacklist_mode: analysis'
+  notes: counts whole templates/alignments removed by the analysis filter
+- id: analysis_filtered_blacklist_dropped
+  description: Analysis-filtered branch blacklist drop counts
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/analysis_filtered/<sample>/05_qc/<sample>.blacklist_dropped.tsv
+  producing_rule: prepare_analysis_bam
+  tool: filter_blacklist_templates.py
+  manifest_output_type: null
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'blacklist_mode: analysis'
+  notes: template and alignment counts for the filtered branch
+- id: analysis_filtered_cpm_bigwig
+  description: Analysis-filtered CPM BigWig
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/analysis_filtered/<sample>/03_bigwig/<sample>.CPM.bw
+  producing_rule: bamcoverage
+  tool: bamCoverage
+  manifest_output_type: null
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'blacklist_mode: analysis'
+  notes: consumed from the filtered analysis BAM
+- id: analysis_filtered_peaks
+  description: Analysis-filtered per-sample peak directory
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/analysis_filtered/<sample>/04_peaks/<sample>_blacklist_filtered/
+  producing_rule: blacklist_filter_peaks
+  tool: bedtools intersect
+  manifest_output_type: null
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'blacklist_mode: analysis'
+  notes: final per-sample peaks after blacklist interval removal
 - id: cross_correlation
   description: Cross-correlation QC metrics (NSC/RSC)
   scope: sample

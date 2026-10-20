@@ -718,6 +718,68 @@ def test_unsupported_methods_return_failure_without_side_effects(tmp_path):
     assert workspace_result.errors[0].code != "ENCODE_ADAPTER_UNSUPPORTED"
 
 
+def test_plan_workspace_analysis_mode_survives_snakemake_dryrun(tmp_path):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from _tool_resolver import resolve_tool
+
+    blacklist = tmp_path / "blacklist.bed"
+    blacklist.write_text("chr1\t0\t10\n", encoding="utf-8")
+    config = {
+        "use_control": False,
+        "multiqc": False,
+        "replicate_analysis": False,
+        "analysis_profile": "updated",
+        "blacklist_mode": "analysis",
+        "genome_resources": {
+            "hs": {
+                "effective_genome_size": "hs",
+                "blacklist": str(blacklist),
+            }
+        },
+        "qc": {
+            "blacklist_filter": False,
+            "frip": False,
+            "library_complexity": False,
+            "nrf_pbc": False,
+            "signal_tracks": False,
+            "summary": False,
+            "cuttag_fragment_size": False,
+        },
+    }
+    workspace = tmp_path / "workspace"
+    plan = _adapter().plan_workspace(
+        WorkflowInputs(config=config, samples=[_inline_row(tmp_path)]),
+        workspace,
+    )
+    assert plan.is_success, plan.issues
+    for directory in plan.value.directories:
+        (workspace / directory).mkdir(parents=True)
+    for relative, content in plan.value.files:
+        target = workspace / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+
+    snakemake = resolve_tool("snakemake", "SNAKEMAKE")
+    assert snakemake
+    result = subprocess.run(
+        [
+            snakemake,
+            "-s",
+            str(SRC_ROOT.parent / "workflow" / "Snakefile"),
+            "--configfile",
+            str(workspace / "config/config.yaml"),
+            "--workflow-profile",
+            "none",
+            "-n",
+            "results/.helixweave/analysis_identity.json",
+        ],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
 def _artifact_workspace(tmp_path: Path) -> Path:
     workspace = tmp_path / "workspace"
     (workspace / "config").mkdir(parents=True)
@@ -806,6 +868,59 @@ def test_extract_artifacts_fails_closed_for_unknown_vocabulary(tmp_path, monkeyp
 
     assert result.is_failure
     assert result.issues[0].code == "ENCODE_ARTIFACT_CATALOG_MISMATCH"
+
+
+def test_extract_artifacts_uses_analysis_filtered_root(tmp_path):
+    workspace = _artifact_workspace(tmp_path)
+    blacklist = workspace / "config/blacklist.bed"
+    blacklist.write_text("chr1\t0\t10\n", encoding="utf-8")
+    (workspace / "config/config.yaml").write_text(
+        "\n".join(
+            [
+                "samples: config/samples.tsv",
+                "outdir: results",
+                "use_control: false",
+                "multiqc: false",
+                "replicate_analysis: false",
+                "chipseq_idr: false",
+                "analysis_profile: updated",
+                "blacklist_mode: analysis",
+                "genome_resources:",
+                "  hs:",
+                '    effective_genome_size: "hs"',
+                f'    blacklist: "{blacklist}"',
+                "qc:",
+                "  signal_tracks: false",
+                "  summary: true",
+                "  frip: false",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _write_samples(
+        workspace / "config/samples.tsv", _samples_text(workspace / "config")
+    )
+
+    raw_bam = workspace / "results/S1/02_align/S1.final.bam"
+    raw_bam.parent.mkdir(parents=True)
+    raw_bam.write_bytes(b"raw")
+    filtered_root = workspace / "results/analysis_filtered"
+    filtered_bw = filtered_root / "S1/03_bigwig/S1.CPM.bw"
+    filtered_qc = filtered_root / "S1/01_qc/S1.qc_summary.tsv"
+    filtered_manifest = filtered_root / "multiqc/result_manifest.tsv"
+    for path in (filtered_bw, filtered_qc, filtered_manifest):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n", encoding="utf-8")
+
+    result = _adapter().extract_artifacts(WorkflowInputs(config={}), workspace)
+
+    assert result.is_success, result.issues
+    paths = {item.relative_path for item in result.value}
+    assert "results/S1/02_align/S1.final.bam" in paths
+    assert "results/analysis_filtered/S1/03_bigwig/S1.CPM.bw" in paths
+    assert "results/analysis_filtered/S1/01_qc/S1.qc_summary.tsv" in paths
+    assert "results/analysis_filtered/multiqc/result_manifest.tsv" in paths
 
 
 def test_extract_artifacts_adds_existing_result_manifest(tmp_path, monkeypatch):

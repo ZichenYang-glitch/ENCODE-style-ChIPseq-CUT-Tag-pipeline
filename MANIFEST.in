@@ -2,10 +2,12 @@ prune test
 include scripts/bootstrap_helixweave_operator.py
 include scripts/aggregate_qc_summary.py
 include scripts/assemble_qc_summary.py
+include scripts/blacklist_filter.py
 include scripts/calc_cuttag_fragment_size.py
 include scripts/calc_frip.py
 include scripts/calc_nrf_pbc.py
 include scripts/compute_consensus.py
+include scripts/filter_blacklist_templates.py
 include scripts/gtf_to_tss_bed.py
 include scripts/idr_reproducibility_summary.py
 include scripts/make_manifest.py

@@ -129,8 +129,10 @@ def _validate_blacklist_mode(
 ) -> str:
     """Resolve canonical blacklist_mode and keep qc.blacklist_filter consistent.
 
-    A1 does not implement the analysis branch; explicit `analysis` is rejected
-    rather than silently downgraded.
+    The legacy alias only expresses copies/off. In the analysis branch the
+    canonical key wins over the alias's off value so normalized configs remain
+    revalidatable; an explicit alias=true still conflicts because it requests
+    copies.
     """
     raw_mode = config.get("blacklist_mode")
     alias_present = isinstance(qc_raw, dict) and "blacklist_filter" in qc_raw
@@ -155,16 +157,22 @@ def _validate_blacklist_mode(
             name="blacklist_mode",
             allowed=defaults.BLACKLIST_MODES,
         )
-        if mapped is not None and mode != mapped:
-            raise ValidationError(
-                "config: blacklist_mode conflicts with qc.blacklist_filter. "
-                "Use one canonical key or make them consistent."
-            )
+        if mapped is not None:
+            if mode == "analysis":
+                if alias_value is True:
+                    raise ValidationError(
+                        "config: blacklist_mode=analysis conflicts with "
+                        "qc.blacklist_filter=true (copies)."
+                    )
+            elif mode != mapped:
+                raise ValidationError(
+                    "config: blacklist_mode conflicts with qc.blacklist_filter. "
+                    "Use one canonical key or make them consistent."
+                )
 
-    if mode == "analysis":
+    if mode == "analysis" and profile != "updated":
         raise ValidationError(
-            "config: blacklist_mode=analysis is not implemented in A1; "
-            "use off or copies until PR-D."
+            "config: blacklist_mode=analysis requires analysis_profile=updated."
         )
 
     if isinstance(qc_raw, dict):
@@ -307,8 +315,16 @@ def validate_execution_support(
     if profile not in ("legacy", "updated"):
         raise error_cls("config: analysis_profile is invalid")
 
-    if validated_config.get("blacklist_mode") not in ("off", "copies"):
-        raise error_cls("config: blacklist_mode=analysis is not executable until PR-D.")
+    if validated_config.get("blacklist_mode") not in (
+        "off",
+        "copies",
+        "analysis",
+    ):
+        raise error_cls("config: blacklist_mode is invalid")
+    if validated_config.get("blacklist_mode") == "analysis" and profile != "updated":
+        raise error_cls(
+            "config: blacklist_mode=analysis requires analysis_profile=updated."
+        )
     if validated_config.get("duplicate_analysis") not in ("exclude", "retain"):
         raise error_cls("config: duplicate_analysis is invalid")
     if validated_config.get("fragment_cpm") != "off":

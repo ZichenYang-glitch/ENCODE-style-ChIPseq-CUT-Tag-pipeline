@@ -47,7 +47,7 @@
       "type": "string",
       "enum": ["off", "copies", "analysis"],
       "default": "copies",
-      "description": "off=raw; copies=QC copies; analysis=filtered branch (deferred)."
+      "description": "off=raw; copies=QC copies; analysis=filtered analysis branch (updated only)."
     },
     "organelle_mode": {
       "type": "string",

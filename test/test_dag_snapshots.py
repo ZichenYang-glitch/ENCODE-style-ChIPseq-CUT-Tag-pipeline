@@ -343,7 +343,13 @@ _UPDATED_SAMPLES_HEADER = (
 
 
 def _write_updated_profile(
-    profile_dir, sample_rows, *, use_control, genome_resources=None
+    profile_dir,
+    sample_rows,
+    *,
+    use_control,
+    genome_resources=None,
+    blacklist_mode="off",
+    blacklist_path="",
 ):
     profile_dir.mkdir(parents=True, exist_ok=True)
     (profile_dir / "samples.tsv").write_text(
@@ -359,6 +365,9 @@ def _write_updated_profile(
             "reference_fasta": "",
         }
     }
+    if blacklist_path:
+        resources = {key: dict(value) for key, value in resources.items()}
+        resources.setdefault("hs", {})["blacklist"] = blacklist_path
     config = {
         "samples": "samples.tsv",
         "outdir": "results",
@@ -380,7 +389,7 @@ def _write_updated_profile(
         },
         "config_schema_version": "2.0.0",
         "analysis_profile": "updated",
-        "blacklist_mode": "off",
+        "blacklist_mode": blacklist_mode,
         "organelle_mode": "auto",
         "duplicate_backend": "picard",
         "duplicate_analysis": "exclude",
@@ -390,6 +399,8 @@ def _write_updated_profile(
         "fragment_cpm": "off",
         "tss_fragment_profile": False,
     }
+    if blacklist_mode == "analysis":
+        config["qc"].pop("blacklist_filter", None)
     (profile_dir / "config.yaml").write_text(
         yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
     )
@@ -498,6 +509,135 @@ def test_updated_staged_production_depends_on_identity_marker(snakefile, tmp_pat
         )
         assert result.returncode == 0, output
         assert "analysis_identity_marker" in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def _prepare_analysis_filtered_workdir(profiles_dir, profile_name):
+    workdir, dest_config = _prepare_updated_workdir(profiles_dir, profile_name)
+    with open(dest_config, encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+    blacklist = os.path.join(workdir, "blacklist.bed")
+    with open(blacklist, "w", encoding="utf-8") as handle:
+        handle.write("chr1\t0\t10\n")
+    config["blacklist_mode"] = "analysis"
+    config.setdefault("qc", {}).pop("blacklist_filter", None)
+    config.setdefault("genome_resources", {}).setdefault("hs", {})["blacklist"] = (
+        blacklist
+    )
+    with open(dest_config, "w", encoding="utf-8") as handle:
+        yaml.safe_dump(config, handle, sort_keys=False)
+    return workdir, dest_config
+
+
+def test_analysis_filtered_idr_uses_filtered_experiment_paths(snakefile, profiles_dir):
+    workdir, dest_config = _prepare_analysis_filtered_workdir(
+        profiles_dir, "chipseq_idr_dryrun"
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/analysis_filtered/experiments/exp1/06_idr/final/"
+            "conservative.narrowPeak",
+            printshellcmds=True,
+        )
+        assert result.returncode == 0, output
+        assert "results/analysis_filtered/experiments/exp1/06_idr" in output
+        assert "--blacklist" in output
+        assert "blacklist.bed" in output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_analysis_filtered_mnase_picard_uses_raw_metrics(snakefile, profiles_dir):
+    workdir, dest_config = _prepare_analysis_filtered_workdir(
+        profiles_dir, "mnase_pe_noctrl"
+    )
+    try:
+        reference = os.path.join(workdir, "reference.fa")
+        with open(reference, "w", encoding="utf-8") as handle:
+            handle.write(">chr1\nACGT\n")
+        with open(dest_config, encoding="utf-8") as handle:
+            config = yaml.safe_load(handle)
+        config.setdefault("qc", {})["picard_metrics"] = True
+        config.setdefault("genome_resources", {}).setdefault("hs", {})[
+            "reference_fasta"
+        ] = reference
+        with open(dest_config, "w", encoding="utf-8") as handle:
+            yaml.safe_dump(config, handle, sort_keys=False)
+
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/analysis_filtered/M1/01_qc/M1.mnase_qc_summary.tsv",
+        )
+        assert result.returncode == 0, output
+        assert "results/M1/05_qc/picard/M1.insert_size_metrics" in output
+        assert (
+            "results/analysis_filtered/M1/05_qc/picard/M1.insert_size_metrics"
+            not in output
+        )
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_analysis_filtered_branch_uses_filtered_namespace(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    blacklist = profile_dir / "blacklist.bed"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    blacklist.write_text("chr1\t0\t10\n", encoding="utf-8")
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K27ac\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+        blacklist_mode="analysis",
+        blacklist_path=str(blacklist),
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/analysis_filtered/T1/04_peaks/T1_blacklist_filtered/"
+            "T1_peaks.blacklist_filtered.narrowPeak",
+            printshellcmds=True,
+        )
+        assert result.returncode == 0, output
+        assert "results/analysis_filtered/T1/02_align/T1.analysis.bam" in output
+        assert "results/T1/02_align/T1.sorted.bam" in output
+        assert "results/analysis_filtered/T1/02_align/T1.sorted.bam" not in output
+        assert "filter_blacklist_templates.py" in output
+        assert "blacklist_filter_peaks" in output
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode == 0, output
+        assert "results/analysis_filtered/T1/02_align/T1.analysis.bam" in output
+        assert "results/T1/02_align/T1.sorted.bam" in output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_analysis_filtered_requires_blacklist_resource(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K27ac\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+        blacklist_mode="analysis",
+    )
+    try:
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "requires a non-empty" in output, output
     finally:
         shutil.rmtree(workdir)
 

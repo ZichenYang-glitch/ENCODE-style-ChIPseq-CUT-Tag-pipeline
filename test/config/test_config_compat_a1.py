@@ -112,9 +112,28 @@ def test_updated_alias_true_without_canonical_key_maps_to_copies(tmp_path):
     assert validated["qc"]["blacklist_filter"] is True
 
 
-def test_unsupported_analysis_branch_rejected(tmp_path):
-    with pytest.raises(ValidationError, match="not implemented in A1"):
+def test_analysis_branch_requires_updated_profile(tmp_path):
+    with pytest.raises(ValidationError, match="requires analysis_profile=updated"):
         _validate(tmp_path, blacklist_mode="analysis")
+
+
+def test_updated_analysis_branch_is_executable(tmp_path):
+    blacklist = tmp_path / "blacklist.bed"
+    blacklist.write_text("chr1\t0\t10\n", encoding="utf-8")
+    validated = _validate(
+        tmp_path,
+        analysis_profile="updated",
+        blacklist_mode="analysis",
+        genome_resources={
+            "hs": {
+                "effective_genome_size": "hs",
+                "blacklist": str(blacklist),
+            }
+        },
+    )
+    validate_execution_support(validated)
+    assert validated["blacklist_mode"] == "analysis"
+    assert validated["qc"]["blacklist_filter"] is False
 
 
 def test_remove_dup_conflicts_with_duplicate_analysis(tmp_path):
@@ -247,6 +266,36 @@ def test_workspace_render_roundtrip_is_idempotent(tmp_path):
     for key in keys:
         assert revalidated[key] == validated[key], key
     assert revalidated["qc"]["blacklist_filter"] is validated["qc"]["blacklist_filter"]
+
+
+def test_analysis_mode_normalizes_and_renders_idempotently(tmp_path):
+    blacklist = tmp_path / "blacklist.bed"
+    blacklist.write_text("chr1\t0\t10\n", encoding="utf-8")
+    resources = {
+        "hs": {
+            "effective_genome_size": "hs",
+            "blacklist": str(blacklist),
+        }
+    }
+    validated = _validate(
+        tmp_path,
+        analysis_profile="updated",
+        blacklist_mode="analysis",
+        genome_resources=resources,
+    )
+    assert validated["blacklist_mode"] == "analysis"
+    assert validated["qc"]["blacklist_filter"] is False
+
+    renormalized = validate_config(validated)
+    assert renormalized["blacklist_mode"] == "analysis"
+    assert renormalized["qc"]["blacklist_filter"] is False
+
+    workspace_config = _prepare_workspace_config(validated)
+    rendered = yaml.safe_load(_render_config_yaml(workspace_config))
+    rendered["samples"] = validated["samples"]
+    revalidated = validate_config(rendered)
+    assert revalidated["blacklist_mode"] == "analysis"
+    assert revalidated["qc"]["blacklist_filter"] is False
 
 
 def test_validation_has_no_filesystem_side_effects(tmp_path):

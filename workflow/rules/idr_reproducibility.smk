@@ -419,6 +419,7 @@ rule idr_summary_atac_narrow:
     params:
         script=f"{workflow.basedir}/../scripts/idr_reproducibility_summary.py",
         experiment=lambda wc: wc.experiment,
+        blacklist=lambda wc: experiment_blacklist(wc.experiment),
         assay="atac",
         caller="macs3",
         peak_mode="narrow",
@@ -452,6 +453,7 @@ rule idr_summary_atac_narrow:
             --final-output {params.final_output:q} \
             --output-tsv {output.summary:q} \
             --output-peak {output.final_peak:q} \
+            --blacklist={params.blacklist:q} \
             2>&1 | tee {log:q}
         """
 
@@ -477,6 +479,7 @@ rule idr_summary_cuttag_narrow:
     params:
         script=f"{workflow.basedir}/../scripts/idr_reproducibility_summary.py",
         experiment=lambda wc: wc.experiment,
+        blacklist=lambda wc: experiment_blacklist(wc.experiment),
         assay="cuttag",
         caller="macs3",
         peak_mode="narrow",
@@ -510,6 +513,7 @@ rule idr_summary_cuttag_narrow:
             --final-output {params.final_output:q} \
             --output-tsv {output.summary:q} \
             --output-peak {output.final_peak:q} \
+            --blacklist={params.blacklist:q} \
             2>&1 | tee {log:q}
         """
 
@@ -892,6 +896,7 @@ rule idr_summary_chipseq_broad:
     params:
         script=f"{workflow.basedir}/../scripts/idr_reproducibility_summary.py",
         experiment=lambda wc: wc.experiment,
+        blacklist=lambda wc: experiment_blacklist(wc.experiment),
         assay="chipseq",
         caller="macs3",
         peak_mode="broad",
@@ -925,6 +930,7 @@ rule idr_summary_chipseq_broad:
             --final-output {params.final_output:q} \
             --output-tsv {output.summary:q} \
             --output-peak {output.final_peak:q} \
+            --blacklist={params.blacklist:q} \
             2>&1 | tee {log:q}
         """
 
@@ -950,6 +956,7 @@ rule idr_summary_cuttag_broad:
     params:
         script=f"{workflow.basedir}/../scripts/idr_reproducibility_summary.py",
         experiment=lambda wc: wc.experiment,
+        blacklist=lambda wc: experiment_blacklist(wc.experiment),
         assay="cuttag",
         caller="macs3",
         peak_mode="broad",
@@ -983,5 +990,6 @@ rule idr_summary_cuttag_broad:
             --final-output {params.final_output:q} \
             --output-tsv {output.summary:q} \
             --output-peak {output.final_peak:q} \
+            --blacklist={params.blacklist:q} \
             2>&1 | tee {log:q}
         """

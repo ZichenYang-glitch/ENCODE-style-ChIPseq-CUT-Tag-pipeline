@@ -452,7 +452,7 @@ rule mnase_qc_summary:
         dyad_bw=mnase_signal_bw("{sample}", "dyad"),
         mono_bw=mnase_signal_bw("{sample}", "mono"),
         insert_size_metrics=lambda wc: (
-            [f"{OUTDIR}/{wc.sample}/05_qc/picard/{wc.sample}.insert_size_metrics"]
+            [f"{RAW_OUTDIR}/{wc.sample}/05_qc/picard/{wc.sample}.insert_size_metrics"]
             if QC_CONFIG.get("picard_metrics", False)
             else []
         ),
@@ -473,7 +473,7 @@ rule mnase_qc_summary:
         di_max=get_fragment_range("di")[1],
         dyad_min=get_dyad_range()[0],
         dyad_max=get_dyad_range()[1],
-        insert_size_metrics=f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.insert_size_metrics",
+        insert_size_metrics=f"{RAW_OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.insert_size_metrics",
         danpos3_enabled=str(_caller_enabled("danpos3")).lower(),
         inps_enabled=str(_caller_enabled("inps")).lower(),
         sem_enabled=str(_caller_enabled("sem")).lower(),

@@ -540,7 +540,14 @@ class EncodeStyleWorkflowAdapter:
             if not isinstance(config_value, dict):
                 raise ValueError("workspace config is not a mapping")
             manifest_config = deepcopy(config_value)
-            manifest_config["outdir"] = str(workspace_path / "results")
+            raw_outdir = workspace_path / "results"
+            analysis_outdir = (
+                raw_outdir / "analysis_filtered"
+                if config_value.get("blacklist_mode") == "analysis"
+                else raw_outdir
+            )
+            manifest_config["outdir"] = str(raw_outdir)
+            manifest_config["analysis_outdir"] = str(analysis_outdir)
             samples_path = workspace_path / "config" / "samples.tsv"
             manifest_config["samples"] = str(samples_path)
             rows, _missing, _not_applicable = build_manifest_rows(
@@ -576,13 +583,15 @@ class EncodeStyleWorkflowAdapter:
                     )
                 )
 
-            manifest_path = workspace_path / "results/multiqc/result_manifest.tsv"
+            manifest_path = analysis_outdir / "multiqc/result_manifest.tsv"
             if manifest_path.exists():
                 artifact = self._artifacts_by_id["result_manifest"]
                 candidates.append(
                     ExtractedArtifactCandidate(
                         output_type="result_manifest",
-                        relative_path="results/multiqc/result_manifest.tsv",
+                        relative_path=manifest_path.relative_to(
+                            workspace_path
+                        ).as_posix(),
                         mime_type="text/tab-separated-values",
                         metadata=_artifact_candidate_metadata(artifact, {}),
                     )

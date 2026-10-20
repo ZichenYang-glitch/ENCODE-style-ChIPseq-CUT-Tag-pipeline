@@ -82,8 +82,11 @@ def _is_mnase(sample_dict):
     return sample_dict.get("assay", "") == "mnase"
 
 
-def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
+def _build_sample_rows(
+    samples, outdir, signal_tracks, genomic_resources, analysis_outdir=None
+):
     """Per-sample rows using validated sample dicts (key='id')."""
+    analysis_root = analysis_outdir or outdir
     rows = []
     for s in sorted(samples, key=lambda x: x["id"]):
         sid = s["id"]
@@ -124,7 +127,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
             genome,
             "cpm_bigwig",
             "bamCoverage",
-            _resolve_path(outdir, sid, "03_bigwig", f"{sid}.CPM.bw"),
+            _resolve_path(analysis_root, sid, "03_bigwig", f"{sid}.CPM.bw"),
         )
 
         # Peak-centric outputs — gated on non-MNase
@@ -138,7 +141,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "macs3_peak",
                 "macs3_callpeak",
-                _resolve_path(outdir, sid, "04_peaks", sid),
+                _resolve_path(analysis_root, sid, "04_peaks", sid),
             )
             _add_row(
                 rows,
@@ -149,7 +152,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "qc_summary",
                 "assemble_qc_summary",
-                _resolve_path(outdir, sid, "01_qc", f"{sid}.qc_summary.tsv"),
+                _resolve_path(analysis_root, sid, "01_qc", f"{sid}.qc_summary.tsv"),
             )
         else:
             _add_row(
@@ -188,7 +191,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "macs3_fe_bdg",
                 "macs3_bdgcmp",
-                _resolve_path(outdir, sid, "03_signal", f"{sid}.FE.bdg"),
+                _resolve_path(analysis_root, sid, "03_signal", f"{sid}.FE.bdg"),
             )
             _add_row(
                 rows,
@@ -199,7 +202,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "macs3_ppois_bdg",
                 "macs3_bdgcmp",
-                _resolve_path(outdir, sid, "03_signal", f"{sid}.ppois.bdg"),
+                _resolve_path(analysis_root, sid, "03_signal", f"{sid}.ppois.bdg"),
             )
         else:
             _add_row(
@@ -238,7 +241,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "macs3_fe_bw",
                 "macs3_bdgcmp+bedGraphToBigWig",
-                _resolve_path(outdir, sid, "03_signal", f"{sid}.FE.bw"),
+                _resolve_path(analysis_root, sid, "03_signal", f"{sid}.FE.bw"),
             )
             _add_row(
                 rows,
@@ -249,7 +252,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "macs3_ppois_bw",
                 "macs3_bdgcmp+bedGraphToBigWig",
-                _resolve_path(outdir, sid, "03_signal", f"{sid}.ppois.bw"),
+                _resolve_path(analysis_root, sid, "03_signal", f"{sid}.ppois.bw"),
             )
         else:
             _add_row(
@@ -289,7 +292,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "mnase_mono_bam",
                 "alignmentSieve",
-                _resolve_path(outdir, sid, "03_fragments", f"{sid}.mono.bam"),
+                _resolve_path(analysis_root, sid, "03_fragments", f"{sid}.mono.bam"),
             )
             _add_row(
                 rows,
@@ -300,7 +303,9 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "mnase_mono_bai",
                 "samtools index",
-                _resolve_path(outdir, sid, "03_fragments", f"{sid}.mono.bam.bai"),
+                _resolve_path(
+                    analysis_root, sid, "03_fragments", f"{sid}.mono.bam.bai"
+                ),
             )
             _add_row(
                 rows,
@@ -311,7 +316,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "mnase_dyad_bigwig",
                 "bamCoverage --MNase",
-                _resolve_path(outdir, sid, "04_signal", f"{sid}.dyad.CPM.bw"),
+                _resolve_path(analysis_root, sid, "04_signal", f"{sid}.dyad.CPM.bw"),
             )
             _add_row(
                 rows,
@@ -322,7 +327,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "mnase_mono_bigwig",
                 "bamCoverage",
-                _resolve_path(outdir, sid, "04_signal", f"{sid}.mono.CPM.bw"),
+                _resolve_path(analysis_root, sid, "04_signal", f"{sid}.mono.CPM.bw"),
             )
             # Stage 40: sub-nucleosome BAM, di-nucleosome BAM, QC summary
             _add_row(
@@ -334,7 +339,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "mnase_sub_bam",
                 "alignmentSieve",
-                _resolve_path(outdir, sid, "03_fragments", f"{sid}.sub.bam"),
+                _resolve_path(analysis_root, sid, "03_fragments", f"{sid}.sub.bam"),
             )
             _add_row(
                 rows,
@@ -345,7 +350,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "mnase_sub_bai",
                 "samtools index",
-                _resolve_path(outdir, sid, "03_fragments", f"{sid}.sub.bam.bai"),
+                _resolve_path(analysis_root, sid, "03_fragments", f"{sid}.sub.bam.bai"),
             )
             _add_row(
                 rows,
@@ -356,7 +361,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "mnase_di_bam",
                 "alignmentSieve",
-                _resolve_path(outdir, sid, "03_fragments", f"{sid}.di.bam"),
+                _resolve_path(analysis_root, sid, "03_fragments", f"{sid}.di.bam"),
             )
             _add_row(
                 rows,
@@ -367,7 +372,7 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "mnase_di_bai",
                 "samtools index",
-                _resolve_path(outdir, sid, "03_fragments", f"{sid}.di.bam.bai"),
+                _resolve_path(analysis_root, sid, "03_fragments", f"{sid}.di.bam.bai"),
             )
             _add_row(
                 rows,
@@ -378,7 +383,9 @@ def _build_sample_rows(samples, outdir, signal_tracks, genomic_resources):
                 genome,
                 "mnase_qc_summary",
                 "mnase_qc_summary.py",
-                _resolve_path(outdir, sid, "01_qc", f"{sid}.mnase_qc_summary.tsv"),
+                _resolve_path(
+                    analysis_root, sid, "01_qc", f"{sid}.mnase_qc_summary.tsv"
+                ),
             )
 
     return rows
@@ -1379,6 +1386,7 @@ def build_manifest_rows(config, samples_path=None):
         tuple (rows, missing_count, not_applicable_count)
     """
     outdir = config.get("outdir", "results")
+    analysis_outdir = config.get("analysis_outdir") or outdir
     qc = config.get("qc", {})
     signal_tracks = qc.get("signal_tracks", True)
     replicate_analysis = config.get("replicate_analysis", True)
@@ -1397,20 +1405,26 @@ def build_manifest_rows(config, samples_path=None):
 
     rows = []
     rows.extend(
-        _build_sample_rows(treatment_samples, outdir, signal_tracks, genomic_resources)
+        _build_sample_rows(
+            treatment_samples,
+            outdir,
+            signal_tracks,
+            genomic_resources,
+            analysis_outdir=analysis_outdir,
+        )
     )
     rows.extend(
         _build_experiment_rows(
             treatment_samples,
-            outdir,
+            analysis_outdir,
             signal_tracks,
             genomic_resources,
             replicate_analysis,
         )
     )
-    rows.extend(_build_idr_rows(treatment_samples, outdir, chipseq_idr))
-    rows.extend(_build_reproducibility_rows(treatment_samples, config, outdir))
-    rows.extend(_build_project_rows(outdir, multiqc_enabled, has_peak_samples))
+    rows.extend(_build_idr_rows(treatment_samples, analysis_outdir, chipseq_idr))
+    rows.extend(_build_reproducibility_rows(treatment_samples, config, analysis_outdir))
+    rows.extend(_build_project_rows(analysis_outdir, multiqc_enabled, has_peak_samples))
 
     missing_count = sum(1 for r in rows if r["status"] == "missing")
     na_count = sum(1 for r in rows if r["status"] == "not_applicable")

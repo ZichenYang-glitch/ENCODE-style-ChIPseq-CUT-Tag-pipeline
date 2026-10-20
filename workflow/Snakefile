@@ -67,7 +67,10 @@ schema: "schemas/config.schema.json"
 VALIDATED_CONFIG = validate_config(config)
 validate_execution_support(VALIDATED_CONFIG)
 
-OUTDIR = VALIDATED_CONFIG["outdir"]
+RAW_OUTDIR = VALIDATED_CONFIG["outdir"]
+BLACKLIST_MODE = VALIDATED_CONFIG.get("blacklist_mode", "off")
+ANALYSIS_FILTERED = BLACKLIST_MODE == "analysis"
+OUTDIR = f"{RAW_OUTDIR}/analysis_filtered" if ANALYSIS_FILTERED else RAW_OUTDIR
 THREADS = VALIDATED_CONFIG["threads"]
 MAPQ = VALIDATED_CONFIG["mapq"]
 MAPQ_TAG = f"mapq{MAPQ}"
@@ -222,6 +225,7 @@ def _analysis_identity_hash():
         "reference_mode": VALIDATED_CONFIG.get("reference_mode"),
         "external_control_policy": VALIDATED_CONFIG.get("external_control_policy"),
         "organelle_mode": VALIDATED_CONFIG.get("organelle_mode"),
+        "blacklist_mode": VALIDATED_CONFIG.get("blacklist_mode"),
         "duplicate_analysis": VALIDATED_CONFIG.get("duplicate_analysis"),
         "control_mode": VALIDATED_CONFIG.get("control_mode"),
         "duplicate_backend": VALIDATED_CONFIG.get("duplicate_backend"),
@@ -239,7 +243,7 @@ def _analysis_identity_hash():
 
 
 def _analysis_identity_marker():
-    return Path(OUTDIR) / ".helixweave" / "analysis_identity.json"
+    return Path(RAW_OUTDIR) / ".helixweave" / "analysis_identity.json"
 
 
 def _analysis_identity_inputs(wildcards):
@@ -298,7 +302,7 @@ def _check_analysis_outdir_identity():
         return
     if profile != "updated":
         return
-    outdir = Path(OUTDIR)
+    outdir = Path(RAW_OUTDIR)
     if outdir.exists():
         entries = [
             entry

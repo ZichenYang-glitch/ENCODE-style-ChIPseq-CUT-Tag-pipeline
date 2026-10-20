@@ -147,8 +147,8 @@ def _config_schema() -> dict[str, object]:
                 "enum": ["off", "copies", "analysis"],
                 "default": "copies",
                 "description": (
-                    "off=raw; copies=QC copies; analysis=filtered branch "
-                    "(analysis is deferred until PR-D)."
+                    "off=raw; copies=QC copies; analysis=filtered analysis "
+                    "branch (analysis_profile=updated only)."
                 ),
             },
             "organelle_mode": {

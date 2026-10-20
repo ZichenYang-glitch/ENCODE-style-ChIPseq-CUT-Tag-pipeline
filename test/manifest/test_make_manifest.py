@@ -86,6 +86,111 @@ def manifest_case(tmp_config):
     return _make
 
 
+def test_analysis_outdir_separates_raw_and_analysis_rows(tmp_config):
+    from encode_pipeline.manifest.make import build_manifest_rows
+
+    _, _, samples_path = tmp_config(
+        config={"samples": "", "use_control": False},
+        samples=_make_samples(),
+    )
+    config = _base_config()
+    config.update(
+        {
+            "samples": str(samples_path),
+            "outdir": "raw",
+            "analysis_outdir": "raw/analysis_filtered",
+        }
+    )
+
+    rows, _, _ = build_manifest_rows(config)
+    paths = {row["output_type"]: row["path"] for row in rows}
+
+    assert paths["final_bam"].startswith("raw/S1/")
+    assert paths["cpm_bigwig"].startswith("raw/analysis_filtered/S1/")
+    assert paths["macs3_peak"].startswith("raw/analysis_filtered/S1/")
+    assert paths["qc_summary"].startswith("raw/analysis_filtered/S1/")
+
+
+def test_mnase_rows_use_analysis_outdir(tmp_config):
+    from encode_pipeline.manifest.make import build_manifest_rows
+
+    workdir, _, samples_path = tmp_config(
+        config={"samples": "", "use_control": False},
+        samples=_make_samples(
+            sample_rows=[
+                [
+                    "S1",
+                    "R1.fq",
+                    "R2.fq",
+                    "PE",
+                    "mnase",
+                    "H3",
+                    "nucleosome",
+                    "hs",
+                    "/opt/idx/ref",
+                ]
+            ]
+        ),
+    )
+    raw_root = workdir / "raw"
+    analysis_root = raw_root / "analysis_filtered" / "S1"
+    for relative in (
+        "03_fragments/S1.mono.bam",
+        "03_fragments/S1.mono.bam.bai",
+        "03_fragments/S1.sub.bam",
+        "03_fragments/S1.sub.bam.bai",
+        "03_fragments/S1.di.bam",
+        "03_fragments/S1.di.bam.bai",
+        "04_signal/S1.dyad.CPM.bw",
+        "04_signal/S1.mono.CPM.bw",
+        "01_qc/S1.mnase_qc_summary.tsv",
+    ):
+        path = analysis_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n", encoding="utf-8")
+    config = _base_config()
+    config.update(
+        {
+            "samples": str(samples_path),
+            "outdir": str(raw_root),
+            "analysis_outdir": str(raw_root / "analysis_filtered"),
+            "replicate_analysis": False,
+        }
+    )
+
+    rows, _, _ = build_manifest_rows(config)
+    paths = {row["output_type"]: row["path"] for row in rows}
+
+    assert paths["final_bam"].startswith(str(raw_root / "S1"))
+    expected_root = str(analysis_root) + os.sep
+    for output_type in (
+        "mnase_mono_bam",
+        "mnase_mono_bai",
+        "mnase_dyad_bigwig",
+        "mnase_mono_bigwig",
+        "mnase_sub_bam",
+        "mnase_sub_bai",
+        "mnase_di_bam",
+        "mnase_di_bai",
+        "mnase_qc_summary",
+    ):
+        assert paths[output_type].startswith(expected_root), output_type
+
+    present = {row["output_type"] for row in rows if row["status"] == "present"}
+    for output_type in (
+        "mnase_mono_bam",
+        "mnase_mono_bai",
+        "mnase_dyad_bigwig",
+        "mnase_mono_bigwig",
+        "mnase_sub_bam",
+        "mnase_sub_bai",
+        "mnase_di_bam",
+        "mnase_di_bai",
+        "mnase_qc_summary",
+    ):
+        assert output_type in present, output_type
+
+
 def _run_manifest(config_path, out, use_json=False):
     """Run make_manifest.py directly and return parsed rows."""
     old_argv = sys.argv

@@ -137,6 +137,36 @@ This is configuration-based DAG selection: missing selected outputs must be
 produced, not silently replaced with raw inputs. `_peak_counts_inputs` requests
 raw peaks and optional filtered peaks, never the filtered BAM.
 
+### Analysis-filtered blacklist branch
+
+`analysis_profile: updated` also supports a whole-analysis blacklist branch:
+
+```yaml
+analysis_profile: updated
+blacklist_mode: analysis
+genome_resources:
+  hg38:
+    effective_genome_size: "hs"
+    blacklist: "/refs/hg38/hg38.blacklist.bed"
+```
+
+`blacklist_mode: analysis` requires a non-empty blacklist for every active
+sample genome and is rejected under `analysis_profile: legacy`. Raw
+preprocessing outputs stay under `results/<sample>/`; analysis outputs move to
+`results/analysis_filtered/<sample>/` and
+`results/analysis_filtered/experiments/<experiment>/`. The analysis BAM is
+derived after duplicate/organelle filtering. PE templates are removed when the
+fragment span (`min(POS, PNEXT)` through `min + abs(TLEN) - 1`) overlaps the
+blacklist; SE reads use their alignment span. Non-proper/orphan PE records fail
+closed. Per-template drop counts are written to
+`05_qc/<sample>.blacklist_dropped.tsv`.
+
+In this branch, MACS3, BigWig, FRiP, SEACR, cross-correlation, TSS, MNase, IDR
+and consensus consume the filtered analysis BAM/namespace. Per-sample peaks are
+also written as `04_peaks/<sample>_blacklist_filtered/`, and final IDR/consensus
+peak sets are filtered before promotion. The raw `final.bam` and raw QC remain
+available under `results/`.
+
 `final.bam` may retain duplicates according to the duplicate policy.
 Default CPM coverage uses that final BAM in
 [`common.smk`](../workflow/rules/common.smk); MACS3 FE/ppois tracks use MACS3

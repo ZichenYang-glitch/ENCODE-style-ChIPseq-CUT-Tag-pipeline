@@ -260,6 +260,7 @@ rule consensus_compute_narrow:
         ),
     params:
         script = f"{workflow.basedir}/../scripts/compute_consensus.py",
+        blacklist = lambda wc: experiment_blacklist(wc.experiment),
         min_replicates     = lambda wc: REPRODUCIBILITY_CONFIG.get(
             "consensus", {}).get("min_replicates", 2),
         reciprocal_overlap = lambda wc: REPRODUCIBILITY_CONFIG.get(
@@ -301,6 +302,7 @@ rule consensus_compute_narrow:
             --peak-mode {wildcards.peak_mode:q} \
             --final-method {params.final_method:q} \
             --final-output={params.final_output:q} \
+            --blacklist={params.blacklist:q} \
             2>&1 | tee {log:q}
         """
 
@@ -319,6 +321,7 @@ rule consensus_compute_broad:
         ),
     params:
         script = f"{workflow.basedir}/../scripts/compute_consensus.py",
+        blacklist = lambda wc: experiment_blacklist(wc.experiment),
         min_replicates     = lambda wc: REPRODUCIBILITY_CONFIG.get(
             "consensus", {}).get("min_replicates", 2),
         reciprocal_overlap = lambda wc: REPRODUCIBILITY_CONFIG.get(
@@ -360,6 +363,7 @@ rule consensus_compute_broad:
             --peak-mode {wildcards.peak_mode:q} \
             --final-method {params.final_method:q} \
             --final-output {params.final_output:q} \
+            --blacklist={params.blacklist:q} \
             2>&1 | tee {log:q}
         """
 
@@ -573,6 +577,7 @@ rule consensus_compute_seacr:
         lambda wc: _consensus_seacr_peak_inputs(wc),
     params:
         script = f"{workflow.basedir}/../scripts/compute_consensus.py",
+        blacklist = lambda wc: experiment_blacklist(wc.experiment),
         min_replicates     = lambda wc: REPRODUCIBILITY_CONFIG.get(
             "consensus", {}).get("min_replicates", 2),
         reciprocal_overlap = lambda wc: REPRODUCIBILITY_CONFIG.get(
@@ -609,6 +614,7 @@ rule consensus_compute_seacr:
             --peak-mode {wildcards.mode:q} \
             --final-method consensus \
             --final-output {params.final_output:q} \
+            --blacklist={params.blacklist:q} \
             2>&1 | tee {log:q}
         """
 
