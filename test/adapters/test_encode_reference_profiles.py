@@ -58,6 +58,27 @@ def _binding(root: Path) -> dict[str, object]:
     }
 
 
+def _binding_v2(root: Path) -> dict[str, object]:
+    payload = _binding(root)
+    payload["schema_version"] = "encode-reference-binding-v2"
+    resources = payload["genome_resources"]
+    assert isinstance(resources, dict)
+    fasta = Path(resources["reference_fasta"]["path"])
+    fai = Path(str(fasta) + ".fai")
+    resources["reference_fai"] = {
+        "path": str(fai),
+        "sha256": _write(fai, b"chr1\t4\t6\t4\t5\n"),
+    }
+    reference_dict = root / "reference/reference.dict"
+    resources["reference_dict"] = {
+        "path": str(reference_dict),
+        "sha256": _write(reference_dict, b"@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:4\n"),
+    }
+    payload["organelle_chroms"] = ["chr1"]
+    payload["canonical_chroms"] = ["chr1"]
+    return payload
+
+
 def _inputs(root: Path) -> WorkflowInputs:
     return WorkflowInputs(
         config={"threads": 1},
@@ -116,6 +137,68 @@ def test_encode_binding_verifies_and_injects_exact_reference(tmp_path: Path):
     )
     assert direct_plan.is_success and selected_plan.is_success
     assert selected_plan.value == direct_plan.value
+
+
+def test_encode_binding_v2_checks_contig_closure_and_injects_organelles(
+    tmp_path: Path,
+):
+    adapter = EncodeStyleWorkflowAdapter()
+    payload = _binding_v2(tmp_path)
+
+    verified = adapter.verify_reference_profile_binding(payload)
+    bound = adapter.bind_reference_profile(_inputs(tmp_path), payload)
+
+    assert verified.is_success, verified.issues
+    assert bound.is_success, bound.issues
+    assert verified.value.contract_version == "encode-reference-binding-v2"
+    resources = bound.value.inputs.config["genome_resources"]["GRCh38"]
+    assert resources["organelle_chroms"] == ["chr1"]
+    assert resources["reference_fasta"].endswith("reference_fasta.fa")
+
+
+@pytest.mark.parametrize(
+    ("resource", "content"),
+    [
+        ("chrom_sizes", b"chr1\t5\n"),
+        ("gtf", b'chr2\ttest\texon\t1\t4\t.\t+\t.\tgene_id "g1";\n'),
+        ("blacklist", b"chr2\t1\t2\n"),
+        ("reference_fai", b"chr1\t5\t0\t5\t6\n"),
+        ("reference_dict", b"@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:5\n"),
+    ],
+)
+def test_encode_binding_v2_rejects_cross_resource_mismatch(
+    tmp_path: Path, resource: str, content: bytes
+):
+    adapter = EncodeStyleWorkflowAdapter()
+    payload = _binding_v2(tmp_path)
+    resources = payload["genome_resources"]
+    assert isinstance(resources, dict)
+    path = Path(resources[resource]["path"])
+    resources[resource]["sha256"] = _write(path, content)
+
+    result = adapter.verify_reference_profile_binding(payload)
+
+    assert result.is_failure
+
+
+def test_encode_binding_v2_rejects_organelle_and_egs_mismatch(tmp_path: Path):
+    adapter = EncodeStyleWorkflowAdapter()
+    payload = _binding_v2(tmp_path)
+    payload["organelle_chroms"] = ["chr2"]
+    assert adapter.verify_reference_profile_binding(payload).is_failure
+
+    payload = _binding_v2(tmp_path / "egs")
+    payload["effective_genome_size"] = "mm"
+    assert adapter.verify_reference_profile_binding(payload).is_failure
+
+
+def test_encode_binding_v2_identity_is_path_free(tmp_path: Path):
+    adapter = EncodeStyleWorkflowAdapter()
+    first = adapter.verify_reference_profile_binding(_binding_v2(tmp_path / "a"))
+    second = adapter.verify_reference_profile_binding(_binding_v2(tmp_path / "b"))
+
+    assert first.is_success and second.is_success
+    assert first.value == second.value
 
 
 def test_encode_binding_identity_is_path_free_and_content_deterministic(
@@ -266,3 +349,73 @@ def test_encode_binding_rejects_descriptor_replacement_race(
     assert replaced is True
     assert result.is_failure
     assert result.errors[0].code == "ENCODE_REFERENCE_BINDING_INVALID"
+
+
+def test_encode_binding_v2_rejects_replacement_between_hash_and_parse(
+    tmp_path: Path, monkeypatch
+):
+    import encode_pipeline.adapters.encode_references as refs
+
+    adapter = EncodeStyleWorkflowAdapter()
+    payload = _binding_v2(tmp_path)
+    resources = payload["genome_resources"]
+    assert isinstance(resources, dict)
+    fasta = Path(resources["reference_fasta"]["path"])
+    original = refs._iter_verified_lines
+    replaced = False
+
+    def hooked(path, expected_sha256):
+        nonlocal replaced
+        if not replaced and str(path) == str(fasta):
+            replaced = True
+            fasta.write_bytes(b">chr1\nTTTT\n")
+        return original(path, expected_sha256)
+
+    monkeypatch.setattr(refs, "_iter_verified_lines", hooked)
+    result = adapter.verify_reference_profile_binding(payload)
+
+    assert result.is_failure
+
+
+def test_encode_binding_v2_does_not_skip_track_like_data_contigs(
+    tmp_path: Path,
+):
+    adapter = EncodeStyleWorkflowAdapter()
+    payload = _binding_v2(tmp_path)
+    resources = payload["genome_resources"]
+    assert isinstance(resources, dict)
+    gtf = Path(resources["gtf"]["path"])
+    resources["gtf"]["sha256"] = _write(
+        gtf,
+        b'track_decoy\ttest\texon\t1\t4\t.\t+\t.\tgene_id "g1";\n',
+    )
+    assert adapter.verify_reference_profile_binding(payload).is_failure
+
+    payload = _binding_v2(tmp_path / "bed")
+    resources = payload["genome_resources"]
+    assert isinstance(resources, dict)
+    blacklist = Path(resources["blacklist"]["path"])
+    resources["blacklist"]["sha256"] = _write(blacklist, b"browser_decoy\t1\t2\n")
+    assert adapter.verify_reference_profile_binding(payload).is_failure
+
+
+def test_encode_binding_v2_accepts_real_bed_headers(tmp_path: Path):
+    adapter = EncodeStyleWorkflowAdapter()
+    payload = _binding_v2(tmp_path)
+    resources = payload["genome_resources"]
+    assert isinstance(resources, dict)
+    blacklist = Path(resources["blacklist"]["path"])
+    resources["blacklist"]["sha256"] = _write(
+        blacklist,
+        b"#chrom\tstart\tend\n"
+        b"track name=blacklist\n"
+        b"browser position chr1:1-2\n"
+        b"chr1\t1\t2\n",
+    )
+    gtf = Path(resources["gtf"]["path"])
+    resources["gtf"]["sha256"] = _write(
+        gtf,
+        b'# annotation\nchr1\ttest\texon\t1\t4\t.\t+\t.\tgene_id "g1";\n',
+    )
+
+    assert adapter.verify_reference_profile_binding(payload).is_success
