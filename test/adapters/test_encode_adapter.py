@@ -948,6 +948,17 @@ def test_extract_artifacts_uses_analysis_filtered_root(tmp_path):
     assert "results/analysis_filtered/S1/01_qc/S1.qc_summary.tsv" in paths
     assert "results/analysis_filtered/multiqc/result_manifest.tsv" in paths
 
+    by_path = {item.relative_path: item.metadata for item in result.value}
+    filtered_meta = by_path["results/analysis_filtered/S1/03_bigwig/S1.CPM.bw"]
+    assert filtered_meta["analysis_profile"] == "updated"
+    assert filtered_meta["analysis_branch"] == "analysis_filtered"
+    assert filtered_meta["blacklist_mode"] == "analysis"
+    assert filtered_meta["coverage_unit"] == "read"
+    assert filtered_meta["normalization"] == "CPM"
+    assert filtered_meta["reference_assembly"] == "hs"
+    raw_meta = by_path["results/S1/02_align/S1.final.bam"]
+    assert raw_meta["analysis_branch"] == "raw"
+
 
 def test_extract_artifacts_adds_existing_result_manifest(tmp_path, monkeypatch):
     workspace = _artifact_workspace(tmp_path)
@@ -964,3 +975,289 @@ def test_extract_artifacts_adds_existing_result_manifest(tmp_path, monkeypatch):
     assert result.is_success
     assert result.value[0].output_type == "result_manifest"
     assert result.value[0].relative_path == "results/multiqc/result_manifest.tsv"
+
+
+def _write_workspace_config(workspace, lines):
+    (workspace / "config/config.yaml").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
+
+
+def _metadata_by_path(workspace):
+    result = _adapter().extract_artifacts(WorkflowInputs(config={}), workspace)
+    assert result.is_success, result.issues
+    return {item.relative_path: item.metadata for item in result.value}
+
+
+@pytest.mark.parametrize("normalization", ["CPM", "RPKM", "BPM", "None"])
+def test_artifact_metadata_uses_effective_bamcoverage_normalization(
+    tmp_path, normalization
+):
+    workspace = _artifact_workspace(tmp_path)
+    _write_samples(
+        workspace / "config/samples.tsv", _samples_text(workspace / "config")
+    )
+    _write_workspace_config(
+        workspace,
+        [
+            "samples: config/samples.tsv",
+            "outdir: results",
+            "use_control: false",
+            "multiqc: false",
+            "replicate_analysis: false",
+            "chipseq_idr: false",
+            "analysis_profile: updated",
+            "tool_parameters:",
+            "  bamcoverage:",
+            f'    normalize_using: "{normalization}"',
+            "qc:",
+            "  signal_tracks: false",
+            "  summary: false",
+            "  frip: false",
+        ],
+    )
+    cpm = workspace / "results/S1/03_bigwig/S1.CPM.bw"
+    cpm.parent.mkdir(parents=True)
+    cpm.write_text("x\n", encoding="utf-8")
+
+    metadata = _metadata_by_path(workspace)["results/S1/03_bigwig/S1.CPM.bw"]
+
+    assert metadata["normalization"] == normalization
+
+
+def test_artifact_metadata_does_not_label_fe_ppois_as_read_coverage(tmp_path):
+    workspace = _artifact_workspace(tmp_path)
+    _write_samples(
+        workspace / "config/samples.tsv", _samples_text(workspace / "config")
+    )
+    chrom_sizes = workspace / "config/chrom.sizes"
+    chrom_sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    _write_workspace_config(
+        workspace,
+        [
+            "samples: config/samples.tsv",
+            "outdir: results",
+            "use_control: false",
+            "multiqc: false",
+            "replicate_analysis: false",
+            "chipseq_idr: false",
+            "analysis_profile: updated",
+            "genome_resources:",
+            "  hs:",
+            '    effective_genome_size: "hs"',
+            f'    chrom_sizes: "{chrom_sizes}"',
+            "qc:",
+            "  signal_tracks: true",
+            "  summary: false",
+            "  frip: false",
+        ],
+    )
+    for name in ("FE", "ppois"):
+        path = workspace / f"results/S1/03_signal/S1.{name}.bw"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n", encoding="utf-8")
+
+    metadata = _metadata_by_path(workspace)
+    for name in ("FE", "ppois"):
+        entry = metadata[f"results/S1/03_signal/S1.{name}.bw"]
+        assert entry.get("coverage_unit") != "read"
+
+
+def test_artifact_branch_distinguishes_sample_named_analysis_filtered(tmp_path):
+    workspace = _artifact_workspace(tmp_path)
+    samples = _samples_text(workspace / "config").replace("S1", "analysis_filtered")
+    _write_samples(workspace / "config/samples.tsv", samples)
+    _write_workspace_config(
+        workspace,
+        [
+            "samples: config/samples.tsv",
+            "outdir: results",
+            "use_control: false",
+            "multiqc: false",
+            "replicate_analysis: false",
+            "chipseq_idr: false",
+            "analysis_profile: legacy",
+            "blacklist_mode: off",
+            "qc:",
+            "  signal_tracks: false",
+            "  summary: false",
+            "  frip: false",
+        ],
+    )
+    raw_bam = (
+        workspace / "results/analysis_filtered/02_align/analysis_filtered.final.bam"
+    )
+    raw_bam.parent.mkdir(parents=True)
+    raw_bam.write_text("raw\n", encoding="utf-8")
+
+    metadata = _metadata_by_path(workspace)
+    assert (
+        metadata["results/analysis_filtered/02_align/analysis_filtered.final.bam"][
+            "analysis_branch"
+        ]
+        == "raw"
+    )
+
+
+def test_artifact_branch_does_not_mislabel_raw_sample_named_analysis_filtered(
+    tmp_path,
+):
+    workspace = _artifact_workspace(tmp_path)
+    samples = _samples_text(workspace / "config").replace("S1", "analysis_filtered")
+    _write_samples(workspace / "config/samples.tsv", samples)
+    blacklist = workspace / "config/blacklist.bed"
+    blacklist.write_text("chr1\t0\t10\n", encoding="utf-8")
+    _write_workspace_config(
+        workspace,
+        [
+            "samples: config/samples.tsv",
+            "outdir: results",
+            "use_control: false",
+            "multiqc: false",
+            "replicate_analysis: false",
+            "chipseq_idr: false",
+            "analysis_profile: updated",
+            "blacklist_mode: analysis",
+            "genome_resources:",
+            "  hs:",
+            '    effective_genome_size: "hs"',
+            f'    blacklist: "{blacklist}"',
+            "qc:",
+            "  signal_tracks: false",
+            "  summary: false",
+            "  frip: false",
+        ],
+    )
+    raw_bam = (
+        workspace / "results/analysis_filtered/02_align/analysis_filtered.final.bam"
+    )
+    raw_bam.parent.mkdir(parents=True)
+    raw_bam.write_text("raw\n", encoding="utf-8")
+    filtered_cpm = (
+        workspace / "results/analysis_filtered/analysis_filtered/03_bigwig/"
+        "analysis_filtered.CPM.bw"
+    )
+    filtered_cpm.parent.mkdir(parents=True)
+    filtered_cpm.write_text("x\n", encoding="utf-8")
+
+    metadata = _metadata_by_path(workspace)
+    assert (
+        metadata["results/analysis_filtered/02_align/analysis_filtered.final.bam"][
+            "analysis_branch"
+        ]
+        == "raw"
+    )
+    assert (
+        metadata[
+            "results/analysis_filtered/analysis_filtered/03_bigwig/"
+            "analysis_filtered.CPM.bw"
+        ]["analysis_branch"]
+        == "analysis_filtered"
+    )
+
+
+def _write_rows(path, rows):
+    output = StringIO()
+    writer = csv.DictWriter(
+        output, fieldnames=tuple(rows[0]), delimiter="\t", lineterminator="\n"
+    )
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    path.write_text(output.getvalue(), encoding="utf-8")
+
+
+def test_artifact_metadata_mnase_dyad_is_not_read_coverage(tmp_path):
+    workspace = _artifact_workspace(tmp_path)
+    row = _inline_row(tmp_path, "M1")
+    row.update({"assay": "mnase", "target": "H3", "peak_mode": "nucleosome"})
+    _write_rows(workspace / "config/samples.tsv", [row])
+    chrom_sizes = workspace / "config/chrom.sizes"
+    chrom_sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    _write_workspace_config(
+        workspace,
+        [
+            "samples: config/samples.tsv",
+            "outdir: results",
+            "use_control: false",
+            "multiqc: false",
+            "replicate_analysis: false",
+            "chipseq_idr: false",
+            "analysis_profile: updated",
+            "tool_parameters:",
+            "  bamcoverage:",
+            '    normalize_using: "RPKM"',
+            "genome_resources:",
+            "  hs:",
+            '    effective_genome_size: "hs"',
+            f'    chrom_sizes: "{chrom_sizes}"',
+            "qc:",
+            "  signal_tracks: true",
+            "  summary: false",
+            "  frip: false",
+        ],
+    )
+    for name in ("dyad", "mono"):
+        path = workspace / f"results/M1/04_signal/M1.{name}.CPM.bw"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n", encoding="utf-8")
+
+    metadata = _metadata_by_path(workspace)
+    dyad = metadata["results/M1/04_signal/M1.dyad.CPM.bw"]
+    mono = metadata["results/M1/04_signal/M1.mono.CPM.bw"]
+    assert "coverage_unit" not in dyad
+    assert dyad["normalization"] == "RPKM"
+    assert mono["coverage_unit"] == "read"
+    assert mono["normalization"] == "RPKM"
+
+
+def test_artifact_metadata_pooled_mnase_dyad_is_not_read_coverage(tmp_path):
+    workspace = _artifact_workspace(tmp_path)
+    rows = []
+    for sample_id, biorep in (("M1", "1"), ("M2", "2")):
+        row = _inline_row(tmp_path, sample_id)
+        row.update(
+            {
+                "assay": "mnase",
+                "target": "H3",
+                "peak_mode": "nucleosome",
+                "experiment": "EXP1",
+                "biological_replicate": biorep,
+            }
+        )
+        rows.append(row)
+    _write_rows(workspace / "config/samples.tsv", rows)
+    chrom_sizes = workspace / "config/chrom.sizes"
+    chrom_sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    _write_workspace_config(
+        workspace,
+        [
+            "samples: config/samples.tsv",
+            "outdir: results",
+            "use_control: false",
+            "multiqc: false",
+            "replicate_analysis: true",
+            "chipseq_idr: false",
+            "analysis_profile: updated",
+            "genome_resources:",
+            "  hs:",
+            '    effective_genome_size: "hs"',
+            f'    chrom_sizes: "{chrom_sizes}"',
+            "qc:",
+            "  signal_tracks: true",
+            "  summary: false",
+            "  frip: false",
+        ],
+    )
+    for name in ("dyad", "mono"):
+        path = (
+            workspace / f"results/experiments/EXP1/04_signal/EXP1.pooled.{name}.CPM.bw"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n", encoding="utf-8")
+
+    metadata = _metadata_by_path(workspace)
+    dyad = metadata["results/experiments/EXP1/04_signal/EXP1.pooled.dyad.CPM.bw"]
+    mono = metadata["results/experiments/EXP1/04_signal/EXP1.pooled.mono.CPM.bw"]
+    assert "coverage_unit" not in dyad
+    assert mono["coverage_unit"] == "read"

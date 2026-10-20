@@ -15,6 +15,22 @@ import type { ArtifactMetadataResponseTarget } from './artifactMetadataResponseT
 import type { ArtifactMetadataResponseGenome } from './artifactMetadataResponseGenome';
 import type { ArtifactMetadataResponseMethod } from './artifactMetadataResponseMethod';
 import type { ArtifactMetadataResponseQcFlag } from './artifactMetadataResponseQcFlag';
+import type { ArtifactMetadataResponseAnalysisProfile } from './artifactMetadataResponseAnalysisProfile';
+import type { ArtifactMetadataResponseAnalysisBranch } from './artifactMetadataResponseAnalysisBranch';
+import type { ArtifactMetadataResponseBlacklistMode } from './artifactMetadataResponseBlacklistMode';
+import type { ArtifactMetadataResponseOrganelleMode } from './artifactMetadataResponseOrganelleMode';
+import type { ArtifactMetadataResponseDuplicateBackend } from './artifactMetadataResponseDuplicateBackend';
+import type { ArtifactMetadataResponseDuplicateAnalysis } from './artifactMetadataResponseDuplicateAnalysis';
+import type { ArtifactMetadataResponseControlMode } from './artifactMetadataResponseControlMode';
+import type { ArtifactMetadataResponseCoverageUnit } from './artifactMetadataResponseCoverageUnit';
+import type { ArtifactMetadataResponseNormalization } from './artifactMetadataResponseNormalization';
+import type { ArtifactMetadataResponseExtensionMethod } from './artifactMetadataResponseExtensionMethod';
+import type { ArtifactMetadataResponseMateCounting } from './artifactMetadataResponseMateCounting';
+import type { ArtifactMetadataResponseReferenceMode } from './artifactMetadataResponseReferenceMode';
+import type { ArtifactMetadataResponseExternalControlPolicy } from './artifactMetadataResponseExternalControlPolicy';
+import type { ArtifactMetadataResponseReferenceAssembly } from './artifactMetadataResponseReferenceAssembly';
+import type { ArtifactMetadataResponseReferenceVersion } from './artifactMetadataResponseReferenceVersion';
+import type { ArtifactMetadataResponseReferenceBindingId } from './artifactMetadataResponseReferenceBindingId';
 
 /**
  * Whitelisted adapter metadata safe for the public read API.
@@ -30,4 +46,20 @@ export interface ArtifactMetadataResponse {
   genome?: ArtifactMetadataResponseGenome;
   method?: ArtifactMetadataResponseMethod;
   qc_flag?: ArtifactMetadataResponseQcFlag;
+  analysis_profile?: ArtifactMetadataResponseAnalysisProfile;
+  analysis_branch?: ArtifactMetadataResponseAnalysisBranch;
+  blacklist_mode?: ArtifactMetadataResponseBlacklistMode;
+  organelle_mode?: ArtifactMetadataResponseOrganelleMode;
+  duplicate_backend?: ArtifactMetadataResponseDuplicateBackend;
+  duplicate_analysis?: ArtifactMetadataResponseDuplicateAnalysis;
+  control_mode?: ArtifactMetadataResponseControlMode;
+  coverage_unit?: ArtifactMetadataResponseCoverageUnit;
+  normalization?: ArtifactMetadataResponseNormalization;
+  extension_method?: ArtifactMetadataResponseExtensionMethod;
+  mate_counting?: ArtifactMetadataResponseMateCounting;
+  reference_mode?: ArtifactMetadataResponseReferenceMode;
+  external_control_policy?: ArtifactMetadataResponseExternalControlPolicy;
+  reference_assembly?: ArtifactMetadataResponseReferenceAssembly;
+  reference_version?: ArtifactMetadataResponseReferenceVersion;
+  reference_binding_id?: ArtifactMetadataResponseReferenceBindingId;
 }

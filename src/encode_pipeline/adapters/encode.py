@@ -558,6 +558,8 @@ class EncodeStyleWorkflowAdapter:
             return _artifact_extraction_failure("ENCODE_ARTIFACT_MANIFEST_FAILED")
 
         candidates: list[ExtractedArtifactCandidate] = []
+        runtime_metadata = _artifact_runtime_metadata(config_value)
+        normalization = _effective_bamcoverage_normalization(config_value)
         try:
             for row in rows:
                 output_type = row.get("output_type")
@@ -579,21 +581,44 @@ class EncodeStyleWorkflowAdapter:
                         output_type=output_type,
                         relative_path=relative_path,
                         mime_type=_artifact_mime_type(relative_path),
-                        metadata=_artifact_candidate_metadata(artifact, row),
+                        metadata=_artifact_candidate_metadata(
+                            artifact,
+                            row,
+                            runtime_metadata,
+                            analysis_branch=_artifact_branch(
+                                artifact,
+                                relative_path,
+                                workspace_path,
+                                raw_outdir,
+                                analysis_outdir,
+                            ),
+                            normalization=normalization,
+                        ),
                     )
                 )
 
             manifest_path = analysis_outdir / "multiqc/result_manifest.tsv"
             if manifest_path.exists():
                 artifact = self._artifacts_by_id["result_manifest"]
+                relative_manifest = manifest_path.relative_to(workspace_path).as_posix()
                 candidates.append(
                     ExtractedArtifactCandidate(
                         output_type="result_manifest",
-                        relative_path=manifest_path.relative_to(
-                            workspace_path
-                        ).as_posix(),
+                        relative_path=relative_manifest,
                         mime_type="text/tab-separated-values",
-                        metadata=_artifact_candidate_metadata(artifact, {}),
+                        metadata=_artifact_candidate_metadata(
+                            artifact,
+                            {},
+                            runtime_metadata,
+                            analysis_branch=_artifact_branch(
+                                artifact,
+                                relative_manifest,
+                                workspace_path,
+                                raw_outdir,
+                                analysis_outdir,
+                            ),
+                            normalization=normalization,
+                        ),
                     )
                 )
         except (KeyError, TypeError, ValueError):
@@ -1177,9 +1202,85 @@ def _validate_options(options: dict[str, object]) -> Issue | None:
     return None
 
 
+_ARTIFACT_RUNTIME_METADATA_KEYS = (
+    "analysis_profile",
+    "blacklist_mode",
+    "organelle_mode",
+    "duplicate_backend",
+    "duplicate_analysis",
+    "control_mode",
+    "reference_mode",
+    "external_control_policy",
+)
+
+
+def _artifact_runtime_metadata(config: Mapping[str, object]) -> dict[str, object]:
+    metadata: dict[str, object] = {}
+    for key in _ARTIFACT_RUNTIME_METADATA_KEYS:
+        value = config.get(key)
+        if isinstance(value, str) and value:
+            metadata[key] = value
+    blacklist_mode = config.get("blacklist_mode")
+    metadata["analysis_branch"] = (
+        "analysis_filtered" if blacklist_mode == "analysis" else "raw"
+    )
+    return metadata
+
+
+def _effective_bamcoverage_normalization(config: Mapping[str, object]) -> str:
+    tools = config.get("tool_parameters")
+    if isinstance(tools, Mapping):
+        bamcoverage = tools.get("bamcoverage")
+        if isinstance(bamcoverage, Mapping):
+            value = bamcoverage.get("normalize_using")
+            if isinstance(value, str) and value:
+                return value
+    return "CPM"
+
+
+_RAW_ONLY_ARTIFACT_IDS = {"final_bam", "final_bai"}
+_BAMCOVERAGE_NORMALIZED_ARTIFACT_IDS = {
+    "cpm_bigwig",
+    "analysis_filtered_cpm_bigwig",
+    "mnase_dyad_bigwig",
+    "mnase_mono_bigwig",
+    "pooled_mnase_dyad_bigwig",
+    "pooled_mnase_mono_bigwig",
+}
+_READ_COVERAGE_ARTIFACT_IDS = {
+    "cpm_bigwig",
+    "analysis_filtered_cpm_bigwig",
+    "mnase_mono_bigwig",
+    "pooled_mnase_mono_bigwig",
+}
+
+
+def _artifact_branch(
+    artifact: Artifact,
+    relative_path: str,
+    workspace_path: Path,
+    raw_outdir: Path,
+    analysis_outdir: Path,
+) -> str:
+    artifact_id = str(getattr(artifact, "id", ""))
+    if artifact_id in _RAW_ONLY_ARTIFACT_IDS or analysis_outdir == raw_outdir:
+        return "raw"
+    try:
+        relative_root = analysis_outdir.relative_to(workspace_path).as_posix()
+    except ValueError:
+        return "raw"
+    return (
+        "analysis_filtered" if relative_path.startswith(relative_root + "/") else "raw"
+    )
+
+
 def _artifact_candidate_metadata(
     artifact: Artifact,
     row: Mapping[str, object],
+    runtime_metadata: Mapping[str, object] | None = None,
+    *,
+    analysis_branch: str | None = None,
+    normalization: str | None = None,
 ) -> dict[str, object]:
     metadata: dict[str, object] = {
         "catalog_id": artifact.id,
@@ -1198,6 +1299,27 @@ def _artifact_candidate_metadata(
         value = row.get(key)
         if isinstance(value, str) and value:
             metadata[key] = value
+    if runtime_metadata:
+        for key, value in runtime_metadata.items():
+            if isinstance(value, str) and value:
+                metadata[key] = value
+    if analysis_branch:
+        metadata["analysis_branch"] = analysis_branch
+    genome = row.get("genome")
+    if isinstance(genome, str) and genome:
+        metadata["reference_assembly"] = genome
+    artifact_id = str(getattr(artifact, "id", ""))
+    if "fragment" in artifact_id:
+        metadata["coverage_unit"] = "fragment"
+        metadata["normalization"] = "CPM"
+    elif artifact_id in _READ_COVERAGE_ARTIFACT_IDS:
+        metadata["coverage_unit"] = "read"
+    if (
+        normalization
+        and artifact_id in _BAMCOVERAGE_NORMALIZED_ARTIFACT_IDS
+        and "fragment" not in artifact_id
+    ):
+        metadata["normalization"] = normalization
     return metadata
 
 

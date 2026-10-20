@@ -32,6 +32,22 @@ const metadataLabels: Array<[
   ['genome', 'Genome'],
   ['method', 'Method'],
   ['qc_flag', 'QC flag'],
+  ['analysis_profile', 'Analysis profile'],
+  ['analysis_branch', 'Analysis branch'],
+  ['blacklist_mode', 'Blacklist mode'],
+  ['organelle_mode', 'Organelle mode'],
+  ['duplicate_backend', 'Duplicate backend'],
+  ['duplicate_analysis', 'Duplicate analysis'],
+  ['control_mode', 'Control mode'],
+  ['coverage_unit', 'Coverage unit'],
+  ['normalization', 'Normalization'],
+  ['extension_method', 'Extension method'],
+  ['mate_counting', 'Mate counting'],
+  ['reference_mode', 'Reference mode'],
+  ['external_control_policy', 'External control policy'],
+  ['reference_assembly', 'Reference assembly'],
+  ['reference_version', 'Reference version'],
+  ['reference_binding_id', 'Reference binding'],
 ];
 
 export function ArtifactInspector({

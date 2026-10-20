@@ -296,6 +296,19 @@ plot and tabular profile.
 - The GTF, FASTA, and Bowtie2 index must be from the same assembly. Annotation
   mismatch can flatten or shift the profile.
 
+### Fragment-occupancy TSS profile
+
+**Outputs:** `*.fragment.tss_matrix.gz`, `*.fragment.tss_profile.tsv`,
+`*.fragment.tss_profile.pdf`
+
+When `tss_fragment_profile: true`, the workflow computes the same
+`-3000/+3000 bp` TSS matrix from the **fragment-level CPM BigWig** for eligible
+ATAC/CUT&Tag samples. This is labeled fragment occupancy and is **not** an
+ENCODE TSS enrichment score; it does not use the ENCODE local-background
+normalization or pass/fail thresholds. The default `qc.tss_enrichment` profile
+and read-level `.CPM.bw` are unchanged. MNase and unknown CUT&Tag targets (under
+`fragment_cpm: auto`) are not eligible.
+
 ## CUT&Tag-Specific QC
 
 ### Fragment-Size Distribution
