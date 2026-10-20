@@ -27,6 +27,9 @@ import os
 import sys
 from collections import defaultdict
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from blacklist_filter import Blacklist  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -118,6 +121,11 @@ def parse_args(argv=None):
         "--final-output",
         default="",
         help="Path to primary final validated peak file",
+    )
+    parser.add_argument(
+        "--blacklist",
+        default="",
+        help="Optional blacklist BED for final peak filtering",
     )
     return parser.parse_args(argv)
 
@@ -640,12 +648,19 @@ def build_support_distribution(retained_components):
 
 
 def write_summary_tsv(
-    path, args, n_bioreps, retained_components, support_distribution, output_file
+    path,
+    args,
+    n_bioreps,
+    retained_components,
+    support_distribution,
+    output_file,
+    consensus_count=None,
 ):
     """Write consensus summary TSV."""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 
-    consensus_peak_count = len(retained_components)
+    if consensus_count is None:
+        consensus_count = len(retained_components)
 
     header = [
         "experiment",
@@ -675,7 +690,7 @@ def write_summary_tsv(
         str(n_bioreps),
         str(args.min_replicates),
         str(args.reciprocal_overlap),
-        str(consensus_peak_count),
+        str(consensus_count),
         support_dist_json,
         biorep_labels_str,
         source_peak_files_json,
@@ -715,22 +730,49 @@ def main(argv=None):
     # 5. Filter by support count
     retained = filter_by_support(components, all_peaks, args.min_replicates)
 
-    # 6. Compute consensus peaks
+    # 6. Optionally filter blacklist-overlapping components before building
+    # rows so the output count and support distribution share one set.
+    if args.blacklist:
+        blacklist = Blacklist(args.blacklist)
+        filtered = []
+        for item in retained:
+            comp_nodes, _support_count, _bioreps = item
+            chroms = set()
+            min_start = float("inf")
+            max_end = -1
+            for node_idx in comp_nodes:
+                chrom, start, end, _, _ = all_peaks[node_idx]
+                chroms.add(chrom)
+                if start < min_start:
+                    min_start = start
+                if end > max_end:
+                    max_end = end
+            if not blacklist.overlaps(sorted(chroms)[0], min_start, max_end):
+                filtered.append(item)
+        retained = filtered
+
+    # 7. Compute consensus peaks
     consensus_rows = compute_consensus_peaks(
         retained, all_peaks, n_bioreps, args.format
     )
 
-    # 7. Write output peak file
+    # 8. Write output peak file
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     with open(args.output, "w") as fh:
         for row in consensus_rows:
             fh.write(row + "\n")
         # If no rows, file is empty (0 bytes) — deliberate
 
-    # 8. Write summary TSV
+    # 9. Write summary TSV
     support_dist = build_support_distribution(retained)
     write_summary_tsv(
-        args.summary, args, n_bioreps, retained, support_dist, args.output
+        args.summary,
+        args,
+        n_bioreps,
+        retained,
+        support_dist,
+        args.output,
+        consensus_count=len(consensus_rows),
     )
 
     return 0

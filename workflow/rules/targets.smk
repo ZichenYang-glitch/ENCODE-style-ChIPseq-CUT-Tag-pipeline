@@ -2,6 +2,11 @@
 # 7. Target builder helpers — return flat lists for rule all input
 # ---------------------------------------------------------------------------
 
+# These aliases keep standalone helper tests and partial rule imports working;
+# in the real workflow Snakefile they are defined before this include.
+RAW_OUTDIR = globals().get("RAW_OUTDIR", OUTDIR)
+ANALYSIS_FILTERED = globals().get("ANALYSIS_FILTERED", False)
+
 
 def _fastqc_report_paths(sample):
     """Return concrete raw/trimmed FastQC reports for one FASTQ sample."""
@@ -9,7 +14,7 @@ def _fastqc_report_paths(sample):
     reads = ["R1", "R2"] if s["layout"] == "PE" and s.get("fq2") else ["R1"]
     stages = ["raw", "trimmed"] if TRIM == "true" else ["raw"]
     return [
-        f"{OUTDIR}/{sample}/01_qc/fastqc/{stage}/" f"{sample}.{stage}.{read}_fastqc.{extension}"
+        f"{RAW_OUTDIR}/{sample}/01_qc/fastqc/{stage}/" f"{sample}.{stage}.{read}_fastqc.{extension}"
         for stage in stages
         for read in reads
         for extension in ("html", "zip")
@@ -30,11 +35,14 @@ def _analysis_targets():
     """Updated-profile derived analysis BAMs (legacy uses final.bam directly)."""
     if not is_updated_profile():
         return []
-    targets = [f"{OUTDIR}/.helixweave/analysis_identity.json"]
+    targets = [f"{RAW_OUTDIR}/.helixweave/analysis_identity.json"]
     for sample_id in ACTIVE_SAMPLE_IDS:
         targets.append(analysis_bam(sample_id))
         targets.append(analysis_bai(sample_id))
         targets.append(f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.mito_fraction.tsv")
+        targets.append(
+            f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.blacklist_dropped.tsv"
+        )
     return targets
 
 
@@ -89,12 +97,31 @@ def _manifest_dependency_targets():
 
 import json as _json
 
-_MANIFEST_CONFIG_JSON = _json.dumps(VALIDATED_CONFIG)
+_MANIFEST_CONFIG = dict(VALIDATED_CONFIG)
+_MANIFEST_CONFIG["outdir"] = RAW_OUTDIR
+_MANIFEST_CONFIG["analysis_outdir"] = OUTDIR
+_MANIFEST_CONFIG_JSON = _json.dumps(_MANIFEST_CONFIG)
 
 
 def _blacklist_targets():
     """Blacklist-filtered BAM + peaks (resource-gated per genome)."""
     targets = []
+    if ANALYSIS_FILTERED:
+        narrow_bl = [s for s in PEAK_SAMPLE_IDS if SAMPLE_MAP[s]["peak_mode"] == "narrow"]
+        broad_bl = [s for s in PEAK_SAMPLE_IDS if SAMPLE_MAP[s]["peak_mode"] == "broad"]
+        if narrow_bl:
+            targets += expand(
+                "{outdir}/{sample}/04_peaks/{sample}_blacklist_filtered/{sample}_peaks.blacklist_filtered.narrowPeak",
+                outdir=OUTDIR,
+                sample=narrow_bl,
+            )
+        if broad_bl:
+            targets += expand(
+                "{outdir}/{sample}/04_peaks/{sample}_blacklist_filtered/{sample}_peaks.blacklist_filtered.broadPeak",
+                outdir=OUTDIR,
+                sample=broad_bl,
+            )
+        return targets
     if QC_CONFIG.get("blacklist_filter", True) and BLACKLIST_SAMPLES:
         targets += expand(
             "{outdir}/{sample}/02_align/{sample}.blacklist_filtered.bam",
@@ -140,13 +167,13 @@ def _single_sample_qc_targets():
     if QC_CONFIG.get("library_complexity", True) or QC_CONFIG.get("summary", True):
         targets += expand(
             "{outdir}/{sample}/01_qc/{sample}.library_complexity.tsv",
-            outdir=OUTDIR,
+            outdir=RAW_OUTDIR,
             sample=TREATMENT_SAMPLE_IDS,
         )
     if QC_CONFIG.get("nrf_pbc", True) or QC_CONFIG.get("summary", True):
         targets += expand(
             "{outdir}/{sample}/01_qc/{sample}.nrf_pbc.tsv",
-            outdir=OUTDIR,
+            outdir=RAW_OUTDIR,
             sample=TREATMENT_SAMPLE_IDS,
         )
     if QC_CONFIG.get("frip", True) or QC_CONFIG.get("summary", True):
@@ -265,28 +292,28 @@ def _advanced_qc_targets():
     if QC_CONFIG.get("preseq_complexity", False) and TREATMENT_SAMPLE_IDS:
         targets += expand(
             "{outdir}/{sample}/05_qc/preseq/{sample}.preseq.txt",
-            outdir=OUTDIR,
+            outdir=RAW_OUTDIR,
             sample=TREATMENT_SAMPLE_IDS,
         )
     if QC_CONFIG.get("picard_metrics", False) and TREATMENT_SAMPLE_IDS:
         targets += expand(
             "{outdir}/{sample}/05_qc/picard/{sample}.alignment_summary_metrics",
-            outdir=OUTDIR,
+            outdir=RAW_OUTDIR,
             sample=TREATMENT_SAMPLE_IDS,
         )
         targets += expand(
             "{outdir}/{sample}/05_qc/picard/{sample}.insert_size_metrics",
-            outdir=OUTDIR,
+            outdir=RAW_OUTDIR,
             sample=TREATMENT_SAMPLE_IDS,
         )
         targets += expand(
             "{outdir}/{sample}/05_qc/picard/{sample}.quality_distribution_metrics",
-            outdir=OUTDIR,
+            outdir=RAW_OUTDIR,
             sample=TREATMENT_SAMPLE_IDS,
         )
         targets += expand(
             "{outdir}/{sample}/05_qc/picard/{sample}.insert_size_histogram.pdf",
-            outdir=OUTDIR,
+            outdir=RAW_OUTDIR,
             sample=TREATMENT_SAMPLE_IDS,
         )
     return targets

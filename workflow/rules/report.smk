@@ -26,21 +26,21 @@ rule pipeline_done:
             f"{OUTDIR}/{wc.sample}/04_peaks/{wc.sample}"
             if _is_not_mnase(wc) else []
         ),
-        fastqc   = f"{OUTDIR}/{{sample}}/logs/{{sample}}.fastqc.done",
+        fastqc   = f"{RAW_OUTDIR}/{{sample}}/logs/{{sample}}.fastqc.done",
         fastqc_reports = _fastqc_report_targets,
-        trim     = f"{OUTDIR}/{{sample}}/logs/{{sample}}.trim.done",
-        bai      = f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam.bai",
-        flagstat = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.flagstat.txt",
-        final_fs = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.final.flagstat.txt",
-        idxstats = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.idxstats.txt",
-        dup_met  = f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
+        trim     = f"{RAW_OUTDIR}/{{sample}}/logs/{{sample}}.trim.done",
+        bai      = f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam.bai",
+        flagstat = f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.flagstat.txt",
+        final_fs = f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.final.flagstat.txt",
+        idxstats = f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.idxstats.txt",
+        dup_met  = f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
         lib_cmplx  = (
-            f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.library_complexity.tsv"
+            f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.library_complexity.tsv"
             if (QC_CONFIG.get("library_complexity", True)
                 or QC_CONFIG.get("summary", True)) else []
         ),
         nrf_pbc_out  = (
-            f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.nrf_pbc.tsv"
+            f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.nrf_pbc.tsv"
             if (QC_CONFIG.get("nrf_pbc", True)
                 or QC_CONFIG.get("summary", True)) else []
         ),
@@ -91,11 +91,11 @@ rule pipeline_done:
             if QC_CONFIG.get("cross_correlation", False) else []
         ),
         preseq = (
-            f"{OUTDIR}/{{sample}}/05_qc/preseq/{{sample}}.preseq.txt"
+            f"{RAW_OUTDIR}/{{sample}}/05_qc/preseq/{{sample}}.preseq.txt"
             if QC_CONFIG.get("preseq_complexity", False) else []
         ),
         picard_alignment = (
-            f"{OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.alignment_summary_metrics"
+            f"{RAW_OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.alignment_summary_metrics"
             if QC_CONFIG.get("picard_metrics", False) else []
         ),
         tss_profile = lambda wc: (
@@ -152,20 +152,20 @@ if MULTIQC:
             # Only active when use_control is true.
             [f"{OUTDIR}/{sid}/03_bigwig/{sid}.CPM.bw"
              for sid in CONTROL_SAMPLE_IDS] if USE_CONTROL else [],
-            [f"{OUTDIR}/{sid}/logs/{sid}.fastqc.done"
+            [f"{RAW_OUTDIR}/{sid}/logs/{sid}.fastqc.done"
              for sid in CONTROL_SAMPLE_IDS] if USE_CONTROL else [],
             # Concrete reports close incremental rebuilds even when an older
             # aggregate sentinel or pipeline.done already exists.
             _fastqc_reports_for_samples(ACTIVE_SAMPLE_IDS),
-            [f"{OUTDIR}/{sid}/01_qc/{sid}.flagstat.txt"
+            [f"{RAW_OUTDIR}/{sid}/01_qc/{sid}.flagstat.txt"
              for sid in CONTROL_SAMPLE_IDS] if USE_CONTROL else [],
-            [f"{OUTDIR}/{sid}/01_qc/{sid}.final.flagstat.txt"
+            [f"{RAW_OUTDIR}/{sid}/01_qc/{sid}.final.flagstat.txt"
              for sid in CONTROL_SAMPLE_IDS] if USE_CONTROL else [],
-            [f"{OUTDIR}/{sid}/01_qc/{sid}.idxstats.txt"
+            [f"{RAW_OUTDIR}/{sid}/01_qc/{sid}.idxstats.txt"
              for sid in CONTROL_SAMPLE_IDS] if USE_CONTROL else [],
-            [f"{OUTDIR}/{sid}/01_qc/{sid}.dup_metrics.txt"
+            [f"{RAW_OUTDIR}/{sid}/01_qc/{sid}.dup_metrics.txt"
              for sid in CONTROL_SAMPLE_IDS] if USE_CONTROL else [],
-            [f"{OUTDIR}/{sid}/logs/{sid}.trim.done"
+            [f"{RAW_OUTDIR}/{sid}/logs/{sid}.trim.done"
              for sid in CONTROL_SAMPLE_IDS] if USE_CONTROL else [],
             # Stage 14: cross-correlation summary (project-level)
             [f"{OUTDIR}/multiqc/cross_correlation_summary.tsv"]
@@ -177,11 +177,14 @@ if MULTIQC:
         params:
             logdir      = f"{OUTDIR}/logs",
             multiqc_dir = f"{OUTDIR}/multiqc",
-            search_paths = (
-                [f"{OUTDIR}/{sid}" for sid in ACTIVE_SAMPLE_IDS]
-                + (
-                    [f"{OUTDIR}/multiqc/cross_correlation_summary.tsv"]
-                    if CROSS_CORR_ENABLED and TREATMENT_SAMPLE_IDS else []
+            search_paths = list(
+                dict.fromkeys(
+                    [f"{RAW_OUTDIR}/{sid}" for sid in ACTIVE_SAMPLE_IDS]
+                    + [f"{OUTDIR}/{sid}" for sid in ACTIVE_SAMPLE_IDS]
+                    + (
+                        [f"{OUTDIR}/multiqc/cross_correlation_summary.tsv"]
+                        if CROSS_CORR_ENABLED and TREATMENT_SAMPLE_IDS else []
+                    )
                 )
             ),
             multiqc_config = os.path.join(workflow.basedir, "multiqc_config.yaml"),

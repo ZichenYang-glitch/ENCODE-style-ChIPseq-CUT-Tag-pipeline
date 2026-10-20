@@ -59,8 +59,8 @@ blacklist_mode:
   allowed: [off, copies, analysis]
   description: >
     Canonical blacklist policy. off=raw; copies=QC copies; analysis=filtered
-    branch (deferred until PR-D). In legacy configs the historical
-    qc.blacklist_filter alias maps true→copies and false→off.
+    analysis branch (analysis_profile=updated only). In legacy configs the
+    historical qc.blacklist_filter alias maps true→copies and false→off.
 
 organelle_mode:
   type: string

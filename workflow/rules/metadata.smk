@@ -494,6 +494,17 @@ def has_genome_resource(sample, key):
     return bool(get_genome_resource(sample, key, ""))
 
 
+def experiment_blacklist(experiment):
+    """Return the experiment blacklist BED in the analysis_filtered branch."""
+    if not ANALYSIS_FILTERED:
+        return ""
+    sample_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
+    if not sample_ids:
+        return ""
+    genome = SAMPLE_MAP[sample_ids[0]]["genome"]
+    return GENOME_RESOURCES.get(genome, {}).get("blacklist", "")
+
+
 TSS_SAMPLE_IDS = [
     sid for sid in PEAK_SAMPLE_IDS if QC_CONFIG.get("tss_enrichment", False) and has_genome_resource(sid, "gtf")
 ]

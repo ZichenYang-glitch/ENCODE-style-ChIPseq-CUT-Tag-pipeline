@@ -28,7 +28,12 @@ Usage:
 """
 
 import argparse
+import os
 import shutil
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from blacklist_filter import Blacklist  # noqa: E402
 
 
 def count_peaks(path):
@@ -101,6 +106,11 @@ def main(argv=None):
         required=True,
         help="Path for final validated peak (copy of true-rep)",
     )
+    parser.add_argument(
+        "--blacklist",
+        default="",
+        help="Optional blacklist BED for final peak filtering",
+    )
     args = parser.parse_args(argv)
 
     Nt = count_peaks(args.true_peaks)
@@ -121,7 +131,10 @@ def main(argv=None):
     ):
         status = "pass"
 
-    shutil.copyfile(args.true_peaks, args.output_peak)
+    if args.blacklist:
+        Blacklist(args.blacklist).filter_peak_file(args.true_peaks, args.output_peak)
+    else:
+        shutil.copyfile(args.true_peaks, args.output_peak)
 
     header = [
         "experiment",

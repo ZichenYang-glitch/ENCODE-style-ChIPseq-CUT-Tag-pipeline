@@ -410,6 +410,7 @@ rule chipseq_idr_summary:
         experiment = lambda wc: wc.experiment,
         bio_rep_a  = lambda wc: idr_biorep_labels(wc.experiment)[0],
         bio_rep_b  = lambda wc: idr_biorep_labels(wc.experiment)[1],
+        blacklist  = lambda wc: experiment_blacklist(wc.experiment),
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}.chipseq_idr.summary.log",
     conda:
@@ -429,5 +430,6 @@ rule chipseq_idr_summary:
             --output-tsv {output.summary:q} \
             --output-cons {output.conservative:q} \
             --output-opt {output.optimal:q} \
+            --blacklist={params.blacklist:q} \
             2>&1 | tee {log:q}
         """

@@ -22,7 +22,7 @@ def _fastqc_stage_input(wildcards):
         return s["fq2"] if wildcards.read == "R2" else s["fq1"]
     if wildcards.stage == "trimmed":
         suffix = "R2_val_2" if wildcards.read == "R2" else "R1_val_1"
-        return f"{OUTDIR}/{wildcards.sample}/00_raw/{wildcards.sample}_{suffix}.fq.gz"
+        return f"{RAW_OUTDIR}/{wildcards.sample}/00_raw/{wildcards.sample}_{suffix}.fq.gz"
     raise ValueError(f"Unsupported FastQC stage: {wildcards.stage!r}")
 
 
@@ -31,8 +31,8 @@ rule fastqc_stage:
         fastq=_fastqc_stage_input,
         identity=lambda wc: _analysis_identity_inputs(wc),
     output:
-        html=f"{OUTDIR}/{{sample}}/01_qc/fastqc/{{stage}}/{{sample}}.{{stage}}.{{read}}_fastqc.html",
-        zip=f"{OUTDIR}/{{sample}}/01_qc/fastqc/{{stage}}/{{sample}}.{{stage}}.{{read}}_fastqc.zip",
+        html=f"{RAW_OUTDIR}/{{sample}}/01_qc/fastqc/{{stage}}/{{sample}}.{{stage}}.{{read}}_fastqc.html",
+        zip=f"{RAW_OUTDIR}/{{sample}}/01_qc/fastqc/{{stage}}/{{sample}}.{{stage}}.{{read}}_fastqc.zip",
     wildcard_constraints:
         stage="raw|trimmed",
         read="R1|R2",
@@ -60,7 +60,7 @@ rule fastqc:
     input:
         _fastqc_report_targets,
     output:
-        done=f"{OUTDIR}/{{sample}}/logs/{{sample}}.fastqc.done",
+        done=f"{RAW_OUTDIR}/{{sample}}/logs/{{sample}}.fastqc.done",
     shell:
         """
         set -e -o pipefail
@@ -88,16 +88,16 @@ rule trim_galore:
     input:
         lambda wc: _trim_galore_inputs(wc),
     output:
-        r1=f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R1_val_1.fq.gz",
-        r2=f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R2_val_2.fq.gz",
-        done=f"{OUTDIR}/{{sample}}/logs/{{sample}}.trim.done",
+        r1=f"{RAW_OUTDIR}/{{sample}}/00_raw/{{sample}}_R1_val_1.fq.gz",
+        r2=f"{RAW_OUTDIR}/{{sample}}/00_raw/{{sample}}_R2_val_2.fq.gz",
+        done=f"{RAW_OUTDIR}/{{sample}}/logs/{{sample}}.trim.done",
     conda:
         "../envs/trim.yml"
     threads: THREADS
     params:
         layout=lambda wc: SAMPLE_MAP[wc.sample]["layout"],
         do_trim=TRIM,
-        trimdir=lambda wc: f"{OUTDIR}/{wc.sample}/01_qc/trim_galore",
+        trimdir=lambda wc: f"{RAW_OUTDIR}/{wc.sample}/01_qc/trim_galore",
         quality=f"--quality {v}" if (v := _tool_param("trim_galore", "quality", "")) != "" else "",
         length=f"--length {v}" if (v := _tool_param("trim_galore", "length", "")) != "" else "",
         stringency=f"--stringency {v}" if (v := _tool_param("trim_galore", "stringency", "")) != "" else "",
@@ -154,13 +154,13 @@ rule trim_galore:
 
 rule bowtie2_align:
     input:
-        r1=f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R1_val_1.fq.gz",
-        r2=f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R2_val_2.fq.gz",
+        r1=f"{RAW_OUTDIR}/{{sample}}/00_raw/{{sample}}_R1_val_1.fq.gz",
+        r2=f"{RAW_OUTDIR}/{{sample}}/00_raw/{{sample}}_R2_val_2.fq.gz",
         identity=lambda wc: _analysis_identity_inputs(wc),
     output:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
+        bam=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
     log:
-        f"{OUTDIR}/{{sample}}/logs/{{sample}}.bowtie2.log",
+        f"{RAW_OUTDIR}/{{sample}}/logs/{{sample}}.bowtie2.log",
     conda:
         "../envs/align.yml"
     threads: THREADS
@@ -199,9 +199,9 @@ rule bowtie2_align:
 
 rule samtools_index_sorted:
     input:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
+        bam=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
     output:
-        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam.bai",
+        bai=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam.bai",
     conda:
         "../envs/samtools.yml"
     threads: THREADS
@@ -216,10 +216,10 @@ rule samtools_index_sorted:
 
 rule samtools_filter:
     input:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
+        bam=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
         identity=lambda wc: _analysis_identity_inputs(wc),
     output:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
+        bam=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
     conda:
         "../envs/samtools.yml"
     threads: THREADS
@@ -265,9 +265,9 @@ rule samtools_filter:
 
 rule samtools_index_filt:
     input:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
+        bam=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
     output:
-        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam.bai",
+        bai=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam.bai",
     conda:
         "../envs/samtools.yml"
     threads: THREADS
@@ -289,13 +289,13 @@ DUPLICATE_ENV = (
 
 rule duplicate_handling:
     input:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
-        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam.bai",
+        bam=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
+        bai=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam.bai",
         identity=lambda wc: _analysis_identity_inputs(wc),
     output:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
-        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
-        metrics=f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
+        bam=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        bai=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+        metrics=f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
     conda:
         DUPLICATE_ENV
     threads: THREADS
@@ -370,9 +370,9 @@ rule duplicate_handling:
 
 rule samtools_flagstat:
     input:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
+        bam=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
     output:
-        flagstat=f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.flagstat.txt",
+        flagstat=f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.flagstat.txt",
     conda:
         "../envs/samtools.yml"
     threads: THREADS
@@ -387,9 +387,9 @@ rule samtools_flagstat:
 
 rule samtools_flagstat_final:
     input:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        bam=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
     output:
-        flagstat=f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.final.flagstat.txt",
+        flagstat=f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.final.flagstat.txt",
     conda:
         "../envs/samtools.yml"
     threads: THREADS
@@ -404,10 +404,10 @@ rule samtools_flagstat_final:
 
 rule samtools_idxstats:
     input:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
-        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam.bai",
+        bam=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
+        bai=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam.bai",
     output:
-        idxstats=f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.idxstats.txt",
+        idxstats=f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.idxstats.txt",
     conda:
         "../envs/samtools.yml"
     threads: THREADS
