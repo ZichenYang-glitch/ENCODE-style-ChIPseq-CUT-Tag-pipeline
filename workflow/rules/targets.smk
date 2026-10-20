@@ -81,6 +81,7 @@ def _manifest_dependency_targets():
     targets += _signal_targets()
     targets += _cuttag_targets()
     targets += _mnase_targets()
+    targets += _fragment_targets()
     targets += _advanced_qc_targets()
     targets += _tss_targets()
     targets += _replicate_targets()
@@ -271,6 +272,19 @@ def _cuttag_targets():
             outdir=OUTDIR,
             sample=CUTTAG_ACTIVE_SAMPLE_IDS,
         )
+    return targets
+
+
+def _fragment_targets():
+    """Additive fragment-level CPM tracks for eligible updated samples."""
+    if not is_fragment_cpm_enabled() or not FRAGMENT_CPM_SAMPLE_IDS:
+        return []
+    targets = []
+    for sample_id in FRAGMENT_CPM_SAMPLE_IDS:
+        if SAMPLE_MAP[sample_id]["assay"] == "mnase":
+            targets.append(mnase_fragment_cpm_bw(sample_id))
+        else:
+            targets.append(fragment_cpm_bw(sample_id))
     return targets
 
 

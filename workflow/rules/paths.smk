@@ -33,6 +33,16 @@ def mnase_qc_summary_tsv(sample):
     return f"{OUTDIR}/{sample}/01_qc/{sample}.mnase_qc_summary.tsv"
 
 
+def fragment_cpm_bw(sample):
+    """Fragment-level CPM BigWig path for non-MNase samples."""
+    return f"{OUTDIR}/{sample}/03_bigwig/{sample}.fragment.CPM.bw"
+
+
+def mnase_fragment_cpm_bw(sample):
+    """Fragment-level CPM BigWig path for MNase mono-nucleosome tracks."""
+    return f"{OUTDIR}/{sample}/04_signal/{sample}.mono.fragment.CPM.bw"
+
+
 def mnase_pooled_fragment_bam(experiment, fragment_class):
     """Experiment-level pooled MNase fragment BAM path.
 

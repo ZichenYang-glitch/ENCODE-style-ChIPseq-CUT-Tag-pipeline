@@ -82,7 +82,8 @@
     "fragment_cpm": {
       "type": "string",
       "enum": ["off", "auto", "on"],
-      "default": "off"
+      "default": "off",
+      "description": "Additive fragment-level CPM track; updated default auto, legacy requires off."
     },
     "tss_fragment_profile": {
       "type": "boolean",

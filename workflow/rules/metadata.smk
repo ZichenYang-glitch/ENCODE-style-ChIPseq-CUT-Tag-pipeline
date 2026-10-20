@@ -567,6 +567,47 @@ def is_updated_profile():
     return VALIDATED_CONFIG.get("analysis_profile") == "updated"
 
 
+FRAGMENT_CPM_MODE = VALIDATED_CONFIG.get("fragment_cpm", "off")
+
+
+def is_fragment_cpm_enabled():
+    """Return True when the updated profile requests fragment tracks."""
+    return is_updated_profile() and FRAGMENT_CPM_MODE != "off"
+
+
+def fragment_cpm_eligible(sample_id):
+    """Return True when a treatment sample should get a fragment CPM track.
+
+    ATAC, MNase, and known histone CUT&Tag targets are eligible in auto mode.
+    Explicit ``on`` also allows CUT&Tag targets that the classifier cannot
+    recognize; ChIP-seq remains read-level in PR-E1.
+    """
+    if not is_fragment_cpm_enabled():
+        return False
+    sample = SAMPLE_MAP[sample_id]
+    assay = sample["assay"]
+    if assay in ("atac", "mnase"):
+        return True
+    if assay == "cuttag":
+        classifier = globals().get("classify_histone_target")
+        if not callable(classifier):
+            return FRAGMENT_CPM_MODE == "on"
+        info = classifier(sample["target"], sample["peak_mode"])
+        return FRAGMENT_CPM_MODE == "on" or info["inferred_histone_class"] != "unknown"
+    return False
+
+
+FRAGMENT_CPM_SAMPLE_IDS = [
+    sid for sid in TREATMENT_SAMPLE_IDS if fragment_cpm_eligible(sid)
+]
+
+if FRAGMENT_CPM_MODE == "on" and not FRAGMENT_CPM_SAMPLE_IDS:
+    raise ValueError(
+        "fragment_cpm=on requested but no treatment sample is eligible for a "
+        "fragment CPM track"
+    )
+
+
 def analysis_bam(sample):
     """Return the analysis BAM for a sample.
 

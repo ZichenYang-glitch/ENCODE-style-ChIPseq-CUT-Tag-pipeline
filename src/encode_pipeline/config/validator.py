@@ -262,14 +262,15 @@ def _validate_advanced_modes(config: dict, profile: str) -> dict:
             "dispatch; duplicate_backend must be empty."
         )
 
+    fragment_default = "off" if profile == "legacy" else "auto"
     fragment_cpm = _choice(
-        config.get("fragment_cpm", "off"),
+        config.get("fragment_cpm", fragment_default),
         name="fragment_cpm",
         allowed=defaults.FRAGMENT_CPM_MODES,
     )
-    if fragment_cpm != "off":
+    if profile == "legacy" and fragment_cpm != "off":
         raise ValidationError(
-            "config: fragment_cpm is not implemented in A1; use off until PR-E1."
+            "config: analysis_profile=legacy does not support fragment_cpm; use off."
         )
 
     tss_fragment_profile = _strict_bool(
@@ -327,12 +328,14 @@ def validate_execution_support(
         )
     if validated_config.get("duplicate_analysis") not in ("exclude", "retain"):
         raise error_cls("config: duplicate_analysis is invalid")
-    if validated_config.get("fragment_cpm") != "off":
-        raise error_cls("config: fragment_cpm is not executable until PR-E1.")
+    if validated_config.get("fragment_cpm") not in ("off", "auto", "on"):
+        raise error_cls("config: fragment_cpm is invalid")
     if validated_config.get("tss_fragment_profile"):
         raise error_cls("config: tss_fragment_profile is not executable until PR-E2.")
 
     if profile == "legacy":
+        if validated_config.get("fragment_cpm") != "off":
+            raise error_cls("config: legacy profile requires fragment_cpm=off.")
         if validated_config.get("organelle_mode") != "keep":
             raise error_cls("config: legacy profile requires organelle_mode=keep.")
         if validated_config.get("duplicate_backend"):

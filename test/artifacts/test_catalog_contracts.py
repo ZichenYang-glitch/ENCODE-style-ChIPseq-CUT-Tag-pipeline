@@ -751,6 +751,54 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
         tmp_config,
     )
 
+    # 12. Updated ATAC fragment CPM
+    all_types |= _run_manifest(
+        {"analysis_profile": "updated", "fragment_cpm": "auto"},
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "A1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "atac",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n",
+        tmp_config,
+    )
+
+    # 13. Updated MNase fragment CPM
+    all_types |= _run_manifest(
+        {"analysis_profile": "updated", "fragment_cpm": "auto"},
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "M1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "mnase",
+                "H3",
+                "nucleosome",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n",
+        tmp_config,
+    )
+
     missing = []
     for mot in sorted(catalog_mots):
         if "<N>" in mot:

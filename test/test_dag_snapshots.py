@@ -350,6 +350,8 @@ def _write_updated_profile(
     genome_resources=None,
     blacklist_mode="off",
     blacklist_path="",
+    fragment_cpm=None,
+    extend_reads=None,
 ):
     profile_dir.mkdir(parents=True, exist_ok=True)
     (profile_dir / "samples.tsv").write_text(
@@ -396,11 +398,14 @@ def _write_updated_profile(
         "control_mode": "matched",
         "reference_mode": "legacy",
         "external_control_policy": "warn",
-        "fragment_cpm": "off",
         "tss_fragment_profile": False,
     }
     if blacklist_mode == "analysis":
         config["qc"].pop("blacklist_filter", None)
+    if fragment_cpm is not None:
+        config["fragment_cpm"] = fragment_cpm
+    if extend_reads is not None:
+        config["extend_reads"] = extend_reads
     (profile_dir / "config.yaml").write_text(
         yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
     )
@@ -580,6 +585,259 @@ def test_analysis_filtered_mnase_picard_uses_raw_metrics(snakefile, profiles_dir
             "results/analysis_filtered/M1/05_qc/picard/M1.insert_size_metrics"
             not in output
         )
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_fragment_cpm_default_dag_independent_of_qc_summary(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tcuttag\tH3K4me3\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K4me3\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+    )
+    try:
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode == 0, output
+        assert "results/T1/03_bigwig/T1.fragment.CPM.bw" in output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_fragment_cpm_auto_emits_for_histone_cuttag(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tcuttag\tH3K4me3\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K4me3\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/T1/03_bigwig/T1.fragment.CPM.bw",
+            printshellcmds=True,
+        )
+        assert result.returncode == 0, output
+        assert "--samFlagInclude 64" in output
+        assert "fragment_cpm" in output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_fragment_cpm_auto_skips_unknown_cuttag_target(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tcuttag\tUNKNOWN_TARGET\tnarrow\ths\tbt2_idx\t"
+            "exp1\tUNKNOWN_TARGET\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+    )
+    try:
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode == 0, output
+        assert "fragment.CPM.bw" not in output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_fragment_cpm_on_emits_for_unknown_cuttag_target(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tcuttag\tUNKNOWN_TARGET\tnarrow\ths\tbt2_idx\t"
+            "exp1\tUNKNOWN_TARGET\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+        fragment_cpm="on",
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/T1/03_bigwig/T1.fragment.CPM.bw",
+        )
+        assert result.returncode == 0, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_fragment_cpm_se_default_uses_fallback(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\t\tSE\tcuttag\tH3K4me3\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K4me3\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/T1/03_bigwig/T1.fragment.CPM.bw",
+            printshellcmds=True,
+        )
+        assert result.returncode == 0, output
+        assert "--extendReads 200" in output
+        assert "--samFlagInclude 64" not in output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_fragment_cpm_se_broad_depends_on_macs3_model(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\t\tSE\tcuttag\tH3K27me3\tbroad\ths\tbt2_idx\t"
+            "exp1\tH3K27me3\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/T1/03_bigwig/T1.fragment.CPM.bw",
+        )
+        assert result.returncode == 0, output
+        assert "macs3_callpeak" in output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_fragment_cpm_se_explicit_length_skips_model(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\t\tSE\tcuttag\tH3K27me3\tbroad\ths\tbt2_idx\t"
+            "exp1\tH3K27me3\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+        extend_reads="150",
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/T1/03_bigwig/T1.fragment.CPM.bw",
+        )
+        assert result.returncode == 0, output
+        assert "macs3_callpeak" not in output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_fragment_cpm_se_uses_explicit_extension(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\t\tSE\tcuttag\tH3K4me3\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K4me3\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+        extend_reads="150",
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/T1/03_bigwig/T1.fragment.CPM.bw",
+            printshellcmds=True,
+        )
+        assert result.returncode == 0, output
+        assert "--extendReads 150" in output
+        assert "--samFlagInclude 64" not in output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_fragment_cpm_on_rejects_no_eligible_samples(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K27ac\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+        fragment_cpm="on",
+    )
+    try:
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "fragment_cpm=on requires" in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_mnase_fragment_cpm_uses_mono_track(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "M1\tR1.fq\tR2.fq\tPE\tmnase\tH3\tnucleosome\ths\tbt2_idx\t"
+            "exp1\tH3\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/M1/04_signal/M1.mono.fragment.CPM.bw",
+            printshellcmds=True,
+        )
+        assert result.returncode == 0, output
+        assert "M1.mono.bam" in output
+        assert "--samFlagInclude 64" in output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_analysis_filtered_fragment_cpm_uses_filtered_namespace(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    blacklist = profile_dir / "blacklist.bed"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    blacklist.write_text("chr1\t0\t10\n", encoding="utf-8")
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tcuttag\tH3K4me3\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K4me3\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+        blacklist_mode="analysis",
+        blacklist_path=str(blacklist),
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/analysis_filtered/T1/03_bigwig/T1.fragment.CPM.bw",
+        )
+        assert result.returncode == 0, output
     finally:
         shutil.rmtree(workdir)
 

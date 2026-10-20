@@ -38,6 +38,58 @@ artifacts:
   rule_all: true
   config_gate: null
   notes: produced for treatment and control samples
+- id: fragment_cpm_bigwig
+  description: Fragment-level CPM BigWig
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/03_bigwig/<sample>.fragment.CPM.bw
+  producing_rule: fragment_cpm
+  tool: bamCoverage --extendReads
+  manifest_output_type: fragment_cpm_bigwig
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'analysis_profile: updated + fragment_cpm: auto|on + eligible assay'
+  notes: one fragment per pair (PE adds --samFlagInclude 64); ChIP-seq remains read-level
+- id: mnase_fragment_cpm_bigwig
+  description: MNase mono-nucleosome fragment CPM BigWig
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/04_signal/<sample>.mono.fragment.CPM.bw
+  producing_rule: mnase_fragment_cpm
+  tool: bamCoverage --extendReads
+  manifest_output_type: mnase_fragment_cpm_bigwig
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'analysis_profile: updated + fragment_cpm: auto|on + assay: mnase'
+  notes: mono-nucleosome fragment occupancy; PE adds --samFlagInclude 64
+- id: analysis_filtered_fragment_cpm_bigwig
+  description: Analysis-filtered fragment-level CPM BigWig
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/analysis_filtered/<sample>/03_bigwig/<sample>.fragment.CPM.bw
+  producing_rule: fragment_cpm
+  tool: bamCoverage --extendReads
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'blacklist_mode: analysis + eligible fragment CPM assay'
+  notes: fragment track in the filtered analysis namespace; PE adds --samFlagInclude 64
+- id: analysis_filtered_mnase_fragment_cpm_bigwig
+  description: Analysis-filtered MNase mono fragment CPM BigWig
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/analysis_filtered/<sample>/04_signal/<sample>.mono.fragment.CPM.bw
+  producing_rule: mnase_fragment_cpm
+  tool: bamCoverage --extendReads
+  manifest_output_type: null
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'blacklist_mode: analysis + assay: mnase'
+  notes: fragment track in the filtered analysis namespace; PE adds --samFlagInclude 64
 - id: pipeline_done
   description: Sentinel file marking sample-level pipeline completion
   scope: sample
