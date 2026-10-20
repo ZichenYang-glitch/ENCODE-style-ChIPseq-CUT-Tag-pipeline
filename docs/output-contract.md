@@ -44,6 +44,22 @@ Project-level rows use empty `sample_id` and `experiment_id` fields.
 | `seacr_peaks` | SEACR_1.3.sh | seacr_call | `results/<sample>/04_peaks_seacr/<sample>/<sample>.seacr.<mode>.bed` | stable |
 | `blacklist_filtered_bam` | bedtools intersect | blacklist_filter_bam | `results/<sample>/02_align/<sample>.blacklist_filtered.bam` | stable |
 | `pipeline_done` | touch | (common.smk) | `results/<sample>/logs/<sample>.pipeline.done` | stable |
+| `analysis_bam` | samtools | prepare_analysis_bam | `results/<sample>/02_align/<sample>.analysis.bam` | implemented |
+| `analysis_filtered_bam` | samtools + filter_blacklist_templates.py | prepare_analysis_bam | `results/analysis_filtered/<sample>/02_align/<sample>.analysis.bam` | implemented |
+| `blacklist_dropped` | filter_blacklist_templates.py | prepare_analysis_bam | `results/<sample>/05_qc/<sample>.blacklist_dropped.tsv` | implemented |
+| `analysis_filtered_blacklist_dropped` | filter_blacklist_templates.py | prepare_analysis_bam | `results/analysis_filtered/<sample>/05_qc/<sample>.blacklist_dropped.tsv` | implemented |
+| `fragment_cpm_bigwig` | bamCoverage --extendReads | fragment_cpm | `results/<sample>/03_bigwig/<sample>.fragment.CPM.bw` | implemented |
+| `analysis_filtered_fragment_cpm_bigwig` | bamCoverage --extendReads | fragment_cpm | `results/analysis_filtered/<sample>/03_bigwig/<sample>.fragment.CPM.bw` | implemented |
+| `analysis_filtered_cpm_bigwig` | bamCoverage | bamcoverage | `results/analysis_filtered/<sample>/03_bigwig/<sample>.CPM.bw` | implemented |
+| `analysis_filtered_peaks` | bedtools intersect | blacklist_filter_peaks | `results/analysis_filtered/<sample>/04_peaks/<sample>_blacklist_filtered/` | implemented |
+| `tss_fragment_matrix` | computeMatrix reference-point | tss_fragment_profile | `results/<sample>/05_qc/tss/<sample>.fragment.tss_matrix.gz` | implemented |
+| `tss_fragment_profile_tsv` | plotProfile | tss_fragment_profile | `results/<sample>/05_qc/tss/<sample>.fragment.tss_profile.tsv` | implemented |
+| `tss_fragment_profile_pdf` | plotProfile | tss_fragment_profile | `results/<sample>/05_qc/tss/<sample>.fragment.tss_profile.pdf` | implemented |
+| `analysis_filtered_tss_fragment_matrix` | computeMatrix reference-point | tss_fragment_profile | `results/analysis_filtered/<sample>/05_qc/tss/<sample>.fragment.tss_matrix.gz` | implemented |
+| `analysis_filtered_tss_fragment_profile_tsv` | plotProfile | tss_fragment_profile | `results/analysis_filtered/<sample>/05_qc/tss/<sample>.fragment.tss_profile.tsv` | implemented |
+| `analysis_filtered_tss_fragment_profile_pdf` | plotProfile | tss_fragment_profile | `results/analysis_filtered/<sample>/05_qc/tss/<sample>.fragment.tss_profile.pdf` | implemented |
+| `mnase_fragment_cpm_bigwig` | bamCoverage --extendReads | mnase_fragment_cpm | `results/<sample>/04_signal/<sample>.mono.fragment.CPM.bw` | implemented |
+| `analysis_filtered_mnase_fragment_cpm_bigwig` | bamCoverage --extendReads | mnase_fragment_cpm | `results/analysis_filtered/<sample>/04_signal/<sample>.mono.fragment.CPM.bw` | implemented |
 
 ### MNase-seq single-sample outputs
 
