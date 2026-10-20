@@ -607,6 +607,29 @@ if FRAGMENT_CPM_MODE == "on" and not FRAGMENT_CPM_SAMPLE_IDS:
         "fragment CPM track"
     )
 
+TSS_FRAGMENT_ENABLED = bool(VALIDATED_CONFIG.get("tss_fragment_profile", False))
+_fragment_tss_candidates = [
+    sid
+    for sid in FRAGMENT_CPM_SAMPLE_IDS
+    if SAMPLE_MAP[sid]["assay"] != "mnase"
+]
+TSS_FRAGMENT_SAMPLE_IDS = [
+    sid for sid in _fragment_tss_candidates if has_genome_resource(sid, "gtf")
+]
+if TSS_FRAGMENT_ENABLED:
+    _missing_gtf = [
+        sid for sid in _fragment_tss_candidates if not has_genome_resource(sid, "gtf")
+    ]
+    if not TSS_FRAGMENT_SAMPLE_IDS or _missing_gtf:
+        raise ValueError(
+            "tss_fragment_profile=true requires eligible ATAC/CUT&Tag "
+            "fragment samples with genome_resources.<genome>.gtf; "
+            f"missing GTF for: {', '.join(_missing_gtf) or 'none'}"
+        )
+TSS_FRAGMENT_GENOMES = sorted(
+    {SAMPLE_MAP[sid]["genome"] for sid in TSS_FRAGMENT_SAMPLE_IDS}
+)
+
 
 def analysis_bam(sample):
     """Return the analysis BAM for a sample.

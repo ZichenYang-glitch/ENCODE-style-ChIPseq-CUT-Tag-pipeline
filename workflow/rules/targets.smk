@@ -84,6 +84,7 @@ def _manifest_dependency_targets():
     targets += _fragment_targets()
     targets += _advanced_qc_targets()
     targets += _tss_targets()
+    targets += _tss_fragment_targets()
     targets += _replicate_targets()
     targets += _idr_targets()
     targets += _atac_idr_targets()
@@ -358,6 +359,24 @@ def _tss_targets():
             outdir=OUTDIR,
             sample=TSS_SAMPLE_IDS,
         )
+    return targets
+
+
+def _tss_fragment_targets():
+    """Opt-in fragment-occupancy TSS profile (PR-E2)."""
+    if not TSS_FRAGMENT_ENABLED or not TSS_FRAGMENT_SAMPLE_IDS:
+        return []
+    targets = []
+    if TSS_FRAGMENT_GENOMES:
+        targets += expand(
+            "{outdir}/reference/{genome}.tss.bed",
+            outdir=OUTDIR,
+            genome=TSS_FRAGMENT_GENOMES,
+        )
+    for sample_id in TSS_FRAGMENT_SAMPLE_IDS:
+        targets.append(tss_fragment_matrix(sample_id))
+        targets.append(tss_fragment_profile_tsv(sample_id))
+        targets.append(tss_fragment_profile_pdf(sample_id))
     return targets
 
 

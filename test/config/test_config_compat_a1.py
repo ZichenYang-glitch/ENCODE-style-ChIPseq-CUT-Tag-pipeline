@@ -189,9 +189,9 @@ def test_legacy_duplicate_policy_is_derived(tmp_path):
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"tss_fragment_profile": True},
         {"analysis_profile": "legacy", "fragment_cpm": "auto"},
         {"analysis_profile": "legacy", "fragment_cpm": "on"},
+        {"analysis_profile": "legacy", "tss_fragment_profile": True},
         {"analysis_profile": "legacy", "control_mode": "matched"},
         {"analysis_profile": "legacy", "duplicate_backend": "picard"},
     ],
@@ -199,6 +199,23 @@ def test_legacy_duplicate_policy_is_derived(tmp_path):
 def test_unimplemented_or_legacy_incompatible_modes_rejected(tmp_path, overrides):
     with pytest.raises(ValidationError):
         _validate(tmp_path, **overrides)
+
+
+def test_updated_tss_fragment_profile_requires_fragment_cpm(tmp_path):
+    validated = _validate(
+        tmp_path,
+        analysis_profile="updated",
+        tss_fragment_profile=True,
+    )
+    assert validated["tss_fragment_profile"] is True
+    validate_execution_support(validated)
+    with pytest.raises(ValidationError, match="requires fragment_cpm != off"):
+        _validate(
+            tmp_path,
+            analysis_profile="updated",
+            fragment_cpm="off",
+            tss_fragment_profile=True,
+        )
 
 
 @pytest.mark.parametrize("mode", ["auto", "on"])

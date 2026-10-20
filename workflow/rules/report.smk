@@ -103,6 +103,15 @@ rule pipeline_done:
             if QC_CONFIG.get("tss_enrichment", False) and _is_not_mnase(wc)
             else []
         ),
+        tss_fragment_profile = lambda wc: (
+            [
+                tss_fragment_matrix(wc.sample),
+                tss_fragment_profile_tsv(wc.sample),
+                tss_fragment_profile_pdf(wc.sample),
+            ]
+            if TSS_FRAGMENT_ENABLED and wc.sample in TSS_FRAGMENT_SAMPLE_IDS
+            else []
+        ),
     shell:
         "set -e -o pipefail; touch {output.done}"
 

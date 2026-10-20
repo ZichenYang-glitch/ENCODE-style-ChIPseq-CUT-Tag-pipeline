@@ -799,6 +799,37 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
         tmp_config,
     )
 
+    # 14. Updated ATAC fragment TSS profile
+    all_types |= _run_manifest(
+        {
+            "analysis_profile": "updated",
+            "fragment_cpm": "auto",
+            "tss_fragment_profile": True,
+            "genome_resources": {
+                "hs": {"effective_genome_size": "hs", "gtf": __file__}
+            },
+        },
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "A1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "atac",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n",
+        tmp_config,
+    )
+
     missing = []
     for mot in sorted(catalog_mots):
         if "<N>" in mot:

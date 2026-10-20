@@ -90,6 +90,84 @@ artifacts:
   rule_all: true
   config_gate: 'blacklist_mode: analysis + assay: mnase'
   notes: fragment track in the filtered analysis namespace; PE adds --samFlagInclude 64
+- id: tss_fragment_matrix
+  description: Fragment-occupancy TSS matrix
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/05_qc/tss/<sample>.fragment.tss_matrix.gz
+  producing_rule: tss_fragment_profile
+  tool: computeMatrix reference-point
+  manifest_output_type: tss_fragment_matrix
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'analysis_profile: updated + tss_fragment_profile: true'
+  notes: descriptive fragment occupancy, not an ENCODE TSS enrichment score
+- id: tss_fragment_profile_tsv
+  description: Fragment-occupancy TSS profile TSV
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/05_qc/tss/<sample>.fragment.tss_profile.tsv
+  producing_rule: tss_fragment_profile
+  tool: plotProfile
+  manifest_output_type: tss_fragment_profile_tsv
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'analysis_profile: updated + tss_fragment_profile: true'
+  notes: descriptive fragment occupancy, not an ENCODE TSS enrichment score
+- id: tss_fragment_profile_pdf
+  description: Fragment-occupancy TSS profile PDF
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/<sample>/05_qc/tss/<sample>.fragment.tss_profile.pdf
+  producing_rule: tss_fragment_profile
+  tool: plotProfile
+  manifest_output_type: tss_fragment_profile_pdf
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'analysis_profile: updated + tss_fragment_profile: true'
+  notes: descriptive fragment occupancy, not an ENCODE TSS enrichment score
+- id: analysis_filtered_tss_fragment_matrix
+  description: Analysis-filtered fragment TSS matrix
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/analysis_filtered/<sample>/05_qc/tss/<sample>.fragment.tss_matrix.gz
+  producing_rule: tss_fragment_profile
+  tool: computeMatrix reference-point
+  manifest_output_type: null
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'blacklist_mode: analysis + tss_fragment_profile: true'
+  notes: filtered analysis namespace
+- id: analysis_filtered_tss_fragment_profile_tsv
+  description: Analysis-filtered fragment TSS profile TSV
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/analysis_filtered/<sample>/05_qc/tss/<sample>.fragment.tss_profile.tsv
+  producing_rule: tss_fragment_profile
+  tool: plotProfile
+  manifest_output_type: null
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'blacklist_mode: analysis + tss_fragment_profile: true'
+  notes: filtered analysis namespace
+- id: analysis_filtered_tss_fragment_profile_pdf
+  description: Analysis-filtered fragment TSS profile PDF
+  scope: sample
+  level: per_sample
+  assay_gate: peak_centric
+  path_template: results/analysis_filtered/<sample>/05_qc/tss/<sample>.fragment.tss_profile.pdf
+  producing_rule: tss_fragment_profile
+  tool: plotProfile
+  manifest_output_type: null
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'blacklist_mode: analysis + tss_fragment_profile: true'
+  notes: filtered analysis namespace
 - id: pipeline_done
   description: Sentinel file marking sample-level pipeline completion
   scope: sample

@@ -352,6 +352,8 @@ def _write_updated_profile(
     blacklist_path="",
     fragment_cpm=None,
     extend_reads=None,
+    tss_fragment_profile=None,
+    gtf_path="",
 ):
     profile_dir.mkdir(parents=True, exist_ok=True)
     (profile_dir / "samples.tsv").write_text(
@@ -370,6 +372,9 @@ def _write_updated_profile(
     if blacklist_path:
         resources = {key: dict(value) for key, value in resources.items()}
         resources.setdefault("hs", {})["blacklist"] = blacklist_path
+    if gtf_path:
+        resources = {key: dict(value) for key, value in resources.items()}
+        resources.setdefault("hs", {})["gtf"] = gtf_path
     config = {
         "samples": "samples.tsv",
         "outdir": "results",
@@ -406,6 +411,8 @@ def _write_updated_profile(
         config["fragment_cpm"] = fragment_cpm
     if extend_reads is not None:
         config["extend_reads"] = extend_reads
+    if tss_fragment_profile is not None:
+        config["tss_fragment_profile"] = tss_fragment_profile
     (profile_dir / "config.yaml").write_text(
         yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
     )
@@ -585,6 +592,92 @@ def test_analysis_filtered_mnase_picard_uses_raw_metrics(snakefile, profiles_dir
             "results/analysis_filtered/M1/05_qc/picard/M1.insert_size_metrics"
             not in output
         )
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_tss_fragment_profile_uses_fragment_track(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    gtf = profile_dir / "annotation.gtf"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    gtf.write_text(
+        'chr1\ttest\ttranscript\t1\t100\t.\t+\t.\tgene_id "g1";\n',
+        encoding="utf-8",
+    )
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tcuttag\tH3K4me3\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K4me3\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+        tss_fragment_profile=True,
+        gtf_path=str(gtf),
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/T1/05_qc/tss/T1.fragment.tss_profile.tsv",
+            printshellcmds=True,
+        )
+        assert result.returncode == 0, output
+        assert "T1.fragment.CPM.bw" in output
+        assert "fragment occupancy" in output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_analysis_filtered_tss_fragment_uses_filtered_namespace(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    blacklist = profile_dir / "blacklist.bed"
+    gtf = profile_dir / "annotation.gtf"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    blacklist.write_text("chr1\t0\t10\n", encoding="utf-8")
+    gtf.write_text(
+        'chr1\ttest\ttranscript\t1\t100\t.\t+\t.\tgene_id "g1"; transcript_id "t1";\n',
+        encoding="utf-8",
+    )
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tcuttag\tH3K4me3\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K4me3\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+        blacklist_mode="analysis",
+        blacklist_path=str(blacklist),
+        tss_fragment_profile=True,
+        gtf_path=str(gtf),
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/analysis_filtered/T1/05_qc/tss/T1.fragment.tss_profile.tsv",
+        )
+        assert result.returncode == 0, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_updated_tss_fragment_profile_rejects_no_eligible_sample(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "M1\tR1.fq\tR2.fq\tPE\tmnase\tH3\tnucleosome\ths\tbt2_idx\t"
+            "exp1\tH3\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+        tss_fragment_profile=True,
+    )
+    try:
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "tss_fragment_profile=true requires" in output, output
     finally:
         shutil.rmtree(workdir)
 

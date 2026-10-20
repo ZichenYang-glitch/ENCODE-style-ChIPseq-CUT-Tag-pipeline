@@ -56,6 +56,12 @@ def _run(command, *, env=None, cwd=None):
     return result
 
 
+def _age_inputs(bam):
+    """Avoid Snakemake clock-skew false failures in fast fixtures."""
+    for path in (bam, Path(str(bam) + ".bai")):
+        os.utime(path, (1, 1))
+
+
 def _pair(name, start, mate_start, tlen):
     return [
         "\t".join(
@@ -225,6 +231,7 @@ def test_se_fragment_production_rule_uses_explicit_extension(
     _run([samtools_path, "view", "-b", "-o", str(raw), str(sam)])
     _run([samtools_path, "sort", "-o", str(bam), str(raw)])
     _run([samtools_path, "index", str(bam)])
+    _age_inputs(bam)
     _run(
         [
             snakemake_path,
@@ -338,6 +345,7 @@ def _prepare_se_broad_workflow(tmp_path, samtools_path, snakemake_path, model_le
     _run([samtools_path, "view", "-b", "-o", str(raw), str(sam)])
     _run([samtools_path, "sort", "-o", str(bam), str(raw)])
     _run([samtools_path, "index", str(bam)])
+    _age_inputs(bam)
     peaks = tmp_path / "results/T1/04_peaks/T1"
     peaks.mkdir(parents=True)
     (peaks / "T1_peaks.broadPeak").write_text(
@@ -457,6 +465,7 @@ def test_se_broad_fragment_cold_run_schedules_model_producer(
     _run([samtools_path, "view", "-b", "-o", str(raw), str(sam)])
     _run([samtools_path, "sort", "-o", str(bam), str(raw)])
     _run([samtools_path, "index", str(bam)])
+    _age_inputs(bam)
 
     bindir = tmp_path / "bin"
     bindir.mkdir()

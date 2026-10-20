@@ -248,6 +248,13 @@ def test_fragment_cpm_rows_follow_assay_eligibility(tmp_config):
                 "analysis_outdir": str(workdir / "raw/analysis_filtered"),
                 "analysis_profile": "updated",
                 "fragment_cpm": "auto",
+                "tss_fragment_profile": True,
+                "genome_resources": {
+                    "hs": {
+                        "effective_genome_size": "hs",
+                        "gtf": str(Path(__file__).resolve()),
+                    }
+                },
                 "replicate_analysis": False,
             }
         )
@@ -265,6 +272,15 @@ def test_fragment_cpm_rows_follow_assay_eligibility(tmp_config):
     assert "fragment_cpm_bigwig" in cuttag_types
     assert "fragment_cpm_bigwig" not in unknown_types
     assert "mnase_fragment_cpm_bigwig" in mnase_types
+    for output_type in (
+        "tss_fragment_matrix",
+        "tss_fragment_profile_tsv",
+        "tss_fragment_profile_pdf",
+    ):
+        assert output_type in atac_types
+        assert output_type in cuttag_types
+        assert output_type not in unknown_types
+        assert output_type not in mnase_types
 
 
 def _run_manifest(config_path, out, use_json=False):

@@ -43,6 +43,18 @@ def mnase_fragment_cpm_bw(sample):
     return f"{OUTDIR}/{sample}/04_signal/{sample}.mono.fragment.CPM.bw"
 
 
+def tss_fragment_matrix(sample):
+    return f"{OUTDIR}/{sample}/05_qc/tss/{sample}.fragment.tss_matrix.gz"
+
+
+def tss_fragment_profile_tsv(sample):
+    return f"{OUTDIR}/{sample}/05_qc/tss/{sample}.fragment.tss_profile.tsv"
+
+
+def tss_fragment_profile_pdf(sample):
+    return f"{OUTDIR}/{sample}/05_qc/tss/{sample}.fragment.tss_profile.pdf"
+
+
 def mnase_pooled_fragment_bam(experiment, fragment_class):
     """Experiment-level pooled MNase fragment BAM path.
 

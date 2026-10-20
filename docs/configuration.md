@@ -208,6 +208,21 @@ PE tracks use `bamCoverage --extendReads --samFlagInclude 64`, counting one
 first-mate fragment per pair; SE tracks use `--extendReads` without the flag.
 MNase dyad tracks keep their existing `--MNase --binSize 1` behavior.
 
+## Fragment-occupancy TSS profile
+
+```yaml
+analysis_profile: updated
+fragment_cpm: auto
+tss_fragment_profile: true
+```
+
+The opt-in fragment TSS profile uses the fragment CPM BigWig and requires a
+GTF for every eligible ATAC/CUT&Tag sample. It writes
+`05_qc/tss/<sample>.fragment.tss_matrix.gz`, `.fragment.tss_profile.tsv`, and
+`.fragment.tss_profile.pdf`. This is a descriptive fragment-occupancy profile,
+not an ENCODE TSS enrichment score; the default `qc.tss_enrichment` profile is
+unchanged. MNase is not eligible for this profile.
+
 ## MNase-seq fragment ranges and caller surface
 
 ```yaml

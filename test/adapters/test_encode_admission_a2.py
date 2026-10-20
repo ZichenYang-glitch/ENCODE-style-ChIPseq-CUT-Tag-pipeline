@@ -111,6 +111,83 @@ def _admit(samples, config, *, reference_mode="strict", external="validate"):
     )
 
 
+def test_updated_tss_fragment_requires_eligible_gtf_sample():
+    config = _config(use_control=False)
+    config.update(
+        {
+            "analysis_profile": "updated",
+            "fragment_cpm": "auto",
+            "tss_fragment_profile": True,
+        }
+    )
+    with pytest.raises(ValidationError, match="tss_fragment_profile=true"):
+        _admit(
+            [_sample(assay="chipseq")], config, reference_mode="legacy", external="warn"
+        )
+
+    config["genome_resources"]["hg38"]["gtf"] = "/tmp/annotation.gtf"
+    _admit([_sample(assay="atac")], config, reference_mode="legacy", external="warn")
+
+
+def test_updated_tss_fragment_rejects_unknown_cuttag_target_in_auto():
+    config = _config(use_control=False)
+    config["genome_resources"]["hg38"]["gtf"] = "/tmp/annotation.gtf"
+    config.update(
+        {
+            "analysis_profile": "updated",
+            "fragment_cpm": "auto",
+            "tss_fragment_profile": True,
+        }
+    )
+    with pytest.raises(ValidationError, match="at least one eligible"):
+        _admit(
+            [_sample(assay="cuttag", target="UNKNOWN_TARGET", peak_mode="narrow")],
+            config,
+            reference_mode="legacy",
+            external="warn",
+        )
+
+
+def test_updated_tss_fragment_requires_gtf_for_every_candidate():
+    config = _config(use_control=False)
+    config["genome_resources"]["hg38"]["gtf"] = "/tmp/annotation.gtf"
+    config.update(
+        {
+            "analysis_profile": "updated",
+            "fragment_cpm": "auto",
+            "tss_fragment_profile": True,
+        }
+    )
+    with pytest.raises(ValidationError, match="missing for: S2"):
+        _admit(
+            [
+                _sample(id="S1", assay="atac", genome="hg38"),
+                _sample(id="S2", assay="atac", genome="mm10"),
+            ],
+            config,
+            reference_mode="legacy",
+            external="warn",
+        )
+
+
+def test_updated_tss_fragment_on_allows_unknown_cuttag_with_gtf():
+    config = _config(use_control=False)
+    config["genome_resources"]["hg38"]["gtf"] = "/tmp/annotation.gtf"
+    config.update(
+        {
+            "analysis_profile": "updated",
+            "fragment_cpm": "on",
+            "tss_fragment_profile": True,
+        }
+    )
+    _admit(
+        [_sample(assay="cuttag", target="UNKNOWN_TARGET", peak_mode="narrow")],
+        config,
+        reference_mode="legacy",
+        external="warn",
+    )
+
+
 def test_updated_fragment_cpm_on_requires_eligible_assay():
     config = _config(use_control=False)
     config.update({"analysis_profile": "updated", "fragment_cpm": "on"})

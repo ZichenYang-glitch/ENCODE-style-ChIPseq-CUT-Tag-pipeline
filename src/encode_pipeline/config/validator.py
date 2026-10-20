@@ -277,10 +277,13 @@ def _validate_advanced_modes(config: dict, profile: str) -> dict:
         config.get("tss_fragment_profile", False),
         name="tss_fragment_profile",
     )
-    if tss_fragment_profile:
+    if profile == "legacy" and tss_fragment_profile:
         raise ValidationError(
-            "config: tss_fragment_profile is not implemented in A1; use false "
-            "until PR-E2."
+            "config: analysis_profile=legacy does not support tss_fragment_profile."
+        )
+    if tss_fragment_profile and fragment_cpm == "off":
+        raise ValidationError(
+            "config: tss_fragment_profile=true requires fragment_cpm != off."
         )
 
     return {
@@ -330,8 +333,8 @@ def validate_execution_support(
         raise error_cls("config: duplicate_analysis is invalid")
     if validated_config.get("fragment_cpm") not in ("off", "auto", "on"):
         raise error_cls("config: fragment_cpm is invalid")
-    if validated_config.get("tss_fragment_profile"):
-        raise error_cls("config: tss_fragment_profile is not executable until PR-E2.")
+    if validated_config.get("tss_fragment_profile") and profile == "legacy":
+        raise error_cls("config: legacy profile requires tss_fragment_profile=false.")
 
     if profile == "legacy":
         if validated_config.get("fragment_cpm") != "off":
