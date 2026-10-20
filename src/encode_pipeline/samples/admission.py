@@ -203,6 +203,14 @@ def validate_reference_control_admission(
                 )
 
     use_control = bool(config.get("use_control", False))
+    if use_control and config.get("analysis_profile") == "updated":
+        for sample in samples:
+            if sample.get("role") == "treatment" and sample.get("control_bam"):
+                raise error_cls(
+                    f"Sample {sample.get('id', '?')!r}: analysis_profile=updated "
+                    "does not yet support external control_bam. Use a FASTQ-based "
+                    "control_sample or analysis_profile=legacy."
+                )
     exp_treatments: dict[str, list[dict]] = {}
     for sample in samples:
         if sample.get("role") == "treatment":

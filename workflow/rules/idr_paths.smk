@@ -3,6 +3,28 @@
 # No rule declarations. No imports. No side effects.
 
 
+def _idr_is_updated():
+    fn = globals().get("is_updated_profile")
+    return bool(fn()) if callable(fn) else False
+
+
+def _idr_biorep_control_paths(experiment, bio_rep):
+    fn = globals().get("_biorep_control_paths")
+    return fn(experiment, bio_rep) if callable(fn) else []
+
+
+def _idr_biorep_control_bam(experiment, bio_rep):
+    return (
+        f"{OUTDIR}/experiments/{experiment}/02_align/"
+        f"biorep{bio_rep}.control.final.bam"
+    )
+
+
+def _idr_experiment_controls(experiment):
+    fn = globals().get("_resolve_experiment_controls")
+    return fn(experiment) if callable(fn) else []
+
+
 def idr_biorep_bam(experiment, bio_rep):
     """Treatment biorep merged BAM path used by IDR rules."""
     return f"{OUTDIR}/experiments/{experiment}/02_align/biorep{bio_rep}.final.bam"
@@ -44,7 +66,10 @@ def idr_biorep_peaks_inputs(experiment, bio_rep):
         idr_biorep_bam(experiment, bio_rep),
         idr_biorep_bai(experiment, bio_rep),
     ]
-    if experiment in POOLED_CONTROL_EXPERIMENTS:
+    if _idr_is_updated():
+        if _idr_biorep_control_paths(experiment, int(bio_rep)):
+            inputs.append(_idr_biorep_control_bam(experiment, int(bio_rep)))
+    elif experiment in POOLED_CONTROL_EXPERIMENTS:
         inputs.append(idr_pooled_control_bam(experiment))
     return inputs
 
@@ -73,7 +98,15 @@ def idr_pseudorep_peaks_inputs(experiment, source, pr, source_prefix=""):
         idr_pseudorep_bam(experiment, prefixed, pr),
         idr_pseudorep_bai(experiment, prefixed, pr),
     ]
-    if experiment in POOLED_CONTROL_EXPERIMENTS:
+    if _idr_is_updated():
+        if source == "pooled":
+            if _idr_experiment_controls(experiment):
+                inputs.append(idr_pooled_control_bam(experiment))
+        elif source.startswith("biorep"):
+            bio_rep = int(source[len("biorep") :])
+            if _idr_biorep_control_paths(experiment, bio_rep):
+                inputs.append(_idr_biorep_control_bam(experiment, bio_rep))
+    elif experiment in POOLED_CONTROL_EXPERIMENTS:
         inputs.append(idr_pooled_control_bam(experiment))
     return inputs
 

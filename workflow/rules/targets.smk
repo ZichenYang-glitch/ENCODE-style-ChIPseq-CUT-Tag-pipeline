@@ -26,6 +26,18 @@ def _fastqc_reports_for_samples(sample_ids):
     return [path for sample in sample_ids for path in _fastqc_report_paths(sample)]
 
 
+def _analysis_targets():
+    """Updated-profile derived analysis BAMs (legacy uses final.bam directly)."""
+    if not is_updated_profile():
+        return []
+    targets = [f"{OUTDIR}/.helixweave/analysis_identity.json"]
+    for sample_id in ACTIVE_SAMPLE_IDS:
+        targets.append(analysis_bam(sample_id))
+        targets.append(analysis_bai(sample_id))
+        targets.append(f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.mito_fraction.tsv")
+    return targets
+
+
 def _base_targets():
     """Core pipeline outputs: done markers, CPM BigWig, peaks, MultiQC."""
     targets = []

@@ -130,8 +130,8 @@ def get_macs3_args_mnase(wildcards):
 
 rule mnase_split_mono:
     input:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
-        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+        bam=lambda wc: analysis_bam(wc.sample),
+        bai=lambda wc: analysis_bai(wc.sample),
     output:
         bam=mnase_fragment_bam("{sample}", "mono"),
         bai=mnase_fragment_bai("{sample}", "mono"),
@@ -164,8 +164,8 @@ rule mnase_split_mono:
 
 rule mnase_split_sub:
     input:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
-        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+        bam=lambda wc: analysis_bam(wc.sample),
+        bai=lambda wc: analysis_bai(wc.sample),
     output:
         bam=mnase_fragment_bam("{sample}", "sub"),
         bai=mnase_fragment_bai("{sample}", "sub"),
@@ -198,8 +198,8 @@ rule mnase_split_sub:
 
 rule mnase_split_di:
     input:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
-        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+        bam=lambda wc: analysis_bam(wc.sample),
+        bai=lambda wc: analysis_bai(wc.sample),
     output:
         bam=mnase_fragment_bam("{sample}", "di"),
         bai=mnase_fragment_bai("{sample}", "di"),
@@ -232,8 +232,8 @@ rule mnase_split_di:
 
 rule mnase_dyad_bigwig:
     input:
-        bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
-        bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+        bam=lambda wc: analysis_bam(wc.sample),
+        bai=lambda wc: analysis_bai(wc.sample),
     output:
         bw=mnase_signal_bw("{sample}", "dyad"),
     log:

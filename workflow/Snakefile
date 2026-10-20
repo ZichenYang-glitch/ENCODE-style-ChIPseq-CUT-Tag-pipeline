@@ -6,7 +6,10 @@
 # workflow/rules/metadata.smk and workflow/rules/targets.smk.
 # Executable rules live in workflow/rules/*.smk.
 
+import hashlib
+import json
 import os
+from pathlib import Path
 import sys
 import re
 
@@ -170,6 +173,147 @@ ACTIVE_SAMPLE_IDS = ALL_SAMPLE_IDS if USE_CONTROL else TREATMENT_SAMPLE_IDS
 CONTROL_SAMPLE_IDS = [s["id"] for s in SAMPLES if s["role"] == "control"]
 CUTTAG_ACTIVE_SAMPLE_IDS = [sid for sid in ACTIVE_SAMPLE_IDS if SAMPLE_MAP[sid]["assay"] == "cuttag"]
 
+
+def _analysis_identity_hash():
+    sample_identity = [
+        {
+            key: sample.get(key)
+            for key in (
+                "id",
+                "fq1",
+                "fq2",
+                "genome",
+                "bt2_idx",
+                "layout",
+                "assay",
+                "target",
+                "peak_mode",
+                "role",
+                "experiment",
+                "condition",
+                "replicate",
+                "biological_replicate",
+                "technical_replicate",
+                "control_sample",
+                "control_bam",
+            )
+        }
+        for sample in sorted(SAMPLES, key=lambda item: item["id"])
+    ]
+    genome_resources = VALIDATED_CONFIG.get("genome_resources", {}) or {}
+    resource_identity = {
+        genome: {
+            key: resource.get(key)
+            for key in (
+                "effective_genome_size",
+                "chrom_sizes",
+                "blacklist",
+                "gtf",
+                "reference_fasta",
+                "organelle_chroms",
+            )
+        }
+        for genome, resource in sorted(genome_resources.items())
+        if isinstance(resource, dict)
+    }
+    payload = {
+        "analysis_profile": VALIDATED_CONFIG.get("analysis_profile"),
+        "config_schema_version": VALIDATED_CONFIG.get("config_schema_version"),
+        "reference_mode": VALIDATED_CONFIG.get("reference_mode"),
+        "external_control_policy": VALIDATED_CONFIG.get("external_control_policy"),
+        "organelle_mode": VALIDATED_CONFIG.get("organelle_mode"),
+        "duplicate_analysis": VALIDATED_CONFIG.get("duplicate_analysis"),
+        "control_mode": VALIDATED_CONFIG.get("control_mode"),
+        "duplicate_backend": VALIDATED_CONFIG.get("duplicate_backend"),
+        "use_control": bool(USE_CONTROL),
+        "mapq": VALIDATED_CONFIG.get("mapq"),
+        "trim": VALIDATED_CONFIG.get("trim"),
+        "binsize": VALIDATED_CONFIG.get("binsize"),
+        "extend_reads": VALIDATED_CONFIG.get("extend_reads"),
+        "tool_parameters": VALIDATED_CONFIG.get("tool_parameters"),
+        "genome_resources": resource_identity,
+        "samples": sample_identity,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _analysis_identity_marker():
+    return Path(OUTDIR) / ".helixweave" / "analysis_identity.json"
+
+
+def _analysis_identity_inputs(wildcards):
+    """Marker prerequisite for updated profile production rules."""
+    if VALIDATED_CONFIG.get("analysis_profile") != "updated":
+        return []
+    return [str(_analysis_identity_marker())]
+
+
+def _read_analysis_identity_marker(marker):
+    try:
+        recorded = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise WorkflowError(
+            f"Existing analysis identity marker is unreadable: {marker}"
+        ) from exc
+    if not isinstance(recorded, dict):
+        raise WorkflowError(
+            f"Existing analysis identity marker must be a JSON object: {marker}"
+        )
+    if recorded.get("analysis_profile") != "updated":
+        raise WorkflowError(
+            f"Existing analysis identity marker has an invalid profile: {marker}"
+        )
+    identity = recorded.get("identity")
+    if not isinstance(identity, str) or not identity:
+        raise WorkflowError(
+            f"Existing analysis identity marker has an invalid identity: {marker}"
+        )
+    return identity
+
+
+def _check_analysis_outdir_identity():
+    marker = _analysis_identity_marker()
+    profile = VALIDATED_CONFIG.get("analysis_profile")
+    if marker.is_symlink():
+        raise WorkflowError(
+            f"Analysis identity marker must not be a symlink: {marker}"
+        )
+    if marker.exists():
+        if not marker.is_file():
+            raise WorkflowError(
+                f"Analysis identity marker is not a regular file: {marker}"
+            )
+        recorded_identity = _read_analysis_identity_marker(marker)
+        if profile != "updated":
+            raise WorkflowError(
+                "Existing analysis outdir is owned by analysis_profile=updated; "
+                "use a fresh outdir for legacy runs."
+            )
+        if recorded_identity != _analysis_identity_hash():
+            raise WorkflowError(
+                "Existing analysis outdir has a different analysis identity; "
+                "use a fresh outdir or the profile that created it."
+            )
+        return
+    if profile != "updated":
+        return
+    outdir = Path(OUTDIR)
+    if outdir.exists():
+        entries = [
+            entry
+            for entry in outdir.iterdir()
+            if entry.name not in (".snakemake", ".helixweave")
+        ]
+        if entries:
+            raise WorkflowError(
+                "Refusing to write updated analysis outputs into an unmarked "
+                f"outdir: {outdir}. Use a fresh outdir or a legacy run."
+            )
+
+
+_check_analysis_outdir_identity()
+
 # Stage 7b: SEACR sidecar sample list (CUT&Tag PE treatment only)
 if SEACR_ENABLED:
     SEACR_SAMPLE_IDS = [
@@ -221,6 +365,7 @@ include: "rules/targets.smk"
 rule all:
     input:
         _base_targets()
+        + _analysis_targets()
         + _blacklist_targets()
         + _single_sample_qc_targets()
         + _signal_targets()
@@ -248,6 +393,7 @@ rule all:
 
 
 include: "rules/common.smk"
+include: "rules/analysis.smk"
 include: "rules/peaks.smk"
 include: "rules/mnase.smk"
 include: "rules/replicates.smk"

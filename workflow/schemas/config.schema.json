@@ -187,7 +187,12 @@
           "chrom_sizes": { "type": "string" },
           "blacklist": { "type": "string" },
           "gtf": { "type": "string" },
-          "reference_fasta": { "type": "string" }
+          "reference_fasta": { "type": "string" },
+          "organelle_chroms": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true
+          }
         },
         "additionalProperties": false
       }

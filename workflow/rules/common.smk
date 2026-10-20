@@ -29,6 +29,7 @@ def _fastqc_stage_input(wildcards):
 rule fastqc_stage:
     input:
         fastq=_fastqc_stage_input,
+        identity=lambda wc: _analysis_identity_inputs(wc),
     output:
         html=f"{OUTDIR}/{{sample}}/01_qc/fastqc/{{stage}}/{{sample}}.{{stage}}.{{read}}_fastqc.html",
         zip=f"{OUTDIR}/{{sample}}/01_qc/fastqc/{{stage}}/{{sample}}.{{stage}}.{{read}}_fastqc.zip",
@@ -77,8 +78,10 @@ def _trim_galore_inputs(wildcards):
     """Return [fq1] for SE, [fq1, fq2] for PE.  Never returns empty string."""
     s = SAMPLE_MAP[wildcards.sample]
     if s["layout"] == "PE" and s.get("fq2"):
-        return [s["fq1"], s["fq2"]]
-    return [s["fq1"]]
+        inputs = [s["fq1"], s["fq2"]]
+    else:
+        inputs = [s["fq1"]]
+    return inputs + _analysis_identity_inputs(wildcards)
 
 
 rule trim_galore:
@@ -153,6 +156,7 @@ rule bowtie2_align:
     input:
         r1=f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R1_val_1.fq.gz",
         r2=f"{OUTDIR}/{{sample}}/00_raw/{{sample}}_R2_val_2.fq.gz",
+        identity=lambda wc: _analysis_identity_inputs(wc),
     output:
         bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
     log:
@@ -213,6 +217,7 @@ rule samtools_index_sorted:
 rule samtools_filter:
     input:
         bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.sorted.bam",
+        identity=lambda wc: _analysis_identity_inputs(wc),
     output:
         bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
     conda:
@@ -221,11 +226,35 @@ rule samtools_filter:
     params:
         mapq=MAPQ,
         filter_flags=_filter_flags_arg(),
+        layout=lambda wc: SAMPLE_MAP[wc.sample]["layout"],
+        filter_mode=lambda wc: "updated" if is_updated_profile() else "legacy",
         extra=_tool_param("samtools_filter", "extra_args", ""),
     shell:
         """
         set -e -o pipefail
-        samtools view -@ {threads} -b -q {params.mapq} {params.filter_flags} {params.extra} {input.bam:q} >{output.bam:q}
+        if [[ "{params.filter_mode}" == "updated" ]]; then
+            if [[ "{params.layout}" == "PE" ]]; then
+                TMPD=$(mktemp -d)
+                trap 'rm -rf "$TMPD"' EXIT
+                samtools view -@ {threads} -b -q {params.mapq} -F 0xb0c -f 2 {params.extra} {input.bam:q} \
+                    > "$TMPD/filtered.bam"
+                samtools view "$TMPD/filtered.bam" \
+                    | cut -f1 \
+                    | LC_ALL=C sort \
+                    | uniq -c \
+                    | awk '$1 == 2 {{print $2}}' \
+                    > "$TMPD/names.txt"
+                if [[ -s "$TMPD/names.txt" ]]; then
+                    samtools view -@ {threads} -b -N "$TMPD/names.txt" "$TMPD/filtered.bam" >{output.bam:q}
+                else
+                    samtools view -@ {threads} -b -N /dev/null "$TMPD/filtered.bam" >{output.bam:q}
+                fi
+            else
+                samtools view -@ {threads} -b -q {params.mapq} -F 0xb0c {params.extra} {input.bam:q} >{output.bam:q}
+            fi
+        else
+            samtools view -@ {threads} -b -q {params.mapq} {params.filter_flags} {params.extra} {input.bam:q} >{output.bam:q}
+        fi
         """
 
 
@@ -251,19 +280,28 @@ rule samtools_index_filt:
 # ---------------------------------------------------------------------------
 
 
+DUPLICATE_ENV = (
+    "../envs/duplicate.yml"
+    if is_updated_profile()
+    else "../envs/samtools.yml"
+)
+
+
 rule duplicate_handling:
     input:
         bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
         bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam.bai",
+        identity=lambda wc: _analysis_identity_inputs(wc),
     output:
         bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
         bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
         metrics=f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
     conda:
-        "../envs/samtools.yml"
+        DUPLICATE_ENV
     threads: THREADS
     params:
         remove_dup=lambda wc: get_remove_dup(wc),
+        duplicate_mode=lambda wc: get_duplicate_mode(wc),
         picard_od=(
             f"OPTICAL_DUPLICATE_PIXEL_DISTANCE={v}"
             if (v := _tool_param("picard_markduplicates", "optical_duplicate_pixel_distance", "")) != ""
@@ -273,7 +311,19 @@ rule duplicate_handling:
     shell:
         """
         set -e -o pipefail
-        if [[ "{params.remove_dup}" == "yes" ]]; then
+        if [[ "{params.duplicate_mode}" == "mark" ]]; then
+            if ! command -v picard >/dev/null 2>&1; then
+                echo "ERROR: updated profile requires Picard MarkDuplicates" >&2
+                exit 1
+            fi
+            picard MarkDuplicates \
+                I={input.bam:q} \
+                O={output.bam:q} \
+                M={output.metrics:q} \
+                REMOVE_DUPLICATES=false \
+                {params.picard_od} {params.picard_extra}
+            samtools index -@ {threads} {output.bam}
+        elif [[ "{params.remove_dup}" == "yes" ]]; then
             if command -v picard >/dev/null 2>&1; then
                 picard MarkDuplicates \
                     I={input.bam:q} \
@@ -379,8 +429,8 @@ def _bamcoverage_inputs(wildcards):
     """
     s = SAMPLE_MAP[wildcards.sample]
     inputs = [
-        f"{OUTDIR}/{wildcards.sample}/02_align/{wildcards.sample}.final.bam",
-        f"{OUTDIR}/{wildcards.sample}/02_align/{wildcards.sample}.final.bam.bai",
+        analysis_bam(wildcards.sample),
+        analysis_bai(wildcards.sample),
     ]
     ext = str(config.get("extend_reads", "auto"))
     if (

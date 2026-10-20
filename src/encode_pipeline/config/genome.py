@@ -60,6 +60,27 @@ def validate_genome_resources(resources: dict, error_cls=ValueError) -> dict:
                     f"genome_resources.{genome}.{field}: file not found: {path}"
                 )
 
+        organelle_chroms = entry.get("organelle_chroms", [])
+        if organelle_chroms is None:
+            organelle_chroms = []
+        if not isinstance(organelle_chroms, (list, tuple)):
+            raise error_cls(
+                f"genome_resources.{genome}.organelle_chroms must be a list "
+                f"of contig names, got {type(organelle_chroms).__name__}"
+            )
+        if not all(
+            isinstance(chrom, str) and chrom.strip() for chrom in organelle_chroms
+        ):
+            raise error_cls(
+                f"genome_resources.{genome}.organelle_chroms must contain "
+                "non-empty contig names"
+            )
+        if len(set(organelle_chroms)) != len(organelle_chroms):
+            raise error_cls(
+                f"genome_resources.{genome}.organelle_chroms contains "
+                "duplicate contig names"
+            )
+
     return resources
 
 
