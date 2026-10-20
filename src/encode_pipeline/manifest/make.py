@@ -14,6 +14,7 @@ import os
 import yaml
 
 from encode_pipeline.config.validate import validate_config
+from encode_pipeline.qc.histone import classify_histone_target
 from encode_pipeline.samples.load import load_and_validate_samples
 
 
@@ -82,8 +83,30 @@ def _is_mnase(sample_dict):
     return sample_dict.get("assay", "") == "mnase"
 
 
+def _has_fragment_cpm(sample, mode):
+    """Return True when PR-E1 produces a fragment CPM track for *sample*."""
+    if mode == "off":
+        return False
+    assay = sample.get("assay", "")
+    if assay in ("atac", "mnase"):
+        return True
+    if assay == "cuttag":
+        if mode == "on":
+            return True
+        info = classify_histone_target(
+            sample.get("target", ""), sample.get("peak_mode")
+        )
+        return info["inferred_histone_class"] != "unknown"
+    return False
+
+
 def _build_sample_rows(
-    samples, outdir, signal_tracks, genomic_resources, analysis_outdir=None
+    samples,
+    outdir,
+    signal_tracks,
+    genomic_resources,
+    analysis_outdir=None,
+    fragment_cpm="off",
 ):
     """Per-sample rows using validated sample dicts (key='id')."""
     analysis_root = analysis_outdir or outdir
@@ -129,6 +152,46 @@ def _build_sample_rows(
             "bamCoverage",
             _resolve_path(analysis_root, sid, "03_bigwig", f"{sid}.CPM.bw"),
         )
+        if _has_fragment_cpm(s, fragment_cpm):
+            fragment_method = (
+                "bamCoverage --extendReads --samFlagInclude 64"
+                if s.get("layout") == "PE"
+                else "bamCoverage --extendReads <length>"
+            )
+            if is_mn:
+                _add_row(
+                    rows,
+                    sid,
+                    "",
+                    assay,
+                    target,
+                    genome,
+                    "mnase_fragment_cpm_bigwig",
+                    fragment_method,
+                    _resolve_path(
+                        analysis_root,
+                        sid,
+                        "04_signal",
+                        f"{sid}.mono.fragment.CPM.bw",
+                    ),
+                )
+            else:
+                _add_row(
+                    rows,
+                    sid,
+                    "",
+                    assay,
+                    target,
+                    genome,
+                    "fragment_cpm_bigwig",
+                    fragment_method,
+                    _resolve_path(
+                        analysis_root,
+                        sid,
+                        "03_bigwig",
+                        f"{sid}.fragment.CPM.bw",
+                    ),
+                )
 
         # Peak-centric outputs — gated on non-MNase
         if not is_mn:
@@ -1393,6 +1456,7 @@ def build_manifest_rows(config, samples_path=None):
     chipseq_idr = config.get("chipseq_idr", False)
     multiqc_enabled = config.get("multiqc", True)
     genomic_resources = config.get("genome_resources", {})
+    fragment_cpm = config.get("fragment_cpm", "off")
 
     samples_path = samples_path or config.get("samples", "config/samples.tsv")
     samples = load_and_validate_samples(
@@ -1411,6 +1475,7 @@ def build_manifest_rows(config, samples_path=None):
             signal_tracks,
             genomic_resources,
             analysis_outdir=analysis_outdir,
+            fragment_cpm=fragment_cpm,
         )
     )
     rows.extend(

@@ -375,6 +375,7 @@ rule all:
         + _signal_targets()
         + _cuttag_targets()
         + _mnase_targets()
+        + _fragment_targets()
         + _advanced_qc_targets()
         + _tss_targets()
         + _replicate_targets()
@@ -400,6 +401,7 @@ include: "rules/common.smk"
 include: "rules/analysis.smk"
 include: "rules/peaks.smk"
 include: "rules/mnase.smk"
+include: "rules/fragment.smk"
 include: "rules/replicates.smk"
 include: "rules/idr.smk"
 include: "rules/idr_reproducibility.smk"

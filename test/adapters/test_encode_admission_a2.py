@@ -111,6 +111,16 @@ def _admit(samples, config, *, reference_mode="strict", external="validate"):
     )
 
 
+def test_updated_fragment_cpm_on_requires_eligible_assay():
+    config = _config(use_control=False)
+    config.update({"analysis_profile": "updated", "fragment_cpm": "on"})
+    with pytest.raises(ValidationError, match="fragment_cpm=on requires"):
+        _admit(
+            [_sample(assay="chipseq")], config, reference_mode="legacy", external="warn"
+        )
+    _admit([_sample(assay="atac")], config, reference_mode="legacy", external="warn")
+
+
 def test_updated_rejects_external_control_with_legacy_reference_mode(tmp_path):
     bam = _write_bam(tmp_path / "control.bam")
     config = _config(use_control=True)

@@ -183,6 +183,31 @@ MultiQC and reproducibility have separate defaults in
 bypass its parent or replicate/assay eligibility. See the
 [reproducibility policy](reproducibility-policy.md#5-config-reference).
 
+## Fragment-level CPM tracks
+
+```yaml
+analysis_profile: updated
+fragment_cpm: auto       # off | auto | on; legacy requires off
+```
+
+`fragment_cpm` adds an additive `.fragment.CPM.bw` track without changing the
+existing `.CPM.bw` path or read-level semantics. In `auto` mode, tracks are
+emitted for ATAC, MNase, and CUT&Tag targets classified as histone
+(broad-like, narrow-like, or context-dependent). CUT&Tag targets the classifier
+cannot recognize are skipped; explicit `on` also emits them. ChIP-seq remains
+read-level in this release.
+
+Non-MNase tracks live at
+`results/<sample>/03_bigwig/<sample>.fragment.CPM.bw`; MNase mono-nucleosome
+tracks live at
+`results/<sample>/04_signal/<sample>.mono.fragment.CPM.bw`. In the
+`analysis_filtered` branch the same paths are rooted under
+`results/analysis_filtered/`.
+
+PE tracks use `bamCoverage --extendReads --samFlagInclude 64`, counting one
+first-mate fragment per pair; SE tracks use `--extendReads` without the flag.
+MNase dyad tracks keep their existing `--MNase --binSize 1` behavior.
+
 ## MNase-seq fragment ranges and caller surface
 
 ```yaml

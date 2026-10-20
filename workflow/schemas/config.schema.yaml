@@ -114,7 +114,10 @@ fragment_cpm:
   default: off
   allowed: [off, auto, on]
   description: >
-    Fragment-level CPM track. Deferred until PR-E1; A1 rejects on/auto.
+    Additive fragment-level CPM track. Updated runs default to auto; legacy
+    requires off. Auto emits for ATAC, MNase, and known histone CUT&Tag;
+    explicit on also permits unclassified CUT&Tag targets. ChIP-seq remains
+    read-level in PR-E1.
 
 tss_fragment_profile:
   type: boolean

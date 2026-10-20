@@ -70,6 +70,7 @@ def test_explicit_v2_resolves_to_updated_raw(tmp_path):
     assert validated["organelle_mode"] == "auto"
     assert validated["control_mode"] == "matched"
     assert validated["duplicate_backend"] == "picard"
+    assert validated["fragment_cpm"] == "auto"
 
 
 @pytest.mark.parametrize(
@@ -188,9 +189,9 @@ def test_legacy_duplicate_policy_is_derived(tmp_path):
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"fragment_cpm": "on"},
-        {"fragment_cpm": "auto"},
         {"tss_fragment_profile": True},
+        {"analysis_profile": "legacy", "fragment_cpm": "auto"},
+        {"analysis_profile": "legacy", "fragment_cpm": "on"},
         {"analysis_profile": "legacy", "control_mode": "matched"},
         {"analysis_profile": "legacy", "duplicate_backend": "picard"},
     ],
@@ -198,6 +199,16 @@ def test_legacy_duplicate_policy_is_derived(tmp_path):
 def test_unimplemented_or_legacy_incompatible_modes_rejected(tmp_path, overrides):
     with pytest.raises(ValidationError):
         _validate(tmp_path, **overrides)
+
+
+@pytest.mark.parametrize("mode", ["auto", "on"])
+def test_updated_fragment_cpm_modes_accepted(tmp_path, mode):
+    validated = _validate(
+        tmp_path,
+        analysis_profile="updated",
+        fragment_cpm=mode,
+    )
+    assert validated["fragment_cpm"] == mode
 
 
 def test_organelle_chroms_resource_is_accepted(tmp_path):

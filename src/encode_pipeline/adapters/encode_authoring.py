@@ -185,7 +185,10 @@ def _config_schema() -> dict[str, object]:
                 "type": "string",
                 "enum": ["off", "auto", "on"],
                 "default": "off",
-                "description": "Deferred until PR-E1.",
+                "description": (
+                    "Additive fragment-level CPM track for updated runs; "
+                    "updated default is auto, legacy requires off."
+                ),
             },
             "tss_fragment_profile": {
                 "type": "boolean",

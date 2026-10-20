@@ -219,6 +219,19 @@ def validate_reference_control_admission(
                         "blacklist_mode=analysis requires a non-empty "
                         f"genome_resources[{genome!r}].blacklist"
                     )
+    if (
+        config.get("analysis_profile") == "updated"
+        and config.get("fragment_cpm") == "on"
+        and not any(
+            sample.get("role") == "treatment"
+            and sample.get("assay") in ("atac", "cuttag", "mnase")
+            for sample in samples
+        )
+    ):
+        raise error_cls(
+            "fragment_cpm=on requires at least one ATAC, CUT&Tag, or MNase "
+            "treatment sample; ChIP-seq remains read-level in PR-E1."
+        )
     if use_control and config.get("analysis_profile") == "updated":
         for sample in samples:
             if sample.get("role") == "treatment" and sample.get("control_bam"):

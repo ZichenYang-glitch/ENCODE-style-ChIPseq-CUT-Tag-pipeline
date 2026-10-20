@@ -191,6 +191,82 @@ def test_mnase_rows_use_analysis_outdir(tmp_config):
         assert output_type in present, output_type
 
 
+def test_fragment_cpm_rows_follow_assay_eligibility(tmp_config):
+    from encode_pipeline.manifest.make import build_manifest_rows
+
+    rows_by_assay = {}
+    for sample_id, assay, target in (
+        ("A1", "atac", "CTCF"),
+        ("T1", "cuttag", "H3K4me3"),
+        ("U1", "cuttag", "UNKNOWN_TARGET"),
+        ("M1", "mnase", "H3"),
+    ):
+        columns = [
+            "sample",
+            "fastq_1",
+            "fastq_2",
+            "layout",
+            "assay",
+            "target",
+            "peak_mode",
+            "genome",
+            "bowtie2_index",
+            "experiment",
+            "biological_replicate",
+            "role",
+        ]
+        samples = (
+            "\t".join(columns)
+            + "\n"
+            + "\t".join(
+                [
+                    sample_id,
+                    "R1.fq",
+                    "R2.fq",
+                    "PE",
+                    assay,
+                    target,
+                    "nucleosome" if assay == "mnase" else "narrow",
+                    "hs",
+                    "/idx",
+                    "EXP1",
+                    "1",
+                    "treatment",
+                ]
+            )
+            + "\n"
+        )
+        workdir, _, samples_path = tmp_config(
+            config={"samples": "", "use_control": False},
+            samples=samples,
+        )
+        config = _base_config()
+        config.update(
+            {
+                "samples": str(samples_path),
+                "outdir": str(workdir / "raw"),
+                "analysis_outdir": str(workdir / "raw/analysis_filtered"),
+                "analysis_profile": "updated",
+                "fragment_cpm": "auto",
+                "replicate_analysis": False,
+            }
+        )
+        rows, _, _ = build_manifest_rows(config)
+        rows_by_assay[assay + ":" + target] = rows
+
+    atac_types = {row["output_type"] for row in rows_by_assay["atac:CTCF"]}
+    cuttag_types = {row["output_type"] for row in rows_by_assay["cuttag:H3K4me3"]}
+    unknown_types = {
+        row["output_type"] for row in rows_by_assay["cuttag:UNKNOWN_TARGET"]
+    }
+    mnase_types = {row["output_type"] for row in rows_by_assay["mnase:H3"]}
+
+    assert "fragment_cpm_bigwig" in atac_types
+    assert "fragment_cpm_bigwig" in cuttag_types
+    assert "fragment_cpm_bigwig" not in unknown_types
+    assert "mnase_fragment_cpm_bigwig" in mnase_types
+
+
 def _run_manifest(config_path, out, use_json=False):
     """Run make_manifest.py directly and return parsed rows."""
     old_argv = sys.argv
