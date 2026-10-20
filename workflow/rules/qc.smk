@@ -959,6 +959,51 @@ rule tss_enrichment_profile:
         """
 
 
+rule tss_fragment_profile:
+    output:
+        matrix      = f"{OUTDIR}/{{sample}}/05_qc/tss/{{sample}}.fragment.tss_matrix.gz",
+        profile_tsv = f"{OUTDIR}/{{sample}}/05_qc/tss/{{sample}}.fragment.tss_profile.tsv",
+        profile_pdf = f"{OUTDIR}/{{sample}}/05_qc/tss/{{sample}}.fragment.tss_profile.pdf",
+    input:
+        bw  = lambda wc: fragment_cpm_bw(wc.sample),
+        tss = lambda wc: f"{OUTDIR}/reference/{SAMPLE_MAP[wc.sample]['genome']}.tss.bed",
+    wildcard_constraints:
+        sample=wildcard_choices(TSS_FRAGMENT_SAMPLE_IDS),
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.tss_fragment_profile.log",
+    threads: THREADS,
+    conda:
+        "../envs/deeptools.yml",
+    shell:
+        """
+        set -e -o pipefail
+        command -v computeMatrix >/dev/null 2>&1 || {{
+            echo "ERROR: computeMatrix not found. Install deeptools conda env." >&2
+            exit 1
+        }}
+        command -v plotProfile >/dev/null 2>&1 || {{
+            echo "ERROR: plotProfile not found. Install deeptools conda env." >&2
+            exit 1
+        }}
+        mkdir -p "$(dirname {output.matrix:q})" "$(dirname {log:q})"
+        computeMatrix reference-point \
+            --referencePoint TSS \
+            -b 3000 -a 3000 \
+            -R {input.tss:q} \
+            -S {input.bw:q} \
+            --skipZeros \
+            -o {output.matrix:q} \
+            -p {threads} \
+            2>&1 | tee {log:q}
+        plotProfile \
+            -m {output.matrix:q} \
+            -out {output.profile_pdf:q} \
+            --outFileNameData {output.profile_tsv:q} \
+            --plotTitle "{wildcards.sample} fragment occupancy" \
+            2>&1 | tee -a {log:q}
+        """
+
+
 # ---------------------------------------------------------------------------
 # 8. Project-level QC summary
 # ---------------------------------------------------------------------------

@@ -107,6 +107,7 @@ def _build_sample_rows(
     genomic_resources,
     analysis_outdir=None,
     fragment_cpm="off",
+    tss_fragment_profile=False,
 ):
     """Per-sample rows using validated sample dicts (key='id')."""
     analysis_root = analysis_outdir or outdir
@@ -192,6 +193,64 @@ def _build_sample_rows(
                         f"{sid}.fragment.CPM.bw",
                     ),
                 )
+
+        if (
+            tss_fragment_profile
+            and not is_mn
+            and _has_fragment_cpm(s, fragment_cpm)
+            and genomic_resources.get(genome, {}).get("gtf", "")
+        ):
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "tss_fragment_matrix",
+                "computeMatrix reference-point",
+                _resolve_path(
+                    analysis_root,
+                    sid,
+                    "05_qc",
+                    "tss",
+                    f"{sid}.fragment.tss_matrix.gz",
+                ),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "tss_fragment_profile_tsv",
+                "plotProfile",
+                _resolve_path(
+                    analysis_root,
+                    sid,
+                    "05_qc",
+                    "tss",
+                    f"{sid}.fragment.tss_profile.tsv",
+                ),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "tss_fragment_profile_pdf",
+                "plotProfile",
+                _resolve_path(
+                    analysis_root,
+                    sid,
+                    "05_qc",
+                    "tss",
+                    f"{sid}.fragment.tss_profile.pdf",
+                ),
+            )
 
         # Peak-centric outputs — gated on non-MNase
         if not is_mn:
@@ -1457,6 +1516,7 @@ def build_manifest_rows(config, samples_path=None):
     multiqc_enabled = config.get("multiqc", True)
     genomic_resources = config.get("genome_resources", {})
     fragment_cpm = config.get("fragment_cpm", "off")
+    tss_fragment_profile = bool(config.get("tss_fragment_profile", False))
 
     samples_path = samples_path or config.get("samples", "config/samples.tsv")
     samples = load_and_validate_samples(
@@ -1476,6 +1536,7 @@ def build_manifest_rows(config, samples_path=None):
             genomic_resources,
             analysis_outdir=analysis_outdir,
             fragment_cpm=fragment_cpm,
+            tss_fragment_profile=tss_fragment_profile,
         )
     )
     rows.extend(

@@ -718,6 +718,32 @@ def test_unsupported_methods_return_failure_without_side_effects(tmp_path):
     assert workspace_result.errors[0].code != "ENCODE_ADAPTER_UNSUPPORTED"
 
 
+def test_adapter_tss_fragment_uses_workflow_eligibility(tmp_path):
+    gtf = str(Path(__file__).resolve())
+    config = {
+        "use_control": False,
+        "multiqc": False,
+        "replicate_analysis": False,
+        "analysis_profile": "updated",
+        "fragment_cpm": "auto",
+        "tss_fragment_profile": True,
+        "genome_resources": {"hs": {"effective_genome_size": "hs", "gtf": gtf}},
+    }
+    row = _inline_row(tmp_path)
+    row.update({"assay": "cuttag", "target": "UNKNOWN_TARGET"})
+
+    result = _adapter().validate(WorkflowInputs(config=config, samples=[row]))
+
+    assert result.is_failure
+    assert any(
+        issue.code == "ENCODE_REFERENCE_ADMISSION_INVALID" for issue in result.issues
+    )
+
+    row["target"] = "H3K4me3"
+    result = _adapter().validate(WorkflowInputs(config=config, samples=[row]))
+    assert result.is_success, result.issues
+
+
 def test_plan_workspace_analysis_mode_survives_snakemake_dryrun(tmp_path):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from _tool_resolver import resolve_tool

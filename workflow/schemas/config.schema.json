@@ -87,7 +87,8 @@
     },
     "tss_fragment_profile": {
       "type": "boolean",
-      "default": false
+      "default": false,
+      "description": "Opt-in fragment-occupancy TSS profile; requires fragment_cpm != off and a GTF."
     },
     "remove_dup": {
       "type": "string",

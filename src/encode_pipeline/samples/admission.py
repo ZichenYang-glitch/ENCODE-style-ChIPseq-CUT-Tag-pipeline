@@ -16,10 +16,26 @@ import os
 import struct
 
 from encode_pipeline.errors import ValidationError
+from encode_pipeline.qc.histone import classify_histone_target
 
 __all__ = [
     "validate_reference_control_admission",
 ]
+
+
+def _fragment_cpm_candidate(sample, mode):
+    """Match the workflow's PR-E1 fragment eligibility predicate."""
+    assay = sample.get("assay", "")
+    if assay in ("atac", "mnase"):
+        return True
+    if assay == "cuttag":
+        if mode == "on":
+            return True
+        info = classify_histone_target(
+            sample.get("target", ""), sample.get("peak_mode")
+        )
+        return info["inferred_histone_class"] != "unknown"
+    return False
 
 
 def _read_bam_header(
@@ -232,6 +248,34 @@ def validate_reference_control_admission(
             "fragment_cpm=on requires at least one ATAC, CUT&Tag, or MNase "
             "treatment sample; ChIP-seq remains read-level in PR-E1."
         )
+    if config.get("analysis_profile") == "updated" and config.get(
+        "tss_fragment_profile"
+    ):
+        mode = str(config.get("fragment_cpm", "off"))
+        candidates = [
+            sample
+            for sample in samples
+            if sample.get("role") == "treatment"
+            and sample.get("assay") in ("atac", "cuttag")
+            and _fragment_cpm_candidate(sample, mode)
+        ]
+        if not candidates:
+            raise error_cls(
+                "tss_fragment_profile=true requires at least one eligible "
+                "ATAC or CUT&Tag fragment sample."
+            )
+        missing_gtf = [
+            sample.get("id", "?")
+            for sample in candidates
+            if not isinstance(resources, dict)
+            or not resources.get(sample.get("genome", ""), {}).get("gtf")
+        ]
+        if missing_gtf:
+            raise error_cls(
+                "tss_fragment_profile=true requires genome_resources."
+                "<genome>.gtf for every eligible sample; missing for: "
+                + ", ".join(missing_gtf)
+            )
     if use_control and config.get("analysis_profile") == "updated":
         for sample in samples:
             if sample.get("role") == "treatment" and sample.get("control_bam"):

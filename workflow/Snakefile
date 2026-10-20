@@ -378,6 +378,7 @@ rule all:
         + _fragment_targets()
         + _advanced_qc_targets()
         + _tss_targets()
+        + _tss_fragment_targets()
         + _replicate_targets()
         + _idr_targets()
         + _atac_idr_targets()

@@ -193,7 +193,10 @@ def _config_schema() -> dict[str, object]:
             "tss_fragment_profile": {
                 "type": "boolean",
                 "default": False,
-                "description": "Deferred until PR-E2.",
+                "description": (
+                    "Opt-in fragment-occupancy TSS profile; requires "
+                    "fragment_cpm != off and a GTF."
+                ),
             },
             "remove_dup": {
                 "type": "string",
