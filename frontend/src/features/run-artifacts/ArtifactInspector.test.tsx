@@ -26,6 +26,12 @@ const artifact: ArtifactReferenceResponse = {
     genome: 'hg38',
     method: 'manifest',
     qc_flag: 'pass',
+    analysis_profile: 'updated',
+    analysis_branch: 'analysis_filtered',
+    blacklist_mode: 'analysis',
+    coverage_unit: 'read',
+    normalization: 'CPM',
+    reference_assembly: 'hg38',
   },
 };
 
@@ -68,6 +74,10 @@ describe('ArtifactInspector', () => {
     expect(screen.getByText('run://runs/run-1/artifacts/artifact-a')).toBeInTheDocument();
     expect(screen.getByText('sample-1')).toBeInTheDocument();
     expect(screen.getByText('experiment-1')).toBeInTheDocument();
+    expect(screen.getByText('updated')).toBeInTheDocument();
+    expect(screen.getByText('analysis_filtered')).toBeInTheDocument();
+    expect(screen.getByText('read')).toBeInTheDocument();
+    expect(screen.getByText('CPM')).toBeInTheDocument();
     await user.click(
       screen.getByRole('button', { name: 'Download result_manifest.tsv' }),
     );

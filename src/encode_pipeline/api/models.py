@@ -863,6 +863,22 @@ class ArtifactMetadataResponse(BaseModel):
     genome: str | None = Field(default=None, max_length=512)
     method: str | None = Field(default=None, max_length=512)
     qc_flag: str | None = Field(default=None, max_length=512)
+    analysis_profile: str | None = Field(default=None, max_length=512)
+    analysis_branch: str | None = Field(default=None, max_length=512)
+    blacklist_mode: str | None = Field(default=None, max_length=512)
+    organelle_mode: str | None = Field(default=None, max_length=512)
+    duplicate_backend: str | None = Field(default=None, max_length=512)
+    duplicate_analysis: str | None = Field(default=None, max_length=512)
+    control_mode: str | None = Field(default=None, max_length=512)
+    coverage_unit: str | None = Field(default=None, max_length=512)
+    normalization: str | None = Field(default=None, max_length=512)
+    extension_method: str | None = Field(default=None, max_length=512)
+    mate_counting: str | None = Field(default=None, max_length=512)
+    reference_mode: str | None = Field(default=None, max_length=512)
+    external_control_policy: str | None = Field(default=None, max_length=512)
+    reference_assembly: str | None = Field(default=None, max_length=512)
+    reference_version: str | None = Field(default=None, max_length=512)
+    reference_binding_id: str | None = Field(default=None, max_length=512)
 
     @field_validator(
         "catalog_id",
@@ -875,6 +891,22 @@ class ArtifactMetadataResponse(BaseModel):
         "genome",
         "method",
         "qc_flag",
+        "analysis_profile",
+        "analysis_branch",
+        "blacklist_mode",
+        "organelle_mode",
+        "duplicate_backend",
+        "duplicate_analysis",
+        "control_mode",
+        "coverage_unit",
+        "normalization",
+        "extension_method",
+        "mate_counting",
+        "reference_mode",
+        "external_control_policy",
+        "reference_assembly",
+        "reference_version",
+        "reference_binding_id",
     )
     @classmethod
     def validate_public_metadata_text(cls, value: str | None) -> str | None:

@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Updated ENCODE analysis profile with proper-pair filtering, marked duplicates,
+  organelle-aware analysis BAMs, matched per-bioreplicate controls, and an
+  identity-guarded analysis output namespace.
+- Optional `analysis_filtered` blacklist branch with template-aware BAM
+  filtering, filtered peaks/QC, and final IDR/consensus peak filtering.
+- Additive fragment-level CPM BigWigs and an opt-in fragment-occupancy TSS
+  profile. Legacy read-level `.CPM.bw` and MNase dyad tracks are unchanged.
+- Reference binding v2 with FAI/dictionary sidecars, cross-resource contig
+  validation, assembly-aware effective genome sizes, and organelle/canonical
+  metadata.
+- Public artifact metadata for analysis branch, duplicate/organelle/control
+  policy, coverage unit, normalization, and reference assembly.
+
 ## [0.4.1] - 2026-09-09
 
 ### Fixed
