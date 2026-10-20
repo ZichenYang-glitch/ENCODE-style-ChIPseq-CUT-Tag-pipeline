@@ -40,9 +40,7 @@ def _analysis_targets():
         targets.append(analysis_bam(sample_id))
         targets.append(analysis_bai(sample_id))
         targets.append(f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.mito_fraction.tsv")
-        targets.append(
-            f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.blacklist_dropped.tsv"
-        )
+        targets.append(f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.blacklist_dropped.tsv")
     return targets
 
 

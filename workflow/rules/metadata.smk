@@ -83,9 +83,7 @@ if REPLICATE_ANALYSIS:
                 ctrl_samples.add(cs)
             elif cb:
                 if VALIDATED_CONFIG.get("analysis_profile") == "updated":
-                    raise ValueError(
-                        "updated profile does not yet support external control_bam"
-                    )
+                    raise ValueError("updated profile does not yet support external control_bam")
                 ctrl_bams.add(cb)
         result = []
         for cs in sorted(ctrl_samples):
@@ -597,38 +595,23 @@ def fragment_cpm_eligible(sample_id):
     return False
 
 
-FRAGMENT_CPM_SAMPLE_IDS = [
-    sid for sid in TREATMENT_SAMPLE_IDS if fragment_cpm_eligible(sid)
-]
+FRAGMENT_CPM_SAMPLE_IDS = [sid for sid in TREATMENT_SAMPLE_IDS if fragment_cpm_eligible(sid)]
 
 if FRAGMENT_CPM_MODE == "on" and not FRAGMENT_CPM_SAMPLE_IDS:
-    raise ValueError(
-        "fragment_cpm=on requested but no treatment sample is eligible for a "
-        "fragment CPM track"
-    )
+    raise ValueError("fragment_cpm=on requested but no treatment sample is eligible for a " "fragment CPM track")
 
 TSS_FRAGMENT_ENABLED = bool(VALIDATED_CONFIG.get("tss_fragment_profile", False))
-_fragment_tss_candidates = [
-    sid
-    for sid in FRAGMENT_CPM_SAMPLE_IDS
-    if SAMPLE_MAP[sid]["assay"] != "mnase"
-]
-TSS_FRAGMENT_SAMPLE_IDS = [
-    sid for sid in _fragment_tss_candidates if has_genome_resource(sid, "gtf")
-]
+_fragment_tss_candidates = [sid for sid in FRAGMENT_CPM_SAMPLE_IDS if SAMPLE_MAP[sid]["assay"] != "mnase"]
+TSS_FRAGMENT_SAMPLE_IDS = [sid for sid in _fragment_tss_candidates if has_genome_resource(sid, "gtf")]
 if TSS_FRAGMENT_ENABLED:
-    _missing_gtf = [
-        sid for sid in _fragment_tss_candidates if not has_genome_resource(sid, "gtf")
-    ]
+    _missing_gtf = [sid for sid in _fragment_tss_candidates if not has_genome_resource(sid, "gtf")]
     if not TSS_FRAGMENT_SAMPLE_IDS or _missing_gtf:
         raise ValueError(
             "tss_fragment_profile=true requires eligible ATAC/CUT&Tag "
             "fragment samples with genome_resources.<genome>.gtf; "
             f"missing GTF for: {', '.join(_missing_gtf) or 'none'}"
         )
-TSS_FRAGMENT_GENOMES = sorted(
-    {SAMPLE_MAP[sid]["genome"] for sid in TSS_FRAGMENT_SAMPLE_IDS}
-)
+TSS_FRAGMENT_GENOMES = sorted({SAMPLE_MAP[sid]["genome"] for sid in TSS_FRAGMENT_SAMPLE_IDS})
 
 
 def analysis_bam(sample):
@@ -665,11 +648,7 @@ def _organelle_context_assay(sample_id):
     if sample.get("role") != "control":
         return sample["assay"]
     contexts = sorted(
-        {
-            SAMPLE_MAP[sid]["assay"]
-            for sid in TREATMENT_SAMPLE_IDS
-            if SAMPLE_MAP[sid].get("control_sample") == sample_id
-        }
+        {SAMPLE_MAP[sid]["assay"] for sid in TREATMENT_SAMPLE_IDS if SAMPLE_MAP[sid].get("control_sample") == sample_id}
     )
     if not contexts:
         return sample["assay"]
@@ -750,26 +729,17 @@ def _biorep_control_paths(experiment, bio_rep):
             control_samples.add(cs)
         elif cb:
             if is_updated_profile():
-                raise ValueError(
-                    "updated profile does not yet support external control_bam"
-                )
+                raise ValueError("updated profile does not yet support external control_bam")
             control_bams.add(cb)
     paths = []
     for cs in sorted(control_samples):
-        paths.append(
-            analysis_bam(cs)
-            if is_updated_profile()
-            else f"{OUTDIR}/{cs}/02_align/{cs}.final.bam"
-        )
+        paths.append(analysis_bam(cs) if is_updated_profile() else f"{OUTDIR}/{cs}/02_align/{cs}.final.bam")
     paths.extend(sorted(control_bams))
     return paths
 
 
 def _biorep_control_bam(experiment, bio_rep):
-    return (
-        f"{OUTDIR}/experiments/{experiment}/02_align/"
-        f"biorep{bio_rep}.control.final.bam"
-    )
+    return f"{OUTDIR}/experiments/{experiment}/02_align/" f"biorep{bio_rep}.control.final.bam"
 
 
 def _biorep_control_bai(experiment, bio_rep):
@@ -796,8 +766,6 @@ def _macs3_inputs(wildcards):
             inputs.append(analysis_bam(cs))
         elif s.get("control_bam"):
             if is_updated_profile():
-                raise ValueError(
-                    "updated profile does not yet support external control_bam"
-                )
+                raise ValueError("updated profile does not yet support external control_bam")
             inputs.append(s["control_bam"])
     return inputs

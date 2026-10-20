@@ -3,14 +3,8 @@
 # Legacy/read-level .CPM.bw paths are unchanged. Updated runs can add
 # .fragment.CPM.bw tracks for ATAC, CUT&Tag, and MNase mono-nucleosome data.
 
-_NON_MNASE_FRAGMENT_SAMPLES = [
-    sid
-    for sid in FRAGMENT_CPM_SAMPLE_IDS
-    if SAMPLE_MAP[sid]["assay"] != "mnase"
-]
-_MNASE_FRAGMENT_SAMPLES = [
-    sid for sid in FRAGMENT_CPM_SAMPLE_IDS if SAMPLE_MAP[sid]["assay"] == "mnase"
-]
+_NON_MNASE_FRAGMENT_SAMPLES = [sid for sid in FRAGMENT_CPM_SAMPLE_IDS if SAMPLE_MAP[sid]["assay"] != "mnase"]
+_MNASE_FRAGMENT_SAMPLES = [sid for sid in FRAGMENT_CPM_SAMPLE_IDS if SAMPLE_MAP[sid]["assay"] == "mnase"]
 
 
 def _fragment_extend_args(wildcards):
@@ -47,10 +41,10 @@ rule fragment_cpm:
         model=lambda wc: _fragment_model_input(wc),
     output:
         bw=f"{OUTDIR}/{{sample}}/03_bigwig/{{sample}}.fragment.CPM.bw",
-    wildcard_constraints:
-        sample=wildcard_choices(_NON_MNASE_FRAGMENT_SAMPLES),
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.fragment_cpm.log",
+    wildcard_constraints:
+        sample=wildcard_choices(_NON_MNASE_FRAGMENT_SAMPLES),
     conda:
         "../envs/deeptools.yml"
     threads: THREADS
@@ -79,10 +73,10 @@ rule mnase_fragment_cpm:
         bai=lambda wc: mnase_fragment_bai(wc.sample, "mono"),
     output:
         bw=f"{OUTDIR}/{{sample}}/04_signal/{{sample}}.mono.fragment.CPM.bw",
-    wildcard_constraints:
-        sample=wildcard_choices(_MNASE_FRAGMENT_SAMPLES),
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.mnase_fragment_cpm.log",
+    wildcard_constraints:
+        sample=wildcard_choices(_MNASE_FRAGMENT_SAMPLES),
     conda:
         "../envs/deeptools.yml"
     threads: THREADS

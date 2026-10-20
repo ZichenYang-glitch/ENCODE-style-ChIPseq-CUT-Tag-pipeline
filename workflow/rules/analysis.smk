@@ -4,21 +4,18 @@
 # BAM and derive analysis.bam for duplicate/organelle-filtered consumers.
 # The template filter imports scripts/blacklist_filter.py
 
+
 def _analysis_input(wildcards, kind):
     """Reject legacy execution even when an updated target is requested."""
     if not is_updated_profile():
-        raise ValueError(
-            "analysis outputs are only available when analysis_profile=updated"
-        )
+        raise ValueError("analysis outputs are only available when analysis_profile=updated")
     suffix = "final.bam" if kind == "bam" else "final.bam.bai"
     return f"{RAW_OUTDIR}/{wildcards.sample}/02_align/{wildcards.sample}.{suffix}"
 
 
 def _require_updated_input(wildcards):
     if not is_updated_profile():
-        raise ValueError(
-            "analysis outputs are only available when analysis_profile=updated"
-        )
+        raise ValueError("analysis outputs are only available when analysis_profile=updated")
     return []
 
 
@@ -34,7 +31,7 @@ rule analysis_identity_marker:
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
         printf '{{"identity":"%s","analysis_profile":"updated"}}\n' \
-            "{params.identity}" > {output:q}
+            "{params.identity}" >{output:q}
         """
 
 
@@ -43,10 +40,7 @@ rule prepare_analysis_bam:
         identity=f"{RAW_OUTDIR}/.helixweave/analysis_identity.json",
         bam=lambda wc: _analysis_input(wc, "bam"),
         bai=lambda wc: _analysis_input(wc, "bai"),
-        blacklist=lambda wc: (
-            get_genome_resource(wc.sample, "blacklist")
-            if ANALYSIS_FILTERED else []
-        ),
+        blacklist=lambda wc: (get_genome_resource(wc.sample, "blacklist") if ANALYSIS_FILTERED else []),
     output:
         bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.analysis.bam",
         bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.analysis.bam.bai",
@@ -94,9 +88,9 @@ rule prepare_analysis_bam:
         else
             mv "$TMP_BAM" "$TMP_FILTERED"
             printf 'sample\\tlayout\\tdropped_templates\\tdropped_alignments\\tkept_alignments\\ttotal_alignments\\n' \
-                > {output.dropped:q}
+                >{output.dropped:q}
             printf '%s\\t%s\\t0\\t0\\tNA\\tNA\\n' \
-                {wildcards.sample:q} {params.layout:q} >> {output.dropped:q}
+                {wildcards.sample:q} {params.layout:q} >>{output.dropped:q}
         fi
         mv "$TMP_FILTERED" {output.bam:q}
         samtools index -@ {threads} {output.bam:q}
@@ -126,5 +120,5 @@ rule mito_fraction:
                      frac = (total > 0) ? organelle / total : 0;
                      print sample "\t" organelle "\t" total "\t" sprintf("%.6f", frac) "\t" mode;
                  }}' \
-            > {output.tsv:q}
+                >{output.tsv:q}
         """

@@ -14,10 +14,7 @@ def _idr_biorep_control_paths(experiment, bio_rep):
 
 
 def _idr_biorep_control_bam(experiment, bio_rep):
-    return (
-        f"{OUTDIR}/experiments/{experiment}/02_align/"
-        f"biorep{bio_rep}.control.final.bam"
-    )
+    return f"{OUTDIR}/experiments/{experiment}/02_align/" f"biorep{bio_rep}.control.final.bam"
 
 
 def _idr_experiment_controls(experiment):

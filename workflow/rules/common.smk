@@ -237,13 +237,13 @@ rule samtools_filter:
                 TMPD=$(mktemp -d)
                 trap 'rm -rf "$TMPD"' EXIT
                 samtools view -@ {threads} -b -q {params.mapq} -F 0xb0c -f 2 {params.extra} {input.bam:q} \
-                    > "$TMPD/filtered.bam"
+                    >"$TMPD/filtered.bam"
                 samtools view "$TMPD/filtered.bam" \
                     | cut -f1 \
                     | LC_ALL=C sort \
                     | uniq -c \
                     | awk '$1 == 2 {{print $2}}' \
-                    > "$TMPD/names.txt"
+                        >"$TMPD/names.txt"
                 if [[ -s "$TMPD/names.txt" ]]; then
                     samtools view -@ {threads} -b -N "$TMPD/names.txt" "$TMPD/filtered.bam" >{output.bam:q}
                 else
@@ -280,11 +280,7 @@ rule samtools_index_filt:
 # ---------------------------------------------------------------------------
 
 
-DUPLICATE_ENV = (
-    "../envs/duplicate.yml"
-    if is_updated_profile()
-    else "../envs/samtools.yml"
-)
+DUPLICATE_ENV = "../envs/duplicate.yml" if is_updated_profile() else "../envs/samtools.yml"
 
 
 rule duplicate_handling:

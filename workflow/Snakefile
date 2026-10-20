@@ -257,22 +257,14 @@ def _read_analysis_identity_marker(marker):
     try:
         recorded = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        raise WorkflowError(
-            f"Existing analysis identity marker is unreadable: {marker}"
-        ) from exc
+        raise WorkflowError(f"Existing analysis identity marker is unreadable: {marker}") from exc
     if not isinstance(recorded, dict):
-        raise WorkflowError(
-            f"Existing analysis identity marker must be a JSON object: {marker}"
-        )
+        raise WorkflowError(f"Existing analysis identity marker must be a JSON object: {marker}")
     if recorded.get("analysis_profile") != "updated":
-        raise WorkflowError(
-            f"Existing analysis identity marker has an invalid profile: {marker}"
-        )
+        raise WorkflowError(f"Existing analysis identity marker has an invalid profile: {marker}")
     identity = recorded.get("identity")
     if not isinstance(identity, str) or not identity:
-        raise WorkflowError(
-            f"Existing analysis identity marker has an invalid identity: {marker}"
-        )
+        raise WorkflowError(f"Existing analysis identity marker has an invalid identity: {marker}")
     return identity
 
 
@@ -280,19 +272,14 @@ def _check_analysis_outdir_identity():
     marker = _analysis_identity_marker()
     profile = VALIDATED_CONFIG.get("analysis_profile")
     if marker.is_symlink():
-        raise WorkflowError(
-            f"Analysis identity marker must not be a symlink: {marker}"
-        )
+        raise WorkflowError(f"Analysis identity marker must not be a symlink: {marker}")
     if marker.exists():
         if not marker.is_file():
-            raise WorkflowError(
-                f"Analysis identity marker is not a regular file: {marker}"
-            )
+            raise WorkflowError(f"Analysis identity marker is not a regular file: {marker}")
         recorded_identity = _read_analysis_identity_marker(marker)
         if profile != "updated":
             raise WorkflowError(
-                "Existing analysis outdir is owned by analysis_profile=updated; "
-                "use a fresh outdir for legacy runs."
+                "Existing analysis outdir is owned by analysis_profile=updated; " "use a fresh outdir for legacy runs."
             )
         if recorded_identity != _analysis_identity_hash():
             raise WorkflowError(
@@ -304,11 +291,7 @@ def _check_analysis_outdir_identity():
         return
     outdir = Path(RAW_OUTDIR)
     if outdir.exists():
-        entries = [
-            entry
-            for entry in outdir.iterdir()
-            if entry.name not in (".snakemake", ".helixweave")
-        ]
+        entries = [entry for entry in outdir.iterdir() if entry.name not in (".snakemake", ".helixweave")]
         if entries:
             raise WorkflowError(
                 "Refusing to write updated analysis outputs into an unmarked "
