@@ -111,6 +111,10 @@ def validate_and_build_sample(
         raise error_cls(f"Sample {sid!r}: layout must be PE or SE, got {lo!r}")
     if lo == "PE" and not fq2:
         raise error_cls(f"Sample {sid!r}: PE layout requires 'fastq_2'")
+    if lo == "SE" and fq2:
+        raise error_cls(f"Sample {sid!r}: SE layout must not set 'fastq_2'")
+    if lo == "PE" and os.path.normpath(fq1) == os.path.normpath(fq2):
+        raise error_cls(f"Sample {sid!r}: fastq_1 and fastq_2 must be different files")
     if assay == "mnase" and lo != "PE":
         raise error_cls(
             f"Sample {sid!r}: assay=mnase requires paired-end layout (PE), got {lo!r}"

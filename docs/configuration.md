@@ -333,8 +333,9 @@ tool_parameters:
 
 | Block | Key | Default | Effect |
 | :--- | :--- | :--- | :--- |
-| `macs3` | `qvalue` | `0.01` | MACS3 q-value cutoff for peak calling. |
-| `idr_macs3` | `pvalue` | `0.1` | Relaxed p-value for IDR-ready per-biorep peak calls. Only used when `chipseq_idr: true`. |
+| `macs3` | `qvalue` | `0.01` | MACS3 q-value cutoff for peak calling. Must be a finite probability in (0, 1]. |
+| `macs3` | `broad_cutoff` | `0.1` | MACS3 broad-peak q-value cutoff. Must be a finite probability in (0, 1]. |
+| `idr_macs3` | `pvalue` | `0.1` | Relaxed p-value for IDR-ready per-biorep peak calls. Only used when `chipseq_idr: true`. Must be a finite probability in (0, 1]. |
 | `bamcoverage` | `normalize_using` | `"CPM"` | deepTools bamCoverage normalization method. |
 | any block | `extra_args` | `""` | Additional CLI arguments passed through to the tool. Use sparingly. |
 

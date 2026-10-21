@@ -28,10 +28,14 @@ def validate_qc_config(qc: dict, error_cls=ValueError) -> dict:
 
     Missing keys default to the values in _QC_DEFAULTS. Accepts boolean or
     string boolean. Returns a normalized dict with boolean values.
-    Unknown keys are silently ignored.
+    Unknown keys are rejected so typos cannot silently disable QC switches.
     """
     if not isinstance(qc, dict):
         raise error_cls(f"qc must be a mapping, got {type(qc).__name__}")
+
+    for key in qc:
+        if key not in _QC_DEFAULTS:
+            raise error_cls(f"qc: unknown key {key!r}. Known: {sorted(_QC_DEFAULTS)}")
 
     return {
         key: coerce_bool(

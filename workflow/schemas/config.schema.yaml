@@ -676,11 +676,11 @@ tool_parameters:
         qvalue:
           type: float
           default: 0.01
-          description: -q q-value (FDR) cutoff. Must be >0. Always emitted.
+          description: -q q-value (FDR) cutoff. Must be a finite probability in (0, 1]. Always emitted.
         broad_cutoff:
           type: float
           default: 0.1
-          description: --broad-cutoff (broad peaks only). Must be >0.
+          description: --broad-cutoff (broad peaks only). Must be a finite probability in (0, 1].
         extra_args:
           type: string
           default: ""

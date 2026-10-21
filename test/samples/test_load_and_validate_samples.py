@@ -200,6 +200,31 @@ def test_pe_layout_requires_fastq_2(tmp_path):
         load_and_validate_samples(str(samples_path))
 
 
+def test_se_layout_rejects_fastq_2(tmp_path):
+    samples_path = tmp_path / "samples.tsv"
+    _make_tsv(samples_path, overrides={"layout": "SE", "fastq_2": "R2.fq"})
+    with pytest.raises(ValidationError, match="SE layout must not set 'fastq_2'"):
+        load_and_validate_samples(str(samples_path))
+
+
+def test_pe_layout_rejects_identical_fastq_paths(tmp_path):
+    samples_path = tmp_path / "samples.tsv"
+    _make_tsv(samples_path, overrides={"fastq_1": "reads.fq", "fastq_2": "reads.fq"})
+    with pytest.raises(
+        ValidationError, match="fastq_1 and fastq_2 must be different files"
+    ):
+        load_and_validate_samples(str(samples_path))
+
+
+def test_pe_layout_rejects_normalized_identical_fastq_paths(tmp_path):
+    samples_path = tmp_path / "samples.tsv"
+    _make_tsv(samples_path, overrides={"fastq_1": "reads.fq", "fastq_2": "./reads.fq"})
+    with pytest.raises(
+        ValidationError, match="fastq_1 and fastq_2 must be different files"
+    ):
+        load_and_validate_samples(str(samples_path))
+
+
 @pytest.mark.parametrize("field", ["target", "genome", "bowtie2_index"])
 def test_empty_required_string_field_rejected(tmp_path, field):
     samples_path = tmp_path / "samples.tsv"

@@ -247,16 +247,47 @@ def test_macs3_positive_float_fields_normalize_strings(tmp_path):
     }
 
 
-@pytest.mark.parametrize("raw", [True, 0, -0.1, "bad"])
-def test_macs3_positive_float_fields_reject_invalid_values(tmp_path, raw):
+@pytest.mark.parametrize(
+    "raw",
+    [
+        True,
+        0,
+        -0.1,
+        "bad",
+        1.5,
+        "1.0000001",
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        "nan",
+        "inf",
+        "-inf",
+    ],
+)
+def test_macs3_probability_fields_reject_out_of_domain_values(tmp_path, raw):
+    with pytest.raises(
+        ValidationError,
+        match=r"tool_parameters\.macs3\.qvalue must be a probability in \(0, 1\]",
+    ):
+        _validate(tmp_path, {"macs3": {"qvalue": raw}})
+
+
+@pytest.mark.parametrize("raw", [0.01, 0.5, 1, "0.05", "1"])
+def test_macs3_probability_fields_accept_in_domain_values(tmp_path, raw):
+    validated = _validate(tmp_path, {"macs3": {"qvalue": raw}})
+    assert 0 < validated["macs3"]["qvalue"] <= 1
+
+
+@pytest.mark.parametrize("raw", [0, 2, float("nan"), float("inf"), "nan"])
+def test_macs3_broad_cutoff_rejects_out_of_domain_values(tmp_path, raw):
     with pytest.raises(
         ValidationError,
         match=(
-            "tool_parameters.macs3.qvalue must be a number > 0|"
-            "tool_parameters.macs3.qvalue must be positive"
+            r"tool_parameters\.macs3\.broad_cutoff must be a probability "
+            r"in \(0, 1\]"
         ),
     ):
-        _validate(tmp_path, {"macs3": {"qvalue": raw}})
+        _validate(tmp_path, {"macs3": {"broad_cutoff": raw}})
 
 
 def test_multiqc_title_and_extra_args_must_be_strings(tmp_path):
@@ -287,9 +318,13 @@ def test_idr_macs3_pvalue_normalizes_positive_float_string(tmp_path):
     }
 
 
-def test_idr_macs3_rejects_non_positive_pvalue(tmp_path):
+@pytest.mark.parametrize("raw", [0, 2, float("nan"), float("-inf"), "inf"])
+def test_idr_macs3_rejects_out_of_domain_pvalue(tmp_path, raw):
     with pytest.raises(
         ValidationError,
-        match="tool_parameters.idr_macs3.pvalue must be positive",
+        match=(
+            r"tool_parameters\.idr_macs3\.pvalue must be a probability "
+            r"in \(0, 1\]"
+        ),
     ):
-        _validate(tmp_path, {"idr_macs3": {"pvalue": 0}})
+        _validate(tmp_path, {"idr_macs3": {"pvalue": raw}})

@@ -43,10 +43,9 @@ def test_validate_qc_config_normalizes_known_values():
     assert validated["blacklist_filter"] is True
 
 
-def test_validate_qc_config_silently_ignores_unknown_keys():
-    validated = validate_qc_config({"unknown_qc_key": True, "frip": "false"})
-    assert "unknown_qc_key" not in validated
-    assert validated["frip"] is False
+def test_validate_qc_config_rejects_unknown_keys():
+    with pytest.raises(ValueError, match="qc: unknown key 'unknown_qc_key'"):
+        validate_qc_config({"unknown_qc_key": True, "frip": "false"})
 
 
 def test_validate_qc_config_rejects_invalid_values():

@@ -58,12 +58,11 @@ def test_qc_must_be_mapping(tmp_path, raw):
         validate_config(_make_config(tmp_path, qc=raw))
 
 
-def test_qc_unknown_keys_are_silently_ignored(tmp_path):
-    validated = validate_config(
-        _make_config(tmp_path, qc={"unknown_qc_key": True, "frip": False})
-    )
-    assert "unknown_qc_key" not in validated["qc"]
-    assert validated["qc"]["frip"] is False
+def test_qc_unknown_keys_are_rejected(tmp_path):
+    with pytest.raises(ValidationError, match="qc: unknown key 'unknown_qc_key'"):
+        validate_config(
+            _make_config(tmp_path, qc={"unknown_qc_key": True, "frip": False})
+        )
 
 
 # ---------------------------------------------------------------------------
