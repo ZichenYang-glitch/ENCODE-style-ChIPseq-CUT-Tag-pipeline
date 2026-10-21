@@ -248,13 +248,13 @@ def _verify_binding_v1(
 _READ_CHUNK_BYTES = 1024 * 1024
 
 
-def _iter_verified_lines(
+def _iter_verified_raw_lines(
     path_value: str | Path,
     expected_sha256: str,
     *,
     maximum_bytes: int | None = None,
 ):
-    """Yield lines from one stable no-follow read and verify its digest."""
+    """Yield (line, absolute_offset, newline_width) from one verified read."""
     path = Path(path_value)
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(path, flags)
@@ -266,6 +266,7 @@ def _iter_verified_lines(
             raise _BindingInvalid
         digest = hashlib.sha256()
         buffer = bytearray()
+        base_offset = 0
         remaining = before.st_size
         while remaining:
             chunk = os.read(descriptor, min(_READ_CHUNK_BYTES, remaining))
@@ -279,12 +280,21 @@ def _iter_verified_lines(
                 newline = buffer.find(b"\n", start)
                 if newline < 0:
                     break
-                yield bytes(buffer[start:newline]).rstrip(b"\r")
+                content = bytes(buffer[start:newline])
+                newline_width = 1
+                if content.endswith(b"\r"):
+                    content = content[:-1]
+                    newline_width = 2
+                yield content, base_offset + start, newline_width
                 start = newline + 1
             if start:
                 del buffer[:start]
+                base_offset += start
         if buffer:
-            yield bytes(buffer).rstrip(b"\r")
+            content = bytes(buffer)
+            if content.endswith(b"\r"):
+                content = content[:-1]
+            yield content, base_offset, 0
         if os.read(descriptor, 1):
             raise _BindingInvalid
         after = os.fstat(descriptor)
@@ -308,7 +318,112 @@ def _iter_verified_lines(
         os.close(descriptor)
 
 
-def _parse_fai_lines(lines: Iterable[bytes]) -> list[tuple[str, int]]:
+def _iter_verified_lines(
+    path_value: str | Path,
+    expected_sha256: str,
+    *,
+    maximum_bytes: int | None = None,
+):
+    """Yield lines from one stable no-follow read and verify its digest."""
+    for content, _offset, _newline_width in _iter_verified_raw_lines(
+        path_value,
+        expected_sha256,
+        maximum_bytes=maximum_bytes,
+    ):
+        yield content
+
+
+def _parse_fai_lines(
+    lines: Iterable[bytes],
+) -> list[tuple[str, int, int, int, int]]:
+    rows = []
+    for raw in lines:
+        line = raw.decode("utf-8")
+        if not line.strip():
+            continue
+        fields = line.split("\t")
+        if len(fields) < 5:
+            raise _BindingInvalid
+        try:
+            length = int(fields[1])
+            offset = int(fields[2])
+            line_bases = int(fields[3])
+            line_width = int(fields[4])
+        except ValueError as exc:
+            raise _BindingInvalid from exc
+        if (
+            not fields[0]
+            or length <= 0
+            or offset < 0
+            or line_bases <= 0
+            or line_width < line_bases
+        ):
+            raise _BindingInvalid
+        rows.append((fields[0], length, offset, line_bases, line_width))
+    if not rows:
+        raise _BindingInvalid
+    return rows
+
+
+def _parse_fasta_layout(
+    lines: Iterable[tuple[bytes, int, int]],
+) -> list[tuple[str, int, int, int, int]]:
+    rows: list[tuple[str, int, int, int, int]] = []
+    name = None
+    length = 0
+    first_offset = 0
+    line_bases = 0
+    line_width = 0
+    pending: tuple[bytes, int] | None = None
+
+    def flush() -> None:
+        if name is None:
+            return
+        if pending is None:
+            raise _BindingInvalid
+        content, _newline_width = pending
+        if not content or len(content) > line_bases:
+            raise _BindingInvalid
+        rows.append((name, length + len(content), first_offset, line_bases, line_width))
+
+    for content, line_offset, newline_width in lines:
+        if content.startswith(b">"):
+            flush()
+            header = content[1:].strip().split(None, 1)
+            if not header:
+                raise _BindingInvalid
+            try:
+                name = header[0].decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise _BindingInvalid from exc
+            length = 0
+            first_offset = 0
+            line_bases = 0
+            line_width = 0
+            pending = None
+            continue
+        if name is None or not content:
+            raise _BindingInvalid
+        if pending is None:
+            first_offset = line_offset
+            line_bases = len(content)
+            line_width = line_bases + (newline_width if newline_width else 1)
+            pending = (content, newline_width)
+            continue
+        previous, previous_newline = pending
+        if len(previous) != line_bases:
+            raise _BindingInvalid
+        if previous_newline != line_width - line_bases:
+            raise _BindingInvalid
+        length += len(previous)
+        pending = (content, newline_width)
+    flush()
+    if not rows or any(row_length <= 0 for _, row_length, *_ in rows):
+        raise _BindingInvalid
+    return rows
+
+
+def _parse_chrom_sizes_lines(lines: Iterable[bytes]) -> dict[str, int]:
     rows = []
     for raw in lines:
         line = raw.decode("utf-8")
@@ -324,42 +439,8 @@ def _parse_fai_lines(lines: Iterable[bytes]) -> list[tuple[str, int]]:
         if not fields[0] or length <= 0:
             raise _BindingInvalid
         rows.append((fields[0], length))
-    if not rows:
-        raise _BindingInvalid
-    return rows
-
-
-def _parse_fasta_lines(lines: Iterable[bytes]) -> list[tuple[str, int]]:
-    rows: list[tuple[str, int]] = []
-    name = None
-    length = 0
-    for raw in lines:
-        if raw.startswith(b">"):
-            if name is not None:
-                rows.append((name, length))
-            header = raw[1:].strip().split(None, 1)
-            if not header:
-                raise _BindingInvalid
-            try:
-                name = header[0].decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise _BindingInvalid from exc
-            length = 0
-            continue
-        if name is None:
-            continue
-        length += len(b"".join(raw.split()))
-    if name is not None:
-        rows.append((name, length))
-    if not rows or any(length <= 0 for _, length in rows):
-        raise _BindingInvalid
-    return rows
-
-
-def _parse_chrom_sizes_lines(lines: Iterable[bytes]) -> dict[str, int]:
-    rows = _parse_fai_lines(lines)
     result = dict(rows)
-    if len(result) != len(rows):
+    if not result or len(result) != len(rows):
         raise _BindingInvalid
     return result
 
@@ -416,8 +497,8 @@ def _verify_v2_contig_closure(
     canonical_chroms: list[str],
 ) -> None:
     parsed = {
-        "reference_fasta": _parse_fasta_lines(
-            _iter_verified_lines(
+        "reference_fasta": _parse_fasta_layout(
+            _iter_verified_raw_lines(
                 resources["reference_fasta"].path,
                 resources["reference_fasta"].sha256,
             )
@@ -449,7 +530,7 @@ def _verify_v2_contig_closure(
     fai_rows = parsed["reference_fai"]
     if fasta_rows != fai_rows:
         raise _BindingInvalid
-    lengths = dict(fai_rows)
+    lengths = {name: length for name, length, *_ in fai_rows}
     if len(lengths) != len(fai_rows):
         raise _BindingInvalid
     if parsed["chrom_sizes"] != lengths:
