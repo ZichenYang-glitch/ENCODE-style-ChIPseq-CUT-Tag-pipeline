@@ -140,9 +140,10 @@ stack and its doctor/demo commands.
 - Credit every AI model or agent that materially participated in the commit,
   including implementation, tests, documentation, review, or decision support.
   Review-only participation still counts.
-- Use Peri's default co-author injection exactly as emitted by the tool; do not
-  override or restrict it.
-- For Codex, use this trailer when it participated:
+- Each participating AI model or agent uses its own default co-author trailer
+  exactly as emitted by its tool; do not override or restrict it.
+- For Codex, use this trailer when it participated and its tool did not already
+  inject one:
 
   ```text
   Co-Authored-By: Codex <noreply@openai.com>
