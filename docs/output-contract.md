@@ -61,6 +61,11 @@ Project-level rows use empty `sample_id` and `experiment_id` fields.
 | `mnase_fragment_cpm_bigwig` | bamCoverage --extendReads | mnase_fragment_cpm | `results/<sample>/04_signal/<sample>.mono.fragment.CPM.bw` | implemented |
 | `analysis_filtered_mnase_fragment_cpm_bigwig` | bamCoverage --extendReads | mnase_fragment_cpm | `results/analysis_filtered/<sample>/04_signal/<sample>.mono.fragment.CPM.bw` | implemented |
 
+Picard samples use `picard_collect_multiple_metrics` for PE and
+`picard_collect_multiple_metrics_se` for SE. Insert-size metrics/PDF are
+PE-only; SE does not declare them. `qc.picard_metrics` also requires
+`reference_fasta`, its `.fai`, and a Picard `.dict`.
+
 ### MNase-seq single-sample outputs
 
 | output_type | method | rule | path | status |

@@ -453,7 +453,7 @@ artifacts:
   pipeline_done: true
   rule_all: true
   config_gate: 'qc.picard_metrics: true'
-  notes: requires genome_resources.reference_fasta
+  notes: PE uses picard_collect_multiple_metrics; SE uses picard_collect_multiple_metrics_se; requires reference_fasta/.fai/.dict
 - id: picard_insert_size
   description: Picard insert size metrics
   scope: sample
@@ -466,7 +466,7 @@ artifacts:
   pipeline_done: false
   rule_all: true
   config_gate: 'qc.picard_metrics: true'
-  notes: used as reference by mnase_qc_summary (params path, not input)
+  notes: PE only; SE does not declare insert-size outputs. Used as reference by mnase_qc_summary
 - id: picard_quality
   description: Picard quality distribution metrics
   scope: sample
@@ -479,7 +479,7 @@ artifacts:
   pipeline_done: false
   rule_all: true
   config_gate: 'qc.picard_metrics: true'
-  notes: requires genome_resources.reference_fasta
+  notes: PE uses picard_collect_multiple_metrics; SE uses picard_collect_multiple_metrics_se
 - id: tss_matrix
   description: computeMatrix output around TSS
   scope: sample

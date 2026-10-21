@@ -43,6 +43,11 @@ def test_try_float_invalid():
     assert _try_float("") is None
 
 
+@pytest.mark.parametrize("value", ["nan", "NaN", "inf", "+Inf", "-Inf"])
+def test_try_float_rejects_non_finite(value):
+    assert _try_float(value) is None
+
+
 # --- _quality_flag -------------------------------------------------------
 
 
@@ -112,6 +117,22 @@ def test_parse_standard_header_format():
         shutil.rmtree(td, ignore_errors=True)
 
 
+def test_parse_headerless_rejects_multiple_data_rows():
+    """Appended run_spp output must not silently use the first row."""
+    td = tempfile.mkdtemp(prefix="cc_parse_")
+    try:
+        fp = os.path.join(td, "s1.cc.qc")
+        first = "s1.tagAlign\t10000000\t175\t0.85\t225\t0.60\t7\t0.55\t1.12\t1.45\t-1"
+        second = "s1.tagAlign\t10000000\t175\t0.85\t225\t0.60\t7\t0.55\t2.00\t2.00\t1"
+        _write_file(fp, [first, second])
+        result = parse_cc_qc_file(fp)
+        assert result["nsc"] is None
+        assert result["rsc"] is None
+        assert _quality_flag(result["nsc"], result["rsc"]) == "parse_failed"
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
+
 def test_parse_headerless_encode_format():
     """Single-line ENCODE-style run_spp.R output without a header."""
     td = tempfile.mkdtemp(prefix="cc_parse_")
@@ -155,6 +176,47 @@ def test_parse_comment_header_format():
         assert result["rsc"] == 1.80
     finally:
         shutil.rmtree(td, ignore_errors=True)
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+@pytest.mark.parametrize("fmt", ["header", "headerless", "comment"])
+def test_parse_non_finite_metrics_are_parse_failed(tmp_path, fmt, value):
+    fp = tmp_path / "bad.cc.qc"
+    if fmt == "header":
+        lines = [
+            "Filename\tnumReads\testFragLen\tcorr_estFragLen\tPhantomPeak\t"
+            "corr_phantomPeak\targmin_corr\tmin_corr\tNSC\tRSC\tQualityTag",
+            f"s1.bam\t10000000\t175\t0.85\t225\t0.60\t7\t0.55\t{value}\t{value}\t-1",
+        ]
+    elif fmt == "headerless":
+        lines = [
+            f"s1.tagAlign\t10000000\t175\t0.85\t225\t0.60\t7\t0.55\t{value}\t{value}\t-1"
+        ]
+    else:
+        lines = [
+            "# cross-correlation peak = 175",
+            "# phantom peak = 225",
+            f"# NSC = {value}",
+            f"# RSC = {value}",
+        ]
+    _write_file(str(fp), lines)
+
+    result = parse_cc_qc_file(str(fp))
+
+    assert result["nsc"] is None
+    assert result["rsc"] is None
+    assert _quality_flag(result["nsc"], result["rsc"]) == "parse_failed"
+
+
+def test_parse_non_finite_phantom_peak_is_missing(tmp_path):
+    fp = tmp_path / "bad.cc.qc"
+    _write_file(
+        str(fp),
+        ["s1.tagAlign\t10000000\t175\t0.85\tnan\t0.60\t7\t0.55\t1.12\t1.45\t-1"],
+    )
+    result = parse_cc_qc_file(str(fp))
+    assert result["phantom_peak"] is None
+    assert result["nsc"] == 1.12
 
 
 def test_parse_malformed_returns_none():
@@ -305,6 +367,37 @@ def test_cli_writes_basename_for_cc_qc_file():
         assert data[cc_idx] == "s1.cc.qc"
         assert td not in data[cc_idx]
         assert not os.path.isabs(data[cc_idx])
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
+
+def test_cli_marks_non_finite_metrics_parse_failed():
+    td = tempfile.mkdtemp(prefix="cc_parse_")
+    try:
+        fp = os.path.join(td, "s1.cc.qc")
+        out = os.path.join(td, "summary.tsv")
+        _write_file(
+            fp,
+            [
+                "s1.tagAlign\t10000000\t175\t0.85\tnan\t0.60\t7\t0.55\tnan\t-inf\t-1",
+            ],
+        )
+        script = os.path.join(_REPO, "scripts", "parse_cross_correlation.py")
+        result = subprocess.run(
+            [sys.executable, script, "--input", fp, "--output", out],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+
+        with open(out) as fh:
+            rows = [line.rstrip("\n").split("\t") for line in fh]
+        header = rows[0]
+        data = rows[1]
+        assert data[header.index("nsc")] == "NA"
+        assert data[header.index("rsc")] == "NA"
+        assert data[header.index("phantom_peak")] == "NA"
+        assert data[header.index("quality_flag")] == "parse_failed"
     finally:
         shutil.rmtree(td, ignore_errors=True)
 

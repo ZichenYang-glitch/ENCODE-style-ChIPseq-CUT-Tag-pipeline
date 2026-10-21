@@ -820,6 +820,7 @@ rule cross_correlation:
             exit 1
         }}
         mkdir -p "$(dirname {output.qc:q})" "$(dirname {log:q})"
+        rm -f {output.qc:q} {output.pdf:q}
         run_spp.R -c={input.bam:q} -savp={output.pdf:q} -out={output.qc:q} \
             -x=-500:15 -rf -p={threads} \
             2>&1 | tee {log:q}
@@ -858,6 +859,14 @@ rule preseq_complexity:
 # 11. Stage 12: Picard CollectMultipleMetrics
 # ---------------------------------------------------------------------------
 
+_PICARD_PE_SAMPLES = [
+    sid for sid in TREATMENT_SAMPLE_IDS if SAMPLE_MAP[sid]["layout"] == "PE"
+]
+_PICARD_SE_SAMPLES = [
+    sid for sid in TREATMENT_SAMPLE_IDS if SAMPLE_MAP[sid]["layout"] == "SE"
+]
+
+
 rule picard_collect_multiple_metrics:
     output:
         alignment   = f"{RAW_OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.alignment_summary_metrics",
@@ -867,6 +876,8 @@ rule picard_collect_multiple_metrics:
     input:
         bam = f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
         bai = f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+    wildcard_constraints:
+        sample=wildcard_choices(_PICARD_PE_SAMPLES),
     params:
         ref = lambda wc: get_genome_resource(wc.sample, "reference_fasta"),
     log:
@@ -887,6 +898,41 @@ rule picard_collect_multiple_metrics:
             O={RAW_OUTDIR:q}/{wildcards.sample}/05_qc/picard/{wildcards.sample} \
             PROGRAM=CollectAlignmentSummaryMetrics \
             PROGRAM=CollectInsertSizeMetrics \
+            PROGRAM=QualityScoreDistribution \
+            VALIDATION_STRINGENCY=LENIENT \
+            2>&1 | tee {log:q}
+        """
+
+
+rule picard_collect_multiple_metrics_se:
+    output:
+        alignment = f"{RAW_OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.alignment_summary_metrics",
+        quality   = f"{RAW_OUTDIR}/{{sample}}/05_qc/picard/{{sample}}.quality_distribution_metrics",
+    input:
+        bam = f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        bai = f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
+    wildcard_constraints:
+        sample=wildcard_choices(_PICARD_SE_SAMPLES),
+    params:
+        ref = lambda wc: get_genome_resource(wc.sample, "reference_fasta"),
+    log:
+        f"{RAW_OUTDIR}/{{sample}}/logs/{{sample}}.picard_metrics.log",
+    conda:
+        "../envs/picard.yml",
+    shell:
+        """
+        set -e -o pipefail
+        command -v picard >/dev/null 2>&1 || {{
+            echo "ERROR: picard not found. Install picard conda env." >&2
+            exit 1
+        }}
+        mkdir -p "$(dirname {output.alignment:q})" "$(dirname {log:q})"
+        picard CollectMultipleMetrics \
+            I={input.bam:q} \
+            R={params.ref:q} \
+            O={RAW_OUTDIR:q}/{wildcards.sample}/05_qc/picard/{wildcards.sample} \
+            PROGRAM=null \
+            PROGRAM=CollectAlignmentSummaryMetrics \
             PROGRAM=QualityScoreDistribution \
             VALIDATION_STRINGENCY=LENIENT \
             2>&1 | tee {log:q}

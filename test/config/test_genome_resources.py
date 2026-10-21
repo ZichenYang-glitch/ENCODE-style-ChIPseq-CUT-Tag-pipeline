@@ -151,14 +151,37 @@ def test_picard_reference_gate_requires_treatment_genome_reference():
         )
 
 
-def test_picard_reference_gate_ignores_control_only_genomes():
+def test_picard_reference_gate_ignores_control_only_genomes(tmp_path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGT\n", encoding="utf-8")
+    ref.with_suffix(".dict").write_text(
+        "@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:4\n", encoding="utf-8"
+    )
+    (tmp_path / "ref.fa.fai").write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
     validate_picard_reference_resources(
         {
             "qc": {"picard_metrics": True},
-            "genome_resources": {"hs": {"reference_fasta": "ref.fa"}},
+            "genome_resources": {"hs": {"reference_fasta": str(ref)}},
         },
         [_treatment_sample("hs"), _control_sample("mm")],
     )
+
+
+def test_picard_reference_gate_requires_sidecars(tmp_path):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGT\n", encoding="utf-8")
+    config = {
+        "qc": {"picard_metrics": True},
+        "genome_resources": {"hs": {"reference_fasta": str(ref)}},
+    }
+    with pytest.raises(ValidationError, match="sidecars are missing"):
+        validate_picard_reference_resources(config, [_treatment_sample("hs")])
+
+    ref.with_suffix(".dict").write_text(
+        "@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:4\n", encoding="utf-8"
+    )
+    (tmp_path / "ref.fa.fai").write_text("chr1\t4\t6\t4\t5\n", encoding="utf-8")
+    validate_picard_reference_resources(config, [_treatment_sample("hs")])
 
 
 def test_tss_annotation_gate_is_disabled_when_qc_false():
