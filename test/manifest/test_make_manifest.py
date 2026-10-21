@@ -754,6 +754,56 @@ def test_idr_with_tech_reps(manifest_case):
     assert expected_idr.issubset(types), f"Missing IDR types: {expected_idr - types}"
 
 
+def test_chipseq_narrow_alias_emits_idr_rows(manifest_case):
+    columns = REPRODUCIBILITY_COLUMNS
+    sample_rows = [
+        [
+            "T1",
+            "R1.fq",
+            "R2.fq",
+            "PE",
+            "chipseq",
+            "CTCF",
+            "narrow",
+            "hs",
+            "/opt/idx/ref",
+            "EXP1",
+            "1",
+            "2",
+        ],
+        [
+            "T2",
+            "R3.fq",
+            "R4.fq",
+            "PE",
+            "chipseq",
+            "CTCF",
+            "narrow",
+            "hs",
+            "/opt/idx/ref",
+            "EXP1",
+            "2",
+            "1",
+        ],
+    ]
+    _, config_path, _, out = manifest_case(
+        config_updates={
+            "chipseq_idr": False,
+            "reproducibility": {
+                "enabled": True,
+                "idr": {"chipseq_narrow": True},
+            },
+            "idr": {"threshold": 0.2, "rank": "signal.value", "seed": 123},
+        },
+        sample_rows=sample_rows,
+        columns=columns,
+    )
+    result, rows = _run_manifest(config_path, out)
+    assert result.returncode == 0, result.stderr[-200:]
+    types = {r["output_type"] for r in rows}
+    assert {"idr_conservative", "idr_optimal", "idr_reproducibility_summary"} <= types
+
+
 # ---------------------------------------------------------------------------
 # Reproducibility mode and final-selection contracts
 # ---------------------------------------------------------------------------

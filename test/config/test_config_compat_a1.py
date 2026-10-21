@@ -267,6 +267,51 @@ def test_organelle_chroms_resource_rejects_invalid_values(tmp_path, organelle_ch
         )
 
 
+def test_chipseq_narrow_alias_keeps_idr_parameters_and_is_idempotent(tmp_path):
+    validated = _validate(
+        tmp_path,
+        chipseq_idr=False,
+        idr={"threshold": 0.2, "rank": "signal.value", "seed": 123},
+        reproducibility={"enabled": True, "idr": {"chipseq_narrow": True}},
+    )
+    assert validated["chipseq_idr"] is True
+    assert validated["idr"] == {
+        "threshold": 0.2,
+        "rank": "signal.value",
+        "seed": 123,
+    }
+    renormalized = validate_config(validated)
+    assert renormalized["chipseq_idr"] is True
+    assert renormalized["idr"] == validated["idr"]
+
+    workspace_config = _prepare_workspace_config(validated)
+    rendered = yaml.safe_load(_render_config_yaml(workspace_config))
+    rendered["samples"] = validated["samples"]
+    revalidated = validate_config(rendered)
+    assert revalidated["chipseq_idr"] is True
+    assert revalidated["idr"] == validated["idr"]
+
+
+def test_chipseq_narrow_alias_requires_replicate_analysis(tmp_path):
+    with pytest.raises(ValidationError, match="requires replicate_analysis=true"):
+        _validate(
+            tmp_path,
+            chipseq_idr=False,
+            replicate_analysis=False,
+            reproducibility={"enabled": True, "idr": {"chipseq_narrow": True}},
+        )
+
+
+def test_chipseq_narrow_alias_rejects_invalid_idr_parameters(tmp_path):
+    with pytest.raises(ValidationError, match="idr.threshold"):
+        _validate(
+            tmp_path,
+            chipseq_idr=False,
+            idr={"threshold": 2.0},
+            reproducibility={"enabled": True, "idr": {"chipseq_narrow": True}},
+        )
+
+
 def test_workspace_render_roundtrip_is_idempotent(tmp_path):
     validated = _validate(tmp_path, config_schema_version="2.0.0")
     workspace_config = _prepare_workspace_config(validated)

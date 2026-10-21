@@ -1063,6 +1063,46 @@ def test_artifact_metadata_does_not_label_fe_ppois_as_read_coverage(tmp_path):
         assert entry.get("coverage_unit") != "read"
 
 
+def test_adapter_surfaces_use_control_false_warning(tmp_path):
+    row = _inline_row(tmp_path)
+    row["control_sample"] = "C1"
+    result = _adapter().validate(
+        WorkflowInputs(
+            config={"use_control": False, "multiqc": False},
+            samples=[row],
+        )
+    )
+
+    assert result.is_success, result.issues
+    assert any(
+        issue.code == "ENCODE_SAMPLE_WARNING" and issue.severity == "warning"
+        for issue in result.issues
+    )
+
+
+def test_adapter_control_warning_is_request_local_under_concurrency(tmp_path):
+    control_row = _inline_row(tmp_path, "S1")
+    control_row["control_sample"] = "C1"
+    plain_row = _inline_row(tmp_path, "S2")
+    config = {"use_control": False, "multiqc": False}
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        control_result = executor.submit(
+            _adapter().validate,
+            WorkflowInputs(config=config, samples=[control_row]),
+        )
+        plain_result = executor.submit(
+            _adapter().validate,
+            WorkflowInputs(config=config, samples=[plain_row]),
+        )
+        control = control_result.result()
+        plain = plain_result.result()
+
+    assert control.is_success and plain.is_success
+    assert any(issue.code == "ENCODE_SAMPLE_WARNING" for issue in control.issues)
+    assert not any(issue.code == "ENCODE_SAMPLE_WARNING" for issue in plain.issues)
+
+
 def test_artifact_branch_distinguishes_sample_named_analysis_filtered(tmp_path):
     workspace = _artifact_workspace(tmp_path)
     samples = _samples_text(workspace / "config").replace("S1", "analysis_filtered")

@@ -79,7 +79,6 @@ TRIM = VALIDATED_CONFIG["trim"]
 USE_CONTROL = VALIDATED_CONFIG["use_control"]
 MULTIQC = VALIDATED_CONFIG["multiqc"]
 REPLICATE_ANALYSIS = VALIDATED_CONFIG.get("replicate_analysis", True)
-CHIPSEQ_IDR = VALIDATED_CONFIG.get("chipseq_idr", False)
 IDR_SETTINGS = VALIDATED_CONFIG.get("idr", {})
 IDR_THRESHOLD = float(IDR_SETTINGS.get("threshold", 0.05))
 IDR_RANK = str(IDR_SETTINGS.get("rank", "p.value"))
@@ -102,6 +101,7 @@ BROAD_CUTTAG_IDR_ENABLED = REPRO_ENABLED and REPRODUCIBILITY_CONFIG.get("idr", {
     "cuttag_broad_experimental", False
 )
 BROAD_IDR_ENABLED = BROAD_CHIPSEQ_IDR_ENABLED or BROAD_CUTTAG_IDR_ENABLED
+CHIPSEQ_IDR = bool(VALIDATED_CONFIG.get("chipseq_idr", False))
 
 # Consensus gating (reuses REPRO_ENABLED)
 CONSENSUS_ENABLED = REPRO_ENABLED and REPRODUCIBILITY_CONFIG.get("consensus", {}).get("enabled", True)
@@ -310,6 +310,13 @@ if SEACR_ENABLED:
     ]
 else:
     SEACR_SAMPLE_IDS = []
+
+if SEACR_ENABLED and not SEACR_SAMPLE_IDS:
+    print(
+        "Warning: cuttag.seacr.enabled is true but no PE CUT&Tag treatment "
+        "sample is eligible; no SEACR output will be produced.",
+        file=sys.stderr,
+    )
 
 # Stage 39: MNase-centric derived lists
 MNASE_SAMPLE_IDS = [s["id"] for s in SAMPLES if s["role"] == "treatment" and s["assay"] == "mnase"]

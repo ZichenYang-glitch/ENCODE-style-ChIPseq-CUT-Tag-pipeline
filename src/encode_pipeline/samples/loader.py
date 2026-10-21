@@ -2,6 +2,7 @@
 
 import csv
 import os
+import warnings
 
 from encode_pipeline.config import defaults
 from encode_pipeline.errors import ValidationError
@@ -64,6 +65,16 @@ def load_and_validate_samples(
 
     # --- Pass 2: cross-reference validation ---
     # Control references are intentionally ignored when use_control is false.
+    if not use_control and any(
+        s.get("role") == "control" or s.get("control_sample") or s.get("control_bam")
+        for s in samples
+    ):
+        warnings.warn(
+            "use_control=False: control rows and control_sample/control_bam "
+            "references in the sample sheet will be ignored.",
+            UserWarning,
+            stacklevel=2,
+        )
     if use_control:
         all_ids = {s["id"] for s in samples}
         for s in samples:
@@ -80,6 +91,21 @@ def load_and_validate_samples(
                         f"Sample {s['id']!r}: control_sample {cs!r} "
                         f"has role={cs_row['role']!r}, expected role=control"
                     )
+        control_map = {
+            s["id"]: s.get("control_sample", "")
+            for s in samples
+            if s.get("control_sample")
+        }
+        for start in control_map:
+            seen = set()
+            current = start
+            while current:
+                if current in seen:
+                    raise ValidationError(
+                        f"Sample {start!r}: control_sample cycle detected"
+                    )
+                seen.add(current)
+                current = control_map.get(current, "")
 
     # --- Pass 3: replicate group validation ---
     replicates_validation.validate_replicate_groups(

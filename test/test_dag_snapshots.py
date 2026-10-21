@@ -210,6 +210,57 @@ def test_legacy_analysis_target_is_blocked(target, snakefile, profiles_dir):
         shutil.rmtree(workdir)
 
 
+def test_reproducibility_chipseq_narrow_alias_enables_idr(snakefile, profiles_dir):
+    profile_dir = os.path.join(profiles_dir, "chipseq_idr_dryrun")
+    workdir, dest_config = prepare_profile_workdir(profile_dir)
+    try:
+        with open(dest_config, encoding="utf-8") as handle:
+            config = yaml.safe_load(handle)
+        config["chipseq_idr"] = False
+        config["reproducibility"] = {
+            "enabled": True,
+            "consensus": {"enabled": False},
+            "idr": {"chipseq_narrow": True},
+        }
+        with open(dest_config, "w", encoding="utf-8") as handle:
+            yaml.safe_dump(config, handle, sort_keys=False)
+
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/experiments/exp1/06_idr/final/conservative.narrowPeak",
+        )
+        assert result.returncode == 0, output
+        assert "chipseq_idr_summary" in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_seacr_enabled_without_pe_cuttag_warns(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\t\tSE\tcuttag\tH3K4me3\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K4me3\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+    )
+    try:
+        with open(dest_config, encoding="utf-8") as handle:
+            config = yaml.safe_load(handle)
+        config["cuttag"] = {"seacr": {"enabled": True}}
+        with open(dest_config, "w", encoding="utf-8") as handle:
+            yaml.safe_dump(config, handle, sort_keys=False)
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode == 0, output
+        assert "no PE CUT&Tag treatment sample is eligible" in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
 @pytest.mark.parametrize(
     "profile_name",
     ["chipseq_pe_noctrl", "chipseq_pe_ctrlsample"],

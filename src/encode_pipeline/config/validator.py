@@ -522,6 +522,17 @@ def validate_config(config: dict) -> dict:
 
     # Determine whether ATAC IDR is enabled from validated reproducibility
     repro = validated["reproducibility"]
+    repro_chipseq_narrow = bool(
+        repro.get("enabled", False)
+        and repro.get("idr", {}).get("chipseq_narrow") is True
+    )
+    if repro_chipseq_narrow:
+        validated["chipseq_idr"] = True
+        if not validated.get("replicate_analysis", True):
+            raise ValidationError(
+                "config: reproducibility.idr.chipseq_narrow=true requires "
+                "replicate_analysis=true."
+            )
     atac_idr_enabled = repro.get("enabled", False) and repro.get("idr", {}).get(
         "atac_narrow", False
     )
