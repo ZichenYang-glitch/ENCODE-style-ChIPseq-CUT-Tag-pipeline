@@ -11,7 +11,7 @@ reference for its required columns, optional metadata, and examples; the
 | :--- | :--- | :--- |
 | `sample` | string | Unique sample ID. Must match `[A-Za-z0-9_.-]+`. |
 | `fastq_1` | path | R1 FASTQ file. |
-| `fastq_2` | path | R2 FASTQ file. Required for PE; leave empty for SE. |
+| `fastq_2` | path | R2 FASTQ file. Required for PE; must be empty for SE. For PE, `fastq_1` and `fastq_2` must be different files (compared after path normalization). |
 | `layout` | string | `PE` or `SE`. |
 | `assay` | string | `chipseq`, `cuttag`, `atac`, or `mnase`. |
 | `target` | string | Antibody or target name (e.g. `H3K27ac`, `CTCF`). |
@@ -140,7 +140,13 @@ BigWig, and per-sample MNase QC summary outputs. Nucleosome calling
 ## Common pitfalls
 
 - **PE sample missing `fastq_2`**: The pipeline expects `fastq_2` to be non-empty
-  for `layout: PE`. An empty `fastq_2` with `layout: PE` causes Bowtie2 to fail.
+  for `layout: PE`. An empty `fastq_2` with `layout: PE` is rejected during
+  validation.
+- **SE sample with `fastq_2` set**: `layout: SE` with a non-empty `fastq_2` is
+  rejected during validation; the R2 file would otherwise be silently ignored.
+- **PE sample with identical R1/R2 paths**: `fastq_1` and `fastq_2` pointing to
+  the same file (compared after path normalization) are rejected during
+  validation.
 - **Sample ID contains spaces or special characters**: Sample IDs must match
   `[A-Za-z0-9_.-]+`. Spaces, slashes, and other characters cause Snakemake
   wildcard parsing errors.

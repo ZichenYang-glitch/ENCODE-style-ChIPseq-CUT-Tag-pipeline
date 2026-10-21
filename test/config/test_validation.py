@@ -227,9 +227,10 @@ def test_missing_control_bam_rejected(make_validation_case, run_validator):
 
 
 def _mnase_samples(layout="PE", peak_mode="nucleosome", sid="M1"):
+    fq2 = "R2.fq" if layout == "PE" else ""
     return (
         VALID_SAMPLES_HEADER
-        + f"{sid}\tR1.fq\tR2.fq\t{layout}\tmnase\tH3\t{peak_mode}\ths\tidx\n"
+        + f"{sid}\tR1.fq\t{fq2}\t{layout}\tmnase\tH3\t{peak_mode}\ths\tidx\n"
     )
 
 

@@ -1,5 +1,7 @@
 """Tool parameter validation helpers."""
 
+import math
+
 from encode_pipeline.config import defaults
 
 __all__ = ["validate_tool_params"]
@@ -56,26 +58,21 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             )
         return parsed
 
-    def _normalize_positive_float(tool, key, raw):
+    def _normalize_probability(tool, key, raw):
+        label = f"tool_parameters.{tool}.{key}"
         if isinstance(raw, bool):
-            raise error_cls(
-                f"tool_parameters.{tool}.{key} must be a number > 0, got {raw!r}"
-            )
+            raise error_cls(f"{label} must be a probability in (0, 1], got {raw!r}")
         if isinstance(raw, (int, float)):
             val = float(raw)
         elif isinstance(raw, str):
             try:
                 val = float(raw.strip())
             except (ValueError, TypeError):
-                raise error_cls(
-                    f"tool_parameters.{tool}.{key} must be a number > 0, got {raw!r}"
-                )
+                raise error_cls(f"{label} must be a probability in (0, 1], got {raw!r}")
         else:
-            raise error_cls(
-                f"tool_parameters.{tool}.{key} must be a number > 0, got {raw!r}"
-            )
-        if val <= 0:
-            raise error_cls(f"tool_parameters.{tool}.{key} must be positive, got {val}")
+            raise error_cls(f"{label} must be a probability in (0, 1], got {raw!r}")
+        if not math.isfinite(val) or val <= 0 or val > 1:
+            raise error_cls(f"{label} must be a probability in (0, 1], got {val}")
         return val
 
     def _normalize_filter_flags(key, raw):
@@ -246,10 +243,10 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             norm["extra_args"] = extra
 
         elif tool == "macs3":
-            norm["qvalue"] = _normalize_positive_float(
+            norm["qvalue"] = _normalize_probability(
                 tool, "qvalue", block.get("qvalue", 0.01)
             )
-            norm["broad_cutoff"] = _normalize_positive_float(
+            norm["broad_cutoff"] = _normalize_probability(
                 tool, "broad_cutoff", block.get("broad_cutoff", 0.1)
             )
             extra = block.get("extra_args", "")
@@ -268,7 +265,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             norm["extra_args"] = extra
 
         elif tool == "idr_macs3":
-            norm["pvalue"] = _normalize_positive_float(
+            norm["pvalue"] = _normalize_probability(
                 tool, "pvalue", block.get("pvalue", 0.1)
             )
             extra = block.get("extra_args", "")
