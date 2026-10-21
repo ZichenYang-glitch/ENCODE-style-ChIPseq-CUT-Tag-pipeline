@@ -64,11 +64,14 @@ For preparation commands and mm39/GRCm39 examples, see
 
 When `false`, `control_sample` and `control_bam` are ignored. Rows with
 `role: control` are not scheduled as active outputs; MACS3 runs treatment
-samples without a control (`-c` omitted).
+samples without a control (`-c` omitted). If the sample sheet still contains a
+control row or control reference, validation emits a `use_control=False`
+warning; it does not change behavior.
 
 When `true`, treatment rows may reference a control via `control_sample`
 (another sample row) or `control_bam` (an external BAM path). Control rows
-(`role: control`) are preprocessed but skip peak calling.
+(`role: control`) are preprocessed but skip peak calling. Control-reference
+cycles are rejected.
 
 ## `multiqc`
 
@@ -310,7 +313,8 @@ cuttag:
 
 - **`cuttag.seacr.enabled`** (default `false`): When `true`, runs SEACR peak
   calling as a sidecar alongside MACS3 for CUT&Tag samples. Outputs land under
-  `results/<sample>/04_peaks_seacr/`.
+  `results/<sample>/04_peaks_seacr/`. If no PE CUT&Tag treatment sample is
+  eligible, the workflow emits a warning and produces no SEACR output.
 - Only affects samples with `assay: cuttag`. ChIP-seq and ATAC-seq samples
   ignore this setting.
 - SEACR rules use `workflow/envs/seacr.yml` when Snakemake is run with

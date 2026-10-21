@@ -143,7 +143,7 @@ Replicate consensus and opt-in narrow IDR are implemented under the
 
 ### Controls
 
-- `use_control: true` enables control resolution. When `false`, `control_sample` and `control_bam` are silently ignored.
+- `use_control: true` enables control resolution. When `false`, `control_sample` and `control_bam` are ignored; if present, validation emits a warning (no behavior change).
 - Control rows (`role: control`) are preprocessed but skip peak calling.
 - External `control_bam` is not processed by the pipeline — used directly in MACS3 `-c`.
 

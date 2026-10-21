@@ -265,6 +265,8 @@ When `reproducibility.enabled: true`:
 | `idr.chipseq_broad_experimental` | bool | false |
 | `idr.cuttag_broad_experimental` | bool | false |
 
+- If `idr.chipseq_narrow: true` while `chipseq_idr: false`, the effective
+  ChIP-seq narrow IDR switch is enabled (alias behavior).
 - If `idr.chipseq_narrow: false` while `chipseq_idr: true`: emit config
   contradiction warning, but `chipseq_idr` still runs.
 - If `*_experimental: true`: the validator emits an informational experimental

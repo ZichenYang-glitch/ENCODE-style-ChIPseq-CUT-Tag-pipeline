@@ -1122,6 +1122,25 @@ def _validate_scientific_inputs(
         )
 
     issues: list[Issue] = []
+    if not validated_config["use_control"] and any(
+        sample.get("role") == "control"
+        or sample.get("control_sample")
+        or sample.get("control_bam")
+        for sample in samples
+    ):
+        issues.append(
+            Issue(
+                code="ENCODE_SAMPLE_WARNING",
+                message=(
+                    "use_control=False: control rows and "
+                    "control_sample/control_bam references in the sample sheet "
+                    "will be ignored."
+                ),
+                severity="warning",
+                source="samples",
+                path="samples",
+            )
+        )
     if platform_admission and (
         requested_reference_mode not in (None, "strict")
         or requested_external_control_policy not in (None, "validate")

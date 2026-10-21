@@ -385,6 +385,31 @@ def test_use_control_false_ignores_missing_control_bam(tmp_path):
     assert samples[0]["control_bam"] == "/does/not/exist.bam"
 
 
+def test_use_control_false_warns_when_controls_are_present(tmp_path):
+    samples_path = tmp_path / "samples.tsv"
+    _make_tsv(
+        samples_path,
+        extra_columns=["control_sample"],
+        extra_values={"control_sample": "C1"},
+    )
+    with pytest.warns(UserWarning, match="use_control=False"):
+        load_and_validate_samples(str(samples_path), use_control=False)
+
+
+def test_use_control_true_control_cycle_rejected(tmp_path):
+    samples_path = tmp_path / "samples.tsv"
+    _write_tsv(
+        samples_path,
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\t"
+        "bowtie2_index\trole\tcontrol_sample\n"
+        "T1\tR1.fq\tR2.fq\tPE\tchipseq\tT\tnarrow\ths\tidx\ttreatment\tC1\n"
+        "C1\tR3.fq\tR4.fq\tPE\tchipseq\tInput\tnarrow\ths\tidx\tcontrol\tC2\n"
+        "C2\tR5.fq\tR6.fq\tPE\tchipseq\tInput\tnarrow\ths\tidx\tcontrol\tC1\n",
+    )
+    with pytest.raises(ValidationError, match="cycle detected"):
+        load_and_validate_samples(str(samples_path), use_control=True)
+
+
 def test_use_control_true_missing_control_sample_rejected(tmp_path):
     samples_path = tmp_path / "samples.tsv"
     header = (
