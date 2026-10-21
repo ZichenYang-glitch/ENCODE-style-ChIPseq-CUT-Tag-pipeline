@@ -571,6 +571,12 @@ def test_analysis_filtered_mnase_picard_uses_raw_metrics(snakefile, profiles_dir
         reference = os.path.join(workdir, "reference.fa")
         with open(reference, "w", encoding="utf-8") as handle:
             handle.write(">chr1\nACGT\n")
+        with open(f"{reference}.fai", "w", encoding="utf-8") as handle:
+            handle.write("chr1\t4\t6\t4\t5\n")
+        with open(
+            os.path.join(workdir, "reference.dict"), "w", encoding="utf-8"
+        ) as handle:
+            handle.write("@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:4\n")
         with open(dest_config, encoding="utf-8") as handle:
             config = yaml.safe_load(handle)
         config.setdefault("qc", {})["picard_metrics"] = True
