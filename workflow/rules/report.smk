@@ -194,6 +194,10 @@ if MULTIQC:
                         [f"{OUTDIR}/multiqc/cross_correlation_summary.tsv"]
                         if CROSS_CORR_ENABLED and TREATMENT_SAMPLE_IDS else []
                     )
+                    + (
+                        [f"{OUTDIR}/multiqc/project_qc_summary.tsv"]
+                        if QC_CONFIG.get("summary", True) else []
+                    )
                 )
             ),
             multiqc_config = os.path.join(workflow.basedir, "multiqc_config.yaml"),

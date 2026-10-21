@@ -602,7 +602,7 @@ Lints for rule multiqc (line 153, workflow/rules/report.smk):
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
       https://snakemake.readthedocs.io/en/stable/tutorial/advanced.html#tutorial-input-functions
 
-Lints for rule result_manifest (line 225, workflow/rules/report.smk):
+Lints for rule result_manifest (line 229, workflow/rules/report.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
