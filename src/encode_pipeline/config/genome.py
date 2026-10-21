@@ -1,6 +1,7 @@
 """Genome resource validation helpers."""
 
 import os
+from pathlib import Path
 
 from encode_pipeline.config import defaults
 
@@ -96,16 +97,30 @@ def validate_picard_reference_resources(
     genome_resources = validated_config.get("genome_resources", {})
     treatment_genomes = {s["genome"] for s in samples if s["role"] == "treatment"}
     missing = []
+    missing_sidecars = []
     for genome in sorted(treatment_genomes):
         ref = genome_resources.get(genome, {}).get("reference_fasta", "")
         if not ref:
             missing.append(genome)
+            continue
+        fai = f"{ref}.fai"
+        dict_candidates = (str(Path(ref).with_suffix(".dict")), f"{ref}.dict")
+        if not os.path.isfile(fai) or not any(
+            os.path.isfile(path) for path in dict_candidates
+        ):
+            missing_sidecars.append(genome)
     if missing:
         raise error_cls(
             f"qc.picard_metrics is true but reference_fasta is missing "
             f"for genome(s): {', '.join(missing)}. "
             f"Set genome_resources[{missing[0]}].reference_fasta "
             f"or set qc.picard_metrics: false."
+        )
+    if missing_sidecars:
+        raise error_cls(
+            "qc.picard_metrics is true but reference_fasta sidecars are missing "
+            f"for genome(s): {', '.join(missing_sidecars)}. "
+            "Provide <reference_fasta>.fai and a Picard .dict file."
         )
 
 

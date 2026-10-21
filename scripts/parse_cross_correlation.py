@@ -46,13 +46,14 @@ def _fmt(val):
 
 
 def _try_float(raw):
-    """Parse a string to float, returning None on failure."""
+    """Parse a string to a finite float, returning None otherwise."""
     if raw is None:
         return None
     try:
-        return float(raw)
+        value = float(raw)
     except (ValueError, TypeError):
         return None
+    return value if math.isfinite(value) else None
 
 
 def _primary_fragment_length(raw):
@@ -116,32 +117,39 @@ def parse_cc_qc_file(filepath):
             # Map column names to indices
             col_map = {name.strip(): idx for idx, name in enumerate(fields)}
             # Data row is the next line (or we check subsequent lines)
-            for data_line in lines[i + 1 :]:
-                if data_line.startswith("#"):
-                    continue
-                dfields = data_line.split("\t")
-                if len(dfields) < len(fields):
-                    continue
-
-                def _get(name):
-                    idx = col_map.get(name)
-                    if idx is None or idx >= len(dfields):
-                        return None
-                    return dfields[idx].strip()
-
-                result["estimated_fragment_length"] = _primary_fragment_length(
-                    _get("estFragLen")
-                )
-                result["phantom_peak"] = _try_float(_get("PhantomPeak"))
-                result["nsc"] = _try_float(_get("NSC"))
-                result["rsc"] = _try_float(_get("RSC"))
-                result["quality_tag"] = _get("QualityTag") or None
+            data_rows = [
+                data_line
+                for data_line in lines[i + 1 :]
+                if not data_line.startswith("#")
+                and len(data_line.split("\t")) >= len(fields)
+            ]
+            if len(data_rows) > 1:
                 return result
+            if not data_rows:
+                continue
+            data_line = data_rows[0]
+            dfields = data_line.split("\t")
+
+            def _get(name):
+                idx = col_map.get(name)
+                if idx is None or idx >= len(dfields):
+                    return None
+                return dfields[idx].strip()
+
+            result["estimated_fragment_length"] = _primary_fragment_length(
+                _get("estFragLen")
+            )
+            result["phantom_peak"] = _try_float(_get("PhantomPeak"))
+            result["nsc"] = _try_float(_get("NSC"))
+            result["rsc"] = _try_float(_get("RSC"))
+            result["quality_tag"] = _get("QualityTag") or None
+            return result
 
     # --- Headerless ENCODE-style parsing -----------------------------------
     # Common run_spp.R -out output is one tab-separated data row:
     # Filename, numReads, estFragLen, corr_estFragLen, PhantomPeak,
     # corr_phantomPeak, argmin_corr, min_corr, NSC, RSC, QualityTag
+    valid_rows = []
     for line in lines:
         if line.startswith("#"):
             continue
@@ -153,6 +161,11 @@ def parse_cc_qc_file(filepath):
             continue
         if _try_float(fields[1].strip()) is None:
             continue
+        valid_rows.append(fields)
+    if len(valid_rows) > 1:
+        return result
+    if valid_rows:
+        fields = valid_rows[0]
         result["estimated_fragment_length"] = _primary_fragment_length(
             fields[2].strip()
         )

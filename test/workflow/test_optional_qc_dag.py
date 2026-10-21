@@ -67,6 +67,18 @@ def _write_samples_tsv(path, rows):
             fh.write("\t".join(str(v) for v in row.values()) + "\n")
 
 
+def _write_picard_reference(td):
+    """Create FASTA plus the .fai/.dict sidecars required by Picard."""
+    fake_ref = os.path.join(td, "fake_ref.fa")
+    with open(fake_ref, "w") as fh:
+        fh.write(">chr1\nACGT\n")
+    with open(f"{fake_ref}.fai", "w") as fh:
+        fh.write("chr1\t4\t6\t4\t5\n")
+    with open(os.path.join(td, "fake_ref.dict"), "w") as fh:
+        fh.write("@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:4\n")
+    return fake_ref
+
+
 def _make_config(qc_block=None, genome_resources=None):
     """Return a baseline config dict with optional qc and genome_resources."""
     cfg = {
@@ -185,9 +197,7 @@ def test_all_new_keys_true_validates():
     td = tempfile.mkdtemp(prefix="optional_qc_enabled_")
     try:
         # Create a real reference FASTA file so path validation passes
-        fake_ref = os.path.join(td, "fake_ref.fa")
-        with open(fake_ref, "w") as fh:
-            fh.write(">chr1\nACGT\n")
+        fake_ref = _write_picard_reference(td)
 
         samples_tsv = os.path.join(td, "samples.tsv")
         _write_samples_tsv(samples_tsv, [_chipseq_sample()])
@@ -411,9 +421,7 @@ def test_picard_metrics_true_in_dag():
     try:
         samples_tsv = os.path.join(td, "samples.tsv")
         config_yml = os.path.join(td, "config.yaml")
-        fake_ref = os.path.join(td, "fake_ref.fa")
-        with open(fake_ref, "w") as fh:
-            fh.write(">chr1\nACGT\n")
+        fake_ref = _write_picard_reference(td)
         qc = dict(_DISABLED_QC)
         qc["picard_metrics"] = "true"
         config = _make_config(
@@ -437,9 +445,60 @@ def test_picard_metrics_true_in_dag():
         assert rc == 0, f"Dry-run failed: rc={rc}\nstderr: {stderr}"
 
         output = stdout + stderr
-        assert "picard_collect_multiple_metrics" in output, (
-            "Expected picard_collect_multiple_metrics rule in dry-run jobs list"
+        assert "picard_collect_multiple_metrics_se" in output, (
+            "Expected picard_collect_multiple_metrics_se rule in dry-run jobs list"
         )
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
+
+def test_picard_metrics_pe_keeps_insert_outputs():
+    """PE samples keep the insert-size rule and outputs."""
+    td = _create_dryrun_env()
+    try:
+        samples_tsv = os.path.join(td, "samples.tsv")
+        config_yml = os.path.join(td, "config.yaml")
+        sample = _chipseq_sample("s1")
+        sample["fastq_1"] = os.path.join(td, "s1_R1.fq.gz")
+        sample["fastq_2"] = os.path.join(td, "s1_R2.fq.gz")
+        sample["layout"] = "PE"
+        sample["bowtie2_index"] = os.path.join(td, "index", "hg38")
+        for fpath in (
+            sample["fastq_1"],
+            sample["fastq_2"],
+            sample["bowtie2_index"] + ".1.bt2",
+        ):
+            d = os.path.dirname(fpath)
+            if d and not os.path.isdir(d):
+                os.makedirs(d, exist_ok=True)
+            with open(fpath, "w") as fh:
+                fh.write("")
+        _write_samples_tsv(samples_tsv, [sample])
+        qc = dict(_DISABLED_QC)
+        qc["picard_metrics"] = "true"
+        config = _make_config(
+            qc_block=qc,
+            genome_resources={
+                "hg38": {
+                    "effective_genome_size": 2913022398,
+                    "reference_fasta": _write_picard_reference(td),
+                },
+            },
+        )
+        config["samples"] = samples_tsv
+        config["outdir"] = os.path.join(td, "results")
+        _write_yaml(config_yml, config)
+
+        rc, stdout, stderr = _run_snakemake_dryrun(
+            config_yml,
+            samples_tsv,
+            quiet=False,
+        )
+        assert rc == 0, f"Dry-run failed: rc={rc}\nstderr: {stderr}"
+        output = stdout + stderr
+        assert "picard_collect_multiple_metrics" in output
+        assert "picard_collect_multiple_metrics_se" not in output
+        assert "insert_size_metrics" in output
     finally:
         shutil.rmtree(td, ignore_errors=True)
 
@@ -450,9 +509,7 @@ def test_all_three_enabled_all_in_dag():
     try:
         samples_tsv = os.path.join(td, "samples.tsv")
         config_yml = os.path.join(td, "config.yaml")
-        fake_ref = os.path.join(td, "fake_ref.fa")
-        with open(fake_ref, "w") as fh:
-            fh.write(">chr1\nACGT\n")
+        fake_ref = _write_picard_reference(td)
         qc = dict(_DISABLED_QC)
         qc.update(
             {
@@ -484,7 +541,7 @@ def test_all_three_enabled_all_in_dag():
         output = stdout + stderr
         assert "cross_correlation" in output
         assert "preseq_complexity" in output
-        assert "picard_collect_multiple_metrics" in output
+        assert "picard_collect_multiple_metrics_se" in output
     finally:
         shutil.rmtree(td, ignore_errors=True)
 

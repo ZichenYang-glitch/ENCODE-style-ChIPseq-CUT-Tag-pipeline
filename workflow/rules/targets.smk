@@ -315,20 +315,22 @@ def _advanced_qc_targets():
             sample=TREATMENT_SAMPLE_IDS,
         )
         targets += expand(
-            "{outdir}/{sample}/05_qc/picard/{sample}.insert_size_metrics",
-            outdir=RAW_OUTDIR,
-            sample=TREATMENT_SAMPLE_IDS,
-        )
-        targets += expand(
             "{outdir}/{sample}/05_qc/picard/{sample}.quality_distribution_metrics",
             outdir=RAW_OUTDIR,
             sample=TREATMENT_SAMPLE_IDS,
         )
-        targets += expand(
-            "{outdir}/{sample}/05_qc/picard/{sample}.insert_size_histogram.pdf",
-            outdir=RAW_OUTDIR,
-            sample=TREATMENT_SAMPLE_IDS,
-        )
+        pe_samples = [sid for sid in TREATMENT_SAMPLE_IDS if SAMPLE_MAP[sid]["layout"] == "PE"]
+        if pe_samples:
+            targets += expand(
+                "{outdir}/{sample}/05_qc/picard/{sample}.insert_size_metrics",
+                outdir=RAW_OUTDIR,
+                sample=pe_samples,
+            )
+            targets += expand(
+                "{outdir}/{sample}/05_qc/picard/{sample}.insert_size_histogram.pdf",
+                outdir=RAW_OUTDIR,
+                sample=pe_samples,
+            )
     return targets
 
 

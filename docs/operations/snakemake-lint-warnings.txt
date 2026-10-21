@@ -534,7 +534,7 @@ Lints for rule qc_summary (line 714, workflow/rules/qc.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
 
-Lints for rule picard_collect_multiple_metrics (line 861, workflow/rules/qc.smk):
+Lints for rule picard_collect_multiple_metrics (line 870, workflow/rules/qc.smk):
     * Shell command directly uses variable RAW_OUTDIR from outside of the rule:
       It is recommended to pass all files as input and output, and non-file
       parameters via the params directive. Otherwise, provenance tracking is
@@ -542,7 +542,15 @@ Lints for rule picard_collect_multiple_metrics (line 861, workflow/rules/qc.smk)
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
 
-Lints for rule tss_bed_from_gtf (line 900, workflow/rules/qc.smk):
+Lints for rule picard_collect_multiple_metrics_se (line 907, workflow/rules/qc.smk):
+    * Shell command directly uses variable RAW_OUTDIR from outside of the rule:
+      It is recommended to pass all files as input and output, and non-file
+      parameters via the params directive. Otherwise, provenance tracking is
+      less accurate.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
+
+Lints for rule tss_bed_from_gtf (line 946, workflow/rules/qc.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -551,7 +559,7 @@ Lints for rule tss_bed_from_gtf (line 900, workflow/rules/qc.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule project_qc_summary (line 1011, workflow/rules/qc.smk):
+Lints for rule project_qc_summary (line 1057, workflow/rules/qc.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
