@@ -253,9 +253,11 @@ def test_se_fragment_production_rule_uses_explicit_extension(
     assert "not paired-end" not in log
 
 
-def _bigwig_positive_width(path):
-    python = shutil.which("python3")
-    if not python:
+def _bigwig_positive_width(path, bamcoverage_path):
+    python = Path(bamcoverage_path).parent / "python"
+    if not python.exists():
+        python = Path(shutil.which("python3") or "")
+    if not python.exists():
         pytest.skip("python3 unavailable for pyBigWig inspection")
     code = (
         "import pyBigWig,sys; bw=pyBigWig.open(sys.argv[1]); "
@@ -377,18 +379,18 @@ def _prepare_se_broad_workflow(tmp_path, samtools_path, snakemake_path, model_le
 
 @pytest.mark.parametrize("model_length", [None, 300])
 def test_se_broad_fragment_uses_macs3_model_when_available(
-    tmp_path, samtools_path, snakemake_path, model_length
+    tmp_path, samtools_path, snakemake_path, bamcoverage_path, model_length
 ):
     output = _prepare_se_broad_workflow(
         tmp_path, samtools_path, snakemake_path, model_length
     )
-    width = _bigwig_positive_width(output)
+    width = _bigwig_positive_width(output, bamcoverage_path)
     expected = 200 if model_length is None else 300
     assert width == expected
 
 
 def test_se_broad_fragment_cold_run_schedules_model_producer(
-    tmp_path, samtools_path, snakemake_path
+    tmp_path, samtools_path, snakemake_path, bamcoverage_path
 ):
     (tmp_path / "samples.tsv").write_text(
         "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\t"
@@ -510,7 +512,7 @@ echo "predicted fragment length is 300"
     )
     assert "macs3_callpeak" in first.stdout + first.stderr
     output = tmp_path / target
-    assert _bigwig_positive_width(output) == 300
+    assert _bigwig_positive_width(output, bamcoverage_path) == 300
 
     second = _run(
         [
