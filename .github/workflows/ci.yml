@@ -751,6 +751,16 @@ jobs:
           cache-environment: true
           cache-environment-key: chipseq-${{ runner.os }}-${{ hashFiles('workflow/envs/chipseq.lock') }}
 
+      - name: Setup duplicate toolchain
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/duplicate.lock
+          environment-name: chipseq-duplicate
+          init-shell: none
+          generate-run-shell: false
+          cache-environment: true
+          cache-environment-key: chipseq-duplicate-${{ runner.os }}-${{ hashFiles('workflow/envs/duplicate.lock') }}
+
       - name: Setup MultiQC toolchain
         uses: mamba-org/setup-micromamba@v3
         with:
@@ -786,8 +796,11 @@ jobs:
         env:
           HELIXWEAVE_REQUIRE_REAL_EXECUTION: "1"
         run: |
+          export PATH="$MAMBA_ROOT_PREFIX/envs/chipseq/bin:$MAMBA_ROOT_PREFIX/envs/chipseq-duplicate/bin:$PATH"
           export SNAKEMAKE="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/snakemake"
           export SAMTOOLS="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/samtools"
+          export PICARD="$MAMBA_ROOT_PREFIX/envs/chipseq-duplicate/bin/picard"
+          export BAMCOVERAGE="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/bamCoverage"
           export MACS3="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/macs3"
           export PRESEQ="$MAMBA_ROOT_PREFIX/envs/chipseq-preseq/bin/preseq"
           export RUN_SPP="$MAMBA_ROOT_PREFIX/envs/chipseq-phantompeakqualtools/bin/run_spp.R"
