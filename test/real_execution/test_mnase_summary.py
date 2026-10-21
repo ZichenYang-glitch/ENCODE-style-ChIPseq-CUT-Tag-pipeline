@@ -154,6 +154,9 @@ print("PICARD_STUB_COMPLETE")
         if reference:
             ref.write_text(">chr1\n" + "A" * 10000 + "\n")
             run(tmp_path, [samtools, "faidx", ref])
+            (tmp_path / "reference.dict").write_text(
+                "@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:10000\n"
+            )
         qc = dict(
             blacklist_filter=False,
             frip=False,
