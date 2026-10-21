@@ -86,6 +86,7 @@ def scan_drop_names(bam, layout, blacklist):
     )
     assert process.stdout is not None
     drop = set()
+    pending_mates = set()
     total = 0
     for line in process.stdout:
         if not line or line.startswith("@"):
@@ -99,8 +100,15 @@ def scan_drop_names(bam, layout, blacklist):
         if reason is not None:
             drop.add(qname)
             continue
+        if layout == "PE":
+            if qname in pending_mates:
+                pending_mates.remove(qname)
+            else:
+                pending_mates.add(qname)
         if blacklist.overlaps(chrom, start, end):
             drop.add(qname)
+    if layout == "PE":
+        drop.update(pending_mates)
     stderr = process.stderr.read() if process.stderr is not None else ""
     returncode = process.wait()
     if returncode != 0:

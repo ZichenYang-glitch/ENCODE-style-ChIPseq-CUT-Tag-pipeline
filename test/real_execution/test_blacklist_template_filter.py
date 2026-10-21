@@ -187,6 +187,22 @@ def test_pe_blacklist_removes_whole_fragment(tmp_path, samtools_path):
     assert fields[1].split("\t")[:3] == ["S1", "PE", "4"]
 
 
+def test_pe_incomplete_mate_is_removed(tmp_path, samtools_path):
+    blacklist = tmp_path / "blacklist.bed"
+    blacklist.write_text("chr1\t100\t110\n", encoding="utf-8")
+    records = [
+        _pair("incomplete", 400, 500, 150)[0],
+        *_pair("normal", 700, 800, 150),
+    ]
+    bam = _make_bam(tmp_path, samtools_path, records)
+    out, dropped = _run_filter(tmp_path, samtools_path, bam, blacklist, "PE")
+
+    kept = _run([samtools_path, "view", str(out)]).stdout.splitlines()
+    assert {line.split("\t")[0] for line in kept} == {"normal"}
+    fields = dropped.read_text(encoding="utf-8").strip().splitlines()
+    assert fields[1].split("\t")[:3] == ["S1", "PE", "1"]
+
+
 def test_se_blacklist_removes_overlapping_reads(tmp_path, samtools_path):
     blacklist = tmp_path / "blacklist.bed"
     blacklist.write_text("chr1\t100\t110\n", encoding="utf-8")

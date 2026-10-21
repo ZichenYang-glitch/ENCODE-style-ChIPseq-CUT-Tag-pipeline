@@ -290,8 +290,79 @@ custom_data:
         title: "SEM"
         description: "SEM caller enabled (execution deferred)."
 
+  project_qc_summary:
+    section_name: "Project QC Summary"
+    description: "Per-sample final-read, FRiP, peak, NRF/PBC, and duplication summary."
+    plot_type: "table"
+    pconfig:
+      id: "project_qc_summary"
+      title: "Project QC Summary"
+      col1_header: "Sample"
+    headers:
+      assay:
+        title: "Assay"
+      target:
+        title: "Target"
+      genome:
+        title: "Genome"
+      layout:
+        title: "Layout"
+      peak_mode:
+        title: "Peak mode"
+      total_reads:
+        title: "Final reads"
+      reads_in_peaks:
+        title: "Reads in peaks"
+      frip:
+        title: "FRiP"
+        description: "Fraction of reads in peaks."
+      peak_count:
+        title: "Peaks"
+      nrf:
+        title: "NRF"
+      pbc1:
+        title: "PBC1"
+      pbc2:
+        title: "PBC2"
+      percent_duplication:
+        title: "Duplication fraction"
+      qc_flag:
+        title: "QC flag"
+
+  cuttag_fragment_size:
+    section_name: "CUT&Tag fragment sizes"
+    description: "PE CUT&Tag fragment-length summary; SE samples report layout_not_supported."
+    plot_type: "table"
+    pconfig:
+      id: "cuttag_fragment_size"
+      title: "CUT&Tag Fragment Size QC"
+      col1_header: "Sample"
+    headers:
+      layout:
+        title: "Layout"
+      fragment_count:
+        title: "Fragments"
+      fragment_mean:
+        title: "Mean (bp)"
+      fragment_median:
+        title: "Median (bp)"
+      fraction_lt_150:
+        title: "Fraction <150 bp"
+      fraction_150_300:
+        title: "Fraction 150-300 bp"
+      fraction_300_500:
+        title: "Fraction 300-500 bp"
+      fraction_ge_500:
+        title: "Fraction >=500 bp"
+      status:
+        title: "Status"
+
 sp:
   cross_correlation_qc:
     fn: "cross_correlation_summary.tsv"
   mnase_qc:
     fn: "*mnase_qc_summary.tsv"
+  project_qc_summary:
+    fn: "*project_qc_summary.tsv"
+  cuttag_fragment_size:
+    fn: "*cuttag_fragment_size.tsv"

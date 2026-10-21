@@ -713,7 +713,11 @@ def test_multiqc_config_declares_cross_corr_custom_content():
     assert "custom_data:" in text
     assert "cross_correlation_qc:" in text
     assert "mnase_qc:" in text
+    assert "project_qc_summary:" in text
+    assert "cuttag_fragment_size:" in text
     assert "*mnase_qc_summary.tsv" in text
+    assert "*project_qc_summary.tsv" in text
+    assert "*cuttag_fragment_size.tsv" in text
     assert 'plot_type: "table"' in text
     assert "cross_correlation_summary.tsv" in text
 
@@ -730,6 +734,7 @@ def test_multiqc_rule_uses_custom_config_and_summary_search_path():
     assert "--force" in text
     assert "params.search_paths:q" in text
     assert "cross_correlation_summary.tsv" in text
+    assert "project_qc_summary.tsv" in text
 
 
 def test_multiqc_report_target_with_cross_corr_resolves():
