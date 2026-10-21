@@ -199,9 +199,10 @@ families (`hs` for GRCh/hg, `mm` for GRCm/mm); numeric sizes remain explicit.
 `organelle_chroms` is injected into `genome_resources.<assembly>` for the
 workflow. Binding v1 remains accepted and keeps its existing identity. The
 binding identity includes the v2 contract and metadata and remains path-free.
-FAI verification currently checks contig names and lengths; it does not
-validate offset/line-width fields or prove random-access usability. Bowtie2
-index contents remain hash-bound without internal contig parsing.
+FAI verification now checks contig names, lengths, offsets, line bases, and
+line widths against the same hash-verified FASTA byte stream, so random-access
+usability is part of v2 admission without a second unverified file read.
+Bowtie2 index contents remain hash-bound without internal contig parsing.
 
 ## Fragment-level CPM tracks
 

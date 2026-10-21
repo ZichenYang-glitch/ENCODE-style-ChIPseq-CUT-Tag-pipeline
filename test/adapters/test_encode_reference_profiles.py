@@ -351,6 +351,118 @@ def test_encode_binding_rejects_descriptor_replacement_race(
     assert result.errors[0].code == "ENCODE_REFERENCE_BINDING_INVALID"
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"chr1\t4\t5\t4\t5\n",
+        b"chr1\t4\t6\t3\t4\n",
+    ],
+)
+def test_encode_binding_v2_rejects_unusable_fai_geometry(
+    tmp_path: Path, content: bytes
+):
+    adapter = EncodeStyleWorkflowAdapter()
+    payload = _binding_v2(tmp_path)
+    resources = payload["genome_resources"]
+    assert isinstance(resources, dict)
+    fai = Path(resources["reference_fai"]["path"])
+    resources["reference_fai"]["sha256"] = _write(fai, content)
+
+    assert adapter.verify_reference_profile_binding(payload).is_failure
+
+
+def test_encode_binding_v2_rejects_header_offset(tmp_path: Path):
+    adapter = EncodeStyleWorkflowAdapter()
+    payload = _binding_v2(tmp_path)
+    resources = payload["genome_resources"]
+    assert isinstance(resources, dict)
+    fai = Path(resources["reference_fai"]["path"])
+    resources["reference_fai"]["sha256"] = _write(fai, b"chr1\t4\t0\t4\t5\n")
+
+    assert adapter.verify_reference_profile_binding(payload).is_failure
+
+
+def test_encode_binding_v2_accepts_crlf_and_no_final_newline(tmp_path: Path):
+    adapter = EncodeStyleWorkflowAdapter()
+    payload = _binding_v2(tmp_path / "crlf")
+    resources = payload["genome_resources"]
+    assert isinstance(resources, dict)
+    fasta = Path(resources["reference_fasta"]["path"])
+    fai = Path(resources["reference_fai"]["path"])
+    resources["reference_fasta"]["sha256"] = _write(fasta, b">chr1\r\nACGT\r\n")
+    resources["reference_fai"]["sha256"] = _write(fai, b"chr1\t4\t7\t4\t6\n")
+    assert adapter.verify_reference_profile_binding(payload).is_success
+
+    payload = _binding_v2(tmp_path / "noeol")
+    resources = payload["genome_resources"]
+    assert isinstance(resources, dict)
+    fasta = Path(resources["reference_fasta"]["path"])
+    resources["reference_fasta"]["sha256"] = _write(fasta, b">chr1\nACGT")
+    assert adapter.verify_reference_profile_binding(payload).is_success
+
+
+def test_encode_binding_v2_rejects_swapped_equal_length_offsets(tmp_path: Path):
+    adapter = EncodeStyleWorkflowAdapter()
+    payload = _binding_v2(tmp_path)
+    resources = payload["genome_resources"]
+    assert isinstance(resources, dict)
+    fasta = Path(resources["reference_fasta"]["path"])
+    fai = Path(resources["reference_fai"]["path"])
+    chrom_sizes = Path(resources["chrom_sizes"]["path"])
+    ref_dict = Path(resources["reference_dict"]["path"])
+    resources["reference_fasta"]["sha256"] = _write(
+        fasta, b">chr1\nACGT\n>chr2\nTTTT\n"
+    )
+    resources["reference_fai"]["sha256"] = _write(
+        fai, b"chr1\t4\t17\t4\t5\nchr2\t4\t6\t4\t5\n"
+    )
+    resources["chrom_sizes"]["sha256"] = _write(chrom_sizes, b"chr1\t4\nchr2\t4\n")
+    resources["reference_dict"]["sha256"] = _write(
+        ref_dict,
+        b"@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:4\n@SQ\tSN:chr2\tLN:4\n",
+    )
+
+    assert adapter.verify_reference_profile_binding(payload).is_failure
+
+
+def test_encode_binding_v2_rejects_overlong_final_line(tmp_path: Path):
+    adapter = EncodeStyleWorkflowAdapter()
+    payload = _binding_v2(tmp_path)
+    resources = payload["genome_resources"]
+    assert isinstance(resources, dict)
+    fasta = Path(resources["reference_fasta"]["path"])
+    fai = Path(resources["reference_fai"]["path"])
+    chrom_sizes = Path(resources["chrom_sizes"]["path"])
+    ref_dict = Path(resources["reference_dict"]["path"])
+    resources["reference_fasta"]["sha256"] = _write(fasta, b">chr1\nACGT\nTTTTCCCC\n")
+    resources["reference_fai"]["sha256"] = _write(fai, b"chr1\t12\t6\t4\t5\n")
+    resources["chrom_sizes"]["sha256"] = _write(chrom_sizes, b"chr1\t12\n")
+    resources["reference_dict"]["sha256"] = _write(
+        ref_dict, b"@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:12\n"
+    )
+
+    assert adapter.verify_reference_profile_binding(payload).is_failure
+
+
+def test_encode_binding_v2_accepts_short_final_line(tmp_path: Path):
+    adapter = EncodeStyleWorkflowAdapter()
+    payload = _binding_v2(tmp_path)
+    resources = payload["genome_resources"]
+    assert isinstance(resources, dict)
+    fasta = Path(resources["reference_fasta"]["path"])
+    fai = Path(resources["reference_fai"]["path"])
+    chrom_sizes = Path(resources["chrom_sizes"]["path"])
+    ref_dict = Path(resources["reference_dict"]["path"])
+    resources["reference_fasta"]["sha256"] = _write(fasta, b">chr1\nACGT\nTT\n")
+    resources["reference_fai"]["sha256"] = _write(fai, b"chr1\t6\t6\t4\t5\n")
+    resources["chrom_sizes"]["sha256"] = _write(chrom_sizes, b"chr1\t6\n")
+    resources["reference_dict"]["sha256"] = _write(
+        ref_dict, b"@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:6\n"
+    )
+
+    assert adapter.verify_reference_profile_binding(payload).is_success
+
+
 def test_encode_binding_v2_rejects_replacement_between_hash_and_parse(
     tmp_path: Path, monkeypatch
 ):
@@ -361,7 +473,7 @@ def test_encode_binding_v2_rejects_replacement_between_hash_and_parse(
     resources = payload["genome_resources"]
     assert isinstance(resources, dict)
     fasta = Path(resources["reference_fasta"]["path"])
-    original = refs._iter_verified_lines
+    original = refs._iter_verified_raw_lines
     replaced = False
 
     def hooked(path, expected_sha256):
@@ -371,7 +483,7 @@ def test_encode_binding_v2_rejects_replacement_between_hash_and_parse(
             fasta.write_bytes(b">chr1\nTTTT\n")
         return original(path, expected_sha256)
 
-    monkeypatch.setattr(refs, "_iter_verified_lines", hooked)
+    monkeypatch.setattr(refs, "_iter_verified_raw_lines", hooked)
     result = adapter.verify_reference_profile_binding(payload)
 
     assert result.is_failure
