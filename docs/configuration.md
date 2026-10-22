@@ -378,3 +378,49 @@ those are already checked regardless of strict mode.
 | `cuttag.seacr.enabled` | `false` | Always; affects CUT&Tag samples only |
 | `qc.tss_enrichment` | `false` | Requires `genome_resources.<genome>.gtf` |
 | `tool_parameters.*` | tool defaults | Always; absent keys use built-in tool defaults |
+
+## Run identity and effective configuration
+
+Every run — both `legacy` and `updated` profiles — records a versioned
+identity marker at `<outdir>/.helixweave/analysis_identity.json` before any
+scientific task executes. The marker carries a marker schema version, the
+analysis profile, the internal `scientific_policy_revision`, and a hash of the
+merged, validated configuration plus the sample sheet and genome resource
+identity. `scientific_policy_revision` is an internal workflow identity; it
+cannot be set by user configuration.
+
+| Outdir / marker state | Behavior |
+| :--- | :--- |
+| New directory, or only scheduler metadata (`.snakemake`, `.helixweave`) | The marker is created, then scientific tasks run |
+| Marker matches profile, policy revision, and identity | The same run may continue |
+| Scientific outputs present but no marker | Refused; choose a fresh outdir (existing content is kept) |
+| Old-format marker, other profile, other policy revision, or different identity | Refused; choose a fresh outdir |
+| Marker corrupted, not a regular file, or a symlink | Refused; never auto-repaired or overwritten |
+
+Dry-runs perform the same checks (a dry-run reports a mismatch) but never
+create the marker or any run record.
+
+### CLI overrides and the effective configuration record
+
+Snakemake `--config KEY=VALUE` overrides are merged with `--configfile` before
+validation, so an override goes through the same validator, the run identity,
+and the effective configuration record. The merged value must be legal for the
+active profile; conflicting or internal keys are rejected.
+
+```bash
+snakemake -s workflow/Snakefile --configfile config/config.yaml \
+  --config mapq=20
+```
+
+At startup the workflow prints a short, path-free summary of the effective
+configuration (profile, policy revision, mapq/trim/binsize, duplicate,
+organelle, and blacklist modes, sample assay counts). An actual run also
+saves the merged, normalized configuration to
+`<outdir>/.helixweave/effective_config.json`. A dry-run prints the summary but
+writes nothing into the run directory.
+
+Overrides that change scientific identity require a fresh outdir — they are
+not applied on top of an existing run directory. The standalone
+`validate --config FILE` command validates only that file; it does not
+validate `--config` values injected later. To check an overridden run, use
+the workflow's own merged-config validation and dry-run.

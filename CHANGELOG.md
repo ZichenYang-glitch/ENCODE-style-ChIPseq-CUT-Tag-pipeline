@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Versioned run identity for both analysis profiles: the
+  `.helixweave/analysis_identity.json` marker now carries a marker schema
+  version, profile, internal `scientific_policy_revision`, and the effective
+  configuration identity; both profiles refuse outdated-format, mismatched,
+  corrupted, or symlinked markers and unmarked non-empty outdirs instead of
+  mixing outputs from different scientific behavior.
+- Effective configuration traceability: startup prints a path-free summary of
+  the merged configuration, actual runs record it to
+  `.helixweave/effective_config.json`, Snakemake `--config` overrides go
+  through the same validator/identity/record path, and dry-runs never write
+  run records.
 - Updated ENCODE analysis profile with proper-pair filtering, marked duplicates,
   organelle-aware analysis BAMs, matched per-bioreplicate controls, and an
   identity-guarded analysis output namespace.

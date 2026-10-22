@@ -450,3 +450,20 @@ def test_mnase_narrow_still_rejected(make_validation_case, run_validator):
     result = run_validator(config_path)
     assert result.returncode != 0
     assert "requires peak_mode=nucleosome" in (result.stdout + result.stderr)
+
+
+def test_scientific_policy_revision_key_rejected(tmp_path):
+    """The internal policy revision is not user-configurable."""
+    from encode_pipeline.config.errors import ValidationError
+    from encode_pipeline.config.validator import validate_config
+
+    samples = tmp_path / "samples.tsv"
+    samples.write_text(_valid_samples(), encoding="utf-8")
+    with pytest.raises(ValidationError, match="scientific_policy_revision"):
+        validate_config(
+            {
+                "samples": str(samples),
+                "use_control": False,
+                "scientific_policy_revision": 9,
+            }
+        )

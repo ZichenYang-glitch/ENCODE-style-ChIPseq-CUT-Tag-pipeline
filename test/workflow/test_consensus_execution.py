@@ -13,7 +13,9 @@ import pytest
 
 
 @pytest.fixture
-def consensus_project(tmp_path, tmp_config, monkeypatch):
+def consensus_project(
+    tmp_path, tmp_config, monkeypatch, snakemake_executable, snakefile
+):
     """Use the current test interpreter for the original stdlib-only script."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -79,6 +81,13 @@ def consensus_project(tmp_path, tmp_config, monkeypatch):
             # Leave the nested consensus switch omitted to exercise its default.
             config["reproducibility"] = {"enabled": parent}
         _, config_path, _ = tmp_config(config=config, samples="\n".join(rows) + "\n")
+        # The identity marker must precede staged peaks: unmarked non-empty
+        # outdirs are refused before any scientific task runs.
+        from conftest import seed_run_identity
+
+        seed_run_identity(
+            tmp_path, snakemake_executable, snakefile, config_path, outdir=outdir
+        )
         base = Path(outdir) / "experiments/EXP/06_reproducibility"
         name = f"EXP.{assay}.macs3.narrow"
         inputs = []
