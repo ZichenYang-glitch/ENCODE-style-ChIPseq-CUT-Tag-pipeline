@@ -30,10 +30,16 @@ rule analysis_identity_marker:
         import os
 
         os.makedirs(os.path.dirname(output.marker), exist_ok=True)
-        with open(output.marker, "w", encoding="utf-8") as handle:
-            handle.write(params.marker_json + "\n")
-        with open(output.effective_config, "w", encoding="utf-8") as handle:
-            handle.write(params.config_json + "\n")
+        # Publish the effective-config record before the marker, each via
+        # atomic replace, so a valid marker never exists without its record.
+        for target, payload in (
+            (output.effective_config, params.config_json),
+            (output.marker, params.marker_json),
+        ):
+            tmp_path = target + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as handle:
+                handle.write(payload + "\n")
+            os.replace(tmp_path, target)
 
 
 rule prepare_analysis_bam:

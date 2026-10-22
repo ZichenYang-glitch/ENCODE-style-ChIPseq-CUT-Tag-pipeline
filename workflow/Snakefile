@@ -185,6 +185,13 @@ CONTROL_SAMPLE_IDS = [s["id"] for s in SAMPLES if s["role"] == "control"]
 CUTTAG_ACTIVE_SAMPLE_IDS = [sid for sid in ACTIVE_SAMPLE_IDS if SAMPLE_MAP[sid]["assay"] == "cuttag"]
 
 
+# Config keys excluded from the run identity: output-location and scheduling
+# options that cannot change scientific outputs. `samples` is excluded as a
+# path because the parsed sample content is hashed separately. Every other
+# validated (i.e. effective) config value is part of the identity.
+_IDENTITY_EXCLUDED_CONFIG_KEYS = ("outdir", "samples", "threads")
+
+
 def _analysis_identity_hash():
     sample_identity = [
         {
@@ -211,40 +218,12 @@ def _analysis_identity_hash():
         }
         for sample in sorted(SAMPLES, key=lambda item: item["id"])
     ]
-    genome_resources = VALIDATED_CONFIG.get("genome_resources", {}) or {}
-    resource_identity = {
-        genome: {
-            key: resource.get(key)
-            for key in (
-                "effective_genome_size",
-                "chrom_sizes",
-                "blacklist",
-                "gtf",
-                "reference_fasta",
-                "organelle_chroms",
-            )
-        }
-        for genome, resource in sorted(genome_resources.items())
-        if isinstance(resource, dict)
+    config_identity = {
+        key: VALIDATED_CONFIG.get(key) for key in sorted(VALIDATED_CONFIG) if key not in _IDENTITY_EXCLUDED_CONFIG_KEYS
     }
     payload = {
-        "analysis_profile": VALIDATED_CONFIG.get("analysis_profile"),
-        "config_schema_version": VALIDATED_CONFIG.get("config_schema_version"),
         "scientific_policy_revision": SCIENTIFIC_POLICY_REVISION,
-        "reference_mode": VALIDATED_CONFIG.get("reference_mode"),
-        "external_control_policy": VALIDATED_CONFIG.get("external_control_policy"),
-        "organelle_mode": VALIDATED_CONFIG.get("organelle_mode"),
-        "blacklist_mode": VALIDATED_CONFIG.get("blacklist_mode"),
-        "duplicate_analysis": VALIDATED_CONFIG.get("duplicate_analysis"),
-        "control_mode": VALIDATED_CONFIG.get("control_mode"),
-        "duplicate_backend": VALIDATED_CONFIG.get("duplicate_backend"),
-        "use_control": bool(USE_CONTROL),
-        "mapq": VALIDATED_CONFIG.get("mapq"),
-        "trim": VALIDATED_CONFIG.get("trim"),
-        "binsize": VALIDATED_CONFIG.get("binsize"),
-        "extend_reads": VALIDATED_CONFIG.get("extend_reads"),
-        "tool_parameters": VALIDATED_CONFIG.get("tool_parameters"),
-        "genome_resources": resource_identity,
+        "config": config_identity,
         "samples": sample_identity,
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -314,20 +293,53 @@ def _read_analysis_identity_marker(marker, expected_profile):
     return identity
 
 
+def _check_analysis_metadata_boundary():
+    """Refuse symlinked or non-directory run-metadata locations.
+
+    The .helixweave directory and both run-record files form one no-link
+    boundary: a symlinked parent would let record writes escape the outdir.
+    """
+    helix_dir = _analysis_identity_marker().parent
+    if helix_dir.is_symlink():
+        raise WorkflowError(f"Analysis metadata directory must not be a symlink: {helix_dir}")
+    if helix_dir.exists() and not helix_dir.is_dir():
+        raise WorkflowError(f"Analysis metadata path is not a directory: {helix_dir}")
+    for record in (_analysis_identity_marker(), _effective_config_record()):
+        if record.is_symlink():
+            raise WorkflowError(f"Analysis run metadata must not be a symlink: {record}")
+        if record.exists() and not record.is_file():
+            raise WorkflowError(f"Analysis run metadata is not a regular file: {record}")
+
+
+def _check_effective_config_record(record, marker_identity):
+    """A valid marker requires an intact, matching effective-config record."""
+    if not record.exists():
+        raise WorkflowError(
+            f"Effective configuration record is missing next to a valid run marker: {record}. "
+            "Refusing to continue without the recorded configuration; use a fresh outdir."
+        )
+    try:
+        recorded = json.loads(record.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise WorkflowError(f"Effective configuration record is unreadable: {record}") from exc
+    if not isinstance(recorded, dict):
+        raise WorkflowError(f"Effective configuration record must be a JSON object: {record}")
+    if recorded.get("identity") != marker_identity:
+        raise WorkflowError("Effective configuration record does not match the run identity; " "use a fresh outdir.")
+
+
 def _check_analysis_outdir_identity():
     marker = _analysis_identity_marker()
     profile = VALIDATED_CONFIG.get("analysis_profile")
-    if marker.is_symlink():
-        raise WorkflowError(f"Analysis identity marker must not be a symlink: {marker}")
+    _check_analysis_metadata_boundary()
     if marker.exists():
-        if not marker.is_file():
-            raise WorkflowError(f"Analysis identity marker is not a regular file: {marker}")
         recorded_identity = _read_analysis_identity_marker(marker, profile)
         if recorded_identity != _analysis_identity_hash():
             raise WorkflowError(
                 "Existing analysis outdir has a different analysis identity; "
                 "use a fresh outdir or the profile that created it."
             )
+        _check_effective_config_record(_effective_config_record(), recorded_identity)
         return
     outdir = Path(RAW_OUTDIR)
     if outdir.exists():

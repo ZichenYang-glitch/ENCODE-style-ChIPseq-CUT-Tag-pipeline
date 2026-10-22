@@ -10,10 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Versioned run identity for both analysis profiles: the
   `.helixweave/analysis_identity.json` marker now carries a marker schema
-  version, profile, internal `scientific_policy_revision`, and the effective
-  configuration identity; both profiles refuse outdated-format, mismatched,
-  corrupted, or symlinked markers and unmarked non-empty outdirs instead of
-  mixing outputs from different scientific behavior.
+  version, profile, internal `scientific_policy_revision`, and an identity
+  hash covering the full effective configuration (only `outdir`, `threads`,
+  and the `samples` path are excluded; parsed sample content is hashed);
+  both profiles refuse outdated-format, mismatched, corrupted, or symlinked
+  markers, missing or inconsistent `effective_config.json` records,
+  symlinked `.helixweave` metadata directories, and unmarked non-empty
+  outdirs instead of mixing outputs from different scientific behavior.
 - Effective configuration traceability: startup prints a path-free summary of
   the merged configuration, actual runs record it to
   `.helixweave/effective_config.json`, Snakemake `--config` overrides go

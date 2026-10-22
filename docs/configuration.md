@@ -385,9 +385,14 @@ Every run — both `legacy` and `updated` profiles — records a versioned
 identity marker at `<outdir>/.helixweave/analysis_identity.json` before any
 scientific task executes. The marker carries a marker schema version, the
 analysis profile, the internal `scientific_policy_revision`, and a hash of the
-merged, validated configuration plus the sample sheet and genome resource
-identity. `scientific_policy_revision` is an internal workflow identity; it
-cannot be set by user configuration.
+merged, validated configuration plus the parsed sample sheet. The identity
+covers every validated (effective) config value — including the `mnase`,
+`cuttag`/SEACR, `qc`, `idr`/`reproducibility`, genome-resource, duplicate,
+organelle, blacklist, and tool-parameter blocks — with only these explicitly
+excluded scheduling/location keys: `outdir`, `threads`, and the `samples`
+path (the parsed sample content is hashed instead).
+`scientific_policy_revision` is an internal workflow identity; it cannot be
+set by user configuration.
 
 | Outdir / marker state | Behavior |
 | :--- | :--- |
@@ -395,7 +400,13 @@ cannot be set by user configuration.
 | Marker matches profile, policy revision, and identity | The same run may continue |
 | Scientific outputs present but no marker | Refused; choose a fresh outdir (existing content is kept) |
 | Old-format marker, other profile, other policy revision, or different identity | Refused; choose a fresh outdir |
-| Marker corrupted, not a regular file, or a symlink | Refused; never auto-repaired or overwritten |
+| Marker or record corrupted, not a regular file, or a symlink; `.helixweave` a symlink or not a directory | Refused; never auto-repaired or overwritten |
+| Marker valid but `effective_config.json` missing, unreadable, or not matching the run identity | Refused; the run does not continue without an intact configuration record |
+
+The marker and the effective-config record form one metadata boundary: the
+record is written first (each via atomic replace), so a valid marker never
+publishes without its record, and writes can never escape through a
+symlinked `.helixweave`.
 
 Dry-runs perform the same checks (a dry-run reports a mismatch) but never
 create the marker or any run record.

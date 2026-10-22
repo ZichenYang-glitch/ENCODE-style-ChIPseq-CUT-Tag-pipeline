@@ -1069,6 +1069,10 @@ def test_analysis_filtered_requires_blacklist_resource(snakefile, tmp_path):
         "fastq_2",
         "biological_replicate",
         "technical_replicate",
+        "mnase_mono_window",
+        "qc_frip",
+        "seacr_threshold",
+        "reproducibility_consensus",
     ],
 )
 def test_updated_identity_covers_scientific_inputs(snakefile, tmp_path, mutation):
@@ -1122,6 +1126,17 @@ def test_updated_identity_covers_scientific_inputs(snakefile, tmp_path, mutation
                 }
             elif mutation == "effective_genome_size":
                 config["genome_resources"]["hs"]["effective_genome_size"] = 123456
+            elif mutation == "mnase_mono_window":
+                config["mnase"] = {"fragments": {"mono": [130, 200]}}
+            elif mutation == "qc_frip":
+                config.setdefault("qc", {})["frip"] = True
+            elif mutation == "seacr_threshold":
+                config["cuttag"] = {"seacr": {"threshold": 0.02}}
+            elif mutation == "reproducibility_consensus":
+                config["reproducibility"] = {
+                    "enabled": True,
+                    "consensus": {"enabled": False},
+                }
             with open(dest_config, "w", encoding="utf-8") as handle:
                 yaml.safe_dump(config, handle, sort_keys=False)
 
@@ -1130,6 +1145,180 @@ def test_updated_identity_covers_scientific_inputs(snakefile, tmp_path, mutation
         assert "different analysis identity" in output, output
     finally:
         shutil.rmtree(workdir)
+
+
+@pytest.mark.parametrize("profile", ["legacy", "updated"])
+def test_identity_covers_mnase_windows(snakefile, profiles_dir, tmp_path, profile):
+    """Codex R1 counterexample: mono [140,200] -> [130,200] must change identity."""
+    if profile == "updated":
+        workdir, dest_config = _write_updated_profile(
+            tmp_path / "profile",
+            [
+                "M1\tR1.fq\tR2.fq\tPE\tmnase\tH3\tnucleosome\ths\tbt2_idx\t"
+                "exp1\tH3\t1\t1\t1\ttreatment\t\t",
+            ],
+            use_control=False,
+        )
+    else:
+        profile_dir = os.path.join(profiles_dir, "mnase_pe_noctrl")
+        workdir, dest_config = prepare_profile_workdir(profile_dir)
+    marker = "results/.helixweave/analysis_identity.json"
+    try:
+        result, output = _run_snakemake_job(snakefile, workdir, dest_config, marker)
+        assert result.returncode == 0, output
+
+        with open(dest_config, encoding="utf-8") as handle:
+            config = yaml.safe_load(handle)
+        config["mnase"] = {"fragments": {"mono": [130, 200]}}
+        with open(dest_config, "w", encoding="utf-8") as handle:
+            yaml.safe_dump(config, handle, sort_keys=False)
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "different analysis identity" in output, output
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+@pytest.mark.parametrize("profile", ["legacy", "updated"])
+def test_missing_effective_config_record_is_rejected(
+    snakefile, profiles_dir, tmp_path, profile
+):
+    """Codex R2: a valid marker without its record must stop the run."""
+    if profile == "updated":
+        workdir, dest_config = _write_updated_profile(
+            tmp_path / "profile",
+            [
+                "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+                "exp1\tH3K27ac\t1\t1\t1\ttreatment\t\t",
+            ],
+            use_control=False,
+        )
+    else:
+        profile_dir = os.path.join(profiles_dir, "chipseq_se_noctrl")
+        workdir, dest_config = prepare_profile_workdir(profile_dir)
+    try:
+        marker_rel = "results/.helixweave/analysis_identity.json"
+        result, output = _run_snakemake_job(snakefile, workdir, dest_config, marker_rel)
+        assert result.returncode == 0, output
+
+        os.remove(os.path.join(workdir, "results/.helixweave/effective_config.json"))
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "record is missing" in output, output
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ("{invalid\n", "record is unreadable"),
+        ("[]\n", "must be a JSON object"),
+        ('{"identity":"deadbeef"}\n', "does not match the run identity"),
+    ],
+)
+def test_corrupted_effective_config_record_is_rejected(
+    snakefile, tmp_path, content, message
+):
+    workdir, dest_config = _write_updated_profile(
+        tmp_path / "profile",
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K27ac\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+    )
+    try:
+        marker_rel = "results/.helixweave/analysis_identity.json"
+        result, output = _run_snakemake_job(snakefile, workdir, dest_config, marker_rel)
+        assert result.returncode == 0, output
+
+        record = os.path.join(workdir, "results/.helixweave/effective_config.json")
+        with open(record, "w", encoding="utf-8") as handle:
+            handle.write(content)
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert message in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_effective_config_record_symlink_is_rejected(snakefile, tmp_path):
+    workdir, dest_config = _write_updated_profile(
+        tmp_path / "profile",
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K27ac\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+    )
+    try:
+        marker_rel = "results/.helixweave/analysis_identity.json"
+        result, output = _run_snakemake_job(snakefile, workdir, dest_config, marker_rel)
+        assert result.returncode == 0, output
+
+        record = os.path.join(workdir, "results/.helixweave/effective_config.json")
+        target = os.path.join(workdir, "elsewhere.json")
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write('{"identity":"deadbeef"}\n')
+        os.remove(record)
+        os.symlink(target, record)
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "must not be a symlink" in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+@pytest.mark.parametrize("profile", ["legacy", "updated"])
+def test_helixweave_dir_symlink_is_rejected_and_not_written(
+    snakefile, profiles_dir, tmp_path, profile
+):
+    """Codex R3: a symlinked .helixweave must not receive record writes."""
+    if profile == "updated":
+        workdir, dest_config = _write_updated_profile(
+            tmp_path / "profile",
+            [
+                "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+                "exp1\tH3K27ac\t1\t1\t1\ttreatment\t\t",
+            ],
+            use_control=False,
+        )
+    else:
+        profile_dir = os.path.join(profiles_dir, "chipseq_se_noctrl")
+        workdir, dest_config = prepare_profile_workdir(profile_dir)
+    try:
+        escape = tmp_path / "escape"
+        escape.mkdir()
+        os.makedirs(os.path.join(workdir, "results"), exist_ok=True)
+        os.symlink(str(escape), os.path.join(workdir, "results", ".helixweave"))
+
+        marker_rel = "results/.helixweave/analysis_identity.json"
+        result, output = _run_snakemake_job(snakefile, workdir, dest_config, marker_rel)
+        assert result.returncode != 0, output
+        assert "must not be a symlink" in output, output
+        assert list(escape.iterdir()) == []
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def test_helixweave_dir_non_directory_is_rejected(snakefile, profiles_dir):
+    profile_dir = os.path.join(profiles_dir, "chipseq_se_noctrl")
+    workdir, dest_config = prepare_profile_workdir(profile_dir)
+    try:
+        os.makedirs(os.path.join(workdir, "results"), exist_ok=True)
+        with open(os.path.join(workdir, "results", ".helixweave"), "w") as handle:
+            handle.write("not a directory")
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "not a directory" in output, output
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def test_updated_refuses_unmarked_outdir(snakefile, profiles_dir, tmp_path):
