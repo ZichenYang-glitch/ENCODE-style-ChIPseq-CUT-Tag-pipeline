@@ -14,6 +14,34 @@ def _analysis_input(wildcards, kind):
     return f"{RAW_OUTDIR}/{wildcards.sample}/02_align/{wildcards.sample}.{suffix}"
 
 
+def _write_run_records(metadata_dir, records):
+    """Write run records atomically, record first, marker last.
+
+    Each record is written to an exclusively created temporary regular file
+    in the verified metadata directory and atomically replaced into place,
+    so pre-placed symlinks can never redirect the write and a valid marker
+    never publishes without its record.
+    """
+    import os
+    import tempfile
+
+    os.makedirs(metadata_dir, exist_ok=True)
+    for target, payload in records:
+        fd, tmp_path = tempfile.mkstemp(
+            dir=metadata_dir,
+            prefix=".tmp-",
+            suffix=f"-{os.path.basename(target)}",
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(f"{payload}\n")
+            os.replace(tmp_path, target)
+        except BaseException:
+            if os.path.lexists(tmp_path):
+                os.remove(tmp_path)
+            raise
+
+
 rule analysis_identity_marker:
     """Record the versioned run identity and the merged effective config.
 
@@ -27,32 +55,10 @@ rule analysis_identity_marker:
         marker_json=lambda wc: json.dumps(_analysis_identity_marker_payload(), indent=2, sort_keys=True),
         config_json=lambda wc: json.dumps(_effective_config_record_payload(), indent=2, sort_keys=True),
     run:
-        import os
-        import tempfile
-
-        metadata_dir = os.path.dirname(output.marker)
-        os.makedirs(metadata_dir, exist_ok=True)
-        # Publish the effective-config record before the marker. Each record
-        # is written to an exclusively created temporary regular file in the
-        # verified metadata directory and atomically replaced into place, so
-        # pre-placed symlinks can never redirect the write.
-        for target, payload in (
-            (output.effective_config, params.config_json),
-            (output.marker, params.marker_json),
-        ):
-            fd, tmp_path = tempfile.mkstemp(
-                dir=metadata_dir,
-                prefix=".tmp-",
-                suffix="-" + os.path.basename(target),
-            )
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                    handle.write(payload + "\n")
-                os.replace(tmp_path, target)
-            except BaseException:
-                if os.path.lexists(tmp_path):
-                    os.remove(tmp_path)
-                raise
+        _write_run_records(
+            os.path.dirname(output.marker),
+            ((output.effective_config, params.config_json), (output.marker, params.marker_json)),
+        )
 
 
 rule prepare_analysis_bam:

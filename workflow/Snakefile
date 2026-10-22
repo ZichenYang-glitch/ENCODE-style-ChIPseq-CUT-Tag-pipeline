@@ -286,6 +286,34 @@ def _analysis_identity_marker_payload():
     }
 
 
+def _canonical_record_config():
+    """Effective config with scientific input paths stored canonically.
+
+    Path values are resolved once, at record-creation time, so revalidating
+    the record later does not reinterpret its relative paths against a
+    different working directory. Identity-relevant and informational path
+    fields share the same canonical form.
+    """
+    config = dict(VALIDATED_CONFIG)
+    samples_path = config.get("samples")
+    if isinstance(samples_path, str) and samples_path:
+        config["samples"] = os.path.realpath(samples_path)
+    resources = config.get("genome_resources")
+    if isinstance(resources, dict):
+        config["genome_resources"] = {
+            genome: (
+                {
+                    rkey: (_identity_input_path(rval) if rkey in _GENOME_RESOURCE_PATH_KEYS else rval)
+                    for rkey, rval in resource.items()
+                }
+                if isinstance(resource, dict)
+                else resource
+            )
+            for genome, resource in resources.items()
+        }
+    return config
+
+
 def _effective_config_record_payload():
     """Merged, normalized configuration recorded for the actual run."""
     return {
@@ -293,7 +321,7 @@ def _effective_config_record_payload():
         "config_schema_version": VALIDATED_CONFIG.get("config_schema_version"),
         "scientific_policy_revision": SCIENTIFIC_POLICY_REVISION,
         "identity": _analysis_identity_hash(),
-        "config": VALIDATED_CONFIG,
+        "config": _canonical_record_config(),
     }
 
 
@@ -390,6 +418,11 @@ def _check_effective_config_record(record, marker_identity, expected_profile):
             f"Effective configuration record is owned by analysis_profile={recorded['analysis_profile']}; "
             f"use a fresh outdir for {expected_profile} runs."
         )
+    if recorded["config_schema_version"] != recorded["config"].get("config_schema_version"):
+        raise WorkflowError(
+            "Effective configuration record's schema version does not match its "
+            "recorded configuration; use a fresh outdir."
+        )
     if recorded["scientific_policy_revision"] != SCIENTIFIC_POLICY_REVISION:
         raise WorkflowError(
             "Effective configuration record was created by a different scientific "
@@ -448,7 +481,10 @@ def _print_effective_config_summary():
         print(line, file=sys.stderr)
 
 
-_print_effective_config_summary()
+# The summary is for humans running the workflow; keep machine-facing modes
+# (snakemake --lint output is a CI-compared baseline) free of it.
+if "--lint" not in sys.argv:
+    _print_effective_config_summary()
 _check_analysis_outdir_identity()
 
 # Stage 7b: SEACR sidecar sample list (CUT&Tag PE treatment only)

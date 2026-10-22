@@ -218,22 +218,7 @@ Lints for rule samtools_idxstats (line 401, workflow/rules/common.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule analysis_identity_marker (line 22, workflow/rules/analysis.smk):
-    * No log directive defined:
-      Without a log directive, all output will be printed to the terminal. In
-      distributed environments, this means that errors are harder to discover.
-      In local environments, output of concurrent jobs will be mixed and become
-      unreadable.
-      Also see:
-      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
-    * Specify a conda environment or container for each rule.:
-      This way, the used software for each specific step is documented, and the
-      workflow can be executed on any machine without prerequisites.
-      Also see:
-      https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#integrated-package-management
-      https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#running-jobs-in-containers
-
-Lints for rule prepare_analysis_bam (line 38, workflow/rules/analysis.smk):
+Lints for rule analysis_identity_marker (line 45, workflow/rules/analysis.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -242,7 +227,16 @@ Lints for rule prepare_analysis_bam (line 38, workflow/rules/analysis.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule mito_fraction (line 100, workflow/rules/analysis.smk):
+Lints for rule prepare_analysis_bam (line 64, workflow/rules/analysis.smk):
+    * No log directive defined:
+      Without a log directive, all output will be printed to the terminal. In
+      distributed environments, this means that errors are harder to discover.
+      In local environments, output of concurrent jobs will be mixed and become
+      unreadable.
+      Also see:
+      https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
+
+Lints for rule mito_fraction (line 126, workflow/rules/analysis.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -559,7 +553,7 @@ Lints for rule tss_bed_from_gtf (line 946, workflow/rules/qc.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule project_qc_summary (line 1057, workflow/rules/qc.smk):
+Lints for rule project_qc_summary (line 1058, workflow/rules/qc.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.

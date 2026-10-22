@@ -1445,6 +1445,152 @@ def test_equivalent_path_forms_keep_identity(snakefile, tmp_path):
     assert result.returncode == 0, output
 
 
+def _write_resource_project(base, name, profile, outdir, fastq_dir, chrom_sizes):
+    """Project with absolute FASTQ/index and a configurable chrom_sizes path."""
+    workdir = base / name
+    workdir.mkdir(parents=True)
+    (workdir / "samples.tsv").write_text(
+        _UPDATED_SAMPLES_HEADER
+        + f"T1\t{fastq_dir}/R1.fq.gz\t{fastq_dir}/R2.fq.gz\tPE\tchipseq\tH3K27ac\tnarrow\ths\t"
+        f"{fastq_dir}/bt2_idx\texp1\tH3K27ac\t1\t1\t1\ttreatment\t\t\n",
+        encoding="utf-8",
+    )
+    config = {
+        "samples": "samples.tsv",
+        "outdir": str(outdir),
+        "threads": 1,
+        "trim": True,
+        "use_control": False,
+        "multiqc": False,
+        "replicate_analysis": True,
+        "chipseq_idr": False,
+        "genome_resources": {
+            "hs": {"effective_genome_size": "hs", "chrom_sizes": chrom_sizes}
+        },
+        "qc": {
+            "blacklist_filter": False,
+            "frip": False,
+            "library_complexity": False,
+            "nrf_pbc": False,
+            "signal_tracks": False,
+            "summary": False,
+            "cuttag_fragment_size": False,
+        },
+    }
+    if profile == "updated":
+        config.update(
+            {
+                "config_schema_version": "2.0.0",
+                "analysis_profile": "updated",
+                "blacklist_mode": "off",
+                "organelle_mode": "auto",
+                "duplicate_backend": "picard",
+                "duplicate_analysis": "exclude",
+                "control_mode": "matched",
+                "reference_mode": "legacy",
+                "external_control_policy": "warn",
+                "tss_fragment_profile": False,
+            }
+        )
+    config_path = workdir / "config.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    return str(workdir), str(config_path)
+
+
+@pytest.mark.parametrize("profile", ["legacy", "updated"])
+def test_cross_cwd_resume_with_equivalent_absolute_resource(
+    snakefile, tmp_path, profile
+):
+    """Codex G1: records keep creation-time path semantics across cwd changes.
+
+    A records with a relative chrom_sizes; B resumes from another cwd using
+    the absolute path of the same actual resource and must be allowed.
+    """
+    outdir = tmp_path / "shared-results"
+    dir_a, config_a = _write_resource_project(
+        tmp_path, "A", profile, outdir, tmp_path / "A", "chrom.sizes"
+    )
+    (tmp_path / "A" / "chrom.sizes").write_text("chr1\t1000\n", encoding="utf-8")
+    for mate in ("R1.fq.gz", "R2.fq.gz"):
+        with gzip.open(tmp_path / "A" / mate, "wt") as handle:
+            handle.write("@r/1\nACGTACGT\n+\nIIIIIIII\n")
+    marker_rel = f"{outdir}/.helixweave/analysis_identity.json"
+    result, output = _run_snakemake_job(snakefile, dir_a, config_a, marker_rel)
+    assert result.returncode == 0, output
+
+    dir_b, config_b = _write_resource_project(
+        tmp_path,
+        "B",
+        profile,
+        outdir,
+        tmp_path / "A",
+        str(tmp_path / "A" / "chrom.sizes"),
+    )
+    result, output = _run_snakemake_dryrun(snakefile, dir_b, config_b)
+    assert result.returncode == 0, output
+
+
+@pytest.mark.parametrize("profile", ["legacy", "updated"])
+def test_cross_cwd_resume_with_different_resource_is_rejected(
+    snakefile, tmp_path, profile
+):
+    """G1 negative control: a different actual resource must not resume."""
+    outdir = tmp_path / "shared-results"
+    dir_a, config_a = _write_resource_project(
+        tmp_path, "A", profile, outdir, tmp_path / "A", "chrom.sizes"
+    )
+    (tmp_path / "A" / "chrom.sizes").write_text("chr1\t1000\n", encoding="utf-8")
+    for mate in ("R1.fq.gz", "R2.fq.gz"):
+        with gzip.open(tmp_path / "A" / mate, "wt") as handle:
+            handle.write("@r/1\nACGTACGT\n+\nIIIIIIII\n")
+    marker_rel = f"{outdir}/.helixweave/analysis_identity.json"
+    result, output = _run_snakemake_job(snakefile, dir_a, config_a, marker_rel)
+    assert result.returncode == 0, output
+
+    dir_b, config_b = _write_resource_project(
+        tmp_path,
+        "B",
+        profile,
+        outdir,
+        tmp_path / "A",
+        str(tmp_path / "B" / "chrom.sizes"),
+    )
+    (tmp_path / "B" / "chrom.sizes").write_text("chr1\t2000\n", encoding="utf-8")
+    result, output = _run_snakemake_dryrun(snakefile, dir_b, config_b)
+    assert result.returncode != 0, output
+    assert "different analysis identity" in output, output
+
+
+def test_record_outer_schema_version_mismatch_is_rejected(snakefile, tmp_path):
+    """Codex N1: outer schema version must agree with the recorded config."""
+    workdir, dest_config = _write_updated_profile(
+        tmp_path / "profile",
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K27ac\t1\t1\t1\ttreatment\t\t",
+        ],
+        use_control=False,
+    )
+    try:
+        marker_rel = "results/.helixweave/analysis_identity.json"
+        result, output = _run_snakemake_job(snakefile, workdir, dest_config, marker_rel)
+        assert result.returncode == 0, output
+
+        record = os.path.join(workdir, "results/.helixweave/effective_config.json")
+        with open(record, encoding="utf-8") as handle:
+            recorded = json.load(handle)
+        recorded["config_schema_version"] = "not-a-supported-version"
+        with open(record, "w", encoding="utf-8") as handle:
+            json.dump(recorded, handle)
+            handle.write("\n")
+
+        result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
+        assert result.returncode != 0, output
+        assert "schema version does not match" in output, output
+    finally:
+        shutil.rmtree(workdir)
+
+
 @pytest.mark.parametrize("profile", ["legacy", "updated"])
 def test_record_without_config_block_is_rejected(
     snakefile, profiles_dir, tmp_path, profile

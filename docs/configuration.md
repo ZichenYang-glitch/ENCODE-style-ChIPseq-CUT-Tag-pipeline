@@ -407,10 +407,14 @@ actual input referenced through equivalent path forms stays equivalent.
 | Marker or record corrupted, not a regular file, or a symlink; `.helixweave` a symlink or not a directory | Refused; never auto-repaired or overwritten |
 | Marker valid but `effective_config.json` missing, unreadable, missing required fields, or inconsistent with the run identity | Refused; the run does not continue without an intact, truthful configuration record |
 
-The record is validated beyond file integrity: it must carry the profile,
-schema version, policy revision, identity, and a `config` block whose
-canonical form recomputes to the recorded identity, so a bare identity
-string or a tampered inner configuration is refused like any other
+The record stores scientific input paths in the canonical form resolved at
+creation time, so resuming from a different working directory with
+equivalent absolute paths of the same actual inputs stays valid, while a
+different actual resource is refused. The record is validated beyond file
+integrity: it must carry the profile, schema version (consistent with the
+recorded configuration), policy revision, identity, and a `config` block
+whose canonical form recomputes to the recorded identity, so a bare
+identity string or a tampered inner configuration is refused like any other
 mismatch. Nothing is auto-repaired from current parameters.
 
 The marker and the effective-config record form one metadata boundary: each

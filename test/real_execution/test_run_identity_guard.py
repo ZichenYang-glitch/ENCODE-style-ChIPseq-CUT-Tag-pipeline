@@ -266,3 +266,72 @@ def test_real_fastqc_stops_on_identity_only_or_tampered_record(tmp_path):
     output = result.stdout + result.stderr
     assert result.returncode != 0, output
     assert "does not match its" in output, output
+
+
+def _write_resource_project(workdir, outdir, fastq_dir, chrom_sizes):
+    """Tiny project with absolute FASTQ/index and configurable chrom_sizes."""
+    os.makedirs(workdir, exist_ok=True)
+    config_path = os.path.join(workdir, "config.yaml")
+    samples_path = os.path.join(workdir, "samples.tsv")
+    config = (
+        'samples: "samples.tsv"\n'
+        f'outdir: "{outdir}"\n'
+        "threads: 1\n"
+        "trim: false\n"
+        "use_control: false\n"
+        "multiqc: false\n"
+        "replicate_analysis: false\n"
+        "chipseq_idr: false\n"
+        "genome_resources:\n"
+        "  hs:\n"
+        '    effective_genome_size: "hs"\n'
+        f'    chrom_sizes: "{chrom_sizes}"\n'
+        "qc:\n"
+        "  blacklist_filter: false\n"
+        "  frip: false\n"
+        "  library_complexity: false\n"
+        "  nrf_pbc: false\n"
+        "  signal_tracks: false\n"
+        "  summary: false\n"
+        "  cuttag_fragment_size: false\n"
+    )
+    with open(config_path, "w") as handle:
+        handle.write(config)
+    samples = (
+        f"{FULL_TSV_HEADER}\n"
+        f"T1\t{fastq_dir}/R1.fq.gz\t{fastq_dir}/R2.fq.gz\tPE\tchipseq\tH3K27ac\tnarrow\ths\t"
+        f"{fastq_dir}/idx\texp1\tH3K27ac\t1\t1\t1\ttreatment\t\t\n"
+    )
+    with open(samples_path, "w") as handle:
+        handle.write(samples)
+    return config_path
+
+
+def test_cross_cwd_resume_reaches_real_downstream_task(tmp_path):
+    """Codex G1 with a real downstream task: equivalent absolute resource resumes."""
+    env = _env()
+    outdir = tmp_path / "shared-results"
+    dir_a = tmp_path / "A"
+    os.makedirs(dir_a)
+    for mate in ("R1.fq.gz", "R2.fq.gz"):
+        with gzip.open(dir_a / mate, "wt") as handle:
+            handle.write("@r/1\nACGTACGT\n+\nIIIIIIII\n")
+    (dir_a / "chrom.sizes").write_text("chr1\t1000\n", encoding="utf-8")
+
+    config_a = _write_resource_project(str(dir_a), outdir, dir_a, "chrom.sizes")
+    marker = str(outdir / ".helixweave" / "analysis_identity.json")
+    result = _run(env, str(dir_a), config_a, marker)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    # Resume from another cwd with the absolute path of the same resource;
+    # the real FastQC task must run.
+    dir_b = tmp_path / "B"
+    config_b = _write_resource_project(
+        str(dir_b), outdir, dir_a, str(dir_a / "chrom.sizes")
+    )
+    fastqc_html = str(
+        outdir / "T1" / "01_qc" / "fastqc" / "raw" / "T1.raw.R1_fastqc.html"
+    )
+    result = _run(env, str(dir_b), config_b, fastqc_html)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert os.path.exists(fastqc_html)
