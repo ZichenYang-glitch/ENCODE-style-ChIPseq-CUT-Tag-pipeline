@@ -322,6 +322,7 @@ def _effective_config_record_payload():
         "scientific_policy_revision": SCIENTIFIC_POLICY_REVISION,
         "identity": _analysis_identity_hash(),
         "config": _canonical_record_config(),
+        "resolved_duplicate_analysis": {sample_id: get_duplicate_policy(sample_id) for sample_id in ALL_SAMPLE_IDS},
     }
 
 
@@ -459,6 +460,18 @@ def _check_analysis_outdir_identity():
             )
 
 
+def _duplicate_summary_text():
+    """Effective duplicate policy text, resolving auto per assay in the run."""
+    setting = VALIDATED_CONFIG.get("duplicate_analysis", "auto")
+    if setting != "auto":
+        return setting
+    # Keep in sync with get_duplicate_policy_for_assay (rules/metadata.smk);
+    # this runs before the rule includes, so the mapping is inlined here.
+    assays = sorted({sample["assay"] for sample in SAMPLES})
+    resolved = ",".join(f"{assay}:{'retain' if assay == 'cuttag' else 'exclude'}" for assay in assays)
+    return f"auto({resolved})" if resolved else "auto"
+
+
 def _print_effective_config_summary():
     """Print the user-readable effective policy summary (no private paths)."""
     assays = {}
@@ -472,7 +485,7 @@ def _print_effective_config_summary():
         f"scientific_policy_revision={SCIENTIFIC_POLICY_REVISION}",
         f"  mapq={MAPQ} trim={TRIM} binsize={BINSIZE} "
         f"remove_dup={VALIDATED_CONFIG.get('remove_dup')} "
-        f"duplicate_analysis={VALIDATED_CONFIG.get('duplicate_analysis')}",
+        f"duplicate_analysis={_duplicate_summary_text()}",
         f"  organelle_mode={VALIDATED_CONFIG.get('organelle_mode')} "
         f"blacklist_mode={BLACKLIST_MODE} use_control={USE_CONTROL}",
         f"  samples={len(SAMPLES)} assays={assay_text}",

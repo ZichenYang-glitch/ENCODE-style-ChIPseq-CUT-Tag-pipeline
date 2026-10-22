@@ -61,8 +61,8 @@
     },
     "duplicate_analysis": {
       "type": "string",
-      "enum": ["exclude", "retain"],
-      "default": "exclude"
+      "enum": ["auto", "exclude", "retain"],
+      "default": "auto"
     },
     "control_mode": {
       "type": "string",

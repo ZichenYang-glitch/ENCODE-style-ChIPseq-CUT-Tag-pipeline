@@ -312,9 +312,11 @@ def test_idr_macs3_pvalue_normalizes_positive_float_string(tmp_path):
         tmp_path,
         {"idr_macs3": {"pvalue": "0.1", "extra_args": "--keep-dup all"}},
     )
+    # --keep-dup all is synonymous with the canonical flag the workflow
+    # renders itself, so it is normalized out of extra_args (SCI-2).
     assert validated["idr_macs3"] == {
         "pvalue": 0.1,
-        "extra_args": "--keep-dup all",
+        "extra_args": "",
     }
 
 
@@ -328,3 +330,47 @@ def test_idr_macs3_rejects_out_of_domain_pvalue(tmp_path, raw):
         ),
     ):
         _validate(tmp_path, {"idr_macs3": {"pvalue": raw}})
+
+
+# ---------------------------------------------------------------------------
+# --keep-dup migration (SCI-2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+@pytest.mark.parametrize(
+    "extra,expected",
+    [
+        ("--keep-dup all", ""),
+        ("--keep-dup=all", ""),
+        ("--keep-dup all --nomodel", "--nomodel"),
+        ("--nomodel --keep-dup=all -B", "--nomodel -B"),
+        ("", ""),
+    ],
+)
+def test_keep_dup_all_extra_args_is_normalized(tmp_path, block, extra, expected):
+    validated = _validate(tmp_path, {block: {"extra_args": extra}})
+    assert validated[block]["extra_args"] == expected
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "--keep-dup 1",
+        "--keep-dup=auto",
+        "--keep-dup 5",
+        "--keep-dup",
+    ],
+)
+def test_conflicting_keep_dup_extra_args_is_rejected(tmp_path, block, extra):
+    with pytest.raises(ValidationError, match="conflicts with the BAM-layer"):
+        _validate(tmp_path, {block: {"extra_args": extra}})
+
+
+def test_keep_dup_migration_does_not_touch_unrelated_tokens(tmp_path):
+    validated = _validate(
+        tmp_path,
+        {"macs3": {"extra_args": "--keep-duplicates --keep-dup all -q 0.05"}},
+    )
+    assert validated["macs3"]["extra_args"] == "--keep-duplicates -q 0.05"

@@ -67,7 +67,15 @@ The narrow-peak mode applies the Tn5-aware parameters (`--nomodel --shift -100 -
 
 ### Duplicate policy
 
-Identical to ChIP-seq (`auto` → narrow-yes/broad-no). The policy delegate (`get_remove_dup_cuttag`) calls `get_remove_dup_chipseq` directly.
+CUT&Tag **retains** duplicates under `duplicate_analysis: auto` (the assay
+default matrix; apparent duplicates at high-affinity sites are mostly real
+independent fragments). ChIP-seq, ATAC-seq, and MNase-seq exclude. The
+narrow/broad peak mode no longer proxies the decision — legacy broad
+ChIP-seq also excludes. An explicit `duplicate_analysis: exclude/retain`
+(or the `remove_dup` yes/no alias) overrides the assay default for the
+whole run. The BAM layer executes the policy and every MACS3 call renders
+`--keep-dup all`. Resolution lives in `get_duplicate_policy`
+(`workflow/rules/metadata.smk`).
 
 ### Read extension (bamCoverage)
 

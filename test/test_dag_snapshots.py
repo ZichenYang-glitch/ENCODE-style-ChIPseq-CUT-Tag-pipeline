@@ -30,6 +30,8 @@ import yaml
 from conftest import SMOKE_PROFILES, prepare_profile_workdir
 from _tool_resolver import resolve_tool
 
+from encode_pipeline.config.scientific_policy import SCIENTIFIC_POLICY_REVISION
+
 
 pytestmark = pytest.mark.full_main
 
@@ -1772,16 +1774,17 @@ def test_marker_records_versioned_identity_and_effective_config(
             marker = json.load(handle)
         assert marker["marker_schema_version"] == 2
         assert marker["analysis_profile"] == profile
-        assert marker["scientific_policy_revision"] == 1
+        assert marker["scientific_policy_revision"] == SCIENTIFIC_POLICY_REVISION
         assert isinstance(marker["identity"], str) and marker["identity"]
 
         record_rel = "results/.helixweave/effective_config.json"
         with open(os.path.join(workdir, record_rel), encoding="utf-8") as handle:
             record = json.load(handle)
         assert record["analysis_profile"] == profile
-        assert record["scientific_policy_revision"] == 1
+        assert record["scientific_policy_revision"] == SCIENTIFIC_POLICY_REVISION
         assert record["identity"] == marker["identity"]
         assert record["config"]["mapq"] == 30
+        assert record["resolved_duplicate_analysis"] == {"T1": "exclude"}
 
         # Same identity: dry-run continues against the recorded run.
         result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
@@ -1890,11 +1893,13 @@ def _write_marker(workdir, payload):
     return marker
 
 
-def _new_format_marker(profile, identity="deadbeef", revision=1):
+def _new_format_marker(profile, identity="deadbeef", revision=None):
     return {
         "marker_schema_version": 2,
         "analysis_profile": profile,
-        "scientific_policy_revision": revision,
+        "scientific_policy_revision": (
+            SCIENTIFIC_POLICY_REVISION if revision is None else revision
+        ),
         "identity": identity,
     }
 
@@ -2222,3 +2227,169 @@ def test_updated_use_control_false_idr_has_no_control_tasks(snakefile, tmp_path)
         assert "pool_control_bam" not in output, output
     finally:
         shutil.rmtree(workdir)
+
+
+def _write_mixed_project(base, profile, outdir):
+    """Two-sample mixed-assay project (chipseq T1 + cuttag C1, PE)."""
+    workdir = base / "mixed"
+    workdir.mkdir(parents=True)
+    for sample in ("T1", "C1"):
+        for mate in ("R1.fq.gz", "R2.fq.gz"):
+            with gzip.open(workdir / f"{sample}_{mate}", "wt") as handle:
+                handle.write("@r/1\nACGTACGT\n+\nIIIIIIII\n")
+    rows = [
+        "T1\tT1_R1.fq.gz\tT1_R2.fq.gz\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+        "exp1\tH3K27ac\t1\t1\t1\ttreatment\t\t",
+        "C1\tC1_R1.fq.gz\tC1_R2.fq.gz\tPE\tcuttag\tH3K4me3\tnarrow\ths\tbt2_idx\t"
+        "exp2\tH3K4me3\t1\t1\t1\ttreatment\t\t",
+    ]
+    (workdir / "samples.tsv").write_text(
+        _UPDATED_SAMPLES_HEADER + "".join(f"{row}\n" for row in rows),
+        encoding="utf-8",
+    )
+    config = {
+        "samples": "samples.tsv",
+        "outdir": str(outdir),
+        "threads": 1,
+        "trim": True,
+        "use_control": False,
+        "multiqc": False,
+        "replicate_analysis": True,
+        "chipseq_idr": False,
+        "genome_resources": {"hs": {"effective_genome_size": "hs"}},
+        "qc": {
+            "blacklist_filter": False,
+            "frip": False,
+            "library_complexity": False,
+            "nrf_pbc": False,
+            "signal_tracks": False,
+            "summary": False,
+            "cuttag_fragment_size": False,
+        },
+    }
+    if profile == "updated":
+        config.update(
+            {
+                "config_schema_version": "2.0.0",
+                "analysis_profile": "updated",
+                "blacklist_mode": "off",
+                "organelle_mode": "auto",
+                "duplicate_backend": "picard",
+                "control_mode": "matched",
+                "reference_mode": "legacy",
+                "external_control_policy": "warn",
+                "tss_fragment_profile": False,
+            }
+        )
+    config_path = workdir / "config.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    return str(workdir), str(config_path)
+
+
+def test_mixed_assay_auto_resolves_per_sample_legacy(snakefile, tmp_path):
+    """SCI-2: auto keeps per-assay defaults in one legacy run."""
+    outdir = tmp_path / "results"
+    workdir, config_path = _write_mixed_project(tmp_path, "legacy", outdir)
+    result, output = _run_snakemake_dryrun(
+        snakefile, workdir, config_path, printshellcmds=True
+    )
+    assert result.returncode == 0, output
+    # chipseq excludes (markdup removal branch), cuttag retains (symlink branch).
+    assert '[[ "yes" == "yes" ]]' in output, output
+    assert '[[ "no" == "yes" ]]' in output, output
+    assert "duplicate_analysis=auto(chipseq:exclude,cuttag:retain)" in output, output
+
+
+def test_mixed_assay_auto_resolves_per_sample_updated(snakefile, tmp_path):
+    """SCI-2: auto keeps per-assay defaults in one updated run."""
+    outdir = tmp_path / "results"
+    workdir, config_path = _write_mixed_project(tmp_path, "updated", outdir)
+    result, output = _run_snakemake_dryrun(
+        snakefile, workdir, config_path, printshellcmds=True
+    )
+    assert result.returncode == 0, output
+    # prepare_analysis_bam: chipseq drops 0x400, cuttag keeps marked templates.
+    assert '[[ "True" == "True" ]]' in output, output
+    assert '[[ "False" == "True" ]]' in output, output
+
+
+def test_cli_duplicate_analysis_retain_overrides_atac_default(snakefile, tmp_path):
+    """SCI-2 CLI acceptance: ATAC explicit retain reaches BAM and records."""
+    outdir = tmp_path / "results"
+    workdir = tmp_path / "atac"
+    workdir.mkdir()
+    for mate in ("R1.fq.gz", "R2.fq.gz"):
+        with gzip.open(workdir / mate, "wt") as handle:
+            handle.write("@r/1\nACGTACGT\n+\nIIIIIIII\n")
+    (workdir / "samples.tsv").write_text(
+        _UPDATED_SAMPLES_HEADER
+        + "T1\tR1.fq.gz\tR2.fq.gz\tPE\tatac\tATAC\tnarrow\ths\tbt2_idx\t"
+        "exp1\tATAC\t1\t1\t1\ttreatment\t\t\n",
+        encoding="utf-8",
+    )
+    config = {
+        "samples": "samples.tsv",
+        "outdir": str(outdir),
+        "threads": 1,
+        "trim": True,
+        "use_control": False,
+        "multiqc": False,
+        "replicate_analysis": True,
+        "chipseq_idr": False,
+        "genome_resources": {"hs": {"effective_genome_size": "hs"}},
+        "qc": {
+            "blacklist_filter": False,
+            "frip": False,
+            "library_complexity": False,
+            "nrf_pbc": False,
+            "signal_tracks": False,
+            "summary": False,
+            "cuttag_fragment_size": False,
+        },
+    }
+    config_path = workdir / "config.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    override = ["--config", "duplicate_analysis=retain"]
+
+    result, output = _run_snakemake_dryrun(
+        snakefile,
+        str(workdir),
+        str(config_path),
+        printshellcmds=True,
+        extra_args=override,
+    )
+    assert result.returncode == 0, output
+    assert "duplicate_analysis=retain" in output, output
+    # retain in legacy: final.bam is a symlink of the marked/filtered BAM.
+    assert '[[ "no" == "yes" ]]' in output, output
+
+    marker_rel = f"{outdir}/.helixweave/analysis_identity.json"
+    result, output = _run_snakemake_job(
+        snakefile, str(workdir), str(config_path), marker_rel, extra_args=override
+    )
+    assert result.returncode == 0, output
+    with open(
+        f"{outdir}/.helixweave/effective_config.json", encoding="utf-8"
+    ) as handle:
+        record = json.load(handle)
+    assert record["config"]["duplicate_analysis"] == "retain"
+    assert record["resolved_duplicate_analysis"] == {"T1": "retain"}
+
+
+def test_all_macs3_call_sites_render_keep_dup_all(snakefile, profiles_dir):
+    """SCI-2: every MACS3 callpeak invocation renders --keep-dup all once."""
+    profile_dir = os.path.join(profiles_dir, "chipseq_idr_dryrun")
+    workdir, dest_config = prepare_profile_workdir(profile_dir)
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile, workdir, dest_config, printshellcmds=True
+        )
+        assert result.returncode == 0, output
+        invocations = len(re.findall(r"macs3 callpeak\s", output))
+        keep_dup = output.count("--keep-dup all")
+        assert invocations > 0, output
+        assert keep_dup == invocations, (
+            f"macs3 callpeak invocations={invocations}, --keep-dup all={keep_dup}"
+        )
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)

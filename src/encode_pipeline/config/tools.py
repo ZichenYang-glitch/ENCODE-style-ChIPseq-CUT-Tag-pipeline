@@ -1,10 +1,45 @@
 """Tool parameter validation helpers."""
 
 import math
+import shlex
 
 from encode_pipeline.config import defaults
 
 __all__ = ["validate_tool_params"]
+
+
+def _migrate_keep_dup_extra_args(tool, extra, error_cls):
+    """Normalize legacy ``--keep-dup`` tokens in MACS3 extra_args.
+
+    Duplicate policy is executed at the BAM layer and the workflow renders
+    ``--keep-dup all`` itself. A synonymous ``--keep-dup all`` is removed
+    here so the final command carries the flag exactly once; any other
+    value conflicts with that contract and is rejected with migration
+    guidance instead of being decided by argument order.
+    """
+    tokens = shlex.split(extra)
+    kept = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--keep-dup":
+            value = tokens[index + 1] if index + 1 < len(tokens) else ""
+            index += 2
+        elif token.startswith("--keep-dup="):
+            value = token.split("=", 1)[1]
+            index += 1
+        else:
+            kept.append(token)
+            index += 1
+            continue
+        if value != "all":
+            raise error_cls(
+                f"tool_parameters.{tool}.extra_args: --keep-dup "
+                f"{value or '<missing>'!r} conflicts with the BAM-layer "
+                "duplicate policy. Remove --keep-dup from extra_args (the "
+                "workflow always renders --keep-dup all) or use 'all'."
+            )
+    return " ".join(kept)
 
 
 def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
@@ -252,7 +287,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
                 raise error_cls("tool_parameters.macs3.extra_args must be a string")
-            norm["extra_args"] = extra
+            norm["extra_args"] = _migrate_keep_dup_extra_args(tool, extra, error_cls)
 
         elif tool == "multiqc":
             title = block.get("title", "")
@@ -271,7 +306,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
                 raise error_cls("tool_parameters.idr_macs3.extra_args must be a string")
-            norm["extra_args"] = extra
+            norm["extra_args"] = _migrate_keep_dup_extra_args(tool, extra, error_cls)
 
         normalized[tool] = norm
 

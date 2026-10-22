@@ -13,19 +13,44 @@ gating. This page is the maintained configuration reference; the
 | `threads` | `8` | positive integer | Threads per job. |
 | `mapq` | `30` | integer >= 0 | Minimum MAPQ for samtools filtering. |
 | `binsize` | `10` | positive integer | Bin size in bp for bamCoverage BigWig. |
-| `remove_dup` | `"auto"` | `"auto"`, `"yes"`, `"no"` | Duplicate removal mode. See below. |
+| `remove_dup` | `"auto"` | `"auto"`, `"yes"`, `"no"` | Legacy alias for the duplicate policy. See below. |
+| `duplicate_analysis` | `"auto"` | `"auto"`, `"exclude"`, `"retain"` | Duplicate policy selector; per-sample assay resolution in auto. See below. |
 | `trim` | `true` | boolean | Enable Trim Galore adapter/quality trimming and trimmed-read FastQC. Raw-input FastQC always runs. |
 | `extend_reads` | `"auto"` | `"auto"`, `"yes"`, `"no"` | Extend SE reads to fragment size. |
 | `use_control` | `false` | boolean | Enable control sample resolution. |
 | `multiqc` | `true` | boolean | Enable MultiQC report aggregation. |
 
-### `remove_dup` modes
+### Duplicate policy (`duplicate_analysis` and `remove_dup`)
 
-| Value | Behavior |
+The duplicate policy is decided per sample at the BAM layer; every MACS3
+call (per-sample, pooled, consensus, and IDR-ready) then renders
+`--keep-dup all` so peak callers consume the chosen molecule set without a
+second implicit coordinate collapse.
+
+| `duplicate_analysis` | Behavior |
 | :--- | :--- |
-| `"auto"` | Remove duplicates for narrow-peak samples; skip for `broad` peak mode. |
-| `"yes"` | Always remove duplicates. The bundled core env uses `samtools markdup`; Picard is used only if available in a custom runtime environment. |
-| `"no"` | Never remove duplicates. `final.bam` may be a symlink to the filtered BAM. |
+| `"auto"` (default) | Resolve per sample by assay: CUT&Tag **retains** duplicates (apparent duplicates at high-affinity sites are mostly real independent fragments); ChIP-seq, ATAC-seq, and MNase-seq **exclude** them. The narrow/broad peak mode no longer changes this decision — legacy broad ChIP-seq now excludes duplicates like every other exclude assay. |
+| `"exclude"` | Remove duplicates for all samples. |
+| `"retain"` | Keep duplicates for all samples (marked, for metrics, where the backend supports marking). |
+
+`remove_dup` remains as a legacy alias: `"yes"` maps to `exclude`, `"no"`
+maps to `retain`, and `"auto"` never overrides an explicit
+`duplicate_analysis`. Setting both to conflicting values
+(e.g. `remove_dup: "no"` with `duplicate_analysis: exclude`) is rejected.
+The startup summary and `<outdir>/.helixweave/effective_config.json`
+record the per-sample resolution (`resolved_duplicate_analysis`).
+
+In legacy runs, exclusion uses Picard `REMOVE_DUPLICATES=true` when Picard
+is available, otherwise the `samtools markdup` fallback; retained samples
+keep a symlinked `final.bam`. In updated runs, Picard marks duplicates in
+`final.bam` and `analysis.bam` applies the policy (`-F 0x400` for exclude
+samples).
+
+A legacy `--keep-dup` in `tool_parameters.macs3.extra_args` or
+`tool_parameters.idr_macs3.extra_args` is migrated: a synonymous
+`--keep-dup all` is normalized away (the workflow renders the flag
+itself); any other value is rejected with migration guidance rather than
+being decided by argument order.
 
 ## Genome resources
 

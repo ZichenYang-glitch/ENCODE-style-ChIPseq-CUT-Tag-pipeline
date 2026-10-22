@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Assay-based duplicate policy (both profiles): `duplicate_analysis` gains
+  an `auto` default that retains duplicates for CUT&Tag and excludes them
+  for ChIP-seq/ATAC-seq/MNase-seq, resolved per sample and recorded in the
+  effective configuration; the narrow/broad peak mode no longer proxies
+  the decision (legacy broad ChIP-seq now excludes). Every MACS3 call
+  (per-sample, pooled, consensus, IDR-ready) renders `--keep-dup all`, and
+  conflicting `--keep-dup` values in tool `extra_args` are rejected while
+  synonymous `all` is normalized. `remove_dup` yes/no remain as aliases.
+  The authoring schema is now 3.0.0 with `duplicate_analysis` defaulting
+  to `auto`.
+
 - Versioned run identity for both analysis profiles: the
   `.helixweave/analysis_identity.json` marker now carries a marker schema
   version, profile, internal `scientific_policy_revision`, and an identity

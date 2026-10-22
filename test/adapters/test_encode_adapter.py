@@ -118,7 +118,7 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     schema = _adapter().schema()
     as_dict = schema.to_dict()
 
-    assert as_dict["schema_version"] == "2.0.0"
+    assert as_dict["schema_version"] == "3.0.0"
     assert as_dict["schema_dialect"] == JSON_SCHEMA_DIALECT
     assert as_dict["coverage"] == {
         "config": "partial",
@@ -212,7 +212,7 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     for name in ("config_schema", "sample_schema", "option_schema"):
         document = as_dict[name]
         assert document["$schema"] == JSON_SCHEMA_DIALECT
-        assert document["$id"].endswith("/2.0.0")
+        assert document["$id"].endswith("/3.0.0")
         jsonschema.Draft202012Validator.check_schema(document)
 
 

@@ -245,7 +245,7 @@ Lints for rule mito_fraction (line 126, workflow/rules/analysis.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule mnase_split_mono (line 131, workflow/rules/mnase.smk):
+Lints for rule mnase_split_mono (line 119, workflow/rules/mnase.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -254,7 +254,7 @@ Lints for rule mnase_split_mono (line 131, workflow/rules/mnase.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule mnase_split_sub (line 165, workflow/rules/mnase.smk):
+Lints for rule mnase_split_sub (line 153, workflow/rules/mnase.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -263,7 +263,7 @@ Lints for rule mnase_split_sub (line 165, workflow/rules/mnase.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule mnase_split_di (line 199, workflow/rules/mnase.smk):
+Lints for rule mnase_split_di (line 187, workflow/rules/mnase.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -272,7 +272,7 @@ Lints for rule mnase_split_di (line 199, workflow/rules/mnase.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule mnase_pooled_mono (line 323, workflow/rules/mnase.smk):
+Lints for rule mnase_pooled_mono (line 311, workflow/rules/mnase.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -281,7 +281,7 @@ Lints for rule mnase_pooled_mono (line 323, workflow/rules/mnase.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule mnase_qc_summary (line 447, workflow/rules/mnase.smk):
+Lints for rule mnase_qc_summary (line 435, workflow/rules/mnase.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.

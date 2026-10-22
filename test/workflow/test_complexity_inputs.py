@@ -22,7 +22,9 @@ def job(output, rule):
         ("yes", "narrow", "yes", 17),
         ("no", "narrow", "no", 42),
         ("auto", "narrow", "yes", 17),
-        ("auto", "broad", "no", 42),
+        # SCI-2: peak_mode no longer proxies the duplicate policy; auto
+        # resolves per assay (chipseq excludes, broad included).
+        ("auto", "broad", "yes", 42),
     ],
 )
 def test_complexity_uses_filtered_duplicates_independent_of_dedup_policy(
