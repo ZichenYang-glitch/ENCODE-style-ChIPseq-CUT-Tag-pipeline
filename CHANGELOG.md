@@ -14,9 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hash covering the full effective configuration (only `outdir`, `threads`,
   and the `samples` path are excluded; parsed sample content is hashed);
   both profiles refuse outdated-format, mismatched, corrupted, or symlinked
-  markers, missing or inconsistent `effective_config.json` records,
-  symlinked `.helixweave` metadata directories, and unmarked non-empty
-  outdirs instead of mixing outputs from different scientific behavior.
+  markers, missing or inconsistent `effective_config.json` records (required
+  fields plus an inner configuration that recomputes to the recorded
+  identity), symlinked `.helixweave` metadata directories, and unmarked
+  non-empty outdirs instead of mixing outputs from different scientific
+  behavior. Path-valued inputs are bound to their canonical locations, and
+  record writes use exclusively created temporary files with atomic replace.
 - Effective configuration traceability: startup prints a path-free summary of
   the merged configuration, actual runs record it to
   `.helixweave/effective_config.json`, Snakemake `--config` overrides go

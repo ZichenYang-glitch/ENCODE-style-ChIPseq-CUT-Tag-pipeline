@@ -191,11 +191,25 @@ CUTTAG_ACTIVE_SAMPLE_IDS = [sid for sid in ACTIVE_SAMPLE_IDS if SAMPLE_MAP[sid][
 # validated (i.e. effective) config value is part of the identity.
 _IDENTITY_EXCLUDED_CONFIG_KEYS = ("outdir", "samples", "threads")
 
+# Path-valued inputs are bound to their canonical locations so that the same
+# relative string in a different working directory cannot alias a different
+# actual input file.
+_SAMPLE_PATH_KEYS = ("fq1", "fq2", "bt2_idx", "control_bam")
+_GENOME_RESOURCE_PATH_KEYS = ("chrom_sizes", "blacklist", "gtf", "reference_fasta")
 
-def _analysis_identity_hash():
-    sample_identity = [
+
+def _identity_input_path(value):
+    """Resolve an input path the way execution resolves it (cwd-relative)."""
+    if not isinstance(value, str) or not value:
+        return value
+    return os.path.realpath(value)
+
+
+def _analysis_samples_identity():
+    path_keys = _SAMPLE_PATH_KEYS
+    return [
         {
-            key: sample.get(key)
+            key: (_identity_input_path(sample.get(key)) if key in path_keys else sample.get(key))
             for key in (
                 "id",
                 "fq1",
@@ -218,14 +232,38 @@ def _analysis_identity_hash():
         }
         for sample in sorted(SAMPLES, key=lambda item: item["id"])
     ]
-    config_identity = {
-        key: VALIDATED_CONFIG.get(key) for key in sorted(VALIDATED_CONFIG) if key not in _IDENTITY_EXCLUDED_CONFIG_KEYS
-    }
-    payload = {
+
+
+def _analysis_identity_config_values(config_values):
+    """Effective-config subset for identity, with input paths canonicalized."""
+    identity = {}
+    for key in sorted(config_values):
+        if key in _IDENTITY_EXCLUDED_CONFIG_KEYS:
+            continue
+        value = config_values.get(key)
+        if key == "genome_resources" and isinstance(value, dict):
+            value = {
+                genome: {
+                    rkey: (_identity_input_path(rval) if rkey in _GENOME_RESOURCE_PATH_KEYS else rval)
+                    for rkey, rval in sorted(resource.items())
+                }
+                for genome, resource in sorted(value.items())
+                if isinstance(resource, dict)
+            }
+        identity[key] = value
+    return identity
+
+
+def _analysis_identity_payload(config_values, samples_identity):
+    return {
         "scientific_policy_revision": SCIENTIFIC_POLICY_REVISION,
-        "config": config_identity,
-        "samples": sample_identity,
+        "config": _analysis_identity_config_values(config_values),
+        "samples": samples_identity,
     }
+
+
+def _analysis_identity_hash():
+    payload = _analysis_identity_payload(VALIDATED_CONFIG, _analysis_samples_identity())
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
 
@@ -311,8 +349,24 @@ def _check_analysis_metadata_boundary():
             raise WorkflowError(f"Analysis run metadata is not a regular file: {record}")
 
 
-def _check_effective_config_record(record, marker_identity):
-    """A valid marker requires an intact, matching effective-config record."""
+# Required effective-config record fields and their types.
+_RECORD_FIELD_TYPES = {
+    "analysis_profile": str,
+    "config_schema_version": str,
+    "scientific_policy_revision": int,
+    "identity": str,
+    "config": dict,
+}
+
+
+def _check_effective_config_record(record, marker_identity, expected_profile):
+    """A valid marker requires an intact, truthful effective-config record.
+
+    Beyond file integrity, the record must carry the required metadata and a
+    config block that recomputes to its own recorded identity under the same
+    canonical semantics — a bare identity string or a tampered inner config
+    is not a valid record. Nothing is auto-repaired from current parameters.
+    """
     if not record.exists():
         raise WorkflowError(
             f"Effective configuration record is missing next to a valid run marker: {record}. "
@@ -324,8 +378,30 @@ def _check_effective_config_record(record, marker_identity):
         raise WorkflowError(f"Effective configuration record is unreadable: {record}") from exc
     if not isinstance(recorded, dict):
         raise WorkflowError(f"Effective configuration record must be a JSON object: {record}")
-    if recorded.get("identity") != marker_identity:
+    for field, field_type in _RECORD_FIELD_TYPES.items():
+        if field not in recorded:
+            raise WorkflowError(f"Effective configuration record is missing required field {field!r}: {record}")
+        if not isinstance(recorded[field], field_type):
+            raise WorkflowError(f"Effective configuration record field {field!r} has an invalid type: {record}")
+    if recorded["identity"] != marker_identity:
         raise WorkflowError("Effective configuration record does not match the run identity; " "use a fresh outdir.")
+    if recorded["analysis_profile"] != expected_profile:
+        raise WorkflowError(
+            f"Effective configuration record is owned by analysis_profile={recorded['analysis_profile']}; "
+            f"use a fresh outdir for {expected_profile} runs."
+        )
+    if recorded["scientific_policy_revision"] != SCIENTIFIC_POLICY_REVISION:
+        raise WorkflowError(
+            "Effective configuration record was created by a different scientific "
+            "policy revision; use a fresh outdir for this workflow version."
+        )
+    recomputed = _analysis_identity_payload(recorded["config"], _analysis_samples_identity())
+    encoded = json.dumps(recomputed, sort_keys=True, separators=(",", ":")).encode()
+    if hashlib.sha256(encoded).hexdigest() != recorded["identity"]:
+        raise WorkflowError(
+            "Effective configuration record's configuration does not match its "
+            "recorded identity; use a fresh outdir."
+        )
 
 
 def _check_analysis_outdir_identity():
@@ -339,7 +415,7 @@ def _check_analysis_outdir_identity():
                 "Existing analysis outdir has a different analysis identity; "
                 "use a fresh outdir or the profile that created it."
             )
-        _check_effective_config_record(_effective_config_record(), recorded_identity)
+        _check_effective_config_record(_effective_config_record(), recorded_identity, profile)
         return
     outdir = Path(RAW_OUTDIR)
     if outdir.exists():

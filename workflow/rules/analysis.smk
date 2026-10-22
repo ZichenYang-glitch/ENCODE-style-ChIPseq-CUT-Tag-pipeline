@@ -28,18 +28,31 @@ rule analysis_identity_marker:
         config_json=lambda wc: json.dumps(_effective_config_record_payload(), indent=2, sort_keys=True),
     run:
         import os
+        import tempfile
 
-        os.makedirs(os.path.dirname(output.marker), exist_ok=True)
-        # Publish the effective-config record before the marker, each via
-        # atomic replace, so a valid marker never exists without its record.
+        metadata_dir = os.path.dirname(output.marker)
+        os.makedirs(metadata_dir, exist_ok=True)
+        # Publish the effective-config record before the marker. Each record
+        # is written to an exclusively created temporary regular file in the
+        # verified metadata directory and atomically replaced into place, so
+        # pre-placed symlinks can never redirect the write.
         for target, payload in (
             (output.effective_config, params.config_json),
             (output.marker, params.marker_json),
         ):
-            tmp_path = target + ".tmp"
-            with open(tmp_path, "w", encoding="utf-8") as handle:
-                handle.write(payload + "\n")
-            os.replace(tmp_path, target)
+            fd, tmp_path = tempfile.mkstemp(
+                dir=metadata_dir,
+                prefix=".tmp-",
+                suffix="-" + os.path.basename(target),
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(payload + "\n")
+                os.replace(tmp_path, target)
+            except BaseException:
+                if os.path.lexists(tmp_path):
+                    os.remove(tmp_path)
+                raise
 
 
 rule prepare_analysis_bam:

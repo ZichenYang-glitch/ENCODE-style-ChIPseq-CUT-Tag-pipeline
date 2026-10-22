@@ -392,7 +392,11 @@ organelle, blacklist, and tool-parameter blocks — with only these explicitly
 excluded scheduling/location keys: `outdir`, `threads`, and the `samples`
 path (the parsed sample content is hashed instead).
 `scientific_policy_revision` is an internal workflow identity; it cannot be
-set by user configuration.
+set by user configuration. Path-valued inputs (FASTQ, Bowtie2 index prefix,
+external control BAM, and genome-resource file paths) enter the identity
+through their canonical absolute locations, so the same relative string in a
+different working directory cannot alias a different actual input; the same
+actual input referenced through equivalent path forms stays equivalent.
 
 | Outdir / marker state | Behavior |
 | :--- | :--- |
@@ -401,12 +405,19 @@ set by user configuration.
 | Scientific outputs present but no marker | Refused; choose a fresh outdir (existing content is kept) |
 | Old-format marker, other profile, other policy revision, or different identity | Refused; choose a fresh outdir |
 | Marker or record corrupted, not a regular file, or a symlink; `.helixweave` a symlink or not a directory | Refused; never auto-repaired or overwritten |
-| Marker valid but `effective_config.json` missing, unreadable, or not matching the run identity | Refused; the run does not continue without an intact configuration record |
+| Marker valid but `effective_config.json` missing, unreadable, missing required fields, or inconsistent with the run identity | Refused; the run does not continue without an intact, truthful configuration record |
 
-The marker and the effective-config record form one metadata boundary: the
-record is written first (each via atomic replace), so a valid marker never
-publishes without its record, and writes can never escape through a
-symlinked `.helixweave`.
+The record is validated beyond file integrity: it must carry the profile,
+schema version, policy revision, identity, and a `config` block whose
+canonical form recomputes to the recorded identity, so a bare identity
+string or a tampered inner configuration is refused like any other
+mismatch. Nothing is auto-repaired from current parameters.
+
+The marker and the effective-config record form one metadata boundary: each
+is written to an exclusively created temporary regular file inside the
+verified metadata directory and atomically replaced into place, record
+first, so a valid marker never publishes without its record and neither
+symlinked parents nor pre-placed temporary symlinks can redirect the write.
 
 Dry-runs perform the same checks (a dry-run reports a mismatch) but never
 create the marker or any run record.

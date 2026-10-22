@@ -12,6 +12,7 @@ Usage:
 """
 
 import gzip
+import json
 import os
 import shutil
 import subprocess
@@ -164,3 +165,104 @@ def test_marker_rule_refuses_symlinked_metadata_dir(tmp_path):
     assert result.returncode != 0, output
     assert "must not be a symlink" in output, output
     assert list(escape.iterdir()) == []
+
+
+def _write_relative_project(workdir, outdir, seq):
+    """Tiny PE project with cwd-relative FASTQ paths and an absolute outdir."""
+    os.makedirs(workdir, exist_ok=True)
+    r1 = os.path.join(workdir, "R1.fq.gz")
+    r2 = os.path.join(workdir, "R2.fq.gz")
+    for path, mate in ((r1, 1), (r2, 2)):
+        with gzip.open(path, "wt") as handle:
+            handle.write(f"@r/{mate}\n{seq}\n+\nIIIIIIII\n")
+    config_path = os.path.join(workdir, "config.yaml")
+    samples_path = os.path.join(workdir, "samples.tsv")
+    config = (
+        'samples: "samples.tsv"\n'
+        f'outdir: "{outdir}"\n'
+        "threads: 1\n"
+        "trim: false\n"
+        "use_control: false\n"
+        "multiqc: false\n"
+        "replicate_analysis: false\n"
+        "chipseq_idr: false\n"
+        'genome_resources: {hs: {effective_genome_size: "hs"}}\n'
+        "qc:\n"
+        "  blacklist_filter: false\n"
+        "  frip: false\n"
+        "  library_complexity: false\n"
+        "  nrf_pbc: false\n"
+        "  signal_tracks: false\n"
+        "  summary: false\n"
+        "  cuttag_fragment_size: false\n"
+    )
+    with open(config_path, "w") as handle:
+        handle.write(config)
+    samples = (
+        f"{FULL_TSV_HEADER}\n"
+        "T1\tR1.fq.gz\tR2.fq.gz\tPE\tchipseq\tH3K27ac\tnarrow\ths\tidx\t"
+        "exp1\tH3K27ac\t1\t1\t1\ttreatment\t\t\n"
+    )
+    with open(samples_path, "w") as handle:
+        handle.write(samples)
+    return config_path
+
+
+def test_relative_inputs_from_other_cwd_do_not_alias(tmp_path):
+    """Codex F1 with a real downstream task: same names, different content."""
+    env = _env()
+    outdir = tmp_path / "shared-results"
+    dir_a = tmp_path / "A"
+    dir_b = tmp_path / "B"
+    config_a = _write_relative_project(str(dir_a), outdir, "ACGTACGT")
+    config_b = _write_relative_project(str(dir_b), outdir, "TTTTGGGG")
+    marker = str(outdir / ".helixweave" / "analysis_identity.json")
+
+    result = _run(env, str(dir_a), config_a, marker)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    # The real FastQC task from B must be refused before execution.
+    fastqc_html = str(
+        outdir / "T1" / "01_qc" / "fastqc" / "raw" / "T1.raw.R1_fastqc.html"
+    )
+    result = _run(env, str(dir_b), config_b, fastqc_html)
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, output
+    assert "different analysis identity" in output, output
+    assert not os.path.exists(fastqc_html)
+
+
+def test_real_fastqc_stops_on_identity_only_or_tampered_record(tmp_path):
+    """Codex F2 with a real downstream task."""
+    env = _env()
+    workdir = str(tmp_path)
+    config_path = _write_project(workdir)
+
+    result = _run(env, workdir, config_path, FASTQC_HTML)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    # Identity-only record object is not a valid configuration record.
+    with open(os.path.join(workdir, MARKER)) as handle:
+        identity = json.load(handle)["identity"]
+    record_path = os.path.join(workdir, RECORD)
+    with open(record_path, "w") as handle:
+        handle.write(json.dumps({"identity": identity}) + "\n")
+    result = _run(env, workdir, config_path, FASTQC_HTML)
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, output
+    assert "missing required field" in output, output
+
+    # Inner config that contradicts the recorded identity is refused.
+    shutil.rmtree(os.path.join(workdir, "results"))
+    result = _run(env, workdir, config_path, FASTQC_HTML)
+    assert result.returncode == 0, result.stdout + result.stderr
+    with open(record_path) as handle:
+        recorded = json.load(handle)
+    recorded["config"]["mapq"] = 99
+    with open(record_path, "w") as handle:
+        json.dump(recorded, handle)
+        handle.write("\n")
+    result = _run(env, workdir, config_path, FASTQC_HTML)
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, output
+    assert "does not match its" in output, output
