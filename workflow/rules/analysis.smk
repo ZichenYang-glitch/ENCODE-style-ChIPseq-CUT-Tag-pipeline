@@ -1,7 +1,8 @@
-# analysis.smk — updated-profile derived analysis BAM
-# ===================================================
-# Legacy runs keep using final.bam directly. Updated runs keep a marked final
-# BAM and derive analysis.bam for duplicate/organelle-filtered consumers.
+# analysis.smk — run identity marker and updated-profile derived analysis BAM
+# =============================================================================
+# The identity marker/effective-config rule runs in both profiles; legacy runs
+# keep using final.bam directly. Updated runs keep a marked final BAM and
+# derive analysis.bam for duplicate/organelle-filtered consumers.
 # The template filter imports scripts/blacklist_filter.py
 
 
@@ -13,26 +14,51 @@ def _analysis_input(wildcards, kind):
     return f"{RAW_OUTDIR}/{wildcards.sample}/02_align/{wildcards.sample}.{suffix}"
 
 
-def _require_updated_input(wildcards):
-    if not is_updated_profile():
-        raise ValueError("analysis outputs are only available when analysis_profile=updated")
-    return []
+def _write_run_records(metadata_dir, records):
+    """Write run records atomically, record first, marker last.
+
+    Each record is written to an exclusively created temporary regular file
+    in the verified metadata directory and atomically replaced into place,
+    so pre-placed symlinks can never redirect the write and a valid marker
+    never publishes without its record.
+    """
+    import os
+    import tempfile
+
+    os.makedirs(metadata_dir, exist_ok=True)
+    for target, payload in records:
+        fd, tmp_path = tempfile.mkstemp(
+            dir=metadata_dir,
+            prefix=".tmp-",
+            suffix=f"-{os.path.basename(target)}",
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(f"{payload}\n")
+            os.replace(tmp_path, target)
+        except BaseException:
+            if os.path.lexists(tmp_path):
+                os.remove(tmp_path)
+            raise
 
 
 rule analysis_identity_marker:
-    input:
-        lambda wc: _require_updated_input(wc),
+    """Record the versioned run identity and the merged effective config.
+
+    Scheduled in both profiles as a production-rule prerequisite; dry-runs
+    never execute it, so dry-runs leave no run records behind.
+    """
     output:
-        f"{RAW_OUTDIR}/.helixweave/analysis_identity.json",
+        marker=f"{RAW_OUTDIR}/.helixweave/analysis_identity.json",
+        effective_config=f"{RAW_OUTDIR}/.helixweave/effective_config.json",
     params:
-        identity=lambda wc: _analysis_identity_hash(),
-    shell:
-        """
-        set -e -o pipefail
-        mkdir -p "$(dirname {output:q})"
-        printf '{{"identity":"%s","analysis_profile":"updated"}}\n' \
-            "{params.identity}" >{output:q}
-        """
+        marker_json=lambda wc: json.dumps(_analysis_identity_marker_payload(), indent=2, sort_keys=True),
+        config_json=lambda wc: json.dumps(_effective_config_record_payload(), indent=2, sort_keys=True),
+    run:
+        _write_run_records(
+            os.path.dirname(output.marker),
+            ((output.effective_config, params.config_json), (output.marker, params.marker_json)),
+        )
 
 
 rule prepare_analysis_bam:

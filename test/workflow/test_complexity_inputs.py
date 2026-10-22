@@ -5,7 +5,8 @@ import shlex
 
 import pytest
 
-from _complexity import project, snakemake
+from _complexity import REPO, project, snakemake
+from conftest import seed_run_identity
 
 
 def job(output, rule):
@@ -29,6 +30,11 @@ def test_complexity_uses_filtered_duplicates_independent_of_dedup_policy(
 ):
     config = project(tmp_path, layout, remove_dup=policy, peak_mode=mode, mapq=mapq)
     assert run_validator(config).returncode == 0
+    # The marker must precede staged outputs: unmarked non-empty outdirs are
+    # refused before any scientific task runs.
+    seed_run_identity(
+        tmp_path, snakemake_executable, REPO / "workflow/Snakefile", config
+    )
     # A placeholder supplies only DAG existence, never tool/scientific evidence.
     sorted_bam = tmp_path / "results/S1/02_align/S1.sorted.bam"
     sorted_bam.parent.mkdir(parents=True)

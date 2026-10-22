@@ -348,6 +348,38 @@ def prepare_profile_workdir(profile_dir):
     return workdir, dest_config
 
 
+def seed_run_identity(workdir, executable, snakefile, config_path, outdir="results"):
+    """Create the versioned run marker for staged mid-run fixture directories.
+
+    Harnesses that pre-stage scientific outputs inside the outdir must seed
+    the same identity marker a real run creates before any scientific task;
+    the workflow refuses to write into unmarked non-empty outdirs.
+    """
+    marker = Path(workdir) / outdir / ".helixweave" / "analysis_identity.json"
+    if marker.exists():
+        return
+    result = subprocess.run(
+        [
+            str(executable),
+            "-s",
+            str(snakefile),
+            "--workflow-profile",
+            "none",
+            "--configfile",
+            str(config_path),
+            "--directory",
+            str(workdir),
+            "--cores",
+            "1",
+            f"{outdir}/.helixweave/analysis_identity.json",
+        ],
+        cwd=workdir,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 @pytest.fixture(scope="session")
 def test_data_dir(repo_root):
     """Return the test data directory."""

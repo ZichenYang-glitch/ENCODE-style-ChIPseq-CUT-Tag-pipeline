@@ -4,6 +4,7 @@
 # Excludes: timestamps, absolute paths, temp dirs, version strings, shell commands, reasons
 
 all
+analysis_identity_marker
 bamcoverage
 bowtie2_align
 duplicate_handling

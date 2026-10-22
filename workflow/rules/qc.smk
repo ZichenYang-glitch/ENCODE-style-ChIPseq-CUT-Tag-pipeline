@@ -948,6 +948,7 @@ rule tss_bed_from_gtf:
         f"{OUTDIR}/reference/{{genome}}.tss.bed",
     input:
         gtf = lambda wc: GENOME_RESOURCES.get(wc.genome, {}).get("gtf", ""),
+        identity = lambda wc: _analysis_identity_inputs(wc),
     params:
         script = f"{workflow.basedir}/../scripts/gtf_to_tss_bed.py",
     conda:

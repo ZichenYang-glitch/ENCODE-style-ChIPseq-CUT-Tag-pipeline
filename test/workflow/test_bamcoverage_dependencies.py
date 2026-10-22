@@ -30,7 +30,7 @@ _BAMS = {
 
 
 @pytest.fixture
-def project(tmp_path, monkeypatch, run_validator):
+def project(tmp_path, monkeypatch, run_validator, snakemake_executable):
     bindir = tmp_path / "bin"
     bindir.mkdir()
     # Preserve both original producer and consumer rules, including params
@@ -126,6 +126,13 @@ else:
         config_path.write_text(json.dumps(config))
         validation = run_validator(config_path)
         assert validation.returncode == 0, validation.stderr
+        # The identity marker must exist before any staged scientific output;
+        # unmarked non-empty outdirs are refused.
+        from conftest import seed_run_identity
+
+        seed_run_identity(
+            tmp_path, snakemake_executable, REPO / "workflow/Snakefile", config_path
+        )
         bam = tmp_path / "results/S1/02_align/S1.final.bam"
         bam.parent.mkdir(parents=True)
         for suffix, encoded in zip(("", ".bai"), _BAMS[layout]):

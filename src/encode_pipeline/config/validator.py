@@ -365,6 +365,11 @@ def validate_config(config: dict) -> dict:
     Returns a normalized dict with validated values.
     Raises ValidationError on invalid input.
     """
+    if "scientific_policy_revision" in config:
+        raise ValidationError(
+            "config: scientific_policy_revision is an internal workflow "
+            "identity and cannot be set by user configuration."
+        )
     validated: dict = {}
 
     # samples — required, path must exist
