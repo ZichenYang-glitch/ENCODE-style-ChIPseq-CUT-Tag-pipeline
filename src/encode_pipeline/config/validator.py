@@ -181,7 +181,16 @@ def _validate_blacklist_mode(
 
 
 def _validate_duplicate_settings(config: dict, remove_dup: str, profile: str) -> str:
-    """Resolve duplicate_analysis without activating marking behavior in A1."""
+    """Resolve the run-level duplicate policy selector for both profiles.
+
+    Resolution order (identical for legacy and updated):
+    1. An explicit duplicate_analysis=exclude/retain wins; the remove_dup
+       yes/no alias must agree with it (conflicts are rejected).
+    2. The remove_dup alias maps yes -> exclude and no -> retain.
+    3. Otherwise the policy stays "auto" and is resolved per sample by assay
+       downstream (CUT&Tag retains, other assays exclude); remove_dup=auto
+       never overrides an explicit value.
+    """
     raw = config.get("duplicate_analysis")
     explicit = (
         None
@@ -192,36 +201,18 @@ def _validate_duplicate_settings(config: dict, remove_dup: str, profile: str) ->
             allowed=defaults.DUPLICATE_ANALYSIS_MODES,
         )
     )
-    derived = "exclude" if remove_dup in ("auto", "yes") else "retain"
+    alias = {"yes": "exclude", "no": "retain", "auto": None}[remove_dup]
 
-    if profile == "legacy":
-        if explicit is None:
-            return derived
-        if explicit != derived:
+    if explicit is not None and explicit != "auto":
+        if alias is not None and alias != explicit:
             raise ValidationError(
-                "config: duplicate_analysis conflicts with legacy remove_dup."
+                f"config: remove_dup={remove_dup} conflicts with "
+                f"duplicate_analysis={explicit}."
             )
         return explicit
-
-    # updated profile
-    if explicit is not None:
-        # Explicit canonical policy wins over remove_dup=auto. Explicit yes/no
-        # must still agree with the legacy alias.
-        if remove_dup == "yes" and explicit != "exclude":
-            raise ValidationError(
-                "config: remove_dup=yes conflicts with duplicate_analysis=retain."
-            )
-        if remove_dup == "no" and explicit != "retain":
-            raise ValidationError(
-                "config: remove_dup=no conflicts with duplicate_analysis=exclude."
-            )
-        return explicit
-    if remove_dup == "no":
-        raise ValidationError(
-            "config: analysis_profile=updated with remove_dup=no requires "
-            "an explicit duplicate_analysis=retain or exclude."
-        )
-    return "exclude"
+    if alias is not None:
+        return alias
+    return "auto"
 
 
 def _validate_advanced_modes(config: dict, profile: str) -> dict:
@@ -329,7 +320,7 @@ def validate_execution_support(
         raise error_cls(
             "config: blacklist_mode=analysis requires analysis_profile=updated."
         )
-    if validated_config.get("duplicate_analysis") not in ("exclude", "retain"):
+    if validated_config.get("duplicate_analysis") not in ("auto", "exclude", "retain"):
         raise error_cls("config: duplicate_analysis is invalid")
     if validated_config.get("fragment_cpm") not in ("off", "auto", "on"):
         raise error_cls("config: fragment_cpm is invalid")

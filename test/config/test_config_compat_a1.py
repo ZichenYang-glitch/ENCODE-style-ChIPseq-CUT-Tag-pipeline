@@ -49,7 +49,7 @@ def test_omitted_new_keys_resolve_to_legacy(tmp_path):
     assert validated["analysis_profile"] == "legacy"
     assert validated["blacklist_mode"] == "copies"
     assert validated["qc"]["blacklist_filter"] is True
-    assert validated["duplicate_analysis"] == "exclude"
+    assert validated["duplicate_analysis"] == "auto"
     assert validated["organelle_mode"] == "keep"
     assert validated["control_mode"] == "pooled"
     assert validated["duplicate_backend"] == ""
@@ -66,7 +66,7 @@ def test_explicit_v2_resolves_to_updated_raw(tmp_path):
     assert validated["analysis_profile"] == "updated"
     assert validated["blacklist_mode"] == "off"
     assert validated["qc"]["blacklist_filter"] is False
-    assert validated["duplicate_analysis"] == "exclude"
+    assert validated["duplicate_analysis"] == "auto"
     assert validated["organelle_mode"] == "auto"
     assert validated["control_mode"] == "matched"
     assert validated["duplicate_backend"] == "picard"
@@ -164,11 +164,20 @@ def test_remove_dup_auto_does_not_override_explicit_duplicate_analysis(tmp_path)
     assert validated["duplicate_analysis"] == "retain"
 
 
-def test_updated_remove_dup_no_requires_explicit_policy(tmp_path):
-    with pytest.raises(
-        ValidationError, match="requires an explicit duplicate_analysis"
-    ):
-        _validate(tmp_path, analysis_profile="updated", remove_dup="no")
+def test_updated_remove_dup_no_maps_to_retain(tmp_path):
+    validated = _validate(tmp_path, analysis_profile="updated", remove_dup="no")
+    assert validated["duplicate_analysis"] == "retain"
+
+
+def test_legacy_explicit_duplicate_analysis_is_accepted(tmp_path):
+    validated = _validate(tmp_path, duplicate_analysis="retain")
+    assert validated["duplicate_analysis"] == "retain"
+
+
+def test_duplicate_policy_resolution_is_idempotent(tmp_path):
+    first = _validate(tmp_path, analysis_profile="updated", remove_dup="auto")
+    second = validate_config(first)
+    assert first == second
 
 
 def test_updated_remove_dup_no_and_retain_accepted(tmp_path):

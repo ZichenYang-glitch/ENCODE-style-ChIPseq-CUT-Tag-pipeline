@@ -414,8 +414,11 @@ particular summary/platform consumer exposes every field.
 4. **SEACR peaks** recovered; compare stringent vs relaxed.
 5. **Cross-correlation:** interpret cautiously — CUT&Tag strand distributions
    differ from ChIP-seq. Low NSC may not indicate poor quality.
-6. **Low duplication rate** (< 20%) — Tn5 does not amplify, so true PCR
-   duplicates should be minimal.
+6. **Duplication rate** — CUT&Tag libraries do go through PCR amplification
+   after Tn5 tagging, so duplicates can occur; at the same time,
+   same-coordinate fragments can be independent molecules at high-affinity
+   sites. Interpret the rate together with NRF/PBC instead of assuming
+   duplicates must be near zero.
 7. **NRF/PBC** still informative but thresholds are less strict than ChIP-seq.
 8. **MultiQC** shows expected per-base quality and adapter content.
 

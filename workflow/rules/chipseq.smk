@@ -1,7 +1,8 @@
 # chipseq.smk — ChIP-seq biological policy functions
 # =====================================================
 # No rules in this file. These functions define assay-specific MACS3
-# parameters, duplicate removal policy, and read extension policy.
+# parameters and read extension policy. The duplicate policy is resolved
+# per sample in metadata.smk (get_duplicate_policy, SCI-2).
 # They are consumed by dispatch wrappers in workflow/Snakefile and
 # called from rules in common.smk / peaks.smk.
 
@@ -23,19 +24,6 @@ def get_macs3_args_chipseq(wildcards):
         return f"-f {fmt} -g {genome} -q {qvalue} --broad --broad-cutoff {broad_cutoff}"
     else:
         return f"-f {fmt} -g {genome} -q {qvalue}"
-
-
-def get_remove_dup_chipseq(wildcards):
-    """ChIP-seq duplicate removal policy.
-
-    config remove_dup=auto  → yes for narrow peaks, no for broad peaks.
-    config remove_dup=yes/no → returned directly.
-    """
-    s = SAMPLE_MAP[wildcards.sample]
-    policy = config.get("remove_dup", "auto")
-    if policy == "auto":
-        return "yes" if s["peak_mode"] == "narrow" else "no"
-    return policy
 
 
 def get_extend_reads_chipseq(wildcards):

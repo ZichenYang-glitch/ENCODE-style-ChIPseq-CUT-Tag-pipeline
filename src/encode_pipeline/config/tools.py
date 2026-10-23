@@ -7,6 +7,156 @@ from encode_pipeline.config import defaults
 __all__ = ["validate_tool_params"]
 
 
+_KEEP_DUP_CANONICAL = "--keep-dup"
+
+_EXTRA_ARGS_WHITESPACE = " \t\n\r"
+
+
+def _is_keep_dup_option(name):
+    """True when ``name`` selects MACS3's ``--keep-dup`` option.
+
+    The pinned MACS3 uses argparse, which accepts any unambiguous prefix of
+    a long option; ``--keep-dup`` is the only callpeak option starting with
+    ``--k``, so every prefix from ``--k`` upwards (e.g. ``--keep-d``) is the
+    same flag. Longer spellings such as ``--keep-duplicates`` are not
+    prefixes of the canonical option and are left alone.
+    """
+    return len(name) >= 3 and _KEEP_DUP_CANONICAL.startswith(name)
+
+
+def _scan_extra_args_tokens(tool, extra, error_cls):
+    """Tokenize extra_args into ``(value, start, end)`` spans.
+
+    Follows POSIX quoting for token boundaries: single quotes quote
+    literally, unquoted backslashes escape the next character except that
+    ``\\`` + newline is removed as a line continuation, and double quotes
+    group while still folding ``\\`` + newline continuations and ``$``,
+    `` ` ``, ``"``, ``\\`` escapes. ``value`` is the dequoted token used for
+    flag comparisons; ``start``/``end`` delimit the raw source text of each
+    token (excluding any trailing unquoted line continuation) so untouched
+    tokens keep their original quoting and escaped spaces byte-for-byte.
+    Unterminated quotes raise a field-named validation error instead of
+    leaking parser exceptions.
+    """
+
+    def _invalid_quoting():
+        return error_cls(
+            f"tool_parameters.{tool}.extra_args: invalid shell quoting "
+            f"in {extra!r}: No closing quotation"
+        )
+
+    tokens = []
+    index = 0
+    length = len(extra)
+    while index < length:
+        if extra[index] in _EXTRA_ARGS_WHITESPACE:
+            index += 1
+            continue
+        if extra[index] == "\\" and index + 1 < length and extra[index + 1] == "\n":
+            index += 2
+            continue
+        start = index
+        token_end = index
+        chars = []
+        while index < length and extra[index] not in _EXTRA_ARGS_WHITESPACE:
+            char = extra[index]
+            if char == "\\":
+                if index + 1 < length and extra[index + 1] == "\n":
+                    index += 2
+                elif index + 1 < length:
+                    chars.append(extra[index + 1])
+                    index += 2
+                    token_end = index
+                else:
+                    chars.append(char)
+                    index += 1
+                    token_end = index
+            elif char == "'":
+                closing = extra.find("'", index + 1)
+                if closing == -1:
+                    raise _invalid_quoting()
+                chars.append(extra[index + 1 : closing])
+                index = closing + 1
+                token_end = index
+            elif char == '"':
+                cursor = index + 1
+                while cursor < length and extra[cursor] != '"':
+                    if extra[cursor] == "\\" and cursor + 1 < length:
+                        next_char = extra[cursor + 1]
+                        if next_char == "\n":
+                            cursor += 2
+                            continue
+                        if next_char in '$`"\\':
+                            chars.append(next_char)
+                            cursor += 2
+                            continue
+                    chars.append(extra[cursor])
+                    cursor += 1
+                if cursor >= length:
+                    raise _invalid_quoting()
+                index = cursor + 1
+                token_end = index
+            else:
+                chars.append(char)
+                index += 1
+                token_end = index
+        tokens.append(("".join(chars), start, token_end))
+    return tokens
+
+
+def _migrate_keep_dup_extra_args(tool, extra, error_cls):
+    """Normalize legacy ``--keep-dup`` tokens in MACS3 extra_args.
+
+    Duplicate policy is executed at the BAM layer and the workflow renders
+    ``--keep-dup all`` itself. A synonymous ``--keep-dup all`` (including
+    argparse-accepted abbreviations and the ``=`` form) is removed here so
+    the final command carries the flag exactly once; any other value
+    conflicts with that contract and is rejected with migration guidance
+    instead of being decided by argument order.
+
+    Only the raw source spans of the managed tokens are removed; every
+    other argument keeps its original quoting and shell expansions
+    byte-for-byte (e.g. ``--tempdir "$TMPDIR"`` still expands), and a
+    second validation pass is a stable no-op.
+    """
+    tokens = _scan_extra_args_tokens(tool, extra, error_cls)
+    removed = set()
+    migrated = False
+    index = 0
+    while index < len(tokens):
+        value, _start, _end = tokens[index]
+        name, sep, attached = value.partition("=")
+        if not _is_keep_dup_option(name):
+            index += 1
+            continue
+        migrated = True
+        removed.add(index)
+        if sep:
+            flag_value = attached
+            index += 1
+        elif index + 1 < len(tokens):
+            flag_value = tokens[index + 1][0]
+            removed.add(index + 1)
+            index += 2
+        else:
+            flag_value = ""
+            index += 1
+        if flag_value != "all":
+            raise error_cls(
+                f"tool_parameters.{tool}.extra_args: {name} "
+                f"{flag_value or '<missing>'!r} conflicts with the BAM-layer "
+                "duplicate policy. Remove --keep-dup from extra_args (the "
+                "workflow always renders --keep-dup all) or use 'all'."
+            )
+    if not migrated:
+        return extra
+    return " ".join(
+        extra[start:end]
+        for token_index, (_value, start, end) in enumerate(tokens)
+        if token_index not in removed
+    )
+
+
 def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
     """Validate and normalize the Stage 4c tool_parameters config block."""
     if tool_params is None:
@@ -252,7 +402,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
                 raise error_cls("tool_parameters.macs3.extra_args must be a string")
-            norm["extra_args"] = extra
+            norm["extra_args"] = _migrate_keep_dup_extra_args(tool, extra, error_cls)
 
         elif tool == "multiqc":
             title = block.get("title", "")
@@ -271,7 +421,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
                 raise error_cls("tool_parameters.idr_macs3.extra_args must be a string")
-            norm["extra_args"] = extra
+            norm["extra_args"] = _migrate_keep_dup_extra_args(tool, extra, error_cls)
 
         normalized[tool] = norm
 

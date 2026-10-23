@@ -87,18 +87,6 @@ def _caller_enabled(name):
 # ---------------------------------------------------------------------------
 
 
-def get_remove_dup_mnase(wildcards):
-    """MNase duplicate removal policy.
-
-    MNase is PE-only. auto -> yes (remove duplicates by default).
-    Broad-peak exception does not apply.
-    """
-    policy = str(config.get("remove_dup", "auto"))
-    if policy == "auto":
-        return "yes"
-    return policy
-
-
 def get_extend_reads_mnase(wildcards):
     """MNase read extension policy for bamCoverage.
 

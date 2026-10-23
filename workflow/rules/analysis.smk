@@ -75,7 +75,7 @@ rule prepare_analysis_bam:
         "../envs/samtools.yml"
     threads: THREADS
     params:
-        exclude_dup=lambda wc: VALIDATED_CONFIG.get("duplicate_analysis") == "exclude",
+        exclude_dup=lambda wc: get_duplicate_policy(wc.sample) == "exclude",
         organelle_mode=lambda wc: get_organelle_mode(wc),
         organelle_chroms=lambda wc: " ".join(get_organelle_chroms(wc)),
         layout=lambda wc: SAMPLE_MAP[wc.sample]["layout"],

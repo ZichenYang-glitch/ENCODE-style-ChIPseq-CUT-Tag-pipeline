@@ -241,7 +241,7 @@ def test_get_schema_returns_versioned_renderable_contract(
     data = response.json()
     assert data["ok"] is True
     assert data["workflow_id"] == workflow_id
-    assert data["schema"]["schema_version"] == "2.0.0"
+    assert data["schema"]["schema_version"] == "3.0.0"
     assert data["schema"]["schema_dialect"] == (
         "https://json-schema.org/draft/2020-12/schema"
     )
@@ -292,7 +292,7 @@ def test_validate_success(
     assert data["workflow_id"] == workflow_id
     assert data["value"] is None
     assert data["snapshot"]["workflow_id"] == workflow_id
-    assert data["snapshot"]["schema_version"] == "2.0.0"
+    assert data["snapshot"]["schema_version"] == "3.0.0"
     assert data["snapshot"]["reference_profile"]["revision_id"] == (
         _reference_revision_id(client)
     )
@@ -372,7 +372,7 @@ def test_validate_semantic_switches_returns_snapshot_without_warnings(
     data = response.json()
     assert data["ok"] is True
     assert data["snapshot"] is not None
-    assert data["snapshot"]["schema_version"] == "2.0.0"
+    assert data["snapshot"]["schema_version"] == "3.0.0"
     assert data["issues"] == []
     assert str(tmp_path) not in response.text
 

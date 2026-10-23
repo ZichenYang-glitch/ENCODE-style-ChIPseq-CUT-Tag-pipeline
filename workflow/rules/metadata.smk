@@ -546,18 +546,28 @@ def _pooled_chrom_sizes(experiment):
 # ---------------------------------------------------------------------------
 
 
+# SCI-2 duplicate policy: an explicit duplicate_analysis=exclude/retain
+# applies to every sample; "auto" resolves per sample by assay. CUT&Tag
+# retains duplicates (same-coordinate fragments can be independent
+# molecules, so coordinates alone cannot prove PCR copies); all other
+# assays exclude them. The narrow/broad peak mode no longer proxies this
+# decision.
+def get_duplicate_policy_for_assay(assay):
+    """The auto duplicate policy for an assay: CUT&Tag retains, others exclude."""
+    return "retain" if assay == "cuttag" else "exclude"
+
+
+def get_duplicate_policy(sample_id):
+    """Resolve the effective duplicate policy for a sample."""
+    setting = VALIDATED_CONFIG.get("duplicate_analysis", "auto")
+    if setting != "auto":
+        return setting
+    return get_duplicate_policy_for_assay(SAMPLE_MAP[sample_id]["assay"])
+
+
 def get_remove_dup(wildcards):
-    """Return "yes" or "no" for duplicate removal, dispatched by assay."""
-    s = SAMPLE_MAP[wildcards.sample]
-    if s["assay"] == "chipseq":
-        return get_remove_dup_chipseq(wildcards)
-    if s["assay"] == "cuttag":
-        return get_remove_dup_cuttag(wildcards)
-    if s["assay"] == "atac":
-        return get_remove_dup_atac(wildcards)
-    if s["assay"] == "mnase":
-        return get_remove_dup_mnase(wildcards)
-    raise ValueError(f"Unsupported assay for duplicate policy: {s['assay']}")
+    """Return the legacy BAM-layer switch for the resolved duplicate policy."""
+    return "yes" if get_duplicate_policy(wildcards.sample) == "exclude" else "no"
 
 
 def is_updated_profile():
@@ -681,18 +691,28 @@ def get_organelle_chroms(wildcards):
     return ["chrM", "MT", "chrMT"]
 
 
+# SCI-2: the BAM layer owns the duplicate decision, so every MACS3 call —
+# per-sample, pooled, consensus, and IDR-ready — consumes the chosen
+# molecule set faithfully with an explicit --keep-dup all instead of a
+# second implicit coordinate-based collapse. idr_macs3_args must use this
+# same constant.
+MACS3_KEEP_DUP_ARGS = "--keep-dup all"
+
+
 def get_macs3_args(wildcards):
     """Return MACS3 arguments string, dispatched by assay."""
     s = SAMPLE_MAP[wildcards.sample]
     if s["assay"] == "chipseq":
-        return get_macs3_args_chipseq(wildcards)
-    if s["assay"] == "cuttag":
-        return get_macs3_args_cuttag(wildcards)
-    if s["assay"] == "atac":
-        return get_macs3_args_atac(wildcards)
-    if s["assay"] == "mnase":
-        return get_macs3_args_mnase(wildcards)
-    raise ValueError(f"Unsupported assay for MACS3 policy: {s['assay']}")
+        assay_args = get_macs3_args_chipseq(wildcards)
+    elif s["assay"] == "cuttag":
+        assay_args = get_macs3_args_cuttag(wildcards)
+    elif s["assay"] == "atac":
+        assay_args = get_macs3_args_atac(wildcards)
+    elif s["assay"] == "mnase":
+        assay_args = get_macs3_args_mnase(wildcards)
+    else:
+        raise ValueError(f"Unsupported assay for MACS3 policy: {s['assay']}")
+    return f"{assay_args} {MACS3_KEEP_DUP_ARGS}"
 
 
 def get_extend_reads(wildcards):

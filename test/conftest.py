@@ -582,6 +582,8 @@ def _load_idr_paths_namespace(
             ("macs3", "broad_cutoff"): 0.1,
         }.get((tool, key), default),
         "_bioreps_for": lambda experiment, sample_type: ["1", "2"],
+        # SCI-2: defined in metadata.smk in the real workflow namespace.
+        "MACS3_KEEP_DUP_ARGS": "--keep-dup all",
     }
     exec(compile(code, str(idr_paths_file), "exec"), namespace)
     return namespace

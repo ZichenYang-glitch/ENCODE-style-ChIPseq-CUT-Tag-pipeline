@@ -72,7 +72,7 @@ def _bam(workdir, samtools, name, pairs, length):
 
 
 @pytest.fixture
-def project(tmp_path, monkeypatch, run_validator):
+def project(tmp_path, monkeypatch, run_validator, snakemake_executable):
     samtools = shutil.which(resolve_tool("samtools", "SAMTOOLS"))
     assert samtools, "This real-execution test requires samtools, with no count stub"
     bindir = tmp_path / "bin"
@@ -196,6 +196,18 @@ print("PICARD_STUB_COMPLETE")
         (tmp_path / "validation.json").write_text(json.dumps(vars(result)))
         if validate:
             assert result.returncode == 0, result.stdout + result.stderr
+            # The identity marker must precede staged outputs: unmarked
+            # non-empty outdirs are refused before any scientific task
+            # runs. Intentionally invalid configs (validate=False) are
+            # rejected at load before the identity check matters.
+            from conftest import seed_run_identity
+
+            seed_run_identity(
+                tmp_path,
+                snakemake_executable,
+                REPO / "workflow" / "Snakefile",
+                config_path,
+            )
         for name, pairs, length in (("sub", 1, 100), ("mono", 2, 150), ("di", 3, 350)):
             bam = _bam(tmp_path, samtools, name, pairs, length)
             dest = tmp_path / f"results/M1/03_fragments/M1.{name}.bam"

@@ -9,8 +9,9 @@ scientific behavior.
 """
 
 # Bump when a shipped scientific policy change requires output isolation
-# from runs produced by earlier behavior. SCI-1 introduces the mechanism.
-SCIENTIFIC_POLICY_REVISION = 1
+# from runs produced by earlier behavior. 1 = SCI-1 run-identity mechanism;
+# 2 = SCI-2 assay-based duplicate policy + MACS3 --keep-dup all.
+SCIENTIFIC_POLICY_REVISION = 2
 
 # Schema version of the .helixweave/analysis_identity.json marker.
 # Version 1 markers were the unversioned {"identity", "analysis_profile"}
