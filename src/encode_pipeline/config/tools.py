@@ -1,7 +1,6 @@
 """Tool parameter validation helpers."""
 
 import math
-import shlex
 
 from encode_pipeline.config import defaults
 
@@ -9,6 +8,8 @@ __all__ = ["validate_tool_params"]
 
 
 _KEEP_DUP_CANONICAL = "--keep-dup"
+
+_EXTRA_ARGS_WHITESPACE = " \t\n\r"
 
 
 def _is_keep_dup_option(name):
@@ -23,6 +24,71 @@ def _is_keep_dup_option(name):
     return len(name) >= 3 and _KEEP_DUP_CANONICAL.startswith(name)
 
 
+def _scan_extra_args_tokens(tool, extra, error_cls):
+    """Tokenize extra_args into ``(value, start, end)`` spans.
+
+    Follows POSIX quoting for token boundaries: single quotes and
+    backslashes quote literally, double quotes group without disabling
+    expansion. ``value`` is the dequoted token used for flag comparisons;
+    ``start``/``end`` delimit the raw source text so untouched tokens keep
+    their original quoting byte-for-byte. Unterminated quotes raise a
+    field-named validation error instead of leaking parser exceptions.
+    """
+
+    def _invalid_quoting():
+        return error_cls(
+            f"tool_parameters.{tool}.extra_args: invalid shell quoting "
+            f"in {extra!r}: No closing quotation"
+        )
+
+    tokens = []
+    index = 0
+    length = len(extra)
+    while index < length:
+        if extra[index] in _EXTRA_ARGS_WHITESPACE:
+            index += 1
+            continue
+        start = index
+        chars = []
+        while index < length and extra[index] not in _EXTRA_ARGS_WHITESPACE:
+            char = extra[index]
+            if char == "\\":
+                if index + 1 < length:
+                    chars.append(extra[index + 1])
+                    index += 2
+                else:
+                    chars.append(char)
+                    index += 1
+            elif char == "'":
+                closing = extra.find("'", index + 1)
+                if closing == -1:
+                    raise _invalid_quoting()
+                chars.append(extra[index + 1 : closing])
+                index = closing + 1
+            elif char == '"':
+                closing = index + 1
+                while closing < length:
+                    if (
+                        extra[closing] == "\\"
+                        and closing + 1 < length
+                        and extra[closing + 1] in '$`"\\'
+                    ):
+                        closing += 2
+                        continue
+                    if extra[closing] == '"':
+                        break
+                    closing += 1
+                if closing >= length:
+                    raise _invalid_quoting()
+                chars.append(extra[index + 1 : closing])
+                index = closing + 1
+            else:
+                chars.append(char)
+                index += 1
+        tokens.append(("".join(chars), start, index))
+    return tokens
+
+
 def _migrate_keep_dup_extra_args(tool, extra, error_cls):
     """Normalize legacy ``--keep-dup`` tokens in MACS3 extra_args.
 
@@ -33,46 +99,50 @@ def _migrate_keep_dup_extra_args(tool, extra, error_cls):
     conflicts with that contract and is rejected with migration guidance
     instead of being decided by argument order.
 
-    When no managed flag is present the original string is returned
-    byte-for-byte so quoting of unrelated arguments is preserved. When a
-    migration does happen, the remaining tokens are re-quoted with
-    shlex.join so shell argument boundaries (spaces, apostrophes) survive,
-    and a second validation pass is a stable no-op.
+    Only the raw source spans of the managed tokens are removed; every
+    other argument keeps its original quoting and shell expansions
+    byte-for-byte (e.g. ``--tempdir "$TMPDIR"`` still expands), and a
+    second validation pass is a stable no-op.
     """
-    try:
-        tokens = shlex.split(extra)
-    except ValueError as exc:
-        raise error_cls(
-            f"tool_parameters.{tool}.extra_args: invalid shell quoting "
-            f"in {extra!r}: {exc}"
-        ) from exc
-    kept = []
+    tokens = _scan_extra_args_tokens(tool, extra, error_cls)
+    removed = []
     migrated = False
     index = 0
     while index < len(tokens):
-        token = tokens[index]
-        name, sep, attached = token.partition("=")
+        value, start, end = tokens[index]
+        name, sep, attached = value.partition("=")
         if not _is_keep_dup_option(name):
-            kept.append(token)
             index += 1
             continue
         migrated = True
+        removed.append((start, end))
         if sep:
-            value = attached
+            flag_value = attached
             index += 1
-        else:
-            value = tokens[index + 1] if index + 1 < len(tokens) else ""
+        elif index + 1 < len(tokens):
+            flag_value = tokens[index + 1][0]
+            removed.append((tokens[index + 1][1], tokens[index + 1][2]))
             index += 2
-        if value != "all":
+        else:
+            flag_value = ""
+            index += 1
+        if flag_value != "all":
             raise error_cls(
                 f"tool_parameters.{tool}.extra_args: {name} "
-                f"{value or '<missing>'!r} conflicts with the BAM-layer "
+                f"{flag_value or '<missing>'!r} conflicts with the BAM-layer "
                 "duplicate policy. Remove --keep-dup from extra_args (the "
                 "workflow always renders --keep-dup all) or use 'all'."
             )
     if not migrated:
         return extra
-    return shlex.join(kept)
+    segments = []
+    cursor = 0
+    for start, end in removed:
+        segments.append(extra[cursor:start])
+        cursor = end
+    segments.append(extra[cursor:])
+    kept = [segment.strip(_EXTRA_ARGS_WHITESPACE) for segment in segments]
+    return " ".join(segment for segment in kept if segment)
 
 
 def validate_tool_params(tool_params, error_cls=ValueError) -> dict:

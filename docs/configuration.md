@@ -52,9 +52,9 @@ A legacy `--keep-dup` in `tool_parameters.macs3.extra_args` or
 itself); any other value is rejected with migration guidance rather than
 being decided by argument order. Argparse abbreviations that the pinned
 MACS3 accepts (`--keep-d`, `--k`, and the `--keep-dup=all` equals form)
-are treated as the same flag. Unrelated arguments keep their original
-shell quoting; when a migration does remove tokens, the remainder is
-re-quoted so argument boundaries (spaces, apostrophes) survive.
+are treated as the same flag. Only the managed tokens' original text is
+removed — every other argument keeps its original quoting and shell
+expansions byte-for-byte (e.g. `--tempdir "$TMPDIR"` still expands).
 
 ## Genome resources
 

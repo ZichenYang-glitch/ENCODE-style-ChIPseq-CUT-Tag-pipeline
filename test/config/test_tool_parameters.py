@@ -408,6 +408,31 @@ def test_keep_dup_migration_is_stable_across_two_validations(tmp_path, block):
 
 
 @pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+@pytest.mark.parametrize(
+    "extra,expected",
+    [
+        ('--tempdir "$TMPDIR" --keep-dup all', '--tempdir "$TMPDIR"'),
+        ("--tempdir '$TMPDIR' --keep-dup all", "--tempdir '$TMPDIR'"),
+        ('--keep-dup all --tempdir "$TMPDIR"', '--tempdir "$TMPDIR"'),
+        (
+            '--keep-d=all --tempdir "$TMPDIR" --nomodel',
+            '--tempdir "$TMPDIR" --nomodel',
+        ),
+    ],
+)
+def test_keep_dup_migration_preserves_variable_quoting_verbatim(
+    tmp_path, block, extra, expected
+):
+    # Only the managed tokens' original text is removed; double-quoted
+    # expansions must stay double-quoted so the shell still expands them.
+    validated = _validate(tmp_path, {block: {"extra_args": extra}})
+    assert validated[block]["extra_args"] == expected
+    # Second pass over the normalized value is a stable no-op.
+    again = _validate(tmp_path, {block: {"extra_args": expected}})[block]["extra_args"]
+    assert again == expected
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
 def test_extra_args_invalid_quoting_raises_validation_error(tmp_path, block):
     with pytest.raises(
         ValidationError,

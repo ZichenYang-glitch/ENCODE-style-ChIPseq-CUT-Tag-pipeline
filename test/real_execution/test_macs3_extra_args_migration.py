@@ -157,8 +157,45 @@ def test_quoted_tempdir_survives_normalization_into_shell_command(
     assert (outdir / "test_peaks.narrowPeak").exists()
 
 
+def test_normalized_extra_args_keeps_variable_expansion_live(
+    tmp_path, macs3_path, samtools_path
+):
+    """--tempdir "$TMPDIR" must stay double-quoted through migration so the
+    shell still expands it; re-quoting to a literal would break the run."""
+    tempdir = tmp_path / "var tmp dir"
+    tempdir.mkdir()
+    extra = _normalized_macs3_extra_args(tmp_path, '--tempdir "$TMPDIR" --keep-dup all')
+    assert extra == '--tempdir "$TMPDIR"'
+
+    bam = _make_pe_bam(tmp_path / "mini.bam", samtools_path)
+    outdir = tmp_path / "peaks"
+    outdir.mkdir()
+    command = (
+        f"{shlex.quote(macs3_path)} callpeak -t {shlex.quote(str(bam))} "
+        f"-f BAMPE -g {GENOME_SIZE} -q 0.05 -B --nomodel "
+        f"--keep-dup all -n test --outdir {shlex.quote(str(outdir))} {extra}"
+    )
+    env = os.environ.copy()
+    env["TMPDIR"] = str(tempdir)
+    result = subprocess.run(
+        command,
+        shell=True,
+        capture_output=True,
+        text=True,
+        executable="/bin/bash",
+        env=env,
+    )
+    assert result.returncode == 0, (
+        f"macs3 via shell failed: {command!r}\nstderr:\n{result.stderr[-1000:]}"
+    )
+    assert (outdir / "test_peaks.narrowPeak").exists()
+
+
 def _write_project(tmp_path, extra_args):
     (tmp_path / "samples.tsv").write_text(SAMPLES_TSV, encoding="utf-8")
+    # YAML single-quoted scalar with '' doubling keeps any embedded shell
+    # quoting (spaces, "$VAR", apostrophes) intact.
+    yaml_extra = "'" + extra_args.replace("'", "''") + "'"
     (tmp_path / "config.yaml").write_text(
         "\n".join(
             [
@@ -172,7 +209,7 @@ def _write_project(tmp_path, extra_args):
                 "multiqc: false",
                 "tool_parameters:",
                 "  macs3:",
-                f'    extra_args: "{extra_args}"',
+                f"    extra_args: {yaml_extra}",
                 "genome_resources:",
                 "  hs:",
                 '    effective_genome_size: "10000000"',
@@ -217,17 +254,10 @@ def _snakemake_run(snakemake_path, tmp_path, target, env):
     )
 
 
-def test_production_macs3_rule_accepts_quoted_tempdir(
-    tmp_path, snakemake_path, macs3_path, samtools_path
+def _run_production_macs3_rule(
+    tmp_path, snakemake_path, macs3_path, samtools_path, env
 ):
-    """The production macs3_callpeak rule runs real macs3 with a quoted
-    space-containing --tempdir from extra_args (legacy profile, staged
-    final.bam)."""
-    tempdir = tmp_path / "temp dir with spaces"
-    tempdir.mkdir()
-    _write_project(tmp_path, f"--nomodel --extsize 200 --tempdir '{tempdir}'")
-    env = _snakemake_env(macs3_path, samtools_path)
-
+    """Create the run marker, stage a final.bam, run production macs3_callpeak."""
     marker = "results/.helixweave/analysis_identity.json"
     result = _snakemake_run(snakemake_path, tmp_path, marker, env)
     assert result.returncode == 0, (
@@ -248,6 +278,35 @@ def test_production_macs3_rule_accepts_quoted_tempdir(
     assert (
         tmp_path / "results" / "T1" / "04_peaks" / "T1" / "T1_peaks.narrowPeak"
     ).exists()
+
+
+def test_production_macs3_rule_accepts_quoted_tempdir(
+    tmp_path, snakemake_path, macs3_path, samtools_path
+):
+    """The production macs3_callpeak rule runs real macs3 with a quoted
+    space-containing --tempdir from extra_args (legacy profile, staged
+    final.bam)."""
+    tempdir = tmp_path / "temp dir with spaces"
+    tempdir.mkdir()
+    _write_project(tmp_path, f"--nomodel --extsize 200 --tempdir '{tempdir}'")
+    env = _snakemake_env(macs3_path, samtools_path)
+    _run_production_macs3_rule(tmp_path, snakemake_path, macs3_path, samtools_path, env)
+
+
+def test_production_macs3_rule_preserves_variable_expansion(
+    tmp_path, snakemake_path, macs3_path, samtools_path
+):
+    """Removing a synonymous --keep-dup all must not re-quote the remaining
+    arguments: --tempdir "$TMPDIR" has to stay double-quoted so the shell
+    still expands it in the production rule."""
+    tempdir = tmp_path / "var tmp dir"
+    tempdir.mkdir()
+    _write_project(
+        tmp_path, '--nomodel --extsize 200 --keep-dup all --tempdir "$TMPDIR"'
+    )
+    env = _snakemake_env(macs3_path, samtools_path)
+    env["TMPDIR"] = str(tempdir)
+    _run_production_macs3_rule(tmp_path, snakemake_path, macs3_path, samtools_path, env)
 
 
 def test_production_run_rejects_abbreviated_keep_dup_conflict(
