@@ -17,11 +17,13 @@ import re
 # encode-pipeline has not been pip-installed (e.g., fresh clones or HPC runs).
 # The fallback adds the repository src/ directory to sys.path temporarily.
 try:
+    from encode_pipeline.config.defaults import BOWTIE2_MAX_INSERT_BY_ASSAY
     from encode_pipeline.config.scientific_policy import (
         ANALYSIS_MARKER_SCHEMA_VERSION,
         SCIENTIFIC_POLICY_REVISION,
     )
     from encode_pipeline.config.validate import (
+        validate_bowtie2_insert_bounds,
         validate_config,
         validate_execution_support,
         validate_picard_reference_resources,
@@ -34,11 +36,13 @@ try:
     from encode_pipeline.qc.histone import classify_histone_target
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(workflow.basedir), "src"))
+    from encode_pipeline.config.defaults import BOWTIE2_MAX_INSERT_BY_ASSAY
     from encode_pipeline.config.scientific_policy import (
         ANALYSIS_MARKER_SCHEMA_VERSION,
         SCIENTIFIC_POLICY_REVISION,
     )
     from encode_pipeline.config.validate import (
+        validate_bowtie2_insert_bounds,
         validate_config,
         validate_execution_support,
         validate_picard_reference_resources,
@@ -161,6 +165,8 @@ SAMPLES = load_and_validate_samples(
     reproducibility_idr_cuttag_broad=BROAD_CUTTAG_IDR_ENABLED,
 )
 
+# SCI-3: Bowtie2 -I/--minins vs per-sample resolved PE max_insert
+validate_bowtie2_insert_bounds(VALIDATED_CONFIG, SAMPLES)
 # Stage 12: reference_fasta gating for Picard metrics
 validate_picard_reference_resources(VALIDATED_CONFIG, SAMPLES)
 # Stage 18: GTF annotation gating for TSS enrichment profiles
@@ -323,6 +329,7 @@ def _effective_config_record_payload():
         "identity": _analysis_identity_hash(),
         "config": _canonical_record_config(),
         "resolved_duplicate_analysis": {sample_id: get_duplicate_policy(sample_id) for sample_id in ALL_SAMPLE_IDS},
+        "resolved_max_insert": {sample_id: get_max_insert(sample_id) for sample_id in ALL_SAMPLE_IDS},
     }
 
 
@@ -472,6 +479,22 @@ def _duplicate_summary_text():
     return f"auto({resolved})" if resolved else "auto"
 
 
+def _max_insert_summary_text():
+    """Effective Bowtie2 PE max_insert text, resolving auto per PE assay in the run."""
+    pe_assays = sorted({sample["assay"] for sample in SAMPLES if sample["layout"] == "PE"})
+    if not pe_assays:
+        return "not_applicable"
+    setting = (
+        VALIDATED_CONFIG.get("tool_parameters", {})
+        .get("bowtie2", {})
+        .get("max_insert", "auto")
+    )
+    if setting != "auto":
+        return str(setting)
+    resolved = ",".join(f"{assay}:{BOWTIE2_MAX_INSERT_BY_ASSAY[assay]}" for assay in pe_assays)
+    return f"auto({resolved})"
+
+
 def _print_effective_config_summary():
     """Print the user-readable effective policy summary (no private paths)."""
     assays = {}
@@ -485,7 +508,8 @@ def _print_effective_config_summary():
         f"scientific_policy_revision={SCIENTIFIC_POLICY_REVISION}",
         f"  mapq={MAPQ} trim={TRIM} binsize={BINSIZE} "
         f"remove_dup={VALIDATED_CONFIG.get('remove_dup')} "
-        f"duplicate_analysis={_duplicate_summary_text()}",
+        f"duplicate_analysis={_duplicate_summary_text()} "
+        f"max_insert={_max_insert_summary_text()}",
         f"  organelle_mode={VALIDATED_CONFIG.get('organelle_mode')} "
         f"blacklist_mode={BLACKLIST_MODE} use_control={USE_CONTROL}",
         f"  samples={len(SAMPLES)} assays={assay_text}",

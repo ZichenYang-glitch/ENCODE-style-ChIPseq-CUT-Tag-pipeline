@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Assay-resolved Bowtie2 paired-end maximum fragment length (`-X` /
+  `tool_parameters.bowtie2.max_insert`, both profiles): `auto` resolves per
+  PE sample by assay (`chipseq: 2000`, `atac: 2000`, `cuttag: 700`,
+  `mnase: 500`) across treatment and control samples, while an explicit
+  positive integer overrides `auto` for the run and SE samples omit `-X`
+  (`resolved_max_insert: "not_applicable"`). Legacy `-X`/`--maxins` tokens
+  in `tool_parameters.bowtie2.extra_args` migrate into `max_insert` when
+  non-conflicting and fail closed on conflicts or invalid values while
+  preserving unrelated shell quoting, and `-I`/`--minins` is validated
+  against the effective per-sample maximum insert length. `scientific_policy_revision`
+  is bumped to 3.
+
 - Assay-based duplicate policy (both profiles): `duplicate_analysis` gains
   an `auto` default that retains duplicates for CUT&Tag and excludes them
   for ChIP-seq/ATAC-seq/MNase-seq, resolved per sample and recorded in the

@@ -623,6 +623,15 @@ tool_parameters:
           type: boolean
           default: false
           description: --no-discordant flag (emitted when true).
+        max_insert:
+          type: integer | string
+          default: "auto"
+          allowed: ["auto", "<positive integer>"]
+          description: >
+            Paired-end maximum fragment length (-X). auto resolves per sample
+            by assay (ChIP-seq: 2000, ATAC-seq: 2000, CUT&Tag: 700,
+            MNase-seq: 500); a positive integer overrides auto for all PE
+            samples in the run. Validated for SE runs but not emitted.
         extra_args:
           type: string
           default: ""

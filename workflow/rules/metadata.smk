@@ -570,6 +570,40 @@ def get_remove_dup(wildcards):
     return "yes" if get_duplicate_policy(wildcards.sample) == "exclude" else "no"
 
 
+# SCI-3 paired-end alignment insert limit: an explicit integer
+# tool_parameters.bowtie2.max_insert applies to every PE sample in the run;
+# "auto" resolves per PE sample by assay (chipseq=2000, atac=2000,
+# cuttag=700, mnase=500). SE samples do not pass -X and record
+# "not_applicable".
+def get_max_insert_for_assay(assay):
+    """Return the auto Bowtie2 PE maximum insert length (-X) for an assay."""
+    if assay not in BOWTIE2_MAX_INSERT_BY_ASSAY:
+        raise ValueError(f"Unsupported assay for Bowtie2 max_insert policy: {assay}")
+    return BOWTIE2_MAX_INSERT_BY_ASSAY[assay]
+
+
+def get_max_insert(sample_id):
+    """Resolve the effective Bowtie2 PE max_insert for a sample.
+
+    Returns an integer for PE samples and "not_applicable" for SE samples.
+    """
+    sample = SAMPLE_MAP[sample_id]
+    if sample["layout"] != "PE":
+        return "not_applicable"
+    setting = _tool_param("bowtie2", "max_insert", "auto")
+    if setting != "auto":
+        return int(setting)
+    return get_max_insert_for_assay(sample["assay"])
+
+
+def get_bowtie2_max_insert_arg(wildcards):
+    """Return the Bowtie2 -X argument for PE samples, or empty string for SE."""
+    resolved = get_max_insert(wildcards.sample)
+    if resolved == "not_applicable":
+        return ""
+    return f"-X {resolved}"
+
+
 def is_updated_profile():
     """True when the run uses the B/C updated analysis chain."""
     return VALIDATED_CONFIG.get("analysis_profile") == "updated"
