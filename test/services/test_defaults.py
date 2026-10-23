@@ -115,7 +115,13 @@ def test_default_validation_service_validates_encode_inputs(tmp_path):
 
     result = service.validate(
         WORKFLOW_ID,
-        WorkflowInputs(config={"samples": str(samples_path), "use_control": False}),
+        WorkflowInputs(
+            config={
+                "samples": str(samples_path),
+                "use_control": False,
+                "blacklist_mode": "off",
+            }
+        ),
     )
 
     assert result.is_success

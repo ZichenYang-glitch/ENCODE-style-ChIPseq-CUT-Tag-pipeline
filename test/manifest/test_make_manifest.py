@@ -56,6 +56,7 @@ def _base_config():
         "multiqc": True,
         "replicate_analysis": True,
         "chipseq_idr": False,
+        "blacklist_mode": "off",
         "qc": {"signal_tracks": True, "summary": True},
         "genome_resources": {
             "hs": {"effective_genome_size": "hs", "chrom_sizes": ""},

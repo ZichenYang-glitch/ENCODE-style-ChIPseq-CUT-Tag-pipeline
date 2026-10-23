@@ -46,13 +46,13 @@
     "blacklist_mode": {
       "type": "string",
       "enum": ["off", "copies", "analysis"],
-      "default": "copies",
-      "description": "off=raw; copies=QC copies; analysis=filtered analysis branch (updated only)."
+      "default": "analysis",
+      "description": "off=raw; copies=QC copies; analysis=filtered analysis branch in both profiles."
     },
     "organelle_mode": {
       "type": "string",
       "enum": ["auto", "exclude", "report", "keep"],
-      "default": "keep"
+      "default": "auto"
     },
     "duplicate_backend": {
       "type": "string",

@@ -49,26 +49,26 @@ analysis_profile:
   default: legacy
   allowed: [legacy, updated]
   description: >
-    Analysis policy bundle. legacy preserves existing scientific inputs,
-    outputs, and paths. updated applies D-02/D-03/D-04/D-06 defaults.
+    Analysis policy bundle. Both profiles apply the current scientific policy;
+    legacy keeps the original backend dispatch, updated derives a filtered analysis BAM.
     updated must be explicit; it is not inferred from a missing key.
 
 blacklist_mode:
   type: string
-  default: copies
+  default: analysis
   allowed: [off, copies, analysis]
   description: >
     Canonical blacklist policy. off=raw; copies=QC copies; analysis=filtered
-    analysis branch (analysis_profile=updated only). In legacy configs the
+    analysis branch across both legacy and updated profiles. In legacy configs the
     historical qc.blacklist_filter alias maps true→copies and false→off.
 
 organelle_mode:
   type: string
-  default: keep
+  default: auto
   allowed: [auto, exclude, report, keep]
   description: >
-    Organelle policy. auto applies assay defaults; exclude/report/keep are
-    explicit. Legacy profile supports keep only.
+    Organelle policy across both profiles. auto applies assay defaults;
+    exclude/report/keep are explicit overrides.
 
 duplicate_backend:
   type: string

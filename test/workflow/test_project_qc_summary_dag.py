@@ -53,6 +53,7 @@ def _prepare_project(workdir, assays, summary, missing_fastq):
         "use_control": False,
         "multiqc": False,
         "replicate_analysis": False,
+        "blacklist_mode": "off",
         "genome_resources": {
             "tiny": {
                 "effective_genome_size": 1000,

@@ -32,9 +32,7 @@ def _fastqc_reports_for_samples(sample_ids):
 
 
 def _analysis_targets():
-    """Updated-profile derived analysis BAMs (legacy uses final.bam directly)."""
-    if not is_updated_profile():
-        return []
+    """Canonical analysis BAMs, markers, and QC views across both profiles."""
     targets = [f"{RAW_OUTDIR}/.helixweave/analysis_identity.json"]
     for sample_id in ACTIVE_SAMPLE_IDS:
         targets.append(analysis_bam(sample_id))

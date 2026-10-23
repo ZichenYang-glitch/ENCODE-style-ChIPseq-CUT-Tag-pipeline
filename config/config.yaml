@@ -78,6 +78,12 @@ multiqc: true
 #     # title: ""               # optional string → --title "quoted value"
 #     # extra_args: ""
 
+# Reference filtering policies (SCI-4).
+# blacklist_mode: analysis (default) | off | copies
+# organelle_mode: auto (default) | exclude | report | keep
+blacklist_mode: analysis
+organelle_mode: auto
+
 # Genome-specific resources for QC and ENCODE-like metrics (Stage 2+).
 # Keys are genome labels used in the sample sheet's "genome" column.
 #
@@ -96,7 +102,7 @@ genome_resources:
   hs:
     effective_genome_size: "hs"
     chrom_sizes: ""
-    blacklist: ""
+    blacklist: "config/blacklist.bed"
     gtf: ""
     reference_fasta: ""
 
@@ -171,7 +177,7 @@ chipseq_idr: false
 # Each switch accepts boolean or string boolean (true/false).
 # Missing qc block defaults to all switches enabled.
 qc:
-  blacklist_filter: true
+  blacklist_filter: false
   frip: true
   library_complexity: true
   nrf_pbc: true

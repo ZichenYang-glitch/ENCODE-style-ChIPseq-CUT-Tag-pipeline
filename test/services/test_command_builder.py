@@ -450,7 +450,11 @@ def test_encode_validated_options_reach_snakemake_cores(
     registry = _make_registry()
     plan = _make_pending_plan(
         inputs_snapshot={
-            "config": {"threads": 8, "use_control": False},
+            "config": {
+                "threads": 8,
+                "use_control": False,
+                "blacklist_mode": "off",
+            },
             "samples": [
                 {
                     "sample": "S1",

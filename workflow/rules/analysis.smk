@@ -1,15 +1,12 @@
-# analysis.smk — run identity marker and updated-profile derived analysis BAM
+# analysis.smk — run identity marker and canonical analysis BAM view
 # =============================================================================
-# The identity marker/effective-config rule runs in both profiles; legacy runs
-# keep using final.bam directly. Updated runs keep a marked final BAM and
-# derive analysis.bam for duplicate/organelle-filtered consumers.
-# The template filter imports scripts/blacklist_filter.py
+# The identity marker/effective-config rule runs in both profiles. Both profiles
+# produce a canonical analysis.bam derived from final.bam to enforce resolved
+# duplicate, organelle, and optional blacklist filtering policies.
 
 
 def _analysis_input(wildcards, kind):
-    """Reject legacy execution even when an updated target is requested."""
-    if not is_updated_profile():
-        raise ValueError("analysis outputs are only available when analysis_profile=updated")
+    """Return the input final BAM/BAI path for analysis view derivation."""
     suffix = "final.bam" if kind == "bam" else "final.bam.bai"
     return f"{RAW_OUTDIR}/{wildcards.sample}/02_align/{wildcards.sample}.{suffix}"
 
@@ -78,47 +75,37 @@ rule prepare_analysis_bam:
         exclude_dup=lambda wc: get_duplicate_policy(wc.sample) == "exclude",
         organelle_mode=lambda wc: get_organelle_mode(wc),
         organelle_chroms=lambda wc: " ".join(get_organelle_chroms(wc)),
+        organelle_chroms_explicit=lambda wc: "true" if get_organelle_chroms_explicit(wc.sample) else "false",
         layout=lambda wc: SAMPLE_MAP[wc.sample]["layout"],
         blacklist_mode=BLACKLIST_MODE,
         script=f"{workflow.basedir}/../scripts/filter_blacklist_templates.py",
+        blacklist_module=f"{workflow.basedir}/../scripts/blacklist_filter.py",
     shell:
         """
         set -e -o pipefail
-        TMPD=$(mktemp -d)
-        trap 'rm -rf "$TMPD"' EXIT
-        TMP_BAM="$TMPD/analysis.bam"
-        TMP_FILTERED="$TMPD/filtered.bam"
-        FILTER_ARGS=()
+        EXTRA_ARGS=()
         if [[ "{params.exclude_dup}" == "True" ]]; then
-            FILTER_ARGS+=(-F 0x400)
+            EXTRA_ARGS+=(--exclude-dup)
         fi
-        if [[ "{params.organelle_mode}" == "exclude" && -n "{params.organelle_chroms}" ]]; then
-            samtools view -h -@ {threads} "${{FILTER_ARGS[@]}}" {input.bam:q} \
-                | awk -v omit="{params.organelle_chroms}" \
-                    'BEGIN {{ n=split(omit,a," "); for (i=1;i<=n;i++) drop[a[i]]=1 }}
-                     /^@/ {{ print; next }}
-                     !($3 in drop) {{ print }}' \
-                | samtools view -b -@ {threads} -o "$TMP_BAM" -
-        else
-            samtools view -@ {threads} -b "${{FILTER_ARGS[@]}}" -o "$TMP_BAM" {input.bam:q}
+        if [[ "{params.organelle_chroms_explicit}" == "true" ]]; then
+            EXTRA_ARGS+=(--organelle-chroms-explicit)
         fi
-        mkdir -p "$(dirname {output.dropped:q})"
-        if [[ "{params.blacklist_mode}" == "analysis" ]]; then
-            python3 {params.script:q} \
-                --bam "$TMP_BAM" \
-                --blacklist {input.blacklist:q} \
-                --layout {params.layout:q} \
-                --output "$TMP_FILTERED" \
-                --dropped-count {output.dropped:q} \
-                --sample {wildcards.sample:q}
-        else
-            mv "$TMP_BAM" "$TMP_FILTERED"
-            printf 'sample\\tlayout\\tdropped_templates\\tdropped_alignments\\tkept_alignments\\ttotal_alignments\\n' \
-                >{output.dropped:q}
-            printf '%s\\t%s\\t0\\t0\\tNA\\tNA\\n' \
-                {wildcards.sample:q} {params.layout:q} >>{output.dropped:q}
+        if [[ -n "{params.organelle_chroms}" ]]; then
+            EXTRA_ARGS+=(--organelle-chroms {params.organelle_chroms})
         fi
-        mv "$TMP_FILTERED" {output.bam:q}
+        if [[ "{params.blacklist_mode}" == "analysis" && -n "{input.blacklist}" ]]; then
+            EXTRA_ARGS+=(--blacklist {input.blacklist:q})
+        fi
+        mkdir -p "$(dirname {output.bam:q})" "$(dirname {output.dropped:q})"
+        python3 {params.script:q} \
+            --bam {input.bam:q} \
+            --layout {params.layout:q} \
+            --output {output.bam:q} \
+            --dropped-count {output.dropped:q} \
+            --sample {wildcards.sample:q} \
+            --organelle-mode {params.organelle_mode:q} \
+            --threads {threads} \
+            "${{EXTRA_ARGS[@]}}"
         samtools index -@ {threads} {output.bam:q}
         """
 
@@ -126,25 +113,33 @@ rule prepare_analysis_bam:
 rule mito_fraction:
     input:
         identity=f"{RAW_OUTDIR}/.helixweave/analysis_identity.json",
-        bam=lambda wc: _analysis_input(wc, "bam"),
+        bam=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
+        bai=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam.bai",
     output:
         tsv=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.mito_fraction.tsv",
     conda:
         "../envs/samtools.yml"
+    threads: 1
     params:
         chroms=lambda wc: " ".join(get_organelle_chroms(wc)),
+        is_explicit=lambda wc: "true" if get_organelle_chroms_explicit(wc.sample) else "false",
         mode=lambda wc: get_organelle_mode(wc),
+        script=f"{workflow.basedir}/../scripts/calc_organelle_metrics.py",
     shell:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output.tsv:q})"
-        samtools idxstats {input.bam:q} \
-            | awk -v omit="{params.chroms}" -v sample="{wildcards.sample}" -v mode="{params.mode}" \
-                'BEGIN {{ n=split(omit,a," "); for (i=1;i<=n;i++) drop[a[i]]=1; total=0; organelle=0; print "sample\torganelle_reads\ttotal_mapped_reads\tfraction\tmode" }}
-                 {{ total += $3; if ($1 in drop) organelle += $3 }}
-                 END {{
-                     frac = (total > 0) ? organelle / total : 0;
-                     print sample "\t" organelle "\t" total "\t" sprintf("%.6f", frac) "\t" mode;
-                 }}' \
-                >{output.tsv:q}
+        EXTRA_ARGS=()
+        if [[ "{params.is_explicit}" == "true" ]]; then
+            EXTRA_ARGS+=(--is-explicit)
+        fi
+        if [[ -n "{params.chroms}" ]]; then
+            EXTRA_ARGS+=(--chroms {params.chroms})
+        fi
+        python3 {params.script:q} \
+            --bam {input.bam:q} \
+            --sample {wildcards.sample:q} \
+            --mode {params.mode:q} \
+            --output {output.tsv:q} \
+            "${{EXTRA_ARGS[@]}}"
         """

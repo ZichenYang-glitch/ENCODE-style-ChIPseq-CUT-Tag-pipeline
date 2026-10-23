@@ -1027,6 +1027,7 @@ def test_bowtie2_max_insert_workspace_materialization_roundtrip_is_stable(tmp_pa
             config={
                 "samples": str(samples_tsv),
                 "threads": 1,
+                "blacklist_mode": "off",
                 "genome_resources": {"hs": {"effective_genome_size": "hs"}},
                 "tool_parameters": {
                     "bowtie2": {

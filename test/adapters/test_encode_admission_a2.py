@@ -410,6 +410,7 @@ def _inputs(root: Path) -> WorkflowInputs:
             "threads": 1,
             "reference_mode": "legacy",
             "external_control_policy": "warn",
+            "blacklist_mode": "off",
         },
         samples=[
             {
@@ -510,6 +511,7 @@ def test_cli_accepts_updated_execution(tmp_path: Path):
             "threads": 1,
             "use_control": False,
             "analysis_profile": "updated",
+            "blacklist_mode": "off",
             "genome_resources": {"hg38": {"effective_genome_size": "hs"}},
         },
     )

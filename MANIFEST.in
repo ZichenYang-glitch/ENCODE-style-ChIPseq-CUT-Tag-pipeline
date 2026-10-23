@@ -6,6 +6,7 @@ include scripts/blacklist_filter.py
 include scripts/calc_cuttag_fragment_size.py
 include scripts/calc_frip.py
 include scripts/calc_nrf_pbc.py
+include scripts/calc_organelle_metrics.py
 include scripts/compute_consensus.py
 include scripts/filter_blacklist_templates.py
 include scripts/gtf_to_tss_bed.py

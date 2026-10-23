@@ -436,6 +436,8 @@ def tmp_config(tmp_path):
         resolved = dict(config)
         if "samples" not in resolved:
             resolved["samples"] = str(samples_path)
+        if "blacklist_mode" not in resolved and "genome_resources" not in resolved:
+            resolved["blacklist_mode"] = "off"
 
         with open(config_path, "w", encoding="utf-8") as fh:
             _write_yaml(fh, resolved)

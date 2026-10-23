@@ -322,6 +322,7 @@ def _canonical_record_config():
 
 def _effective_config_record_payload():
     """Merged, normalized configuration recorded for the actual run."""
+    _wc = lambda sid: type("Wildcards", (), {"sample": sid})()
     return {
         "analysis_profile": VALIDATED_CONFIG.get("analysis_profile"),
         "config_schema_version": VALIDATED_CONFIG.get("config_schema_version"),
@@ -330,6 +331,8 @@ def _effective_config_record_payload():
         "config": _canonical_record_config(),
         "resolved_duplicate_analysis": {sample_id: get_duplicate_policy(sample_id) for sample_id in ALL_SAMPLE_IDS},
         "resolved_max_insert": {sample_id: get_max_insert(sample_id) for sample_id in ALL_SAMPLE_IDS},
+        "resolved_organelle_mode": {sample_id: get_organelle_mode(_wc(sample_id)) for sample_id in ALL_SAMPLE_IDS},
+        "resolved_organelle_chroms": {sample_id: get_organelle_chroms(_wc(sample_id)) for sample_id in ALL_SAMPLE_IDS},
     }
 
 
