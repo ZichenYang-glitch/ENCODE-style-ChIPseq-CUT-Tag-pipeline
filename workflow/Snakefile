@@ -484,11 +484,7 @@ def _max_insert_summary_text():
     pe_assays = sorted({sample["assay"] for sample in SAMPLES if sample["layout"] == "PE"})
     if not pe_assays:
         return "not_applicable"
-    setting = (
-        VALIDATED_CONFIG.get("tool_parameters", {})
-        .get("bowtie2", {})
-        .get("max_insert", "auto")
-    )
+    setting = VALIDATED_CONFIG.get("tool_parameters", {}).get("bowtie2", {}).get("max_insert", "auto")
     if setting != "auto":
         return str(setting)
     resolved = ",".join(f"{assay}:{BOWTIE2_MAX_INSERT_BY_ASSAY[assay]}" for assay in pe_assays)

@@ -103,7 +103,11 @@ with `-X 700` (700 bp), covering sub-nucleosomal, mono-, di-, and
 tri-nucleosomal tethered Tn5 fragments without opening a 2000 bp window.
 Resolution lives in `get_max_insert` (`workflow/rules/metadata.smk`) and
 applies identically in `legacy` and `updated` profiles as well as treatment
-and control samples.
+and control samples. Because `max_insert` sets Bowtie2's `-X` paired-end
+alignment parameter (rather than a post-alignment TLEN filter), when the
+individual read length exceeds `-X` (for example 150 bp reads with `-X 100`),
+Bowtie2 can still align templates up to the read length as concordant pairs
+(`0x2`).
 
 ### Read extension (bamCoverage)
 

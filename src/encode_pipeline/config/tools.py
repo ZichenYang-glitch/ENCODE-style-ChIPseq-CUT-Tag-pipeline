@@ -15,8 +15,264 @@ __all__ = [
 _KEEP_DUP_CANONICAL = "--keep-dup"
 _BOWTIE2_MAXINS_CANONICAL = "--maxins"
 _BOWTIE2_MININS_CANONICAL = "--minins"
-_BUNDLED_BOWTIE2_X_RE = re.compile(r"^-[bfqzhcradtC]+X")
-_BOWTIE2_SHORT_I_RE = re.compile(r"^-[bfqzhcradtC]*I(.*)$")
+_BOWTIE2_SHORT_NO_ARG = frozenset("Cacdfhqrtz")
+_BOWTIE2_SHORT_OTHER_ARG = frozenset("1235DFLMNOPQRSUbgiklpsuvwx")
+_BUNDLED_BOWTIE2_X_RE = re.compile(r"^-[fqzhcradtC]+X")
+_BOWTIE2_SHORT_I_RE = re.compile(r"^-[fqzhcradtC]*I(.*)$")
+
+# Exact long options consumed by the pinned Bowtie 2.5.5 Perl wrapper
+# (Getopt::Long configured with no_auto_abbrev).
+_BOWTIE2_WRAPPER_ARG_LONG_OPTIONS = frozenset(
+    {
+        "al",
+        "al-bz2",
+        "al-conc",
+        "al-conc-bz2",
+        "al-conc-gz",
+        "al-conc-lz4",
+        "al-conc-zst",
+        "al-gz",
+        "al-lz4",
+        "al-zst",
+        "interleaved",
+        "log-file",
+        "reads",
+        "ref-string",
+        "reference-string",
+        "tab5",
+        "tab6",
+        "temp-directory",
+        "un",
+        "un-bz2",
+        "un-conc",
+        "un-conc-bz2",
+        "un-conc-gz",
+        "un-conc-lz4",
+        "un-conc-zst",
+        "un-gz",
+        "un-lz4",
+        "un-mates",
+        "un-mates-bz2",
+        "un-mates-gz",
+        "un-mates-lz4",
+        "un-mates-zst",
+        "un-zst",
+    }
+)
+_BOWTIE2_WRAPPER_NO_ARG_LONG_OPTIONS = frozenset(
+    {
+        "bam",
+        "debug",
+        "keep",
+        "large-index",
+        "no-named-pipes",
+        "no-unal",
+        "sanitized",
+        "verbose",
+    }
+)
+
+# Long option tables from the pinned ``bowtie2-align-s --wrapper basic-0 --arg-desc``
+# (GNU getopt_long, which supports unambiguous prefix matching).
+_BOWTIE2_ALIGN_ARG_LONG_OPTIONS = frozenset(
+    {
+        "12",
+        "1mm-minlen",
+        "Q1",
+        "Q2",
+        "RG",
+        "cachelim",
+        "cachesz",
+        "cp-ival",
+        "cp-min",
+        "desc-exp",
+        "desc-fmops",
+        "desc-kb",
+        "desc-landing",
+        "dp-fail-streak",
+        "dp-fails",
+        "dpad",
+        "ee-fail-streak",
+        "extends",
+        "fail-streak",
+        "gbar",
+        "index",
+        "interleaved",
+        "khits",
+        "local-seed-cache-sz",
+        "log-dp",
+        "log-dp-opp",
+        "lowseeds",
+        "ma",
+        "mapq-v",
+        "maxins",
+        "met",
+        "met-file",
+        "metrics",
+        "metrics-file",
+        "min-score",
+        "minins",
+        "mp",
+        "multiseed",
+        "n-ceil",
+        "np",
+        "orig",
+        "output",
+        "partition",
+        "policy",
+        "preset",
+        "quals",
+        "qupto",
+        "rdg",
+        "reads-per-batch",
+        "rfg",
+        "rg",
+        "rg-id",
+        "sam-RG",
+        "sam-opt-config",
+        "sam-rg",
+        "sam-rg-id",
+        "sample",
+        "score-min",
+        "seed",
+        "seed-boost",
+        "seed-cache-sz",
+        "seed-off",
+        "seed-rounds",
+        "seedival",
+        "seedlen",
+        "seedmms",
+        "skip",
+        "snpfrac",
+        "snpphred",
+        "tab5",
+        "tab6",
+        "thread-ceiling",
+        "thread-piddir",
+        "threads",
+        "tighten",
+        "trim-to",
+        "trim3",
+        "trim5",
+        "ug-fail-streak",
+        "ug-fails",
+        "unpaired",
+        "upto",
+        "wrapper",
+    }
+)
+_BOWTIE2_ALIGN_NO_ARG_LONG_OPTIONS = frozenset(
+    {
+        "1mm-upfront",
+        "454",
+        "align-paired-reads",
+        "all",
+        "arg-desc",
+        "bwa-sw-like",
+        "cache",
+        "contain",
+        "desc-prioritize",
+        "deterministic-seeds",
+        "dovetail",
+        "end-to-end",
+        "exact-upfront",
+        "fast",
+        "fast-local",
+        "ff",
+        "filepar",
+        "fr",
+        "fullref",
+        "hadoopout",
+        "help",
+        "ignore-quals",
+        "int-quals",
+        "integer-quals",
+        "ion-torrent",
+        "local",
+        "mapq-extra",
+        "mapq-print-inputs",
+        "met-read",
+        "met-stderr",
+        "metrics-per-read",
+        "metrics-stderr",
+        "mm",
+        "mmsweep",
+        "no-1mm-upfront",
+        "no-HD",
+        "no-SQ",
+        "no-cache",
+        "no-contain",
+        "no-deterministic-seeds",
+        "no-discordant",
+        "no-dovetail",
+        "no-exact-upfront",
+        "no-extend",
+        "no-hd",
+        "no-head",
+        "no-mixed",
+        "no-overlap",
+        "no-sq",
+        "no-sse8",
+        "no-unal",
+        "no-ungapped",
+        "nofw",
+        "non-deterministic",
+        "nondeterministic",
+        "norc",
+        "omit-sec-seq",
+        "overhang",
+        "overlap",
+        "passthrough",
+        "pause",
+        "phred33",
+        "phred33-quals",
+        "phred64",
+        "phred64-quals",
+        "preserve-tags",
+        "qc-filter",
+        "qseq",
+        "quiet",
+        "read-times",
+        "refidx",
+        "reorder",
+        "rf",
+        "sam-append-comment",
+        "sam-no-hd",
+        "sam-no-head",
+        "sam-no-qname-trunc",
+        "sam-no-sq",
+        "sam-noHD",
+        "sam-noSQ",
+        "sam-nohead",
+        "sam-nosq",
+        "sam-omit-sec-seq",
+        "sanity",
+        "scan-narrowed",
+        "seed-summ",
+        "seed-summary",
+        "sensitive",
+        "sensitive-local",
+        "shmem",
+        "show-rand-seed",
+        "soft-clipped-unmapped-tlen",
+        "solexa-quals",
+        "solexa1.3-quals",
+        "sse8",
+        "startverbose",
+        "test-25",
+        "time",
+        "tri",
+        "ungapped",
+        "usage",
+        "verbose",
+        "version",
+        "very-fast",
+        "very-fast-local",
+        "very-sensitive",
+        "very-sensitive-local",
+        "xeq",
+    }
+)
 
 _EXTRA_ARGS_WHITESPACE = " \t\n\r"
 
@@ -214,22 +470,52 @@ def _normalize_bowtie2_max_insert(raw, error_cls):
     raise error_cls(f"{label} must be 'auto' or a positive integer, got {raw!r}")
 
 
-def _migrate_bowtie2_extra_args(max_insert, extra, error_cls):
-    """Normalize ``-X``/``--maxins`` and validate ``-I``/``--minins`` in Bowtie2 extra_args.
+def _bowtie2_option_consumes_next_token(value: str) -> bool:
+    """Return True when ``value`` is a non-insert Bowtie2 option that consumes the next token."""
+    if value.startswith("--"):
+        if len(value) <= 2 or "=" in value:
+            return False
+        opt_name = value[2:]
+        if (
+            opt_name in _BOWTIE2_WRAPPER_ARG_LONG_OPTIONS
+            or opt_name in _BOWTIE2_ALIGN_ARG_LONG_OPTIONS
+        ):
+            return True
+        if (
+            opt_name in _BOWTIE2_WRAPPER_NO_ARG_LONG_OPTIONS
+            or opt_name in _BOWTIE2_ALIGN_NO_ARG_LONG_OPTIONS
+        ):
+            return False
+        arg_matches = sum(
+            1 for opt in _BOWTIE2_ALIGN_ARG_LONG_OPTIONS if opt.startswith(opt_name)
+        )
+        no_arg_matches = sum(
+            1 for opt in _BOWTIE2_ALIGN_NO_ARG_LONG_OPTIONS if opt.startswith(opt_name)
+        )
+        return arg_matches == 1 and no_arg_matches == 0
 
-    - Legacy ``-X`` / ``--maxins`` (including attached ``-X<N>``, ``=`` form,
-      and unambiguous ``getopt_long`` abbreviations ``--max``, ``--maxi``,
-      ``--maxin``, ``--maxins``) is migrated into ``max_insert`` when
-      ``max_insert`` is ``"auto"``, or stripped when it matches an explicit
-      ``max_insert``.
-    - Conflicting ``-X``/``--maxins`` values (either against ``max_insert`` or
-      multiple distinct values in ``extra_args``), bundled ``-<flags>X``, or
-      invalid values (``<= 0``, ``-X=N``, non-integers, missing argument) are
-      rejected with migration guidance instead of relying on argument order.
-    - ``-I`` / ``--minins`` (including attached ``-I<N>``, bundled
-      ``-<flags>I``, ``=`` form, and unambiguous ``--mini``, ``--minin``,
-      ``--minins``) is validated as a non-negative integer and checked against
-      ``effective_max_insert`` while remaining in ``extra_args``.
+    if value.startswith("-") and len(value) > 1:
+        rest = value[1:]
+        pos = 0
+        while pos < len(rest) and rest[pos] in _BOWTIE2_SHORT_NO_ARG:
+            pos += 1
+        if pos >= len(rest):
+            return False
+        first_arg_opt = rest[pos]
+        if first_arg_opt in _BOWTIE2_SHORT_OTHER_ARG:
+            return pos + 1 == len(rest)
+        return False
+
+    return False
+
+
+def _scan_bowtie2_insert_options(extra, error_cls):
+    """Scan Bowtie2 extra_args for ``-X``/``--maxins`` and ``-I``/``--minins``.
+
+    Respects the pinned Bowtie2 option table and option-argument boundaries so
+    tokens consumed as values of other options (such as ``--rg-id '-X500'``,
+    ``--rg-id '-I5000'``, or ``-S -X500``) are skipped instead of being
+    misclassified as insert-length flags.
     """
     tokens = _scan_extra_args_tokens("bowtie2", extra, error_cls)
     removed = set()
@@ -238,6 +524,8 @@ def _migrate_bowtie2_extra_args(max_insert, extra, error_cls):
     index = 0
     while index < len(tokens):
         value, _start, _end = tokens[index]
+        if value == "--":
+            break
         name, sep, attached = value.partition("=")
 
         if _BUNDLED_BOWTIE2_X_RE.match(value):
@@ -350,7 +638,34 @@ def _migrate_bowtie2_extra_args(max_insert, extra, error_cls):
             seen_min_insert = parsed_min
             continue
 
-        index += 1
+        if _bowtie2_option_consumes_next_token(value):
+            index += 2
+        else:
+            index += 1
+
+    return tokens, removed, migrated_max_insert, seen_min_insert
+
+
+def _migrate_bowtie2_extra_args(max_insert, extra, error_cls):
+    """Normalize ``-X``/``--maxins`` and validate ``-I``/``--minins`` in Bowtie2 extra_args.
+
+    - Legacy ``-X`` / ``--maxins`` (including attached ``-X<N>``, ``=`` form,
+      and unambiguous ``getopt_long`` abbreviations ``--max``, ``--maxi``,
+      ``--maxin``, ``--maxins``) is migrated into ``max_insert`` when
+      ``max_insert`` is ``"auto"``, or stripped when it matches an explicit
+      ``max_insert``.
+    - Conflicting ``-X``/``--maxins`` values (either against ``max_insert`` or
+      multiple distinct values in ``extra_args``), bundled ``-<flags>X``, or
+      invalid values (``<= 0``, ``-X=N``, non-integers, missing argument) are
+      rejected with migration guidance instead of relying on argument order.
+    - ``-I`` / ``--minins`` (including attached ``-I<N>``, bundled
+      ``-<flags>I``, ``=`` form, and unambiguous ``--mini``, ``--minin``,
+      ``--minins``) is validated as a non-negative integer and checked against
+      ``effective_max_insert`` while remaining in ``extra_args``.
+    """
+    tokens, removed, migrated_max_insert, seen_min_insert = (
+        _scan_bowtie2_insert_options(extra, error_cls)
+    )
 
     effective_max_insert = max_insert
     if migrated_max_insert is not None:
@@ -397,36 +712,9 @@ def extract_bowtie2_min_insert(extra, error_cls=ValueError):
     """Return the validated ``-I``/``--minins`` integer from ``extra``, or None."""
     if not extra:
         return None
-    tokens = _scan_extra_args_tokens("bowtie2", extra, error_cls)
-    seen_min_insert = None
-    index = 0
-    while index < len(tokens):
-        value, _start, _end = tokens[index]
-        name, sep, attached = value.partition("=")
-        short_i_match = (
-            None if value.startswith("--") else _BOWTIE2_SHORT_I_RE.match(value)
-        )
-        is_long_minins = _is_bowtie2_minins_option(name)
-        if short_i_match is not None:
-            attached_i = short_i_match.group(1)
-            if attached_i == "":
-                flag_value = tokens[index + 1][0] if index + 1 < len(tokens) else ""
-                index += 2
-            else:
-                flag_value = attached_i
-                index += 1
-            seen_min_insert = int(flag_value)
-            continue
-        if is_long_minins:
-            if sep:
-                flag_value = attached
-                index += 1
-            else:
-                flag_value = tokens[index + 1][0] if index + 1 < len(tokens) else ""
-                index += 2
-            seen_min_insert = int(flag_value)
-            continue
-        index += 1
+    _tokens, _removed, _migrated_max, seen_min_insert = _scan_bowtie2_insert_options(
+        extra, error_cls
+    )
     return seen_min_insert
 
 

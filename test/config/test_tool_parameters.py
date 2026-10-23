@@ -1052,3 +1052,104 @@ def test_bowtie2_max_insert_workspace_materialization_roundtrip_is_stable(tmp_pa
         revalidated["tool_parameters"]["bowtie2"]
         == rendered_cfg["tool_parameters"]["bowtie2"]
     )
+
+
+@pytest.mark.parametrize(
+    "bowtie2_block,expected_max_insert,expected_extra,expected_bash_argv",
+    [
+        (
+            {"max_insert": 2000, "extra_args": "--rg-id '-X500' --rg 'SM:sample 1'"},
+            2000,
+            "--rg-id '-X500' --rg 'SM:sample 1'",
+            ["--rg-id", "-X500", "--rg", "SM:sample 1"],
+        ),
+        (
+            {"max_insert": 2000, "extra_args": "--rg-id=-X500 --rg SM:sample1"},
+            2000,
+            "--rg-id=-X500 --rg SM:sample1",
+            ["--rg-id=-X500", "--rg", "SM:sample1"],
+        ),
+        (
+            {"max_insert": "auto", "extra_args": "--rg-id '-X500' --rg 'SM:sample 1'"},
+            "auto",
+            "--rg-id '-X500' --rg 'SM:sample 1'",
+            ["--rg-id", "-X500", "--rg", "SM:sample 1"],
+        ),
+        (
+            {"max_insert": 700, "extra_args": "--rg-id '-I5000' --rg 'SM:sample 1'"},
+            700,
+            "--rg-id '-I5000' --rg 'SM:sample 1'",
+            ["--rg-id", "-I5000", "--rg", "SM:sample 1"],
+        ),
+        (
+            {"max_insert": 700, "extra_args": "--rg-id=-I5000 --rg SM:sample1"},
+            700,
+            "--rg-id=-I5000 --rg SM:sample1",
+            ["--rg-id=-I5000", "--rg", "SM:sample1"],
+        ),
+        (
+            {"max_insert": "auto", "extra_args": "--rg-id '-I5000'"},
+            "auto",
+            "--rg-id '-I5000'",
+            ["--rg-id", "-I5000"],
+        ),
+        (
+            {"max_insert": 2000, "extra_args": "--rg-id '--maxins=500'"},
+            2000,
+            "--rg-id '--maxins=500'",
+            ["--rg-id", "--maxins=500"],
+        ),
+        (
+            {"max_insert": 700, "extra_args": "--rg-id '--minins=5000'"},
+            700,
+            "--rg-id '--minins=5000'",
+            ["--rg-id", "--minins=5000"],
+        ),
+        (
+            {"max_insert": 2000, "extra_args": "--rg-i '-X500' -S '-I5000'"},
+            2000,
+            "--rg-i '-X500' -S '-I5000'",
+            ["--rg-i", "-X500", "-S", "-I5000"],
+        ),
+        (
+            {"max_insert": "auto", "extra_args": "--rg-id '-X500' -X 1200"},
+            1200,
+            "--rg-id '-X500'",
+            ["--rg-id", "-X500"],
+        ),
+        (
+            {"max_insert": "auto", "extra_args": "--rg-id '-I5000' -X 700 -I 100"},
+            700,
+            "--rg-id '-I5000' -I 100",
+            ["--rg-id", "-I5000", "-I", "100"],
+        ),
+        (
+            {"max_insert": 700, "extra_args": "-- --maxins=500 -I 5000"},
+            700,
+            "-- --maxins=500 -I 5000",
+            ["--", "--maxins=500", "-I", "5000"],
+        ),
+    ],
+)
+def test_bowtie2_other_option_values_resembling_insert_flags_are_not_misclassified(
+    tmp_path, bowtie2_block, expected_max_insert, expected_extra, expected_bash_argv
+):
+    first_cfg = validate_config(
+        _make_config(tmp_path, tool_parameters={"bowtie2": bowtie2_block})
+    )
+    first = first_cfg["tool_parameters"]["bowtie2"]
+    assert first["max_insert"] == expected_max_insert
+    assert first["extra_args"] == expected_extra
+    assert _bash_argv(first["extra_args"]) == expected_bash_argv
+
+    # Sample-level minins vs max_insert check also ignores option values like --rg-id '-I5000'.
+    validate_bowtie2_insert_bounds(
+        first_cfg,
+        [
+            {"id": "M1", "layout": "PE", "assay": "mnase"},
+            {"id": "C1", "layout": "PE", "assay": "cuttag"},
+        ],
+    )
+
+    second_cfg = validate_config(first_cfg)
+    assert second_cfg["tool_parameters"]["bowtie2"] == first

@@ -762,3 +762,157 @@ def test_production_bowtie2_rule_migrates_extra_args_and_preserves_quotes_and_va
     )
     assert failed.returncode != 0
     assert "tool_parameters.bowtie2.max_insert" in (failed.stdout + failed.stderr)
+
+
+@pytest.mark.parametrize(
+    "rg_extra_args,expected_rg_id",
+    [
+        ("--rg-id '-X500' --rg 'SM:sample 1'", "ID:-X500"),
+        ("--rg-id=-X500 --rg 'SM:sample 1'", "ID:-X500"),
+        ("--rg-id '-I5000' --rg 'SM:sample 1'", "ID:-I5000"),
+        ("--rg-id=-I5000 --rg 'SM:sample 1'", "ID:-I5000"),
+    ],
+)
+def test_production_bowtie2_rule_preserves_rg_id_values_resembling_insert_flags(
+    tmp_path,
+    snakemake_path,
+    bowtie2_path,
+    samtools_path,
+    reference_bundle,
+    rg_extra_args,
+    expected_rg_id,
+):
+    """Verify on the production bowtie2_align rule that option values such as
+    --rg-id '-X500' and --rg-id '-I5000' are preserved into @RG headers while
+    max_insert=2000 still admits 600, 1200, and 2000 bp pairs as proper pairs.
+    """
+    ref_seq = reference_bundle["seq"]
+    idx_prefix = reference_bundle["idx_prefix"]
+    env = _snakemake_env(bowtie2_path, samtools_path)
+
+    pairs = [
+        ("p600", *_emit_pair(ref_seq, 2_000, 600, "F1R2")),
+        ("p1200", *_emit_pair(ref_seq, 6_000, 1200, "F1R2")),
+        ("p2000", *_emit_pair(ref_seq, 12_000, 2000, "F2R1")),
+        ("p2001", *_emit_pair(ref_seq, 18_000, 2001, "F1R2")),
+    ]
+    workdir = tmp_path / "rg_id_run"
+    workdir.mkdir()
+    r1 = workdir / "S1_R1.fq.gz"
+    r2 = workdir / "S1_R2.fq.gz"
+    with (
+        gzip.open(r1, "wt", encoding="utf-8") as f1,
+        gzip.open(r2, "wt", encoding="utf-8") as f2,
+    ):
+        for qname, s1, s2 in pairs:
+            f1.write(f"@{qname}/1\n{s1}\n+\n{QUAL}\n")
+            f2.write(f"@{qname}/2\n{s2}\n+\n{QUAL}\n")
+
+    (workdir / "samples.tsv").write_text(
+        SAMPLES_HEADER
+        + f"S1\tS1_R1.fq.gz\tS1_R2.fq.gz\tPE\tchipseq\tH3K27ac\tnarrow\ths\t"
+        f"{idx_prefix}\texp1\tH3K27ac\t1\t1\t1\ttreatment\t\t\n",
+        encoding="utf-8",
+    )
+    (workdir / "config.yaml").write_text(
+        "\n".join(
+            [
+                "samples: samples.tsv",
+                "outdir: results",
+                "threads: 1",
+                "mapq: 30",
+                "trim: false",
+                "use_control: false",
+                "multiqc: false",
+                "replicate_analysis: false",
+                "chipseq_idr: false",
+                "tool_parameters:",
+                "  bowtie2:",
+                "    max_insert: 2000",
+                f"    extra_args: {json.dumps(rg_extra_args)}",
+                "genome_resources:",
+                "  hs:",
+                f'    effective_genome_size: "{REF_LEN}"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _run(
+        [
+            snakemake_path,
+            "-s",
+            str(SNAKEFILE),
+            "--configfile",
+            str(workdir / "config.yaml"),
+            "-j",
+            "1",
+            "results/S1/02_align/S1.sorted.bam",
+        ],
+        env=env,
+        cwd=workdir,
+    )
+    sam_text = _run(
+        [
+            samtools_path,
+            "view",
+            "-h",
+            str(workdir / "results/S1/02_align/S1.sorted.bam"),
+        ],
+        env=env,
+    ).stdout
+    assert f"@RG\t{expected_rg_id}\t" in sam_text
+    assert "\tSM:sample 1\n" in sam_text
+    expected_rg_tag = f"RG:Z:{expected_rg_id.split(':', 1)[1]}"
+    assert expected_rg_tag in sam_text
+    records = _parse_sam_records(sam_text)
+    for qname in ("p600", "p1200", "p2000"):
+        assert (records[(qname, 1)]["flag"] & 0x2) == 0x2
+    assert (records[("p2001", 1)]["flag"] & 0x2) == 0
+
+
+def test_bowtie2_read_length_exceeding_max_insert_boundary(
+    tmp_path, bowtie2_path, reference_bundle
+):
+    """When read length (150 bp) exceeds -X (100), Bowtie2 still marks a 150 bp
+    template as a proper pair (0x2) because each 150 bp mate spans the full
+    template, whereas a 151 bp template is not marked as a proper pair (0x2).
+    """
+    ref_seq = reference_bundle["seq"]
+    idx_prefix = reference_bundle["idx_prefix"]
+    read_len_150 = 150
+    qual_150 = "I" * read_len_150
+
+    def emit_150(pos0: int, frag_len: int):
+        frag = ref_seq[pos0 : pos0 + frag_len]
+        return frag[:read_len_150], _revcomp(frag[-read_len_150:])
+
+    r1_fq = tmp_path / "r1_150.fq"
+    r2_fq = tmp_path / "r2_150.fq"
+    with (
+        open(r1_fq, "w", encoding="utf-8") as f1,
+        open(r2_fq, "w", encoding="utf-8") as f2,
+    ):
+        for qname, pos0, flen in (("len150", 2_000, 150), ("len151", 5_000, 151)):
+            s1, s2 = emit_150(pos0, flen)
+            f1.write(f"@{qname}/1\n{s1}\n+\n{qual_150}\n")
+            f2.write(f"@{qname}/2\n{s2}\n+\n{qual_150}\n")
+
+    sam_out = _run(
+        [
+            bowtie2_path,
+            "--very-sensitive",
+            "-X",
+            "100",
+            "-x",
+            str(idx_prefix),
+            "-1",
+            str(r1_fq),
+            "-2",
+            str(r2_fq),
+        ]
+    ).stdout
+    records = _parse_sam_records(sam_out)
+    assert (records[("len150", 1)]["flag"] & 0x2) == 0x2
+    assert abs(records[("len150", 1)]["tlen"]) == 150
+    assert (records[("len151", 1)]["flag"] & 0x2) == 0
