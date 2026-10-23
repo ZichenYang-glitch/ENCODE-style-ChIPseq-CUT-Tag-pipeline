@@ -330,7 +330,8 @@ def validate_reference_control_admission(
     use_control = bool(config.get("use_control", False))
     resources = config.get("genome_resources", {})
     validated_genomes = set()
-    if config.get("blacklist_mode") == "analysis":
+    blacklist_mode = config.get("blacklist_mode")
+    if blacklist_mode == "analysis":
         if not isinstance(resources, dict):
             raise error_cls("blacklist_mode=analysis requires genome_resources")
         for sample in samples:
@@ -370,7 +371,11 @@ def validate_reference_control_admission(
                 ref_contigs = _get_reference_contigs(
                     entry, genome=genome, error_cls=error_cls
                 )
-                if genome not in validated_genomes and entry.get("blacklist"):
+                if (
+                    blacklist_mode in ("analysis", "copies")
+                    and genome not in validated_genomes
+                    and entry.get("blacklist")
+                ):
                     _validate_blacklist_bed(
                         entry["blacklist"],
                         ref_contigs=ref_contigs,

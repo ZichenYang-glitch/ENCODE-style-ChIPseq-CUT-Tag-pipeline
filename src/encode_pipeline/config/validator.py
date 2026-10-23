@@ -135,6 +135,14 @@ def _validate_blacklist_mode(
     copies.
     """
     raw_mode = config.get("blacklist_mode")
+    if raw_mode is False or (
+        isinstance(raw_mode, str) and raw_mode.lower() in ("false", "no", "off")
+    ):
+        raw_mode = "off"
+    elif raw_mode is True or (
+        isinstance(raw_mode, str) and raw_mode.lower() in ("true", "yes")
+    ):
+        raw_mode = "copies"
     alias_present = isinstance(qc_raw, dict) and "blacklist_filter" in qc_raw
     alias_value = None
     if alias_present:
@@ -441,11 +449,6 @@ def validate_config(config: dict) -> dict:
     else:
         raise ValidationError(f"config multiqc must be true or false, got {mqc_raw!r}")
 
-    # genome_resources — optional, validate if present
-    validated["genome_resources"] = _validate_genome_resources(
-        config.get("genome_resources", {})
-    )
-
     # qc — optional QC switches (standard defaults true; heavier modules false)
     qc_raw = config.get("qc", {})
     qc_raw = dict(qc_raw) if isinstance(qc_raw, dict) else qc_raw
@@ -455,6 +458,12 @@ def validate_config(config: dict) -> dict:
         validated["analysis_profile"],
     )
     validated["qc"] = _validate_qc_config(qc_raw)
+
+    # genome_resources — optional, validate if present
+    validated["genome_resources"] = _validate_genome_resources(
+        config.get("genome_resources", {}),
+        blacklist_mode=validated["blacklist_mode"],
+    )
 
     # A2/E1/E2 keys are normalized in A1 but do not activate behavior.
     validated.update(_validate_advanced_modes(config, validated["analysis_profile"]))
@@ -642,7 +651,9 @@ def validate_bowtie2_insert_bounds(validated_config: dict, samples: list[dict]):
     )
 
 
-def _validate_genome_resources(resources: dict) -> dict:
+def _validate_genome_resources(
+    resources: dict, blacklist_mode: str = "analysis"
+) -> dict:
     """Validate genome_resources config block.
 
     Returns the resources dict unchanged if valid.
@@ -651,6 +662,7 @@ def _validate_genome_resources(resources: dict) -> dict:
     return genome_validation.validate_genome_resources(
         resources,
         error_cls=ValidationError,
+        blacklist_mode=blacklist_mode,
     )
 
 

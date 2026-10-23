@@ -122,6 +122,25 @@ rule blacklist_filter_peaks:
         """
 
 
+rule blacklist_filter_pooled_peaks:
+    input:
+        peaks_dir=f"{OUTDIR}/experiments/{{experiment}}/04_peaks/pooled/{{experiment}}_pooled_peaks",
+    output:
+        f"{_blacklist_output_root()}/experiments/{{experiment}}/04_peaks/pooled/{{experiment}}_pooled_peaks_blacklist_filtered/{{experiment}}_pooled_peaks.blacklist_filtered.{{suffix}}",
+    conda:
+        "../envs/samtools.yml"
+    params:
+        blacklist=lambda wc: get_genome_resource(TREATMENT_SAMPLES_BY_EXPERIMENT[wc.experiment][0], "blacklist"),
+    shell:
+        """
+        set -e -o pipefail
+        PEAKS_FILE="{input.peaks_dir:q}/{wildcards.experiment}_pooled_peaks.{wildcards.suffix}"
+        mkdir -p $(dirname {output:q})
+        bedtools intersect -v -a "$PEAKS_FILE" -b {params.blacklist:q} \
+            >{output:q}
+        """
+
+
 # ---------------------------------------------------------------------------
 # 3. Peak counts
 # ---------------------------------------------------------------------------
@@ -223,17 +242,15 @@ rule frip:
 
 
 def _frip_inputs(wildcards):
-    """Return [bam, peaks_dir_or_file] for FRiP calculation.
+    """Return [bam, peaks_dir_or_file] for primary FRiP calculation.
 
-    Prefers blacklist-filtered BAM and peaks only when BOTH are
-    scheduled/available for this sample. Otherwise falls back to
-    unfiltered BAM and peaks directory.
+    Always consumes the canonical analysis BAM. In the analysis-filtered branch,
+    pairs with the secondary blacklist-filtered peaks; otherwise pairs with the
+    primary peaks.
     """
     sid = wildcards.sample
     if ANALYSIS_FILTERED:
         return [analysis_bam(sid), _analysis_filtered_peak_file(sid)]
-    if _has_blacklist_qc(sid):
-        return [_blacklist_bam_file(sid), _blacklist_peak_file(sid)]
     return [analysis_bam(sid), f"{OUTDIR}/{sid}/04_peaks/{sid}"]
 
 
@@ -624,10 +641,22 @@ def _classify(experiment):
     return classify_histone_target(s["target"], s["peak_mode"])
 
 
+def _pooled_qc_peaks_input(experiment):
+    """Return deliverable pooled peaks input for QC summary."""
+    suffix = _pooled_peak_suffix(experiment)
+    if ANALYSIS_FILTERED:
+        return (
+            f"{OUTDIR}/experiments/{experiment}/04_peaks/pooled/"
+            f"{experiment}_pooled_peaks_blacklist_filtered/"
+            f"{experiment}_pooled_peaks.blacklist_filtered.{suffix}"
+        )
+    return f"{OUTDIR}/experiments/{experiment}/04_peaks/pooled/{experiment}_pooled_peaks"
+
+
 rule pooled_experiment_qc_summary:
     input:
         pooled_bam=f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam",
-        pooled_peaks=f"{OUTDIR}/experiments/{{experiment}}/04_peaks/pooled/{{experiment}}_pooled_peaks",
+        pooled_peaks=lambda wc: _pooled_qc_peaks_input(wc.experiment),
         pooled_fe=(
             f"{OUTDIR}/experiments/{{experiment}}/03_signal/{{experiment}}.pooled.FE.bdg"
             if QC_CONFIG.get("signal_tracks", True)

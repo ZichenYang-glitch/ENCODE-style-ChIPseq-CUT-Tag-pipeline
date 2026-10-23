@@ -48,6 +48,8 @@ rule analysis_identity_marker:
     output:
         marker=f"{RAW_OUTDIR}/.helixweave/analysis_identity.json",
         effective_config=f"{RAW_OUTDIR}/.helixweave/effective_config.json",
+    log:
+        f"{RAW_OUTDIR}/.helixweave/analysis_identity.log",
     params:
         marker_json=lambda wc: json.dumps(_analysis_identity_marker_payload(), indent=2, sort_keys=True),
         config_json=lambda wc: json.dumps(_effective_config_record_payload(), indent=2, sort_keys=True),
@@ -68,6 +70,8 @@ rule prepare_analysis_bam:
         bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.analysis.bam",
         bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.analysis.bam.bai",
         dropped=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.blacklist_dropped.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.analysis_bam.log",
     conda:
         "../envs/samtools.yml"
     threads: THREADS
@@ -76,6 +80,15 @@ rule prepare_analysis_bam:
         organelle_mode=lambda wc: get_organelle_mode(wc),
         organelle_chroms=lambda wc: " ".join(get_organelle_chroms(wc)),
         organelle_chroms_explicit=lambda wc: "true" if get_organelle_chroms_explicit(wc.sample) else "false",
+        chrom_sizes=lambda wc: get_genome_resource(wc.sample, "chrom_sizes"),
+        fai=lambda wc: (
+            get_genome_resource(wc.sample, "reference_fasta") + ".fai"
+            if (
+                has_genome_resource(wc.sample, "reference_fasta")
+                and os.path.isfile(get_genome_resource(wc.sample, "reference_fasta") + ".fai")
+            )
+            else ""
+        ),
         layout=lambda wc: SAMPLE_MAP[wc.sample]["layout"],
         blacklist_mode=BLACKLIST_MODE,
         script=f"{workflow.basedir}/../scripts/filter_blacklist_templates.py",
@@ -93,10 +106,16 @@ rule prepare_analysis_bam:
         if [[ -n "{params.organelle_chroms}" ]]; then
             EXTRA_ARGS+=(--organelle-chroms {params.organelle_chroms})
         fi
+        if [[ -n "{params.chrom_sizes}" ]]; then
+            EXTRA_ARGS+=(--chrom-sizes {params.chrom_sizes:q})
+        fi
+        if [[ -n "{params.fai}" ]]; then
+            EXTRA_ARGS+=(--fai {params.fai:q})
+        fi
         if [[ "{params.blacklist_mode}" == "analysis" && -n "{input.blacklist}" ]]; then
             EXTRA_ARGS+=(--blacklist {input.blacklist:q})
         fi
-        mkdir -p "$(dirname {output.bam:q})" "$(dirname {output.dropped:q})"
+        mkdir -p "$(dirname {output.bam:q})" "$(dirname {output.dropped:q})" "$(dirname {log:q})"
         python3 {params.script:q} \
             --bam {input.bam:q} \
             --layout {params.layout:q} \
@@ -105,7 +124,8 @@ rule prepare_analysis_bam:
             --sample {wildcards.sample:q} \
             --organelle-mode {params.organelle_mode:q} \
             --threads {threads} \
-            "${{EXTRA_ARGS[@]}}"
+            "${{EXTRA_ARGS[@]}}" \
+            2>&1 | tee {log:q}
         samtools index -@ {threads} {output.bam:q}
         """
 
@@ -117,6 +137,8 @@ rule mito_fraction:
         bai=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam.bai",
     output:
         tsv=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.mito_fraction.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.mito_fraction.log",
     conda:
         "../envs/samtools.yml"
     threads: 1

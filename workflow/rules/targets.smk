@@ -119,6 +119,13 @@ def _blacklist_targets():
                 outdir=OUTDIR,
                 sample=broad_bl,
             )
+        if REPLICATE_ANALYSIS and PEAK_MULTI_BIOREP_EXPERIMENTS:
+            for exp in PEAK_MULTI_BIOREP_EXPERIMENTS:
+                suf = _pooled_peak_suffix(exp)
+                targets.append(
+                    f"{OUTDIR}/experiments/{exp}/04_peaks/pooled/"
+                    f"{exp}_pooled_peaks_blacklist_filtered/{exp}_pooled_peaks.blacklist_filtered.{suf}"
+                )
         return targets
     if QC_CONFIG.get("blacklist_filter", True) and BLACKLIST_SAMPLES:
         targets += expand(

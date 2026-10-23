@@ -45,6 +45,12 @@ def test_count_peaks_fails_closed_when_peak_file_is_missing(tmp_path, capsys):
     assert "pooled peak file not found" in capsys.readouterr().err
 
 
+def test_count_peaks_supports_direct_file_path(tmp_path):
+    peak_file = tmp_path / "custom_filtered_peaks.narrowPeak"
+    peak_file.write_text("peak1\npeak2\n", encoding="utf-8")
+    assert pooled_qc_summary.count_peaks(peak_file, "narrow", "exp") == 2
+
+
 def test_main_writes_exact_fifteen_column_summary(tmp_path, monkeypatch):
     peak_dir = tmp_path / "peaks"
     peak_dir.mkdir()

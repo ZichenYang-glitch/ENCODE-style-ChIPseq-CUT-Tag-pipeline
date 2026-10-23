@@ -17,6 +17,23 @@ CONTROL_SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {
 }
 
 
+def analysis_bam(sample):
+    """Return the canonical analysis BAM for a sample across both profiles."""
+    return f"{OUTDIR}/{sample}/02_align/{sample}.analysis.bam"
+
+
+def analysis_bai(sample):
+    return f"{analysis_bam(sample)}.bai"
+
+
+def _pooled_peak_suffix(experiment):
+    """Return 'narrowPeak' or 'broadPeak' for the experiment."""
+    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
+    if not treatment_ids:
+        return "narrowPeak"
+    return "broadPeak" if SAMPLE_MAP[treatment_ids[0]]["peak_mode"] == "broad" else "narrowPeak"
+
+
 # ---------------------------------------------------------------------------
 # 3a2. Replicate-aware grouped outputs
 # ---------------------------------------------------------------------------
@@ -652,15 +669,6 @@ if TSS_FRAGMENT_ENABLED:
             f"missing GTF for: {', '.join(_missing_gtf) or 'none'}"
         )
 TSS_FRAGMENT_GENOMES = sorted({SAMPLE_MAP[sid]["genome"] for sid in TSS_FRAGMENT_SAMPLE_IDS})
-
-
-def analysis_bam(sample):
-    """Return the canonical analysis BAM for a sample across both profiles."""
-    return f"{OUTDIR}/{sample}/02_align/{sample}.analysis.bam"
-
-
-def analysis_bai(sample):
-    return f"{analysis_bam(sample)}.bai"
 
 
 def get_duplicate_mode(wildcards):

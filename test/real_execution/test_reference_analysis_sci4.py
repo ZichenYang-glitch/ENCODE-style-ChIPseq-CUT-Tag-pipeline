@@ -9,6 +9,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -702,3 +703,264 @@ def test_snakemake_dual_profile_analysis_bam_and_downstream_routing(
     )
     assert len(kept_records) == 2
     assert {r.split("\t")[0] for r in kept_records} == {"normal"}
+
+
+def test_r1_organelle_report_retains_reads_while_exclude_drops(
+    tmp_path: Path, samtools_path: str
+):
+    """R1: verify report mode retains organelle reads in analysis.bam while exclude drops them."""
+    records = []
+    records += _pair("n1", "chr1", 100, 300, 250)
+    records += _pair("m1", "chrM", 10, 80, 80)
+    bam = _make_bam(tmp_path, samtools_path, records)
+
+    out_report = tmp_path / "report.bam"
+    _run(
+        [
+            "python3",
+            str(FILTER_SCRIPT),
+            "--bam",
+            str(bam),
+            "--layout",
+            "PE",
+            "--output",
+            str(out_report),
+            "--dropped-count",
+            str(tmp_path / "drop_report.tsv"),
+            "--sample",
+            "S1",
+            "--organelle-mode",
+            "report",
+            "--organelle-chroms",
+            "chrM",
+        ]
+    )
+    kept_report = (
+        _run([samtools_path, "view", str(out_report)]).stdout.strip().splitlines()
+    )
+    kept_names_report = {line.split("\t")[0] for line in kept_report}
+    assert kept_names_report == {"n1", "m1"}
+
+    out_exclude = tmp_path / "exclude.bam"
+    _run(
+        [
+            "python3",
+            str(FILTER_SCRIPT),
+            "--bam",
+            str(bam),
+            "--layout",
+            "PE",
+            "--output",
+            str(out_exclude),
+            "--dropped-count",
+            str(tmp_path / "drop_exclude.tsv"),
+            "--sample",
+            "S1",
+            "--organelle-mode",
+            "exclude",
+            "--organelle-chroms",
+            "chrM",
+        ]
+    )
+    kept_exclude = (
+        _run([samtools_path, "view", str(out_exclude)]).stdout.strip().splitlines()
+    )
+    kept_names_exclude = {line.split("\t")[0] for line in kept_exclude}
+    assert kept_names_exclude == {"n1"}
+
+
+@pytest.mark.parametrize("profile", ["legacy", "updated"])
+def test_r2_multibiorep_fastq_control_dag_resolution(
+    tmp_path: Path, snakemake_path: str, profile: str
+):
+    """R2: 2 biological replicates of treatment referencing a FASTQ control sample must dry-run without NameError."""
+    chrom_sizes = tmp_path / "chrom.sizes"
+    chrom_sizes.write_text("chr1\t10000\nchr2\t5000\nchrM\t200\n", encoding="utf-8")
+    blacklist = tmp_path / "blacklist.bed"
+    blacklist.write_text("chr1\t10\t50\n", encoding="utf-8")
+
+    samples_content = (
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\t"
+        "bowtie2_index\texperiment\tcondition\treplicate\tbiological_replicate\t"
+        "technical_replicate\trole\tcontrol_sample\tcontrol_bam\n"
+        "S1\tR1.fq\tR2.fq\tPE\tchipseq\tCTCF\tnarrow\ths\tbt2_idx\t"
+        "exp1\tcond\t1\t1\t1\ttreatment\tC1\t\n"
+        "S2\tR1.fq\tR2.fq\tPE\tchipseq\tCTCF\tnarrow\ths\tbt2_idx\t"
+        "exp1\tcond\t2\t2\t1\ttreatment\tC1\t\n"
+        "C1\tC_R1.fq\tC_R2.fq\tPE\tchipseq\tInput\tnarrow\ths\tbt2_idx\t"
+        "exp1\tctrl\t1\t1\t1\tcontrol\t\t\n"
+    )
+    (tmp_path / "samples.tsv").write_text(samples_content, encoding="utf-8")
+    for fq in ["R1.fq", "R2.fq", "C_R1.fq", "C_R2.fq"]:
+        (tmp_path / fq).touch()
+
+    config_yaml = f"""samples: samples.tsv
+outdir: results
+threads: 1
+use_control: true
+multiqc: false
+replicate_analysis: true
+analysis_profile: {profile}
+blacklist_mode: analysis
+organelle_mode: auto
+genome_resources:
+  hs:
+    effective_genome_size: "hs"
+    chrom_sizes: "{chrom_sizes}"
+    blacklist: "{blacklist}"
+qc:
+  summary: false
+  frip: false
+  signal_tracks: false
+"""
+    (tmp_path / "config.yaml").write_text(config_yaml, encoding="utf-8")
+
+    # Dry-run snakemake
+    res = subprocess.run(
+        [
+            snakemake_path,
+            "-s",
+            str(SNAKEFILE),
+            "--configfile",
+            "config.yaml",
+            "--workflow-profile",
+            "none",
+            "-n",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+    assert res.returncode == 0, f"Dry-run failed ({res.returncode}):\n{res.stderr}"
+    assert "NameError" not in res.stderr
+
+
+def test_r4_whitespace_separated_blacklist_bed(tmp_path: Path, samtools_path: str):
+    """R4: Space-separated BED intervals must be parsed and applied identically to tab-separated BED."""
+    records = []
+    records += _pair("n1", "chr1", 100, 300, 250)  # spans 100-350 -> hits BED
+    records += _pair("n2", "chr1", 500, 700, 250)  # spans 500-750 -> outside
+    bam = _make_bam(tmp_path, samtools_path, records)
+
+    space_bed = tmp_path / "space.bed"
+    space_bed.write_text("chr1 150 200\n", encoding="utf-8")
+
+    out_bam = tmp_path / "filtered.bam"
+    _run(
+        [
+            "python3",
+            str(FILTER_SCRIPT),
+            "--bam",
+            str(bam),
+            "--layout",
+            "PE",
+            "--blacklist",
+            str(space_bed),
+            "--output",
+            str(out_bam),
+            "--dropped-count",
+            str(tmp_path / "drop.tsv"),
+            "--sample",
+            "S1",
+            "--organelle-mode",
+            "keep",
+        ]
+    )
+    kept = _run([samtools_path, "view", str(out_bam)]).stdout.strip().splitlines()
+    kept_names = {line.split("\t")[0] for line in kept}
+    assert kept_names == {"n2"}
+
+
+def test_r7_bam_sq_contig_length_mismatch_with_chrom_sizes_fails(
+    tmp_path: Path, samtools_path: str
+):
+    """R7: BAM @SQ contig length mismatch with provided chrom_sizes must fail filter_blacklist_templates."""
+    records = _pair("n1", "chr1", 100, 300, 250)
+    bam = _make_bam(tmp_path, samtools_path, records)  # @SQ chr1 LN:10000
+
+    mismatch_sizes = tmp_path / "chrom.sizes"
+    mismatch_sizes.write_text("chr1\t9999\n", encoding="utf-8")
+
+    res = subprocess.run(
+        [
+            "python3",
+            str(FILTER_SCRIPT),
+            "--bam",
+            str(bam),
+            "--layout",
+            "PE",
+            "--chrom-sizes",
+            str(mismatch_sizes),
+            "--output",
+            str(tmp_path / "out.bam"),
+            "--dropped-count",
+            str(tmp_path / "drop.tsv"),
+            "--sample",
+            "S1",
+            "--organelle-mode",
+            "keep",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode != 0
+    assert "length mismatch" in res.stderr or "mismatch between BAM @SQ" in res.stderr
+
+
+def test_r9_template_stage_metrics_excludes_orphans_from_blacklist_count(
+    tmp_path: Path, samtools_path: str
+):
+    """R9: Orphan/invalid reads outside blacklist must not increment dropped_bl_templates."""
+    records = []
+    # 1. Normal kept pair (chr1:100-350)
+    records += _pair("n1", "chr1", 100, 300, 250)
+    # 2. Blacklist-overlapping pair (chr1:1000-1250)
+    records += _pair("bl_pair", "chr1", 1000, 1200, 250)
+    # 3. Orphan read far from blacklist (chr1:5000)
+    records.append(
+        "\t".join(
+            ["orphan", "73", "chr1", "5000", "60", "50M", "*", "0", "0", SEQ, QUAL]
+        )
+    )
+
+    bam = _make_bam(tmp_path, samtools_path, records)
+    bed = tmp_path / "blacklist.bed"
+    bed.write_text("chr1\t1100\t1150\n", encoding="utf-8")
+
+    out_bam = tmp_path / "out.bam"
+    drop_tsv = tmp_path / "drop.tsv"
+    _run(
+        [
+            "python3",
+            str(FILTER_SCRIPT),
+            "--bam",
+            str(bam),
+            "--layout",
+            "PE",
+            "--blacklist",
+            str(bed),
+            "--output",
+            str(out_bam),
+            "--dropped-count",
+            str(drop_tsv),
+            "--sample",
+            "S1",
+            "--organelle-mode",
+            "keep",
+        ]
+    )
+
+    # Check drop_tsv: ONLY 1 template dropped by blacklist (bl_pair)
+    drop_lines = drop_tsv.read_text(encoding="utf-8").strip().splitlines()
+    drop_fields = drop_lines[1].split("\t")
+    assert drop_fields[2] == "1", f"Expected dropped_templates=1, got {drop_lines}"
+    assert drop_fields[3] == "2", f"Expected dropped_alignments=2, got {drop_lines}"
+
+    # Check companion stage_metrics.json
+    stage_json = tmp_path / "drop.stage_metrics.json"
+    assert stage_json.exists()
+    metrics = json.loads(stage_json.read_text(encoding="utf-8"))
+    assert metrics["total_alignments"] == 5
+    assert metrics["dropped_by_reason"]["invalid"] == 1
+    assert metrics["dropped_by_reason"]["blacklist"] == 2
+    assert metrics["kept_alignments"] == 2

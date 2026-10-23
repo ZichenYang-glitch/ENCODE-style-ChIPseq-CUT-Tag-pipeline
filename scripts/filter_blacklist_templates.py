@@ -23,6 +23,7 @@ Applies:
 """
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -67,6 +68,16 @@ def parse_args(argv=None):
         "--blacklist",
         default=None,
         help="Optional path to blacklist BED file",
+    )
+    parser.add_argument(
+        "--chrom-sizes",
+        default=None,
+        help="Optional path to chrom_sizes file for contig length verification",
+    )
+    parser.add_argument(
+        "--fai",
+        default=None,
+        help="Optional path to FASTA index (.fai) for contig length verification",
     )
     parser.add_argument(
         "--threads",
@@ -117,6 +128,43 @@ def read_bam_header(bam: str) -> dict[str, int]:
         if name and length and length.isdigit():
             sq[name] = int(length)
     return sq
+
+
+def validate_reference_contig_lengths(
+    sq: dict[str, int],
+    chrom_sizes_path: str | None = None,
+    fai_path: str | None = None,
+    sample: str = "",
+) -> None:
+    """Verify contig lengths in BAM @SQ match configured chrom_sizes or FAI."""
+    ref_lengths: dict[str, int] = {}
+    source = ""
+    if fai_path and os.path.isfile(fai_path):
+        source = f"FAI ({fai_path})"
+        with open(fai_path, encoding="utf-8") as handle:
+            for line in handle:
+                parts = line.strip().split("\t")
+                if len(parts) >= 2 and parts[1].isdigit():
+                    ref_lengths[parts[0]] = int(parts[1])
+    elif chrom_sizes_path and os.path.isfile(chrom_sizes_path):
+        source = f"chrom_sizes ({chrom_sizes_path})"
+        with open(chrom_sizes_path, encoding="utf-8") as handle:
+            for line in handle:
+                parts = line.strip().split()
+                if len(parts) >= 2 and parts[1].isdigit():
+                    ref_lengths[parts[0]] = int(parts[1])
+
+    if not ref_lengths:
+        return
+
+    for chrom, sq_len in sq.items():
+        if chrom in ref_lengths:
+            ref_len = ref_lengths[chrom]
+            if sq_len != ref_len:
+                raise RuntimeError(
+                    f"Sample {sample}: BAM @SQ contig length mismatch for {chrom!r}: "
+                    f"BAM has {sq_len} bp, reference {source} has {ref_len} bp"
+                )
 
 
 def validate_organelle_contigs(
@@ -194,11 +242,12 @@ def validate_and_load_blacklist(
                 )
             valid_intervals += 1
 
-    if valid_intervals == 0:
+    bl = Blacklist(blacklist_path)
+    if valid_intervals == 0 or bl.total_intervals == 0:
         raise RuntimeError(
             f"Sample {sample}: blacklist BED {blacklist_path} is empty or contains no valid intervals"
         )
-    return Blacklist(blacklist_path)
+    return bl
 
 
 def scan_drop_qnames(
@@ -462,6 +511,12 @@ def write_filtered_bam(
 def main(argv=None):
     args = parse_args(argv)
     sq = read_bam_header(args.bam)
+    validate_reference_contig_lengths(
+        sq=sq,
+        chrom_sizes_path=args.chrom_sizes,
+        fai_path=args.fai,
+        sample=args.sample,
+    )
 
     # Flatten candidate organelle contigs
     candidate_chroms: list[str] = []
@@ -476,6 +531,11 @@ def main(argv=None):
         sample=args.sample,
     )
 
+    # Only exclude organelle contigs when organelle_mode is 'exclude'
+    organelle_to_exclude = (
+        matched_organelle if args.organelle_mode == "exclude" else set()
+    )
+
     blacklist = None
     if args.blacklist and args.blacklist != "None":
         blacklist = validate_and_load_blacklist(args.blacklist, sq, args.sample)
@@ -484,7 +544,7 @@ def main(argv=None):
         bam=args.bam,
         layout=args.layout,
         exclude_dup=args.exclude_dup,
-        matched_organelle=matched_organelle,
+        matched_organelle=organelle_to_exclude,
         blacklist=blacklist,
         threads=args.threads,
     )
@@ -497,15 +557,11 @@ def main(argv=None):
         threads=args.threads,
     )
 
-    # Build stage counts for blacklist_dropped.tsv
+    # Build stage counts for blacklist_dropped.tsv (measuring specifically the blacklist stage)
+    dropped_bl_templates = sum(1 for r in drop_reasons.values() if r == "blacklist")
+    dropped_bl_alignments = dropped_by_reason.get("blacklist", 0)
+    entering_alignments = kept_alignments + dropped_bl_alignments
     if blacklist is not None:
-        dropped_bl_templates = sum(
-            1 for r in drop_reasons.values() if r in ("blacklist", "invalid")
-        )
-        dropped_bl_alignments = sum(
-            dropped_by_reason.get(r, 0) for r in ("blacklist", "invalid")
-        )
-        entering_alignments = kept_alignments + dropped_bl_alignments
         dropped_tpl_str = str(dropped_bl_templates)
         dropped_aln_str = str(dropped_bl_alignments)
         kept_str = str(kept_alignments)
@@ -513,8 +569,8 @@ def main(argv=None):
     else:
         dropped_tpl_str = "0"
         dropped_aln_str = "0"
-        kept_str = "NA"
-        total_str = "NA"
+        kept_str = str(kept_alignments)
+        total_str = str(kept_alignments)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.dropped_count)), exist_ok=True)
     with open(args.dropped_count, "w", encoding="utf-8") as handle:
@@ -526,6 +582,20 @@ def main(argv=None):
             f"{args.sample}\t{args.layout}\t{dropped_tpl_str}\t"
             f"{dropped_aln_str}\t{kept_str}\t{total_str}\n"
         )
+
+    stage_metrics_path = os.path.splitext(args.dropped_count)[0] + ".stage_metrics.json"
+    stage_metrics = {
+        "sample": args.sample,
+        "layout": args.layout,
+        "organelle_mode": args.organelle_mode,
+        "exclude_dup": args.exclude_dup,
+        "has_blacklist": blacklist is not None,
+        "total_alignments": total_alignments,
+        "dropped_by_reason": dict(dropped_by_reason),
+        "kept_alignments": kept_alignments,
+    }
+    with open(stage_metrics_path, "w", encoding="utf-8") as handle:
+        json.dump(stage_metrics, handle, indent=2)
 
     print(
         f"{args.sample}: filtered BAM wrote {kept_alignments} alignments "
