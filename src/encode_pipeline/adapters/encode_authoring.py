@@ -140,7 +140,11 @@ def _config_schema() -> dict[str, object]:
                 "type": "string",
                 "enum": ["legacy", "updated"],
                 "default": "legacy",
-                "description": "Analysis policy bundle; legacy preserves existing outputs.",
+                "description": (
+                    "Analysis policy bundle. Both profiles apply the current "
+                    "scientific policy; legacy keeps the original backend "
+                    "dispatch, updated derives a filtered analysis BAM."
+                ),
             },
             "blacklist_mode": {
                 "type": "string",

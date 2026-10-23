@@ -29,7 +29,7 @@ second implicit coordinate collapse.
 
 | `duplicate_analysis` | Behavior |
 | :--- | :--- |
-| `"auto"` (default) | Resolve per sample by assay: CUT&Tag **retains** duplicates (apparent duplicates at high-affinity sites are mostly real independent fragments); ChIP-seq, ATAC-seq, and MNase-seq **exclude** them. The narrow/broad peak mode no longer changes this decision — legacy broad ChIP-seq now excludes duplicates like every other exclude assay. |
+| `"auto"` (default) | Resolve per sample by assay: CUT&Tag **retains** duplicates (same-coordinate fragments can be independent molecules, so coordinates alone cannot prove PCR copies — a candidate default pending the SCI-7 real-library data freeze); ChIP-seq, ATAC-seq, and MNase-seq **exclude** them. The narrow/broad peak mode no longer changes this decision — legacy broad ChIP-seq now excludes duplicates like every other exclude assay. |
 | `"exclude"` | Remove duplicates for all samples. |
 | `"retain"` | Keep duplicates for all samples (marked, for metrics, where the backend supports marking). |
 
@@ -50,7 +50,11 @@ A legacy `--keep-dup` in `tool_parameters.macs3.extra_args` or
 `tool_parameters.idr_macs3.extra_args` is migrated: a synonymous
 `--keep-dup all` is normalized away (the workflow renders the flag
 itself); any other value is rejected with migration guidance rather than
-being decided by argument order.
+being decided by argument order. Argparse abbreviations that the pinned
+MACS3 accepts (`--keep-d`, `--k`, and the `--keep-dup=all` equals form)
+are treated as the same flag. Unrelated arguments keep their original
+shell quoting; when a migration does remove tokens, the remainder is
+re-quoted so argument boundaries (spaces, apostrophes) survive.
 
 ## Genome resources
 

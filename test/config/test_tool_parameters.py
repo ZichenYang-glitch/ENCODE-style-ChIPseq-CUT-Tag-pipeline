@@ -1,5 +1,7 @@
 """Direct-API characterization tests for tool_parameters validation."""
 
+import shlex
+
 import pytest
 
 from encode_pipeline.config.validate import ValidationError, validate_config
@@ -374,3 +376,73 @@ def test_keep_dup_migration_does_not_touch_unrelated_tokens(tmp_path):
         {"macs3": {"extra_args": "--keep-duplicates --keep-dup all -q 0.05"}},
     )
     assert validated["macs3"]["extra_args"] == "--keep-duplicates -q 0.05"
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+def test_extra_args_without_keep_dup_is_returned_byte_identical(tmp_path, block):
+    # No managed flag: quoting of unrelated arguments must be preserved
+    # exactly instead of being split and re-joined.
+    extra = "--tempdir '/tmp/temp with spaces' --nomodel"
+    validated = _validate(tmp_path, {block: {"extra_args": extra}})
+    assert validated[block]["extra_args"] == extra
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+def test_keep_dup_migration_preserves_shell_argument_boundaries(tmp_path, block):
+    extra = "--tempdir '/tmp/temp with spaces' --keep-dup all"
+    normalized = _validate(tmp_path, {block: {"extra_args": extra}})[block][
+        "extra_args"
+    ]
+    # The migrated string must still parse to the same shell arguments.
+    assert shlex.split(normalized) == ["--tempdir", "/tmp/temp with spaces"]
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+def test_keep_dup_migration_is_stable_across_two_validations(tmp_path, block):
+    extra = '--tempdir "/tmp/it\'s here" --keep-dup all'
+    first = _validate(tmp_path, {block: {"extra_args": extra}})[block]["extra_args"]
+    assert shlex.split(first) == ["--tempdir", "/tmp/it's here"]
+    # A second validate_config pass over the normalized value is a no-op.
+    second = _validate(tmp_path, {block: {"extra_args": first}})[block]["extra_args"]
+    assert second == first
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+def test_extra_args_invalid_quoting_raises_validation_error(tmp_path, block):
+    with pytest.raises(
+        ValidationError,
+        match=rf"tool_parameters\.{block}\.extra_args: invalid shell quoting",
+    ):
+        _validate(tmp_path, {block: {"extra_args": "--tempdir '/unterminated"}})
+
+
+# argparse in the pinned MACS3 accepts any unambiguous prefix of a long
+# option; --keep-dup is the only callpeak option starting with "--k", so
+# abbreviations like --keep-d are the same flag and must be managed too.
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+@pytest.mark.parametrize(
+    "extra",
+    ["--keep-d all", "--keep-du=all", "--k all"],
+)
+def test_keep_dup_abbreviation_all_is_normalized(tmp_path, block, extra):
+    validated = _validate(tmp_path, {block: {"extra_args": extra}})
+    assert validated[block]["extra_args"] == ""
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "--keep-d 1",
+        "--keep-d=1",
+        "--k 2",
+        "--keep-du auto",
+        "--keep-d",
+        "--k=1 --nomodel",
+    ],
+)
+def test_keep_dup_abbreviation_conflict_is_rejected(tmp_path, block, extra):
+    with pytest.raises(ValidationError, match="conflicts with the BAM-layer"):
+        _validate(tmp_path, {block: {"extra_args": extra}})

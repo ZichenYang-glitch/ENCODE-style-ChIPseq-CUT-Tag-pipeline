@@ -14,8 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   effective configuration; the narrow/broad peak mode no longer proxies
   the decision (legacy broad ChIP-seq now excludes). Every MACS3 call
   (per-sample, pooled, consensus, IDR-ready) renders `--keep-dup all`, and
-  conflicting `--keep-dup` values in tool `extra_args` are rejected while
-  synonymous `all` is normalized. `remove_dup` yes/no remain as aliases.
+  conflicting `--keep-dup` values in tool `extra_args` are rejected —
+  including argparse abbreviations the pinned MACS3 accepts (`--keep-d`,
+  `--k`) and the equals form — while synonymous `all` is normalized out and
+  unrelated arguments keep their shell quoting. `remove_dup` yes/no remain
+  as aliases.
   The authoring schema is now 3.0.0 with `duplicate_analysis` defaulting
   to `auto`.
 

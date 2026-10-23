@@ -8,38 +8,71 @@ from encode_pipeline.config import defaults
 __all__ = ["validate_tool_params"]
 
 
+_KEEP_DUP_CANONICAL = "--keep-dup"
+
+
+def _is_keep_dup_option(name):
+    """True when ``name`` selects MACS3's ``--keep-dup`` option.
+
+    The pinned MACS3 uses argparse, which accepts any unambiguous prefix of
+    a long option; ``--keep-dup`` is the only callpeak option starting with
+    ``--k``, so every prefix from ``--k`` upwards (e.g. ``--keep-d``) is the
+    same flag. Longer spellings such as ``--keep-duplicates`` are not
+    prefixes of the canonical option and are left alone.
+    """
+    return len(name) >= 3 and _KEEP_DUP_CANONICAL.startswith(name)
+
+
 def _migrate_keep_dup_extra_args(tool, extra, error_cls):
     """Normalize legacy ``--keep-dup`` tokens in MACS3 extra_args.
 
     Duplicate policy is executed at the BAM layer and the workflow renders
-    ``--keep-dup all`` itself. A synonymous ``--keep-dup all`` is removed
-    here so the final command carries the flag exactly once; any other
-    value conflicts with that contract and is rejected with migration
-    guidance instead of being decided by argument order.
+    ``--keep-dup all`` itself. A synonymous ``--keep-dup all`` (including
+    argparse-accepted abbreviations and the ``=`` form) is removed here so
+    the final command carries the flag exactly once; any other value
+    conflicts with that contract and is rejected with migration guidance
+    instead of being decided by argument order.
+
+    When no managed flag is present the original string is returned
+    byte-for-byte so quoting of unrelated arguments is preserved. When a
+    migration does happen, the remaining tokens are re-quoted with
+    shlex.join so shell argument boundaries (spaces, apostrophes) survive,
+    and a second validation pass is a stable no-op.
     """
-    tokens = shlex.split(extra)
+    try:
+        tokens = shlex.split(extra)
+    except ValueError as exc:
+        raise error_cls(
+            f"tool_parameters.{tool}.extra_args: invalid shell quoting "
+            f"in {extra!r}: {exc}"
+        ) from exc
     kept = []
+    migrated = False
     index = 0
     while index < len(tokens):
         token = tokens[index]
-        if token == "--keep-dup":
-            value = tokens[index + 1] if index + 1 < len(tokens) else ""
-            index += 2
-        elif token.startswith("--keep-dup="):
-            value = token.split("=", 1)[1]
-            index += 1
-        else:
+        name, sep, attached = token.partition("=")
+        if not _is_keep_dup_option(name):
             kept.append(token)
             index += 1
             continue
+        migrated = True
+        if sep:
+            value = attached
+            index += 1
+        else:
+            value = tokens[index + 1] if index + 1 < len(tokens) else ""
+            index += 2
         if value != "all":
             raise error_cls(
-                f"tool_parameters.{tool}.extra_args: --keep-dup "
+                f"tool_parameters.{tool}.extra_args: {name} "
                 f"{value or '<missing>'!r} conflicts with the BAM-layer "
                 "duplicate policy. Remove --keep-dup from extra_args (the "
                 "workflow always renders --keep-dup all) or use 'all'."
             )
-    return " ".join(kept)
+    if not migrated:
+        return extra
+    return shlex.join(kept)
 
 
 def validate_tool_params(tool_params, error_cls=ValueError) -> dict:

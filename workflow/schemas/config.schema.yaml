@@ -80,10 +80,14 @@ duplicate_backend:
 
 duplicate_analysis:
   type: string
-  default: exclude
-  allowed: [exclude, retain]
+  default: auto
+  allowed: [auto, exclude, retain]
   description: >
-    Duplicate policy for updated analysis. Legacy derives it from remove_dup.
+    Duplicate policy. auto resolves per sample by assay (CUT&Tag retains;
+    ChIP-seq, ATAC-seq, MNase-seq exclude). An explicit exclude/retain
+    overrides the assay default for the whole run. The legacy remove_dup
+    yes/no alias maps to exclude/retain. The BAM layer executes the policy
+    and every MACS3 call renders --keep-dup all.
 
 control_mode:
   type: string

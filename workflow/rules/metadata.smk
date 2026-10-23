@@ -548,9 +548,10 @@ def _pooled_chrom_sizes(experiment):
 
 # SCI-2 duplicate policy: an explicit duplicate_analysis=exclude/retain
 # applies to every sample; "auto" resolves per sample by assay. CUT&Tag
-# retains duplicates (apparent duplicates at high-affinity sites are mostly
-# real independent fragments); all other assays exclude them. The
-# narrow/broad peak mode no longer proxies this decision.
+# retains duplicates (same-coordinate fragments can be independent
+# molecules, so coordinates alone cannot prove PCR copies); all other
+# assays exclude them. The narrow/broad peak mode no longer proxies this
+# decision.
 def get_duplicate_policy_for_assay(assay):
     """The auto duplicate policy for an assay: CUT&Tag retains, others exclude."""
     return "retain" if assay == "cuttag" else "exclude"

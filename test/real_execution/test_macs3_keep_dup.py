@@ -97,7 +97,7 @@ def _write_dual_library_bam(tmp_path, samtools_path):
     return bam_path
 
 
-def _run_macs3(macs3_path, bam_path, outdir, keep_dup):
+def _run_macs3(macs3_path, bam_path, outdir, keep_dup, flag="--keep-dup"):
     outdir.mkdir(parents=True, exist_ok=True)
     cmd = [
         macs3_path,
@@ -112,7 +112,7 @@ def _run_macs3(macs3_path, bam_path, outdir, keep_dup):
         "0.05",
         "-B",
         "--nomodel",
-        "--keep-dup",
+        flag,
         keep_dup,
         "-n",
         "test",
@@ -147,3 +147,19 @@ def test_keep_dup_all_preserves_same_coordinate_templates_across_libraries(
 
     assert _pileup_at(all_dir, center) == 2.0
     assert _pileup_at(one_dir, center) == 1.0
+
+
+def test_abbreviated_keep_d_is_the_same_flag_for_real_macs3(
+    tmp_path, macs3_path, samtools_path
+):
+    """argparse prefix matching makes --keep-d identical to --keep-dup.
+
+    The pinned macs3 collapses the cross-library duplicate pair under
+    --keep-d 1 exactly like --keep-dup 1. This is why the validator must
+    recognize and reject abbreviated spellings that conflict with the
+    canonical --keep-dup all instead of only matching the full name.
+    """
+    bam = _write_dual_library_bam(tmp_path, samtools_path)
+    center = DUP_POS + FRAGMENT_LEN // 2
+    abbrev_dir = _run_macs3(macs3_path, bam, tmp_path / "abbrev", "1", flag="--keep-d")
+    assert _pileup_at(abbrev_dir, center) == 1.0

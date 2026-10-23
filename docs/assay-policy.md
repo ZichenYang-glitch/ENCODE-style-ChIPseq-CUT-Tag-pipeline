@@ -22,11 +22,12 @@ assay. It describes implemented behavior, not aspirational features.
 
 ### Duplicate policy
 
-| `remove_dup` config | Behavior |
-| :--- | :--- |
-| `auto` | `yes` for narrow, `no` for broad |
-| `yes` | Always remove duplicates |
-| `no` | Never remove duplicates |
+ChIP-seq **excludes** duplicates under `duplicate_analysis: auto`, in broad
+peak mode too — the narrow/broad mode no longer proxies the decision. An
+explicit `duplicate_analysis: exclude/retain` (or the legacy `remove_dup`
+yes/no alias) overrides the assay default for the whole run. The BAM layer
+executes the policy and every MACS3 call renders `--keep-dup all`. See the
+CUT&Tag section for the full per-assay matrix.
 
 ### Read extension (bamCoverage)
 
@@ -68,14 +69,15 @@ The narrow-peak mode applies the Tn5-aware parameters (`--nomodel --shift -100 -
 ### Duplicate policy
 
 CUT&Tag **retains** duplicates under `duplicate_analysis: auto` (the assay
-default matrix; apparent duplicates at high-affinity sites are mostly real
-independent fragments). ChIP-seq, ATAC-seq, and MNase-seq exclude. The
-narrow/broad peak mode no longer proxies the decision — legacy broad
-ChIP-seq also excludes. An explicit `duplicate_analysis: exclude/retain`
-(or the `remove_dup` yes/no alias) overrides the assay default for the
-whole run. The BAM layer executes the policy and every MACS3 call renders
-`--keep-dup all`. Resolution lives in `get_duplicate_policy`
-(`workflow/rules/metadata.smk`).
+default matrix; same-coordinate fragments can be independent molecules, so
+coordinates alone cannot prove PCR copies — this retain default is a
+candidate pending the SCI-7 real-library data freeze). ChIP-seq, ATAC-seq,
+and MNase-seq exclude. The narrow/broad peak mode no longer proxies the
+decision — legacy broad ChIP-seq also excludes. An explicit
+`duplicate_analysis: exclude/retain` (or the `remove_dup` yes/no alias)
+overrides the assay default for the whole run. The BAM layer executes the
+policy and every MACS3 call renders `--keep-dup all`. Resolution lives in
+`get_duplicate_policy` (`workflow/rules/metadata.smk`).
 
 ### Read extension (bamCoverage)
 
@@ -119,13 +121,10 @@ Tn5-aware shift/extension matching common ATAC-seq practice applies to SE data o
 
 ### Duplicate policy
 
-| `remove_dup` config | Behavior |
-| :--- | :--- |
-| `auto` | `yes` |
-| `yes` | Always remove duplicates |
-| `no` | Never remove duplicates |
-
-ATAC-seq always removes duplicates in `auto` mode (no broad-peak exception).
+ATAC-seq **excludes** duplicates under `duplicate_analysis: auto` (no
+broad-peak exception — broad ATAC is not supported). An explicit
+`duplicate_analysis: exclude/retain` (or the legacy `remove_dup` yes/no
+alias) overrides the assay default for the whole run.
 
 ### Read extension (bamCoverage)
 
@@ -195,13 +194,10 @@ under `04_signal/`.
 
 ### Duplicate policy
 
-| `remove_dup` config | Behavior |
-| :--- | :--- |
-| `auto` | `yes` |
-| `yes` | Always remove duplicates |
-| `no` | Never remove duplicates |
-
-MNase is PE-only and always removes duplicates in `auto` mode (no broad-peak exception).
+MNase-seq **excludes** duplicates under `duplicate_analysis: auto` (MNase is
+PE-only; no broad-peak exception). An explicit
+`duplicate_analysis: exclude/retain` (or the legacy `remove_dup` yes/no
+alias) overrides the assay default for the whole run.
 
 ### Read extension (bamCoverage)
 
