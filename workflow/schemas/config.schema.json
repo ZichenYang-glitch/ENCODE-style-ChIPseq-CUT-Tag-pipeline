@@ -154,7 +154,33 @@
     },
     "tool_parameters": {
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": true,
+      "properties": {
+        "bowtie2": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["", "very-fast", "fast", "sensitive", "very-sensitive"],
+              "default": ""
+            },
+            "dovetail": { "type": ["boolean", "string"], "default": false },
+            "no_mixed": { "type": ["boolean", "string"], "default": false },
+            "no_discordant": { "type": ["boolean", "string"], "default": false },
+            "max_insert": {
+              "oneOf": [
+                { "type": "string", "const": "auto" },
+                { "type": "integer", "minimum": 1 },
+                { "type": "string", "pattern": "^[1-9][0-9]*$" }
+              ],
+              "default": "auto",
+              "description": "Paired-end maximum fragment length (-X). auto resolves per sample by assay."
+            },
+            "extra_args": { "type": "string", "default": "" }
+          }
+        }
+      }
     },
     "qc": {
       "type": "object",

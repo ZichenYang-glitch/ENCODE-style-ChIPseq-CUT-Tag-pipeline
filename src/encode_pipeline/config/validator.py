@@ -651,6 +651,15 @@ def validate_tss_annotation_resources(validated_config: dict, samples: list[dict
     )
 
 
+def validate_bowtie2_insert_bounds(validated_config: dict, samples: list[dict]):
+    """Validate Bowtie2 -I/--minins against per-sample resolved PE max_insert."""
+    return tools_validation.validate_bowtie2_insert_bounds(
+        validated_config,
+        samples,
+        error_cls=ValidationError,
+    )
+
+
 def _validate_genome_resources(resources: dict) -> dict:
     """Validate genome_resources config block.
 

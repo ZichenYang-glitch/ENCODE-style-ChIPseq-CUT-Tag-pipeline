@@ -1301,3 +1301,69 @@ def test_artifact_metadata_pooled_mnase_dyad_is_not_read_coverage(tmp_path):
     mono = metadata["results/experiments/EXP1/04_signal/EXP1.pooled.mono.CPM.bw"]
     assert "coverage_unit" not in dyad
     assert mono["coverage_unit"] == "read"
+
+
+def test_adapter_validates_and_plans_bowtie2_max_insert_and_extra_args_migration(
+    tmp_path,
+):
+    row = _inline_row(tmp_path, "M1")
+    row.update({"assay": "mnase", "target": "H3", "peak_mode": "nucleosome"})
+    config = {
+        "use_control": False,
+        "multiqc": False,
+        "replicate_analysis": False,
+        "chipseq_idr": False,
+        "tool_parameters": {
+            "bowtie2": {
+                "extra_args": "-X 900 --very-sensitive",
+            }
+        },
+    }
+    first = _adapter().plan_workspace(
+        WorkflowInputs(config=config, samples=[row]),
+        tmp_path / "workspace-1",
+    )
+    assert first.is_success, first.issues
+    rendered_first = yaml.safe_load(dict(first.value.files)["config/config.yaml"])
+    assert rendered_first["tool_parameters"]["bowtie2"]["max_insert"] == 900
+    assert (
+        rendered_first["tool_parameters"]["bowtie2"]["extra_args"] == "--very-sensitive"
+    )
+
+    # Re-planning from the normalized config is byte-identical.
+    second_cfg = dict(rendered_first)
+    second_cfg.pop("samples", None)
+    second_cfg.pop("outdir", None)
+    second = _adapter().plan_workspace(
+        WorkflowInputs(config=second_cfg, samples=[row]),
+        tmp_path / "workspace-2",
+    )
+    assert second.is_success, second.issues
+    assert first.value.files == second.value.files
+
+
+def test_adapter_rejects_bowtie2_minins_exceeding_resolved_max_insert(tmp_path):
+    row = _inline_row(tmp_path, "M1")
+    row.update({"assay": "mnase", "target": "H3", "peak_mode": "nucleosome"})
+    config = {
+        "use_control": False,
+        "multiqc": False,
+        "replicate_analysis": False,
+        "chipseq_idr": False,
+        "tool_parameters": {
+            "bowtie2": {
+                "max_insert": "auto",
+                "extra_args": "-I 600",
+            }
+        },
+    }
+    validated = _adapter().validate(WorkflowInputs(config=config, samples=[row]))
+    assert validated.is_failure
+    assert validated.errors[0].code == "ENCODE_CONFIG_INVALID"
+
+    planned = _adapter().plan_workspace(
+        WorkflowInputs(config=config, samples=[row]),
+        tmp_path / "workspace",
+    )
+    assert planned.is_failure
+    assert planned.errors[0].code == "ENCODE_CONFIG_INVALID"

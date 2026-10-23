@@ -1785,6 +1785,8 @@ def test_marker_records_versioned_identity_and_effective_config(
         assert record["identity"] == marker["identity"]
         assert record["config"]["mapq"] == 30
         assert record["resolved_duplicate_analysis"] == {"T1": "exclude"}
+        expected_max_insert = 2000 if profile == "updated" else "not_applicable"
+        assert record["resolved_max_insert"] == {"T1": expected_max_insert}
 
         # Same identity: dry-run continues against the recorded run.
         result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
@@ -2393,3 +2395,316 @@ def test_all_macs3_call_sites_render_keep_dup_all(snakefile, profiles_dir):
         )
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _write_single_sample_project(
+    base,
+    profile,
+    assay,
+    target,
+    peak_mode,
+    layout="PE",
+    extra_config=None,
+):
+    workdir = base / f"{profile}_{assay}_{layout}"
+    workdir.mkdir(parents=True)
+    for mate in ("R1.fq.gz", "R2.fq.gz"):
+        with gzip.open(workdir / mate, "wt") as handle:
+            handle.write("@r/1\nACGTACGT\n+\nIIIIIIII\n")
+    fq2 = "R2.fq.gz" if layout == "PE" else ""
+    (workdir / "samples.tsv").write_text(
+        _UPDATED_SAMPLES_HEADER
+        + f"T1\tR1.fq.gz\t{fq2}\t{layout}\t{assay}\t{target}\t{peak_mode}\ths\tbt2_idx\t"
+        f"exp1\t{target}\t1\t1\t1\ttreatment\t\t\n",
+        encoding="utf-8",
+    )
+    outdir = base / f"results_{profile}_{assay}_{layout}"
+    config = {
+        "samples": "samples.tsv",
+        "outdir": str(outdir),
+        "threads": 1,
+        "trim": True,
+        "use_control": False,
+        "multiqc": False,
+        "replicate_analysis": False,
+        "chipseq_idr": False,
+        "genome_resources": {"hs": {"effective_genome_size": "hs"}},
+        "qc": {
+            "blacklist_filter": False,
+            "frip": False,
+            "library_complexity": False,
+            "nrf_pbc": False,
+            "signal_tracks": False,
+            "summary": False,
+            "cuttag_fragment_size": False,
+        },
+    }
+    if profile == "updated":
+        config.update(
+            {
+                "config_schema_version": "2.0.0",
+                "analysis_profile": "updated",
+                "blacklist_mode": "off",
+                "organelle_mode": "auto",
+                "duplicate_backend": "picard",
+                "control_mode": "matched",
+                "reference_mode": "legacy",
+                "external_control_policy": "warn",
+                "fragment_cpm": "off",
+                "tss_fragment_profile": False,
+            }
+        )
+    if extra_config:
+        config.update(extra_config)
+    config_path = workdir / "config.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    return str(workdir), str(config_path), str(outdir)
+
+
+@pytest.mark.parametrize("profile", ["legacy", "updated"])
+@pytest.mark.parametrize(
+    ("assay", "target", "peak_mode", "expected_max_insert"),
+    [
+        ("chipseq", "H3K27ac", "narrow", 2000),
+        ("atac", "ATAC", "narrow", 2000),
+        ("cuttag", "H3K4me3", "narrow", 700),
+        ("mnase", "H3", "nucleosome", 500),
+    ],
+)
+def test_bowtie2_max_insert_auto_resolves_per_assay_pe(
+    snakefile, tmp_path, profile, assay, target, peak_mode, expected_max_insert
+):
+    """SCI-3: auto resolves PE -X per assay in both legacy and updated profiles."""
+    workdir, config_path, outdir = _write_single_sample_project(
+        tmp_path, profile, assay, target, peak_mode, layout="PE"
+    )
+    align_target = f"{outdir}/T1/02_align/T1.sorted.bam"
+    result, output = _run_snakemake_dryrun(
+        snakefile, workdir, config_path, align_target, printshellcmds=True
+    )
+    assert result.returncode == 0, output
+    assert f"max_insert=auto({assay}:{expected_max_insert})" in output, output
+    assert f"-X {expected_max_insert}" in output, output
+    assert output.count("-X ") == 1, output
+
+
+@pytest.mark.parametrize("profile", ["legacy", "updated"])
+def test_bowtie2_max_insert_se_does_not_render_flag_and_records_not_applicable(
+    snakefile, tmp_path, profile
+):
+    """SCI-3: SE samples never render -X and record not_applicable."""
+    workdir, config_path, outdir = _write_single_sample_project(
+        tmp_path,
+        profile,
+        "chipseq",
+        "H3K27ac",
+        "narrow",
+        layout="SE",
+        extra_config={"tool_parameters": {"bowtie2": {"max_insert": 1000}}},
+    )
+    align_target = f"{outdir}/T1/02_align/T1.sorted.bam"
+    result, output = _run_snakemake_dryrun(
+        snakefile, workdir, config_path, align_target, printshellcmds=True
+    )
+    assert result.returncode == 0, output
+    assert "max_insert=not_applicable" in output, output
+    assert "-X " not in output, output
+
+    marker_rel = f"{outdir}/.helixweave/analysis_identity.json"
+    result, output = _run_snakemake_job(snakefile, workdir, config_path, marker_rel)
+    assert result.returncode == 0, output
+    with open(
+        f"{outdir}/.helixweave/effective_config.json", encoding="utf-8"
+    ) as handle:
+        record = json.load(handle)
+    assert record["config"]["tool_parameters"]["bowtie2"]["max_insert"] == 1000
+    assert record["resolved_max_insert"] == {"T1": "not_applicable"}
+
+
+@pytest.mark.parametrize("profile", ["legacy", "updated"])
+def test_bowtie2_max_insert_mixed_assay_and_control_resolve_per_sample(
+    snakefile, tmp_path, profile
+):
+    """SCI-3: mixed-assay PE + SE control resolves per sample without premature collapse."""
+    workdir = tmp_path / f"mixed_{profile}"
+    workdir.mkdir(parents=True)
+    for sample in ("T1", "T2", "C1"):
+        for mate in ("R1.fq.gz", "R2.fq.gz"):
+            with gzip.open(workdir / f"{sample}_{mate}", "wt") as handle:
+                handle.write("@r/1\nACGTACGT\n+\nIIIIIIII\n")
+    rows = [
+        "T1\tT1_R1.fq.gz\tT1_R2.fq.gz\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+        "exp1\tH3K27ac\t1\t1\t1\ttreatment\tC1\t",
+        "T2\tT2_R1.fq.gz\tT2_R2.fq.gz\tPE\tcuttag\tH3K4me3\tnarrow\ths\tbt2_idx\t"
+        "exp2\tH3K4me3\t1\t1\t1\ttreatment\t\t",
+        "C1\tC1_R1.fq.gz\t\tSE\tchipseq\tInput\tnarrow\ths\tbt2_idx\t"
+        "exp1\tInput\t1\t1\t1\tcontrol\t\t",
+    ]
+    (workdir / "samples.tsv").write_text(
+        _UPDATED_SAMPLES_HEADER + "".join(f"{row}\n" for row in rows),
+        encoding="utf-8",
+    )
+    outdir = tmp_path / f"results_{profile}"
+    config = {
+        "samples": "samples.tsv",
+        "outdir": str(outdir),
+        "threads": 1,
+        "trim": True,
+        "use_control": True,
+        "multiqc": False,
+        "replicate_analysis": False,
+        "chipseq_idr": False,
+        "genome_resources": {"hs": {"effective_genome_size": "hs"}},
+        "qc": {
+            "blacklist_filter": False,
+            "frip": False,
+            "library_complexity": False,
+            "nrf_pbc": False,
+            "signal_tracks": False,
+            "summary": False,
+            "cuttag_fragment_size": False,
+        },
+    }
+    if profile == "updated":
+        config.update(
+            {
+                "config_schema_version": "2.0.0",
+                "analysis_profile": "updated",
+                "blacklist_mode": "off",
+                "organelle_mode": "auto",
+                "duplicate_backend": "picard",
+                "control_mode": "matched",
+                "reference_mode": "legacy",
+                "external_control_policy": "warn",
+                "fragment_cpm": "off",
+                "tss_fragment_profile": False,
+            }
+        )
+    config_path = workdir / "config.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result, output = _run_snakemake_dryrun(
+        snakefile, str(workdir), str(config_path), printshellcmds=True
+    )
+    assert result.returncode == 0, output
+    assert "max_insert=auto(chipseq:2000,cuttag:700)" in output, output
+    assert "-X 2000" in output, output
+    assert "-X 700" in output, output
+    # Only the 2 PE samples render -X; the SE control sample C1 does not.
+    assert output.count("-X ") == 2, output
+
+    marker_rel = f"{outdir}/.helixweave/analysis_identity.json"
+    result, output = _run_snakemake_job(
+        snakefile, str(workdir), str(config_path), marker_rel
+    )
+    assert result.returncode == 0, output
+    with open(
+        f"{outdir}/.helixweave/effective_config.json", encoding="utf-8"
+    ) as handle:
+        record = json.load(handle)
+    assert record["resolved_max_insert"] == {
+        "C1": "not_applicable",
+        "T1": 2000,
+        "T2": 700,
+    }
+
+
+def test_bowtie2_max_insert_cli_override_and_identity_isolation(snakefile, tmp_path):
+    """SCI-3: Snakemake --config overrides max_insert and isolates run identity."""
+    workdir, config_path, outdir = _write_single_sample_project(
+        tmp_path, "updated", "cuttag", "H3K4me3", "narrow", layout="PE"
+    )
+    override_1200 = [
+        "--config",
+        "tool_parameters={'bowtie2': {'max_insert': 1200}}",
+    ]
+    align_target = f"{outdir}/T1/02_align/T1.sorted.bam"
+    result, output = _run_snakemake_dryrun(
+        snakefile,
+        workdir,
+        config_path,
+        align_target,
+        printshellcmds=True,
+        extra_args=override_1200,
+    )
+    assert result.returncode == 0, output
+    assert "max_insert=1200" in output, output
+    assert "-X 1200" in output, output
+    assert "-X 700" not in output, output
+
+    marker_rel = f"{outdir}/.helixweave/analysis_identity.json"
+    result, output = _run_snakemake_job(
+        snakefile, workdir, config_path, marker_rel, extra_args=override_1200
+    )
+    assert result.returncode == 0, output
+    with open(
+        f"{outdir}/.helixweave/effective_config.json", encoding="utf-8"
+    ) as handle:
+        record = json.load(handle)
+    assert record["config"]["tool_parameters"]["bowtie2"]["max_insert"] == 1200
+    assert record["resolved_max_insert"] == {"T1": 1200}
+
+    # Resuming with auto (700) or 1300 is rejected due to identity mismatch.
+    result, output = _run_snakemake_dryrun(snakefile, workdir, config_path)
+    assert result.returncode != 0, output
+    assert "different analysis identity" in output, output
+
+
+def test_bowtie2_extra_args_migration_and_conflicts_at_snakemake_startup(
+    snakefile, tmp_path
+):
+    """SCI-3: extra_args -X/--maxins migrates when compatible and fails when conflicting."""
+    workdir, config_path, outdir = _write_single_sample_project(
+        tmp_path,
+        "legacy",
+        "mnase",
+        "H3",
+        "nucleosome",
+        layout="PE",
+        extra_config={
+            "tool_parameters": {
+                "bowtie2": {
+                    "extra_args": '-X 900 --rg "SM:My Sample"',
+                }
+            }
+        },
+    )
+    align_target = f"{outdir}/T1/02_align/T1.sorted.bam"
+    result, output = _run_snakemake_dryrun(
+        snakefile, workdir, config_path, align_target, printshellcmds=True
+    )
+    assert result.returncode == 0, output
+    assert "max_insert=900" in output, output
+    assert "-X 900" in output, output
+    assert output.count("-X ") == 1, output
+    assert '--rg "SM:My Sample"' in output, output
+
+    # Conflict: explicit max_insert=500 vs extra_args --maxins=900
+    with open(config_path, encoding="utf-8") as handle:
+        cfg = yaml.safe_load(handle)
+    cfg["tool_parameters"] = {
+        "bowtie2": {
+            "max_insert": 500,
+            "extra_args": "--maxins=900",
+        }
+    }
+    with open(config_path, "w", encoding="utf-8") as handle:
+        yaml.safe_dump(cfg, handle, sort_keys=False)
+    result, output = _run_snakemake_dryrun(snakefile, workdir, config_path)
+    assert result.returncode != 0, output
+    assert "tool_parameters.bowtie2.max_insert" in output, output
+
+    # Bounds conflict: -I 600 vs auto (500 for mnase)
+    cfg["tool_parameters"] = {
+        "bowtie2": {
+            "max_insert": "auto",
+            "extra_args": "-I 600",
+        }
+    }
+    with open(config_path, "w", encoding="utf-8") as handle:
+        yaml.safe_dump(cfg, handle, sort_keys=False)
+    result, output = _run_snakemake_dryrun(snakefile, workdir, config_path)
+    assert result.returncode != 0, output
+    assert (
+        "minimum insert length (600) cannot exceed resolved max_insert (500)" in output
+    ), output

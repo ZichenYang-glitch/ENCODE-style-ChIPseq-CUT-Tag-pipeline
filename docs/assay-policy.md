@@ -29,6 +29,16 @@ yes/no alias) overrides the assay default for the whole run. The BAM layer
 executes the policy and every MACS3 call renders `--keep-dup all`. See the
 CUT&Tag section for the full per-assay matrix.
 
+### Paired-end alignment insert limit (Bowtie2 `-X`)
+
+Under `tool_parameters.bowtie2.max_insert: auto` (default), PE ChIP-seq
+samples align with `-X 2000` (2000 bp) so longer sonicated chromatin
+fragments remain eligible for concordant pairing (`0x2`) and downstream
+`-f BAMPE` peak calling. SE ChIP-seq samples do not render `-X` and record
+`not_applicable` in `resolved_max_insert`. An explicit positive integer in
+`tool_parameters.bowtie2.max_insert` overrides `auto` for all PE samples in
+the run.
+
 ### Read extension (bamCoverage)
 
 | `extend_reads` | PE | SE |
@@ -79,6 +89,26 @@ overrides the assay default for the whole run. The BAM layer executes the
 policy and every MACS3 call renders `--keep-dup all`. Resolution lives in
 `get_duplicate_policy` (`workflow/rules/metadata.smk`).
 
+### Paired-end alignment insert limit (Bowtie2 `-X`)
+
+| Assay | `max_insert: auto` (PE `-X`) | SE |
+| :--- | :--- | :--- |
+| `chipseq` | `2000` | Not emitted (`not_applicable`) |
+| `atac` | `2000` | Not emitted (`not_applicable`) |
+| `cuttag` | `700` | Not emitted (`not_applicable`) |
+| `mnase` | `500` | PE-only |
+
+Under `tool_parameters.bowtie2.max_insert: auto`, PE CUT&Tag samples align
+with `-X 700` (700 bp), covering sub-nucleosomal, mono-, di-, and
+tri-nucleosomal tethered Tn5 fragments without opening a 2000 bp window.
+Resolution lives in `get_max_insert` (`workflow/rules/metadata.smk`) and
+applies identically in `legacy` and `updated` profiles as well as treatment
+and control samples. Because `max_insert` sets Bowtie2's `-X` paired-end
+alignment parameter (rather than a post-alignment TLEN filter), when the
+individual read length exceeds `-X` (for example 150 bp reads with `-X 100`),
+Bowtie2 can still align templates up to the read length as concordant pairs
+(`0x2`).
+
 ### Read extension (bamCoverage)
 
 Identical to ChIP-seq. The policy delegate (`get_extend_reads_cuttag`) calls `get_extend_reads_chipseq` directly.
@@ -125,6 +155,12 @@ ATAC-seq **excludes** duplicates under `duplicate_analysis: auto` (no
 broad-peak exception — broad ATAC is not supported). An explicit
 `duplicate_analysis: exclude/retain` (or the legacy `remove_dup` yes/no
 alias) overrides the assay default for the whole run.
+
+### Paired-end alignment insert limit (Bowtie2 `-X`)
+
+PE ATAC-seq samples align with `-X 2000` under `tool_parameters.bowtie2.max_insert: auto`
+so nucleosome-free and multi-nucleosomal ATAC fragments up to 2000 bp are
+retained as proper pairs. SE ATAC-seq samples do not render `-X`.
 
 ### Read extension (bamCoverage)
 
@@ -198,6 +234,15 @@ MNase-seq **excludes** duplicates under `duplicate_analysis: auto` (MNase is
 PE-only; no broad-peak exception). An explicit
 `duplicate_analysis: exclude/retain` (or the legacy `remove_dup` yes/no
 alias) overrides the assay default for the whole run.
+
+### Paired-end alignment insert limit (Bowtie2 `-X`)
+
+MNase-seq aligns with `-X 500` under `tool_parameters.bowtie2.max_insert: auto`
+(configurable via `tool_parameters.bowtie2.max_insert`). This is the
+Bowtie2 paired-end alignment search ceiling; it does not alter the
+downstream `mnase.fragments` (`sub` `[1, 139]`, `mono` `[140, 200]`,
+`di` `[300, 400]`) or `mnase.dyad_range` (`[130, 200]`) stratification
+windows.
 
 ### Read extension (bamCoverage)
 

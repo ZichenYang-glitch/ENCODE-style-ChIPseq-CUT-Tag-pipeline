@@ -357,6 +357,8 @@ use built-in defaults.
 
 ```yaml
 tool_parameters:
+  bowtie2:
+    max_insert: "auto" # auto | positive integer -> PE -X N
   macs3:
     qvalue: 0.01
   idr_macs3:
@@ -367,11 +369,40 @@ tool_parameters:
 
 | Block | Key | Default | Effect |
 | :--- | :--- | :--- | :--- |
+| `bowtie2` | `max_insert` | `"auto"` | Paired-end Bowtie2 maximum fragment length (`-X`). `"auto"` resolves per PE sample by assay (`chipseq: 2000`, `atac: 2000`, `cuttag: 700`, `mnase: 500`); a positive integer overrides `"auto"` for all PE samples in the run. Validated for SE runs, not emitted on the SE command line, and recorded as `"not_applicable"` in `resolved_max_insert`. |
 | `macs3` | `qvalue` | `0.01` | MACS3 q-value cutoff for peak calling. Must be a finite probability in (0, 1]. |
 | `macs3` | `broad_cutoff` | `0.1` | MACS3 broad-peak q-value cutoff. Must be a finite probability in (0, 1]. |
 | `idr_macs3` | `pvalue` | `0.1` | Relaxed p-value for IDR-ready per-biorep peak calls. Only used when `chipseq_idr: true`. Must be a finite probability in (0, 1]. |
 | `bamcoverage` | `normalize_using` | `"CPM"` | deepTools bamCoverage normalization method. |
 | any block | `extra_args` | `""` | Additional CLI arguments passed through to the tool. Use sparingly. |
+
+### Bowtie2 paired-end insert limit (`tool_parameters.bowtie2.max_insert`)
+
+In `auto` mode, `rule bowtie2_align` resolves `-X` per PE sample by assay
+(`chipseq=2000`, `atac=2000`, `cuttag=700`, `mnase=500`) across both
+`legacy` and `updated` profiles and for both treatment and control rows.
+An explicit positive integer in `tool_parameters.bowtie2.max_insert`
+overrides `auto` for every PE sample in the run. SE samples never emit `-X`
+and are recorded as `"not_applicable"` in `resolved_max_insert` inside
+`<outdir>/.helixweave/effective_config.json`.
+
+A legacy `-X` or `--maxins` in `tool_parameters.bowtie2.extra_args` (including
+attached `-X<N>`, `--maxins=<N>`, and unambiguous `getopt_long` prefixes
+`--max`, `--maxi`, `--maxin`) is migrated into `tool_parameters.bowtie2.max_insert`
+when `max_insert` is omitted or `"auto"`, or stripped when it matches an
+explicit `max_insert` integer; conflicting values, bundled short flags such
+as `-qX700`, `-X=<N>` (rejected by Bowtie2), or non-positive values are
+rejected with migration guidance rather than being decided by argument order.
+Unrelated tokens in `extra_args` — including arguments consumed by other
+Bowtie2 options such as `--rg-id '-X500'` or `--rg-id '-I5000'` — keep their
+original shell quoting and runtime variable expansions byte-for-byte. If
+`extra_args` also passes a standalone `-I` or `--minins`, validation enforces
+that the minimum insert length is a non-negative integer no larger than the
+effective maximum insert length for every PE sample in the run. Note that
+`max_insert` configures Bowtie2's `-X` paired-end alignment bound rather than a
+post-alignment TLEN filter: when individual read length exceeds `-X` (e.g.
+150 bp reads with `-X 100`), Bowtie2 can still mark templates up to the read
+length as concordant pairs (`0x2`).
 
 ## Strict input validation
 

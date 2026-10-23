@@ -1,12 +1,14 @@
 """Lighten encode_pipeline.config package-level imports."""
 
 __all__ = [
+    "validate_bowtie2_insert_bounds",
     "validate_config",
     "validate_picard_reference_resources",
     "validate_tss_annotation_resources",
 ]
 
 _LAZY_EXPORTS = {
+    "validate_bowtie2_insert_bounds",
     "validate_config",
     "validate_picard_reference_resources",
     "validate_tss_annotation_resources",
@@ -18,12 +20,14 @@ def __getattr__(name: str):
     if name not in _LAZY_EXPORTS:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     from encode_pipeline.config.validate import (
+        validate_bowtie2_insert_bounds as _validate_bowtie2_insert_bounds,
         validate_config as _validate_config,
         validate_picard_reference_resources as _validate_picard_reference_resources,
         validate_tss_annotation_resources as _validate_tss_annotation_resources,
     )
 
     exports = {
+        "validate_bowtie2_insert_bounds": _validate_bowtie2_insert_bounds,
         "validate_config": _validate_config,
         "validate_picard_reference_resources": _validate_picard_reference_resources,
         "validate_tss_annotation_resources": _validate_tss_annotation_resources,

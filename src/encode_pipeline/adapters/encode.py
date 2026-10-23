@@ -1031,6 +1031,7 @@ def _validate_scientific_inputs(
     """Run the existing config, sample, and resource validators unchanged."""
     from encode_pipeline.config.validate import (
         ValidationError,
+        validate_bowtie2_insert_bounds,
         validate_config,
         validate_execution_support,
         validate_picard_reference_resources,
@@ -1091,6 +1092,17 @@ def _validate_scientific_inputs(
             code="ENCODE_SAMPLES_INVALID",
             source="samples",
             path="samples",
+            sanitize=sanitize_errors,
+        )
+
+    try:
+        validate_bowtie2_insert_bounds(validated_config, samples)
+    except ValidationError as exc:
+        return _scientific_validation_failure(
+            exc,
+            code="ENCODE_CONFIG_INVALID",
+            source="config",
+            path="config",
             sanitize=sanitize_errors,
         )
 

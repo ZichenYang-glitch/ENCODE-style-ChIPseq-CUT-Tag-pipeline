@@ -31,6 +31,13 @@ EXTEND_READS_KEYWORDS = ("auto", "yes", "no")
 CUTTAG_SEACR_MODES = ("stringent", "relaxed")
 IDR_RANKS = ("p.value", "signal.value")
 BOWTIE2_MODES = ("", "very-fast", "fast", "sensitive", "very-sensitive")
+BOWTIE2_MAX_INSERT_KEYWORDS = ("auto",)
+BOWTIE2_MAX_INSERT_BY_ASSAY = {
+    "chipseq": 2000,
+    "atac": 2000,
+    "cuttag": 700,
+    "mnase": 500,
+}
 BAMCOVERAGE_NORMALIZE_USING = ("CPM", "RPKM", "BPM", "None")
 
 # A1 config compatibility surface. These keys are parsed/normalized in this
@@ -105,7 +112,7 @@ TOOL_PARAMETERS_KEYS = {
     "fastqc": frozenset({"extra_args"}),
     "trim_galore": frozenset({"quality", "length", "stringency", "extra_args"}),
     "bowtie2": frozenset(
-        {"mode", "dovetail", "no_mixed", "no_discordant", "extra_args"}
+        {"mode", "dovetail", "no_mixed", "no_discordant", "max_insert", "extra_args"}
     ),
     "samtools_filter": frozenset({"filter_flags", "extra_args"}),
     "picard_markduplicates": frozenset(

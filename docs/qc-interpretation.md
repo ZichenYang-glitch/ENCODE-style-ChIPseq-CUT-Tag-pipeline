@@ -62,8 +62,11 @@ alignment)** sections to show the relevant before/after alignment counts.
   (chrM) or unplaced contigs may occur and are generally not problematic for
   peak calling.
 - **PE concordance:** for PE libraries, check the "properly paired" rate in
-  flagstat. Low properly-paired rates (< 50%) suggest insert size issues or
-  structural variation.
+  flagstat. Concordant pairing uses the assay-resolved Bowtie2 maximum
+  fragment length (`tool_parameters.bowtie2.max_insert`: 2000 bp for
+  ChIP-seq and ATAC-seq, 700 bp for CUT&Tag, 500 bp for MNase-seq under
+  `auto`, or an explicit positive integer override). Low properly-paired
+  rates (< 50%) suggest insert size issues or structural variation.
 
 ## Duplicate and Library Complexity
 

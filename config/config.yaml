@@ -58,6 +58,7 @@ multiqc: true
 #     # dovetail: false       # boolean → --dovetail when true
 #     # no_mixed: false       # boolean → --no-mixed when true
 #     # no_discordant: false  # boolean → --no-discordant when true
+#     # max_insert: "auto"    # "auto" | positive int → PE -X N (chipseq/atac=2000, cuttag=700, mnase=500)
 #     # extra_args: ""
 #   samtools_filter:
 #     # filter_flags: 0x904   # always emitted; accepts "0x904", "2308", 2308

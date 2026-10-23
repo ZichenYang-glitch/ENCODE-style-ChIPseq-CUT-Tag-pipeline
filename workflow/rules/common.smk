@@ -168,6 +168,7 @@ rule bowtie2_align:
         layout=lambda wc: SAMPLE_MAP[wc.sample]["layout"],
         bt2_idx=lambda wc: SAMPLE_MAP[wc.sample]["bt2_idx"],
         sample="{sample}",
+        max_insert=lambda wc: get_bowtie2_max_insert_arg(wc),
         mode=f"--{v}" if (v := _tool_param("bowtie2", "mode", "")) else "",
         dovetail="--dovetail" if _tool_param("bowtie2", "dovetail", False) else "",
         no_mixed="--no-mixed" if _tool_param("bowtie2", "no_mixed", False) else "",
@@ -180,7 +181,7 @@ rule bowtie2_align:
 
         if [[ "{params.layout}" == "PE" ]]; then
             bowtie2 $RG -x {params.bt2_idx:q} -1 {input.r1:q} -2 {input.r2:q} -p {threads} \
-                {params.mode} {params.dovetail} {params.no_mixed} {params.no_discordant} \
+                {params.max_insert} {params.mode} {params.dovetail} {params.no_mixed} {params.no_discordant} \
                 {params.extra} \
                 2>{log:q} | samtools view -b | samtools sort -@ {threads} -o {output.bam:q}
         else
