@@ -1,6 +1,10 @@
 """Direct-API characterization tests for tool_parameters validation."""
 
+import json
+import os
 import shlex
+import subprocess
+import sys
 
 import pytest
 
@@ -471,3 +475,145 @@ def test_keep_dup_abbreviation_all_is_normalized(tmp_path, block, extra):
 def test_keep_dup_abbreviation_conflict_is_rejected(tmp_path, block, extra):
     with pytest.raises(ValidationError, match="conflicts with the BAM-layer"):
         _validate(tmp_path, {block: {"extra_args": extra}})
+
+
+def _bash_argv(fragment: str, *, env: dict[str, str] | None = None) -> list[str]:
+    """Return the actual argv array produced by /bin/bash for ``fragment``."""
+    probe = shlex.join(
+        [sys.executable, "-c", "import json, sys; print(json.dumps(sys.argv[1:]))"]
+    )
+    completed = subprocess.run(
+        f"{probe} {fragment}",
+        shell=True,
+        executable="/bin/bash",
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+    return json.loads(completed.stdout)
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+@pytest.mark.parametrize(
+    "extra,expected_bash_argv",
+    [
+        ("--keep-dup\\\n 1", ["--keep-dup", "1"]),
+        ("--keep-\\\ndup 1", ["--keep-dup", "1"]),
+        ("--keep-\\\ndup=auto", ["--keep-dup=auto"]),
+        ("--keep-dup\\\n=1", ["--keep-dup=1"]),
+        ("--keep-dup=\\\n1", ["--keep-dup=1"]),
+        ("--keep-dup \\\n 1", ["--keep-dup", "1"]),
+        ("--keep-d\\\n 1", ["--keep-d", "1"]),
+        ("--k\\\n=2", ["--k=2"]),
+        ('"--keep-\\\ndup" 1', ["--keep-dup", "1"]),
+        ('"--keep-d\\\n"=auto', ["--keep-d=auto"]),
+        ('--keep-dup "a\\\nuto"', ["--keep-dup", "auto"]),
+    ],
+)
+def test_keep_dup_line_continuation_conflict_is_rejected_matching_bash(
+    tmp_path, block, extra, expected_bash_argv
+):
+    assert _bash_argv(extra) == expected_bash_argv
+    with pytest.raises(ValidationError, match="conflicts with the BAM-layer"):
+        _validate(tmp_path, {block: {"extra_args": extra}})
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+@pytest.mark.parametrize(
+    "extra,expected_normalized,expected_bash_argv",
+    [
+        ("--keep-dup a\\\nll", "", []),
+        ("--keep-dup a\\\nll --nomodel", "--nomodel", ["--nomodel"]),
+        ("--keep-\\\ndup all --nomodel", "--nomodel", ["--nomodel"]),
+        ("--keep-dup\\\n all --nomodel", "--nomodel", ["--nomodel"]),
+        ("--keep-dup \\\n all --nomodel", "--nomodel", ["--nomodel"]),
+        ("--keep-dup=a\\\nll -B", "-B", ["-B"]),
+        ("--keep-d\\\n=a\\\nll --nomodel", "--nomodel", ["--nomodel"]),
+        ("--k\\\n a\\\nll -B", "-B", ["-B"]),
+        ('"--keep-\\\ndup" "a\\\nll" --nomodel', "--nomodel", ["--nomodel"]),
+    ],
+)
+def test_keep_dup_line_continuation_synonym_all_is_normalized_matching_bash(
+    tmp_path, block, extra, expected_normalized, expected_bash_argv
+):
+    first = _validate(tmp_path, {block: {"extra_args": extra}})[block]["extra_args"]
+    assert first == expected_normalized
+    assert _bash_argv(first) == expected_bash_argv
+    second = _validate(tmp_path, {block: {"extra_args": first}})[block]["extra_args"]
+    assert second == first
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+def test_single_quoted_backslash_newline_remains_literal_matching_bash(tmp_path, block):
+    extra = "'--keep-dup\\\n' 1"
+    assert _bash_argv(extra) == ["--keep-dup\\\n", "1"]
+    first = _validate(tmp_path, {block: {"extra_args": extra}})[block]["extra_args"]
+    assert first == extra
+    second = _validate(tmp_path, {block: {"extra_args": first}})[block]["extra_args"]
+    assert second == first
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+@pytest.mark.parametrize(
+    "extra,expected_normalized,expected_bash_argv",
+    [
+        (
+            "--tempdir /tmp/review-temp\\  --keep-dup all",
+            "--tempdir /tmp/review-temp\\ ",
+            ["--tempdir", "/tmp/review-temp "],
+        ),
+        (
+            "--tempdir /tmp/review\\ path --keep-dup a\\\nll",
+            "--tempdir /tmp/review\\ path",
+            ["--tempdir", "/tmp/review path"],
+        ),
+        (
+            "--tempdir '/tmp/temp with spaces' --keep-\\\ndup all",
+            "--tempdir '/tmp/temp with spaces'",
+            ["--tempdir", "/tmp/temp with spaces"],
+        ),
+        (
+            '--tempdir "/tmp/it\'s here" --keep-dup a\\\nll',
+            '--tempdir "/tmp/it\'s here"',
+            ["--tempdir", "/tmp/it's here"],
+        ),
+    ],
+)
+def test_keep_dup_migration_preserves_escaped_trailing_space_and_quotes_matching_bash(
+    tmp_path, block, extra, expected_normalized, expected_bash_argv
+):
+    first = _validate(tmp_path, {block: {"extra_args": extra}})[block]["extra_args"]
+    assert first == expected_normalized
+    assert _bash_argv(first) == expected_bash_argv
+    second = _validate(tmp_path, {block: {"extra_args": first}})[block]["extra_args"]
+    assert second == first
+
+
+@pytest.mark.parametrize("block", ["macs3", "idr_macs3"])
+def test_keep_dup_migration_does_not_expand_env_vars_in_validator_but_bash_does(
+    tmp_path, block, monkeypatch
+):
+    monkeypatch.setenv("TMPDIR", "/should/not/be/inlined/by/validator")
+    double_quoted = '--tempdir "$TMPDIR/sub dir" --keep-dup a\\\nll'
+    normalized_dq = _validate(tmp_path, {block: {"extra_args": double_quoted}})[block][
+        "extra_args"
+    ]
+    assert normalized_dq == '--tempdir "$TMPDIR/sub dir"'
+    assert (
+        _validate(tmp_path, {block: {"extra_args": normalized_dq}})[block]["extra_args"]
+        == normalized_dq
+    )
+    env = os.environ.copy()
+    env["TMPDIR"] = "/runtime/expanded dir"
+    assert _bash_argv(normalized_dq, env=env) == [
+        "--tempdir",
+        "/runtime/expanded dir/sub dir",
+    ]
+
+    single_quoted = "--tempdir '$TMPDIR/sub dir' --keep-dup a\\\nll"
+    normalized_sq = _validate(tmp_path, {block: {"extra_args": single_quoted}})[block][
+        "extra_args"
+    ]
+    assert normalized_sq == "--tempdir '$TMPDIR/sub dir'"
+    assert _bash_argv(normalized_sq, env=env) == ["--tempdir", "$TMPDIR/sub dir"]

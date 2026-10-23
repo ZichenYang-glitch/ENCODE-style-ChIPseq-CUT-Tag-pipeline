@@ -17,6 +17,7 @@ Usage:
         test/real_execution/test_macs3_extra_args_migration.py -v
 """
 
+import json
 import os
 import shlex
 import shutil
@@ -193,9 +194,10 @@ def test_normalized_extra_args_keeps_variable_expansion_live(
 
 def _write_project(tmp_path, extra_args):
     (tmp_path / "samples.tsv").write_text(SAMPLES_TSV, encoding="utf-8")
-    # YAML single-quoted scalar with '' doubling keeps any embedded shell
-    # quoting (spaces, "$VAR", apostrophes) intact.
-    yaml_extra = "'" + extra_args.replace("'", "''") + "'"
+    # JSON string encoding is valid YAML 1.2 and preserves embedded shell
+    # quoting (spaces, "$VAR", apostrophes) and physical newlines (\n)
+    # verbatim through yaml.safe_load.
+    yaml_extra = json.dumps(extra_args)
     (tmp_path / "config.yaml").write_text(
         "\n".join(
             [
@@ -315,6 +317,49 @@ def test_production_run_rejects_abbreviated_keep_dup_conflict(
     """--keep-d 1 is an argparse abbreviation of --keep-dup and conflicts
     with the canonical --keep-dup all; startup validation must refuse it."""
     _write_project(tmp_path, "--keep-d 1")
+    env = _snakemake_env(macs3_path, samtools_path)
+    result = _snakemake_run(
+        snakemake_path,
+        tmp_path,
+        "results/.helixweave/analysis_identity.json",
+        env,
+    )
+    assert result.returncode != 0
+    output = result.stdout + result.stderr
+    assert "conflicts with the BAM-layer" in output
+
+
+def test_production_macs3_rule_normalizes_line_continued_all_and_escaped_trailing_space(
+    tmp_path, snakemake_path, macs3_path, samtools_path
+):
+    """A line-continued synonymous --keep-dup a\\\\nll is migrated out while a
+    backslash-protected trailing space in --tempdir survives into real macs3."""
+    tempdir = tmp_path / "temp_trailing "
+    tempdir.mkdir()
+    escaped_tempdir = str(tempdir)[:-1] + "\\ "
+    _write_project(
+        tmp_path,
+        f"--nomodel --extsize 200 --tempdir {escaped_tempdir} --keep-dup a\\\nll",
+    )
+    env = _snakemake_env(macs3_path, samtools_path)
+    _run_production_macs3_rule(tmp_path, snakemake_path, macs3_path, samtools_path, env)
+
+
+@pytest.mark.parametrize(
+    "extra_args",
+    [
+        "--keep-dup\\\n 1",
+        "--keep-\\\ndup 1",
+        "--keep-d\\\n=auto",
+        '"--keep-\\\ndup" 1',
+    ],
+)
+def test_production_run_rejects_line_continued_keep_dup_conflicts(
+    tmp_path, snakemake_path, macs3_path, samtools_path, extra_args
+):
+    """POSIX line continuations inside --keep-dup must not bypass startup
+    conflict rejection in the production Snakemake workflow."""
+    _write_project(tmp_path, extra_args)
     env = _snakemake_env(macs3_path, samtools_path)
     result = _snakemake_run(
         snakemake_path,

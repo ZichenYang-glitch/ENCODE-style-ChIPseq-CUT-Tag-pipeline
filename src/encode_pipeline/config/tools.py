@@ -27,12 +27,16 @@ def _is_keep_dup_option(name):
 def _scan_extra_args_tokens(tool, extra, error_cls):
     """Tokenize extra_args into ``(value, start, end)`` spans.
 
-    Follows POSIX quoting for token boundaries: single quotes and
-    backslashes quote literally, double quotes group without disabling
-    expansion. ``value`` is the dequoted token used for flag comparisons;
-    ``start``/``end`` delimit the raw source text so untouched tokens keep
-    their original quoting byte-for-byte. Unterminated quotes raise a
-    field-named validation error instead of leaking parser exceptions.
+    Follows POSIX quoting for token boundaries: single quotes quote
+    literally, unquoted backslashes escape the next character except that
+    ``\\`` + newline is removed as a line continuation, and double quotes
+    group while still folding ``\\`` + newline continuations and ``$``,
+    `` ` ``, ``"``, ``\\`` escapes. ``value`` is the dequoted token used for
+    flag comparisons; ``start``/``end`` delimit the raw source text of each
+    token (excluding any trailing unquoted line continuation) so untouched
+    tokens keep their original quoting and escaped spaces byte-for-byte.
+    Unterminated quotes raise a field-named validation error instead of
+    leaking parser exceptions.
     """
 
     def _invalid_quoting():
@@ -48,44 +52,55 @@ def _scan_extra_args_tokens(tool, extra, error_cls):
         if extra[index] in _EXTRA_ARGS_WHITESPACE:
             index += 1
             continue
+        if extra[index] == "\\" and index + 1 < length and extra[index + 1] == "\n":
+            index += 2
+            continue
         start = index
+        token_end = index
         chars = []
         while index < length and extra[index] not in _EXTRA_ARGS_WHITESPACE:
             char = extra[index]
             if char == "\\":
-                if index + 1 < length:
+                if index + 1 < length and extra[index + 1] == "\n":
+                    index += 2
+                elif index + 1 < length:
                     chars.append(extra[index + 1])
                     index += 2
+                    token_end = index
                 else:
                     chars.append(char)
                     index += 1
+                    token_end = index
             elif char == "'":
                 closing = extra.find("'", index + 1)
                 if closing == -1:
                     raise _invalid_quoting()
                 chars.append(extra[index + 1 : closing])
                 index = closing + 1
+                token_end = index
             elif char == '"':
-                closing = index + 1
-                while closing < length:
-                    if (
-                        extra[closing] == "\\"
-                        and closing + 1 < length
-                        and extra[closing + 1] in '$`"\\'
-                    ):
-                        closing += 2
-                        continue
-                    if extra[closing] == '"':
-                        break
-                    closing += 1
-                if closing >= length:
+                cursor = index + 1
+                while cursor < length and extra[cursor] != '"':
+                    if extra[cursor] == "\\" and cursor + 1 < length:
+                        next_char = extra[cursor + 1]
+                        if next_char == "\n":
+                            cursor += 2
+                            continue
+                        if next_char in '$`"\\':
+                            chars.append(next_char)
+                            cursor += 2
+                            continue
+                    chars.append(extra[cursor])
+                    cursor += 1
+                if cursor >= length:
                     raise _invalid_quoting()
-                chars.append(extra[index + 1 : closing])
-                index = closing + 1
+                index = cursor + 1
+                token_end = index
             else:
                 chars.append(char)
                 index += 1
-        tokens.append(("".join(chars), start, index))
+                token_end = index
+        tokens.append(("".join(chars), start, token_end))
     return tokens
 
 
@@ -105,23 +120,23 @@ def _migrate_keep_dup_extra_args(tool, extra, error_cls):
     second validation pass is a stable no-op.
     """
     tokens = _scan_extra_args_tokens(tool, extra, error_cls)
-    removed = []
+    removed = set()
     migrated = False
     index = 0
     while index < len(tokens):
-        value, start, end = tokens[index]
+        value, _start, _end = tokens[index]
         name, sep, attached = value.partition("=")
         if not _is_keep_dup_option(name):
             index += 1
             continue
         migrated = True
-        removed.append((start, end))
+        removed.add(index)
         if sep:
             flag_value = attached
             index += 1
         elif index + 1 < len(tokens):
             flag_value = tokens[index + 1][0]
-            removed.append((tokens[index + 1][1], tokens[index + 1][2]))
+            removed.add(index + 1)
             index += 2
         else:
             flag_value = ""
@@ -135,14 +150,11 @@ def _migrate_keep_dup_extra_args(tool, extra, error_cls):
             )
     if not migrated:
         return extra
-    segments = []
-    cursor = 0
-    for start, end in removed:
-        segments.append(extra[cursor:start])
-        cursor = end
-    segments.append(extra[cursor:])
-    kept = [segment.strip(_EXTRA_ARGS_WHITESPACE) for segment in segments]
-    return " ".join(segment for segment in kept if segment)
+    return " ".join(
+        extra[start:end]
+        for token_index, (_value, start, end) in enumerate(tokens)
+        if token_index not in removed
+    )
 
 
 def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
