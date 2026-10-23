@@ -141,8 +141,8 @@ qc:
 
 | Switch | Default | Effect |
 | :--- | :--- | :--- |
-| `blacklist_filter` | `true` | Legacy alias for `blacklist_mode`. When `blacklist_mode` is omitted, `qc.blacklist_filter: true` selects `blacklist_mode: analysis` (filtering analysis BAM and peaks), while `false` selects `blacklist_mode: off`. If set explicitly alongside `blacklist_mode`, explicit `blacklist_mode` takes precedence. |
-| `frip` | `true` | Compute read-record FRiP for peak-assay treatment samples, using both filtered copies when blacklist QC applies. |
+| `blacklist_filter` | `true` | Legacy alias for `blacklist_mode`. When `blacklist_mode` is omitted, `qc.blacklist_filter: true` selects `blacklist_mode: copies` (side-car copies), while `false` selects `blacklist_mode: off`. If specified alongside `blacklist_mode`, conflicting settings (such as `blacklist_mode: analysis` with `qc.blacklist_filter: true`) raise a validation error. Prefer canonical top-level `blacklist_mode`. |
+| `frip` | `true` | Compute read-record FRiP for peak-assay treatment samples using the canonical analysis BAM. |
 | `library_complexity` | `true` | Parse duplicate metrics. Picard fields are reported when Picard is available; otherwise fallback fields are emitted as `NA`. |
 | `nrf_pbc` | `true` | Compute NRF and PBC1/PBC2 from the MAPQ-filtered, duplicate-containing BAM (`{sample}.mapq{mapq}.bam`), before duplicate handling. |
 | `signal_tracks` | `true` | Produce MACS3 FE (fold-enrichment) and ppois (Poisson p-value) bedGraph tracks for eligible peak-assay treatment samples and pooled replicate experiments. FE/ppois BigWig conversion is available when `genome_resources.<genome>.chrom_sizes` is also configured. |
@@ -163,13 +163,11 @@ switches are false. Explicitly requesting a rule output is distinct from default
 target selection.
 
 Blacklist handling is not a global replacement of BAMs, peaks or signal tracks.
-In [`qc.smk`](../workflow/rules/qc.smk), `_has_blacklist_qc` requires both the
+In [`qc.smk`](../workflow/rules/qc.smk), when `blacklist_mode: copies` is selected, `_has_blacklist_qc` requires both the
 switch and a sample in `BLACKLIST_SAMPLES` (treatment samples with a nonempty
-blacklist genome resource). `_frip_inputs` then requests the filtered BAM **and**
-filtered peaks; otherwise it requests `final.bam` and the original peak directory.
-This is configuration-based DAG selection: missing selected outputs must be
-produced, not silently replaced with raw inputs. `_peak_counts_inputs` requests
-raw peaks and optional filtered peaks, never the filtered BAM.
+blacklist genome resource) to produce side-car filtered BAM copies (`<sample>.blacklist_filtered.bam`) and filtered peak directories.
+In `blacklist_mode: analysis`, filtering is applied directly during canonical analysis BAM and final peak preparation, which downstream consumers uniformly consume.
+`_peak_counts_inputs` requests raw peaks and optional filtered peaks, never the filtered BAM.
 
 ### Canonical analysis BAM and blacklist filtering
 

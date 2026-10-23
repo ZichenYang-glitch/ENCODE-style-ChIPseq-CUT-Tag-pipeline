@@ -85,6 +85,11 @@ def parse_args(argv=None):
         default=1,
         help="Compression/decompression threads for samtools",
     )
+    parser.add_argument(
+        "--stage-metrics",
+        default=None,
+        help="Optional path to output stage metrics JSON",
+    )
     return parser.parse_args(argv)
 
 
@@ -136,35 +141,29 @@ def validate_reference_contig_lengths(
     fai_path: str | None = None,
     sample: str = "",
 ) -> None:
-    """Verify contig lengths in BAM @SQ match configured chrom_sizes or FAI."""
-    ref_lengths: dict[str, int] = {}
-    source = ""
-    if fai_path and os.path.isfile(fai_path):
-        source = f"FAI ({fai_path})"
-        with open(fai_path, encoding="utf-8") as handle:
-            for line in handle:
-                parts = line.strip().split("\t")
-                if len(parts) >= 2 and parts[1].isdigit():
-                    ref_lengths[parts[0]] = int(parts[1])
-    elif chrom_sizes_path and os.path.isfile(chrom_sizes_path):
-        source = f"chrom_sizes ({chrom_sizes_path})"
-        with open(chrom_sizes_path, encoding="utf-8") as handle:
+    """Verify contig lengths in BAM @SQ match configured chrom_sizes and FAI independently."""
+    for source_path, source_name in [
+        (fai_path, "FAI"),
+        (chrom_sizes_path, "chrom_sizes"),
+    ]:
+        if not (source_path and os.path.isfile(source_path)):
+            continue
+        ref_lengths: dict[str, int] = {}
+        with open(source_path, encoding="utf-8") as handle:
             for line in handle:
                 parts = line.strip().split()
                 if len(parts) >= 2 and parts[1].isdigit():
                     ref_lengths[parts[0]] = int(parts[1])
-
-    if not ref_lengths:
-        return
-
-    for chrom, sq_len in sq.items():
-        if chrom in ref_lengths:
-            ref_len = ref_lengths[chrom]
-            if sq_len != ref_len:
-                raise RuntimeError(
-                    f"Sample {sample}: BAM @SQ contig length mismatch for {chrom!r}: "
-                    f"BAM has {sq_len} bp, reference {source} has {ref_len} bp"
-                )
+        if not ref_lengths:
+            continue
+        for chrom, sq_len in sq.items():
+            if chrom in ref_lengths:
+                ref_len = ref_lengths[chrom]
+                if sq_len != ref_len:
+                    raise RuntimeError(
+                        f"Sample {sample}: BAM @SQ contig length mismatch for {chrom!r}: "
+                        f"BAM has {sq_len} bp, reference {source_name} ({source_path}) has {ref_len} bp"
+                    )
 
 
 def validate_organelle_contigs(
@@ -583,7 +582,33 @@ def main(argv=None):
             f"{dropped_aln_str}\t{kept_str}\t{total_str}\n"
         )
 
-    stage_metrics_path = os.path.splitext(args.dropped_count)[0] + ".stage_metrics.json"
+    stage_metrics_path = (
+        args.stage_metrics
+        if args.stage_metrics
+        else os.path.splitext(args.dropped_count)[0] + ".stage_metrics.json"
+    )
+    os.makedirs(os.path.dirname(os.path.abspath(stage_metrics_path)), exist_ok=True)
+
+    dropped_templates_by_reason = {
+        "invalid": 0,
+        "duplicate": 0,
+        "organelle": 0,
+        "blacklist": 0,
+    }
+    for reason in drop_reasons.values():
+        dropped_templates_by_reason[reason] = (
+            dropped_templates_by_reason.get(reason, 0) + 1
+        )
+
+    dropped_alignments_by_reason = {
+        "invalid": 0,
+        "duplicate": 0,
+        "organelle": 0,
+        "blacklist": 0,
+    }
+    for reason, count in dropped_by_reason.items():
+        dropped_alignments_by_reason[reason] = count
+
     stage_metrics = {
         "sample": args.sample,
         "layout": args.layout,
@@ -591,8 +616,12 @@ def main(argv=None):
         "exclude_dup": args.exclude_dup,
         "has_blacklist": blacklist is not None,
         "total_alignments": total_alignments,
-        "dropped_by_reason": dict(dropped_by_reason),
         "kept_alignments": kept_alignments,
+        "dropped_alignments": dropped_alignments,
+        "dropped_alignments_by_reason": dropped_alignments_by_reason,
+        "dropped_by_reason": dropped_alignments_by_reason,
+        "dropped_templates": len(drop_qnames),
+        "dropped_templates_by_reason": dropped_templates_by_reason,
     }
     with open(stage_metrics_path, "w", encoding="utf-8") as handle:
         json.dump(stage_metrics, handle, indent=2)

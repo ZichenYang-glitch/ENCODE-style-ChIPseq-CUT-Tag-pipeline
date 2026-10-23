@@ -1,11 +1,16 @@
 """Producer contract for pooled experiment QC summaries."""
 
 import csv
+from pathlib import Path
 import sys
 
-import pytest
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from scripts import pooled_qc_summary
+import pytest  # noqa: E402
+
+from scripts import pooled_qc_summary  # noqa: E402
 
 
 EXPECTED_COLUMNS = [

@@ -904,6 +904,60 @@ def test_extract_artifacts_skips_known_directory_aggregates(tmp_path, monkeypatc
     assert result.value == ()
 
 
+def test_extract_artifacts_extracts_pooled_filtered_peak(tmp_path, monkeypatch):
+    workspace = _artifact_workspace(tmp_path)
+    (workspace / "config/config.yaml").write_text(
+        "samples: config/samples.tsv\nblacklist_mode: analysis\n", encoding="utf-8"
+    )
+    peak_file = (
+        workspace
+        / "results/analysis_filtered/experiments/E1/04_peaks/pooled/E1_pooled_peaks_blacklist_filtered/E1_pooled_peaks.blacklist_filtered.narrowPeak"
+    )
+    peak_file.parent.mkdir(parents=True)
+    peak_file.write_text("chr1\t10\t20\n", encoding="utf-8")
+    rows = [
+        {
+            "output_type": "pooled_filtered_peak",
+            "path": str(peak_file),
+            "status": "present",
+            "experiment_id": "E1",
+            "assay": "chipseq",
+            "genome": "hs",
+        },
+        {
+            "output_type": "pooled_macs3_peak",
+            "path": str(peak_file.parents[1] / "E1_pooled_peaks"),
+            "status": "present",
+            "experiment_id": "E1",
+        },
+    ]
+    monkeypatch.setattr(
+        "encode_pipeline.manifest.make.build_manifest_rows",
+        lambda *_args, **_kwargs: (rows, 0, 0),
+    )
+
+    result = _adapter().extract_artifacts(
+        WorkflowInputs(
+            config={
+                "outdir": "results",
+                "analysis_outdir": "results/analysis_filtered",
+            }
+        ),
+        workspace,
+    )
+
+    assert result.is_success
+    assert len(result.value) == 1
+    candidate = result.value[0]
+    assert candidate.output_type == "pooled_filtered_peak"
+    assert candidate.relative_path == (
+        "results/analysis_filtered/experiments/E1/04_peaks/pooled/E1_pooled_peaks_blacklist_filtered/E1_pooled_peaks.blacklist_filtered.narrowPeak"
+    )
+    assert candidate.mime_type == "text/plain"
+    assert candidate.metadata["catalog_id"] == "pooled_filtered_peak"
+    assert candidate.metadata["analysis_branch"] == "analysis_filtered"
+
+
 def test_extract_artifacts_fails_closed_for_unknown_vocabulary(tmp_path, monkeypatch):
     workspace = _artifact_workspace(tmp_path)
     monkeypatch.setattr(

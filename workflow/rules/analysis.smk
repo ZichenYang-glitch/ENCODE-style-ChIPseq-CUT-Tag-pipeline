@@ -70,6 +70,7 @@ rule prepare_analysis_bam:
         bam=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.analysis.bam",
         bai=f"{OUTDIR}/{{sample}}/02_align/{{sample}}.analysis.bam.bai",
         dropped=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.blacklist_dropped.tsv",
+        stage_metrics=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.blacklist_dropped.stage_metrics.json",
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.analysis_bam.log",
     conda:
@@ -121,6 +122,7 @@ rule prepare_analysis_bam:
             --layout {params.layout:q} \
             --output {output.bam:q} \
             --dropped-count {output.dropped:q} \
+            --stage-metrics {output.stage_metrics:q} \
             --sample {wildcards.sample:q} \
             --organelle-mode {params.organelle_mode:q} \
             --threads {threads} \

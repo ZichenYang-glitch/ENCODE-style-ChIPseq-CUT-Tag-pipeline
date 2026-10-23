@@ -681,6 +681,78 @@ def test_techrep_biorep_gating(manifest_case):
     assert "pooled_macs3_peak" not in types
 
 
+def test_pooled_filtered_peaks_row(manifest_case, tmp_path):
+    bl = tmp_path / "blacklist.bed"
+    bl.write_text("chr1\t100\t200\n", encoding="utf-8")
+    columns = [
+        "sample",
+        "fastq_1",
+        "fastq_2",
+        "layout",
+        "assay",
+        "target",
+        "peak_mode",
+        "genome",
+        "bowtie2_index",
+        "experiment",
+        "biological_replicate",
+        "technical_replicate",
+    ]
+    sample_rows = [
+        [
+            "S1",
+            "R1.fq",
+            "R2.fq",
+            "PE",
+            "chipseq",
+            "CTCF",
+            "narrow",
+            "hs",
+            "/opt/idx/ref",
+            "EXP1",
+            "1",
+            "1",
+        ],
+        [
+            "S2",
+            "R1.fq",
+            "R2.fq",
+            "PE",
+            "chipseq",
+            "CTCF",
+            "narrow",
+            "hs",
+            "/opt/idx/ref",
+            "EXP1",
+            "2",
+            "1",
+        ],
+    ]
+    _, config_path, _, out = manifest_case(
+        sample_rows=sample_rows,
+        columns=columns,
+        config_updates={
+            "replicate_analysis": True,
+            "blacklist_mode": "analysis",
+            "genome_resources": {
+                "hs": {
+                    "effective_genome_size": "hs",
+                    "blacklist": str(bl),
+                }
+            },
+        },
+    )
+    result, rows = _run_manifest(config_path, out)
+    assert result.returncode == 0, result.stderr[-200:]
+    by_type = {r["output_type"]: r for r in rows}
+    assert "pooled_macs3_peak" in by_type
+    assert "pooled_filtered_peak" in by_type
+    assert (
+        "EXP1_pooled_peaks_blacklist_filtered/EXP1_pooled_peaks.blacklist_filtered.narrowPeak"
+        in by_type["pooled_filtered_peak"]["path"]
+    )
+
+
 def test_idr_with_tech_reps(manifest_case):
     columns = [
         "sample",

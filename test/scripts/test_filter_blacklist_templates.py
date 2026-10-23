@@ -53,6 +53,38 @@ def test_validate_reference_contig_lengths(tmp_path: Path):
     with pytest.raises(RuntimeError, match="BAM @SQ contig length mismatch for 'chr1'"):
         fb.validate_reference_contig_lengths(sq, fai_path=str(fai_bad), sample="S1")
 
+    # Both provided and matching
+    fb.validate_reference_contig_lengths(
+        sq, chrom_sizes_path=str(cs_good), fai_path=str(fai_good), sample="S1"
+    )
+
+    # Both provided: FAI only has chr2 (matching), but chrom_sizes has chr1 mismatch
+    fai_chr2_only = tmp_path / "chr2_only.fai"
+    fai_chr2_only.write_text("chr2\t500\t0\t50\t51\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="reference chrom_sizes .* has 999 bp"):
+        fb.validate_reference_contig_lengths(
+            sq,
+            chrom_sizes_path=str(cs_bad),
+            fai_path=str(fai_chr2_only),
+            sample="S1",
+        )
+
+    # Both provided: chrom_sizes matches, but FAI has mismatch
+    with pytest.raises(RuntimeError, match="reference FAI .* has 1001 bp"):
+        fb.validate_reference_contig_lengths(
+            sq,
+            chrom_sizes_path=str(cs_good),
+            fai_path=str(fai_bad),
+            sample="S1",
+        )
+
+    # Reference has extra contigs not in BAM: only shared contigs checked
+    cs_extra = tmp_path / "extra.sizes"
+    cs_extra.write_text("chr1\t1000\nchr2\t500\nchr3\t99999\n", encoding="utf-8")
+    fb.validate_reference_contig_lengths(
+        sq, chrom_sizes_path=str(cs_extra), sample="S1"
+    )
+
 
 def test_validate_organelle_contigs():
     sq = {"chr1": 1000, "chrM": 200}
@@ -378,4 +410,35 @@ def test_main_workflow(tmp_path: Path, monkeypatch):
     )
     assert ret == 0
     assert drop_tsv.exists()
-    assert (tmp_path / "drop.stage_metrics.json").exists()
+    stage_path = tmp_path / "drop.stage_metrics.json"
+    assert stage_path.exists()
+    import json
+
+    data = json.loads(stage_path.read_text(encoding="utf-8"))
+    assert data["dropped_templates"] == 1
+    assert data["dropped_templates_by_reason"]["blacklist"] == 1
+    assert data["dropped_alignments"] == 2
+    assert data["dropped_alignments_by_reason"]["blacklist"] == 2
+    assert data["total_alignments"] == 4
+    assert data["kept_alignments"] == 2
+
+    # Test explicit --stage-metrics path
+    custom_stage = tmp_path / "custom.metrics.json"
+    ret2 = fb.main(
+        [
+            "--bam",
+            str(bam),
+            "--output",
+            str(out),
+            "--dropped-count",
+            str(drop_tsv),
+            "--stage-metrics",
+            str(custom_stage),
+            "--sample",
+            "S1",
+            "--layout",
+            "PE",
+        ]
+    )
+    assert ret2 == 0
+    assert custom_stage.exists()

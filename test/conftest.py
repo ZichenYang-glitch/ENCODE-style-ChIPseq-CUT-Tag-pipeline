@@ -21,6 +21,11 @@ _require_checkout = runpy.run_path(
 )["require_checkout"]
 _require_checkout(_REPOSITORY_ROOT)
 
+if str(_REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT))
+if str(_REPOSITORY_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT / "scripts"))
+
 import pytest  # noqa: E402
 
 

@@ -514,7 +514,13 @@ def _build_sample_rows(
 
 
 def _build_experiment_rows(
-    samples, outdir, signal_tracks, genomic_resources, replicate_analysis
+    samples,
+    outdir,
+    signal_tracks,
+    genomic_resources,
+    replicate_analysis,
+    raw_outdir=None,
+    blacklist_mode="analysis",
 ):
     """Per-experiment rows using validated sample dicts.
 
@@ -583,6 +589,12 @@ def _build_experiment_rows(
 
             # Peak-centric pooled outputs — gated on non-MNase
             if not is_mn:
+                peak_suffix = (
+                    "broadPeak" if first.get("peak_mode") == "broad" else "narrowPeak"
+                )
+                has_bl = bool(genomic_resources.get(genome, {}).get("blacklist"))
+                is_filtered = blacklist_mode == "analysis" and has_bl
+
                 _add_row(
                     rows,
                     "",
@@ -593,7 +605,7 @@ def _build_experiment_rows(
                     "pooled_macs3_peak",
                     "macs3_callpeak",
                     _resolve_path(
-                        outdir,
+                        raw_outdir or outdir,
                         "experiments",
                         exp,
                         "04_peaks",
@@ -601,6 +613,26 @@ def _build_experiment_rows(
                         f"{exp}_pooled_peaks",
                     ),
                 )
+                if is_filtered:
+                    _add_row(
+                        rows,
+                        "",
+                        exp,
+                        assay,
+                        target,
+                        genome,
+                        "pooled_filtered_peak",
+                        "blacklist_filter.py",
+                        _resolve_path(
+                            outdir,
+                            "experiments",
+                            exp,
+                            "04_peaks",
+                            "pooled",
+                            f"{exp}_pooled_peaks_blacklist_filtered",
+                            f"{exp}_pooled_peaks.blacklist_filtered.{peak_suffix}",
+                        ),
+                    )
                 _add_row(
                     rows,
                     "",
@@ -1539,6 +1571,7 @@ def build_manifest_rows(config, samples_path=None):
             tss_fragment_profile=tss_fragment_profile,
         )
     )
+    blacklist_mode = config.get("blacklist_mode", "analysis")
     rows.extend(
         _build_experiment_rows(
             treatment_samples,
@@ -1546,6 +1579,8 @@ def build_manifest_rows(config, samples_path=None):
             signal_tracks,
             genomic_resources,
             replicate_analysis,
+            raw_outdir=outdir,
+            blacklist_mode=blacklist_mode,
         )
     )
     rows.extend(_build_idr_rows(treatment_samples, analysis_outdir, chipseq_idr))
