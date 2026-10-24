@@ -519,7 +519,6 @@ def _build_experiment_rows(
     signal_tracks,
     genomic_resources,
     replicate_analysis,
-    raw_outdir=None,
     blacklist_mode="analysis",
 ):
     """Per-experiment rows using validated sample dicts.
@@ -605,7 +604,7 @@ def _build_experiment_rows(
                     "pooled_macs3_peak",
                     "macs3_callpeak",
                     _resolve_path(
-                        raw_outdir or outdir,
+                        outdir,
                         "experiments",
                         exp,
                         "04_peaks",
@@ -622,7 +621,7 @@ def _build_experiment_rows(
                         target,
                         genome,
                         "pooled_filtered_peak",
-                        "blacklist_filter.py",
+                        "bedtools intersect",
                         _resolve_path(
                             outdir,
                             "experiments",
@@ -1579,7 +1578,6 @@ def build_manifest_rows(config, samples_path=None):
             signal_tracks,
             genomic_resources,
             replicate_analysis,
-            raw_outdir=outdir,
             blacklist_mode=blacklist_mode,
         )
     )

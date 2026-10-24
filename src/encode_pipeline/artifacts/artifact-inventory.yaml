@@ -747,7 +747,7 @@ artifacts:
   assay_gate: peak_centric
   path_template: results/analysis_filtered/experiments/<experiment>/04_peaks/pooled/<experiment>_pooled_peaks_blacklist_filtered/<experiment>_pooled_peaks.blacklist_filtered.<suffix>
   producing_rule: blacklist_filter_pooled_peaks
-  tool: blacklist_filter.py
+  tool: bedtools intersect
   manifest_output_type: pooled_filtered_peak
   pipeline_done: false
   rule_all: true

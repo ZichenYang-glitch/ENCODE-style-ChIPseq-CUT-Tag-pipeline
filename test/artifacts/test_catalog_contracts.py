@@ -208,7 +208,7 @@ def test_manifest_output_types_exist_in_catalog():
     assert not missing, f"Manifest output_types missing from catalog: {sorted(missing)}"
 
 
-def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
+def test_catalog_output_types_appear_in_generated_manifests(tmp_config, tmp_path):
     catalog = load_catalog(str(INVENTORY_PATH))
     catalog_mots = {a.manifest_output_type for a in catalog if a.manifest_output_type}
 
@@ -829,6 +829,79 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
         + "\n",
         tmp_config,
     )
+
+    # 15. Pooled blacklist analysis (2 bioreps, valid blacklist resource)
+    blacklist = tmp_path / "blacklist.bed"
+    blacklist.write_text("chr1\t100\t200\n", encoding="utf-8")
+    pooled_samples = (
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "S1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "chipseq",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "S2",
+                "R3.fq",
+                "R4.fq",
+                "PE",
+                "chipseq",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "2",
+            ]
+        )
+        + "\n"
+    )
+    pooled_analysis = _run_manifest(
+        {
+            "blacklist_mode": "analysis",
+            "replicate_analysis": True,
+            "genome_resources": {
+                "hs": {
+                    "effective_genome_size": "hs",
+                    "blacklist": str(blacklist),
+                }
+            },
+        },
+        pooled_samples,
+        tmp_config,
+    )
+    assert "pooled_filtered_peak" in pooled_analysis
+    all_types |= pooled_analysis
+
+    for mode in ("off", "copies"):
+        mode_types = _run_manifest(
+            {
+                "blacklist_mode": mode,
+                "replicate_analysis": True,
+                "genome_resources": {
+                    "hs": {
+                        "effective_genome_size": "hs",
+                        "blacklist": str(blacklist),
+                    }
+                },
+            },
+            pooled_samples,
+            tmp_config,
+        )
+        assert "pooled_filtered_peak" not in mode_types
 
     missing = []
     for mot in sorted(catalog_mots):
