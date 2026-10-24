@@ -2,6 +2,8 @@
 # 3a. Stage 4a replicate-aware metadata (derived structures, no scheduling changes)
 # ---------------------------------------------------------------------------
 
+from encode_pipeline.config.reference_policy import resolve_organelle_mode as _resolve_organelle_mode
+
 EXPERIMENT_IDS = sorted({s["experiment"] for s in SAMPLES})
 
 SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {exp: [] for exp in EXPERIMENT_IDS}
@@ -678,45 +680,16 @@ def get_duplicate_mode(wildcards):
     return get_remove_dup(wildcards)
 
 
-def _assay_organelle_mode(assay):
-    """Resolve auto organelle mode for one assay."""
-    return "exclude" if assay in ("atac", "cuttag") else "report"
-
-
-def _organelle_context_assay(sample_id):
-    """Return an assay whose organelle policy applies to a sample.
-
-    Controls inherit the policy of the treatment they are called for; a
-    control row's own assay is not authoritative. A control shared across
-    assays that resolve to different organelle policies cannot be represented
-    by one analysis BAM, so fail closed instead of silently choosing one.
-    Assays that resolve to the same policy are interchangeable here.
-    """
-    sample = SAMPLE_MAP[sample_id]
-    if sample.get("role") != "control":
-        return sample["assay"]
-    contexts = sorted(
-        {SAMPLE_MAP[sid]["assay"] for sid in TREATMENT_SAMPLE_IDS if SAMPLE_MAP[sid].get("control_sample") == sample_id}
-    )
-    if not contexts:
-        return sample["assay"]
-    modes = sorted({_assay_organelle_mode(assay) for assay in contexts})
-    if len(modes) > 1:
-        raise ValueError(
-            "cannot derive one organelle policy for control "
-            f"{sample_id!r}; referenced by treatment assays: "
-            f"{', '.join(contexts)} (resolved modes: {', '.join(modes)})"
-        )
-    return contexts[0]
-
-
 def get_organelle_mode(wildcards):
     """Resolve the effective organelle policy for a sample."""
     config_mode = str(VALIDATED_CONFIG.get("organelle_mode", "auto"))
-    if config_mode != "auto":
-        return config_mode
-    assay = _organelle_context_assay(wildcards.sample)
-    return "exclude" if assay in ("atac", "cuttag") else "report"
+    return _resolve_organelle_mode(
+        SAMPLE_MAP[wildcards.sample],
+        config_mode=config_mode,
+        sample_map=SAMPLE_MAP,
+        treatment_ids=TREATMENT_SAMPLE_IDS,
+        error_cls=ValueError,
+    )
 
 
 def get_organelle_chroms_explicit(sample_id):

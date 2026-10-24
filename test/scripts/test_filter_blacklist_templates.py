@@ -123,7 +123,7 @@ def test_validate_and_load_blacklist(tmp_path: Path):
 
     # Valid BED (tab and space)
     bed = tmp_path / "valid.bed"
-    bed.write_text("chr1\t10\t50\nchr2 100 200\n", encoding="utf-8")
+    bed.write_text("chr1\t10\t50\nchr2\t100\t200\n", encoding="utf-8")
     bl = fb.validate_and_load_blacklist(str(bed), sq, "S1")
     assert bl.total_intervals == 2
 

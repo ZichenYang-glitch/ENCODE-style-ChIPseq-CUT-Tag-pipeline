@@ -542,7 +542,7 @@ def test_cli_executes_strict_admission(tmp_path: Path):
 def test_validate_blacklist_bed_rules(tmp_path: Path):
     # Valid BED (tab and space)
     bed = tmp_path / "valid.bed"
-    bed.write_text("chr1\t10\t50\nchr1 60 100\n", encoding="utf-8")
+    bed.write_text("chr1\t10\t50\nchr1\t60\t100\n", encoding="utf-8")
     _validate_blacklist_bed(str(bed), ref_contigs={"chr1": 200}, genome="hg38")
 
     # Missing file

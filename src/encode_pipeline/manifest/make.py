@@ -1547,6 +1547,20 @@ def resolve_manifest_namespaces(config):
     return outdir, str(analysis_outdir), blacklist_mode
 
 
+def _manifest_bool(value, default, name):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "yes", "1"):
+            return True
+        if text in ("false", "no", "0"):
+            return False
+    raise ValueError(f"{name} must be true or false, got {value!r}")
+
+
 def build_manifest_rows(config, samples_path=None):
     """Build manifest row dicts from a validated config dict.
 
@@ -1561,15 +1575,28 @@ def build_manifest_rows(config, samples_path=None):
     qc = config.get("qc", {})
     if not isinstance(qc, dict):
         raise ValueError("qc must be a mapping")
-    signal_tracks = qc.get("signal_tracks", True)
-    replicate_analysis = config.get("replicate_analysis", True)
-    chipseq_idr = config.get("chipseq_idr", False)
-    multiqc_enabled = config.get("multiqc", True)
-    genomic_resources = config.get("genome_resources", {})
+    signal_tracks = _manifest_bool(
+        qc.get("signal_tracks"), True, "qc.signal_tracks"
+    )
+    replicate_analysis = _manifest_bool(
+        config.get("replicate_analysis"), True, "replicate_analysis"
+    )
+    chipseq_idr = _manifest_bool(
+        config.get("chipseq_idr"), False, "chipseq_idr"
+    )
+    multiqc_enabled = _manifest_bool(config.get("multiqc"), True, "multiqc")
+    genomic_resources = config.get("genome_resources") or {}
     if not isinstance(genomic_resources, dict):
         raise ValueError("genome_resources must be a mapping")
+    for genome, entry in genomic_resources.items():
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"genome_resources[{genome!r}] must be a mapping"
+            )
     fragment_cpm = config.get("fragment_cpm", "off")
-    tss_fragment_profile = bool(config.get("tss_fragment_profile", False))
+    tss_fragment_profile = _manifest_bool(
+        config.get("tss_fragment_profile"), False, "tss_fragment_profile"
+    )
 
     samples_path = samples_path or config.get("samples", "config/samples.tsv")
     samples = load_and_validate_samples(

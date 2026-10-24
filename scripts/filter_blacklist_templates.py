@@ -231,8 +231,6 @@ def validate_and_load_blacklist(
                 continue
             fields = line.split("\t")
             if len(fields) < 3:
-                fields = line.split()
-            if len(fields) < 3:
                 raise RuntimeError(
                     f"Sample {sample}: blacklist line {line_no} has fewer than 3 fields: {raw_line.rstrip()!r}"
                 )

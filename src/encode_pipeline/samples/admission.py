@@ -15,7 +15,10 @@ import gzip
 import os
 import struct
 
-from encode_pipeline.config.validator import resolve_blacklist_mode
+from encode_pipeline.config.reference_policy import (
+    resolve_blacklist_mode,
+    resolve_organelle_mode,
+)
 from encode_pipeline.errors import ValidationError
 from encode_pipeline.qc.histone import classify_histone_target
 
@@ -239,8 +242,6 @@ def _validate_blacklist_bed(
                     continue
                 fields = line.split("\t")
                 if len(fields) < 3:
-                    fields = line.split()
-                if len(fields) < 3:
                     raise error_cls(
                         f"blacklist BED line {line_no} has fewer than 3 fields: {raw_line.rstrip()!r}"
                     )
@@ -348,33 +349,21 @@ def validate_reference_control_admission(
         use_control = bool(raw_use_control)
     resources = config.get("genome_resources", {})
 
-    treatments_by_control: dict[str, list[dict]] = {}
-    if use_control:
-        for sample in samples:
-            if sample.get("role") != "treatment":
-                continue
-            control_id = sample.get("control_sample", "")
-            if control_id:
-                treatments_by_control.setdefault(control_id, []).append(sample)
-
-    def _assay_organelle_mode(assay: str) -> str:
-        return "exclude" if assay in ("atac", "cuttag") else "report"
+    sample_map = {str(s.get("id", "")): s for s in samples}
+    treatment_ids = [
+        str(s.get("id", ""))
+        for s in samples
+        if s.get("role") == "treatment" and s.get("id")
+    ]
 
     def _effective_organelle_mode(sample: dict) -> str:
-        config_mode = config.get("organelle_mode", "auto")
-        if config_mode != "auto":
-            return str(config_mode)
-        if use_control and sample.get("role") == "control":
-            contexts = treatments_by_control.get(sample.get("id", ""), [])
-            modes = {_assay_organelle_mode(row.get("assay", "")) for row in contexts}
-            if len(modes) > 1:
-                raise error_cls(
-                    f"Control {sample.get('id', '?')!r}: referenced treatments "
-                    f"resolve to different organelle policies: {sorted(modes)}"
-                )
-            if modes:
-                return next(iter(modes))
-        return _assay_organelle_mode(sample.get("assay", ""))
+        return resolve_organelle_mode(
+            sample,
+            config_mode=str(config.get("organelle_mode", "auto")),
+            sample_map=sample_map,
+            treatment_ids=treatment_ids,
+            error_cls=error_cls,
+        )
 
     validated_genomes = set()
     blacklist_mode = resolve_blacklist_mode(config)

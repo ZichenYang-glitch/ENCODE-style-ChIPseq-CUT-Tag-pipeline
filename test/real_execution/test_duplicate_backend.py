@@ -159,6 +159,14 @@ def _run_marker(tmp_path, snakemake_path):
     )
 
 
+def _add_conda_to_tool_path(tool_path):
+    conda = shutil.which("conda")
+    if conda:
+        link = Path(tool_path) / "conda"
+        if not link.exists():
+            link.symlink_to(conda)
+
+
 def _run_duplicate_rule(tmp_path, snakemake_path, *, path):
     env = os.environ.copy()
     env["PATH"] = f"{path}:/usr/bin:/bin"
@@ -202,6 +210,8 @@ def test_legacy_duplicate_dispatch(
         bin_dir.mkdir()
         (bin_dir / "samtools").symlink_to(samtools_path)
         tool_path = str(bin_dir)
+
+    _add_conda_to_tool_path(tool_path)
 
     _run_duplicate_rule(tmp_path, snakemake_path, path=tool_path)
 

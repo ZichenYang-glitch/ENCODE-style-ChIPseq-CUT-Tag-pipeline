@@ -15,6 +15,7 @@ from encode_pipeline.config import errors
 from encode_pipeline.config import genome as genome_validation
 from encode_pipeline.config import mnase as mnase_validation
 from encode_pipeline.config import qc as qc_validation
+from encode_pipeline.config import reference_policy
 from encode_pipeline.config import reproducibility as reproducibility_validation
 from encode_pipeline.config import tools as tools_validation
 from encode_pipeline.config.coercion import coerce_int
@@ -123,56 +124,8 @@ def _validate_analysis_profile(config: dict, version: str) -> str:
 
 
 def resolve_blacklist_mode(config: dict, qc_raw: dict | None = None) -> str:
-    """Resolve the effective blacklist mode without validating resources.
-
-    This is the single policy resolver used by config validation, manifest
-    namespace derivation, and artifact extraction. It intentionally performs
-    no filesystem checks so callers can resolve an already-validated run
-    without requiring every external input to still exist.
-    """
-    if qc_raw is None:
-        qc_raw = config.get("qc")
-
-    raw_mode = config.get("blacklist_mode")
-    if raw_mode is False or (
-        isinstance(raw_mode, str) and raw_mode.lower() in ("false", "no", "off")
-    ):
-        raw_mode = "off"
-    elif raw_mode is True or (
-        isinstance(raw_mode, str) and raw_mode.lower() in ("true", "yes")
-    ):
-        raw_mode = "copies"
-    alias_present = isinstance(qc_raw, dict) and "blacklist_filter" in qc_raw
-    alias_value = None
-    if alias_present:
-        alias_value = _strict_bool(
-            qc_raw["blacklist_filter"], name="qc.blacklist_filter"
-        )
-        mapped = "copies" if alias_value else "off"
-    else:
-        mapped = None
-
-    if raw_mode is None:
-        return mapped if mapped is not None else "analysis"
-
-    mode = _choice(
-        raw_mode,
-        name="blacklist_mode",
-        allowed=defaults.BLACKLIST_MODES,
-    )
-    if mapped is not None:
-        if mode == "analysis":
-            if alias_value is True:
-                raise ValidationError(
-                    "config: blacklist_mode=analysis conflicts with "
-                    "qc.blacklist_filter=true (copies)."
-                )
-        elif mode != mapped:
-            raise ValidationError(
-                "config: blacklist_mode conflicts with qc.blacklist_filter. "
-                "Use one canonical key or make them consistent."
-            )
-    return mode
+    """Compatibility wrapper for the shared pure resolver."""
+    return reference_policy.resolve_blacklist_mode(config, qc_raw)
 
 
 def _validate_blacklist_mode(config: dict, qc_raw: dict) -> str:
