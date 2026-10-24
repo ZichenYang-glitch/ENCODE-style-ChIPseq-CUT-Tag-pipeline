@@ -78,6 +78,12 @@ multiqc: true
 #     # title: ""               # optional string → --title "quoted value"
 #     # extra_args: ""
 
+# Reference filtering policies (SCI-4).
+# blacklist_mode: analysis (default) | off | copies
+# organelle_mode: auto (default) | exclude | report | keep
+blacklist_mode: analysis
+organelle_mode: auto
+
 # Genome-specific resources for QC and ENCODE-like metrics (Stage 2+).
 # Keys are genome labels used in the sample sheet's "genome" column.
 #
@@ -88,15 +94,19 @@ multiqc: true
 #
 # For mm39 / GRCm39, use the "mm39" entry (explicit numeric size).
 # effective_genome_size: "hs", "mm", or a positive integer.
-# Other fields (chrom_sizes, blacklist, gtf, reference_fasta) are optional
-# paths. reference_fasta is required when qc.picard_metrics is true and must
-# have matching .fai and .dict files. gtf is required when
-# qc.tss_enrichment is true. See docs/reference-resources.md.
+# blacklist_mode defaults to "analysis". When blacklist_mode is "analysis"
+# (or "copies"), a valid blacklist BED matching the genome assembly is
+# required under genome_resources.<genome>.blacklist; if no blacklist is
+# used or resources are omitted, set blacklist_mode: "off".
+# For human GRCh38/hg38, an official ENCODE v2 unified blacklist resource
+# is provided at config/blacklist/hg38-blacklist.v2.bed. Other fields
+# (chrom_sizes, gtf, reference_fasta) are optional paths.
+# See docs/reference-resources.md.
 genome_resources:
   hs:
     effective_genome_size: "hs"
     chrom_sizes: ""
-    blacklist: ""
+    blacklist: "config/blacklist/hg38-blacklist.v2.bed"
     gtf: ""
     reference_fasta: ""
 
@@ -117,7 +127,7 @@ genome_resources:
   hg38:
     effective_genome_size: 2913022398
     chrom_sizes: ""
-    blacklist: ""
+    blacklist: "config/blacklist/hg38-blacklist.v2.bed"
     gtf: ""
     reference_fasta: ""
 
@@ -171,7 +181,7 @@ chipseq_idr: false
 # Each switch accepts boolean or string boolean (true/false).
 # Missing qc block defaults to all switches enabled.
 qc:
-  blacklist_filter: true
+  blacklist_filter: false
   frip: true
   library_complexity: true
   nrf_pbc: true

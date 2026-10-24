@@ -184,7 +184,8 @@ def test_pe_blacklist_removes_whole_fragment(tmp_path, samtools_path):
 
     fields = dropped.read_text(encoding="utf-8").strip().splitlines()
     assert fields[0].startswith("sample\tlayout\tdropped_templates")
-    assert fields[1].split("\t")[:3] == ["S1", "PE", "4"]
+    # Under R9, blacklist table only counts templates dropped by blacklist (3 hits; orphan is invalid)
+    assert fields[1].split("\t")[:3] == ["S1", "PE", "3"]
 
 
 def test_pe_incomplete_mate_is_removed(tmp_path, samtools_path):
@@ -200,7 +201,8 @@ def test_pe_incomplete_mate_is_removed(tmp_path, samtools_path):
     kept = _run([samtools_path, "view", str(out)]).stdout.splitlines()
     assert {line.split("\t")[0] for line in kept} == {"normal"}
     fields = dropped.read_text(encoding="utf-8").strip().splitlines()
-    assert fields[1].split("\t")[:3] == ["S1", "PE", "1"]
+    # Incomplete mate did not hit blacklist, so blacklist dropped_templates is 0
+    assert fields[1].split("\t")[:3] == ["S1", "PE", "0"]
 
 
 def test_se_blacklist_removes_overlapping_reads(tmp_path, samtools_path):

@@ -14,7 +14,7 @@ SAMPLES_ROW = "S1\tR1.fq\tR2.fq\tPE\tchipseq\tT\tnarrow\ths\tidx\n"
 
 
 QC_DEFAULTS = {
-    "blacklist_filter": True,
+    "blacklist_filter": False,
     "frip": True,
     "library_complexity": True,
     "nrf_pbc": True,

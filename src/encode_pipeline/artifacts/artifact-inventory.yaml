@@ -740,6 +740,19 @@ artifacts:
   rule_all: true
   config_gate: 'replicate_analysis: true + >=2 peak-centric treatment bioreps'
   notes: not produced for MNase experiments
+- id: pooled_filtered_peak
+  description: Blacklist-filtered pooled peak file
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: peak_centric
+  path_template: results/analysis_filtered/experiments/<experiment>/04_peaks/pooled/<experiment>_pooled_peaks_blacklist_filtered/<experiment>_pooled_peaks.blacklist_filtered.<suffix>
+  producing_rule: blacklist_filter_pooled_peaks
+  tool: bedtools intersect
+  manifest_output_type: pooled_filtered_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'replicate_analysis: true + blacklist_mode: analysis'
+  notes: produced for peak-centric pooled experiments when blacklist filtering is active
 - id: pooled_fe_bdg
   description: Pooled fold-enrichment bedGraph
   scope: experiment

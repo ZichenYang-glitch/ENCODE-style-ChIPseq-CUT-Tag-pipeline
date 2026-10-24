@@ -31,8 +31,18 @@ import sys
 
 def count_peaks(peaks_dir, peak_mode, experiment):
     """Count lines in the pooled peak file. Exits on missing file."""
-    suffix = "broadPeak" if peak_mode == "broad" else "narrowPeak"
-    pk_file = os.path.join(peaks_dir, f"{experiment}_pooled_peaks.{suffix}")
+    if os.path.isfile(peaks_dir):
+        pk_file = peaks_dir
+    else:
+        suffix = "broadPeak" if peak_mode == "broad" else "narrowPeak"
+        filtered_pk = os.path.join(
+            peaks_dir, f"{experiment}_pooled_peaks.blacklist_filtered.{suffix}"
+        )
+        raw_pk = os.path.join(peaks_dir, f"{experiment}_pooled_peaks.{suffix}")
+        if os.path.isfile(filtered_pk):
+            pk_file = filtered_pk
+        else:
+            pk_file = raw_pk
     if not os.path.isfile(pk_file):
         print(f"ERROR: pooled peak file not found: {pk_file}", file=sys.stderr)
         sys.exit(1)

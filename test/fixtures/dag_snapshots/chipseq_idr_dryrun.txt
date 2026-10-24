@@ -19,9 +19,11 @@ macs3_idr_biorep
 macs3_idr_pseudorep
 macs3_pooled_peaks
 merge_biorep_bam
+mito_fraction
 pipeline_done
 pool_treatment_bam
 pooled_experiment_qc_summary
+prepare_analysis_bam
 samtools_filter
 samtools_flagstat
 samtools_flagstat_final

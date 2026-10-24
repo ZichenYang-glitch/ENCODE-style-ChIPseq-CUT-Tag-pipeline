@@ -13,7 +13,7 @@ def _valid_samples(sid="S1"):
 
 
 def _base_config():
-    return {"use_control": False}
+    return {"use_control": False, "blacklist_mode": "off"}
 
 
 @pytest.fixture

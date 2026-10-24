@@ -186,8 +186,8 @@ def test_key_markers(profile, snapshots_dir, request):
         "results/T1/02_align/T1.analysis.bam.bai",
     ],
 )
-def test_legacy_analysis_target_is_blocked(target, snakefile, profiles_dir):
-    """Legacy must not be able to request the updated analysis rule."""
+def test_legacy_analysis_target_is_scheduled(target, snakefile, profiles_dir):
+    """Legacy profile schedules analysis BAM targets in SCI-4."""
     profile_dir = os.path.join(profiles_dir, "chipseq_se_noctrl")
     workdir, dest_config = prepare_profile_workdir(profile_dir)
     try:
@@ -207,9 +207,8 @@ def test_legacy_analysis_target_is_blocked(target, snakefile, profiles_dir):
             env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
         )
         output = result.stdout + result.stderr
-        assert result.returncode != 0, output
-        assert "analysis_profile=updated" in output, output
-        assert not os.path.exists(os.path.join(workdir, target))
+        assert result.returncode == 0, output
+        assert "prepare_analysis_bam" in output, output
     finally:
         shutil.rmtree(workdir)
 
@@ -508,7 +507,8 @@ def test_updated_control_inherits_treatment_organelle_context(snakefile, tmp_pat
             printshellcmds=True,
         )
         assert result.returncode == 0, output
-        assert 'awk -v omit="chrM chrMT"' in output, output
+        assert "--organelle-chroms chrM chrMT" in output, output
+        assert "--organelle-mode exclude" in output, output
     finally:
         shutil.rmtree(workdir)
 
@@ -559,7 +559,7 @@ def test_updated_chipseq_organelle_mode_reports(snakefile, tmp_path):
             printshellcmds=True,
         )
         assert result.returncode == 0, output
-        assert 'mode="report"' in output, output
+        assert "--mode report" in output, output
     finally:
         shutil.rmtree(workdir)
 
@@ -593,7 +593,7 @@ def _prepare_analysis_filtered_workdir(profiles_dir, profile_name):
         config = yaml.safe_load(handle)
     blacklist = os.path.join(workdir, "blacklist.bed")
     with open(blacklist, "w", encoding="utf-8") as handle:
-        handle.write("chr1\t0\t10\n")
+        handle.write("chr1\t0\t2\n")
     config["blacklist_mode"] = "analysis"
     config.setdefault("qc", {}).pop("blacklist_filter", None)
     config.setdefault("genome_resources", {}).setdefault("hs", {})["blacklist"] = (

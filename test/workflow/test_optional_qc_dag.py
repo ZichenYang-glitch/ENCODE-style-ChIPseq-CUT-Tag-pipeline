@@ -38,6 +38,9 @@ def _write_yaml(path, data):
             elif isinstance(value, dict):
                 _write_nested_yaml(fh, key, value)
                 continue
+            elif isinstance(value, str):
+                fh.write(f'{key}: "{value}"\n')
+                continue
             fh.write(f"{key}: {value}\n")
 
 
@@ -94,6 +97,7 @@ def _make_config(qc_block=None, genome_resources=None):
         "multiqc": "false",
         "replicate_analysis": "false",
         "chipseq_idr": "false",
+        "blacklist_mode": "off",
     }
     if qc_block is not None:
         cfg["qc"] = qc_block

@@ -92,9 +92,9 @@ def _config_schema() -> dict[str, object]:
     qc_properties = {
         key: _boolean_or_string_schema(default=default)
         for key, default in (
-            # Authoring remains executable legacy until B/C lands. Legacy
-            # qc.blacklist_filter=true keeps the historical copies behavior.
-            ("blacklist_filter", True),
+            # Canonical blacklist filtering defaults to analysis; alias remains
+            # false so re-validation and schema validation remain consistent.
+            ("blacklist_filter", False),
             ("frip", True),
             ("library_complexity", True),
             ("nrf_pbc", True),
@@ -149,16 +149,16 @@ def _config_schema() -> dict[str, object]:
             "blacklist_mode": {
                 "type": "string",
                 "enum": ["off", "copies", "analysis"],
-                "default": "copies",
+                "default": "analysis",
                 "description": (
                     "off=raw; copies=QC copies; analysis=filtered analysis "
-                    "branch (analysis_profile=updated only)."
+                    "branch in both legacy and updated profiles."
                 ),
             },
             "organelle_mode": {
                 "type": "string",
                 "enum": ["auto", "exclude", "report", "keep"],
-                "default": "keep",
+                "default": "auto",
             },
             "duplicate_backend": {
                 "type": "string",

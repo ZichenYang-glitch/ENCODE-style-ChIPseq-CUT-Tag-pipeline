@@ -358,6 +358,7 @@ def test_workspace_planner_semantic_config_has_only_completion_issue(tmp_path):
             config={
                 "replicate_analysis": {"enabled": False},
                 "chipseq_idr": {"enabled": False},
+                "blacklist_mode": "off",
             },
             samples=[row],
         ).to_dict(),

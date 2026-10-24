@@ -32,7 +32,12 @@ def validate_effective_genome_size(genome: str, value, error_cls=ValueError) -> 
         )
 
 
-def validate_genome_resources(resources: dict, error_cls=ValueError) -> dict:
+def validate_genome_resources(
+    resources: dict,
+    error_cls=ValueError,
+    *,
+    blacklist_mode: str = "analysis",
+) -> dict:
     """Validate the genome_resources config block."""
     if not isinstance(resources, dict):
         raise error_cls(
@@ -55,6 +60,8 @@ def validate_genome_resources(resources: dict, error_cls=ValueError) -> dict:
         validate_effective_genome_size(genome, egs, error_cls=error_cls)
 
         for field in defaults.GENOME_RESOURCE_PATH_FIELDS:
+            if field == "blacklist" and blacklist_mode == "off":
+                continue
             path = entry.get(field, "")
             if path and not os.path.isfile(path):
                 raise error_cls(

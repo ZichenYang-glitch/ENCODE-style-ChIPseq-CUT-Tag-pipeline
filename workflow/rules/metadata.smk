@@ -17,6 +17,23 @@ CONTROL_SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {
 }
 
 
+def analysis_bam(sample):
+    """Return the canonical analysis BAM for a sample across both profiles."""
+    return f"{OUTDIR}/{sample}/02_align/{sample}.analysis.bam"
+
+
+def analysis_bai(sample):
+    return f"{analysis_bam(sample)}.bai"
+
+
+def _pooled_peak_suffix(experiment):
+    """Return 'narrowPeak' or 'broadPeak' for the experiment."""
+    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
+    if not treatment_ids:
+        return "narrowPeak"
+    return "broadPeak" if SAMPLE_MAP[treatment_ids[0]]["peak_mode"] == "broad" else "narrowPeak"
+
+
 # ---------------------------------------------------------------------------
 # 3a2. Replicate-aware grouped outputs
 # ---------------------------------------------------------------------------
@@ -87,11 +104,7 @@ if REPLICATE_ANALYSIS:
                 ctrl_bams.add(cb)
         result = []
         for cs in sorted(ctrl_samples):
-            path = (
-                f"{OUTDIR}/{cs}/02_align/{cs}.analysis.bam"
-                if VALIDATED_CONFIG.get("analysis_profile") == "updated"
-                else f"{OUTDIR}/{cs}/02_align/{cs}.final.bam"
-            )
+            path = analysis_bam(cs)
             result.append(("control_sample", path))
         for cb in sorted(ctrl_bams):
             result.append(("control_bam", cb))
@@ -658,21 +671,6 @@ if TSS_FRAGMENT_ENABLED:
 TSS_FRAGMENT_GENOMES = sorted({SAMPLE_MAP[sid]["genome"] for sid in TSS_FRAGMENT_SAMPLE_IDS})
 
 
-def analysis_bam(sample):
-    """Return the analysis BAM for a sample.
-
-    Legacy keeps the existing final.bam contract. Updated uses a derived
-    analysis.bam so the raw marked BAM remains available.
-    """
-    if is_updated_profile():
-        return f"{OUTDIR}/{sample}/02_align/{sample}.analysis.bam"
-    return f"{OUTDIR}/{sample}/02_align/{sample}.final.bam"
-
-
-def analysis_bai(sample):
-    return f"{analysis_bam(sample)}.bai"
-
-
 def get_duplicate_mode(wildcards):
     """Return the duplicate handling mode for the current profile."""
     if is_updated_profile():
@@ -698,7 +696,7 @@ def _organelle_context_assay(sample_id):
         return sample["assay"]
     if len(contexts) > 1:
         raise ValueError(
-            "updated profile cannot derive one organelle policy for control "
+            "cannot derive one organelle policy for control "
             f"{sample_id!r}; referenced by treatment assays: "
             f"{', '.join(contexts)}"
         )
@@ -712,6 +710,15 @@ def get_organelle_mode(wildcards):
         return config_mode
     assay = _organelle_context_assay(wildcards.sample)
     return "exclude" if assay in ("atac", "cuttag") else "report"
+
+
+def get_organelle_chroms_explicit(sample_id):
+    """Return True if organelle_chroms was explicitly configured for the sample's genome."""
+    sample = SAMPLE_MAP[sample_id]
+    resources = VALIDATED_CONFIG.get("genome_resources", {})
+    resource = resources.get(sample["genome"], {}) if isinstance(resources, dict) else {}
+    chroms = resource.get("organelle_chroms") if isinstance(resource, dict) else None
+    return isinstance(chroms, (list, tuple)) and bool(chroms)
 
 
 def get_organelle_chroms(wildcards):
@@ -787,7 +794,7 @@ def _biorep_control_paths(experiment, bio_rep):
             control_bams.add(cb)
     paths = []
     for cs in sorted(control_samples):
-        paths.append(analysis_bam(cs) if is_updated_profile() else f"{OUTDIR}/{cs}/02_align/{cs}.final.bam")
+        paths.append(analysis_bam(cs))
     paths.extend(sorted(control_bams))
     return paths
 
