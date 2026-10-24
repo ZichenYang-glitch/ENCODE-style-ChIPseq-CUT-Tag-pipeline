@@ -231,7 +231,6 @@ qc:
   type: mapping
   required: false
   default:
-    blacklist_filter: true
     frip: true
     library_complexity: true
     nrf_pbc: true
@@ -249,11 +248,10 @@ qc:
   schema:
     blacklist_filter:
       type: boolean
-      default: true
       description: >
-        Enable blacklist filtering for BAM and peak files. When true,
-        blacklist-filtered outputs are only scheduled for genomes that
-        have a non-empty blacklist path in genome_resources.
+        Legacy alias for blacklist filtering. Prefer the canonical top-level
+        blacklist_mode. When blacklist_mode is omitted, true maps to copies and
+        false maps to off; it is not injected as a default.
     frip:
       type: boolean
       default: true

@@ -209,6 +209,7 @@ def _write_project(tmp_path, extra_args):
                 "trim: true",
                 "use_control: false",
                 "multiqc: false",
+                "blacklist_mode: off",
                 "tool_parameters:",
                 "  macs3:",
                 f"    extra_args: {yaml_extra}",

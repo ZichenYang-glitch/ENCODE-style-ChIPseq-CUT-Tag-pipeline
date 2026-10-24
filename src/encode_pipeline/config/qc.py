@@ -9,7 +9,7 @@ __all__ = ["validate_qc_config"]
 # here rather than in defaults.py because they are tied to the normalization
 # behavior of validate_qc_config.
 _QC_DEFAULTS = {
-    "blacklist_filter": True,
+    "blacklist_filter": False,
     "frip": True,
     "library_complexity": True,
     "nrf_pbc": True,

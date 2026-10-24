@@ -442,3 +442,23 @@ def test_main_workflow(tmp_path: Path, monkeypatch):
     )
     assert ret2 == 0
     assert custom_stage.exists()
+
+
+def test_validate_reference_contig_lengths_rejects_disjoint_sources(tmp_path: Path):
+    sizes = tmp_path / "sizes"
+    sizes.write_text("chr2\t2000\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="no contigs in common"):
+        fb.validate_reference_contig_lengths(
+            {"chr1": 1000}, chrom_sizes_path=str(sizes), sample="S1"
+        )
+
+
+def test_validate_reference_contig_lengths_allows_bam_only_contigs(tmp_path: Path):
+    sizes = tmp_path / "sizes"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    unchecked = fb.validate_reference_contig_lengths(
+        {"chr1": 1000, "chrUn": 5000},
+        chrom_sizes_path=str(sizes),
+        sample="S1",
+    )
+    assert unchecked == {"chrUn"}

@@ -125,6 +125,7 @@ def _write_profile(tmp_path, *, remove_dup):
                 "trim: true",
                 "use_control: false",
                 "multiqc: false",
+                "blacklist_mode: off",
                 "genome_resources:",
                 "  hs:",
                 '    effective_genome_size: "hs"',
@@ -136,6 +137,25 @@ def _write_profile(tmp_path, *, remove_dup):
             ]
         ),
         encoding="utf-8",
+    )
+
+
+def _run_marker(tmp_path, snakemake_path):
+    return _run(
+        [
+            snakemake_path,
+            "-s",
+            str(SNAKEFILE),
+            "--configfile",
+            str(tmp_path / "config.yaml"),
+            "-j",
+            "1",
+            "--allowed-rules",
+            "analysis_identity_marker",
+            "--",
+            "results/.helixweave/analysis_identity.json",
+        ],
+        cwd=tmp_path,
     )
 
 
@@ -170,8 +190,10 @@ def _run_duplicate_rule(tmp_path, snakemake_path, *, path):
 def test_legacy_duplicate_dispatch(
     tmp_path, snakemake_path, samtools_path, picard_path, remove_dup, with_picard
 ):
-    _make_duplicate_bam(tmp_path, samtools_path)
     _write_profile(tmp_path, remove_dup=remove_dup)
+    marker = _run_marker(tmp_path, snakemake_path)
+    assert marker.returncode == 0, marker.stderr[-1000:]
+    _make_duplicate_bam(tmp_path, samtools_path)
 
     if with_picard:
         tool_path = str(Path(picard_path).parent)

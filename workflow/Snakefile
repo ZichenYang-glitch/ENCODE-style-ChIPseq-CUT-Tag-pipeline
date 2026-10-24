@@ -329,10 +329,10 @@ def _effective_config_record_payload():
         "scientific_policy_revision": SCIENTIFIC_POLICY_REVISION,
         "identity": _analysis_identity_hash(),
         "config": _canonical_record_config(),
-        "resolved_duplicate_analysis": {sample_id: get_duplicate_policy(sample_id) for sample_id in ALL_SAMPLE_IDS},
-        "resolved_max_insert": {sample_id: get_max_insert(sample_id) for sample_id in ALL_SAMPLE_IDS},
-        "resolved_organelle_mode": {sample_id: get_organelle_mode(_wc(sample_id)) for sample_id in ALL_SAMPLE_IDS},
-        "resolved_organelle_chroms": {sample_id: get_organelle_chroms(_wc(sample_id)) for sample_id in ALL_SAMPLE_IDS},
+        "resolved_duplicate_analysis": {sample_id: get_duplicate_policy(sample_id) for sample_id in ACTIVE_SAMPLE_IDS},
+        "resolved_max_insert": {sample_id: get_max_insert(sample_id) for sample_id in ACTIVE_SAMPLE_IDS},
+        "resolved_organelle_mode": {sample_id: get_organelle_mode(_wc(sample_id)) for sample_id in ACTIVE_SAMPLE_IDS},
+        "resolved_organelle_chroms": {sample_id: get_organelle_chroms(_wc(sample_id)) for sample_id in ACTIVE_SAMPLE_IDS},
     }
 
 

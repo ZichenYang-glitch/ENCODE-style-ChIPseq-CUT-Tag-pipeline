@@ -140,8 +140,16 @@ def validate_reference_contig_lengths(
     chrom_sizes_path: str | None = None,
     fai_path: str | None = None,
     sample: str = "",
-) -> None:
-    """Verify contig lengths in BAM @SQ match configured chrom_sizes and FAI independently."""
+) -> set[str]:
+    """Verify configured reference contigs against BAM @SQ.
+
+    Every provided reference source must share at least one contig with the
+    BAM; otherwise the source belongs to a different reference role/assembly.
+    Shared contig lengths are checked. BAM-only alt/decoy contigs are returned
+    as unchecked rather than rejected, because the reference resources may
+    intentionally describe only primary contigs.
+    """
+    checked_contigs: set[str] = set()
     for source_path, source_name in [
         (fai_path, "FAI"),
         (chrom_sizes_path, "chrom_sizes"),
@@ -155,15 +163,24 @@ def validate_reference_contig_lengths(
                 if len(parts) >= 2 and parts[1].isdigit():
                     ref_lengths[parts[0]] = int(parts[1])
         if not ref_lengths:
-            continue
-        for chrom, sq_len in sq.items():
-            if chrom in ref_lengths:
-                ref_len = ref_lengths[chrom]
-                if sq_len != ref_len:
-                    raise RuntimeError(
-                        f"Sample {sample}: BAM @SQ contig length mismatch for {chrom!r}: "
-                        f"BAM has {sq_len} bp, reference {source_name} ({source_path}) has {ref_len} bp"
-                    )
+            raise RuntimeError(
+                f"Sample {sample}: reference {source_name} ({source_path}) "
+                "contains no valid contig lengths"
+            )
+        common = set(sq).intersection(ref_lengths)
+        if not common:
+            raise RuntimeError(
+                f"Sample {sample}: BAM @SQ and reference {source_name} "
+                f"({source_path}) have no contigs in common"
+            )
+        for chrom in sorted(common):
+            if sq[chrom] != ref_lengths[chrom]:
+                raise RuntimeError(
+                    f"Sample {sample}: BAM @SQ contig length mismatch for {chrom!r}: "
+                    f"BAM has {sq[chrom]} bp, reference {source_name} ({source_path}) has {ref_lengths[chrom]} bp"
+                )
+        checked_contigs.update(common)
+    return set(sq) - checked_contigs
 
 
 def validate_organelle_contigs(
@@ -174,9 +191,6 @@ def validate_organelle_contigs(
     sample: str,
 ) -> set[str]:
     """Resolve matched organelle contigs and enforce fail-closed verification."""
-    if mode == "keep":
-        return set()
-
     if is_explicit:
         for c in candidate_chroms:
             if c not in sq:
@@ -187,6 +201,9 @@ def validate_organelle_contigs(
         matched = set(candidate_chroms)
     else:
         matched = set(candidate_chroms).intersection(sq.keys())
+
+    if mode == "keep":
+        return set()
 
     if mode == "exclude" and not matched:
         raise RuntimeError(
@@ -382,6 +399,8 @@ def scan_drop_qnames(
                 elif rnext1 not in ("=", chrom1) or rnext2 not in ("=", chrom2):
                     is_valid = False
                 elif pos1 <= 0 or pos2 <= 0:
+                    is_valid = False
+                elif cigar_ref_length(cigar1) <= 0 or cigar_ref_length(cigar2) <= 0:
                     is_valid = False
                 elif pos1 != pnext2 or pos2 != pnext1:
                     is_valid = False

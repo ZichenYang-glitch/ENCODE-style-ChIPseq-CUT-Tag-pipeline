@@ -90,7 +90,7 @@ def main(argv=None):
 
     if args.is_explicit:
         missing = [c for c in candidate_chroms if c not in mapped_counts]
-        if missing and args.mode == "exclude":
+        if missing:
             sys.stderr.write(
                 f"Error: Sample {args.sample}: explicit organelle contig(s) {missing} "
                 f"not found in BAM reference contigs\n"
@@ -102,16 +102,20 @@ def main(argv=None):
 
     # Resolve metrics and status
     if args.mode == "keep":
-        if matched_contigs and total_mapped > 0:
+        if not matched_contigs:
+            status = "unresolved_contigs"
+            organelle_str = "NA"
+            fraction_str = "NA"
+        elif total_mapped == 0:
+            status = "no_mapped_reads"
+            organelle_str = "0"
+            fraction_str = "NA"
+        else:
             organelle_reads = sum(mapped_counts[c] for c in matched_contigs)
             frac = organelle_reads / total_mapped
             status = "ok"
             fraction_str = f"{frac:.6f}"
             organelle_str = str(organelle_reads)
-        else:
-            status = "unresolved_contigs"
-            organelle_str = "NA"
-            fraction_str = "NA"
     elif args.mode == "exclude":
         if not matched_contigs:
             sys.stderr.write(

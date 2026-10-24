@@ -535,7 +535,7 @@ def test_updated_control_context_conflict_fails_closed(snakefile, tmp_path):
             "results/C1/02_align/C1.analysis.bam",
         )
         assert result.returncode != 0, output
-        assert "cannot derive one organelle policy" in output, output
+        assert "different organelle policies" in output, output
     finally:
         shutil.rmtree(workdir)
 
@@ -2708,3 +2708,55 @@ def test_bowtie2_extra_args_migration_and_conflicts_at_snakemake_startup(
     assert (
         "minimum insert length (600) cannot exceed resolved max_insert (500)" in output
     ), output
+
+
+def test_ignored_control_does_not_block_identity_marker(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K27ac\t1\t1\t1\ttreatment\tC1\t",
+            "T2\tR3.fq\tR4.fq\tPE\tatac\tCTCF\tnarrow\ths\tbt2_idx\t"
+            "exp2\tCTCF\t1\t1\t1\ttreatment\tC1\t",
+            "C1\tR5.fq\tR6.fq\tPE\tchipseq\tInput\tnarrow\ths\tbt2_idx\t"
+            "exp1\tInput\t1\t1\t1\tcontrol\t\t",
+        ],
+        use_control=False,
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/.helixweave/analysis_identity.json",
+        )
+        assert result.returncode == 0, output
+    finally:
+        shutil.rmtree(workdir)
+
+
+def test_shared_control_with_same_resolved_policy_is_allowed(snakefile, tmp_path):
+    profile_dir = tmp_path / "profile"
+    workdir, dest_config = _write_updated_profile(
+        profile_dir,
+        [
+            "T1\tR1.fq\tR2.fq\tPE\tchipseq\tH3K27ac\tnarrow\ths\tbt2_idx\t"
+            "exp1\tH3K27ac\t1\t1\t1\ttreatment\tC1\t",
+            "T2\tR3.fq\tR4.fq\tPE\tmnase\tH3\tnucleosome\ths\tbt2_idx\t"
+            "exp2\tH3\t1\t1\t1\ttreatment\tC1\t",
+            "C1\tR5.fq\tR6.fq\tPE\tchipseq\tInput\tnarrow\ths\tbt2_idx\t"
+            "exp1\tInput\t1\t1\t1\tcontrol\t\t",
+        ],
+        use_control=True,
+    )
+    try:
+        result, output = _run_snakemake_dryrun(
+            snakefile,
+            workdir,
+            dest_config,
+            "results/C1/02_align/C1.analysis.bam",
+        )
+        assert result.returncode == 0, output
+    finally:
+        shutil.rmtree(workdir)

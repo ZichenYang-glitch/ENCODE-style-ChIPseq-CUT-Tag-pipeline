@@ -427,7 +427,7 @@ def test_authoring_schema_exposes_a1_keys_and_executable_legacy_defaults():
     assert properties["organelle_mode"]["default"] == "auto"
     assert properties["duplicate_backend"]["default"] == ""
     assert properties["control_mode"]["default"] == "pooled"
-    assert properties["qc"]["properties"]["blacklist_filter"]["default"] is False
+    assert "blacklist_filter" not in properties["qc"]["properties"]
     assert "" in properties["duplicate_backend"]["enum"]
 
 
@@ -439,3 +439,24 @@ def test_updated_control_mode_auto_rejected_at_execution(tmp_path):
     )
     with pytest.raises(ValidationError, match="requires control_mode=matched"):
         validate_execution_support(validated)
+
+
+def test_default_template_canonical_copies_override(tmp_path):
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    config = yaml.safe_load((root / "config" / "config.yaml").read_text())
+    config["samples"] = str(tmp_path / "samples.tsv")
+    Path(config["samples"]).write_text(
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\t"
+        "bowtie2_index\n"
+        "S1\tR1.fq\tR2.fq\tPE\tchipseq\tCTCF\tnarrow\ths\t/idx\n",
+        encoding="utf-8",
+    )
+    config["outdir"] = str(tmp_path / "results")
+    config["blacklist_mode"] = "copies"
+    validated = validate_config(config)
+    assert validated["blacklist_mode"] == "copies"
+    assert validated["qc"]["blacklist_filter"] is True

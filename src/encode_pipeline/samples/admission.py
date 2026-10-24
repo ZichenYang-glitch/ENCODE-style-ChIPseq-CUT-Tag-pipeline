@@ -15,6 +15,7 @@ import gzip
 import os
 import struct
 
+from encode_pipeline.config.validator import resolve_blacklist_mode
 from encode_pipeline.errors import ValidationError
 from encode_pipeline.qc.histone import classify_histone_target
 
@@ -143,7 +144,7 @@ def _read_chrom_sizes(path: str, *, error_cls=ValidationError) -> dict[str, int]
     try:
         with open(path, encoding="utf-8") as handle:
             for line in handle:
-                fields = line.rstrip("\n").split("\t")
+                fields = line.strip().split()
                 if len(fields) < 2:
                     continue
                 name, length = fields[0], fields[1]
@@ -161,7 +162,7 @@ def _read_fai(path: str, *, error_cls=ValidationError) -> dict[str, int]:
     try:
         with open(path, encoding="utf-8") as handle:
             for line in handle:
-                fields = line.rstrip("\n").split("\t")
+                fields = line.strip().split()
                 if len(fields) < 2:
                     continue
                 name, length = fields[0], fields[1]
@@ -197,12 +198,25 @@ def _get_reference_contigs(
     )
 
     if sizes is not None and fai is not None:
-        for contig in set(sizes.keys()).intersection(fai.keys()):
+        common = set(sizes).intersection(fai)
+        if not common:
+            raise error_cls(
+                f"Genome {genome!r} reference_fasta.fai and chrom_sizes "
+                "have no contigs in common"
+            )
+        for contig in sorted(common):
             if sizes[contig] != fai[contig]:
                 raise error_cls(
                     f"Genome {genome!r} contig {contig!r} length mismatch: "
                     f"reference_fasta.fai ({fai[contig]}) != chrom_sizes ({sizes[contig]})"
                 )
+        # FAI and chrom_sizes can describe different reference roles
+        # (for example a full FASTA index and a primary-only sizes file).
+        # Keep the union after checking every shared length, so organelle or
+        # blacklist contigs present in only one source remain visible.
+        merged = dict(fai)
+        merged.update(sizes)
+        return merged
     return sizes or fai
 
 
@@ -327,13 +341,48 @@ def validate_reference_control_admission(
                     "present in genome_resources"
                 )
 
-    use_control = bool(config.get("use_control", False))
+    raw_use_control = config.get("use_control", False)
+    if isinstance(raw_use_control, str):
+        use_control = raw_use_control.strip().lower() in ("true", "yes", "1")
+    else:
+        use_control = bool(raw_use_control)
     resources = config.get("genome_resources", {})
+
+    treatments_by_control: dict[str, list[dict]] = {}
+    if use_control:
+        for sample in samples:
+            if sample.get("role") != "treatment":
+                continue
+            control_id = sample.get("control_sample", "")
+            if control_id:
+                treatments_by_control.setdefault(control_id, []).append(sample)
+
+    def _assay_organelle_mode(assay: str) -> str:
+        return "exclude" if assay in ("atac", "cuttag") else "report"
+
+    def _effective_organelle_mode(sample: dict) -> str:
+        config_mode = config.get("organelle_mode", "auto")
+        if config_mode != "auto":
+            return str(config_mode)
+        if use_control and sample.get("role") == "control":
+            contexts = treatments_by_control.get(sample.get("id", ""), [])
+            modes = {_assay_organelle_mode(row.get("assay", "")) for row in contexts}
+            if len(modes) > 1:
+                raise error_cls(
+                    f"Control {sample.get('id', '?')!r}: referenced treatments "
+                    f"resolve to different organelle policies: {sorted(modes)}"
+                )
+            if modes:
+                return next(iter(modes))
+        return _assay_organelle_mode(sample.get("assay", ""))
+
     validated_genomes = set()
-    blacklist_mode = config.get("blacklist_mode")
-    if blacklist_mode == "analysis":
+    blacklist_mode = resolve_blacklist_mode(config)
+    if blacklist_mode in ("analysis", "copies"):
         if not isinstance(resources, dict):
-            raise error_cls("blacklist_mode=analysis requires genome_resources")
+            raise error_cls(
+                f"blacklist_mode={blacklist_mode} requires genome_resources"
+            )
         for sample in samples:
             if sample.get("role") == "treatment" or (
                 use_control and sample.get("role") == "control"
@@ -343,7 +392,7 @@ def validate_reference_control_admission(
                 if not isinstance(entry, dict) or not entry.get("blacklist"):
                     raise error_cls(
                         f"Sample {sample.get('id', '?')!r}: "
-                        "blacklist_mode=analysis requires a non-empty "
+                        f"blacklist_mode={blacklist_mode} requires a non-empty "
                         f"genome_resources[{genome!r}].blacklist"
                     )
                 blacklist_path = entry["blacklist"]
@@ -396,14 +445,7 @@ def validate_reference_control_admission(
                                 f"{c!r} not found in reference contigs for genome {genome!r}"
                             )
 
-                resolved_organelle_mode = config.get("organelle_mode", "auto")
-                if resolved_organelle_mode == "auto":
-                    sample_assay = sample.get("assay", "")
-                    effective_organelle_mode = (
-                        "exclude" if sample_assay in ("atac", "cuttag") else "report"
-                    )
-                else:
-                    effective_organelle_mode = resolved_organelle_mode
+                effective_organelle_mode = _effective_organelle_mode(sample)
 
                 if effective_organelle_mode == "exclude" and ref_contigs is not None:
                     candidates = (

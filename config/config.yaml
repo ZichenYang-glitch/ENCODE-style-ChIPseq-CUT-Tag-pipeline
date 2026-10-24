@@ -181,7 +181,6 @@ chipseq_idr: false
 # Each switch accepts boolean or string boolean (true/false).
 # Missing qc block defaults to all switches enabled.
 qc:
-  blacklist_filter: false
   frip: true
   library_complexity: true
   nrf_pbc: true

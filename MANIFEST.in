@@ -18,6 +18,7 @@ include scripts/parse_dup_metrics.py
 include scripts/pooled_qc_summary.py
 include scripts/split_pseudoreps.py
 include scripts/chipseq_idr_summary.py
+include scripts/validate_blacklist.py
 include scripts/validate_samples.py
 include docs/architecture/artifact-inventory.yaml
 include profiles/default/config.yaml

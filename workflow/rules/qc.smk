@@ -88,9 +88,14 @@ rule blacklist_filter_bam:
     threads: THREADS
     params:
         blacklist=lambda wc: get_genome_resource(wc.sample, "blacklist"),
+        validate_script=f"{workflow.basedir}/../scripts/validate_blacklist.py",
     shell:
         """
         set -e -o pipefail
+        python3 {params.validate_script:q} \
+            --bam {input.bam:q} \
+            --blacklist {params.blacklist:q} \
+            --sample {wildcards.sample:q}
         bedtools intersect -v -abam {input.bam:q} -b {params.blacklist:q} \
             >{output.bam:q}
         samtools index -@ {threads} {output.bam:q}
@@ -106,17 +111,23 @@ rule blacklist_filter_peaks:
     input:
         # MACS3 peaks directory (Snakemake-tracked) — peak file assembled in shell
         peaks_dir=f"{OUTDIR}/{{sample}}/04_peaks/{{sample}}",
+        bam=lambda wc: analysis_bam(wc.sample),
     output:
         f"{_blacklist_output_root()}/{{sample}}/04_peaks/{{sample}}_blacklist_filtered/{{sample}}_peaks.blacklist_filtered.{{suffix}}",
     conda:
         "../envs/samtools.yml"
     params:
         blacklist=lambda wc: get_genome_resource(wc.sample, "blacklist"),
+        validate_script=f"{workflow.basedir}/../scripts/validate_blacklist.py",
     shell:
         """
         set -e -o pipefail
         PEAKS_FILE="{input.peaks_dir:q}/{wildcards.sample}_peaks.{wildcards.suffix}"
         mkdir -p $(dirname {output:q})
+        python3 {params.validate_script:q} \
+            --bam {input.bam:q} \
+            --blacklist {params.blacklist:q} \
+            --sample {wildcards.sample:q}
         bedtools intersect -v -a "$PEAKS_FILE" -b {params.blacklist:q} \
             >{output:q}
         """
@@ -125,17 +136,23 @@ rule blacklist_filter_peaks:
 rule blacklist_filter_pooled_peaks:
     input:
         peaks_dir=f"{OUTDIR}/experiments/{{experiment}}/04_peaks/pooled/{{experiment}}_pooled_peaks",
+        bam=f"{OUTDIR}/experiments/{{experiment}}/02_align/{{experiment}}.pooled.final.bam",
     output:
         f"{_blacklist_output_root()}/experiments/{{experiment}}/04_peaks/pooled/{{experiment}}_pooled_peaks_blacklist_filtered/{{experiment}}_pooled_peaks.blacklist_filtered.{{suffix}}",
     conda:
         "../envs/samtools.yml"
     params:
         blacklist=lambda wc: get_genome_resource(TREATMENT_SAMPLES_BY_EXPERIMENT[wc.experiment][0], "blacklist"),
+        validate_script=f"{workflow.basedir}/../scripts/validate_blacklist.py",
     shell:
         """
         set -e -o pipefail
         PEAKS_FILE="{input.peaks_dir:q}/{wildcards.experiment}_pooled_peaks.{wildcards.suffix}"
         mkdir -p $(dirname {output:q})
+        python3 {params.validate_script:q} \
+            --bam {input.bam:q} \
+            --blacklist {params.blacklist:q} \
+            --sample {wildcards.experiment:q}
         bedtools intersect -v -a "$PEAKS_FILE" -b {params.blacklist:q} \
             >{output:q}
         """

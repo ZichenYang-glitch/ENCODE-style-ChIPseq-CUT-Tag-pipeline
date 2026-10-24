@@ -18,6 +18,10 @@ precompiled frontend. The sdist also contains the exact release-owned
 workflow/profile/script source manifest consumed by the ENCODE runtime builder.
 Neither artifact bundles scientific environments, OCI images, JDK/Nextflow,
 references, indexes, FASTQ, caches, results, databases, or credentials.
+The source-checkout `config/config.yaml` and
+`config/blacklist/hg38-blacklist.v2.bed` are examples for checkout-local runs;
+installed or runtime-bound deployments must provide their own reference and
+blacklist resources and must not assume those checkout-relative paths exist.
 
 The official v0.4.0 assets are the wheel, sdist, and `SHA256SUMS` only.
 `helixweave bundle --help` exposes the offline producer for the three existing

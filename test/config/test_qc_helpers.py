@@ -10,7 +10,7 @@ class CustomError(Exception):
 
 
 QC_DEFAULTS = {
-    "blacklist_filter": True,
+    "blacklist_filter": False,
     "frip": True,
     "library_complexity": True,
     "nrf_pbc": True,
@@ -40,7 +40,7 @@ def test_validate_qc_config_normalizes_known_values():
     assert validated["frip"] is False
     assert validated["cross_correlation"] is True
     assert validated["preseq_complexity"] is False
-    assert validated["blacklist_filter"] is True
+    assert validated["blacklist_filter"] is False
 
 
 def test_validate_qc_config_rejects_unknown_keys():

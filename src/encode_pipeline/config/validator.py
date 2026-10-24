@@ -122,18 +122,17 @@ def _validate_analysis_profile(config: dict, version: str) -> str:
     )
 
 
-def _validate_blacklist_mode(
-    config: dict,
-    qc_raw: dict,
-    profile: str,
-) -> str:
-    """Resolve canonical blacklist_mode and keep qc.blacklist_filter consistent.
+def resolve_blacklist_mode(config: dict, qc_raw: dict | None = None) -> str:
+    """Resolve the effective blacklist mode without validating resources.
 
-    The legacy alias only expresses copies/off. In the analysis branch the
-    canonical key wins over the alias's off value so normalized configs remain
-    revalidatable; an explicit alias=true still conflicts because it requests
-    copies.
+    This is the single policy resolver used by config validation, manifest
+    namespace derivation, and artifact extraction. It intentionally performs
+    no filesystem checks so callers can resolve an already-validated run
+    without requiring every external input to still exist.
     """
+    if qc_raw is None:
+        qc_raw = config.get("qc")
+
     raw_mode = config.get("blacklist_mode")
     if raw_mode is False or (
         isinstance(raw_mode, str) and raw_mode.lower() in ("false", "no", "off")
@@ -154,29 +153,31 @@ def _validate_blacklist_mode(
         mapped = None
 
     if raw_mode is None:
-        if mapped is None:
-            mode = "analysis"
-        else:
-            mode = mapped
-    else:
-        mode = _choice(
-            raw_mode,
-            name="blacklist_mode",
-            allowed=defaults.BLACKLIST_MODES,
-        )
-        if mapped is not None:
-            if mode == "analysis":
-                if alias_value is True:
-                    raise ValidationError(
-                        "config: blacklist_mode=analysis conflicts with "
-                        "qc.blacklist_filter=true (copies)."
-                    )
-            elif mode != mapped:
-                raise ValidationError(
-                    "config: blacklist_mode conflicts with qc.blacklist_filter. "
-                    "Use one canonical key or make them consistent."
-                )
+        return mapped if mapped is not None else "analysis"
 
+    mode = _choice(
+        raw_mode,
+        name="blacklist_mode",
+        allowed=defaults.BLACKLIST_MODES,
+    )
+    if mapped is not None:
+        if mode == "analysis":
+            if alias_value is True:
+                raise ValidationError(
+                    "config: blacklist_mode=analysis conflicts with "
+                    "qc.blacklist_filter=true (copies)."
+                )
+        elif mode != mapped:
+            raise ValidationError(
+                "config: blacklist_mode conflicts with qc.blacklist_filter. "
+                "Use one canonical key or make them consistent."
+            )
+    return mode
+
+
+def _validate_blacklist_mode(config: dict, qc_raw: dict) -> str:
+    """Resolve blacklist mode and keep the legacy alias consistent."""
+    mode = resolve_blacklist_mode(config, qc_raw)
     if isinstance(qc_raw, dict):
         qc_raw["blacklist_filter"] = mode == "copies"
     return mode
@@ -452,11 +453,7 @@ def validate_config(config: dict) -> dict:
     # qc — optional QC switches (standard defaults true; heavier modules false)
     qc_raw = config.get("qc", {})
     qc_raw = dict(qc_raw) if isinstance(qc_raw, dict) else qc_raw
-    validated["blacklist_mode"] = _validate_blacklist_mode(
-        config,
-        qc_raw,
-        validated["analysis_profile"],
-    )
+    validated["blacklist_mode"] = _validate_blacklist_mode(config, qc_raw)
     validated["qc"] = _validate_qc_config(qc_raw)
 
     # genome_resources — optional, validate if present

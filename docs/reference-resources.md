@@ -152,9 +152,11 @@ genome_resources:
     blacklist: "/refs/hg38/hg38.blacklist.bed"
 ```
 
-When `qc.blacklist_filter: true`, the workflow uses the blacklist path if it
-is configured for the sample genome. If a genome has no blacklist available,
-set the value to an empty string or disable blacklist filtering for that run.
+When `blacklist_mode: analysis` or `copies` is selected, a non-empty,
+assembly-matched blacklist path is required for every active sample genome.
+Set `blacklist_mode: off` if no blacklist is available. The legacy
+`qc.blacklist_filter` alias is still accepted when the canonical key is
+omitted, but it is not injected by the default config or authoring form.
 
 Use an assembly-matched blacklist only. Do not reuse hg38 blacklists for hg19,
 or mm10 blacklists for mm39, unless the file has been lifted over and checked.
@@ -178,6 +180,7 @@ The annotation assembly must match the FASTA and Bowtie2 index assembly.
 ## mm39 / GRCm39 Minimal Example
 
 ```yaml
+blacklist_mode: off
 genome_resources:
   mm39:
     effective_genome_size: 2654621783

@@ -92,9 +92,9 @@ def _config_schema() -> dict[str, object]:
     qc_properties = {
         key: _boolean_or_string_schema(default=default)
         for key, default in (
-            # Canonical blacklist filtering defaults to analysis; alias remains
-            # false so re-validation and schema validation remain consistent.
-            ("blacklist_filter", False),
+            # Canonical blacklist filtering defaults to analysis; the legacy
+            # qc.blacklist_filter alias is accepted by the backend but is not
+            # injected by the authoring form.
             ("frip", True),
             ("library_complexity", True),
             ("nrf_pbc", True),

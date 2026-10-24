@@ -678,13 +678,19 @@ def get_duplicate_mode(wildcards):
     return get_remove_dup(wildcards)
 
 
+def _assay_organelle_mode(assay):
+    """Resolve auto organelle mode for one assay."""
+    return "exclude" if assay in ("atac", "cuttag") else "report"
+
+
 def _organelle_context_assay(sample_id):
-    """Return the assay whose organelle policy applies to a sample.
+    """Return an assay whose organelle policy applies to a sample.
 
     Controls inherit the policy of the treatment they are called for; a
     control row's own assay is not authoritative. A control shared across
-    assays with different policies cannot be represented by one analysis BAM,
-    so fail closed instead of silently choosing one policy.
+    assays that resolve to different organelle policies cannot be represented
+    by one analysis BAM, so fail closed instead of silently choosing one.
+    Assays that resolve to the same policy are interchangeable here.
     """
     sample = SAMPLE_MAP[sample_id]
     if sample.get("role") != "control":
@@ -694,11 +700,12 @@ def _organelle_context_assay(sample_id):
     )
     if not contexts:
         return sample["assay"]
-    if len(contexts) > 1:
+    modes = sorted({_assay_organelle_mode(assay) for assay in contexts})
+    if len(modes) > 1:
         raise ValueError(
             "cannot derive one organelle policy for control "
             f"{sample_id!r}; referenced by treatment assays: "
-            f"{', '.join(contexts)}"
+            f"{', '.join(contexts)} (resolved modes: {', '.join(modes)})"
         )
     return contexts[0]
 

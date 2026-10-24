@@ -7,6 +7,7 @@ into this module and break it into smaller helpers.
 
 from encode_pipeline.config.errors import ValidationError
 from encode_pipeline.config.validator import (
+    resolve_blacklist_mode,
     validate_bowtie2_insert_bounds,
     validate_config,
     validate_execution_support,
@@ -16,6 +17,7 @@ from encode_pipeline.config.validator import (
 
 __all__ = [
     "ValidationError",
+    "resolve_blacklist_mode",
     "validate_bowtie2_insert_bounds",
     "validate_config",
     "validate_execution_support",

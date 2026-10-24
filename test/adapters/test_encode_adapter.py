@@ -1041,6 +1041,9 @@ def test_extract_artifacts_uses_analysis_filtered_root(tmp_path):
 
 def test_extract_artifacts_adds_existing_result_manifest(tmp_path, monkeypatch):
     workspace = _artifact_workspace(tmp_path)
+    (workspace / "config/config.yaml").write_text(
+        "samples: config/samples.tsv\nblacklist_mode: off\n", encoding="utf-8"
+    )
     manifest = workspace / "results/multiqc/result_manifest.tsv"
     manifest.parent.mkdir(parents=True)
     manifest.write_text("output_type\tpath\n", encoding="utf-8")
@@ -1081,6 +1084,7 @@ def test_artifact_metadata_uses_effective_bamcoverage_normalization(
         [
             "samples: config/samples.tsv",
             "outdir: results",
+            "blacklist_mode: off",
             "use_control: false",
             "multiqc: false",
             "replicate_analysis: false",
@@ -1116,6 +1120,7 @@ def test_artifact_metadata_does_not_label_fe_ppois_as_read_coverage(tmp_path):
         [
             "samples: config/samples.tsv",
             "outdir: results",
+            "blacklist_mode: off",
             "use_control: false",
             "multiqc: false",
             "replicate_analysis: false",
@@ -1306,6 +1311,7 @@ def test_artifact_metadata_mnase_dyad_is_not_read_coverage(tmp_path):
         [
             "samples: config/samples.tsv",
             "outdir: results",
+            "blacklist_mode: off",
             "use_control: false",
             "multiqc: false",
             "replicate_analysis: false",
@@ -1361,6 +1367,7 @@ def test_artifact_metadata_pooled_mnase_dyad_is_not_read_coverage(tmp_path):
         [
             "samples: config/samples.tsv",
             "outdir: results",
+            "blacklist_mode: off",
             "use_control: false",
             "multiqc: false",
             "replicate_analysis: true",
@@ -1455,3 +1462,38 @@ def test_adapter_rejects_bowtie2_minins_exceeding_resolved_max_insert(tmp_path):
     )
     assert planned.is_failure
     assert planned.errors[0].code == "ENCODE_CONFIG_INVALID"
+
+
+def test_extract_artifacts_default_analysis_without_canonical_key(tmp_path):
+    workspace = _artifact_workspace(tmp_path)
+    _write_samples(
+        workspace / "config/samples.tsv", _samples_text(workspace / "config")
+    )
+    _write_workspace_config(
+        workspace,
+        [
+            "samples: config/samples.tsv",
+            "outdir: results",
+            "use_control: false",
+            "multiqc: false",
+            "replicate_analysis: false",
+            "chipseq_idr: false",
+            "analysis_profile: updated",
+            "qc:",
+            "  signal_tracks: false",
+            "  summary: false",
+            "  frip: false",
+        ],
+    )
+    cpm = workspace / "results/analysis_filtered/S1/03_bigwig/S1.CPM.bw"
+    cpm.parent.mkdir(parents=True)
+    cpm.write_text("x\n", encoding="utf-8")
+
+    result = _adapter().extract_artifacts(WorkflowInputs(config={}), workspace)
+
+    assert result.is_success, result.issues
+    by_type = {item.output_type: item for item in result.value}
+    assert (
+        by_type["cpm_bigwig"].relative_path
+        == "results/analysis_filtered/S1/03_bigwig/S1.CPM.bw"
+    )

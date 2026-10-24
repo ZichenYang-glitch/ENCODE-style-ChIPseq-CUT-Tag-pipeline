@@ -13,7 +13,7 @@ import os
 
 import yaml
 
-from encode_pipeline.config.validate import validate_config
+from encode_pipeline.config.validate import resolve_blacklist_mode, validate_config
 from encode_pipeline.qc.histone import classify_histone_target
 from encode_pipeline.samples.load import load_and_validate_samples
 
@@ -1528,6 +1528,25 @@ def _build_project_rows(outdir, multiqc_enabled, has_peak_samples):
     return rows
 
 
+def resolve_manifest_namespaces(config):
+    """Return (raw_outdir, analysis_outdir, blacklist_mode).
+
+    ``analysis_outdir`` is an internal namespace derived from the resolved
+    blacklist mode, not a user-supplied requirement. Callers that already have
+    a validated run record may pass it explicitly.
+    """
+    outdir = str(config.get("outdir", "results"))
+    blacklist_mode = resolve_blacklist_mode(config)
+    analysis_outdir = config.get("analysis_outdir")
+    if not analysis_outdir:
+        analysis_outdir = (
+            os.path.join(outdir, "analysis_filtered")
+            if blacklist_mode == "analysis"
+            else outdir
+        )
+    return outdir, str(analysis_outdir), blacklist_mode
+
+
 def build_manifest_rows(config, samples_path=None):
     """Build manifest row dicts from a validated config dict.
 
@@ -1538,14 +1557,17 @@ def build_manifest_rows(config, samples_path=None):
     Returns:
         tuple (rows, missing_count, not_applicable_count)
     """
-    outdir = config.get("outdir", "results")
-    analysis_outdir = config.get("analysis_outdir") or outdir
+    outdir, analysis_outdir, blacklist_mode = resolve_manifest_namespaces(config)
     qc = config.get("qc", {})
+    if not isinstance(qc, dict):
+        raise ValueError("qc must be a mapping")
     signal_tracks = qc.get("signal_tracks", True)
     replicate_analysis = config.get("replicate_analysis", True)
     chipseq_idr = config.get("chipseq_idr", False)
     multiqc_enabled = config.get("multiqc", True)
     genomic_resources = config.get("genome_resources", {})
+    if not isinstance(genomic_resources, dict):
+        raise ValueError("genome_resources must be a mapping")
     fragment_cpm = config.get("fragment_cpm", "off")
     tss_fragment_profile = bool(config.get("tss_fragment_profile", False))
 
@@ -1570,7 +1592,6 @@ def build_manifest_rows(config, samples_path=None):
             tss_fragment_profile=tss_fragment_profile,
         )
     )
-    blacklist_mode = config.get("blacklist_mode", "analysis")
     rows.extend(
         _build_experiment_rows(
             treatment_samples,

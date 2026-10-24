@@ -126,7 +126,6 @@ MultiQC runs in `workflow/envs/multiqc.yml` when Snakemake is invoked with
 
 ```yaml
 qc:
-  blacklist_filter: true
   frip: true
   library_complexity: true
   nrf_pbc: true
@@ -141,7 +140,7 @@ qc:
 
 | Switch | Default | Effect |
 | :--- | :--- | :--- |
-| `blacklist_filter` | `true` | Legacy alias for `blacklist_mode`. When `blacklist_mode` is omitted, `qc.blacklist_filter: true` selects `blacklist_mode: copies` (side-car copies), while `false` selects `blacklist_mode: off`. If specified alongside `blacklist_mode`, conflicting settings (such as `blacklist_mode: analysis` with `qc.blacklist_filter: true`) raise a validation error. Prefer canonical top-level `blacklist_mode`. |
+| `blacklist_filter` | not set | Legacy alias for `blacklist_mode`; prefer the canonical top-level key. When `blacklist_mode` is omitted, `true` maps to `copies` and `false` maps to `off`. The alias is not injected by the default config or authoring form. If specified alongside `blacklist_mode`, conflicting settings (such as `blacklist_mode: analysis` with `qc.blacklist_filter: true`) raise a validation error. |
 | `frip` | `true` | Compute read-record FRiP for peak-assay treatment samples using the canonical analysis BAM. |
 | `library_complexity` | `true` | Parse duplicate metrics. Picard fields are reported when Picard is available; otherwise fallback fields are emitted as `NA`. |
 | `nrf_pbc` | `true` | Compute NRF and PBC1/PBC2 from the MAPQ-filtered, duplicate-containing BAM (`{sample}.mapq{mapq}.bam`), before duplicate handling. |
@@ -169,6 +168,28 @@ blacklist genome resource) to produce side-car filtered BAM copies (`<sample>.bl
 In `blacklist_mode: analysis`, filtering is applied directly during canonical analysis BAM and final peak preparation, which downstream consumers uniformly consume.
 `_peak_counts_inputs` requests raw peaks and optional filtered peaks, never the filtered BAM.
 
+### Effective blacklist mode decision table
+
+The workflow, manifest CLI, and artifact extractor use one resolver. The
+default template and authoring form emit only the canonical key; the legacy
+alias is accepted when a user explicitly supplies it.
+
+| Input | Effective mode | Output namespace | Resource requirement | Main analysis / copies |
+| :--- | :--- | :--- | :--- | :--- |
+| no canonical, no alias | `analysis` | `<outdir>/analysis_filtered` | non-empty blacklist for every active genome | analysis chain filtered; no sidecar copies |
+| `blacklist_mode: analysis` | `analysis` | `<outdir>/analysis_filtered` | required | analysis chain filtered; no sidecar copies |
+| `blacklist_mode: copies` | `copies` | `<outdir>` | required | main analysis not blacklist-filtered; sidecar BAM/peak copies |
+| `blacklist_mode: off` | `off` | `<outdir>` | unused | no blacklist filtering |
+| no canonical, alias `true` | `copies` | `<outdir>` | required | as `copies` |
+| no canonical, alias `false` | `off` | `<outdir>` | unused | as `off` |
+| `analysis` + alias `false` | `analysis` | `<outdir>/analysis_filtered` | required | canonical key wins |
+| `analysis` + alias `true`, `copies` + alias `false`, `off` + alias `true` | invalid | — | — | reject with a configuration error |
+
+`analysis_outdir` is an internal derived namespace, not a user-required key.
+`use_control: false` excludes control rows from active policy/identity
+resolution; controls referenced by multiple treatments are resolved by their
+effective organelle mode, not by assay name alone.
+
 ### Canonical analysis BAM and blacklist filtering
 
 Both `legacy` and `updated` profiles use a canonical analysis BAM (`<sample>.analysis.bam`)
@@ -191,7 +212,7 @@ genome_resources:
   BigWig, FRiP, cross-correlation, TSS, MNase, IDR, consensus) consume `<sample>.analysis.bam`.
   Single-sample and pooled peaks undergo peak-level blacklist filtering before final QC and promotion.
   Per-template blacklist drops are tracked in `05_qc/<sample>.blacklist_dropped.tsv`, and stage metrics
-  are recorded in `<sample>.stage_metrics.json`.
+  are recorded in `<sample>.blacklist_dropped.stage_metrics.json`.
 - When `blacklist_mode: copies`:
   The canonical analysis BAM is prepared with duplicate/organelle/template filtering but without blacklist filtering.
   Additional copies of blacklist-filtered BAMs and peaks (`<sample>.blacklist_filtered.bam`, `*_blacklist_filtered/`)

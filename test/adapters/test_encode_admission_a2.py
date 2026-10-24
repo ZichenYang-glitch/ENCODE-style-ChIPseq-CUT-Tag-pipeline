@@ -101,7 +101,11 @@ def _config(chrom_sizes: Path | None = None, use_control: bool = True):
         "hg38": {"chrom_sizes": sizes},
         "mm10": {"chrom_sizes": sizes},
     }
-    return {"genome_resources": resources, "use_control": use_control}
+    return {
+        "genome_resources": resources,
+        "use_control": use_control,
+        "blacklist_mode": "off",
+    }
 
 
 def _admit(samples, config, *, reference_mode="strict", external="validate"):
@@ -708,3 +712,110 @@ def test_admission_organelle_validation(tmp_path: Path):
     }
     with pytest.raises(ValidationError, match="none of candidate contigs"):
         _admit(samples, cfg_exclude_missing)
+
+
+def test_control_organelle_mode_uses_treatment_context(tmp_path: Path):
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    samples = [
+        _sample(
+            id="T1",
+            role="treatment",
+            assay="chipseq",
+            control_sample="C1",
+        ),
+        _sample(id="C1", role="control", assay="atac"),
+    ]
+    cfg = {
+        "use_control": True,
+        "blacklist_mode": "off",
+        "organelle_mode": "auto",
+        "genome_resources": {"hg38": {"chrom_sizes": str(sizes)}},
+    }
+    _admit(samples, cfg)
+
+
+def test_shared_control_with_same_resolved_organelle_policy(tmp_path: Path):
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    samples = [
+        _sample(id="T1", role="treatment", assay="chipseq", control_sample="C1"),
+        _sample(
+            id="T2",
+            role="treatment",
+            assay="mnase",
+            experiment="EXP2",
+            control_sample="C1",
+        ),
+        _sample(id="C1", role="control", assay="chipseq"),
+    ]
+    cfg = {
+        "use_control": True,
+        "blacklist_mode": "off",
+        "organelle_mode": "auto",
+        "genome_resources": {"hg38": {"chrom_sizes": str(sizes)}},
+    }
+    _admit(samples, cfg, reference_mode="legacy")
+
+
+def test_copies_mode_requires_blacklist_resource(tmp_path: Path):
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    samples = [_sample(id="S1", role="treatment", genome="hg38")]
+    cfg = {
+        "use_control": False,
+        "blacklist_mode": "copies",
+        "genome_resources": {"hg38": {"chrom_sizes": str(sizes), "blacklist": ""}},
+    }
+    with pytest.raises(ValidationError, match="blacklist_mode=copies"):
+        _admit(samples, cfg)
+
+
+def test_reference_contigs_union_preserves_fai_only_contigs(tmp_path: Path):
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    fasta = tmp_path / "ref.fa"
+    fasta.write_text(">chr1\n>chrM\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text(
+        "chr1\t1000\t0\t50\t51\nchrM\t200\t0\t50\t51\n", encoding="utf-8"
+    )
+    contigs = _get_reference_contigs(
+        {"chrom_sizes": str(sizes), "reference_fasta": str(fasta)}, genome="hg38"
+    )
+    assert contigs == {"chr1": 1000, "chrM": 200}
+
+
+def test_reference_contigs_disjoint_sources_fail(tmp_path: Path):
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    fasta = tmp_path / "ref.fa"
+    fasta.write_text(">chr2\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr2\t500\t0\t50\t51\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="no contigs in common"):
+        _get_reference_contigs(
+            {"chrom_sizes": str(sizes), "reference_fasta": str(fasta)},
+            genome="hg38",
+        )
+
+
+def test_default_blacklist_mode_is_analysis_and_requires_resource(tmp_path: Path):
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    blacklist = tmp_path / "blacklist.bed"
+    blacklist.write_text("chr1\t10\t20\n", encoding="utf-8")
+    samples = [_sample(id="S1", role="treatment", genome="hg38")]
+
+    missing = {
+        "use_control": False,
+        "genome_resources": {"hg38": {"chrom_sizes": str(sizes), "blacklist": ""}},
+    }
+    with pytest.raises(ValidationError, match="blacklist_mode=analysis"):
+        _admit(samples, missing)
+
+    present = {
+        "use_control": False,
+        "genome_resources": {
+            "hg38": {"chrom_sizes": str(sizes), "blacklist": str(blacklist)}
+        },
+    }
+    _admit(samples, present)

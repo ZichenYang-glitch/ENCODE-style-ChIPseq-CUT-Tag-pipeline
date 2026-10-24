@@ -186,7 +186,7 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "blacklist_filter": { "type": ["boolean", "string"], "default": true },
+        "blacklist_filter": { "type": ["boolean", "string"] },
         "frip": { "type": ["boolean", "string"], "default": true },
         "library_complexity": { "type": ["boolean", "string"], "default": true },
         "nrf_pbc": { "type": ["boolean", "string"], "default": true },
