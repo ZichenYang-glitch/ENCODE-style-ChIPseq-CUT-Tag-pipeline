@@ -15,6 +15,7 @@ from encode_pipeline.config import errors
 from encode_pipeline.config import genome as genome_validation
 from encode_pipeline.config import mnase as mnase_validation
 from encode_pipeline.config import qc as qc_validation
+from encode_pipeline.config import reference_policy
 from encode_pipeline.config import reproducibility as reproducibility_validation
 from encode_pipeline.config import tools as tools_validation
 from encode_pipeline.config.coercion import coerce_int
@@ -122,59 +123,14 @@ def _validate_analysis_profile(config: dict, version: str) -> str:
     )
 
 
-def _validate_blacklist_mode(
-    config: dict,
-    qc_raw: dict,
-    profile: str,
-) -> str:
-    """Resolve canonical blacklist_mode and keep qc.blacklist_filter consistent.
+def resolve_blacklist_mode(config: dict, qc_raw: dict | None = None) -> str:
+    """Compatibility wrapper for the shared pure resolver."""
+    return reference_policy.resolve_blacklist_mode(config, qc_raw)
 
-    The legacy alias only expresses copies/off. In the analysis branch the
-    canonical key wins over the alias's off value so normalized configs remain
-    revalidatable; an explicit alias=true still conflicts because it requests
-    copies.
-    """
-    raw_mode = config.get("blacklist_mode")
-    alias_present = isinstance(qc_raw, dict) and "blacklist_filter" in qc_raw
-    alias_value = None
-    if alias_present:
-        alias_value = _strict_bool(
-            qc_raw["blacklist_filter"], name="qc.blacklist_filter"
-        )
-        mapped = "copies" if alias_value else "off"
-    else:
-        mapped = None
 
-    if raw_mode is None:
-        if profile == "legacy":
-            mode = "copies" if mapped is None else mapped
-        else:
-            # Explicit legacy alias true still means copies; absent alias is raw.
-            mode = "off" if mapped is None else mapped
-    else:
-        mode = _choice(
-            raw_mode,
-            name="blacklist_mode",
-            allowed=defaults.BLACKLIST_MODES,
-        )
-        if mapped is not None:
-            if mode == "analysis":
-                if alias_value is True:
-                    raise ValidationError(
-                        "config: blacklist_mode=analysis conflicts with "
-                        "qc.blacklist_filter=true (copies)."
-                    )
-            elif mode != mapped:
-                raise ValidationError(
-                    "config: blacklist_mode conflicts with qc.blacklist_filter. "
-                    "Use one canonical key or make them consistent."
-                )
-
-    if mode == "analysis" and profile != "updated":
-        raise ValidationError(
-            "config: blacklist_mode=analysis requires analysis_profile=updated."
-        )
-
+def _validate_blacklist_mode(config: dict, qc_raw: dict) -> str:
+    """Resolve blacklist mode and keep the legacy alias consistent."""
+    mode = resolve_blacklist_mode(config, qc_raw)
     if isinstance(qc_raw, dict):
         qc_raw["blacklist_filter"] = mode == "copies"
     return mode
@@ -217,17 +173,11 @@ def _validate_duplicate_settings(config: dict, remove_dup: str, profile: str) ->
 
 def _validate_advanced_modes(config: dict, profile: str) -> dict:
     """Parse A2/E1/E2 keys without activating their runtime behavior."""
-    organelle_default = "keep" if profile == "legacy" else "auto"
     organelle_mode = _choice(
-        config.get("organelle_mode", organelle_default),
+        config.get("organelle_mode", "auto"),
         name="organelle_mode",
         allowed=defaults.ORGANELLE_MODES,
     )
-    if profile == "legacy" and organelle_mode != "keep":
-        raise ValidationError(
-            "config: analysis_profile=legacy does not support organelle_mode "
-            f"{organelle_mode!r}; use keep."
-        )
 
     control_default = "pooled" if profile == "legacy" else "matched"
     control_mode = _choice(
@@ -316,10 +266,6 @@ def validate_execution_support(
         "analysis",
     ):
         raise error_cls("config: blacklist_mode is invalid")
-    if validated_config.get("blacklist_mode") == "analysis" and profile != "updated":
-        raise error_cls(
-            "config: blacklist_mode=analysis requires analysis_profile=updated."
-        )
     if validated_config.get("duplicate_analysis") not in ("auto", "exclude", "retain"):
         raise error_cls("config: duplicate_analysis is invalid")
     if validated_config.get("fragment_cpm") not in ("off", "auto", "on"):
@@ -330,8 +276,6 @@ def validate_execution_support(
     if profile == "legacy":
         if validated_config.get("fragment_cpm") != "off":
             raise error_cls("config: legacy profile requires fragment_cpm=off.")
-        if validated_config.get("organelle_mode") != "keep":
-            raise error_cls("config: legacy profile requires organelle_mode=keep.")
         if validated_config.get("duplicate_backend"):
             raise error_cls(
                 "config: legacy profile preserves the original duplicate dispatch; "
@@ -459,20 +403,17 @@ def validate_config(config: dict) -> dict:
     else:
         raise ValidationError(f"config multiqc must be true or false, got {mqc_raw!r}")
 
-    # genome_resources — optional, validate if present
-    validated["genome_resources"] = _validate_genome_resources(
-        config.get("genome_resources", {})
-    )
-
     # qc — optional QC switches (standard defaults true; heavier modules false)
     qc_raw = config.get("qc", {})
     qc_raw = dict(qc_raw) if isinstance(qc_raw, dict) else qc_raw
-    validated["blacklist_mode"] = _validate_blacklist_mode(
-        config,
-        qc_raw,
-        validated["analysis_profile"],
-    )
+    validated["blacklist_mode"] = _validate_blacklist_mode(config, qc_raw)
     validated["qc"] = _validate_qc_config(qc_raw)
+
+    # genome_resources — optional, validate if present
+    validated["genome_resources"] = _validate_genome_resources(
+        config.get("genome_resources", {}),
+        blacklist_mode=validated["blacklist_mode"],
+    )
 
     # A2/E1/E2 keys are normalized in A1 but do not activate behavior.
     validated.update(_validate_advanced_modes(config, validated["analysis_profile"]))
@@ -660,7 +601,9 @@ def validate_bowtie2_insert_bounds(validated_config: dict, samples: list[dict]):
     )
 
 
-def _validate_genome_resources(resources: dict) -> dict:
+def _validate_genome_resources(
+    resources: dict, blacklist_mode: str = "analysis"
+) -> dict:
     """Validate genome_resources config block.
 
     Returns the resources dict unchanged if valid.
@@ -669,6 +612,7 @@ def _validate_genome_resources(resources: dict) -> dict:
     return genome_validation.validate_genome_resources(
         resources,
         error_cls=ValidationError,
+        blacklist_mode=blacklist_mode,
     )
 
 

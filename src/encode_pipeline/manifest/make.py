@@ -13,7 +13,7 @@ import os
 
 import yaml
 
-from encode_pipeline.config.validate import validate_config
+from encode_pipeline.config.validate import resolve_blacklist_mode, validate_config
 from encode_pipeline.qc.histone import classify_histone_target
 from encode_pipeline.samples.load import load_and_validate_samples
 
@@ -514,7 +514,12 @@ def _build_sample_rows(
 
 
 def _build_experiment_rows(
-    samples, outdir, signal_tracks, genomic_resources, replicate_analysis
+    samples,
+    outdir,
+    signal_tracks,
+    genomic_resources,
+    replicate_analysis,
+    blacklist_mode="analysis",
 ):
     """Per-experiment rows using validated sample dicts.
 
@@ -583,6 +588,12 @@ def _build_experiment_rows(
 
             # Peak-centric pooled outputs — gated on non-MNase
             if not is_mn:
+                peak_suffix = (
+                    "broadPeak" if first.get("peak_mode") == "broad" else "narrowPeak"
+                )
+                has_bl = bool(genomic_resources.get(genome, {}).get("blacklist"))
+                is_filtered = blacklist_mode == "analysis" and has_bl
+
                 _add_row(
                     rows,
                     "",
@@ -601,6 +612,26 @@ def _build_experiment_rows(
                         f"{exp}_pooled_peaks",
                     ),
                 )
+                if is_filtered:
+                    _add_row(
+                        rows,
+                        "",
+                        exp,
+                        assay,
+                        target,
+                        genome,
+                        "pooled_filtered_peak",
+                        "bedtools intersect",
+                        _resolve_path(
+                            outdir,
+                            "experiments",
+                            exp,
+                            "04_peaks",
+                            "pooled",
+                            f"{exp}_pooled_peaks_blacklist_filtered",
+                            f"{exp}_pooled_peaks.blacklist_filtered.{peak_suffix}",
+                        ),
+                    )
                 _add_row(
                     rows,
                     "",
@@ -1497,6 +1528,39 @@ def _build_project_rows(outdir, multiqc_enabled, has_peak_samples):
     return rows
 
 
+def resolve_manifest_namespaces(config):
+    """Return (raw_outdir, analysis_outdir, blacklist_mode).
+
+    ``analysis_outdir`` is an internal namespace derived from the resolved
+    blacklist mode, not a user-supplied requirement. Callers that already have
+    a validated run record may pass it explicitly.
+    """
+    outdir = str(config.get("outdir", "results"))
+    blacklist_mode = resolve_blacklist_mode(config)
+    analysis_outdir = config.get("analysis_outdir")
+    if not analysis_outdir:
+        analysis_outdir = (
+            os.path.join(outdir, "analysis_filtered")
+            if blacklist_mode == "analysis"
+            else outdir
+        )
+    return outdir, str(analysis_outdir), blacklist_mode
+
+
+def _manifest_bool(value, default, name):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "yes", "1"):
+            return True
+        if text in ("false", "no", "0"):
+            return False
+    raise ValueError(f"{name} must be true or false, got {value!r}")
+
+
 def build_manifest_rows(config, samples_path=None):
     """Build manifest row dicts from a validated config dict.
 
@@ -1507,21 +1571,35 @@ def build_manifest_rows(config, samples_path=None):
     Returns:
         tuple (rows, missing_count, not_applicable_count)
     """
-    outdir = config.get("outdir", "results")
-    analysis_outdir = config.get("analysis_outdir") or outdir
+    outdir, analysis_outdir, blacklist_mode = resolve_manifest_namespaces(config)
     qc = config.get("qc", {})
-    signal_tracks = qc.get("signal_tracks", True)
-    replicate_analysis = config.get("replicate_analysis", True)
-    chipseq_idr = config.get("chipseq_idr", False)
-    multiqc_enabled = config.get("multiqc", True)
-    genomic_resources = config.get("genome_resources", {})
+    if not isinstance(qc, dict):
+        raise ValueError("qc must be a mapping")
+    signal_tracks = _manifest_bool(qc.get("signal_tracks"), True, "qc.signal_tracks")
+    replicate_analysis = _manifest_bool(
+        config.get("replicate_analysis"), True, "replicate_analysis"
+    )
+    chipseq_idr = _manifest_bool(config.get("chipseq_idr"), False, "chipseq_idr")
+    multiqc_enabled = _manifest_bool(config.get("multiqc"), True, "multiqc")
+    if "genome_resources" in config:
+        genomic_resources = config["genome_resources"]
+    else:
+        genomic_resources = {}
+    if not isinstance(genomic_resources, dict):
+        raise ValueError("genome_resources must be a mapping")
+    for genome, entry in genomic_resources.items():
+        if not isinstance(entry, dict):
+            raise ValueError(f"genome_resources[{genome!r}] must be a mapping")
     fragment_cpm = config.get("fragment_cpm", "off")
-    tss_fragment_profile = bool(config.get("tss_fragment_profile", False))
+    tss_fragment_profile = _manifest_bool(
+        config.get("tss_fragment_profile"), False, "tss_fragment_profile"
+    )
 
     samples_path = samples_path or config.get("samples", "config/samples.tsv")
+    use_control = _manifest_bool(config.get("use_control"), False, "use_control")
     samples = load_and_validate_samples(
         samples_path,
-        use_control=config.get("use_control", False),
+        use_control=use_control,
         chipseq_idr_enabled=chipseq_idr,
     )
     treatment_samples = [s for s in samples if s.get("role") == "treatment"]
@@ -1546,6 +1624,7 @@ def build_manifest_rows(config, samples_path=None):
             signal_tracks,
             genomic_resources,
             replicate_analysis,
+            blacklist_mode=blacklist_mode,
         )
     )
     rows.extend(_build_idr_rows(treatment_samples, analysis_outdir, chipseq_idr))

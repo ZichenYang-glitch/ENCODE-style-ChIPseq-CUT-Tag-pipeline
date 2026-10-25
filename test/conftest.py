@@ -21,6 +21,11 @@ _require_checkout = runpy.run_path(
 )["require_checkout"]
 _require_checkout(_REPOSITORY_ROOT)
 
+if str(_REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT))
+if str(_REPOSITORY_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT / "scripts"))
+
 import pytest  # noqa: E402
 
 
@@ -436,6 +441,8 @@ def tmp_config(tmp_path):
         resolved = dict(config)
         if "samples" not in resolved:
             resolved["samples"] = str(samples_path)
+        if "blacklist_mode" not in resolved and "genome_resources" not in resolved:
+            resolved["blacklist_mode"] = "off"
 
         with open(config_path, "w", encoding="utf-8") as fh:
             _write_yaml(fh, resolved)

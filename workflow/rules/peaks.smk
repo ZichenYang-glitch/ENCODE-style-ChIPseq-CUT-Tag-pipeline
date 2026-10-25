@@ -84,14 +84,6 @@ def _pooled_macs3_args(experiment):
     return get_macs3_args(_Wildcards)
 
 
-def _pooled_peak_suffix(experiment):
-    """Return 'narrowPeak' or 'broadPeak' for the experiment."""
-    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
-    if not treatment_ids:
-        return "narrowPeak"
-    return "broadPeak" if SAMPLE_MAP[treatment_ids[0]]["peak_mode"] == "broad" else "narrowPeak"
-
-
 def _pooled_peaks_inputs(wildcards):
     """Return inputs for macs3_pooled_peaks.
 

@@ -26,7 +26,7 @@ BEFORE_COMMANDS = json.loads(
 
 def _inputs(tmp_path, options):
     return WorkflowInputs(
-        config={"threads": 8, "use_control": False},
+        config={"threads": 8, "use_control": False, "blacklist_mode": "off"},
         samples=[
             {
                 "sample": "S1",

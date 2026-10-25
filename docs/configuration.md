@@ -75,8 +75,10 @@ genome_resources:
   BigWig conversion. When non-empty and `qc.signal_tracks: true`, FE/ppois
   bedGraph tracks are also converted to BigWig format. When empty, only
   bedGraph signal tracks are produced. See the BigWig section below.
-- **`blacklist`**: BED file of problematic regions. Used when
-  `qc.blacklist_filter: true`.
+- **`blacklist`**: BED file of problematic regions. Required when
+  `blacklist_mode: analysis` (default) or `blacklist_mode: copies` (or
+  `qc.blacklist_filter: true`). When `blacklist_mode: off`, this path is
+  optional and unused.
 - **`gtf`**: Annotation file required when `qc.tss_enrichment: true`; used to
   derive transcription start sites for deepTools TSS profile QC.
 - **`reference_fasta`**: Required when `qc.picard_metrics: true`; must have a
@@ -124,7 +126,6 @@ MultiQC runs in `workflow/envs/multiqc.yml` when Snakemake is invoked with
 
 ```yaml
 qc:
-  blacklist_filter: true
   frip: true
   library_complexity: true
   nrf_pbc: true
@@ -139,8 +140,8 @@ qc:
 
 | Switch | Default | Effect |
 | :--- | :--- | :--- |
-| `blacklist_filter` | `true` | Create additional blacklist-filtered BAM and peak copies for eligible treatment samples with a configured blacklist BED. Raw outputs remain available; consumers are described below. |
-| `frip` | `true` | Compute read-record FRiP for peak-assay treatment samples, using both filtered copies when blacklist QC applies. |
+| `blacklist_filter` | not set | Legacy alias for `blacklist_mode`; prefer the canonical top-level key. When `blacklist_mode` is omitted, `true` maps to `copies` and `false` maps to `off`. The alias is not injected by the default config or authoring form. If specified alongside `blacklist_mode`, conflicting settings (such as `blacklist_mode: analysis` with `qc.blacklist_filter: true`) raise a validation error. |
+| `frip` | `true` | Compute read-record FRiP for peak-assay treatment samples using the canonical analysis BAM. |
 | `library_complexity` | `true` | Parse duplicate metrics. Picard fields are reported when Picard is available; otherwise fallback fields are emitted as `NA`. |
 | `nrf_pbc` | `true` | Compute NRF and PBC1/PBC2 from the MAPQ-filtered, duplicate-containing BAM (`{sample}.mapq{mapq}.bam`), before duplicate handling. |
 | `signal_tracks` | `true` | Produce MACS3 FE (fold-enrichment) and ppois (Poisson p-value) bedGraph tracks for eligible peak-assay treatment samples and pooled replicate experiments. FE/ppois BigWig conversion is available when `genome_resources.<genome>.chrom_sizes` is also configured. |
@@ -161,43 +162,63 @@ switches are false. Explicitly requesting a rule output is distinct from default
 target selection.
 
 Blacklist handling is not a global replacement of BAMs, peaks or signal tracks.
-In [`qc.smk`](../workflow/rules/qc.smk), `_has_blacklist_qc` requires both the
+In [`qc.smk`](../workflow/rules/qc.smk), when `blacklist_mode: copies` is selected, `_has_blacklist_qc` requires both the
 switch and a sample in `BLACKLIST_SAMPLES` (treatment samples with a nonempty
-blacklist genome resource). `_frip_inputs` then requests the filtered BAM **and**
-filtered peaks; otherwise it requests `final.bam` and the original peak directory.
-This is configuration-based DAG selection: missing selected outputs must be
-produced, not silently replaced with raw inputs. `_peak_counts_inputs` requests
-raw peaks and optional filtered peaks, never the filtered BAM.
+blacklist genome resource) to produce side-car filtered BAM copies (`<sample>.blacklist_filtered.bam`) and filtered peak directories.
+In `blacklist_mode: analysis`, filtering is applied directly during canonical analysis BAM and final peak preparation, which downstream consumers uniformly consume.
+`_peak_counts_inputs` requests raw peaks and optional filtered peaks, never the filtered BAM.
 
-### Analysis-filtered blacklist branch
+### Effective blacklist mode decision table
 
-`analysis_profile: updated` also supports a whole-analysis blacklist branch:
+The workflow, manifest CLI, and artifact extractor use one resolver. The
+default template and authoring form emit only the canonical key; the legacy
+alias is accepted when a user explicitly supplies it.
+
+| Input | Effective mode | Output namespace | Resource requirement | Main analysis / copies |
+| :--- | :--- | :--- | :--- | :--- |
+| no canonical, no alias | `analysis` | `<outdir>/analysis_filtered` | non-empty blacklist for every active genome | analysis chain filtered; no sidecar copies |
+| `blacklist_mode: analysis` | `analysis` | `<outdir>/analysis_filtered` | required | analysis chain filtered; no sidecar copies |
+| `blacklist_mode: copies` | `copies` | `<outdir>` | required | main analysis not blacklist-filtered; sidecar BAM/peak copies |
+| `blacklist_mode: off` | `off` | `<outdir>` | unused | no blacklist filtering |
+| no canonical, alias `true` | `copies` | `<outdir>` | required | as `copies` |
+| no canonical, alias `false` | `off` | `<outdir>` | unused | as `off` |
+| `analysis` + alias `false` | `analysis` | `<outdir>/analysis_filtered` | required | canonical key wins |
+| `analysis` + alias `true`, `copies` + alias `false`, `off` + alias `true` | invalid | — | — | reject with a configuration error |
+
+`analysis_outdir` is an internal derived namespace, not a user-required key.
+`use_control: false` excludes control rows from active policy/identity
+resolution; controls referenced by multiple treatments are resolved by their
+effective organelle mode, not by assay name alone.
+
+### Canonical analysis BAM and blacklist filtering
+
+Both `legacy` and `updated` profiles use a canonical analysis BAM (`<sample>.analysis.bam`)
+as the uniform input for downstream consumers (peak calling, signal tracks, FRiP, TSS,
+SEACR, IDR, consensus).
 
 ```yaml
-analysis_profile: updated
-blacklist_mode: analysis
+blacklist_mode: analysis   # "analysis" (default), "copies", or "off"
+organelle_mode: auto       # "auto" (default), "exclude", "keep", or "report"
 genome_resources:
   hg38:
     effective_genome_size: "hs"
-    blacklist: "/refs/hg38/hg38.blacklist.bed"
+    blacklist: "config/blacklist/hg38-blacklist.v2.bed"
 ```
 
-`blacklist_mode: analysis` requires a non-empty blacklist for every active
-sample genome and is rejected under `analysis_profile: legacy`. Raw
-preprocessing outputs stay under `results/<sample>/`; analysis outputs move to
-`results/analysis_filtered/<sample>/` and
-`results/analysis_filtered/experiments/<experiment>/`. The analysis BAM is
-derived after duplicate/organelle filtering. PE templates are removed when the
-fragment span (`min(POS, PNEXT)` through `min + abs(TLEN) - 1`) overlaps the
-blacklist; SE reads use their alignment span. Non-proper/orphan PE records fail
-closed. Per-template drop counts are written to
-`05_qc/<sample>.blacklist_dropped.tsv`.
-
-In this branch, MACS3, BigWig, FRiP, SEACR, cross-correlation, TSS, MNase, IDR
-and consensus consume the filtered analysis BAM/namespace. Per-sample peaks are
-also written as `04_peaks/<sample>_blacklist_filtered/`, and final IDR/consensus
-peak sets are filtered before promotion. The raw `final.bam` and raw QC remain
-available under `results/`.
+- When `blacklist_mode: analysis` (the default for both profiles):
+  A valid, non-empty blacklist BED matching the reference assembly is required for each active sample genome.
+  The analysis BAM is prepared by enforcing proper PE template closure, applying the duplicate and organelle
+  policy, and filtering out templates overlapping blacklist intervals. Downstream analyses (MACS3, SEACR,
+  BigWig, FRiP, cross-correlation, TSS, MNase, IDR, consensus) consume `<sample>.analysis.bam`.
+  Single-sample and pooled peaks undergo peak-level blacklist filtering before final QC and promotion.
+  Per-template blacklist drops are tracked in `05_qc/<sample>.blacklist_dropped.tsv`, and stage metrics
+  are recorded in `<sample>.blacklist_dropped.stage_metrics.json`.
+- When `blacklist_mode: copies`:
+  The canonical analysis BAM is prepared with duplicate/organelle/template filtering but without blacklist filtering.
+  Additional copies of blacklist-filtered BAMs and peaks (`<sample>.blacklist_filtered.bam`, `*_blacklist_filtered/`)
+  are produced alongside canonical outputs for side-by-side QC evaluation.
+- When `blacklist_mode: off`:
+  Blacklist filtering is disabled; unconfigured or unused blacklist resources are not required or validated.
 
 `final.bam` may retain duplicates according to the duplicate policy.
 Default CPM coverage uses that final BAM in

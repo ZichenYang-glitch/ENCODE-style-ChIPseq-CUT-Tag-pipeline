@@ -98,6 +98,7 @@ PE-only; SE does not declare them. `qc.picard_metrics` also requires
 | `biorep_final_bam` | samtools merge / symlink | (replicates.smk) | `results/experiments/<exp>/02_align/biorep<N>.final.bam` | stable |
 | `biorep_final_bai` | samtools index | (replicates.smk) | `results/experiments/<exp>/02_align/biorep<N>.final.bam.bai` | stable |
 | `pooled_macs3_peak` | macs3 callpeak | (replicates.smk) | `results/experiments/<exp>/04_peaks/pooled/<exp>_pooled_peaks/` | stable |
+| `pooled_filtered_peak` | bedtools intersect | blacklist_filter_pooled_peaks | `results/analysis_filtered/experiments/<exp>/04_peaks/pooled/<exp>_pooled_peaks_blacklist_filtered/<exp>_pooled_peaks.blacklist_filtered.<suffix>` | implemented |
 | `pooled_fe_bdg` | macs3 bdgcmp FE | pooled_signal_track_fe | `results/experiments/<exp>/03_signal/<exp>.pooled.FE.bdg` | stable |
 | `pooled_ppois_bdg` | macs3 bdgcmp ppois | pooled_signal_track_ppois | `results/experiments/<exp>/03_signal/<exp>.pooled.ppois.bdg` | stable |
 | `pooled_fe_bw` | bedGraphToBigWig | pooled_signal_track_fe_bw | `results/experiments/<exp>/03_signal/<exp>.pooled.FE.bw` | implemented |
@@ -171,6 +172,18 @@ PE-only; SE does not declare them. `qc.picard_metrics` also requires
 | `result_manifest` | make_manifest.py | result_manifest | `results/multiqc/result_manifest.tsv` | implemented |
 | `cross_correlation_summary` | cross_correlation_summary.py | (report.smk) | `results/multiqc/cross_correlation_summary.tsv` | stable |
 | `tss_bed` | gtf_to_tss_bed.py | tss_bed_from_gtf | `results/reference/<genome>.tss.bed` | stable |
+
+## Analysis Namespace Boundary
+
+With `blacklist_mode: analysis`, sample and pooled outputs are written under
+`results/analysis_filtered/...`; with `copies` or `off`, they remain under
+`results/...`. The table above lists the base/raw templates for most output
+types; the analysis-filtered variants are registered only for a subset in the
+v1 catalog (`analysis_filtered_bam`, `analysis_filtered_blacklist_dropped`,
+`analysis_filtered_cpm_bigwig`, `pooled_filtered_peak`). The manifest resolves
+the correct namespace at generation time. Complete mode-dependent catalog
+registration and the versioned raw/delivered QC column contract are deferred
+to SCI-5; the v1 table is not a complete index of both namespaces.
 
 ## Manifest Field Schema
 

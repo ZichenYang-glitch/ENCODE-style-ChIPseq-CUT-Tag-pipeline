@@ -11,8 +11,11 @@ scientific behavior.
 # Bump when a shipped scientific policy change requires output isolation
 # from runs produced by earlier behavior. 1 = SCI-1 run-identity mechanism;
 # 2 = SCI-2 assay-based duplicate policy + MACS3 --keep-dup all;
-# 3 = SCI-3 assay-resolved Bowtie2 PE max_insert (-X).
-SCIENTIFIC_POLICY_REVISION = 3
+# 3 = SCI-3 assay-resolved Bowtie2 PE max_insert (-X);
+# 4 = SCI-4 canonical analysis BAM across both profiles, complete PE template
+# closure, assay organelle default & verification, blacklist default analysis
+# filtering & resource checks.
+SCIENTIFIC_POLICY_REVISION = 4
 
 # Schema version of the .helixweave/analysis_identity.json marker.
 # Version 1 markers were the unversioned {"identity", "analysis_profile"}

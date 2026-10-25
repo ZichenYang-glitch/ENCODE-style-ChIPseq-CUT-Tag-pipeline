@@ -56,6 +56,7 @@ def _base_config():
         "multiqc": True,
         "replicate_analysis": True,
         "chipseq_idr": False,
+        "blacklist_mode": "off",
         "qc": {"signal_tracks": True, "summary": True},
         "genome_resources": {
             "hs": {"effective_genome_size": "hs", "chrom_sizes": ""},
@@ -678,6 +679,233 @@ def test_techrep_biorep_gating(manifest_case):
     assert "biorep1_final_bam" in types
     assert "pooled_final_bam" not in types
     assert "pooled_macs3_peak" not in types
+
+
+def test_pooled_filtered_peaks_row(manifest_case, tmp_path):
+    bl = tmp_path / "blacklist.bed"
+    bl.write_text("chr1\t100\t200\n", encoding="utf-8")
+    columns = [
+        "sample",
+        "fastq_1",
+        "fastq_2",
+        "layout",
+        "assay",
+        "target",
+        "peak_mode",
+        "genome",
+        "bowtie2_index",
+        "experiment",
+        "biological_replicate",
+        "technical_replicate",
+    ]
+    sample_rows = [
+        [
+            "S1",
+            "R1.fq",
+            "R2.fq",
+            "PE",
+            "chipseq",
+            "CTCF",
+            "narrow",
+            "hs",
+            "/opt/idx/ref",
+            "EXP1",
+            "1",
+            "1",
+        ],
+        [
+            "S2",
+            "R1.fq",
+            "R2.fq",
+            "PE",
+            "chipseq",
+            "CTCF",
+            "narrow",
+            "hs",
+            "/opt/idx/ref",
+            "EXP1",
+            "2",
+            "1",
+        ],
+    ]
+    _, config_path, _, out = manifest_case(
+        sample_rows=sample_rows,
+        columns=columns,
+        config_updates={
+            "replicate_analysis": True,
+            "blacklist_mode": "analysis",
+            "genome_resources": {
+                "hs": {
+                    "effective_genome_size": "hs",
+                    "blacklist": str(bl),
+                }
+            },
+        },
+    )
+    result, rows = _run_manifest(config_path, out)
+    assert result.returncode == 0, result.stderr[-200:]
+    by_type = {r["output_type"]: r for r in rows}
+    assert "pooled_macs3_peak" in by_type
+    assert "pooled_filtered_peak" in by_type
+    assert (
+        "EXP1_pooled_peaks_blacklist_filtered/EXP1_pooled_peaks.blacklist_filtered.narrowPeak"
+        in by_type["pooled_filtered_peak"]["path"]
+    )
+
+
+def test_pooled_rows_follow_analysis_and_raw_namespaces(tmp_config, tmp_path):
+    from encode_pipeline.manifest.make import build_manifest_rows
+
+    columns = [
+        "sample",
+        "fastq_1",
+        "fastq_2",
+        "layout",
+        "assay",
+        "target",
+        "peak_mode",
+        "genome",
+        "bowtie2_index",
+        "experiment",
+        "biological_replicate",
+        "technical_replicate",
+    ]
+    sample_rows = [
+        [
+            "S1",
+            "R1.fq",
+            "R2.fq",
+            "PE",
+            "chipseq",
+            "CTCF",
+            "narrow",
+            "hs",
+            "/opt/idx/ref",
+            "EXP1",
+            "1",
+            "1",
+        ],
+        [
+            "S2",
+            "R3.fq",
+            "R4.fq",
+            "PE",
+            "chipseq",
+            "CTCF",
+            "narrow",
+            "hs",
+            "/opt/idx/ref",
+            "EXP1",
+            "2",
+            "1",
+        ],
+    ]
+    _, _, samples_path = tmp_config(
+        config={},
+        samples=_make_samples(sample_rows=sample_rows, columns=columns),
+    )
+    blacklist = tmp_path / "blacklist.bed"
+    blacklist.write_text("chr1\t100\t200\n", encoding="utf-8")
+
+    cfg = _base_config()
+    cfg.update(
+        {
+            "samples": samples_path,
+            "replicate_analysis": True,
+            "blacklist_mode": "analysis",
+            "genome_resources": {
+                "hs": {
+                    "effective_genome_size": "hs",
+                    "chrom_sizes": "",
+                    "blacklist": str(blacklist),
+                }
+            },
+        }
+    )
+
+    raw_root = tmp_path / "results"
+    analysis_root = raw_root / "analysis_filtered"
+    caller_dir = (
+        analysis_root
+        / "experiments"
+        / "EXP1"
+        / "04_peaks"
+        / "pooled"
+        / "EXP1_pooled_peaks"
+    )
+    caller_dir.mkdir(parents=True)
+    (caller_dir / "EXP1_pooled_peaks.narrowPeak").write_text(
+        "chr1\t1000\t1447\tpeak_1\t878\t.\t23.8\t90.9\t87.8\t93\n",
+        encoding="utf-8",
+    )
+    filtered = (
+        analysis_root
+        / "experiments"
+        / "EXP1"
+        / "04_peaks"
+        / "pooled"
+        / "EXP1_pooled_peaks_blacklist_filtered"
+        / "EXP1_pooled_peaks.blacklist_filtered.narrowPeak"
+    )
+    filtered.parent.mkdir(parents=True)
+    filtered.write_text("", encoding="utf-8")
+    analysis_summary = (
+        analysis_root / "experiments" / "EXP1" / "01_qc" / "EXP1.pooled_qc_summary.tsv"
+    )
+    analysis_summary.parent.mkdir(parents=True)
+    analysis_summary.write_text("x\n", encoding="utf-8")
+
+    cfg.update(
+        {
+            "outdir": str(raw_root),
+            "analysis_outdir": str(analysis_root),
+        }
+    )
+    rows, _, _ = build_manifest_rows(cfg)
+    by_type = {row["output_type"]: row for row in rows}
+    assert by_type["pooled_macs3_peak"]["path"] == str(caller_dir)
+    assert by_type["pooled_macs3_peak"]["status"] == "present"
+    assert by_type["pooled_filtered_peak"]["path"] == str(filtered)
+    assert by_type["pooled_filtered_peak"]["status"] == "present"
+    assert by_type["pooled_qc_summary"]["path"] == str(analysis_summary)
+    assert by_type["pooled_qc_summary"]["status"] == "present"
+
+    for mode in ("off", "copies"):
+        raw_root = tmp_path / f"results-{mode}"
+        caller_dir = (
+            raw_root
+            / "experiments"
+            / "EXP1"
+            / "04_peaks"
+            / "pooled"
+            / "EXP1_pooled_peaks"
+        )
+        caller_dir.mkdir(parents=True)
+        (caller_dir / "EXP1_pooled_peaks.narrowPeak").write_text(
+            "chr1\t1000\t1447\tpeak_1\t878\t.\t23.8\t90.9\t87.8\t93\n",
+            encoding="utf-8",
+        )
+        summary = (
+            raw_root / "experiments" / "EXP1" / "01_qc" / "EXP1.pooled_qc_summary.tsv"
+        )
+        summary.parent.mkdir(parents=True)
+        summary.write_text("x\n", encoding="utf-8")
+
+        mode_cfg = dict(cfg)
+        mode_cfg.update(
+            {
+                "outdir": str(raw_root),
+                "analysis_outdir": str(raw_root),
+                "blacklist_mode": mode,
+            }
+        )
+        mode_rows, _, _ = build_manifest_rows(mode_cfg)
+        mode_by_type = {row["output_type"]: row for row in mode_rows}
+        assert mode_by_type["pooled_macs3_peak"]["path"] == str(caller_dir)
+        assert mode_by_type["pooled_macs3_peak"]["status"] == "present"
+        assert "pooled_filtered_peak" not in mode_by_type
+        assert mode_by_type["pooled_qc_summary"]["path"] == str(summary)
+        assert mode_by_type["pooled_qc_summary"]["status"] == "present"
 
 
 def test_idr_with_tech_reps(manifest_case):
@@ -1336,3 +1564,111 @@ def test_manifest_dependency_targets_include_downstream(manifest_case, run_snake
     result = run_snakemake(config_path, quiet=False)
     assert result.returncode == 0, f"Dry-run failed:\n{result.stderr}"
     assert "result_manifest" in (result.stdout + result.stderr)
+
+
+def test_cli_manifest_derives_analysis_namespace(tmp_config, tmp_path):
+    columns = [
+        "sample",
+        "fastq_1",
+        "fastq_2",
+        "layout",
+        "assay",
+        "target",
+        "peak_mode",
+        "genome",
+        "bowtie2_index",
+        "experiment",
+        "biological_replicate",
+        "technical_replicate",
+    ]
+    sample_rows = [
+        [
+            "S1",
+            "R1.fq",
+            "R2.fq",
+            "PE",
+            "chipseq",
+            "CTCF",
+            "narrow",
+            "hs",
+            "/opt/idx/ref",
+            "EXP1",
+            "1",
+            "1",
+        ],
+        [
+            "S2",
+            "R3.fq",
+            "R4.fq",
+            "PE",
+            "chipseq",
+            "CTCF",
+            "narrow",
+            "hs",
+            "/opt/idx/ref",
+            "EXP1",
+            "2",
+            "1",
+        ],
+    ]
+    blacklist = tmp_path / "blacklist.bed"
+    blacklist.write_text("chr1\t100\t200\n", encoding="utf-8")
+    raw_root = tmp_path / "results"
+    analysis_root = raw_root / "analysis_filtered"
+    caller = (
+        analysis_root
+        / "experiments"
+        / "EXP1"
+        / "04_peaks"
+        / "pooled"
+        / "EXP1_pooled_peaks"
+    )
+    caller.mkdir(parents=True)
+    (caller / "EXP1_pooled_peaks.narrowPeak").write_text(
+        "chr1\t1000\t1447\tpeak_1\t1\t.\t1\t1\t1\t10\n", encoding="utf-8"
+    )
+    filtered = (
+        analysis_root
+        / "experiments"
+        / "EXP1"
+        / "04_peaks"
+        / "pooled"
+        / "EXP1_pooled_peaks_blacklist_filtered"
+        / "EXP1_pooled_peaks.blacklist_filtered.narrowPeak"
+    )
+    filtered.parent.mkdir(parents=True)
+    filtered.write_text("", encoding="utf-8")
+    summary = (
+        analysis_root / "experiments" / "EXP1" / "01_qc" / "EXP1.pooled_qc_summary.tsv"
+    )
+    summary.parent.mkdir(parents=True)
+    summary.write_text("x\n", encoding="utf-8")
+
+    cfg = _base_config()
+    cfg.update(
+        {
+            "outdir": str(raw_root),
+            "replicate_analysis": True,
+            "blacklist_mode": "analysis",
+            "genome_resources": {
+                "hs": {
+                    "effective_genome_size": "hs",
+                    "chrom_sizes": "",
+                    "blacklist": str(blacklist),
+                }
+            },
+        }
+    )
+    _, config_path, _ = tmp_config(
+        config=cfg,
+        samples=_make_samples(sample_rows=sample_rows, columns=columns),
+    )
+    result, rows = _run_manifest(config_path, str(tmp_path / "manifest.tsv"))
+    assert result.returncode == 0, result.stderr[-200:]
+    by_type = {row["output_type"]: row for row in rows}
+    assert by_type["pooled_macs3_peak"]["path"] == str(caller)
+    assert by_type["pooled_macs3_peak"]["status"] == "present"
+    assert by_type["pooled_filtered_peak"]["path"] == str(filtered)
+    assert by_type["pooled_filtered_peak"]["status"] == "present"
+    assert by_type["pooled_qc_summary"]["path"] == str(summary)
+    assert by_type["pooled_qc_summary"]["status"] == "present"

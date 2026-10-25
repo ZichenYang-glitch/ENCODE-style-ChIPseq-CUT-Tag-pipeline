@@ -169,7 +169,11 @@ dependencies in the DAG; it is not a fallback based on whether a file already
 exists. Raw and filtered products coexist. `final.bam` is duplicate-processed
 according to the configured strategy, not necessarily deduplicated.
 `peak_counts` counts raw and, conditionally, filtered peak files; it does not
-consume a filtered BAM.
+consume a filtered BAM. In `blacklist_mode: analysis`, the `peaks` column is
+the delivered (filtered) count and `blacklist_filtered_peaks` carries the same
+delivered count; the raw MACS3 peak file remains available in the raw peak
+directory. A versioned raw/delivered column split is deferred to the SCI-5 QC
+contract rather than silently changing this v1 header.
 
 Unshifted counting can increase or decrease FRiP relative to shifted reads,
 depending on peak boundaries. Comparisons with another pipeline must match

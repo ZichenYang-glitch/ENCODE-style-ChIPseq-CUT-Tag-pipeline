@@ -299,6 +299,7 @@ def test_semantic_switches_validate_without_compatibility_warnings(tmp_path):
             config={
                 "replicate_analysis": {"enabled": False},
                 "chipseq_idr": {"enabled": False},
+                "blacklist_mode": "off",
             },
             samples=[_inline_row(tmp_path)],
         )
@@ -334,6 +335,7 @@ def test_chipseq_idr_remains_orthogonal_to_advanced_reproducibility_policy(
                         "enabled": True,
                         "idr": {"chipseq_narrow": False},
                     },
+                    "blacklist_mode": "off",
                 },
                 samples=rows,
             )
@@ -453,7 +455,11 @@ def test_importing_encode_adapter_does_not_import_heavy_workflow_modules():
 def test_valid_config_plus_tsv_path_returns_successful_result(tmp_path):
     samples_path = _write_samples(tmp_path / "samples.tsv")
     inputs = WorkflowInputs(
-        config={"samples": str(samples_path), "use_control": False},
+        config={
+            "samples": str(samples_path),
+            "use_control": False,
+            "blacklist_mode": "off",
+        },
     )
 
     result = _adapter().validate(inputs)
@@ -469,7 +475,11 @@ def test_valid_config_plus_tsv_path_returns_successful_result(tmp_path):
 def test_workflow_inputs_samples_path_can_override_config_samples(tmp_path):
     samples_path = _write_samples(tmp_path / "samples.tsv")
     inputs = WorkflowInputs(
-        config={"samples": str(tmp_path / "missing.tsv"), "use_control": False},
+        config={
+            "samples": str(tmp_path / "missing.tsv"),
+            "use_control": False,
+            "blacklist_mode": "off",
+        },
         samples=samples_path,
     )
 
@@ -482,7 +492,12 @@ def test_workflow_inputs_samples_path_can_override_config_samples(tmp_path):
 def test_adapter_validate_output_consumable_by_platform(tmp_path):
     samples_path = _write_samples(tmp_path / "samples.tsv")
     result = _adapter().validate(
-        WorkflowInputs(config={"samples": str(samples_path)}),
+        WorkflowInputs(
+            config={
+                "samples": str(samples_path),
+                "blacklist_mode": "off",
+            }
+        ),
     )
 
     serialized = result.to_dict(
@@ -592,7 +607,7 @@ def test_unsupported_options_return_options_issue(tmp_path):
 def test_inline_sample_rows_validate_without_config_samples(tmp_path):
     result = _adapter().validate(
         WorkflowInputs(
-            config={"use_control": False},
+            config={"use_control": False, "blacklist_mode": "off"},
             samples=[_inline_row(tmp_path)],
         ),
     )
@@ -606,7 +621,11 @@ def test_inline_rows_override_config_samples_without_fallback(tmp_path):
     missing_server_path = (tmp_path / "must-not-be-read.tsv").resolve()
     result = _adapter().validate(
         WorkflowInputs(
-            config={"samples": str(missing_server_path), "use_control": False},
+            config={
+                "samples": str(missing_server_path),
+                "use_control": False,
+                "blacklist_mode": "off",
+            },
             samples=[_inline_row(tmp_path)],
         )
     )
@@ -647,7 +666,9 @@ def test_validate_reuses_external_path_policy_for_inline_rows(tmp_path):
     row = _inline_row(tmp_path)
     row["fastq_1"] = "relative.fastq.gz"
 
-    result = _adapter().validate(WorkflowInputs(config={}, samples=[row]))
+    result = _adapter().validate(
+        WorkflowInputs(config={"blacklist_mode": "off"}, samples=[row])
+    )
 
     issue = _first_issue(result)
     assert result.is_failure
@@ -678,7 +699,10 @@ def test_inline_temp_directories_are_unique_and_cleaned_for_concurrent_validatio
 
     def validate(sample: str):
         return adapter.validate(
-            WorkflowInputs(config={}, samples=[_inline_row(tmp_path, sample)])
+            WorkflowInputs(
+                config={"blacklist_mode": "off"},
+                samples=[_inline_row(tmp_path, sample)],
+            )
         )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -727,6 +751,7 @@ def test_adapter_tss_fragment_uses_workflow_eligibility(tmp_path):
         "analysis_profile": "updated",
         "fragment_cpm": "auto",
         "tss_fragment_profile": True,
+        "blacklist_mode": "off",
         "genome_resources": {"hs": {"effective_genome_size": "hs", "gtf": gtf}},
     }
     row = _inline_row(tmp_path)
@@ -879,6 +904,60 @@ def test_extract_artifacts_skips_known_directory_aggregates(tmp_path, monkeypatc
     assert result.value == ()
 
 
+def test_extract_artifacts_extracts_pooled_filtered_peak(tmp_path, monkeypatch):
+    workspace = _artifact_workspace(tmp_path)
+    (workspace / "config/config.yaml").write_text(
+        "samples: config/samples.tsv\nblacklist_mode: analysis\n", encoding="utf-8"
+    )
+    peak_file = (
+        workspace
+        / "results/analysis_filtered/experiments/E1/04_peaks/pooled/E1_pooled_peaks_blacklist_filtered/E1_pooled_peaks.blacklist_filtered.narrowPeak"
+    )
+    peak_file.parent.mkdir(parents=True)
+    peak_file.write_text("chr1\t10\t20\n", encoding="utf-8")
+    rows = [
+        {
+            "output_type": "pooled_filtered_peak",
+            "path": str(peak_file),
+            "status": "present",
+            "experiment_id": "E1",
+            "assay": "chipseq",
+            "genome": "hs",
+        },
+        {
+            "output_type": "pooled_macs3_peak",
+            "path": str(peak_file.parents[1] / "E1_pooled_peaks"),
+            "status": "present",
+            "experiment_id": "E1",
+        },
+    ]
+    monkeypatch.setattr(
+        "encode_pipeline.manifest.make.build_manifest_rows",
+        lambda *_args, **_kwargs: (rows, 0, 0),
+    )
+
+    result = _adapter().extract_artifacts(
+        WorkflowInputs(
+            config={
+                "outdir": "results",
+                "analysis_outdir": "results/analysis_filtered",
+            }
+        ),
+        workspace,
+    )
+
+    assert result.is_success
+    assert len(result.value) == 1
+    candidate = result.value[0]
+    assert candidate.output_type == "pooled_filtered_peak"
+    assert candidate.relative_path == (
+        "results/analysis_filtered/experiments/E1/04_peaks/pooled/E1_pooled_peaks_blacklist_filtered/E1_pooled_peaks.blacklist_filtered.narrowPeak"
+    )
+    assert candidate.mime_type == "text/plain"
+    assert candidate.metadata["catalog_id"] == "pooled_filtered_peak"
+    assert candidate.metadata["analysis_branch"] == "analysis_filtered"
+
+
 def test_extract_artifacts_fails_closed_for_unknown_vocabulary(tmp_path, monkeypatch):
     workspace = _artifact_workspace(tmp_path)
     monkeypatch.setattr(
@@ -962,6 +1041,9 @@ def test_extract_artifacts_uses_analysis_filtered_root(tmp_path):
 
 def test_extract_artifacts_adds_existing_result_manifest(tmp_path, monkeypatch):
     workspace = _artifact_workspace(tmp_path)
+    (workspace / "config/config.yaml").write_text(
+        "samples: config/samples.tsv\nblacklist_mode: off\n", encoding="utf-8"
+    )
     manifest = workspace / "results/multiqc/result_manifest.tsv"
     manifest.parent.mkdir(parents=True)
     manifest.write_text("output_type\tpath\n", encoding="utf-8")
@@ -1002,6 +1084,7 @@ def test_artifact_metadata_uses_effective_bamcoverage_normalization(
         [
             "samples: config/samples.tsv",
             "outdir: results",
+            "blacklist_mode: off",
             "use_control: false",
             "multiqc: false",
             "replicate_analysis: false",
@@ -1037,6 +1120,7 @@ def test_artifact_metadata_does_not_label_fe_ppois_as_read_coverage(tmp_path):
         [
             "samples: config/samples.tsv",
             "outdir: results",
+            "blacklist_mode: off",
             "use_control: false",
             "multiqc: false",
             "replicate_analysis: false",
@@ -1068,7 +1152,11 @@ def test_adapter_surfaces_use_control_false_warning(tmp_path):
     row["control_sample"] = "C1"
     result = _adapter().validate(
         WorkflowInputs(
-            config={"use_control": False, "multiqc": False},
+            config={
+                "use_control": False,
+                "multiqc": False,
+                "blacklist_mode": "off",
+            },
             samples=[row],
         )
     )
@@ -1084,7 +1172,11 @@ def test_adapter_control_warning_is_request_local_under_concurrency(tmp_path):
     control_row = _inline_row(tmp_path, "S1")
     control_row["control_sample"] = "C1"
     plain_row = _inline_row(tmp_path, "S2")
-    config = {"use_control": False, "multiqc": False}
+    config = {
+        "use_control": False,
+        "multiqc": False,
+        "blacklist_mode": "off",
+    }
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         control_result = executor.submit(
@@ -1219,6 +1311,7 @@ def test_artifact_metadata_mnase_dyad_is_not_read_coverage(tmp_path):
         [
             "samples: config/samples.tsv",
             "outdir: results",
+            "blacklist_mode: off",
             "use_control: false",
             "multiqc: false",
             "replicate_analysis: false",
@@ -1274,6 +1367,7 @@ def test_artifact_metadata_pooled_mnase_dyad_is_not_read_coverage(tmp_path):
         [
             "samples: config/samples.tsv",
             "outdir: results",
+            "blacklist_mode: off",
             "use_control: false",
             "multiqc: false",
             "replicate_analysis: true",
@@ -1313,6 +1407,7 @@ def test_adapter_validates_and_plans_bowtie2_max_insert_and_extra_args_migration
         "multiqc": False,
         "replicate_analysis": False,
         "chipseq_idr": False,
+        "blacklist_mode": "off",
         "tool_parameters": {
             "bowtie2": {
                 "extra_args": "-X 900 --very-sensitive",
@@ -1367,3 +1462,38 @@ def test_adapter_rejects_bowtie2_minins_exceeding_resolved_max_insert(tmp_path):
     )
     assert planned.is_failure
     assert planned.errors[0].code == "ENCODE_CONFIG_INVALID"
+
+
+def test_extract_artifacts_default_analysis_without_canonical_key(tmp_path):
+    workspace = _artifact_workspace(tmp_path)
+    _write_samples(
+        workspace / "config/samples.tsv", _samples_text(workspace / "config")
+    )
+    _write_workspace_config(
+        workspace,
+        [
+            "samples: config/samples.tsv",
+            "outdir: results",
+            "use_control: false",
+            "multiqc: false",
+            "replicate_analysis: false",
+            "chipseq_idr: false",
+            "analysis_profile: updated",
+            "qc:",
+            "  signal_tracks: false",
+            "  summary: false",
+            "  frip: false",
+        ],
+    )
+    cpm = workspace / "results/analysis_filtered/S1/03_bigwig/S1.CPM.bw"
+    cpm.parent.mkdir(parents=True)
+    cpm.write_text("x\n", encoding="utf-8")
+
+    result = _adapter().extract_artifacts(WorkflowInputs(config={}), workspace)
+
+    assert result.is_success, result.issues
+    by_type = {item.output_type: item for item in result.value}
+    assert (
+        by_type["cpm_bigwig"].relative_path
+        == "results/analysis_filtered/S1/03_bigwig/S1.CPM.bw"
+    )

@@ -12,7 +12,9 @@ duplicate_handling
 fastqc
 fastqc_stage
 macs3_callpeak
+mito_fraction
 pipeline_done
+prepare_analysis_bam
 samtools_filter
 samtools_flagstat
 samtools_flagstat_final

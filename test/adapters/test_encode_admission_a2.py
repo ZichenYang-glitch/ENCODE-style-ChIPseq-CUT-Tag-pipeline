@@ -14,6 +14,9 @@ from encode_pipeline.cli._validator import main as cli_validator_main
 from encode_pipeline.errors import ValidationError
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.samples.admission import (
+    _get_reference_contigs,
+    _read_fai,
+    _validate_blacklist_bed,
     validate_reference_control_admission,
 )
 
@@ -98,7 +101,11 @@ def _config(chrom_sizes: Path | None = None, use_control: bool = True):
         "hg38": {"chrom_sizes": sizes},
         "mm10": {"chrom_sizes": sizes},
     }
-    return {"genome_resources": resources, "use_control": use_control}
+    return {
+        "genome_resources": resources,
+        "use_control": use_control,
+        "blacklist_mode": "off",
+    }
 
 
 def _admit(samples, config, *, reference_mode="strict", external="validate"):
@@ -410,6 +417,7 @@ def _inputs(root: Path) -> WorkflowInputs:
             "threads": 1,
             "reference_mode": "legacy",
             "external_control_policy": "warn",
+            "blacklist_mode": "off",
         },
         samples=[
             {
@@ -510,6 +518,7 @@ def test_cli_accepts_updated_execution(tmp_path: Path):
             "threads": 1,
             "use_control": False,
             "analysis_profile": "updated",
+            "blacklist_mode": "off",
             "genome_resources": {"hg38": {"effective_genome_size": "hs"}},
         },
     )
@@ -528,3 +537,285 @@ def test_cli_executes_strict_admission(tmp_path: Path):
     )
     with pytest.raises(SystemExit):
         cli_validator_main(["--config", str(path)])
+
+
+def test_validate_blacklist_bed_rules(tmp_path: Path):
+    # Valid BED (tab and space)
+    bed = tmp_path / "valid.bed"
+    bed.write_text("chr1\t10\t50\nchr1\t60\t100\n", encoding="utf-8")
+    _validate_blacklist_bed(str(bed), ref_contigs={"chr1": 200}, genome="hg38")
+
+    # Missing file
+    with pytest.raises(ValidationError, match="blacklist file not found"):
+        _validate_blacklist_bed(str(tmp_path / "missing.bed"))
+
+    # Fewer than 3 fields
+    bad_fields = tmp_path / "bad_fields.bed"
+    bad_fields.write_text("chr1\t10\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="fewer than 3 fields"):
+        _validate_blacklist_bed(str(bad_fields))
+
+    # Non-integer
+    bad_int = tmp_path / "bad_int.bed"
+    bad_int.write_text("chr1\tfoo\t100\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="not integers"):
+        _validate_blacklist_bed(str(bad_int))
+
+    # Negative start
+    bad_neg = tmp_path / "bad_neg.bed"
+    bad_neg.write_text("chr1\t-1\t100\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="negative"):
+        _validate_blacklist_bed(str(bad_neg))
+
+    # start >= end
+    bad_span = tmp_path / "bad_span.bed"
+    bad_span.write_text("chr1\t100\t50\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="start=100 >= end=50"):
+        _validate_blacklist_bed(str(bad_span))
+
+    # Contig absent
+    with pytest.raises(ValidationError, match="absent from reference"):
+        _validate_blacklist_bed(str(bed), ref_contigs={"chr2": 200}, genome="hg38")
+
+    # Exceeds contig length
+    with pytest.raises(ValidationError, match="exceeds contig length"):
+        _validate_blacklist_bed(str(bed), ref_contigs={"chr1": 80}, genome="hg38")
+
+    # Empty BED
+    empty_bed = tmp_path / "empty.bed"
+    empty_bed.write_text("# comment only\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="empty or contains no valid"):
+        _validate_blacklist_bed(str(empty_bed))
+
+
+def test_reference_contig_validation_and_fai(tmp_path: Path):
+    # Matching sizes and fai
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\nchr2\t500\n", encoding="utf-8")
+    fa = tmp_path / "ref.fa"
+    fa.write_text(">chr1\nACGT\n>chr2\nACGT\n", encoding="utf-8")
+    fai = tmp_path / "ref.fa.fai"
+    fai.write_text("chr1\t1000\t6\t50\t51\nchr2\t500\t100\t50\t51\n", encoding="utf-8")
+
+    resource = {"chrom_sizes": str(sizes), "reference_fasta": str(fa)}
+    contigs = _get_reference_contigs(resource, genome="hg38")
+    assert contigs == {"chr1": 1000, "chr2": 500}
+
+    # Length mismatch between FAI and chrom_sizes
+    fai.write_text("chr1\t9999\t6\t50\t51\nchr2\t500\t100\t50\t51\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="length mismatch"):
+        _get_reference_contigs(resource, genome="hg38")
+
+    # Empty fai
+    empty_fai = tmp_path / "empty.fa.fai"
+    empty_fai.write_text("", encoding="utf-8")
+    with pytest.raises(ValidationError, match="empty or invalid"):
+        _read_fai(str(empty_fai))
+
+
+def test_admission_blacklist_mode_off_vs_analysis(tmp_path: Path):
+    # Sample
+    samples = [_sample(id="S1", role="treatment", genome="hg38")]
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+
+    # Invalid blacklist path and invalid content
+    nonexistent_path = str(tmp_path / "does_not_exist.bed")
+    invalid_bed = tmp_path / "invalid.bed"
+    invalid_bed.write_text("chr1\t-5\t100\n", encoding="utf-8")
+
+    # 1. blacklist_mode: off passes with nonexistent blacklist
+    cfg_off_nonexistent = {
+        "use_control": False,
+        "blacklist_mode": "off",
+        "genome_resources": {
+            "hg38": {
+                "chrom_sizes": str(sizes),
+                "blacklist": nonexistent_path,
+            }
+        },
+    }
+    _admit(samples, cfg_off_nonexistent)
+
+    # 2. blacklist_mode: off passes with invalid BED content
+    cfg_off_invalid = {
+        "use_control": False,
+        "blacklist_mode": "off",
+        "genome_resources": {
+            "hg38": {
+                "chrom_sizes": str(sizes),
+                "blacklist": str(invalid_bed),
+            }
+        },
+    }
+    _admit(samples, cfg_off_invalid)
+
+    # 3. blacklist_mode: analysis fails with nonexistent blacklist
+    cfg_analysis_nonexistent = {
+        "use_control": False,
+        "blacklist_mode": "analysis",
+        "genome_resources": {
+            "hg38": {
+                "chrom_sizes": str(sizes),
+                "blacklist": nonexistent_path,
+            }
+        },
+    }
+    with pytest.raises(ValidationError, match="blacklist file not found"):
+        _admit(samples, cfg_analysis_nonexistent)
+
+    # 4. blacklist_mode: analysis fails with invalid BED content
+    cfg_analysis_invalid = {
+        "use_control": False,
+        "blacklist_mode": "analysis",
+        "genome_resources": {
+            "hg38": {
+                "chrom_sizes": str(sizes),
+                "blacklist": str(invalid_bed),
+            }
+        },
+    }
+    with pytest.raises(ValidationError, match="negative"):
+        _admit(samples, cfg_analysis_invalid)
+
+
+def test_admission_organelle_validation(tmp_path: Path):
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    samples = [_sample(id="S1", role="treatment", genome="hg38", assay="cuttag")]
+
+    # Explicit organelle contig missing from reference
+    cfg_explicit_missing = {
+        "use_control": False,
+        "blacklist_mode": "off",
+        "organelle_mode": "auto",
+        "genome_resources": {
+            "hg38": {
+                "chrom_sizes": str(sizes),
+                "organelle_chroms": ["chrM_missing"],
+            }
+        },
+    }
+    with pytest.raises(ValidationError, match="explicit organelle contig"):
+        _admit(samples, cfg_explicit_missing)
+
+    # Auto mode for cuttag resolves to exclude, and none of chrM/MT/chrMT exist in ref_contigs
+    cfg_exclude_missing = {
+        "use_control": False,
+        "blacklist_mode": "off",
+        "organelle_mode": "auto",  # cuttag -> exclude
+        "genome_resources": {
+            "hg38": {
+                "chrom_sizes": str(sizes),
+            }
+        },
+    }
+    with pytest.raises(ValidationError, match="none of candidate contigs"):
+        _admit(samples, cfg_exclude_missing)
+
+
+def test_control_organelle_mode_uses_treatment_context(tmp_path: Path):
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    samples = [
+        _sample(
+            id="T1",
+            role="treatment",
+            assay="chipseq",
+            control_sample="C1",
+        ),
+        _sample(id="C1", role="control", assay="atac"),
+    ]
+    cfg = {
+        "use_control": True,
+        "blacklist_mode": "off",
+        "organelle_mode": "auto",
+        "genome_resources": {"hg38": {"chrom_sizes": str(sizes)}},
+    }
+    _admit(samples, cfg)
+
+
+def test_shared_control_with_same_resolved_organelle_policy(tmp_path: Path):
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    samples = [
+        _sample(id="T1", role="treatment", assay="chipseq", control_sample="C1"),
+        _sample(
+            id="T2",
+            role="treatment",
+            assay="mnase",
+            experiment="EXP2",
+            control_sample="C1",
+        ),
+        _sample(id="C1", role="control", assay="chipseq"),
+    ]
+    cfg = {
+        "use_control": True,
+        "blacklist_mode": "off",
+        "organelle_mode": "auto",
+        "genome_resources": {"hg38": {"chrom_sizes": str(sizes)}},
+    }
+    _admit(samples, cfg, reference_mode="legacy")
+
+
+def test_copies_mode_requires_blacklist_resource(tmp_path: Path):
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    samples = [_sample(id="S1", role="treatment", genome="hg38")]
+    cfg = {
+        "use_control": False,
+        "blacklist_mode": "copies",
+        "genome_resources": {"hg38": {"chrom_sizes": str(sizes), "blacklist": ""}},
+    }
+    with pytest.raises(ValidationError, match="blacklist_mode=copies"):
+        _admit(samples, cfg)
+
+
+def test_reference_contigs_union_preserves_fai_only_contigs(tmp_path: Path):
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    fasta = tmp_path / "ref.fa"
+    fasta.write_text(">chr1\n>chrM\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text(
+        "chr1\t1000\t0\t50\t51\nchrM\t200\t0\t50\t51\n", encoding="utf-8"
+    )
+    contigs = _get_reference_contigs(
+        {"chrom_sizes": str(sizes), "reference_fasta": str(fasta)}, genome="hg38"
+    )
+    assert contigs == {"chr1": 1000, "chrM": 200}
+
+
+def test_reference_contigs_disjoint_sources_fail(tmp_path: Path):
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    fasta = tmp_path / "ref.fa"
+    fasta.write_text(">chr2\n", encoding="utf-8")
+    (tmp_path / "ref.fa.fai").write_text("chr2\t500\t0\t50\t51\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="no contigs in common"):
+        _get_reference_contigs(
+            {"chrom_sizes": str(sizes), "reference_fasta": str(fasta)},
+            genome="hg38",
+        )
+
+
+def test_default_blacklist_mode_is_analysis_and_requires_resource(tmp_path: Path):
+    sizes = tmp_path / "sizes.txt"
+    sizes.write_text("chr1\t1000\n", encoding="utf-8")
+    blacklist = tmp_path / "blacklist.bed"
+    blacklist.write_text("chr1\t10\t20\n", encoding="utf-8")
+    samples = [_sample(id="S1", role="treatment", genome="hg38")]
+
+    missing = {
+        "use_control": False,
+        "genome_resources": {"hg38": {"chrom_sizes": str(sizes), "blacklist": ""}},
+    }
+    with pytest.raises(ValidationError, match="blacklist_mode=analysis"):
+        _admit(samples, missing)
+
+    present = {
+        "use_control": False,
+        "genome_resources": {
+            "hg38": {"chrom_sizes": str(sizes), "blacklist": str(blacklist)}
+        },
+    }
+    _admit(samples, present)

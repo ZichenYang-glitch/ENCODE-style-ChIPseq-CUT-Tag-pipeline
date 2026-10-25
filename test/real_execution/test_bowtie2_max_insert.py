@@ -531,6 +531,7 @@ def test_production_bowtie2_rule_mixed_assays_se_control_and_cli_override(
         "multiqc": False,
         "replicate_analysis": False,
         "chipseq_idr": False,
+        "blacklist_mode": "off",
         "genome_resources": {"hs": {"effective_genome_size": str(REF_LEN)}},
     }
     (workdir / "config.yaml").write_text(
@@ -668,6 +669,7 @@ def test_production_bowtie2_rule_migrates_extra_args_and_preserves_quotes_and_va
                 "multiqc: false",
                 "replicate_analysis: false",
                 "chipseq_idr: false",
+                "blacklist_mode: off",
                 "tool_parameters:",
                 "  bowtie2:",
                 f"    extra_args: {json.dumps(extra_args)}",
@@ -733,6 +735,7 @@ def test_production_bowtie2_rule_migrates_extra_args_and_preserves_quotes_and_va
                 "threads: 1",
                 "use_control: false",
                 "multiqc: false",
+                "blacklist_mode: off",
                 "tool_parameters:",
                 "  bowtie2:",
                 "    max_insert: 700",
@@ -826,6 +829,7 @@ def test_production_bowtie2_rule_preserves_rg_id_values_resembling_insert_flags(
                 "multiqc: false",
                 "replicate_analysis: false",
                 "chipseq_idr: false",
+                "blacklist_mode: off",
                 "tool_parameters:",
                 "  bowtie2:",
                 "    max_insert: 2000",
