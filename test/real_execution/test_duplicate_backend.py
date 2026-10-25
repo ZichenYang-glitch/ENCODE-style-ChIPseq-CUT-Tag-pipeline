@@ -159,14 +159,6 @@ def _run_marker(tmp_path, snakemake_path):
     )
 
 
-def _add_conda_to_tool_path(tool_path):
-    conda = shutil.which("conda")
-    if conda:
-        link = Path(tool_path) / "conda"
-        if not link.exists():
-            link.symlink_to(conda)
-
-
 def _run_duplicate_rule(tmp_path, snakemake_path, *, path):
     env = os.environ.copy()
     env["PATH"] = f"{path}:/usr/bin:/bin"
@@ -203,15 +195,16 @@ def test_legacy_duplicate_dispatch(
     assert marker.returncode == 0, marker.stderr[-1000:]
     _make_duplicate_bam(tmp_path, samtools_path)
 
+    bin_dir = tmp_path / ("picard-bin" if with_picard else "samtools-bin")
+    bin_dir.mkdir()
+    (bin_dir / "samtools").symlink_to(samtools_path)
     if with_picard:
-        tool_path = str(Path(picard_path).parent)
-    else:
-        bin_dir = tmp_path / "samtools-bin"
-        bin_dir.mkdir()
-        (bin_dir / "samtools").symlink_to(samtools_path)
-        tool_path = str(bin_dir)
-
-    _add_conda_to_tool_path(tool_path)
+        (bin_dir / "picard").symlink_to(picard_path)
+    conda = shutil.which("conda")
+    if conda:
+        (bin_dir / "conda").symlink_to(conda)
+    assert bin_dir.is_relative_to(tmp_path)
+    tool_path = str(bin_dir)
 
     _run_duplicate_rule(tmp_path, snakemake_path, path=tool_path)
 

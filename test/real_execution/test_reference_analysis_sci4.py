@@ -835,16 +835,15 @@ qc:
     assert "NameError" not in res.stderr
 
 
-def test_r4_whitespace_separated_blacklist_bed(tmp_path: Path, samtools_path: str):
-    """R4: Space-separated BED intervals must be parsed and applied identically to tab-separated BED."""
+def test_r4_blacklist_bed_requires_tab_separator(tmp_path: Path, samtools_path: str):
+    """R4: TAB BED is accepted; whitespace-separated BED fails before output."""
     records = []
-    records += _pair("n1", "chr1", 100, 300, 250)  # spans 100-350 -> hits BED
-    records += _pair("n2", "chr1", 500, 700, 250)  # spans 500-750 -> outside
+    records += _pair("n1", "chr1", 100, 300, 250)
+    records += _pair("n2", "chr1", 500, 700, 250)
     bam = _make_bam(tmp_path, samtools_path, records)
 
-    space_bed = tmp_path / "space.bed"
-    space_bed.write_text("chr1 150 200\n", encoding="utf-8")
-
+    tab_bed = tmp_path / "tab.bed"
+    tab_bed.write_text("chr1\t150\t200\n", encoding="utf-8")
     out_bam = tmp_path / "filtered.bam"
     _run(
         [
@@ -855,7 +854,7 @@ def test_r4_whitespace_separated_blacklist_bed(tmp_path: Path, samtools_path: st
             "--layout",
             "PE",
             "--blacklist",
-            str(space_bed),
+            str(tab_bed),
             "--output",
             str(out_bam),
             "--dropped-count",
@@ -869,6 +868,33 @@ def test_r4_whitespace_separated_blacklist_bed(tmp_path: Path, samtools_path: st
     kept = _run([samtools_path, "view", str(out_bam)]).stdout.strip().splitlines()
     kept_names = {line.split("\t")[0] for line in kept}
     assert kept_names == {"n2"}
+
+    space_bed = tmp_path / "space.bed"
+    space_bed.write_text("chr1 150 200\n", encoding="utf-8")
+    rejected = subprocess.run(
+        [
+            "python3",
+            str(FILTER_SCRIPT),
+            "--bam",
+            str(bam),
+            "--layout",
+            "PE",
+            "--blacklist",
+            str(space_bed),
+            "--output",
+            str(tmp_path / "rejected.bam"),
+            "--dropped-count",
+            str(tmp_path / "rejected.tsv"),
+            "--sample",
+            "S1",
+            "--organelle-mode",
+            "keep",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert rejected.returncode != 0
+    assert "fewer than 3 fields" in rejected.stderr
 
 
 def test_r7_bam_sq_contig_length_mismatch_with_chrom_sizes_fails(

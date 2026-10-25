@@ -1575,33 +1575,31 @@ def build_manifest_rows(config, samples_path=None):
     qc = config.get("qc", {})
     if not isinstance(qc, dict):
         raise ValueError("qc must be a mapping")
-    signal_tracks = _manifest_bool(
-        qc.get("signal_tracks"), True, "qc.signal_tracks"
-    )
+    signal_tracks = _manifest_bool(qc.get("signal_tracks"), True, "qc.signal_tracks")
     replicate_analysis = _manifest_bool(
         config.get("replicate_analysis"), True, "replicate_analysis"
     )
-    chipseq_idr = _manifest_bool(
-        config.get("chipseq_idr"), False, "chipseq_idr"
-    )
+    chipseq_idr = _manifest_bool(config.get("chipseq_idr"), False, "chipseq_idr")
     multiqc_enabled = _manifest_bool(config.get("multiqc"), True, "multiqc")
-    genomic_resources = config.get("genome_resources") or {}
+    if "genome_resources" in config:
+        genomic_resources = config["genome_resources"]
+    else:
+        genomic_resources = {}
     if not isinstance(genomic_resources, dict):
         raise ValueError("genome_resources must be a mapping")
     for genome, entry in genomic_resources.items():
         if not isinstance(entry, dict):
-            raise ValueError(
-                f"genome_resources[{genome!r}] must be a mapping"
-            )
+            raise ValueError(f"genome_resources[{genome!r}] must be a mapping")
     fragment_cpm = config.get("fragment_cpm", "off")
     tss_fragment_profile = _manifest_bool(
         config.get("tss_fragment_profile"), False, "tss_fragment_profile"
     )
 
     samples_path = samples_path or config.get("samples", "config/samples.tsv")
+    use_control = _manifest_bool(config.get("use_control"), False, "use_control")
     samples = load_and_validate_samples(
         samples_path,
-        use_control=config.get("use_control", False),
+        use_control=use_control,
         chipseq_idr_enabled=chipseq_idr,
     )
     treatment_samples = [s for s in samples if s.get("role") == "treatment"]
