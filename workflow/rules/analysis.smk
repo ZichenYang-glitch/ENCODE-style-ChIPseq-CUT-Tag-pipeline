@@ -240,9 +240,7 @@ rule analysis_policy:
             else ""
         ),
         mnase_qc=lambda wc: (mnase_qc_summary_tsv(wc.sample) if SAMPLE_MAP[wc.sample]["assay"] == "mnase" else ""),
-        analysis_template_metrics=lambda wc: (
-            f"{OUTDIR}/{wc.sample}/05_qc/{wc.sample}.analysis_template_metrics.tsv"
-        ),
+        analysis_template_metrics=lambda wc: (f"{OUTDIR}/{wc.sample}/05_qc/{wc.sample}.analysis_template_metrics.tsv"),
     shell:
         """
         set -e -o pipefail
