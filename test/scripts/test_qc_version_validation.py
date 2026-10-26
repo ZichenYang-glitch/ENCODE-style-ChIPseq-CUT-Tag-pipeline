@@ -544,3 +544,94 @@ def test_policy_parser_rejects_boolean_true_as_v1():
 
     with pytest.raises(AnalysisPolicyError, match="version"):
         parse_analysis_policy_bytes(_policy_bytes(record))
+
+
+@pytest.mark.parametrize(
+    ("status", "valid", "invalid", "input_stage"),
+    [
+        ("ok", 4, 1, "analysis_bam"),
+        ("no_valid_templates", 0, 5, "analysis_bam"),
+        ("not_applicable", None, None, "not_applicable"),
+        ("not_collected", None, None, "not_applicable"),
+        ("parse_failed", None, None, "analysis_bam"),
+    ],
+)
+def test_policy_parser_accepts_each_defined_template_status(
+    status, valid, invalid, input_stage
+):
+    record = _v2_policy_record()
+    record["analysis_template_status"] = status
+    record["stage_counts"]["analysis_valid_templates"] = valid
+    record["stage_counts"]["analysis_invalid_templates"] = invalid
+    record["input_stages"]["analysis_template_metrics"] = input_stage
+
+    parsed = parse_analysis_policy_bytes(_policy_bytes(record))
+
+    assert parsed["analysis_template_status"] == status
+    assert parsed["stage_counts"]["analysis_valid_templates"] == valid
+    assert parsed["stage_counts"]["analysis_invalid_templates"] == invalid
+
+
+@pytest.mark.parametrize(
+    ("status", "valid", "invalid", "input_stage"),
+    [
+        ("ok", 0, 1, "analysis_bam"),
+        ("no_valid_templates", 1, 1, "analysis_bam"),
+        ("not_applicable", 4, 1, "not_applicable"),
+        ("ok", 4, 1, "not_applicable"),
+        ("not_collected", 4, 1, "not_applicable"),
+        ("unknown", 4, 1, "analysis_bam"),
+    ],
+)
+def test_policy_parser_rejects_inconsistent_template_status(
+    status, valid, invalid, input_stage
+):
+    record = _v2_policy_record()
+    record["analysis_template_status"] = status
+    record["stage_counts"]["analysis_valid_templates"] = valid
+    record["stage_counts"]["analysis_invalid_templates"] = invalid
+    record["input_stages"]["analysis_template_metrics"] = input_stage
+
+    with pytest.raises(AnalysisPolicyError):
+        parse_analysis_policy_bytes(_policy_bytes(record))
+
+
+def test_policy_parser_rejects_undefined_input_stage():
+    record = _v2_policy_record()
+    record["input_stages"]["organelle"] = "bogus"
+
+    with pytest.raises(AnalysisPolicyError, match="input stage"):
+        parse_analysis_policy_bytes(_policy_bytes(record))
+
+
+def test_policy_parser_rejects_organelle_reads_when_status_not_ok():
+    record = _v2_policy_record()
+    record["organelle_status"] = "missing"
+    record["stage_counts"]["organelle_reads"] = 3
+
+    with pytest.raises(AnalysisPolicyError, match="organelle reads"):
+        parse_analysis_policy_bytes(_policy_bytes(record))
+
+
+def test_policy_parser_rejects_organelle_reads_without_denominator():
+    record = _v2_policy_record()
+    record["stage_counts"]["organelle_total_mapped_reads"] = None
+
+    with pytest.raises(AnalysisPolicyError, match="organelle counts"):
+        parse_analysis_policy_bytes(_policy_bytes(record))
+
+
+def test_policy_parser_rejects_non_boolean_organelle_explicit_flag():
+    record = _v2_policy_record()
+    record["reference_summary"]["organelle_chroms_explicit"] = "false"
+
+    with pytest.raises(AnalysisPolicyError, match="organelle explicit"):
+        parse_analysis_policy_bytes(_policy_bytes(record))
+
+
+def test_policy_parser_rejects_unknown_qc_schema_version():
+    record = _v2_policy_record()
+    record["qc_schema_versions"]["sample"] = "1"
+
+    with pytest.raises(AnalysisPolicyError, match="QC schema version"):
+        parse_analysis_policy_bytes(_policy_bytes(record))

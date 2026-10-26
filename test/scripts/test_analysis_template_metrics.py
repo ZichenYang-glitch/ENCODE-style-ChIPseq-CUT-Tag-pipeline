@@ -15,11 +15,14 @@ import stat
 import subprocess
 import sys
 
+import pytest
+
 from encode_pipeline.qc.contract import (
     ANALYSIS_TEMPLATE_METRICS_COLUMNS,
     ANALYSIS_TEMPLATE_METRICS_V1_COLUMNS,
     FRAGMENT_QC_V2_COLUMNS,
     MITO_QC_V2_COLUMNS,
+    MNASE_QC_V2_COLUMNS,
 )
 from encode_pipeline.qc.policy import parse_analysis_policy_bytes
 from scripts import write_analysis_policy
@@ -311,6 +314,7 @@ def _run_writer(
     max_insert: str = "2000",
     assay: str = "chipseq",
     fragment_qc: Path | None = None,
+    mnase_qc: Path | None = None,
 ) -> dict:
     stage, mito = _policy_inputs(tmp_path)
     output = tmp_path / "policy.json"
@@ -352,6 +356,11 @@ def _run_writer(
         argv[argv.index("--output") : argv.index("--output")] = [
             "--fragment-qc",
             str(fragment_qc),
+        ]
+    if mnase_qc is not None:
+        argv[argv.index("--output") : argv.index("--output")] = [
+            "--mnase-qc",
+            str(mnase_qc),
         ]
     monkeypatch.setattr(sys, "argv", argv)
     assert write_analysis_policy.main() == 0
@@ -529,3 +538,119 @@ def test_no_general_component_single_end_is_not_applicable(tmp_path, monkeypatch
     assert policy["analysis_template_status"] == "not_applicable"
     assert policy["input_stages"]["analysis_template_metrics"] == "not_applicable"
     assert policy["stage_counts"]["analysis_valid_templates"] is None
+
+
+def test_invalid_stage_metrics_fail_closed(tmp_path):
+    bam = tmp_path / "analysis.bam"
+    bam.write_bytes(b"placeholder; fake samtools ignores it\n")
+    sam = tmp_path / "input.sam"
+    sam.write_text("\n".join(SAM_HEADER + VALID_PAIR) + "\n", encoding="utf-8")
+    stage = tmp_path / "stage.json"
+    stage.write_text(
+        json.dumps(
+            {
+                "total_alignments": 2,
+                "kept_alignments": 2,
+                "dropped_alignments": 1,
+                "dropped_templates": 0,
+                "dropped_alignments_by_reason": {},
+                "dropped_templates_by_reason": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "metrics.tsv"
+    env = os.environ.copy()
+    env["SAMTOOLS"] = str(_fake_samtools(tmp_path))
+    env["SAM_SOURCE"] = str(sam)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--sample",
+            "S1",
+            "--layout",
+            "PE",
+            "--bam",
+            str(bam),
+            "--stage-metrics",
+            str(stage),
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    assert "stage metrics are invalid" in result.stderr
+    assert not output.exists()
+
+
+def test_absent_general_component_falls_back_to_legacy_mnase_source(
+    tmp_path, monkeypatch
+):
+    mnase = tmp_path / "mnase.tsv"
+    row = {column: "NA" for column in MNASE_QC_V2_COLUMNS}
+    row.update(
+        {
+            "schema_version": "2",
+            "sample": "S1",
+            "assay": "mnase",
+            "peak_mode": "nucleosome",
+            "analysis_status": "ok",
+            "analysis_input_stage": "analysis_bam",
+            "analysis_total_templates": "6",
+            "analysis_valid_templates": "5",
+            "analysis_invalid_templates": "1",
+        }
+    )
+    _write_tsv(mnase, MNASE_QC_V2_COLUMNS, row)
+
+    policy = _run_writer(tmp_path, monkeypatch, None, mnase_qc=mnase)
+
+    assert policy["analysis_template_status"] == "ok"
+    assert policy["input_stages"]["analysis_template_metrics"] == "analysis_bam"
+    assert policy["stage_counts"]["analysis_valid_templates"] == 5
+    assert policy["stage_counts"]["analysis_invalid_templates"] == 1
+
+
+def test_no_general_component_with_invalid_legacy_fragment_source_is_parse_failed(
+    tmp_path, monkeypatch
+):
+    fragment = tmp_path / "fragment.tsv"
+    row = {column: "NA" for column in FRAGMENT_QC_V2_COLUMNS}
+    row.update({"schema_version": "999", "sample": "S1", "layout": "PE"})
+    _write_tsv(fragment, FRAGMENT_QC_V2_COLUMNS, row)
+
+    policy = _run_writer(tmp_path, monkeypatch, None, fragment_qc=fragment)
+
+    assert policy["analysis_template_status"] == "parse_failed"
+    assert policy["stage_counts"]["analysis_valid_templates"] is None
+    assert policy["stage_counts"]["analysis_invalid_templates"] is None
+
+
+@pytest.mark.parametrize(
+    ("status", "valid", "invalid", "total"),
+    [
+        ("ok", "0", "1", "1"),
+        ("ok", "3", "1", "5"),
+        ("no_valid_templates", "3", "1", "4"),
+    ],
+)
+def test_inconsistent_general_component_status_is_parse_failed(
+    tmp_path, monkeypatch, status, valid, invalid, total
+):
+    component = tmp_path / "component.tsv"
+    _write_tsv(
+        component,
+        ANALYSIS_TEMPLATE_METRICS_COLUMNS,
+        _component_row(status=status, valid=valid, invalid=invalid, total=total),
+    )
+
+    policy = _run_writer(tmp_path, monkeypatch, component)
+
+    assert policy["analysis_template_status"] == "parse_failed"
+    assert policy["stage_counts"]["analysis_valid_templates"] is None
+    assert policy["stage_counts"]["analysis_invalid_templates"] is None

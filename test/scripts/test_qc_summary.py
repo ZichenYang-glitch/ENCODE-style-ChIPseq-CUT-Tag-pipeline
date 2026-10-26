@@ -13,6 +13,7 @@ from encode_pipeline.adapters.encode_qc import (
     _QC_V2_HEADER as ADAPTER_QC_V2_HEADER,
 )
 from encode_pipeline.qc.contract import (
+    FRAGMENT_QC_V1_COLUMNS,
     MITO_QC_V2_COLUMNS,
     MNASE_QC_V2_COLUMNS,
     SAMPLE_QC_V1_COLUMNS,
@@ -364,6 +365,98 @@ def test_complete_inputs_write_locked_v2_contract_with_v1_prefix(
     assert row["cross_correlation_status"] == "not_enabled"
     assert row["scientific_policy_revision"] == "5"
     assert b"\r\n" not in output.read_bytes()
+
+
+def test_missing_fragment_component_uses_policy_general_counts(
+    tmp_path,
+    monkeypatch,
+    component_files,
+):
+    output = _assemble(
+        tmp_path,
+        monkeypatch,
+        component_files,
+        include_fragment=False,
+    )
+    _, rows = _read_rows(output)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["analysis_valid_fragments"] == "45"
+    assert row["analysis_invalid_templates"] == "5"
+    for column in (
+        "analysis_tlen_zero_templates",
+        "analysis_orphan_templates",
+        "analysis_cross_contig_templates",
+        "analysis_inconsistent_templates",
+        "analysis_upstream_dropped_templates",
+        "analysis_upstream_dropped_alignments",
+    ):
+        assert row[column] == "NA"
+
+
+def test_missing_fragment_component_without_general_counts_stays_na(
+    tmp_path,
+    monkeypatch,
+    component_files,
+):
+    policy = _policy()
+    policy["stage_counts"]["analysis_valid_templates"] = None
+    policy["stage_counts"]["analysis_invalid_templates"] = None
+    component_files["policy"].write_text(
+        json.dumps(policy, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    output = _assemble(
+        tmp_path,
+        monkeypatch,
+        component_files,
+        include_fragment=False,
+    )
+    _, rows = _read_rows(output)
+
+    assert len(rows) == 1
+    assert rows[0]["analysis_valid_fragments"] == "NA"
+    assert rows[0]["analysis_invalid_templates"] == "NA"
+
+
+def test_v1_fragment_component_sets_only_the_fragment_count(
+    tmp_path,
+    monkeypatch,
+    component_files,
+):
+    row = {column: "NA" for column in FRAGMENT_QC_V1_COLUMNS}
+    row.update(
+        {
+            "sample": "S1",
+            "layout": "PE",
+            "fragment_count": "45",
+            "status": "ok",
+        }
+    )
+    _write_tsv(
+        component_files["fragment"],
+        FRAGMENT_QC_V1_COLUMNS,
+        [[row.get(column, "NA") for column in FRAGMENT_QC_V1_COLUMNS]],
+    )
+
+    output = _assemble(tmp_path, monkeypatch, component_files)
+    _, rows = _read_rows(output)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["analysis_valid_fragments"] == "45"
+    for column in (
+        "analysis_invalid_templates",
+        "analysis_tlen_zero_templates",
+        "analysis_orphan_templates",
+        "analysis_cross_contig_templates",
+        "analysis_inconsistent_templates",
+        "analysis_upstream_dropped_templates",
+        "analysis_upstream_dropped_alignments",
+    ):
+        assert row[column] == "NA"
 
 
 def test_no_blacklist_forces_all_blacklist_fields_to_na(
