@@ -420,6 +420,7 @@ def test_sdist_contains_the_exact_encode_runtime_source_manifest(
     assert {
         "scripts/aggregate_qc_summary.py",
         "scripts/assemble_qc_summary.py",
+        "scripts/calc_analysis_template_metrics.py",
         "scripts/calc_cuttag_fragment_size.py",
         "scripts/calc_frip.py",
         "scripts/calc_nrf_pbc.py",
