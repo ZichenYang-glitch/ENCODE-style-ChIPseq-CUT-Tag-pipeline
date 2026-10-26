@@ -18,6 +18,8 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from encode_pipeline.qc.contract import (  # noqa: E402
+    ANALYSIS_TEMPLATE_METRICS_COLUMNS,
+    ANALYSIS_TEMPLATE_METRICS_V1_COLUMNS,
     FRAGMENT_QC_V1_COLUMNS,
     FRAGMENT_QC_V2_COLUMNS,
     MITO_QC_V1_COLUMNS,
@@ -124,6 +126,8 @@ def load_stage_metrics(path: str) -> dict:
 
 
 __all__ = [
+    "ANALYSIS_TEMPLATE_METRICS_COLUMNS",
+    "ANALYSIS_TEMPLATE_METRICS_V1_COLUMNS",
     "FRAGMENT_QC_V1_COLUMNS",
     "FRAGMENT_QC_V2_COLUMNS",
     "MITO_QC_V1_COLUMNS",

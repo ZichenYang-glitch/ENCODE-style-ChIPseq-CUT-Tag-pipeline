@@ -688,7 +688,7 @@ def test_encode_qc_parser_rejects_deprecated_analysis_filtered_analysis_policy_t
     "content",
     [
         b"{not-json",
-        _policy_content(schema_version=2),
+        _policy_content(schema_version=3),
         _policy_content(extra_key="unexpected"),
         _policy_content(sample="OTHER"),
         _policy_content(

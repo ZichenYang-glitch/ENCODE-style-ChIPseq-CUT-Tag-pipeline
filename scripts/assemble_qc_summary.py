@@ -6,6 +6,12 @@ contract.  Version 1 columns keep their original order after the leading
 schema version; new analysis fields follow.  Values come from the same
 analysis-policy record used by the workflow, so policy, stage counts and
 user-visible metrics describe one resolved run.
+
+When the fragment-specific component is absent, the policy's general
+analysis-template counts populate ``analysis_valid_fragments`` and
+``analysis_invalid_templates``.  Fragment-only reason counts and upstream
+dropped counts remain NA in that case; they are available from the fragment
+component when CUT&Tag fragment QC is enabled.
 """
 
 from __future__ import annotations
@@ -230,6 +236,19 @@ def main():
         }
     elif fragment is not None:
         fragment_fields["analysis_valid_fragments"] = fragment["fragment_count"]
+    else:
+        # The fixed sample v2 header has no general analysis-template status
+        # column.  When fragment QC is not applicable or not enabled, use the
+        # policy's general analysis-template counts so ChIP-seq, ATAC-seq and
+        # CUT&Tag with fragment QC off still report valid/invalid templates.
+        # Reason-specific and upstream fragment fields remain NA because they
+        # live in the fragment-specific component.
+        general_valid = policy["stage_counts"].get("analysis_valid_templates")
+        general_invalid = policy["stage_counts"].get("analysis_invalid_templates")
+        if general_valid is not None:
+            fragment_fields["analysis_valid_fragments"] = str(general_valid)
+        if general_invalid is not None:
+            fragment_fields["analysis_invalid_templates"] = str(general_invalid)
 
     nsc, rsc, cc_status = _cross_correlation(
         args.cross_correlation_qc,

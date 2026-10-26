@@ -6,6 +6,7 @@
 all
 analysis_identity_marker
 analysis_policy
+analysis_template_metrics
 bamcoverage
 bowtie2_align
 chipseq_idr_summary

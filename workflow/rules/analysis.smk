@@ -132,6 +132,38 @@ rule prepare_analysis_bam:
         """
 
 
+rule analysis_template_metrics:
+    """Count complete PE templates in the canonical analysis BAM.
+
+    Runs for every sample independent of CUT&Tag optional QC.  SE samples are
+    written explicitly as not applicable with NA counts.
+    """
+    input:
+        bam=lambda wc: analysis_bam(wc.sample),
+        stage_metrics=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.blacklist_dropped.stage_metrics.json",
+    output:
+        tsv=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.analysis_template_metrics.tsv",
+    log:
+        f"{OUTDIR}/{{sample}}/logs/{{sample}}.analysis_template_metrics.log",
+    conda:
+        "../envs/samtools.yml"
+    params:
+        script=f"{workflow.basedir}/../scripts/calc_analysis_template_metrics.py",
+        layout=lambda wc: SAMPLE_MAP[wc.sample]["layout"],
+    shell:
+        """
+        set -e -o pipefail
+        mkdir -p "$(dirname {output.tsv:q})" "$(dirname {log:q})"
+        python3 {params.script:q} \
+            --sample {wildcards.sample:q} \
+            --layout {params.layout:q} \
+            --bam {input.bam:q} \
+            --stage-metrics {input.stage_metrics:q} \
+            --output {output.tsv:q} \
+            2>&1 | tee {log:q}
+        """
+
+
 rule mito_fraction:
     input:
         identity=f"{RAW_OUTDIR}/.helixweave/analysis_identity.json",
@@ -175,6 +207,7 @@ rule analysis_policy:
         identity=f"{RAW_OUTDIR}/.helixweave/analysis_identity.json",
         stage_metrics=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.blacklist_dropped.stage_metrics.json",
         mito=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.mito_fraction.tsv",
+        analysis_template_metrics=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.analysis_template_metrics.tsv",
         fragment_qc=lambda wc: (
             [f"{OUTDIR}/{wc.sample}/01_qc/{wc.sample}.cuttag_fragment_size.tsv"]
             if (QC_CONFIG.get("cuttag_fragment_size", True) and SAMPLE_MAP[wc.sample]["assay"] == "cuttag")
@@ -207,6 +240,9 @@ rule analysis_policy:
             else ""
         ),
         mnase_qc=lambda wc: (mnase_qc_summary_tsv(wc.sample) if SAMPLE_MAP[wc.sample]["assay"] == "mnase" else ""),
+        analysis_template_metrics=lambda wc: (
+            f"{OUTDIR}/{wc.sample}/05_qc/{wc.sample}.analysis_template_metrics.tsv"
+        ),
     shell:
         """
         set -e -o pipefail
@@ -234,6 +270,7 @@ rule analysis_policy:
             --blacklist-applied {params.blacklist_applied:q} \
             --stage-metrics {input.stage_metrics:q} \
             --mito {input.mito:q} \
+            --analysis-template-metrics {params.analysis_template_metrics:q} \
             "${{FRAGMENT_QC_ARGS[@]}}" \
             "${{MNASE_QC_ARGS[@]}}" \
             --output {output:q} \

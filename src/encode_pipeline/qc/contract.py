@@ -13,7 +13,8 @@ SAMPLE_QC_SCHEMA_VERSION = "2"
 MNASE_QC_SCHEMA_VERSION = "2"
 FRAGMENT_QC_SCHEMA_VERSION = "2"
 MITO_QC_SCHEMA_VERSION = "2"
-ANALYSIS_POLICY_SCHEMA_VERSION = "1"
+ANALYSIS_TEMPLATE_METRICS_SCHEMA_VERSION = "2"
+ANALYSIS_POLICY_SCHEMA_VERSION = "2"
 
 SAMPLE_QC_V1_COLUMNS = (
     "sample",
@@ -198,6 +199,34 @@ MITO_QC_V2_COLUMNS = (
     )
 )
 
+ANALYSIS_TEMPLATE_METRICS_STATUSES = frozenset(
+    {"ok", "no_valid_templates", "not_applicable", "parse_failed"}
+)
+
+ANALYSIS_TEMPLATE_METRICS_V1_COLUMNS = (
+    "sample",
+    "layout",
+    "analysis_status",
+    "input_stage",
+    "analysis_total_templates",
+    "analysis_valid_templates",
+    "analysis_invalid_templates",
+    "analysis_tlen_zero_templates",
+    "analysis_orphan_templates",
+    "analysis_cross_contig_templates",
+    "analysis_inconsistent_templates",
+    "alignments_total",
+    "upstream_dropped_templates",
+    "upstream_dropped_alignments",
+)
+
+# Version 2 is the written form: the declared version column comes first so the
+# shared reader can reject an unknown schema_version instead of accepting it as
+# the versionless legacy form.
+ANALYSIS_TEMPLATE_METRICS_COLUMNS = (
+    "schema_version",
+) + ANALYSIS_TEMPLATE_METRICS_V1_COLUMNS
+
 POOLED_QC_COLUMNS = (
     "experiment",
     "assay",
@@ -216,7 +245,7 @@ POOLED_QC_COLUMNS = (
     "signal_tracks_status",
 )
 
-ANALYSIS_POLICY_KEYS = (
+ANALYSIS_POLICY_V1_KEYS = (
     "schema_version",
     "scientific_policy_revision",
     "sample",
@@ -235,6 +264,10 @@ ANALYSIS_POLICY_KEYS = (
     "qc_schema_versions",
 )
 
+# Version 2 adds an explicit reason for analysis-template counts that are NA.
+# Version 1 records remain readable and are never rewritten by extraction.
+ANALYSIS_POLICY_KEYS = ANALYSIS_POLICY_V1_KEYS + ("analysis_template_status",)
+
 ANALYSIS_POLICY_INPUT_STAGE_KEYS = (
     "fragment_size",
     "mnase_classification",
@@ -243,6 +276,20 @@ ANALYSIS_POLICY_INPUT_STAGE_KEYS = (
     "organelle",
     "blacklist",
     "peaks",
+)
+
+ANALYSIS_POLICY_V2_INPUT_STAGE_KEYS = ANALYSIS_POLICY_INPUT_STAGE_KEYS + (
+    "analysis_template_metrics",
+)
+
+POLICY_ANALYSIS_TEMPLATE_STATUSES = frozenset(
+    {
+        "ok",
+        "no_valid_templates",
+        "not_applicable",
+        "not_collected",
+        "parse_failed",
+    }
 )
 
 POLICY_STAGE_COUNT_KEYS = (

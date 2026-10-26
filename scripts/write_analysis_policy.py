@@ -5,6 +5,19 @@ The record contains the values actually resolved for this run, the scientific
 input stage behind each QC product, and stage counts.  It deliberately stores
 roles and identifiers only: no absolute workspace paths, environment values,
 or private configuration are copied into the artifact.
+
+Schema version 2 adds ``analysis_template_status`` so a null
+``analysis_valid_templates``/``analysis_invalid_templates`` pair is never
+ambiguous: ``not_applicable`` (SE), ``not_collected`` (no general analysis
+template component and no legacy source), ``parse_failed`` (a source was
+provided but could not be validated), ``no_valid_templates`` (conserved legal
+zero), or ``ok``.  The general analysis-template component is authoritative for
+every PE sample, so ChIP-seq, ATAC-seq and CUT&Tag with fragment QC disabled
+all report counts.  Version 1 policy records remain readable.
+
+For older runs whose writer inputs predate the general component, the writer
+falls back to the version 2 CUT&Tag fragment or MNase summaries, preserving the
+previous behavior without turning a missing source into a zero.
 """
 
 from __future__ import annotations
@@ -15,6 +28,8 @@ import os
 import sys
 
 from qc_common import (
+    ANALYSIS_TEMPLATE_METRICS_COLUMNS,
+    ANALYSIS_TEMPLATE_METRICS_V1_COLUMNS,
     FRAGMENT_QC_V1_COLUMNS,
     FRAGMENT_QC_V2_COLUMNS,
     MITO_QC_V1_COLUMNS,
@@ -26,7 +41,7 @@ from qc_common import (
     read_versioned_tsv,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 QC_SCHEMA_VERSIONS = {
     "sample": "2",
     "mnase": "2",
@@ -73,6 +88,7 @@ def main():
     parser.add_argument("--blacklist-applied", required=True, choices=("true", "false"))
     parser.add_argument("--stage-metrics", required=True)
     parser.add_argument("--mito", required=True)
+    parser.add_argument("--analysis-template-metrics", default="")
     parser.add_argument("--fragment-qc", default="")
     parser.add_argument("--mnase-qc", default="")
     parser.add_argument("--output", required=True)
@@ -102,16 +118,75 @@ def main():
     mnase_version, mnase = _read_qc(
         args.mnase_qc, MNASE_QC_V1_COLUMNS, MNASE_QC_V2_COLUMNS
     )
+    template_version, template = _read_qc(
+        args.analysis_template_metrics,
+        ANALYSIS_TEMPLATE_METRICS_V1_COLUMNS,
+        ANALYSIS_TEMPLATE_METRICS_COLUMNS,
+    )
+    # The new component is written with the version column first.  Reject a
+    # declared version that does not match the exact header so an unknown
+    # future form can never be relabelled as current; the shared reader
+    # performs the same check after the R5 coordination change lands.
+    if (
+        template is not None
+        and template_version == "2"
+        and template.get("schema_version") != "2"
+    ):
+        template_version, template = "invalid", None
 
-    if fragment is not None and fragment_version == "2":
-        valid_templates = _optional_int(fragment["templates_valid"])
-        invalid_templates = _optional_int(fragment["templates_invalid"])
-    elif mnase is not None and mnase_version == "2":
-        valid_templates = _optional_int(mnase["analysis_valid_templates"])
-        invalid_templates = _optional_int(mnase["analysis_invalid_templates"])
-    else:
+    if template is None:
+        template_status = (
+            "parse_failed" if template_version == "invalid" else "not_collected"
+        )
         valid_templates = None
         invalid_templates = None
+    else:
+        template_status = template.get("analysis_status", "")
+        if template_status in ("ok", "no_valid_templates"):
+            valid_templates = _optional_int(template["analysis_valid_templates"])
+            invalid_templates = _optional_int(template["analysis_invalid_templates"])
+            total_templates = _optional_int(template["analysis_total_templates"])
+            if (
+                valid_templates is None
+                or invalid_templates is None
+                or total_templates is None
+                or valid_templates + invalid_templates != total_templates
+                or (template_status == "ok" and valid_templates == 0)
+                or (template_status == "no_valid_templates" and valid_templates != 0)
+            ):
+                template_status = "parse_failed"
+                valid_templates = None
+                invalid_templates = None
+        elif template_status == "not_applicable":
+            valid_templates = None
+            invalid_templates = None
+        else:
+            template_status = "parse_failed"
+            valid_templates = None
+            invalid_templates = None
+
+    # Backward compatibility for older component inputs that predate the
+    # general analysis-template table: reuse the version 2 CUT&Tag fragment or
+    # MNase summary exactly as the previous writer did.  A provided but
+    # unreadable source is reported as parse_failed, never as a zero.
+    if template_status == "not_collected":
+        fragment_failed = bool(args.fragment_qc) and fragment_version == "invalid"
+        mnase_failed = bool(args.mnase_qc) and mnase_version == "invalid"
+        fallback_valid = fallback_invalid = None
+        if fragment is not None and fragment_version == "2":
+            fallback_valid = _optional_int(fragment["templates_valid"])
+            fallback_invalid = _optional_int(fragment["templates_invalid"])
+        if fallback_valid is None and mnase is not None and mnase_version == "2":
+            fallback_valid = _optional_int(mnase["analysis_valid_templates"])
+            fallback_invalid = _optional_int(mnase["analysis_invalid_templates"])
+        if fallback_valid is not None and fallback_invalid is not None:
+            valid_templates = fallback_valid
+            invalid_templates = fallback_invalid
+            template_status = "ok" if fallback_valid > 0 else "no_valid_templates"
+        elif fragment_failed or mnase_failed:
+            template_status = "parse_failed"
+        elif args.max_insert == "not_applicable":
+            template_status = "not_applicable"
 
     blacklist_dropped_templates = int(
         stage_metrics["dropped_templates_by_reason"].get("blacklist", 0)
@@ -119,6 +194,12 @@ def main():
     blacklist_dropped_alignments = int(
         stage_metrics["dropped_alignments_by_reason"].get("blacklist", 0)
     )
+
+    template_stage = "not_applicable"
+    if template_status in ("ok", "no_valid_templates"):
+        template_stage = "analysis_bam"
+    elif template_status == "parse_failed" and args.analysis_template_metrics:
+        template_stage = "analysis_bam"
 
     input_stages = {
         "fragment_size": "analysis_bam" if fragment is not None else "not_applicable",
@@ -138,6 +219,7 @@ def main():
             if args.assay in ("chipseq", "cuttag", "atac")
             else "not_applicable"
         ),
+        "analysis_template_metrics": template_stage,
     }
 
     stage_counts = {
@@ -172,6 +254,7 @@ def main():
         "blacklist_applied": args.blacklist_applied == "true",
         "input_stages": input_stages,
         "stage_counts": stage_counts,
+        "analysis_template_status": template_status,
         "reference_summary": {
             "genome": args.genome,
             "organelle_chroms_explicit": bool(

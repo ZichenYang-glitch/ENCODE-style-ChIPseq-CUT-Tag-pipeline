@@ -8,6 +8,9 @@ import re
 from encode_pipeline.qc.contract import (
     ANALYSIS_POLICY_INPUT_STAGE_KEYS,
     ANALYSIS_POLICY_KEYS,
+    ANALYSIS_POLICY_V1_KEYS,
+    ANALYSIS_POLICY_V2_INPUT_STAGE_KEYS,
+    POLICY_ANALYSIS_TEMPLATE_STATUSES,
     POLICY_BLACKLIST_MODES,
     POLICY_DUPLICATE_POLICIES,
     POLICY_MAX_INSERT_NOT_APPLICABLE,
@@ -16,7 +19,7 @@ from encode_pipeline.qc.contract import (
     POLICY_STAGE_COUNT_KEYS,
 )
 
-ANALYSIS_POLICY_VERSION = 1
+ANALYSIS_POLICY_VERSION = 2
 _ALLOWED_INPUT_STAGES = frozenset(
     {
         "analysis_bam",
@@ -66,6 +69,35 @@ def _optional_count(value, label):
     return value
 
 
+def _validate_analysis_template_status(value, counts, status):
+    """Validate the version 2 reason behind analysis-template counts."""
+    if status not in POLICY_ANALYSIS_TEMPLATE_STATUSES:
+        raise AnalysisPolicyError("analysis template status is invalid")
+    valid = counts["analysis_valid_templates"]
+    invalid = counts["analysis_invalid_templates"]
+    if status in ("not_applicable", "not_collected", "parse_failed"):
+        if valid is not None or invalid is not None:
+            raise AnalysisPolicyError(
+                "analysis template counts must be NA for the stated status"
+            )
+    else:
+        if valid is None or invalid is None:
+            raise AnalysisPolicyError("analysis template counts are missing")
+        if status == "ok" and valid == 0:
+            raise AnalysisPolicyError("analysis template ok status has no valid count")
+        if status == "no_valid_templates" and valid != 0:
+            raise AnalysisPolicyError(
+                "analysis template zero status has a nonzero valid count"
+            )
+    stage = value["input_stages"]["analysis_template_metrics"]
+    if status in ("ok", "no_valid_templates") and stage != "analysis_bam":
+        raise AnalysisPolicyError("analysis template input stage is inconsistent")
+    if status in ("not_applicable", "not_collected") and stage != "not_applicable":
+        raise AnalysisPolicyError("analysis template input stage is inconsistent")
+    if status == "parse_failed" and stage not in ("analysis_bam", "not_applicable"):
+        raise AnalysisPolicyError("analysis template input stage is inconsistent")
+
+
 def parse_analysis_policy_bytes(content: bytes) -> dict:
     """Parse and validate one exact analysis-policy JSON document."""
     try:
@@ -78,9 +110,18 @@ def parse_analysis_policy_bytes(content: bytes) -> dict:
         raise AnalysisPolicyError("analysis policy is not valid JSON") from exc
     if not isinstance(value, dict):
         raise AnalysisPolicyError("analysis policy must be an object")
-    _require_exact_keys(value, ANALYSIS_POLICY_KEYS, "analysis policy")
-    if value["schema_version"] != ANALYSIS_POLICY_VERSION:
+    schema_version = value.get("schema_version")
+    if schema_version == 1:
+        expected_keys = ANALYSIS_POLICY_V1_KEYS
+        input_stage_keys = ANALYSIS_POLICY_INPUT_STAGE_KEYS
+        template_status = None
+    elif schema_version == ANALYSIS_POLICY_VERSION:
+        expected_keys = ANALYSIS_POLICY_KEYS
+        input_stage_keys = ANALYSIS_POLICY_V2_INPUT_STAGE_KEYS
+        template_status = value.get("analysis_template_status")
+    else:
         raise AnalysisPolicyError("analysis policy version is unsupported")
+    _require_exact_keys(value, expected_keys, "analysis policy")
     revision = value["scientific_policy_revision"]
     if type(revision) is not int or revision <= 0:
         raise AnalysisPolicyError("scientific policy revision is invalid")
@@ -111,9 +152,7 @@ def parse_analysis_policy_bytes(content: bytes) -> dict:
     if type(value["blacklist_applied"]) is not bool:
         raise AnalysisPolicyError("blacklist applied flag is invalid")
 
-    _require_exact_keys(
-        value["input_stages"], ANALYSIS_POLICY_INPUT_STAGE_KEYS, "input stages"
-    )
+    _require_exact_keys(value["input_stages"], input_stage_keys, "input stages")
     for key, stage in value["input_stages"].items():
         if stage not in _ALLOWED_INPUT_STAGES:
             raise AnalysisPolicyError(f"input stage {key} is invalid")
@@ -129,6 +168,9 @@ def parse_analysis_policy_bytes(content: bytes) -> dict:
     if counts["organelle_total_mapped_reads"] is None:
         if counts["organelle_reads"] is not None:
             raise AnalysisPolicyError("organelle counts are inconsistent")
+
+    if template_status is not None:
+        _validate_analysis_template_status(value, counts, template_status)
 
     _require_exact_keys(
         value["reference_summary"],
