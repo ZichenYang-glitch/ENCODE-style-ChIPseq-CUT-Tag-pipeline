@@ -434,6 +434,14 @@ def test_sdist_contains_the_exact_encode_runtime_source_manifest(
         "scripts/pooled_qc_summary.py",
         "scripts/split_pseudoreps.py",
     } <= set(expected)
+    # The shared QC package is imported directly by the scientific scripts.
+    assert {
+        "src/encode_pipeline/__init__.py",
+        "src/encode_pipeline/qc/__init__.py",
+        "src/encode_pipeline/qc/contract.py",
+        "src/encode_pipeline/qc/histone.py",
+        "src/encode_pipeline/qc/policy.py",
+    } <= set(expected)
 
     with tarfile.open(sdist, "r:gz") as archive:
         files = {item.name: item for item in archive.getmembers() if item.isfile()}
@@ -451,9 +459,14 @@ def test_sdist_contains_the_exact_encode_runtime_source_manifest(
                 (
                     f"{prefix}/workflow/",
                     f"{prefix}/profiles/default/",
+                    f"{prefix}/src/encode_pipeline/qc/",
                 )
             )
-            or name == f"{prefix}/docs/architecture/artifact-inventory.yaml"
+            or name
+            in {
+                f"{prefix}/docs/architecture/artifact-inventory.yaml",
+                f"{prefix}/src/encode_pipeline/__init__.py",
+            }
             or (
                 name.startswith(f"{prefix}/scripts/")
                 and not name.endswith("bootstrap_helixweave_operator.py")
